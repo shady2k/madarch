@@ -17,6 +17,7 @@ import { FailureNote } from './errors.js';
 import { fillShare, fillWords } from './fill-words.js';
 import { PlanList } from './loop.js';
 import { addressOfEntity, addressOfJournal } from './routes.js';
+import { RunControls, runIsPaused, runIsStopped } from './run-controls.js';
 import { startFill, UNIT_STATE_KEY, unitName } from './writer.js';
 import type { WikiStatus, WriterUnit } from './types.js';
 
@@ -105,6 +106,18 @@ export function FillPage({ status, refresh }: { status: WikiStatus; refresh: () 
         <h1 data-testid="fill-title">{t('knowledge.fillPage.title')}</h1>
         {facts.length > 0 && <p className="mb-0 text-small text-muted" data-testid="fill-facts">{facts.join(' · ')}</p>}
       </header>
+      {/* The run a person holds or ended (madarch-m38l.17): where it stands, that its pages stay, and the two controls. */}
+      {runIsPaused(status) && (
+        <Card className="mb-8" data-testid="fill-run" data-state="paused">
+          <CardContent className="pt-6">
+            <p className="mb-0 mt-0 text-small text-ink" data-testid="fill-run-words">{total === undefined ? t('knowledge.fillPage.paused') : t('knowledge.fillPage.pausedCount', { done: written, total })}</p>
+            <RunControls status={status} refresh={refresh} where="page" />
+          </CardContent>
+        </Card>
+      )}
+      {runIsStopped(status) && (
+        <p className="mb-6 mt-0 text-small text-ink" data-testid="fill-run-words" data-state="stopped">{total === undefined ? t('knowledge.fillPage.stopped') : t('knowledge.fillPage.stoppedCount', { done: written, total })}</p>
+      )}
       {fill.state === 'running' && (
         <Card className="mb-8" data-testid="fill-code" data-state="running">
           <CardHeader><CardTitle>{t('knowledge.fillRunningTitle')}</CardTitle></CardHeader>
@@ -131,6 +144,8 @@ export function FillPage({ status, refresh }: { status: WikiStatus; refresh: () 
               {units.map((unit) => <UnitRow key={unit.unit} unit={unit} current={unit.unit === current} kinds={status.kinds} language={language} />)}
             </ol>
             {writer.state === 'running' && <p className="mb-0 mt-3 text-small text-muted">{t('knowledge.writer.live')}</p>}
+            {/* While the run is under way, the two presses stand under the figures they act on. */}
+            <RunControls status={status} refresh={refresh} where="page" />
           </CardContent>
         </Card>
       )}

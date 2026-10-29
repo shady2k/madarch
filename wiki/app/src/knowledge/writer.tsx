@@ -14,6 +14,7 @@ import { chooseAgent, getAgents, startFill } from './api.js';
 import { KLink } from './blocks.js';
 import { kindNameOf } from './kind-names.js';
 import { K_FILL } from './routes.js';
+import { runIsPaused, runIsStopped } from './run-controls.js';
 import { FailureNote } from './errors.js';
 import type { AgentOffer, WikiStatus, WriterUnit } from './types.js';
 
@@ -141,7 +142,9 @@ export function WriterLine({ status, refresh }: { status: WikiStatus; refresh: (
   const writer = status.writer;
   const dismissKey = `${status.product.id}:${writer.finishedAt ?? ''}`;
   const [dismissed, setDismissed] = useState<string | null>(() => { try { return window.sessionStorage.getItem('madarch-writer-dismissed'); } catch { return null; } });
-  if (writer.agent === null || writer.state === 'idle' || writer.state === 'done') return null;
+  // A run a person paused or stopped says so where the run is never shown: the popover in the top bar and the fill page
+  // carry its words and its presses (madarch-m38l.17), and this line would repeat them over every page of the product.
+  if (writer.agent === null || writer.state === 'idle' || writer.state === 'done' || runIsPaused(status) || runIsStopped(status)) return null;
   if (writer.state === 'failed' && dismissed === dismissKey) return null;
   const agent = writer.agent.label;
   const written = writer.units.filter((unit) => unit.state === 'written').length;

@@ -331,7 +331,11 @@ export interface ChangedPage {
 export interface FillState {
   /** The index was rebuilt because its deterministic readers changed. */
   rebuilt?: 'extractors-changed';
-  state: 'idle' | 'running' | 'done' | 'failed';
+  /**
+   * `paused` is a person's pause: the fill ended at its next commit and the run is taken up by the next fill.
+   * `stopped` is a person's stop: the run ended now, and the pages it had rewritten stay as they are.
+   */
+  state: 'idle' | 'running' | 'paused' | 'stopped' | 'done' | 'failed';
   /** The repository being read. */
   repository?: string;
   /** Commits read of the commits to read, in the repository being read. */
@@ -382,8 +386,12 @@ export interface WriterUnit {
 
 /** The agent stage that continues the fill: the chosen agent, the units and where they stand. */
 export interface WriterState {
-  /** `idle` before any run, `waiting` while the code fill runs ahead of it. */
-  state: 'idle' | 'waiting' | 'running' | 'done' | 'failed';
+  /**
+   * `idle` before any run, `waiting` while the code fill runs ahead of it. `paused` is a person's pause: the page being
+   * written was finished and the run stands before the next one, and a server that starts again reads it from disk.
+   * `stopped` is a person's stop: the run ended now and the page in progress stays as it was before the run.
+   */
+  state: 'idle' | 'waiting' | 'running' | 'paused' | 'stopped' | 'done' | 'failed';
   agent: { id: string; label: string } | null;
   units: WriterUnit[];
   /** The unit writing now. */

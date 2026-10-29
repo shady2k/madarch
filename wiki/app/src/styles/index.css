@@ -1732,11 +1732,23 @@ a.graph-diagram-element-label:hover {
   display: none;
 }
 
+/* A held or ended run says so in its sentence; that sentence's figures stand alone only below a phone's width, where the
+   words go, and its mark stands beside them. */
+.fill-chip-count-narrow,
+.fill-chip-state-icon {
+  display: none;
+}
+
 /* Below a phone's width the badge is its state's icon and how far the run has come, on one line; the whole sentence
    is its name and the popover's. */
 @media (max-width: 700px) {
   .fill-chip .fill-chip-words {
     display: none;
+  }
+
+  .fill-chip .fill-chip-count-narrow,
+  .fill-chip .fill-chip-state-icon {
+    display: inline;
   }
 
   .sync-icon {

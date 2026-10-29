@@ -314,6 +314,12 @@ export class KnowledgeProduct {
   private running: Promise<void> | undefined;
   private worker: FillWorkerHandle | undefined;
   private stopping = false;
+  /** A person asked for a pause: the worker finishes the page and the commit in progress and ends before the next one. */
+  private pauseAsked = false;
+  /** A person asked for a stop: the run ends now, and the page in progress stays as it was before the run. */
+  private stopAsked = false;
+  /** The pause kept beside the store was read into this product's state; one read is enough for the life of the process. */
+  private pauseRestored = false;
   private closed = false;
   private readonly listeners = new Set<() => void>();
   private readonly pins = new Map<string, RepositoryPin>();
@@ -618,6 +624,109 @@ export class KnowledgeProduct {
     });
   }
 
+  // ---- pausing and stopping a run (madarch-m38l.17) --------------------------------------
+
+  /**
+   * A person's «Пауза»: the page being written and the commit being read are finished, and the run ends before the next
+   * one. Pausing a run that is already paused changes nothing, so the press is safe to repeat. The pause is kept beside
+   * the store, so a server that starts again shows the same paused run.
+   */
+  async pauseRun(): Promise<{ ok: true; fill: FillState; writer: WriterState } | { ok: false; status: 409; message: string }> {
+    if (this.fill.state === 'paused' || this.writer.state === 'paused') return { ok: true, fill: this.fill, writer: this.writer };
+    // A run that is being stopped is on its way out: it stands at no page boundary to be taken up from.
+    if (this.stopAsked) return { ok: false, status: 409, message: 'this run is being stopped: there is nothing to pause' };
+    if (this.running === undefined) return { ok: false, status: 409, message: 'no fill of this product is running: there is nothing to pause' };
+    this.pauseAsked = true;
+    this.worker?.send({ type: 'pause' });
+    this.notify();
+    return { ok: true, fill: this.fill, writer: this.writer };
+  }
+
+  /**
+   * A person's «Остановить»: the run ends now. Without `confirm` the press is refused, and the refusal counts the pages
+   * this run already rewrote and says that they stay. A paused run ends at once, since no worker is writing for it; a
+   * running one is told to stop and is killed if it does not end within the grace a closing store is given.
+   */
+  async stopRun(options: { confirm?: boolean } = {}): Promise<{ ok: true; fill: FillState; writer: WriterState } | { ok: false; status: 409; message: string }> {
+    const paused = this.fill.state === 'paused' || this.writer.state === 'paused';
+    if (!paused && this.running === undefined) return { ok: false, status: 409, message: 'no fill of this product is running: there is nothing to stop' };
+    const written = this.writer.units.filter((unit) => unit.state === 'written').length;
+    if (options.confirm !== true) {
+      return {
+        ok: false,
+        status: 409,
+        message: `stopping ends the run now: ${written} page${written === 1 ? '' : 's'} ${written === 1 ? 'has' : 'have'} already been rewritten by this run and ${written === 1 ? 'stays as it is' : 'stay as they are'}; the page being written now stays as it was before the run`,
+      };
+    }
+    const at = (this.options.now?.() ?? new Date()).toISOString();
+    if (paused) {
+      // No worker is writing for a paused run: the run ends here, and the pages it rewrote stand.
+      this.fill = { ...this.fill, state: 'stopped', ...(this.fill.finishedAt === undefined ? { finishedAt: at } : {}) };
+      this.writer = { ...this.writer, state: 'stopped', current: undefined, ...(this.writer.finishedAt === undefined ? { finishedAt: at } : {}) };
+      this.clearPause();
+      this.notify();
+      return { ok: true, fill: this.fill, writer: this.writer };
+    }
+    this.stopAsked = true;
+    const worker = this.worker;
+    const running = this.running;
+    worker?.send({ type: 'stop' });
+    if (worker !== undefined) {
+      const killer = setTimeout(() => worker.kill(), STOP_GRACE_MS);
+      killer.unref?.();
+      void running?.then(() => clearTimeout(killer), () => clearTimeout(killer));
+    }
+    this.notify();
+    return { ok: true, fill: this.fill, writer: this.writer };
+  }
+
+  /** The file a paused run is kept in, beside the store whose pages it was writing. */
+  private pauseFile(): string {
+    return join(this.storeFolder(), 'pause.json');
+  }
+
+  /** Keeps the paused run beside the store, so a server that starts again shows the same run. A failure is logged. */
+  private async recordPause(): Promise<void> {
+    try {
+      await mkdir(dirname(this.pauseFile()), { recursive: true });
+      await writeFile(this.pauseFile(), `${JSON.stringify({ fill: this.fill, writer: this.writer }, null, 2)}\n`, 'utf8');
+    } catch (error) {
+      this.options.errorLog?.(`the knowledge wiki could not keep the pause of ${this.storeFolder()}: ${error instanceof Error ? error.message : String(error)}`);
+    }
+  }
+
+  /** Takes the pause off the store: the run it described was taken up or ended. A failure is logged. */
+  private clearPause(): void {
+    try {
+      rmSync(this.pauseFile(), { force: true });
+    } catch (error) {
+      this.options.errorLog?.(`the knowledge wiki could not take the pause off ${this.storeFolder()}: ${error instanceof Error ? error.message : String(error)}`);
+    }
+  }
+
+  /**
+   * Reads the pause a previous server left beside the store: the run stands at the page it stopped before, with the pages
+   * this run already wrote, so «Продолжить» takes up the next page and not the page that stands. Read once, and only
+   * while neither the fill nor the writer has a run of its own; a pause file that cannot be read is no pause.
+   */
+  private restorePause(): void {
+    if (this.pauseRestored) return;
+    this.pauseRestored = true;
+    if (this.fill.state !== 'idle' || this.writer.state !== 'idle' || this.running !== undefined) return;
+    let kept: { fill?: unknown; writer?: unknown };
+    try {
+      kept = JSON.parse(readFileSync(this.pauseFile(), 'utf8')) as { fill?: unknown; writer?: unknown };
+    } catch {
+      return;
+    }
+    const fill = kept.fill as FillState | undefined;
+    const writer = kept.writer as WriterState | undefined;
+    if (fill?.state !== 'paused' && writer?.state !== 'paused') return;
+    if (writer === undefined || !Array.isArray(writer.units)) return;
+    if (fill?.state === 'paused') this.fill = fill;
+    this.writer = writer;
+  }
+
   // ---- the fill --------------------------------------------------------------------------
 
   /** Starts the fill if none is running; the answer says whether it started and why not. */
@@ -673,6 +782,10 @@ export class KnowledgeProduct {
     }
     // The slot is claimed before anything is awaited, so two asks in the store's opening are not two fills.
     this.stopping = false;
+    this.pauseAsked = false;
+    this.stopAsked = false;
+    // A resumed run takes the pause off the store: what stands there now is the run that starts, not the one it ended.
+    this.clearPause();
     const startedAt = (this.options.now?.() ?? new Date()).toISOString();
     // A run under way is marked before it starts: a server that restarts during it must not restore the list of the run
     // before. The old list is removed as the same act, so a failed or interrupted run leaves it unknown, not stale.
@@ -697,8 +810,9 @@ export class KnowledgeProduct {
     this.writer = chosen === null ? { state: 'idle', agent: null, units: [] } : { state: 'waiting', agent: chosen, units: [] };
     this.notify();
     this.running = this.runJob(product, repositories, { language: wanted, languageChanged, languageFrom: written ?? current, ...(options.task === undefined ? {} : { task: options.task }), ...(options.taskPages === undefined ? {} : { taskPages: options.taskPages }) }).finally(() => {
-      // A fill that did not reach its end leaves the agent stage unstarted, not waiting for ever.
-      if (this.writer.state === 'waiting') this.writer = { ...this.writer, state: 'idle' };
+      // A fill that did not reach its end leaves the agent stage unstarted, not waiting for ever. A run a person
+      // stopped leaves it stopped, so the block says «Остановлено» and not «Ждёт» for a stage that never began.
+      if (this.writer.state === 'waiting') this.writer = { ...this.writer, state: this.stopAsked ? 'stopped' : 'idle' };
       // The mark goes only when the run is over, after its result is recorded: a restart before this point has no list.
       this.clearActiveFill();
       this.running = undefined;
@@ -793,7 +907,16 @@ export class KnowledgeProduct {
           // The end of the fill is shown once the last snapshot is being read: a page opened at "done" shows everything.
           await this.swapping.catch(() => undefined);
           if (message.state === 'done') this.fill = { state: 'done', startedAt: this.fill.startedAt, finishedAt: now(), gaps: message.gaps, ...(this.fill.rebuilt === undefined ? {} : {rebuilt:this.fill.rebuilt}) };
-          else if (message.state === 'stopped') this.fill = { state: 'idle', message: 'the fill was stopped; it resumes where it stopped' };
+          else if (message.state === 'stopped' && message.paused === true) {
+            // A person's pause: the fill ended before the commit it stood at, and the next fill reads it. The agent stage,
+            // which never began, is paused with it, so the block says «На паузе» and «Продолжить» takes it up.
+            this.fill = { ...this.fill, state: 'paused', finishedAt: undefined, message: undefined };
+            if (this.writer.state === 'waiting') this.writer = { ...this.writer, state: 'paused' };
+            await this.recordPause();
+          } else if (message.state === 'stopped' && this.stopAsked) {
+            // A person's stop: the run ended where the worker was, and the pages it rewrote stay.
+            this.fill = { ...this.fill, state: 'stopped', finishedAt: now() };
+          } else if (message.state === 'stopped') this.fill = { state: 'idle', message: 'the fill was stopped; it resumes where it stopped' };
           else this.fill = { state: 'failed', startedAt: this.fill.startedAt, finishedAt: now(), message: message.message, ...(message.code === undefined ? {} : { code: message.code }) };
           this.notify();
           return;
@@ -885,25 +1008,36 @@ export class KnowledgeProduct {
           return;
         case 'writer':
           await this.swapping.catch(() => undefined);
-          if (message.state === 'done') {
-            try {
-              await writeFile(join(this.storeFolder(), 'pages-language.json'), `${JSON.stringify({ language: run.language })}\n`, 'utf8');
-            } catch (error) {
-              this.options.errorLog?.(`the knowledge wiki could not record the language of the pages in ${this.storeFolder()}: ${error instanceof Error ? error.message : String(error)}`);
+          switch (message.state) {
+            case 'paused':
+            case 'stopped':
+              // A person's pause or stop: the page in progress was finished (a pause) or left as it was (a stop). No page
+              // is called unwritten here, because nothing failed: the run ended where the person asked it to end.
+              this.writer = { ...this.writer, state: message.state, current: undefined, ...(message.message === undefined ? {} : { message: message.message }), ...(message.state === 'stopped' ? { finishedAt: now() } : {}) };
+              if (message.state === 'stopped' && this.stopAsked) this.fill = { ...this.fill, state: 'stopped', ...(this.fill.finishedAt === undefined ? { finishedAt: now() } : {}) };
+              if (message.state === 'paused') await this.recordPause();
+              this.notify();
+              return;
+            case 'done':
+              try {
+                await writeFile(join(this.storeFolder(), 'pages-language.json'), `${JSON.stringify({ language: run.language })}\n`, 'utf8');
+              } catch (error) {
+                this.options.errorLog?.(`the knowledge wiki could not record the language of the pages in ${this.storeFolder()}: ${error instanceof Error ? error.message : String(error)}`);
+              }
+              this.writer = { ...this.writer, state: 'done', current: undefined, finishedAt: now(), asked: message.asked, ...(message.message === undefined ? {} : { message: message.message }) };
+              this.notify();
+              return;
+            case 'failed': {
+              this.writer = { ...this.writer, state: 'failed', current: undefined, finishedAt: now(), asked: message.asked, message: message.message, ...(message.code === undefined ? {} : { code: message.code }) };
+              // A writer that ended without every page says which units it left unwritten, with the reason each ended on,
+              // on the process's error stream: the page a reader watches names the first problem, and this is the whole of it.
+              const unwritten = this.writer.units.filter((unit) => unit.state !== 'written')
+                .map((unit) => `${unit.unit}=${unit.state}${unit.refusals === undefined || unit.refusals.length === 0 ? '' : ` (${unit.refusals[0]!.rule} at line ${unit.refusals[0]!.line}: ${unit.refusals[0]!.message.slice(0, 400)})`}`);
+              process.stderr.write(`knowledge writer failed: ${message.code ?? 'units'}; unwritten: ${unwritten.join('; ') || 'no unit is unwritten, so the failure is the index or the questions'}; ${message.message}\n`);
+              this.notify();
+              return;
             }
           }
-          this.writer = message.state === 'done'
-            ? { ...this.writer, state: 'done', current: undefined, finishedAt: now(), asked: message.asked, ...(message.message === undefined ? {} : { message: message.message }) }
-            : { ...this.writer, state: 'failed', current: undefined, finishedAt: now(), asked: message.asked, message: message.message, ...(message.code === undefined ? {} : { code: message.code }) };
-          if (message.state !== 'done') {
-            // A writer that ended without every page says which units it left unwritten, with the reason each ended on,
-            // on the process's error stream: the page a reader watches names the first problem, and this is the whole of it.
-            const unwritten = this.writer.units.filter((unit) => unit.state !== 'written')
-              .map((unit) => `${unit.unit}=${unit.state}${unit.refusals === undefined || unit.refusals.length === 0 ? '' : ` (${unit.refusals[0]!.rule} at line ${unit.refusals[0]!.line}: ${unit.refusals[0]!.message.slice(0, 400)})`}`);
-            process.stderr.write(`knowledge writer failed: ${message.code ?? 'units'}; unwritten: ${unwritten.join('; ') || 'no unit is unwritten, so the failure is the index or the questions'}; ${message.message ?? ''}\n`);
-          }
-          this.notify();
-          return;
         case 'log':
           // A line the worker could not put on a page — a document it could not read, a kind the documents lack — goes to
           // the host's log, where a person serving the product reads it.
@@ -944,10 +1078,14 @@ export class KnowledgeProduct {
       }
     }
     if (this.fill.state === 'running') {
-      failFill(`the fill worker ended with exit code ${code} before the fill was done: ${worker.stderr().trim().split('\n').slice(-6).join(' | ') || 'it said nothing on standard error'}`, 'worker-exit');
+      // A worker a person stopped ended where it was told to: that is the stop, not a failure of the fill.
+      if (this.stopAsked) this.fill = { ...this.fill, state: 'stopped', finishedAt: now() };
+      else failFill(`the fill worker ended with exit code ${code} before the fill was done: ${worker.stderr().trim().split('\n').slice(-6).join(' | ') || 'it said nothing on standard error'}`, 'worker-exit');
     }
     if (this.writer.state === 'running') {
-      this.writer = { ...this.writer, state: 'failed', current: undefined, finishedAt: now(), code: 'worker-exit', message: `the fill worker ended with exit code ${code} while the agent was writing: ${worker.stderr().trim().split('\n').slice(-6).join(' | ') || 'it said nothing on standard error'}` };
+      this.writer = this.stopAsked
+        ? { ...this.writer, state: 'stopped', current: undefined, finishedAt: now() }
+        : { ...this.writer, state: 'failed', current: undefined, finishedAt: now(), code: 'worker-exit', message: `the fill worker ended with exit code ${code} while the agent was writing: ${worker.stderr().trim().split('\n').slice(-6).join(' | ') || 'it said nothing on standard error'}` };
       this.notify();
     }
     await this.recordChangedPages(publishedBefore);
@@ -1812,6 +1950,8 @@ export class KnowledgeProduct {
   async status(): Promise<WikiStatus> {
     const product = this.product();
     if ('message' in product) throw new WikiReadError(product.message);
+    // A run a person paused before the server stopped stands as it was: its pages are named from the store it left.
+    this.restorePause();
     const common = { product: { name: product.name, id: product.id } };
     const declared = this.repositories();
     const context = await this.context();

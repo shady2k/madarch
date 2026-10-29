@@ -26,7 +26,7 @@ import { markResolved } from '../loop/answer.js';
 import { briefsFor, neededFrom, neededFromPaths, planRefresh } from '../loop/plan.js';
 import { planTaskRun } from '../loop/task-run.js';
 import type { EditBrief } from '../writer/edit.js';
-import type { UnitsInput, UnitsNeeded } from '../writer/run.js';
+import { WriterHalted, type UnitsInput, type UnitsNeeded } from '../writer/run.js';
 import { fillWriterState, fsSink, PRODUCT_PATH, productSlug, runWriter, type ToolClient, type UnitAgent } from '../writer/index.js';
 import { parseMessage, type FromWorker, type RepositoryPin, type ToWorker, type WorkerStart } from './fill-protocol.js';
 import { readKinds } from './kinds.js';
@@ -77,8 +77,23 @@ export async function runFillWorker(io: { lines: AsyncIterable<string>; send: (m
   if (start.type !== 'start') throw new Error(`src/knowledge/fill-worker.ts: the first message of the server is ${JSON.stringify(start.type)}, not "start"`);
 
   let stopping = false;
+  /**
+   * A person's pause: the work in progress is finished (the page being written, the commit being read) and the run ends
+   * before the next one starts, so the next fill takes it up there. Unlike a stop it never ends a unit in progress.
+   */
+  let pausing = false;
   const waiting = new Map<string, { resolve: () => void; reject: (error: Error) => void; tools: ToolClient }>();
   let agentAnswer: ((answer: { ok: true } | { ok: false; message: string }) => void) | undefined;
+  /**
+   * Whether a person halted the run before the next stage, and the server is told so: a pause says it was a pause, so the
+   * run is taken up rather than shown as stopped for good. The staged graph of a rebuild is dropped by the caller's
+   * `finally`, exactly as a stop drops it.
+   */
+  const haltedNow = (): boolean => {
+    if (!stopping && !pausing) return false;
+    send({ type: 'fill', state: 'stopped', ...(pausing ? { paused: true } : {}) });
+    return true;
+  };
   const endAll = (reason: string): void => {
     stopping = true;
     for (const entry of waiting.values()) entry.reject(new Error(reason));
@@ -87,6 +102,7 @@ export async function runFillWorker(io: { lines: AsyncIterable<string>; send: (m
   };
   const handle = (message: ToWorker): void => {
     switch (message.type) {
+      case 'pause': pausing = true; return;
       case 'stop': endAll('the fill worker was stopped'); return;
       case 'agent-ready': agentAnswer?.({ ok: true }); return;
       case 'agent-failed': agentAnswer?.({ ok: false, message: message.message }); return;
@@ -215,6 +231,8 @@ export async function runFillWorker(io: { lines: AsyncIterable<string>; send: (m
           // The last commit's code is read first and is published as one: the code is in the graph from here on, so a
           // snapshot is made at once for the server to show it while the history is being read.
           onCommit: async (done, place) => {
+            // A pause ends the fill before the next commit is read: the commit is not pinned, so the next fill reads it.
+            if (pausing) throw new FillStopped('the fill was paused');
             const held = pins.get(repo.name)!;
             if (place.index > base) await pin({ ...held, commit: done.hash, effectiveTime: done.effectiveTime, filledCommits: place.index });
             send({ type: 'progress', repository: repo.name, commit: place.index, commits: place.commits });
@@ -223,9 +241,11 @@ export async function runFillWorker(io: { lines: AsyncIterable<string>; send: (m
           },
           onPoint: async () => {
             await snapshot(true);
+            if (pausing) throw new FillStopped('the fill was paused');
             if (stopping) throw new FillStopped('the fill was stopped');
           },
         });
+        if (pausing) throw new FillStopped('the fill was paused after history');
         if (stopping) throw new FillStopped('the fill was stopped after history');
         gaps += report.gaps.length + landmarks.diagnostics.length + landmarks.omitted;
       }
@@ -234,7 +254,7 @@ export async function runFillWorker(io: { lines: AsyncIterable<string>; send: (m
     } catch (error) {
       if (error instanceof FillStopped) {
         await snapshot(true).catch(() => undefined);
-        send({ type: 'fill', state: 'stopped' });
+        send({ type: 'fill', state: 'stopped', ...(pausing ? { paused: true } : {}) });
         return 0;
       }
       await snapshot(true).catch(() => undefined);
@@ -258,7 +278,7 @@ export async function runFillWorker(io: { lines: AsyncIterable<string>; send: (m
       }
     };
     const first = await indexNow();
-    if(stopping) {send({type:'fill',state:'stopped'});return 0;}
+    if (haltedNow()) return 0;
     const firstNote = first.error ?? first.unresolved;
     if (firstNote !== undefined) process.stderr.write(`knowledge index: ${firstNote}\n`);
     if (rebuilding) {
@@ -266,15 +286,15 @@ export async function runFillWorker(io: { lines: AsyncIterable<string>; send: (m
       // Close before filesystem replacement. The manifest is committed only with this complete index.
       try {
         await owner.close(); ownerClosed = true;
-        if(stopping) {send({type:'fill',state:'stopped'});return 0;}
+        if (haltedNow()) return 0;
         prepared.commit();
         graphPath = start.graphPath;
         owner = createPGliteDatabaseOwner({path:graphPath,btreeGist:true}); ownerClosed = false;
         await owner.ready; store = createGraphStore(owner);
-        if(stopping) {send({type:'fill',state:'stopped'});return 0;}
+        if (haltedNow()) return 0;
         rebuilding = false;
         await snapshot(true);
-        if(stopping) {send({type:'fill',state:'stopped'});return 0;}
+        if (haltedNow()) return 0;
         send({type:'fill',state:'done',gaps});
       } catch (error) {
         send({type:'fill',state:'failed',code:'rebuild',message:`the replacement graph could not be promoted or snapshotted: ${error instanceof Error?error.message:String(error)}`});
@@ -285,7 +305,8 @@ export async function runFillWorker(io: { lines: AsyncIterable<string>; send: (m
     await snapshot(true).catch(() => undefined);
 
     // ---- the agent stage --------------------------------------------------------------------
-    if (!start.writer || stopping) return 0;
+    if (!start.writer) return 0;
+    if (haltedNow()) return 0;
     if (repositories.length !== 1) {
       send({ type: 'writer', state: 'failed', code: 'repositories', message: `the writer reads one code repository and the product declares ${repositories.length} (${repositories.map((repo) => repo.name).join(', ')}): nothing was written, so no page is a smaller picture of the product` });
       return 0;
@@ -314,13 +335,13 @@ export async function runFillWorker(io: { lines: AsyncIterable<string>; send: (m
       send({ type: 'writer', state: 'failed', code: 'plan', message: `the refresh could not tell which pages need the agent, so it wrote nothing: ${error instanceof Error ? error.message : String(error)}` });
       return 0;
     }
-    if(stopping) return 0;
+    if (haltedNow()) return 0;
     const answered = new Promise<{ ok: true } | { ok: false; message: string }>((resolve) => { agentAnswer = resolve; });
-    if(stopping) {agentAnswer=undefined;return 0;}
+    if (haltedNow()) { agentAnswer = undefined; return 0; }
     send({ type: 'agent-wanted' });
     const agentReady = await answered;
     agentAnswer = undefined;
-    if(stopping) return 0;
+    if (haltedNow()) return 0;
     if (!agentReady.ok) {
       send({ type: 'writer', state: 'failed', code: 'agent', message: agentReady.message });
       return 0;
@@ -395,6 +416,8 @@ export async function runFillWorker(io: { lines: AsyncIterable<string>; send: (m
         afterWrite: async () => { const result = await indexNow(); if (result.error !== undefined) throw new Error(result.error); },
         onUnitStart: (began) => send({ type: 'unit-start', unit: began.unit, path: began.path }),
         onTotal: (total) => send({ type: 'writer-total', total }),
+        // A person's pause or stop consulted before every page (madarch-m38l.17): the page being written is finished.
+        halt: () => (pausing ? 'pause' : stopping ? 'stop' : undefined),
         onUnit: (outcome) => send({ type: 'unit-outcome', outcome: { unit: outcome.unit, status: outcome.status, writeAttempts: outcome.writeAttempts, calls: outcome.calls, refusals: outcome.refusals.map((r) => ({ line: r.line, rule: r.rule, message: r.message })), domains: [...outcome.domains], questions: [...outcome.questions] } }),
       });
       // A page the reader saw in the preview must be written: a run that silently writes fewer is a failure, not a success.
@@ -422,6 +445,17 @@ export async function runFillWorker(io: { lines: AsyncIterable<string>; send: (m
       }
     } catch (error) {
       await snapshot(true).catch(() => undefined);
+      // A halt is not a failure: the run ended where the person asked, and the pages written so far stand.
+      if (error instanceof WriterHalted) {
+        send({ type: 'writer', state: error.how === 'pause' ? 'paused' : 'stopped', message: error.message });
+        return 0;
+      }
+      // A stop that ended the unit in progress is the stop's doing too, not the writer's failure: the last unit may be
+      // the one it ended, so nothing else would notice the halt.
+      if (stopping) {
+        send({ type: 'writer', state: 'stopped' });
+        return 0;
+      }
       send({ type: 'writer', state: 'failed', code: 'stopped', message: `the writer stopped: ${error instanceof Error ? error.message : String(error)}` });
     }
     return 0;

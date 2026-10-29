@@ -842,3 +842,103 @@ describe('the badge and the panel it opens', () => {
     }
   });
 });
+
+describe('a run a person pauses or stops', () => {
+  const paused = (over: Partial<WikiStatus> = {}): WikiStatus => ({
+    product: { name: 'shop', id: 'x' }, manifest: 'ok', manifestFile: 'madarch/kinds.yaml', language: 'en', seeded: [], findings: [],
+    kinds: [{ kind: 'product', source: 'markdown', count: 1, single: true, origins: [] }, { kind: 'domain', source: 'markdown', count: 3, single: false, origins: [], labels: { en: { one: 'Domain', many: 'Domains' } } }],
+    groups: [], repositories: [{ name: 'training', filled: true }], filled: true, incomplete: false,
+    fill: { state: 'done', finishedAt: '2026-10-23T12:00:00.000Z' },
+    writer: {
+      state: 'paused', agent: { id: 'claude-code', label: 'Claude Code' }, total: 4,
+      units: [
+        { unit: 'product:shop', path: 'docs/product.md', state: 'written', kind: 'product', title: 'Online shop', page: 'product:shop' },
+        { unit: 'domain:ordering', path: 'docs/domains/ordering.md', state: 'written', kind: 'domain', title: 'Ordering', page: 'domain:ordering' },
+        { unit: 'domain:payments', path: 'docs/domains/payments.md', state: 'waiting', kind: 'domain', title: 'Payments' },
+      ],
+    },
+    bounds: { turns: 30, minutes: 10, toolCalls: 80, writeAttempts: 5, maxDomains: 12 }, chosenAgent: { id: 'claude-code', label: 'Claude Code' }, home: 'product:shop', ...over,
+  });
+
+  test('the fill page says the run stands paused, and a stop asks first in words that count the pages this run rewrote', async () => {
+    const calls: string[] = [];
+    stubFetch(calls);
+    let refreshed = 0;
+    const container = into(createElement(FillPage, { status: paused(), refresh: () => { refreshed += 1; } }));
+    await until(() => container.querySelector('[data-testid=fill-run]') !== null, 'the paused run');
+    expect(container.querySelector('[data-testid=fill-run-words]')!.textContent).toBe('Paused: 2 of 4 written');
+    const controls = container.querySelector('[data-testid=run-controls]')!;
+    expect(controls.getAttribute('data-state')).toBe('paused');
+    expect([...controls.children].map((child) => child.textContent)).toEqual(['Resume', 'Stop']);
+    // «Остановить» asks first, and its words count the pages this run rewrote and say that they stay.
+    (container.querySelector('[data-testid=run-stop]') as HTMLButtonElement).click();
+    await until(() => container.querySelector('[data-testid=stop-dialog]') !== null, 'the stop question');
+    expect(container.querySelector('[data-testid=stop-dialog]')!.getAttribute('role')).toBe('dialog');
+    expect(container.querySelector('[data-testid=stop-dialog-words]')!.textContent).toBe('Stopping ends the run now. 2 pages have already been rewritten by this run: they stay as they are, and the page being written now stays as it was before the run.');
+    // «Не останавливать» closes the question and sends nothing.
+    (container.querySelector('[data-testid=stop-cancel]') as HTMLButtonElement).click();
+    await until(() => container.querySelector('[data-testid=stop-dialog]') === null, 'the question to close');
+    expect(calls).toEqual([]);
+    // The second press ends the run: one request, and the page reads the run again.
+    (container.querySelector('[data-testid=run-stop]') as HTMLButtonElement).click();
+    await until(() => container.querySelector('[data-testid=stop-confirm]') !== null, 'the confirmation');
+    (container.querySelector('[data-testid=stop-confirm]') as HTMLButtonElement).click();
+    await until(() => refreshed === 1, 'the refresh');
+    expect(calls).toEqual(['POST /api/k/stop {"confirm":true}']);
+    // «Продолжить» is the fill's own press, made for the agent this run writes with.
+    (container.querySelector('[data-testid=run-resume]') as HTMLButtonElement).click();
+    await until(() => refreshed === 2, 'the resume');
+    expect(calls.at(-1)).toBe('POST /api/k/fill {"agent":"claude-code"}');
+  });
+
+  test('the top bar says the run stands paused, without the dot, and its popover is the same run', async () => {
+    stubFetch([]);
+    const bar = into(createElement(FillMenu, { status: paused(), refresh: () => undefined }));
+    await until(() => bar.querySelector('[data-testid=fill-chip]') !== null, 'the status');
+    const chip = bar.querySelector('[data-testid=fill-chip]')!;
+    // Above a phone's width the sentences are the badge; below it the words go and «2/4» stands with the pause mark, so
+    // a held run keeps the top bar in one row (madarch-m38l.17).
+    expect(chip.querySelector('.fill-chip-words')!.textContent).toBe('Paused: 2 of 4 written');
+    expect(chip.querySelector('.fill-chip-count')!.textContent).toBe('2/4');
+    expect(chip.getAttribute('aria-label')).toBe('Paused: 2 of 4 written');
+    const pause = chip.querySelector('[data-testid=fill-chip-pause]')!;
+    expect(pause.getAttribute('aria-hidden')).toBe('true');
+    expect(pause.className).toContain('fill-chip-state-icon');
+    expect(chip.querySelector('[data-testid=fill-chip-dot]')).toBeNull();
+    expect(chip.className).not.toContain('fill-chip-writing');
+    rendered?.unmount();
+    document.body.innerHTML = '';
+    // The line over the product's pages is the run under way, not the run a person holds: nothing stands over the pages.
+    const line = into(createElement(WriterLine, { status: paused(), refresh: () => undefined }));
+    await new Promise((rest) => setTimeout(rest, 20));
+    expect(line.querySelector('[data-testid=writer-line]')).toBeNull();
+  });
+
+  test('the top bar says the run was stopped, with its stop mark and the count a phone can read', async () => {
+    stubFetch([]);
+    const stopped = paused({ fill: { state: 'stopped' }, writer: { ...paused().writer, state: 'stopped' } });
+    const bar = into(createElement(FillMenu, { status: stopped, refresh: () => undefined }));
+    await until(() => bar.querySelector('[data-testid=fill-chip]') !== null, 'the status');
+    const chip = bar.querySelector('[data-testid=fill-chip]')!;
+    expect(chip.querySelector('.fill-chip-words')!.textContent).toBe('Stopped: 2 of 4 written; those pages stay');
+    expect(chip.querySelector('.fill-chip-count')!.textContent).toBe('2/4');
+    expect(chip.getAttribute('aria-label')).toBe('Stopped: 2 of 4 written; those pages stay');
+    const stop = chip.querySelector('[data-testid=fill-chip-stop]')!;
+    expect(stop.getAttribute('aria-hidden')).toBe('true');
+    expect(stop.className).toContain('fill-chip-state-icon');
+    expect(chip.querySelector('[data-testid=fill-chip-pause]')).toBeNull();
+  });
+
+  test('a run that is under way offers the pause and the stop under its figures, and a stopped run says what it keeps', async () => {
+    stubFetch([]);
+    const running = paused({ fill: { state: 'running', startedAt: '2026-10-23T12:00:00.000Z' }, writer: { ...paused().writer, state: 'running', current: 'domain:payments' } });
+    const container = into(createElement(FillPage, { status: running, refresh: () => undefined }));
+    await until(() => container.querySelector('[data-testid=run-controls]') !== null, 'the controls');
+    expect(container.querySelector('[data-testid=run-controls]')!.getAttribute('data-state')).toBe('live');
+    expect([...container.querySelector('[data-testid=run-controls]')!.children].map((child) => child.textContent)).toEqual(['Pause', 'Stop']);
+    rendered!.render(createElement(FillPage, { status: paused({ fill: { state: 'stopped' }, writer: { ...paused().writer, state: 'stopped' } }), refresh: () => undefined }));
+    await until(() => container.querySelector('[data-testid=fill-run-words]')?.getAttribute('data-state') === 'stopped', 'the stopped run');
+    expect(container.querySelector('[data-testid=fill-run-words]')!.textContent).toBe('Stopped: 2 of 4 written; those pages stay');
+    expect(container.querySelector('[data-testid=run-controls]')).toBeNull();
+  });
+});

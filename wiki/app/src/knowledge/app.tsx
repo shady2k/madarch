@@ -8,7 +8,7 @@
 import { useEffect, useMemo, useRef, useState, type ReactElement, type ReactNode } from 'react';
 import { useTranslation } from 'react-i18next';
 import * as DropdownMenuPrimitive from '@radix-ui/react-dropdown-menu';
-import { AlertTriangleIcon, BookOpenIcon, CheckIcon, ChevronDownIcon, ChevronRightIcon, FolderGit2Icon, GlobeIcon, HelpCircleIcon, HomeIcon, LayoutGridIcon, MenuIcon, RefreshCwIcon, SettingsIcon, XIcon } from 'lucide-react';
+import { AlertTriangleIcon, BookOpenIcon, CheckIcon, ChevronDownIcon, ChevronRightIcon, FolderGit2Icon, GlobeIcon, HelpCircleIcon, HomeIcon, LayoutGridIcon, MenuIcon, PauseIcon, RefreshCwIcon, SettingsIcon, SquareIcon, XIcon } from 'lucide-react';
 import { appPath } from '../app-base.js';
 import { setWikiLanguage, type WikiLanguage } from '../i18n.js';
 import { navigateTo } from '../hold.js';
@@ -19,6 +19,7 @@ import { Sheet, SheetContent, SheetTrigger } from '@/components/ui/sheet.js';
 import { TooltipProvider } from '@/components/ui/tooltip.js';
 import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuLabel, DropdownMenuSeparator, DropdownMenuTrigger } from '@/components/ui/dropdown-menu.js';
 import { getProducts, startFill } from './api.js';
+import { RunControls, runIsPaused, runIsStopped } from './run-controls.js';
 import { KLink } from './blocks.js';
 import { CataloguePage, DocumentPage, DocumentsPage, EntityPage, EmptyHome, FillCard, KindPage, SourcePage, StatementPage, Overview } from './pages.js';
 import { FillPage } from './fill-page.js';
@@ -345,7 +346,11 @@ export function FillMenu({ status, refresh }: { status: WikiStatus; refresh: () 
   const pages = pagesOf(status);
   if (status.manifest !== 'ok') return null;
   // The stages of the agent named the way a reader knows them: the kind's name and the page's title (madarch-m38l.23).
-  const authoring = writer.state === 'running' || writer.state === 'waiting';
+  // A run a person holds or ended is read before the stages (madarch-m38l.17): a paused one writes nothing, and «Заполнено»
+  // would be a lie about a run that stands ready to be taken up.
+  const paused = runIsPaused(status);
+  const stopped = runIsStopped(status);
+  const authoring = !paused && (writer.state === 'running' || writer.state === 'waiting');
   const written = writer.units.filter((unit) => unit.state === 'written').length;
   // How far the agent is, of the pages this run means to write: «Агент пишет страницы · 12/18». The total comes from the
   // writer before its first unit and grows only when the product page declares more domains; until it is there the count
@@ -355,7 +360,10 @@ export function FillMenu({ status, refresh }: { status: WikiStatus; refresh: () 
   const currentName = current === undefined ? null : unitName(current, status.kinds, language);
   let label: string;
   let solid = false;
-  if (fill.state === 'running') { label = fillWords(fill, t); solid = true; }
+  const pagesTotal = writer.total;
+  if (paused) label = pagesTotal === undefined ? t('knowledge.fillPage.paused') : t('knowledge.fillPage.pausedCount', { done: written, total: pagesTotal });
+  else if (stopped) label = pagesTotal === undefined ? t('knowledge.fillPage.stopped') : t('knowledge.fillPage.stoppedCount', { done: written, total: pagesTotal });
+  else if (fill.state === 'running') { label = fillWords(fill, t); solid = true; }
   else if (fill.state === 'failed') label = t('knowledge.fillFailed');
   else if (authoring) {
     label = writer.units.length === 0 ? t('knowledge.fillWriting') : `${t('knowledge.fillWriting')} · ${count}`;
@@ -378,8 +386,10 @@ export function FillMenu({ status, refresh }: { status: WikiStatus; refresh: () 
       (failure: unknown) => { setStarting(false); setRefused(failure instanceof Error ? failure.message : String(failure)); },
     );
   };
-  // Below a phone's width the badge is the dot and the count on one line; its name and the popover keep the whole sentence.
+  // Below a phone's width the badge is its state's mark and the count on one line; its name and the popover keep the
+  // whole sentence. A held or ended run has its figures in its sentence, so its count stands only where the words go.
   const compact = authoring && writer.units.length > 0;
+  const held = (paused || stopped) && writer.units.length > 0;
   return (
     <div
       // No box of its own: the badge stays the toolbar's flex item it always was, so the one row keeps its width at a
@@ -419,10 +429,14 @@ export function FillMenu({ status, refresh }: { status: WikiStatus; refresh: () 
       >
         <Badge variant={solid ? 'solid' : 'outline'}>
           {authoring && <span aria-hidden="true" className="mr-1.5 inline-block size-1.5 animate-pulse rounded-full bg-current align-middle motion-reduce:animate-none" data-testid="fill-chip-dot" />}
+          {paused && <PauseIcon aria-hidden="true" className="fill-chip-state-icon mr-1 size-3.5" data-testid="fill-chip-pause" />}
+          {stopped && <SquareIcon aria-hidden="true" className="fill-chip-state-icon mr-1 size-3" data-testid="fill-chip-stop" />}
           <span className="fill-chip-label">
             {compact
               ? <><span className="fill-chip-words">{t('knowledge.fillWriting')} · </span><span className="fill-chip-count">{count}</span></>
-              : label}
+              : held
+                ? <><span className="fill-chip-words">{label}</span><span className="fill-chip-count fill-chip-count-narrow">{count}</span></>
+                : label}
           </span>
         </Badge>
       </button>
@@ -446,6 +460,16 @@ export function FillMenu({ status, refresh }: { status: WikiStatus; refresh: () 
               <p className="m-0 break-words text-ink" data-testid="fill-menu-total">{label}</p>
               <p className="m-0 mt-1 break-words" data-testid="fill-menu-current">{currentName === null ? t('knowledge.fillPage.waiting') : t('knowledge.fillPage.writingNow', { name: currentName })}</p>
               <p className="m-0 mt-1"><KLink href={K_FILL} testId="fill-menu-open">{t('knowledge.fillPage.open')}</KLink></p>
+              <RunControls status={status} refresh={refresh} where="menu" />
+            </div>
+          )}
+          {paused && (
+            // The run stands where the person left it: what it wrote, the way to its page, and the two presses that take it
+            // up again or end it (madarch-m38l.17).
+            <div className="px-2 pb-2 text-small" data-testid="fill-menu-paused">
+              <p className="m-0 break-words text-ink" data-testid="fill-menu-total">{label}</p>
+              <p className="m-0 mt-1"><KLink href={K_FILL} testId="fill-menu-open">{t('knowledge.fillPage.open')}</KLink></p>
+              <RunControls status={status} refresh={refresh} where="menu" />
             </div>
           )}
           {!authoring && writer.units.length > 0 && <p className="m-0 px-2 pb-2 text-small" data-testid="fill-menu-open-line"><KLink href={K_FILL} testId="fill-menu-open">{t('knowledge.fillPage.open')}</KLink></p>}

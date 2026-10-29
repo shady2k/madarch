@@ -1,7 +1,7 @@
 import { appPath } from '../app-base.js';
 import { historyQuery } from './history-context.js';
 import { readJson, RequestError } from '../api.js';
-import type { AgentChoices, AgentOffer, AnswerResult, Block, CorrectionResult, CreatedTask, DiagramRenderer, DiagramView, DocumentListing, DocumentPageModel, EntityListing, FillState, Glossary, Neighborhood, PageJournal, PageModel, ProblemListing, ProductChoice, ProductSettings, QuestionDetail, QuestionListing, RefreshPreview, SourceFile, StatementModel, TaskDetail, TaskImpact, TaskListing, TaskProposal, TaskRow, TaskScope, UserSettings, WikiStatus } from './types.js';
+import type { AgentChoices, AgentOffer, AnswerResult, Block, CorrectionResult, CreatedTask, DiagramRenderer, DiagramView, DocumentListing, DocumentPageModel, EntityListing, FillState, Glossary, Neighborhood, PageJournal, PageModel, ProblemListing, ProductChoice, ProductSettings, QuestionDetail, QuestionListing, RefreshPreview, SourceFile, StatementModel, TaskDetail, TaskImpact, TaskListing, TaskProposal, TaskRow, TaskScope, UserSettings, WikiStatus, WriterState } from './types.js';
 
 /** The wiki's status: manifest, kinds, repositories, fill. */
 export const getStatus = (signal?: AbortSignal): Promise<WikiStatus> => readJson<WikiStatus>('read the wiki', '/api/k/status', signal);
@@ -82,6 +82,18 @@ export async function startFill(agent?: string | null, language?: string): Promi
   }
   throw new RequestError('start the fill', reason, response.status);
 }
+
+/**
+ * A person's «Пауза» (madarch-m38l.17): the page and the commit in progress are finished and the run ends before the next
+ * one. The answer is the run's state as the server keeps it, and the server's words when there is nothing to pause.
+ */
+export const pauseRun = (): Promise<{ fill: FillState; writer: WriterState }> => post<{ fill: FillState; writer: WriterState }>('pause the run', '/api/k/pause', {});
+
+/**
+ * A person's «Остановить»: the run ends now, and the pages it already rewrote stand. The press that ends it is the second
+ * one; the first answer is the server's refusal, naming the pages this run rewrote and that they stay.
+ */
+export const stopRun = (): Promise<{ fill: FillState; writer: WriterState }> => post<{ fill: FillState; writer: WriterState }>('stop the run', '/api/k/stop', { confirm: true });
 
 /** The wiki's one change stream: the server says `change` when a file of the product or a commit of the fill changes what a page shows. */
 export const eventsAddress = (): string => appPath('/api/events');

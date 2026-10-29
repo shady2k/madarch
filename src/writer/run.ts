@@ -72,6 +72,17 @@ export interface UnitAgent {
   run(request: UnitRequest): Promise<void>;
 }
 
+/**
+ * A run that a person paused or stopped: thrown before a page is taken up, so the page in progress is finished and the
+ * page after it is never started. The message says which page was left as it was and which was not begun.
+ */
+export class WriterHalted extends Error {
+  constructor(readonly how: 'pause' | 'stop', message: string) {
+    super(message);
+    this.name = 'WriterHalted';
+  }
+}
+
 export interface WriterOptions {
   /** Checked guide preparation/publication supplied by the production owner; absent preserves legacy callers. */
   readonly guides?: GuideWriterHost;
@@ -118,6 +129,12 @@ export interface WriterOptions {
   readonly resolved?: (resolved: ResolvedEntity) => Promise<void>;
   /** The clock questions are stamped with; tests inject. */
   readonly clock?: () => Date;
+  /**
+   * Asked before a page is taken up (madarch-m38l.17): answers `pause` or `stop` when a person asked for one, and then
+   * the run throws `WriterHalted` before starting anything, so the page being written is finished and the next page is
+   * never begun. A page whose unit is kept is not asked about: nothing is written for it either way.
+   */
+  readonly halt?: () => 'pause' | 'stop' | undefined;
   /**
    * Where the units are kept between runs (decision 0027; `src/writer/graph-state.ts`). Absent, every
    * unit runs and nothing is remembered; the fill passes the state of its own store, and an interrupted
@@ -459,7 +476,12 @@ export async function runGraphUnit(input: {
   readonly start: () => Promise<UnitOutcome>;
   /** What the state could not record, told to the run: the unit ran and its page stands, and the next run will not skip it. */
   readonly stateProblem?: (message: string) => void;
+  /** Throws `WriterHalted` when a person asked for a pause or a stop: asked before anything is read, kept or written. */
+  readonly halt?: (what: string) => void;
 }): Promise<{ readonly run: WriterUnitRun; readonly outcome?: UnitOutcome }> {
+  // Before the page is read, kept or written: a run a person halted starts no page at all, so the page in progress is
+  // exactly what it was before the run and no unit is recorded as begun.
+  input.halt?.(`writing the page ${input.path}`);
   const report = (message: string): void => input.stateProblem?.(`${input.path}:1: ${message}`);
   /** One step on the run's state, which never fails the run: its refusal is told, and the unit goes on. */
   const recorded = async <T>(what: string, work: () => Promise<T>): Promise<T | undefined> => {
@@ -669,6 +691,15 @@ export async function runWriter(options: WriterOptions): Promise<WriterReport> {
   // ---- the graph ------------------------------------------------------------------------------
   const stateProblems: string[] = [];
   const stateProblem = (message: string): void => { stateProblems.push(message); };
+  /**
+   * A person's pause or stop, asked before a page is taken up (madarch-m38l.17): the run ends at the page boundary it
+   * stands at, after the page being written was finished and before the next one was read.
+   */
+  const halt = (what: string): void => {
+    const how = options.halt?.();
+    if (how === undefined) return;
+    throw new WriterHalted(how, `src/writer/run.ts: the run was ${how === 'pause' ? 'paused' : 'stopped'} before ${what}; the page in progress is left as it was`);
+  };
   const produced = new Map<WriterArtifact, ProducedArtifact[]>();
   const kinds: WriterKindRun[] = [];
   const units: WriterUnitRun[] = [];
@@ -725,6 +756,7 @@ export async function runWriter(options: WriterOptions): Promise<WriterReport> {
    */
   const runLocalizedSources = async (): Promise<void> => {
     for (const entity of localizedEntities) {
+      halt(`writing the localized statement of ${JSON.stringify(entity.id)}`);
       const sourceLanguage = detectDocumentLanguage(entity.text);
       if (sourceLanguage === undefined) {
         const id = `localized-source:${entity.id}`;
@@ -811,7 +843,7 @@ export async function runWriter(options: WriterOptions): Promise<WriterReport> {
           const run = await runGraphUnit({
             id: `enrichment:${entity.id}`, kind, scope: entity.id, path: page,
             digest: writerUnitDigest({ kind, version: versionOf(kind), scope: entity.id, language, inputs: [entity.kind, entity.text, entity.anchor, ...pinned(), ...upstreamOf(kind), ...questions.filter((question) => question.about.includes(entity.id)).map((question) => `${question.id}:${question.status}:${textDigest(question.title)}`), ...corrections.filter((correction) => correction.id.trim() !== '' && correction.statement.trim() !== '' && correction.about.startsWith(entity.id)).map((correction) => textDigest(`${correction.id}\n${correction.statement}`))] }),
-            state, resumed, sink, now, stateProblem,
+            state, resumed, sink, now, stateProblem, halt,
             ...(options.onUnitStart === undefined ? {} : { onUnitStart: options.onUnitStart }),
             ...(options.onUnit === undefined ? {} : { onUnit: options.onUnit }),
             start: async () => {
@@ -835,7 +867,7 @@ export async function runWriter(options: WriterOptions): Promise<WriterReport> {
         const run = await runGraphUnit({
           id, kind, scope: slug, path: VALIDATION_PATH, pageStandingKeepsTheUnit: true,
           digest: writerUnitDigest({ kind, version: versionOf(kind), scope: slug, language, inputs: [...pinned(), ...upstreamOf(kind)] }),
-          state, resumed, sink, now, stateProblem,
+          state, resumed, sink, now, stateProblem, halt,
           ...(options.onUnitStart === undefined ? {} : { onUnitStart: options.onUnitStart }),
           ...(options.onUnit === undefined ? {} : { onUnit: options.onUnit }),
           start: async () => {
@@ -864,7 +896,7 @@ export async function runWriter(options: WriterOptions): Promise<WriterReport> {
           const run = await runGraphUnit({
             id: productUnit.id, kind, scope: slug, path: PRODUCT_PATH, asked: true,
             digest: writerUnitDigest({ kind, version: versionOf(kind), scope: slug, language, inputs: [...pinned(), briefOf(brief), String(need.product), ...upstreamOf(kind)] }),
-            state, resumed, sink, now, stateProblem,
+            state, resumed, sink, now, stateProblem, halt,
             ...(options.onUnitStart === undefined ? {} : { onUnitStart: options.onUnitStart }),
             ...(options.onUnit === undefined ? {} : { onUnit: options.onUnit }),
             start: async () => {
@@ -911,7 +943,7 @@ export async function runWriter(options: WriterOptions): Promise<WriterReport> {
           const run = await runGraphUnit({
             id: `enrichment:${entity.id}`, kind, scope: entity.id, path: page,
             digest: writerUnitDigest({ kind, version: versionOf(kind), scope: entity.id, language, inputs: [entity.kind, entity.text, entity.anchor, entity.semantics, ...pinned(), ...upstreamOf(kind)] }),
-            state, resumed, sink, now, stateProblem,
+            state, resumed, sink, now, stateProblem, halt,
             ...(options.onUnitStart === undefined ? {} : { onUnitStart: options.onUnitStart }),
             ...(options.onUnit === undefined ? {} : { onUnit: options.onUnit }),
             start: async () => {
@@ -943,7 +975,7 @@ export async function runWriter(options: WriterOptions): Promise<WriterReport> {
           const run = await runGraphUnit({
             id: `enrichment:${entity.id}`, kind, scope: entity.id, path: page,
             digest: writerUnitDigest({ kind, version: versionOf(kind), scope: entity.id, language, inputs: [entity.kind, entity.text, entity.anchor, entity.semantics, ...pinned(), ...upstreamOf(kind)] }),
-            state, resumed, sink, now, stateProblem,
+            state, resumed, sink, now, stateProblem, halt,
             ...(options.onUnitStart === undefined ? {} : { onUnitStart: options.onUnitStart }),
             ...(options.onUnit === undefined ? {} : { onUnit: options.onUnit }),
             start: async () => {
@@ -979,7 +1011,7 @@ export async function runWriter(options: WriterOptions): Promise<WriterReport> {
           const run = await runGraphUnit({
             id: spec.id, kind, scope: declaration.slug, path: page, asked: true,
             digest: writerUnitDigest({ kind, version: versionOf(kind), scope: declaration.slug, language, inputs: [...pinned(), declaration.summary, ...declaration.evidence, briefOf(brief), ...upstreamOf(kind)] }),
-            state, resumed, sink, now, stateProblem,
+            state, resumed, sink, now, stateProblem, halt,
             ...(options.onUnitStart === undefined ? {} : { onUnitStart: options.onUnitStart }),
             ...(options.onUnit === undefined ? {} : { onUnit: options.onUnit }),
             start: async () => {
@@ -1004,6 +1036,8 @@ export async function runWriter(options: WriterOptions): Promise<WriterReport> {
         await runLocalizedSources();
         if (options.guides === undefined) { nothingFound(kind, position, 'the run wires no checked guide production, so no guide unit runs'); break; }
         for (const guideKind of ['administrator-guide', 'user-guide'] as const) {
+          // The guides are the one kind whose units the writer runs itself: the same boundary is asked of them here.
+          halt(`writing the ${guideKind}`);
           let output = { id: GUIDE_OUTPUTS[guideKind].id as string, path: 'madarch/kinds.yaml' };
           let outcome: UnitOutcome;
           let preparationStage: GuidePreparationStage = 'registry';
@@ -1051,7 +1085,7 @@ export async function runWriter(options: WriterOptions): Promise<WriterReport> {
         const run = await runGraphUnit({
           id, kind, scope: slug, path: OVERVIEW_PATH, pageStandingKeepsTheUnit: true,
           digest: writerUnitDigest({ kind, version: versionOf(kind), scope: slug, language, inputs: [...pinned(), ...pages.map((page) => textDigest(`${page.unit}\n${page.path}\n${page.text ?? ''}`)), ...upstreamOf(kind)] }),
-          state, resumed, sink, now, stateProblem,
+          state, resumed, sink, now, stateProblem, halt,
           ...(options.onUnitStart === undefined ? {} : { onUnitStart: options.onUnitStart }),
           ...(options.onUnit === undefined ? {} : { onUnit: options.onUnit }),
           start: async () => {
@@ -1081,7 +1115,7 @@ export async function runWriter(options: WriterOptions): Promise<WriterReport> {
         const run = await runGraphUnit({
           id, kind, scope: slug, path: EDITORIAL_PATH, pageStandingKeepsTheUnit: true,
           digest: writerUnitDigest({ kind, version: versionOf(kind), scope: slug, language, inputs: [...pinned(), ...pages.map((page) => textDigest(`${page.unit}\n${page.path}\n${page.text ?? ''}`)), ...reading.map((page) => textDigest(`${page.path}\n${page.text ?? ''}`)), ...upstreamOf(kind)] }),
-          state, resumed, sink, now, stateProblem,
+          state, resumed, sink, now, stateProblem, halt,
           ...(options.onUnitStart === undefined ? {} : { onUnitStart: options.onUnitStart }),
           ...(options.onUnit === undefined ? {} : { onUnit: options.onUnit }),
           start: async () => {

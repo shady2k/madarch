@@ -182,7 +182,9 @@ export type ChangedPage = { id: string; title: string };
 
 export type FillState = {
   rebuilt?: 'extractors-changed';
-  state: 'idle' | 'running' | 'done' | 'failed';
+  /** `paused` and `stopped` are a person's press (madarch-m38l.17): a paused run ends at the next page boundary and is
+   * taken up where it stopped; a stopped one ends now and the pages it rewrote stand. */
+  state: 'idle' | 'running' | 'paused' | 'stopped' | 'done' | 'failed';
   repository?: string;
   phase?: 'code' | 'history' | 'points';
   newCommits?: number;
@@ -215,7 +217,8 @@ export type WriterUnit = {
 };
 
 export type WriterState = {
-  state: 'idle' | 'waiting' | 'running' | 'done' | 'failed';
+  /** A person's press (madarch-m38l.17): `paused` ends the run before the next page, `stopped` ends it now. */
+  state: 'idle' | 'waiting' | 'running' | 'paused' | 'stopped' | 'done' | 'failed';
   agent: { id: string; label: string } | null;
   units: WriterUnit[];
   current?: string;
