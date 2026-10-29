@@ -286,17 +286,22 @@ export function createSnapshotHistoryReader() {
  * what the run said about it, and no field is filled from the unit's id.
  */
 function namedUnits(ctx: RenderContext, units: readonly WriterUnit[]): WriterUnit[] {
+  // The writer's enrichment units name a passage of a person's document: `enrichment:<document entity id>` (`enrichmentPath`).
+  const ENRICHMENT_UNIT = 'enrichment:';
   return units.map((unit) => {
     const localized = unit.unit.startsWith(LOCALIZED_SOURCE_UNIT) ? unit.unit.slice(LOCALIZED_SOURCE_UNIT.length) : undefined;
     // A localized source writes a document's page: its kind and title are the document entity's own.
     const doc = localized === undefined ? undefined : ctx.docEntities.get(localized);
     const page = ctx.markdown.get(localized ?? unit.unit);
+    // An enrichment's page is a passage of a document, and the passage is read before its page stands: the reader's
+    // title for a page the run is writing now is the passage's own, never the writer's id for it.
+    const passage = page === undefined && unit.unit.startsWith(ENRICHMENT_UNIT) ? ctx.docEntities.get(unit.unit.slice(ENRICHMENT_UNIT.length)) : undefined;
     const family = unit.unit.slice(0, unit.unit.indexOf(':'));
     // The unit's own id names the page kind it writes (`product`, `domain`, `administrator-guide`, `enrichment`): a name
     // only where the manifest declares that kind, so the reader never reads a kind this product does not have.
     const declared = unit.kind ?? family;
     const kind = doc?.kind ?? page?.kind ?? (ctx.manifest.kinds.has(declared) ? declared : undefined);
-    const title = doc?.title ?? page?.title ?? unit.title;
+    const title = doc?.title ?? passage?.title ?? page?.title ?? unit.title;
     return { ...unit, page: localized ?? unit.unit, ...(kind === undefined ? {} : { kind }), ...(title === undefined ? {} : { title }) };
   });
 }
@@ -1173,8 +1178,7 @@ export class KnowledgeProduct {
   }
 
   /** The runs whose journal holds the page, oldest first; absent when no run of this machine wrote it. */
-  private pageJournal(pageId: string): string[] | undefined {
-    const index = this.journalIndex();
+  private pageJournal(pageId: string, index = this.journalIndex()): string[] | undefined {
     for (const candidate of [pageId, `${LOCALIZED_SOURCE_UNIT}${pageId}`]) {
       const runs = index.get(candidate);
       if (runs !== undefined) return [...runs];
@@ -1799,6 +1803,12 @@ export class KnowledgeProduct {
     }
   }
 
+  /** The writer's units as a reader knows them, each saying whether a journal holds its page (madarch-m38l.23). */
+  private unitRows(ctx: RenderContext): WriterUnit[] {
+    const index = this.journalIndex();
+    return namedUnits(ctx, this.writer.units).map((unit) => ({ ...unit, journal: this.pageJournal(unit.page ?? unit.unit, index) !== undefined }));
+  }
+
   async status(): Promise<WikiStatus> {
     const product = this.product();
     if ('message' in product) throw new WikiReadError(product.message);
@@ -1833,7 +1843,7 @@ export class KnowledgeProduct {
               : { state: 'done' as const, finishedAt: last.finishedAt, ...(changed === undefined ? {} : { changed }) };
           })()
         : this.fill,
-      writer: { ...this.writer, units: namedUnits(context.ctx, this.writer.units) },
+      writer: { ...this.writer, units: this.unitRows(context.ctx) },
       bounds: WRITER_BOUNDS,
       chosenAgent: this.chosenAgent(),
       home: homeEntity?.id ?? null,

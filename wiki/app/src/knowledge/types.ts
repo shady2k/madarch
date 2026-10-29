@@ -210,6 +210,8 @@ export type WriterUnit = {
   writeAttempts?: number;
   calls?: number;
   refusals?: { line: number; rule: string; message: string }[];
+  /** Whether a journal on this machine holds this page: the row links to one only where it does (madarch-m38l.23). */
+  journal?: boolean;
 };
 
 export type WriterState = {

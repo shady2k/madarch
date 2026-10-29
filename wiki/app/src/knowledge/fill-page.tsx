@@ -47,8 +47,10 @@ function UnitRow({ unit, current, kinds, language }: { unit: WriterUnit; current
       <div className="flex flex-wrap items-center gap-x-3 gap-y-1">
         {written ? <KLink href={addressOfEntity(unit.page!)} className="text-ink hover:underline" testId="fill-unit-page">{name}</KLink> : <span className="text-ink" data-testid="fill-unit-name">{name}</span>}
         <Badge variant={unit.state === 'writing' ? 'solid' : 'outline'}>{unit.state === 'written' && unit.writeAttempts === 0 ? t('knowledge.writer.unitKept') : t(UNIT_STATE_KEY[unit.state])}</Badge>
-        {/* The journal of the page, where one holds it: the runs that wrote it, and only then. */}
-        {written && <KLink href={addressOfJournal(unit.page!)} className="text-small text-muted hover:text-ink" testId="fill-unit-journal">{t('journal.title')}</KLink>}
+        {/* The journal of the page, where one holds it: the runs that wrote it, and only then. A page written by a run
+            whose journal this machine does not hold — an older run, a journal since removed — has no link to a page that
+            would tell a reader nothing. */}
+        {written && unit.journal === true && <KLink href={addressOfJournal(unit.page!)} className="text-small text-muted hover:text-ink" testId="fill-unit-journal">{t('journal.title')}</KLink>}
       </div>
       {unit.refusals !== undefined && unit.refusals.length > 0 && (
         <ul className="mb-0 mt-1 text-small" data-testid="fill-unit-refusals">

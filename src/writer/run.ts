@@ -470,6 +470,14 @@ export async function runGraphUnit(input: {
       return undefined;
     }
   };
+  // A page that stands is a page of this run too: the reader counts it, and its row says the page was kept. A unit that
+  // ends kept told nothing before this change, so a resumed run's bar never reached its end (madarch-m38l.23).
+  const announceKept = (): UnitOutcome => {
+    const outcome: UnitOutcome = { unit: input.id, status: 'written', path: input.path, writeAttempts: 0, calls: 0, refusals: [], domains: [], grounds: [], links: [], filesRead: [], questions: [], merged: [] };
+    input.onUnitStart?.({ unit: input.id, path: input.path });
+    input.onUnit?.(outcome);
+    return outcome;
+  };
   const runOnly = async (): Promise<{ readonly run: WriterUnitRun; readonly outcome?: UnitOutcome }> => {
     input.onUnitStart?.({ unit: input.id, path: input.path });
     const outcome = await input.start();
@@ -486,12 +494,12 @@ export async function runGraphUnit(input: {
   const asked = input.asked === true;
   const kept = asked ? undefined : input.resumed.get(input.id);
   if (kept !== undefined && kept.digest === input.digest && await pageKept(input.sink, input.path)) {
-    return { run: { unit: input.id, kind: input.kind, path: input.path, status: 'kept', reason: `published by an earlier run of the same inputs (${input.digest.slice(0, 12)})` } };
+    return { run: { unit: input.id, kind: input.kind, path: input.path, status: 'kept', reason: `published by an earlier run of the same inputs (${input.digest.slice(0, 12)})` }, outcome: announceKept() };
   }
   // A standing page is kept only where the run keeps no state at all: with a state, the state decides — an attempt that
   // never ended is recovered and its page published, which is not the same as a page nobody recorded.
   if (kept === undefined && input.pageStandingKeepsTheUnit === true && input.state === NO_WRITER_STATE && await pageKept(input.sink, input.path)) {
-    return { run: { unit: input.id, kind: input.kind, path: input.path, status: 'kept', reason: 'the page stands and no earlier run of this writer recorded it: this run wrote nothing over it' } };
+    return { run: { unit: input.id, kind: input.kind, path: input.path, status: 'kept', reason: 'the page stands and no earlier run of this writer recorded it: this run wrote nothing over it' }, outcome: announceKept() };
   }
   const entry: WriterUnitRecord = { unit: input.id, kind: input.kind, scope: input.scope, digest: input.digest };
   const attempt = await recorded('the opening of its generation', async () => await input.state.begin(entry, input.now()));
@@ -504,13 +512,14 @@ export async function runGraphUnit(input: {
   }
   if (!attempt.opened) {
     // Published under exactly these inputs: the page holds what this run would write.
-    return { run: { unit: input.id, kind: input.kind, path: input.path, status: 'kept', reason: `published by an earlier run of the same inputs (${input.digest.slice(0, 12)})` } };
+    return { run: { unit: input.id, kind: input.kind, path: input.path, status: 'kept', reason: `published by an earlier run of the same inputs (${input.digest.slice(0, 12)})` }, outcome: announceKept() };
   }
   if (attempt.recovered && await pageKept(input.sink, input.path)) {
     // An attempt that never ended left its page on disk: it is this unit's page, so it is published, not written again
     // (a page written twice is a page a person may have already read).
     await recorded('its publication after a crash', async () => await input.state.publish(entry, input.now()));
     const page = { unit: input.id, status: 'written' as const, path: input.path, writeAttempts: 0, calls: 0, refusals: [], domains: [], grounds: [], links: [], filesRead: [], questions: [], merged: [] };
+    input.onUnitStart?.({ unit: input.id, path: input.path });
     input.onUnit?.(page);
     return { run: { unit: input.id, kind: input.kind, path: input.path, status: 'written' }, outcome: page };
   }
@@ -737,7 +746,11 @@ export async function runWriter(options: WriterOptions): Promise<WriterReport> {
       if (existing !== undefined) {
         const validated = parseLocalizedSource(unitPath, existing, entity, language);
         if (validated.ok && validated.source.sourceLanguage === sourceLanguage) {
-          localizedSources.push(keptOutcome(`localized-source:${entity.id}`, unitPath));
+          // The page a run of yesterday wrote: told as this run's unit too, so the count against the total reaches its end.
+          const kept = keptOutcome(`localized-source:${entity.id}`, unitPath);
+          options.onUnitStart?.({ unit: kept.unit, path: unitPath });
+          options.onUnit?.(kept);
+          localizedSources.push(kept);
           continue;
         }
       }
@@ -753,26 +766,26 @@ export async function runWriter(options: WriterOptions): Promise<WriterReport> {
     }
   };
 
-  // How many pages this run means to write, told before its first unit (madarch-m38l.23). The plan the code read
-  // answers is smaller than this count: a domain the new product page declares and a passage's page are pages the
-  // plan cannot name before the run writes the page that names them.
+  // How many pages this run means to write (madarch-m38l.23): counted from the work the run will take up, once the
+  // product page has declared its domains — never grown after it, so the bar a reader watches never moves backward.
+  // Every page counted here is a unit the run announces, written or kept: a passage in the pages' own language writes
+  // no page at all and is not counted; a translation and a unit of an earlier run are kept and told as pages.
   const pageEntities = options.documentEntities ?? [];
+  /** The passages the enrichment kinds write a page for, as the kinds' loops take them up. */
+  const enrichmentEntities = (): readonly DocEntity[] => pageEntities.filter((entity) => (entity.pass === 'classifier' && entity.semantics === 'other') || entity.semantics === 'rule' || entity.semantics === 'decision' || entity.semantics === 'scenario');
   const intendedPages = (domainDeclarations: number): number => {
     let total = 1; // the product page is always a unit: written, or kept as it stands
     total += domainDeclarations;
-    total += localizedEntities.length;
+    total += localizedEntities.filter((entity) => detectDocumentLanguage(entity.text) !== language).length;
     if (options.guides !== undefined) total += 2;
-    if (declaresKind('enrichment')) {
-      total += pageEntities.filter((entity) => entity.pass === 'classifier' && entity.semantics === 'other').length;
-      total += pageEntities.filter((entity) => entity.semantics === 'rule' || entity.semantics === 'decision').length;
-      total += pageEntities.filter((entity) => entity.semantics === 'scenario').length;
-    }
+    if (declaresKind('enrichment')) total += enrichmentEntities().length;
     if (declaresKind('validation')) total += 1;
     if (declaresKind('overview')) total += 1;
+    // The editorial page stands on what the run read and on the pages it wrote: a run with no passage enriched and no
+    // product page has no such page, exactly as the kind's own case decides before it runs.
+    if (pageKindGate('editorial') === undefined && declaresKind('enrichment') && enrichmentEntities().length > 0) total += 1;
     return total;
   };
-  let intended = intendedPages(existingProduct === null ? 0 : (await declaredNow().catch(() => [])).length);
-  options.onTotal?.(intended);
 
   for (const [position, kind] of order.entries()) {
     const missing = absent(kind);
@@ -840,9 +853,11 @@ export async function runWriter(options: WriterOptions): Promise<WriterReport> {
         const brief = need.product ? briefFor(productUnit.id, PRODUCT_PATH, existingProduct) : undefined;
         if (need.product) expect(productUnit.id, brief);
         if (!need.product) {
-          // The page is there and stays: its domains are the pages it links, as those pages say.
+          // The page is there and stays: its domains are the pages it links, as those pages say. It is told as a unit of
+          // this run like any other, so the reader counts it against the total and its row is there from the start.
           declarations = await declaredNow();
           product = { ...keptOutcome(productUnit.id, PRODUCT_PATH), domains: [...declarations] };
+          options.onUnitStart?.({ unit: product.unit, path: PRODUCT_PATH });
           options.onUnit?.(product);
           runs.push({ unit: productUnit.id, kind, path: PRODUCT_PATH, status: 'kept', reason: 'the page is there and this run was not asked to write it again' });
         } else {
@@ -859,7 +874,10 @@ export async function runWriter(options: WriterOptions): Promise<WriterReport> {
             },
           });
           runs.push(run.run);
-          product = run.outcome ?? { ...keptOutcome(productUnit.id, PRODUCT_PATH), domains: await declaredNow() };
+          // A product page this run kept still declares its domains: they are the pages it links, as those pages say.
+          product = run.run.status === 'kept' || run.outcome === undefined
+            ? { ...(run.outcome ?? keptOutcome(productUnit.id, PRODUCT_PATH)), domains: await declaredNow() }
+            : run.outcome;
           declarations = product.domains;
           finish(productUnit.id, product);
         }
@@ -872,9 +890,9 @@ export async function runWriter(options: WriterOptions): Promise<WriterReport> {
           await rememberPage('product-page', kind, productUnit.id, PRODUCT_PATH, options.productName);
           note('domain-declarations', { kind, unit: productUnit.id, path: PRODUCT_PATH, title: options.productName });
         }
-        // The domains the page declares are known only now: the count the reader watches grows by the pages it named.
-        const declared = intendedPages(declarations.length);
-        if (declared > intended) { intended = declared; options.onTotal?.(intended); }
+        // The domains the page declares are known only now, so the count is told once, here: before this the reader sees
+        // how many pages stand and no denominator, and from here the denominator is the run's whole plan.
+        options.onTotal?.(intendedPages(declarations.length));
         kinds.push({ kind, position, state: 'ran', units: runs });
         break;
       }
@@ -948,6 +966,7 @@ export async function runWriter(options: WriterOptions): Promise<WriterReport> {
           if (!need.domain(page)) {
             // The page is there and stays: the unit does not run, and it is told as a kept page.
             const kept = keptOutcome(`domain:${declaration.slug}`, page);
+            options.onUnitStart?.({ unit: kept.unit, path: page });
             options.onUnit?.(kept);
             domainOutcomes.push(kept);
             runs.push({ unit: kept.unit, kind, path: page, status: 'kept', reason: 'the page is there and this run was not asked to write it again' });

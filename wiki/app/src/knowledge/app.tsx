@@ -5,7 +5,7 @@
  * page of its own: an empty product says what to do, and a fill that runs while
  * the page is open is read again as each commit lands.
  */
-import { useEffect, useMemo, useState, type ReactElement, type ReactNode } from 'react';
+import { useEffect, useMemo, useRef, useState, type ReactElement, type ReactNode } from 'react';
 import { useTranslation } from 'react-i18next';
 import * as DropdownMenuPrimitive from '@radix-ui/react-dropdown-menu';
 import { AlertTriangleIcon, BookOpenIcon, CheckIcon, ChevronDownIcon, ChevronRightIcon, FolderGit2Icon, GlobeIcon, HelpCircleIcon, HomeIcon, LayoutGridIcon, MenuIcon, SettingsIcon, XIcon } from 'lucide-react';
@@ -289,6 +289,52 @@ export function FillMenu({ status, refresh }: { status: WikiStatus; refresh: () 
   const [starting, setStarting] = useState(false);
   const [refused, setRefused] = useState<string | null>(null);
   const [pagesLanguage, setPagesLanguage] = useState<string | null>(null);
+  // The badge's panel is a plain dialog in the toolbar, not a menu with a portal of its own: a badge is a button, and
+  // what it opens is reached by the keyboard (madarch-m38l.23) — Tab from the badge opens it and moves into it, Escape
+  // closes it and puts focus back on the badge. Its height is what the window leaves beside the badge, and the words
+  // that do not fit scroll inside it instead of reaching past the bottom of the window.
+  const chip = useRef<HTMLButtonElement | null>(null);
+  const panel = useRef<HTMLDivElement | null>(null);
+  const wrap = useRef<HTMLDivElement | null>(null);
+  const focusPanel = useRef(false);
+  const [open, setOpen] = useState(false);
+  // Where the panel stands, measured off the badge when it opens: beside the badge and never past the window's edge, and
+  // never taller than the window leaves on that side, so a short window gets a short panel whose words scroll.
+  const [place, setPlace] = useState<{ top: number | null; bottom: number | null; right: number; maxHeight: number }>({ top: null, bottom: null, right: 8, maxHeight: 320 });
+  const openPanel = (): void => {
+    const rect = chip.current?.getBoundingClientRect();
+    if (rect !== undefined) {
+      const below = window.innerHeight - rect.bottom - 12;
+      const over = rect.top - 12;
+      const up = below < 160 && over > below;
+      setPlace({
+        top: up ? null : rect.bottom + 7,
+        bottom: up ? window.innerHeight - rect.top + 7 : null,
+        right: Math.max(8, window.innerWidth - rect.right),
+        maxHeight: Math.max(0, Math.min(320, up ? over : below)),
+      });
+    }
+    setOpen(true);
+    focusPanel.current = true;
+  };
+  // The first thing the panel offers takes focus when it opens, so Tab from the badge lands on a real control.
+  useEffect(() => {
+    if (!open || !focusPanel.current) return;
+    focusPanel.current = false;
+    panel.current?.querySelector<HTMLElement>('a[href], button:not([disabled]), input:not([disabled])')?.focus();
+  }, [open]);
+  // A press anywhere else closes it, and so does tabbing out of it.
+  useEffect(() => {
+    if (!open) return undefined;
+    const outside = (event: Event): void => {
+      const target = event.target as Node | null;
+      if (target === null) return;
+      if (panel.current?.contains(target) === true || chip.current?.contains(target) === true) return;
+      setOpen(false);
+    };
+    document.addEventListener('pointerdown', outside, true);
+    return () => { document.removeEventListener('pointerdown', outside, true); };
+  }, [open]);
   const fill = status.fill;
   const writer = status.writer;
   const language = (i18n.resolvedLanguage ?? 'en').startsWith('ru') ? 'ru' : 'en';
@@ -331,23 +377,64 @@ export function FillMenu({ status, refresh }: { status: WikiStatus; refresh: () 
   // Below a phone's width the badge is the dot and the count on one line; its name and the popover keep the whole sentence.
   const compact = authoring && writer.units.length > 0;
   return (
-    <DropdownMenuPrimitive.Root>
-      <DropdownMenuPrimitive.Trigger asChild>
-        <button type="button" className={`fill-chip rounded-[var(--radius-row)] focus-visible:ring-2 focus-visible:ring-ink${compact ? ' fill-chip-writing' : ''}`} data-testid="fill-chip" aria-label={label} title={authoring ? label : t('knowledge.fillMenuTitle')}>
-          <Badge variant={solid ? 'solid' : 'outline'}>
-            {authoring && <span aria-hidden="true" className="mr-1.5 inline-block size-1.5 animate-pulse rounded-full bg-current align-middle motion-reduce:animate-none" data-testid="fill-chip-dot" />}
-            <span className="fill-chip-label">
-              {compact
-                ? <><span className="fill-chip-words">{t('knowledge.fillWriting')} · </span><span className="fill-chip-count">{count}</span></>
-                : label}
-            </span>
-          </Badge>
-        </button>
-      </DropdownMenuPrimitive.Trigger>
-      <DropdownMenuPrimitive.Portal>
-        <DropdownMenuPrimitive.Content align="end" sideOffset={7} className="language-menu fill-menu w-[min(26rem,92vw)] max-w-[calc(100vw-1rem)] overflow-hidden break-words" data-testid="fill-menu">
-          <DropdownMenuPrimitive.Label className="language-menu-label">{t('knowledge.fillMenuTitle')}</DropdownMenuPrimitive.Label>
-          <DropdownMenuPrimitive.Separator className="language-menu-separator" />
+    <div
+      // No box of its own: the badge stays the toolbar's flex item it always was, so the one row keeps its width at a
+      // phone's width, and the panel is placed against the window rather than against this wrapper.
+      className="contents"
+      ref={wrap}
+      onKeyDown={(event) => {
+        // Escape gives the badge back its focus, wherever in the panel it was pressed.
+        if (event.key !== 'Escape' || !open) return;
+        event.stopPropagation();
+        setOpen(false);
+        chip.current?.focus();
+      }}
+      onBlur={(event) => {
+        const next = event.relatedTarget as Node | null;
+        if (!open || next === null || wrap.current?.contains(next) === true) return;
+        setOpen(false);
+      }}
+    >
+      <button
+        ref={chip}
+        type="button"
+        className={`fill-chip rounded-[var(--radius-row)] focus-visible:ring-2 focus-visible:ring-ink${compact ? ' fill-chip-writing' : ''}`}
+        data-testid="fill-chip"
+        aria-label={label}
+        aria-haspopup="dialog"
+        aria-expanded={open}
+        aria-controls="fill-menu-panel"
+        title={authoring ? label : t('knowledge.fillMenuTitle')}
+        onClick={() => { if (open) setOpen(false); else openPanel(); }}
+        onKeyDown={(event) => {
+          // Tab from the closed badge opens the panel and lands on its first control; it never swallows a Tab elsewhere.
+          if (open || event.shiftKey || (event.key !== 'Tab' && event.key !== 'ArrowDown')) return;
+          event.preventDefault();
+          openPanel();
+        }}
+      >
+        <Badge variant={solid ? 'solid' : 'outline'}>
+          {authoring && <span aria-hidden="true" className="mr-1.5 inline-block size-1.5 animate-pulse rounded-full bg-current align-middle motion-reduce:animate-none" data-testid="fill-chip-dot" />}
+          <span className="fill-chip-label">
+            {compact
+              ? <><span className="fill-chip-words">{t('knowledge.fillWriting')} · </span><span className="fill-chip-count">{count}</span></>
+              : label}
+          </span>
+        </Badge>
+      </button>
+      {open && (
+        <div
+          ref={panel}
+          id="fill-menu-panel"
+          role="dialog"
+          aria-label={t('knowledge.fillMenuTitle')}
+          data-testid="fill-menu"
+          data-state="open"
+          style={{ position: 'fixed', top: place.top ?? undefined, bottom: place.bottom ?? undefined, right: place.right, maxHeight: place.maxHeight }}
+          className="language-menu fill-menu z-50 w-[min(26rem,92vw)] max-w-[calc(100vw-1rem)] overflow-y-auto overflow-x-hidden overscroll-contain break-words"
+        >
+          <div className="language-menu-label" id="fill-menu-title">{t('knowledge.fillMenuTitle')}</div>
+          <div className="language-menu-separator" role="separator" />
           {authoring && (
             // While the agent writes: the whole sentence and what is being written now, and the way to the fill page
             // (never the paths: the menu is anchored to the top bar and must stay inside a narrow viewport).
@@ -377,9 +464,9 @@ export function FillMenu({ status, refresh }: { status: WikiStatus; refresh: () 
             )}
             {refused !== null && <p className="mb-0 mt-0 text-small" role="alert" data-testid="fill-menu-refused">{refused}</p>}
           </div>
-        </DropdownMenuPrimitive.Content>
-      </DropdownMenuPrimitive.Portal>
-    </DropdownMenuPrimitive.Root>
+        </div>
+      )}
+    </div>
   );
 }
 

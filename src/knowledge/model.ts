@@ -376,6 +376,8 @@ export interface WriterUnit {
   calls?: number;
   /** Why the unit's last write was refused, or why the agent failed: the file's line and rule, in words. */
   refusals?: { line: number; rule: string; message: string }[];
+  /** Whether a journal of this machine holds this page: the fill page links to one only where it does (madarch-m38l.23). */
+  journal?: boolean;
 }
 
 /** The agent stage that continues the fill: the chosen agent, the units and where they stand. */

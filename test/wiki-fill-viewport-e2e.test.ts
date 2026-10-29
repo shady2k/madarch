@@ -268,8 +268,10 @@ runDescribe('the fill a reader meets', () => {
     await page.waitForSelector('[data-testid=fill-menu]', { timeout: 5000 });
     // One badge opens one popover: one menu in the document, and no second floating panel over the page.
     expect(await page.$$eval('[data-testid=fill-menu]', (elements) => elements.length)).toBe(1);
-    expect(await page.$$eval('[role=menu]', (elements) => elements.length)).toBe(1);
-    expect(await page.$$eval('[data-radix-popper-content-wrapper]', (elements) => elements.length)).toBe(1);
+    // A button that opens a dialog of its own: no menu and no floating panel of a library over the page.
+    expect(await page.$$eval('[role=menu]', (elements) => elements.length)).toBe(0);
+    expect(await page.$$eval('[role=dialog]', (elements) => elements.length)).toBe(1);
+    expect(await page.$$eval('[data-radix-popper-content-wrapper]', (elements) => elements.length)).toBe(0);
     // It is opaque, and settled before a reader reads it: its words never stand over the page's words.
     await page.waitForFunction(() => {
       const menu = document.querySelector('[data-testid=fill-menu]');
@@ -327,6 +329,26 @@ runDescribe('the fill a reader meets', () => {
     // Nothing on the page scrolls sideways because of the popover.
     expect(await page.evaluate(() => document.documentElement.scrollWidth)).toBeLessThanOrEqual(WIDTH);
     await captureScreen('during-390-popover-light.png');
+    // A window with no room under the badge: the panel takes what is left of the window and scrolls its words inside
+    // itself, never reaching past the bottom of the window (madarch-m38l.23).
+    await page.setViewport({ width: WIDTH, height: 240 });
+    await page.reload({ waitUntil: 'domcontentloaded' });
+    await page.waitForSelector('[data-testid=fill-chip]', { timeout: 20000 });
+    await clickAt('[data-testid=fill-chip]');
+    await page.waitForSelector('[data-testid=fill-menu]', { timeout: 5000 });
+    const short = await page.$eval('[data-testid=fill-menu]', (element) => {
+      const rect = element.getBoundingClientRect();
+      const chip = document.querySelector('[data-testid=fill-chip]')!.getBoundingClientRect();
+      return { top: rect.top, bottom: rect.bottom, height: rect.height, clientHeight: element.clientHeight, scrollHeight: element.scrollHeight, overflowY: getComputedStyle(element).overflowY, maxHeight: getComputedStyle(element).maxHeight, chipBottom: chip.bottom, chipTop: chip.top, viewport: window.innerHeight };
+    });
+    expect(short.bottom).toBeLessThanOrEqual(240);
+    expect(short.top).toBeGreaterThanOrEqual(0);
+    // Its height is what the window leaves below the badge, and the words that do not fit scroll inside it.
+    expect(short.overflowY).toBe('auto');
+    expect(parseFloat(short.maxHeight)).toBeLessThanOrEqual(240 - short.chipBottom - 11);
+    expect(short.scrollHeight).toBeGreaterThan(short.clientHeight);
+    await captureScreen('during-390-short-window-light.png');
+    await page.setViewport(NARROW);
     await page.emulateMediaFeatures([{ name: 'prefers-color-scheme', value: 'dark' }]);
     await page.reload({ waitUntil: 'domcontentloaded' });
     await page.waitForSelector('[data-testid=fill-chip]', { timeout: 20000 });
@@ -426,5 +448,44 @@ runDescribe('the fill a reader meets', () => {
     await page.emulateMediaFeatures([{ name: 'prefers-color-scheme', value: 'light' }]);
     await open('/products/tiny/k');
     expect(await page.$('[data-testid=writer-line]')).toBeNull();
+  }, 120_000);
+
+  test('the badge opens its panel from the keyboard, Tab walks into it, and Escape gives the badge its focus back', async () => {
+    await page.setViewport(WIDE);
+    await open('/products/tiny/k');
+    await page.waitForSelector('[data-testid=fill-chip]', { timeout: 20000 });
+    // A badge is a button that says what it opens: a dialog, not a menu with a floating panel of its own.
+    expect(await page.$eval('[data-testid=fill-chip]', (element) => ({ haspopup: element.getAttribute('aria-haspopup'), expanded: element.getAttribute('aria-expanded') }))).toEqual({ haspopup: 'dialog', expanded: 'false' });
+    expect(await page.$('[data-testid=fill-menu]')).toBeNull();
+    expect(await page.$$eval('[data-radix-popper-content-wrapper]', (elements) => elements.length)).toBe(0);
+    // Tab on the badge opens the panel and moves into it, onto the way to the fill page.
+    await page.focus('[data-testid=fill-chip]');
+    await page.keyboard.press('Tab');
+    await page.waitForSelector('[data-testid=fill-menu]', { timeout: 5000 });
+    const opened = await page.evaluate(() => {
+      const panel = document.querySelector('[data-testid=fill-menu]');
+      const chip = document.querySelector('[data-testid=fill-chip]');
+      const active = document.activeElement;
+      return {
+        role: panel?.getAttribute('role') ?? null,
+        dialogs: document.querySelectorAll('[role=dialog]').length,
+        menus: document.querySelectorAll('[role=menu]').length,
+        expanded: chip?.getAttribute('aria-expanded') ?? null,
+        controls: chip?.getAttribute('aria-controls') ?? null,
+        inside: panel !== null && panel.contains(active),
+        focus: active?.getAttribute('data-testid') ?? active?.tagName ?? null,
+        inPanel: active?.closest('[role=dialog]')?.id ?? null,
+      };
+    });
+    expect(opened).toEqual({ role: 'dialog', dialogs: 1, menus: 0, expanded: 'true', controls: 'fill-menu-panel', inside: true, focus: 'fill-menu-open', inPanel: 'fill-menu-panel' });
+    // The languages come next, reachable by the same Tab, and they are offered: nothing runs, so both can be chosen.
+    await page.keyboard.press('Tab');
+    expect(await page.evaluate(() => { const active = document.activeElement as HTMLInputElement | null; return `${active?.tagName}:${active?.type}:${active?.getAttribute('name')}`; })).toBe('INPUT:radio:menu-content-language');
+    expect(await page.$$eval('[data-testid=menu-language] input', (elements) => (elements as HTMLInputElement[]).map((element) => element.disabled))).toEqual([false, false]);
+    await captureScreen('keyboard-popover-1150-light.png');
+    // Escape shuts the panel and puts the focus back on the badge, where the reader left it.
+    await page.keyboard.press('Escape');
+    await page.waitForFunction(() => document.querySelector('[data-testid=fill-menu]') === null, { timeout: 5000 });
+    expect(await page.evaluate(() => document.activeElement?.getAttribute('data-testid'))).toBe('fill-chip');
   }, 120_000);
 });

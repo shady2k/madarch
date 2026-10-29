@@ -395,12 +395,31 @@ describe('the agent stage', () => {
     expect(container.querySelector('[data-testid=writer-line-words]')!.textContent).toBe('Claude Code is writing the pages: 1 written; now domain:ordering.');
   });
 
+  test('a page the wiki keeps no journal for has no journal link, though it was written', async () => {
+    const writer: WikiStatus['writer'] = {
+      state: 'running', agent: { id: 'claude-code', label: 'Claude Code' }, current: 'domain:ordering', startedAt: '2026-10-23T12:31:00.000Z', total: 3,
+      units: [
+        { unit: 'product:shop', path: 'docs/product.md', state: 'written', calls: 6, writeAttempts: 1, kind: 'product', title: 'Online shop', page: 'product:shop', journal: true },
+        { unit: 'domain:ordering', path: 'docs/domains/ordering.md', state: 'written', calls: 4, writeAttempts: 1, kind: 'domain', title: 'Ordering', page: 'domain:ordering', journal: false },
+        { unit: 'domain:payments', path: 'docs/domains/payments.md', state: 'written', calls: 3, writeAttempts: 1, kind: 'domain', title: 'Payments', page: 'domain:payments' },
+      ],
+    };
+    stubFetch([]);
+    const kinds: WikiStatus['kinds'] = [{ kind: 'product', source: 'markdown', count: 1, single: true, origins: [] }, { kind: 'domain', source: 'markdown', count: 3, single: false, origins: [], labels: { en: { one: 'Domain', many: 'Domains' } } }];
+    const container = into(createElement(FillPage, { status: status({ filled: true, fill: { state: 'done' }, home: 'product:shop', kinds, writer }), refresh: () => undefined }));
+    await until(() => container.querySelector('[data-testid=fill-units]') !== null, 'the fill page');
+    const units = [...container.querySelectorAll('[data-testid=fill-unit]')];
+    // The server says which pages have a journal; the page shows the way only to the one that does.
+    expect(units.map((unit) => unit.querySelector('[data-testid=fill-unit-journal]') === null)).toEqual([false, true, true]);
+    expect(units[0]!.querySelector('[data-testid=fill-unit-journal]')!.getAttribute('href')).toBe('/k/journal?id=product%3Ashop');
+  });
+
   test('the fill page lists each page the agent takes up by its kind and title, its state, its links and the refusals, with the paths for the engineer', async () => {
     const writer: WikiStatus['writer'] = {
       state: 'running', agent: { id: 'claude-code', label: 'Claude Code' }, current: 'domain:ordering', startedAt: '2026-10-23T12:31:00.000Z', total: 5,
       plan: { languageChanged: false, pages: [{ id: 'domain:ordering', path: 'docs/domains/ordering.md', reasons: [] }], unchanged: [], unplaced: [], problems: [] },
       units: [
-        { unit: 'product:shop', path: 'docs/product.md', state: 'written', calls: 6, writeAttempts: 1, kind: 'product', title: 'Online shop', page: 'product:shop' },
+        { unit: 'product:shop', path: 'docs/product.md', state: 'written', calls: 6, writeAttempts: 1, kind: 'product', title: 'Online shop', page: 'product:shop', journal: true },
         { unit: 'domain:ordering', path: 'docs/domains/ordering.md', state: 'writing', kind: 'domain', title: 'Ordering' },
         { unit: 'domain:payments', path: 'docs/domains/payments.md', state: 'failed', calls: 9, writeAttempts: 5, kind: 'domain', title: 'Payments', refusals: [{ line: 12, rule: 'ungrounded-statement', message: 'the sentence has no footnote' }] },
       ],
@@ -419,7 +438,7 @@ describe('the agent stage', () => {
     ]);
     // The reader's names: the kind's name from the manifest and the page's title.
     expect(units.map((unit) => unit.querySelector('[data-testid=fill-unit-page], [data-testid=fill-unit-name]')!.textContent)).toEqual(['Product Online shop', 'Domain Ordering', 'Domain Payments']);
-    // The written page is a link, and so is its journal; a page not written yet has neither.
+    // The written page is a link, and so is its journal where the wiki holds one; a page not written yet has neither.
     expect(units[0]!.querySelector('[data-testid=fill-unit-page]')!.getAttribute('href')).toBe('/k/e/product%3Ashop');
     expect(units[0]!.querySelector('[data-testid=fill-unit-journal]')!.getAttribute('href')).toBe('/k/journal?id=product%3Ashop');
     expect(units[1]!.querySelector('[data-testid=fill-unit-journal]')).toBeNull();
@@ -731,5 +750,87 @@ describe('the sync button', () => {
     expect(note.querySelector('[data-testid=failure-detail]')!.textContent).toContain('the fill worker ended with exit code 2');
     expect(container.querySelector('[data-testid=sync-changed]')).toBeNull();
     expect(container.querySelector('[data-testid=sync-nothing]')).toBeNull();
+  });
+});
+
+describe('the badge and the panel it opens', () => {
+  const status = (over: Partial<WikiStatus> = {}): WikiStatus => ({
+    product: { name: 'shop', id: 'x' }, manifest: 'ok', manifestFile: 'madarch/kinds.yaml', language: 'en', seeded: [], findings: [], kinds: [], groups: [], repositories: [{ name: 'training', filled: true }], filled: true, incomplete: false, fill: { state: 'done' }, writer: { state: 'done', agent: { id: 'claude-code', label: 'Claude Code' }, units: [{ unit: 'product:shop', path: 'docs/product.md', state: 'written', calls: 6, writeAttempts: 1, kind: 'product', title: 'Online shop', page: 'product:shop', journal: true }] }, bounds: { turns: 30, minutes: 10, toolCalls: 80, writeAttempts: 5, maxDomains: 12 }, chosenAgent: { id: 'claude-code', label: 'Claude Code' }, home: 'product:shop', ...over,
+  });
+  const running = (): WikiStatus => status({
+    writer: {
+      state: 'running', agent: { id: 'claude-code', label: 'Claude Code' }, current: 'domain:ordering', total: 5,
+      units: [
+        { unit: 'product:shop', path: 'docs/product.md', state: 'written', calls: 6, writeAttempts: 1, kind: 'product', title: 'Online shop', page: 'product:shop', journal: true },
+        { unit: 'domain:ordering', path: 'docs/domains/ordering.md', state: 'writing', kind: 'domain', title: 'Ordering' },
+      ],
+    },
+  });
+
+  test('Tab on the badge opens the panel and moves into it; Escape shuts it and gives the badge its focus back', async () => {
+    stubFetch([]);
+    const container = into(createElement(FillMenu, { status: status(), refresh: () => undefined }));
+    await until(() => container.querySelector('[data-testid=fill-chip]') !== null, 'the badge');
+    const chip = container.querySelector('[data-testid=fill-chip]') as HTMLElement;
+    expect(chip.getAttribute('aria-haspopup')).toBe('dialog');
+    expect(chip.getAttribute('aria-expanded')).toBe('false');
+    expect(container.querySelector('[data-testid=fill-menu]')).toBeNull();
+    chip.focus();
+    chip.dispatchEvent(new KeyboardEvent('keydown', { key: 'Tab', bubbles: true, cancelable: true }));
+    await until(() => container.querySelector('[data-testid=fill-menu]') !== null, 'the panel');
+    const panel = container.querySelector('[data-testid=fill-menu]') as HTMLElement;
+    expect(panel.getAttribute('role')).toBe('dialog');
+    expect(chip.getAttribute('aria-expanded')).toBe('true');
+    expect(chip.getAttribute('aria-controls')).toBe(panel.id);
+    // The focus went in, on the way to the fill page — the panel's first control; the languages come after it.
+    await until(() => panel.contains(document.activeElement), 'the focus inside the panel');
+    expect(document.activeElement).toBe(panel.querySelector('[data-testid=fill-menu-open]') as HTMLElement);
+    const controls = [...panel.querySelectorAll<HTMLElement>('a[href], button:not([disabled]), input:not([disabled])')].map((element) => element.getAttribute('data-testid') ?? `${element.getAttribute('type')}:${element.getAttribute('name')}`);
+    expect(controls).toEqual(['fill-menu-open', 'radio:menu-content-language', 'radio:menu-content-language']);
+    // The languages are reachable and offered: both radios are enabled with nothing running.
+    expect([...panel.querySelectorAll<HTMLInputElement>('[data-testid=menu-language] input')].map((radio) => radio.disabled)).toEqual([false, false]);
+    panel.dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape', bubbles: true, cancelable: true }));
+    await until(() => container.querySelector('[data-testid=fill-menu]') === null, 'the panel to close');
+    expect(document.activeElement).toBe(chip);
+    expect(chip.getAttribute('aria-expanded')).toBe('false');
+  });
+
+  test('the panel is no taller than the window leaves, opens above a badge near the bottom, and scrolls its words', async () => {
+    stubFetch([]);
+    const height = Object.getOwnPropertyDescriptor(window, 'innerHeight');
+    Object.defineProperty(window, 'innerHeight', { value: 400, configurable: true });
+    try {
+      const container = into(createElement(FillMenu, { status: running(), refresh: () => undefined }));
+      await until(() => container.querySelector('[data-testid=fill-chip]') !== null, 'the badge');
+      const chip = container.querySelector('[data-testid=fill-chip]') as HTMLElement;
+      const at = (top: number, bottom: number): DOMRect => ({ top, bottom, left: 100, right: 300, width: 200, height: bottom - top, x: 100, y: top, toJSON: () => ({}) }) as DOMRect;
+      chip.getBoundingClientRect = () => at(60, 84);
+      chip.click();
+      await until(() => container.querySelector('[data-testid=fill-menu]') !== null, 'the panel');
+      let panel = container.querySelector('[data-testid=fill-menu]') as HTMLElement;
+      // What the window leaves below the badge, less a margin: 400 - 84 - 12.
+      expect(panel.style.maxHeight).toBe('304px');
+      // It hangs from the badge's lower edge, its right edge on the badge's, and it stays where the window scrolls.
+      expect(panel.style.position).toBe('fixed');
+      expect(panel.style.top).toBe('91px');
+      expect(panel.style.bottom).toBe('');
+      expect(panel.style.right).toBe(`${window.innerWidth - 300}px`);
+      expect(panel.className).toContain('overflow-y-auto');
+      // The languages are spent while the run is under way.
+      expect([...panel.querySelectorAll<HTMLInputElement>('[data-testid=menu-language] input')].map((radio) => radio.disabled)).toEqual([true, true]);
+      panel.dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape', bubbles: true, cancelable: true }));
+      await until(() => container.querySelector('[data-testid=fill-menu]') === null, 'the panel to close');
+      // A badge near the bottom of a short window opens its panel upward, and the panel takes the room above it.
+      chip.getBoundingClientRect = () => at(300, 380);
+      chip.click();
+      await until(() => container.querySelector('[data-testid=fill-menu]') !== null, 'the panel above');
+      panel = container.querySelector('[data-testid=fill-menu]') as HTMLElement;
+      expect(panel.style.top).toBe('');
+      expect(panel.style.bottom).toBe(`${400 - 300 + 7}px`);
+      expect(panel.style.maxHeight).toBe('288px');
+    } finally {
+      if (height === undefined) delete (window as unknown as { innerHeight?: number }).innerHeight;
+      else Object.defineProperty(window, 'innerHeight', height);
+    }
   });
 });
