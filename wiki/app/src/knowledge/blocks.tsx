@@ -374,7 +374,7 @@ function Calls({ block }: { block: Extract<Block, { type: 'callers' | 'callees' 
     return (
       <section data-block={block.type} aria-label={block.title}>
         <h2>{block.title}</h2>
-        <p className="text-small text-muted" data-testid={`${block.type}-empty`}>{t('knowledge.none')}</p>
+        <p className="text-small text-muted" data-testid={`${block.type}-empty`}>{block.emptyNote ?? t('knowledge.none')}</p>
       </section>
     );
   }
@@ -490,12 +490,44 @@ function Properties({ block }: { block: Extract<Block, { type: 'properties' }> }
         <TableBody>
           {block.rows.map((row) => (
             <TableRow key={row.name}>
-              <TableCell className="whitespace-nowrap align-top font-mono text-[0.875em] text-secondary">{row.nameKey === undefined ? row.name : t(`knowledge.property.${row.nameKey}`)}</TableCell>
-              <TableCell className="max-w-[40rem] break-words">{row.valueKind === 'date' ? when(row.value, i18n.language) : row.value}</TableCell>
+              <TableCell className="whitespace-nowrap align-top font-mono text-[0.875em] text-secondary">{row.label ?? (row.nameKey === undefined ? row.name : t(`knowledge.property.${row.nameKey}`))}</TableCell>
+              <TableCell className="max-w-[40rem] break-words">{row.valueKind === 'date' ? when(row.value, i18n.language) : row.valueKind === 'code' ? <code>{row.value}</code> : row.value}</TableCell>
             </TableRow>
           ))}
         </TableBody>
       </Table>
+    </section>
+  );
+}
+
+function Members({ block }: { block: Extract<Block, { type: 'members' }> }): ReactElement | null {
+  const { t } = useTranslation();
+  if (block.rows.length === 0) return null;
+  return (
+    <section data-block="members" aria-label={block.title}>
+      <h2>{block.title}</h2>
+      <div className="flex flex-col gap-6">
+        {block.rows.map((row) => (
+          <div key={row.entity.id} id={row.anchor} data-member={row.entity.id} className="scroll-mt-24">
+            <h3 className="mb-2 text-large"><EntityName entity={row.entity} /></h3>
+            {row.values.length > 0 && (
+              <Table>
+                <TableBody>
+                  {row.values.map((value) => (
+                    <TableRow key={value.name}>
+                      <TableCell className="w-1/3 whitespace-nowrap align-top text-secondary">{value.label ?? value.name}</TableCell>
+                      <TableCell className="break-words">{value.valueKind === 'date' ? value.value : value.value}</TableCell>
+                    </TableRow>
+                  ))}
+                </TableBody>
+              </Table>
+            )}
+            {row.readers.length > 0 && <p className="mt-2 text-small"><span className="text-muted">{t('knowledge.memberReaders')}: </span>{row.readers.map((entity, at) => <span key={entity.id}>{at > 0 && ', '}<EntityName entity={entity} /></span>)}</p>}
+            {row.writers.length > 0 && <p className="mt-1 text-small"><span className="text-muted">{t('knowledge.memberWriters')}: </span>{row.writers.map((entity, at) => <span key={entity.id}>{at > 0 && ', '}<EntityName entity={entity} /></span>)}</p>}
+          </div>
+        ))}
+      </div>
+      {block.total > block.rows.length && <p className="mt-2 text-small text-muted" data-testid="members-cut">{t('knowledge.showing', { shown: block.rows.length, total: block.total })}</p>}
     </section>
   );
 }
@@ -670,6 +702,7 @@ export function BlockView({ block, resolutions, pageId }: { block: Block; resolu
     case 'body': return <Body block={block} resolutions={resolutions} {...(pageId === undefined ? {} : { pageId })} />;
     case 'refs': return <Refs block={block} />;
     case 'properties': return <Properties block={block} />;
+    case 'members': return <Members block={block} />;
     case 'stated': return <Stated block={block} />;
     case 'related': return <Related block={block} />;
     case 'callers':

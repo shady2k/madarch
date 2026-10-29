@@ -82,7 +82,7 @@ them, as label.
 {% block lead %}# {{ page.title }}{% endblock %}
 `,
   'service.liquid': `{% layout "./entity.liquid" %}
-{% block lead %}{% if page.language %}A {{ page.language }} service.{% endif %}{% if page.frameworks %} Frameworks: {{ page.frameworks }}.{% endif %}{% if page.infrastructure %} Infrastructure: {{ page.infrastructure }}.{% endif %}{% if page.testFramework %} Tests: {{ page.testFramework }}.{% endif %}{% endblock %}
+{% block lead %}{% if lang == "ru" %}{% if page.language %}Сервис на \`{{ page.language }}\`.{% endif %}{% if page.frameworks %} Фреймворки: \`{{ page.frameworks }}\`.{% endif %}{% if page.infrastructure %} Инфраструктура: \`{{ page.infrastructure }}\`.{% endif %}{% if page.testFramework %} Тесты: \`{{ page.testFramework }}\`.{% endif %}{% else %}{% if page.language %}A \`{{ page.language }}\` service.{% endif %}{% if page.frameworks %} Frameworks: \`{{ page.frameworks }}\`.{% endif %}{% if page.infrastructure %} Infrastructure: \`{{ page.infrastructure }}\`.{% endif %}{% if page.testFramework %} Tests: \`{{ page.testFramework }}\`.{% endif %}{% endif %}{% endblock %}
 {% block around %}{% render "./partials/around.liquid", title="Around this service", title_ru="Вокруг этого сервиса" %}{% endblock %}
 {% block parts %}{% modules title="Components and state machines" title-ru="Компоненты и конечные автоматы" %}
 {% treemap title="Files by size and change" title-ru="Файлы по размеру и изменчивости" %}
@@ -112,19 +112,22 @@ them, as label.
 {% block describedby %}{% render "./partials/pages-about.liquid", title="Pages about this module", title_ru="Страницы об этом модуле" %}{% endblock %}
 `,
   'file.liquid': `{% layout "./entity.liquid" %}
-{% block lead %}{{ page.path }}{% endblock %}
+{% block lead %}\`{{ page.path }}\`{% endblock %}
+{% block details %}{% properties title="Details" title-ru="Сведения" %}{% endblock %}
 {% block around %}{% render "./partials/around.liquid", title="Around this file", title_ru="Вокруг этого файла" %}{% endblock %}
 {% block source %}{% render "./partials/source.liquid", title="Source", title_ru="Исходный текст" %}{% endblock %}
 {% block parts %}{% history title="Change history" title-ru="История изменений" %}
+{% members title="What the code readers found" title-ru="Что нашли читатели кода" kind="code.facet" relation="code.facet-of" direction="in" %}
 {% modules title="State machines" title-ru="Конечные автоматы" %}
 {% related title="Declares" title-ru="Объявляет" relation="code.contains" direction="out" kind="code.symbol" limit=60 %}
-{% related title="Imports" title-ru="Импортирует" relation="code.imports" direction="out" %}
-{% related title="Imported by" title-ru="Импортируют" relation="code.imports" direction="in" %}
+{% related title="Imports" title-ru="Подключает" relation="code.imports" direction="out" %}
+{% related title="Imported by" title-ru="Кем подключается" relation="code.imports" direction="in" %}
 {% related title="Contained in" title-ru="Входит в" relation="code.contains" direction="in" %}{% endblock %}
 {% block describedby %}{% render "./partials/pages-about.liquid", title="Pages about this file", title_ru="Страницы об этом файле" %}{% endblock %}
 `,
   'symbol.liquid': `{% layout "./entity.liquid" %}
-{% block lead %}{% if page.symbolKind %}{{ page.symbolKind }} in {% endif %}{{ page.path }}{% endblock %}
+{% block lead %}{% if lang == "ru" %}{% case page.symbolKind %}{% when "function" %}Функция{% when "method" %}Метод{% when "class" %}Класс{% when "interface" %}Интерфейс{% when "type" %}Тип{% when "constant" %}Константа{% when "enum" %}Перечисление{% when "struct" %}Структура{% when "variable" %}Переменная{% else %}Символ{% endcase %} в \`{{ page.path }}\`{% else %}{% if page.symbolKind %}{{ page.symbolKind }} in \`{{ page.path }}\`{% else %}\`{{ page.path }}\`{% endif %}{% endif %}{% endblock %}
+{% block details %}{% properties title="Details" title-ru="Сведения" %}{% endblock %}
 {% block source %}{% render "./partials/source.liquid", title="Source", title_ru="Исходный текст" %}{% endblock %}
 {# A function's page reads as it did: what it calls and is called by, where it stands, the state machines of its code, then
    the chain a reader follows from it. #}
@@ -133,6 +136,7 @@ them, as label.
 {% block around %}{% render "./partials/around.liquid", title="Around this function", title_ru="Вокруг этой функции" %}{% endblock %}
 {% block chain %}{% modules title="State machines" title-ru="Конечные автоматы" %}
 {% sequence title="End-to-end chain" title-ru="Сквозная цепочка" scenario=page.label %}{% endblock %}
+{% block parts %}{% members title="Fields and properties" title-ru="Поля и свойства" kind="code.field" relation="code.contains" direction="out" readers="code.reads" writers="code.writes" %}{% endblock %}
 {% block relations %}{% related title="Tests and types" title-ru="Тесты и типы" relation="code.tests,code.implements,code.inherits" %}{% endblock %}
 {% block describedby %}{% render "./partials/pages-about.liquid", title="Pages about this function", title_ru="Страницы об этой функции" %}{% endblock %}
 `,
@@ -290,6 +294,230 @@ export const ROLES: readonly { name: string; lead: string[]; open: string[] }[] 
   { name: 'tester', lead: ['tests', 'product'], open: ['stated', 'implementedby', 'linkedfrom', 'related', 'properties', 'callers', 'children'] },
 ];
 
+export const PROPERTY_LABELS: Readonly<Record<string, { en: string; ru: string; format?: string }>> = {
+  language: { en: "Language", ru: "Язык", format: "text" },
+  frameworks: { en: "Frameworks", ru: "Фреймворки", format: "list" },
+  infrastructure: { en: "Infrastructure", ru: "Инфраструктура", format: "list" },
+  testFramework: { en: "Test framework", ru: "Тестовый фреймворк", format: "text" },
+  ecosystem: { en: "Ecosystem", ru: "Экосистема", format: "text" },
+  name: { en: "Name", ru: "Имя", format: "text" },
+  version: { en: "Version", ru: "Версия", format: "text" },
+  external: { en: "External", ru: "Внешняя", format: "boolean" },
+  hasTests: { en: "Has tests", ru: "Есть тесты", format: "boolean" },
+  sourceFiles: { en: "Source files", ru: "Исходные файлы", format: "number" },
+  testFiles: { en: "Test files", ru: "Тестовые файлы", format: "number" },
+  tests: { en: "Tests", ru: "Тесты", format: "list" },
+  versionStatus: { en: "Version status", ru: "Состояние версии", format: "text" },
+  standardLibrary: { en: "Standard library", ru: "Стандартная библиотека", format: "boolean" },
+  role: { en: "Role", ru: "Роль", format: "text" },
+  kind: { en: "Kind", ru: "Вид", format: "text" },
+  files: { en: "Files", ru: "Файлы", format: "number" },
+  parsedFiles: { en: "Parsed files", ru: "Разобранные файлы", format: "number" },
+  packageName: { en: "Package name", ru: "Имя пакета", format: "text" },
+  symbolKind: { en: "Symbol kind", ru: "Вид символа", format: "text" },
+  qualifiedName: { en: "Qualified name", ru: "Полное имя", format: "text" },
+  typeText: { en: "Type", ru: "Тип", format: "text" },
+  exported: { en: "Exported", ru: "Экспортируется", format: "boolean" },
+  abstract: { en: "Abstract", ru: "Абстрактный", format: "boolean" },
+  inline: { en: "Inline", ru: "Встроенный", format: "boolean" },
+  test: { en: "Test", ru: "Тест", format: "commands" },
+  deadExport: { en: "Unused export", ru: "Неиспользуемый экспорт", format: "boolean" },
+  entryPoint: { en: "Entry point", ru: "Точка входа", format: "text" },
+  entryPoints: { en: "Entry points", ru: "Точки входа", format: "list" },
+  file: { en: "File", ru: "Файл", format: "path" },
+  service: { en: "Service", ru: "Сервис", format: "text" },
+  symbol: { en: "Symbol", ru: "Символ", format: "text" },
+  starts: { en: "Starts", ru: "Запускает", format: "list" },
+  level: { en: "Level", ru: "Уровень", format: "text" },
+  size: { en: "Size", ru: "Размер", format: "number" },
+  marker: { en: "Marker", ru: "Маркер", format: "text" },
+  text: { en: "Text", ru: "Текст", format: "text" },
+  path: { en: "Path", ru: "Путь", format: "path" },
+  line: { en: "Line", ru: "Строка", format: "number" },
+  lines: { en: "Lines", ru: "Строк", format: "number" },
+  source: { en: "Source", ru: "Источник", format: "text" },
+  readBy: { en: "Read by", ru: "Читает", format: "text" },
+  function: { en: "Function", ru: "Функция", format: "text" },
+  callee: { en: "Callee", ru: "Вызываемый", format: "text" },
+  method: { en: "Method", ru: "Метод", format: "text" },
+  authGroup: { en: "Authentication group", ru: "Группа авторизации", format: "boolean" },
+  authAlgorithm: { en: "Authentication algorithm", ru: "Алгоритм авторизации", format: "text" },
+  handler: { en: "Handler", ru: "Обработчик", format: "text" },
+  handlerPath: { en: "Handler file", ru: "Файл обработчика", format: "path" },
+  operationId: { en: "Operation id", ru: "Идентификатор операции", format: "text" },
+  public: { en: "Public", ru: "Публичная", format: "boolean" },
+  package: { en: "Package", ru: "Пакет", format: "text" },
+  input: { en: "Input", ru: "Входные данные", format: "text" },
+  output: { en: "Output", ru: "Результат", format: "text" },
+  rpc: { en: "RPC", ru: "RPC", format: "text" },
+  servers: { en: "Servers", ru: "Серверы", format: "list" },
+  summary: { en: "Summary", ru: "Кратко", format: "text" },
+  format: { en: "Format", ru: "Формат", format: "text" },
+  specVersion: { en: "Specification version", ru: "Версия спецификации", format: "text" },
+  protocol: { en: "Protocol", ru: "Протокол", format: "text" },
+  contract: { en: "Contract", ru: "Контракт", format: "text" },
+  description: { en: "Description", ru: "Описание", format: "text" },
+  consumerStatus: { en: "Consumer status", ru: "Состояние потребителя", format: "text" },
+  consumerFound: { en: "Consumer found", ru: "Потребитель найден", format: "boolean" },
+  channel: { en: "Channel", ru: "Канал", format: "text" },
+  eventTypes: { en: "Event types", ru: "Типы событий", format: "list" },
+  database: { en: "Database", ru: "База данных", format: "text" },
+  schema: { en: "Schema", ru: "Схема", format: "text" },
+  evidenceKind: { en: "Evidence", ru: "Основание", format: "text" },
+  type: { en: "Type", ru: "Тип", format: "text" },
+  nullable: { en: "Nullable", ru: "Допускает NULL", format: "boolean" },
+  default: { en: "Default", ru: "Значение по умолчанию", format: "code" },
+  primaryKey: { en: "Primary key", ru: "Первичный ключ", format: "boolean" },
+  unique: { en: "Unique", ru: "Уникальный", format: "boolean" },
+  check: { en: "Check", ru: "Проверка", format: "code" },
+  columns: { en: "Columns", ru: "Столбцы", format: "list" },
+  where: { en: "Condition", ru: "Условие", format: "code" },
+  ordinal: { en: "Order", ru: "Порядок", format: "number" },
+  required: { en: "Required", ru: "Обязательна", format: "boolean" },
+  scope: { en: "Scope", ru: "Область", format: "text" },
+  exact: { en: "Exact version", ru: "Точная версия", format: "boolean" },
+  module: { en: "Module", ru: "Модуль", format: "text" },
+  goVersion: { en: "Go version", ru: "Версия Go", format: "text" },
+  private: { en: "Private", ru: "Приватный", format: "boolean" },
+  scripts: { en: "Scripts", ru: "Сценарии", format: "scripts" },
+  lockfileVersion: { en: "Lock file version", ru: "Версия файла блокировки", format: "number" },
+  modules: { en: "Modules", ru: "Модули", format: "number" },
+  packages: { en: "Packages", ru: "Пакеты", format: "number" },
+  devOnlyPackages: { en: "Development packages", ru: "Пакеты для разработки", format: "number" },
+  baseImages: { en: "Base images", ru: "Базовые образы", format: "list" },
+  exposes: { en: "Exposes", ru: "Открывает порты", format: "list" },
+  command: { en: "Command", ru: "Команда", format: "commands" },
+  repository: { en: "Repository", ru: "Репозиторий", format: "text" },
+  tag: { en: "Tag", ru: "Тег", format: "text" },
+  image: { en: "Image", ru: "Образ", format: "text" },
+  build: { en: "Build", ru: "Сборка", format: "build" },
+  ports: { en: "Ports", ru: "Порты", format: "ports" },
+  dependsOn: { en: "Depends on", ru: "Зависит от", format: "list" },
+  environment: { en: "Environment", ru: "Окружение", format: "list" },
+  containerPorts: { en: "Container ports", ru: "Порты контейнера", format: "list" },
+  envFrom: { en: "Environment from", ru: "Окружение из", format: "list" },
+  replicas: { en: "Replicas", ru: "Реплики", format: "number" },
+  probePath: { en: "Probe path", ru: "Путь проверки", format: "text" },
+  probePaths: { en: "Probe paths", ru: "Пути проверки", format: "list" },
+  on: { en: "On", ru: "События", format: "list" },
+  workingDirectory: { en: "Working directory", ru: "Рабочая папка", format: "path" },
+  steps: { en: "Steps", ru: "Шаги", format: "commands" },
+  uses: { en: "Uses", ru: "Использует", format: "list" },
+  phony: { en: "Phony", ru: "Фиктивная цель", format: "boolean" },
+  recipe: { en: "Recipe", ru: "Рецепт", format: "commands" },
+  binary: { en: "Binary", ru: "Программа", format: "text" },
+  port: { en: "Port", ru: "Порт", format: "number" },
+  statusOk: { en: "Healthy on success", ru: "Успех означает здоровье", format: "boolean" },
+  metricType: { en: "Metric type", ru: "Тип метрики", format: "text" },
+  help: { en: "Help", ru: "Описание", format: "text" },
+  labels: { en: "Labels", ru: "Метки", format: "list" },
+  library: { en: "Library", ru: "Библиотека", format: "text" },
+  definitionFormat: { en: "Definition format", ru: "Формат описания", format: "text" },
+  technology: { en: "Technology", ru: "Технология", format: "text" },
+  addresses: { en: "Addresses", ru: "Адреса", format: "list" },
+  probeType: { en: "Probe type", ru: "Тип пробы", format: "text" },
+  container: { en: "Container", ru: "Контейнер", format: "text" },
+  resolvedPort: { en: "Resolved port", ru: "Найденный порт", format: "number" },
+  scheme: { en: "Scheme", ru: "Схема", format: "text" },
+  host: { en: "Host", ru: "Хост", format: "text" },
+  initialDelaySeconds: { en: "Initial delay", ru: "Начальная задержка", format: "text" },
+  periodSeconds: { en: "Period", ru: "Период", format: "text" },
+  timeoutSeconds: { en: "Timeout", ru: "Таймаут", format: "text" },
+  successThreshold: { en: "Success threshold", ru: "Порог успеха", format: "number" },
+  failureThreshold: { en: "Failure threshold", ru: "Порог отказа", format: "number" },
+  terminationGracePeriodSeconds: { en: "Termination grace", ru: "Время на остановку", format: "text" },
+  transport: { en: "Transport", ru: "Транспорт", format: "text" },
+  interval: { en: "Interval", ru: "Интервал", format: "text" },
+  retries: { en: "Retries", ru: "Повторы", format: "number" },
+  disable: { en: "Disabled", ru: "Отключена", format: "boolean" },
+  startPeriod: { en: "Start period", ru: "Период запуска", format: "text" },
+  startInterval: { en: "Start interval", ru: "Интервал запуска", format: "text" },
+  heading: { en: "Heading", ru: "Заголовок", format: "text" },
+  folder: { en: "Folder", ru: "Папка", format: "path" },
+  purpose: { en: "Purpose", ru: "Назначение", format: "text" },
+  order: { en: "Order", ru: "Порядок", format: "number" },
+  tools: { en: "Tools", ru: "Инструменты", format: "list" },
+  symptom: { en: "Symptom", ru: "Симптом", format: "text" },
+  fix: { en: "Fix", ru: "Исправление", format: "text" },
+  testKind: { en: "Test kind", ru: "Вид теста", format: "text" },
+  skipped: { en: "Skipped", ru: "Пропущен", format: "boolean" },
+  skipReason: { en: "Skip reason", ru: "Причина пропуска", format: "text" },
+  cases: { en: "Cases", ru: "Случаи", format: "number" },
+  suite: { en: "Suite", ru: "Набор", format: "list" },
+  subject: { en: "Subject", ru: "Тема", format: "text" },
+  authoredAt: { en: "Authored", ru: "Создан", format: "date" },
+  committedAt: { en: "Committed", ru: "Зафиксирован", format: "date" },
+  merge: { en: "Merge commit", ru: "Коммит слияния", format: "boolean" },
+  mergedBranch: { en: "Merged branch", ru: "Слитая ветка", format: "text" },
+  commit: { en: "Commit", ru: "Коммит", format: "text" },
+  commitCount: { en: "Commits", ru: "Коммитов", format: "number" },
+  authors: { en: "Authors", ru: "Авторы", format: "list" },
+  parsed: { en: "Parsed", ru: "Разобран", format: "boolean" },
+  identifier: { en: "Identifier", ru: "Идентификатор", format: "text" },
+  document: { en: "Document", ru: "Документ", format: "path" },
+  framework: { en: "Framework", ru: "Фреймворк", format: "text" },
+  json: { en: "JSON logs", ru: "Журнал JSON", format: "boolean" },
+  middleware: { en: "Middleware", ru: "Промежуточные обработчики", format: "list" },
+  model: { en: "Model", ru: "Модель", format: "text" },
+  timeout: { en: "Timeout", ru: "Таймаут", format: "text" },
+};
+
+/** The properties each kind shows on its page, in the order a reader meets them (madarch-m38l.21). */
+export const DETAILS: Readonly<Record<string, readonly string[]>> = {
+  "code.service": ["language", "frameworks", "infrastructure", "testFramework"],
+  "code.package": ["ecosystem", "name", "version", "external", "frameworks", "hasTests", "sourceFiles", "testFiles", "tests", "versionStatus", "standardLibrary"],
+  "code.module": ["role", "kind", "language", "files", "parsedFiles", "packageName"],
+  "code.symbol": ["symbolKind", "qualifiedName", "typeText", "language", "exported", "abstract", "inline", "test", "deadExport", "entryPoint", "entryPoints"],
+  "code.field": ["symbolKind", "qualifiedName", "typeText", "language"],
+  "code.entry-point": ["file", "language", "service", "symbol", "starts"],
+  "code.cycle": ["level", "size"],
+  "code.debt": ["marker", "text", "path", "line"],
+  "code.file": ["lines", "commitCount", "authors"],
+  "code.facet": ["language", "role", "authors", "commitCount", "parsed"],
+  "code.input": ["name", "source"],
+  "code.sql-build": [],
+  "code.sql-sink": [],
+  "code.route": ["method", "path", "authGroup", "authAlgorithm", "handler", "handlerPath", "service", "middleware", "ports"],
+  "code.operation": ["method", "path", "operationId", "public", "service", "package", "input", "output", "rpc", "servers", "summary"],
+  "code.contract": ["format", "specVersion", "version", "path"],
+  "code.channel": ["protocol", "contract", "path", "description", "consumerStatus", "consumerFound"],
+  "code.message": ["channel", "eventTypes", "path"],
+  "code.database": ["service", "path", "evidenceKind"],
+  "code.table": ["database", "schema"],
+  "code.column": ["type", "nullable", "default", "primaryKey", "unique", "check"],
+  "code.index": ["columns", "unique", "where"],
+  "code.migration": ["ordinal", "path"],
+  "code.env-var": ["required", "default"],
+  "code.env-definition": ["scope"],
+  "code.dependency": ["name", "version", "scope", "exact"],
+  "code.manifest": ["ecosystem", "name", "version", "module", "goVersion", "private"],
+  "code.lockfile": ["format", "lockfileVersion", "modules", "packages", "devOnlyPackages"],
+  "code.dockerfile": ["baseImages", "exposes", "command"],
+  "code.image": ["repository", "tag"],
+  "code.compose-service": ["image", "ports", "dependsOn", "environment"],
+  "code.k8s-deployment": ["image", "replicas", "containerPorts", "probePath", "probePaths", "envFrom"],
+  "code.k8s-service": ["ports"],
+  "code.ci-workflow": ["name", "on"],
+  "code.ci-job": ["workingDirectory", "steps", "uses"],
+  "code.make-target": ["phony", "recipe"],
+  "code.process": ["binary", "command"],
+  "code.port": ["port", "service"],
+  "code.health-endpoint": ["method", "path", "ports", "statusOk", "service"],
+  "code.metric": ["name", "metricType", "help", "labels", "library", "definitionFormat", "service"],
+  "code.broker": ["technology", "source", "addresses"],
+  "code.probe": ["probeType", "container", "path", "port", "resolvedPort", "scheme", "host", "initialDelaySeconds", "periodSeconds", "timeoutSeconds", "successThreshold", "failureThreshold", "terminationGracePeriodSeconds", "transport"],
+  "code.healthcheck": ["service", "test", "interval", "timeout", "retries", "disable", "startPeriod", "startInterval"],
+  "code.document-section": ["heading", "level", "path"],
+  "code.metrics-endpoint": ["method", "path", "ports", "format", "library", "service"],
+  "code.logger": ["library", "model", "service", "json"],
+  "code.newcomer-command": ["command", "folder", "purpose", "order"],
+  "code.newcomer-prerequisites": ["tools"],
+  "code.newcomer-failure": ["symptom", "command", "fix", "port"],
+  "code.test-case": ["name", "testKind", "framework", "language", "path", "skipped", "skipReason", "cases", "suite"],
+  "code.commit": ["subject", "authoredAt", "committedAt", "merge", "mergedBranch"],
+  "code.snapshot": ["commit"],
+};
+
 export const STARTER_KINDS: readonly StarterKind[] = [
   { name: 'product', template: 'product.liquid', source: 'markdown', group: 'product', en: ['Product', 'Products'], ru: ['Продукт', 'Продукты'], describe: ['What the product is, for whom, and its architecture: the home page the agent writes.', 'Что это за продукт, для кого и как устроен: главная страница, которую пишет агент.'], extra: ['file: docs/product.md'] },
   { name: 'domain', template: 'domain.liquid', source: 'markdown', group: 'product', en: ['Domain', 'Domains'], ru: ['Домен', 'Домены'], describe: ['A part of the business the product serves, such as payment or ordering: how it works and what implements it.', 'Часть бизнеса, которую обслуживает продукт, например оплата или заказы: как она работает и что её реализует.'], extra: ['folder: docs/domains'] },
@@ -309,10 +537,11 @@ export const STARTER_KINDS: readonly StarterKind[] = [
   { name: 'code.module', template: 'module.liquid', source: 'graph', group: 'code.structure', en: ['Module', 'Modules'], ru: ['Модуль', 'Модули'], describe: ['A folder of code with a purpose of its own, with the modules it depends on.', 'Папка кода со своим назначением и модули, от которых она зависит.'] },
   { name: 'code.file', template: 'file.liquid', source: 'graph', group: 'code.structure', en: ['File', 'Files'], ru: ['Файл', 'Файлы'], describe: ['A file of a code repository.', 'Файл репозитория кода.'] },
   { name: 'code.symbol', template: 'symbol.liquid', source: 'graph', group: 'code.structure', en: ['Symbol', 'Symbols'], ru: ['Символ', 'Символы'], describe: ['A function, class or constant, with its callers and callees.', 'Функция, класс или константа, кто её вызывает и что она вызывает.'] },
+  { name: 'code.field', template: 'item-plain.liquid', source: 'graph', group: 'code.structure', en: ['Field', 'Fields'], ru: ['Поле', 'Поля'], describe: ['A field or property of a class, struct or interface; it is read on the page of the type that declares it.', 'Поле или свойство класса, структуры или интерфейса; о нём читают на странице объявившего его типа.'], extra: ['member: { relation: code.contains, direction: in, parentKind: code.symbol }'] },
   { name: 'code.entry-point', template: 'item.liquid', source: 'graph', group: 'code.structure', en: ['Entry point', 'Entry points'], ru: ['Точка входа', 'Точки входа'], describe: ['Where a process of the system starts running.', 'Место, где начинает работать процесс системы.'] },
   { name: 'code.cycle', template: 'item-plain.liquid', source: 'graph', group: 'code.analysis', en: ['Dependency cycle', 'Dependency cycles'], ru: ['Цикл зависимостей', 'Циклы зависимостей'], describe: ['Files or modules that import one another in a ring.', 'Файлы или модули, которые импортируют друг друга по кругу.'] },
   { name: 'code.debt', template: 'item-plain.liquid', source: 'graph', group: 'code.analysis', en: ['Debt marker', 'Debt markers'], ru: ['Маркер долга', 'Маркеры долга'], describe: ['A TODO or FIXME a comment left in the code.', 'TODO или FIXME, оставленный комментарием в коде.'] },
-  { name: 'code.facet', template: 'item-plain.liquid', source: 'graph', group: 'code.analysis', en: ['File facet', 'File facets'], ru: ['Срез файла', 'Срезы файлов'], describe: ['What the code reader found out about a file: its role and language.', 'Что читатель кода выяснил о файле: его роль и язык.'] },
+  { name: 'code.facet', template: 'item-plain.liquid', source: 'graph', group: 'code.analysis', en: ['File facet', 'File facets'], ru: ['Срез файла', 'Срезы файлов'], describe: ['What the code reader found out about a file: its role and language.', 'Что читатель кода выяснил о файле: его роль и язык.'], extra: ['member: { relation: code.facet-of, direction: out, parentKind: code.file }'] },
   { name: 'code.input', template: 'item.liquid', source: 'graph', group: 'code.analysis', en: ['Input', 'Inputs'], ru: ['Входные данные', 'Входные данные'], describe: ['A value that enters the code from outside, such as a query parameter.', 'Значение, которое попадает в код снаружи, например параметр запроса.'] },
   { name: 'code.sql-build', template: 'item-plain.liquid', source: 'graph', group: 'code.analysis', en: ['SQL build', 'SQL builds'], ru: ['Сборка SQL', 'Сборки SQL'], describe: ['A function that builds SQL text by joining strings.', 'Функция, которая собирает текст SQL склейкой строк.'] },
   { name: 'code.sql-sink', template: 'item.liquid', source: 'graph', group: 'code.analysis', en: ['SQL sink', 'SQL sinks'], ru: ['Выполнение SQL', 'Места выполнения SQL'], describe: ['A call that runs SQL text as it is.', 'Вызов, который выполняет текст SQL как есть.'] },
@@ -468,6 +697,8 @@ function kindsManifest(): string {
     "# opens on the menu by itself (`open: true`); a group without a parent is a top-level group.",
     "groups:",
     ...GROUPS.map((group) => `  ${group.name}: { en: ${yamlText(group.en)}, ru: ${yamlText(group.ru)}${group.parent === undefined ? '' : `, parent: ${group.parent}`}${group.open === undefined ? '' : ', open: true'} }`),
+    "properties:",
+    ...Object.entries(PROPERTY_LABELS).map(([name, label]) => `  ${name}: { en: ${yamlText(label.en)}, ru: ${yamlText(label.ru)}, format: ${yamlText(label.format ?? 'text')} }`),
     "documents:",
     "  exclude: [AGENTS.md, CLAUDE.md, GEMINI.md, \"**/AGENTS.md\", \"**/CLAUDE.md\", \"**/GEMINI.md\"]",
     // The document kinds the wiki says the documents hold: one that no section of any document is read as is a finding, so a
@@ -500,6 +731,8 @@ export function kindLines(kind: StarterKind, options: { group?: boolean } = {}):
     if (options.group !== false) lines.push(`    group: ${kind.group}`);
     if (kind.origin !== undefined) lines.push(`    origin: ${kind.origin}`);
     for (const extra of kind.extra ?? []) lines.push(`    ${extra}`);
+    const details = DETAILS[kind.name];
+    if (details !== undefined && details.length > 0) lines.push(`    details: [${details.join(', ')}]`);
     lines.push('    labels:');
     lines.push(`      en: { one: ${yamlText(kind.en[0])}, many: ${yamlText(kind.en[1])} }`);
     lines.push(`      ru: { one: ${yamlText(kind.ru[0])}, many: ${yamlText(kind.ru[1])} }`);
@@ -566,6 +799,11 @@ export function ensureLoopKinds(productFolder: string): string[] {
   for (const kind of wanted) {
     if (document.hasIn(['kinds', kind.name])) continue;
     // A group the manifest does not declare would make the kind a finding: the kind is then declared without one.
+    for (const detail of DETAILS[kind.name] ?? []) {
+      if (document.hasIn(['properties', detail])) continue;
+      const label = PROPERTY_LABELS[detail];
+      if (label !== undefined) document.setIn(['properties', detail], document.createNode({ en: label.en, ru: label.ru, format: label.format ?? 'text' }));
+    }
     const parsed = parseDocument(`kinds:\n${kindLines(kind, { group: document.hasIn(['groups', kind.group]) }).join('\n')}\n`).getIn(['kinds', kind.name]) as { toJSON(): unknown };
     document.setIn(['kinds', kind.name], document.createNode(parsed.toJSON()));
     changed = true;

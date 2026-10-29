@@ -95,6 +95,30 @@ describe('a page written for an agent keeps every address it holds', () => {
     expect(pageFileMarkdown(page({ blocks: [{ type: 'markdown', markdown: '[Home](/k/e/domain%3Ahome)' }] }), '/products/shop)')).toContain('(/products/shop%29/k/e/domain%3Ahome)');
   });
 
+  test('a member reader names the place it reads at, as the JSON does', () => {
+    const reader = {
+      id: 'code.symbol:src/a.ts#use',
+      kind: 'code.symbol',
+      label: 'use',
+      href: '/k/e/code.symbol%3Asrc%2Fa.ts%23use',
+      location: { repo: null, path: 'src/a.ts', lineStart: 4, lineEnd: 4, href: '/k/src?repo=&path=src%2Fa.ts&line=4' },
+    };
+    const model = page({
+      blocks: [{
+        type: 'members', title: 'Fields and properties', total: 1,
+        rows: [{ entity: { id: 'code.field:src/a.ts#Store.value', kind: 'code.field', label: 'Store.value', href: null }, anchor: 'member-code.field%3Asrc%2Fa.ts%23Store.value', values: [], readers: [reader], writers: [] }],
+      }],
+    });
+    const markdown = pageFileMarkdown(model, prefix);
+    expect(markdown).toContain('Read by: [use](/products/shop/k/e/code.symbol%3Asrc%2Fa.ts%23use) — at [src/a.ts:4](/products/shop/k/src?repo=&path=src%2Fa.ts&line=4)');
+    const document = pageFileDocument(model, prefix);
+    expect(document.sections[0]!.members![0]!.readers[0]).toMatchObject({
+      title: 'use',
+      url: '/products/shop/k/e/code.symbol%3Asrc%2Fa.ts%23use',
+      place: { path: 'src/a.ts', line: 4, url: '/products/shop/k/src?repo=&path=src%2Fa.ts&line=4' },
+    });
+  });
+
   test('an id that ends in .md or .json keeps its own HTML address, apart from the file suffix', () => {
     const model = page({ id: 'domain:a.md' });
     const document = pageFileDocument(model, prefix);

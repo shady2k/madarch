@@ -512,7 +512,7 @@ export function inspectPage(page: PageModel, options: InspectOptions): WalkFindi
     if ('title' in block && typeof block.title === 'string' && block.title !== '') {
       words(block.title, section, field('title'), options.userLanguage, 'label');
     }
-    inspectBlock(block, { section, product: options.language, user: options.userLanguage, field, ids, label, words, passage, empty, put });
+    inspectBlock(block, { section, product: page.kind.startsWith('code.') ? options.userLanguage : options.language, user: options.userLanguage, field, ids, label, words, passage, empty, put });
   });
 
   return findings;
@@ -567,6 +567,16 @@ function inspectBlock(block: Block, tools: BlockTools): void {
     case 'properties':
       block.rows.forEach((row, at) => inspectProperty(row, at, tools));
       return;
+    case 'members': {
+      if (block.rows.length === 0) empty(section, field('rows'), `total: ${block.total}`, 'no member is drawn');
+      block.rows.forEach((row, at) => {
+        label(row.entity.label, section, field(`rows[${at}].entity.label`));
+        row.values.forEach((value, valueAt) => inspectProperty(value, valueAt, { ...tools, field: (rest) => field(`rows[${at}].values[${valueAt}].${rest}`) }));
+        row.readers.forEach((entity, readerAt) => label(entity.label, section, field(`rows[${at}].readers[${readerAt}].label`)));
+        row.writers.forEach((entity, writerAt) => label(entity.label, section, field(`rows[${at}].writers[${writerAt}].label`)));
+      });
+      return;
+    }
     case 'related': {
       if (block.groups.length === 0) empty(section, field('groups'), 'groups: 0', 'no related entity is drawn');
       block.groups.forEach((group, at) => {
@@ -583,14 +593,16 @@ function inspectBlock(block: Block, tools: BlockTools): void {
     }
     case 'callers':
     case 'callees':
-      if (block.rows.length === 0) empty(section, field('rows'), `total: ${block.total}`, 'no call is drawn');
+      if (block.rows.length === 0 && (block.emptyNote === undefined || block.emptyNote.trim() === '')) empty(section, field('rows'), `total: ${block.total}`, 'no call is drawn');
+      if (block.emptyNote !== undefined) words(block.emptyNote, section, field('emptyNote'), tools.user, 'prose');
       block.rows.forEach((row, at) => label(row.entity.label, section, field(`rows[${at}].entity.label`)));
       return;
     case 'refs':
-      if (block.rows.length === 0) empty(section, field('rows'), `total: ${block.total}`, 'no reference is drawn');
+      if (block.rows.length === 0 && (block.emptyNote === undefined || block.emptyNote.trim() === '')) empty(section, field('rows'), `total: ${block.total}`, 'no reference is drawn');
+      if (block.emptyNote !== undefined) words(block.emptyNote, section, field('emptyNote'), tools.user, 'prose');
       block.rows.forEach((row, at) => {
         label(row.entity.label, section, field(`rows[${at}].entity.label`));
-        if (row.note !== undefined && row.noteKey === undefined) words(row.note, section, field(`rows[${at}].note`), tools.user, 'prose');
+        if (row.note !== undefined && row.noteKey === undefined && row.quoted !== true) words(row.note, section, field(`rows[${at}].note`), tools.user, 'prose');
       });
       return;
     case 'graph': {
@@ -665,7 +677,7 @@ function inspectBlock(block: Block, tools: BlockTools): void {
         view.edges.forEach((edge, edgeAt) => {
           label(edge.label, section, field(`views[${at}].edges[${edgeAt}].label`));
           if (edge.why !== undefined) words(edge.why, section, field(`views[${at}].edges[${edgeAt}].why`), tools.user, 'prose');
-          if (edge.note !== undefined) words(edge.note, section, field(`views[${at}].edges[${edgeAt}].note`), tools.user, 'prose');
+          if (edge.note !== undefined && edge.technical !== true) words(edge.note, section, field(`views[${at}].edges[${edgeAt}].note`), tools.user, 'prose');
         });
       });
       return;
@@ -684,11 +696,12 @@ function inspectBlock(block: Block, tools: BlockTools): void {
 }
 
 function inspectProperty(row: PropertyRow, at: number, tools: BlockTools): void {
-  const { section, field, ids, put } = tools;
-  if (row.nameKey === undefined) {
+  const { section, field, ids, put, words, user } = tools;
+  if (row.label !== undefined && row.label.trim() !== '') words(row.label, section, field(`rows[${at}].label`), user, 'label');
+  else if (row.nameKey === undefined) {
     put({ class: 'raw-key', section, field: field(`rows[${at}].name`), value: row.name, message: `the property name ${short(row.name)} has no name key, so the reader sees the extractor's word` });
   }
-  if (jsonValue(row.value)) {
+  if (row.valueKind !== 'code' && jsonValue(row.value)) {
     put({ class: 'raw-key', section, field: field(`rows[${at}].value`), value: short(row.value), message: 'the property value is serialized JSON, not words' });
   }
   ids(row.value, section, field(`rows[${at}].value`));

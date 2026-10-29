@@ -33,6 +33,7 @@ import {
   KIND_CYCLE,
   KIND_DEBT,
   KIND_FILE,
+  KIND_FIELD,
   KIND_MODULE,
   KIND_PACKAGE,
   KIND_SYMBOL,
@@ -255,6 +256,19 @@ export async function extractCodeWithFacts(reader: TreeReader, options: CodeExtr
       if (holder !== undefined) symbols[index] = {...symbol, keptKey: holder.key};
     }
     files.push({ source, syntax, resolution, decls, symbols, callbackValues });
+  }
+  // Fields and properties are member entities: they have names, types and readers, and no page of their own.
+  // The declaration reader knows them even where the syntax pass keeps no symbol; adding them here lets the
+  // resolver tie `this.field` to the member and lets the type own it by `code.contains` (madarch-m38l.21).
+  for (const file of files) {
+    for (const type of file.decls.types) {
+      for (const member of type.members) {
+        if (member.kind !== 'field' || member.span === undefined) continue;
+        const key = symbolKey(file.source.path, member.qualifiedName);
+        if (file.symbols.some((symbol) => symbol.key === key)) continue;
+        file.symbols.push({ key, qualifiedName: member.qualifiedName, name: member.name, symbolKind: 'field', span: member.span, definitionSpan: member.span, local: false, keptKey: key, functionLike: false });
+      }
+    }
   }
   const parsedFiles = files.filter((file) => file.syntax.parsed);
   const fileFacts = new Map(files.map((file) => [file.source.path, file]));
@@ -580,7 +594,8 @@ function normalizedCommentText(text: string): string {
         properties['deadExport'] = (referencedFrom.get(symbol.key) ?? 0) === 0 && properties['entryPoint'] === undefined;
       }
       const label = properties['inline'] === true ? symbol.qualifiedName.replace(/\.callback@(\d+):\d+$/, ' callback (line $1)') : symbol.qualifiedName;
-      addNode({ key: symbol.key, kind: KIND_SYMBOL, label, properties, span: toSpan(path, symbol.span) });
+      const field = symbol.symbolKind === 'field' || symbol.symbolKind === 'property';
+      addNode({ key: symbol.key, kind: field ? KIND_FIELD : KIND_SYMBOL, label, properties, span: toSpan(path, symbol.span) });
       addEdge({ type: REL_CONTAINS, from: fileKey(path), to: symbol.key, discriminator: '', properties: {} });
     }
   }

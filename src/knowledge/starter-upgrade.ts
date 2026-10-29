@@ -25,7 +25,7 @@ import { isDeepStrictEqual } from 'node:util';
 import { LineCounter, parseDocument, type Document } from 'yaml';
 import { GIT_LEAKS } from '../product/git.js';
 import { KINDS_FILE, LABEL_LANGUAGES } from './kinds.js';
-import { DOCUMENT_EXCLUDES, GROUPS, ROLES, STARTER_FILES, STARTER_KINDS, STARTER_PROBLEM_RULES, TEMPLATES, kindLines, starterManifest, type StarterKind } from './seed.js';
+import { DETAILS, DOCUMENT_EXCLUDES, GROUPS, PROPERTY_LABELS, ROLES, STARTER_FILES, STARTER_KINDS, STARTER_PROBLEM_RULES, TEMPLATES, kindLines, starterManifest, type StarterKind } from './seed.js';
 
 /** The subjects of the commits madarch itself makes in a product's manifest and templates. */
 export const MADARCH_COMMIT_SUBJECTS: readonly string[] = ['Create the draft product'];
@@ -308,6 +308,13 @@ export function addStarterItems(productFolder: string, ids: readonly string[], r
       const kind = STARTER_KINDS.find((candidate) => candidate.name === name);
       if (kind === undefined) throw new Error(`src/knowledge/starter-upgrade.ts: "${name}" is no kind of the starter set`);
       ensureGroup(document, kind.group);
+      // The properties a page of this kind shows are added with it, so the manifest and its details agree (madarch-m38l.21).
+      for (const detail of DETAILS[name] ?? []) {
+        if (!document.hasIn(['properties', detail])) {
+          const label = PROPERTY_LABELS[detail];
+          if (label !== undefined) document.setIn(['properties', detail], document.createNode({ en: label.en, ru: label.ru, format: label.format ?? 'text' }));
+        }
+      }
       const declaration = starterDeclaration(kind, true) as Record<string, unknown>;
       if (id.startsWith('kind:')) {
         if (!document.hasIn(['kinds', name])) document.setIn(['kinds', name], document.createNode(declaration));

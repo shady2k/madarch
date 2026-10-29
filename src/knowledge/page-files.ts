@@ -50,6 +50,14 @@ export interface PageFileGroup {
   items: PageFileItem[];
 }
 
+export interface PageFileMember {
+  title: string;
+  anchor: string;
+  values: { name: string; label?: string; value: string }[];
+  readers: PageFileItem[];
+  writers: PageFileItem[];
+}
+
 export interface PageFilePlace {
   /** The code repository's name; null for the product's own repository. */
   repository: string | null;
@@ -89,6 +97,7 @@ export type PageFileSectionType =
   | 'relations'
   | 'items'
   | 'properties'
+  | 'members'
   | 'source'
   | 'diagram'
   | 'history'
@@ -104,7 +113,8 @@ export interface PageFileSection {
   links?: PageFileLink[];
   items?: PageFileItem[];
   groups?: PageFileGroup[];
-  properties?: { name: string; value: string }[];
+  properties?: { name: string; label?: string; value: string }[];
+  members?: PageFileMember[];
   place?: PageFilePlace;
   language?: string;
   /** The contract's format (`openapi`, `proto`, ...). */
@@ -449,6 +459,12 @@ function itemLine(item: PageFileItem): string {
   return `- ${parts.join(' — ')}`;
 }
 
+/** The words of an item without its list marker, for a line that already stands under its own label. */
+function inlineItem(item: PageFileItem): string {
+  const line = itemLine(item);
+  return line.startsWith('- ') ? line.slice(2) : line;
+}
+
 function sectionMarkdown(section: PageFileSection): string {
   const lines: string[] = [];
   if (section.title !== '') lines.push(`## ${textNode(section.title)}`);
@@ -469,7 +485,15 @@ function sectionMarkdown(section: PageFileSection): string {
       }
       break;
     case 'properties':
-      for (const property of section.properties ?? []) lines.push(`- **${textNode(property.name)}**: ${textNode(property.value)}`);
+      for (const property of section.properties ?? []) lines.push(`- **${textNode(property.label ?? property.name)}**: ${textNode(property.value)}`);
+      break;
+    case 'members':
+      for (const member of section.members ?? []) {
+        lines.push(`### ${textNode(member.title)}`);
+        for (const value of member.values) lines.push(`- **${textNode(value.label ?? value.name)}**: ${textNode(value.value)}`);
+        if (member.readers.length > 0) lines.push(`Read by: ${member.readers.map(inlineItem).join(', ')}`);
+        if (member.writers.length > 0) lines.push(`Written by: ${member.writers.map(inlineItem).join(', ')}`);
+      }
       break;
     case 'source':
       if (section.text !== undefined) lines.push(fenced(section.text, section.language ?? ''));
@@ -705,7 +729,20 @@ function sectionOf(block: Block, page: PageModel, prefix: string): PageFileSecti
       return {
         title: block.title,
         type: 'properties',
-        properties: block.rows.map((row) => ({ name: row.name, value: row.value })),
+        properties: block.rows.map((row) => ({ name: row.name, label: row.label, value: row.value })),
+      };
+    case 'members':
+      return {
+        title: block.title,
+        type: 'members',
+        total: block.total,
+        members: block.rows.map((row) => ({
+          title: row.entity.label,
+          anchor: row.anchor,
+          values: row.values.map((value) => ({ name: value.name, label: value.label, value: value.value })),
+          readers: row.readers.map((entity) => itemOf(entity, prefix)),
+          writers: row.writers.map((entity) => itemOf(entity, prefix)),
+        })),
       };
     case 'stated':
       return {

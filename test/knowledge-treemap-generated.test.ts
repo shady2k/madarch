@@ -74,7 +74,7 @@ const fixture = (rows: GraphEntity[], sources: ReadonlyMap<string, string> = new
   const reads: string[] = [];
   const ctx: RenderContext = {
     productFolder: '',
-    manifest: { file: '', roles: new Map(), kinds: new Map(), groups: new Map(), excludeDocuments: [], ignoreBlocks: [], findings: [] },
+    manifest: { file: '', roles: new Map(), properties: new Map(), kinds: new Map(), groups: new Map(), excludeDocuments: [], ignoreBlocks: [], findings: [] },
     graph: reader,
     markdown: new Map(),
     docEntities: new Map(),

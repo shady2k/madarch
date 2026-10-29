@@ -32,7 +32,8 @@ export type HistoryRow = {
 export type HistorySection = { repository?: string; role: 'commits' | 'files' | 'summary' | 'hotspots' | 'authors' | 'coupling' | 'renames' | 'parents' | 'branches' | 'snapshots'; total: number; rows: HistoryRow[] };
 
 /** One row of a properties block (the engine's `PropertyRow`). */
-export type PropertyRow = { name: string; value: string; nameKey?: 'authoredAt' | 'committedAt' | 'subject' | 'merge' | 'language' | 'symbol' | 'method' | 'path' | 'marker' | 'text' | 'line' | 'service' | 'secret'; valueKind?: 'date' };
+export type PropertyRow = { name: string; value: string; label?: string; nameKey?: 'authoredAt' | 'committedAt' | 'subject' | 'merge' | 'language' | 'symbol' | 'method' | 'path' | 'marker' | 'text' | 'line' | 'service' | 'secret'; valueKind?: 'date' | 'boolean' | 'code' };
+export type MemberRow = { entity: EntityRef; anchor: string; values: PropertyRow[]; readers: EntityRef[]; writers: EntityRef[] };
 
 /** One note under a history block (the engine's `HistoryNote`): a key the app writes in the reader's language. */
 export type HistoryNote = { key: 'manyCommits' | 'manyFiles' | 'noCounts' | 'merge' | 'noFiles' | 'partialFiles' | 'symbolsCut' | 'population' | 'observedAuthorship' | 'cochangeNotCause' | 'noImport' | 'importCoverage' | 'membershipCoverage' | 'dateAnomaly' | 'mergeBranch' | 'unchangedMove'; args?: Record<string, string | number> };
@@ -60,8 +61,8 @@ export type Neighborhood = {
   relations: { relation: string; direction: 'out' | 'in'; count: number }[];
 };
 export type StepKind = 'enter' | 'route' | 'call' | 'self' | 'read' | 'write' | 'http' | 'grpc' | 'publish' | 'consume';
-export type ChainLane = { id: string; label: string; sub: string; kind: string; href: string | null; group: string };
-export type ChainStep = { n: number; from: string; to: string; label: string; kind: StepKind; href: string | null; site?: CodeLocation; order: 'source' | 'unordered'; note?: string };
+export type ChainLane = { id: string; label: string; sub: string; kind: string; href: string | null; group: string; groupLabel?: string };
+export type ChainStep = { n: number; from: string; to: string; label: string; kind: StepKind; href: string | null; site?: CodeLocation; order: 'source' | 'unordered'; note?: string; technical?: true };
 export type Chain = { title: string; entry: EntityRef | null; lanes: ChainLane[]; steps: ChainStep[]; notes: string[]; total: number };
 export type SystemNode = { id: string; kind: 'service' | 'database' | 'topic' | 'external'; label: string; sub: string; href: string | null };
 export type SystemEdge = { from: string; to: string; via: 'http' | 'grpc' | 'sql' | 'publishes' | 'consumes'; label: string; count: number };
@@ -118,6 +119,7 @@ type BlockShape =
   | { type: 'source'; title: string; location: CodeLocation; language: string; text: string; truncated: boolean }
   | { type: 'refs'; title: string; total: number; rows: RefRow[] }
   | { type: 'properties'; title: string; rows: PropertyRow[] }
+  | { type: 'members'; title: string; rows: MemberRow[]; total: number }
   | { type: 'stated'; title: string; place: { repo: string | null; path: string; lineStart: number; lineEnd: number; href: string; commit: string | null; single?: boolean } }
   | { type: 'definition'; title: string; format: string; contract: string; fullPath?: string; location?: CodeLocation; members: DefinitionMember[]; membersTotal: number; membersShown: number; memberCuts: { channel: string; total: number; shown: number }[]; spec: { text: string; lines: number }; document?: Record<string, unknown>; descriptions?: {text: string; path: string; line: number; fullPath: string}[]; selection?: { method: string; path: string; operationId: string }; protobuf?: ProtoDocumentation; diagnostics?: ContractDiagnostic[] }
   | { type: 'history'; title: string; sections: HistorySection[]; notes: HistoryNote[] }
@@ -125,7 +127,7 @@ type BlockShape =
   | { type: 'problem'; block: string; message: string; file: string; line: number; diagnostic?: ContractDiagnostic };
 
 /** One block of a page; `name` is the template's block it was made from (`implementedby` and `linkedfrom` both draw as `refs`), which the manifest's roles name. */
-export type Block = BlockShape & { name?: string };
+export type Block = BlockShape & { name?: string; emptyNote?: string };
 
 export type Resolution =
   | { state: 'ok'; target: string; kind: string; label: string; href: string | null; note?: string; location?: CodeLocation; entity?: string }
@@ -154,6 +156,7 @@ export type PageModel = {
   resolutions: Record<string, Resolution>;
   findings: Finding[];
   notes: string[];
+  redirect?: { id: string; anchor: string };
   /** The planned change this page stands in, and the statements of it a task's grounds reach (madarch-m38l.14). */
   planned?: { entity: PlannedMarkView | null; statements: (PlannedMarkView & { sentence: string })[]; note?: string };
 };

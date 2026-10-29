@@ -346,8 +346,11 @@ describe('every kind the graph holds', () => {
     const held = await context.ctx.graph.kindCounts();
     const status = await product.status();
     const declared = new Map(status.kinds.map((kind) => [kind.kind, kind]));
-    expect(held.filter((entry) => !declared.has(entry.kind)).map((entry) => entry.kind)).toEqual([]);
+    // A member kind has no catalogue page of its own: its entities are listed inside their parent (madarch-m38l.21).
+    const member = new Set([...context.ctx.manifest.kinds.values()].filter((kind) => kind.member !== undefined).map((kind) => kind.name));
+    expect(held.filter((entry) => !member.has(entry.kind) && !declared.has(entry.kind)).map((entry) => entry.kind)).toEqual([]);
     for (const entry of held) {
+      if (member.has(entry.kind)) continue;
       const kind = declared.get(entry.kind)!;
       expect(kind.count).toBe(entry.count);
       expect(kind.group).toBeDefined();
@@ -363,6 +366,7 @@ describe('every kind the graph holds', () => {
     if ('absent' in context) throw new Error('no manifest');
     const problems: string[] = [];
     for (const { kind } of await context.ctx.graph.kindCounts()) {
+      if (context.ctx.manifest.kinds.get(kind)?.member !== undefined) continue;
       const listing = await product.list(kind, { limit: 3 });
       for (const row of listing!.rows) {
         const result = await product.page(row.id);
@@ -529,6 +533,7 @@ describe('the neighbourhood of a page agrees with its relations block', () => {
     // Twenty entities of every kind, in the graph's own key order: the same entities on every run, and a walk of
     // the whole graph would take longer than the fill it reads.
     for (const { kind } of await context.ctx.graph.kindCounts()) {
+      if (context.ctx.manifest.kinds.get(kind)?.member !== undefined) continue;
       const listing = await context.ctx.graph.list(kind, { limit: 20 });
       for (const entity of listing.rows) {
         const page = await product.page(entity.key, 'en', { defer: false });
@@ -585,8 +590,8 @@ describe('every page and every kind as a file for agents', () => {
   };
 
   const pageKeys = ['schema', 'id', 'kind', 'title', 'address', 'json', 'markdown', 'trail', 'sections', 'findings', 'notes', 'planned'];
-  const sectionKeys = ['title', 'type', 'text', 'links', 'items', 'groups', 'properties', 'place', 'language', 'format', 'views', 'edges', 'total', 'shown', 'depth', 'file', 'line', 'statements', 'ungrounded', 'diagnostics', 'block', 'message', 'notes'];
-  const sectionTypes = ['text', 'links', 'relations', 'items', 'properties', 'source', 'diagram', 'history', 'contract', 'problem', 'deferred'];
+  const sectionKeys = ['title', 'type', 'text', 'links', 'items', 'groups', 'properties', 'members', 'place', 'language', 'format', 'views', 'edges', 'total', 'shown', 'depth', 'file', 'line', 'statements', 'ungrounded', 'diagnostics', 'block', 'message', 'notes'];
+  const sectionTypes = ['text', 'links', 'relations', 'items', 'properties', 'members', 'source', 'diagram', 'history', 'contract', 'problem', 'deferred'];
 
   /** Every wiki address a document holds under a `url`, so the Markdown can be asked for each of them. */
   const urlsIn = (value: unknown, found: string[] = []): string[] => {

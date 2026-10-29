@@ -223,6 +223,8 @@
     "cutShown": "The excerpt is cut; the whole file is one click away.",
     "colNote": "Why",
     "colValue": "Value",
+    "memberReaders": "Read by",
+    "memberWriters": "Written by",
     "colProperty": "Property",
     "inDocument": "in {{path}}, line {{line}}",
     "refNote": {

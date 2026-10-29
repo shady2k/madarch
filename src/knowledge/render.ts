@@ -10,7 +10,7 @@ import { join } from 'node:path';
 import { CONTAINS } from '../graph/vocabulary.js';
 import { byCodePoint } from '../model/order.js';
 import {
-  attributeOf, bodyBlock, callBlock, childrenBlock, idOf, kindOf, pageAttributes, propertiesBlock, refOfGraph, refOfMarkdown, relatedBlock, sourceBlock,
+  attributeOf, bodyBlock, callBlock, childrenBlock, idOf, kindOf, memberAnchor, memberParent, membersBlock, pageAttributes, propertiesBlock, refOfGraph, refOfMarkdown, relatedBlock, sourceBlock,
   type RenderContext, type Subject,
 } from './blocks.js';
 import { graphBlock, treemapBlock } from './diagrams.js';
@@ -59,6 +59,14 @@ export async function renderPage(ctx: RenderContext, id: string, lang?: string, 
   if (decl === undefined) {
     return { ok: false, status: 404, message: `"${id}" is an entity of kind ${kindOf(subject)}, and ${ctx.manifest.file} declares no page for it: a kind is shown when the manifest names it and its template` };
   }
+  // A member kind has no page of its own: an old address opens the parent's page at the member's fragment (madarch-m38l.21).
+  if (decl.member !== undefined) {
+    const parent = await memberParent(ctx, subject, decl.member);
+    if (parent !== undefined) {
+      const parentPage = await renderPage(ctx, parent.key, lang, options);
+      if (parentPage.ok) return { ok: true, page: { ...parentPage.page, redirect: { id: parent.key, anchor: memberAnchor(idOf(subject)) } } };
+    }
+  }
   const findings: Finding[] = [];
   let blocks: Block[] = [];
   const value = (name: string): string | undefined => allowedAttribute(decl, name) ? attributeOf(subject, name) : undefined;
@@ -68,12 +76,12 @@ export async function renderPage(ctx: RenderContext, id: string, lang?: string, 
     const outcome = await renderLiquidPage({
       productFolder: ctx.productFolder,
       template: decl.template,
-      data: pageAttributes(subject, decl.attributes),
+      data: { ...pageAttributes(subject, decl.attributes), lang: lang ?? ctx.language },
       ...(lang === undefined ? {} : { lang }),
       defer: options.defer === true,
       deferred: [...DEFERRED_BLOCKS],
       ...(options.only === undefined ? {} : { only: options.only }),
-      render: (name, params, file, line) => renderBlock(ctx, subject, name, params, file === '' ? decl.template : file, line, lang),
+      render: (name, params, file, line) => renderBlock(ctx, subject, name, params, file === '' ? decl.template : file, line, lang, decl.details),
     });
     findings.push(...outcome.findings);
     for (const block of outcome.blocks) {
@@ -109,15 +117,28 @@ export async function renderPage(ctx: RenderContext, id: string, lang?: string, 
         blocks.push({ type: 'deferred', block: part.name, title: params['title'] ?? '', id: blockIdentity(part.name, params) });
         continue;
       }
-      const block = await renderBlock(ctx, subject, part.name, params, decl.template, part.line, lang);
+      const block = await renderBlock(ctx, subject, part.name, params, decl.template, part.line, lang, decl.details);
       if (block.type === 'problem') findings.push({ file: block.file, line: block.line, message: `:::${block.block}: ${block.message}` });
       blocks.push({ ...block, name: part.name });
     }
   }
 
-  // A section with nothing in it is not a section a reader meets: leave an empty related block out of the page, and the
-  // app draws no heading over an empty table (madarch-m38l.19).
-  blocks = blocks.filter((block) => block.type !== 'related' || block.groups.length > 0);
+  // A section with nothing in it is not a section a reader meets: it is left out of the page, unless what it looked
+  // for is itself worth saying, and then it carries one sentence in the reader's language (madarch-m38l.21).
+  const onlyBlock = options.only === undefined ? undefined : blocks[0];
+  for (const block of blocks) {
+    if ((block.type === 'callers' || block.type === 'callees') && block.rows.length === 0) {
+      block.emptyNote ??= lang === 'ru' ? 'В графе не записано ни одного вызова.' : 'No calls are recorded in the graph.';
+    }
+    // A group, a list or a view with no row is not drawn inside a section that has others.
+    if (block.type === 'related') block.groups = block.groups.filter((group) => group.rows.length > 0);
+    if (block.type === 'history') block.sections = block.sections.filter((section) => section.rows.length > 0);
+    if (block.type === 'diagrams') block.views = block.views.filter((view) => view.elements.length > 0 || view.mermaidSource !== '');
+  }
+  blocks = blocks.filter(isDrawn);
+  // A deferred block the reader asked for by its identity already existed on the page: an empty one answers as an
+  // empty diagram so the placeholder leaves the page, while an identity the template does not hold stays a 404.
+  if (options.only !== undefined && blocks.length === 0 && onlyBlock?.type === 'diagrams') blocks = [onlyBlock];
   // Every `madarch:` link the page's text holds is resolved here, once, and shown as broken when it does not.
   const urls = new Set<string>();
   const bodyLinks: { url: string; line: number; ground: boolean }[] = [];
@@ -160,6 +181,27 @@ export async function renderPage(ctx: RenderContext, id: string, lang?: string, 
   };
 }
 
+/** Whether a block draws anything a reader can use. An informative absence is drawn by `emptyNote` on the block. */
+function isDrawn(block: Block): boolean {
+  switch (block.type) {
+    case 'related': return block.groups.length > 0 && block.groups.some((group) => group.rows.length > 0);
+    case 'callers':
+    case 'callees': return block.rows.length > 0 || (block.emptyNote !== undefined && block.emptyNote.trim() !== '');
+    case 'refs': return block.rows.length > 0 || (block.emptyNote !== undefined && block.emptyNote.trim() !== '');
+    case 'properties': return block.rows.length > 0;
+    case 'members': return block.rows.length > 0;
+    case 'graph': return block.neighborhood.nodes.length > 1 || block.neighborhood.edges.length > 0 || block.neighborhood.more.length > 0;
+    case 'treemap': return block.files.some((file) => file.lines > 0);
+    case 'history': return block.sections.some((section) => section.rows.length > 0);
+    case 'definition': return block.members.length > 0 || block.spec.text.trim() !== '' || block.document !== undefined || (block.descriptions ?? []).length > 0;
+    case 'source': return block.text.trim() !== '';
+    case 'term': return block.definition.trim() !== '';
+    case 'markdown': return block.markdown.trim() !== '';
+    case 'diagrams': return block.views.some((view) => view.elements.length > 0 || view.mermaidSource !== '');
+    default: return true;
+  }
+}
+
 function titleOf(subject: Subject, attribute: string): string {
   return attributeOf(subject, attribute) ?? (subject.source === 'graph' ? subject.entity.label : subject.entity.title);
 }
@@ -198,11 +240,11 @@ function legacyParams(
   return { ...params };
 }
 
-async function renderBlock(ctx: RenderContext, subject: Subject, name: string, params: Readonly<Record<string, string>>, file: string, line: number, lang: string | undefined): Promise<Block> {
+async function renderBlock(ctx: RenderContext, subject: Subject, name: string, params: Readonly<Record<string, string>>, file: string, line: number, lang: string | undefined, details: readonly string[] | undefined): Promise<Block> {
   switch (name) {
     case 'body': return bodyBlock(ctx, subject, name, file, line);
     case 'graph': return await graphBlock(ctx, subject, params);
-    case 'treemap': return await treemapBlock(ctx, subject, params);
+    case 'treemap': return await treemapBlock(ctx, subject, params, lang ?? ctx.language);
     case 'history': return await historyBlock(ctx, subject, params, file, line);
     case 'definition': return await definitionBlock(ctx, subject, params, file, line);
     case 'related': return await relatedBlock(ctx, subject, params, file, line);
@@ -214,7 +256,8 @@ async function renderBlock(ctx: RenderContext, subject: Subject, name: string, p
     case 'er':
     case 'sequence': return await diagramsBlock({ ctx, lang, productTitle: productTitleOf(ctx) }, subject, name, params, { product: ctx.manifest.diagram, env: process.env }, { file, line });
     case 'children': return await childrenBlock(ctx, subject, params, file, line);
-    case 'properties': return propertiesBlock(subject, params, file, line);
+    case 'properties': return propertiesBlock(subject, params, file, line, details, ctx.manifest.properties, lang ?? ctx.language);
+    case 'members': return await membersBlock(ctx, subject, params, file, line, lang ?? ctx.language);
     case 'term': return termBlock(ctx, subject, params, file, line);
     case 'stated': return statedBlock(ctx, subject, params, file, line);
     case 'implementedby': return await implementedByBlock(ctx, subject, params, file, line);
@@ -253,7 +296,7 @@ function originsOf(ctx: RenderContext, decl: { name: string; source: 'graph' | '
 export async function kindSummaries(ctx: RenderContext): Promise<KindSummary[]> {
   const counts = new Map((await ctx.graph.kindCounts()).map((entry) => [entry.kind, entry.count]));
   const statements = new Map((await ctx.index?.counts() ?? []).map((entry) => [entry.kind, entry.statements]));
-  return [...ctx.manifest.kinds.values()].map((decl) => ({
+  return [...ctx.manifest.kinds.values()].filter((decl) => decl.member === undefined).map((decl) => ({
     kind: decl.name,
     source: decl.source,
     single: decl.file !== undefined,
@@ -272,7 +315,7 @@ export async function kindSummaries(ctx: RenderContext): Promise<KindSummary[]> 
 
 export async function listEntities(ctx: RenderContext, kind: string, options: { q?: string; after?: string; limit: number }): Promise<EntityListing | undefined> {
   const decl = ctx.manifest.kinds.get(kind);
-  if (decl === undefined) return undefined;
+  if (decl === undefined || decl.member !== undefined) return undefined;
   if (decl.source === 'markdown' || decl.source === 'document') {
     const text = options.q?.trim().toLowerCase() ?? '';
     const pool: (MarkdownEntity | DocEntity)[] = decl.source === 'markdown' ? [...ctx.markdown.values()] : [...ctx.docEntities.values()];

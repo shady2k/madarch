@@ -11,9 +11,11 @@
  * call through it is not claimed.
  */
 import type { Node as SyntaxNode } from 'web-tree-sitter';
-import { readSyntaxTree, type SyntaxTreeRead } from '../../fill/stages/syntax-extract.js';
+import { readSyntaxTree, type SyntaxSpan, type SyntaxTreeRead } from '../../fill/stages/syntax-extract.js';
 import type { SourceFile } from './source.js';
 import { decodeStringToken } from './literals.js';
+
+const syntaxSpan = (node: SyntaxNode): SyntaxSpan => ({ startByte: node.startIndex, endByte: node.endIndex, startLine: node.startPosition.row + 1, startColumn: node.startPosition.column, endLine: node.endPosition.row + 1, endColumn: node.endPosition.column });
 
 export type TypeKind = 'class' | 'interface' | 'struct' | 'type';
 
@@ -24,6 +26,8 @@ export interface MemberDecl {
   readonly qualifiedName: string;
   /** The field's type or the method's first result, as the file writes it. */
   readonly type?: string;
+  /** Where the member is declared; a field needs it to be a member entity (madarch-m38l.21). */
+  readonly span?: SyntaxSpan;
   readonly abstract: boolean;
 }
 
@@ -215,7 +219,7 @@ function goTypeDecl(name: string, body: SyntaxNode, text: string, typeText: Map<
       }
       for (const fieldName of names) {
         const member = textOf(fieldName, text);
-        members.push({ name: member, kind: 'field', qualifiedName: `${name}.${member}`, ...(fieldType === undefined ? {} : { type: fieldType }), abstract: false });
+        members.push({ name: member, kind: 'field', qualifiedName: `${name}.${member}`, ...(fieldType === undefined ? {} : { type: fieldType }), span: syntaxSpan(fieldName), abstract: false });
         if (typeNode !== null) typeText.set(`${name}.${member}`, textOf(typeNode, text));
       }
     }
@@ -383,7 +387,7 @@ function tsClass(name: string, node: SyntaxNode, text: string, typeText: Map<str
             if (!isProperty || pattern === null || pattern.type !== 'identifier') continue;
             const propertyName = textOf(pattern, text);
             const propertyType = tsTypeName(parameter.childForFieldName('type'), text);
-            members.push({ name: propertyName, kind: 'field', qualifiedName: `${name}.${propertyName}`, ...(propertyType === undefined ? {} : { type: propertyType }), abstract: false });
+            members.push({ name: propertyName, kind: 'field', qualifiedName: `${name}.${propertyName}`, ...(propertyType === undefined ? {} : { type: propertyType }), span: syntaxSpan(pattern), abstract: false });
             const annotation = parameter.childForFieldName('type');
             if (annotation !== null) typeText.set(`${name}.${propertyName}`, textOf(annotation, text).replace(/^:\s*/, ''));
           }
@@ -405,7 +409,7 @@ function tsClass(name: string, node: SyntaxNode, text: string, typeText: Map<str
           const constructed = value.childForFieldName('constructor');
           if (constructed !== null && constructed.type === 'identifier') fieldType = textOf(constructed, text);
         }
-        members.push({ name: written, kind: 'field', qualifiedName: `${name}.${written}`, ...(fieldType === undefined ? {} : { type: fieldType }), abstract: false });
+        members.push({ name: written, kind: 'field', qualifiedName: `${name}.${written}`, ...(fieldType === undefined ? {} : { type: fieldType }), span: syntaxSpan(fieldName), abstract: false });
         if (annotation !== null) typeText.set(`${name}.${written}`, textOf(annotation, text).replace(/^:\s*/, ''));
         break;
       }
@@ -431,7 +435,7 @@ function tsSignatures(owner: string, body: SyntaxNode | null, text: string, type
     } else if (member.type === 'property_signature') {
       const annotation = member.childForFieldName('type');
       const propertyType = tsTypeName(annotation, text);
-      members.push({ name: written, kind: 'field', qualifiedName: `${owner}.${written}`, ...(propertyType === undefined ? {} : { type: propertyType }), abstract: false });
+      members.push({ name: written, kind: 'field', qualifiedName: `${owner}.${written}`, ...(propertyType === undefined ? {} : { type: propertyType }), span: syntaxSpan(memberName), abstract: false });
       if (annotation !== null) typeText.set(`${owner}.${written}`, textOf(annotation, text).replace(/^:\s*/, ''));
     }
   }

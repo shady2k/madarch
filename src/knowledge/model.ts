@@ -43,6 +43,8 @@ export interface RefRow {
   /** The same reason as a key and its values, so the app says it in the reader's language; a row whose note is a quotation has none. */
   noteKey?: 'named' | 'groundedWith' | 'statements' | 'links';
   noteArgs?: Record<string, string | number>;
+  /** The note is quoted source text, not the engine's words. */
+  quoted?: true;
 }
 
 export interface RelatedGroup {
@@ -108,6 +110,8 @@ export interface ChainLane {
   href: string | null;
   /** The container the lane belongs to (a service, a database, the broker): lanes of one group stand together. */
   group: string;
+  /** How the group is named to a reader; the internal `group` stays the key the graph is read by. */
+  groupLabel?: string;
 }
 
 /** One step: `from` to `to`, a link to what it reaches, the line it is read at. */
@@ -128,6 +132,8 @@ export interface ChainStep {
    */
   layer: number;
   note?: string;
+  /** The note names code identifiers rather than speaking prose. */
+  technical?: true;
 }
 
 /** One end-to-end chain from an entry point. */
@@ -183,6 +189,7 @@ export interface TreemapFile {
 type BlockShape =
   | { type: 'guide'; data: import('../writer/guides/read.js').GuidePageData }
   | { type: 'markdown'; markdown: string }
+  | { type: 'members'; title: string; rows: MemberRow[]; total: number }
   | { type: 'term'; title: string; definition: string; synonyms: string[]; code: string[]; usedIn: string | null; ambiguous: string | null; localized?: { statement: string; original: string; sourceDocument: string; sourceLine: number; sourceEndLine: number } }
   | { type: 'body'; markdown: string; file: string; statements: number; ungrounded: { text: string; line: number }[]; localized?: { statement: string; original: string; sourceDocument: string; sourceLine: number; sourceEndLine: number } }
   | { type: 'graph'; title: string; neighborhood: Neighborhood; depth: number; shown: number; total: number }
@@ -253,18 +260,34 @@ export interface HistoryFigure {
   value: string;
 }
 
-/** One row of a properties block: the name the extractor gave it, and, where the app knows the name, its key in the reader's language. */
+/** One row of a properties block: the name the extractor gave it, the manifest's label, and the value written for a reader. */
 export interface PropertyRow {
   name: string;
   value: string;
-  /** The name's key under `knowledge.property.`, where the app knows this name. */
+  /** The property's label in the language the page was asked in, from the manifest. */
+  label?: string;
+  /** The name's key under `knowledge.property.`, where a product made before madarch-m38l.21 names it there. */
   nameKey?: 'authoredAt' | 'committedAt' | 'subject' | 'merge' | 'language' | 'symbol' | 'method' | 'path' | 'marker' | 'text' | 'line' | 'service' | 'secret';
-  /** A date the app writes the way the wiki writes dates, in the reader's language. */
-  valueKind?: 'date';
+  /** A date or a yes/no value the app writes in the reader's language. */
+  valueKind?: 'date' | 'boolean' | 'code';
+}
+
+/** One member of an entity (a field of a class, a facet of a file): its name, its labelled facts and who reads or writes it. */
+export interface MemberRow {
+  entity: EntityRef;
+  /** The fragment this member has on its parent's page; an old member address lands here. */
+  anchor: string;
+  values: PropertyRow[];
+  readers: EntityRef[];
+  writers: EntityRef[];
 }
 
 /** One block of a page; `name` is the template's block it was made from (`implementedby` and `linkedfrom` both draw as `refs`), which the manifest's roles name. */
-export type Block = BlockShape & { name?: string };
+export type Block = BlockShape & {
+  name?: string;
+  /** What a block looked for and did not find, in the reader's language, when absence itself informs the reader. */
+  emptyNote?: string;
+};
 
 export interface PageModel {
   historyNavigation?: { repo: string; points: { name: string; commit: string; covered: boolean }[]; landmarks?: NonNullable<import('./temporal.js').HistoryContext['landmarks']> }[];
@@ -283,6 +306,8 @@ export interface PageModel {
   findings: Finding[];
   /** A reader's notes the page carries: an ambiguous key, a source that moved. */
   notes: string[];
+  /** An old member address: the parent page to open, at the member's fragment. */
+  redirect?: { id: string; anchor: string };
   /**
    * The planned change this entity's page stands in, and the statements of the page that rely on one (madarch-m38l.14).
    * `product.page` adds it after the page is drawn; the page the renderer builds knows nothing of the product's tasks.

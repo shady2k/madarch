@@ -35,6 +35,67 @@ const list = (value: string | undefined): string[] | undefined => (value === und
  */
 export const QUIET_RELATIONS: ReadonlySet<string> = new Set();
 
+/** The sentences a diagram says inside itself, in the reader's interface language (madarch-m38l.21). */
+function diagramWords(lang: string | undefined) {
+  const ru = lang === 'ru';
+  const plural = (n: number, one: string, few: string, many: string): string => {
+    const rest10 = n % 10; const rest100 = n % 100;
+    if (rest10 === 1 && rest100 !== 11) return one;
+    if (rest10 >= 2 && rest10 <= 4 && (rest100 < 12 || rest100 > 14)) return few;
+    return many;
+  };
+  return {
+    moreSteps: (n: number) => ru ? `В цепочке больше шагов, чем нарисовано (${n}); схема на этом останавливается.` : `The chain has more steps than the ${n} drawn; the diagram stops there.`,
+    walkStopped: () => ru ? 'Обход остановлен после 400 функций.' : 'The walk stopped after 400 functions.',
+    calledAgain: () => ru ? 'вызывается снова; шаги показаны выше' : 'called again; its steps are shown above',
+    alternatives: (n: number) => ru ? `один из ${n} функций, вызванных здесь; порядок между ними граф не хранит` : `one of ${n} functions called at this site; the graph holds no order between them`,
+    through: (name: string) => ru ? `через ${name}` : `through ${name}`,
+    middleware: () => ru ? 'промежуточные обработчики' : 'middleware',
+    registeredHandler: () => ru ? 'зарегистрированный обработчик запроса' : 'registered request handler',
+    remoteCall: (protocol: string, client: string) => ru ? `${protocol}-вызов ${client}` : `${protocol} call of ${client}`,
+    callbackReason: () => ru ? 'значение обратного вызова передано здесь; порядок вызова не установлен' : 'callback value passed here; invocation order is not established',
+    consumedNoFunction: (channel: string, path: string) => ru ? `${channel} потребляется в ${path}, но граф не знает какой функцией.` : `${channel} is consumed in ${path}, but the graph does not say by which function.`,
+    noServiceSub: () => ru ? 'ни один сервис графа не обслуживает это' : 'no service in the graph serves it',
+    noServiceNote: () => ru ? 'ни один сервис графа не обслуживает эту операцию' : 'no service of the graph serves this operation',
+    servedNoFunction: (label: string, path: string) => ru ? `${label} обслуживается в ${path}, но граф не знает какой функцией.` : `${label} is served in ${path}, but the graph does not say by which function.`,
+    noHandler: (route: string) => ru ? `у ${route} нет найденной функции-обработчика в графе.` : `${route} has no resolved handler function in the graph.`,
+    unordered: () => ru ? 'Граф не знает порядка между публикатором и потребителями его топика, а также между писателем таблицы и функциями, которые позже читают строку: эти шаги нарисованы отдельно, ниже пунктирной линии.' : 'The graph holds no order between a publisher and the consumers of its topic, nor between a writer of a table and the functions that read the row later: those steps are drawn apart, below the dashed line.',
+    followsDepth: (depth: number, n: number) => ru ? `Обход следует за вызовами на ${depth} уровней; вызовы ниже ${n} функций на этой глубине не прослеживаются.` : `The walk follows calls ${depth} levels deep; the calls below ${n} functions at that depth are not followed.`,
+    omittedHelpers: (n: number) => ru ? `Вызовы ${n} вспомогательных функций того же файла, которые никуда больше не ведут, не нарисованы.` : `${n} calls to helpers of the same file that reach nothing else are not drawn.`,
+    entryNoRoute: () => ru ? 'ни один маршрут графа не ведёт к этой функции; цепочка начинается здесь' : 'no route of the graph reaches this function; the chain starts here',
+    sourceOrder: () => ru ? 'Внутри функции шаги идут в порядке исходного текста; ветвления, циклы, пути ошибок и повторные вызовы не моделируются.' : 'Inside a function the steps follow the source order of the places the graph read them at; branches, loops, error paths and repeated calls are not modelled.',
+    reads: (label: string) => ru ? `читает ${label}` : `reads ${label}`,
+    writes: (label: string) => ru ? `пишет ${label}` : `writes ${label}`,
+    publishes: (label: string) => ru ? `публикует ${label}` : `publishes ${label}`,
+    consumesReason: (channel: string, path: string, group: string) => ru ? `потребляет ${channel}${group === '' ? '' : ` как группа ${group}`}, подписка в ${path}` : `consumes ${channel}${group === '' ? '' : ` as group ${group}`}, subscribed in ${path}`,
+    actor: () => ru ? 'Вызывающий' : 'Caller',
+    clientSub: () => ru ? 'клиент' : 'client',
+    clientGroup: () => ru ? 'клиент' : 'client',
+    databaseSub: (name: string) => ru ? `база ${name}` : `${name} database`,
+    databaseGroup: (name: string) => ru ? `база ${name}` : `${name} database`,
+    topicSub: () => ru ? 'топик' : 'topic',
+    brokerGroup: () => ru ? 'брокер' : 'broker',
+    elsewhereGroup: () => ru ? 'вне графа' : 'elsewhere',
+    repository: () => ru ? 'репозиторий' : 'repository',
+    servicesRead: (shown: number, total: number) => ru ? `Прочитано ${shown} из ${total} сервисов.` : `Showing ${shown} of ${total} services.`,
+    linksRead: (shown: number, total: number, relation: string) => ru ? `Прочитано ${shown} из ${total} связей ${relation}; связи и сервисы могут быть неполными.` : `Only ${shown} of ${total} ${relation} links were read; links and services shown may be missing.`,
+    noServices: () => ru ? 'В графе пока нет ни одного сервиса.' : 'The graph holds no service yet.',
+    modulesRead: (shown: number, total: number) => ru ? `Показано ${shown} из ${total} модулей.` : `Showing ${shown} of ${total} modules.`,
+    dependenciesRead: (shown: number, total: number) => ru ? `Прочитано ${shown} из ${total} зависимостей модулей.` : `Only ${shown} of ${total} module dependencies were read.`,
+    cycleMembersRead: (shown: number, total: number) => ru ? `Прочитано ${shown} из ${total} членств в циклах.` : `Only ${shown} of ${total} cycle memberships were read.`,
+    noModules: (root: string) => ru ? `В графе нет модулей в ${root}.` : `The graph holds no module under ${root}.`,
+    filesRead: (shown: number, total: number) => ru ? `Показаны первые ${shown} из ${total} файлов по пути.` : `Showing the first ${shown} of ${total} files by path.`,
+    hiddenFiles: (lockfiles: number, declared: number) => {
+      const parts: string[] = [];
+      if (lockfiles > 0) parts.push(ru ? `${lockfiles} ${plural(lockfiles, 'файл блокировки', 'файла блокировки', 'файлов блокировки')}` : `${lockfiles} lock file${lockfiles === 1 ? '' : 's'}`);
+      if (declared > 0) parts.push(ru ? `${declared} ${plural(declared, 'объявленный сгенерированным или вендорным файл', 'объявленных сгенерированными или вендорными файла', 'объявленных сгенерированными или вендорными файлов')}` : `${declared} repository-declared generated or vendored file${declared === 1 ? '' : 's'}`);
+      return ru ? `${parts.join(' и ')} не нарисованы.` : `${parts.join(' and ')} ${lockfiles + declared === 1 ? 'is' : 'are'} not drawn.`;
+    },
+    unreadFiles: (n: number) => ru ? `${n} ${plural(n, 'файл был', 'файла были', 'файлов были')} не прочитаны в зафиксированной версии и не нарисованы.` : `${n} file${n === 1 ? ' was' : 's were'} not readable at the commit the graph was filled from and ${n === 1 ? 'is' : 'are'} not drawn.`,
+  };
+}
+type DiagramWords = ReturnType<typeof diagramWords>;
+
 const dirname = (path: string): string => (path.includes('/') ? path.slice(0, path.lastIndexOf('/')) : '.');
 const basename = (path: string): string => path.slice(path.lastIndexOf('/') + 1);
 /** The repository path inside a record key: what follows the kind and its colon, up to the `#` that names a part of the file. */
@@ -230,10 +291,12 @@ export class ChainBuilder {
   private cutAtDepth = 0;
   private omittedHelpers = 0;
 
+  private readonly w: DiagramWords;
+
   constructor(
     private readonly ctx: RenderContext,
-    private readonly options: { limit: number; depth: number },
-  ) {}
+    private readonly options: { limit: number; depth: number; lang?: string },
+  ) { this.w = diagramWords(options.lang); }
 
   private async roots(): Promise<{ key: string; label: string; root: string }[]> {
     if (this.serviceRoots === undefined) {
@@ -274,7 +337,7 @@ export class ChainBuilder {
     const held = this.lanes.get(id);
     if (held !== undefined) return held;
     const database = String(table.properties['database'] ?? 'database');
-    const lane: ChainLane = { id, label: table.label, sub: `${database} database`, kind: table.kind, href: refOfGraph(this.ctx, table).href, group: `${database} database` };
+    const lane: ChainLane = { id, label: table.label, sub: this.w.databaseSub(database), kind: table.kind, href: refOfGraph(this.ctx, table).href, group: `${database} database`, groupLabel: this.w.databaseGroup(database) };
     this.lanes.set(id, lane);
     return lane;
   }
@@ -283,7 +346,7 @@ export class ChainBuilder {
     const id = `channel:${channel.key}`;
     const held = this.lanes.get(id);
     if (held !== undefined) return held;
-    const lane: ChainLane = { id, label: channel.label, sub: 'topic', kind: channel.kind, href: refOfGraph(this.ctx, channel).href, group: 'broker' };
+    const lane: ChainLane = { id, label: channel.label, sub: this.w.topicSub(), kind: channel.kind, href: refOfGraph(this.ctx, channel).href, group: 'broker', groupLabel: this.w.brokerGroup() };
     this.lanes.set(id, lane);
     return lane;
   }
@@ -291,7 +354,7 @@ export class ChainBuilder {
   actor(): ChainLane {
     const held = this.lanes.get('actor');
     if (held !== undefined) return held;
-    const lane: ChainLane = { id: 'actor', label: 'Caller', sub: 'client', kind: 'actor', href: null, group: 'client' };
+    const lane: ChainLane = { id: 'actor', label: this.w.actor(), sub: this.w.clientSub(), kind: 'actor', href: null, group: 'client', groupLabel: this.w.clientGroup() };
     this.lanes.set('actor', lane);
     return lane;
   }
@@ -304,7 +367,7 @@ export class ChainBuilder {
   private push(step: Omit<ChainStep, 'n' | 'layer'>, layer: number): void {
     this.total += 1;
     if (this.steps.length >= this.options.limit) {
-      this.notes.add(`The chain has more steps than the ${this.options.limit} drawn; the diagram stops there.`);
+      this.notes.add(this.w.moreSteps(this.options.limit));
       return;
     }
     this.steps.push({ n: this.steps.length + 1, layer, ...step });
@@ -422,13 +485,13 @@ export class ChainBuilder {
     }
     this.expansions += 1;
     if (this.expansions > 400) {
-      this.notes.add('The walk stopped after 400 functions.');
+      this.notes.add(this.w.walkStopped());
       return;
     }
     const order: ChainStep['order'] = unordered ? 'unordered' : 'source';
     for (const event of await this.eventsOf(symbol, within)) {
       if (event.kind === 'callback') {
-        this.pendingUnordered.push({symbol: event.target, from: fromLane.id, ...(event.span === undefined ? {} : {span: event.span}), reason: 'callback value passed here; invocation order is not established'});
+        this.pendingUnordered.push({symbol: event.target, from: fromLane.id, ...(event.span === undefined ? {} : {span: event.span}), reason: this.w.callbackReason()});
       } else if (event.kind === 'call') {
         const target = event.target;
         if (target.span === undefined) continue;
@@ -439,7 +502,7 @@ export class ChainBuilder {
         const totalBefore = this.total;
         this.push({
           from: fromLane.id, to: toLane.id, label: symbolName(target), kind: same ? 'self' : 'call', href: refOfGraph(this.ctx, target).href, order,
-          ...this.site(symbol, event.span), ...(again ? { note: 'called again; its steps are shown above' } : typeof event.props['alternatives'] === 'number' ? { note: `one of ${event.props['alternatives']} functions called at this site; the graph holds no order between them` } : typeof event.props['viaInterface'] === 'string' ? { note: `through ${event.props['viaInterface']}` } : {}),
+          ...this.site(symbol, event.span), ...(again ? { note: this.w.calledAgain() } : typeof event.props['alternatives'] === 'number' ? { note: this.w.alternatives(Number(event.props['alternatives'])) } : typeof event.props['viaInterface'] === 'string' ? { note: this.w.through(String(event.props['viaInterface'])) } : {}),
         }, layer);
         if (!again && depthLeft > 1) await this.visit(target, depthLeft - 1, undefined, unordered, layer + 1);
         else if (!again && depthLeft <= 1) this.cutAtDepth += 1;
@@ -452,10 +515,10 @@ export class ChainBuilder {
       } else if (event.kind === 'read' || event.kind === 'write') {
         const lane = this.laneOfTable(event.target);
         if (event.kind === 'write') this.written.add(event.target.key);
-        this.push({ from: fromLane.id, to: lane.id, label: `${event.kind === 'write' ? 'writes' : 'reads'} ${event.target.label}`, kind: event.kind, href: refOfGraph(this.ctx, event.target).href, order, ...this.site(symbol, event.span) }, layer);
+        this.push({ from: fromLane.id, to: lane.id, label: event.kind === 'write' ? this.w.writes(event.target.label) : this.w.reads(event.target.label), kind: event.kind, href: refOfGraph(this.ctx, event.target).href, order, ...this.site(symbol, event.span) }, layer);
       } else if (event.kind === 'publish') {
         const channel = this.laneOfChannel(event.target);
-        this.push({ from: fromLane.id, to: channel.id, label: `publishes ${event.target.label}`, kind: 'publish', href: refOfGraph(this.ctx, event.target).href, order, ...this.site(symbol, event.span) }, layer);
+        this.push({ from: fromLane.id, to: channel.id, label: this.w.publishes(event.target.label), kind: 'publish', href: refOfGraph(this.ctx, event.target).href, order, ...this.site(symbol, event.span) }, layer);
         await this.consumersOf(event.target, channel);
       } else {
         await this.remote(symbol, fromLane, event, depthLeft, order, layer);
@@ -478,11 +541,11 @@ export class ChainBuilder {
       }
       if (symbol === undefined && span !== undefined) symbol = await this.enclosing(path, span);
       if (symbol === undefined || symbol.span === undefined) {
-        this.notes.add(`${channel.label} is consumed in ${path}, but the graph does not say by which function.`);
+        this.notes.add(this.w.consumedNoFunction(channel.label, path));
         continue;
       }
       const group = edge.properties['group'];
-      this.pendingUnordered.push({ symbol, ...(span === undefined ? {} : { span }), from: lane.id, reason: `consumes ${channel.label}${typeof group === 'string' ? ` as group ${group}` : ''}, subscribed in ${path}` });
+      this.pendingUnordered.push({ symbol, ...(span === undefined ? {} : { span }), from: lane.id, reason: this.w.consumesReason(channel.label, path, typeof group === 'string' ? group : '') });
     }
   }
 
@@ -498,9 +561,9 @@ export class ChainBuilder {
       for (const edge of found.rows) servers.push({ entity: edge.other, ...(edge.span === undefined ? {} : { span: edge.span }) });
     }
     if (servers.length === 0) {
-      const lane: ChainLane = { id: `external:${target.key}`, label: target.label, sub: 'no service in the graph serves it', kind: 'external', href: refOfGraph(this.ctx, target).href, group: 'elsewhere' };
+      const lane: ChainLane = { id: `external:${target.key}`, label: target.label, sub: this.w.noServiceSub(), kind: 'external', href: refOfGraph(this.ctx, target).href, group: 'elsewhere', groupLabel: this.w.elsewhereGroup() };
       this.lanes.set(lane.id, lane);
-      this.push({ from: fromLane.id, to: lane.id, label: String(event.props['client'] ?? target.label), kind, href: lane.href, order, ...this.site(symbol, event.span), note: 'no service of the graph serves this operation' }, layer);
+      this.push({ from: fromLane.id, to: lane.id, label: String(event.props['client'] ?? target.label), kind, href: lane.href, order, ...this.site(symbol, event.span), note: this.w.noServiceNote() }, layer);
       return;
     }
     for (const server of servers.slice(0, 1)) {
@@ -509,14 +572,14 @@ export class ChainBuilder {
       const toLane = await this.laneOfFile(path, serverEntity.kind === 'code.file' ? serverEntity.key : undefined);
       this.push({
         from: fromLane.id, to: toLane.id, label: serverEntity.kind === 'code.route' ? serverEntity.label : target.label, kind, href: refOfGraph(this.ctx, serverEntity).href, order,
-        ...this.site(symbol, event.span), note: `${via === 'grpc' ? 'gRPC' : 'HTTP'} call of ${String(event.props['client'] ?? target.label)}`,
+        ...this.site(symbol, event.span), note: this.w.remoteCall(via === 'grpc' ? 'gRPC' : 'HTTP', String(event.props['client'] ?? target.label)), technical: true,
       }, layer);
       if (depthLeft <= 1) continue;
       if (serverEntity.kind === 'code.route') await this.enterRoute(serverEntity, depthLeft - 1, order === 'unordered', false, layer + 1);
       else if (server.span !== undefined) {
         const handler = await this.enclosing(path, server.span);
         if (handler !== undefined) await this.visit(handler, depthLeft - 1, { lineStart: server.span.lineStart, lineEnd: server.span.lineEnd }, order === 'unordered', layer + 1);
-        else this.notes.add(`${target.label} is served in ${path}, but the graph does not say by which function.`);
+        else this.notes.add(this.w.servedNoFunction(target.label, path));
       }
     }
   }
@@ -531,15 +594,15 @@ export class ChainBuilder {
       const middleware = Array.isArray(route.properties['middleware']) ? (route.properties['middleware'] as unknown[]).map(String) : [];
       this.push({
         from: this.actor().id, to: lane.id, label: route.label, kind: 'route', href: refOfGraph(this.ctx, route).href, order: unordered ? 'unordered' : 'source', ...this.site(route, span),
-        ...(middleware.length === 0 ? {} : { note: `middleware: ${middleware.join(', ')}` }),
+        ...(middleware.length === 0 ? {} : { note: `${this.w.middleware()}: ${middleware.join(', ')}`, technical: true }),
       }, layer);
     }
     const handlers = await this.handlersOf(route);
-    if (handlers.length === 0) this.notes.add(`${route.label} has no resolved handler function in the graph.`);
+    if (handlers.length === 0) this.notes.add(this.w.noHandler(route.label));
     for (const handler of handlers) {
       if (handler.span === undefined) continue;
       const handlerLane = await this.laneOfFile(handler.span.path, undefined);
-      if (handlerLane.id !== lane.id) this.push({ from: lane.id, to: handlerLane.id, label: symbolName(handler), kind: 'call', href: refOfGraph(this.ctx, handler).href, order: unordered ? 'unordered' : 'source', ...this.site(route, span), note: 'registered request handler' }, layer);
+      if (handlerLane.id !== lane.id) this.push({ from: lane.id, to: handlerLane.id, label: symbolName(handler), kind: 'call', href: refOfGraph(this.ctx, handler).href, order: unordered ? 'unordered' : 'source', ...this.site(route, span), note: this.w.registeredHandler() }, layer);
       await this.visit(handler, depthLeft, undefined, unordered, layer);
     }
   }
@@ -569,7 +632,7 @@ export class ChainBuilder {
       for (const edge of readers.rows) {
         const reader = edge.other;
         if (this.visited.has(reader.key) || reader.kind !== 'code.symbol' || reader.properties['test'] === true) continue;
-        if (await this.reachesPublish(reader, 3)) this.pendingUnordered.push({ symbol: reader, from: `table:${table.key}`, reason: `reads ${table.label}` });
+        if (await this.reachesPublish(reader, 3)) this.pendingUnordered.push({ symbol: reader, from: `table:${table.key}`, reason: this.w.reads(table.label) });
       }
     }
     const done = new Set<string>();
@@ -581,7 +644,7 @@ export class ChainBuilder {
       const lane = await this.laneOfFile(item.symbol.span.path, undefined);
       if (!marked) {
         marked = true;
-        this.notes.add('The graph holds no order between a publisher and the consumers of its topic, nor between a writer of a table and the functions that read the row later: those steps are drawn apart, below the dashed line.');
+        this.notes.add(this.w.unordered());
       }
       this.push({ from: item.from, to: lane.id, label: symbolName(item.symbol), kind: 'consume', href: refOfGraph(this.ctx, item.symbol).href, order: 'unordered', ...this.site(item.symbol, item.span), note: item.reason }, 0);
       await this.visit(item.symbol, depthLeft, undefined, true, 0);
@@ -600,8 +663,8 @@ export class ChainBuilder {
   /** What the walk left out, said once. */
   summaryNotes(): string[] {
     const notes: string[] = [];
-    if (this.cutAtDepth > 0) notes.push(`The walk follows calls ${this.options.depth} levels deep; the calls below ${this.cutAtDepth} functions at that depth are not followed.`);
-    if (this.omittedHelpers > 0) notes.push(`${this.omittedHelpers} calls to helpers of the same file that reach nothing else are not drawn.`);
+    if (this.cutAtDepth > 0) notes.push(this.w.followsDepth(this.options.depth, this.cutAtDepth));
+    if (this.omittedHelpers > 0) notes.push(this.w.omittedHelpers(this.omittedHelpers));
     return notes;
   }
 
@@ -631,7 +694,8 @@ async function routesAt(graph: GraphReader, path: string, site: SourceSpan): Pro
  * Where a chain through a function starts: the route that reaches it, found by walking the callers upward until a
  * caller stands inside a route's lines; the function itself when no route reaches it.
  */
-export async function entryOfSymbol(ctx: RenderContext, symbol: GraphEntity): Promise<Entry> {
+export async function entryOfSymbol(ctx: RenderContext, symbol: GraphEntity, lang?: string): Promise<Entry> {
+  const w = diagramWords(lang);
   const seen = new Set<string>([symbol.key]);
   let frontier: GraphEntity[] = [symbol];
   for (let level = 0; level < 6; level += 1) {
@@ -656,13 +720,13 @@ export async function entryOfSymbol(ctx: RenderContext, symbol: GraphEntity): Pr
     if (next.length === 0) break;
     frontier = next.sort((a, b) => byCodePoint(a.key, b.key));
   }
-  return { kind: 'symbol', entity: symbol, note: 'no route of the graph reaches this function; the chain starts here' };
+  return { kind: 'symbol', entity: symbol, note: w.entryNoRoute() };
 }
 
-export async function entriesOf(ctx: RenderContext, subject: Subject): Promise<Entry[]> {
+export async function entriesOf(ctx: RenderContext, subject: Subject, lang?: string): Promise<Entry[]> {
   if (subject.source === 'graph') {
     if (subject.entity.kind === 'code.route') return [{ kind: 'route', entity: subject.entity }];
-    if (isEntrySymbolKind(subject.entity)) return [await entryOfSymbol(ctx, subject.entity)];
+    if (isEntrySymbolKind(subject.entity)) return [await entryOfSymbol(ctx, subject.entity, lang)];
     return [];
   }
   if (subject.source !== 'markdown') return [];
@@ -670,19 +734,19 @@ export async function entriesOf(ctx: RenderContext, subject: Subject): Promise<E
   for (const key of subject.entity.relates) {
     const [entity] = await ctx.graph.find(key);
     if (entity === undefined) continue;
-    for (const entry of await entriesOf(ctx, { source: 'graph', entity })) entries.set(entry.entity.key, entry);
+    for (const entry of await entriesOf(ctx, { source: 'graph', entity }, lang)) entries.set(entry.entity.key, entry);
   }
   return [...entries.values()].sort((a, b) => byCodePoint(a.entity.key, b.entity.key));
 }
 
-export async function chainFrom(ctx: RenderContext, entry: Entry, options: { limit: number; depth: number }): Promise<Chain> {
+export async function chainFrom(ctx: RenderContext, entry: Entry, options: { limit: number; depth: number; lang?: string }): Promise<Chain> {
   const builder = new ChainBuilder(ctx, options);
   if (entry.kind === 'route') await builder.enterRoute(entry.entity, options.depth);
   else await builder.enterSymbol(entry.entity, options.depth);
   await builder.finish(Math.min(options.depth, 4));
   const notes = [...builder.notes, ...builder.summaryNotes()];
   if (entry.kind === 'symbol' && entry.note !== undefined) notes.unshift(entry.note);
-  notes.push('Inside a function the steps follow the source order of the places the graph read them at; branches, loops, error paths and repeated calls are not modelled.');
+  notes.push(diagramWords(options.lang).sourceOrder());
   return {
     title: entry.entity.label,
     entry: refOfGraph(ctx, entry.entity),
@@ -716,13 +780,14 @@ async function completeRead<T>(what: string, firstLimit: number, read: (limit: n
   return found;
 }
 
-export async function systemModel(ctx: RenderContext): Promise<{ nodes: SystemNode[]; edges: SystemEdge[]; notes: string[] }> {
+export async function systemModel(ctx: RenderContext, lang?: string): Promise<{ nodes: SystemNode[]; edges: SystemEdge[]; notes: string[] }> {
+  const w = diagramWords(lang);
   const servicesRead = await completeRead('system services', 200, limit => ctx.graph.list('code.service', { limit }));
   const services = servicesRead.rows
     .flatMap((service) => (service.span === undefined ? [] : [{ entity: service, root: dirname(service.span.path) }]))
     .sort((a, b) => b.root.length - a.root.length || byCodePoint(a.root, b.root));
   const notes: string[] = [];
-  if (servicesRead.total > servicesRead.rows.length) notes.push(`Showing ${servicesRead.rows.length} of ${servicesRead.total} services.`);
+  if (servicesRead.total > servicesRead.rows.length) notes.push(w.servicesRead(servicesRead.rows.length, servicesRead.total));
   const serviceOfPath = (path: string): string | undefined => services.find((service) => service.root === '.' || path === service.root || path.startsWith(`${service.root}/`))?.entity.key;
   const nodes = new Map<string, SystemNode>();
   for (const service of [...services].sort((a, b) => byCodePoint(a.entity.key, b.entity.key))) {
@@ -743,7 +808,7 @@ export async function systemModel(ctx: RenderContext): Promise<{ nodes: SystemNo
   // Who serves an operation: the service of the route or the file that serves it.
   const server = new Map<string, string>();
   const cut = (relation: string, read: { total: number; rows: unknown[] }): void => {
-    if (read.total > read.rows.length) notes.push(`Only ${read.rows.length} of ${read.total} ${relation} links were read; links and services shown may be missing.`);
+    if (read.total > read.rows.length) notes.push(w.linksRead(read.rows.length, read.total, relation));
   };
   const serves = await completeRead('system code.serves', 5000, limit => ctx.graph.relationEdges('code.serves', limit));
   cut('code.serves', serves);
@@ -760,7 +825,7 @@ export async function systemModel(ctx: RenderContext): Promise<{ nodes: SystemNo
     let callee = edge.to.kind === 'code.route' ? serviceOfPath(pathOfKey(edge.to.key)) : server.get(edge.to.key);
     if (callee === undefined) {
       callee = `external:${edge.to.key}`;
-      nodes.set(callee, { id: callee, kind: 'external', label: edge.to.label, sub: 'no service of the graph serves it', href: null });
+      nodes.set(callee, { id: callee, kind: 'external', label: edge.to.label, sub: w.noServiceSub(), href: null });
     }
     addEdge(caller, callee, via, edge.to.label.length > 28 ? `${edge.to.label.slice(0, 27)}…` : edge.to.label);
   }
@@ -794,14 +859,15 @@ export async function systemModel(ctx: RenderContext): Promise<{ nodes: SystemNo
       else addEdge(edge.to.key, owner, 'consumes', 'consumes');
     }
   }
-  if (services.length === 0) notes.push('The graph holds no service yet.');
+  if (services.length === 0) notes.push(w.noServices());
   return { nodes: [...nodes.values()], edges: [...edges.values()].sort((a, b) => byCodePoint(`${a.from}|${a.to}|${a.via}`, `${b.from}|${b.to}|${b.via}`)), notes };
 }
 
 // ---- modules of a service -----------------------------------------------------------------------
 
 /** The module graph of a service: its modules, the dependencies between them and the cycles; undefined when the subject is no service. */
-export async function modulesBlockModel(ctx: RenderContext, subject: Subject): Promise<{ service: string; nodes: ModuleNode[]; edges: ModuleEdge[]; cycles: string[][]; notes: string[] } | undefined> {
+export async function modulesBlockModel(ctx: RenderContext, subject: Subject, lang?: string): Promise<{ service: string; nodes: ModuleNode[]; edges: ModuleEdge[]; cycles: string[][]; notes: string[] } | undefined> {
+  const w = diagramWords(lang);
   if (subject.source !== 'graph' || subject.entity.kind !== 'code.service' || subject.entity.span === undefined) return undefined;
   const root = dirname(subject.entity.span.path);
   const found = await completeRead('service modules', 400, limit => ctx.graph.byPrefix('code.module', root === '.' ? 'code.module:' : `code.module:${root}`, limit));
@@ -810,12 +876,12 @@ export async function modulesBlockModel(ctx: RenderContext, subject: Subject): P
     return root === '.' || path === root || path.startsWith(`${root}/`);
   });
   const notes: string[] = [];
-  if (found.total > found.rows.length) notes.push(`Showing ${found.rows.length} of ${found.total} modules.`);
+  if (found.total > found.rows.length) notes.push(w.modulesRead(found.rows.length, found.total));
   const keys = new Set(inside.map((module) => module.key));
   const dependsOn = await completeRead('module dependencies', 20000, limit => ctx.graph.relationEdges('code.depends-on', limit));
   const cycleMembers = await completeRead('module cycle memberships', 20000, limit => ctx.graph.relationEdges('code.cycle-member', limit));
-  if (dependsOn.total > dependsOn.rows.length) notes.push(`Only ${dependsOn.rows.length} of ${dependsOn.total} module dependencies were read.`);
-  if (cycleMembers.total > cycleMembers.rows.length) notes.push(`Only ${cycleMembers.rows.length} of ${cycleMembers.total} cycle memberships were read.`);
+  if (dependsOn.total > dependsOn.rows.length) notes.push(w.dependenciesRead(dependsOn.rows.length, dependsOn.total));
+  if (cycleMembers.total > cycleMembers.rows.length) notes.push(w.cycleMembersRead(cycleMembers.rows.length, cycleMembers.total));
   const cycles = new Map<string, string[]>();
   for (const edge of cycleMembers.rows) {
     if (edge.from.kind === 'code.cycle' && edge.to.kind === 'code.module' && keys.has(edge.to.key)) cycles.set(edge.from.key, [...(cycles.get(edge.from.key) ?? []), edge.to.key]);
@@ -832,7 +898,7 @@ export async function modulesBlockModel(ctx: RenderContext, subject: Subject): P
   const edges: ModuleEdge[] = dependsOn.rows
     .filter((edge) => keys.has(edge.from.key) && keys.has(edge.to.key))
     .map((edge) => ({ from: edge.from.key, to: edge.to.key, cycle: cycleOf(edge.from.key, edge.to.key) }));
-  if (nodes.length === 0) notes.push(`The graph holds no module under ${root}.`);
+  if (nodes.length === 0) notes.push(w.noModules(root));
   return { service: subject.entity.label, nodes, edges, cycles: [...cycles.entries()].sort((a, b) => byCodePoint(a[0], b[0])).map(([, members]) => members.sort(byCodePoint)), notes };
 }
 
@@ -850,7 +916,8 @@ async function linesOfSource(ctx: RenderContext, scope: string, path: string): P
   return text === '' ? 0 : text.split('\n').length - (text.endsWith('\n') ? 1 : 0);
 }
 
-export async function treemapBlock(ctx: RenderContext, subject: Subject, params: Readonly<Record<string, string>>): Promise<Block> {
+export async function treemapBlock(ctx: RenderContext, subject: Subject, params: Readonly<Record<string, string>>, lang?: string): Promise<Block> {
+  const w = diagramWords(lang);
   const title = params['title'] ?? 'Files by size and change';
   const limit = toInt(params['limit'], 400, 10, 1500);
   let scope = '';
@@ -858,8 +925,7 @@ export async function treemapBlock(ctx: RenderContext, subject: Subject, params:
   else if (subject.source === 'graph' && subject.entity.kind === 'code.service' && subject.entity.span !== undefined) scope = dirname(subject.entity.span.path) === '.' ? '' : dirname(subject.entity.span.path);
   const found = await ctx.graph.byPrefix('code.file', scope === '' ? 'code.file:' : `code.file:${scope}/`, limit);
   const notes: string[] = [];
-  if (found.total > found.rows.length) notes.push(`Showing the first ${found.rows.length} of ${found.total} files by path.`);
-  // A file is left out of the picture only where the graph proves it is not code anyone edits: the dependency
+    // A file is left out of the picture only where the graph proves it is not code anyone edits: the dependency
   // extractor's `code.lockfile` node for that exact path, or the file's own `generated` fact (a repository that
   // declares it generated or vendored). No file name is special here, so the picture and the note name none.
   const locks = await completeRead('treemap lock files', 200, (requested) => ctx.graph.byPrefix(LOCKFILE_KIND, scope === '' ? LOCKFILE_PREFIX : `${LOCKFILE_PREFIX}${scope}/`, requested));
@@ -898,8 +964,10 @@ export async function treemapBlock(ctx: RenderContext, subject: Subject, params:
   const hidden: string[] = [];
   if (lockfiles > 0) hidden.push(`${lockfiles} lock file${lockfiles === 1 ? '' : 's'}`);
   if (declared > 0) hidden.push(`${declared} repository-declared generated or vendored file${declared === 1 ? '' : 's'}`);
-  if (hidden.length > 0) notes.push(`${hidden.join(' and ')} ${lockfiles + declared === 1 ? 'is' : 'are'} not drawn.`);
-  if (unread > 0) notes.push(`${unread} file${unread === 1 ? ' was' : 's were'} not readable at the commit the graph was filled from and ${unread === 1 ? 'is' : 'are'} not drawn.`);
+  if (hidden.length > 0) notes.push(w.hiddenFiles(lockfiles, declared));
+  if (unread > 0) notes.push(w.unreadFiles(unread));
   files.sort((a, b) => byCodePoint(a.path, b.path));
+  // The note counts what is drawn, not every node the first read returned: hidden lock files and generated files are not cells.
+  if (found.total > found.rows.length) notes.push(w.filesRead(files.length, found.total));
   return { type: 'treemap', title, scope, files, maxChurn: files.reduce((max, file) => Math.max(max, file.churn), 0), total: found.total, notes };
 }

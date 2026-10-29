@@ -193,7 +193,7 @@ export async function linkedFromBlock(ctx: RenderContext, subject: Subject, para
         const entity: EntityRef = enclosing !== undefined && enclosing.id !== doc.id
           ? { id: enclosing.id, kind: enclosing.kind, label: enclosing.title, href: ctx.manifest.kinds.has(enclosing.kind) ? entityAddress(enclosing.id) : null }
           : { id: `doc:${source.repo === null ? '' : `@${source.repo}/`}${source.path}#L${number}`, kind: 'document', label: `${place}:${number}`, href: documentAddress(source.repo, source.path) };
-        if (!rows.has(entity.id)) rows.set(entity.id, { entity, note: excerpt(text) });
+        if (!rows.has(entity.id)) rows.set(entity.id, { entity, note: excerpt(text), quoted: true });
       });
     }
   }
