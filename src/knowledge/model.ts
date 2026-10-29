@@ -195,7 +195,7 @@ type BlockShape =
   | { type: 'refs'; title: string; total: number; rows: RefRow[] }
   | { type: 'properties'; title: string; rows: PropertyRow[] }
   | { type: 'stated'; title: string; place: { repo: string | null; path: string; lineStart: number; lineEnd: number; href: string; commit: string | null; single?: boolean } }
-  | { type: 'deferred'; block: string; title: string; line: number }
+  | { type: 'deferred'; block: string; title: string; id: string }
   | { type: 'definition'; title: string; format: string; contract: string; fullPath?: string; location?: CodeLocation; members: DefinitionMember[]; membersTotal: number; membersShown: number; memberCuts: { channel: string; total: number; shown: number }[]; spec: { text: string; lines: number }; document?: Record<string, unknown>; descriptions?: {text: string; path: string; line: number; fullPath: string}[]; selection?: { method: string; path: string; operationId: string }; protobuf?: ProtoDocumentation; diagnostics?: ContractDiagnostic[] }
   | { type: 'history'; title: string; sections: HistorySection[]; notes: HistoryNote[] }
   | { type: 'problem'; block: string; message: string; file: string; line: number; diagnostic?: ContractDiagnostic };

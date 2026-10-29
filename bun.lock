@@ -11,6 +11,7 @@
         "@opentelemetry/api": "1.9.0",
         "decode-named-character-reference": "1.2.0",
         "libpg-query": "18.2.1",
+        "liquidjs": "10.30.1",
         "pg": "^8.23.1",
         "pg-boss": "12.38.0",
         "protobufjs": "7.5.4",
@@ -378,7 +379,7 @@
 
     "color-name": ["color-name@1.1.4", "", {}, "sha512-dOy+3AuW3a2wNbZHIuMZpTcgjGuLU/uBL/ubcZF9OXbDo8ff4O8yVp5Bf0efS8uEoYo5q4Fx7dY9OgQGXgAsQA=="],
 
-    "commander": ["commander@8.3.0", "", {}, "sha512-OkTL9umf+He2DZkUq8f8J9of7yL6RJKI24dVITBmNfZBmri9zYZQrKkuXiKhyfPSu8tUhnVBB1iKXevvnlR4Ww=="],
+    "commander": ["commander@10.0.1", "", {}, "sha512-y4Mg2tXshplEbSGzx7amzPwKKOCGuoSRP/CjEdwwk0FOGlUbq6lKuoyDZTNZkmxHdJtp54hdfY/JUrdL7Xfdug=="],
 
     "cose-base": ["cose-base@1.0.3", "", { "dependencies": { "layout-base": "^1.0.0" } }, "sha512-s9whTXInMSgAp/NVXVNuVxVKzGH2qck3aQlVHxDCdAEPgtMKwc4Wq6/QKhgdEdgbLSi9rBTAcPoRa6JpiG4ksg=="],
 
@@ -599,6 +600,8 @@
     "likec4": ["likec4@1.59.4", "", { "dependencies": { "@hpcc-js/wasm-graphviz": "1.22.2", "@likec4/core": "1.59.4", "@likec4/icons": "1.46.4", "@vitejs/plugin-react": "^6.1.1", "bundle-require": "^5.1.0", "chokidar": "^5.0.0", "esbuild": "0.28.2", "fdir": "6.4.0", "immer": "^11.1.18", "nano-spawn": "^2.1.0", "playwright": "1.60.0", "std-env": "^4.1.0", "type-fest": "^4.41.0", "use-sync-external-store": "^1.6.0", "vite": "^8.2.2", "vite-plugin-singlefile": "^2.3.3", "yargs": "17.7.2" }, "peerDependencies": { "@tanstack/ai": "^0.14.0", "@tanstack/ai-anthropic": "^0.8.3", "@tanstack/ai-gemini": "^0.10.0", "@tanstack/ai-ollama": "^0.6.10", "@tanstack/ai-openai": "^0.8.2", "@tanstack/ai-openrouter": "^0.8.2", "react": "^19.2.x", "react-dom": "^19.2.x" }, "optionalPeers": ["@tanstack/ai", "@tanstack/ai-anthropic", "@tanstack/ai-gemini", "@tanstack/ai-ollama", "@tanstack/ai-openai", "@tanstack/ai-openrouter"], "bin": { "likec4": "./bin/likec4.mjs" } }, "sha512-kgVPTlhMr1KeSRnPv2RRXiDF04b4rHANCEDov/nxdGnS/jSQFuNBn8nbUEpHKQxc/kVFHJ+bQuXI28FhmXxSJQ=="],
 
     "lines-and-columns": ["lines-and-columns@1.2.4", "", {}, "sha512-7ylylesZQ/PV29jhEDl3Ufjo6ZX7gCqJr5F7PKrqc93v7fzSymt1BpwEU8nAUXs8qzzvqhbjhK5QZg6Mt/HkBg=="],
+
+    "liquidjs": ["liquidjs@10.30.1", "", { "dependencies": { "commander": "^10.0.0" }, "bin": { "liquid": "bin/liquid.js", "liquidjs": "bin/liquid.js" } }, "sha512-P1Iz14WUHZdfbOYwHOIhtl/iAWIOYk1ks5l9rPZlDM6vZo+6BLeYIuWHAPkIz+U8Mm8HKZKITIrjX7DQJO2fqA=="],
 
     "load-tsconfig": ["load-tsconfig@0.2.5", "", {}, "sha512-IXO6OCs9yg8tMKzfPZ1YmheJbZCiEsnBdcB03l0OcfK9prKnJb96siuHCr5Fl37/yo9DnKU+TLpxzTUspw9shg=="],
 
@@ -949,6 +952,8 @@
     "d3-sankey/d3-shape": ["d3-shape@1.3.7", "", { "dependencies": { "d3-path": "1" } }, "sha512-EUkvKjqPFUAZyOlhY5gzCxCeI0Aep04LwIRpsZ/mLFelJiUfnK56jo5JMDSE7yyP2kLSb6LtF+S5chMk7uqPqw=="],
 
     "dagre-d3-es/lodash-es": ["lodash-es@4.18.1", "", {}, "sha512-J8xewKD/Gk22OZbhpOVSwcs60zhd95ESDwezOFuA3/099925PdHJ7OFHNTGtajL3AlZkykD32HykiMo+BIBI8A=="],
+
+    "katex/commander": ["commander@8.3.0", "", {}, "sha512-OkTL9umf+He2DZkUq8f8J9of7yL6RJKI24dVITBmNfZBmri9zYZQrKkuXiKhyfPSu8tUhnVBB1iKXevvnlR4Ww=="],
 
     "micromatch/picomatch": ["picomatch@2.3.2", "", {}, "sha512-V7+vQEJ06Z+c5tSye8S+nHUfI51xoXIXjHQ99cQtKUkQqqO1kO/KCJUfZXuB47h/YBlDhah2H3hdUGXn8ie0oA=="],
 

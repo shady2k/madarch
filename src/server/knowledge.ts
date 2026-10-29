@@ -148,10 +148,10 @@ export function createKnowledgePart(
       const query = new URL(request.url).searchParams;
       const id = query.get('id');
       if (id === null || id.trim() === '') return refused(400, { field: 'id', message: '"id" is required: the key or id of the entity whose page holds the block' });
-      const line = Number(query.get('line'));
-      if (!Number.isInteger(line) || line < 1) return refused(400, { field: 'line', message: `"line" is ${JSON.stringify(query.get('line'))}: the line of the block in the page's template, a whole number from 1` });
+      const held = query.get('block');
+      if (held === null || held.trim() === '') return refused(400, { field: 'block', message: `"block" is ${JSON.stringify(query.get('block'))}: the identity of the block of the page, as the page named it` });
       const asked = query.get('lang');
-      const result = await product.block(id, line, asked === 'ru' || asked === 'en' ? asked : undefined, query.has('at') ? { repo: query.get('repo') ?? '', at: query.get('at')! } : undefined);
+      const result = await product.block(id, held, asked === 'ru' || asked === 'en' ? asked : undefined, query.has('at') ? { repo: query.get('repo') ?? '', at: query.get('at')! } : undefined);
       if (!result.ok) return refused(result.status, { field: 'id', message: result.message });
       return { response: json(200, result.block) };
     }),
