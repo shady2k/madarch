@@ -582,6 +582,8 @@
     "syncRunning": "Syncing…",
     "syncResult": "What changed",
     "syncChanged_one": "Changed pages: {{count}}",
+    "syncChanged_few": "Changed pages: {{count}}",
+    "syncChanged_many": "Changed pages: {{count}}",
     "syncChanged_other": "Changed pages: {{count}}",
     "syncNothing": "Nothing changed",
     "syncUnknown": "The pages that changed could not be listed",
