@@ -497,6 +497,10 @@ interface Slice {
 }
 
 async function currentSlices(ctx: WriteContext, nodeId: GraphId): Promise<Slice[]> {
+  // A prefetch has already answered this identity, including an empty array:
+  // an empty answer is a fact, not a miss (madarch-alzf review, COMMON).
+  const held = ctx.memo.slices.get(nodeId);
+  if (held !== undefined) return held;
   const found = await ctx.tx.query<Raw>(
     `SELECT ${tsText('valid_from')} AS valid_from, ${tsText('valid_to')} AS valid_to, lower(states)::text AS lo, upper(states)::text AS hi
      FROM node_version WHERE node_id = $1::bigint AND recorded_to = 'infinity' AND recorded_from <= $2::timestamptz`,
@@ -724,8 +728,16 @@ export async function edgeIdentities(ctx: WriteContext, keyHashes: readonly stri
   if (missing.length === 0) return;
   const made = await ctx.tx.query<{ id: string }>('SELECT nextval(pg_get_serial_sequence($1, $2))::text AS id FROM generate_series(1, $3::int)', ['edge_identity', 'id', missing.length]);
   const ids = made.rows.map((row) => row.id);
-  await ctx.tx.query('INSERT INTO edge_identity (id, key_hash) OVERRIDING SYSTEM VALUE SELECT unnest($1::bigint[]), unnest($2::text[])', [`{${ids.join(',')}}`, `{${missing.join(',')}}`]);
-  for (const [index, hash] of missing.entries()) ctx.memo.edges.set(hash, ids[index]!);
+  // Another publication under a different producer/scope lock may have written
+  // one of these hashes after the select above. Its row wins; the identities
+  // this transaction reserved are then gaps, not errors (madarch-alzf review,
+  // RARE: concurrent publications).
+  await ctx.tx.query('INSERT INTO edge_identity (id, key_hash) OVERRIDING SYSTEM VALUE SELECT unnest($1::bigint[]), unnest($2::text[]) ON CONFLICT (key_hash) DO NOTHING', [`{${ids.join(',')}}`, `{${missing.join(',')}}`]);
+  const written = await ctx.tx.query<{ id: string; key_hash: string }>('SELECT id::text AS id, key_hash FROM edge_identity WHERE key_hash = ANY($1::text[])', [`{${missing.join(',')}}`]);
+  for (const row of written.rows) ctx.memo.edges.set(row.key_hash, row.id);
+  for (const hash of missing) {
+    if (!ctx.memo.edges.has(hash)) throw new Error(`edge identity ${hash} was neither inserted nor read after the conflict`);
+  }
 }
 
 /** The identity one key hash stands for: asked once per transaction, since the row never changes after it is written. */

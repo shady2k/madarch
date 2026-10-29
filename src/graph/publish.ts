@@ -19,7 +19,7 @@
  */
 import { canonicalJsonDigest } from '../model/canonical.js';
 import { byCodePoint } from '../model/order.js';
-import { claimDigest, nodePayloadDigest, edgePayloadDigest, sha256Hex, type ByteSpan, type ClaimContent, type GraphId } from './digest.js';
+import { claimDigest, nodePayloadDigest, edgePayloadDigest, edgeKeyHash, sha256Hex, type ByteSpan, type ClaimContent, type GraphId } from './digest.js';
 import { GraphError, type GraphOrigin } from './errors.js';
 import { ALL_STATES, checkSpan, compareInstants, instantText, tsText, type Instant, type StateSpan } from './time.js';
 import {
@@ -380,10 +380,16 @@ async function publishEnd(run: Run, end: PublishEnd, path: string): Promise<void
 /**
  * Resolves the identity keys of every edge up front, so the transaction writes
  * them in one batch instead of one insert per edge, and reads every touched
- * identity's current versions in one statement. The checks are the ones
- * `publishEdge` makes before it asks for an identity, in the same order, so the
- * first malformed edge is still the error the publication reports; the loop
- * repeats them against the now-warm memo.
+ * identity's current versions in one statement.
+ *
+ * This step is deliberately non-validating. It computes what the key hashes
+ * would be and stops there; every semantic check, and the endpoint coverage
+ * check that needs a slice read, stays in the ordered publication loop. A
+ * prefetch that called `resolveEdge` could report `edges[1].relation` before
+ * `edges[0].dst` had been checked, changing which malformed edge wins
+ * (madarch-alzf review, RARE: prefetch must not change validation order). If
+ * an input cannot be cheaply named here, the prefetch skips entirely and the
+ * loop reports the first malformed edge in its own order.
  */
 async function prefetchEdgeIdentities(run: Run, edges: readonly PublishEdge[]): Promise<void> {
   if (edges.length === 0) return;
@@ -391,17 +397,28 @@ async function prefetchEdgeIdentities(run: Run, edges: readonly PublishEdge[]): 
   const endpoints: GraphId[] = [];
   for (const [index, edge] of edges.entries()) {
     const path = `edges[${index}]`;
-    const origin = edge.origin;
-    refuseForeign(edge, run, path);
-    const src = resolveRef(run, edge.src, `${path}.src`, origin);
-    const dst = resolveRef(run, edge.dst, `${path}.dst`, origin);
-    endpoints.push(src, dst);
-    const validFrom = instantText(edge.validFrom, OP, `${path}.validFrom`, origin);
-    if (edge.validTo !== undefined) instantText(edge.validTo, OP, `${path}.validTo`, origin);
-    checkSpan(edge.states ?? ALL_STATES, OP, `${path}.states`, origin);
-    const properties = edge.properties ?? {};
-    const resolved = await resolveEdge(run.ctx, { relation: edge.relation, src, dst, ...(edge.discriminator === undefined ? {} : { discriminator: edge.discriminator }), ...(edge.position === undefined ? {} : { position: edge.position }), properties, validFrom, states: edge.states ?? ALL_STATES, owner: run.owner, openedBy: run.workItem, ...(origin === undefined ? {} : { origin }) }, path);
-    hashes.push(resolved.keyHash);
+    try {
+      const endpoint = (ref: NodeRef, at: string): GraphId | undefined => {
+        if ('id' in ref) return checkId(ref.id, OP, at, edge.origin);
+        return run.refs.get(ref.ref);
+      };
+      const src = endpoint(edge.src, `${path}.src`);
+      const dst = endpoint(edge.dst, `${path}.dst`);
+      if (src === undefined || dst === undefined) return;
+      const hash = edgeKeyHash({
+        relation: edge.relation,
+        src,
+        dst,
+        discriminator: edge.discriminator ?? '',
+        position: edge.position ?? null,
+      });
+      hashes.push(hash);
+      endpoints.push(src, dst);
+    } catch {
+      // A shape the ordered loop will reject is not something this shortcut
+      // may report first; leaving the prefetch undone keeps its path.
+      return;
+    }
   }
   await prefetchNodes(run.ctx, endpoints);
   await lockNodes(run.ctx, endpoints, 'SHARE');

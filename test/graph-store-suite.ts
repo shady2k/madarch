@@ -26,6 +26,10 @@ export interface Env {
   own(producer?: string, scope?: GraphId): { producer: string; scope: GraphId };
   query<Row extends object = Record<string, unknown>>(sql: string, values?: readonly unknown[]): Promise<Row[]>;
   count(table: string): Promise<number>;
+  /** Every statement the store sent through its owner since `forgetStatements`, in order. */
+  readonly statements: readonly string[];
+  forgetStatements(): void;
+  statementCount(fragment: string): number;
 }
 
 /** A timestamptz column as UTC text, whatever the session's time zone. */
@@ -39,10 +43,29 @@ async function fresh(owner: DatabaseOwner, withRegistry = true): Promise<Env> {
     await tx.query(`DROP TABLE IF EXISTS ${TABLES.join(', ')} CASCADE`);
   });
   let clock = day(1);
-  const store = createGraphStore(owner, { now: () => clock });
+  const statements: string[] = [];
+  const record = (tx: OuterTransaction): OuterTransaction => ({
+    query: async <Row extends object>(sql: string, values?: readonly unknown[]) => {
+      statements.push(sql);
+      return await tx.query<Row>(sql, values);
+    },
+  });
+  const counted: DatabaseOwner = {
+    location: owner.location,
+    ready: owner.ready,
+    allowConcurrentSnapshots: owner.allowConcurrentSnapshots,
+    backend: owner.backend,
+    hasVector: owner.hasVector,
+    transaction: (kind, work) => owner.transaction(kind, (tx) => work(record(tx))),
+    run: (work) => owner.run((tx) => work(record(tx))),
+    exec: (text) => owner.exec(text),
+    close: () => owner.close(),
+  };
+  const store = createGraphStore(counted, { now: () => clock });
   await store.createSchema();
   if (withRegistry) await store.registerVocabulary({ kinds: ['component', 'datastore', 'note'], relations: [{ key: 'uses' }, { key: 'foreign-key', discriminated: true }] });
   const scope = await store.newNode();
+  statements.length = 0;
   const query = async <Row extends object>(sql: string, values?: readonly unknown[]): Promise<Row[]> => (await owner.run((tx) => tx.query<Row>(sql, values))).rows;
   return {
     owner,
@@ -54,6 +77,9 @@ async function fresh(owner: DatabaseOwner, withRegistry = true): Promise<Env> {
     own: (producer = 'p1', s = scope) => ({ producer, scope: s }),
     query,
     count: async (table) => Number((await query<{ n: string }>(`SELECT count(*)::text AS n FROM ${table}`))[0]!.n),
+    statements,
+    forgetStatements: () => { statements.length = 0; },
+    statementCount: (fragment) => statements.filter((sql) => sql.includes(fragment)).length,
   };
 }
 
@@ -514,6 +540,33 @@ export function graphStoreTests(label: string, getOwner: () => DatabaseOwner): v
       await refused(early.openEdge({ relation: 'uses', src: a.nodeId, dst: b.nodeId, validFrom: day(1), owner: env.own() }), /endpoint-integrity/);
       const late = createGraphStore(env.owner, { now: () => day(6) });
       await late.openEdge({ relation: 'uses', src: a.nodeId, dst: b.nodeId, validFrom: day(1), owner: env.own() });
+    });
+
+    run('edge-batching: one prefetched slice read covers every endpoint, and each new edge answers from it', async (env) => {
+      env.setClock(day(2));
+      await env.store.openWorkItem({ producer: 'p1', scope: env.scope, generation: 1, inputDigest: 'in-1', leaseToken: 't-p1-1', leaseUntil: day(30) });
+      const nodes = Array.from({ length: 51 }, (_, index) => ({ ref: `n${index}`, kind: 'component', label: `N${index}`, validFrom: day(1) }));
+      const edges = Array.from({ length: 50 }, (_, index) => ({ relation: 'uses', src: { ref: `n${index}` }, dst: { ref: `n${index + 1}` }, validFrom: day(1) }));
+      env.forgetStatements();
+      const done = await env.store.publish({ producer: 'p1', scope: env.scope, generation: 1, inputDigest: 'in-1', leaseToken: 't-p1-1', nodes, edges });
+      expect(done.edgeVersionsOpened).toBe(edges.length);
+      // The prefetch is one statement for all endpoints; the per-node query each edge check used to send is gone.
+      expect(env.statementCount('FROM node_version WHERE node_id = ANY($1::bigint[])')).toBe(1);
+      expect(env.statementCount('FROM node_version WHERE node_id = $1::bigint')).toBe(0);
+    });
+
+    run('edge-validation: a first edge\'s endpoint failure is reported before a later edge\'s unknown relation', async (env) => {
+      env.setClock(day(2));
+      const short = await node(env, 'short', { validTo: day(2) });
+      const stable = await node(env, 'stable');
+      await env.store.openWorkItem({ producer: 'p1', scope: env.scope, generation: 1, inputDigest: 'in-1', leaseToken: 't-p1-1', leaseUntil: day(30) });
+      await refused(env.store.publish({
+        producer: 'p1', scope: env.scope, generation: 1, inputDigest: 'in-1', leaseToken: 't-p1-1',
+        edges: [
+          { relation: 'uses', src: { id: stable.nodeId }, dst: { id: short.nodeId }, validFrom: day(1), validTo: day(3) },
+          { relation: 'not-registered', src: { id: stable.nodeId }, dst: { id: short.nodeId }, validFrom: day(1) },
+        ],
+      }), /endpoint-integrity:.*\(path edges\[0\]\.dst\)/s);
     });
 
     run('recorded time: a store behind another store\'s clock retries whole, and a publication has one recorded instant', async (env) => {

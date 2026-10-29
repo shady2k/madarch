@@ -6,6 +6,7 @@ import {mkdirSync, mkdtempSync, writeFileSync, readFileSync, readdirSync, readli
 import {createHash, randomUUID} from 'node:crypto';
 import {evidenceError as validateEvidence, originEvidence,importReadingEvidence,edgeEvidenceError,STRUCTURAL_RELATIONS} from './extract-truth-evidence.js';
 import {safeAuditOutput} from './extract-truth-safety.js';
+import {writeJsonFile,writeJsonValue} from './extract-truth-json.js';
 import {resolve, join} from 'node:path';
 import {pathToFileURL} from 'node:url';
 import {byCodePoint} from '../src/model/order.js';
@@ -22,54 +23,14 @@ const engine = resolve(argument('engine', '.'));
 const repository = resolve(argument('repository'));
 const outputRoot = safeAuditOutput(resolve(argument('out', '/tmp/madarch-extract-audit')),[engine,repository]);
 // These are the executing implementation, independent of the selected baseline/candidate engine.
-const runtimePaths=[import.meta.path,resolve(import.meta.dir,'extract-truth-evidence.ts'),resolve(import.meta.dir,'extract-truth-safety.ts'),resolve(import.meta.dir,'../src/model/order.ts')].sort(byCodePoint);
+const runtimePaths=[import.meta.path,resolve(import.meta.dir,'extract-truth-evidence.ts'),resolve(import.meta.dir,'extract-truth-safety.ts'),resolve(import.meta.dir,'extract-truth-json.ts'),resolve(import.meta.dir,'../src/model/order.ts')].sort(byCodePoint);
 const runtimeInventory=()=>runtimePaths.map((path)=>({path:resolve(path),sha256:createHash('sha256').update(readFileSync(path)).digest('hex')}));
 const runtimeFiles=runtimeInventory();
 const runtimeDigest=createHash('sha256').update(JSON.stringify(runtimeFiles)).digest('hex');
 mkdirSync(outputRoot, {recursive: true});
 const out = mkdtempSync(join(outputRoot, 'run-'));
 const runId = randomUUID();
-/**
- * Writes JSON exactly as `JSON.stringify(value, null, 2)` does, but in chunks,
- * so a 232 MB accumulated extraction is never one string in memory. The
- * indentation, key order, escaping and omission of undefined object members are
- * the built-in serializer's; only the allocation changes.
- */
 const save = (name: string, value: unknown): void => writeJsonFile(join(out, `${name}.json`), value);
-const writeJsonFile = (path: string, value: unknown): void => {
- const fd = openSync(path, 'w');
- try { writeJsonValue(fd, value); writeSync(fd, '\n'); } finally { closeSync(fd); }
-};
-const jsonIndent = (level: number): string => ' '.repeat(level * 2);
-const writeJsonValue = (fd: number, value: unknown, pretty = true): void => {
- let buffer = '';
- const emit = (text: string): void => {
-  buffer += text;
-  if (buffer.length >= 64 * 1024) { writeSync(fd, buffer); buffer = ''; }
- };
- const put = (item: unknown, level: number): void => {
-  if (item === null || typeof item === 'boolean' || typeof item === 'number' || typeof item === 'string') { emit(JSON.stringify(item)); return; }
-  if (typeof item !== 'object') { if (pretty) return; emit('null'); return; }
-  if (Array.isArray(item)) {
-   if (item.length === 0) { emit('[]'); return; }
-   emit(pretty ? '[\n' : '[');
-   for (let index = 0; index < item.length; index += 1) {
-    if (pretty) emit(jsonIndent(level + 1)); put(item[index], level + 1); emit(index + 1 < item.length ? (pretty ? ',\n' : ',') : (pretty ? '\n' : ''));
-   }
-   emit(pretty ? jsonIndent(level) + ']' : ']'); return;
-  }
-  const record = item as Record<string, unknown>;
-  const keys = Object.keys(record).filter((key) => record[key] !== undefined && typeof record[key] !== 'function' && typeof record[key] !== 'symbol');
-  if (keys.length === 0) { emit('{}'); return; }
-  emit(pretty ? '{\n' : '{');
-  for (let index = 0; index < keys.length; index += 1) {
-   emit((pretty ? jsonIndent(level + 1) : '') + JSON.stringify(keys[index]!) + (pretty ? ': ' : ':')); put(record[keys[index]!], level + 1); emit(index + 1 < keys.length ? (pretty ? ',\n' : ',') : (pretty ? '\n' : ''));
-  }
-  emit(pretty ? jsonIndent(level) + '}' : '}');
- };
- put(value, 0);
- if (buffer.length > 0) writeSync(fd, buffer);
-};
 const identity = {runId, engine, repository, started: new Date().toISOString(), runtimeFiles, runtimeDigest, engineFiles: [] as {path: string; sha256: string}[], fixtureFiles: [] as {path: string; sha256: string}[]};
 save('identity', identity);
 console.log(`AUDIT_RUN ${runId} ${out}`);
