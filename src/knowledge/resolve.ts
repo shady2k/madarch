@@ -22,9 +22,24 @@ export type BrokenWhy =
   | { code: 'no-document'; path: string }
   | { code: 'no-section'; path: string; anchor: string; repos: string };
 
+/**
+ * A name in an address: a terminal `.md` or `.json` would be read as the file's
+ * suffix, so that one dot is encoded and an entity whose id ends in it keeps an
+ * HTML address of its own.
+ */
+function addressName(name: string): string {
+  // Parentheses are sub-delimiters `encodeURIComponent` keeps, and an unbalanced
+  // one would end a Markdown destination early; written as escapes they cannot.
+  const encoded = encodeURIComponent(name).replaceAll('(', '%28').replaceAll(')', '%29');
+  for (const suffix of ['.md', '.json']) {
+    if (encoded.endsWith(suffix)) return `${encoded.slice(0, -suffix.length)}%2E${suffix.slice(1)}`;
+  }
+  return encoded;
+}
+
 /** Where an entity page and a source view stand in the app. */
-export const entityAddress = (key: string): string => `/k/e/${encodeURIComponent(key)}`;
-export const kindAddress = (kind: string): string => `/k/kind/${encodeURIComponent(kind)}`;
+export const entityAddress = (key: string): string => `/k/e/${addressName(key)}`;
+export const kindAddress = (kind: string): string => `/k/kind/${addressName(kind)}`;
 export function sourceAddress(repo: string | null, path: string, line?: number): string {
   const query = new URLSearchParams();
   if (repo !== null) query.set('repo', repo);

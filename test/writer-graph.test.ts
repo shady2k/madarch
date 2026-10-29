@@ -147,10 +147,18 @@ const validationPage = page('graph-validation:tiny-shop', 'validation', 'Graph v
 const overviewPage = page('overview:tiny-shop', 'overview', 'Tiny shop', '## What the product is\n\nA shopper places an order.[^what-it-is]');
 const editorialPage = page('editorial:tiny-shop', 'editorial', 'A newcomer reading', '## What was read\n\nThe ordering page says what it is for.[^what-it-is]');
 
-/** The id a page of a unit is, by the kind of page that unit writes. */
-function pageOf(request: UnitRequest): { markdown: string; domains?: unknown[] } {
+/** The fields a domain unit answers with (madarch-ztyq.6): the business first, grounded on its passage. */
+const domainFields = {
+  title: 'Ordering',
+  participants: [{ text: 'A shopper places an order.', grounds: [UC1] }],
+  mainScenario: [{ text: 'The shopper submits the cart.', grounds: [UC1] }],
+  developer: { notes: [] },
+};
+
+/** The write a unit's page asks for, by the kind of page that unit writes: the page itself, or its fields. */
+function pageOf(request: UnitRequest): { markdown?: string; fields?: unknown; domains?: unknown[] } {
   if (request.id === 'product:tiny-shop') return { markdown: productPage, domains: [{ slug: 'ordering', title: 'Ordering', summary: 'Orders are placed.', evidence: [UC1] }] };
-  if (request.id === 'domain:ordering') return { markdown: domainPage };
+  if (request.id === 'domain:ordering') return { fields: domainFields };
   if (request.id === 'graph-validation:tiny-shop') return { markdown: validationPage };
   if (request.id === 'overview:tiny-shop') return { markdown: overviewPage };
   if (request.id === 'editorial:tiny-shop') return { markdown: editorialPage };
@@ -201,10 +209,12 @@ function scripted(options: { readonly failAt?: string; readonly silentFor?: stri
         return;
       }
       const settled = pageOf(request);
-      expect(settled.markdown, `the scripted agent has no page for ${request.id}`).not.toBe('');
-      const written = settled.domains === undefined
-        ? await request.tools.call('write_page', { markdown: settled.markdown })
-        : await request.tools.call('write_page', { markdown: settled.markdown, domains: settled.domains });
+      expect(settled.markdown ?? settled.fields, `the scripted agent has no page for ${request.id}`).toBeDefined();
+      const written = settled.fields !== undefined
+        ? await request.tools.call('write_page', { fields: settled.fields })
+        : settled.domains === undefined
+          ? await request.tools.call('write_page', { markdown: settled.markdown })
+          : await request.tools.call('write_page', { markdown: settled.markdown, domains: settled.domains });
       expect(written.isError, `${request.id}: ${JSON.stringify(written.answer)}`).toBe(false);
     },
   };
