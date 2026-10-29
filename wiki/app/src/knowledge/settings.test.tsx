@@ -104,6 +104,7 @@ describe('the product settings page', () => {
       if (url.endsWith('/api/k/agent-choices') || url.includes('/api/k/agent-choices?')) return json(choices);
       if (url.endsWith('/api/k/agents')) return json({ agents: [{ id: 'claude-code', label: 'Claude Code', installed: true, login: 'signed-in', loginDetail: '', install: null }, { id: 'codex', label: 'Codex', installed: false, login: 'unknown', loginDetail: '', install: { package: '@zed-industries/codex-acp', version: '1.0.0', size: '40 MB', folder: '/h/agents' } }], chosen: { id: 'claude-code', label: 'Claude Code' } });
       if (url.endsWith('/api/k/model-role')) return json({ role: (body as { role: string }).role, pair: null, roles: current.roles });
+      if (url.includes('/api/k/graph-verdicts')) return json(init?.method === 'POST' ? { budgets: body } : { file: '/state/knowledge/p1/graph-verdicts.json', budgets: { itemsPerRun: 400, modelCallsPerRun: 4 }, cached: true, metrics: { checked: 0, reused: 0, judgeItems: 0, modelCalls: 0 }, total: 0, offset: 0, limit: 0, rows: [] });
       if (url.endsWith('/api/k/rewrite-pages') || url.endsWith('/api/k/start-fresh') || url.endsWith('/api/k/agent')) return json({});
       return json({ message: 'not here' }, 404);
     };
@@ -310,6 +311,66 @@ describe('the product settings page', () => {
   });
 });
 
+  test('the graph verdict section shows the saved coverage, saves budgets and runs only on the press', async () => {
+    const report = {
+      generatedAt: '2026-10-29T10:00:00.000Z', validatorVersion: '1', budgets: { itemsPerRun: 400, modelCallsPerRun: 4 },
+      totals: { items: 3, nodes: 2, edges: 1, valid: 1, invalid: 1, unreviewed: 1 },
+      byKind: [
+        { role: 'node' as const, kind: 'code.database', total: 1, valid: 0, invalid: 1, unreviewed: 0 },
+        { role: 'edge' as const, kind: 'code.uses-database', total: 1, valid: 1, invalid: 0, unreviewed: 0 },
+        { role: 'node' as const, kind: 'code.file', total: 1, valid: 0, invalid: 0, unreviewed: 1 },
+      ],
+      sources: [{ source: 'rule' as const, count: 2 }, { source: 'budget' as const, count: 1 }],
+      reasons: [{ reason: 'budget: 1 item is waiting', count: 1 }],
+    };
+    const row = { role: 'node' as const, id: 'n1', kind: 'code.database', label: 'invented', verdict: 'invalid' as const, reason: 'the database has no path', rule: 'node-database', source: 'rule' as const };
+    const urls: string[] = [];
+    const posts: unknown[] = [];
+    (globalThis as { fetch?: unknown }).fetch = async (url: string, init?: RequestInit) => {
+      if (init?.method === 'POST' && url.includes('/api/k/graph-verdicts')) { posts.push(JSON.parse(String(init.body))); return json({ budgets: JSON.parse(String(init.body)) }); }
+      if (url.includes('/api/k/graph-verdicts')) {
+        urls.push(url);
+        if (url.includes('peek=1')) return json({ file: '/state/knowledge/p1/graph-verdicts.json', budgets: { itemsPerRun: 400, modelCallsPerRun: 4 }, cached: true, metrics: { checked: 0, reused: 3, judgeItems: 0, modelCalls: 0 }, report, total: 0, offset: 0, limit: 0, rows: [] });
+        return json({ file: '/state/knowledge/p1/graph-verdicts.json', budgets: { itemsPerRun: 400, modelCallsPerRun: 4 }, cached: false, metrics: { checked: 1, reused: 3, judgeItems: 1, modelCalls: 0 }, report: { ...report, totals: { ...report.totals, items: 4 } }, total: 1, offset: 0, limit: 100, rows: [row] });
+      }
+      if (url.endsWith('/api/k/product-settings')) return json(settings());
+      if (url.endsWith('/api/k/agents')) return json({ agents: [], chosen: null });
+      if (url.includes('/api/k/agent-choices')) return json(choices);
+      return json({ message: 'not here' }, 404);
+    };
+    const page = into(createElement(SettingsPage, { version: 0, status: status(), refresh: () => undefined }));
+    await until(() => page.querySelector('[data-testid=settings-verdicts-total]') !== null, 'the saved verdict coverage');
+    expect(page.querySelector('[data-testid=settings-verdicts-total]')!.textContent).toBe('3');
+    expect(page.querySelector('[data-testid=settings-verdicts-valid]')!.textContent).toBe('1');
+    expect(page.querySelector('[data-testid=settings-verdicts-invalid]')!.textContent).toBe('1');
+    expect(page.querySelector('[data-testid=settings-verdicts-unreviewed]')!.textContent).toBe('1');
+    expect(page.querySelector('[data-testid="settings-verdicts-kind-node-code.database"]')!.textContent).toContain('code.database');
+    expect(page.querySelector('[data-testid=settings-verdicts-note]')!.textContent).toContain('Unreviewed is not valid');
+    expect(page.querySelector('[data-testid=settings-verdicts-reasons]')!.textContent).toContain('budget: 1 item is waiting');
+    expect(urls.every((url) => url.includes('peek=1'))).toBe(true);
+    const items = page.querySelector('[data-testid=settings-verdict-items-per-run]') as HTMLInputElement;
+    const calls = page.querySelector('[data-testid=settings-verdict-model-calls]') as HTMLInputElement;
+    const setInput = Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, 'value')!.set!;
+    expect(items.disabled).toBe(false);
+    setInput.call(items, ''); items.dispatchEvent(new window.InputEvent('input', { bubbles: true, inputType: 'deleteContentBackward' }));
+    await until(() => items.value === '', 'the items budget cleared');
+    (page.querySelector('[data-testid=settings-verdicts-save]') as HTMLElement).click();
+    await until(() => (page.querySelector('[data-testid=settings-verdicts-error]')?.textContent ?? '').includes('whole numbers'), 'the blank budget refused');
+    expect(posts).toHaveLength(0);
+    setInput.call(items, '50'); items.dispatchEvent(new window.InputEvent('input', { bubbles: true, inputType: 'insertText', data: '50' }));
+    setInput.call(calls, '2'); calls.dispatchEvent(new window.InputEvent('input', { bubbles: true, inputType: 'insertText', data: '2' }));
+    await until(() => items.value === '50' && calls.value === '2', 'the budgets typed');
+    (page.querySelector('[data-testid=settings-verdicts-save]') as HTMLElement).click();
+    await until(() => posts.length === 1, 'the budgets saved');
+    expect(posts[0]).toEqual({ itemsPerRun: 50, modelCallsPerRun: 2 });
+    expect(urls.some((url) => url.includes('force=1') && url.includes('limit=100'))).toBe(false);
+    await until(() => (page.querySelector('[data-testid=settings-verdicts-run]') as HTMLButtonElement).disabled === false, 'the run button ready again');
+    (page.querySelector('[data-testid=settings-verdicts-run]') as HTMLElement).click();
+    await until(() => urls.some((url) => url.includes('force=1') && url.includes('limit=100')), 'the run');
+    await until(() => page.querySelector('[data-testid=settings-verdicts-total]')!.textContent === '4', 'the new report');
+    expect(page.querySelector('[data-testid=settings-verdicts-rows]')!.textContent).toContain('the database has no path');
+  });
+
 describe('the starter set on the Problems page', () => {
   test('lists what the set holds and the manifest lacks, each with «Add», and adds exactly the one pressed', async () => {
     const posted: unknown[] = [];
@@ -350,6 +411,7 @@ describe('the starter set on the Problems page', () => {
     expect(page.querySelector('[data-offer="kind:code.route"] [data-testid=starter-add]')!.textContent).toBe('Добавить');
     expect(page.querySelector('[data-testid=problems-starter] h2')!.textContent).toBe('В стартовом наборе есть 4 видов и групп, которых нет в вашем манифесте.');
   });
+
 });
 
 describe('a failure is told once, in the reader\'s language', () => {

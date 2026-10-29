@@ -12,12 +12,12 @@ import { navigateTo } from '../hold.js';
 import { Alert, AlertDescription, AlertTitle } from '@/components/ui/alert.js';
 import { Badge } from '@/components/ui/badge.js';
 import { Button } from '@/components/ui/button.js';
-import { chooseAgent, chooseModelRole, getAgentChoices, getAgentChoicesFor, getAgents, getProductSettings, rewritePages, saveProductSettings, startFresh } from './api.js';
+import { chooseAgent, chooseModelRole, getAgentChoices, getAgentChoicesFor, getAgents, getGraphVerdicts, getProductSettings, rewritePages, saveGraphVerdictBudgets, saveProductSettings, startFresh } from './api.js';
 import { useRead } from './live.js';
 import { PageSkeleton } from './skeleton.js';
 import { useTabTitle } from './tabs.js';
 import { K_HOME } from './routes.js';
-import type { AgentChoices, AgentOffer, Choice, ModelRoleId, ProductSettings, WikiStatus } from './types.js';
+import type { AgentChoices, AgentOffer, Choice, GraphVerdictView, ModelRoleId, ProductSettings, WikiStatus } from './types.js';
 
 const message = (failure: unknown): string => (failure instanceof Error ? failure.message : String(failure));
 
@@ -247,6 +247,114 @@ function RolesSection({ settings, reload }: { settings: ProductSettings; reload:
   );
 }
 
+/**
+ * Graph verdicts (madarch-mwhd.1): every current node and edge has a verdict,
+ * a reason and the rule or judge that decided it. The section first reads the
+ * saved report (no judge starts); «Check again» is the press that runs one.
+ */
+function VerdictsSection({ settings, reload }: { settings: ProductSettings; reload: () => void }): ReactElement {
+  const { t } = useTranslation();
+  const [view, setView] = useState<GraphVerdictView | null>(null);
+  const [error, setError] = useState<string | null>(null);
+  const [working, setWorking] = useState(false);
+  const [round, setRound] = useState(0);
+  const [items, setItems] = useState('');
+  const [calls, setCalls] = useState('');
+  const load = (force: boolean, signal?: AbortSignal): void => {
+    setWorking(true);
+    setError(null);
+    getGraphVerdicts(force ? { force: true, limit: 100 } : { peek: true }, signal).then((answer) => {
+      if (answer === null || typeof answer !== 'object' || answer.budgets === undefined) {
+        setWorking(false);
+        setError('the server did not answer with the graph verdict budgets');
+        return;
+      }
+      setView(answer);
+      setItems(String(answer.budgets.itemsPerRun));
+      setCalls(String(answer.budgets.modelCallsPerRun));
+      setWorking(false);
+    }, (failure: unknown) => {
+      if (signal?.aborted !== true) { setWorking(false); setError(message(failure)); }
+    });
+  };
+  useEffect(() => {
+    const controller = new AbortController();
+    load(false, controller.signal);
+    return () => controller.abort();
+  }, [round]);
+  const save = (): void => {
+    const perRun = Number(items);
+    const modelCalls = Number(calls);
+    if (items.trim() === '' || calls.trim() === '' || !Number.isInteger(perRun) || !Number.isInteger(modelCalls) || perRun < 0 || modelCalls < 0) {
+      setError(t('settings.verdicts.whole'));
+      return;
+    }
+    setWorking(true);
+    setError(null);
+    saveGraphVerdictBudgets(perRun, modelCalls).then(() => { setWorking(false); setRound(round + 1); reload(); }, (failure: unknown) => { setWorking(false); setError(message(failure)); });
+  };
+  const report = view?.report;
+  const bad = view?.rows.filter((row) => row.verdict !== 'valid').slice(0, 20) ?? [];
+  return (
+    <Section id="verdicts" title={t('settings.verdicts.title')} intro={t('settings.verdicts.intro')}>
+      {view === null && error === null && <p className="m-0 text-muted" data-testid="settings-verdicts-loading">{t('knowledge.loading')}</p>}
+      {report === undefined && view !== null && <p className="m-0 text-muted" data-testid="settings-verdicts-empty">{t('settings.verdicts.empty')}</p>}
+      {report !== undefined && (
+        <>
+          <dl className="m-0 grid grid-cols-[max-content_1fr] gap-x-6 gap-y-1 text-small">
+            <dt className="text-secondary">{t('settings.verdicts.items')}</dt><dd className="m-0" data-testid="settings-verdicts-total">{report.totals.items}</dd>
+            <dt className="text-secondary">{t('settings.verdicts.valid')}</dt><dd className="m-0" data-testid="settings-verdicts-valid">{report.totals.valid}</dd>
+            <dt className="text-secondary">{t('settings.verdicts.invalid')}</dt><dd className="m-0" data-testid="settings-verdicts-invalid">{report.totals.invalid}</dd>
+            <dt className="text-secondary">{t('settings.verdicts.unreviewed')}</dt><dd className="m-0" data-testid="settings-verdicts-unreviewed">{report.totals.unreviewed}</dd>
+          </dl>
+          <p className="mb-0 mt-2 text-small text-muted" data-testid="settings-verdicts-meta">
+            {t('settings.verdicts.meta', { at: report.generatedAt, version: report.validatorVersion, file: view?.file ?? '' })}
+          </p>
+          {report.totals.unreviewed > 0 && <p className="mb-0 mt-2 text-small text-secondary" data-testid="settings-verdicts-note">{t('settings.verdicts.unreviewedNote')}</p>}
+          {report.reasons.length > 0 && (
+            <div className="mt-4 overflow-x-auto">
+              <table className="w-full text-small" data-testid="settings-verdicts-reasons">
+                <thead><tr><th className="text-start">{t('settings.verdicts.reason')}</th><th className="text-end">{t('settings.verdicts.count')}</th></tr></thead>
+                <tbody>{report.reasons.map((one) => <tr key={one.reason}><td>{one.reason}</td><td className="text-end">{one.count}</td></tr>)}</tbody>
+              </table>
+            </div>
+          )}
+          <div className="mt-4 overflow-x-auto">
+            <table className="w-full text-small" data-testid="settings-verdicts-kinds">
+              <thead><tr><th className="text-start">{t('settings.verdicts.kind')}</th><th className="text-end">{t('settings.verdicts.valid')}</th><th className="text-end">{t('settings.verdicts.invalid')}</th><th className="text-end">{t('settings.verdicts.unreviewed')}</th></tr></thead>
+              <tbody>
+                {report.byKind.map((kind) => (
+                  <tr key={`${kind.role}:${kind.kind}`} data-testid={`settings-verdicts-kind-${kind.role}-${kind.kind}`}>
+                    <td><code>{kind.role}:{kind.kind}</code></td><td className="text-end">{kind.valid}</td><td className="text-end">{kind.invalid}</td><td className="text-end">{kind.unreviewed}</td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+          {bad.length > 0 && (
+            <div className="mt-4 overflow-x-auto">
+              <table className="w-full text-small" data-testid="settings-verdicts-rows">
+                <thead><tr><th className="text-start">{t('settings.verdicts.item')}</th><th className="text-start">{t('settings.verdicts.verdict')}</th><th className="text-start">{t('settings.verdicts.reason')}</th></tr></thead>
+                <tbody>
+                  {bad.map((row) => <tr key={`${row.role}:${row.id}`} data-testid={`settings-verdict-row-${row.id}`}><td><code>{row.role}:{row.kind}</code> {row.label}</td><td>{row.verdict}</td><td>{row.reason}</td></tr>)}
+                </tbody>
+              </table>
+            </div>
+          )}
+        </>
+      )}
+      <div className="mt-4 flex flex-wrap items-end gap-3">
+        <label className="text-small text-secondary">{t('settings.verdicts.itemsPerRun')}<input type="number" min={0} step={1} value={items} disabled={working || settings.busy} onInput={(event) => setItems((event.target as HTMLInputElement).value)} className="mt-1 block w-32 rounded-[var(--radius-control)] border border-line bg-page px-2.5 py-2 text-body text-ink" data-testid="settings-verdict-items-per-run" /></label>
+        <label className="text-small text-secondary">{t('settings.verdicts.modelCallsPerRun')}<input type="number" min={0} step={1} value={calls} disabled={working || settings.busy} onInput={(event) => setCalls((event.target as HTMLInputElement).value)} className="mt-1 block w-32 rounded-[var(--radius-control)] border border-line bg-page px-2.5 py-2 text-body text-ink" data-testid="settings-verdict-model-calls" /></label>
+        <Button variant="default" size="default" disabled={working || settings.busy} onClick={save} data-testid="settings-verdicts-save">{t('settings.verdicts.save')}</Button>
+        <Button variant="default" size="default" disabled={working || settings.busy} onClick={() => load(true)} data-testid="settings-verdicts-run">{working ? t('settings.verdicts.running') : t('settings.verdicts.run')}</Button>
+      </div>
+      <p className="mb-0 mt-2 text-small text-muted">{t('settings.verdicts.note')}</p>
+      {error !== null && <p className="mb-0 mt-2 text-small" role="alert" data-testid="settings-verdicts-error">{error}</p>}
+    </Section>
+  );
+}
+
 function LanguageSection({ settings, reload }: { settings: ProductSettings; reload: () => void }): ReactElement {
   const { t } = useTranslation();
   const [error, setError] = useState<string | null>(null);
@@ -398,6 +506,7 @@ export function SettingsPage({ version, status, refresh }: { version: number; st
       <AgentSection settings={data} reload={again} />
       <ModelSection settings={data} reload={again} />
       <RolesSection settings={data} reload={again} />
+      <VerdictsSection settings={data} reload={again} />
       <LanguageSection settings={data} reload={again} />
       <BoundsSection settings={data} />
       <PlacesSection settings={data} />

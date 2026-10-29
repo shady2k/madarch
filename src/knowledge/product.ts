@@ -56,6 +56,9 @@ import { findSubject, kindSummaries, productTitleOf, renderPage, listEntities, t
 import { indexCounts, statementsRelyingOn } from './index/queries.js';
 import { documentSections } from './index/sections.js';
 import { webLink } from './index/web-link.js';
+import { acpGraphJudge } from './graph-verdict-acp-judge.js';
+import { graphVerdictFile, loadGraphSnapshot, readGraphVerdictState, writeGraphVerdictBudgets, writeGraphVerdictState } from './graph-verdict-store.js';
+import { GRAPH_VERDICT_VALIDATOR_VERSION, graphVerdictFingerprint, graphVerdictReport, graphVerdictRows, runGraphVerdicts, type GraphJudgeFactory, type GraphVerdictBudgets, type GraphVerdictMetrics, type GraphVerdictReport, type GraphVerdictRow } from './graph-verdicts.js';
 
 /** The wiki's address of a document, at a section when one is named: the client opens it as it opens any in-wiki link. */
 const documentAddress = (repo: string | null, path: string, anchor?: string): string => {
@@ -183,6 +186,19 @@ export interface KnowledgeProductOptions {
   snapshotMs?: number;
   /** Asks an agent which models it offers; the production one starts its ACP adapter. Tests inject. */
   choicesQuery?: (agentId: string, env: DraftEnv) => Promise<{ ok: true; choices: AgentChoices } | { ok: false; message: string }>;
+  /** Starts a graph verdict judge for a resolved pair; tests inject a scripted one, production starts its ACP agent. */
+  graphJudgeFor?: GraphJudgeFactory;
+}
+
+/** What the graph verdicts page and its API ask for (madarch-mwhd.1). */
+export interface GraphVerdictProductView {
+  readonly file: string;
+  readonly budgets: GraphVerdictBudgets;
+  readonly rows: readonly GraphVerdictRow[];
+  readonly report: GraphVerdictReport;
+  readonly metrics: GraphVerdictMetrics;
+  /** True when no snapshot had changed and the previous result was read as it stood. */
+  readonly cached: boolean;
 }
 
 /** Runs git in a code repository for one blob; the file is `undefined` when git has none there. */
@@ -295,6 +311,7 @@ export class KnowledgeProduct {
   private swapping: Promise<void> = Promise.resolve();
   /** A reset is under way: no fill starts meanwhile, and no second reset. */
   private resetting = false;
+  private verdictRun: Promise<GraphVerdictProductView> | undefined;
   private lastUse = Date.now();
   private idleTimer: ReturnType<typeof setInterval> | undefined;
 
@@ -983,6 +1000,73 @@ export class KnowledgeProduct {
   /** The roles and the pair each resolves to; unassigned roles carry their fallback note. */
   modelRoles(): ModelRoleView {
     return resolveModelRoles(this.modelAssignments());
+  }
+
+  /**
+   * Every current node and edge with its verdict, reason and the rule or judge
+   * that decided it (madarch-mwhd.1). The first run reuses every unchanged
+   * cached entry; a run whose snapshot, roles and budgets all match is read
+   * from the cache without touching the graph or starting a judge.
+   */
+  graphVerdicts(options: { force?: boolean } = {}): Promise<GraphVerdictProductView> {
+    if (this.verdictRun !== undefined) return this.verdictRun;
+    const run = this.graphVerdictsOne(options.force === true).finally(() => { this.verdictRun = undefined; });
+    this.verdictRun = run;
+    return run;
+  }
+
+  private async graphVerdictsOne(force: boolean): Promise<GraphVerdictProductView> {
+    const file = graphVerdictFile(this.storeFolder());
+    const state = readGraphVerdictState(file);
+    const roles = this.modelRoles();
+    const owner = await this.open();
+    const snapshot = await loadGraphSnapshot(owner);
+    const fingerprint = graphVerdictFingerprint(snapshot, roles, state.budgets, GRAPH_VERDICT_VALIDATOR_VERSION, false, true);
+    if (!force && state.cache !== undefined && state.cache.fingerprint === fingerprint && state.cache.validatorVersion === GRAPH_VERDICT_VALIDATOR_VERSION) {
+      const rows = graphVerdictRows(state.cache);
+      return {
+        file,
+        budgets: state.budgets,
+        rows,
+        report: graphVerdictReport(rows, state.budgets, GRAPH_VERDICT_VALIDATOR_VERSION, state.cache.generatedAt),
+        metrics: { checked: 0, reused: rows.length, judgeItems: 0, modelCalls: 0 },
+        cached: true,
+      };
+    }
+    const judgeFor = this.options.graphJudgeFor ?? ((pair, role) => acpGraphJudge(pair, role, {
+      env: this.env,
+      ...(this.options.errorLog === undefined ? {} : { progress: (line: string) => this.options.errorLog?.(`the graph ${role} judge: ${line}`) }),
+    }));
+    const result = await runGraphVerdicts({
+      snapshot,
+      roles,
+      budgets: state.budgets,
+      ...(state.cache === undefined ? {} : { previous: state.cache }),
+      ...(this.options.now === undefined ? {} : { now: this.options.now }),
+      judgeFor,
+    });
+    writeGraphVerdictState(file, result.cache);
+    return { file, budgets: state.budgets, rows: result.rows, report: result.report, metrics: result.metrics, cached: false };
+  }
+
+  /** The budgets and, when they exist, the counts from the last run; reading this starts no judge. */
+  graphVerdictSettings(): { file: string; budgets: GraphVerdictBudgets; report?: GraphVerdictReport } {
+    const file = graphVerdictFile(this.storeFolder());
+    const state = readGraphVerdictState(file);
+    if (state.cache === undefined) return { file, budgets: state.budgets };
+    const rows = graphVerdictRows(state.cache);
+    return { file, budgets: state.budgets, report: graphVerdictReport(rows, state.budgets, state.cache.validatorVersion, state.cache.generatedAt) };
+  }
+
+  /** Saves what one run may judge. Both are whole numbers, 0 or more; no verdict is thrown away. */
+  setGraphVerdictBudgets(itemsPerRun: number, modelCallsPerRun: number): { ok: true; budgets: GraphVerdictBudgets } | { ok: false; status: number; message: string } {
+    if (!Number.isInteger(itemsPerRun) || itemsPerRun < 0) return { ok: false, status: 400, message: `"itemsPerRun" is ${JSON.stringify(itemsPerRun)}: a whole number of items, 0 or more` };
+    if (!Number.isInteger(modelCallsPerRun) || modelCallsPerRun < 0) return { ok: false, status: 400, message: `"modelCallsPerRun" is ${JSON.stringify(modelCallsPerRun)}: a whole number of judge calls, 0 or more` };
+    if (this.running !== undefined && (this.writer.state === 'running' || this.writer.state === 'waiting')) return { ok: false, status: 409, message: 'a fill with an agent is running; the graph verdict budgets change after it ends' };
+    const budgets = { itemsPerRun, modelCallsPerRun };
+    writeGraphVerdictBudgets(graphVerdictFile(this.storeFolder()), budgets);
+    this.notify();
+    return { ok: true, budgets };
   }
 
   /**
