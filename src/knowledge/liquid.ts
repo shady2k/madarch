@@ -418,12 +418,12 @@ async function answerBlock(input: LiquidPageInput, request: Extract<RenderReply,
   }
   const later = input.only === undefined && input.defer && input.deferred.includes(request.name);
   if (later && request.purpose === 'tag') {
-    const block: Block = { type: 'deferred', block: request.name, title: params['title'] ?? '', id };
+    const block: Block = { type: 'deferred', block: request.name, title: params['title'] ?? '', id, name: request.name };
     answered.set(request.seq, block);
     return { type: 'blocked', seq: request.seq, block };
   }
   try {
-    const block = await input.render(request.name, params, request.line);
+    const block = { ...(await input.render(request.name, params, request.line)), name: request.name };
     const size = JSON.stringify(block).length;
     if (size > RENDER_BOUNDS.blockChars) return { type: 'blocked', seq: request.seq, message: `the block ${request.name} of this page is ${size} characters and a page reads at most ${RENDER_BOUNDS.blockChars}` };
     answered.set(request.seq, block);
