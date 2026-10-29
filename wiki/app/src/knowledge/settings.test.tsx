@@ -141,7 +141,10 @@ describe('the product settings page', () => {
     expect(page.querySelector('[data-testid=settings-role-pair-writing]')!.textContent).toBe("Claude Code · the agent’s own choice");
     expect(page.querySelector('[data-testid=settings-role-fallback-classification]')!.textContent).toBe("This role is not assigned, so it uses Writing’s pair.");
     const select = page.querySelector('[data-testid=settings-role-select-classification]') as HTMLSelectElement;
-    expect([...select.querySelectorAll('option')].map((option) => option.textContent)).toEqual(["Use Writing’s pair", 'Claude Code', 'Codex (install its adapter)']);
+    // The agents' availability is a second read; wait for it, then hold the exact choices it leaves.
+    const agentChoices = (): (string | null)[] => [...select.querySelectorAll('option')].map((option) => option.textContent);
+    await until(() => agentChoices().join('\n') === ["Use Writing’s pair", 'Claude Code', 'Codex (install its adapter)'].join('\n'), 'the agents the role may use');
+    expect(agentChoices()).toEqual(["Use Writing’s pair", 'Claude Code', 'Codex (install its adapter)']);
     select.value = 'codex';
     select.dispatchEvent(new window.Event('change', { bubbles: true }));
     await until(() => calls.length === 1, 'the role assignment');
@@ -161,6 +164,9 @@ describe('the product settings page', () => {
     await until(() => page.querySelector('[data-testid=settings-role-pair-writing]') !== null, 'the writing role');
     expect(page.querySelector('[data-testid=settings-role-pair-writing]')!.textContent).toBe("Claude Code · the agent’s own choice");
     expect(page.querySelector('[data-testid=settings-role-pair-classification]')!.textContent).toBe("Claude Code · the agent’s own choice");
+    // The selector keeps the agents it can assign even while their list has not answered.
+    const select = page.querySelector('[data-testid=settings-role-select-classification]') as HTMLSelectElement;
+    expect([...select.querySelectorAll('option')].map((option) => option.textContent)).toEqual(["Use Writing’s pair", 'Claude Code', 'Codex']);
   });
 
   test('an assigned classification or analysis role gets its own model and reasoning choice from its agent', async () => {
