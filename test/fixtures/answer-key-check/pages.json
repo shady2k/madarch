@@ -1,0 +1,60 @@
+{
+  "pages": [
+    {
+      "id": "code.file:src/alpha.ts",
+      "kind": "code.file",
+      "title": "src/alpha.ts",
+      "findings": [],
+      "notes": [],
+      "blocks": [
+        {
+          "type": "source",
+          "location": {
+            "repo": "fixture",
+            "path": "src/alpha.ts",
+            "lineStart": 1,
+            "lineEnd": 2,
+            "href": "/k/src/alpha.ts"
+          },
+          "language": "ts",
+          "text": "const value = 1;\nconst label = 'The alpha value is one.';"
+        },
+        {
+          "type": "body",
+          "markdown": "The alpha value is one."
+        }
+      ]
+    },
+    {
+      "id": "code.file:src/beta.ts",
+      "kind": "code.file",
+      "title": "src/beta.ts",
+      "findings": [],
+      "notes": [],
+      "blocks": [
+        {
+          "type": "source",
+          "location": {
+            "repo": "fixture",
+            "path": "src/beta.ts",
+            "lineStart": 1,
+            "lineEnd": 1,
+            "href": "/k/src/beta.ts"
+          },
+          "language": "ts",
+          "text": "const beta = 2;"
+        }
+      ]
+    }
+  ],
+  "documents": [
+    {
+      "repo": "fixture",
+      "path": "docs/guide.md",
+      "title": "Guide",
+      "markdown": "# Guide\n\nThe guide mentions value here.\n",
+      "commit": "fixture-commit"
+    }
+  ],
+  "questions": []
+}

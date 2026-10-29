@@ -1,0 +1,127 @@
+{
+  "fixtureVersion": 1,
+  "snapshots": {
+    "snapshot-final": "fixture-commit"
+  },
+  "items": [
+    {
+      "id": "fixture.full",
+      "location": {
+        "snapshot": "snapshot-final",
+        "path": "src/alpha.ts",
+        "symbol": "value",
+        "anchor": "value"
+      },
+      "expectedWikiStatement": "The alpha value is one.",
+      "evidenceClass": "code-fact",
+      "viewpoints": [
+        "developer"
+      ],
+      "requiredNow": true,
+      "judge": {
+        "readerTask": "Find the alpha value.",
+        "mustShow": [
+          "The alpha value is one."
+        ],
+        "mustLink": [
+          "src/alpha.ts"
+        ],
+        "mustNotClaim": []
+      }
+    },
+    {
+      "id": "fixture.partly",
+      "locations": [
+        {
+          "snapshot": "snapshot-final",
+          "path": "src/alpha.ts",
+          "symbol": "value"
+        },
+        {
+          "snapshot": "snapshot-final",
+          "path": "src/missing.ts"
+        }
+      ],
+      "expectedWikiStatement": "The alpha value is linked to the missing file.",
+      "evidenceClass": "code-fact",
+      "viewpoints": [
+        "developer"
+      ],
+      "requiredNow": true,
+      "judge": {
+        "readerTask": "Find both files.",
+        "mustShow": [
+          "The alpha value is one."
+        ],
+        "mustLink": [
+          "src/alpha.ts"
+        ],
+        "mustNotClaim": []
+      }
+    },
+    {
+      "id": "fixture.none",
+      "location": {
+        "snapshot": "snapshot-final",
+        "path": "src/none.ts"
+      },
+      "expectedWikiStatement": "Nothing.",
+      "evidenceClass": "code-fact",
+      "viewpoints": [
+        "developer"
+      ],
+      "requiredNow": true,
+      "judge": {
+        "readerTask": "Find the absent file.",
+        "mustShow": [
+          "nothing"
+        ],
+        "mustLink": [],
+        "mustNotClaim": []
+      }
+    },
+    {
+      "id": "fixture.unsure",
+      "location": {
+        "snapshot": "snapshot-final",
+        "path": "src/beta.ts",
+        "symbol": "beta"
+      },
+      "expectedWikiStatement": "Beta is described on another page.",
+      "evidenceClass": "code-fact",
+      "viewpoints": [
+        "developer"
+      ],
+      "requiredNow": true,
+      "judge": {
+        "readerTask": "Judge beta.",
+        "mustShow": [
+          "Beta is described on another page."
+        ],
+        "mustLink": [],
+        "mustNotClaim": []
+      }
+    },
+    {
+      "id": "open.fixture",
+      "location": {
+        "snapshot": "snapshot-final",
+        "path": "README.md"
+      },
+      "expectedWikiStatement": "A reader asks one question.",
+      "evidenceClass": "question",
+      "viewpoints": [
+        "newcomer"
+      ],
+      "requiredNow": false,
+      "judge": {
+        "readerTask": "Read the questions.",
+        "mustShow": [
+          "A reader asks one question."
+        ],
+        "mustLink": [],
+        "mustNotClaim": []
+      }
+    }
+  ]
+}
