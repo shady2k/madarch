@@ -91,6 +91,13 @@ runDescribe('the menu ground on a long page (built app and Chromium)', () => {
   beforeEach(async () => {
     page = await browser!.newPage();
     await page.evaluateOnNewDocument(() => { localStorage.setItem('madarch-wiki-language', 'en'); });
+    // The document is answered late on purpose: the menu stands while the page is still a skeleton, so a
+    // measurement that does not wait for the document reads the skeleton's height, not the long page's.
+    await page.setRequestInterception(true);
+    page.on('request', (request) => {
+      if (!request.url().includes('/api/k/document?')) { void request.continue(); return; }
+      setTimeout(() => { void request.continue(); }, 1200);
+    });
   });
 
   afterEach(async () => {
@@ -118,6 +125,8 @@ runDescribe('the menu ground on a long page (built app and Chromium)', () => {
         await page.goto(`${server!.url}${fixture!.path}`, { waitUntil: 'domcontentloaded' });
         await page.waitForSelector('#app-nav');
         await page.waitForFunction(() => (document.querySelector('#app-nav')?.getBoundingClientRect().height ?? 0) > 0, { timeout: 15000 });
+        // The menu is up before the document is: measure once the long page has drawn, not its skeleton.
+        await page.waitForSelector('[data-testid="document-page"][data-path="docs/long.md"]', { timeout: 15000 });
         const measured = await page.evaluate(() => {
           const aside = document.querySelector('#app-nav') as HTMLElement;
           const box = aside.getBoundingClientRect();
