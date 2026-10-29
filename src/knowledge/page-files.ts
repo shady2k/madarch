@@ -164,8 +164,12 @@ export interface KindFileDocument {
 }
 
 /** A prefix is the product home's mount (`/products/<name>`) or empty. */
-const at = (href: string | null | undefined, prefix: string): string | null =>
-  href === null || href === undefined ? null : href.startsWith('/') ? `${prefix}${href}` : href;
+const at = (href: string | null | undefined, prefix: string): string | null => {
+  if (href === null || href === undefined) return null;
+  if (!href.startsWith('/') || prefix === '') return href;
+  // A body may already carry the mount it is served under; it is not mounted twice.
+  return href === prefix || href.startsWith(`${prefix}/`) ? href : `${prefix}${href}`;
+};
 
 const placeOf = (location: CodeLocation | undefined, prefix: string): PageFilePlace | undefined =>
   location === undefined
@@ -196,6 +200,9 @@ const itemOf = (ref: EntityRef, prefix: string): PageFileItem => ({
 interface MdNode {
   type: string;
   url?: string;
+  identifier?: string;
+  label?: string;
+  title?: string | null;
   alt?: string | null;
   value?: string;
   children?: MdNode[];
@@ -210,11 +217,69 @@ const wordsOf = (node: MdNode): string => {
 
 const parser = unified().use(remarkParse).use(remarkGfm);
 
+/** One definition of a reference link: where it points, and the title the author gave it. */
+interface MdDefinition {
+  url: string;
+  title: string | null;
+}
+
+/** Every definition the text holds, by the identifier a reference names it with. */
+function definitionsIn(root: MdNode): Map<string, MdDefinition> {
+  const found = new Map<string, MdDefinition>();
+  const walk = (node: MdNode): void => {
+    if (node.type === 'definition' && typeof node.identifier === 'string' && typeof node.url === 'string') {
+      found.set(node.identifier, { url: node.url, title: node.title ?? null });
+    }
+    for (const child of node.children ?? []) walk(child);
+  };
+  walk(root);
+  return found;
+}
+
+/**
+ * The label a link wrote, marks and all, from the offsets of its own children:
+ * `[**Home**](…)` keeps its bold, and `[Home][h]` keeps the words before the
+ * reference. A node with no child offsets falls back to its words.
+ */
+function labelIn(text: string, node: MdNode): string {
+  const children = node.children ?? [];
+  const first = children[0]?.position?.start.offset;
+  const last = children[children.length - 1]?.position?.end.offset;
+  if (children.length > 0 && first !== undefined && last !== undefined) return text.slice(first, last);
+  return wordsOf(node);
+}
+
+/** A destination no bracket around it ends early: parentheses, spaces and angle brackets are encoded. */
+function destination(url: string): string {
+  let out = '';
+  for (const character of url) {
+    if (character === '(') out += '%28';
+    else if (character === ')') out += '%29';
+    else if (character === ' ') out += '%20';
+    else if (character === '<') out += '%3C';
+    else if (character === '>') out += '%3E';
+    else out += character;
+  }
+  return out;
+}
+
+/** A link written from the AST: its words kept as written, its destination the address it resolves to. */
+function linkNode(label: string, url: string, title: string | null | undefined): string {
+  const named = title === undefined || title === null || title === '' ? '' : ` ${JSON.stringify(title)}`;
+  return `[${label}](${destination(url)}${named})`;
+}
+
+/** Every link the text holds, reference links resolved through their definitions. */
 function linksIn(text: string): { title: string; url: string }[] {
   const root = parser.parse(text) as unknown as MdNode;
+  const definitions = definitionsIn(root);
   const found: { title: string; url: string }[] = [];
   const walk = (node: MdNode): void => {
     if (node.type === 'link' && typeof node.url === 'string') found.push({ title: wordsOf(node), url: node.url });
+    else if (node.type === 'linkReference' && node.identifier !== undefined) {
+      const definition = definitions.get(node.identifier);
+      if (definition !== undefined) found.push({ title: wordsOf(node), url: definition.url });
+    }
     for (const child of node.children ?? []) walk(child);
   };
   walk(root);
@@ -224,36 +289,56 @@ function linksIn(text: string): { title: string; url: string }[] {
 const brokenNote = (reason: string): string => ` *(no page: ${reason.split('\n').join(' ')})*`;
 
 /**
- * A page's text with its `madarch:` links written as the wiki addresses they
- * resolve to. A link that resolves to nothing keeps its words, its reason
- * beside it, and is listed as broken instead of becoming a dead scheme. The
- * links are found by the Markdown reader (`linksIn`'s parse) at their own
- * offsets, so a link's words may hold any markup the page wrote.
+ * A page's text with every link written as the address it resolves to: a
+ * `madarch:` link through the page's resolutions, an ordinary wiki link at the
+ * product's mount. The links are read from the Markdown AST — reference links
+ * through their definitions, autolinks from their own text — and written back
+ * from it, so a link's words keep the markup the page wrote. A link that
+ * resolves to nothing keeps its words, its reason beside it, and is listed as
+ * broken instead of becoming a dead scheme.
  */
 function rewrite(text: string, resolutions: Readonly<Record<string, Resolution>>, prefix: string): string {
   const root = parser.parse(text) as unknown as MdNode;
+  const definitions = definitionsIn(root);
   const changes: { start: number; end: number; text: string }[] = [];
   const walk = (node: MdNode): void => {
-    if (node.type === 'link' && typeof node.url === 'string') {
-      const start = node.position?.start.offset;
-      const end = node.position?.end.offset;
-      if (start !== undefined && end !== undefined) {
+    const start = node.position?.start.offset;
+    const end = node.position?.end.offset;
+    if (node.type === 'link' || node.type === 'linkReference') {
+      const definition = node.type === 'linkReference' && node.identifier !== undefined ? definitions.get(node.identifier) : undefined;
+      const url = node.type === 'link' ? node.url : definition?.url;
+      const title = node.type === 'link' ? node.title : definition?.title;
+      if (start !== undefined && end !== undefined && typeof url === 'string') {
         const original = text.slice(start, end);
+        const label = labelIn(text, node);
         let replacement = original;
-        const resolution = resolutions[node.url];
-        if (node.url.startsWith('madarch:')) {
+        if (url.startsWith('madarch:')) {
+          const resolution = resolutions[url];
           if (resolution === undefined) replacement = `${original}${brokenNote('no resolution for the link')}`;
           else if (resolution.state === 'broken') replacement = `${original}${brokenNote(resolution.reason)}`;
           else if (resolution.href === null) replacement = `${wordsOf(node)}${brokenNote(resolution.note ?? `the kind ${resolution.kind} has no page`)}`;
-          else {
-            const href = at(resolution.href, prefix)!;
-            // The destination is the first occurrence of the url after the link's `](`, so a title after it is kept.
-            const open = original.indexOf('](');
-            const destination = open === -1 ? -1 : original.indexOf(node.url, open + 2);
-            if (destination !== -1) replacement = original.slice(0, destination) + href + original.slice(destination + node.url.length);
-          }
+          else replacement = linkNode(label, at(resolution.href, prefix)!, title);
+        } else if (url.startsWith('/')) {
+          const href = at(url, prefix)!;
+          if (href !== url) replacement = linkNode(label, href, title);
         }
         if (replacement !== original) changes.push({ start, end, text: replacement });
+      }
+    } else if (node.type === 'definition' && typeof node.url === 'string' && start !== undefined && end !== undefined) {
+      // The definition is what a reference link points with: it names the wiki address too, so no dead scheme outlives the reference.
+      const original = text.slice(start, end);
+      let href: string | null = null;
+      if (node.url.startsWith('madarch:')) {
+        const resolution = resolutions[node.url];
+        if (resolution !== undefined && resolution.state !== 'broken' && resolution.href !== null) href = at(resolution.href, prefix);
+      } else if (node.url.startsWith('/')) {
+        href = at(node.url, prefix);
+      }
+      if (href !== null && href !== node.url) {
+        const close = original.indexOf(']:');
+        const label = close === -1 ? node.label ?? '' : original.slice(1, close);
+        const named = node.title === undefined || node.title === null || node.title === '' ? '' : ` ${JSON.stringify(node.title)}`;
+        changes.push({ start, end, text: `[${label}]: ${destination(href)}${named}` });
       }
     }
     for (const child of node.children ?? []) walk(child);
@@ -303,12 +388,53 @@ function fenced(text: string, language: string): string {
   return `${fence}${language}\n${body}\n${fence}`;
 }
 
-/** Link words never break the link's brackets and never carry a line break. */
-const linkWords = (text: string): string => text.split('\n').join(' ').split('[').join('\\[').split(']').join('\\]');
+/**
+ * Markdown's own marks, escaped in a plain string: a title or a label says the
+ * characters it holds, and only an authored Markdown body is read as syntax.
+ */
+const MARKDOWN_MARKS = '\\`*|~';
+
+/** The characters an underscore between which Markdown reads as an emphasis mark only from outside a word. */
+const WORD_CHARACTERS = 'abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789';
+
+const isWord = (character: string | undefined): boolean => character !== undefined && WORD_CHARACTERS.includes(character);
+
+const LETTERS = 'abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ';
+
+/** A `<` opens a tag or an autolink — and so must be written as a character — only before one of these. */
+const isTagStart = (character: string | undefined): boolean =>
+  character !== undefined && ('/!?'.includes(character) || LETTERS.includes(character));
+
+/** Plain text as one Markdown text node: its marks are written as characters, never read as syntax. */
+function textNode(text: string): string {
+  const characters = [...text];
+  let out = '';
+  for (const [index, character] of characters.entries()) {
+    if (character === '\n' || character === '\r') {
+      out += ' ';
+      continue;
+    }
+    // A path's `_` stands inside a word and can open nothing; one between words can, so it is escaped.
+    const mark = MARKDOWN_MARKS.includes(character)
+      || (character === '_' && (!isWord(characters[index - 1]) || !isWord(characters[index + 1])))
+      || (character === '<' && isTagStart(characters[index + 1]))
+      // Only a `>` that opens a line is a quotation mark; anywhere else it is the character itself.
+      || (character === '>' && index === 0);
+    out += mark ? `\\${character}` : character;
+  }
+  return out;
+}
+
+/** Link text: plain text with its brackets written as characters, so the text ends where it says it does. */
+function linkText(text: string): string {
+  let out = '';
+  for (const character of textNode(text)) out += character === '[' || character === ']' ? `\\${character}` : character;
+  return out;
+}
 
 function markdownLink(title: string, url: string | null): string {
-  const words = linkWords(title === '' ? url ?? '' : title);
-  return url === null ? words : `[${words}](${url})`;
+  const words = linkText(title === '' ? url ?? '' : title);
+  return url === null ? words : `[${words}](${destination(url)})`;
 }
 
 function itemLine(item: PageFileItem): string {
@@ -325,7 +451,7 @@ function itemLine(item: PageFileItem): string {
 
 function sectionMarkdown(section: PageFileSection): string {
   const lines: string[] = [];
-  if (section.title !== '') lines.push(`## ${section.title}`.split('\n').join(' '));
+  if (section.title !== '') lines.push(`## ${textNode(section.title)}`);
   const message = (text: string): string => text.split('\n').map((line) => `> ${line}`).join('\n');
   switch (section.type) {
     case 'text':
@@ -338,12 +464,12 @@ function sectionMarkdown(section: PageFileSection): string {
       break;
     case 'relations':
       for (const group of section.groups ?? []) {
-        lines.push(`### ${group.relation} (${group.direction}, ${group.total})`);
+        lines.push(`### ${textNode(group.relation)} (${group.direction}, ${group.total})`);
         for (const item of group.items) lines.push(itemLine(item));
       }
       break;
     case 'properties':
-      for (const property of section.properties ?? []) lines.push(`- **${property.name}**: ${property.value}`);
+      for (const property of section.properties ?? []) lines.push(`- **${textNode(property.name)}**: ${textNode(property.value)}`);
       break;
     case 'source':
       if (section.text !== undefined) lines.push(fenced(section.text, section.language ?? ''));
@@ -351,19 +477,19 @@ function sectionMarkdown(section: PageFileSection): string {
       break;
     case 'diagram':
       for (const view of section.views ?? []) {
-        lines.push(`### ${view.label === '' ? view.title : view.label}`.split('\n').join(' '));
+        lines.push(`### ${textNode(view.label === '' ? view.title : view.label)}`);
         if (view.empty !== null) lines.push(message(view.empty));
         if (view.mermaid !== '') lines.push(fenced(view.mermaid, 'mermaid'));
         for (const item of view.items) lines.push(itemLine(item));
-        for (const edge of view.edges) lines.push(`- ${edge.from} → ${edge.to} — ${edge.relation} (${edge.count})`);
+        for (const edge of view.edges) lines.push(`- ${textNode(edge.from)} → ${textNode(edge.to)} — ${textNode(edge.relation)} (${edge.count})`);
         for (const note of view.notes) lines.push(`- ${note}`);
       }
       for (const item of section.items ?? []) lines.push(itemLine(item));
-      for (const edge of section.edges ?? []) lines.push(`- ${edge.from} → ${edge.to} — ${edge.relation} (${edge.count})`);
+      for (const edge of section.edges ?? []) lines.push(`- ${textNode(edge.from)} → ${textNode(edge.to)} — ${textNode(edge.relation)} (${edge.count})`);
       break;
     case 'history':
       for (const group of section.groups ?? []) {
-        lines.push(`### ${group.relation} (${group.total})`);
+        lines.push(`### ${textNode(group.relation)} (${group.total})`);
         for (const item of group.items) lines.push(itemLine(item));
       }
       break;
@@ -395,7 +521,7 @@ function plannedSection(page: PageModel, prefix: string): PageFileSection[] {
     title: 'Planned change',
     type: 'items',
     items: [
-      ...(planned.entity === null ? [] : [{ title: `This page (${planned.entity})`, url: null }]),
+      ...(planned.entity === null ? [] : [{ title: `This page (${planned.entity.how})`, url: null }]),
       ...planned.statements.map((statement) => ({
         title: statement.sentence,
         url: null,
@@ -655,7 +781,7 @@ function sectionOf(block: Block, page: PageModel, prefix: string): PageFileSecti
 /** The page as one Markdown document: its title, its trail, every block in order, then its findings. */
 export function pageFileMarkdown(page: PageModel, prefix = ''): string {
   const document = pageFileDocument(page, prefix);
-  const parts: string[] = [`# ${page.title.split('\n').join(' ')}`];
+  const parts: string[] = [`# ${textNode(page.title)}`];
   const meta = `Kind: \`${page.kind}\` · HTML: ${markdownLink(document.address, document.address)} · JSON: ${markdownLink(document.json, document.json)}`;
   parts.push(meta);
   if (document.trail.length > 0) parts.push(`Trail: ${document.trail.map((entry) => markdownLink(entry.title, entry.url)).join(' › ')}`);
@@ -690,7 +816,7 @@ export function kindFileDocument(summary: KindSummary, entries: readonly EntityR
 
 /** The kind's list as one Markdown document, every entry the list holds. */
 export function kindFileMarkdown(document: KindFileDocument): string {
-  const parts = [`# ${document.title}`, `Kind: \`${document.kind}\` · HTML: ${markdownLink(document.address, document.address)} · JSON: ${markdownLink(document.json, document.json)}`];
+  const parts = [`# ${textNode(document.title)}`, `Kind: \`${document.kind}\` · HTML: ${markdownLink(document.address, document.address)} · JSON: ${markdownLink(document.json, document.json)}`];
   if (document.description !== undefined) parts.push(document.description);
   parts.push(`${document.total} ${document.total === 1 ? 'entity' : 'entities'}.`);
   if (document.entries.length > 0) parts.push(document.entries.map(itemLine).join('\n'));
@@ -719,7 +845,7 @@ export function llmsText(productName: string, kinds: readonly KindSummary[], lan
     const labels = kind.labels?.[language] ?? kind.labels?.[language === 'ru' ? 'en' : 'ru'];
     const description = kind.descriptions?.[language] ?? kind.descriptions?.[language === 'ru' ? 'en' : 'ru'];
     const address = at(kindAddress(kind.kind), prefix)!;
-    lines.push(`- [${labels?.many ?? kind.kind}](${address}.md) — [JSON](${address}.json); kind \`${kind.kind}\`${description === undefined ? '' : `: ${description}`}`);
+    lines.push(`- ${markdownLink(labels?.many ?? kind.kind, `${address}.md`)} — ${markdownLink('JSON', `${address}.json`)}; kind \`${kind.kind}\`${description === undefined ? '' : `: ${description}`}`);
   }
   return `${lines.join('\n')}\n`;
 }

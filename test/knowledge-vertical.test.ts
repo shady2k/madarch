@@ -75,6 +75,18 @@ function lineOf(path: string, text: string): number {
   return at + 1;
 }
 
+/**
+ * A page's address: the entity's id with the terminal dot of a `.md` or
+ * `.json` suffix encoded, so the address is not read as that file's sibling.
+ */
+const addressOf = (key: string): string => {
+  const encoded = encodeURIComponent(key);
+  for (const suffix of ['.md', '.json']) {
+    if (encoded.endsWith(suffix)) return `/k/e/${encoded.slice(0, -suffix.length)}%2E${suffix.slice(1)}`;
+  }
+  return `/k/e/${encoded}`;
+};
+
 describe('the payments service page', () => {
   test('it names the stack the answer key gives (TypeScript, Express) and lists the files the key says a reader must be able to reach', async () => {
     const model = await page(PAYMENTS_SERVICE);
@@ -97,7 +109,7 @@ describe('the payments service page', () => {
   test('every file on the page is a link to the file\'s page, and the graph block draws the service with its package', async () => {
     const model = await page(PAYMENTS_SERVICE);
     const rows = block(model, 'related', 0).groups[0]!.rows;
-    expect(rows.every((row) => row.entity.href === `/k/e/${encodeURIComponent(row.entity.id)}`)).toBe(true);
+    expect(rows.every((row) => row.entity.href === addressOf(row.entity.id))).toBe(true);
     expect(block(model, 'graph').neighborhood.edges.some((edge) => edge.relation === 'code.contains')).toBe(true);
   });
 });
@@ -623,7 +635,7 @@ describe('every page and every kind as a file for agents', () => {
       for (const entry of list.entries) expect(listMarkdown.text).toContain(`](${entry.url})`);
 
       for (const id of ids) {
-        const address = `/k/e/${encodeURIComponent(id)}`;
+        const address = addressOf(id);
         const json = await at(`${address}.json`);
         expect(json.status).toBe(200);
         expect(json.type).toContain('application/json');
@@ -669,7 +681,7 @@ describe('every page and every kind as a file for agents', () => {
     }
     const first = await product.list(status.kinds[0]!.kind, { limit: 1 });
     const id = first!.rows[0]!.id;
-    const address = `/k/e/${encodeURIComponent(id)}`;
+    const address = addressOf(id);
     const html = await at(address);
     expect(html.status).toBe(200);
     expect(html.text).toContain(`<link rel="alternate" type="text/markdown" href="${address}.md">`);
@@ -677,7 +689,7 @@ describe('every page and every kind as a file for agents', () => {
 
   test('the payments service page keeps its whole relation lists in the JSON and its text and links in the Markdown', async () => {
     const model = await page(PAYMENTS_SERVICE);
-    const address = `/k/e/${encodeURIComponent(PAYMENTS_SERVICE)}`;
+    const address = addressOf(PAYMENTS_SERVICE);
     const document = JSON.parse((await at(`${address}.json`)).text);
     const groups: { relation: string; direction: string; total: number; items: { id: string; url: string | null }[] }[] = document.sections.flatMap((section: { type: string; groups?: unknown[] }) => section.type === 'relations' ? section.groups ?? [] : []);
     const expected = model.blocks.flatMap((entry) => entry.type === 'related' ? entry.groups.map((group) => ({ relation: group.relation, direction: group.direction, ids: group.rows.map((row) => row.entity.id) })) : []);
