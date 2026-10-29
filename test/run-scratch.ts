@@ -164,10 +164,6 @@ async function installEndOfRun(): Promise<void> {
     const { afterAll } = await import('bun:test');
     // Removing a scratch holding a file's databases and workspaces took 6.05 s in CI (run 39829622009, shard 4, "a beforeEach/afterEach hook timed out"): the hook names its own bound.
     afterAll(remove, 120_000);
-    // A product's Liquid templates are drawn in a worker process of their own (madarch-u3vw.1); a test file that renders
-    // a page and does not close its product would leave that worker behind for the rest of the run.
-    const { closeRenderWorkers } = await import('../src/knowledge/liquid.js');
-    afterAll(() => closeRenderWorkers(), 30_000);
   } catch {
     // Not a test run: the process hooks below are the only end there is.
   }
