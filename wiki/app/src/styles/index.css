@@ -1716,6 +1716,32 @@ a.graph-diagram-element-label:hover {
   scroll-margin-block-start: 4rem;
 }
 
+/* The fill chip is one line at every width: below a phone's width what an agent writes is its dot and how far the run
+   has come, the whole sentence in the button's name and in the popover the badge opens. */
+.fill-chip {
+  display: inline-flex;
+  min-inline-size: 0;
+  max-inline-size: min(60vw, 22rem);
+}
+
+.fill-chip .ui-badge {
+  max-inline-size: 100%;
+  overflow: hidden;
+}
+
+.fill-chip-label {
+  min-inline-size: 0;
+  overflow: hidden;
+  white-space: nowrap;
+  text-overflow: ellipsis;
+}
+
+@media (max-width: 700px) {
+  .fill-chip-writing .fill-chip-words {
+    display: none;
+  }
+}
+
 .answers-waiting {
   display: inline-flex;
 }

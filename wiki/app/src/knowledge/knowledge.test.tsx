@@ -469,6 +469,9 @@ describe('after the run', () => {
     const bar = into(createElement(FillMenu, { status: status(), refresh: () => undefined }));
     await until(() => bar.querySelector('[data-testid=fill-chip]') !== null, 'the status');
     expect(bar.querySelector('[data-testid=fill-chip]')!.textContent).toBe('Filled Oct 23, 5 pages');
+    // A finished run has no count to keep alone: its whole sentence stays the badge, and its name is the sentence.
+    expect(bar.querySelector('[data-testid=fill-chip]')!.className).not.toContain('fill-chip-writing');
+    expect(bar.querySelector('[data-testid=fill-chip]')!.getAttribute('aria-label')).toBe('Filled Oct 23, 5 pages');
   });
 
   test('a failed run stays on the page until the reader dismisses it', async () => {
@@ -491,7 +494,13 @@ describe('after the run', () => {
     const bar = into(createElement(FillMenu, { status: status({ writer }), refresh: () => undefined }));
     await until(() => bar.querySelector('[data-testid=fill-chip]') !== null, 'the status');
     // 1 of the 7 pages the run means to write, not of the 2 it has taken up so far: the reader sees what is left.
-    expect(bar.querySelector('[data-testid=fill-chip]')!.textContent).toBe('The agent is writing · 1/7');
+    const chip = bar.querySelector('[data-testid=fill-chip]')!;
+    expect(chip.textContent).toBe('The agent is writing · 1/7');
+    // The whole sentence stands on the button and in the popover; the badge is split so a phone can keep the count alone.
+    expect(chip.getAttribute('aria-label')).toBe('The agent is writing · 1/7');
+    expect(chip.className).toContain('fill-chip-writing');
+    expect(chip.querySelector('.fill-chip-words')!.textContent).toBe('The agent is writing · ');
+    expect(chip.querySelector('.fill-chip-count')!.textContent).toBe('1/7');
     const dot = bar.querySelector('[data-testid=fill-chip-dot]')!;
     expect(dot.getAttribute('aria-hidden')).toBe('true');
     expect(dot.className).toContain('animate-pulse');

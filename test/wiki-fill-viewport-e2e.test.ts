@@ -149,9 +149,17 @@ const open = async (path: string): Promise<void> => {
   await page.goto(`${server.url}${path}`, { waitUntil: 'domcontentloaded' });
   await page.waitForSelector('[data-testid=knowledge-app]', { timeout: 20000 });
 };
-const capture = async (name: string): Promise<void> => { await page.screenshot({ path: join(SHOTS, name), fullPage: true }); };
+/** Waits until no animation that ends is still running, so a shot shows what a reader reads rather than a frame of a
+ * menu's fade-in; a pulse that never ends (the dot while the agent writes) is no reason to wait. */
+const settled = async (): Promise<void> => {
+  await page.evaluate(() => Promise.all(document.getAnimations().filter((animation) => {
+    const timing = animation.effect?.getComputedTiming();
+    return animation.playState === 'running' && timing !== undefined && timing.iterations !== Infinity;
+  }).map((animation) => Promise.race([animation.finished.catch(() => undefined), new Promise((rest) => setTimeout(rest, 400))]))));
+};
+const capture = async (name: string): Promise<void> => { await settled(); await page.screenshot({ path: join(SHOTS, name), fullPage: true }); };
 /** The screen as the reader has it, for a shot of something anchored to it (a full-page shot moves a fixed popover). */
-const captureScreen = async (name: string): Promise<void> => { await page.screenshot({ path: join(SHOTS, name) }); };
+const captureScreen = async (name: string): Promise<void> => { await settled(); await page.screenshot({ path: join(SHOTS, name) }); };
 /** Hit-test the visible element, then send an actual mouse click at its center: the toolbar must not swallow it. */
 const clickAt = async (selector: string): Promise<void> => {
   const hit = await page.$eval(selector, (element) => {
@@ -227,13 +235,28 @@ runDescribe('the fill a reader meets', () => {
     await page.setViewport(NARROW);
     await open('/products/tiny/k');
     await page.waitForSelector('[data-testid=fill-chip]', { timeout: 20000 });
-    const chip = await page.$eval('[data-testid=fill-chip]', (element) => element.textContent?.trim());
     // The denominator is the number of pages the run means to write, told by the writer itself, not the two it has
     // taken up: the reader sees how much is left.
     const counted = (await get('/api/k/status')).body.writer;
     expect(typeof counted.total).toBe('number');
     expect(counted.total).toBeGreaterThanOrEqual(counted.units.length);
-    expect(chip).toBe(`Агент пишет страницы · 1/${counted.total}`);
+    const sentence = `Агент пишет страницы · 1/${counted.total}`;
+    /** The badge as it stands: its words, its name, and the box they take. */
+    const measureChip = async (): Promise<{ text: string; name: string | null; height: number; lineHeight: number; width: number; scrollWidth: number }> => page.$eval('[data-testid=fill-chip]', (element) => {
+      const badge = element.firstElementChild as HTMLElement;
+      const style = getComputedStyle(badge);
+      const rect = badge.getBoundingClientRect();
+      return { text: badge.innerText.trim(), name: element.getAttribute('aria-label'), height: rect.height, lineHeight: parseFloat(style.lineHeight), width: rect.width, scrollWidth: badge.scrollWidth };
+    });
+    // At 390 px the badge is the pulsing dot and how far the run has come, on one line; the whole sentence is its name.
+    const narrowChip = await measureChip();
+    expect(narrowChip.text).toBe(`1/${counted.total}`);
+    expect(narrowChip.name).toBe(sentence);
+    expect(narrowChip.height).toBeLessThanOrEqual(narrowChip.lineHeight + 8);
+    expect(narrowChip.scrollWidth).toBeLessThanOrEqual(narrowChip.width + 1);
+    expect(await page.$eval('[data-testid=fill-chip-dot]', (element) => element.getBoundingClientRect().width)).toBeGreaterThan(0);
+    // A run is under way, so the sync button says so and is spent; with nothing running it says what it does.
+    expect(await page.$eval('[data-testid=sync]', (element) => element.textContent?.trim())).toBe('Синхронизация…');
     // The home page says the same in one line, with no paths and no list of pages.
     const line = await page.$eval('[data-testid=writer-line-words]', (element) => element.textContent ?? '');
     expect(line).toContain(`пишет страницы: записано 1 из ${counted.total}`);
@@ -243,6 +266,40 @@ runDescribe('the fill a reader meets', () => {
     await capture('during-390-light.png');
     await clickAt('[data-testid=fill-chip]');
     await page.waitForSelector('[data-testid=fill-menu]', { timeout: 5000 });
+    // One badge opens one popover: one menu in the document, and no second floating panel over the page.
+    expect(await page.$$eval('[data-testid=fill-menu]', (elements) => elements.length)).toBe(1);
+    expect(await page.$$eval('[role=menu]', (elements) => elements.length)).toBe(1);
+    expect(await page.$$eval('[data-radix-popper-content-wrapper]', (elements) => elements.length)).toBe(1);
+    // It is opaque, and settled before a reader reads it: its words never stand over the page's words.
+    await page.waitForFunction(() => {
+      const menu = document.querySelector('[data-testid=fill-menu]');
+      return menu !== null && getComputedStyle(menu).opacity === '1';
+    }, { timeout: 5000 });
+    const paint = await page.$eval('[data-testid=fill-menu]', (element) => { const style = getComputedStyle(element); return { opacity: style.opacity, background: style.backgroundColor }; });
+    expect(paint.opacity).toBe('1');
+    expect(paint.background).not.toBe('transparent');
+    expect(paint.background).not.toBe('rgba(0, 0, 0, 0)');
+    // Every line of its words belongs to the popover: the element at the middle of each line of text is its own.
+    const outside = await page.$eval('[data-testid=fill-menu]', (element) => {
+      const menu = element as HTMLElement;
+      const misses: { text: string; hit: string | null }[] = [];
+      const walker = document.createTreeWalker(menu, NodeFilter.SHOW_TEXT);
+      for (let node = walker.nextNode(); node !== null; node = walker.nextNode()) {
+        const text = node.textContent?.trim() ?? '';
+        if (text === '') continue;
+        const range = document.createRange();
+        range.selectNodeContents(node);
+        const rects = range.getClientRects();
+        for (let index = 0; index < rects.length; index += 1) {
+          const rect = rects[index]!;
+          if (rect.width < 2 || rect.height < 2) continue;
+          const hit = document.elementFromPoint(rect.left + Math.min(rect.width / 2, 8), rect.top + rect.height / 2);
+          if (hit === null || !menu.contains(hit)) misses.push({ text: text.slice(0, 40), hit: hit === null ? null : hit.tagName });
+        }
+      }
+      return misses;
+    });
+    expect(outside).toEqual([]);
     const box = await page.$eval('[data-testid=fill-menu]', (element) => {
       const rect = element.getBoundingClientRect();
       return { left: rect.left, right: rect.right, width: rect.width, scrollWidth: element.scrollWidth, clientWidth: element.clientWidth };
@@ -260,6 +317,12 @@ runDescribe('the fill a reader meets', () => {
     expect(live).toContain(`Пишется: Домен ${LONG_TITLE}`);
     expect(live).toContain('Открыть заполнение');
     expect(live).not.toContain('docs/');
+    // The whole sentence stands in the popover too, and the popover carries no second refresh: the top bar's one is it.
+    expect(await page.$eval('[data-testid=fill-menu-total]', (element) => element.textContent?.trim())).toBe(sentence);
+    expect(await page.$('[data-testid=fill-menu] [data-testid=refresh]')).toBeNull();
+    const menuWords = await page.$eval('[data-testid=fill-menu]', (element) => (element as HTMLElement).innerText);
+    expect(menuWords).not.toContain('Обновить');
+    expect(menuWords).not.toContain('заново читает код');
     expect(await page.$('[data-testid=menu-language]')).not.toBeNull();
     // Nothing on the page scrolls sideways because of the popover.
     expect(await page.evaluate(() => document.documentElement.scrollWidth)).toBeLessThanOrEqual(WIDTH);
@@ -274,6 +337,16 @@ runDescribe('the fill a reader meets', () => {
     expect(dark.right).toBeLessThanOrEqual(WIDTH);
     await captureScreen('during-390-popover-dark.png');
     await page.emulateMediaFeatures([{ name: 'prefers-color-scheme', value: 'light' }]);
+    // At 1150 px the same badge says the whole sentence, and still on one line.
+    await page.setViewport(WIDE);
+    await page.reload({ waitUntil: 'domcontentloaded' });
+    await page.waitForSelector('[data-testid=fill-chip]', { timeout: 20000 });
+    const wideChip = await measureChip();
+    expect(wideChip.text).toBe(sentence);
+    expect(wideChip.name).toBe(sentence);
+    expect(wideChip.height).toBeLessThanOrEqual(wideChip.lineHeight + 8);
+    expect(wideChip.scrollWidth).toBeLessThanOrEqual(wideChip.width + 1);
+    await page.setViewport(NARROW);
   }, 120_000);
 
   test('the dot pulses while the agent writes and stands still when motion is reduced', async () => {
@@ -333,6 +406,8 @@ runDescribe('the fill a reader meets', () => {
     await page.setViewport(NARROW);
     await open('/products/tiny/k/fill');
     await page.waitForSelector('[data-testid=fill-page]', { timeout: 20000 });
+    // With nothing running the top bar's button says what it does, not that it is running.
+    expect(await page.$eval('[data-testid=sync]', (element) => element.textContent?.trim())).toBe('Синхронизировать');
     await capture('after-390-fill-light.png');
     await page.emulateMediaFeatures([{ name: 'prefers-color-scheme', value: 'dark' }]);
     await page.reload({ waitUntil: 'domcontentloaded' });

@@ -27,7 +27,7 @@ import { GlossaryContext, GlossaryPage, useGlossary, useGlossaryValue, useTerms 
 import { HelpLink, RoleCard, RoleMenu } from './role-ui.js';
 import { RoleContext, leadGroups, loadSettings, useRole, useSettings } from './roles.js';
 import { addressOfEntity, addressOfKind, K_CATALOGUE, K_DOCS, K_FILL, K_GLOSSARY, K_HOME, K_PROBLEMS, K_QUESTIONS, K_TASKS, K_SETTINGS, kRouteOf, type KRoute } from './routes.js';
-import { ProblemsPage, QuestionPage, QuestionsPage, TaskPage, TasksPage, RefreshPreviewView } from './loop.js';
+import { ProblemsPage, QuestionPage, QuestionsPage, TaskPage, TasksPage } from './loop.js';
 import { JournalPage } from './journal.js';
 import { KindLabels, useKindName } from './kind-names.js';
 import { PageSkeleton } from './skeleton.js';
@@ -279,9 +279,10 @@ function pagesOf(status: WikiStatus): number {
 
 /**
  * The fill's state in the toolbar: while it runs, how far it is; after it, a quiet line saying when it ended and how many
- * pages the wiki holds. Opening it shows the units of the last run and the one action to refresh (madarch-m38l.4): the
- * code is read again from the new commits and the pages' links are checked again; the agent writes only the pages
- * that do not exist yet, or all of them when the language of the pages was changed.
+ * pages the wiki holds. The badge opens the one popover of the run (madarch-m38l.23): the whole sentence, what is being
+ * written now, the way to the fill page, and the language the pages are written in. The popover carries no refresh of
+ * its own: the top bar's «Синхронизировать» is the wiki's one refresh (madarch-u3vw.2), and choosing the pages' language
+ * is the one request left here — it starts the run that writes them in it.
  */
 export function FillMenu({ status, refresh }: { status: WikiStatus; refresh: () => void }): ReactElement | null {
   const { t, i18n } = useTranslation();
@@ -296,6 +297,10 @@ export function FillMenu({ status, refresh }: { status: WikiStatus; refresh: () 
   // The stages of the agent named the way a reader knows them: the kind's name and the page's title (madarch-m38l.23).
   const authoring = writer.state === 'running' || writer.state === 'waiting';
   const written = writer.units.filter((unit) => unit.state === 'written').length;
+  // How far the agent is, of the pages this run means to write: «Агент пишет страницы · 12/18». The total comes from the
+  // writer before its first unit and grows only when the product page declares more domains; until it is there the count
+  // stands alone («12»), never against a denominator made of what has merely been taken up.
+  const count = `${written}${writer.total === undefined ? '' : `/${writer.total}`}`;
   const current = writer.units.find((unit) => unit.unit === writer.current) ?? writer.units.find((unit) => unit.state === 'writing');
   const currentName = current === undefined ? null : unitName(current, status.kinds, language);
   let label: string;
@@ -303,10 +308,6 @@ export function FillMenu({ status, refresh }: { status: WikiStatus; refresh: () 
   if (fill.state === 'running') { label = fillWords(fill, t); solid = true; }
   else if (fill.state === 'failed') label = t('knowledge.fillFailed');
   else if (authoring) {
-    // How far the agent is, of the pages this run means to write: «Агент пишет страницы · 12/18». The total comes
-    // from the writer before its first unit and grows only when the product page declares more domains; until it is
-    // there the count stands alone («12»), never against a denominator made of what has merely been taken up.
-    const count = `${written}${writer.total === undefined ? '' : `/${writer.total}`}`;
     label = writer.units.length === 0 ? t('knowledge.fillWriting') : `${t('knowledge.fillWriting')} · ${count}`;
     solid = true;
   }
@@ -316,22 +317,30 @@ export function FillMenu({ status, refresh }: { status: WikiStatus; refresh: () 
     if (fill.rebuilt === 'extractors-changed') label = `${t('knowledge.fillRebuiltExtractors')}. ${label}`;
   } else return null;
   const busy = fill.state === 'running' || writer.state === 'running' || writer.state === 'waiting' || starting;
-  const press = (): void => {
+  // The pages' language is the one request in the popover, and it is the fill: the run that writes them in that language.
+  const start = (chosen: 'ru' | 'en'): void => {
+    if (busy) return;
+    setPagesLanguage(chosen);
     setStarting(true);
     setRefused(null);
-    const chosenLanguage = pagesLanguage ?? status.language;
-    startFill(status.chosenAgent?.id ?? null, chosenLanguage !== status.language ? chosenLanguage : undefined).then(
+    startFill(status.chosenAgent?.id ?? null, chosen !== status.language ? chosen : undefined).then(
       () => { setStarting(false); refresh(); },
       (failure: unknown) => { setStarting(false); setRefused(failure instanceof Error ? failure.message : String(failure)); },
     );
   };
+  // Below a phone's width the badge is the dot and the count on one line; its name and the popover keep the whole sentence.
+  const compact = authoring && writer.units.length > 0;
   return (
     <DropdownMenuPrimitive.Root>
       <DropdownMenuPrimitive.Trigger asChild>
-        <button type="button" className="fill-chip rounded-[var(--radius-row)] focus-visible:ring-2 focus-visible:ring-ink" data-testid="fill-chip" title={t('knowledge.fillMenuTitle')}>
+        <button type="button" className={`fill-chip rounded-[var(--radius-row)] focus-visible:ring-2 focus-visible:ring-ink${compact ? ' fill-chip-writing' : ''}`} data-testid="fill-chip" aria-label={label} title={authoring ? label : t('knowledge.fillMenuTitle')}>
           <Badge variant={solid ? 'solid' : 'outline'}>
             {authoring && <span aria-hidden="true" className="mr-1.5 inline-block size-1.5 animate-pulse rounded-full bg-current align-middle motion-reduce:animate-none" data-testid="fill-chip-dot" />}
-            {label}
+            <span className="fill-chip-label">
+              {compact
+                ? <><span className="fill-chip-words">{t('knowledge.fillWriting')} · </span><span className="fill-chip-count">{count}</span></>
+                : label}
+            </span>
           </Badge>
         </button>
       </DropdownMenuPrimitive.Trigger>
@@ -340,10 +349,11 @@ export function FillMenu({ status, refresh }: { status: WikiStatus; refresh: () 
           <DropdownMenuPrimitive.Label className="language-menu-label">{t('knowledge.fillMenuTitle')}</DropdownMenuPrimitive.Label>
           <DropdownMenuPrimitive.Separator className="language-menu-separator" />
           {authoring && (
-            // While the agent writes: one line saying what is being written, and the way to the fill page (never the paths:
-            // the menu is anchored to the top bar and must stay inside a narrow viewport).
+            // While the agent writes: the whole sentence and what is being written now, and the way to the fill page
+            // (never the paths: the menu is anchored to the top bar and must stay inside a narrow viewport).
             <div className="px-2 pb-2 text-small" data-testid="fill-menu-live">
-              <p className="m-0 break-words text-ink" data-testid="fill-menu-current">{currentName === null ? t('knowledge.fillPage.waiting') : t('knowledge.fillPage.writingNow', { name: currentName })}</p>
+              <p className="m-0 break-words text-ink" data-testid="fill-menu-total">{label}</p>
+              <p className="m-0 mt-1 break-words" data-testid="fill-menu-current">{currentName === null ? t('knowledge.fillPage.waiting') : t('knowledge.fillPage.writingNow', { name: currentName })}</p>
               <p className="m-0 mt-1"><KLink href={K_FILL} testId="fill-menu-open">{t('knowledge.fillPage.open')}</KLink></p>
             </div>
           )}
@@ -353,22 +363,19 @@ export function FillMenu({ status, refresh }: { status: WikiStatus; refresh: () 
           {fill.message !== undefined && fill.state === 'failed' && <div className="m-0 px-2 pb-2 text-small"><FailureNote scope="fill" code={fill.code} message={fill.message} /></div>}
           <div className="px-2 pb-2">
             {status.chosenAgent !== null && (
-              <div className="mb-3" role="radiogroup" aria-label={t('knowledge.writer.languageTitle')} data-testid="menu-language">
+              <div role="radiogroup" aria-label={t('knowledge.writer.languageTitle')} data-testid="menu-language">
                 <div className="mb-1 text-small font-medium text-ink">{t('knowledge.writer.languageTitle')}</div>
                 <div className="flex flex-wrap gap-2">
                   {(['ru', 'en'] as const).map((code) => (
                     <label key={code} className="flex cursor-pointer items-center gap-2 rounded-[var(--radius-card)] border border-line px-2.5 py-1 text-small has-[:checked]:border-ink">
-                      <input type="radio" name="menu-content-language" checked={(pagesLanguage ?? status.language) === code} onChange={() => setPagesLanguage(code)} onClick={(event) => event.stopPropagation()} />
+                      <input type="radio" name="menu-content-language" checked={(pagesLanguage ?? status.language) === code} disabled={busy} onChange={() => start(code)} onClick={(event) => event.stopPropagation()} />
                       <span>{t(code === 'ru' ? 'navigation.russian' : 'navigation.english')}</span>
                     </label>
                   ))}
                 </div>
               </div>
             )}
-            {writer.state !== 'running' && writer.state !== 'waiting' && fill.state !== 'running' && <div className="mb-3"><RefreshPreviewView language={pagesLanguage ?? status.language} refreshKey={`${status.fill.finishedAt ?? ''}:${status.writer.finishedAt ?? ''}:${status.loop?.questionsAnswered ?? 0}:${status.loop?.correctionsOpen ?? 0}`} /></div>}
-            <p className="mb-2 mt-0 text-small text-muted" data-testid="refresh-note">{t('knowledge.refreshNote', { turns: status.bounds.turns, minutes: status.bounds.minutes })}</p>
-            <Button variant="default" size="default" disabled={busy} onClick={press} data-testid="refresh">{t('knowledge.refresh')}</Button>
-            {refused !== null && <p className="mb-0 mt-2 text-small" role="alert" data-testid="refresh-refused">{refused}</p>}
+            {refused !== null && <p className="mb-0 mt-0 text-small" role="alert" data-testid="fill-menu-refused">{refused}</p>}
           </div>
         </DropdownMenuPrimitive.Content>
       </DropdownMenuPrimitive.Portal>
