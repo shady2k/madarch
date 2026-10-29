@@ -7,7 +7,7 @@ import { afterAll, afterEach, beforeAll, describe, expect, test } from 'bun:test
 import { GlobalRegistrator } from '@happy-dom/global-registrator';
 import { createElement } from 'react';
 import { createRoot, type Root } from 'react-dom/client';
-import { setWikiLanguage } from '../i18n.js';
+import i18n, { setWikiLanguage } from '../i18n.js';
 import { FailureNote } from './errors.js';
 import { ProblemsPage } from './loop.js';
 import { SettingsPage } from './settings.js';
@@ -215,7 +215,8 @@ describe('the product settings page', () => {
         const kept = page.querySelector('[data-testid=danger-answers]')?.textContent ?? '';
         expect(removed).toContain(String(counts[0])); expect(kept).toContain(String(counts[1]));
         expect(removed).toContain(language === 'en' ? 'unanswered agent question' : 'без ответа');
-        expect(kept).toContain(language === 'en' ? 'answers stay' : 'Ответы сохранятся');
+        // The kept count is a phrase of its own, in the form its numeral takes.
+        expect(kept).toBe(i18n.t('knowledge.reset.answers', { count: counts[1], lng: language }));
         expect(page.querySelector('[data-testid=danger-dialog]')!.textContent).toContain(language === 'en' ? 'corrections stay' : 'исправления сохранятся');
       });
     }

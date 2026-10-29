@@ -2,6 +2,10 @@ import { describe, expect, test } from 'bun:test';
 import en from './locales/en.json';
 import ru from './locales/ru.json';
 import i18n, { languageStorageKey, normalizeLanguage, relativeTime, setWikiLanguage } from './i18n.js';
+import { pluralForm } from '../../../src/knowledge/plural.js';
+import { COUNTED_FIGURES, historyFigureText } from '../../../src/knowledge/history-figures.js';
+import { historyNoteText } from './knowledge/history-note.js';
+import { unitLimitWords } from './knowledge/unit-bounds.js';
 
 function leafKeys(value: unknown, prefix = ''): string[] {
   if (value === null || typeof value !== 'object' || Array.isArray(value)) return [prefix];
@@ -33,8 +37,6 @@ const COUNT_MESSAGES: {
   { key: 'knowledge.historySymbols', ru: ['1 символ', '2 символа', '5 символов', '0 символов'], en: ['1 symbol', '2 symbols', '5 symbols', '0 symbols'] },
   { key: 'knowledge.historyAdded', ru: ['+1 строка', '+2 строки', '+5 строк', '+0 строк'], en: ['+1 line', '+2 lines', '+5 lines', '+0 lines'] },
   { key: 'knowledge.historyRemoved', ru: ['−1 строка', '−2 строки', '−5 строк', '−0 строк'], en: ['−1 line', '−2 lines', '−5 lines', '−0 lines'] },
-  { key: 'knowledge.historyNote.manyCommits', args: (count) => ({ count, total: count, shown: 1 }), ru: ['В списке 1 коммит; показаны первые 1.', 'В списке 2 коммита; показаны первые 1.', 'В списке 5 коммитов; показаны первые 1.', 'В списке 0 коммитов; показаны первые 1.'], en: ['The list names 1 commit; the first 1 are shown.', 'The list names 2 commits; the first 1 are shown.', 'The list names 5 commits; the first 1 are shown.', 'The list names 0 commits; the first 1 are shown.'] },
-  { key: 'knowledge.historyNote.manyFiles', args: (count) => ({ count, total: count, shown: 1 }), ru: ['Коммит изменил 1 файл; показаны первые 1.', 'Коммит изменил 2 файла; показаны первые 1.', 'Коммит изменил 5 файлов; показаны первые 1.', 'Коммит изменил 0 файлов; показаны первые 1.'], en: ['The commit changed 1 file; the first 1 are shown.', 'The commit changed 2 files; the first 1 are shown.', 'The commit changed 5 files; the first 1 are shown.', 'The commit changed 0 files; the first 1 are shown.'] },
   { key: 'knowledge.historyNote.noCounts', ru: ['У 1 файла нет числа строк: двоичный файл или путь, оставшийся от переименования.', 'У 2 файлов нет числа строк: двоичный файл или путь, оставшийся от переименования.', 'У 5 файлов нет числа строк: двоичный файл или путь, оставшийся от переименования.', 'У 0 файлов нет числа строк: двоичный файл или путь, оставшийся от переименования.'], en: ['1 of the files reports no line count: a binary file, or a path a rename left behind.', '2 of the files report no line count: a binary file, or a path a rename left behind.', '5 of the files report no line count: a binary file, or a path a rename left behind.', '0 of the files report no line count: a binary file, or a path a rename left behind.'] },
   { key: 'knowledge.catalogueEntities', ru: ['1 сущность', '2 сущности', '5 сущностей', '0 сущностей'], en: ['1 entity', '2 entities', '5 entities', '0 entities'] },
   { key: 'knowledge.catalogueKinds', ru: ['в 1 виде', 'в 2 видах', 'в 5 видах', 'в 0 видах'], en: ['in 1 kind', 'in 2 kinds', 'in 5 kinds', 'in 0 kinds'] },
@@ -61,6 +63,8 @@ const COUNT_MESSAGES: {
   { key: 'knowledge.historyLandmarkOffered', ru: ['; доступно корректных ориентиров: 1', '; доступно корректных ориентиров: 2', '; доступно корректных ориентиров: 5', '; доступно корректных ориентиров: 0'], en: ['; 1 valid landmark tree offered', '; 2 valid landmark trees offered', '; 5 valid landmark trees offered', '; 0 valid landmark trees offered'] },
 ];
 
+/** Every plural family of the catalogue, as its base key: the messages a numeral picks a form of. */
+const FAMILIES = [...new Set(leafKeys(en).filter((key) => key.endsWith('_one')).map((key) => key.slice(0, -4)))].sort();
 const COUNTS = [1, 2, 5, 0] as const;
 const FORM_NAMES = ['one', 'few', 'many', 'none'] as const;
 
@@ -95,6 +99,92 @@ describe('wiki internationalization', () => {
       await setWikiLanguage(normalizeLanguage(previous));
     });
   }
+
+  test('every numeral of every count reads the form the catalogue holds for it, in both languages', async () => {
+    const previous = i18n.resolvedLanguage ?? 'en';
+    const numerals = [0, 1, 2, 3, 4, 5, 11, 12, 13, 14, 21, 22, 25, 101, 1.5, 2.5];
+    const t = (key: string, options?: Record<string, unknown>): string => i18n.t(key, options);
+    try {
+      for (const language of ['en', 'ru'] as const) {
+        await setWikiLanguage(language);
+        for (const family of FAMILIES) for (const count of numerals) {
+          const form = pluralForm(language, count);
+          expect(`${family} at ${count} in ${language}: ${t(family, { count })}`).toBe(`${family} at ${count} in ${language}: ${t(`${family}_${form}`, { count })}`);
+        }
+      }
+    } finally {
+      await setWikiLanguage(normalizeLanguage(previous));
+    }
+  });
+
+  test('a Russian count in fractions takes the genitive singular, and 11 to 14 the many form', async () => {
+    const previous = i18n.resolvedLanguage ?? 'en';
+    try {
+      await setWikiLanguage('ru');
+      expect(i18n.t('knowledge.historyFigure.commits', { count: 1.5 })).toBe('1.5 коммита');
+      expect(i18n.t('knowledge.historyFigure.commits', { count: 2.5 })).toBe('2.5 коммита');
+      expect(i18n.t('knowledge.historyFigure.commits', { count: 11 })).toBe('11 коммитов');
+      expect(i18n.t('knowledge.historyFigure.commits', { count: 12 })).toBe('12 коммитов');
+      expect(i18n.t('knowledge.historyFigure.commits', { count: 13 })).toBe('13 коммитов');
+      expect(i18n.t('knowledge.historyFigure.commits', { count: 14 })).toBe('14 коммитов');
+      expect(i18n.t('knowledge.historyFigure.commits', { count: 21 })).toBe('21 коммит');
+      expect(i18n.t('knowledge.historyFigure.commits', { count: 0 })).toBe('0 коммитов');
+      await setWikiLanguage('en');
+      expect(i18n.t('knowledge.historyFigure.commits', { count: 1.5 })).toBe('1.5 commits');
+      expect(i18n.t('knowledge.historyFigure.commits', { count: 21 })).toBe('21 commits');
+    } finally {
+      await setWikiLanguage(normalizeLanguage(previous));
+    }
+  });
+
+  test('a page file writes a figure with the words the app draws, kind for kind and numeral for numeral', () => {
+    for (const language of ['en', 'ru'] as const) for (const kind of COUNTED_FIGURES) for (const count of [0, 1, 2, 5, 11, 21, 1.5]) {
+      expect(`${kind} at ${count} in ${language}: ${historyFigureText({ kind, value: String(count) }, language)}`)
+        .toBe(`${kind} at ${count} in ${language}: ${i18n.t(`knowledge.historyFigure.${kind}`, { count, lng: language })}`);
+    }
+  });
+
+  test('a cut list says how much of it is shown, and the shown count agrees with its numeral', async () => {
+    const previous = i18n.resolvedLanguage ?? 'en';
+    const t = (key: string, options?: Record<string, unknown>): string => i18n.t(key, options);
+    try {
+      await setWikiLanguage('en');
+      expect(historyNoteText({ key: 'manyCommits', args: { total: 30, shown: 5 } }, t)).toBe('The list names 30 commits; the first 5 are shown.');
+      expect(historyNoteText({ key: 'manyCommits', args: { total: 30, shown: 1 } }, t)).toBe('The list names 30 commits; the first 1 is shown.');
+      expect(historyNoteText({ key: 'manyCommits', args: { total: 1, shown: 1 } }, t)).toBe('The list names 1 commit; the first 1 is shown.');
+      expect(historyNoteText({ key: 'manyFiles', args: { total: 30, shown: 1 } }, t)).toBe('The commit changed 30 files; the first 1 is shown.');
+      expect(historyNoteText({ key: 'manyCommits', args: { total: 30, shown: 21 } }, t)).toBe('The list names 30 commits; the first 21 are shown.');
+      // A note that names only one number keeps it as one, and is not given the shown phrase.
+      expect(historyNoteText({ key: 'symbolsCut', args: { path: 'src/a.ts', shown: 7 } }, t)).toBe('The file src/a.ts holds more entities than this page counts; its symbol figure covers the first 7.');
+      await setWikiLanguage('ru');
+      expect(historyNoteText({ key: 'manyCommits', args: { total: 30, shown: 1 } }, t)).toBe('В списке 30 коммитов; показан первый.');
+      expect(historyNoteText({ key: 'manyCommits', args: { total: 30, shown: 5 } }, t)).toBe('В списке 30 коммитов; показаны первые 5.');
+      expect(historyNoteText({ key: 'manyCommits', args: { total: 1, shown: 1 } }, t)).toBe('В списке 1 коммит; показан первый.');
+      expect(historyNoteText({ key: 'manyFiles', args: { total: 1, shown: 1 } }, t)).toBe('Коммит изменил 1 файл; показан первый.');
+      // 21 takes the plural «первые», not the singular the noun's own class would give it.
+      expect(historyNoteText({ key: 'manyCommits', args: { total: 30, shown: 21 } }, t)).toBe('В списке 30 коммитов; показаны первые 21.');
+    } finally {
+      await setWikiLanguage(normalizeLanguage(previous));
+    }
+  });
+
+  test('the bound of one unit is a phrase for each numeral, never a bare number after a fixed word', () => {
+    const bounds = (turns: number): { turns: number; minutes: number; toolCalls: number; writeAttempts: number; maxDomains: number } => ({ turns, minutes: 10, toolCalls: 80, writeAttempts: 5, maxDomains: 12 });
+    const words = (language: 'en' | 'ru', turns: number): string => i18n.t('knowledge.writer.bound', { ...unitLimitWords(bounds(turns), (key, options) => i18n.t(key, { ...options, lng: language })), domains: 12, lng: language });
+    expect(words('en', 1)).toContain('bound by 1 turn, 10 minutes, 80 tool calls and 5 refused writes');
+    expect(words('en', 30)).toContain('bound by 30 turns, 10 minutes, 80 tool calls and 5 refused writes');
+    expect(words('ru', 1)).toContain('ограничен: 1 ход, 10 минут, 80 вызовов инструментов и 5 отклонённых записей');
+    expect(words('ru', 2)).toContain('ограничен: 2 хода, 10 минут, 80 вызовов инструментов и 5 отклонённых записей');
+    expect(words('ru', 5)).toContain('ограничен: 5 ходов, 10 минут, 80 вызовов инструментов и 5 отклонённых записей');
+    expect(i18n.t('knowledge.refreshNote', { ...unitLimitWords(bounds(1), (key, options) => i18n.t(key, { ...options, lng: 'en' })), lng: 'en' }))
+      .toContain('Each unit is bound by 1 turn and 10 minutes.');
+    expect(i18n.t('knowledge.refreshNote', { ...unitLimitWords(bounds(1), (key, options) => i18n.t(key, { ...options, lng: 'ru' })), lng: 'ru' }))
+      .toContain('Каждый юнит ограничен: 1 ход и 10 минут.');
+    expect(i18n.t('knowledge.reset.answers', { count: 1, lng: 'en' })).toBe('1 answer stays. People’s corrections stay too.');
+    expect(i18n.t('knowledge.reset.answers', { count: 2, lng: 'en' })).toBe('2 answers stay. People’s corrections stay too.');
+    expect(i18n.t('knowledge.reset.answers', { count: 1, lng: 'ru' })).toBe('Сохранится 1 ответ. Поправки и исправления сохранятся тоже.');
+    expect(i18n.t('knowledge.reset.answers', { count: 2, lng: 'ru' })).toBe('Сохранятся 2 ответа. Поправки и исправления сохранятся тоже.');
+  });
 
   test('browser language tags select Russian only for ru and otherwise English', () => {
     expect(normalizeLanguage('ru-RU')).toBe('ru');

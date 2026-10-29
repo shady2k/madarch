@@ -20,6 +20,7 @@ import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card.j
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@/components/ui/table.js';
 import { getBlock } from './api.js';
 import { historyAddress } from './history-context.js';
+import { historyNoteText } from './history-note.js';
 import { highlight } from './highlight.js';
 import { colorize, type ColoredToken } from './shiki.js';
 import { PendingPages } from './pending.js';
@@ -644,7 +645,7 @@ function History({ block }: { block: Extract<Block, { type: 'history' }> }): Rea
       ))}
       {block.notes.length > 0 && (
         <ul className="mt-1.5 text-small text-muted" data-testid="history-notes">
-          {block.notes.map((note, index) => <li key={index}>{t(`knowledge.historyNote.${note.key}`, note.args === undefined ? {} : { ...note.args, count: note.args.total ?? note.args.count ?? 0 })}</li>)}
+          {block.notes.map((note, index) => <li key={index}>{historyNoteText(note, t)}</li>)}
         </ul>
       )}
     </section>

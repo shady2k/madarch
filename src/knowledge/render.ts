@@ -1,4 +1,5 @@
 import { operationMetadata } from './operation-catalogue.js';
+import { contentLanguage } from './plural.js';
 /**
  * A page of the wiki (decision 0029): the entity is found, its kind's template
  * is read from the product repository, and the template's text and blocks are
@@ -132,6 +133,7 @@ export async function renderPage(ctx: RenderContext, id: string, lang?: string, 
     page: {
       id: idOf(subject),
       kind: kindOf(subject),
+      language: contentLanguage(lang ?? ctx.language),
       title: titleOf(subject, decl.title),
       trail: await trailOf(ctx, subject),
       blocks,

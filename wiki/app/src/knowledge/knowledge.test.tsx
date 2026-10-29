@@ -215,7 +215,7 @@ describe('the blocks', () => {
     ]);
     expect(container.querySelector('[data-figure=commits]')!.getAttribute('title')).toBe('1 commit');
     expect(container.querySelector('[data-figure=added]')!.getAttribute('title')).toBe('added lines');
-    expect(container.querySelector('[data-block=history] li')!.textContent).toBe('The list names 2 commits; the first 1 are shown.');
+    expect(container.querySelector('[data-block=history] li')!.textContent).toBe('The list names 2 commits; the first 1 is shown.');
   });
 
   test('in Russian the same figures keep the numeral\'s form of Russian, not one fixed word', async () => {
@@ -234,7 +234,7 @@ describe('the blocks', () => {
         ['removed', '−7'],
         ['module', 'модуль: services/orders'],
       ]);
-      expect(container.querySelector('[data-block=history] li')!.textContent).toBe('В списке 2 коммита; показаны первые 1.');
+      expect(container.querySelector('[data-block=history] li')!.textContent).toBe('В списке 2 коммита; показан первый.');
     } finally {
       await setWikiLanguage('en');
     }
