@@ -81,7 +81,7 @@ import { closingCommit, type RepositoryRef } from '../loop/closure.js';
 import { groundsOfScope, NO_MARKS, markForEntity, marksForDocument, marksForPage, plannedMarks, type PlannedMarks } from '../loop/planned.js';
 import { proposeTask, type TaskChoice, type TaskProposal } from '../loop/propose.js';
 import { readKnowledgePages } from './index/index.js';
-import { warmRenderWorker } from './liquid.js';
+import { rendersInProcess, warmRenderWorker } from './liquid.js';
 import { planRefresh, type RefreshPlan } from '../loop/plan.js';
 import { listQuestions, listTasks, openTasks, questionDetail, taskDetail, type ProblemListing, type QuestionDetail, type QuestionListing, type TaskDetail, type TaskListing, type TaskRow } from '../loop/views.js';
 import { collectProblems, openProblemsOf } from '../problems/index.js';
@@ -483,9 +483,10 @@ export class KnowledgeProduct {
     if (this.closed || this.opening !== undefined) return;
     const product = this.product();
     if ('message' in product || !this.kinds(product.folder).present) return;
-    // A page's templates are drawn in a worker of the product's own (madarch-u3vw.1): started here, so the first page
-    // a reader opens does not pay the process's start.
-    warmRenderWorker(product.folder);
+    // A page whose templates a person wrote or edited is drawn in a worker of the product's own (madarch-u3vw.1): started
+    // here, so the first page a reader opens does not pay the process's start. A product of the starter set's own
+    // templates is drawn by the server itself, and starts no process at all.
+    if (!rendersInProcess(product.folder)) warmRenderWorker(product.folder);
     this.open().catch(() => undefined);
   }
 

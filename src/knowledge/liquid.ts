@@ -492,6 +492,11 @@ export async function renderLiquidPage(input: LiquidPageInput): Promise<LiquidPa
   }
 }
 
+/** Whether the product's pages are drawn by the server itself: every template of its set is one the starter set ships. */
+export function rendersInProcess(productFolder: string): boolean {
+  return engineOwnSet(templateSetOf(productFolder));
+}
+
 /** Whether every template of the set is one the starter set ships, byte for byte: nothing of it was written by a person. */
 function engineOwnSet(set: TemplateSet): boolean {
   const files = Object.values(set.files);
