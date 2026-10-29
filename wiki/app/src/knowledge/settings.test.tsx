@@ -182,6 +182,23 @@ describe('the product settings page', () => {
     expect(calls[0]!.body).toEqual({ preview: settings().danger.fresh });
   });
 
+
+  for (const language of ['en', 'ru'] as const) {
+    test(`one starter file in the start-over dialog reads in the singular in ${language}`, async () => {
+      await setWikiLanguage(language);
+      const current = settings();
+      current.danger.fresh.replacedStarterFiles = ['madarch/kinds.yaml'];
+      stub([], current);
+      const page = into(createElement(SettingsPage, { version: 0, status: status(), refresh: () => undefined }));
+      await until(() => page.querySelector('[data-testid=danger-fresh-open]') !== null, 'start over');
+      (page.querySelector('[data-testid=danger-fresh-open]') as HTMLElement).click();
+      await until(() => page.querySelector('[data-testid=danger-dialog]') !== null, 'the confirmation');
+      const line = page.querySelector('[data-testid=danger-starter]')!.textContent!;
+      expect(line).toContain(language === 'en' ? 'the 1 starter file (the manifest madarch/kinds.yaml and the templates) is put at the current starter set;' : '1 стартовый файл (манифест madarch/kinds.yaml и шаблоны) приводится к текущему стартовому набору;');
+      await setWikiLanguage('en');
+    });
+  }
+
   for (const language of ['en', 'ru'] as const) {
     for (const counts of [[1, 2], [0, 0]] as const) {
       test(`start over names exact removed-question and kept-answer counts in ${language}: ${counts.join('/')}`, async () => {
@@ -283,7 +300,7 @@ describe('the starter set on the Problems page', () => {
     await until(() => page.querySelectorAll('[data-testid=starter-offer]').length === 4, 'the expanded Russian offers');
     expect(page.querySelector('[data-offer="kind:code.route"]')!.textContent).toContain('Вид: HTTP-маршрут (code.route)');
     expect(page.querySelector('[data-offer="kind:code.route"] [data-testid=starter-add]')!.textContent).toBe('Добавить');
-    expect(page.querySelector('[data-testid=problems-starter] h2')!.textContent).toBe('В стартовом наборе есть 4 видов и групп, которых нет в вашем манифесте.');
+    expect(page.querySelector('[data-testid=problems-starter] h2')!.textContent).toBe('В стартовом наборе есть 4 вида и группы, которых нет в вашем манифесте.');
   });
 });
 

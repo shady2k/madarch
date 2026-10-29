@@ -221,7 +221,7 @@ function DangerPanel({ kind, settings, onClose, done }: { kind: Danger; settings
         {kind === 'fresh' && <li>{t('settings.danger.fresh.graph', { store: settings.store })}</li>}
         {kind === 'fresh' && <li data-testid="danger-questions">{t('knowledge.reset.questions', { count: plan.fresh.unansweredQuestions.length })}</li>}
         {kind === 'fresh' && <li data-testid="danger-answers">{t('knowledge.reset.answers', { count: plan.fresh.keptAnswers.length })}</li>}
-        {kind === 'fresh' && <li data-testid="danger-starter">{t('settings.danger.fresh.starter', { files: plan.fresh.replacedStarterFiles.length })}</li>}
+        {kind === 'fresh' && <li data-testid="danger-starter">{t('settings.danger.fresh.starter', { count: plan.fresh.replacedStarterFiles.length })}</li>}
         <li>{kind === 'fresh' ? t('settings.danger.fresh.fill') : t('settings.danger.rewrite.fill')}</li>
       </ul>
       {kind === 'fresh' && plan.fresh.editedStarterFiles.length > 0 && <p className="m-0" data-testid="danger-edited">{t('settings.danger.fresh.edited', { list: plan.fresh.editedStarterFiles.join(', ') })}</p>}

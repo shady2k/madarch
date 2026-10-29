@@ -89,6 +89,28 @@ describe('the journal page', () => {
     expect(rows[0]!.textContent).toContain('path: README.md');
   });
 
+  test('a response of one byte is said in the singular, in English and in Russian', async () => {
+    const one = [record(1, { responseBytes: 1, truncated: true, response: 'x' })];
+    (globalThis as { fetch?: unknown }).fetch = async () => json(journal(one));
+    const english = into(createElement(JournalPage, { id: 'domain:payments', run: null, version: 0 }));
+    await until(() => english.querySelector('[data-testid=journal-row]') !== null, 'the journal');
+    const row = english.querySelector('[data-testid=journal-row]')!;
+    expect(row.querySelector('[data-testid=journal-cut]')!.textContent).toBe('The response was cut: 1 byte in all, the first part is kept.');
+    expect(row.textContent).toContain('1 byte');
+    rendered?.unmount();
+    document.body.innerHTML = '';
+    await setWikiLanguage('ru');
+    try {
+      const russian = into(createElement(JournalPage, { id: 'domain:payments', run: null, version: 0 }));
+      await until(() => russian.querySelector('[data-testid=journal-row]') !== null, 'the journal');
+      const russianRow = russian.querySelector('[data-testid=journal-row]')!;
+      expect(russianRow.querySelector('[data-testid=journal-cut]')!.textContent).toBe('Ответ обрезан: всего 1 байт, сохранено начало.');
+      expect(russianRow.textContent).toContain('1 байт');
+    } finally {
+      await setWikiLanguage('en');
+    }
+  });
+
   test('the refusal filter keeps only the rows that were not answered', async () => {
     (globalThis as { fetch?: unknown }).fetch = async () => json(journal(records));
     const page = into(createElement(JournalPage, { id: 'domain:payments', run: null, version: 0 }));
