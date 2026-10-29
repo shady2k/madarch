@@ -83,7 +83,7 @@ import { proposeTask, type TaskChoice, type TaskProposal } from '../loop/propose
 import { readKnowledgePages } from './index/index.js';
 import { planRefresh, type RefreshPlan } from '../loop/plan.js';
 import { listQuestions, listTasks, questionDetail, taskDetail, type ProblemListing, type QuestionDetail, type QuestionListing, type TaskDetail, type TaskListing, type TaskRow } from '../loop/views.js';
-import { collectProblems } from '../problems/index.js';
+import { collectProblems, openProblemsOf } from '../problems/index.js';
 import { defaultSettings } from '../problems/types.js';
 import { readProblemDismissals, writeProblemDismissal } from '../loop/problem-files.js';
 
@@ -1555,7 +1555,7 @@ export class KnowledgeProduct {
     if (this.reader?.owner !== owner) return rendered;
     try {
       const listing = this.cachedProblems() ?? await this.problems();
-      const problems = listing.problems.filter((problem) => problem.entity?.key === id).length;
+      const problems = openProblemsOf(listing.problems, id);
       return { ok: true, page: { ...rendered.page, problems } };
     } catch (error) {
       return { ok: true, page: { ...rendered.page, notes: [...rendered.page.notes, `the problems of this entity could not be counted: ${(error as Error).message}`] } };

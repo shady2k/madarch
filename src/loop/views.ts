@@ -18,7 +18,7 @@ import { impactGroundsOf, type PlannedMarks } from './planned.js';
 import { readTasks, scopeWords, type PlaceView, type PlannedTask, type TaskScope } from './tasks.js';
 import type { Unplaced } from './plan.js';
 import type { StarterOffer } from '../knowledge/starter-upgrade.js';
-import { ruleForKind, severityOf } from '../problems/rules.js';
+import { ruleForKind } from '../problems/rules.js';
 import { problemId, type ProblemSection, type ProblemLink, type ProblemSeverity, type ProblemSettings, type ProblemScope, type SonarKind } from '../problems/types.js';
 
 export type QuestionState = 'open' | 'answered' | 'closed';
@@ -161,8 +161,8 @@ export interface ProblemInput {
   readonly findings: readonly { readonly file: string; readonly line: number; readonly message: string; readonly kind?: FindingKind; readonly source?: string }[];
   readonly unplaced?: readonly Unplaced[];
   readonly starter?: readonly StarterOffer[];
-  /** The product's `problems:` settings; the starter set's defaults when the manifest says nothing. */
-  readonly settings?: ProblemSettings;
+  /** The product's `problems:` rules and thresholds, read from its manifest (`problems:`). */
+  readonly settings: ProblemSettings;
   /** Ids a person marked «Не проблема»: they are left out of the sections and counted. */
   readonly dismissed?: ReadonlySet<string>;
   /** The code and document sections, already judged; the wiki finds its own. */
@@ -194,14 +194,20 @@ function wikiProblem(
     statement: string | null; sentence: string | null; fixer: Fixer; closed: boolean; by: Author | null; at: string | null;
     source?: string; place?: ProblemLink; entity?: ProblemLink | null; evidence?: readonly ProblemLink[];
   },
-  settings: ProblemSettings | undefined,
-): Problem {
-  const rule = ruleForKind(kind);
-  const severity = settings === undefined ? rule.severity : severityOf(rule, settings);
+  settings: ProblemSettings,
+  notes: string[],
+): Problem | undefined {
+  const rule = ruleForKind(settings, kind);
+  if (rule === undefined) {
+    const note = `the manifest declares no wiki rule of the kind "${kind}": the findings it would name are not on the page`;
+    if (!notes.includes(note)) notes.push(note);
+    return undefined;
+  }
+  const severity = rule.severity;
   const place = fields.place ?? placeOfWiki(fields.page, fields.file, fields.line);
   const entity = fields.entity ?? (fields.page === null ? null : { label: fields.pageTitle ?? fields.page, href: entityAddress(fields.page), key: fields.page });
   return {
-    id: problemId(rule.id, identity), section: 'wiki', rule: rule.id, kind, sonar: rule.sonar, severity,
+    id: problemId(rule.id, identity), section: rule.section, rule: rule.id, kind, sonar: rule.sonar, severity,
     fixer: fields.fixer, closed: fields.closed,
     page: fields.page, pageTitle: fields.pageTitle, statement: fields.statement, sentence: fields.sentence,
     target: fields.target, reason: fields.reason, file: fields.file, line: fields.line,
@@ -216,18 +222,19 @@ function wikiProblem(
 export async function listProblems(input: ProblemInput): Promise<ProblemListing> {
   const out: Problem[] = [];
   const notes: string[] = [];
+  const add = (problem: Problem | undefined): void => { if (problem !== undefined) out.push(problem); };
   const read = readKnowledgePages(input.productFolder);
   const pages = read.pages.filter(isPage);
   const byId = new Map(pages.map((page) => [page.id, page] as const));
   const none = { page: null, pageTitle: null, statement: null, sentence: null, target: null, by: null, at: null, line: null, closed: false } as const;
   const corrections = readCorrections(input.productFolder);
-  for (const correction of corrections.items) out.push(correctionProblem(correction, byId, input.settings));
-  for (const problem of corrections.problems) out.push(wikiProblem('unreadable-file', `${problem.file}:${problem.line}:${problem.message}`, {
+  for (const correction of corrections.items) add(correctionProblem(correction, byId, input.settings, notes));
+  for (const problem of corrections.problems) add(wikiProblem('unreadable-file', `${problem.file}:${problem.line}:${problem.message}`, {
     ...none, fixer: 'person', reason: problem.message.slice(problem.file.length + String(problem.line).length + 2), file: problem.file, line: problem.line,
-  }, input.settings));
-  for (const problem of readQuestions(input.productFolder).problems) out.push(wikiProblem('unreadable-file', `${problem.file}:${problem.line}:${problem.message}`, {
+  }, input.settings, notes));
+  for (const problem of readQuestions(input.productFolder).problems) add(wikiProblem('unreadable-file', `${problem.file}:${problem.line}:${problem.message}`, {
     ...none, fixer: 'person', reason: problem.message.slice(problem.file.length + String(problem.line).length + 2), file: problem.file, line: problem.line,
-  }, input.settings));
+  }, input.settings, notes));
   // Every finding is kept: two passages of one table row stand on the same line, and one message would hide the other
   // (the twelfth review). Only an exact repeat — the same kind, message and place — is dropped.
   const seenFinding = new Set<string>();
@@ -239,14 +246,14 @@ export async function listProblems(input: ProblemInput): Promise<ProblemListing>
     const key = `${finding.file}:${finding.line}:${kind}:${finding.message}`;
     if (seenFinding.has(key)) continue;
     seenFinding.add(key);
-    out.push(wikiProblem(kind, key, {
+    add(wikiProblem(kind, key, {
       ...none, fixer, reason: finding.message, file: finding.file, line: finding.line, ...(finding.source === undefined ? {} : { source: finding.source }),
-    }, input.settings));
+    }, input.settings, notes));
   }
   for (const miss of input.unplaced ?? []) {
     const file = miss.kind === 'question' ? `docs/questions/${miss.slug}.md` : `docs/corrections/${miss.slug}.md`;
     const entity = miss.kind === 'question' ? { label: miss.slug, href: `/k/questions/${encodeURIComponent(miss.slug)}`, key: `question:${miss.slug}` } : null;
-    out.push(wikiProblem('unplaced', `${miss.kind}:${miss.slug}`, { ...none, fixer: 'person', target: miss.slug, reason: miss.reason, file, entity }, input.settings));
+    add(wikiProblem('unplaced', `${miss.kind}:${miss.slug}`, { ...none, fixer: 'person', target: miss.slug, reason: miss.reason, file, entity }, input.settings, notes));
   }
   // Grounds and links that name nothing.
   const seen = new Set<string>();
@@ -259,11 +266,11 @@ export async function listProblems(input: ProblemInput): Promise<ProblemListing>
         seen.add(key);
         const resolution = await input.resolve(`madarch:${target}`);
         if (resolution.state === 'broken') {
-          out.push(wikiProblem('broken-link', key, {
+          add(wikiProblem('broken-link', key, {
             ...none, fixer: 'agent', page: page.id, pageTitle: page.title, statement: statement.id, sentence: statement.text, target,
             reason: resolution.reason, file: page.file, line: statement.line,
             evidence: [{ label: target, href: null, key: target }],
-          }, input.settings));
+          }, input.settings, notes));
         }
       }
     }
@@ -279,16 +286,19 @@ export async function listProblems(input: ProblemInput): Promise<ProblemListing>
       if (page === undefined) continue;
       const duplicate = out.some((p) => p.kind === 'broken-link' && p.page === change.page && p.statement === change.statement && p.target === change.ground);
       if (duplicate) continue;
-      out.push(wikiProblem('ground-removed', `${page.id}\u0000${change.statement}\u0000${change.ground}`, {
+      add(wikiProblem('ground-removed', `${page.id}\u0000${change.statement}\u0000${change.ground}`, {
         ...none, fixer: 'agent', page: page.id, pageTitle: page.title, statement: change.statement, sentence: change.text, target: change.ground,
         reason: `${change.ground} is no longer in ${input.repository.name} at the commit the graph describes`, file: page.file, line: change.line,
         evidence: [{ label: change.ground, href: null, key: change.ground }],
-      }, input.settings));
+      }, input.settings, notes));
     }
   }
   out.push(...(input.extraProblems ?? []));
   const dismissed = input.dismissed ?? new Set<string>();
-  const kept = out.filter((problem) => !dismissed.has(problem.id));
+  // A rule the manifest switched off is not on the page, whichever section judged it; a problem whose rule the
+  // manifest does not declare at all is a note of its section, never a row the page cannot explain.
+  const declared = input.settings.rules;
+  const kept = out.filter((problem) => !dismissed.has(problem.id) && declared[problem.rule] !== undefined && declared[problem.rule]?.enabled !== false);
   const order: Record<string, number> = { correction: 0, 'ground-removed': 1, 'broken-link': 2, unplaced: 3, 'unreadable-file': 4, 'unread-passage': 5, manifest: 6 };
   kept.sort((a, b) => Number(a.closed) - Number(b.closed) || (order[a.kind] ?? 9) - (order[b.kind] ?? 9) || byCodePoint(a.file, b.file) || (a.line ?? 0) - (b.line ?? 0) || byCodePoint(a.target ?? '', b.target ?? '') || byCodePoint(a.rule, b.rule));
   const sections = { code: 0, documents: 0, wiki: 0 } as Record<ProblemSection, number>;
@@ -296,14 +306,14 @@ export async function listProblems(input: ProblemInput): Promise<ProblemListing>
   return { problems: kept, sections, open: kept.filter((p) => !p.closed).length, closed: kept.filter((p) => p.closed).length, dismissed: out.filter((problem) => dismissed.has(problem.id)).length, notes, starter: input.starter ?? [] };
 }
 
-function correctionProblem(correction: Correction, pages: ReadonlyMap<string, IndexedPage>, settings: ProblemSettings | undefined): Problem {
+function correctionProblem(correction: Correction, pages: ReadonlyMap<string, IndexedPage>, settings: ProblemSettings, notes: string[]): Problem | undefined {
   const ref = parseStatementRef(correction.about);
   const page = ref === undefined ? undefined : pages.get(ref.page);
   return wikiProblem('correction', correction.slug, {
     fixer: 'agent', closed: correction.status === 'applied', page: ref?.page ?? null, pageTitle: page?.title ?? null, statement: ref?.statement ?? null, sentence: correction.statement,
     target: correction.slug, reason: correction.reason, file: correction.file, line: null, by: correction.by, at: correction.at,
     evidence: [{ label: correction.statement, href: null, key: null }],
-  }, settings);
+  }, settings, notes);
 }
 // ---- the scoped tasks of answers (madarch-m38l.14) ------------------------------------------
 

@@ -32,8 +32,8 @@ import { LineCounter, parseDocument } from 'yaml';
 import { lineForPath } from '../model/yaml-position.js';
 import { isSemanticKind, SEMANTIC_KINDS, type SemanticKind } from './semantics.js';
 import { BLOCK_NAMES } from './template.js';
-import { RULE_BY_ID } from '../problems/rules.js';
-import { DEFAULT_THRESHOLDS, PROBLEM_SEVERITIES, type ProblemSettings, type RuleSetting } from '../problems/types.js';
+import { PREDICATES } from '../problems/rules.js';
+import { DEFAULT_THRESHOLDS, PROBLEM_SEVERITIES, SONAR_KINDS, type ProblemSettings, type RuleParams, type RuleSetting } from '../problems/types.js';
 
 /** The manifest's place in the product repository. */
 export const KINDS_FILE = 'madarch/kinds.yaml';
@@ -179,7 +179,8 @@ export interface KindsManifest {
   expect?: readonly ExpectedKind[];
   /**
    * The Problems page's rules and thresholds (`problems:`): which rules run, the severity each starts
-   * with, and the sizes a file is judged large by. Absent means the starter set's defaults.
+   * with, and the sizes a file is judged large by. Absent declares no rule: the page lists the starter
+   * rules only where the manifest writes them (`problems.rules`), and says so instead of guessing them.
    */
   problems?: ProblemSettings;
   findings: readonly Finding[];
@@ -201,10 +202,36 @@ export function insideFolder(folder: string, path: string): boolean {
 }
 
 
+/** The fields a declared rule holds. */
+const RULE_FIELDS = ['predicate', 'kind', 'sonar', 'severity', 'section', 'action', 'label', 'params', 'enabled'] as const;
+const PROBLEM_SECTIONS = ['code', 'documents', 'wiki'] as const;
+const RULE_ACTIONS = ['task', 'none'] as const;
+
+/** A mapping, not a list and not null. */
+const isRecord = (value: unknown): value is Record<string, unknown> => value !== null && typeof value === 'object' && !Array.isArray(value);
+
+/** A rule's parameters: named values a predicate reads, each a string, a number, a boolean or a list of strings. */
+function readParams(value: unknown, file: string, line: number, id: string, findings: Finding[]): RuleParams | undefined {
+  if (value === undefined) return undefined;
+  if (!isRecord(value)) {
+    findings.push({ file, line, message: `rule "${id}": "params" maps a parameter name to a string, a number, a boolean or a list of strings` });
+    return undefined;
+  }
+  const params: Record<string, string | number | boolean | readonly string[]> = {};
+  for (const [name, held] of Object.entries(value)) {
+    // The YAML line counter has no finer position inside a flow mapping; the parameter is named in the message.
+    if (typeof held === 'string' || typeof held === 'boolean' || (typeof held === 'number' && Number.isFinite(held))) params[name] = held;
+    else if (Array.isArray(held) && held.every((entry) => typeof entry === 'string')) params[name] = held as string[];
+    else findings.push({ file, line, message: `rule "${id}": the parameter "${name}" is a string, a number, a boolean or a list of strings, got ${JSON.stringify(held)}` });
+  }
+  return params;
+}
+
 /**
- * The `problems:` mapping: each rule's override by its id, and the thresholds of the size rules.
- * A rule id the engine does not know, a severity outside the five, a threshold that is not a
- * positive whole number — each is a finding at its own line, so a typo never changes nothing.
+ * The `problems:` mapping: every rule the page runs — its predicate, kind, Sonar kind, severity,
+ * section, action, label and parameters — and the thresholds the size rules read. The engine keeps
+ * only the predicates, so a rule this manifest does not declare is not run, and a declaration that
+ * misses a field is a finding at its line rather than a rule running with a guessed value.
  */
 function parseProblems(
   raw: unknown,
@@ -213,30 +240,83 @@ function parseProblems(
   file: string,
 ): ProblemSettings | undefined {
   if (raw === undefined) return undefined;
-  if (raw === null || typeof raw !== 'object' || Array.isArray(raw)) {
-    findings.push({ file, line: at(['problems']), message: '"problems" is { rules: { <rule id>: { enabled: true, severity: major } }, thresholds: { largeFileLines: 600 } }' });
+  if (!isRecord(raw)) {
+    findings.push({ file, line: at(['problems']), message: '"problems" is { rules: { <rule id>: { predicate, kind, sonar, severity, section, action, label, params?, enabled? } }, thresholds: { largeFileLines: 600 } }' });
     return undefined;
   }
-  const body = raw as Record<string, unknown>;
+  const body = raw;
   for (const key of Object.keys(body)) if (key !== 'rules' && key !== 'thresholds') findings.push({ file, line: at(['problems', key]), message: `"${key}" is not a field of "problems": the fields are "rules" and "thresholds"` });
   const rules: Record<string, RuleSetting> = {};
+  const kinds = new Map<string, string>();
   const rawRules = body['rules'];
   if (rawRules !== undefined) {
-    if (rawRules === null || typeof rawRules !== 'object' || Array.isArray(rawRules)) findings.push({ file, line: at(['problems', 'rules']), message: '"rules" maps a rule id to { enabled: <true|false>, severity: <blocker|critical|major|minor|info> }' });
+    if (!isRecord(rawRules)) findings.push({ file, line: at(['problems', 'rules']), message: '"rules" maps a rule id to { predicate, kind, sonar, severity, section, action, label, params?, enabled? }' });
     else {
-      for (const [id, entry] of Object.entries(rawRules as Record<string, unknown>)) {
+      for (const [id, entry] of Object.entries(rawRules)) {
         const line = at(['problems', 'rules', id]);
-        if (!RULE_BY_ID.has(id)) { findings.push({ file, line, message: `"problems.rules" names the rule ${JSON.stringify(id)}, and the engine has no such rule: the rules are ${[...RULE_BY_ID.keys()].join(', ')}` }); continue; }
-        if (entry === null || typeof entry !== 'object' || Array.isArray(entry)) { findings.push({ file, line, message: `rule "${id}": the setting is { enabled: <true|false>, severity: <blocker|critical|major|minor|info> }` }); continue; }
-        const setting = entry as Record<string, unknown>;
-        for (const key of Object.keys(setting)) if (key !== 'enabled' && key !== 'severity') findings.push({ file, line: at(['problems', 'rules', id, key]), message: `rule "${id}": "${key}" is not a field of a rule's setting: the fields are "enabled" and "severity"` });
-        const enabled = setting['enabled'];
+        if (id === '') { findings.push({ file, line, message: 'a rule id is a name, not the empty string' }); continue; }
+        if (!isRecord(entry)) { findings.push({ file, line, message: `rule "${id}": the rule is { predicate, kind, sonar, severity, section, action, label, params?, enabled? }` }); continue; }
+        const setting = entry;
+        for (const key of Object.keys(setting)) if (!(RULE_FIELDS as readonly string[]).includes(key)) findings.push({ file, line: at(['problems', 'rules', id, key]), message: `rule "${id}": "${key}" is not a field of the rule: the fields are ${RULE_FIELDS.join(', ')}` });
+        let sound = true;
+        const predicate = setting['predicate'];
+        if (typeof predicate !== 'string' || !PREDICATES.includes(predicate)) {
+          findings.push({ file, line: at(['problems', 'rules', id, 'predicate']), message: `rule "${id}": "predicate" is one the engine implements (${PREDICATES.join(', ')}), got ${JSON.stringify(predicate)}` });
+          sound = false;
+        }
+        const kind = setting['kind'];
+        if (typeof kind !== 'string' || kind.trim() === '') {
+          findings.push({ file, line: at(['problems', 'rules', id, 'kind']), message: `rule "${id}": "kind" is the kind of finding the rule makes, a word or words` });
+          sound = false;
+        } else if (kinds.has(kind)) {
+          findings.push({ file, line, message: `rule "${id}": the kind ${JSON.stringify(kind)} is already declared by the rule "${kinds.get(kind)}": a finding kind names one rule` });
+          sound = false;
+        }
+        const sonar = setting['sonar'];
+        if (typeof sonar !== 'string' || !SONAR_KINDS.includes(sonar as never)) {
+          findings.push({ file, line: at(['problems', 'rules', id, 'sonar']), message: `rule "${id}": "sonar" is one of ${SONAR_KINDS.join(', ')}` });
+          sound = false;
+        }
         const severity = setting['severity'];
-        if (enabled !== undefined && typeof enabled !== 'boolean') findings.push({ file, line: at(['problems', 'rules', id, 'enabled']), message: `rule "${id}": "enabled" is true or false` });
-        if (severity !== undefined && (typeof severity !== 'string' || !PROBLEM_SEVERITIES.includes(severity as never))) findings.push({ file, line: at(['problems', 'rules', id, 'severity']), message: `rule "${id}": "severity" is one of ${PROBLEM_SEVERITIES.join(', ')}` });
+        if (typeof severity !== 'string' || !PROBLEM_SEVERITIES.includes(severity as never)) {
+          findings.push({ file, line: at(['problems', 'rules', id, 'severity']), message: `rule "${id}": "severity" is one of ${PROBLEM_SEVERITIES.join(', ')}` });
+          sound = false;
+        }
+        const section = setting['section'];
+        if (typeof section !== 'string' || !(PROBLEM_SECTIONS as readonly string[]).includes(section)) {
+          findings.push({ file, line: at(['problems', 'rules', id, 'section']), message: `rule "${id}": "section" is one of ${PROBLEM_SECTIONS.join(', ')}` });
+          sound = false;
+        }
+        const action = setting['action'];
+        if (typeof action !== 'string' || !(RULE_ACTIONS as readonly string[]).includes(action)) {
+          findings.push({ file, line: at(['problems', 'rules', id, 'action']), message: `rule "${id}": "action" is one of ${RULE_ACTIONS.join(', ')}` });
+          sound = false;
+        }
+        const label = setting['label'];
+        const labelSound = isRecord(label) && typeof label['en'] === 'string' && label['en'].trim() !== '' && typeof label['ru'] === 'string' && label['ru'].trim() !== '' && Object.keys(label).every((key) => key === 'en' || key === 'ru');
+        if (!labelSound) {
+          findings.push({ file, line: at(['problems', 'rules', id, 'label']), message: `rule "${id}": "label" is { en: <words>, ru: <words> }` });
+          sound = false;
+        }
+        const enabled = setting['enabled'];
+        if (enabled !== undefined && typeof enabled !== 'boolean') {
+          findings.push({ file, line: at(['problems', 'rules', id, 'enabled']), message: `rule "${id}": "enabled" is true or false` });
+          sound = false;
+        }
+        const params = readParams(setting['params'], file, at(['problems', 'rules', id, 'params']), id, findings);
+        if (setting['params'] !== undefined && params === undefined) sound = false;
+        if (!sound) continue;
+        kinds.set(kind as string, id);
         rules[id] = {
+          predicate: predicate as string,
+          kind: kind as string,
+          sonar: sonar as never,
+          severity: severity as never,
+          section: section as never,
+          action: action as never,
+          label: { en: (label as Record<string, string>)['en']!, ru: (label as Record<string, string>)['ru']! },
+          ...(params === undefined ? {} : { params }),
           ...(typeof enabled === 'boolean' ? { enabled } : {}),
-          ...(typeof severity === 'string' && PROBLEM_SEVERITIES.includes(severity as never) ? { severity: severity as never } : {}),
         };
       }
     }
@@ -244,9 +324,9 @@ function parseProblems(
   const thresholds = { ...DEFAULT_THRESHOLDS };
   const rawThresholds = body['thresholds'];
   if (rawThresholds !== undefined) {
-    if (rawThresholds === null || typeof rawThresholds !== 'object' || Array.isArray(rawThresholds)) findings.push({ file, line: at(['problems', 'thresholds']), message: '"thresholds" maps a threshold name to a positive whole number' });
+    if (!isRecord(rawThresholds)) findings.push({ file, line: at(['problems', 'thresholds']), message: '"thresholds" maps a threshold name to a positive whole number' });
     else {
-      for (const [key, value] of Object.entries(rawThresholds as Record<string, unknown>)) {
+      for (const [key, value] of Object.entries(rawThresholds)) {
         if (!(key in DEFAULT_THRESHOLDS)) { findings.push({ file, line: at(['problems', 'thresholds', key]), message: `"${key}" is not a threshold: the thresholds are ${Object.keys(DEFAULT_THRESHOLDS).join(', ')}` }); continue; }
         if (typeof value !== 'number' || !Number.isInteger(value) || value <= 0) findings.push({ file, line: at(['problems', 'thresholds', key]), message: `"${key}" is a positive whole number, got ${JSON.stringify(value)}` });
         else (thresholds as Record<string, number>)[key] = value;

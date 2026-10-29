@@ -11,8 +11,8 @@
 import { byCodePoint } from '../model/order.js';
 import { entityAddress } from '../knowledge/resolve.js';
 import type { GraphEntity, GraphReader, RelationEdge } from '../knowledge/graph-read.js';
-import { PROBLEM_RULES, severityOf } from './rules.js';
-import type { ProblemDraft, ProblemLink, ProblemScope, ProblemSettings, ProblemSeverity } from './types.js';
+import { ruleSpecs } from './rules.js';
+import type { ProblemDraft, ProblemLink, ProblemScope, ProblemSettings, ProblemSeverity, RuleSpec } from './types.js';
 
 /** Everything the code rules read, loaded once so each rule is a function of facts alone. */
 export interface CodeSnapshot {
@@ -88,43 +88,64 @@ export interface CodeResult {
   readonly notes: readonly string[];
 }
 
-/** Runs the whole code section: each rule over the one snapshot, in the rule data's order. */
+/** A string parameter of a rule; a rule that misses it says so instead of reading a guessed value. */
+function stringParam(rule: RuleSpec, name: string): string {
+  const value = rule.params?.[name];
+  if (typeof value !== 'string' || value === '') throw new Error(`the rule ${rule.id} has no "${name}" parameter: the manifest writes params: { ${name}: <words> }`);
+  return value;
+}
+
+/** A list-of-strings parameter of a rule. */
+function listParam(rule: RuleSpec, name: string): readonly string[] {
+  const value = rule.params?.[name];
+  if (!Array.isArray(value) || value.some((entry) => typeof entry !== 'string')) throw new Error(`the rule ${rule.id} has no "${name}" parameter: the manifest writes params: { ${name}: [<words>] }`);
+  return value as readonly string[];
+}
+
+/** How each predicate the engine implements reads the snapshot; the manifest's rule chooses the one it runs. */
+const CODE_IMPLEMENTATIONS: Readonly<Record<string, (snapshot: CodeSnapshot, rule: RuleSpec, severity: ProblemSeverity, settings: ProblemSettings) => ProblemDraft[]>> = {
+  'dependency-cycle': (snapshot, rule, severity) => dependencyCycles(snapshot, rule, severity),
+  'sql-input': (snapshot, rule, severity) => sqlInputs(snapshot, rule, severity),
+  'route-outside-auth': (snapshot, rule, severity) => routesOutsideAuth(snapshot, rule, severity),
+  'large-file': (snapshot, rule, severity, settings) => largeFiles(snapshot, rule, severity, settings.thresholds.largeFileLines),
+  'change-hotspot': (snapshot, rule, severity, settings) => hotspots(snapshot, rule, severity, settings.thresholds),
+  'dead-export': (snapshot, rule, severity) => deadExports(snapshot, rule, severity),
+  'debt': (snapshot, rule, severity) => debtMarkers(snapshot, rule, severity, stringParam(rule, 'marker')),
+  'config-development-value': (snapshot, rule, severity) => requiredDevValues(snapshot, rule, severity, {
+    secrets: listParam(rule, 'secrets'), developmentValues: listParam(rule, 'developmentValues'),
+  }),
+  'dependency-declared-unused': (snapshot, rule, severity) => declaredUnused(snapshot, rule, severity),
+  'dependency-used-undeclared': (snapshot, rule, severity) => usedUndeclared(snapshot, rule, severity),
+  'operation-without-route': (snapshot, rule, severity) => operationsWithoutRoutes(snapshot, rule, severity),
+  'route-without-operation': (snapshot, rule, severity) => routesWithoutOperations(snapshot, rule, severity),
+};
+
+/** Runs the whole code section: every rule the manifest declares, over the one snapshot. */
 export function evaluateCode(snapshot: CodeSnapshot, settings: ProblemSettings): CodeResult {
   const drafts: ProblemDraft[] = [];
   const notes = [...snapshot.notes];
-  const rules = new Map(PROBLEM_RULES.map((rule) => [rule.id, rule] as const));
-  const run = (id: string, work: (rule: typeof PROBLEM_RULES[number], severity: ProblemSeverity) => ProblemDraft[]): void => {
-    const rule = rules.get(id);
-    if (rule === undefined) return;
-    if (settings.rules[id]?.enabled === false) return;
+  if (Object.keys(settings.rules).length === 0) notes.push('the manifest declares no problems.rules, so the code section runs no rule: the starter set writes the rules a product edits');
+  for (const rule of ruleSpecs(settings)) {
+    if (rule.enabled === false) continue;
+    const work = CODE_IMPLEMENTATIONS[rule.predicate];
+    // The manifest reader refuses a predicate the engine does not implement; a settings object built by a caller can
+    // still name one, and a rule that does not run is said, never dropped in silence.
+    if (work === undefined) { notes.push(`the rule ${rule.id} names the predicate "${rule.predicate}", which the engine does not implement: the rule is not run`); continue; }
     try {
-      drafts.push(...work(rule, severityOf(rule, settings)));
+      drafts.push(...work(snapshot, rule, rule.severity, settings));
     } catch (error) {
-      notes.push(`the rule ${id} could not be run: ${(error as Error).message}`);
+      notes.push(`the rule ${rule.id} could not be run: ${(error as Error).message}`);
     }
-  };
-  run('dependency.cycle', (rule, severity) => dependencyCycles(snapshot, rule, severity));
-  run('security.sql-input', (rule, severity) => sqlInputs(snapshot, rule, severity));
-  run('security.export-route', (rule, severity) => routesOutsideAuth(snapshot, rule, severity));
-  run('large-file', (rule, severity) => largeFiles(snapshot, rule, severity, settings.thresholds.largeFileLines));
-  run('hotspot', (rule, severity) => hotspots(snapshot, rule, severity, settings.thresholds));
-  run('dead-export', (rule, severity) => deadExports(snapshot, rule, severity));
-  run('debt.todo', (rule, severity) => debtMarkers(snapshot, rule, severity, 'TODO'));
-  run('debt.fixme', (rule, severity) => debtMarkers(snapshot, rule, severity, 'FIXME'));
-  run('config.required-dev-value', (rule, severity) => requiredDevValues(snapshot, rule, severity));
-  run('dependency.declared-unused', (rule, severity) => declaredUnused(snapshot, rule, severity));
-  run('dependency.used-undeclared', (rule, severity) => usedUndeclared(snapshot, rule, severity));
-  run('contract.operation-without-route', (rule, severity) => operationsWithoutRoutes(snapshot, rule, severity));
-  run('contract.route-without-operation', (rule, severity) => routesWithoutOperations(snapshot, rule, severity));
+  }
   return { problems: drafts, notes };
 }
 
-type Rule = typeof PROBLEM_RULES[number];
+type Rule = RuleSpec;
 
 /** A draft of the code section, with the fields every code finding shares. */
 function draft(rule: Rule, severity: ProblemSeverity, fields: Omit<ProblemDraft, 'section' | 'rule' | 'kind' | 'sonar' | 'severity' | 'fixer' | 'closed' | 'by' | 'at'>): ProblemDraft {
   return {
-    section: 'code', rule: rule.id, kind: rule.kind, sonar: rule.sonar, severity,
+    section: rule.section, rule: rule.id, kind: rule.kind, sonar: rule.sonar, severity,
     fixer: 'person', closed: false,
     ...fields,
     by: null, at: null,
@@ -212,6 +233,11 @@ const routeRoot = (path: string): string => {
  * is not judged: there is no group to stand outside of.
  */
 export function routesOutsideAuth(snapshot: CodeSnapshot, rule: Rule, severity: ProblemSeverity): ProblemDraft[] {
+  const operationOfRoute = new Map<string, GraphEntity>();
+  for (const edge of snapshot.serves) {
+    const operation = snapshot.operations.find((candidate) => candidate.key === edge.to.key);
+    if (operation !== undefined) operationOfRoute.set(edge.from.key, operation);
+  }
   const byService = new Map<string, GraphEntity[]>();
   for (const route of snapshot.routes) {
     const service = text(route.properties['service']) ?? '';
@@ -224,12 +250,21 @@ export function routesOutsideAuth(snapshot: CodeSnapshot, rule: Rule, severity: 
     for (const route of [...routes].sort((a, b) => byCodePoint(a.key, b.key))) {
       if (route.properties['authGroup'] === true) continue;
       const root = routeRoot(text(route.properties['path']) ?? '');
-      if (!protectedRoots.has(root)) continue;
+      const served = operationOfRoute.get(route.key);
+      // A route the contract serves with a secured operation answers without a token even when its own path root
+      // has no protected sibling (the review's fifth finding): the contract's auth group is the service's, and a
+      // `public: true` operation is the contract's own statement that the route is meant to be open.
+      const securedByContract = served !== undefined && served.properties['public'] !== true;
+      if (!protectedRoots.has(root) && !securedByContract) continue;
       const path = route.span?.path ?? pathOfKey(route.key);
       const handler = text(route.properties['handlerKey']);
       const handlerPath = text(route.properties['handlerPath']);
-      const reason = `${route.label} is registered outside the auth group, while the other /${root} routes of ${service || 'this service'} are inside it: it answers without a token.`;
+      const contractPath = served === undefined ? undefined : text(served.properties['path']);
+      const reason = securedByContract && !protectedRoots.has(root)
+        ? `${route.label} is registered outside the auth group, while ${served?.label ?? 'its operation'} (${contractPath ?? 'the contract'}) requires a token: it answers without one.`
+        : `${route.label} is registered outside the auth group, while the other /${root} routes of ${service || 'this service'} are inside it: it answers without a token.`;
       const evidence: ProblemLink[] = [entityLink(route.key, route.label)];
+      if (securedByContract && served !== undefined) evidence.push(entityLink(served.key, served.label));
       if (handler !== undefined) evidence.push(entityLink(handler, handlerPath === undefined ? handler : `${handlerPath} (handler)`));
       problems.push(draft(rule, severity, {
         reason, file: path, line: route.span?.lineStart ?? null,
@@ -349,14 +384,22 @@ export function composeDefault(value: string): string {
   return at < 0 ? '' : inside.slice(at + 2);
 }
 
+/** What a product's manifest declares a secret or a development value; the engine infers neither. */
+export interface ConfigPolicy {
+  /** Variable names the product declares secret: a checked-in literal for one is a finding, in one file or many. */
+  readonly secrets: readonly string[];
+  /** Literal values the product declares development placeholders. */
+  readonly developmentValues: readonly string[];
+}
+
 /**
- * A required variable whose checked-in configuration gives one and the same
- * literal value in at least two files: every copy of the product then starts
- * with the same secret, and the secret is in the repository. The rule reads
- * definitions the environment extractor already classified as definitions;
- * it never scans a file's text.
+ * A required setting whose checked-in configuration gives it a literal value the product treats as secret,
+ * or a value it declares a development placeholder; and a value a Kubernetes Secret declares secret by what
+ * the file is, whether or not the code reads it. The rule reads definitions the environment extractor
+ * already classified; it never scans a file's text, and it never guesses a secret from how often a value
+ * repeats (the review's fourth finding: `PORT=3000` in two files is not a vulnerability).
  */
-export function requiredDevValues(snapshot: CodeSnapshot, rule: Rule, severity: ProblemSeverity): ProblemDraft[] {
+export function requiredDevValues(snapshot: CodeSnapshot, rule: Rule, severity: ProblemSeverity, policy: ConfigPolicy): ProblemDraft[] {
   const byKey = new Map(snapshot.envDefinitions.map((definition) => [definition.key, definition] as const));
   const byVariable = new Map<string, GraphEntity[]>();
   for (const edge of snapshot.defines) {
@@ -365,24 +408,21 @@ export function requiredDevValues(snapshot: CodeSnapshot, rule: Rule, severity: 
     byVariable.set(edge.to.key, [...(byVariable.get(edge.to.key) ?? []), definition]);
   }
   const problems: ProblemDraft[] = [];
-  for (const variable of snapshot.envVars) {
-    if (variable.properties['required'] !== true) continue;
-    // The variable's label is its own name; the service and scope are not part of it.
-    const name = text(variable.properties['name']) ?? variable.label;
-    const definitions = (byVariable.get(variable.key) ?? []).filter((definition) => {
-      const value = text(definition.properties['value']);
-      return value !== undefined && value !== '' && composeDefault(value) !== '';
-    });
-    if (definitions.length < 2) continue;
-    const values = definitions.map((definition) => composeDefault(text(definition.properties['value'])!));
-    const shared = values[0];
-    if (shared === undefined || values.some((value) => value !== shared)) continue;
+  const reported = new Set<string>();
+  const literal = (definition: GraphEntity): string | undefined => {
+    const value = text(definition.properties['value']);
+    if (value === undefined || value === '') return undefined;
+    const resolved = composeDefault(value);
+    return resolved === '' ? undefined : resolved;
+  };
+  const push = (variable: GraphEntity, name: string, definitions: readonly GraphEntity[], reason: string): void => {
+    if (reported.has(variable.key)) return;
+    reported.add(variable.key);
     const files = [...new Set(definitions.map((definition) => definition.span?.path).filter((path): path is string => path !== undefined))];
-    if (files.length < 2) continue;
     const first = definitions[0]!;
     const path = first.span?.path ?? '';
     problems.push(draft(rule, severity, {
-      reason: `${name} is required, and the checked-in configuration gives it one literal value ("${shared}") in ${files.join(' and ')}: every copy of the product starts with the same secret.`,
+      reason,
       file: path, line: first.span?.lineStart ?? null,
       page: null, pageTitle: null, statement: null, sentence: null, target: variable.key,
       place: fileLink(path, first.span?.lineStart),
@@ -394,6 +434,32 @@ export function requiredDevValues(snapshot: CodeSnapshot, rule: Rule, severity: 
       identity: variable.key,
       ...(path === '' ? {} : { scope: { type: 'file', path } }),
     }));
+  };
+  for (const variable of snapshot.envVars) {
+    // The variable's label is its own name; the service and scope are not part of it.
+    const name = text(variable.properties['name']) ?? variable.label;
+    const definitions = (byVariable.get(variable.key) ?? []).filter((definition) => literal(definition) !== undefined);
+    if (definitions.length === 0) continue;
+    const explicit = definitions.filter((definition) => definition.properties['secret'] === true);
+    if (explicit.length > 0) {
+      const values = [...new Set(explicit.map((definition) => literal(definition)!))];
+      const files = [...new Set(explicit.map((definition) => definition.span?.path).filter((path): path is string => path !== undefined))];
+      push(variable, name, explicit, `${name} is declared a secret by ${files.join(' and ')}, and the repository holds its literal value${values.length === 1 ? ` ("${values[0]}")` : `s (${values.map((value) => `"${value}"`).join(', ')})`}: the secret is in the repository.`);
+      continue;
+    }
+    if (variable.properties['required'] !== true) continue;
+    if (policy.secrets.includes(name)) {
+      const values = [...new Set(definitions.map((definition) => literal(definition)!))];
+      const files = [...new Set(definitions.map((definition) => definition.span?.path).filter((path): path is string => path !== undefined))];
+      push(variable, name, definitions, `${name} is required, and the manifest declares it a secret, yet the checked-in configuration gives it a literal value${values.length === 1 ? ` ("${values[0]}")` : `s (${values.map((value) => `"${value}"`).join(', ')})`} in ${files.join(' and ')}: the value belongs in the environment, not the repository.`);
+      continue;
+    }
+    const development = definitions.find((definition) => policy.developmentValues.includes(literal(definition)!));
+    if (development !== undefined) {
+      const value = literal(development)!;
+      const files = [...new Set(definitions.filter((definition) => literal(definition) === value).map((definition) => definition.span?.path).filter((path): path is string => path !== undefined))];
+      push(variable, name, definitions.filter((definition) => literal(definition) === value), `${name} is required, and the checked-in configuration gives it the development value ("${value}") in ${files.join(' and ')}: every copy of the product starts with it.`);
+    }
   }
   return problems.sort((a, b) => byCodePoint(a.file, b.file) || (a.line ?? 0) - (b.line ?? 0));
 }
@@ -472,7 +538,18 @@ export function operationsWithoutRoutes(snapshot: CodeSnapshot, rule: Rule, seve
 /** A route of a service the contract covers that the contract does not declare. */
 export function routesWithoutOperations(snapshot: CodeSnapshot, rule: Rule, severity: ProblemSeverity): ProblemDraft[] {
   const servedRoutes = new Set(snapshot.serves.map((edge) => edge.from.key));
-  const covered = new Set(snapshot.routes.filter((route) => servedRoutes.has(route.key)).map((route) => text(route.properties['service']) ?? ''));
+  // A service the contract owns is covered whether or not any of its routes matched (the review's sixth finding):
+  // ownership is the operation's own `service`, written at extraction from the server authority it resolves to, and
+  // a contract that names no owner still covers the services its matches show.
+  const covered = new Set<string>();
+  for (const operation of snapshot.operations) {
+    const owner = text(operation.properties['service']);
+    if (owner !== undefined && owner !== '') covered.add(owner);
+  }
+  for (const route of snapshot.routes) if (servedRoutes.has(route.key)) {
+    const service = text(route.properties['service']);
+    if (service !== undefined && service !== '') covered.add(service);
+  }
   return snapshot.routes
     .filter((route) => !servedRoutes.has(route.key) && covered.has(text(route.properties['service']) ?? ''))
     .map((route) => {

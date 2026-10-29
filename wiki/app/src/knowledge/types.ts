@@ -32,7 +32,7 @@ export type HistoryRow = {
 export type HistorySection = { repository?: string; role: 'commits' | 'files' | 'summary' | 'hotspots' | 'authors' | 'coupling' | 'renames' | 'parents' | 'branches' | 'snapshots'; total: number; rows: HistoryRow[] };
 
 /** One row of a properties block (the engine's `PropertyRow`). */
-export type PropertyRow = { name: string; value: string; nameKey?: 'authoredAt' | 'committedAt' | 'subject' | 'merge' | 'language' | 'symbol' | 'method' | 'path' | 'marker' | 'text' | 'line'; valueKind?: 'date' };
+export type PropertyRow = { name: string; value: string; nameKey?: 'authoredAt' | 'committedAt' | 'subject' | 'merge' | 'language' | 'symbol' | 'method' | 'path' | 'marker' | 'text' | 'line' | 'service' | 'secret'; valueKind?: 'date' };
 
 /** One note under a history block (the engine's `HistoryNote`): a key the app writes in the reader's language. */
 export type HistoryNote = { key: 'manyCommits' | 'manyFiles' | 'noCounts' | 'merge' | 'noFiles' | 'partialFiles' | 'symbolsCut' | 'population' | 'observedAuthorship' | 'cochangeNotCause' | 'noImport' | 'importCoverage' | 'membershipCoverage' | 'dateAnomaly' | 'mergeBranch' | 'unchangedMove'; args?: Record<string, string | number> };
@@ -370,7 +370,7 @@ export type Problem = {
 /** One thing the starter set holds and the product's manifest lacks. */
 export type StarterOffer = {
   id: string;
-  type: 'group' | 'roles' | 'role' | 'documents' | 'kind' | 'fields';
+  type: 'group' | 'roles' | 'role' | 'documents' | 'kind' | 'fields' | 'rule';
   name: string;
   labels?: { en: string; ru: string };
   description?: { en: string; ru: string };

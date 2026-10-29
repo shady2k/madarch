@@ -334,6 +334,9 @@ export function StarterOffers({ offers, refresh }: { offers: readonly StarterOff
     switch (offer.type) {
       case 'kind': return t('loop.starter.kind', { name: label ?? offer.name, key: offer.name });
       case 'fields': return t('loop.starter.fields', { name: label ?? offer.name, key: offer.name, fields: (offer.fields ?? []).join(', ') });
+      case 'rule': return offer.fields === undefined
+        ? t('loop.starter.rule', { name: label ?? offer.name, key: offer.name })
+        : t('loop.starter.ruleFields', { name: label ?? offer.name, key: offer.name, fields: offer.fields.join(', ') });
       case 'group': return t('loop.starter.group', { name: label ?? offer.name });
       case 'roles': return t('loop.starter.roles');
       case 'role': return t('loop.starter.role', { name: t(`knowledge.roles.names.${offer.name}`, { defaultValue: offer.name }) });

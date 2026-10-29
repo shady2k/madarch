@@ -74,8 +74,13 @@ export const packageKey = (folder: string): string => `${KIND_PACKAGE}:${folder 
 /** `code.test-case:<path>#<suite path> > <name>` -- one test case of a test file. */
 export const testCaseKey = (path: string, name: string, ordinal: number): string => `${KIND_TEST_CASE}:${path}#${name}${ordinal === 0 ? '' : `~${ordinal}`}`;
 
-/** `code.debt:<path>#<byte>` -- one TODO or FIXME marker, at the comment's first byte. */
-export const debtKey = (path: string, byteStart: number): string => `${KIND_DEBT}:${path}#${byteStart}`;
+/**
+ * `code.debt:<path>#<fingerprint>` -- one debt marker, identified by what it says and where it is said, not by its
+ * byte offset (madarch-m38l.19, the review's second finding): the fingerprint is a digest of the comment's
+ * whitespace-normalised text and its enclosing symbol, so the same comment that moved with its code is the same debt
+ * and a different comment at the old offset is another one.
+ */
+export const debtKey = (path: string, fingerprint: string): string => `${KIND_DEBT}:${path}#${fingerprint}`;
 
 /** `code.cycle:<level>/<member>+<member>...` -- one import cycle, its members in code point order. */
 export const cycleKey = (level: 'module' | 'file', members: readonly string[]): string => `${KIND_CYCLE}:${level}/${members.join('+')}`;

@@ -86,18 +86,20 @@ Mockup: docs/changes/madarch-m38l.19/problems-page-mockup.html
 None.
 
 ## Design and decisions
-- The rule catalogue is data in `src/problems/rules.ts`; each rule names its section, Sonar kind, default severity and action. The manifest's `problems.rules` can disable a rule or override its severity, and `problems.thresholds` carries `largeFileLines`, `hotspotLines`, `hotspotCommits` and `hotspotScore`.
-- Code rules read one snapshot of the graph. A rule that throws is a note in the result, never a missing section; a listing never silently loses rows. Comment debt comes from the syntax tree's comment nodes, not a text search.
-- A problem's id is `rule + NUL + identity`. Code identities come from graph keys (file, symbol, operation, route, dependency, sink/build), document identities from the question target, and wiki identities from the page/file and the finding's key.
+- The rule catalogue is manifest data: the starter set writes every rule in full into `madarch/kinds.yaml` (`problems.rules`), and the engine keeps only the predicates a rule may name (`src/problems/rules.ts`). A rule declares its predicate, kind, Sonar kind, severity, section, action, labels and parameters; `problems.thresholds` carries `largeFileLines`, `hotspotLines`, `hotspotCommits` and `hotspotScore`. A rule the manifest does not declare is not run, and the listing says so.
+- Code rules read one snapshot of the graph. A rule that throws is a note in the result, never a missing section; a listing never silently loses rows. Comment debt comes from the syntax tree's comment nodes, not a text search, and the markers read are the manifest's `params.marker` words.
+- A problem's id is `rule + NUL + identity`. Code identities come from graph keys (file, symbol, operation, route, dependency, sink/build), document identities from the question target, and wiki identities from the page/file and the finding's key. A debt marker's identity is its file, its normalised comment text and its enclosing symbol, not its byte offset, so it survives a move and does not hide a different comment at the old offset.
+- Auth coverage reads the contract's secured operations as well as a service's protected path roots, and a `public: true` operation is respected. A contract's operation carries the service its server authority resolves to, so every route of that service is judged against the contract. The entity badge counts open problems only.
 - «Не проблема» is a file `docs/problems/<slug>.md` with front matter (`id`, `rule`, `kind`, `file`, `line`, `by`, `at`) and the reason; `docs/problems/` is loop data and is not extracted as documents. A malformed record is a finding.
 - «Создать задачу» writes the madarch-m38l.14 task file directly with an empty question, the finding's scope and a provenance line naming the problem; it does not require an answered question and does not change the task format for answer-born tasks.
 - The entity badge is counted on the server after the page transaction, only for the current page, so a historical page does not claim today's findings.
 - The old `problems` response array and old wiki kinds remain; the new fields are additive. The Problems page renders the three section wrappers and keeps the old closed-problems wrapper.
 
 ## Acceptance evidence
-- `bun run check` at the repository root and in `wiki/app`: both exit 0.
-- 118 focused root tests pass (problems rules, manifest, dismissals, wiki listing, loop server/refresh/tasks, knowledge parsing, code extraction); 47 wiki app tests pass (Problems page, readers and i18n).
-- The four new problems tests fail on the Base with `Cannot find module '../src/problems/*.js'`, showing they are new behavior.
+- `bun run check` and `bun run views:check` at the repository root exit 0; so does `bun run check` in `wiki/app`.
+- 102 focused root tests pass across the eight touched files (problems rules, manifest, dismissals, wiki listing, loop refresh, starter upgrade, code extraction, contract ownership); the knowledge suite passes 487 tests, the loop suite 72, and the wiki app 227.
+- On the Base `4b620be1` the same seven changed test files fail: ten assertions in `extract-code-units` and `extract-contract-ownership`, and four load errors because `STARTER_PROBLEM_RULES`, `starterProblemSettings` and `openProblemsOf` do not exist; the tests are new behavior.
+- `bun scripts/wiki-walk-ci.ts --baseline scripts/wiki-walk-baseline.json` prints `ratchet: raw-key 4810 → 4704 (−106) — below the baseline`. Before the `service` property label it printed `4810 → 4824 (+14) — above the baseline, so the walk fails`.
 - Raw document-gate output is `out/gate-raw.txt`; the feature phase's only remaining refusal is the owner's approval and its digest.
 
 ## DONE WHEN

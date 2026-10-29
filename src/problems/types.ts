@@ -63,21 +63,35 @@ export type ProblemScope =
   | { readonly type: 'symbol'; readonly key: string }
   | { readonly type: 'lines'; readonly path: string; readonly start: number; readonly end: number };
 
-/** A rule's data: what it is called, how serious it starts, and what the page offers on a finding. */
-export interface RuleSpec {
-  readonly id: string;
+/** What a rule reads, as the manifest names it: a predicate the engine implements, plus its parameters. */
+export type RuleParams = Readonly<Record<string, string | number | boolean | readonly string[]>>;
+
+/**
+ * A rule's data, as the product's manifest writes it: the predicate the engine runs, the kind of
+ * finding it makes, how serious it is, the section it belongs to, and what the page offers on it.
+ * The engine keeps no rule of its own: it keeps predicates, and a manifest keys them to rules.
+ */
+export interface RuleDefinition {
+  /** The name of the engine's implementation that reads the facts; the manifest chooses which rules run. */
+  readonly predicate: string;
   readonly kind: string;
   readonly sonar: SonarKind;
   readonly severity: ProblemSeverity;
   readonly section: ProblemSection;
   readonly action: 'task' | 'none';
   readonly label: { readonly en: string; readonly ru: string };
+  /** The rule's own parameters (the debt marker, the secret names a product declares, …), never the engine's. */
+  readonly params?: RuleParams;
+  /** False leaves the rule declared but not run; absent means true. */
+  readonly enabled?: boolean;
 }
 
-/** One rule's override, as a product's manifest writes it. */
-export interface RuleSetting {
-  readonly enabled?: boolean;
-  readonly severity?: ProblemSeverity;
+/** One rule as the manifest declares it: its id is the key of `problems.rules`. */
+export type RuleSetting = RuleDefinition;
+
+/** A rule with its id, as the engine runs it. */
+export interface RuleSpec extends RuleDefinition {
+  readonly id: string;
 }
 
 /** The thresholds the rules read; a product's manifest may lower or raise them. */
@@ -89,6 +103,7 @@ export interface ProblemThresholds {
 }
 
 export interface ProblemSettings {
+  /** Every rule the product declares, by id, with the predicate the engine runs for it. */
   readonly rules: Readonly<Record<string, RuleSetting>>;
   readonly thresholds: ProblemThresholds;
 }

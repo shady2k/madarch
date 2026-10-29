@@ -666,6 +666,15 @@ export async function extractContracts(reader: TreeReader, code?: Extraction, fa
   }
   for (const operation of openApiOperations) {
     const scope = servicesOfServers(operation.servers);
+    // The service a contract's operation belongs to is ownership, not a fact of a route that happens to match it
+    // (madarch-m38l.19, the review's sixth finding): when the operation's servers resolve to exactly one local
+    // service, the operation node carries it, so a route of that service is judged against the contract even when
+    // no route of the service matched any operation. Ambiguous or absent authorities own nothing.
+    if (scope.size === 1) {
+      const service = [...scope][0]!;
+      const at = nodes.findIndex((node) => node.key === operation.key);
+      if (at >= 0) nodes[at] = {...nodes[at]!, properties: {...nodes[at]!.properties, service}};
+    }
     const unresolvedAuthority = operation.servers.some((server) => /^(?:[A-Za-z][A-Za-z0-9+.-]*:)?\/\//.test(server) && servicesOfServers([server]).size === 0);
     if (unresolvedAuthority) {
       gaps.push({path: operation.contractPath, reason: `contracts: line ${operation.span.lineStart}: ${operation.method} ${operation.routePath} has an explicit server authority that resolves to no local service (${operation.contractPath})`});

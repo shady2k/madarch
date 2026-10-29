@@ -14,6 +14,7 @@
  * a Go package, an interface satisfied by its method set) is read here, from
  * the declarations of the repository, and claimed only where those say it.
  */
+import { canonicalJsonDigest } from '../../model/canonical.js';
 import { byCodePoint } from '../../model/order.js';
 import { isStandardLibrary } from './packages.js';
 import { readGoMod } from '../../fill/stages/manifest-format.js';
@@ -120,8 +121,14 @@ export async function extractCode(reader: TreeReader): Promise<Extraction> {
   return (await extractCodeWithFacts(reader)).extraction;
 }
 
+/** What a product adds to the code pass; the engine's own reading has no markers and no product words. */
+export interface CodeExtractionOptions {
+  /** The debt markers the product's manifest declares (`problems.rules.*.params.marker`), read from comments. */
+  readonly debtMarkers?: readonly string[];
+}
+
 /** The existing code pass, with its immutable semantic view retained for consumers. */
-export async function extractCodeWithFacts(reader: TreeReader): Promise<CodeExtractionResult> {
+export async function extractCodeWithFacts(reader: TreeReader, options: CodeExtractionOptions = {}): Promise<CodeExtractionResult> {
   const gaps: ExtractionGap[] = [];
   const gap = (path: string, reason: string): void => {
     gaps.push({ path, reason });
@@ -428,10 +435,20 @@ export async function extractCodeWithFacts(reader: TreeReader): Promise<CodeExtr
   }
 
 
+/**
+ * The markers a product's manifest declares, in the order that reads a specific marker before one it begins
+ * (madarch-m38l.19, the review's eighth finding): the words are the product's, and an empty list reads no marker.
+ */
+function debtMarkersOf(options: CodeExtractionOptions = {}): readonly string[] {
+  const unique = new Set<string>();
+  for (const marker of options.debtMarkers ?? []) if (marker !== '') unique.add(marker);
+  return [...unique].sort((left, right) => (right.length - left.length) || byCodePoint(left, right));
+}
+
 /** A debt marker at the start of a comment's text, with the words after it; a word inside the comment is no marker. */
-function debtMarkerOf(text: string): { marker: 'TODO' | 'FIXME'; body: string } | undefined {
+function debtMarkerOf(text: string, markers: readonly string[]): { marker: string; body: string } | undefined {
   const trimmed = text.trimStart();
-  for (const marker of ['TODO', 'FIXME'] as const) {
+  for (const marker of markers) {
     if (!trimmed.startsWith(marker)) continue;
     const next = trimmed.slice(marker.length, marker.length + 1);
     const code = next.length === 0 ? 0 : next.codePointAt(0)!;
@@ -442,6 +459,19 @@ function debtMarkerOf(text: string): { marker: 'TODO' | 'FIXME'; body: string } 
     return { marker, body: body.trim() };
   }
   return undefined;
+}
+
+/** The comment's words with runs of whitespace folded, so a re-indented comment says the same thing. */
+function normalizedCommentText(text: string): string {
+  const words: string[] = [];
+  let word = '';
+  for (const char of text) {
+    if (char.trim() === '') {
+      if (word !== '') { words.push(word); word = ''; }
+    } else word += char;
+  }
+  if (word !== '') words.push(word);
+  return words.join(' ');
 }
 
   // ---- nodes -----------------------------------------------------------------------------
@@ -483,14 +513,21 @@ function debtMarkerOf(text: string): { marker: 'TODO' | 'FIXME'; body: string } 
     });
   }
 
-  // A TODO or FIXME is read from the comment the parser kept, never from a search over the file's text: a string or a
-  // line of code that spells the word is no debt marker (madarch-m38l.19).
+  // A debt marker is a word the product's manifest declares, read from the comment the parser kept, never from a
+  // search over the file's text: a string or a line of code that spells the word is no marker (madarch-m38l.19).
+  const debtMarkers = debtMarkersOf(options);
   for (const file of parsedFiles) {
+    const declared = new Map<string, number>();
     for (const comment of file.syntax.comments) {
-      const marker = debtMarkerOf(comment.text);
+      const marker = debtMarkerOf(comment.text, debtMarkers);
       if (marker === undefined) continue;
       const path = file.source.path;
-      const key = debtKey(path, comment.span.startByte);
+      const holder = holderAt(file.symbols, comment.span.startByte);
+      const fingerprint = canonicalJsonDigest({ text: normalizedCommentText(comment.text), symbol: holder?.key ?? null }).slice(0, 16);
+      // Two comments that say the same thing in the same symbol are told apart by their order; one is the common case.
+      const seen = (declared.get(fingerprint) ?? 0) + 1;
+      declared.set(fingerprint, seen);
+      const key = debtKey(path, seen === 1 ? fingerprint : `${fingerprint}~${seen}`);
       addNode({
         key,
         kind: KIND_DEBT,
@@ -742,12 +779,16 @@ function debtMarkerOf(text: string): { marker: 'TODO' | 'FIXME'; body: string } 
         label = toFile;
       }
       recordImport(path,toKey,imported,{});
-      if (file.source.role !== 'code') continue;
+      // A test file's import is a file edge: a cycle that runs through a test helper (a.ts -> helper.test.ts ->
+      // a.ts) is a cycle of files, and dropping its one test-origin edge hid it (madarch-m38l.19, the review's
+      // RARE item). The module graph below stays production-only: a test importing a module is not a dependency
+      // of the product's layering, so only code files add module edges.
       if (toFile !== undefined) {
         const fileTargets = fileGraph.get(fileKey(path)) ?? new Set<string>();
         fileTargets.add(toKey);
         fileGraph.set(fileKey(path), fileTargets);
       }
+      if (file.source.role !== 'code') continue;
       const fromFolder = folderOf(path);
       if (fromFolder === toFolder) continue;
       const moduleId = `${fromFolder}\u0000${toFolder}`;
@@ -837,7 +878,7 @@ function debtMarkerOf(text: string): { marker: 'TODO' | 'FIXME'; body: string } 
   const emitCycles = (level: 'module' | 'file', graph: Map<string, Set<string>>): void => {
     const members = new Set<string>(graph.keys());
     for (const targets of graph.values()) for (const target of targets) members.add(target);
-    const components = cycles([...members], graph);
+    const components = cycles([...members], graph, { keepSelfLoops: level === 'file' });
     // A component can be wide (one root folder and every folder under it import each other); the pairs
     // that import each other directly are the cycles a reader can act on, so each pair is a record too.
     const pairs: string[][] = [];
@@ -857,8 +898,17 @@ function debtMarkerOf(text: string): { marker: 'TODO' | 'FIXME'; body: string } 
       if (seen.has(id)) continue;
       seen.add(id);
       const inside = new Set(component);
+      // A pair's evidence is its two edges, read from the graph as they were: no rescan of every member's adjacency
+      // (a dense component of N members otherwise costs a scan of N) (madarch-m38l.19, the review's RARE item).
       const internal: string[] = [];
-      for (const from of component) for (const to of [...(graph.get(from) ?? [])].sort(byCodePoint)) if (inside.has(to)) internal.push(`${from} -> ${to}`);
+      const second = component.length === 2 ? component[1] : undefined;
+      const first = component[0];
+      if (first === undefined || second === undefined) {
+        for (const from of component) for (const to of [...(graph.get(from) ?? [])].sort(byCodePoint)) if (inside.has(to)) internal.push(`${from} -> ${to}`);
+      } else {
+        if (graph.get(first)?.has(second) === true) internal.push(`${first} -> ${second}`);
+        if (graph.get(second)?.has(first) === true) internal.push(`${second} -> ${first}`);
+      }
       if (level === 'file') fileCycleFolders.push(new Set(component.map((member) => moduleKey(folderOf(member.slice(member.indexOf(':') + 1))))));
       const key = cycleKey(level, component);
       // A file cycle names its first file; a module cycle names the first file of its first module, because a folder is no

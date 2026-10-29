@@ -47,6 +47,11 @@ export function problemOf(draft: ProblemDraft): Problem {
   };
 }
 
+/** A page's badge counts the work still open: a closed problem is history (madarch-m38l.19, the review's seventh finding). */
+export function openProblemsOf(problems: readonly Pick<Problem, 'entity' | 'closed'>[], key: string): number {
+  return problems.filter((problem) => problem.entity?.key === key && !problem.closed).length;
+}
+
 /** Collects the three sections: code rules over the graph, document rules over the questions, the wiki's own findings. */
 export async function collectProblems(input: CollectInput): Promise<Awaited<ReturnType<typeof listProblems>>> {
   const notes: string[] = [];
@@ -68,6 +73,7 @@ export async function collectProblems(input: CollectInput): Promise<Awaited<Retu
   }
   const listing = await listProblems({
     productFolder: input.productFolder, owner: input.owner, resolve: input.resolve, findings: input.findings,
+    settings: input.settings,
     ...(input.repository === undefined ? {} : { repository: input.repository }),
     ...(input.unplaced === undefined ? {} : { unplaced: input.unplaced }),
     ...(input.starter === undefined ? {} : { starter: input.starter }),
@@ -77,5 +83,5 @@ export async function collectProblems(input: CollectInput): Promise<Awaited<Retu
   return { ...listing, notes: [...notes, ...listing.notes] };
 }
 
-export { PROBLEM_RULES, RULE_BY_ID } from './rules.js';
+export { CODE_PREDICATES, DOCUMENT_PREDICATES, PREDICATES, WIKI_PREDICATE, ruleForKind, ruleSpecs, rulesOf } from './rules.js';
 export * from './types.js';

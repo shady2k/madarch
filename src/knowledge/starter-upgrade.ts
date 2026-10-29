@@ -25,7 +25,7 @@ import { isDeepStrictEqual } from 'node:util';
 import { LineCounter, parseDocument, type Document } from 'yaml';
 import { GIT_LEAKS } from '../product/git.js';
 import { KINDS_FILE, LABEL_LANGUAGES } from './kinds.js';
-import { DOCUMENT_EXCLUDES, GROUPS, ROLES, STARTER_FILES, STARTER_KINDS, TEMPLATES, kindLines, starterManifest, type StarterKind } from './seed.js';
+import { DOCUMENT_EXCLUDES, GROUPS, ROLES, STARTER_FILES, STARTER_KINDS, STARTER_PROBLEM_RULES, TEMPLATES, kindLines, starterManifest, type StarterKind } from './seed.js';
 
 /** The subjects of the commits madarch itself makes in a product's manifest and templates. */
 export const MADARCH_COMMIT_SUBJECTS: readonly string[] = ['Create the draft product'];
@@ -34,9 +34,9 @@ export type Provenance = 'absent' | 'current' | 'madarch' | 'person';
 
 /** One thing the starter set holds and the product's manifest lacks, offered for the Problems page to add. */
 export interface StarterOffer {
-  /** `group:<name>`, `roles`, `role:<name>`, `documents`, `kind:<name>` or `fields:<kind>`. */
+  /** `group:<name>`, `roles`, `role:<name>`, `documents`, `kind:<name>`, `fields:<kind>` or `rule:<id>`. */
   readonly id: string;
-  readonly type: 'group' | 'roles' | 'role' | 'documents' | 'kind' | 'fields';
+  readonly type: 'group' | 'roles' | 'role' | 'documents' | 'kind' | 'fields' | 'rule';
   readonly name: string;
   /** The kind's or group's name in each interface language. */
   readonly labels?: { readonly en: string; readonly ru: string };
@@ -226,6 +226,20 @@ export function starterOffers(manifestText: string): StarterOffer[] {
     const fields = ['group', 'labels', 'description', ...(kind.origin === undefined ? [] : ['origin'])].filter((field) => (present as Record<string, unknown>)[field] === undefined);
     if (fields.length > 0) offers.push({ id: `fields:${kind.name}`, type: 'fields', name: kind.name, labels: LABELS(kind), group: kind.group, fields });
   }
+  // A rule the manifest does not declare, or declares without the fields the engine needs, is offered whole or in
+  // part. What the manifest already says — its enabled switch, a severity a person chose — is never replaced.
+  const problems = data['problems'];
+  const declaredRules = problems !== null && typeof problems === 'object' && !Array.isArray(problems) && (problems as Record<string, unknown>)['rules'] !== null && typeof (problems as Record<string, unknown>)['rules'] === 'object' && !Array.isArray((problems as Record<string, unknown>)['rules'])
+    ? (problems as Record<string, unknown>)['rules'] as Record<string, unknown>
+    : {};
+  for (const rule of STARTER_PROBLEM_RULES) {
+    const present = declaredRules[rule.id];
+    if (present === undefined) { offers.push({ id: `rule:${rule.id}`, type: 'rule', name: rule.id, labels: rule.label }); continue; }
+    if (present === null || typeof present !== 'object' || Array.isArray(present)) continue;
+    const fields = ['predicate', 'kind', 'sonar', 'severity', 'section', 'action', 'label', ...(rule.params === undefined ? [] : ['params'])]
+      .filter((field) => (present as Record<string, unknown>)[field] === undefined);
+    if (fields.length > 0) offers.push({ id: `rule:${rule.id}`, type: 'rule', name: rule.id, labels: rule.label, fields });
+  }
   return offers;
 }
 
@@ -287,8 +301,25 @@ export function addStarterItems(productFolder: string, ids: readonly string[], r
           if (declaration[field] !== undefined && !document.hasIn(['kinds', name, field])) document.setIn(['kinds', name, field], document.createNode(declaration[field]));
         }
       }
+    } else if (id.startsWith('rule:')) {
+      const name = id.slice('rule:'.length);
+      const rule = STARTER_PROBLEM_RULES.find((candidate) => candidate.id === name);
+      if (rule === undefined) throw new Error(`src/knowledge/starter-upgrade.ts: "${name}" is no rule of the starter set (${STARTER_PROBLEM_RULES.map((candidate) => candidate.id).join(', ')})`);
+      const declaration: Record<string, unknown> = {
+        predicate: rule.predicate, kind: rule.kind, sonar: rule.sonar, severity: rule.severity, section: rule.section,
+        action: rule.action, label: { en: rule.label.en, ru: rule.label.ru },
+        ...(rule.params === undefined ? {} : { params: { ...rule.params } }),
+      };
+      if (!document.hasIn(['problems', 'rules', name])) {
+        // A rule the manifest does not declare is added with the starter's enabled switch too.
+        document.setIn(['problems', 'rules', name], document.createNode({ ...declaration, enabled: rule.enabled !== false }));
+      } else {
+        for (const [field, value] of Object.entries(declaration)) {
+          if (!document.hasIn(['problems', 'rules', name, field])) document.setIn(['problems', 'rules', name, field], document.createNode(value));
+        }
+      }
     } else {
-      throw new Error(`src/knowledge/starter-upgrade.ts: "${id}" is not an item of the starter set; the items are group:<name>, roles, role:<name>, documents, kind:<name> and fields:<kind>`);
+      throw new Error(`src/knowledge/starter-upgrade.ts: "${id}" is not an item of the starter set; the items are group:<name>, roles, role:<name>, documents, kind:<name>, fields:<kind> and rule:<id>`);
     }
   }
   const next = document.toString();

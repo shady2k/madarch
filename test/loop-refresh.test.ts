@@ -23,6 +23,7 @@ import { readCorrections, readQuestions, renderCorrection, renderQuestion } from
 import { applyReset, planReset } from '../src/knowledge/reset.js';
 import { briefsFor, neededFrom, planRefresh } from '../src/loop/plan.js';
 import { listProblems, listQuestions } from '../src/loop/views.js';
+import { starterProblemSettings } from '../src/knowledge/seed.js';
 import { createDraft } from '../src/product/draft.js';
 import { DEFAULT_UNIT_BOUNDS, GraphView, UnitTools, memorySink, runWriter, type ToolAnswer, type UnitAgent, type UnitRequest, type WriterReport } from '../src/writer/index.js';
 import { slugOf } from '../src/writer/names.js';
@@ -352,6 +353,7 @@ describe('the loop, from the first question to a translation', () => {
     const head = git('rev-parse', 'HEAD');
     const listing = await listProblems({
       productFolder, owner, repository: { name: REPOSITORY_NAME, path: repository, commit: head }, findings: [],
+      settings: starterProblemSettings(),
       resolve: async (url) => ({ state: 'ok', target: url, kind: 'document', label: url, href: null }),
     });
     const removed = listing.problems.filter((p) => p.kind === 'ground-removed');
@@ -369,6 +371,7 @@ describe('the loop, from the first question to a translation', () => {
         { file: 'repos/training/docs/notes.md', line: 4, message: 'no kind of the manifest and no classifier read this passage, so no page shows it: «Rows are read in the order they were written»', kind: 'unread-passage', source: '/srv/checkouts/training/docs/notes.md' },
         { file: 'docs/domains/pricing.md', line: 2, message: 'the file cannot be read', source: '/srv/products/shop/docs/domains/pricing.md' },
       ],
+      settings: starterProblemSettings(),
       resolve: async (url) => ({ state: 'ok', target: url, kind: 'document', label: url, href: null }),
     });
     const byFile = new Map(listing.problems.map((problem) => [problem.file, problem]));
