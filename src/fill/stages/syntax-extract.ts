@@ -32,14 +32,18 @@
  * qualified by the value they stand in.
  *
  * The grammars are the ones the landed `src/product/fill-index.ts` reads: the
- * same four wasm grammars of `tree-sitter-wasms` over the same runtime, so the
- * rebuild parses what the landed fill parsed (decision 0026 rebuilds that fill
- * rather than patching it).
+ * same four wasm grammars over the same runtime, so the rebuild parses what the
+ * landed fill parsed (decision 0026 rebuilds that fill rather than patching it).
+ * The TypeScript and TSX grammars come from the tree-sitter project's
+ * `tree-sitter-typescript` 0.23.2, whose scanner reads a `-->` inside a regex
+ * literal, where 0.20.5 took it for an HTML comment and left the line an error
+ * (madarch-vtft); Go and JavaScript stay on `tree-sitter-wasms` 0.1.13, whose
+ * node shapes the walk reads.
  */
 import goGrammar from 'tree-sitter-wasms/out/tree-sitter-go.wasm' with { type: 'file' };
 import jsGrammar from 'tree-sitter-wasms/out/tree-sitter-javascript.wasm' with { type: 'file' };
-import tsGrammar from 'tree-sitter-wasms/out/tree-sitter-typescript.wasm' with { type: 'file' };
-import tsxGrammar from 'tree-sitter-wasms/out/tree-sitter-tsx.wasm' with { type: 'file' };
+import tsGrammar from 'tree-sitter-typescript/tree-sitter-typescript.wasm' with { type: 'file' };
+import tsxGrammar from 'tree-sitter-typescript/tree-sitter-tsx.wasm' with { type: 'file' };
 import treeSitterRuntime from 'web-tree-sitter/tree-sitter.wasm' with { type: 'file' };
 import { Language, Parser, Query, type Node as SyntaxNode } from 'web-tree-sitter';
 import { byCodePoint } from '../../model/order.js';

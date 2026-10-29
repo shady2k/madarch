@@ -59,7 +59,7 @@ export const OWNERS: Readonly<Record<string, string>> = { 'code.file': FILES_PRO
 export const EXTRACTOR_VERSIONS = [
  ...TREE_READERS.map(({name,version})=>({name,version})), {name:'extractHistory',version:1},
  {name:'code-structural-query-assets',version:1,contentDigest:codeQueryDigest()},
- {name:'code-parser-runtime:web-tree-sitter@0.25.10:tree-sitter-wasms@0.1.13',version:1},
+ {name:'code-parser-runtime:web-tree-sitter@0.25.10:tree-sitter-wasms@0.1.13:tree-sitter-typescript@0.23.2',version:1},
  {name:'library-model-data',version:1,contentDigest:libraryModelDigest},
  {name:'http-model-data',version:1,contentDigest:httpModelDigest},
  {name:'metric-semantic-model-data',version:1,contentDigest:metricSemanticModelDigest},
