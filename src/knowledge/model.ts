@@ -411,7 +411,14 @@ export interface WikiStatus {
   findings: Finding[];
   kinds: KindSummary[];
   /** The groups of kinds, in the manifest's order. */
-  groups: { group: string; labels: Record<string, string> }[];
+  groups: {
+    group: string;
+    labels: Record<string, string>;
+    /** The group this one is a sub-area of; absent for a top-level group. */
+    parent?: string;
+    /** Whether the menu opens this group by itself (`open: true` in the manifest); absent when it stays closed. */
+    open?: boolean;
+  }[];
   repositories: { name: string; filled: boolean }[];
   /** The graph holds facts. */
   filled: boolean;
@@ -430,7 +437,7 @@ export interface WikiStatus {
   /** This is madarch's own wiki (documentation): no fill is offered. Set by the server, not by the product. */
   own?: boolean;
   /** The loop of questions and corrections (madarch-m38l.7), counted from their files. */
-  loop: { questionsOpen: number; questionsAnswered: number; correctionsOpen: number };
+  loop: { questionsOpen: number; questionsAnswered: number; correctionsOpen: number; tasksOpen: number; problemsOpen: number };
   /** How many things the current starter set holds that this product's edited manifest lacks (the Problems page offers them). */
   starterOffers: number;
 }

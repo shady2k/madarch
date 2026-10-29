@@ -93,7 +93,8 @@ describe('the questions', () => {
     expect(listing.status).toBe(200);
     expect(listing.body).toMatchObject({ open: 1, answered: 0, closed: 0, problems: [] });
     expect(listing.body.rows).toEqual([{ slug: 'discount-percentage', id: 'question:discount-percentage', title: QUESTION.title, type: 'contradiction', state: 'open', askedIn: 'domain:orders', askedAt: '2026-10-23T10:00:00.000Z', about: ['domain:orders'], answeredBy: null, answeredAt: null, closedBy: [] }]);
-    expect((await get('/api/k/status')).body.loop).toEqual({ questionsOpen: 1, questionsAnswered: 0, correctionsOpen: 0 });
+    const problems = await get('/api/k/problems');
+    expect((await get('/api/k/status')).body.loop).toEqual({ questionsOpen: 1, questionsAnswered: 0, correctionsOpen: 0, tasksOpen: 0, problemsOpen: problems.body.open });
   });
 
   test('a question comes with both sides, its grounds resolved against what the wiki holds, and the reason a ground does not resolve', async () => {
@@ -136,7 +137,8 @@ describe('the questions', () => {
     expect(again.body.error.message).toContain('already answered');
     const detail = await get('/api/k/question?id=discount-percentage');
     expect(detail.body).toMatchObject({ state: 'answered', answer: { text: 'Ten percent for every order.', by: { name: 'Ada Reader' } } });
-    expect((await get('/api/k/status')).body.loop).toEqual({ questionsOpen: 0, questionsAnswered: 1, correctionsOpen: 0 });
+    const problems = await get('/api/k/problems');
+    expect((await get('/api/k/status')).body.loop).toEqual({ questionsOpen: 0, questionsAnswered: 1, correctionsOpen: 0, tasksOpen: 0, problemsOpen: problems.body.open });
   });
 });
 

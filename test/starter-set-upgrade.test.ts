@@ -61,7 +61,7 @@ describe('a manifest and templates only madarch wrote', () => {
     const after = manifestOf(product);
     expect(after.findings).toEqual([]);
     expect(after.language).toBe('ru');
-    expect([...after.groups.keys()]).toEqual(['product', 'code', 'contracts', 'data', 'operations', 'tests', 'history']);
+    expect([...after.groups.keys()]).toEqual(['product', 'code', 'code.structure', 'code.analysis', 'contracts', 'data', 'operations', 'operations.configuration', 'operations.dependencies', 'operations.build-deploy', 'operations.ci-cd', 'operations.runtime', 'operations.newcomer', 'tests', 'history']);
     expect([...after.roles.keys()].sort()).toEqual(['analyst', 'architect', 'developer', 'operations', 'product', 'tester']);
     for (const kind of STARTER_KINDS) expect(after.kinds.get(kind.name)?.group).toBe(kind.group);
     expect(after.kinds.get('doc.use-case')?.identifier).toEqual(['UC']);
@@ -268,6 +268,15 @@ describe('a manifest or a template a person edited is never rewritten', () => {
     expect(addStarterItems(kept, ['rule:debt.todo'], keptRecord)).toEqual([]);
   });
 
+  test('a group the upgrade adds carries the field that opens it on the menu by itself', () => {
+    const { product, record } = oldProduct();
+    writeFileSync(join(product, 'madarch', 'kinds.yaml'), `# ours\n${read(product, 'madarch/kinds.yaml')}`);
+    git(product, 'commit', '-q', '-am', 'Keep our manifest');
+    addStarterItems(product, ['group:product'], record);
+    // The starter set's product group opens by itself, and the declaration the upgrade writes carries that with it.
+    expect(manifestOf(product).groups.get('product')!.open).toBe(true);
+  });
+
   test('adding the missing fields of a kind fills only what it lacks, and the roles come with the groups they lead', () => {
     const { product, record } = oldProduct();
     writeFileSync(join(product, 'madarch', 'kinds.yaml'), `${read(product, 'madarch/kinds.yaml')}# kept\n`);
@@ -275,7 +284,7 @@ describe('a manifest or a template a person edited is never rewritten', () => {
     addStarterItems(product, ['group:product', 'fields:code.service', 'roles', 'documents'], record);
     const manifest = manifestOf(product);
     expect(manifest.findings).toEqual([]);
-    expect(manifest.kinds.get('code.service')?.group).toBe('code');
+    expect(manifest.kinds.get('code.service')?.group).toBe('code.structure');
     expect(manifest.kinds.get('code.service')?.labels?.['ru']?.one).toBe('Сервис');
     expect(manifest.kinds.get('code.service')?.relations.length).toBe(1);
     expect(manifest.roles.size).toBe(6);

@@ -245,12 +245,18 @@ export function starterOffers(manifestText: string): StarterOffer[] {
 
 function starterGroupNode(document: Document, name: string): unknown {
   const group = GROUPS.find((candidate) => candidate.name === name)!;
-  return document.createNode({ en: group.en, ru: group.ru });
+  return document.createNode({ en: group.en, ru: group.ru, ...(group.parent === undefined ? {} : { parent: group.parent }), ...(group.open === undefined ? {} : { open: group.open }) });
 }
 
+/**
+ * Writes the group and, before it, the group it is a sub-area of. A manifest
+ * gains the whole branch: a sub-area never stands without its parent.
+ */
 function ensureGroup(document: Document, name: string): void {
   if (document.hasIn(['groups', name])) return;
-  if (!GROUPS.some((candidate) => candidate.name === name)) return;
+  const group = GROUPS.find((candidate) => candidate.name === name);
+  if (group === undefined) return;
+  if (group.parent !== undefined) ensureGroup(document, group.parent);
   document.setIn(['groups', name], starterGroupNode(document, name));
 }
 

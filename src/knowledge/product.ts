@@ -40,7 +40,7 @@ import { GraphReader } from './graph-read.js';
 import { treeReadProducer } from '../extract/driver/index.js';
 import { TREE_EXTRACTORS, HISTORY_EXTRACTOR } from '../extract/driver/extractors.js';
 import { selectHistory, withHistoryLinks, type HistoryContext, type HistorySelection } from './temporal.js';
-import { readMarkdownEntities, type MarkdownEntity } from './markdown.js';
+import { markdownFilesBelow, readMarkdownEntities, type MarkdownEntity } from './markdown.js';
 import type { AgentOffer, Block, DocumentListing, DocumentPage, DocumentRef, FillState, Neighborhood, PageModel, PlannedMarkView, PlannedSectionView, WikiStatus, WriterState, WriterUnit } from './model.js';
 import { neighborhoodOf } from './diagrams.js';
 import { anchorLines, titleOfAnchor } from './anchors.js';
@@ -72,7 +72,7 @@ import { IDENTITIES_FILE, readDocIdentities, sameDocIdentities, writeDocIdentiti
 import { CLASSIFICATIONS_FILE, readClassificationStore, storedClassifier } from './semantics.js';
 import { DOCUMENT_LIMIT, DOCUMENT_PATH, HARNESS_FILES, documentTitle, docsLinkedOutside, listedDocument, productDocumentPaths, readProductDocument, readRepoDocuments, repoDocumentPaths } from './doc-sources.js';
 import { ensureLoopKinds, seedStarterSet, TEMPLATES } from './seed.js';
-import { readCorrections } from '../loop/entities.js';
+import { CORRECTIONS_FOLDER, QUESTIONS_FOLDER, readCorrections } from '../loop/entities.js';
 import { answerQuestion, commitFiles, localIdentity, LoopRefusal, recordCorrection, type Answered, type Corrected } from '../loop/answer.js';
 import { readScope, readTasks, renderTask, scopeWords, TASKS_FOLDER, taskSlug, writeTask, type PlaceView, type PlannedTask, type TaskScope } from '../loop/tasks.js';
 import { impactOf, type TaskImpact } from '../loop/impact.js';
@@ -82,7 +82,7 @@ import { groundsOfScope, NO_MARKS, markForEntity, marksForDocument, marksForPage
 import { proposeTask, type TaskChoice, type TaskProposal } from '../loop/propose.js';
 import { readKnowledgePages } from './index/index.js';
 import { planRefresh, type RefreshPlan } from '../loop/plan.js';
-import { listQuestions, listTasks, questionDetail, taskDetail, type ProblemListing, type QuestionDetail, type QuestionListing, type TaskDetail, type TaskListing, type TaskRow } from '../loop/views.js';
+import { listQuestions, listTasks, openTasks, questionDetail, taskDetail, type ProblemListing, type QuestionDetail, type QuestionListing, type TaskDetail, type TaskListing, type TaskRow } from '../loop/views.js';
 import { collectProblems, openProblemsOf } from '../problems/index.js';
 import { defaultSettings } from '../problems/types.js';
 import { readProblemDismissals, writeProblemDismissal } from '../loop/problem-files.js';
@@ -291,6 +291,8 @@ export class KnowledgeProduct {
   private revision = 0;
   private writer: WriterState = { state: 'idle', agent: null, units: [] };
   private writerAgent: { close(): Promise<void> } | undefined;
+  /** The Problems page's open count, read once per revision and repository head (the navigation polls the status). */
+  private problemCount: { key: string; open: number } | undefined;
   private installing: Promise<unknown> | undefined;
   private choosing: Promise<unknown> = Promise.resolve();
   private choiceWrites = 0;
@@ -1482,6 +1484,8 @@ export class KnowledgeProduct {
     const homeEntity = home === undefined ? undefined : [...context.ctx.markdown.values()].find((entity) => entity.kind === home.name);
     const kinds = await kindSummaries(context.ctx);
     const incomplete = [...this.pins.values()].some((pin) => pin.filledCommits < pin.commits || pin.commits === 0);
+    const loop = this.loopCounts();
+    loop.problemsOpen = await this.openProblems();
     return {
       ...common,
       manifest: 'ok',
@@ -1490,7 +1494,7 @@ export class KnowledgeProduct {
       seeded: this.seeded,
       findings: context.findings,
       kinds,
-      groups: [...context.manifest.groups.values()].map((group) => ({ group: group.name, labels: { ...group.labels } })),
+      groups: [...context.manifest.groups.values()].map((group) => ({ group: group.name, labels: { ...group.labels }, ...(group.parent === undefined ? {} : { parent: group.parent }), ...(group.open === undefined ? {} : { open: group.open }) })),
       repositories: declared.map((repo) => ({ name: repo.name, filled: (this.pins.get(repo.name)?.filledCommits ?? 0) > 0 })),
       filled: this.pins.size > 0,
       incomplete,
@@ -1500,15 +1504,91 @@ export class KnowledgeProduct {
       chosenAgent: this.chosenAgent(),
       home: homeEntity?.id ?? null,
       roles: Object.fromEntries([...context.manifest.roles.values()].map((role) => [role.name, { ...(role.open === undefined ? {} : { open: [...role.open] }), lead: [...role.lead] }])),
-      loop: this.loopCounts(),
+      loop,
       starterOffers: this.starterOffers().length,
     };
+  }
+
+  /**
+   * A stamp of every file the Problems page reads besides the pinned graph: the manifest, the files of the Markdown
+   * kinds, the product's documents, the questions and the corrections, and the store's identities and classifications.
+   * Status is polled, so the page's count is kept; an edit of any of these — a manifest a person changed, a document, a
+   * question — must change this key, or the menu keeps a count the page no longer shows (madarch-m38l.24, the review).
+   */
+  private problemInputsStamp(): string {
+    const folder = this.options.productFolder;
+    const parts: string[] = [];
+    const stamp = (path: string): void => {
+      try {
+        const stats = statSync(path);
+        parts.push(`${path}:${stats.mtimeMs}:${stats.size}`);
+      } catch {
+        parts.push(`${path}:absent`);
+      }
+    };
+    const stampFolder = (relative: string): void => {
+      const path = join(folder, relative);
+      let names: string[];
+      try {
+        names = readdirSync(path).sort(byCodePoint);
+      } catch {
+        parts.push(`${path}:absent`);
+        return;
+      }
+      for (const name of names) if (name.endsWith('.md')) stamp(join(path, name));
+    };
+    stamp(join(folder, KINDS_FILE));
+    const manifest = this.kinds(folder);
+    if (manifest.present) {
+      for (const kind of manifest.manifest.kinds.values()) {
+        // A template that is gone is a finding of the manifest; creating it is a change of the Problems page too.
+        stamp(join(folder, kind.template));
+        if (kind.source !== 'markdown') continue;
+        if (kind.file !== undefined) stamp(join(folder, kind.file));
+        else if (kind.folder !== undefined) for (const path of markdownFilesBelow(folder, kind.folder)) stamp(join(folder, path));
+      }
+    }
+    for (const path of productDocumentPaths(folder)) stamp(join(folder, path));
+    stampFolder(QUESTIONS_FOLDER);
+    stampFolder(CORRECTIONS_FOLDER);
+    try {
+      const store = this.storeFolder();
+      stamp(join(store, IDENTITIES_FILE));
+      stamp(join(store, CLASSIFICATIONS_FILE));
+    } catch {
+      parts.push('store:absent');
+    }
+    return parts.join('\n');
+  }
+
+  /**
+   * The open problems of the Problems page. Status is polled, so the count is read once per revision of the product's
+   * files, every repository's head and the unplaced units; a product whose page cannot be read falls back to the
+   * corrections, which are read from their files without the page resolver.
+   */
+  private async openProblems(): Promise<number> {
+    const pins = [...this.pins.values()].map((pin) => `${pin.name}@${pin.commit}/${pin.filledCommits}`).join(',');
+    const plan = this.writer.plan === undefined ? '' : this.writer.plan.unplaced.map((entry) => `${entry.kind}:${entry.slug}`).join(',');
+    const key = `${this.revision}|${pins}|${plan}|${this.starterOffers().length}|${this.problemInputsStamp()}`;
+    if (this.problemCount?.key === key) return this.problemCount.open;
+    try {
+      const open = (await this.problems()).open;
+      this.problemCount = { key, open };
+      return open;
+    } catch {
+      return this.loopCounts().correctionsOpen;
+    }
   }
 
   /** How many questions wait for an answer or for a refresh, and how many corrections wait for one, from their files. */
   private loopCounts(): WikiStatus['loop'] {
     const questions = listQuestions(this.options.productFolder);
-    return { questionsOpen: questions.open, questionsAnswered: questions.answered, correctionsOpen: readCorrections(this.options.productFolder).items.filter((correction) => correction.status === 'open').length };
+    const correctionsOpen = readCorrections(this.options.productFolder).items.filter((correction) => correction.status === 'open').length;
+    // The menu says what the Tasks page says: the closure of each task, not the status its file still carries.
+    const tasksOpen = openTasks(this.options.productFolder, this.taskRepositories(), this.pageFiles());
+    // Until the Problems page can be read, an open correction is the count that is known from the files alone; the
+    // status replaces it with the page's own open count once that page can be built (openProblems).
+    return { questionsOpen: questions.open, questionsAnswered: questions.answered, correctionsOpen, tasksOpen, problemsOpen: correctionsOpen };
   }
 
   private readonly readSnapshotHistory = createSnapshotHistoryReader();

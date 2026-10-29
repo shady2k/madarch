@@ -73,6 +73,7 @@
     "chooseProduct": "Choose a product",
     "products": "Products",
     "home": "Home",
+    "waiting": "Waiting for you",
     "kinds": "Pages by kind",
     "documents": "Sources",
     "source": "Source",
@@ -299,6 +300,10 @@
     },
     "glossary": {
       "title": "Glossary",
+      "colTerm": "Term",
+      "colDefinition": "Definition",
+      "colNames": "Names",
+      "colPlace": "Place",
       "lead_one": "{{count}} term, each with the place it is stated.",
       "lead_other": "{{count}} terms, each with the place it is stated.",
       "empty": "This product has no glossary yet. A glossary is a document whose list items start with a bold term; the manifest names it under terms.",
