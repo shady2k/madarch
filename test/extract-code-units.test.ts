@@ -317,6 +317,28 @@ describe('skips', () => {
   });
 });
 
+
+describe('the debt markers of comments', () => {
+  test('TODO and FIXME are read from the syntax tree only when they start a comment, and a string or a word that only resembles them is not', async () => {
+    const result = await extractCode(treeOf({
+      'a/debt.ts': [
+        '// TODO: charge tax before the receipt.',
+        'const text = "TODO: this is a string, not a comment";',
+        '/* FIXME(team): retry twice */',
+        '// TODOS is not TODO',
+        '// see FIXME later',
+        'export const value = 1;',
+      ].join('\n') + '\n',
+    }));
+    const debts = result.nodes.filter((node) => node.kind === 'code.debt');
+    expect(debts.map((node) => [node.span?.path, node.span?.lineStart, node.properties['marker'], node.properties['text']])).toEqual([
+      ['a/debt.ts', 1, 'TODO', 'charge tax before the receipt.'],
+      ['a/debt.ts', 3, 'FIXME', '(team): retry twice'],
+    ]);
+    expect(result.gaps).toEqual([]);
+  });
+});
+
 describe('what cannot be read is a gap', () => {
   test('a manifest that is not JSON, a go.mod with no module, a file of bytes that are not text and a file that fails to read', async () => {
     const files: Record<string, string> = {

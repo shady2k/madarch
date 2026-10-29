@@ -19,7 +19,7 @@ export type TaskScope =
   | { type: 'symbol'; key: string }
   | { type: 'statement'; key: string }
   | { type: 'file'; path: string };
-export interface PlannedTask { slug: string; id: string; file: string; title: string; status: 'open' | 'closed'; question: string; answer: string; grounds: string[]; scope: TaskScope[]; by: Author; at: string; closedBy: string | null; closedAt: string | null; }
+export interface PlannedTask { slug: string; id: string; file: string; title: string; status: 'open' | 'closed'; question: string; answer: string; /** The problem this task was opened from (madarch-m38l.19); empty for a task made from a question's answer. */ problem?: string; grounds: string[]; scope: TaskScope[]; by: Author; at: string; closedBy: string | null; closedAt: string | null; }
 export interface TaskFinding { file: string; line: number; message: string; }
 
 /**
@@ -71,6 +71,7 @@ export function scopeWords(scope: TaskScope): string {
 export function renderTask(task: Omit<PlannedTask, 'id' | 'file'>): string {
   const front = {
     id: `task:${task.slug}`, kind: 'task', title: task.title, status: task.status, question: task.question, answer: task.answer,
+    ...(task.problem === undefined || task.problem === '' ? {} : { problem: task.problem }),
     grounds: [...task.grounds], scope: task.scope.map((scope) => ({ ...scope })), producer: 'person', 'created-by': { ...task.by }, 'created-at': task.at,
     ...(task.closedBy === null ? {} : { 'closed-by': task.closedBy, 'closed-at': task.closedAt ?? task.at }),
   };
@@ -114,7 +115,7 @@ export function parseTask(file: string, source: string): PlannedTask {
   if (closedBy !== undefined && (typeof closedBy !== 'string' || closedBy === '')) throw new Error(`${file}:2: closed-by is "person" or the commit that closed the task, or absent`);
   // A file that says closed and names no commit was closed by hand: the status is kept, and the closure says how.
   const how: string | null = typeof closedBy === 'string' ? closedBy : r['status'] === 'closed' ? 'person' : null;
-  return { slug, id: `task:${slug}`, file, title: text('title'), status: r['status'], question: text('question'), answer: text('answer'), grounds: grounds as string[], scope: parsed, by: by as Author, at: text('created-at'), closedBy: how, closedAt: text('closed-at') || null };
+  return { slug, id: `task:${slug}`, file, title: text('title'), status: r['status'], question: text('question'), answer: text('answer'), ...(text('problem') === '' ? {} : { problem: text('problem') }), grounds: grounds as string[], scope: parsed, by: by as Author, at: text('created-at'), closedBy: how, closedAt: text('closed-at') || null };
 }
 
 export function readTasks(folder: string): { tasks: PlannedTask[]; findings: TaskFinding[] } {

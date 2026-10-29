@@ -13,7 +13,7 @@ import { useTranslation } from 'react-i18next';
 import { Alert, AlertDescription, AlertTitle } from '@/components/ui/alert.js';
 import { Badge } from '@/components/ui/badge.js';
 import { Button } from '@/components/ui/button.js';
-import { addStarter, answerQuestion, closeTask, createTask, getProblems, getQuestion, getQuestions, getRefreshPlan, getScopeImpact, getTask, getTasks, proposeTask, runTask } from './api.js';
+import { addStarter, answerQuestion, closeTask, createProblemTask, createTask, dismissProblem, getProblems, getQuestion, getQuestions, getRefreshPlan, getScopeImpact, getTask, getTasks, proposeTask, runTask } from './api.js';
 import { CodePlace, KLink, brokenWords } from './blocks.js';
 import { addressOfEntity, addressOfQuestion, addressOfStatement, addressOfTask, K_QUESTIONS, K_TASKS } from './routes.js';
 import { useRead } from './live.js';
@@ -231,30 +231,87 @@ export function QuestionPage({ slug, version, refresh }: { slug: string; version
 
 // ---- problems ---------------------------------------------------------------------------------
 
-function ProblemItem({ problem }: { problem: Problem }): ReactElement {
+/** A link the data layer built: its href when the wiki can open it, its label as plain text otherwise. */
+function ProblemLinkView({ link }: { link: NonNullable<Problem['place']> }): ReactElement {
+  return link.href === null ? <code>{link.label}</code> : <KLink href={link.href}>{link.label}</KLink>;
+}
+
+function ProblemItem({ problem, refresh }: { problem: Problem; refresh: () => void }): ReactElement {
   const { t } = useTranslation();
+  const [asking, setAsking] = useState(false);
+  const [reason, setReason] = useState('');
+  const [working, setWorking] = useState<'dismiss' | 'task' | null>(null);
+  const [error, setError] = useState<string | null>(null);
+  const [done, setDone] = useState<string | null>(null);
   const where = problem.page === null ? null : <KLink href={addressOfEntity(problem.page)}>{problem.pageTitle ?? shortId(problem.page)}</KLink>;
   const missingGroup = /^kind "([^"]+)": "group" names a group of "groups" (?:\([^)]*\)|.*?), got "([^"]+)"$/.exec(problem.reason);
   const readerReason = missingGroup === null ? problem.reason : t('knowledge.manifestMissingGroup', {
     kind: t(`knowledge.manifestKinds.${missingGroup[1]}`, { defaultValue: missingGroup[1] }), group: missingGroup[2],
   });
+  const ruleWords = problem.rule === undefined
+    ? t(`loop.problem.${problem.kind}`, { defaultValue: problem.kind })
+    : t(`loop.rule.${problem.rule}`, { defaultValue: t(`loop.problem.${problem.kind}`, { defaultValue: problem.kind }) });
+  const act = (what: 'dismiss' | 'task'): void => {
+    if (problem.id === undefined) return;
+    setWorking(what);
+    setError(null);
+    const call = what === 'dismiss' ? dismissProblem(problem.id, reason) : createProblemTask(problem.id);
+    call.then((result) => {
+      setWorking(null);
+      setAsking(false);
+      setDone(what === 'dismiss' ? t('loop.problemDismissed') : t('loop.problemTaskCreated', { title: 'task' in result ? result.task.slug : '' }));
+      refresh();
+    }, (failure: unknown) => { setWorking(null); setError(message(failure)); });
+  };
+  const evidence = problem.evidence ?? [];
   return (
-    <li className="border-b border-line py-3 last:border-b-0" data-testid="problem-row" data-kind={problem.kind} data-closed={problem.closed ? 'true' : 'false'}>
+    <li className="border-b border-line py-3 last:border-b-0" data-testid="problem-row" data-kind={problem.kind} data-rule={problem.rule} data-closed={problem.closed ? 'true' : 'false'}>
       <div className="flex flex-wrap items-center gap-x-3 gap-y-1">
-        <span className="font-medium">{t(`loop.problem.${problem.kind}`)}</span>
+        <span className="font-medium" data-testid="problem-rule">{ruleWords}</span>
+        {problem.sonar !== undefined && <Badge variant="outline" data-testid="problem-sonar">{t(`loop.sonar.${problem.sonar}`)}</Badge>}
+        {problem.severity !== undefined && <Badge variant={problem.severity === 'blocker' || problem.severity === 'critical' ? 'solid' : 'outline'} data-testid="problem-severity">{t(`loop.severity.${problem.severity}`)}</Badge>}
         <Badge variant={problem.fixer === 'agent' ? 'outline' : 'solid'} data-testid="problem-fixer">{t(`loop.fixer.${problem.fixer}`)}</Badge>
         {problem.closed && <Badge>{t('loop.stateClosed')}</Badge>}
       </div>
+      {(problem.place !== undefined || where !== null) && (
+        <p className="mb-0 mt-1.5 text-small" data-testid="problem-place">
+          {t('loop.problemPlace')} {problem.place === undefined ? where : <ProblemLinkView link={problem.place} />}
+          {problem.entity != null && <> · {t('loop.problemEntity')} <ProblemLinkView link={problem.entity} /></>}
+        </p>
+      )}
       {problem.sentence !== null && <p className="mb-0 mt-1.5 text-secondary" data-testid="problem-sentence">«{problem.sentence}»</p>}
-      <p className="mb-0 mt-1 text-small">{t(`loop.because.${problem.kind}`)} <span data-testid="problem-reason">{readerReason}</span></p>
+      <p className="mb-0 mt-1 text-small"><span data-testid="problem-reason">{readerReason}</span></p>
+      {evidence.length > 0 && (
+        <p className="mb-0 mt-1 text-small text-muted" data-testid="problem-evidence">
+          {t('loop.problemEvidence')} {evidence.map((link, index) => <span key={`${link.key ?? link.label}:${index}`}>{index > 0 && ' → '}{link.href === null ? <code>{link.label}</code> : <KLink href={link.href}>{link.label}</KLink>}</span>)}
+        </p>
+      )}
       {missingGroup !== null && <details className="mt-1 text-small text-muted" data-testid="problem-details"><summary className="cursor-pointer underline">{t('knowledge.findingsDetails')}</summary><code>{problem.reason}</code></details>}
       <p className="mb-0 mt-1 text-small text-muted">
         {where !== null && <span>{t('loop.onPage')} {where} · </span>}
         <code>{problem.file}{problem.line === null ? '' : `:${problem.line}`}</code>
         {problem.source !== undefined && <> · <code data-testid="problem-source">{problem.source}</code></>}
-        {problem.by !== null && <span> · <AuthorLine by={problem.by} at={problem.at} /></span>}
+        {problem.by !== null && problem.by !== undefined && <span> · <AuthorLine by={problem.by} at={problem.at ?? null} /></span>}
       </p>
-      <p className="mb-0 mt-1 text-small text-muted" data-testid="problem-who">{problem.closed ? t('loop.fixedNote') : t(`loop.whoFixes.${problem.kind}`)}</p>
+      <p className="mb-0 mt-1 text-small text-muted" data-testid="problem-who">{problem.closed ? t('loop.fixedNote') : t(`loop.whoFixes.${problem.kind}`, { defaultValue: t('loop.whoFixes.correction') })}</p>
+      {!problem.closed && problem.id !== undefined && (
+        <div className="mt-2 flex flex-wrap items-center gap-2">
+          {problem.scope !== undefined && <Button size="default" variant="default" data-testid="problem-task" disabled={working !== null} onClick={() => act('task')}>{t('loop.problemCreateTask')}</Button>}
+          <Button size="default" variant="ghost" data-testid="problem-not-a-problem" disabled={working !== null} onClick={() => setAsking((open) => !open)}>{t('loop.problemNotAProblem')}</Button>
+          {done !== null && <span className="text-small text-muted" data-testid="problem-done">{done}</span>}
+          {error !== null && <span className="text-small" data-testid="problem-action-error">{error}</span>}
+        </div>
+      )}
+      {asking && problem.id !== undefined && (
+        <div className="mt-2" data-testid="problem-dismiss">
+          <label className="block text-small" htmlFor={`dismiss-${problem.id}`}>{t('loop.problemDismissPrompt')}</label>
+          <textarea id={`dismiss-${problem.id}`} data-testid="problem-dismiss-reason" className="mt-1 w-full" rows={2} value={reason} onChange={(event) => setReason(event.target.value)} />
+          <div className="mt-1 flex gap-2">
+            <Button size="default" data-testid="problem-dismiss-confirm" disabled={working !== null || reason.trim() === ''} onClick={() => act('dismiss')}>{t('loop.problemDismissConfirm')}</Button>
+            <Button size="default" variant="ghost" onClick={() => setAsking(false)}>{t('loop.cancel')}</Button>
+          </div>
+        </div>
+      )}
     </li>
   );
 }
@@ -327,6 +384,11 @@ export function ProblemsPage({ version, refresh = () => undefined }: { version: 
   }
   const open = data.problems.filter((problem) => !problem.closed);
   const closed = data.problems.filter((problem) => problem.closed);
+  const sections: { section: 'code' | 'documents' | 'wiki'; key: string }[] = [
+    { section: 'code', key: 'loop.sectionCode' },
+    { section: 'documents', key: 'loop.sectionDocuments' },
+    { section: 'wiki', key: 'loop.sectionWiki' },
+  ];
   return (
     <section data-testid="problems-page">
       <header className="mb-6">
@@ -339,15 +401,34 @@ export function ProblemsPage({ version, refresh = () => undefined }: { version: 
       {open.length > 0 && (
         <section className="mb-8" data-testid="problems-open">
           <h2>{t('loop.openProblems', { count: open.length })}</h2>
-          <ul className="m-0 list-none p-0">{open.map((problem, index) => <ProblemItem key={`${problem.kind}:${problem.file}:${problem.line ?? ''}:${problem.target ?? ''}:${index}`} problem={problem} />)}</ul>
+          {sections.map(({ section, key }) => {
+            const rows = open.filter((problem) => (problem.section ?? 'wiki') === section);
+            if (rows.length === 0) return null;
+            return (
+              <section key={section} className="mt-4" data-testid={`problems-${section}`} data-section={section}>
+                <h3>{t(key)} ({rows.length})</h3>
+                <ul className="m-0 list-none p-0">{rows.map((problem) => <ProblemItem key={problem.id ?? `${problem.kind}:${problem.file}:${problem.line ?? ''}:${problem.target ?? ''}`} problem={problem} refresh={refresh} />)}</ul>
+              </section>
+            );
+          })}
         </section>
       )}
       {closed.length > 0 && (
         <section className="mb-8" data-testid="problems-closed">
           <h2>{t('loop.closedProblems', { count: closed.length })}</h2>
-          <ul className="m-0 list-none p-0">{closed.map((problem, index) => <ProblemItem key={`${problem.kind}:${problem.file}:${index}`} problem={problem} />)}</ul>
+          {sections.map(({ section, key }) => {
+            const rows = closed.filter((problem) => (problem.section ?? 'wiki') === section);
+            if (rows.length === 0) return null;
+            return (
+              <section key={section} className="mt-4" data-testid={`problems-${section}-closed`} data-section={section}>
+                <h3>{t(key)} ({rows.length})</h3>
+                <ul className="m-0 list-none p-0">{rows.map((problem) => <ProblemItem key={problem.id ?? `${problem.kind}:${problem.file}:${problem.line ?? ''}:${problem.target ?? ''}`} problem={problem} refresh={refresh} />)}</ul>
+              </section>
+            );
+          })}
         </section>
       )}
+      {(data.dismissed ?? 0) > 0 && <p className="text-small text-muted" data-testid="problems-dismissed">{t('loop.problemDismissedCount', { count: data.dismissed })}</p>}
     </section>
   );
 }
@@ -723,6 +804,7 @@ export function TaskPage({ id, version, refresh }: { id: string; version: number
     return <Alert variant="problem" data-testid="task-page-error"><AlertTitle>{t('loop.tasksMissing')}</AlertTitle><AlertDescription><p>{error}</p></AlertDescription></Alert>;
   }
   const slug = task.question.startsWith('question:') ? task.question.slice('question:'.length) : task.question;
+  const fromProblem = task.problemId !== undefined;
   return (
     <article data-testid="task-page" data-task={task.id} data-state={task.status}>
       <header className="mb-6">
@@ -733,7 +815,9 @@ export function TaskPage({ id, version, refresh }: { id: string; version: number
         </div>
         <h1 data-testid="task-page-title">{task.title}</h1>
         <p className="m-0 text-small text-muted">
-          <KLink href={addressOfQuestion(slug)}>{t('loop.taskFromAnswer', { title: slug })}</KLink>
+          {fromProblem
+            ? <span data-testid="task-from-problem">{t('loop.taskFromProblem')}</span>
+            : <KLink href={addressOfQuestion(slug)}>{t('loop.taskFromAnswer', { title: slug })}</KLink>}
           {' · '}
           <AuthorLine by={task.by} at={task.at} />
         </p>

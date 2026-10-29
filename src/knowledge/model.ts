@@ -288,6 +288,8 @@ export interface PageModel {
    * `product.page` adds it after the page is drawn; the page the renderer builds knows nothing of the product's tasks.
    */
   planned?: { entity: PlannedMarkView | null; statements: (PlannedMarkView & { sentence: string })[]; note?: string };
+  /** How many problems name this entity (madarch-m38l.19): the page shows a badge when it is above zero. */
+  problems?: number;
 }
 
 export interface KindSummary {

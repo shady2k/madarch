@@ -344,7 +344,7 @@ describe('the loop, from the first question to a translation', () => {
       resolve: async (url) => ({ state: 'ok', target: url, kind: 'document', label: url, href: null }),
     });
     const byFile = new Map(listing.problems.map((problem) => [problem.file, problem]));
-    expect(byFile.get('repos/training/docs/notes.md')).toMatchObject({ kind: 'unread-passage', fixer: 'agent', line: 4, source: '/srv/checkouts/training/docs/notes.md' });
+    expect(byFile.get('repos/training/docs/notes.md')).toMatchObject({ kind: 'unread-passage', section: 'wiki', rule: 'wiki.unread-passage', sonar: 'code-smell', severity: 'minor', fixer: 'agent', line: 4, source: '/srv/checkouts/training/docs/notes.md' });
     expect(byFile.get('docs/domains/pricing.md')).toMatchObject({ kind: 'unreadable-file', fixer: 'person', line: 2, source: '/srv/products/shop/docs/domains/pricing.md' });
   }, 120_000);
 

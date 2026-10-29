@@ -32,6 +32,8 @@ import { LineCounter, parseDocument } from 'yaml';
 import { lineForPath } from '../model/yaml-position.js';
 import { isSemanticKind, SEMANTIC_KINDS, type SemanticKind } from './semantics.js';
 import { BLOCK_NAMES } from './template.js';
+import { RULE_BY_ID } from '../problems/rules.js';
+import { DEFAULT_THRESHOLDS, PROBLEM_SEVERITIES, type ProblemSettings, type RuleSetting } from '../problems/types.js';
 
 /** The manifest's place in the product repository. */
 export const KINDS_FILE = 'madarch/kinds.yaml';
@@ -175,6 +177,11 @@ export interface KindsManifest {
    * documents lack instead of showing a smaller result (decision 0032 section 4).
    */
   expect?: readonly ExpectedKind[];
+  /**
+   * The Problems page's rules and thresholds (`problems:`): which rules run, the severity each starts
+   * with, and the sizes a file is judged large by. Absent means the starter set's defaults.
+   */
+  problems?: ProblemSettings;
   findings: readonly Finding[];
   /** The manifest could not be read as a whole (not YAML, not a mapping, no `kinds` mapping): no kind is known, which is not the same as every kind having a finding. */
   unreadable?: true;
@@ -191,6 +198,62 @@ export function insideFolder(folder: string, path: string): boolean {
   if (path === '' || isAbsolute(path) || path.includes('\0')) return false;
   const from = relative(resolve(folder), resolve(folder, path));
   return from !== '' && !from.startsWith('..') && !isAbsolute(from);
+}
+
+
+/**
+ * The `problems:` mapping: each rule's override by its id, and the thresholds of the size rules.
+ * A rule id the engine does not know, a severity outside the five, a threshold that is not a
+ * positive whole number — each is a finding at its own line, so a typo never changes nothing.
+ */
+function parseProblems(
+  raw: unknown,
+  at: (path: (string | number)[]) => number,
+  findings: Finding[],
+  file: string,
+): ProblemSettings | undefined {
+  if (raw === undefined) return undefined;
+  if (raw === null || typeof raw !== 'object' || Array.isArray(raw)) {
+    findings.push({ file, line: at(['problems']), message: '"problems" is { rules: { <rule id>: { enabled: true, severity: major } }, thresholds: { largeFileLines: 600 } }' });
+    return undefined;
+  }
+  const body = raw as Record<string, unknown>;
+  for (const key of Object.keys(body)) if (key !== 'rules' && key !== 'thresholds') findings.push({ file, line: at(['problems', key]), message: `"${key}" is not a field of "problems": the fields are "rules" and "thresholds"` });
+  const rules: Record<string, RuleSetting> = {};
+  const rawRules = body['rules'];
+  if (rawRules !== undefined) {
+    if (rawRules === null || typeof rawRules !== 'object' || Array.isArray(rawRules)) findings.push({ file, line: at(['problems', 'rules']), message: '"rules" maps a rule id to { enabled: <true|false>, severity: <blocker|critical|major|minor|info> }' });
+    else {
+      for (const [id, entry] of Object.entries(rawRules as Record<string, unknown>)) {
+        const line = at(['problems', 'rules', id]);
+        if (!RULE_BY_ID.has(id)) { findings.push({ file, line, message: `"problems.rules" names the rule ${JSON.stringify(id)}, and the engine has no such rule: the rules are ${[...RULE_BY_ID.keys()].join(', ')}` }); continue; }
+        if (entry === null || typeof entry !== 'object' || Array.isArray(entry)) { findings.push({ file, line, message: `rule "${id}": the setting is { enabled: <true|false>, severity: <blocker|critical|major|minor|info> }` }); continue; }
+        const setting = entry as Record<string, unknown>;
+        for (const key of Object.keys(setting)) if (key !== 'enabled' && key !== 'severity') findings.push({ file, line: at(['problems', 'rules', id, key]), message: `rule "${id}": "${key}" is not a field of a rule's setting: the fields are "enabled" and "severity"` });
+        const enabled = setting['enabled'];
+        const severity = setting['severity'];
+        if (enabled !== undefined && typeof enabled !== 'boolean') findings.push({ file, line: at(['problems', 'rules', id, 'enabled']), message: `rule "${id}": "enabled" is true or false` });
+        if (severity !== undefined && (typeof severity !== 'string' || !PROBLEM_SEVERITIES.includes(severity as never))) findings.push({ file, line: at(['problems', 'rules', id, 'severity']), message: `rule "${id}": "severity" is one of ${PROBLEM_SEVERITIES.join(', ')}` });
+        rules[id] = {
+          ...(typeof enabled === 'boolean' ? { enabled } : {}),
+          ...(typeof severity === 'string' && PROBLEM_SEVERITIES.includes(severity as never) ? { severity: severity as never } : {}),
+        };
+      }
+    }
+  }
+  const thresholds = { ...DEFAULT_THRESHOLDS };
+  const rawThresholds = body['thresholds'];
+  if (rawThresholds !== undefined) {
+    if (rawThresholds === null || typeof rawThresholds !== 'object' || Array.isArray(rawThresholds)) findings.push({ file, line: at(['problems', 'thresholds']), message: '"thresholds" maps a threshold name to a positive whole number' });
+    else {
+      for (const [key, value] of Object.entries(rawThresholds as Record<string, unknown>)) {
+        if (!(key in DEFAULT_THRESHOLDS)) { findings.push({ file, line: at(['problems', 'thresholds', key]), message: `"${key}" is not a threshold: the thresholds are ${Object.keys(DEFAULT_THRESHOLDS).join(', ')}` }); continue; }
+        if (typeof value !== 'number' || !Number.isInteger(value) || value <= 0) findings.push({ file, line: at(['problems', 'thresholds', key]), message: `"${key}" is a positive whole number, got ${JSON.stringify(value)}` });
+        else (thresholds as Record<string, number>)[key] = value;
+      }
+    }
+  }
+  return { rules, thresholds };
 }
 
 function nothing(file: string, findings: Finding[]): KindsManifest {
@@ -234,8 +297,9 @@ export function parseKinds(text: string, file: string, productFolder: string): K
       const value = top['diagram'];
       if (typeof value !== 'string' || !DIAGRAM_RENDERER_NAMES.includes(value)) findings.push({ file, line: at(['diagram']), message: `"diagram" is ${JSON.stringify(value)}: the diagrams open on ${DIAGRAM_RENDERER_NAMES.join(', ')}` });
       else diagram = value;
-    } else if (key !== 'kinds' && key !== 'groups' && key !== 'documents' && key !== 'roles') findings.push({ file, line: at([key]), message: `"${key}" is not a field of the manifest: the manifest holds "kinds", "groups", "documents", "roles", "language" and "diagram"` });
+    } else if (key !== 'kinds' && key !== 'groups' && key !== 'documents' && key !== 'roles' && key !== 'problems') findings.push({ file, line: at([key]), message: `"${key}" is not a field of the manifest: the manifest holds "kinds", "groups", "documents", "roles", "problems", "language" and "diagram"` });
   }
+  const problems = parseProblems(top['problems'], at, findings, file);
   const groups = new Map<string, GroupDecl>();
   const rawGroups = top['groups'];
   if (rawGroups !== undefined) {
@@ -454,7 +518,7 @@ export function parseKinds(text: string, file: string, productFolder: string): K
     }
     return true;
   });
-  return { file, roles, kinds, groups, excludeDocuments, ignoreBlocks: ignoredBlocks, expect: wanted, findings, ...(language === undefined ? {} : { language }), ...(diagram === undefined ? {} : { diagram }) };
+  return { file, roles, kinds, groups, excludeDocuments, ignoreBlocks: ignoredBlocks, expect: wanted, ...(problems === undefined ? {} : { problems }), findings, ...(language === undefined ? {} : { language }), ...(diagram === undefined ? {} : { diagram }) };
 }
 
 /**

@@ -247,6 +247,81 @@ describe('the problems page', () => {
     expect(row.querySelector('[data-testid=problem-details]')!.textContent).toContain('names a group of');
   });
 
+
+  test('the three sections are on the page, and a finding says its rule, Sonar kind and severity, place, entity, evidence and actions', async () => {
+    const code: Problem = {
+      ...problem('sql-input', {
+        reason: 'req.query.q reaches selectOrders, which builds SQL text by joining strings, and db.query runs that text as it is.',
+        file: 'src/orders.ts', line: 35, page: null, pageTitle: null, statement: null, sentence: null,
+        place: { label: 'src/orders.ts:35', href: '/k/e/code.file%3Asrc%2Forders.ts', key: 'code.file:src/orders.ts' },
+        entity: { label: 'db.query', href: '/k/e/code.sql-sink%3Asrc%2Forders.ts%2335', key: 'code.sql-sink:src/orders.ts#35' },
+        evidence: [
+          { label: 'req.query.q', href: '/k/e/code.input%3Areq.query.q', key: 'code.input:req.query.q' },
+          { label: 'selectOrders', href: '/k/e/code.sql-build%3Asrc%2Forders.ts%2330', key: 'code.sql-build:src/orders.ts#30' },
+          { label: 'db.query', href: '/k/e/code.sql-sink%3Asrc%2Forders.ts%2335', key: 'code.sql-sink:src/orders.ts#35' },
+        ],
+      }),
+      id: 'security.sql-input\u0000code.sql-sink:src/orders.ts#35\u0000code.sql-build:src/orders.ts#30',
+      section: 'code', rule: 'security.sql-input', kind: 'sql-input', sonar: 'vulnerability', severity: 'blocker',
+      scope: { type: 'file', path: 'src/orders.ts' },
+    };
+    const documents: Problem = {
+      ...problem('document-contradiction', { reason: 'The README says ten percent; the code applies what its caller passes.', file: 'docs/questions/discount-percentage.md', line: 1 }),
+      id: 'document.contradiction\u0000question:discount', section: 'documents', rule: 'document.contradiction', kind: 'document-contradiction', sonar: 'bug', severity: 'major',
+      place: { label: 'docs/questions/discount-percentage.md:1', href: '/k/src?path=docs%2Fquestions%2Fdiscount-percentage.md&line=1', key: null }, entity: { label: 'Which discount?', href: '/k/questions/discount-percentage', key: 'question:discount' },
+      evidence: [{ label: 'Which discount?', href: '/k/questions/discount-percentage', key: 'question:discount' }],
+    };
+    const wiki = problem('broken-link', {
+      id: 'wiki.broken-link\u0000domain:orders', section: 'wiki', rule: 'wiki.broken-link', kind: 'broken-link', sonar: 'bug', severity: 'major',
+      place: { label: 'domain:orders', href: '/k/e/domain%3Aorders', key: 'domain:orders' }, entity: { label: 'Orders', href: '/k/e/domain%3Aorders', key: 'domain:orders' },
+    });
+    const calls: string[] = [];
+    let dismissed = false;
+    (globalThis as { fetch?: unknown }).fetch = async (url: string, init?: RequestInit) => {
+      calls.push(`${init?.method ?? 'GET'} ${url}${init?.body === undefined ? '' : ` ${String(init.body)}`}`);
+      if (url.endsWith('/api/k/problem-task')) return json({ task: { slug: 'fix-security-sql-input', id: 'task:fix-security-sql-input', file: 'docs/tasks/fix-security-sql-input.md', title: 'Fix', status: 'open' }, state: 'created', committed: true });
+      if (url.endsWith('/api/k/problem-dismiss')) { dismissed = true; return json({ file: 'docs/problems/sql.md', committed: true }); }
+      return json(listing(dismissed ? [documents, wiki] : [code, documents, wiki]));
+    };
+    let refreshed = 0;
+    const page = into(createElement(ProblemsPage, { version: 0, refresh: () => { refreshed += 1; } }));
+    await until(() => page.querySelector('[data-testid=problems-page]') !== null, 'the problems');
+    expect([...page.querySelectorAll('[data-testid=problems-open] h3')].map((heading) => heading.textContent)).toEqual(['In the code (1)', 'In the documents (1)', 'In the wiki (1)']);
+    const codeSection = page.querySelector('[data-testid=problems-code]')!;
+    const row = codeSection.querySelector('[data-testid=problem-row]')!;
+    expect(row.getAttribute('data-rule')).toBe('security.sql-input');
+    expect(row.querySelector('[data-testid=problem-rule]')!.textContent).toBe('Untrusted input reaches SQL');
+    expect(row.querySelector('[data-testid=problem-sonar]')!.textContent).toBe('Vulnerability');
+    expect(row.querySelector('[data-testid=problem-severity]')!.textContent).toBe('Blocker');
+    expect(row.querySelector('[data-testid=problem-reason]')!.textContent).toContain('req.query.q reaches selectOrders');
+    expect(row.querySelector('[data-testid=problem-place] a')!.getAttribute('href')).toBe('/k/e/code.file%3Asrc%2Forders.ts');
+    expect(row.querySelector('[data-testid=problem-place] a:nth-of-type(2)')!.textContent).toBe('db.query');
+    expect([...row.querySelectorAll('[data-testid=problem-evidence] a')].map((link) => link.textContent)).toEqual(['req.query.q', 'selectOrders', 'db.query']);
+    expect(row.querySelector('[data-testid=problem-evidence]')!.textContent).toStartWith('Evidence: req.query.q → selectOrders → db.query');
+    expect(row.querySelector('[data-testid=problem-task]')).not.toBeNull();
+    expect(row.querySelector('[data-testid=problem-not-a-problem]')).not.toBeNull();
+    // A documents finding has a place the wiki cannot open and an entity it can.
+    const documentRow = page.querySelector('[data-testid=problems-documents] [data-testid=problem-row]')!;
+    expect(documentRow.querySelector('[data-testid=problem-place] a')!.textContent).toBe('docs/questions/discount-percentage.md:1');
+    expect(documentRow.querySelector('[data-testid=problem-place] a')!.getAttribute('href')).toStartWith('/k/src?path=docs%2Fquestions%2Fdiscount-percentage.md');
+    expect(documentRow.querySelector('[data-testid=problem-place] a:nth-of-type(2)')!.getAttribute('href')).toBe('/k/questions/discount-percentage');
+    (row.querySelector('[data-testid=problem-task]') as HTMLButtonElement).click();
+    await until(() => row.querySelector('[data-testid=problem-done]') !== null, 'the created task');
+    const problemId = 'security.sql-input\u0000code.sql-sink:src/orders.ts#35\u0000code.sql-build:src/orders.ts#30';
+    expect(calls.at(-1)).toBe(`POST /api/k/problem-task ${JSON.stringify({ id: problemId })}`);
+    expect(refreshed).toBe(1);
+    (row.querySelector('[data-testid=problem-not-a-problem]') as HTMLButtonElement).click();
+    await until(() => row.querySelector('[data-testid=problem-dismiss-reason]') !== null, 'the dismissal form');
+    const text = row.querySelector('[data-testid=problem-dismiss-reason]') as HTMLTextAreaElement;
+    const key = Object.keys(text).find((name) => name.startsWith('__reactProps$'));
+    if (key === undefined) throw new Error('the textarea carries no React props');
+    (text as unknown as Record<string, { onChange: (event: { target: { value: string } }) => void }>)[key]!.onChange({ target: { value: 'The query is built from a constant.' } });
+    await until(() => !(row.querySelector('[data-testid=problem-dismiss-confirm]') as HTMLButtonElement).disabled, 'the enabled dismissal');
+    (row.querySelector('[data-testid=problem-dismiss-confirm]') as HTMLButtonElement).click();
+    await until(() => row.querySelector('[data-testid=problem-dismissed]') !== null || row.querySelector('[data-testid=problem-done]') !== null, 'the dismissal');
+    expect(calls.some((call) => call === `POST /api/k/problem-dismiss ${JSON.stringify({ id: problemId, reason: 'The query is built from a constant.' })}`)).toBe(true);
+  });
+
   test('a product with no problem says so', async () => {
     (globalThis as { fetch?: unknown }).fetch = async () => json(listing([]));
     const page = into(createElement(ProblemsPage, { version: 0 }));

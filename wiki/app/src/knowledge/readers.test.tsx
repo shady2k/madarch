@@ -111,6 +111,22 @@ describe('what a role opens', () => {
     expect(source.querySelector('[data-testid=source-code]')).not.toBeNull();
     expect(container.querySelector('details[data-block-type=related]')).toBeNull();
   });
+
+  test('a page with problems carries a badge that opens the Problems page, and a page with none carries none', async () => {
+    const base: PageModel = { id: 'domain:orders', kind: 'domain', title: 'Orders', trail: [], resolutions: {}, findings: [], notes: [], blocks: [{ type: 'markdown', markdown: 'Orders.' }] };
+    (globalThis as { fetch?: unknown }).fetch = async () => Response.json({ ...base, problems: 3 });
+    const container = into(createElement(EntityPage, { id: base.id, version: 1 }));
+    await until(() => container.querySelector('[data-testid=entity-page]') !== null, 'the page with problems');
+    const badge = container.querySelector('[data-testid=page-problems]')!;
+    expect(badge.textContent).toBe('3 problems');
+    expect(badge.querySelector('a')!.getAttribute('href')).toBe('/k/problems');
+    rendered?.unmount();
+    document.body.innerHTML = '';
+    (globalThis as { fetch?: unknown }).fetch = async () => Response.json(base);
+    const clean = into(createElement(EntityPage, { id: base.id, version: 1 }));
+    await until(() => clean.querySelector('[data-testid=entity-page]') !== null, 'the page without problems');
+    expect(clean.querySelector('[data-testid=page-problems]')).toBeNull();
+  });
 });
 
 describe('the links from the text to the glossary', () => {

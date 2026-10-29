@@ -22,6 +22,8 @@ export const KIND_MODULE = 'code.module';
 export const KIND_PACKAGE = 'code.package';
 export const KIND_TEST_CASE = 'code.test-case';
 export const KIND_CYCLE = 'code.cycle';
+/** A TODO or FIXME marker in a comment; the code section of the Problems page reads it (madarch-m38l.19). */
+export const KIND_DEBT = 'code.debt';
 
 // ---- relation types -------------------------------------------------------
 
@@ -71,6 +73,9 @@ export const packageKey = (folder: string): string => `${KIND_PACKAGE}:${folder 
 
 /** `code.test-case:<path>#<suite path> > <name>` -- one test case of a test file. */
 export const testCaseKey = (path: string, name: string, ordinal: number): string => `${KIND_TEST_CASE}:${path}#${name}${ordinal === 0 ? '' : `~${ordinal}`}`;
+
+/** `code.debt:<path>#<byte>` -- one TODO or FIXME marker, at the comment's first byte. */
+export const debtKey = (path: string, byteStart: number): string => `${KIND_DEBT}:${path}#${byteStart}`;
 
 /** `code.cycle:<level>/<member>+<member>...` -- one import cycle, its members in code point order. */
 export const cycleKey = (level: 'module' | 'file', members: readonly string[]): string => `${KIND_CYCLE}:${level}/${members.join('+')}`;

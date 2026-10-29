@@ -141,6 +141,8 @@ export type BrokenWhy =
 export type HistoryContext = { repo: string; at: string; coverage: 'covered' | 'unfilled' | 'before' | 'unknown'; commit: string | null; effectiveAt: string | null; until: string | null; landmarks?: { offered: number; covered: number; limit: number; overflow: boolean; omitted: number; first: string | null; last: string | null; diagnostics: { ref: string; object: string; reason: string }[] }; points: { name: string; commit: string; covered: boolean }[] };
 
 export type PageModel = {
+  /** How many problems name this entity (madarch-m38l.19); absent means none were counted. */
+  problems?: number;
   historyNavigation?: { repo: string; points: { name: string; commit: string; covered: boolean }[]; landmarks?: NonNullable<HistoryContext['landmarks']> }[];
   historicalAbsent?: boolean;
   history?: HistoryContext;
@@ -330,9 +332,24 @@ export type QuestionDetail = QuestionRow & {
 export type AnswerResult = { question: string; state: 'answered'; committed: boolean; commit?: string; note?: string; by: Author; at: string };
 export type CorrectionResult = { correction: string; id: string; file: string; committed: boolean; commit?: string; note?: string; by: Author; at: string };
 
-export type ProblemKind = 'correction' | 'ground-removed' | 'broken-link' | 'unreadable-file' | 'unread-passage' | 'unplaced';
+export type ProblemKind = 'correction' | 'ground-removed' | 'broken-link' | 'unreadable-file' | 'unread-passage' | 'unplaced' | 'manifest' | string;
+export type ProblemSection = 'code' | 'documents' | 'wiki';
+export type SonarKind = 'vulnerability' | 'bug' | 'code-smell' | 'security-hotspot';
+export type ProblemSeverity = 'blocker' | 'critical' | 'major' | 'minor' | 'info';
+export type ProblemLink = { label: string; href: string | null; key: string | null };
 
 export type Problem = {
+  /** The stable id; server listings carry it, a row built by hand need not. */
+  id?: string;
+  section?: ProblemSection;
+  rule?: string;
+  sonar?: SonarKind;
+  severity?: ProblemSeverity;
+  place?: ProblemLink;
+  entity?: ProblemLink | null;
+  evidence?: ProblemLink[];
+  /** What «Создать задачу» opens a task on; absent where the page offers no task. */
+  scope?: { type: 'file'; path: string } | { type: 'symbol'; key: string } | { type: 'lines'; path: string; start: number; end: number };
   kind: ProblemKind;
   fixer: 'agent' | 'person';
   closed: boolean;
@@ -361,7 +378,7 @@ export type StarterOffer = {
   fields?: string[];
 };
 
-export type ProblemListing = { problems: Problem[]; open: number; closed: number; notes: string[]; starter?: StarterOffer[] };
+export type ProblemListing = { problems: Problem[]; sections?: Record<ProblemSection, number>; open: number; closed: number; dismissed?: number; notes: string[]; starter?: StarterOffer[] };
 
 /** A value an agent offers for the model or the reasoning level. */
 export type ChoiceValue = { value: string; name: string; description?: string };
@@ -456,6 +473,8 @@ export type TaskRow = {
   closedBy: { repository: string; commit: string; at: string; subject: string } | { person: true; at: string | null } | null;
   impact: { pages: number; statements: number } | null;
   problem?: string;
+  /** The problem this task was opened from (madarch-m38l.19). */
+  problemId?: string;
 };
 
 export type TaskListing = { tasks: TaskRow[]; open: number; closed: number; problems: string[]; notes: string[] };

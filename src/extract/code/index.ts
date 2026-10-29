@@ -27,8 +27,10 @@ import { cycles } from './graph.js';
 import {
   CODE_PRODUCER,
   cycleKey,
+  debtKey,
   fileKey,
   KIND_CYCLE,
+  KIND_DEBT,
   KIND_FILE,
   KIND_MODULE,
   KIND_PACKAGE,
@@ -425,6 +427,23 @@ export async function extractCodeWithFacts(reader: TreeReader): Promise<CodeExtr
     else imports[index] = { ...imported, targetExpression: target.expression, targetChain: target.chain };
   }
 
+
+/** A debt marker at the start of a comment's text, with the words after it; a word inside the comment is no marker. */
+function debtMarkerOf(text: string): { marker: 'TODO' | 'FIXME'; body: string } | undefined {
+  const trimmed = text.trimStart();
+  for (const marker of ['TODO', 'FIXME'] as const) {
+    if (!trimmed.startsWith(marker)) continue;
+    const next = trimmed.slice(marker.length, marker.length + 1);
+    const code = next.length === 0 ? 0 : next.codePointAt(0)!;
+    const word = (code >= 48 && code <= 57) || (code >= 65 && code <= 90) || (code >= 97 && code <= 122) || code === 95;
+    if (word) continue;
+    let body = trimmed.slice(marker.length).trimStart();
+    while (body.startsWith(':') || body.startsWith('-') || body.startsWith('—')) body = body.slice(1).trimStart();
+    return { marker, body: body.trim() };
+  }
+  return undefined;
+}
+
   // ---- nodes -----------------------------------------------------------------------------
   const nodes = new Map<string, ExtractedNode>();
   const addNode = (node: ExtractedNode): void => {
@@ -462,6 +481,23 @@ export async function extractCodeWithFacts(reader: TreeReader): Promise<CodeExtr
       label: path.slice(path.lastIndexOf('/') + 1),
       properties: { role: file.source.role, language: file.source.language, parsed: file.syntax.parsed },
     });
+  }
+
+  // A TODO or FIXME is read from the comment the parser kept, never from a search over the file's text: a string or a
+  // line of code that spells the word is no debt marker (madarch-m38l.19).
+  for (const file of parsedFiles) {
+    for (const comment of file.syntax.comments) {
+      const marker = debtMarkerOf(comment.text);
+      if (marker === undefined) continue;
+      const path = file.source.path;
+      addNode({
+        key: debtKey(path, comment.span.startByte),
+        kind: KIND_DEBT,
+        label: `${marker.marker}: ${marker.body}`,
+        properties: { marker: marker.marker, text: marker.body, path, line: comment.span.startLine },
+        span: toSpan(path, comment.span),
+      });
+    }
   }
 
   for (const file of parsedFiles) {

@@ -2,6 +2,8 @@ import { existsSync, lstatSync, mkdirSync, readFileSync, realpathSync, writeFile
 import { dirname, join, sep } from 'node:path';
 import { parseDocument } from 'yaml';
 import { KINDS_FILE } from './kinds.js';
+import { PROBLEM_RULES } from '../problems/rules.js';
+import { DEFAULT_THRESHOLDS } from '../problems/types.js';
 
 /**
  * The starter set `madarch new` writes into a product (decision 0029): the
@@ -285,6 +287,7 @@ export const STARTER_KINDS: readonly StarterKind[] = [
   { name: 'code.symbol', template: 'symbol.md', source: 'graph', group: 'code', en: ['Symbol', 'Symbols'], ru: ['Символ', 'Символы'], describe: ['A function, class or constant, with its callers and callees.', 'Функция, класс или константа, кто её вызывает и что она вызывает.'] },
   { name: 'code.entry-point', template: 'item.md', source: 'graph', group: 'code', en: ['Entry point', 'Entry points'], ru: ['Точка входа', 'Точки входа'], describe: ['Where a process of the system starts running.', 'Место, где начинает работать процесс системы.'] },
   { name: 'code.cycle', template: 'item-plain.md', source: 'graph', group: 'code', en: ['Dependency cycle', 'Dependency cycles'], ru: ['Цикл зависимостей', 'Циклы зависимостей'], describe: ['Files or modules that import one another in a ring.', 'Файлы или модули, которые импортируют друг друга по кругу.'] },
+  { name: 'code.debt', template: 'item-plain.md', source: 'graph', group: 'code', en: ['Debt marker', 'Debt markers'], ru: ['Маркер долга', 'Маркеры долга'], describe: ['A TODO or FIXME a comment left in the code.', 'TODO или FIXME, оставленный комментарием в коде.'] },
   { name: 'code.facet', template: 'item-plain.md', source: 'graph', group: 'code', en: ['File facet', 'File facets'], ru: ['Срез файла', 'Срезы файлов'], describe: ['What the code reader found out about a file: its role and language.', 'Что читатель кода выяснил о файле: его роль и язык.'] },
   { name: 'code.input', template: 'item.md', source: 'graph', group: 'code', en: ['Input', 'Inputs'], ru: ['Входные данные', 'Входные данные'], describe: ['A value that enters the code from outside, such as a query parameter.', 'Значение, которое попадает в код снаружи, например параметр запроса.'] },
   { name: 'code.sql-build', template: 'item-plain.md', source: 'graph', group: 'code', en: ['SQL build', 'SQL builds'], ru: ['Сборка SQL', 'Сборки SQL'], describe: ['A function that builds SQL text by joining strings.', 'Функция, которая собирает текст SQL склейкой строк.'] },
@@ -368,6 +371,9 @@ function kindsManifest(): string {
     "# one page serves every role. A role left out, and the role \"everything\", open every block in the order above.",
     "# A glossary is a document named by a kind's `terms`: each list item starts with a bold term, and may list under it",
     "# \"Also called\", \"In code\", \"Used in\" and \"Ambiguous\" (decision 0031).",
+    "# `problems` tunes the Problems page: each rule (the code, the documents, the wiki) may be switched off or given",
+    "# another severity (blocker, critical, major, minor, info), and the thresholds say when a file is large or a hotspot.",
+    "# The engine reads these rules as data; a rule the page does not need is switched off here, not in the engine.",
     "groups:",
     ...GROUPS.map((group) => `  ${group.name}: { en: ${yamlText(group.en)}, ru: ${yamlText(group.ru)} }`),
     "documents:",
@@ -381,6 +387,11 @@ function kindsManifest(): string {
     "  ignore: [code, html, thematicBreak, definition]",
     "roles:",
     ...ROLES.map((role) => `  ${role.name}: { lead: [${role.lead.join(', ')}], open: [${role.open.join(', ')}] }`),
+    "problems:",
+    "  thresholds:",
+    ...Object.entries(DEFAULT_THRESHOLDS).map(([name, value]) => `    ${name}: ${value}`),
+    "  rules:",
+    ...PROBLEM_RULES.map((rule) => `    ${rule.id}: { enabled: true, severity: ${rule.severity} }`),
     "kinds:",
   ];
   for (const kind of STARTER_KINDS) lines.push(...kindLines(kind));
