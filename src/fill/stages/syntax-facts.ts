@@ -37,8 +37,9 @@ import { SYNTAX_EXTENSIONS, type ExtractedFileSyntax, type SyntaxSpan } from './
 /**
  * What the facts of one file stand on: the grammar's own reader. The version is
  * the runtime's, which is what a reader compares when it asks what read a fact;
- * the grammars themselves arrive with `tree-sitter-wasms` and are the four the
- * landed walk read (`src/product/fill-index.ts`).
+ * the grammars themselves arrive with `tree-sitter-wasms` (Go, JavaScript) and
+ * `tree-sitter-typescript` (TypeScript, TSX), and are the four the landed walk
+ * read (`src/product/fill-index.ts`).
  */
 export const SYNTAX_SOURCE: FactSource = { system: 'tree-sitter', version: '0.25.10' };
 
