@@ -17,7 +17,7 @@ import { tmpdir } from 'node:os';
 import { join, resolve } from 'node:path';
 import { startServer, type StartedServer } from '../src/server/http.js';
 import { gitEnv } from './git-env.js';
-import { SAMPLE_IDENTITY, ROOT, generateTrainingRepository, makeProduct } from './knowledge-fixture.js';
+import { SAMPLE_IDENTITY, ROOT, generateTrainingRepository, makeProduct, withoutEnrichmentKind } from './knowledge-fixture.js';
 import { slugOf } from '../src/writer/names.js';
 import { ANSWER_TEXT, LOOP_QUESTIONS, firstRunScript, questionSlug, refreshScript } from './loop-agent-script.js';
 import { SCRIPTED_GUIDE_PATH, SCRIPTED_GUIDE_SOURCE } from './scripted-guide-agent.js';
@@ -61,6 +61,9 @@ beforeAll(async () => {
   const home = join(work, 'home');
   mkdirSync(home);
   product = makeProduct(home, 'training-shop', repository);
+  // The scripted agent writes the product and domain pages and no enrichment: the kind is dropped from the fixture, and
+  // `test/writer-structured-entities.test.ts` is the one that scripts the enrichments.
+  withoutEnrichmentKind(product);
   git(product, 'config', 'user.name', 'Ada Reader');
   git(product, 'config', 'user.email', 'ada@example.test');
   const app = join(work, 'app');
