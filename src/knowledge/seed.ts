@@ -32,7 +32,8 @@ export const TEMPLATES: Readonly<Record<string, string>> = {
 The base page of every kind (decision 0032 section 8). A kind template extends it
 with the layout tag and fills the sections it has, in this order:
 
-  lead         what the page says first: its Markdown body, or the line that places it
+  lead         what the page says first: its Markdown body, or the line that places it, and, where a kind opens with a
+               picture, that picture
   details      the properties the entity holds
   around       where it stands in the graph
   source       the code it stands on
@@ -69,10 +70,10 @@ them, as label.
 {% block describedby %}{% related title="Relates to" title-ru="Связано с" relation="relates" %}{% endblock %}
 `,
   'domain.liquid': `{% layout "./entity.liquid" %}
-{% block lead %}{% body %}{% endblock %}
+{# A domain page opens with what the domain is and how it goes: its text, the architecture of the domain and the
+   chain a reader follows through it, then where it stands in the graph and what implements it. #}
+{% block lead %}{% body %}{% system title="Architecture of the domain" title-ru="Архитектура домена" view="domain" %}{% sequence title="End-to-end chain" title-ru="Сквозная цепочка" scenario=page.title %}{% endblock %}
 {% block around %}{% render "./partials/around.liquid", title="Around this page", title_ru="Вокруг этой страницы" %}{% endblock %}
-{% block chain %}{% sequence title="End-to-end chain" title-ru="Сквозная цепочка" scenario=page.title %}{% endblock %}
-{% block parts %}{% system title="Architecture of the domain" title-ru="Архитектура домена" view="domain" %}{% endblock %}
 {% block describedby %}{% related title="Implemented by" title-ru="Реализуют" relation="relates" %}{% endblock %}
 `,
   'guide.liquid': `{% layout "./entity.liquid" %}
