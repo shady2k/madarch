@@ -1185,7 +1185,10 @@ export class KnowledgeProduct {
   /** What each unit of the journal wrote, by the runs that hold it; each run file is read again only when it has changed. */
   private readonly journalFiles = new Map<string, { stamp: string; units: Map<string, string[]> }>();
   private journalIndex(): Map<string, string[]> {
-    const folder = journalFolder(this.storeFolder());
+    // A product whose folder names no store (no manifest beside it, as a reader built for one page may be) holds no
+    // journal: the page is read all the same and says nothing of a journal, rather than refusing to be read.
+    let folder: string;
+    try { folder = journalFolder(this.storeFolder()); } catch { return new Map(); }
     let names: string[] = [];
     try { names = readdirSync(folder).filter((name) => name.startsWith('run-') && name.endsWith('.jsonl')).sort(byCodePoint); }
     catch { names = []; }
