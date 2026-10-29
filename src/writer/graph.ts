@@ -137,8 +137,10 @@ export const WRITER_UNIT_KINDS: readonly WriterUnitKind[] = [
   {
     // Domains summarise the enriched scenarios and the product's own page; the product page is
     // required, because a domain page without the product's declaration is a page of nothing.
+    // Version 2: the page is the business first and one section for the developer (madarch-ztyq.6,
+    // `src/writer/domain-page.ts`), written from the fields of its six sections.
     kind: 'domains',
-    version: 1,
+    version: 2,
     reads: [
       { artifact: 'product-page', required: true },
       { artifact: 'scenario-enrichments', required: false },

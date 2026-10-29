@@ -46,6 +46,9 @@ const stubView = resolver as unknown as GraphView;
 
 const expectation: PageExpectation = { id: 'domain:payments', kind: 'domain', domains: ['payments', 'ordering'], mustLinkDomains: false };
 const front = ['---', 'id: domain:payments', 'kind: domain', 'title: Payments', 'relates:', '  - code.service:payments', 'producer: agent', 'sources: []', '---'].join('\n');
+// The units of this file are validation units, which write their page as Markdown: their pages carry that identity,
+// and `front` stays the domain page the format checks above are made on.
+const unitFront = ['---', 'id: validation:payments', 'kind: validation', 'title: Payments', 'relates:', '  - code.service:payments', 'producer: agent', 'sources: []', '---'].join('\n');
 const page = async (body: string, resolverToUse: GroundResolver = resolver) => checkPage(`${front}\n\n${body}\n`, expectation, resolverToUse);
 
 describe('a ground is shown by the entity\'s own name', () => {
@@ -117,7 +120,10 @@ describe('routes and operations are written as links', () => {
 
 // ---- the question tool -----------------------------------------------------------------------
 
-const UNIT = (slug: string): UnitSpec => ({ kind: 'domain', id: `domain:${slug}`, path: `docs/domains/${slug}.md`, domain: { slug, title: slug, summary: 'x', evidence: ['code.service:payments'] }, productId: 'product:shop' });
+// The questions, the contradiction obligations and the answer-grounded rewrite are the writer's, not a kind's: a
+// validation unit writes its page as Markdown, so it is the vehicle here (a domain page is written from its fields,
+// test/writer-domain-pages.test.ts, madarch-ztyq.6).
+const UNIT = (slug: string): UnitSpec => ({ kind: 'validation', id: `validation:${slug}`, path: `docs/validation/${slug}.md`, name: 'Shop', productId: 'product:shop' });
 const DOMAINS = [{ slug: 'payments', title: 'Payments', summary: 'x', evidence: ['code.service:payments'] }, { slug: 'ordering', title: 'Ordering', summary: 'x', evidence: ['code.service:orders'] }];
 
 /** Tools over a shared sink, as consecutive units of one run see the product: each ask reads the questions written so far. */
@@ -180,9 +186,9 @@ describe('a subject is asked once', () => {
     expect(again.answer).toMatchObject({ asked: false, merged: true, id: 'question:how-long-orders-kept' });
     expect([...sink.pages.keys()]).toEqual(['docs/questions/how-long-orders-kept.md']);
     const kept = parseQuestion('docs/questions/how-long-orders-kept.md', sink.pages.get('docs/questions/how-long-orders-kept.md')!);
-    expect(kept.about).toContain('domain:ordering');
-    expect(kept.about).toContain('domain:payments');
-    expect(kept.askedIn).toBe('domain:ordering');
+    expect(kept.about).toContain('validation:ordering');
+    expect(kept.about).toContain('validation:payments');
+    expect(kept.askedIn).toBe('validation:ordering');
     expect(kept.title).toBe('How long are orders kept?');
     expect(payments.outcome()).toMatchObject({ questions: [], merged: ['question:how-long-orders-kept'] });
     expect(orders.outcome().questions).toEqual(['question:how-long-orders-kept']);
@@ -192,7 +198,7 @@ describe('a subject is asked once', () => {
     const { sink, open } = sessions();
     await open('ordering').call('ask_question', ask('How long are orders kept?'));
     const kept = parseQuestion('docs/questions/how-long-orders-kept.md', sink.pages.get('docs/questions/how-long-orders-kept.md')!);
-    expect(kept.about).toEqual(['domain:ordering']);
+    expect(kept.about).toEqual(['validation:ordering']);
   });
 
   test('two questions that share one document section but differ in the rest are two questions', async () => {
@@ -224,7 +230,7 @@ describe('a subject is asked once', () => {
     expect(again.answer).toMatchObject({ asked: false, answered: true, id: 'question:how-long-orders-kept', answer: 'Ninety days.' });
     expect(sink.pages.size).toBe(1);
     // An answered contradiction may stand on the answer alone, without repeating an obsolete uncertainty.
-    const written = await payments.call('write_page', { markdown: `${front}\n\nOrders are kept for ninety days.[^a]\n\n[^a]: [answer](madarch:question:how-long-orders-kept)\n` });
+    const written = await payments.call('write_page', { markdown: `${unitFront}\n\nOrders are kept for ninety days.[^a]\n\n[^a]: [answer](madarch:question:how-long-orders-kept)\n` });
     expect(written.isError, JSON.stringify(written.answer)).toBe(false);
   });
 
@@ -247,7 +253,7 @@ describe('a subject is asked once', () => {
 
 describe('a contradiction keeps both of its sides on the page', () => {
   const body = (grounds: string[]): string => ['Orders are deleted after six hours.[^a]', '', `[^a]: ${grounds.map((g) => `[x](madarch:${g})`).join(', ')}`].join('\n');
-  const header = `${front}\n\n`;
+  const header = `${unitFront}\n\n`;
 
   test('a page that states only the document\'s side is refused, naming the side that is missing and where to ground it', async () => {
     const { open } = sessions();
@@ -270,7 +276,7 @@ describe('a contradiction keeps both of its sides on the page', () => {
     const markdown = `${header}Orders are deleted after six hours.[^code]\n\nThe README promises ninety days; see the question.[^readme]\n\n[^code]: [x](madarch:code.file\u003aservices/orders/retention.ts)\n[^readme]: [x](madarch:doc:README.md#retention)\n`;
     const written = await tools.call('write_page', { markdown });
     expect(written.isError, JSON.stringify(written.answer)).toBe(false);
-    expect(sink.pages.has('docs/domains/payments.md')).toBe(true);
+    expect(sink.pages.has('docs/validation/payments.md')).toBe(true);
   });
 
   test('a ground in the same file as a side\'s ground counts: a function and its file are one place', async () => {
@@ -299,7 +305,7 @@ describe('a contradiction keeps both of its sides on the page', () => {
     expect(text).not.toContain('timeout');
     const view = { at: 'abc', overview: async () => ({ kinds: [], relations: [], documents: [] }), find: async () => ({ nodes: [], next: null }) } as unknown as GraphView;
     const domain = await domainPrompt(view, { kind: 'domain', id: 'domain:payments', path: 'docs/domains/payments.md', domain: { slug: 'payments', title: 'Payments', summary: 'Taken by the payments service.', evidence: ['code.service:payments'] } }, '', [], 'en');
-    expect(domain).toContain('Compare how neighbouring operations of this domain handle failure');
+    expect(domain).toContain('Compare how neighbouring operations of this domain treat what can go wrong');
     expect(domain).toContain('timeout');
   });
 });
@@ -383,7 +389,7 @@ describe('semantic comparison before a question is accepted (madarch-m38l.22)', 
       comparison: [decision('question:how-long-orders-kept', true)],
     }));
     expect(reused.answer).toMatchObject({ asked: false, id: 'question:how-long-orders-kept' });
-    const refused = await payments.call('write_page', { markdown: `${front}
+    const refused = await payments.call('write_page', { markdown: `${unitFront}
 
 The README promises ninety days.[^readme]
 
@@ -392,7 +398,7 @@ The README promises ninety days.[^readme]
     expect(refused.isError).toBe(true);
     expect(refused.answer).toMatchObject({ refused: [{ rule: 'contradiction-side-missing' }] });
     expect(JSON.stringify(refused.answer)).toContain('code.file:services/orders/retention.ts');
-    const accepted = await payments.call('write_page', { markdown: `${front}
+    const accepted = await payments.call('write_page', { markdown: `${unitFront}
 
 The README promises ninety days.[^readme]
 
@@ -413,7 +419,7 @@ The code deletes orders after six hours.[^code]
     const payments = open('payments');
     const reused = await payments.call('ask_question', ask('Which retention rule applies?', { type: 'gap', sides: [{ claim: 'The duration needs a decision.', grounds: ['doc:README.md#retention'] }], comparison: [decision(held.id, true)] }));
     expect(reused.answer).toMatchObject({ asked: false, answered: true, id: held.id, answer: 'Ninety days.' });
-    const accepted = await payments.call('write_page', { markdown: `${front}
+    const accepted = await payments.call('write_page', { markdown: `${unitFront}
 
 Orders are kept for ninety days.[^answer]
 
@@ -434,11 +440,11 @@ Orders are kept for ninety days.[^answer]
     const tools = open('payments');
     const reused = await tools.call('ask_question', ask('Retention duration?', { comparison: [decision(held.id, true)] }));
     expect(reused.answer).toMatchObject({ asked: false, answered: true, id: held.id, answer: 'Ninety days.' });
-    expect(parseQuestion(file, await sink.read(file)).about).toContain('domain:payments');
+    expect(parseQuestion(file, await sink.read(file)).about).toContain('validation:payments');
     const associated = await sink.read(file);
     expect(associated).toContain('producer: person');
     expect(associated.slice(associated.indexOf('\n---\n') + 5)).toBe(humanBody);
-    const rejected = await tools.call('write_page', { markdown: `${front}
+    const rejected = await tools.call('write_page', { markdown: `${unitFront}
 
 Orders are retained.[^retained]
 
@@ -446,7 +452,7 @@ Orders are retained.[^retained]
 ` });
     expect(rejected.isError).toBe(true);
     expect(JSON.stringify(rejected.answer)).toContain('answer-not-used');
-    const accepted = await tools.call('write_page', { markdown: `${front}
+    const accepted = await tools.call('write_page', { markdown: `${unitFront}
 
 Orders are retained for ninety days.[^retained]
 
@@ -508,7 +514,7 @@ Orders are retained for ninety days.[^retained]
     await open('ordering').call('ask_question', ask('How long are orders kept?', { type: 'gap', sides: [{ claim: 'The README leaves the duration unclear.', grounds: ['doc:README.md#retention'] }] }));
     const payments = open('payments');
     expect((await payments.call('ask_question', ask('Which retention duration applies?', { type: 'gap', sides: [{ claim: 'The code leaves the policy unclear.', grounds: ['code.file:services/orders/retention.ts'] }], comparison: [decision('question:how-long-orders-kept', true)] }))).answer).toMatchObject({ asked: false, merged: true });
-    const written = await payments.call('write_page', { markdown: `${front}
+    const written = await payments.call('write_page', { markdown: `${unitFront}
 
 The tax document names the tax policy.[^tax]
 
@@ -524,7 +530,7 @@ The tax document names the tax policy.[^tax]
     const payments = open('payments');
     const reused = await payments.call('ask_question', ask('Which retention duration applies?', { comparison: [decision('question:how-long-orders-kept', true)] }));
     expect(reused.answer).toMatchObject({ asked: false, merged: true });
-    const refused = await payments.call('write_page', { markdown: `${front}
+    const refused = await payments.call('write_page', { markdown: `${unitFront}
 
 The README promises ninety days.[^readme]
 
@@ -533,7 +539,7 @@ The README promises ninety days.[^readme]
     expect(refused.isError).toBe(true);
     expect(refused.answer).toMatchObject({ refused: [{ rule: 'contradiction-side-missing' }] });
     expect(JSON.stringify(refused.answer)).toContain('code.file:services/orders/retention.ts');
-    const accepted = await payments.call('write_page', { markdown: `${front}
+    const accepted = await payments.call('write_page', { markdown: `${unitFront}
 
 The README promises ninety days.[^readme]
 
