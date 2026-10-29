@@ -25,6 +25,10 @@ export const TEXT = {
     orderingLine: (service: string) => `is implemented by the [orders service](madarch:${service}).`,
     paymentsLine: (service: string) => `is implemented by the [payments service](madarch:${service}).`,
     how: (slug: string) => `How ${slug} works`,
+    orderingParticipant: 'A shopper places an order and waits for it to be paid.',
+    paymentsParticipant: 'A shopper pays for an order with a card.',
+    orderingSystem: (service: string) => `The orders service takes the order in and keeps it.`,
+    paymentsSystem: (service: string) => `The payments service charges the card through a provider.`,
     orderingStatement: "Checkout asks payments to authorize the card for the order's total.",
     paymentsStatement: 'Payments are charged through one of two providers chosen by configuration.',
   },
@@ -37,6 +41,10 @@ export const TEXT = {
     orderingLine: (service: string) => `реализует [сервис заказов](madarch:${service}).`,
     paymentsLine: (service: string) => `реализует [сервис платежей](madarch:${service}).`,
     how: (slug: string) => `Как работают ${slug === 'ordering' ? 'заказы' : 'платежи'}`,
+    orderingParticipant: 'Покупатель оформляет заказ и ждёт его оплаты.',
+    paymentsParticipant: 'Покупатель оплачивает заказ картой.',
+    orderingSystem: (service: string) => 'Сервис заказов принимает заказ и хранит его.',
+    paymentsSystem: (service: string) => 'Сервис платежей списывает деньги с карты через провайдера.',
     orderingStatement: 'При оформлении заказа сервис заказов просит сервис платежей авторизовать карту на сумму заказа.',
     paymentsStatement: 'Платёж проходит через одного из двух провайдеров, которого выбирает конфигурация.',
   },
@@ -64,16 +72,45 @@ export const productPage = (language: ScriptLanguage, places: PagePlaces = {}): 
     `[^3]: [payments](madarch:${PAYMENTS_SERVICE}), [UC-2](madarch:doc:docs/requirements.md#uc-2)`,
   ].join('\n');
 };
-export const domain = (language: ScriptLanguage, slug: 'ordering' | 'payments', service: string, grounds: string[]): string => {
+/**
+ * The fields of a domain page, as the domain unit answers them (`src/writer/domain-page.ts`, madarch-ztyq.6): the
+ * business first — who takes part, how it goes — and the places of the code in "developer". The grounds are split by
+ * what they are: a document section or a service stands in the business part, and a route, a symbol, a table or a
+ * channel is a place of the developer section, of the field its kind belongs to.
+ */
+export const domainFields = (language: ScriptLanguage, slug: 'ordering' | 'payments', service: string, grounds: string[], statement?: string): Record<string, unknown> => {
   const t = TEXT[language];
-  return [
-    '---', `id: domain:${slug}`, 'kind: domain', `title: ${t[slug]}`, 'relates:', `  - ${service}`, 'producer: agent', 'sources: [docs/requirements.md]', '---', '',
-    `## ${t.how(slug)}`, '', `${slug === 'ordering' ? t.orderingStatement : t.paymentsStatement}[^1]`, '',
-    `[^1]: ${grounds.map((ground) => `[${ground.replace(/^.*[:#/]/, '')}](madarch:${ground})`).join(', ')}`,
-  ].join('\n');
+  const place = (kind: 'routes' | 'functions' | 'tables' | 'events', target: string): Record<string, unknown> => ({ target });
+  const developer: Record<string, unknown> = {};
+  for (const ground of grounds) {
+    const field = ground.startsWith('code.route:') ? 'routes' : ground.startsWith('code.symbol:') ? 'functions' : ground.startsWith('code.table:') ? 'tables' : ground.startsWith('code.channel:') ? 'events' : undefined;
+    if (field === undefined) continue;
+    developer[field] = [...((developer[field] as Record<string, unknown>[] | undefined) ?? []), place(field, ground)];
+  }
+  const business = grounds.filter((ground) => !ground.startsWith('code.') || ground.startsWith('code.service:'));
+  const documents = business.filter((ground) => ground.startsWith('doc:'));
+  // `service` is the graph key itself (`code.service:orders`), as every caller gives it: the participants and the
+  // scenario stand on it when the documents name nothing, and it is the page's relates with the developer's places.
+  const services = [...new Set([service, ...business.filter((ground) => ground.startsWith('code.service:'))])];
+  const step = statement ?? (slug === 'ordering' ? t.orderingStatement : t.paymentsStatement);
+  return {
+    title: t[slug],
+    participants: [
+      { text: slug === 'ordering' ? t.orderingParticipant : t.paymentsParticipant, grounds: documents.length === 0 ? services : [documents[0]!] },
+      { text: slug === 'ordering' ? t.orderingSystem(service) : t.paymentsSystem(service), grounds: [service] },
+    ],
+    mainScenario: [{ text: step, grounds: business.length === 0 ? services : business }],
+    rules: [],
+    whatCanGoWrong: [],
+    openPoints: [],
+    developer: { ...developer, notes: [] },
+  };
 };
 
 export const call = (markdown: string, domains?: unknown) => ({ call: { tool: 'write_page', arguments: domains === undefined ? { markdown } : { markdown, domains } } });
+
+/** The call a domain unit's prompt asks for: the fields of its page, which the core writes. */
+export const fieldsCall = (fields: unknown) => ({ call: { tool: 'write_page', arguments: { fields } } });
 
 /** The call a localized-source unit's prompt asks for: the one statement it writes, in the wiki's language. */
 export const localizedCall = (statement: string) => ({ call: { tool: 'write_localized_source', arguments: { statement } } });
@@ -196,8 +233,8 @@ export function agentScript(delays: { product?: number; ordering?: number; payme
   const unit = (language: ScriptLanguage) => {
     const t = TEXT[language];
     return [
-      { matches: `The product unit declared this domain: ${t.orderingSummary}`, steps: [...wait(delays.ordering), call(domain(language, 'ordering', ORDERS_SERVICE, ['doc:docs/requirements.md#uc-2', PAY])), { end: { stopReason: 'end_turn' } }] },
-      { matches: `The product unit declared this domain: ${t.paymentsSummary}`, steps: [...wait(delays.payments), call(domain(language, 'payments', PAYMENTS_SERVICE, [FACTORY])), { end: { stopReason: 'end_turn' } }] },
+      { matches: `The product unit declared this domain: ${t.orderingSummary}`, steps: [...wait(delays.ordering), fieldsCall(domainFields(language, 'ordering', ORDERS_SERVICE, ['doc:docs/requirements.md#uc-2', PAY])), { end: { stopReason: 'end_turn' } }] },
+      { matches: `The product unit declared this domain: ${t.paymentsSummary}`, steps: [...wait(delays.payments), fieldsCall(domainFields(language, 'payments', PAYMENTS_SERVICE, [FACTORY])), { end: { stopReason: 'end_turn' } }] },
     ];
   };
   const productSteps = (language: ScriptLanguage) => {

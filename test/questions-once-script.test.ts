@@ -39,8 +39,11 @@ describe('questions-once reader fixture is bound to the actual answer key', () =
       expect(selected).toHaveLength(2);
       for (const entry of selected) {
         const written = entry.steps.find((step: any) => step.call?.tool === 'write_page') as any;
-        for (const claim of decision.text[language].claims) expect(written.call.arguments.markdown).toContain(claim);
-        for (const ground of decision.sides.flat()) expect(written.call.arguments.markdown).toContain(`](madarch:${ground})`);
+        // The page is fields (madarch-ztyq.6): each side of the contradiction stands as a grounded sentence of a
+        // business field, with that side's sources as its grounds and the question link at its end.
+        const fields = JSON.stringify(written.call.arguments.fields);
+        for (const claim of decision.text[language].claims) expect(fields).toContain(claim);
+        for (const ground of decision.sides.flat()) expect(fields).toContain(`\"${ground}\"`);
       }
     }
   });
@@ -49,8 +52,10 @@ describe('questions-once reader fixture is bound to the actual answer key', () =
       const script = onceRefillScript(language, { slug: 'declined-order', statement: 'card-authorization' });
       const ordering = script.byPrompt.find((entry) => entry.matches.includes(language === 'en' ? 'Ordering is what' : 'Заказы:'))!;
       const write = ordering.steps.find((step: any) => step.call?.tool === 'write_page') as any;
-      expect(write.call.arguments.markdown).toContain(`${ORDERING_CORRECTED[language]}[^card-authorization]`);
-      expect(write.call.arguments.markdown).toContain('[^card-authorization]: [the correction](madarch:correction:declined-order),');
+      // The corrected sentence replaces the one the page carried, and stands on the correction the people wrote.
+      const fields = JSON.stringify(write.call.arguments.fields);
+      expect(fields).toContain(ORDERING_CORRECTED[language]);
+      expect(fields).toContain('correction:declined-order');
     }
   });
   test('refresh and refill explicitly ask only the retained term answer and ground the payment statement', () => {
@@ -60,7 +65,7 @@ describe('questions-once reader fixture is bound to the actual answer key', () =
       expect(asks).toHaveLength(1);
       const term = ONCE_QUESTIONS.find((question) => question.item === 'open.term')!;
       expect(asks[0].call.arguments.question).toBe(term.text[language].question);
-      expect(steps.some((step) => step.call?.tool === 'write_page' && step.call.arguments.markdown.includes(`[^payment-token-means-cardtoken]: [the answer](madarch:question:${questionSlug(term, language)})`))).toBe(true);
+      expect(steps.some((step) => step.call?.tool === 'write_page' && JSON.stringify(step.call.arguments.fields).includes(`question:${questionSlug(term, language)}`))).toBe(true);
     }
   });
 });
