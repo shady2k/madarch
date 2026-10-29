@@ -264,6 +264,23 @@ async function nextLine(connection: Connection): Promise<string | undefined> {
   return connection.lines.shift();
 }
 
+/**
+ * Starts the worker of a product before a page needs it, and hands it the templates: the first page a reader opens pays a
+ * round trip instead of a process's start. A worker that cannot start is no page's problem yet; the page that needs it
+ * says why.
+ */
+export function warmRenderWorker(productFolder: string): void {
+  const slot = slotOf(productFolder);
+  if (slot.connection !== undefined || slot.busy) return;
+  try {
+    startWorker(slot);
+    const set = templateSetOf(productFolder);
+    void open(slot, set, RENDER_LIMITS, { wallClockMs: RENDER_BOUNDS.wallClockMs, memoryMiB: RENDER_BOUNDS.memoryMiB }).catch(() => undefined);
+  } catch {
+    // the page that needs a worker starts one and says what went wrong
+  }
+}
+
 /** Ends the worker of one product: a product that closes gives back what it holds. */
 export function closeRenderWorker(productFolder: string): void {
   const slot = slots.get(productFolder);
