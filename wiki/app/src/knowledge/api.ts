@@ -1,7 +1,7 @@
 import { appPath } from '../app-base.js';
 import { historyQuery } from './history-context.js';
 import { readJson, RequestError } from '../api.js';
-import type { AgentChoices, AgentOffer, AnswerResult, Block, CorrectionResult, CreatedTask, DiagramRenderer, DiagramView, DocumentListing, DocumentPageModel, EntityListing, FillState, Glossary, Neighborhood, PageJournal, PageModel, ProblemListing, ProductChoice, ProductSettings, QuestionDetail, QuestionListing, RefreshPreview, SourceFile, StatementModel, TaskDetail, TaskImpact, TaskListing, TaskProposal, TaskRow, TaskScope, UserSettings, WikiStatus } from './types.js';
+import type { AgentChoices, AgentOffer, AnswerResult, Block, CorrectionResult, CreatedTask, DiagramRenderer, DiagramView, DocumentListing, DocumentPageModel, EntityListing, FillState, Glossary, ModelRoleId, ModelRoleView, Neighborhood, PageJournal, PageModel, ProblemListing, ProductChoice, ProductSettings, QuestionDetail, QuestionListing, RefreshPreview, SourceFile, StatementModel, TaskDetail, TaskImpact, TaskListing, TaskProposal, TaskRow, TaskScope, UserSettings, WikiStatus } from './types.js';
 
 /** The wiki's status: manifest, kinds, repositories, fill. */
 export const getStatus = (signal?: AbortSignal): Promise<WikiStatus> => readJson<WikiStatus>('read the wiki', '/api/k/status', signal);
@@ -63,6 +63,27 @@ export async function chooseAgent(agent: string | null, install: boolean): Promi
   throw new RequestError('choose the agent', reason, response.status);
 }
 
+/** Assigns one model role to an (agent, model) pair, or removes it with null (madarch-j6ho.2). */
+export async function chooseModelRole(role: ModelRoleId, agent: string | null, options: { model?: string | null; reasoning?: string | null; install?: boolean } = {}): Promise<ModelRoleView> {
+  let response: Response;
+  try {
+    response = await fetch(appPath('/api/k/model-role'), { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ role, agent, ...options }) });
+  } catch (error) {
+    throw new RequestError('assign the model role', `the request failed (${error instanceof Error ? error.message : String(error)})`);
+  }
+  if (!response.ok) {
+    let reason = `the server answered ${response.status}`;
+    try {
+      const body = (await response.json()) as { error?: { message?: unknown } };
+      if (typeof body.error?.message === 'string') reason = body.error.message;
+    } catch {
+      // the status stands
+    }
+    throw new RequestError('assign the model role', reason, response.status);
+  }
+  return ((await response.json()) as { roles: ModelRoleView }).roles;
+}
+
 /** Starts the fill; the answer is the server's refusal in words when it cannot start. */
 export async function startFill(agent?: string | null, language?: string): Promise<void> {
   let response: Response;
@@ -116,6 +137,13 @@ export const getProductSettings = (signal?: AbortSignal): Promise<ProductSetting
 
 /** What the chosen agent reports over ACP as its models and reasoning levels; `fresh` asks the agent again. */
 export const getAgentChoices = (fresh = false, signal?: AbortSignal): Promise<AgentChoices> => readJson<AgentChoices>('ask the agent for its models', `/api/k/agent-choices${fresh ? '?fresh=1' : ''}`, signal);
+
+/** Asks one agent (not only the writing one) for the models it reports; a role's pair is chosen among them. */
+export const getAgentChoicesFor = (agent: string, fresh = false, signal?: AbortSignal): Promise<AgentChoices> => {
+  const query = new URLSearchParams({ agent });
+  if (fresh) query.set('fresh', '1');
+  return readJson<AgentChoices>('ask the agent for its models', `/api/k/agent-choices?${query.toString()}`, signal);
+};
 
 /** Saves the page language, the model and the reasoning level (`null` is the agent's own). */
 export const saveProductSettings = (settings: { language?: string; model?: string | null; reasoning?: string | null }): Promise<ProductSettings> => post<ProductSettings>('save the settings', '/api/k/product-settings', settings);

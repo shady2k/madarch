@@ -57,7 +57,17 @@ const BOUNDS = { turns: 30, minutes: 10, toolCalls: 80, writeAttempts: 5, maxDom
 
 const settings = (over: Partial<ProductSettings> = {}): ProductSettings => ({
   product: { name: 'shop', id: 'p1' }, folder: '/products/sample-product', store: '/state/knowledge/p1', language: 'ru',
-  chosenAgent: { id: 'claude-code', label: 'Claude Code' }, bounds: BOUNDS, busy: false,
+  chosenAgent: { id: 'claude-code', label: 'Claude Code' },
+  roles: {
+    defaultRole: 'writing',
+    defaultPair: { agent: 'claude-code' },
+    roles: [
+      { role: 'writing', pair: { agent: 'claude-code' }, source: 'assigned' },
+      { role: 'classification', pair: { agent: 'claude-code' }, source: 'fallback', fallbackFrom: 'writing', note: 'classification is not assigned, so it uses the default pair (writing)' },
+      { role: 'analysis', pair: { agent: 'claude-code' }, source: 'fallback', fallbackFrom: 'writing', note: 'analysis is not assigned, so it uses the default pair (writing)' },
+    ],
+  },
+  bounds: BOUNDS, busy: false,
   danger: {
     rewrite: { agentPages: ['docs/product.md', 'docs/domains/payments.md'], keptPages: ['docs/domains/mine.md'] },
     fresh: { unansweredQuestions: ['docs/questions/open.md'], keptAnswers: ['docs/questions/answered.md', 'docs/questions/other.md'], store: ['/x/graph'], agentPages: ['docs/product.md', 'docs/domains/payments.md'], keptPages: ['docs/domains/mine.md'], editedStarterFiles: ['templates/domain.md'], replacedStarterFiles: ['madarch/kinds.yaml', 'templates/domain.md'] },
@@ -93,6 +103,7 @@ describe('the product settings page', () => {
       if (url.endsWith('/api/k/product-settings')) return json(current);
       if (url.endsWith('/api/k/agent-choices') || url.includes('/api/k/agent-choices?')) return json(choices);
       if (url.endsWith('/api/k/agents')) return json({ agents: [{ id: 'claude-code', label: 'Claude Code', installed: true, login: 'signed-in', loginDetail: '', install: null }, { id: 'codex', label: 'Codex', installed: false, login: 'unknown', loginDetail: '', install: { package: '@zed-industries/codex-acp', version: '1.0.0', size: '40 MB', folder: '/h/agents' } }], chosen: { id: 'claude-code', label: 'Claude Code' } });
+      if (url.endsWith('/api/k/model-role')) return json({ role: (body as { role: string }).role, pair: null, roles: current.roles });
       if (url.endsWith('/api/k/rewrite-pages') || url.endsWith('/api/k/start-fresh') || url.endsWith('/api/k/agent')) return json({});
       return json({ message: 'not here' }, 404);
     };
@@ -116,6 +127,25 @@ describe('the product settings page', () => {
     expect(page.querySelector('[data-testid=bound-turns]')!.textContent).toBe('30');
     expect(page.querySelector('[data-testid=places-folder]')!.textContent).toBe('/products/sample-product');
     expect(page.querySelector('[data-testid=places-push]')!.textContent).toContain('no git push');
+  });
+
+  test('shows all three roles, the fallback note, and posts a role assignment with the role it names', async () => {
+    const calls: { url: string; body: unknown }[] = [];
+    stub(calls);
+    const page = into(createElement(SettingsPage, { version: 0, status: status(), refresh: () => undefined }));
+    await until(() => page.querySelector('[data-testid=settings-role-classification]') !== null, 'the roles');
+    expect(page.querySelector('[data-testid=settings-role-writing]')!.textContent).toContain('Writing');
+    expect(page.querySelector('[data-testid=settings-role-classification]')!.textContent).toContain('Classification');
+    expect(page.querySelector('[data-testid=settings-role-analysis]')!.textContent).toContain('Analysis');
+    expect(page.querySelector('[data-testid=settings-role-pair-writing]')!.textContent).toBe("Claude Code · the agent’s own choice");
+    expect(page.querySelector('[data-testid=settings-role-fallback-classification]')!.textContent).toBe("This role is not assigned, so it uses Writing’s pair.");
+    const select = page.querySelector('[data-testid=settings-role-select-classification]') as HTMLSelectElement;
+    expect([...select.querySelectorAll('option')].map((option) => option.textContent)).toEqual(["Use Writing’s pair", 'Claude Code', 'Codex (install its adapter)']);
+    select.value = 'codex';
+    select.dispatchEvent(new window.Event('change', { bubbles: true }));
+    await until(() => calls.length === 1, 'the role assignment');
+    expect(calls[0]!.url).toContain('/api/k/model-role');
+    expect(calls[0]!.body).toEqual({ role: 'classification', agent: 'codex', install: true });
   });
 
   test('choosing a model, a reasoning level and a language saves exactly that', async () => {
@@ -242,6 +272,8 @@ describe('the product settings page', () => {
     expect(page.querySelector('[data-testid=danger-fresh] h3')!.textContent).toBe('Начать с нуля');
     expect(page.querySelector('[data-testid=danger-rewrite] h3')!.textContent).toBe('Переписать страницы');
     expect(page.querySelector('[data-testid=settings-danger]')!.textContent).toContain('Локально: меняется только копия продукта в /products/sample-product на этой машине.');
+    expect(page.querySelector('[data-testid=settings-role-classification]')!.textContent).toContain('Классификация');
+    expect(page.querySelector('[data-testid=settings-role-fallback-analysis]')!.textContent).toContain('использует пару «Написание»');
   });
 });
 

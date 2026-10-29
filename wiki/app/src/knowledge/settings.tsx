@@ -12,12 +12,12 @@ import { navigateTo } from '../hold.js';
 import { Alert, AlertDescription, AlertTitle } from '@/components/ui/alert.js';
 import { Badge } from '@/components/ui/badge.js';
 import { Button } from '@/components/ui/button.js';
-import { chooseAgent, getAgentChoices, getAgents, getProductSettings, rewritePages, saveProductSettings, startFresh } from './api.js';
+import { chooseAgent, chooseModelRole, getAgentChoices, getAgents, getProductSettings, rewritePages, saveProductSettings, startFresh } from './api.js';
 import { useRead } from './live.js';
 import { PageSkeleton } from './skeleton.js';
 import { useTabTitle } from './tabs.js';
 import { K_HOME } from './routes.js';
-import type { AgentChoices, AgentOffer, Choice, ProductSettings, WikiStatus } from './types.js';
+import type { AgentChoices, AgentOffer, Choice, ModelRoleId, ProductSettings, WikiStatus } from './types.js';
 
 const message = (failure: unknown): string => (failure instanceof Error ? failure.message : String(failure));
 
@@ -131,6 +131,83 @@ function ModelSection({ settings, reload }: { settings: ProductSettings; reload:
         </Alert>
       )}
       {answer !== null && <p className="mb-0 mt-3 text-small text-muted">{t('settings.model.note')}</p>}
+    </Section>
+  );
+}
+
+/**
+ * The model roles (madarch-j6ho.2): writing, classification and analysis. A role is assigned a pair; an unassigned
+ * role shows, in words, that it uses writing's pair. No feature names a model, so this page is the only place a pair
+ * is chosen for a role.
+ */
+function RolesSection({ settings, reload }: { settings: ProductSettings; reload: () => void }): ReactElement {
+  const { t } = useTranslation();
+  const [agents, setAgents] = useState<AgentOffer[] | null>(null);
+  const [error, setError] = useState<string | null>(null);
+  const [working, setWorking] = useState<ModelRoleId | null>(null);
+  const [round, setRound] = useState(0);
+  useEffect(() => {
+    const controller = new AbortController();
+    getAgents(controller.signal).then((answer) => setAgents(answer.agents), (failure: unknown) => { if (!controller.signal.aborted) setError(message(failure)); });
+    return () => controller.abort();
+  }, [round]);
+  const label = (id: string): string => agents?.find((agent) => agent.id === id)?.label ?? id;
+  const assign = (role: ModelRoleId, agent: string | null): void => {
+    setWorking(role);
+    setError(null);
+    chooseModelRole(role, agent, { install: true }).then(() => { setWorking(null); reload(); }, (failure: unknown) => { setWorking(null); setError(message(failure)); });
+  };
+  return (
+    <Section id="roles" title={t('settings.roles.title')} intro={t('settings.roles.intro')}>
+      <ul className="m-0 grid list-none gap-3 p-0">
+        {settings.roles.roles.map((role) => {
+          const roleLabel = t(`settings.roles.${role.role}`);
+          const pairLabel = role.pair === null
+            ? t('settings.roles.unassigned')
+            : `${label(role.pair.agent)} · ${role.pair.model ?? t('settings.roles.agentsOwn')}`;
+          return (
+            <li key={role.role} className="rounded-[var(--radius-card)] border border-line p-3" data-testid={`settings-role-${role.role}`} data-source={role.source}>
+              <div className="flex flex-wrap items-baseline gap-x-3 gap-y-1">
+                <span className="font-medium text-ink">{roleLabel}</span>
+                <span className="text-small text-secondary" data-testid={`settings-role-pair-${role.role}`}>{pairLabel}</span>
+              </div>
+              {role.source === 'fallback' && role.fallbackFrom !== undefined && (
+                <p className="mb-0 mt-1 text-small text-muted" data-testid={`settings-role-fallback-${role.role}`}>
+                  {t('settings.roles.fallback', { role: t(`settings.roles.${role.fallbackFrom}`) })}
+                </p>
+              )}
+              {role.source === 'none' && role.pair === null && (
+                <p className="mb-0 mt-1 text-small text-muted" data-testid={`settings-role-none-${role.role}`}>{t('settings.roles.noDefault')}</p>
+              )}
+              {role.role !== 'writing' && (
+                <div className="mt-2">
+                  <label htmlFor={`settings-role-select-${role.role}`} className="mb-1 block text-small font-medium text-ink">{t('settings.roles.assign', { role: roleLabel })}</label>
+                  <select
+                    id={`settings-role-select-${role.role}`}
+                    data-testid={`settings-role-select-${role.role}`}
+                    className="w-full max-w-[28rem] rounded-[var(--radius-control)] border border-line bg-page px-2.5 py-2 text-body text-ink"
+                    value={role.source === 'assigned' && role.pair !== null ? role.pair.agent : ''}
+                    disabled={working !== null || settings.busy}
+                    onChange={(event) => assign(role.role, event.target.value === '' ? null : event.target.value)}
+                  >
+                    <option value="">{settings.roles.defaultPair === null ? t('settings.roles.unassigned') : t('settings.roles.useDefault', { role: t('settings.roles.writing') })}</option>
+                    {(agents ?? []).map((agent) => <option key={agent.id} value={agent.id}>{agent.installed ? agent.label : t('settings.roles.installs', { agent: agent.label })}</option>)}
+                  </select>
+                </div>
+              )}
+            </li>
+          );
+        })}
+      </ul>
+      {agents === null && error === null && <p className="mb-0 mt-3 text-small text-muted">{t('knowledge.loading')}</p>}
+      {settings.busy && <p className="mb-0 mt-3 text-small text-muted">{t('settings.busy')}</p>}
+      {error !== null && (
+        <Alert variant="problem" className="mt-3" data-testid="settings-roles-error">
+          <AlertTitle>{t('settings.roles.failed')}</AlertTitle>
+          <AlertDescription><p>{error}</p><p className="mt-2"><Button variant="default" size="default" onClick={() => setRound(round + 1)}>{t('settings.model.retry')}</Button></p></AlertDescription>
+        </Alert>
+      )}
+      <p className="mb-0 mt-3 text-small text-muted">{t('settings.roles.note')}</p>
     </Section>
   );
 }
@@ -285,6 +362,7 @@ export function SettingsPage({ version, status, refresh }: { version: number; st
       </header>
       <AgentSection settings={data} reload={again} />
       <ModelSection settings={data} reload={again} />
+      <RolesSection settings={data} reload={again} />
       <LanguageSection settings={data} reload={again} />
       <BoundsSection settings={data} />
       <PlacesSection settings={data} />

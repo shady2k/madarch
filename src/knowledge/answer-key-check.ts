@@ -23,6 +23,9 @@ import { join, resolve } from 'node:path';
 import { readProduct, MANIFEST_FILE } from '../product/manifest.js';
 import { KnowledgeProduct } from './product.js';
 import type { Block, DocumentPage } from './model.js';
+import { judgeAnswerKeyCheck, judgeLines, type Judge, type JudgeReport } from './answer-key-judge.js';
+import { acpJudge } from './answer-key-acp-judge.js';
+import type { DraftEnv } from '../product/home.js';
 
 export type Classification = 'fully' | 'partly' | 'none' | 'unsure';
 
@@ -126,11 +129,15 @@ export interface EvidenceSource {
 }
 
 export interface EvidencePassage {
+  /** The id a judge quotes: one of the pack's own passages, never a passage it invents. */
+  readonly id: string;
   readonly page: string;
   readonly block: string;
   readonly line?: number;
   readonly text: string;
 }
+
+type RawPassage = Omit<EvidencePassage, 'id'>;
 
 export interface LocationEvidence {
   readonly location: AnswerKeyLocation;
@@ -168,6 +175,10 @@ export interface AnswerKeyPack {
   };
   readonly expectedQuestions?: readonly ExpectedQuestion[];
   readonly currentQuestions?: readonly EvidenceQuestion[];
+  /** Set only when the role-based judging step ran (madarch-j6ho.2). */
+  readonly judgedBy?: 'jev' | 'classification' | 'analysis';
+  readonly judgeReason?: string;
+  readonly judgePassages?: readonly string[];
 }
 
 export interface AnswerKeyCounts {
@@ -213,6 +224,8 @@ export interface AnswerKeyCheck {
   readonly seam: AnswerKeySeam;
   readonly questions: AnswerKeyQuestionSummary;
   readonly items: readonly AnswerKeyPack[];
+  /** The role-based judging step's account; absent until it runs. */
+  readonly judge?: JudgeReport;
 }
 
 const QUESTION_ITEM_PREFIX = 'open.';
@@ -460,12 +473,12 @@ function blockLocation(block: Block): { path?: string; lineStart?: number } {
   };
 }
 
-function sourcePassages(page: EvidencePage, block: Block, needles: readonly string[]): EvidencePassage[] {
+function sourcePassages(page: EvidencePage, block: Block, needles: readonly string[]): RawPassage[] {
   const value = block as unknown as { type?: unknown; text?: unknown };
   if (value.type !== 'source' || typeof value.text !== 'string') return [];
   const text = value.text;
   const lineStart = blockLocation(block).lineStart ?? 1;
-  const found: EvidencePassage[] = [];
+  const found: RawPassage[] = [];
   if (needles.length === 0) {
     found.push({ page: page.id, block: 'source', line: lineStart, text: excerpt(text, 0, 0) });
     return found;
@@ -501,12 +514,12 @@ function proseValues(value: unknown, field: string | undefined, out: string[]): 
   }
 }
 
-function genericBlockPassages(page: EvidencePage, block: Block, needles: readonly string[]): EvidencePassage[] {
+function genericBlockPassages(page: EvidencePage, block: Block, needles: readonly string[]): RawPassage[] {
   const type = typeof (block as { type?: unknown }).type === 'string' ? String((block as { type?: unknown }).type) : 'block';
   if (!READABLE_BLOCKS.has(type)) return [];
   const values: string[] = [];
   proseValues(block, undefined, values);
-  const found: EvidencePassage[] = [];
+  const found: RawPassage[] = [];
   for (const text of values) {
     if (needles.length === 0) {
       if (text.trim() !== '') found.push({ page: page.id, block: type, text: excerpt(text, 0, 0) });
@@ -526,8 +539,8 @@ function genericBlockPassages(page: EvidencePage, block: Block, needles: readonl
   return found;
 }
 
-function passagesOfPage(page: EvidencePage, needles: readonly string[]): EvidencePassage[] {
-  const found: EvidencePassage[] = [];
+function passagesOfPage(page: EvidencePage, needles: readonly string[]): RawPassage[] {
+  const found: RawPassage[] = [];
   for (const block of page.blocks) {
     const source = sourcePassages(page, block, needles);
     if (source.length > 0) found.push(...source);
@@ -547,10 +560,10 @@ function passagesOfPage(page: EvidencePage, needles: readonly string[]): Evidenc
   });
 }
 
-function passagesOfDocument(document: EvidenceDocument, needles: readonly string[]): EvidencePassage[] {
+function passagesOfDocument(document: EvidenceDocument, needles: readonly string[]): RawPassage[] {
   const page = `document:${document.repo ?? ''}:${document.path}`;
   const lines = document.markdown.split('\n');
-  const found: EvidencePassage[] = [];
+  const found: RawPassage[] = [];
   for (const [index, line] of lines.entries()) {
     if (needles.length === 0 || needles.some((needle) => line.includes(needle))) {
       const start = Math.max(0, index - 2);
@@ -591,8 +604,8 @@ export async function buildAnswerKeyCheck(source: EvidenceSource, key: AnswerKey
   const items: AnswerKeyPack[] = [];
   for (const item of key.items) {
     const questionItem = item.id.startsWith(QUESTION_ITEM_PREFIX);
-    const locationEvidence: LocationEvidence[] = [];
-    const passages: EvidencePassage[] = [];
+    const locationEvidence: (Omit<LocationEvidence, 'passages'> & { passages: RawPassage[] })[] = [];
+    const passages: RawPassage[] = [];
     const allText: string[] = [];
     for (const location of locationsOf(item)) {
       const needles = [location.symbol, location.anchor].filter((one): one is string => one !== undefined);
@@ -607,7 +620,7 @@ export async function buildAnswerKeyCheck(source: EvidenceSource, key: AnswerKey
       const document = source.isFinal(location.snapshot) && place !== undefined ? await source.document(place.repo, location.path) : undefined;
       const pagePresent = pages.some((one) => one.historicalAbsent !== true);
       const present = pagePresent || document !== undefined;
-      const locationPassages: EvidencePassage[] = [];
+      const locationPassages: RawPassage[] = [];
       const locationText: string[] = [];
       for (const page of pages) {
         locationPassages.push(...passagesOfPage(page, needles));
@@ -629,7 +642,7 @@ export async function buildAnswerKeyCheck(source: EvidenceSource, key: AnswerKey
       const missingNeedles = needles.filter((needle) => !includesExact(localText, needle));
       const historyCoverage = pages.find((one) => one.history !== undefined)?.history?.coverage ?? null;
       const found = present && missingNeedles.length === 0;
-      const evidence: LocationEvidence = {
+      const evidence: Omit<LocationEvidence, 'passages'> & { passages: RawPassage[] } = {
         location,
         pageId,
         symbolPageId,
@@ -655,6 +668,19 @@ export async function buildAnswerKeyCheck(source: EvidenceSource, key: AnswerKey
       locationEvidence.push(evidence);
       passages.push(...locationPassages);
     }
+    // A judge quotes passages by id. The ids are made once per pack, from the passages the evidence actually
+    // holds, so an id the pack does not have cannot be accepted later (madarch-j6ho.2).
+    const passageIds = new Map<string, EvidencePassage>();
+    const withId = (passage: RawPassage): EvidencePassage => {
+      const key = JSON.stringify([passage.page, passage.block, passage.line ?? null, passage.text]);
+      const held = passageIds.get(key);
+      if (held !== undefined) return held;
+      const made: EvidencePassage = { id: `p${passageIds.size + 1}`, ...passage };
+      passageIds.set(key, made);
+      return made;
+    };
+    const finalizedLocations: LocationEvidence[] = locationEvidence.map((location) => ({ ...location, passages: location.passages.map(withId) }));
+    const finalizedPassages = passages.map(withId);
     const combined = allText.join('\n');
     const mustShowMatched = item.judge.mustShow.filter((phrase) => includesWord(combined, phrase));
     const mustShowMissing = item.judge.mustShow.filter((phrase) => !includesWord(combined, phrase));
@@ -663,12 +689,12 @@ export async function buildAnswerKeyCheck(source: EvidenceSource, key: AnswerKey
     const partial = {
       item,
       questionItem,
-      locations: locationEvidence,
-      passages,
+      locations: finalizedLocations,
+      passages: finalizedPassages,
       checks: {
-        locationsPresent: locationEvidence.filter((location) => location.present).length,
-        locationsTotal: locationEvidence.length,
-        locationsFound: locationEvidence.filter((location) => location.found).length,
+        locationsPresent: finalizedLocations.filter((location) => location.present).length,
+        locationsTotal: finalizedLocations.length,
+        locationsFound: finalizedLocations.filter((location) => location.found).length,
         mustShowMatched,
         mustShowMissing,
         mustLinkMatched,
@@ -733,6 +759,7 @@ export function reportText(check: AnswerKeyCheck): string {
   for (const [index, question] of check.questions.expected.entries()) lines.push(`  ${index + 1}. [${question.type}] ${question.subject} (${question.file})`);
   lines.push(`current question pages: ${check.questions.current.length}`);
   for (const item of check.items) if (item.classification === 'unsure') lines.push(`unsure ${item.item.id}: ${item.reason}`);
+  lines.push(...judgeLines(check));
   return lines.join('\n');
 }
 
@@ -751,6 +778,7 @@ export function writeAnswerKeyCheck(check: AnswerKeyCheck, outFolder: string): {
     gate: check.gate,
     seam: check.seam,
     questions: check.questions,
+    judge: check.judge,
     items: check.items.filter((item) => item.classification === 'unsure'),
   }, null, 2)}\n`);
   writeFileSync(report, `${JSON.stringify({
@@ -764,6 +792,7 @@ export function writeAnswerKeyCheck(check: AnswerKeyCheck, outFolder: string): {
     gate: check.gate,
     seam: check.seam,
     questions: { source: check.questions.source, field: check.questions.field, expected: check.questions.expected, current: check.questions.current },
+    judge: check.judge,
     reasons: check.items.map((item) => ({ id: item.item.id, classification: item.classification, reason: item.reason })),
   }, null, 2)}\n`);
   return { packs, unsure, report };
@@ -862,6 +891,12 @@ export interface RunAnswerKeyCheckOptions {
   readonly keyFile: string;
   readonly questionKeyFile: string;
   readonly outFolder: string;
+  /** The host's older reader; when passed it judges first and no model role is started. */
+  readonly jev?: Judge;
+  /** How a role's resolved pair becomes a judge; the production ACP judge when absent. Tests pass fakes. */
+  readonly judgeForPair?: (pair: import('./model-roles.js').ModelPair, role: import('./model-roles.js').ModelRole) => Judge;
+  /** The environment the role agents start in; the process's own when absent. */
+  readonly env?: DraftEnv;
 }
 
 export async function runAnswerKeyCheck(options: RunAnswerKeyCheckOptions): Promise<{ check: AnswerKeyCheck; written: { packs: string; unsure: string; report: string } }> {
@@ -870,7 +905,12 @@ export async function runAnswerKeyCheck(options: RunAnswerKeyCheckOptions): Prom
   const product = new KnowledgeProduct({ productFolder: options.productFolder, storeRoot: options.storeRoot });
   try {
     const source = new ProductEvidenceSource(product, options.productFolder, key, join(options.productFolder, MANIFEST_FILE));
-    const check = await buildAnswerKeyCheck(source, key, expected, options.keyFile);
+    const built = await buildAnswerKeyCheck(source, key, expected, options.keyFile);
+    const check = await judgeAnswerKeyCheck(built, {
+      ...(options.jev === undefined ? {} : { jev: options.jev }),
+      roles: product.modelRoles(),
+      judgeForPair: options.judgeForPair ?? ((pair, role) => acpJudge(pair, role, { env: options.env ?? process.env })),
+    });
     return { check, written: writeAnswerKeyCheck(check, options.outFolder) };
   } finally {
     await product.close();

@@ -171,6 +171,96 @@ describe('the model and the reasoning level are the agent\'s own to name', () =>
   }, 60_000);
 });
 
+describe('the model roles (madarch-j6ho.2)', () => {
+  const choices: AgentChoices = {
+    model: { configId: 'model', name: 'Model', current: 'sonnet', values: [{ value: 'sonnet', name: 'Sonnet' }, { value: 'opus', name: 'Opus' }] },
+    reasoning: { configId: 'effort', name: 'Effort', current: null, values: [{ value: 'low', name: 'Low' }, { value: 'high', name: 'High' }] },
+  };
+
+  function installed(rootFolder: string): void {
+    const bin = join(rootFolder, 'none');
+    mkdirSync(bin, { recursive: true });
+    writeFileSync(join(bin, 'claude-agent-acp'), '#!/bin/sh\n', { mode: 0o755 });
+  }
+
+  test('the writer choice is the writing role unchanged, and an unassigned role says it falls back', async () => {
+    const { folder, store } = oldProduct();
+    const held = product(folder, store);
+    const id = (held.product() as { id: string }).id;
+    mkdirSync(join(store, id), { recursive: true });
+    writeFileSync(join(store, id, 'writer.json'), '{"agent":"claude-code","model":"opus","reasoning":"high"}\n');
+    const view = held.modelRoles();
+    expect(view.defaultPair).toEqual({ agent: 'claude-code', model: 'opus', reasoning: 'high' });
+    expect(view.roles.find((role) => role.role === 'writing')).toEqual({ role: 'writing', pair: { agent: 'claude-code', model: 'opus', reasoning: 'high' }, source: 'assigned' });
+    expect(view.roles.find((role) => role.role === 'classification')).toMatchObject({ source: 'fallback', fallbackFrom: 'writing', pair: { agent: 'claude-code', model: 'opus', reasoning: 'high' } });
+    expect(view.roles.find((role) => role.role === 'analysis')?.note).toContain('analysis is not assigned');
+    expect(held.settingsView().roles).toEqual(view);
+  }, 60_000);
+
+  test('a role is assigned a pair; clearing writing keeps the other roles; clearing a role removes only it', async () => {
+    const { folder, store } = oldProduct();
+    installed(root!);
+    const held = product(folder, store, { choicesQuery: async () => ({ ok: true, choices }) });
+    const id = (held.product() as { id: string }).id;
+    mkdirSync(join(store, id), { recursive: true });
+    writeFileSync(join(store, id, 'writer.json'), '{"agent":"claude-code"}\n');
+    const assigned = await held.chooseRole('classification', 'claude-code', 'opus', 'low');
+    expect(assigned).toEqual({ ok: true, role: 'classification', pair: { agent: 'claude-code', model: 'opus', reasoning: 'low' } });
+    expect(JSON.parse(readFileSync(join(store, id, 'writer.json'), 'utf8'))).toEqual({
+      agent: 'claude-code',
+      roles: { classification: { agent: 'claude-code', model: 'opus', reasoning: 'low' } },
+    });
+    expect(held.modelRoles().roles.find((role) => role.role === 'analysis')).toMatchObject({ source: 'fallback', fallbackFrom: 'writing' });
+    expect(await held.chooseAgent(null, false)).toEqual({ ok: true, agent: null });
+    expect(JSON.parse(readFileSync(join(store, id, 'writer.json'), 'utf8'))).toEqual({
+      roles: { classification: { agent: 'claude-code', model: 'opus', reasoning: 'low' } },
+    });
+    expect(held.modelRoles().roles.find((role) => role.role === 'writing')).toEqual({ role: 'writing', pair: null, source: 'none' });
+    expect(held.modelRoles().roles.find((role) => role.role === 'analysis')).toEqual({ role: 'analysis', pair: null, source: 'none' });
+    expect(await held.chooseRole('classification', null)).toEqual({ ok: true, role: 'classification', pair: null });
+    expect(existsSync(join(store, id, 'writer.json'))).toBe(false);
+  }, 60_000);
+
+  test('the route assigns a role, and another site\'s page cannot', async () => {
+    const { folder, store } = oldProduct();
+    installed(root!);
+    const held = product(folder, store, { choicesQuery: async () => ({ ok: true, choices: { model: null, reasoning: null } }) });
+    const id = (held.product() as { id: string }).id;
+    mkdirSync(join(store, id), { recursive: true });
+    writeFileSync(join(store, id, 'writer.json'), '{"agent":"claude-code"}\n');
+    const makers = {
+      json: (status: number, body: unknown): Response => Response.json(body, { status }),
+      refused: (status: number, error: { message: string }) => ({ response: Response.json({ error }, { status }), refusal: error.message }),
+      errorLog: () => undefined,
+    };
+    const part = createKnowledgePart(makers as never, held, () => [], {});
+    const post = (body: unknown, headers: Record<string, string> = {}): Request => new Request('http://wiki.test/api/k/model-role', { method: 'POST', headers: { 'content-type': 'application/json', ...headers }, body: JSON.stringify(body) });
+    expect((await part.modelRole(post({ role: 'classification', agent: 'claude-code' }, { 'sec-fetch-site': 'cross-site' }))).response.status).toBe(403);
+    expect((await part.modelRole(post({ agent: 'claude-code' }))).response.status).toBe(400);
+    const done = await part.modelRole(post({ role: 'classification', agent: 'claude-code' }, { 'sec-fetch-site': 'same-origin' }));
+    expect(done.response.status).toBe(200);
+    const answer = await done.response.json() as { role: string; pair: { agent: string }; roles: { roles: { role: string; source: string }[] } };
+    expect(answer).toMatchObject({ role: 'classification', pair: { agent: 'claude-code' } });
+    expect(answer.roles.roles.find((role) => role.role === 'classification')).toMatchObject({ source: 'assigned' });
+    expect(JSON.parse(readFileSync(join(store, id, 'writer.json'), 'utf8'))).toEqual({ agent: 'claude-code', roles: { classification: { agent: 'claude-code' } } });
+    const asked = await part.agentChoices(new Request('http://wiki.test/api/k/agent-choices?agent=claude-code', { headers: { 'sec-fetch-site': 'same-origin' } }));
+    expect(asked.response.status).toBe(200);
+    expect(await asked.response.json()).toMatchObject({ agent: { id: 'claude-code' }, choices: { model: null, reasoning: null } });
+  }, 60_000);
+
+  test('an unknown role and a model the agent does not report are refused in words', async () => {
+    const { folder, store } = oldProduct();
+    installed(root!);
+    const held = product(folder, store, { choicesQuery: async () => ({ ok: true, choices }) });
+    const unknown = await held.chooseRole('guessing', 'claude-code');
+    expect(unknown).toMatchObject({ ok: false, status: 400 });
+    if (!unknown.ok) expect(unknown.message).toContain('the roles are writing, classification and analysis');
+    const bad = await held.chooseRole('classification', 'claude-code', 'gpt-nine');
+    expect(bad).toMatchObject({ ok: false, status: 400 });
+    if (!bad.ok) expect(bad.message).toContain('it reports sonnet, opus');
+  }, 60_000);
+});
+
 describe('the two local resets', () => {
   const page = (id: string, producer: string): string => `---\nid: ${id}\nkind: domain\ntitle: X\nrelates: []\nproducer: ${producer}\nsources: []\n---\n\nText.\n`;
 

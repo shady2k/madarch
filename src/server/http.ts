@@ -613,6 +613,7 @@ export function createHandler(dependencies: {
         { method: 'GET', path: '/api/k/product-settings', handle: (request: Request) => dependencies.knowledge!.productSettings(request) },
         { method: 'POST', path: '/api/k/product-settings', handle: (request: Request) => dependencies.knowledge!.productSettings(request) },
         { method: 'GET', path: '/api/k/agent-choices', handle: (request: Request) => dependencies.knowledge!.agentChoices(request) },
+        { method: 'POST', path: '/api/k/model-role', handle: (request: Request) => dependencies.knowledge!.modelRole(request) },
         { method: 'POST', path: '/api/k/starter', handle: (request: Request) => dependencies.knowledge!.starter(request) },
         { method: 'POST', path: '/api/k/rewrite-pages', handle: (request: Request) => dependencies.knowledge!.rewritePages(request) },
         { method: 'POST', path: '/api/k/start-fresh', handle: (request: Request) => dependencies.knowledge!.startFresh(request) },

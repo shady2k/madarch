@@ -373,6 +373,18 @@ export type DangerPlan = {
   fresh: { store: string[]; agentPages: string[]; keptPages: string[]; unansweredQuestions: string[]; keptAnswers: string[]; editedStarterFiles: string[]; replacedStarterFiles: string[] };
 };
 
+/** The model roles a feature may ask for (madarch-j6ho.2). */
+export type ModelRoleId = 'writing' | 'classification' | 'analysis';
+export type ModelPair = { agent: string; model?: string; reasoning?: string };
+export type ResolvedModelRole = {
+  role: ModelRoleId;
+  pair: ModelPair | null;
+  source: 'assigned' | 'fallback' | 'none';
+  fallbackFrom?: 'writing';
+  note?: string;
+};
+export type ModelRoleView = { defaultRole: 'writing'; defaultPair: ModelPair | null; roles: ResolvedModelRole[] };
+
 /** The product settings page (madarch-m38l.11): what is set for this product on this machine. */
 export type ProductSettings = {
   product: { name: string; id: string };
@@ -380,6 +392,7 @@ export type ProductSettings = {
   store: string;
   language: string;
   chosenAgent: { id: string; label: string; model?: string; reasoning?: string } | null;
+  roles: ModelRoleView;
   bounds: WriterBounds;
   danger: DangerPlan;
   dangerError?: string;

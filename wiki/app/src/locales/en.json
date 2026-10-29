@@ -833,6 +833,22 @@
       "retry": "Ask again",
       "note": "A model the agent stops offering is skipped at the next fill, and the agent's own is used."
     },
+    "roles": {
+      "title": "Model roles",
+      "intro": "Features ask for a role, never for a model. Each role has one (agent, model) pair; an unassigned role uses Writing’s pair and says so.",
+      "writing": "Writing",
+      "classification": "Classification",
+      "analysis": "Analysis",
+      "unassigned": "Not assigned",
+      "agentsOwn": "the agent’s own choice",
+      "fallback": "This role is not assigned, so it uses {{role}}’s pair.",
+      "noDefault": "No pair is assigned, and Writing has none, so this role has no pair to use.",
+      "useDefault": "Use {{role}}’s pair",
+      "installs": "{{agent}} (install its adapter)",
+      "assign": "Assign {{role}}",
+      "failed": "The role could not be assigned",
+      "note": "A role changes only when a feature asks for it. Writing is the pair chosen above; no feature names a model itself."
+    },
     "language": {
       "title": "Language of the pages",
       "intro": "The language the agent writes the product pages in.",
