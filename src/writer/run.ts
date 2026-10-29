@@ -755,11 +755,11 @@ export async function runWriter(options: WriterOptions): Promise<WriterReport> {
       let outcome: UnitOutcome | undefined;
       if (page === PRODUCT_PATH) {
         const digest = writerUnitDigest({ kind: 'product', version: versionOf('product'), scope: slug, language, inputs: [...pinned(), ...revisions.map(textDigest), ...upstreamOf('product')] });
+        // A revision is not the page's own attempt: it keeps its own fresh bounds and never writes the page unit's state
+        // or status. A refusal is reported here, and the outcome (and artifact) the unit wrote before the pass stands.
         const run = await runGraphUnit({
           id: productUnit.id, kind: 'product', scope: slug, path: PRODUCT_PATH, asked: true,
-          digest, state, resumed, sink, now, stateProblem,
-          ...(options.onUnitStart === undefined ? {} : { onUnitStart: options.onUnitStart }),
-          ...(options.onUnit === undefined ? {} : { onUnit: options.onUnit }),
+          digest, state: NO_WRITER_STATE, resumed: new Map(), sink, now,
           start: async () => {
             const tools = new UnitTools(view, productUnit, sink, [], bounds, basis, extras);
             const declared = await declaredNow();
@@ -775,15 +775,20 @@ export async function runWriter(options: WriterOptions): Promise<WriterReport> {
           await rememberPage('product-page', 'product', productUnit.id, PRODUCT_PATH, options.productName);
         }
       } else if (page.startsWith(`${DOMAINS_FOLDER}/`)) {
-        let declaration: DomainDeclaration;
-        try { declaration = declarationOf(page, current); } catch (error) { editorialProblems.push(`${path.resolve(options.output, page)}:1: ${error instanceof Error ? error.message : String(error)}`); continue; }
+        const pageName = page.slice(page.lastIndexOf('/') + 1);
+        const slugOfPage = pageName.endsWith('.md') ? pageName.slice(0, -'.md'.length) : pageName;
+        // The product unit's declaration is the domain's own summary and evidence. Reading them back from the page is
+        // only a fallback: a page's first sentence is not the summary that was declared, and a revision must keep the
+        // declaration the run was given (madarch-ztyq.9, CI follow-up).
+        let declaration = declarations.find((entry) => entry.slug === slugOfPage);
+        if (declaration === undefined) {
+          try { declaration = declarationOf(page, current); } catch (error) { editorialProblems.push(`${path.resolve(options.output, page)}:1: ${error instanceof Error ? error.message : String(error)}`); continue; }
+        }
         const spec: UnitSpec = { kind: 'domain', id: `domain:${declaration.slug}`, path: page, domain: declaration, productId: productUnit.id };
         const digest = writerUnitDigest({ kind: 'domains', version: versionOf('domains'), scope: declaration.slug, language, inputs: [...pinned(), declaration.summary, ...declaration.evidence, ...revisions.map(textDigest), ...upstreamOf('domains')] });
         const run = await runGraphUnit({
           id: spec.id, kind: 'domains', scope: declaration.slug, path: page, asked: true,
-          digest, state, resumed, sink, now, stateProblem,
-          ...(options.onUnitStart === undefined ? {} : { onUnitStart: options.onUnitStart }),
-          ...(options.onUnit === undefined ? {} : { onUnit: options.onUnit }),
+          digest, state: NO_WRITER_STATE, resumed: new Map(), sink, now,
           start: async () => {
             const tools = new UnitTools(view, spec, sink, declarations, bounds, basis, extras);
             return await runUnit(options.agent, tools, await domainPrompt(view, spec, productPage, declarations, language, { questions, revisions, reads: readsFor('domains') }));
@@ -802,9 +807,7 @@ export async function runWriter(options: WriterOptions): Promise<WriterReport> {
         const digest = writerUnitDigest({ kind: 'overview', version: versionOf('overview'), scope: slug, language, inputs: [...pinned(), ...revisions.map(textDigest), ...upstreamOf('overview')] });
         const run = await runGraphUnit({
           id, kind: 'overview', scope: slug, path: OVERVIEW_PATH, asked: true,
-          digest, state, resumed, sink, now, stateProblem,
-          ...(options.onUnitStart === undefined ? {} : { onUnitStart: options.onUnitStart }),
-          ...(options.onUnit === undefined ? {} : { onUnit: options.onUnit }),
+          digest, state: NO_WRITER_STATE, resumed: new Map(), sink, now,
           start: async () => {
             const spec: UnitSpec = { kind: 'overview', id, path: OVERVIEW_PATH, name: options.productName, productId: productUnit.id };
             const tools = new UnitTools(view, spec, sink, declarations, bounds, basis, extras);
@@ -821,7 +824,13 @@ export async function runWriter(options: WriterOptions): Promise<WriterReport> {
         editorialProblems.push(`${path.resolve(options.output, page)}:1: the editorial pass asked for a revision of a page the writer does not rework; the passage was left as it stands`);
         continue;
       }
-      if (outcome !== undefined && outcome.status !== 'written') editorialProblems.push(`${page}:1: the editorial revision did not write the page: ${unitEndedOn(outcome)}`);
+      if (outcome !== undefined && outcome.status !== 'written') {
+        // A refusal must leave the page the unit wrote byte for byte; the tools never write on a refusal, but the
+        // revision's own sink is restored here as well so no half-applied revision can stand (madarch-ztyq.9).
+        const after = await sink.read(page).catch(() => undefined);
+        if (after !== undefined && after !== current) await sink.write(page, current);
+        editorialProblems.push(`${page}:1: the editorial revision did not write the page: ${unitEndedOn(outcome)}`);
+      }
     }
   };
   /** One editorial point: read the pages that stand, find, judge, journal, and rework only the named passages. */
@@ -849,7 +858,10 @@ export async function runWriter(options: WriterOptions): Promise<WriterReport> {
     editorialFindings.push(...result.findings);
     revisionRequests.push(...result.requests);
     editorialProblems.push(...result.errors);
-    await rework(result.requests);
+    // Findings and requests are always recorded. Rework, however, belongs to the editing role: with no assigned role
+    // there is nobody to ask for a change, and the deterministic findings alone must not rewrite a page the writer
+    // just wrote (madarch-ztyq.9, CI follow-up: an unassigned editing role must write exactly what it wrote before).
+    if (options.editorial.skipReason === undefined) await rework(result.requests);
   };
 
   /**

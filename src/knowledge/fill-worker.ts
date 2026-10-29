@@ -98,8 +98,14 @@ export function editorialJudgeFor(start: Pick<WorkerStart, 'roles'>, editorial: 
     return { ...(jev === undefined ? {} : { jev }), skipReason: 'the fill start carried no resolved model roles, so the editing role could not be resolved and the reading part was skipped' };
   }
   const editing = roleOf(start.roles, 'editing');
-  if (editing.pair === null) {
-    return { ...(jev === undefined ? {} : { jev }), skipReason: 'the editing role resolves to no pair (neither editing nor the default writing role is assigned), so the reading part was skipped' };
+  // A fallback pair is the writing role's: asking it to edit the pages it just wrote is neither an independent reading
+  // nor the editing role the reader assigned. Only an explicit assignment starts the judge; the deterministic checks
+  // still run, and the journal says why no editing model was asked (madarch-ztyq.9, CI follow-up).
+  if (editing.pair === null || editing.source !== 'assigned') {
+    const skipReason = editing.pair === null
+      ? 'the editing role resolves to no pair (neither editing nor the default writing role is assigned), so the reading part was skipped'
+      : 'the editing role is not assigned, so the default writing pair was not asked to edit the pages it wrote; the deterministic checks still ran';
+    return { ...(jev === undefined ? {} : { jev }), skipReason };
   }
   const judge = editorial?.judgeForPair === undefined
     ? editorialAcpJudge(editing.pair, { env: editorial?.env ?? process.env, ...(progress === undefined ? {} : { progress }), ...(editorial?.journal === undefined ? {} : { journal: editorial.journal }) })

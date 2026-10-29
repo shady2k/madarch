@@ -34,7 +34,7 @@ import { createGraphStore, type GraphStore } from '../src/graph/index.js';
 import { changedGrounds, gitReader, indexKnowledge, readIndexedPage, statementsRelyingOn } from '../src/knowledge/index/index.js';
 import {
   DEFAULT_UNIT_BOUNDS, GraphView, UnitTools, WRITER_TOOLS, fsSink, memoryJournal, memorySink, runWriter, slugOf,
-  type DomainDeclaration, type EditorialJudge, type Journal, type ToolAnswer, type UnitAgent, type UnitRequest, type UnitSpec, type WriterReport,
+  type DomainDeclaration, type EditorialJudge, type Journal, type ToolAnswer, type UnitAgent, type UnitOutcome, type UnitRequest, type UnitSpec, type WriterReport,
 } from '../src/writer/index.js';
 
 const ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
@@ -214,24 +214,40 @@ interface Run {
   report: WriterReport;
   pages: Map<string, string>;
   prompts: Map<string, string>;
+  /** Every prompt that carried an editorial revision request, in the order the writer asked. */
+  revisionPrompts: string[];
+  /** Every unit outcome the run announced, in order. */
+  unitOutcomes: UnitOutcome[];
 }
 
-async function run(options: { spoilProduct?: boolean; spoilDomains?: boolean; output?: string; editorial?: { judge?: EditorialJudge; maxRequestsPerPage?: number; journal?: Journal } } = {}): Promise<Run> {
+async function run(options: { spoilProduct?: boolean; spoilDomains?: boolean; output?: string; refuseRevisions?: boolean; editorial?: { judge?: EditorialJudge; maxRequestsPerPage?: number; journal?: Journal; skipReason?: string } } = {}): Promise<Run> {
   const sink = memorySink();
   const prompts = new Map<string, string>();
+  const revisionPrompts: string[] = [];
+  const unitOutcomes: UnitOutcome[] = [];
+  const refusing = new Set<string>();
   const product = productScript(options.spoilProduct === true ? { firstAttemptSpoiled: true } : {});
   const domain = domainScript(options.spoilDomains === true);
   const agent: UnitAgent = {
     run: async (request) => {
       prompts.set(request.id, request.prompt);
+      const revision = request.prompt.includes('## The editorial pass asked for these revisions');
+      if (revision) revisionPrompts.push(request.prompt);
+      if (options.refuseRevisions === true && (revision || refusing.has(request.id))) {
+        // The agent cannot answer the revision: every attempt is a page the contract refuses, and the unit keeps trying
+        // until its bound is spent, exactly as an editing model that will not follow the request does.
+        refusing.add(request.id);
+        await request.tools.call('write_page', {});
+        return;
+      }
       if (request.id === 'product:training-shop') await product(request);
       else if (request.id.startsWith('overview:')) {
         await request.tools.call('write_page', { markdown: '---\nid: overview:training-shop\nkind: overview\ntitle: Training shop\nrelates: []\nproducer: agent\nsources: []\n---\n\n## What the product is\n\nThe shop takes orders.[^1]\n\n[^1]: [orders](madarch:code.service:orders)\n' });
       } else await domain(request, KEY_DOMAINS.find((d) => `domain:${d.slug}` === request.id)!);
     },
   };
-  const report = await runWriter({ owner, store, repository, output: options.output ?? path.join(scratch, 'unused-output'), productName: 'Training shop', agent, sink, ...(options.editorial === undefined ? {} : { editorial: options.editorial }) });
-  return { report, pages: sink.pages, prompts };
+  const report = await runWriter({ owner, store, repository, output: options.output ?? path.join(scratch, 'unused-output'), productName: 'Training shop', agent, sink, onUnit: (outcome) => unitOutcomes.push(outcome), ...(options.editorial === undefined ? {} : { editorial: options.editorial }) });
+  return { report, pages: sink.pages, prompts, revisionPrompts, unitOutcomes };
 }
 
 // ---------------------------------------------------------------------------------------------
@@ -316,6 +332,46 @@ describe('the writer over the training repository', () => {
     // records prove the pass ran and journalled at each point, and test/writer-editorial.test.ts
     // proves the editing role's own requests are bounded and journalled.
     expect(editorial.report.revisionRequests.length).toBeGreaterThanOrEqual(2);
+  }, 240_000);
+
+  test('an unassigned editing role records its findings and leaves every page exactly as the writer wrote it', async () => {
+    const baselineOutput = join(scratch, 'editorial-skipped-baseline');
+    declareOverview(baselineOutput);
+    const baseline = await run({ output: baselineOutput });
+    const skippedOutput = join(scratch, 'editorial-skipped-product');
+    declareOverview(skippedOutput);
+    const skipped = await run({ output: skippedOutput, editorial: { skipReason: 'the editing role is not assigned', maxRequestsPerPage: 2 } });
+    // The checks still run and their requests are reported, but no model is asked and no page is reworked.
+    expect(skipped.report.revisionRequests.length).toBeGreaterThan(0);
+    expect(skipped.revisionPrompts).toEqual([]);
+    expect([...skipped.pages.keys()]).toEqual([...baseline.pages.keys()]);
+    for (const [page, text] of baseline.pages) expect(skipped.pages.get(page)).toBe(text);
+    expect(skipped.unitOutcomes.filter((outcome) => outcome.unit === 'domain:ordering').map((outcome) => outcome.status)).toEqual(['written']);
+    expect(skipped.report.ok).toBe(true);
+  }, 240_000);
+
+  test('a revision the agent refuses leaves the page and the unit that wrote it as they stood', async () => {
+    const output = join(scratch, 'editorial-refused-product');
+    declareOverview(output);
+    let asked = false;
+    const judge: EditorialJudge = {
+      async judge(pack) {
+        if (asked) return { requests: [] };
+        const page = pack.pages.find((held) => held.path === 'docs/domains/ordering.md' && held.statements.length > 0);
+        if (page === undefined) return { requests: [] };
+        asked = true;
+        return { requests: [{ page: page.path, passage: page.statements[0]!.id, change: 'Say this so a newcomer can follow it.', why: 'The first sentence assumes the rest of the page.' }] };
+      },
+    };
+    const refused = await run({ output, editorial: { judge, maxRequestsPerPage: 1 }, refuseRevisions: true });
+    // The revision was asked for and refused; the page the unit wrote before the pass is still its page.
+    expect(refused.revisionPrompts.length).toBeGreaterThan(0);
+    expect(refused.revisionPrompts[0]).toContain('The product unit declared this domain: Ordering is what the orders service does for a shopper.');
+    expect(refused.report.domains.map((domain) => [domain.unit, domain.status])).toEqual([['domain:ordering', 'written'], ['domain:payments', 'written']]);
+    expect(refused.report.ok).toBe(true);
+    expect(refused.report.editorialProblems.some((problem) => problem.includes('docs/domains/ordering.md'))).toBe(true);
+    // The revision is not the page unit's attempt: it does not announce a second, failed outcome for the same unit.
+    expect(refused.unitOutcomes.filter((outcome) => outcome.unit === 'domain:ordering').map((outcome) => outcome.status)).toEqual(['written']);
   }, 240_000);
 
   test('runs one unit for the product and one per domain, in that order, and writes their three files', () => {

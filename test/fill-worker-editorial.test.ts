@@ -1,7 +1,8 @@
 /**
  * The fill worker's editorial seam (madarch-ztyq.9): it resolves the editing role from the model
- * roles the server sends with the fill start. An assigned or fallback pair starts the ACP editing
- * judge; no pair leaves the deterministic checks running and gives the journal a reason. A host's
+ * roles the server sends with the fill start. Only an assigned editing pair starts the ACP editing
+ * judge; a pair that merely falls back to the writing role is not asked to edit what it wrote, and
+ * the deterministic checks keep running with a journaled reason. A host's
  * jev, when there is one, is handed through first. No real agent and no model: every judge here is
  * a scripted object.
  */
@@ -26,13 +27,14 @@ describe('the fill worker resolves the editing role (madarch-ztyq.9)', () => {
     expect(seen).toEqual([{ agent: 'editing-agent' }]);
   });
 
-  test('an unassigned editing role uses the default writing pair and says so through the resolution', () => {
+  test('an unassigned editing role starts no judge: the writing pair is not asked to edit the pages it wrote', () => {
     const seen: ModelPair[] = [];
     const resolved = editorialJudgeFor({ roles: view(pair('writing-agent'), null) }, {
       judgeForPair: (asked) => { seen.push(asked); return judge('fallback'); },
     });
-    expect(resolved.judge).toBeDefined();
-    expect(seen).toEqual([{ agent: 'writing-agent' }]);
+    expect(resolved.judge).toBeUndefined();
+    expect(seen).toEqual([]);
+    expect(resolved.skipReason).toContain('the editing role is not assigned');
   });
 
   test('with no pair at all the deterministic checks stand and the skip names why; a host jev is still handed through', () => {
