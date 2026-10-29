@@ -31,7 +31,7 @@ import { selfCommand } from '../product/self-command.js';
 import type { Block } from './model.js';
 import type { Finding } from './kinds.js';
 import { linesOf } from './lines.js';
-import { type BlockAnswer, type RenderLimits, type RenderPart, type RenderReply, type RenderRequest, type RenderWorkerProcess } from './render-worker.js';
+import { type BlockRequest, type RenderLimits, type RenderPart, type RenderReply, type RenderRequest, type RenderWorkerProcess } from './render-worker.js';
 import { BLOCK_NAMES, blockIdentity } from './template.js';
 import { decodeWire, encodeWire } from './wire.js';
 
@@ -262,6 +262,8 @@ interface Connection {
 interface Slot {
   connection?: Connection;
   digest?: string;
+  /** The opening of the templates under way: a page that comes while it runs waits for it instead of opening again. */
+  opening?: Promise<string | undefined>;
   /** One render at a time: a worker holds one page in its registers. */
   busy: boolean;
   waiting: (() => void)[];
@@ -359,13 +361,15 @@ function release(slot: Slot): void {
 async function exchange(
   slot: Slot,
   request: RenderRequest,
-  options: { wallClockMs: number; memoryMiB: number; answer?: (request: Extract<RenderReply, { type: 'block' }>) => Promise<BlockAnswer> },
+  options: { wallClockMs: number; memoryMiB: number },
 ): Promise<RenderReply | Stop> {
   const connection = slot.connection;
   if (connection === undefined) return { stopped: 'exit', detail: 'the worker was not started' };
   const worker = connection.worker;
   worker.write(encodeWire(request));
   let stop: Stop | undefined;
+  let bounded: (() => void) | undefined;
+  const bound = new Promise<typeof STOPPED>((resolve) => { bounded = () => resolve(STOPPED); });
   const clock = setTimeout(() => {
     stop = { stopped: 'time', detail: `the template did not finish in ${options.wallClockMs} ms` };
     worker.kill();
@@ -379,51 +383,53 @@ async function exchange(
       bounded?.();
     }
   }, 100);
-  // A bound that is passed ends the exchange there and then: a block read that stalls must not hold the page's turn.
-  let bounded: (() => void) | undefined;
-  const bound = new Promise<'stopped'>((resolve) => { bounded = () => resolve('stopped'); });
   try {
     for (;;) {
-      const line = await Promise.race([nextLine(connection), bound.then((held) => held === 'stopped' ? STOPPED : undefined)]);
+      const line = await Promise.race([nextLine(connection), bound]);
       if (line === STOPPED) return stop ?? { stopped: 'exit', detail: 'the render was stopped past a bound' };
       if (line === undefined) return stop ?? { stopped: 'exit', detail: `the worker ended: ${worker.stderr().trim() || 'no message on its error stream'}` };
-      const reply = decodeWire<RenderReply | BlockAnswer>(line);
-      if (reply.type === 'block') {
-        if (options.answer === undefined) return { stopped: 'exit', detail: 'a block was asked for with no page being drawn' };
-        const answered = await Promise.race([options.answer(reply), bound.then((held) => held === 'stopped' ? STOPPED : undefined)]);
-        if (answered === STOPPED) return stop ?? { stopped: 'exit', detail: 'the render was stopped past a bound' };
-        worker.write(encodeWire(answered));
-        continue;
-      }
-      if (reply.type === 'blocked') continue;
+      const reply = decodeWire<RenderReply>(line);
+      // Nothing else is answered mid-render: a page's blocks are read by the server in one go after it is rendered.
       return reply;
     }
   } finally {
     clearTimeout(clock);
     clearInterval(memory);
-    // A worker that was killed, or that ended, is a worker the next page starts again: its connection goes with it.
     if ((stop !== undefined || connection.ended) && slot.connection === connection) stopWorker(slot);
   }
 }
 
 /** Hands the templates to the worker when it holds another set; answers why not when it does not take them. */
 async function open(slot: Slot, set: TemplateSet, limits: RenderLimits, bounds: { wallClockMs: number; memoryMiB: number }): Promise<string | undefined> {
+  if (slot.opening !== undefined) return await slot.opening;
   if (slot.connection === undefined || slot.connection.ended) {
     startWorker(slot);
     if (slot.idle !== undefined) { clearTimeout(slot.idle); slot.idle = undefined; }
   }
   if (slot.digest === set.digest) return undefined;
-  const reply = await exchange(slot, { type: 'open', templates: set.files, blocks: BLOCK_NAMES, limits }, bounds);
-  if (isStop(reply)) return reply.detail;
-  if (reply.type === 'refused') return reply.message;
-  if (reply.type !== 'ready') return `the worker answered ${reply.type} where its ready was asked for`;
-  slot.digest = set.digest;
-  return undefined;
+  // One opening at a time: a page that comes while the product's warm-up opens waits for it, and two `ready` answers can
+  // never cross a render.
+  const opening = (async (): Promise<string | undefined> => {
+    const reply = await exchange(slot, { type: 'open', templates: set.files, blocks: BLOCK_NAMES, limits }, bounds);
+    if (isStop(reply)) return reply.detail;
+    if (reply.type === 'refused') return reply.message;
+    if (reply.type !== 'ready') return `the worker answered ${reply.type} where its ready was asked for`;
+    slot.digest = set.digest;
+    return undefined;
+  })();
+  slot.opening = opening;
+  try {
+    return await opening;
+  } finally {
+    slot.opening = undefined;
+  }
 }
 
 /**
- * Draws one page's templates: the set of the product, the worker of the product, and one render under the bounds.
- * Nothing of a template escapes: a page that fails answers one problem block with the template's file and line.
+ * Draws one page's templates: the set of the product, the worker of the product, and one render under the bounds. The
+ * page's blocks are read in one go after it is rendered — one hop, not one per block — and a page that tested a block's
+ * own data is rendered once more, with that data in hand. Nothing of a template escapes: a page that fails answers one
+ * problem block with the template's file and line.
  */
 export async function renderLiquidPage(input: LiquidPageInput): Promise<LiquidPageOutcome> {
   const set = templateSetOf(input.productFolder);
@@ -438,35 +444,22 @@ export async function renderLiquidPage(input: LiquidPageInput): Promise<LiquidPa
   };
   const slot = slotOf(input.productFolder);
   await turn(slot);
+  const read = new Map<string, Block>();
   try {
     const notOpened = await open(slot, set, limits, bounds);
     if (notOpened !== undefined) {
       findings.push({ file: input.template, line: 1, message: `the templates could not be opened: ${notOpened}` });
       return { blocks: [{ type: 'problem', block: input.template, file: input.template, line: 1, message: `the templates could not be opened: ${notOpened}` }], findings };
     }
-    const answered = new Map<number, Block>();
-    const reply = await exchange(slot, { type: 'render', id: 1, template: input.template, data: input.data }, {
-      ...bounds,
-      answer: (request) => answerBlock(input, request, answered),
-    });
-    if (isStop(reply)) {
-      findings.push({ file: input.template, line: 1, message: reply.detail });
-      return { blocks: [{ type: 'problem', block: input.template, file: input.template, line: 1, message: reply.detail }], findings };
+    const draw = (data: Readonly<Record<string, unknown>>): Promise<RenderReply | Stop> => exchange(slot, { type: 'render', id: 1, template: input.template, data }, bounds);
+    let reply = await draw(input.data);
+    if (reply !== undefined && !isStop(reply) && reply.type === 'rendered' && reply.dataMisses.length > 0) {
+      // The page tested a block's own data: read those blocks, then render once more with the data in hand.
+      const data: Record<string, unknown> = { ...input.data };
+      for (const name of reply.dataMisses) data[name] = await readBlock(input, { name, params: {}, file: input.template, line: 1 }, read);
+      reply = await draw(data);
     }
-    if (reply.type === 'refused') {
-      findings.push({ file: input.template, line: 1, message: reply.message });
-      return { blocks: [{ type: 'problem', block: input.template, file: input.template, line: 1, message: reply.message }], findings };
-    }
-    if (reply.type === 'failed') {
-      const file = reply.file ?? input.template;
-      const line = reply.line ?? 1;
-      findings.push({ file, line, message: reply.message });
-      return { blocks: [{ type: 'problem', block: input.template, file, line, message: reply.message }], findings };
-    }
-    if (reply.type !== 'rendered') {
-      return { blocks: [], findings, refused: `the worker answered a message no page asked for: ${reply.type}` };
-    }
-    return { blocks: assemble(reply.parts, answered, input.only), findings };
+    return await outcomeOf(input, reply, read, findings);
   } finally {
     release(slot);
     if (slot.connection !== undefined && slot.waiting.length === 0) {
@@ -480,56 +473,82 @@ export async function renderLiquidPage(input: LiquidPageInput): Promise<LiquidPa
   }
 }
 
+/** What the templates answered: the page's blocks read and put in the order they stand, and what the templates got wrong. */
+async function outcomeOf(input: LiquidPageInput, reply: RenderReply | Stop | undefined, read: Map<string, Block>, findings: Finding[]): Promise<LiquidPageOutcome> {
+  if (reply === undefined) return { blocks: [], findings, refused: 'the worker answered nothing for this page' };
+  const problem = (file: string, line: number, message: string): LiquidPageOutcome => {
+    findings.push({ file, line, message });
+    return { blocks: [{ type: 'problem', block: input.template, file, line, message }], findings };
+  };
+  if (isStop(reply)) return problem(input.template, 1, reply.detail);
+  if (reply.type === 'refused') return problem(input.template, 1, reply.message);
+  if (reply.type === 'failed') return problem(reply.file ?? input.template, reply.line ?? 1, reply.message);
+  if (reply.type !== 'rendered') return { blocks: [], findings, refused: `the worker answered a message no page asked for: ${reply.type}` };
+  // The page's blocks are read together, then put where their places stand; a read that never answers is refused by the
+  // page's own wall clock, so a block can neither hold the render nor the page.
+  const wallClockMs = input.bounds?.wallClockMs ?? RENDER_BOUNDS.wallClockMs;
+  let timer: ReturnType<typeof setTimeout> | undefined;
+  const blocks = await Promise.race([
+    Promise.all(reply.requests.map((request) => readBlock(input, request, read))),
+    new Promise<undefined>((resolve) => { timer = setTimeout(() => resolve(undefined), wallClockMs); }),
+  ]).finally(() => clearTimeout(timer));
+  if (blocks === undefined) return problem(input.template, 1, `the page's blocks did not answer within ${wallClockMs} ms`);
+  return { blocks: assemble(reply.parts, blocks, input.only), findings };
+}
+
 /**
  * One block of the page: its parameters as the templates wrote them, and the
  * language's own title folded into `title`. A block the page leaves to a read of
  * its own, and every block but the one asked for by `only`, answer as deferred:
- * the page says where they stand and the reader's own read draws them.
+ * the page says where they stand and the reader's own read draws them. A block is
+ * read once however many times the page is rendered.
  */
-async function answerBlock(input: LiquidPageInput, request: Extract<RenderReply, { type: 'block' }>, answered: Map<number, Block>): Promise<BlockAnswer> {
+async function readBlock(input: LiquidPageInput, request: BlockRequest, read: Map<string, Block>): Promise<Block> {
   const params: Record<string, string> = {};
   for (const [name, value] of Object.entries(request.params)) {
     if (!name.startsWith('title-')) params[name] = value;
     else if (input.lang !== undefined && name === `title-${input.lang}`) params['title'] = value;
   }
   const id = blockIdentity(request.name, params);
-  // One block asked for by its identity is the page a reader's own read draws: the other blocks of the template are
-  // where they would stand and are not part of the answer.
-  if (input.only !== undefined && id !== input.only && request.purpose === 'tag') {
-    return { type: 'blocked', seq: request.seq, block: { type: 'deferred', block: request.name, title: params['title'] ?? '', id } };
+  const key = `${request.name}|${JSON.stringify(Object.entries(params).sort())}`;
+  const held = read.get(key);
+  if (held !== undefined) return held;
+  const deferred = { type: 'deferred', block: request.name, id, name: request.name, title: params['title'] ?? '' } as Block;
+  if (input.only !== undefined && id !== input.only) return deferred;
+  if (input.only === undefined && input.defer && input.deferred.includes(request.name)) {
+    read.set(key, deferred);
+    return deferred;
   }
-  const later = input.only === undefined && input.defer && input.deferred.includes(request.name);
-  if (later && request.purpose === 'tag') {
-    const block: Block = { type: 'deferred', block: request.name, title: params['title'] ?? '', id, name: request.name };
-    answered.set(request.seq, block);
-    return { type: 'blocked', seq: request.seq, block };
-  }
+  let block: Block;
   try {
-    const block = { ...(await input.render(request.name, params, request.file === '' ? input.template : request.file, request.line)), name: request.name };
-    const size = JSON.stringify(block).length;
-    if (size > RENDER_BOUNDS.blockChars) return { type: 'blocked', seq: request.seq, message: `the block ${request.name} of this page is ${size} characters and a page reads at most ${RENDER_BOUNDS.blockChars}` };
-    answered.set(request.seq, block);
-    return { type: 'blocked', seq: request.seq, block };
+    block = { ...(await input.render(request.name, params, request.file === '' ? input.template : request.file, request.line)), name: request.name };
   } catch (error) {
-    return { type: 'blocked', seq: request.seq, message: `the block ${request.name} could not be read: ${(error as Error).message}` };
+    block = { type: 'problem', block: request.name, file: request.file === '' ? input.template : request.file, line: request.line, message: `the block ${request.name} could not be read: ${(error as Error).message}` };
   }
+  const size = JSON.stringify(block).length;
+  if (size > RENDER_BOUNDS.blockChars) {
+    return { type: 'problem', block: request.name, file: request.file === '' ? input.template : request.file, line: request.line, message: `the block ${request.name} of this page is ${size} characters and a page reads at most ${RENDER_BOUNDS.blockChars}` };
+  }
+  read.set(key, block);
+  return block;
 }
 
 /**
  * The page as the worker answered it: its own text and the places its blocks
  * stand, put back in order. A text of nothing but space is no block; a block the
- * server did not answer (the other blocks of a template when one was asked for by
+ * server did not read (the other blocks of a template when one was asked for by
  * its identity) leaves nothing.
  */
-function assemble(parts: readonly RenderPart[], answered: ReadonlyMap<number, Block>, only?: string): Block[] {
-  const blocks: Block[] = [];
+function assemble(parts: readonly RenderPart[], blocks: readonly Block[], only?: string): Block[] {
+  const out: Block[] = [];
   for (const part of parts) {
     if (typeof part === 'string') {
-      if (only === undefined && part.trim() !== '') blocks.push({ type: 'markdown', markdown: part });
+      if (only === undefined && part.trim() !== '') out.push({ type: 'markdown', markdown: part });
       continue;
     }
-    const block = answered.get(part.block);
-    if (block !== undefined) blocks.push(block);
+    const block = blocks[part.block];
+    // With one block asked for by its identity, the other places of the template stand for nothing: the page is the block.
+    if (block !== undefined && !(only !== undefined && block.type === 'deferred')) out.push(block);
   }
-  return blocks;
+  return out;
 }

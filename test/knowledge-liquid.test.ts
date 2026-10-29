@@ -284,7 +284,7 @@ describe('the review of the engine', () => {
     });
     expect(drawn.findings).toEqual([]);
     expect(drawn.blocks.filter((block) => block.type === 'markdown').map((block) => block.type === 'markdown' ? block.markdown : '')).toEqual(['many: 2\n']);
-    // The page's own test of the block asks for its data, and the tag asks for the block itself: one read each.
+    // The page's own test of the block reads it (no parameters), and the tag reads the block it places (with its title).
     expect(asked).toEqual(['callers', 'callers']);
     expect(drawn.blocks.filter((block) => block.type === 'callers')).toHaveLength(1);
   });

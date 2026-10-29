@@ -4,8 +4,14 @@
  * limits are cooperative: a template that loops forever or draws a gigabyte
  * stops only if every step checks. So a page's template is evaluated here, in a
  * process of its own, which the server can kill by wall clock and by the memory
- * it holds; the blocks it dispatches are read by the server and sent back over
- * the pipe, because only the server holds the graph.
+ * it holds; the blocks it dispatches are read by the server, because only the
+ * server holds the graph.
+ *
+ * A page's blocks are asked for **once, after the page is rendered**: a block tag
+ * writes the place it stands at and the parameters it was given, and the server
+ * reads them all in one go. A template that tests a block's own data
+ * (`{% if page.callers.total > 0 %}`) is rendered a second time, with that data in
+ * hand — one hop instead of one per block, which is what a busy machine measures.
  *
  * Messages are lines of JSON (`wire.ts`) on standard input and output, as the
  * read and fill workers say theirs.
@@ -47,22 +53,34 @@ export interface RenderLimits {
   outputChars: number;
 }
 
-/** A block the server is asked for: `tag` is a block of the page, `data` is the data a template tests. */
-export type BlockPurpose = 'tag' | 'data';
+/** A block a page dispatches: what the server reads, and where it stands on the page. */
+export interface BlockRequest {
+  name: string;
+  params: Record<string, string>;
+  /** The template the block stands in: a partial's block is not the page's template. */
+  file: string;
+  line: number;
+}
 
 export type RenderRequest =
   | { type: 'open'; templates: Readonly<Record<string, string>>; blocks: readonly string[]; limits: RenderLimits }
   | { type: 'render'; id: number; template: string; data: Readonly<Record<string, unknown>> };
 
-/** One segment of the rendered page: its own text, or the place a block stands at, by the sequence number the server gave it. */
+/** One segment of the rendered page: its own text, or the place a block stands at, by its index in the answer's requests. */
 export type RenderPart = string | { block: number };
 
 export type RenderReply =
   | { type: 'ready' }
   | { type: 'refused'; message: string }
-  /** A block the page dispatches; the server answers with `blocked`. */
-  | { type: 'block'; id: number; seq: number; name: string; file: string; line: number; params: Record<string, string>; purpose: BlockPurpose }
-  | { type: 'rendered'; id: number; parts: RenderPart[]; blocks: number }
+  | {
+    type: 'rendered';
+    id: number;
+    parts: RenderPart[];
+    /** The blocks the page dispatches, in the order their places stand on the page. */
+    requests: BlockRequest[];
+    /** The block names the template tested (`page.callers`): their data must be in hand for the page to be rendered again. */
+    dataMisses: string[];
+  }
   | { type: 'failed'; id: number; message: string; file?: string; line?: number };
 
 /** A started render worker: lines in, lines out. */
@@ -76,24 +94,24 @@ export interface RenderWorkerProcess {
   kill(): void;
 }
 
-/** The server's answer to one `block` message: the block the server read, as the page shows it. */
-export type BlockAnswer = { type: 'blocked'; seq: number; block: unknown } | { type: 'blocked'; seq: number; message: string };
-
 /** The position Liquid names in a message, taken out of it: a finding carries the file and the line of its own. */
 function withoutPosition(message: string): string {
   return message.replace(/, file:.*$/, '').replace(/, line:\d+, col:\d+$/, '');
 }
 
 interface RenderState {
-  seq: number;
   blocks: number;
   limits: RenderLimits;
   /** The segments written so far: text up to each block, and the block itself. */
   parts: RenderPart[];
+  /** The blocks the page dispatches, in the order their places stand. */
+  requests: BlockRequest[];
   /** Where the text of the page has been cut for the last block: the emitter's buffer length then. */
   cut: number;
-  cache: Map<string, { seq: number; block: unknown }>;
-  ask: (name: string, params: Record<string, string>, purpose: BlockPurpose, file: string, line: number) => Promise<{ seq: number; block: unknown }>;
+  /** The block names the template tested, with their data already in hand. */
+  dataMisses: Set<string>;
+  /** The block data the server gave this render: a name here is answered from the data, never asked for. */
+  data: Readonly<Record<string, unknown>>;
 }
 
 export async function runRenderWorker(io: { lines: AsyncIterable<string>; send: (line: string) => void }): Promise<number> {
@@ -103,7 +121,6 @@ export async function runRenderWorker(io: { lines: AsyncIterable<string>; send: 
   let limits: RenderLimits | undefined;
   let engine: Liquid | undefined;
   let state: RenderState | undefined;
-  const waiting = new Map<number, { resolve: (block: unknown) => void; reject: (error: Error) => void }>();
 
   /** The file a message's token stands in: Liquid names the file of a tag, and of a value it names only its text. */
   const fileOf = (token: { file?: string; input?: string } | undefined): string | undefined => {
@@ -123,14 +140,14 @@ export async function runRenderWorker(io: { lines: AsyncIterable<string>; send: 
   };
 
   /**
-   * The page's text as it stands so far, cut where the last block stands: the tag writes no marker into the page, it
-   * cuts the text the emitter holds and takes its own place in the segments (no marker is ever parsed out of a text).
+   * The page's text as it stands so far, cut where the block stands: the tag writes no marker into the page, it cuts the
+   * text the emitter holds and takes the place of the block in the segments (no marker is ever parsed out of a text).
    */
-  const cutText = (emitter: Emitter, held: RenderState, seq: number): void => {
+  const cutText = (emitter: Emitter, held: RenderState, index: number): void => {
     const text = emitter.buffer.slice(held.cut);
     if (text !== '') held.parts.push(text);
     held.cut = emitter.buffer.length;
-    held.parts.push({ block: seq });
+    held.parts.push({ block: index });
   };
 
   /** A block tag of the library: `{% graph title="Around this function" depth=2 %}` places the block on the page. */
@@ -151,22 +168,20 @@ export async function runRenderWorker(io: { lines: AsyncIterable<string>; send: 
       for (const [name, value] of Object.entries(raw)) {
         if (typeof value === 'string') params[name] = value;
         else if (typeof value === 'number') params[name] = String(value);
-        else throw new Error(`the parameter "${name}" of :${this.blockName} is not a text or a number`);
+        else throw new Error(`the parameter "${name}" of the block ${this.blockName} is not a text or a number`);
       }
       if (held.blocks >= held.limits.blocks) throw new Error(`the page dispatches more than ${held.limits.blocks} blocks`);
       held.blocks += 1;
       const position = this.token.getPosition();
-      const file = fileOf(this.token) ?? '';
-      const asked = (yield held.ask(this.blockName, params, 'tag', file, position[0] ?? 1)) as { seq: number; block: unknown };
-      cutText(emitter, held, asked.seq);
+      held.requests.push({ name: this.blockName, params, file: fileOf(this.token) ?? '', line: position[0] ?? 1 });
+      cutText(emitter, held, held.requests.length - 1);
     }
   }
 
   /**
    * The page a template reads: its attributes, and a block's data by its name
-   * (`page.callers.total`). The block names are own properties of the page — a
-   * plain object whose getters ask the server only when the template reads them,
-   * which is what Liquid's own-property-only lookup permits.
+   * (`page.callers.total`). A name the server gave is answered at once; one it did
+   * not is a miss the server fills and renders the page again with.
    */
   const pageOf = (data: Readonly<Record<string, unknown>>, held: RenderState): object => {
     const page: Record<string, unknown> = { ...data };
@@ -175,7 +190,10 @@ export async function runRenderWorker(io: { lines: AsyncIterable<string>; send: 
       Object.defineProperty(page, name, {
         enumerable: true,
         configurable: true,
-        get: () => held.ask(name, {}, 'data', '', 1).then((answer) => answer.block),
+        get: () => {
+          held.dataMisses.add(name);
+          return {};
+        },
       });
     }
     return page;
@@ -214,22 +232,7 @@ export async function runRenderWorker(io: { lines: AsyncIterable<string>; send: 
       send({ type: 'failed', id: request.id, message: 'the templates were not opened before the render: the worker is not ready' });
       return;
     }
-    const held: RenderState = {
-      seq: 0, blocks: 0, limits, parts: [], cut: 0, cache: new Map(),
-      ask: (name, params, purpose, file, line) => {
-        const key = `${purpose === 'tag' ? '' : 'data'}|${name}|${JSON.stringify(params)}`;
-        const cached = held.cache.get(key);
-        if (cached !== undefined) return Promise.resolve(cached);
-        const seq = ++held.seq;
-        return new Promise<{ seq: number; block: unknown }>((resolve, reject) => {
-          waiting.set(seq, {
-            resolve: (block) => { held.cache.set(key, { seq, block }); resolve({ seq, block }); },
-            reject,
-          });
-          send({ type: 'block', id: request.id, seq, name, file, line, params, purpose });
-        });
-      },
-    };
+    const held: RenderState = { blocks: 0, limits, parts: [], requests: [], cut: 0, dataMisses: new Set(), data: request.data };
     state = held;
     try {
       // `templateLimit` counts the outputs and tags one render evaluates; it is per render, so it is named here.
@@ -237,31 +240,19 @@ export async function runRenderWorker(io: { lines: AsyncIterable<string>; send: 
       if (held.cut < text.length) held.parts.push(text.slice(held.cut));
       held.cut = text.length;
       if (held.parts.reduce((sum, part) => sum + (typeof part === 'string' ? part.length : 0), 0) > limits.outputChars) throw new Error(`the page writes more than ${limits.outputChars} characters`);
-      send({ type: 'rendered', id: request.id, parts: held.parts, blocks: held.blocks });
+      send({ type: 'rendered', id: request.id, parts: held.parts, requests: held.requests, dataMisses: [...held.dataMisses] });
     } catch (error) {
       send(refusal(request.id, error));
     } finally {
       state = undefined;
-      waiting.clear();
     }
   };
 
-  const handle = (line: string): void => {
-    const message = decodeWire<RenderRequest | BlockAnswer>(line);
-    if (message.type === 'open') { open(message); return; }
-    if (message.type === 'blocked') {
-      const held = waiting.get(message.seq);
-      if (held === undefined) return;
-      waiting.delete(message.seq);
-      if ('message' in message) held.reject(new Error(message.message));
-      else held.resolve(message.block);
-      return;
-    }
-    // A render runs while the answers to its blocks keep arriving: it is started, never awaited here.
-    void renderNow(message);
-  };
-
-  for await (const line of io.lines) handle(line);
+  for await (const line of io.lines) {
+    const message = decodeWire<RenderRequest>(line);
+    if (message.type === 'open') open(message);
+    // A render runs while the next line is read: the answers of a page are the server's to send back, and none is asked.
+    else void renderNow(message);
+  }
   return 0;
 }
-
