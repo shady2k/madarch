@@ -418,7 +418,7 @@ async function existingDomainPages(output: string): Promise<string[]> {
 /** A domain's declaration as its page gives it now: the title, a summary from its first statement, the keys it relates to. */
 export function declarationOf(path: string, text: string, language?: string): DomainDeclaration {
   const slug = path.replace(/^.*\//, '').replace(/\.md$/, '');
-  const { front, body, bodyLine } = splitFrontMatter(text.replace(/\r\n/g, '\n'));
+  const { front, body, bodyLine } = splitFrontMatter(text.replaceAll('\r\n', '\n'));
   let record: Record<string, unknown> = {};
   try {
     const raw: unknown = front === null ? {} : parseYaml(front);

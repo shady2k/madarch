@@ -22,7 +22,7 @@ import { checkPage, MAX_SLUG_LENGTH, parseTarget, SLUG, type Refusal } from './f
 import type { WrittenAt } from '../knowledge/index/page.js';
 import { MAX_ABOUT, MAX_SIDES, MAX_TEXT, MAX_TITLE, QUESTION_HEADINGS, QUESTION_TYPES, parseQuestion, parseStatementRef, questionPath, renderQuestion, type Question, type QuestionLanguage, type QuestionType } from '../loop/entities.js';
 import { slugOf } from './names.js';
-import { statementsOf } from './sentences.js';
+import { readPage, statementsOf } from './sentences.js';
 import { splitFrontMatter } from '../knowledge/markdown.js';
 import type { GraphView } from './view.js';
 import type { MentionName } from './mentions.js';
@@ -36,6 +36,37 @@ import type { GuidePreparedUnit } from './guides/host-contract.js';
 import { validateGuide } from './guides/validate.js';
 import { renderGuideArtifact } from './guides/artifact.js';
 import { firstGuideCursor, guidePagesComplete, readGuidePageContext } from './guides/prepared.js';
+
+/** Source quotations stay as written; the language check reads only the prose around them. */
+function proseForLanguage(value: string): string {
+  let prose = '';
+  for (const token of readPage(value).tokens) if (token.kind === 'text') prose += `${token.value}\n`;
+  let out = '';
+  let quote = '';
+  for (const character of prose) {
+    if (quote !== '') {
+      if (character === quote || (quote === '"' && character === '\n')) quote = '';
+      continue;
+    }
+    if (character === '“') { quote = '”'; continue; }
+    if (character === '«') { quote = '»'; continue; }
+    if (character === '"') { quote = '"'; continue; }
+    out += character;
+  }
+  return out;
+}
+
+function collapseSpaces(text: string): string {
+  let out = '';
+  let blank = false;
+  for (const character of text.trim()) {
+    if (character.trim() === '') { blank = out !== ''; continue; }
+    if (blank) out += ' ';
+    blank = false;
+    out += character;
+  }
+  return out;
+}
 
 /** A domain the product page declares. */
 export interface DomainDeclaration {
@@ -1115,7 +1146,7 @@ export class UnitTools {
       if (/^\s{0,3}(#{1,6}\s|---\s*$|```|~~~)|\[\^/m.test(value)) bad(`"${name}" is plain paragraphs: no headings, rules, code fences or footnote marks`);
       return value.trim();
     };
-    const title = bounded('title', MAX_TITLE).replace(/\s+/g, ' ');
+    const title = collapseSpaces(bounded('title', MAX_TITLE));
     const question = bounded('question', MAX_TEXT);
     const why = bounded('why', MAX_TEXT);
     const rawSides = args['sides'];
@@ -1176,7 +1207,7 @@ export class UnitTools {
     if (title !== '' && slug === 'statement') bad('"title" has no word to name the question by: say what it is about in words');
     if (problems.length > 0) return fail('bad-question', `the question was not saved: ${problems.join('; ')}`, { problems });
     const language = this.extras.language ?? 'en';
-    const proseLanguage = (value: string): string | undefined => detectStatementLanguage(value.replace(/`[^`]*`|[“«][^”»]*[”»]|"[^"\n]*"/g, ''));
+    const proseLanguage = (value: string): string | undefined => detectStatementLanguage(proseForLanguage(value));
     const wrong = [['title', title], ['question', question], ['why', why], ...sides.map((side, index) => [`sides[${index}].claim`, side.claim])].filter(([, value]) => proseLanguage(value!) !== language);
     if (wrong.length > 0) return fail('question-language', `write ${wrong.map(([name]) => name).join(', ')} in ${language}; identifiers and explicit source quotations may stay unchanged`);
     const held = await this.existingQuestions();
