@@ -724,6 +724,7 @@ describe('a home page refusal names the field it stands in (madarch-ztyq.7 revie
     const page = sink.pages.get('docs/product.md')!;
     expect(page.split('\n').filter((line) => line.startsWith('## '))).toHaveLength(8);
     expect(page).toContain('have not yet been assessed');
+    expect(page).toContain('<!-- madarch:empty-product-gap:what-it-is:');
     expect(page).not.toMatch(/\[\^[A-Za-z0-9_-]+\]/);
   });
 });

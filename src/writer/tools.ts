@@ -31,7 +31,7 @@ import { detectStatementLanguage, LOCALIZED_SOURCE_SCHEMA, parseLocalizedSource,
 import { ENRICHMENT_FRONT_KEYS, enrichmentOverwriteProblem, enrichmentPageId, renderEnrichment } from './enrichment.js';
 import { implementationPlaces, parseFields, renderStructuredBody, structuredKindOf, structuredLanguage, structuredSchema, type NamedPlace, type ScenarioFields, type StructuredFields, type StructuredKind } from './structured.js';
 import { developerPlaces, domainGrounds, domainSchema, renderDomainPage, parseDomainFields, type DomainFields } from './domain-page.js';
-import { emptyProductGaps, homeGrounds, homeLinks, homeSchema, homeTargetPaths, parseHomeFields, renderEmptyHomePage, renderHomePage, type HomeFields } from './home-page.js';
+import { emptyProductGapSections, homeGrounds, homeLinks, homeSchema, homeTargetPaths, parseHomeFields, renderEmptyHomePage, renderHomePage, type HomeFields } from './home-page.js';
 import type { GuidePreparedUnit } from './guides/host-contract.js';
 import { validateGuide } from './guides/validate.js';
 import { renderGuideArtifact } from './guides/artifact.js';
@@ -1415,7 +1415,7 @@ export class UnitTools {
     const previous = await this.sink.read(this.unit.path).catch(() => undefined);
     const questions = await this.existingQuestions();
     const entities = [...new Set([...(await this.extras.entityIds?.() ?? []), ...questions.filter((question) => question.status === 'answered').map((question) => question.id)])];
-    const verdict = await checkPage(markdown, { file: this.unit.path, fullPath: resolve(this.extras.output ?? process.cwd(), this.unit.path), language: this.extras.language === 'ru' ? 'ru' : 'en', questions: questions.map((question) => question.id), ...(previous === undefined ? {} : { previous }), ...(entities === undefined ? {} : { entities }), ...(this.basis.length === 0 ? {} : { writtenAt: this.basis }), id: this.unit.id, kind: this.unit.kind, domains: domains.map((d) => d.slug), mustLinkDomains: this.unit.kind === 'product', ...(this.unit.kind === 'domain' && this.unit.productId !== undefined ? { productId: this.unit.productId } : {}), ...(emptyProduct ? { emptyProductGaps: emptyProductGaps(this.extras.language === 'ru' ? 'ru' : 'en') } : {}) }, this.view);
+    const verdict = await checkPage(markdown, { file: this.unit.path, fullPath: resolve(this.extras.output ?? process.cwd(), this.unit.path), language: this.extras.language === 'ru' ? 'ru' : 'en', questions: questions.map((question) => question.id), ...(previous === undefined ? {} : { previous }), ...(entities === undefined ? {} : { entities }), ...(this.basis.length === 0 ? {} : { writtenAt: this.basis }), id: this.unit.id, kind: this.unit.kind, domains: domains.map((d) => d.slug), mustLinkDomains: this.unit.kind === 'product', ...(this.unit.kind === 'domain' && this.unit.productId !== undefined ? { productId: this.unit.productId } : {}), ...(emptyProduct ? { emptyProductGapSections: emptyProductGapSections() } : {}) }, this.view);
     if (!verdict.ok) return this.refuse(verdict.refusals);
     const unused = [...this.answersUsed].filter((id) => !verdict.page.grounds.includes(id));
     if (unused.length > 0) return this.refuse(unused.map((id) => ({ line: 1, rule: 'answer-not-used', message: `use the answer returned for ${id} and ground its rewritten sentence on that answered question` })));

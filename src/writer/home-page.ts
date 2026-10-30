@@ -25,6 +25,7 @@
  */
 import { byCodePoint } from '../model/order.js';
 import { PageWriter, labelOf, targetOf, type GroundedStatement, type StructuredLanguage } from './structured.js';
+import { emptyProductGapMarker } from './empty-product-gap.js';
 
 /** The ids of the sections of a home page: its stable identities, never a line of a template. */
 export type HomeSectionId = 'what-it-is' | 'scenarios' | 'system' | 'domains' | 'rules' | 'technology' | 'coverage' | 'not-connected';
@@ -316,9 +317,9 @@ export const EMPTY_PRODUCT_GAPS: Readonly<Record<StructuredLanguage, Readonly<Re
   },
 };
 
-/** The gap sentences of an empty product's page, in reading order: what `checkPage` can accept without grounds. */
-export function emptyProductGaps(language: StructuredLanguage): readonly string[] {
-  return HOME_SECTIONS.map((section) => EMPTY_PRODUCT_GAPS[language][section.id]);
+/** The sections an empty product's page leaves empty, in reading order: the gaps the core writes and the check expects. */
+export function emptyProductGapSections(): readonly HomeSectionId[] {
+  return HOME_SECTIONS.map((section) => section.id);
 }
 
 /**
@@ -330,7 +331,9 @@ export function renderEmptyHomePage(context: HomeRenderContext, title?: string):
   const page = new PageWriter({ language: context.language, labelOf: context.labelOf, passage: '', unreachedRoutes: [] });
   for (const section of HOME_SECTIONS) {
     page.heading(section);
-    page.raw(EMPTY_PRODUCT_GAPS[context.language][section.id]);
+    const gap = EMPTY_PRODUCT_GAPS[context.language][section.id];
+    page.raw(emptyProductGapMarker(section.id, gap));
+    page.raw(gap);
   }
   const fields: HomeFields = {
     ...(title === undefined ? {} : { title }),

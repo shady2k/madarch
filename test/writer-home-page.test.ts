@@ -9,6 +9,7 @@
  */
 import { describe, expect, test } from 'bun:test';
 import { EMPTY_PRODUCT_GAPS, HOME_SECTIONS, homeGrounds, homeRelates, homeSources, homeStatements, parseHomeFields, renderEmptyHomePage, renderHomePage, type HomeFields } from '../src/writer/home-page.js';
+import { readEmptyProductGapMarker } from '../src/writer/empty-product-gap.js';
 
 const labels: Record<string, string> = {
   'code.service:shop': 'Shop service',
@@ -93,8 +94,14 @@ describe('the home page is eight sections in the order a reader reads them', () 
     const { markdown } = renderEmptyHomePage({ ...context, page: { ...context.page, title: 'Shop' } });
     const sections = sectionsOf(markdown);
     expect(sections.map((section) => section.heading)).toEqual(HOME_SECTIONS.map((section) => section.heading.en));
-    for (const section of sections) expect(section.lines).toEqual([EMPTY_PRODUCT_GAPS.en[section.heading === HOME_SECTIONS[0]!.heading.en ? 'what-it-is' : HOME_SECTIONS.find((one) => one.heading.en === section.heading)!.id]]);
+    for (const section of sections) {
+      const id = section.heading === HOME_SECTIONS[0]!.heading.en ? 'what-it-is' as const : HOME_SECTIONS.find((one) => one.heading.en === section.heading)!.id;
+      expect(section.lines).toHaveLength(2);
+      expect(readEmptyProductGapMarker(section.lines[0]!)?.section).toBe(id);
+      expect(section.lines[1]).toBe(EMPTY_PRODUCT_GAPS.en[id]);
+    }
     expect(markdown).not.toMatch(/\[\^[A-Za-z0-9_-]+\]/);
+    expect(markdown).toContain('<!-- madarch:empty-product-gap:what-it-is:');
     expect(markdown).toContain('sources: []');
   });
 });
