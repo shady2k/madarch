@@ -279,7 +279,9 @@ describe('the journal over the wiki\'s product', () => {
       expect(journal.records.filter((record) => record.kind === 'refusal').map((record) => record.tool)).toEqual(['fs/read_text_file']);
       // It lives in the product's machine-local store, not in the product repository.
       expect(readFileSync(join(store, identity.id, 'journal', `${journal.run}.jsonl`), 'utf8').trim().split('\n')).toHaveLength(3);
-      expect(() => product.journalOf('question:x')).toThrow(/no page an agent writes/);
+      // A page no run wrote answers with an empty journal instead of a refusal: which pages the store holds is its own
+      // files' answer, and a reader asking about a page that has none is told so, not turned away (madarch-m38l.23).
+      expect(product.journalOf('question:x')).toEqual({ run: null, runs: [], records: [], totals: { sourceBytes: { served: 0, repeated: 0 }, evidence: 0, unresolvedJoins: 0, produced: { pages: 0, statements: 0, grounds: 0, links: 0, questions: 0 } }, problems: [] });
       expect(product.journalOf('domain:never').run).toBeNull();
     } finally {
       await product.close();
