@@ -15,6 +15,7 @@ import type { DocEntity } from './doc-entities.js';
 import type { GraphEntity } from './graph-read.js';
 import { parseTermText } from './glossary.js';
 import { detectDocumentLanguage } from '../writer/localized-source.js';
+import { identifierMentions, madarchTargets } from '../writer/mentions.js';
 import { readStatements } from './markdown.js';
 import type { Block, EntityRef, RefRow } from './model.js';
 import { documentAddress, entityAddress } from './resolve.js';
@@ -134,16 +135,29 @@ export async function implementedByBlock(ctx: RenderContext, subject: Subject, p
   return { type: 'refs', title, total: ordered.length, rows: ordered.slice(0, REFS_LIMIT) };
 }
 
-/** The line of a text that names the identifier, as a short excerpt. */
+/** The line of a text that names the identifier, as a short excerpt (the line is already one line). */
 function excerpt(text: string): string {
-  const flat = text.replace(/[*_`]/g, '').replace(/\s+/g, ' ').trim();
+  let flat = '';
+  let space = false;
+  for (const character of text) {
+    if (character === '*' || character === '_' || character === '`') continue;
+    if (character === ' ' || character === '\t' || character === '\n' || character === '\r') {
+      if (flat !== '') space = true;
+      continue;
+    }
+    if (space) { flat += ' '; space = false; }
+    flat += character;
+  }
+  flat = flat.trim();
   return flat.length > 120 ? `${flat.slice(0, 119)}…` : flat;
 }
 
 export async function linkedFromBlock(ctx: RenderContext, subject: Subject, params: Readonly<Record<string, string>>, file: string, line: number): Promise<Block> {
   const title = params['title'] ?? 'Linked from';
-  if (subject.source === 'graph') return { type: 'problem', block: 'linkedfrom', file, line, message: 'the linkedfrom block lists the pages and documents that refer to a page or a document entity; this entity comes from the graph (see its callers and related blocks)' };
-  const id = subject.source === 'document' ? subject.entity.id : subject.entity.id;
+  // A graph page lists the pages whose prose mentions it (madarch-ztyq.8): the core inserts those links, and the index
+  // knows every statement that grounds or mentions the key. Before, a graph page had only its related block.
+  const graphKey = subject.source === 'graph' ? subject.entity.key : undefined;
+  const id = graphKey ?? ('id' in subject.entity ? subject.entity.id : subject.entity.key);
   const rows = new Map<string, RefRow>();
   // 1. The product's pages that ground a statement in this entity or link to it.
   for (const page of [...ctx.markdown.values()].sort((a, b) => byCodePoint(a.id, b.id))) {
@@ -157,8 +171,8 @@ export async function linkedFromBlock(ctx: RenderContext, subject: Subject, para
     }
     let linked = statements > 0;
     if (!linked) {
-      for (const match of page.body.matchAll(/\]\((madarch:[^)\s]+)\)/g)) {
-        const resolution = await ctx.resolver.resolve(match[1]!);
+      for (const target of madarchTargets(page.body)) {
+        const resolution = await ctx.resolver.resolve(`madarch:${target}`);
         if (resolution.state === 'ok' && resolution.entity === id) { linked = true; break; }
       }
     }
@@ -166,11 +180,12 @@ export async function linkedFromBlock(ctx: RenderContext, subject: Subject, para
       ? { entity: refOfMarkdown(ctx, page), note: `${statements} statement${statements === 1 ? '' : 's'} grounded in it`, noteKey: 'statements', noteArgs: { count: statements } }
       : { entity: refOfMarkdown(ctx, page), note: 'links to it', noteKey: 'links' });
   }
-  // 1b. The statements of the index that rely on this section (the index sees the page's footnotes whole).
+  // 1b. The statements of the index that rely on this key (the index sees the page's footnotes whole).
   // The index names a section by its path alone: where the product and a connected repository both hold the path, it cannot tell them apart, and the Markdown reading above stands alone.
   const ambiguous = subject.source === 'document' && [...ctx.docEntities.values()].some((other) => other.path === subject.entity.path && other.anchor === subject.entity.anchor && other.repo !== subject.entity.repo);
-  if (subject.source === 'document' && ctx.index !== undefined && !ambiguous) {
-    const relied = await ctx.index.relyingOn(`doc:${subject.entity.path}#${subject.entity.anchor}`);
+  const indexKey = graphKey ?? (subject.source === 'document' ? `doc:${subject.entity.path}#${subject.entity.anchor}` : undefined);
+  if (indexKey !== undefined && ctx.index !== undefined && !ambiguous) {
+    const relied = await ctx.index.relyingOn(indexKey);
     for (const relying of relied) {
       const page = ctx.markdown.get(relying.page);
       if (page === undefined || rows.has(page.id)) continue;
@@ -181,24 +196,23 @@ export async function linkedFromBlock(ctx: RenderContext, subject: Subject, para
   // 2. The documents that name the identifier, outside the section itself.
   if (subject.source === 'document' && subject.entity.identifier !== null) {
     const doc: DocEntity = subject.entity;
-    const named = new RegExp(`(?<![A-Za-z0-9-])${doc.identifier!.replace('-', '\\-')}(?![0-9A-Za-z])`, 'i');
+    const identifier: string = doc.identifier!;
     for (const source of ctx.documents) {
-      const lines = source.text.replace(/\r\n/g, '\n').split('\n');
       const own = source.repo === doc.repo && source.path === doc.path;
-      lines.forEach((text, index) => {
-        const number = index + 1;
-        if (!named.test(text) || (own && number >= doc.line && number <= doc.endLine)) return;
+      // The parser says which lines are rendered prose: code, comments and unused notes are not.
+      for (const { line: number, text } of identifierMentions(source.text, identifier)) {
+        if (own && number >= doc.line && number <= doc.endLine) continue;
         const enclosing = [...ctx.docEntities.values()].find((entity) => entity.repo === source.repo && entity.path === source.path && number >= entity.line && number <= entity.endLine);
         const place = source.repo === null ? source.path : `${source.repo}: ${source.path}`;
         const entity: EntityRef = enclosing !== undefined && enclosing.id !== doc.id
           ? { id: enclosing.id, kind: enclosing.kind, label: enclosing.title, href: ctx.manifest.kinds.has(enclosing.kind) ? entityAddress(enclosing.id) : null }
           : { id: `doc:${source.repo === null ? '' : `@${source.repo}/`}${source.path}#L${number}`, kind: 'document', label: `${place}:${number}`, href: documentAddress(source.repo, source.path) };
         if (!rows.has(entity.id)) rows.set(entity.id, { entity, note: excerpt(text), quoted: true });
-      });
+      }
     }
   }
   const ordered = [...rows.values()].sort((a, b) => byCodePoint(a.entity.id, b.entity.id));
-  return { type: 'refs', title, total: ordered.length, rows: ordered.slice(0, REFS_LIMIT) };
+  return { type: 'refs', title, total: ordered.length, rows: ordered.slice(0, REFS_LIMIT), ...(params['hide-empty'] === 'true' ? { hideEmpty: true } : {}) };
 }
 
 /** The glossary term a document entity is: its definition, synonyms, code names, places of use and ambiguity (decision 0031). */

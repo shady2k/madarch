@@ -137,6 +137,11 @@ const fieldsOf = (overrides: Record<string, unknown> = {}): Record<string, unkno
   ...overrides,
 });
 
+/** The page's words without the core's mention links: a writer test judges the sentence it wrote, not the links. */
+function plain(text: string): string {
+  return text.replace(/\[([^\]]+)\]\(madarch:[^)]+\)/g, '$1');
+}
+
 /** One section of a page: its heading and the lines under it, up to the next heading of the same level. */
 function sectionOf(markdown: string, heading: string): string | undefined {
   const lines = markdown.split('\n');
@@ -191,7 +196,7 @@ describe('a domain page opens with the business', () => {
     const steps = scenario.split('\n').filter((line) => line.startsWith('1. ') || line.startsWith('2. '));
     expect(steps.map((line) => line.slice(0, 3))).toEqual(['1. ', '2. ']);
     expect(steps[0]).toContain('The shopper submits the cart.');
-    expect(steps[1]).toContain('The orders service keeps the order until it is paid.');
+    expect(plain(steps[1]!)).toContain('The orders service keeps the order until it is paid.');
   });
 
   test('a Russian page carries the Russian headings of the same six sections, and the same places', async () => {
@@ -266,7 +271,7 @@ describe('what the documents leave unsaid is said, and never invented', () => {
     const { tools, sink } = toolsOf();
     expect((await tools.call('write_page', { fields: fieldsOf({ rules: [], whatCanGoWrong: [], openPoints: [] }) })).isError).toBe(false);
     const page = sink.pages.get('docs/domains/ordering.md')!;
-    expect(sectionOf(page, 'Rules that govern it')).toContain('The documents name no rule that governs this domain.');
+    expect(plain(sectionOf(page, 'Rules that govern it')!)).toContain('The documents name no rule that governs this domain.');
     expect(sectionOf(page, 'What can go wrong')).toContain('The documents and the graph say nothing about what can go wrong here.');
     expect(sectionOf(page, 'Open points')).toContain('The documents and the graph settle every point this page would leave open.');
     // Each gap is a statement: it ends in the footnote that lists the evidence it stands on.

@@ -44,6 +44,7 @@ with the layout tag and fills the sections it has, in this order:
   parts        what it holds: history, views, modules, files, symbols, columns, tables, commits
   relations    the edges its kind declares
   describedby  the pages of this product that are about it
+  mentionedon  the pages that link to it or ground a statement in it
 
 A section a kind does not fill writes nothing. A block's title is given in both
 interface languages (title and title-ru), and the wiki folds the reader's own into
@@ -58,6 +59,7 @@ them, as label.
 {% block parts %}{% endblock %}
 {% block relations %}{% endblock %}
 {% block describedby %}{% endblock %}
+{% block mentionedon %}{% linkedfrom title="Mentioned on" title-ru="Упоминается на" hide-empty="true" %}{% endblock %}
 `,
   'partials/around.liquid': `{% graph title=title title-ru=title_ru %}`,
   'partials/pages-about.liquid': `{% related title=title title-ru=title_ru relation="relates" %}`,
@@ -227,8 +229,7 @@ them, as label.
   'entity-text.liquid': `{% layout "./entity.liquid" %}
 {% block lead %}{% body %}{% endblock %}
 {% block relations %}{% stated title="Stated in" title-ru="Где описано" %}
-{% implementedby title="Implemented by" title-ru="Чем реализовано" %}
-{% linkedfrom title="Linked from" title-ru="Ссылаются на него" %}{% endblock %}
+{% implementedby title="Implemented by" title-ru="Чем реализовано" %}{% endblock %}
 `,
   'enrichment.liquid': `{% layout "./entity.liquid" %}
 {% block lead %}{% body %}{% endblock %}
@@ -238,8 +239,7 @@ them, as label.
 `,
   'term.liquid': `{% layout "./entity.liquid" %}
 {% block lead %}{% term title="Definition" title-ru="Определение" %}{% endblock %}
-{% block relations %}{% stated title="Stated in" title-ru="Где описано" %}
-{% linkedfrom title="Linked from" title-ru="Ссылаются на него" %}{% endblock %}
+{% block relations %}{% stated title="Stated in" title-ru="Где описано" %}{% endblock %}
 `,
   'question.liquid': `{% layout "./entity.liquid" %}
 {% block lead %}{% body %}{% endblock %}

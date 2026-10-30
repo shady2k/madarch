@@ -198,7 +198,7 @@ function isDrawn(block: Block): boolean {
     case 'related': return block.groups.length > 0 && block.groups.some((group) => group.rows.length > 0);
     case 'callers':
     case 'callees': return block.rows.length > 0 || (block.emptyNote !== undefined && block.emptyNote.trim() !== '');
-    case 'refs': return block.rows.length > 0 || (block.emptyNote !== undefined && block.emptyNote.trim() !== '');
+    case 'refs': return (block.hideEmpty !== true || block.total > 0) && (block.rows.length > 0 || (block.emptyNote !== undefined && block.emptyNote.trim() !== ''));
     case 'properties': return block.rows.length > 0;
     case 'members': return block.rows.length > 0;
     case 'graph': return block.neighborhood.nodes.length > 1 || block.neighborhood.edges.length > 0 || block.neighborhood.more.length > 0;
