@@ -8,8 +8,8 @@
 import type { DatabaseOwner } from '../adapters/database-owner.js';
 import { byCodePoint } from '../model/order.js';
 import { changedGrounds, gitReader, readKnowledgePages, type IndexedPage } from '../knowledge/index/index.js';
-import type { FindingKind } from '../knowledge/kinds.js';
-import type { Resolution } from '../knowledge/resolve.js';
+import { KINDS_FILE, type FindingKind } from '../knowledge/kinds.js';
+import { entityAddress, sourceAddress, type Resolution } from '../knowledge/resolve.js';
 import { DOMAINS_FOLDER, PRODUCT_PATH } from '../writer/run.js';
 import { parseStatementRef, readCorrections, readQuestions, type Author, type Correction, type Question } from './entities.js';
 import { closingCommit, type RepositoryRef, type TaskClosure } from './closure.js';
@@ -18,6 +18,8 @@ import { impactGroundsOf, type PlannedMarks } from './planned.js';
 import { readTasks, scopeWords, type PlaceView, type PlannedTask, type TaskScope } from './tasks.js';
 import type { Unplaced } from './plan.js';
 import type { StarterOffer } from '../knowledge/starter-upgrade.js';
+import { ruleForKind } from '../problems/rules.js';
+import { problemId, type ProblemSection, type ProblemLink, type ProblemSeverity, type ProblemSettings, type ProblemScope, type SonarKind } from '../problems/types.js';
 
 export type QuestionState = 'open' | 'answered' | 'closed';
 
@@ -93,12 +95,29 @@ export async function questionDetail(productFolder: string, slug: string, resolv
 
 // ---- problems ---------------------------------------------------------------------------------
 
-export type ProblemKind = 'correction' | 'ground-removed' | 'broken-link' | 'unreadable-file' | 'unread-passage' | 'unplaced';
+/** The kind of a wiki finding; the code and the documents carry kinds of their own. */
+export type ProblemKind = 'correction' | 'ground-removed' | 'broken-link' | 'unreadable-file' | 'unread-passage' | 'unplaced' | 'manifest';
 /** Who fixes it: the agent when the pages are refreshed, or a person. */
 export type Fixer = 'agent' | 'person';
 
 export interface Problem {
-  readonly kind: ProblemKind;
+  /** The problem's stable id: its rule and the place it names, never its position in the list. */
+  readonly id: string;
+  /** The section of the Problems page the problem belongs to. */
+  readonly section: ProblemSection;
+  /** The rule that found it (`wiki.broken-link`, `security.sql-input`, ...); the manifest tunes rules by this id. */
+  readonly rule: string;
+  /** The kind of finding in the SonarQube taxonomy. */
+  readonly kind: string;
+  readonly sonar: SonarKind;
+  readonly severity: ProblemSeverity;
+  /** The place it stands, as a link; the entity page it is about, when there is one. */
+  readonly place: ProblemLink;
+  readonly entity: ProblemLink | null;
+  /** The chain that shows why (input → builder → sink), each a link where one can be opened. */
+  readonly evidence: readonly ProblemLink[];
+  /** What «Создать задачу» opens a task on; absent where the page offers no task. */
+  readonly scope?: ProblemScope;
   readonly fixer: Fixer;
   /** A correction that a rewrite already used is closed. */
   readonly closed: boolean;
@@ -120,8 +139,12 @@ export interface Problem {
 
 export interface ProblemListing {
   readonly problems: readonly Problem[];
+  /** How many problems each section of the page holds, dismissals left out. */
+  readonly sections: Readonly<Record<ProblemSection, number>>;
   readonly open: number;
   readonly closed: number;
+  /** Problems a person marked «Не проблема»; their records are files in the product repository. */
+  readonly dismissed: number;
   /** Why a check could not be made (no single repository, say): said, never skipped silently. */
   readonly notes: readonly string[];
   /** What the current starter set holds and this product's edited manifest lacks; each can be added (madarch-m38l.11). */
@@ -138,34 +161,100 @@ export interface ProblemInput {
   readonly findings: readonly { readonly file: string; readonly line: number; readonly message: string; readonly kind?: FindingKind; readonly source?: string }[];
   readonly unplaced?: readonly Unplaced[];
   readonly starter?: readonly StarterOffer[];
+  /** The product's `problems:` rules and thresholds, read from its manifest (`problems:`). */
+  readonly settings: ProblemSettings;
+  /** Ids a person marked «Не проблема»: they are left out of the sections and counted. */
+  readonly dismissed?: ReadonlySet<string>;
+  /** The code and document sections, already judged; the wiki finds its own. */
+  readonly extraProblems?: readonly Problem[];
 }
 
 const isPage = (page: IndexedPage): boolean => page.file === PRODUCT_PATH || page.file.startsWith(`${DOMAINS_FOLDER}/`);
 
+/** The place of a wiki finding: the page when there is one, else the file and its line. */
+const placeOfWiki = (page: string | null, file: string, line: number | null): ProblemLink => {
+  if (page !== null) return { label: page, href: entityAddress(page), key: page };
+  // A file of a repository is a place in that repository's source; a product file has no repository in the query.
+  const code = /^repos\/([^/]+)\/(.+)$/.exec(file);
+  const href = code === null || code[2] === undefined
+    ? sourceAddress(null, file, line ?? undefined)
+    : sourceAddress(code[1] ?? null, code[2], line ?? undefined);
+  return { label: line === null ? file : `${file}:${line}`, href, key: null };
+};
+
+/**
+ * One wiki finding, with the rule that names it: the rule data gives the Sonar kind and the
+ * severity, the manifest may lower the severity, and the id is the rule with the place it names.
+ */
+function wikiProblem(
+  kind: ProblemKind,
+  identity: string,
+  fields: {
+    reason: string; file: string; line: number | null; target: string | null; page: string | null; pageTitle: string | null;
+    statement: string | null; sentence: string | null; fixer: Fixer; closed: boolean; by: Author | null; at: string | null;
+    source?: string; place?: ProblemLink; entity?: ProblemLink | null; evidence?: readonly ProblemLink[];
+  },
+  settings: ProblemSettings,
+  notes: string[],
+): Problem | undefined {
+  const rule = ruleForKind(settings, kind);
+  if (rule === undefined) {
+    const note = `the manifest declares no wiki rule of the kind "${kind}": the findings it would name are not on the page`;
+    if (!notes.includes(note)) notes.push(note);
+    return undefined;
+  }
+  const severity = rule.severity;
+  const place = fields.place ?? placeOfWiki(fields.page, fields.file, fields.line);
+  const entity = fields.entity ?? (fields.page === null ? null : { label: fields.pageTitle ?? fields.page, href: entityAddress(fields.page), key: fields.page });
+  return {
+    id: problemId(rule.id, identity), section: rule.section, rule: rule.id, kind, sonar: rule.sonar, severity,
+    fixer: fields.fixer, closed: fields.closed,
+    page: fields.page, pageTitle: fields.pageTitle, statement: fields.statement, sentence: fields.sentence,
+    target: fields.target, reason: fields.reason, file: fields.file, line: fields.line,
+    ...(fields.source === undefined ? {} : { source: fields.source }),
+    place, entity,
+    evidence: fields.evidence ?? [],
+    by: fields.by, at: fields.at,
+    ...((fields.file === '' || rule.action === 'none') ? {} : { scope: { type: 'file', path: fields.file } }),
+  };
+}
+
 export async function listProblems(input: ProblemInput): Promise<ProblemListing> {
   const out: Problem[] = [];
   const notes: string[] = [];
+  const add = (problem: Problem | undefined): void => { if (problem !== undefined) out.push(problem); };
   const read = readKnowledgePages(input.productFolder);
   const pages = read.pages.filter(isPage);
   const byId = new Map(pages.map((page) => [page.id, page] as const));
   const none = { page: null, pageTitle: null, statement: null, sentence: null, target: null, by: null, at: null, line: null, closed: false } as const;
   const corrections = readCorrections(input.productFolder);
-  for (const correction of corrections.items) out.push(correctionProblem(correction, byId));
-  for (const problem of corrections.problems) out.push({ ...none, kind: 'unreadable-file', fixer: 'person', reason: problem.message.slice(problem.file.length + String(problem.line).length + 2), file: problem.file, line: problem.line });
-  for (const problem of readQuestions(input.productFolder).problems) out.push({ ...none, kind: 'unreadable-file', fixer: 'person', reason: problem.message.slice(problem.file.length + String(problem.line).length + 2), file: problem.file, line: problem.line });
+  for (const correction of corrections.items) add(correctionProblem(correction, byId, input.settings, notes));
+  for (const problem of corrections.problems) add(wikiProblem('unreadable-file', `${problem.file}:${problem.line}:${problem.message}`, {
+    ...none, fixer: 'person', reason: problem.message.slice(problem.file.length + String(problem.line).length + 2), file: problem.file, line: problem.line,
+  }, input.settings, notes));
+  for (const problem of readQuestions(input.productFolder).problems) add(wikiProblem('unreadable-file', `${problem.file}:${problem.line}:${problem.message}`, {
+    ...none, fixer: 'person', reason: problem.message.slice(problem.file.length + String(problem.line).length + 2), file: problem.file, line: problem.line,
+  }, input.settings, notes));
   // Every finding is kept: two passages of one table row stand on the same line, and one message would hide the other
   // (the twelfth review). Only an exact repeat — the same kind, message and place — is dropped.
   const seenFinding = new Set<string>();
   for (const finding of [...input.findings, ...read.findings]) {
-    const kind = finding.kind ?? 'unreadable-file';
+    // A finding in the manifest is the manifest's own rule; every other finding keeps the kind it carries.
+    const kind = (finding.kind ?? (finding.file === KINDS_FILE ? 'manifest' : 'unreadable-file')) as ProblemKind;
     // A passage no reader decided is the agent's to read at the next fill; a file that cannot be read is a person's.
     const fixer = kind === 'unread-passage' ? 'agent' : 'person';
     const key = `${finding.file}:${finding.line}:${kind}:${finding.message}`;
     if (seenFinding.has(key)) continue;
     seenFinding.add(key);
-    out.push({ ...none, kind, fixer, reason: finding.message, file: finding.file, line: finding.line, ...(finding.source === undefined ? {} : { source: finding.source }) });
+    add(wikiProblem(kind, key, {
+      ...none, fixer, reason: finding.message, file: finding.file, line: finding.line, ...(finding.source === undefined ? {} : { source: finding.source }),
+    }, input.settings, notes));
   }
-  for (const miss of input.unplaced ?? []) out.push({ ...none, kind: 'unplaced', fixer: 'person', target: miss.slug, reason: miss.reason, file: miss.kind === 'question' ? `docs/questions/${miss.slug}.md` : `docs/corrections/${miss.slug}.md` });
+  for (const miss of input.unplaced ?? []) {
+    const file = miss.kind === 'question' ? `docs/questions/${miss.slug}.md` : `docs/corrections/${miss.slug}.md`;
+    const entity = miss.kind === 'question' ? { label: miss.slug, href: `/k/questions/${encodeURIComponent(miss.slug)}`, key: `question:${miss.slug}` } : null;
+    add(wikiProblem('unplaced', `${miss.kind}:${miss.slug}`, { ...none, fixer: 'person', target: miss.slug, reason: miss.reason, file, entity }, input.settings, notes));
+  }
   // Grounds and links that name nothing.
   const seen = new Set<string>();
   for (const page of pages) {
@@ -177,7 +266,11 @@ export async function listProblems(input: ProblemInput): Promise<ProblemListing>
         seen.add(key);
         const resolution = await input.resolve(`madarch:${target}`);
         if (resolution.state === 'broken') {
-          out.push({ ...none, kind: 'broken-link', fixer: 'agent', page: page.id, pageTitle: page.title, statement: statement.id, sentence: statement.text, target, reason: resolution.reason, file: page.file, line: statement.line });
+          add(wikiProblem('broken-link', key, {
+            ...none, fixer: 'agent', page: page.id, pageTitle: page.title, statement: statement.id, sentence: statement.text, target,
+            reason: resolution.reason, file: page.file, line: statement.line,
+            evidence: [{ label: target, href: null, key: target }],
+          }, input.settings, notes));
         }
       }
     }
@@ -193,23 +286,35 @@ export async function listProblems(input: ProblemInput): Promise<ProblemListing>
       if (page === undefined) continue;
       const duplicate = out.some((p) => p.kind === 'broken-link' && p.page === change.page && p.statement === change.statement && p.target === change.ground);
       if (duplicate) continue;
-      out.push({ ...none, kind: 'ground-removed', fixer: 'agent', page: page.id, pageTitle: page.title, statement: change.statement, sentence: change.text, target: change.ground, reason: `${change.ground} is no longer in ${input.repository.name} at the commit the graph describes`, file: page.file, line: change.line });
+      add(wikiProblem('ground-removed', `${page.id}\u0000${change.statement}\u0000${change.ground}`, {
+        ...none, fixer: 'agent', page: page.id, pageTitle: page.title, statement: change.statement, sentence: change.text, target: change.ground,
+        reason: `${change.ground} is no longer in ${input.repository.name} at the commit the graph describes`, file: page.file, line: change.line,
+        evidence: [{ label: change.ground, href: null, key: change.ground }],
+      }, input.settings, notes));
     }
   }
-  const order: Record<ProblemKind, number> = { correction: 0, 'ground-removed': 1, 'broken-link': 2, unplaced: 3, 'unreadable-file': 4, 'unread-passage': 5 };
-  out.sort((a, b) => Number(a.closed) - Number(b.closed) || order[a.kind] - order[b.kind] || byCodePoint(a.file, b.file) || (a.line ?? 0) - (b.line ?? 0) || byCodePoint(a.target ?? '', b.target ?? ''));
-  return { problems: out, open: out.filter((p) => !p.closed).length, closed: out.filter((p) => p.closed).length, notes, starter: input.starter ?? [] };
+  out.push(...(input.extraProblems ?? []));
+  const dismissed = input.dismissed ?? new Set<string>();
+  // A rule the manifest switched off is not on the page, whichever section judged it; a problem whose rule the
+  // manifest does not declare at all is a note of its section, never a row the page cannot explain.
+  const declared = input.settings.rules;
+  const kept = out.filter((problem) => !dismissed.has(problem.id) && declared[problem.rule] !== undefined && declared[problem.rule]?.enabled !== false);
+  const order: Record<string, number> = { correction: 0, 'ground-removed': 1, 'broken-link': 2, unplaced: 3, 'unreadable-file': 4, 'unread-passage': 5, manifest: 6 };
+  kept.sort((a, b) => Number(a.closed) - Number(b.closed) || (order[a.kind] ?? 9) - (order[b.kind] ?? 9) || byCodePoint(a.file, b.file) || (a.line ?? 0) - (b.line ?? 0) || byCodePoint(a.target ?? '', b.target ?? '') || byCodePoint(a.rule, b.rule));
+  const sections = { code: 0, documents: 0, wiki: 0 } as Record<ProblemSection, number>;
+  for (const problem of kept) sections[problem.section] += 1;
+  return { problems: kept, sections, open: kept.filter((p) => !p.closed).length, closed: kept.filter((p) => p.closed).length, dismissed: out.filter((problem) => dismissed.has(problem.id)).length, notes, starter: input.starter ?? [] };
 }
 
-function correctionProblem(correction: Correction, pages: ReadonlyMap<string, IndexedPage>): Problem {
+function correctionProblem(correction: Correction, pages: ReadonlyMap<string, IndexedPage>, settings: ProblemSettings, notes: string[]): Problem | undefined {
   const ref = parseStatementRef(correction.about);
   const page = ref === undefined ? undefined : pages.get(ref.page);
-  return {
-    kind: 'correction', fixer: 'agent', closed: correction.status === 'applied', page: ref?.page ?? null, pageTitle: page?.title ?? null, statement: ref?.statement ?? null, sentence: correction.statement,
+  return wikiProblem('correction', correction.slug, {
+    fixer: 'agent', closed: correction.status === 'applied', page: ref?.page ?? null, pageTitle: page?.title ?? null, statement: ref?.statement ?? null, sentence: correction.statement,
     target: correction.slug, reason: correction.reason, file: correction.file, line: null, by: correction.by, at: correction.at,
-  };
+    evidence: [{ label: correction.statement, href: null, key: null }],
+  }, settings, notes);
 }
-
 // ---- the scoped tasks of answers (madarch-m38l.14) ------------------------------------------
 
 /** One scope of a task, as it is stored and as a reader says it. */
@@ -233,6 +338,8 @@ export interface TaskRow {
   readonly file: string;
   readonly question: string;
   readonly answer: string;
+  /** The problem this task was opened from, when it was (madarch-m38l.19). */
+  readonly problemId?: string;
   readonly at: string;
   readonly by: Author;
   readonly grounds: readonly string[];
@@ -297,10 +404,21 @@ async function rowOfTask(task: PlannedTask, input: TaskReadInput, notes: string[
   }
   return {
     id: task.id, slug: task.slug, title: task.title, status: closedBy === null ? 'open' : 'closed', file: task.file, question: task.question, answer: task.answer,
+    ...(task.problem === undefined ? {} : { problemId: task.problem }),
     at: task.at, by: task.by, grounds: task.grounds, scope: await Promise.all(task.scope.map(async (scope) => ({ scope, words: scopeWords(scope), place: await input.placeOf(scope) }))), closedBy,
     impact: impact === null ? null : { pages: impact.counts.pages, statements: impact.counts.statements },
     ...(problem === undefined ? {} : { problem }),
   };
+}
+
+/**
+ * The tasks that stand open, by the closure the Tasks page reads: a task a commit of a default branch closed is closed,
+ * whatever its file still says. The menu's count and the page therefore ask the same question of the same repositories
+ * (madarch-m38l.24, the owner's review); a closure that cannot be read leaves the task open, as the page shows it.
+ */
+export function openTasks(productFolder: string, repositories: readonly RepositoryRef[], pageFiles: ReadonlyMap<string, string>): number {
+  const notes: string[] = [];
+  return readTasks(productFolder).tasks.filter((task) => closureOf(task, repositories, pageFiles, notes) === null).length;
 }
 
 /** The product's tasks, open first, then closed; each in id order, with its impact counted through the graph. */

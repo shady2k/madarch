@@ -18,7 +18,7 @@ import { join, resolve } from 'node:path';
 import { startServer, type StartedServer } from '../src/server/http.js';
 import { gitEnv } from './git-env.js';
 import { ORDERS_SERVICE, domainFields, fieldsCall } from './knowledge-agent-script.js';
-import { PAY, SAMPLE_IDENTITY, ROOT, generateTrainingRepository, makeProduct } from './knowledge-fixture.js';
+import { PAY, SAMPLE_IDENTITY, ROOT, generateTrainingRepository, makeProduct, withoutEnrichmentKind } from './knowledge-fixture.js';
 import { slugOf } from '../src/writer/names.js';
 import { ANSWER_TEXT, LOOP_QUESTIONS, contradictionSides, firstRunScript, questionSlug, refreshScript } from './loop-agent-script.js';
 import { SCRIPTED_GUIDE_PATH, SCRIPTED_GUIDE_SOURCE } from './scripted-guide-agent.js';
@@ -76,6 +76,9 @@ beforeAll(async () => {
   const home = join(work, 'home');
   mkdirSync(home);
   product = makeProduct(home, 'training-shop', repository);
+  // The scripted agent writes the product and domain pages and no enrichment: the kind is dropped from the fixture, and
+  // `test/writer-structured-entities.test.ts` is the one that scripts the enrichments.
+  withoutEnrichmentKind(product);
   git(product, 'config', 'user.name', 'Ada Reader');
   git(product, 'config', 'user.email', 'ada@example.test');
   const app = join(work, 'app');
@@ -111,7 +114,7 @@ describe('the agent asks, a person answers, the refresh edits one page', () => {
     expect(status.writer.plan.pages.map((p: { path: string; reasons: { kind: string }[] }) => [p.path, p.reasons.map((r) => r.kind)])).toEqual([['docs/product.md', ['missing']]]);
     expect(status.writer.asked).toBe(LOOP_QUESTIONS.length);
     // Two retention paraphrases run through ACP too; the complete listing below still has one file for that decision.
-    expect(status.loop).toEqual({ questionsOpen: LOOP_QUESTIONS.length, questionsAnswered: 0, correctionsOpen: 0 });
+    expect(status.loop).toEqual({ questionsOpen: LOOP_QUESTIONS.length, questionsAnswered: 0, correctionsOpen: 0, tasksOpen: 0, problemsOpen: (await get('/api/k/problems')).body.open });
     expect(readdirSync(join(product, 'docs/questions')).sort()).toEqual(LOOP_QUESTIONS.map((q) => `${questionSlug(q, 'en')}.md`).sort());
     for (const page of ['docs/product.md', 'docs/domains/ordering.md', 'docs/domains/payments.md', 'docs/guides/administrator.md', 'docs/guides/user.md']) expect(existsSync(join(product, page))).toBe(true);
     for (const id of ['administrator-guide:main', 'user-guide:main']) {
@@ -163,7 +166,7 @@ describe('the agent asks, a person answers, the refresh edits one page', () => {
     expect(plan.available).toBe(true);
     expect(plan.plan.pages.map((p: { path: string; reasons: { kind: string; question?: string }[] }) => [p.path, p.reasons.map((r) => `${r.kind}:${r.question ?? ''}`)])).toEqual([['docs/domains/payments.md', [`answer:${slug}`]]]);
     expect(plan.plan.unchanged).toEqual(['docs/domains/ordering.md', 'docs/product.md']);
-    expect((await get('/api/k/status')).body.loop).toEqual({ questionsOpen: LOOP_QUESTIONS.length - 1, questionsAnswered: 1, correctionsOpen: 0 });
+    expect((await get('/api/k/status')).body.loop).toEqual({ questionsOpen: LOOP_QUESTIONS.length - 1, questionsAnswered: 1, correctionsOpen: 0, tasksOpen: 0, problemsOpen: (await get('/api/k/problems')).body.open });
   }, 120_000);
 
   test('the next refresh edits only that page, grounded in the answer, and the question shows as closed by the rewrite', async () => {

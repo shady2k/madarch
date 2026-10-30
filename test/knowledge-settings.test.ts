@@ -84,7 +84,7 @@ describe('a product made by an earlier madarch, opened by this one', () => {
       { file: manifestFile, line: expectLine, message: expect.stringContaining('the documents hold no entity of kind "doc.decision" (a decision)') },
     ]);
     expect(status.language).toBe('ru');
-    expect(status.groups.map((group) => group.group)).toEqual(['product', 'code', 'contracts', 'data', 'operations', 'tests', 'history']);
+    expect(status.groups.map((group) => group.group)).toEqual(['product', 'code', 'code.structure', 'code.analysis', 'contracts', 'data', 'operations', 'operations.configuration', 'operations.dependencies', 'operations.build-deploy', 'operations.ci-cd', 'operations.runtime', 'operations.newcomer', 'tests', 'history']);
     expect(Object.keys(status.roles).sort()).toEqual(['analyst', 'architect', 'developer', 'operations', 'product', 'tester']);
     const kinds = status.kinds.map((kind) => kind.kind);
     for (const kind of ['doc.use-case', 'doc.rule', 'doc.term', 'code.route', 'code.operation', 'code.contract', 'code.database', 'question', 'correction']) expect(kinds).toContain(kind);
@@ -94,7 +94,7 @@ describe('a product made by an earlier madarch, opened by this one', () => {
     expect(readFileSync(join(folder, 'madarch', 'kinds.yaml'), 'utf8')).toBe(starterManifest('ru'));
     expect(logged.some((line) => line.includes('brought') && line.includes('madarch/kinds.yaml'))).toBe(true);
     // The route's page template is there, so a route page can be drawn.
-    expect(readFileSync(join(folder, 'templates', 'route.md'), 'utf8')).toBe(STARTER_FILES.find((file) => file.path === 'templates/route.md')!.content);
+    expect(readFileSync(join(folder, 'templates', 'route.liquid'), 'utf8')).toBe(STARTER_FILES.find((file) => file.path === 'templates/route.liquid')!.content);
   }, 90_000);
 
   test('a manifest a person edited is left byte for byte; the Problems page offers what the set holds, and adding one reads clean', async () => {
@@ -195,6 +195,8 @@ describe('the model roles (madarch-j6ho.2)', () => {
     expect(view.roles.find((role) => role.role === 'classification')).toMatchObject({ source: 'fallback', fallbackFrom: 'writing', pair: { agent: 'claude-code', model: 'opus', reasoning: 'high' } });
     expect(view.roles.find((role) => role.role === 'analysis')?.note).toContain('analysis is not assigned');
     expect(held.settingsView().roles).toEqual(view);
+    // The names the page shows beside a pair, so a row never stands with an agent's id in it (madarch-j6ho.2).
+    expect(held.settingsView().agentNames).toMatchObject({ 'claude-code': 'Claude Code', codex: 'Codex' });
   }, 60_000);
 
   test('a role is assigned a pair; clearing writing keeps the other roles; clearing a role removes only it', async () => {
@@ -352,13 +354,13 @@ describe('the two local resets', () => {
 
   test('«Start from scratch» leaves no agent page and no graph, puts the manifest and templates at the current set, keeps a person\'s page and the agent, and fills again', async () => {
     const { folder, store } = oldProduct();
-    writeFileSync(join(folder, 'templates', 'domain.md'), 'my own template\n');
+    writeFileSync(join(folder, 'templates', 'domain.liquid'), 'my own template\n');
     const counter = { started: 0 };
     const held = product(folder, store, { workerFactory: quickWorker(counter) });
     const id = withPages(folder, store, held);
     const plan = held.dangerPlan();
     expect(plan.fresh.agentPages).toEqual(['docs/product.md', 'docs/domains/orders.md']);
-    expect(plan.fresh.editedStarterFiles).toContain('templates/domain.md');
+    expect(plan.fresh.editedStarterFiles).toContain('templates/domain.liquid');
     expect(plan.rewrite.keptPages).toEqual(['docs/domains/mine.md']);
     const done = await held.startFresh();
     expect(done.ok).toBe(true);

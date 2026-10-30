@@ -227,6 +227,12 @@ export const getQuestion = (id: string, signal?: AbortSignal): Promise<QuestionD
 
 export const getProblems = (signal?: AbortSignal): Promise<ProblemListing> => readJson<ProblemListing>('list the problems', '/api/k/problems', signal);
 
+/** «Не проблема»: the reason is kept as a file in the product repository. */
+export const dismissProblem = (id: string, reason: string): Promise<{ file: string; committed: boolean; note?: string; commit?: string }> => post('dismiss the problem', '/api/k/problem-dismiss', { id, reason });
+
+/** «Создать задачу»: a task scoped to the place the problem names (madarch-m38l.14). */
+export const createProblemTask = (id: string): Promise<CreatedTask> => post<CreatedTask>('create a task from the problem', '/api/k/problem-task', { id });
+
 /** Which pages a refresh would touch and why, before it is pressed; `language` is the one the reader means to ask for. */
 export const getRefreshPlan = (language?: string, signal?: AbortSignal): Promise<RefreshPreview> => readJson<RefreshPreview>('plan the refresh', `/api/k/refresh-plan${language === undefined ? '' : `?language=${encodeURIComponent(language)}`}`, signal);
 
@@ -256,7 +262,7 @@ export const answerQuestion = (question: string, text: string): Promise<AnswerRe
 export const correctStatement = (statement: string, reason: string): Promise<CorrectionResult> => post<CorrectionResult>('save the correction', '/api/k/correction', { statement, reason });
 
 /** One block of a page, by the line of its template: what a deferred diagram reads to draw itself. */
-export const getBlock = (id: string, line: number, lang: string, signal?: AbortSignal): Promise<Block> => readJson<Block>(`read the block at line ${line} of the page of ${id}`, `/api/k/block?id=${encodeURIComponent(id)}&line=${line}&lang=${lang === 'ru' ? 'ru' : 'en'}${historyQuery()}`, signal);
+export const getBlock = (id: string, block: string, lang: string, signal?: AbortSignal): Promise<Block> => readJson<Block>(`read the block ${block} of the page of ${id}`, `/api/k/block?id=${encodeURIComponent(id)}&block=${encodeURIComponent(block)}&lang=${lang === 'ru' ? 'ru' : 'en'}${historyQuery()}`, signal);
 
 /** What the agent did to write one page: the records of the newest run that wrote it, or of the run asked for. */
 export const getJournal = (id: string, run: string | null, signal?: AbortSignal): Promise<PageJournal> => readJson<PageJournal>(`read the journal of ${id}`, `/api/k/journal?id=${encodeURIComponent(id)}${run === null ? '' : `&run=${encodeURIComponent(run)}`}`, signal);

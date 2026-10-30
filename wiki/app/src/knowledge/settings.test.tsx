@@ -68,6 +68,7 @@ const settings = (over: Partial<ProductSettings> = {}): ProductSettings => ({
     ],
   },
   bounds: BOUNDS, busy: false,
+  agentNames: { 'claude-code': 'Claude Code', codex: 'Codex' },
   danger: {
     rewrite: { agentPages: ['docs/product.md', 'docs/domains/payments.md'], keptPages: ['docs/domains/mine.md'] },
     fresh: { unansweredQuestions: ['docs/questions/open.md'], keptAnswers: ['docs/questions/answered.md', 'docs/questions/other.md'], store: ['/x/graph'], agentPages: ['docs/product.md', 'docs/domains/payments.md'], keptPages: ['docs/domains/mine.md'], editedStarterFiles: ['templates/domain.md'], replacedStarterFiles: ['madarch/kinds.yaml', 'templates/domain.md'] },
@@ -141,12 +142,32 @@ describe('the product settings page', () => {
     expect(page.querySelector('[data-testid=settings-role-pair-writing]')!.textContent).toBe("Claude Code · the agent’s own choice");
     expect(page.querySelector('[data-testid=settings-role-fallback-classification]')!.textContent).toBe("This role is not assigned, so it uses Writing’s pair.");
     const select = page.querySelector('[data-testid=settings-role-select-classification]') as HTMLSelectElement;
-    expect([...select.querySelectorAll('option')].map((option) => option.textContent)).toEqual(["Use Writing’s pair", 'Claude Code', 'Codex (install its adapter)']);
+    // The agents' availability is a second read; wait for it, then hold the exact choices it leaves.
+    const agentChoices = (): (string | null)[] => [...select.querySelectorAll('option')].map((option) => option.textContent);
+    await until(() => agentChoices().join('\n') === ["Use Writing’s pair", 'Claude Code', 'Codex (install its adapter)'].join('\n'), 'the agents the role may use');
+    expect(agentChoices()).toEqual(["Use Writing’s pair", 'Claude Code', 'Codex (install its adapter)']);
     select.value = 'codex';
     select.dispatchEvent(new window.Event('change', { bubbles: true }));
     await until(() => calls.length === 1, 'the role assignment');
     expect(calls[0]!.url).toContain('/api/k/model-role');
     expect(calls[0]!.body).toEqual({ role: 'classification', agent: 'codex', install: true });
+  });
+
+  test('a role names its agent at once, without waiting for the agents to be read', async () => {
+    // The agents are asked for and never answer: the row still stands with the name a reader knows, because the settings
+    // bring the names of the agents they name (madarch-j6ho.2).
+    (globalThis as { fetch?: unknown }).fetch = async (url: string) => {
+      if (url.endsWith('/api/k/product-settings')) return json(settings());
+      if (url.endsWith('/api/k/agents')) return await new Promise<Response>(() => undefined);
+      return json({ message: 'not here' }, 404);
+    };
+    const page = into(createElement(SettingsPage, { version: 0, status: status(), refresh: () => undefined }));
+    await until(() => page.querySelector('[data-testid=settings-role-pair-writing]') !== null, 'the writing role');
+    expect(page.querySelector('[data-testid=settings-role-pair-writing]')!.textContent).toBe("Claude Code · the agent’s own choice");
+    expect(page.querySelector('[data-testid=settings-role-pair-classification]')!.textContent).toBe("Claude Code · the agent’s own choice");
+    // The selector keeps the agents it can assign even while their list has not answered.
+    const select = page.querySelector('[data-testid=settings-role-select-classification]') as HTMLSelectElement;
+    expect([...select.querySelectorAll('option')].map((option) => option.textContent)).toEqual(["Use Writing’s pair", 'Claude Code', 'Codex']);
   });
 
   test('an assigned classification or analysis role gets its own model and reasoning choice from its agent', async () => {
@@ -415,7 +436,7 @@ describe('the starter set on the Problems page', () => {
     };
     const page = into(createElement(ProblemsPage, { version: 0 }));
     await until(() => page.querySelector('[data-testid=problems-starter]') !== null, 'the offers');
-    expect(page.querySelector('[data-testid=problems-starter] h2')!.textContent).toBe('The starter set has 4 kinds and groups this manifest lacks.');
+    expect(page.querySelector('[data-testid=problems-starter] h2')!.textContent).toBe('The starter set has 4 kinds, groups and rules this manifest lacks.');
     expect(page.querySelector('[data-testid=starter-summary]')).toBeNull();
     expect(page.querySelectorAll('[data-testid=starter-offer]')).toHaveLength(0);
     expect(page.querySelector('[data-testid=starter-add-all]')!.textContent).toBe('Add all');
@@ -434,6 +455,19 @@ describe('the starter set on the Problems page', () => {
     expect(posted[1]).toEqual({ ids: OFFERS.map((offer) => offer.id) });
   });
 
+  test('a rule of the starter set is offered by its label and id, and a rule missing a field says which', async () => {
+    (globalThis as { fetch?: unknown }).fetch = async () => json({ problems: [], open: 0, closed: 0, notes: [], starter: [
+      { id: 'rule:debt.todo', type: 'rule', name: 'debt.todo', labels: { en: 'TODO', ru: 'TODO' } },
+      { id: 'rule:dependency.cycle', type: 'rule', name: 'dependency.cycle', labels: { en: 'Dependency cycle', ru: 'Цикл зависимостей' }, fields: ['label', 'params'] },
+    ] });
+    const page = into(createElement(ProblemsPage, { version: 0 }));
+    await until(() => page.querySelector('[data-testid=problems-starter]') !== null, 'the offers');
+    (page.querySelector('[data-testid=starter-toggle]') as HTMLElement).click();
+    await until(() => page.querySelectorAll('[data-testid=starter-offer]').length === 2, 'the expanded offers');
+    expect(page.querySelector('[data-offer="rule:debt.todo"]')!.textContent).toContain('Rule: TODO (debt.todo)');
+    expect(page.querySelector('[data-offer="rule:dependency.cycle"]')!.textContent).toContain('Fill in the rule Dependency cycle (dependency.cycle): label, params');
+  });
+
   test('in Russian the offer carries the Russian name and «Добавить»', async () => {
     await setWikiLanguage('ru');
     (globalThis as { fetch?: unknown }).fetch = async () => json({ problems: [], open: 0, closed: 0, notes: [], starter: OFFERS });
@@ -444,7 +478,7 @@ describe('the starter set on the Problems page', () => {
     await until(() => page.querySelectorAll('[data-testid=starter-offer]').length === 4, 'the expanded Russian offers');
     expect(page.querySelector('[data-offer="kind:code.route"]')!.textContent).toContain('Вид: HTTP-маршрут (code.route)');
     expect(page.querySelector('[data-offer="kind:code.route"] [data-testid=starter-add]')!.textContent).toBe('Добавить');
-    expect(page.querySelector('[data-testid=problems-starter] h2')!.textContent).toBe('В стартовом наборе есть 4 видов и групп, которых нет в вашем манифесте.');
+    expect(page.querySelector('[data-testid=problems-starter] h2')!.textContent).toBe('В стартовом наборе есть 4 видов, групп и правил, которых нет в вашем манифесте.');
   });
 
 });

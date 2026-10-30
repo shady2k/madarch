@@ -49,6 +49,8 @@ export function listedDocument(manifest: KindsManifest, repo: string | null, pat
   if (repo === null && isKindPage(manifest, path)) return false;
   // Machine-generated entity translations are data for entity pages, not new source documents.
   if (repo === null && /^docs\/sources\/[A-Za-z0-9._-]+\/[A-Za-z0-9_-]+\.md$/.test(path)) return false;
+  // «Не проблема» records are loop files, not documents the wiki reads (madarch-m38l.19).
+  if (repo === null && /^docs\/problems\/[^/]+\.md$/.test(path)) return false;
   return !matchesAny(manifest.excludeDocuments, path);
 }
 

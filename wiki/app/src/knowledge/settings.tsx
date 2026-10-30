@@ -151,7 +151,22 @@ function RolesSection({ settings, reload }: { settings: ProductSettings; reload:
     getAgents(controller.signal).then((answer) => setAgents(answer.agents), (failure: unknown) => { if (!controller.signal.aborted) setError(message(failure)); });
     return () => controller.abort();
   }, [round]);
-  const label = (id: string): string => agents?.find((agent) => agent.id === id)?.label ?? id;
+  // The settings bring the names of the agents they name (madarch-j6ho.2): a row stands with the name at once, and the
+  // agents read later fill in the names of the agents no role names.
+  const label = (id: string): string => settings.agentNames?.[id] ?? agents?.find((agent) => agent.id === id)?.label ?? id;
+  // The selector's options come from the names the settings bring, so it never stands with the fallback alone while the
+  // agents are read; the agents list only adds availability and the install wording for a name it knows (madarch-j6ho.2).
+  const namedAgents = Object.entries(settings.agentNames ?? {});
+  const options = [
+    ...namedAgents.map(([id, name]) => {
+      const offered = agents?.find((agent) => agent.id === id);
+      return { id, name: offered === undefined || offered.installed ? name : t('settings.roles.installs', { agent: name }) };
+    }),
+    ...(agents ?? []).filter((agent) => !namedAgents.some(([id]) => id === agent.id)).map((agent) => ({
+      id: agent.id,
+      name: agent.installed ? agent.label : t('settings.roles.installs', { agent: agent.label }),
+    })),
+  ];
   // A role assigned to an agent gets that agent's own model and reasoning level to choose from (madarch-j6ho.2,
   // finding 3); the answers are asked once per agent and kept for every role using it.
   const [choices, setChoices] = useState<Record<string, AgentChoices | null>>({});
@@ -226,7 +241,7 @@ function RolesSection({ settings, reload }: { settings: ProductSettings; reload:
                     onChange={(event) => assign(role.role, event.target.value === '' ? null : event.target.value)}
                   >
                     <option value="">{settings.roles.defaultPair === null ? t('settings.roles.unassigned') : t('settings.roles.useDefault', { role: t('settings.roles.writing') })}</option>
-                    {(agents ?? []).map((agent) => <option key={agent.id} value={agent.id}>{agent.installed ? agent.label : t('settings.roles.installs', { agent: agent.label })}</option>)}
+                    {options.map((agent) => <option key={agent.id} value={agent.id}>{agent.name}</option>)}
                   </select>
                 </div>
               )}
