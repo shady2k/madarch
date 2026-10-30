@@ -200,6 +200,9 @@ function segmentationText(text: string, from: number, to: number, index: SourceI
   // Only the spans inside this range are masked: a page-wide scan per paragraph would make the page quadratic.
   for (const span of spansIn(index.codes, from, to)) maskPunctuation(characters, text, span, from, to);
   for (const span of spansIn(index.targets, from, to)) maskPunctuation(characters, text, span, from, to);
+  // A link's visible words are a name, not prose: a full stop inside the label cannot end the sentence the link
+  // introduces. The label itself is still returned by `plain` for the reader.
+  for (const span of spansIn(index.links, from, to)) maskPunctuation(characters, text, span, from, to);
   for (const span of spansIn(index.questions, from, to)) {
     const start = Math.max(span.start, from);
     const end = Math.min(span.end, to);

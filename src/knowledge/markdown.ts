@@ -240,6 +240,8 @@ function sentencesOf(paragraph: Node): Sentence[] {
     const parts: string[] = [];
     flatten(child, parts);
     const flat = parts.join('');
+    // A link's visible words are a name, not a claim: its punctuation cannot end the sentence the link introduces.
+    const name = child.type === 'link' || child.type === 'linkReference' || child.type === 'image' || child.type === 'imageReference';
     // The footnote references inside the piece stay in the sentence and say nothing of where it ends.
     for (const piece of flat.split(/(\u0001[^\u0002]*\u0002)/)) {
       if (piece.startsWith('\u0001')) {
@@ -253,9 +255,9 @@ function sentencesOf(paragraph: Node): Sentence[] {
           else current += char;
           continue;
         }
-        if (terminated && !/[.!?)"'\u201d]/.test(char)) terminated = false;
+        if (!name && terminated && !/[.!?)"'\u201d]/.test(char)) terminated = false;
         current += char;
-        if (/[.!?]/.test(char)) terminated = true;
+        if (!name && /[.!?]/.test(char)) terminated = true;
       }
     }
   }

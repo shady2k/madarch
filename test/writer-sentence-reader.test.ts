@@ -28,6 +28,11 @@ describe('the shared sentence reader', () => {
     ]);
   });
 
+  test('a link label with terminal punctuation does not end the sentence it introduces', () => {
+    const text = '[BR-5 Promotion cap. A promotion never takes off more than...](madarch:doc:docs/requirements.md#br-5-promotion-cap) — A promotion never takes off more than the subtotal.[^tax]';
+    expect(sentencesOf(maskInline(text), 'en').map((sentence) => unmask(sentence.text))).toEqual([text]);
+  });
+
   test('a referenced question suffix is left out of the statement key like an inline one', () => {
     const body = [
       'Orders ship tomorrow.[^a] [When?][q]',
@@ -105,6 +110,13 @@ describe('the format validates what the tree says, not a word list in the text',
   test('a claim hidden in a navigation link label is a statement, whatever verb it uses', async () => {
     expect(await rules(`${header('domain:delivery', 'Delivery')}Delivery takes two days.[^a]\n\nSee also [delivery takes two days](madarch:domain:delivery).\n\n[^a]: [A](madarch:code.symbol:src/a.ts#a)\n`, delivery))
       .toContain('ungrounded-statement');
+  });
+
+  test('a link label with terminal punctuation introduces one grounded sentence, not a statement of its own', async () => {
+    const page = `${header('domain:delivery', 'Delivery')}Delivery takes two days.[^a]\n\n- [BR-5 Promotion cap. A promotion never takes off more than...](madarch:doc:docs/requirements.md#br-5-promotion-cap) — A promotion never takes off more than the subtotal.[^b]\n\n[^a]: [A](madarch:code.symbol:src/a.ts#a)\n[^b]: [Rules](madarch:doc:docs/requirements.md#br-5)\n`;
+    const withDocs: GroundResolver = { ...resolver, docSection: async (path, anchor) => path === 'docs/requirements.md' && (anchor === 'br-5-promotion-cap' || anchor === 'br-5') };
+    const checked = await checkPage(page, delivery, withDocs);
+    expect(checked.ok).toBe(true);
   });
 
   test('a word between navigation links is a statement and needs grounds', async () => {

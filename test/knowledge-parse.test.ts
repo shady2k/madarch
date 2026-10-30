@@ -205,6 +205,13 @@ describe('a body and its grounds', () => {
     expect(reading.statements).toBe(2);
   });
 
+  test('a period in a link label does not end the statement the link introduces', () => {
+    const body = ['- [BR-5 Promotion cap. A promotion never takes off more than...](madarch:doc:docs/requirements.md#br-5-promotion-cap) — A promotion never takes off more than the subtotal.[^1]', '', '[^1]: [rules](madarch:doc:docs/requirements.md#br-5)'].join('\n');
+    const reading = readBody(body, 'docs/product.md', 1);
+    expect(reading.ungrounded).toEqual([]);
+    expect(reading.statements).toBe(1);
+  });
+
   test('a footnote used and never defined, and a footnote that lists no ground, are findings at their line', () => {
     const reading = readBody(['One statement with a missing note here.[^2]', '', 'Another statement with an empty note here.[^3]', '', '[^3]: just words, no link'].join('\n'), 'docs/p.md', 5);
     expect(reading.findings).toEqual([
