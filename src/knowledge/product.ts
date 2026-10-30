@@ -2275,10 +2275,11 @@ export class KnowledgeProduct {
     const cached = this.problemsCache;
     // The listing already collected for exactly these inputs: no walk.
     if (cached !== undefined && cached.key === key) return { count: cached.listing.open, key };
-    // The first reader of a product pays for its one collection, so the menu has a count from its first poll. The key is
-    // taken after the store is open: it carries the reader's revision, and the next poll must find this count under the
-    // same key rather than treat it as collected for other inputs.
-    if (cached === undefined && this.fill.state !== 'running') {
+    // A reader that finds the inputs changed pays for the one collection, so the menu has a count for these inputs
+    // rather than a stale one or a pending answer after the fill has ended. The key is taken after the store is open:
+    // it carries the reader's revision, and the next poll must find this count under the same key rather than treat it
+    // as collected for other inputs.
+    if (this.fill.state !== 'running') {
       try {
         const owner = await this.open();
         const fresh = this.problemsKey();
@@ -2287,9 +2288,8 @@ export class KnowledgeProduct {
         return undefined;
       }
     }
-    // Every other poll leaves the collection to the background, so no answer waits for a walk of the graph — and no
-    // answer walks it while a fill runs (madarch-m38l.19). Until that collection lands, the answer says pending: the
-    // count it holds is one collected for other inputs, and it is never shown (madarch-u3vw.8).
+    // While a fill runs the listing is not collected (madarch-m38l.19): the answer says pending rather than carry a
+    // count collected for other inputs (madarch-u3vw.8). The next answer after the fill collects it above.
     this.refreshProblems(key);
     return undefined;
   }
