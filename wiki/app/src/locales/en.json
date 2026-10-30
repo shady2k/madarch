@@ -587,6 +587,17 @@
       "unknown": "The indexed evidence cannot resolve this repository and date. No current code is substituted.",
       "absent": "This tree was read, but this entity is absent at the selected date. It is not replaced by its current version."
     },
+    "sync": "Sync",
+    "syncHint": "Read the new commits and check the pages again",
+    "syncRunning": "Syncing…",
+    "syncResult": "What changed",
+    "syncChanged_one": "Changed pages: {{count}}",
+    "syncChanged_few": "Changed pages: {{count}}",
+    "syncChanged_many": "Changed pages: {{count}}",
+    "syncChanged_other": "Changed pages: {{count}}",
+    "syncNothing": "Nothing changed",
+    "syncUnknown": "The pages that changed could not be listed",
+    "syncClose": "Close",
     "pageProblems": "{{count}} problems"
   },
   "loop": {
