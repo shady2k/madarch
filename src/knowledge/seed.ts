@@ -831,8 +831,8 @@ export function ensureLoopKinds(productFolder: string): string[] {
     // A group the manifest does not declare would make the kind a finding: the kind is then declared without one.
     for (const detail of DETAILS[kind.name] ?? []) {
       if (document.hasIn(['properties', detail])) continue;
-      const label = PROPERTY_LABELS[detail];
-      if (label !== undefined) document.setIn(['properties', detail], document.createNode({ en: label.en, ru: label.ru, format: label.format ?? 'text' }));
+      const declaration = propertyDeclaration(detail);
+      if (declaration !== undefined) document.setIn(['properties', detail], document.createNode(declaration));
     }
     const parsed = parseDocument(`kinds:\n${kindLines(kind, { group: document.hasIn(['groups', kind.group]) }).join('\n')}\n`).getIn(['kinds', kind.name]) as { toJSON(): unknown };
     document.setIn(['kinds', kind.name], document.createNode(parsed.toJSON()));
