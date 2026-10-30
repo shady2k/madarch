@@ -27,6 +27,7 @@ import { parse as parseYaml } from 'yaml';
 import { splitFrontMatter } from '../knowledge/markdown.js';
 import { KINDS_FILE, readKinds } from '../knowledge/kinds.js';
 import { parseQuestion, parseStatementRef, QUESTIONS_FOLDER, readCorrections, readQuestions, type Correction, type Question } from '../loop/entities.js';
+import { CONTENT_SLUG } from '../loop/ids.js';
 import { writtenAtOf } from './basis.js';
 import type { DocEntity } from '../knowledge/doc-entities.js';
 import { detectDocumentLanguage, localizedSourcePath, localizedSourcePrompt, parseLocalizedSource, renderLocalizedSource, LOCALIZED_SOURCE_SCHEMA } from './localized-source.js';
@@ -332,7 +333,8 @@ export function writerPageFamily(relativePath: string): WriterPageFamily | undef
   if (parts.length === 3) {
     const name = parts[2]!.slice(0, -'.md'.length);
     if (folder === 'domains') return familySlug(name) ? 'domain' : undefined;
-    if (folder === 'questions') return familySlug(name) ? 'question' : undefined;
+    // A new question is named by its content hash (madarch-ztyq.12); an older one keeps its readable name.
+    if (folder === 'questions') return familySlug(name) || CONTENT_SLUG.test(name) ? 'question' : undefined;
     return undefined;
   }
   // A file filed under a kind of its own, `docs/<folder>/<kind>/<name>.md` (`localizedSourcePath`,

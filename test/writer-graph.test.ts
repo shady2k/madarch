@@ -453,6 +453,19 @@ describe('the artifacts a run produced', () => {
 });
 
 // ---------------------------------------------------------------------------------------------
+// A question file named by its content hash is still a question page
+// ---------------------------------------------------------------------------------------------
+
+describe('a question page named by content', () => {
+  test('a content-hash name is a question page, as an older readable name is', () => {
+    expect(writerPageFamily('docs/questions/731b12f26c88.md')).toBe('question');
+    expect(writerPageFamily('docs/questions/731b12f26c88-2.md')).toBe('question');
+    expect(writerPageFamily('docs/questions/ten-percent-discount-discount.md')).toBe('question');
+    expect(writerPageFamily('docs/questions/731b12f26c88.txt')).toBe(undefined);
+  });
+});
+
+// ---------------------------------------------------------------------------------------------
 // Enrichment of a person's document: apart from it, keyed by its identity, never over it
 // ---------------------------------------------------------------------------------------------
 

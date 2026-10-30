@@ -15,11 +15,11 @@ import { mkdir, readFile, rename, writeFile } from 'node:fs/promises';
 import { dirname, join } from 'node:path';
 import { promisify } from 'node:util';
 import { byCodePoint } from '../model/order.js';
-import { idSlugOf } from '../writer/names.js';
+import { correctionId, QUESTION_SLUG } from './ids.js';
 import { readKnowledgePages } from '../knowledge/index/index.js';
 import {
   CORRECTIONS_FOLDER, CORRECTION_KIND, LOCAL_UNVERIFIED, LoopFileError, MAX_ANSWER, MAX_REASON, QUESTION_KIND,
-  correctionPath, freeSlug, parseCorrection, parseQuestion, parseStatementRef, questionPath, renderCorrection, renderQuestion,
+  correctionPath, parseCorrection, parseQuestion, parseStatementRef, questionPath, renderCorrection, renderQuestion,
   type Author, type Correction, type Question,
 } from './entities.js';
 
@@ -121,7 +121,7 @@ export interface Answered extends Committed {
 
 export async function answerQuestion(input: AnswerInput): Promise<Answered> {
   const env = input.env ?? process.env;
-  if (!/^[a-z][a-z0-9]*(-[a-z0-9]+)*$/.test(input.slug)) throw new LoopRefusal(400, `"${input.slug}" is no question id: a question's id is lower-case words joined by hyphens`);
+  if (!QUESTION_SLUG.test(input.slug)) throw new LoopRefusal(400, `"${input.slug}" is no question id: a question's id is lower-case words joined by hyphens or the 12-character content hash a new file is named by`);
   const text = input.text.replace(/\r\n/g, '\n').trim();
   if (text === '') throw new LoopRefusal(400, 'the answer is empty: write what is true, in your own words');
   if (text.length > MAX_ANSWER) throw new LoopRefusal(413, `the answer is ${text.length} characters, past the ${MAX_ANSWER} a question's file keeps`);
@@ -189,9 +189,20 @@ export async function recordCorrection(input: CorrectionInput): Promise<Correcte
   const at = (input.now?.() ?? new Date()).toISOString();
   const first = reason.replace(/\s+/g, ' ');
   const title = first.length > 80 ? `${first.slice(0, 79)}…` : first;
-  // The slug is chosen inside the turn: two corrections at once never pick the same file.
+  // The id is chosen inside the turn: the same correction is one file, and two different ones never pick the same file.
   return await alone(join(input.productFolder, CORRECTIONS_FOLDER), async () => {
-    const slug = freeSlug(input.productFolder, CORRECTIONS_FOLDER, idSlugOf(`${parsed.statement} ${reason}`, parsed.statement));
+    const wanted = correctionId(found.text, reason, input.statement);
+    let slug = wanted;
+    for (let n = 2; ; n += 1) {
+      const candidate = correctionPath(slug);
+      const path = join(input.productFolder, candidate);
+      if (!existsSync(path)) break;
+      const existing = parseCorrection(candidate, await readFile(path, 'utf8'));
+      if (correctionId(existing.statement, existing.reason, existing.about) === wanted) {
+        return { correction: existing, committed: false, note: `${candidate} already records this correction; nothing was written` };
+      }
+      slug = `${wanted}-${n}`;
+    }
     const file = correctionPath(slug);
     const correction: Correction = { slug, id: `${CORRECTION_KIND}:${slug}`, file, title, status: 'open', about: input.statement, statement: found.text, reason, by, at, resolvedBy: [], resolvedAt: null };
     assertInside(input.productFolder, join(input.productFolder, file));

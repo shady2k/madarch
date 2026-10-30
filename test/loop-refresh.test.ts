@@ -26,7 +26,8 @@ import { listProblems, listQuestions } from '../src/loop/views.js';
 import { starterProblemSettings } from '../src/knowledge/seed.js';
 import { createDraft } from '../src/product/draft.js';
 import { DEFAULT_UNIT_BOUNDS, GraphView, UnitTools, memorySink, runWriter, type ToolAnswer, type UnitAgent, type UnitRequest, type WriterReport } from '../src/writer/index.js';
-import { idSlugOf, slugOf } from '../src/writer/names.js';
+import { questionId } from '../src/loop/ids.js';
+import { slugOf } from '../src/writer/names.js';
 import { gitEnv } from './git-env.js';
 
 const README = `# Shop
@@ -123,7 +124,13 @@ afterAll(async () => {
 }, 60_000);
 
 const QUESTION_TITLE = 'Which discount does an order get?';
-const QUESTION_SLUG = idSlugOf(QUESTION_TITLE);
+const QUESTION_TEXT = 'The README gives every order the same discount; the code applies whatever percentage its caller passes. Which does the shop mean?';
+const QUESTION_WHY = 'A shopper is told one number and may be charged another.';
+const QUESTION_SIDES = [
+  { claim: 'The README says every order gets a ten percent discount.', grounds: ['doc:README.md#discounts'] },
+  { claim: 'The code applies the percentage its caller passes.', grounds: ['code.symbol:src/pricing.ts#discountFor'] },
+];
+const QUESTION_SLUG = questionId({ type: 'contradiction', title: QUESTION_TITLE, question: QUESTION_TEXT, why: QUESTION_WHY, sides: QUESTION_SIDES });
 
 /** The grounds the pricing page stands on: the README's sections and the one file the pricing lives in. */
 const README_OVERVIEW = 'doc:README.md#overview';
@@ -204,9 +211,9 @@ describe('the loop, from the first question to a translation', () => {
         const oneSided = await call(request, 'ask_question', { type: 'contradiction', title: QUESTION_TITLE, question: 'Which is true?', why: 'Why.', sides: [{ claim: 'Only one side.', grounds: [discountKey] }] });
         expect(JSON.stringify(oneSided.answer)).toContain('a contradiction has at least two sides');
         const asked = await call(request, 'ask_question', {
-          type: 'contradiction', title: QUESTION_TITLE, question: 'The README gives every order the same discount; the code applies whatever percentage its caller passes. Which does the shop mean?',
-          why: 'A shopper is told one number and may be charged another.',
-          sides: [{ claim: 'The README says every order gets a ten percent discount.', grounds: ['doc:README.md#discounts'] }, { claim: 'The code applies the percentage its caller passes.', grounds: [discountKey] }],
+          type: 'contradiction', title: QUESTION_TITLE, question: QUESTION_TEXT,
+          why: QUESTION_WHY,
+          sides: [{ ...QUESTION_SIDES[0]!, grounds: ['doc:README.md#discounts'] }, { ...QUESTION_SIDES[1]!, grounds: [discountKey] }],
         });
         expect(asked.isError).toBe(false);
         expect(asked.answer).toMatchObject({ asked: true, id: `question:${QUESTION_SLUG}`, path: `docs/questions/${QUESTION_SLUG}.md` });
@@ -437,12 +444,17 @@ describe('the question tool is bounded and checks what it is given', () => {
   test('at most six questions per unit, each saved as a file of the product; the seventh is refused in words', async () => {
     const { tools, sink } = await session();
     const words = ['alpha', 'bravo', 'charlie', 'delta', 'echo', 'foxtrot'];
-    const comparison = (previous: readonly string[]) => previous.map((word) => ({ id: `question:${idSlugOf(`Question about ${word}`)}`, same: false, reason: 'Each fixture word names a distinct authored decision for the per-unit bound.' }));
-    for (const [index, word] of words.entries()) expect((await tools.call('ask_question', good(`Question about ${word}`, { question: `Which policy applies to ${word}?`, comparison: comparison(words.slice(0, index)) }))).isError).toBe(false);
+    const made: string[] = [];
+    const comparison = (previous: readonly string[]) => previous.map((word, index) => ({ id: `question:${made[index]!}`, same: false, reason: 'Each fixture word names a distinct authored decision for the per-unit bound.' }));
+    for (const [index, word] of words.entries()) {
+      const answer = await tools.call('ask_question', good(`Question about ${word}`, { question: `Which policy applies to ${word}?`, comparison: comparison(words.slice(0, index)) }));
+      expect(answer.isError).toBe(false);
+      made.push((answer.answer as { id: string }).id.slice('question:'.length));
+    }
     const seventh = await tools.call('ask_question', good('Question about golf', { question: 'Which policy applies to golf?', comparison: comparison(words) }));
     expect(seventh.isError).toBe(true);
     expect(JSON.stringify(seventh.answer)).toContain('this unit asked its 6 new questions; reuse existing decisions or write your page with what you know');
-    expect([...sink.pages.keys()]).toEqual(['alpha', 'bravo', 'charlie', 'delta', 'echo', 'foxtrot'].map((word) => `docs/questions/${idSlugOf(`Question about ${word}`)}.md`));
+    expect([...sink.pages.keys()]).toEqual(made.map((id) => `docs/questions/${id}.md`));
     expect(tools.outcome().questions).toHaveLength(6);
     expect(tools.finished).toBe(false);
   });
@@ -492,10 +504,11 @@ describe('the question tool is bounded and checks what it is given', () => {
     expect(sink.pages.size).toBe(0);
   });
 
-  test('a unit whose title names nothing is told to say what the question is about', async () => {
+  test('a title made only of a stop word still asks: the id is the content, and a person reads the title', async () => {
     const { tools } = await session();
-    const refused = await tools.call('ask_question', good('?!'));
-    expect(problemsOf(refused.answer)).toContain('"title" has no word to name the question by');
+    const asked = await tools.call('ask_question', good('The?!', { sides: [{ claim: 'The code sets the rule.', grounds: ['code.file:src/pricing.ts'] }] }));
+    expect(asked.isError, JSON.stringify(asked.answer)).toBe(false);
+    expect((asked.answer as { path: string }).path).toMatch(/^docs\/questions\/[0-9a-f]{12}\.md$/);
   });
 });
 

@@ -16,6 +16,7 @@ import { ensureLoopKinds } from '../src/knowledge/seed.js';
 import { readKinds } from '../src/knowledge/kinds.js';
 import { LoopRefusal, answerQuestion, commitFiles, localIdentity, markResolved, recordCorrection } from '../src/loop/answer.js';
 import { LoopFileError, parseCorrection, parseQuestion, readCorrections, readQuestions, renderCorrection, renderQuestion, freeSlug, type Question } from '../src/loop/entities.js';
+import { correctionId, questionFootnoteId } from '../src/loop/ids.js';
 import { decide } from '../src/loop/plan.js';
 import { NOTES_CHARACTERS, includedNotes, type ChangeNote } from '../src/writer/edit.js';
 import { symlinkSync } from 'node:fs';
@@ -77,8 +78,19 @@ describe('a question file', () => {
     expect(read.sides).toEqual(QUESTION.sides);
     expect(read.writtenAt).toEqual(QUESTION.writtenAt);
     // The sides are statements of the page format: a sentence and a footnote that lists its grounds.
-    expect(text).toContain('- The README says every order gets ten percent.[^readme-says-order-gets]');
+    expect(text).toContain(`- The README says every order gets ten percent.[^${questionFootnoteId(QUESTION.sides[0]!.claim, QUESTION.sides[0]!.grounds)}]`);
     expect(text).toContain('](madarch:doc:README.md#discounts)');
+  });
+
+  test('a file written before content hashes keeps its footnote names when it is rendered again', () => {
+    const file = 'docs/questions/discount-percentage.md';
+    const rendered = renderQuestion(QUESTION);
+    const label = /\[\^([^\]]+)\]/.exec(rendered)![1]!;
+    const text = rendered.replaceAll(`[^${label}]`, '[^old-readme-name]').replace(`${label}:`, 'old-readme-name:');
+    const read = parseQuestion(file, text);
+    const again = renderQuestion(read);
+    expect(again).toContain('[^old-readme-name]');
+    expect(again).toContain('[^old-readme-name]: [discounts](madarch:doc:README.md#discounts)');
   });
 
   test('carries the answer, who gave it and the mark, and reads it back', () => {
@@ -146,6 +158,22 @@ describe('a person answers in the wiki', () => {
     return folder;
   }
   const log = (folder: string, format: string): string => execFileSync('git', ['log', '-1', `--format=${format}`], { cwd: folder, encoding: 'utf8', env: gitEnv(SEED) }).trim();
+
+  test('an old-style file name is found, answered and closed from the name, never from a slug re-derived from its text', async () => {
+    const folder = product();
+    mkdirSync(join(folder, 'docs/questions'), { recursive: true });
+    const file = 'docs/questions/ten-percent-discount-discount.md';
+    writeFileSync(join(folder, file), renderQuestion({ ...QUESTION, slug: 'ten-percent-discount-discount' }));
+    execFileSync('git', ['add', '-A'], { cwd: folder, env: gitEnv(SEED) });
+    execFileSync('git', ['commit', '-q', '-m', 'an old question'], { cwd: folder, env: gitEnv(SEED) });
+    const found = readQuestions(folder).items.find((candidate) => candidate.id === 'question:ten-percent-discount-discount');
+    expect(found).toMatchObject({ slug: 'ten-percent-discount-discount', file, status: 'open' });
+    const answered = await answerQuestion({ productFolder: folder, slug: 'ten-percent-discount-discount', text: 'Ten percent.', now: () => new Date('2026-10-23T11:30:00Z'), env: env(PERSON) });
+    expect(answered.question).toMatchObject({ slug: 'ten-percent-discount-discount', id: 'question:ten-percent-discount-discount', status: 'answered', file });
+    await markResolved(folder, { kind: 'question', slug: 'ten-percent-discount-discount', pages: ['domain:orders'], now: () => new Date('2026-10-23T12:00:00Z') });
+    const closed = parseQuestion(file, readFileSync(join(folder, file), 'utf8'));
+    expect(closed).toMatchObject({ slug: 'ten-percent-discount-discount', id: 'question:ten-percent-discount-discount', status: 'answered', resolvedBy: ['domain:orders'], resolvedAt: '2026-10-23T12:00:00.000Z' });
+  });
 
   test('the answer lands in the question file and is committed with the person as author, marked local, not verified', async () => {
     const folder = withQuestion();
@@ -236,8 +264,9 @@ describe('a person corrects a statement', () => {
     const folder = withPage();
     const done = await recordCorrection({ productFolder: folder, statement: 'domain:orders#ten-percent-discount', reason: 'The discount is whatever the caller passes.\n\nThe README is out of date.', now: () => new Date('2026-10-23T11:45:00Z'), env: env(PERSON) });
     expect(done.committed).toBe(true);
-    expect(done.correction.slug).toBe('ten-percent-discount-discount');
-    expect(done.correction.file).toBe('docs/corrections/ten-percent-discount-discount.md');
+    const firstSlug = correctionId('Orders get a ten percent discount.', 'The discount is whatever the caller passes.\n\nThe README is out of date.', 'domain:orders#ten-percent-discount');
+    expect(done.correction.slug).toBe(firstSlug);
+    expect(done.correction.file).toBe(`docs/corrections/${firstSlug}.md`);
     const read = parseCorrection(done.correction.file, readFileSync(join(folder, done.correction.file), 'utf8'));
     expect(read).toMatchObject({ status: 'open', about: 'domain:orders#ten-percent-discount', statement: 'Orders get a ten percent discount.', by: { name: 'Ada Reader', email: 'ada@example.test', verified: 'local, not verified' }, at: '2026-10-23T11:45:00.000Z' });
     expect(read.reason).toBe('The discount is whatever the caller passes.\n\nThe README is out of date.');
@@ -264,15 +293,16 @@ describe('a person corrects a statement', () => {
     writeFileSync(join(folder, 'docs/questions/discount-percentage.md'), renderQuestion({ ...QUESTION, status: 'answered', answer: { text: 'Ten percent.', by, at: '2026-10-23T11:00:00.000Z' } }));
     writeFileSync(join(folder, 'docs/questions/open-one.md'), renderQuestion({ ...QUESTION, slug: 'open-one' }));
     const tax = await recordCorrection({ productFolder: folder, statement: 'domain:orders#tax-at-checkout', reason: 'Tax is added in the invoice.', env: env(PERSON) });
-    expect(tax.correction.id).toBe('correction:tax-checkout-tax-added');
+    const taxSlug = correctionId('Tax is added at checkout.', 'Tax is added in the invoice.', 'domain:orders#tax-at-checkout');
+    expect(tax.correction.id).toBe(`correction:${taxSlug}`);
     const { pages, findings } = readKnowledgePages(folder);
     expect(findings).toEqual([]);
     expect(pages.map((page) => `${page.id}|${page.kind}`).sort()).toEqual([
-      'answer:discount-percentage|answer', 'correction:tax-checkout-tax-added|correction', 'domain:orders|domain', 'question:discount-percentage|question', 'question:open-one|question',
+      'answer:discount-percentage|answer', `correction:${taxSlug}|correction`, 'domain:orders|domain', 'question:discount-percentage|question', 'question:open-one|question',
     ]);
     const question = pages.find((page) => page.id === 'question:open-one')!;
     expect(question.relates).toEqual(['domain:orders', 'domain:orders#ten-percent-discount']);
-    expect(question.statements.map((s) => s.id)).toEqual(['readme-says-order-gets', 'code-applies-percentage-caller']);
+    expect(question.statements.map((s) => s.id)).toEqual(QUESTION.sides.map((side) => questionFootnoteId(side.claim, side.grounds)));
     expect(question.statements[0]!.grounds).toEqual(['doc:README.md#discounts']);
     const answer = pages.find((page) => page.id === 'answer:discount-percentage')!;
     expect(answer).toMatchObject({ kind: 'answer', producer: 'person', mentions: ['question:discount-percentage'], statements: [] });
@@ -433,13 +463,14 @@ describe('what a review of the first version found', () => {
     expect(readFileSync(join(outside, 'discount-percentage.md'), 'utf8')).toBe(renderQuestion(QUESTION));
   });
 
-  test('two corrections at once, worded alike, are two files', async () => {
+  test('the same correction at once is one file, and the later calls return it without a commit', async () => {
     const folder = product();
     mkdirSync(join(folder, 'docs/domains'), { recursive: true });
     writeFileSync(join(folder, 'docs/domains/orders.md'), PAGE);
     const both = await Promise.all([1, 2, 3].map(() => recordCorrection({ productFolder: folder, statement: 'domain:orders#tax-at-checkout', reason: 'Tax is added in the invoice.', env: env(PERSON) })));
-    expect(new Set(both.map((done) => done.correction.slug)).size).toBe(3);
-    expect(readCorrections(folder).items).toHaveLength(3);
+    expect(new Set(both.map((done) => done.correction.slug)).size).toBe(1);
+    expect(both.filter((done) => done.committed)).toHaveLength(1);
+    expect(readCorrections(folder).items).toHaveLength(1);
   });
 
   test('the notes an answer closes are the ones the prompt carries, within its budget', () => {

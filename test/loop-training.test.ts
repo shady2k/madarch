@@ -19,7 +19,7 @@ import { startServer, type StartedServer } from '../src/server/http.js';
 import { gitEnv } from './git-env.js';
 import { ORDERS_SERVICE, domainFields, fieldsCall } from './knowledge-agent-script.js';
 import { PAY, SAMPLE_IDENTITY, ROOT, generateTrainingRepository, makeProduct, withoutEnrichmentKind } from './knowledge-fixture.js';
-import { idSlugOf } from '../src/writer/names.js';
+import { taskSlug as taskSlugOf } from '../src/loop/tasks.js';
 import { ANSWER_TEXT, LOOP_QUESTIONS, contradictionSides, firstRunScript, questionSlug, refreshScript } from './loop-agent-script.js';
 import { SCRIPTED_GUIDE_PATH, SCRIPTED_GUIDE_SOURCE } from './scripted-guide-agent.js';
 import { readerText } from './markdown-reader.js';
@@ -215,7 +215,7 @@ describe('an answer scopes a task, marks only what it reaches, fixes those pages
   const retention = LOOP_QUESTIONS.find((question) => question.item === 'contradiction.retention')!;
   const slug = questionSlug(retention, 'en');
   const answer = 'Orders that were not shipped are removed ninety days after they were placed; the README says they are kept, and the code is right.';
-  const taskSlug = idSlugOf(`Update the documents: ${retention.text.en.title}`);
+  let taskSlug: string;
   let proposed: any;
 
   test('the answer proposes a task whose scope is the two README sections the question names, not their files', async () => {
@@ -230,6 +230,8 @@ describe('an answer scopes a task, marks only what it reaches, fixes those pages
       { type: 'section', path: 'services/orders/README.md', anchor: 'orders-service' },
     ]);
     expect(proposed.grounds).toEqual(['code.file\u003aservices/orders/internal/application/order_service.go', 'doc:README.md#what-it-does', 'doc:services/orders/README.md#orders-service']);
+    taskSlug = taskSlugOf(proposed.title, proposed.scope);
+    expect(taskSlug).toMatch(/^[0-9a-f]{12}$/);
     // The impact is read through the graph: the ordering page's sentences that stand on the two sections.
     expect(proposed.impact.pages.map((page: { id: string }) => page.id)).toContain('domain:ordering');
     expect(proposed.impact.statements.length).toBeGreaterThan(0);

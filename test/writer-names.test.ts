@@ -1,6 +1,6 @@
 /** Statement names (madarch-m38l.8): readable, unique within the page, and kept while the sentence stands. */
 import { describe, expect, test } from 'bun:test';
-import { idSlugOf, nameStatements, sentenceKey, slugOf } from '../src/writer/names.js';
+import { nameStatements, sentenceKey, slugOf } from '../src/writer/names.js';
 
 describe('slugOf', () => {
   test('a readable slug of the first content words', () => {
@@ -23,21 +23,6 @@ describe('slugOf', () => {
   test('a word is what the language segmenter calls a word, with no stop list', () => {
     expect(slugOf("Don't stop the build.")).toBe('dont-stop-the-build');
     expect(slugOf('A refund is allowed within 14 days.')).toBe('refund-is-allowed-within');
-  });
-});
-
-describe('idSlugOf', () => {
-  test('question, correction, task and footnote ids keep the spelling main gave them', () => {
-    expect(idSlugOf('ten-percent-discount The discount is applied.')).toBe('ten-percent-discount-discount');
-    expect(idSlugOf('Update the documents: Is tax added to the price?')).toBe('update-documents-tax-added');
-    expect(idSlugOf('Update the documents: Is the refund allowed after ninety days?')).toBe('update-documents-refund-allowed');
-    expect(idSlugOf('Fix DocumentContradiction in docs')).toBe('fix-document-contradiction-docs');
-    expect(idSlugOf('Question about alpha')).toBe('question-about-alpha');
-  });
-
-  test('the old stop words still keep an id short, in both languages', () => {
-    expect(idSlugOf('Платёж от сервиса')).toBe('platezh-servisa');
-    expect(idSlugOf('a an the is are')).toBe('statement');
   });
 });
 

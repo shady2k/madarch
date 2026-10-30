@@ -22,7 +22,7 @@ import { revisionScopeProblems } from './editorial-read.js';
 import { checkPage, MAX_SLUG_LENGTH, parseTarget, SLUG, type Refusal } from './format.js';
 import type { WrittenAt } from '../knowledge/index/page.js';
 import { MAX_ABOUT, MAX_SIDES, MAX_TEXT, MAX_TITLE, QUESTION_HEADINGS, QUESTION_TYPES, parseQuestion, parseStatementRef, questionPath, renderQuestion, type Question, type QuestionLanguage, type QuestionType } from '../loop/entities.js';
-import { idSlugOf } from './names.js';
+import { questionId } from '../loop/ids.js';
 import { readPage, statementsOf } from './sentences.js';
 import { splitFrontMatter } from '../knowledge/markdown.js';
 import type { GraphView } from './view.js';
@@ -1343,14 +1343,22 @@ export class UnitTools {
         }
       }
     }
-    const slug = title === '' ? '' : idSlugOf(title);
-    if (title !== '' && slug === 'statement') bad('"title" has no word to name the question by: say what it is about in words');
     if (problems.length > 0) return fail('bad-question', `the question was not saved: ${problems.join('; ')}`, { problems });
     const language = this.extras.language ?? 'en';
     const proseLanguage = (value: string): string | undefined => detectStatementLanguage(proseForLanguage(value));
     const wrong = [['title', title], ['question', question], ['why', why], ...sides.map((side, index) => [`sides[${index}].claim`, side.claim])].filter(([, value]) => proseLanguage(value!) !== language);
     if (wrong.length > 0) return fail('question-language', `write ${wrong.map(([name]) => name).join(', ')} in ${language}; identifiers and explicit source quotations may stay unchanged`);
+    const wanted = questionId({ type: type as QuestionType, title, question, why, sides });
     const held = await this.existingQuestions();
+    // A different question whose 12-character hash collides takes the next free suffix; the same one keeps its file.
+    const collided = held.find((candidate) => candidate.slug === wanted);
+    let slug = wanted;
+    if (collided !== undefined && questionId(collided) !== wanted) {
+      for (let n = 2; ; n += 1) {
+        const candidate = `${wanted}-${n}`;
+        if (!held.some((heldQuestion) => heldQuestion.slug === candidate)) { slug = candidate; break; }
+      }
+    }
     const seenCandidates = new Set<string>();
     for (const candidate of held) {
       if (seenCandidates.has(candidate.id)) return fail('question-candidates-invalid', `${resolve(this.extras.output ?? process.cwd(), candidate.file)}:2: duplicate candidate id ${candidate.id}; no complete comparison is possible and nothing was saved`);
@@ -1387,7 +1395,7 @@ export class UnitTools {
     const path = questionPath(slug);
     // The serialized, fully read candidate set is authoritative; a failed read is never treated as absence.
     const existing = held.some((candidate) => candidate.file === path);
-    if (existing) return fail('question-exists', `a question "${slug}" is already asked (${path}); if it is yours to ask again it is the same question, and if it is another, give it a title that names what is different`);
+    if (existing) return fail('question-exists', `the same question is already asked (${path}); compare it by meaning and reuse it rather than asking it twice`);
     const now = (this.extras.clock?.() ?? new Date()).toISOString();
     const markdown = renderQuestion({
       language: language in QUESTION_HEADINGS ? language as QuestionLanguage : 'en',

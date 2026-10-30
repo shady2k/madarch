@@ -12,6 +12,7 @@ import { memorySink } from '../src/writer/run.js';
 import { overlap, subjectOf, UnitTools, type UnitSpec } from '../src/writer/tools.js';
 import type { GraphView } from '../src/writer/view.js';
 import { MAX_ABOUT, parseQuestion, QUESTION_HEADINGS, renderQuestion, type Question } from '../src/loop/entities.js';
+import { questionId } from '../src/loop/ids.js';
 
 // ---- a stub of the graph -------------------------------------------------------------------
 
@@ -174,30 +175,41 @@ const ask = (title: string, extra: Record<string, unknown> = {}): Record<string,
   ...extra,
 });
 
+/** The id production gives a question the `ask` fixture writes, from the same canonical content. */
+const askedSlug = (title: string, extra: Record<string, unknown> = {}): string => {
+  const merged = { type: 'contradiction', title, question: 'Which one is meant?', why: 'A shopper is told one number and charged another.', sides: [{ claim: 'The README says retention is ninety days.', grounds: ['doc:README.md#retention'] }, { claim: 'The code deletes orders after six hours.', grounds: ['code.file\u003aservices/orders/retention.ts'] }], ...extra };
+  return questionId({ type: String(merged.type), title: String(merged.title), question: String(merged.question), why: String(merged.why), sides: merged.sides as { claim: string; grounds: string[] }[] });
+};
+const RETENTION_SLUG = askedSlug('How long are orders kept?');
+const RETENTION_ID = `question:${RETENTION_SLUG}`;
+const RETENTION_FILE = `docs/questions/${RETENTION_SLUG}.md`;
+const WHO_ID = `question:${askedSlug('Who configures retention?')}`;
+const WHO_FILE = `docs/questions/${askedSlug('Who configures retention?')}.md`;
+
 describe('a subject is asked once', () => {
   test('a second question on the same entities adds its page to the first instead of saving another', async () => {
     const { sink, open } = sessions();
     const orders = open('ordering');
     const first = await orders.call('ask_question', ask('How long are orders kept?'));
-    expect(first.answer).toMatchObject({ asked: true, id: 'question:how-long-orders-kept' });
+    expect(first.answer).toMatchObject({ asked: true, id: RETENTION_ID });
     const payments = open('payments');
     const again = await payments.call('ask_question', ask('What is the retention period of an order?', { question: 'Is it ninety days or six hours?' }));
     expect(again.isError).toBe(false);
-    expect(again.answer).toMatchObject({ asked: false, merged: true, id: 'question:how-long-orders-kept' });
-    expect([...sink.pages.keys()]).toEqual(['docs/questions/how-long-orders-kept.md']);
-    const kept = parseQuestion('docs/questions/how-long-orders-kept.md', sink.pages.get('docs/questions/how-long-orders-kept.md')!);
+    expect(again.answer).toMatchObject({ asked: false, merged: true, id: RETENTION_ID });
+    expect([...sink.pages.keys()]).toEqual([RETENTION_FILE]);
+    const kept = parseQuestion(RETENTION_FILE, sink.pages.get(RETENTION_FILE)!);
     expect(kept.about).toContain('validation:ordering');
     expect(kept.about).toContain('validation:payments');
     expect(kept.askedIn).toBe('validation:ordering');
     expect(kept.title).toBe('How long are orders kept?');
-    expect(payments.outcome()).toMatchObject({ questions: [], merged: ['question:how-long-orders-kept'] });
-    expect(orders.outcome().questions).toEqual(['question:how-long-orders-kept']);
+    expect(payments.outcome()).toMatchObject({ questions: [], merged: [RETENTION_ID] });
+    expect(orders.outcome().questions).toEqual([RETENTION_ID]);
   });
 
   test('the question\'s about is what the agent named and its page: the sides\' grounds are compared, not copied into it', async () => {
     const { sink, open } = sessions();
     await open('ordering').call('ask_question', ask('How long are orders kept?'));
-    const kept = parseQuestion('docs/questions/how-long-orders-kept.md', sink.pages.get('docs/questions/how-long-orders-kept.md')!);
+    const kept = parseQuestion(RETENTION_FILE, sink.pages.get(RETENTION_FILE)!);
     expect(kept.about).toEqual(['validation:ordering']);
   });
 
@@ -222,15 +234,15 @@ describe('a subject is asked once', () => {
   test('an answered question is not asked again: the agent is given the answer and the id to stand on', async () => {
     const { sink, open } = sessions();
     await open('ordering').call('ask_question', ask('How long are orders kept?'));
-    const path = 'docs/questions/how-long-orders-kept.md';
+    const path = RETENTION_FILE;
     const asked = parseQuestion(path, sink.pages.get(path)!);
     sink.pages.set(path, renderQuestion({ ...asked, status: 'answered', answer: { text: 'Ninety days.', by: { name: 'A', email: 'a@example.test', verified: 'local, not verified' }, at: '2026-10-23T12:00:00.000Z' } }));
     const payments = open('payments');
     const again = await payments.call('ask_question', ask('Retention once more'));
-    expect(again.answer).toMatchObject({ asked: false, answered: true, id: 'question:how-long-orders-kept', answer: 'Ninety days.' });
+    expect(again.answer).toMatchObject({ asked: false, answered: true, id: RETENTION_ID, answer: 'Ninety days.' });
     expect(sink.pages.size).toBe(1);
     // An answered contradiction may stand on the answer alone, without repeating an obsolete uncertainty.
-    const written = await payments.call('write_page', { markdown: `${unitFront}\n\nOrders are kept for ninety days.[^a]\n\n[^a]: [answer](madarch:question:how-long-orders-kept)\n` });
+    const written = await payments.call('write_page', { markdown: `${unitFront}\n\nOrders are kept for ninety days.[^a]\n\n[^a]: [answer](madarch:${RETENTION_ID})\n` });
     expect(written.isError, JSON.stringify(written.answer)).toBe(false);
   });
 
@@ -263,7 +275,7 @@ describe('a contradiction keeps both of its sides on the page', () => {
     expect(refused.isError).toBe(true);
     const rules = (refused.answer as { refused: { rule: string; message: string }[] }).refused;
     expect(rules.map((r) => r.rule)).toEqual(['contradiction-side-missing']);
-    expect(rules[0]!.message).toContain('question:how-long-orders-kept');
+    expect(rules[0]!.message).toContain(RETENTION_ID);
     expect(rules[0]!.message).toContain('The code deletes orders after six hours.');
     expect(rules[0]!.message).toContain('code.file\u003aservices/orders/retention.ts');
     expect(rules[0]!.message).not.toContain('The README says retention');
@@ -337,7 +349,7 @@ describe('a question\'s headings are in the wiki\'s language', () => {
     const text = [...sink.pages.values()][0]!;
     expect(text).toContain('## Question');
     expect(text).toContain('## What the sources say');
-    expect(parseQuestion('docs/questions/how-long-orders-kept.md', text).language).toBe('en');
+    expect(parseQuestion(RETENTION_FILE, text).language).toBe('en');
   });
 });
 
@@ -360,11 +372,11 @@ describe('semantic comparison before a question is accepted (madarch-m38l.22)', 
     await tools.call('ask_question', ask('How long are orders kept?'));
     const pending = await tools.call('ask_question', ask('Who configures order retention?'));
     expect(pending.isError).toBe(true);
-    expect(pending.answer).toMatchObject({ error: { code: 'question-comparison-required' }, candidates: [{ id: 'question:how-long-orders-kept', question: 'Which one is meant?' }] });
+    expect(pending.answer).toMatchObject({ error: { code: 'question-comparison-required' }, candidates: [{ id: RETENTION_ID, question: 'Which one is meant?' }] });
     expect((await questions()).length).toBe(1);
-    const different = await tools.call('ask_question', ask('Who configures order retention?', { comparison: [decision('question:how-long-orders-kept', false)] }));
+    const different = await tools.call('ask_question', ask('Who configures order retention?', { comparison: [decision(RETENTION_ID, false)] }));
     expect(different.answer).toMatchObject({ asked: true });
-    const incomplete = await tools.call('ask_question', ask('How many hours?', { comparison: [decision('question:how-long-orders-kept', true)] }));
+    const incomplete = await tools.call('ask_question', ask('How many hours?', { comparison: [decision(RETENTION_ID, true)] }));
     expect(incomplete.isError).toBe(true);
     expect((await questions()).length).toBe(2);
   });
@@ -373,9 +385,9 @@ describe('semantic comparison before a question is accepted (madarch-m38l.22)', 
     const { open, questions } = sessions('en', false);
     await open('ordering').call('ask_question', ask('How long are orders kept?'));
     for (const title of ['When must order data be removed?', 'Ninety days or six hours?']) {
-      const result = await open('payments').call('ask_question', ask(title, { sides: [{ claim: 'The sources leave retention unclear.', grounds: ['doc:README.md#tax'] }], type: 'gap', comparison: [decision('question:how-long-orders-kept', true)] }));
+      const result = await open('payments').call('ask_question', ask(title, { sides: [{ claim: 'The sources leave retention unclear.', grounds: ['doc:README.md#tax'] }], type: 'gap', comparison: [decision(RETENTION_ID, true)] }));
       expect(result.isError, JSON.stringify(result.answer)).toBe(false);
-      expect(result.answer).toMatchObject({ asked: false, id: 'question:how-long-orders-kept' });
+      expect(result.answer).toMatchObject({ asked: false, id: RETENTION_ID });
     }
     expect((await questions()).length).toBe(1);
   });
@@ -386,9 +398,9 @@ describe('semantic comparison before a question is accepted (madarch-m38l.22)', 
     const payments = open('payments');
     const reused = await payments.call('ask_question', ask('Which retention rule applies?', {
       type: 'gap', sides: [{ claim: 'The document states a duration.', grounds: ['doc:README.md#retention'] }],
-      comparison: [decision('question:how-long-orders-kept', true)],
+      comparison: [decision(RETENTION_ID, true)],
     }));
-    expect(reused.answer).toMatchObject({ asked: false, id: 'question:how-long-orders-kept' });
+    expect(reused.answer).toMatchObject({ asked: false, id: RETENTION_ID });
     const refused = await payments.call('write_page', { markdown: `${unitFront}
 
 The README promises ninety days.[^readme]
@@ -413,7 +425,7 @@ The code deletes orders after six hours.[^code]
   test('a gap matched to an answered contradiction uses its answer without reviving obsolete sides', async () => {
     const { open, sink } = sessions('en', false);
     await open('ordering').call('ask_question', ask('How long are orders kept?'));
-    const file = 'docs/questions/how-long-orders-kept.md';
+    const file = RETENTION_FILE;
     const held = parseQuestion(file, await sink.read(file));
     await sink.write(file, renderQuestion({ ...held, status: 'answered', answer: { text: 'Ninety days.', by: { name: 'Reader', email: 'reader@example.test', verified: 'local, not verified' }, at: '2026-10-24T12:00:00Z' } }));
     const payments = open('payments');
@@ -423,7 +435,7 @@ The code deletes orders after six hours.[^code]
 
 Orders are kept for ninety days.[^answer]
 
-[^answer]: [answer](madarch:question:how-long-orders-kept)
+[^answer]: [answer](madarch:${RETENTION_ID})
 ` });
     expect(accepted.isError, JSON.stringify(accepted.answer)).toBe(false);
   });
@@ -431,7 +443,7 @@ Orders are kept for ninety days.[^answer]
   test('an already-used answer is returned, associated with this page, and must ground the rewrite', async () => {
     const { open, sink } = sessions('en', false);
     await open('ordering').call('ask_question', ask('How long are orders kept?'));
-    const file = 'docs/questions/how-long-orders-kept.md';
+    const file = RETENTION_FILE;
     const held = parseQuestion(file, await sink.read(file));
     await sink.write(file, renderQuestion({ ...held, status: 'answered', answer: { text: 'Ninety days.', by: { name: 'Reader', email: 'reader@example.test', verified: 'local, not verified' }, at: '2026-10-24T12:00:00Z' }, resolvedBy: ['domain:ordering'], resolvedAt: '2026-10-24T13:00:00Z' }));
     const before = (await sink.read(file)).replace('producer: agent', 'producer: person');
@@ -473,7 +485,7 @@ Orders are retained for ninety days.[^retained]
     const { open, questions } = sessions('en', false);
     const tools = open('ordering');
     await tools.call('ask_question', ask('How long are orders kept?'));
-    const id = 'question:how-long-orders-kept';
+    const id = RETENTION_ID;
     for (const comparison of [[], [decision('question:unknown', false)], [decision(id, true), decision(id, true)], [{ id, same: true, reason: '  ' }], [decision(id, true), decision('question:extra', false)]]) {
       const result = await tools.call('ask_question', ask('How many hours?', { comparison }));
       expect(result.isError).toBe(true);
@@ -486,10 +498,10 @@ Orders are retained for ninety days.[^retained]
     const { open, sink } = sessions('en', false);
     const ordering = open('ordering');
     await ordering.call('ask_question', ask('How long are orders kept?'));
-    const first = 'question:how-long-orders-kept';
+    const first = RETENTION_ID;
     await ordering.call('ask_question', ask('Who configures retention?', { comparison: [decision(first, false)] }));
-    const second = 'question:who-configures-retention';
-    const paths = ['docs/questions/how-long-orders-kept.md', 'docs/questions/who-configures-retention.md'];
+    const second = WHO_ID;
+    const paths = [RETENTION_FILE, WHO_FILE];
     const before = await Promise.all(paths.map((path) => sink.read(path)));
     const malformed = [
       [decision(first, false), decision('question:unknown', false)],
@@ -511,9 +523,10 @@ Orders are retained for ninety days.[^retained]
 
   test('reusing an ordinary gap does not create a contradiction obligation for its new page', async () => {
     const { open } = sessions('en', false);
-    await open('ordering').call('ask_question', ask('How long are orders kept?', { type: 'gap', sides: [{ claim: 'The README leaves the duration unclear.', grounds: ['doc:README.md#retention'] }] }));
+    const created = await open('ordering').call('ask_question', ask('How long are orders kept?', { type: 'gap', sides: [{ claim: 'The README leaves the duration unclear.', grounds: ['doc:README.md#retention'] }] }));
+    const gap = (created.answer as { id: string }).id;
     const payments = open('payments');
-    expect((await payments.call('ask_question', ask('Which retention duration applies?', { type: 'gap', sides: [{ claim: 'The code leaves the policy unclear.', grounds: ['code.file:services/orders/retention.ts'] }], comparison: [decision('question:how-long-orders-kept', true)] }))).answer).toMatchObject({ asked: false, merged: true });
+    expect((await payments.call('ask_question', ask('Which retention duration applies?', { type: 'gap', sides: [{ claim: 'The code leaves the policy unclear.', grounds: ['code.file:services/orders/retention.ts'] }], comparison: [decision(gap, true)] }))).answer).toMatchObject({ asked: false, merged: true });
     const written = await payments.call('write_page', { markdown: `${unitFront}
 
 The tax document names the tax policy.[^tax]
@@ -527,8 +540,9 @@ The tax document names the tax policy.[^tax]
     const { open } = sessions('en', false);
     const created = await open('ordering').call('ask_question', ask('How long are orders kept?', { type: 'gap', sides: [{ claim: 'The tax document leaves the policy unclear.', grounds: ['doc:README.md#tax'] }] }));
     expect(created.isError, JSON.stringify(created.answer)).toBe(false);
+    const gap = (created.answer as { id: string }).id;
     const payments = open('payments');
-    const reused = await payments.call('ask_question', ask('Which retention duration applies?', { comparison: [decision('question:how-long-orders-kept', true)] }));
+    const reused = await payments.call('ask_question', ask('Which retention duration applies?', { comparison: [decision(gap, true)] }));
     expect(reused.answer).toMatchObject({ asked: false, merged: true });
     const refused = await payments.call('write_page', { markdown: `${unitFront}
 
@@ -558,7 +572,7 @@ The code deletes orders after six hours.[^code]
       open('payments').call('ask_question', ask('Which retention period applies?')),
     ]);
     expect(first.answer).toMatchObject({ asked: true });
-    expect(second.answer).toMatchObject({ error: { code: 'question-comparison-required' }, candidates: [{ id: 'question:how-long-orders-kept' }] });
+    expect(second.answer).toMatchObject({ error: { code: 'question-comparison-required' }, candidates: [{ id: RETENTION_ID }] });
     expect((await questions()).length).toBe(1);
   });
 
@@ -585,7 +599,7 @@ The code deletes orders after six hours.[^code]
   test('adding a page never drops existing associations when the bound is full', async () => {
     const { open, sink } = sessions('en', false);
     await open('ordering').call('ask_question', ask('How long are orders kept?'));
-    const file = 'docs/questions/how-long-orders-kept.md';
+    const file = RETENTION_FILE;
     const candidate = parseQuestion(file, await sink.read(file));
     await sink.write(file, renderQuestion({ ...candidate, about: Array.from({ length: MAX_ABOUT }, (_, index) => `domain:existing-${index}`) }));
     const before = await sink.read(file);
