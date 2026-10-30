@@ -586,7 +586,7 @@ export function CataloguePage({ status }: { status: WikiStatus }): ReactElement 
       <header className="mb-6">
         <h1>{t('knowledge.catalogue')}</h1>
         <p className="mb-1">{t('knowledge.catalogueIntro')}</p>
-        <p className="mt-0 text-small text-muted" data-testid="catalogue-total">{t('knowledge.catalogueTotal', { entities, kinds: kinds.length })}</p>
+        <p className="mt-0 text-small text-muted" data-testid="catalogue-total">{t('knowledge.catalogueEntities', { count: entities })} {t('knowledge.catalogueKinds', { count: kinds.length })}</p>
       </header>
       {sections.map((section) => {
         const total = [...section.kinds, ...section.subgroups.flatMap((subgroup) => subgroup.kinds)].reduce((sum, kind) => sum + kind.count, 0);
