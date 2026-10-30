@@ -55,6 +55,11 @@ export interface WorkerStart {
   task?: string;
   /** The pages the reader saw in the preview and pressed to run: the worker refuses a run that writes fewer of them. */
   taskPages?: string[];
+  /**
+   * The remaining work of a paused run (madarch-m38l.17): the plan it had reached, and the pages it had published.
+   * A resumed run writes the plan's pages that are not in `completedPages`, and never translates a completed one again.
+   */
+  resume?: { plan: RefreshPlan; completedPages: string[] };
   /** The least time between two snapshots, in milliseconds. */
   snapshotMs: number;
 }

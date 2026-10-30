@@ -126,6 +126,9 @@ export function FillPage({ status, refresh }: { status: WikiStatus; refresh: () 
             <div className="h-2 w-full overflow-hidden rounded-full bg-[var(--surface-active)]" role="progressbar" aria-valuemin={0} aria-valuemax={100} aria-valuenow={Math.round(fillShare(fill) * 100)} aria-label={t('knowledge.fillRunningTitle')}>
               <div className="h-full rounded-full bg-ink transition-[width] duration-150 motion-reduce:transition-none" style={{ width: `${Math.round(fillShare(fill) * 100)}%` }} />
             </div>
+            {/* The graph is being read before any page is counted: the run is live, so its two presses stand here. Where
+                the progress card shows them under the pages' figures, it alone shows them (madarch-m38l.17). */}
+            {total === undefined && units.length === 0 && <RunControls status={status} refresh={refresh} where="page" />}
           </CardContent>
         </Card>
       )}

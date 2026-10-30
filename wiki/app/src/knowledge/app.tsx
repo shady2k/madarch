@@ -351,6 +351,8 @@ export function FillMenu({ status, refresh }: { status: WikiStatus; refresh: () 
   const paused = runIsPaused(status);
   const stopped = runIsStopped(status);
   const authoring = !paused && (writer.state === 'running' || writer.state === 'waiting');
+  // A graph fill is a live run too: no agent, no pages counted yet, but a person can still pause or stop it (madarch-m38l.17).
+  const filling = !paused && !stopped && fill.state === 'running';
   const written = writer.units.filter((unit) => unit.state === 'written').length;
   // How far the agent is, of the pages this run means to write: «Агент пишет страницы · 12/18». The total comes from the
   // writer before its first unit and grows only when the product page declares more domains; until it is there the count
@@ -453,12 +455,13 @@ export function FillMenu({ status, refresh }: { status: WikiStatus; refresh: () 
         >
           <div className="language-menu-label" id="fill-menu-title">{t('knowledge.fillMenuTitle')}</div>
           <div className="language-menu-separator" role="separator" />
-          {authoring && (
-            // While the agent writes: the whole sentence and what is being written now, and the way to the fill page
-            // (never the paths: the menu is anchored to the top bar and must stay inside a narrow viewport).
+          {(authoring || filling) && (
+            // While the agent writes or the graph is read: the whole sentence and, when there is one, what is being written
+            // now, and the way to the fill page (never the paths: the menu is anchored to the top bar and must stay inside
+            // a narrow viewport). A fill with no agent still offers the two presses here (madarch-m38l.17).
             <div className="px-2 pb-2 text-small" data-testid="fill-menu-live">
               <p className="m-0 break-words text-ink" data-testid="fill-menu-total">{label}</p>
-              <p className="m-0 mt-1 break-words" data-testid="fill-menu-current">{currentName === null ? t('knowledge.fillPage.waiting') : t('knowledge.fillPage.writingNow', { name: currentName })}</p>
+              {authoring && <p className="m-0 mt-1 break-words" data-testid="fill-menu-current">{currentName === null ? t('knowledge.fillPage.waiting') : t('knowledge.fillPage.writingNow', { name: currentName })}</p>}
               <p className="m-0 mt-1"><KLink href={K_FILL} testId="fill-menu-open">{t('knowledge.fillPage.open')}</KLink></p>
               <RunControls status={status} refresh={refresh} where="menu" />
             </div>

@@ -172,7 +172,19 @@ describe('pause and stop of a run that writes pages', () => {
     if (work !== undefined) rmSync(work, { recursive: true, force: true });
   });
 
+  test('an English run finishes whole before the pages are switched to Russian', async () => {
+    expect((await post('/api/k/fill', { agent: 'claude-code', language: 'en' })).status).toBe(202);
+    const ended = await until('the English run to end', async () => (await get('/api/k/status')).body, (body) => body.writer.state === 'done' || body.writer.state === 'failed');
+    expect(ended.writer.state).toBe('done');
+    expect(stateOf(ended, 'product:tiny')).toBe('written');
+    expect(stateOf(ended, 'domain:numbers')).toBe('written');
+    expect(seen.filter((unit) => unit === 'product:tiny')).toHaveLength(1);
+    expect(readFileSync(join(home, 'tiny', PRODUCT_FILE), 'utf8')).toContain('id: product:tiny');
+    expect(JSON.parse(readFileSync(join(store, 'pages-language.json'), 'utf8'))).toEqual({ language: 'en' });
+  }, 300_000);
+
   test('a pause lets the page being written finish, and the next one is never taken up', async () => {
+    const askedBefore = seen.length;
     holdDomain = true;
     hold();
     expect((await post('/api/k/fill', { agent: 'claude-code', language: 'ru' })).status).toBe(202);
@@ -185,8 +197,8 @@ describe('pause and stop of a run that writes pages', () => {
     // The page the run held is written whole, and the page after it was never taken up.
     expect(readFileSync(join(home, 'tiny', PRODUCT_FILE), 'utf8')).toContain('id: product:tiny');
     expect(readFileSync(join(home, 'tiny', DOMAIN_FILE), 'utf8')).toContain('id: domain:numbers');
-    expect(seen).toContain('domain:numbers');
-    expect(seen).not.toContain('administrator-guide:main');
+    expect(seen.slice(askedBefore)).toContain('domain:numbers');
+    expect(seen.slice(askedBefore)).not.toContain('administrator-guide:main');
     expect(stateOf(paused, 'administrator-guide:main')).toBe('no such unit');
     // The block counts what is written of what the run means to write: the product page, its domain page, and two guides.
     expect(stateOf(paused, 'product:tiny')).toBe('written');
@@ -210,15 +222,18 @@ describe('pause and stop of a run that writes pages', () => {
     // The pages are named as they were, so the block shows the same sentences as before the restart.
     expect(unitOf(kept, 'product:tiny')?.title).toBe('Крошечный продукт');
     expect(unitOf(kept, 'domain:numbers')?.title).toBe('Числа');
+    // The pages completed before the pause: «Продолжить» must not take any of them up again.
+    const productAsked = seen.filter((unit) => unit === 'product:tiny').length;
+    const domainAsked = seen.filter((unit) => unit === 'domain:numbers').length;
     // «Продолжить» is the fill's own press: it starts a run, which takes the next page up.
     expect((await post('/api/k/fill', { agent: 'claude-code', language: 'ru' })).status).toBe(202);
     const ended = await until('the resumed run to end', async () => (await get('/api/k/status')).body, (body) => body.writer.state === 'done' || body.writer.state === 'failed');
     expect(ended.writer.state).toBe('done');
     // No page written before the pause was written again: the agent was asked for each of them once, in the run that wrote
     // them, and this run went on with the two guides the pause had left.
-    expect(seen.filter((unit) => unit === 'product:tiny')).toHaveLength(1);
-    expect(seen.filter((unit) => unit === 'domain:numbers')).toHaveLength(1);
-    expect(productCalls).toBe(1);
+    expect(seen.filter((unit) => unit === 'product:tiny')).toHaveLength(productAsked);
+    expect(seen.filter((unit) => unit === 'domain:numbers')).toHaveLength(domainAsked);
+    expect(productCalls).toBe(2);
     expect(stateOf(ended, 'administrator-guide:main')).toBe('written');
     expect(stateOf(ended, 'user-guide:main')).toBe('written');
     expect(readFileSync(join(home, 'tiny', DOMAIN_FILE), 'utf8')).toContain('id: domain:numbers');
@@ -234,7 +249,7 @@ describe('pause and stop of a run that writes pages', () => {
     await until('the domain page to be writing', async () => (await get('/api/k/status')).body, (body) => stateOf(body, 'domain:numbers') === 'writing');
     const writing = (await get('/api/k/status')).body;
     expect(stateOf(writing, 'product:tiny')).toBe('written');
-    expect(productCalls).toBe(2);
+    expect(productCalls).toBe(3);
     // A stop without the confirmation is refused, and says how many pages this run rewrote and that they stay.
     const refused = await post('/api/k/stop', {});
     expect(refused.status).toBe(409);
@@ -251,6 +266,28 @@ describe('pause and stop of a run that writes pages', () => {
     expect(existsSync(join(store, 'pause.json'))).toBe(false);
     // There is nothing left to pause: the run is over.
     expect((await post('/api/k/pause')).status).toBe(409);
+    // Let the agent the stop interrupted end, so the next test's fill is not told the previous run is still closing.
+    holdDomain = false;
+    release();
+  }, 300_000);
+
+  test('a stop confirmed after a pause is a stop, and leaves nothing resumable behind', async () => {
+    holdProduct = true;
+    hold();
+    // The test is about the two presses, not the language: say the standing pages are English and translate to Russian,
+    // so the first page is surely one this run takes up.
+    writeFileSync(join(store, 'pages-language.json'), `${JSON.stringify({ language: 'en' })}\n`, 'utf8');
+    expect((await post('/api/k/fill', { agent: 'claude-code', language: 'ru' })).status).toBe(202);
+    await until('the product page to be writing', async () => (await get('/api/k/status')).body, (body) => stateOf(body, 'product:tiny') === 'writing');
+    // The person pauses, then confirms a stop before the page in progress ends: both presses are heard, and the stop wins.
+    expect((await post('/api/k/pause')).status).toBe(200);
+    expect((await post('/api/k/stop', { confirm: true })).status).toBe(200);
+    holdProduct = false;
+    release();
+    const ended = await until('the run to end', async () => (await get('/api/k/status')).body, (body) => body.writer.state === 'stopped' || body.writer.state === 'paused');
+    expect(ended.writer.state).toBe('stopped');
+    expect(ended.fill.state).toBe('stopped');
+    expect(existsSync(join(store, 'pause.json'))).toBe(false);
   }, 300_000);
 });
 
@@ -367,5 +404,58 @@ describe('pause of the fill\'s own stage', () => {
     const resumed = await run(false);
     expect(ends(resumed)).toEqual([{ state: 'done' }]);
     expect(await pinsOf()).toEqual({ commits: 4, filledCommits: 4 });
+  }, 300_000);
+});
+
+describe('a stop that arrives while a page is being written', () => {
+  test('the write is fenced, its in-flight tool call is drained, and no page is published after the stop', async () => {
+    const work = mkdtempSync(join(tmpdir(), 'madarch-stop-write-'));
+    try {
+      const repository = join(work, 'repo');
+      mkdirSync(join(repository, 'src'), { recursive: true });
+      git(repository, 'init', '--quiet', '--initial-branch=main');
+      writeFileSync(join(repository, 'src', 'a.ts'), A_TS);
+      writeFileSync(join(repository, 'package.json'), '{"name":"tiny","dependencies":{}}\n');
+      git(repository, 'add', '.');
+      git(repository, '-c', 'commit.gpgsign=false', 'commit', '--quiet', '-m', 'Add the leaf and the root', '--date', '2026-03-01T10:00:00Z');
+      const home = join(work, 'home');
+      mkdirSync(home);
+      const productFolder = makeProduct(home, 'tiny', repository, 'tiny');
+      const lines = new Lines();
+      const sent: FromWorker[] = [];
+      const start: WorkerStart = {
+        type: 'start', productFolder, productName: 'tiny', graphPath: join(work, 'store', 'graph'), readRoot: join(work, 'store', 'read'),
+        repositories: [{ name: 'training', path: repository }], writer: true, language: 'en', languageChanged: false, snapshotMs: 0,
+      };
+      lines.push(JSON.stringify(start));
+      const code = await runFillWorker({
+        lines,
+        send: (message) => {
+          sent.push(message);
+          if (message.type === 'agent-wanted') lines.push(JSON.stringify({ type: 'agent-ready' } as ToWorker));
+          if (message.type === 'unit' && message.id === 'product:tiny') {
+            // The agent's write_page is handed to the worker, and the person's stop stands behind it in the same queue:
+            // the tool call is in flight when the worker reads the stop.
+            lines.push(JSON.stringify({ type: 'tool', callId: 1, unit: 'product:tiny', name: 'write_page', args: {
+              markdown: PRODUCT_PAGE_RU,
+              domains: [{ slug: 'numbers', title: 'Числа', summary: 'Числа считают листовая и корневая функции.', evidence: [FILE] }],
+            } } as ToWorker));
+            lines.push(JSON.stringify({ type: 'stop' } as ToWorker));
+          }
+        },
+      });
+      expect(code).toBe(0);
+      expect(sent.some((message) => message.type === 'writer' && message.state === 'stopped')).toBe(true);
+      expect(sent.some((message) => message.type === 'writer' && message.state === 'paused')).toBe(false);
+      // The stop is reported only after the in-flight write_page has answered: its fence refuses publication, and the
+      // answer stands before the stopped message rather than being left to finish after the worker is gone.
+      const answered = sent.findIndex((message) => message.type === 'tool-result' && message.callId === 1);
+      const stopped = sent.findIndex((message) => message.type === 'writer' && message.state === 'stopped');
+      expect(answered).toBeGreaterThanOrEqual(0);
+      expect(answered).toBeLessThan(stopped);
+      expect(existsSync(join(productFolder, PRODUCT_FILE))).toBe(false);
+    } finally {
+      rmSync(work, { recursive: true, force: true });
+    }
   }, 300_000);
 });

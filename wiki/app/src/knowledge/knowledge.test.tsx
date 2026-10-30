@@ -914,6 +914,31 @@ describe('a run a person pauses or stops', () => {
     expect(line.querySelector('[data-testid=writer-line]')).toBeNull();
   });
 
+  test('a graph fill with no agent offers Pause and Stop on its page and in the popover', async () => {
+    stubFetch([]);
+    const graph = paused({
+      fill: { state: 'running', startedAt: '2026-10-23T12:00:00.000Z' },
+      writer: { state: 'idle', agent: null, units: [] },
+      chosenAgent: null,
+    });
+    const container = into(createElement(FillPage, { status: graph, refresh: () => undefined }));
+    await until(() => container.querySelector('[data-testid=fill-code]') !== null, 'the graph fill');
+    const controls = container.querySelector('[data-testid=run-controls]');
+    expect(controls).not.toBeNull();
+    expect(controls!.getAttribute('data-state')).toBe('live');
+    expect([...controls!.children].map((child) => child.textContent)).toEqual(['Pause', 'Stop']);
+    rendered?.unmount();
+    document.body.innerHTML = '';
+    // The same run in the top bar, with nothing chosen to write: the popover offers the same two presses.
+    const bar = into(createElement(FillMenu, { status: graph, refresh: () => undefined }));
+    await until(() => bar.querySelector('[data-testid=fill-chip]') !== null, 'the badge');
+    (bar.querySelector('[data-testid=fill-chip]') as HTMLButtonElement).click();
+    await until(() => bar.querySelector('[data-testid=fill-menu]') !== null, 'the panel');
+    const menu = bar.querySelector('[data-testid=fill-menu] [data-testid=run-controls]');
+    expect(menu).not.toBeNull();
+    expect([...menu!.children].map((child) => child.textContent)).toEqual(['Pause', 'Stop']);
+  });
+
   test('the top bar says the run was stopped, with its stop mark and the count a phone can read', async () => {
     stubFetch([]);
     const stopped = paused({ fill: { state: 'stopped' }, writer: { ...paused().writer, state: 'stopped' } });
