@@ -70,7 +70,7 @@ function RecordRow({ record, index }: { record: JournalRecord; index: number }):
           {record.kind === 'editorial-skip' && <Badge>{t('journal.kind.editorial-skip')}</Badge>}
           {record.kind === 'editorial-warning' && <Badge>{t('journal.kind.editorial-warning')}</Badge>}
           <span className="min-w-0 max-w-full truncate text-small text-muted">{glance(record)}</span>
-          <span className="ml-auto text-small text-muted">{t('journal.ms', { ms: record.durationMs })} · {t('journal.size', { size: record.responseBytes })}</span>
+          <span className="ml-auto text-small text-muted">{t('journal.ms', { ms: record.durationMs })} · {t('journal.size', { count: record.responseBytes })}</span>
         </summary>
         <div className="mt-2 grid gap-3 pl-9">
           {record.reason !== null && (
@@ -86,7 +86,7 @@ function RecordRow({ record, index }: { record: JournalRecord; index: number }):
           <div>
             <div className="text-small font-medium">{t('journal.response')}</div>
             {record.response === null ? <p className="text-small text-muted">{t('journal.noResponse')}</p> : <pre className="journal-pre" data-testid="journal-response">{responseText(record.response)}</pre>}
-            {record.truncated && <p className="text-small text-muted" data-testid="journal-cut">{t('journal.cut', { size: record.responseBytes })}</p>}
+            {record.truncated && <p className="text-small text-muted" data-testid="journal-cut">{t('journal.cut', { count: record.responseBytes })}</p>}
           </div>
         </div>
       </details>

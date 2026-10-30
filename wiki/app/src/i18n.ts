@@ -1,5 +1,6 @@
 import i18n from 'i18next';
 import { initReactI18next } from 'react-i18next';
+import { pluralForm } from '../../../src/knowledge/plural.js';
 import en from './locales/en.json';
 import ru from './locales/ru.json';
 
@@ -34,6 +35,17 @@ void i18n.use(initReactI18next).init({
   interpolation: { escapeValue: false },
   returnNull: false,
 });
+
+/**
+ * The form a count takes, from the one rule the page files read a numeral through as well
+ * (madarch-u3vw.7). i18next asks `Intl.PluralRules` itself, which reports `other` for every
+ * fraction, where Russian writes the genitive singular — «1.5 коммита»; `pluralForm` is that rule,
+ * and every cardinal suffix is taken from it.
+ */
+const plurals = i18n.services.pluralResolver as { getSuffix(code: string, count: number, options?: { ordinal?: boolean }): string; options: { prepend: string } };
+const suffixOf = plurals.getSuffix.bind(plurals);
+plurals.getSuffix = (code: string, count: number, options?: { ordinal?: boolean }): string =>
+  options?.ordinal === true || typeof count !== 'number' ? suffixOf(code, count, options) : `${plurals.options.prepend}${pluralForm(code, count)}`;
 
 i18n.on('languageChanged', (language) => {
   try {
