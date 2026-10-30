@@ -1384,7 +1384,9 @@ export class UnitTools {
     let domains = this.knownDomains;
     let emptyProduct = false;
     if (this.unit.kind === 'product') {
-      const empty = await this.isEmptyProduct();
+      // A call with no domains list is the old refusal before anything is read; only a unit that named its
+      // (possibly empty) domain list can be asking for the empty-product page.
+      const empty = Array.isArray(args['domains']) && await this.isEmptyProduct();
       if (!empty) {
         const checked = await this.validateDomains(args['domains']);
         if ('problems' in checked) return this.refuse(checked.problems);
