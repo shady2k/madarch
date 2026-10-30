@@ -512,7 +512,7 @@ export function inspectPage(page: PageModel, options: InspectOptions): WalkFindi
     if ('title' in block && typeof block.title === 'string' && block.title !== '') {
       words(block.title, section, field('title'), options.userLanguage, 'label');
     }
-    inspectBlock(block, { section, product: page.kind.startsWith('code.') ? options.userLanguage : options.language, user: options.userLanguage, field, ids, label, words, passage, empty, put });
+    inspectBlock(block, { section, product: options.language, user: options.userLanguage, field, ids, label, words, passage, empty, put });
   });
 
   return findings;
@@ -549,7 +549,9 @@ function inspectBlock(block: Block, tools: BlockTools): void {
       else markdownPassages(tools, block.localized.statement, field('body.localized.statement'), tools.product);
       return;
     case 'markdown':
-      markdownPassages(tools, block.markdown, field('markdown'), tools.product);
+      // A template's own words are the engine's: they follow the interface language this page was asked in, not the
+      // product's. The text a product wrote is a body or a definition, and keeps the product's language (madarch-m38l.21).
+      markdownPassages(tools, block.markdown, field('markdown'), tools.user);
       return;
     case 'term': {
       if (block.definition.trim() === '') empty(section, field('definition'), '', 'the term has no definition');

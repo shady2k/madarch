@@ -387,8 +387,8 @@ describe('the pieces the walk judges with', () => {
 const guide = (markdown: string): Block => ({ type: 'guide', data: { markdown } } as unknown as Block);
 
 /** One option set for a page judged on its own, without a server. */
-const inspectOptions = (language = 'en', ids: ReadonlySet<string> = new Set(), namespaces: ReadonlySet<string> = new Set(['code.service', 'code.file'])) => ({
-  product: 'fixture', language, userLanguage: language, ids, namespaces,
+const inspectOptions = (language = 'en', ids: ReadonlySet<string> = new Set(), namespaces: ReadonlySet<string> = new Set(['code.service', 'code.file']), product = language) => ({
+  product: 'fixture', language: product, userLanguage: language, ids, namespaces,
 });
 
 describe('the shapes a reader meets are read, not skipped', () => {
@@ -415,6 +415,33 @@ describe('the shapes a reader meets are read, not skipped', () => {
     const found = await planted((blocks) => [...blocks, guide('code.service:orders')]);
     expect(new Set(found.findings.map((finding) => finding.class))).toEqual(new Set(['raw-id']));
     expect(found.findings.map((finding) => finding.value)).toEqual(['code.service:orders', 'code.service:orders']);
+  });
+
+  test("a page's own text is judged in the product's language, not the interface language", () => {
+    const english: PageModel = {
+      id: 'code.service:orders', kind: 'code.service', title: 'Orders', trail: [],
+      blocks: [{ type: 'body', markdown: 'The orders service takes an order and charges the card when the shop confirms it.', file: 'docs/orders.md', statements: 1, ungrounded: [] }],
+      resolutions: {}, findings: [], notes: [],
+    };
+    // The reader asked for Russian; the product writes English. The text is the product's, so it is read as English.
+    expect(inspectPage(english, inspectOptions('ru', new Set(), new Set(['code.service']), 'en'))).toEqual([]);
+    // The same page holding Russian text is foreign whichever language the reader asked in: the check follows the
+    // text's provenance, not the kind of the page and not the language of the answer.
+    const russian: PageModel = { ...english, blocks: [{ ...english.blocks[0]!, markdown: 'Служба заказов принимает заказ и списывает деньги с карты.' } as PageModel['blocks'][number]] };
+    expect(inspectPage(russian, inspectOptions('en', new Set(), new Set(['code.service']), 'en')).map((finding) => finding.class)).toEqual(['foreign-language']);
+    expect(inspectPage(russian, inspectOptions('ru', new Set(), new Set(['code.service']), 'en')).map((finding) => finding.class)).toEqual(['foreign-language']);
+  });
+
+  test("a template's own words follow the interface language, not the product's", () => {
+    const page: PageModel = {
+      id: 'code.service:orders', kind: 'code.service', title: 'Orders', trail: [],
+      blocks: [{ type: 'markdown', markdown: 'Служба заказов принимает заказ и списывает деньги с карты.' }],
+      resolutions: {}, findings: [], notes: [],
+    };
+    // The template draws its sentence in the language the reader asked for: the product's own language says nothing
+    // about the engine's words, so the Russian render is clean and the English render is the foreign one.
+    expect(inspectPage(page, inspectOptions('ru', new Set(), new Set(['code.service']), 'en'))).toEqual([]);
+    expect(inspectPage(page, inspectOptions('en', new Set(), new Set(['code.service']), 'en')).map((finding) => finding.class)).toEqual(['foreign-language']);
   });
 
   test('a term definition is Markdown: a code span is code, not a raw id', async () => {
