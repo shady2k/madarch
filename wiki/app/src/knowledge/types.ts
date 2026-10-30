@@ -41,6 +41,9 @@ export type HistoryNote = { key: 'manyCommits' | 'manyFiles' | 'noCounts' | 'mer
 /** One member of a contract's definition (the engine's `DefinitionMember`). */
 export type DefinitionMember = { anchor: string; label: string; detail?: string; href: string | null; badge?: string; detailTotal?: number };
 
+/** Where the rest of a history lives (the engine's `HistoryMore`): the kind's listing, and its words in the reader's language. */
+export type HistoryMore = { href: string; label: string };
+
 export type RelatedGroup = {
   relation: string;
   direction: 'out' | 'in';
@@ -122,7 +125,7 @@ type BlockShape =
   | { type: 'members'; title: string; kindLabel?: string; kindLabelName?: string; rows: MemberRow[]; total: number }
   | { type: 'stated'; title: string; place: { repo: string | null; path: string; lineStart: number; lineEnd: number; href: string; commit: string | null; single?: boolean } }
   | { type: 'definition'; title: string; format: string; contract: string; fullPath?: string; location?: CodeLocation; members: DefinitionMember[]; membersTotal: number; membersShown: number; memberCuts: { channel: string; total: number; shown: number }[]; spec: { text: string; lines: number }; document?: Record<string, unknown>; descriptions?: {text: string; path: string; line: number; fullPath: string}[]; selection?: { method: string; path: string; operationId: string }; protobuf?: ProtoDocumentation; diagnostics?: ContractDiagnostic[] }
-  | { type: 'history'; title: string; sections: HistorySection[]; notes: HistoryNote[] }
+  | { type: 'history'; title: string; sections: HistorySection[]; notes: HistoryNote[]; more?: HistoryMore }
   | { type: 'deferred'; block: string; title: string; id: string }
   | { type: 'problem'; block: string; message: string; file: string; line: number; diagnostic?: ContractDiagnostic };
 

@@ -8,6 +8,7 @@
 import { describe, expect, test } from 'bun:test';
 import { checkPage, parseTarget, type GroundResolver, type PageExpectation } from '../src/writer/format.js';
 import { documentAnchors, slugOf } from '../src/writer/view.js';
+import { emptyProductGapMarker } from '../src/writer/empty-product-gap.js';
 
 const KEYS = new Set(['code.service:payments', 'code.service:orders', 'code.symbol\u003aservices/payments/src/providers/factory.ts#PaymentClientFactory']);
 const SECTIONS = new Set(['docs/requirements.md#uc-2', 'docs/requirements.md#br-4', 'docs/vision.md#journeys']);
@@ -159,6 +160,30 @@ describe('the refusals', () => {
     expect(verdict.refusals[0]!.rule).toBe('ungrounded-statement');
     expect(verdict.refusals[0]!.message).toContain('Refunds take thirty days.');
     expect(verdict.refusals[0]!.line).toBe(11);
+  });
+
+  test('a model sentence that copies the words of an empty-product gap is refused when it has no structural gap identity', async () => {
+    const gap = 'The documents and the graph this page stands on say nothing yet about what the product is or for whom.';
+    const verdict = await checkPage(good(gap), { ...expectation, emptyProductGapSections: ['what-it-is'] }, resolver);
+    expect(verdict.ok).toBe(false);
+    if (verdict.ok) return;
+    expect(verdict.refusals.map((refusal) => refusal.rule)).toContain('ungrounded-statement');
+  });
+
+  test('a gap marker is accepted only for the section the core left empty, and only over the one sentence it identifies', async () => {
+    const gap = 'The documents and the graph this page stands on say nothing yet about what the product is or for whom.';
+    const marked = `${emptyProductGapMarker('what-it-is', gap)}\n${gap}`;
+    const first = await checkPage(good(marked), { ...expectation, emptyProductGapSections: ['what-it-is'] }, resolver);
+    expect(first.ok).toBe(true);
+    if (!first.ok) return;
+    const again = await checkPage(first.page.markdown, { ...expectation, emptyProductGapSections: ['what-it-is'] }, resolver);
+    expect(again.ok).toBe(true);
+    if (again.ok) expect(again.page.markdown).toBe(first.page.markdown);
+    expect(await refusedRules(good(marked), { ...expectation, emptyProductGapSections: ['domains'] })).toContain('empty-product-gap');
+    const wrongDigest = `${emptyProductGapMarker('what-it-is', 'A different sentence.')}\n${gap}`;
+    expect(await refusedRules(good(wrongDigest), { ...expectation, emptyProductGapSections: ['what-it-is'] })).toContain('empty-product-gap');
+    const twoSentences = `${emptyProductGapMarker('what-it-is', gap)}\n${gap} Another claim follows.`;
+    expect(await refusedRules(good(twoSentences), { ...expectation, emptyProductGapSections: ['what-it-is'] })).toContain('empty-product-gap');
   });
 
   test('a whole paragraph or list item with no footnote is refused; headings and link-only lines are not', async () => {

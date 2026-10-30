@@ -1106,8 +1106,10 @@ export async function runWriter(options: WriterOptions): Promise<WriterReport> {
           ...(options.onUnit === undefined ? {} : { onUnit: options.onUnit }),
           start: async () => {
             const spec: UnitSpec = { kind: 'overview', id, path: OVERVIEW_PATH, name: options.productName, productId: productUnit.id };
-            const tools = new UnitTools(view, spec, sink, linkedDomains, bounds, basis, extras);
+            // The pages this run published are the only pages the home page may point at by id: every other page
+            // it names is a document section or a part of the graph.
             const linked = [...artifactsOf('product-page'), ...artifactsOf('domain-pages')].map((page) => ({ id: page.unit, path: page.path, title: page.title }));
+            const tools = new UnitTools(view, spec, sink, linkedDomains, bounds, basis, { ...extras, linkedPages: linked.map((page) => page.id) });
             return await runUnit(options.agent, tools, await overviewPrompt(view, { id, path: OVERVIEW_PATH, name: options.productName }, linked, language, { questions, reads: readsFor(kind) }));
           },
         });

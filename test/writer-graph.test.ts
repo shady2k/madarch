@@ -144,7 +144,8 @@ const productPage = page('product:tiny-shop', 'product', 'Tiny shop',
   ['## What the product is', '', 'A shopper places an order.[^what-it-is]', '', '## Domains', '', '- The [ordering domain](madarch:domain:ordering) is where orders are placed.[^what-it-is]'].join('\n'));
 const domainPage = page('domain:ordering', 'domain', 'Ordering', '## How ordering works\n\nA shopper places an order.[^what-it-is]');
 const validationPage = page('graph-validation:tiny-shop', 'validation', 'Graph verdicts', '## What was inspected\n\nA shopper places an order.[^what-it-is]');
-const overviewPage = page('overview:tiny-shop', 'overview', 'Tiny shop', '## What the product is\n\nA shopper places an order.[^what-it-is]');
+/** The fields a home page answers with (madarch-ztyq.7): what the product is, and the domain it points at. */
+const homeFields = { whatItIs: [{ text: 'A shopper places an order.', grounds: [UC1] }], domains: [{ target: 'domain:ordering', text: 'Orders are placed there.', grounds: [UC1] }] };
 const editorialPage = page('editorial:tiny-shop', 'editorial', 'A newcomer reading', '## What was read\n\nThe ordering page says what it is for.[^what-it-is]');
 
 /** The fields a domain unit answers with (madarch-ztyq.6): the business first, grounded on its passage. */
@@ -157,10 +158,10 @@ const domainFields = {
 
 /** The write a unit's page asks for, by the kind of page that unit writes: the page itself, or its fields. */
 function pageOf(request: UnitRequest): { markdown?: string; fields?: unknown; domains?: unknown[] } {
-  if (request.id === 'product:tiny-shop') return { markdown: productPage, domains: [{ slug: 'ordering', title: 'Ordering', summary: 'Orders are placed.', evidence: [UC1] }] };
+  if (request.id === 'product:tiny-shop') return { fields: homeFields, domains: [{ slug: 'ordering', title: 'Ordering', summary: 'Orders are placed.', evidence: [UC1] }] };
   if (request.id === 'domain:ordering') return { fields: domainFields };
   if (request.id === 'graph-validation:tiny-shop') return { markdown: validationPage };
-  if (request.id === 'overview:tiny-shop') return { markdown: overviewPage };
+  if (request.id === 'overview:tiny-shop') return { fields: homeFields };
   if (request.id === 'editorial:tiny-shop') return { markdown: editorialPage };
   return { markdown: '' };
 }
@@ -211,7 +212,7 @@ function scripted(options: { readonly failAt?: string; readonly silentFor?: stri
       const settled = pageOf(request);
       expect(settled.markdown ?? settled.fields, `the scripted agent has no page for ${request.id}`).toBeDefined();
       const written = settled.fields !== undefined
-        ? await request.tools.call('write_page', { fields: settled.fields })
+        ? await request.tools.call('write_page', settled.domains === undefined ? { fields: settled.fields } : { fields: settled.fields, domains: settled.domains })
         : settled.domains === undefined
           ? await request.tools.call('write_page', { markdown: settled.markdown })
           : await request.tools.call('write_page', { markdown: settled.markdown, domains: settled.domains });

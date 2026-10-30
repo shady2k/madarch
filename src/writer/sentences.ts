@@ -17,6 +17,7 @@ import remarkGfm from 'remark-gfm';
 import remarkParse from 'remark-parse';
 import { unified } from 'unified';
 import { sha256Hex } from '../graph/digest.js';
+import { readEmptyProductGapMarker, type EmptyProductGap } from './gap-marker.js';
 
 /** Inline code is never prose; kept as a name to say so at the call sites that read the tree. */
 export const codeSpan = (node: { type: string }): boolean => node.type === 'inlineCode';
@@ -393,6 +394,8 @@ export interface TextUnit {
   readonly text: string;
   readonly start: number;
   readonly end: number;
+  /** The core's structural identity of an empty-product gap sentence, when the page carries its marker. */
+  readonly gap?: EmptyProductGap;
 }
 
 export interface Definition {
@@ -545,7 +548,11 @@ export class PageReading {
     const headings: TextUnit[] = [];
     const definitions: Definition[] = [];
     const lineOf = (node: Node): number => bodyStart + (node.position?.start.line ?? 1) - 1;
-    const collect = (node: Node, inDefinition: boolean): void => {
+    /**
+     * A gap marker is an HTML node the core wrote immediately before the block it identifies. It travels to the
+     * next unit, through a list to its first item, and is dropped when any other block intervenes.
+     */
+    const collect = (node: Node, inDefinition: boolean, pendingGap?: EmptyProductGap): void => {
       if (node.type === 'footnoteDefinition') {
         const start = startOf(node);
         const end = endOf(node);
@@ -556,17 +563,32 @@ export class PageReading {
         return;
       }
       if (node.type === 'paragraph' && !inDefinition) {
-        units.push({ line: lineOf(node), text: joined(this.body.slice(startOf(node), endOf(node))), start: startOf(node), end: endOf(node) });
+        units.push({ line: lineOf(node), text: joined(this.body.slice(startOf(node), endOf(node))), start: startOf(node), end: endOf(node), ...(pendingGap === undefined ? {} : { gap: pendingGap }) });
         return;
       }
       if (node.type === 'heading' && !inDefinition) {
         headings.push({ line: lineOf(node), text: headingText(this.body.slice(startOf(node), endOf(node))), start: startOf(node), end: endOf(node) });
         return;
       }
-      for (const child of node.children ?? []) collect(child, inDefinition);
+      let nextGap = pendingGap;
+      for (const child of node.children ?? []) {
+        const marker = child.type === 'html' ? readEmptyProductGapMarker(child.value ?? '') : undefined;
+        if (marker !== undefined) { nextGap = marker; continue; }
+        collect(child, inDefinition, nextGap);
+        nextGap = undefined;
+      }
     };
     collect(this.root, false);
     return { units, definitions, headings };
+  }
+
+  /** The body lines that carry a valid empty-product gap marker, so the format's raw-HTML scan can let them pass. */
+  gapMarkerLines(): number[] {
+    const lines: number[] = [];
+    walk(this.root, (node) => {
+      if (node.type === 'html' && readEmptyProductGapMarker(node.value ?? '') !== undefined) lines.push(node.position?.start.line ?? 1);
+    });
+    return lines;
   }
 
   /** The runs of adjacent footnote references of the paragraphs, each with the sentence that ends in it. */

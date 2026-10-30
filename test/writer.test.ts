@@ -26,6 +26,7 @@ import { parse as parseYaml } from 'yaml';
 import { createPGliteDatabaseOwner, type DatabaseOwner } from '../src/adapters/database-owner.js';
 import { documentSections } from '../src/knowledge/index/sections.js';
 import { localizedSourcePath } from '../src/writer/localized-source.js';
+import { HOME_SECTIONS } from '../src/writer/home-page.js';
 import { fillGraph } from '../src/extract/driver/index.js';
 import { HISTORY_EXTRACTOR, OWNERS, TREE_EXTRACTORS } from '../src/extract/driver/extractors.js';
 import { createGraphStore, type GraphStore } from '../src/graph/index.js';
@@ -106,10 +107,9 @@ async function groundOf(request: UnitRequest, place: { path: string; symbol?: st
   return hit !== undefined && !/\s/.test(hit.key) ? hit.key : file;
 }
 
-/** A statement of the key as grounded sentences: every sentence ends with the same footnote. */
-function sentences(statement: string, label: string): string {
-  const parts = statement.replace(/\s+/g, ' ').trim().split(/(?<=[.!?])\s+/);
-  return parts.map((part) => `${/[.!?]$/.test(part) ? part : `${part}.`}[^${label}]`).join(' ');
+/** The sentences of a key statement, each with its own punctuation: a field statement is one sentence. */
+function sentencesOfText(statement: string): string[] {
+  return statement.replace(/\s+/g, ' ').trim().split(/(?<=[.!?])\s+/).map((part) => (/[.!?]$/.test(part) ? part : `${part}.`));
 }
 
 async function evidenceFor(request: UnitRequest, item: KeyItem): Promise<string[]> {
@@ -134,39 +134,60 @@ interface Script {
   readonly mentions?: boolean;
 }
 
+/**
+ * The product unit's answer (madarch-ztyq.7): the fields of the home page, never its Markdown. The core writes the
+ * eight sections, their headings and the footnotes; the unit gives each section its statements and the places it
+ * points at, and the same fields are rendered the same way in English and in Russian.
+ */
 function productScript(script: Script = {}): (request: UnitRequest) => Promise<void> {
   return async (request) => {
     await call(request, 'overview');
     const vision = await call(request, 'read_file', { path: 'docs/vision.md' });
     expect((vision.answer as { sectionAnchors: string[] }).sectionAnchors).toContain('users');
-    await call(request, 'read_file', { path: 'docs/requirements.md' });
+    const requirements = await call(request, 'read_file', { path: 'docs/requirements.md' });
+    expect((requirements.answer as { sectionAnchors: string[] }).sectionAnchors).toContain('uc-1');
     const services = await call(request, 'find_nodes', { kind: 'code.service' });
-    const keys = (services.answer as { nodes: { key: string }[] }).nodes.map((n) => n.key);
-    const statements = [...itemsOf(/^stack\.passport$/), ...itemsOf(/^doc\.vision$/), ...itemsOf(/^doc\.use-cases$/), ...itemsOf(/^architecture\.composition-root$/)];
-    const body: string[] = ['## What the product is', ''];
-    const notes: string[] = [];
-    for (const [index, item] of statements.entries()) {
-      const label = String(index + 1);
-      body.push(sentences(item.expectedWikiStatement, label), '');
-      notes.push(footnote(label, await evidenceFor(request, item)));
-    }
-    body.push('## Domains', '');
-    for (const domain of KEY_DOMAINS) body.push(`- [${domain.title}](madarch:domain:${domain.slug}) is implemented by the [${domain.service} service](madarch:code.service:${domain.service}).[^${domain.slug}]`);
-    for (const domain of KEY_DOMAINS) notes.push(footnote(domain.slug, [`code.service:${domain.service}`, `doc:docs/requirements.md#${domain.useCase}`]));
-    body.push('', ...keys.map((k) => `- [${k.replace('code.service:', '')}](madarch:${k})`));
-    if (script.mentions === true) {
-      // Plain prose as an agent writes it: the names are not links, and the core must make them links.
-      body.push('', '## Stack', '', 'The shop stores carts in Postgres and publishes to Kafka through the outbox.[^stack]', 'UC-1 and BR-3 govern the work, and the Outbox and Capture terms explain them.[^terms]', '');
-      notes.push(footnote('stack', ['code.service:orders']));
-      notes.push(footnote('terms', ['doc:docs/requirements.md#uc-1']));
-    }
-    const page = ['---', 'id: product:training-shop', 'kind: product', 'title: Training shop', 'relates:', ...keys.map((k) => `  - ${k}`), 'producer: agent', 'sources: [docs/vision.md, docs/requirements.md]', '---', '', ...body, '', ...notes].join('\n');
+    expect((services.answer as { nodes: { key: string }[] }).nodes.map((n) => n.key)).toContain('code.service:orders');
+    const stated = async (items: KeyItem[]): Promise<{ text: string; grounds: string[] }[]> => {
+      const out: { text: string; grounds: string[] }[] = [];
+      for (const item of items) {
+        const grounds = await evidenceFor(request, item);
+        for (const text of sentencesOfText(item.expectedWikiStatement)) out.push({ text, grounds });
+      }
+      return out;
+    };
+    // Plain prose as an agent writes it: the names are not links, and the core must make them links. It sits in
+    // the technology section, whose heading the core writes and never links (madarch-ztyq.8).
+    const mentions = script.mentions === true ? [
+      { text: 'The shop stores carts in Postgres and publishes to Kafka through the outbox.', grounds: ['code.service:orders'] },
+      { text: 'UC-1 and BR-3 govern the work, and the Outbox and Capture terms explain them.', grounds: ['doc:docs/requirements.md#uc-1'] },
+    ] : [];
+    const fields = {
+      whatItIs: await stated(itemsOf(/^doc\.vision$/)),
+      scenarios: await Promise.all(KEY_DOMAINS.map(async (domain) => {
+        const item = itemsOf(new RegExp(`^flow\.${domain.service}\.`))[0]!;
+        return { target: `doc:docs/requirements.md#${domain.useCase}`, text: sentencesOfText(item.expectedWikiStatement)[0]!, grounds: await evidenceFor(request, item) };
+      })),
+      system: await Promise.all(itemsOf(/^service\./).map(async (item) => ({
+        target: `code.service:${item.id.slice('service.'.length)}`,
+        text: sentencesOfText(item.expectedWikiStatement)[0]!,
+        grounds: await evidenceFor(request, item),
+      }))),
+      domains: KEY_DOMAINS.map((domain) => ({
+        target: `domain:${domain.slug}`,
+        text: `${domain.title} is what the ${domain.service} service does for a shopper.`,
+        grounds: [`code.service:${domain.service}`, `doc:docs/requirements.md#${domain.useCase}`],
+      })),
+      technology: [...await stated([...itemsOf(/^stack\.passport$/), ...itemsOf(/^architecture\.composition-root$/)]), ...mentions],
+    };
     const domains = KEY_DOMAINS.map((d) => ({ slug: d.slug, title: d.title, summary: `${d.title} is what the ${d.service} service does for a shopper.`, evidence: [`code.service:${d.service}`, `doc:docs/requirements.md#${d.useCase}`] }));
     if (script.firstAttemptSpoiled) {
-      const refused = await call(request, 'write_page', { markdown: `${page}\n\nThe shop is fast.`, domains });
+      // A field nothing declares comes back to the agent with the fields there are, and nothing is written.
+      const refused = await call(request, 'write_page', { fields: { ...fields, architecture: [] }, domains });
       expect(refused.isError).toBe(true);
+      expect((refused.answer as { refused: { message: string }[] }).refused[0]!.message).toContain('"architecture" names nothing');
     }
-    const written = await call(request, 'write_page', { markdown: page, domains });
+    const written = await call(request, 'write_page', { fields, domains });
     expect(written.isError).toBe(false);
   };
 }
@@ -319,8 +340,10 @@ describe('the writer over the training repository', () => {
       expect(target.startsWith('code.')).toBe(true);
       expect(await view.graphKey(target)).toBe(true);
     }
-    // A heading is not prose: the section title keeps the agent's text.
-    expect(page).toContain('\n## Stack\n');
+    // The headings belong to the core, which writes them, so none is linked; `writer-mentions` proves the
+    // structural skip for a heading that names a known entity.
+    const technology = HOME_SECTIONS.find((section) => section.id === 'technology')!;
+    expect(page).toContain(`\n## ${technology.heading.en}\n`);
     // The page states the paragraph it wrote, and each sentence keeps its ground.
     expect(page).toContain('stores carts in [Postgres]');
     // `Kafka` names both the broker and its compose service and the page has no evidence which it means:
@@ -395,6 +418,25 @@ describe('the writer over the training repository', () => {
     }
   });
 
+  test('the product page is the eight sections of a home page, in order, each pointing at the page that says it in full', () => {
+    const page = first.pages.get('docs/product.md')!;
+    const headings = page.split('\n').filter((line) => line.startsWith('## ')).map((line) => line.slice(3));
+    expect(headings).toEqual(HOME_SECTIONS.map((section) => section.heading.en));
+    // Each section carries its own part: what the product is, its scenarios, how it is put together, its domains,
+    // its rules, its technology, how complete the wiki is, and what is not connected.
+    const sections = page.split('\n## ').slice(1);
+    expect(sections).toHaveLength(8);
+    for (const section of sections) expect(section.split('\n').filter((line) => line.trim() !== '' && !line.startsWith('[')).length).toBeGreaterThan(1);
+    // The scenarios point at the document section that tells them, the system at the graph's own keys, and the
+    // domains at the pages the run declares.
+    expect(page).toContain('](madarch:doc:docs/requirements.md#uc-1)');
+    expect(page).toContain('](madarch:code.service:orders)');
+    for (const domain of KEY_DOMAINS) expect(page).toContain(`](madarch:domain:${domain.slug})`);
+    // A part the unit found nothing for says so of the documents and the graph, never as an empty heading.
+    expect(page).toContain(HOME_SECTIONS.find((section) => section.id === 'coverage')!.gap!.en);
+    expect(page).toContain(HOME_SECTIONS.find((section) => section.id === 'not-connected')!.gap!.en);
+  });
+
   test('every ground of every footnote resolves: a key the graph holds at the fill, or a section the document has', async () => {
     let grounds = 0;
     for (const markdown of first.pages.values()) {
@@ -458,7 +500,9 @@ describe('the writer over the training repository', () => {
     for (const [unit, prompt] of first.prompts.entries()) {
       // A domain page is written by the core from its unit's fields (madarch-ztyq.6): its prompt carries what the
       // core writes for it instead of the page format, and the graph the same way.
-      if (unit.startsWith('domain:')) expect(prompt).toContain('## What the core writes for you');
+      // A domain page and the home page are written by the core from their unit's fields (madarch-ztyq.6, ztyq.7):
+      // their prompts carry what the core writes for them instead of the page format.
+      if (unit.startsWith('domain:') || unit === 'product:training-shop') expect(prompt).toContain('## What the core writes for you');
       else expect(prompt).toContain('Every sentence that states something ends with a footnote');
       expect(prompt).toContain('code.service:orders');
       expect(prompt).not.toContain('CREATE TABLE');
@@ -605,21 +649,25 @@ describe('the unit tools', () => {
     expect(tools.finished).toBe(true);
   });
 
-  test('the product page declares its domains with evidence that must resolve, and links each of them', async () => {
-    const page = (links: string): string => `---\nid: product:training-shop\nkind: product\ntitle: Training shop\nrelates: []\nproducer: agent\nsources: []\n---\n\n${links}\n\n[^1]: [payments](madarch:code.service:payments)\n`;
+  test('the home page declares its domains with evidence that must resolve, and points at each of them', async () => {
     const declaration = { slug: 'payments', title: 'Payments', summary: 'Payments.', evidence: ['code.service:payments'] };
+    const fields = (target: string): Record<string, unknown> => ({
+      whatItIs: [{ text: 'The shop takes payments.', grounds: ['code.service:payments'] }],
+      domains: [{ target, text: 'Payments take the money.', grounds: ['code.service:payments'] }],
+    });
     const missing = session(productSpec).tools;
-    expect((await missing.call('write_page', { markdown: page('The shop takes payments.[^1]') })).isError).toBe(true);
+    expect((await missing.call('write_page', { fields: fields('domain:payments') })).isError).toBe(true);
     const unresolved = session(productSpec).tools;
-    const bad = await unresolved.call('write_page', { markdown: page('The [payments](madarch:domain:payments) domain exists.[^1]'), domains: [{ ...declaration, evidence: ['code.service:nothing'] }] });
+    const bad = await unresolved.call('write_page', { fields: fields('domain:payments'), domains: [{ ...declaration, evidence: ['code.service:nothing'] }] });
     expect(JSON.stringify(bad.answer)).toContain('does not resolve in the graph');
-    const badSlug = await session(productSpec).tools.call('write_page', { markdown: page('The [payments](madarch:domain:payments) domain exists.[^1]'), domains: [{ ...declaration, slug: 'Pay Ments' }] });
+    const badSlug = await session(productSpec).tools.call('write_page', { fields: fields('domain:payments'), domains: [{ ...declaration, slug: 'Pay Ments' }] });
     expect(JSON.stringify(badSlug.answer)).toContain('lower-case words');
+    // A declared domain the page does not point at is refused: the home page names every domain the run builds.
     const unlinked = session(productSpec).tools;
-    const notLinked = await unlinked.call('write_page', { markdown: page('The shop takes payments.[^1]'), domains: [declaration] });
+    const notLinked = await unlinked.call('write_page', { fields: fields('code.service:payments'), domains: [declaration] });
     expect((notLinked.answer as { refused: { rule: string }[] }).refused.map((r) => r.rule)).toEqual(['domain-not-linked']);
     const { tools, sink } = session(productSpec);
-    const ok = await tools.call('write_page', { markdown: page('The [payments](madarch:domain:payments) domain exists.[^1]'), domains: [declaration] });
+    const ok = await tools.call('write_page', { fields: fields('domain:payments'), domains: [declaration] });
     expect(ok.isError).toBe(false);
     expect([...sink.pages.keys()]).toEqual(['docs/product.md']);
     expect(tools.outcome().domains.map((d) => d.slug)).toEqual(['payments']);

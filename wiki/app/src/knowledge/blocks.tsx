@@ -30,6 +30,7 @@ import { TreemapView } from './diagrams/treemap.js';
 import { useKindName } from './kind-names.js';
 import {ContractDiagnosticView} from './contract-diagnostic.js';
 import { addressOfDocument, addressOfStatement, addressOfTask, K_PROBLEMS } from './routes.js';
+import { COUNTED_FIGURES } from '../../../../src/knowledge/history-figures.js';
 import { currentAddress, linkHandlers, openInNewTab, syncFrontTabAddress } from './tabs.js';
 import { remarkStatements, type MNode } from './statements.js';
 import { setShowGrounds, useShowGrounds } from './preferences.js';
@@ -650,8 +651,9 @@ function Deferred({ block, pageId, resolutions }: { block: Extract<Block, { type
 /**
  * The figures whose word is counted: the numeral chooses the form of the word in the reader's language
  * (madarch-u3vw.7), so "1 commit", "2 commits", "5 commits" instead of one form glued to every numeral.
+ * The kinds are #195's own list, so the app cannot drift from the page files by keeping a second copy.
  */
-const countedKinds = new Set(['symbols', 'commits', 'files', 'reachable', 'firstParent', 'merges', 'nonMerge', 'authors', 'both', 'onlyThis', 'onlyOther']);
+const countedKinds: ReadonlySet<string> = new Set(COUNTED_FIGURES);
 
 /**
  * The history of a task, a commit or an author (madarch-m38l.16): the commits it names, the files it changed with the
@@ -676,12 +678,12 @@ function History({ block }: { block: Extract<Block, { type: 'history' }> }): Rea
       {block.sections.length === 0 ? <p className="text-small text-muted" data-testid="history-empty">{t('knowledge.none')}</p> : block.sections.map((section) => (
         <div key={`${section.role}-${block.sections.indexOf(section)}`} data-history-section={section.role} className="mb-4">
           {block.sections.length > 1 && <h3 className="text-small text-muted">{section.repository === undefined ? '' : `${section.repository}: `}{t(`knowledge.historySection.${section.role}`)}</h3>}
-          <Table>
+          {section.role === 'summary' ? <p className="flex flex-wrap items-center gap-1" data-testid="history-summary">{section.rows.flatMap((row, at) => row.figures.map((figure, figureAt) => <Badge key={`${figure.kind}-${String(at)}-${String(figureAt)}`} data-figure={figure.kind} title={figureTitle(figure)}>{figureText(figure)}</Badge>))}</p> : <Table>
             <TableHeader>
               <TableRow>
                 {section.role === 'commits' && <TableHead>{t('knowledge.historyColWhen')}</TableHead>}
                 {section.role === 'commits' && <TableHead>{t('knowledge.historyColWho')}</TableHead>}
-                <TableHead>{section.role !== 'files' ? t('knowledge.historyColWhat') : t('knowledge.historyColFile')}</TableHead>
+                <TableHead>{section.role === 'files' || section.role === 'hotspots' ? t('knowledge.historyColFile') : t('knowledge.historyColWhat')}</TableHead>
                 <TableHead>{t('knowledge.historyColFigures')}</TableHead>
               </TableRow>
             </TableHeader>
@@ -706,7 +708,7 @@ function History({ block }: { block: Extract<Block, { type: 'history' }> }): Rea
                 </TableRow>
               ))}
             </TableBody>
-          </Table>
+          </Table>}
           {section.total > section.rows.length && <p className="mt-1.5 text-small text-muted" data-testid="history-cut">{t('knowledge.showing', { shown: section.rows.length, total: section.total })}</p>}
         </div>
       ))}
@@ -714,6 +716,11 @@ function History({ block }: { block: Extract<Block, { type: 'history' }> }): Rea
         <ul className="mt-1.5 text-small text-muted" data-testid="history-notes">
           {block.notes.map((note, index) => <li key={index}>{historyNoteText(note, t)}</li>)}
         </ul>
+      )}
+      {block.more !== undefined && (
+        <p data-testid="history-more" className="mt-1.5 text-small">
+          <KLink href={block.more.href}>{block.more.label} →</KLink>
+        </p>
       )}
     </section>
   );

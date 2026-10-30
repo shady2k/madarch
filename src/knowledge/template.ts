@@ -21,6 +21,25 @@ import type { Finding } from './kinds.js';
 export const BLOCK_NAMES = ['body', 'graph', 'related', 'callers', 'callees', 'source', 'er', 'sequence', 'system', 'modules', 'treemap', 'history', 'definition', 'stated', 'implementedby', 'linkedfrom', 'properties', 'children', 'term', 'members'] as const;
 export type BlockName = (typeof BLOCK_NAMES)[number];
 
+/** The languages a template may write a parameter in (`title-ru`): the wiki's interface languages. */
+export const TEMPLATE_LANGUAGES: readonly string[] = ['en', 'ru'];
+
+/**
+ * A block's parameters as the page reads them: a parameter the template wrote in the reader's language (`title-ru`,
+ * `more-ru`) folds into its base name (`title`, `more`), and every other language's variant is dropped. The words of
+ * an interface stay the template's; the block picks no language of its own.
+ */
+export function foldLanguageParams(params: Readonly<Record<string, string>>, lang: string | undefined): Record<string, string> {
+  const out: Record<string, string> = {};
+  for (const [name, value] of Object.entries(params)) {
+    const cut = name.lastIndexOf('-');
+    const suffix = cut < 0 ? '' : name.slice(cut + 1);
+    if (!TEMPLATE_LANGUAGES.includes(suffix)) { out[name] = value; continue; }
+    if (lang !== undefined && suffix === lang) out[name.slice(0, cut)] = value;
+  }
+  return out;
+}
+
 export type TemplatePart =
   | { type: 'text'; text: string; line: number }
   | { type: 'block'; name: BlockName; params: Readonly<Record<string, string>>; line: number }
