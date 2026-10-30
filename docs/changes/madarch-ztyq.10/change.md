@@ -75,6 +75,12 @@ what did this server save me?
   refuses a folder that is not a checkout with exit 2, and the administrator guide says how a client
   registers it. Scenarios: `the-command-serves-the-current-folder`,
   `a-path-that-is-not-a-checkout-is-refused`.
+- mcp-server/refresh-resolution (new): a changed file is read again with the import closure of its code files and by every extractor the fill runs, so a call through an unchanged file resolves, and a migration or a contract changed without a commit answers or stops answering. Scenarios: `an-edited-caller-keeps-its-unchanged-callee`, `a-migration-changed-without-a-commit-is-read`.
+- mcp-server/source-provenance (new): a base fact is hidden by the span the base graph recorded for it, not by the shape of its key, and both ends of an edge are resolved through the working-tree layer, so a deleted symbol is never named as a callee. Scenarios: `an-operation-removed-from-a-contract-stops-answering`, `a-deleted-callee-is-no-callee`.
+- mcp-server/cold-start (new): a start answers its handshake at once and says `graph building` to a tool call made before the graph is ready; a product fill's graph for the same commit is reused instead of extracted; a cold build streams by file and is bounded to 700 code files, with the measurement stated, and a larger tree is refused with what to serve instead. Scenarios: `a-product-graph-is-reused`, `the-handshake-answers-before-the-graph-is-built`, `a-tree-beyond-the-bound-is-refused-with-what-to-serve`.
+- mcp-server/source-on-every-answer (new): every tool result, refusals and failures included, carries the revision and the changed files, stamped in one place; a failed refresh answers that call with its file, line and full path and the server keeps serving. Scenarios: `a-refusal-names-its-revision`, `a-failing-refresh-keeps-the-stream`.
+- mcp-server/journal-accounting (new): the journal keeps the measured reads avoided, the questions answered and the estimated evidence files apart, per tool and in total, and counts a saving once no matter how often the identical call repeats. Scenarios: `repeated-calls-are-counted-once`, `measured-and-estimated-are-separate`.
+- mcp-server/folder-lock (new): the state folder's lock is created atomically, names its holder, is refused to a second process with the lock file and the holder named, and is held until the graph's database is closed. Scenario: `a-second-server-on-one-folder-is-refused`.
 
 Complete proposed capability text: `capabilities/mcp-server.md`. It is the whole capability, not a
 hand-written delta.
@@ -91,6 +97,12 @@ hand-written delta.
 - mcp-server/working-tree-freshness: test, static
 - mcp-server/call-journal: test, static
 - mcp-server/command-and-registration: test, static
+- mcp-server/refresh-resolution: test, static
+- mcp-server/source-provenance: test, static
+- mcp-server/cold-start: test, static
+- mcp-server/source-on-every-answer: test, static
+- mcp-server/journal-accounting: test, static
+- mcp-server/folder-lock: test, static
 - product-wiki/acp-agent: test, static
 - graph-queries/as-of: test, static
 
@@ -143,6 +155,29 @@ The journal is one JSON line per call, in the state folder beside the graph, so 
 the folder's lock. The estimate of saved file reads counts the distinct files whose text the answer
 carried or named as evidence: a document the answer quotes, a page it returns, and the file of every
 entity key it names. It is an estimate and is named one.
+
+The review of this change found the layer too narrow and the start too heavy, and both are answered
+here rather than in a later change. A refresh reads the changed files *and* the import closure of the
+changed code files — the unchanged declarations a call is resolved against — and it runs every extractor
+the fill runs, so a migration or a contract edited without a commit is read like code is. Invalidation is
+no longer a set of key prefixes: a base fact is hidden when the span the base graph recorded for it is a
+changed path, which reaches tables, operations and sections whose keys name no file, and both ends of an
+edge are resolved through the layer, so a deleted symbol is not named as a callee. `source` is stamped in
+`RepositorySession.call` for every answer, refusals and failed refreshes included, and a refresh that
+throws answers that request as an `isError` result with the file, line and full path, keeping the stream
+alive. The journal separates what it measured — the reads the tools did not have to make — from what it
+answered and from an estimate of the files the answers stand on, and a repeated identical call adds
+calls but no saving.
+
+The start is bounded in time and memory. The handshake and the tool list answer before a graph exists, and
+a tool call made while it builds says `graph building` with a source that says the same; a madarch home
+that holds a product fill's graph for the same repository and commit is copied and served instead of
+extracted (measured here: 65 code files in 0.3 s of copying and 1.9 s to open, against 124.5 s and
+2 307 MB for the cold build); and a cold build is bounded to 700 code files, measured on this 6 GB
+machine at 1 476 MB for 300 files, 1 864 MB for 600 and 2 668 MB for 898, with the checkout's own 1 041
+files killed at 3 164 MB. A larger tree is refused with the count, the bound and what to serve instead,
+because a process killed mid-build serves nothing. The folder's lock is created with `O_EXCL`, names its
+holder, is refused to a second process and taken over only once its holder is gone.
 
 ## Acceptance evidence
 

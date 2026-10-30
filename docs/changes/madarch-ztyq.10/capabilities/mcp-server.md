@@ -115,3 +115,108 @@ read-only.
 - Given: a folder that git does not know
 - When: `madarch mcp --repo` with a folder git does not know is run
 - Then: the command exits 2 with a message naming the folder and what git said, and no server starts
+
+## Requirement: refresh-resolution — A changed file is read again with what it imports and by every producer the fill runs
+The files a refresh reads shall be the files git reports as changed, the import closure of the changed code
+files — the unchanged files whose declarations a call in a changed file is resolved against — and the
+manifests that name a file's module. Every extractor the fill runs shall read that set, not the code pass
+alone: a SQL migration or an OpenAPI document changed without a commit shall be read again, and the table
+or operation it adds or drops shall answer or stop answering in the next call. Only facts whose span is a
+changed file shall be kept; the closure is read to resolve, never to answer.
+
+### Scenario: an-edited-caller-keeps-its-unchanged-callee
+- Given: a server serving a checkout, and an uncommitted edit that adds a function to a file which calls a function of another file
+- When: a client asks for the added function and traces its flow
+- Then: the answer names the added declaration, the trace reaches the unchanged callee, and the call the file made before the edit is still its call
+
+### Scenario: a-migration-changed-without-a-commit-is-read
+- Given: a server serving a checkout, a migration that `HEAD` does not hold and one whose table it drops
+- When: a client asks `get_context` for the added table and then for the dropped one
+- Then: the added table answers, and the dropped table is the tool's no-such-entity refusal, both naming the changed file in their source
+
+## Requirement: source-provenance — A fact is hidden because the base graph read it from a changed file, not because its key looks like a path
+The base graph's facts shall be hidden by their provenance — the span the base graph recorded for the fact
+— so a table, an operation or a section whose file changed is hidden though its key names no path, and a
+fact read from an unchanged file is kept. Both ends of an edge shall be resolved through the working-tree
+layer: an edge whose site is a changed file is the working tree's, and an edge whose other end stands in a
+changed file that no longer declares it is no edge, so a deleted symbol is never named as a callee.
+
+### Scenario: an-operation-removed-from-a-contract-stops-answering
+- Given: a server serving a checkout whose OpenAPI document `HEAD` holds, rewritten without a commit
+- When: a client asks for the operation the rewrite removed
+- Then: the answer is the tool's refusal, and the operation the rewrite kept still answers
+
+### Scenario: a-deleted-callee-is-no-callee
+- Given: a server serving a checkout whose working tree deletes a file that `HEAD` holds
+- When: a client asks for a function of the unchanged caller and traces its flow
+- Then: neither answer names a declaration of the deleted file, and the caller answers from the working tree's text
+
+## Requirement: cold-start — A start answers at once, reuses a graph that exists, and builds a cold graph within a stated memory bound
+The server shall answer `initialize`, `ping` and `tools/list` as soon as it reads them, without waiting for
+a graph, and a tool call made while the graph is building shall be answered with a `graph building` answer
+whose source says it is building rather than by making the client wait. A start whose madarch home holds a
+product fill's graph for the same repository and commit shall serve that graph, copying it into the state
+folder and saying that it reused it, without extracting the repository again. A cold build shall be
+bounded: it streams the tree file by file, holds one file's facts at a time, and reads at most 700 code
+files, which this machine measures at 2 668 MB for 898 files and killed at 3 164 MB for the checkout's
+1 041; a tree beyond the bound shall be refused with the count, the bound, the measurement and what to
+serve instead, never built until the machine kills it.
+
+### Scenario: a-product-graph-is-reused
+- Given: a madarch home whose product knowledge store holds the graph of a repository at its `HEAD`
+- When: `madarch mcp` serves a folder that holds no graph
+- Then: it says it reused the graph, the state folder holds the copied graph, and a tool answers from it without extracting the repository again
+
+### Scenario: the-handshake-answers-before-the-graph-is-built
+- Given: a server whose graph is still building
+- When: a client sends `initialize`, `tools/list` and then `tools/call`
+- Then: the first two answer at once, and the call's answer says `graph building` and names the repository as building in its source
+
+### Scenario: a-tree-beyond-the-bound-is-refused-with-what-to-serve
+- Given: a checkout whose code files exceed the cold build's bound
+- When: `madarch mcp` serves it with no graph in its state folder
+- Then: the command exits 2 with a message naming the count, the bound, the measurement and the store to serve instead, and no extraction starts
+
+## Requirement: source-on-every-answer — Every result names its revision, refusals and failures included
+Every tool result shall carry the source — the repository, the commit, the branch, the commit's date, the
+files that differ from `HEAD` and the files read again — stamped in one place for the whole call, so a
+refusal, a bad argument and a failed refresh name the same revision an answered call does. A failure of the
+refresh shall be answered as that call's own error, with its file, line and full path, and the server shall
+keep serving: the next call reads the working tree again and answers.
+
+### Scenario: a-refusal-names-its-revision
+- Given: a server serving a checkout at a commit whose working tree is clean
+- When: a client asks for a symbol the graph does not hold and then calls a tool with no argument
+- Then: both results are errors and both carry the repository, the commit and an empty list of changed files
+
+### Scenario: a-failing-refresh-keeps-the-stream
+- Given: a server serving a checkout whose working tree holds a file the reader cannot read
+- When: a client calls a tool, and after the file is removed calls it again
+- Then: the first call is answered with an error naming the file and its full path, the process keeps serving, and the second call answers
+
+## Requirement: journal-accounting — The journal keeps measured reads, answered questions and estimated evidence apart
+The journal shall record, per call, the reads the tools measured they avoided, whether the call answered
+its question, and an estimate of the files the answer stands on; `--journal` shall print the three apart,
+per tool and in total. Two identical calls shall be counted as two calls and one saving: a saving is
+counted once it is new, so no repeated call reports a read nobody avoided.
+
+### Scenario: repeated-calls-are-counted-once
+- Given: a state folder whose journal holds one call and then two identical calls
+- When: `madarch mcp --journal` prints the summary
+- Then: the tool's calls count every call, its distinct calls count the repeated pair once, and the reads avoided rise by what the pair saved, not twice
+
+### Scenario: measured-and-estimated-are-separate
+- Given: a journal holding an ambiguous lookup that answered no question
+- When: its summary is read
+- Then: the lookup's reads avoided are zero, its questions answered are zero, and its evidence files count the files its candidates stand on
+
+## Requirement: folder-lock — One folder serves one process, and the lock is taken atomically and held until the database is closed
+The state folder's lock shall be created atomically, so two processes starting together cannot both believe
+they hold it, and the file shall name its holder. A second process shall be refused with an error naming
+the lock file and the holder, and a lock whose holder is gone shall be taken over once. The lock shall be
+held until the graph's database is closed and dropped by its holder alone.
+
+### Scenario: a-second-server-on-one-folder-is-refused
+- Given: a folder whose lock one live process holds
+- When: another process takes the same folder's lock
+- Then: it is refused with an error naming the lock file and the folder as already served, and after the holder drops the lock the folder can be taken again

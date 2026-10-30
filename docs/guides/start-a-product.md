@@ -304,7 +304,16 @@ Codex is given the same command line in `~/.codex/config.toml`:
 
 The first start builds the graph of the commit at `HEAD` and says when it is
 built; a later start reads the graph kept in
-`${XDG_STATE_HOME:-~/.local/state}/madarch/mcp/`, one folder per checkout. A
+`${XDG_STATE_HOME:-~/.local/state}/madarch/mcp/`, one folder per checkout. The
+handshake and the tool list answer while it is still building, and a tool call
+made before it is ready says `graph building`, so nothing waits on the build
+inside a client's own timeout. When your madarch home already holds a product's
+graph of the same repository and commit, the server copies and serves that
+instead of extracting the repository again. A cold build is bounded: it reads
+the tree file by file and serves a checkout of up to seven hundred code files,
+which this machine builds in about two and a half gigabytes; a larger checkout
+is refused with what to serve instead — a graph a fill built, named with
+`--store`. A
 file you edit without committing is read again before an answer that names it,
 and the answer names the file and marks what came from it; a file you delete
 without committing is gone from the answers. Every answer names the commit and
@@ -312,9 +321,11 @@ the branch it was read at.
 
     madarch mcp --journal --repo ../library
 
-prints what the server has been asked and what it saved: per tool the calls,
-the files read again, the answer bytes and the file reads the answers stood in
-for. It starts no server, so it works while one is running.
+prints what the server has been asked and what it saved: per tool the calls and
+the distinct calls, the files read again, the answer bytes, the file reads the
+answers avoided — measured, not guessed — the questions they answered, and the
+files their evidence stands on, which is an estimate; a lookup repeated with the
+same arguments counts another call and no further saving. It starts no server, so it works while one is running.
 
 ## How the commands find the product
 
