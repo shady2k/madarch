@@ -318,6 +318,12 @@ export interface EntityListing {
   next: string | null;
 }
 
+/** One page a refresh changed, as the wiki lists it: the page's id and the title its page shows. */
+export interface ChangedPage {
+  id: string;
+  title: string;
+}
+
 export interface FillState {
   /** The index was rebuilt because its deterministic readers changed. */
   rebuilt?: 'extractors-changed';
@@ -338,6 +344,12 @@ export interface FillState {
   /** What kind of failure it was (`store`, `worker-start`, `worker-exit`, `fill`): the app words it in the reader's language. */
   code?: string;
   gaps?: number;
+  /**
+   * The pages this run changed: the pages of the facts it recorded or ended and the Markdown pages whose file it wrote.
+   * Absent when the run did not say (it failed, or its boundary could not be read); empty when it changed no page
+   * (madarch-u3vw2).
+   */
+  changed?: ChangedPage[];
 }
 
 /** One agent unit of the writer, as the wiki shows it. */
