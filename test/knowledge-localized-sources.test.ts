@@ -17,6 +17,9 @@ describe('localized document sources', () => {
     expect(detectDocumentLanguage('Токен оплаты.\n\nIn code: PaymentToken, CardToken')).toBe('ru');
     expect(detectDocumentLanguage('Токен оплаты.\n- In code: PaymentToken, CardToken')).toBe('ru');
     expect(detectDocumentLanguage('Токен оплаты.\n- Also called: PaymentToken')).toBe('ru');
+    // A definition that holds a colon is prose, not a glossary field: a term whose
+    // name was split off must keep its language.
+    expect(detectDocumentLanguage('one purchase: its lines, prices and a status.')).toBe('en');
   });
 
   test('uses a reversible, path-safe entity identity and round-trips fixed provenance', () => {

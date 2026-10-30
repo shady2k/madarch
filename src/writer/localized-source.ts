@@ -14,13 +14,19 @@ function isFieldLine(line: string): boolean {
   const colon = text.indexOf(':');
   if (colon < 2 || colon > 24) return false;
   const label = text.slice(0, colon).trim();
+  // A glossary's field label opens with a capital (`In code`, `Also called`, `В коде`);
+  // a definition that happens to hold a colon opens as prose (`one purchase: ...`).
   let words = 1;
   let letters = 0;
+  let first = '';
   for (const character of label) {
     if (character.trim() === '') words += 1;
-    else if (character.toLowerCase() !== character.toUpperCase()) letters += 1;
+    else {
+      if (first === '') first = character;
+      if (character.toLowerCase() !== character.toUpperCase()) letters += 1;
+    }
   }
-  return letters > 0 && words <= 3;
+  return letters > 0 && words <= 3 && first !== '' && first === first.toUpperCase() && first !== first.toLowerCase();
 }
 
 function languageCounts(text: string): { cyrillic: number; latin: number } {
