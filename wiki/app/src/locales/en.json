@@ -587,6 +587,17 @@
       "unknown": "The indexed evidence cannot resolve this repository and date. No current code is substituted.",
       "absent": "This tree was read, but this entity is absent at the selected date. It is not replaced by its current version."
     },
+    "sync": "Sync",
+    "syncHint": "Read the new commits and check the pages again",
+    "syncRunning": "Syncing…",
+    "syncResult": "What changed",
+    "syncChanged_one": "Changed pages: {{count}}",
+    "syncChanged_few": "Changed pages: {{count}}",
+    "syncChanged_many": "Changed pages: {{count}}",
+    "syncChanged_other": "Changed pages: {{count}}",
+    "syncNothing": "Nothing changed",
+    "syncUnknown": "The pages that changed could not be listed",
+    "syncClose": "Close",
     "pageProblems": "{{count}} problems"
   },
   "loop": {
@@ -958,6 +969,32 @@
         "fillRefused": "The pages and the graph were removed, but the fill did not start: {{reason}} Put that right, then press Refresh in the top bar."
       },
       "agentEdits": "A page the agent wrote and you edited in place is removed with the others, because its front matter still says the agent wrote it. To keep such a page, change `producer: agent` to `producer: person` there first."
+    },
+    "verdicts": {
+      "title": "Graph verdicts",
+      "intro": "Every current node and edge gets valid, invalid or unreviewed with a reason. Deterministic rules decide first; only undecided items are judged, in batches of 50, by Classification and then Analysis.",
+      "empty": "No verdict run is saved yet. «Check again» runs one.",
+      "items": "Nodes and edges",
+      "valid": "Valid",
+      "invalid": "Invalid",
+      "unreviewed": "Unreviewed",
+      "meta": "Saved {{at}} by validator {{version}} in {{file}}.",
+      "unreviewedNote": "Unreviewed is not valid: a rule did not decide and no judge did, or the run's budget stopped there. Each row's reason says which.",
+      "kind": "Kind",
+      "item": "Item",
+      "verdict": "Verdict",
+      "count": "Count",
+      "reason": "Reason",
+      "itemsPerRun": "Items one run may judge",
+      "modelCallsPerRun": "Judge calls one run may make",
+      "save": "Save budgets",
+      "run": "Check again",
+      "running": "Checking…",
+      "whole": "Both budgets are whole numbers, 0 or more.",
+      "note": "Every unchanged item keeps its saved verdict. The budgets and the verdicts are in graph-verdicts.json next to the graph.",
+      "range": "{{from}}–{{to}} of {{total}}",
+      "previous": "Previous",
+      "next": "Next"
     }
   },
   "errors": {
