@@ -1,0 +1,103 @@
+{
+  "pages": [
+    {
+      "id": "code.file:src/alpha.ts",
+      "kind": "code.file",
+      "title": "src/alpha.ts",
+      "findings": [],
+      "notes": [],
+      "blocks": [
+        {
+          "type": "source",
+          "location": {
+            "repo": "fixture",
+            "path": "src/alpha.ts",
+            "lineStart": 1,
+            "lineEnd": 2,
+            "href": "/k/src/alpha.ts"
+          },
+          "language": "ts",
+          "text": "const value = 1;\nconst label = 'The alpha value is one.';"
+        },
+        {
+          "type": "body",
+          "markdown": "The alpha value is one."
+        }
+      ]
+    },
+    {
+      "id": "code.file:src/beta.ts",
+      "kind": "code.file",
+      "title": "src/beta.ts",
+      "findings": [],
+      "notes": [],
+      "blocks": [
+        {
+          "type": "source",
+          "location": {
+            "repo": "fixture",
+            "path": "src/beta.ts",
+            "lineStart": 1,
+            "lineEnd": 1,
+            "href": "/k/src/beta.ts"
+          },
+          "language": "ts",
+          "text": "const beta = 2;"
+        }
+      ]
+    },
+    {
+      "id": "code.file:src/gamma.ts",
+      "kind": "code.file",
+      "title": "src/gamma.ts",
+      "findings": [],
+      "notes": [],
+      "blocks": [
+        {
+          "type": "source",
+          "location": {
+            "repo": "fixture",
+            "path": "src/gamma.ts",
+            "lineStart": 1,
+            "lineEnd": 2,
+            "href": "/k/src/gamma.ts"
+          },
+          "language": "ts",
+          "text": "function send() {}\n// send has no retry and no timeout."
+        },
+        {
+          "type": "body",
+          "markdown": "Sending has no retry and no timeout."
+        }
+      ]
+    }
+  ],
+  "documents": [
+    {
+      "repo": "fixture",
+      "path": "docs/guide.md",
+      "title": "Guide",
+      "markdown": "# Guide\n\nThe guide mentions value here.\n",
+      "commit": "fixture-commit"
+    },
+    {
+      "repo": "fixture",
+      "path": "docs/product.md",
+      "title": "Product",
+      "markdown": "# Product\n\nThe worker retries every job.\n",
+      "commit": "fixture-commit"
+    }
+  ],
+  "questions": [
+    {
+      "slug": "which-value",
+      "id": "question:which-value",
+      "title": "Which value is authoritative?",
+      "type": "contradiction",
+      "state": "open",
+      "about": [
+        "docs/alpha.md"
+      ]
+    }
+  ]
+}

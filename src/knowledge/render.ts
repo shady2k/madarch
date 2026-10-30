@@ -203,7 +203,27 @@ function isDrawn(block: Block): boolean {
 }
 
 function titleOf(subject: Subject, attribute: string): string {
-  return attributeOf(subject, attribute) ?? (subject.source === 'graph' ? subject.entity.label : subject.entity.title);
+  if (subject.source === 'graph') return graphTitleOf(attribute, subject.entity);
+  if (subject.source === 'document') return documentTitleOf(attribute, subject.entity);
+  return markdownTitleOf(attribute, subject.entity);
+}
+
+/**
+ * A graph entity's title, resolved as its page resolves it: the manifest's `title` attribute when the entity has it,
+ * else the entity's label. The changed-page list names a page by the same title the page shows.
+ */
+export function graphTitleOf(attribute: string, entity: Pick<GraphEntity, 'key' | 'kind' | 'label' | 'properties'>): string {
+  return attributeOf({ source: 'graph', entity: { ...entity, nodeIds: [], scope: '' } }, attribute) ?? entity.label;
+}
+
+/** A Markdown entity's title, resolved as its page resolves it from the manifest's `title` attribute. */
+export function markdownTitleOf(attribute: string, entity: MarkdownEntity): string {
+  return attributeOf({ source: 'markdown', entity }, attribute) ?? entity.title;
+}
+
+/** A document entity's title, resolved as its page resolves it from the manifest's `title` attribute. */
+export function documentTitleOf(attribute: string, entity: DocEntity): string {
+  return attributeOf({ source: 'document', entity }, attribute) ?? entity.title;
 }
 
 /** The product's name for the context diagram: the title of its home page, else a plain word. */

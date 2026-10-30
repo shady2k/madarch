@@ -28,6 +28,7 @@ import { promisify } from 'node:util';
 import type { DatabaseOwner, OuterTransaction } from '../adapters/database-owner.js';
 import { RemoteOwner } from './remote-owner.js';
 import { byCodePoint } from '../model/order.js';
+import { canonicalJsonDigest } from '../model/canonical.js';
 import { readProduct, type ProductIdentity } from '../product/manifest.js';
 import { selfCommand } from '../product/self-command.js';
 import { insideFolder, homeKind, KINDS_FILE, readKinds, setKindsLanguage, type Finding, type KindsManifest } from './kinds.js';
@@ -41,18 +42,21 @@ import { treeReadProducer } from '../extract/driver/index.js';
 import { TREE_EXTRACTORS, HISTORY_EXTRACTOR } from '../extract/driver/extractors.js';
 import { selectHistory, withHistoryLinks, type HistoryContext, type HistorySelection } from './temporal.js';
 import { markdownFilesBelow, readMarkdownEntities, type MarkdownEntity } from './markdown.js';
-import type { AgentOffer, Block, DocumentListing, DocumentPage, DocumentRef, FillState, Neighborhood, PageModel, PlannedMarkView, PlannedSectionView, WikiStatus, WriterState, WriterUnit } from './model.js';
+import type { AgentOffer, Block, ChangedPage, DocumentListing, DocumentPage, DocumentRef, FillState, Neighborhood, PageModel, PlannedMarkView, PlannedSectionView, WikiStatus, WriterState, WriterUnit } from './model.js';
 import { neighborhoodOf } from './diagrams.js';
 import { anchorLines, titleOfAnchor } from './anchors.js';
-import { adapterOf, installAdapter, makeUnitAgent, offers, queryAgentChoices, WRITER_BOUNDS } from './agents.js';
+import { adapterOf, installAdapter, makeUnitAgent, offers, queryAgentChoices, WRITER_AGENTS, WRITER_BOUNDS } from './agents.js';
+import { emptyModelAssignments, isModelRole, modelPair, resolveModelRoles, type ModelAssignments, type ModelPair, type ModelRole, type ModelRoleView } from './model-roles.js';
 import type { AgentChoices } from '../fill/acp-choices.js';
 import { addStarterItems, currentOffers, filesAPersonEdited, replaceWithStarterSet, upgradeStarterSet, type StarterOffer, type UpgradeReport, rememberChangedStarterFileIfOwned } from './starter-upgrade.js';
 import { fileJournal, journalFolder, journalOfUnit, newRunId, type Journal, type PageJournal } from '../writer/journal.js';
 import { productSlug, PRODUCT_PATH, type ToolAnswer, type ToolClient, type UnitAgent } from '../writer/index.js';
 import { CONTENT_LANGUAGES } from '../writer/prompts.js';
 import type { DraftEnv } from '../product/home.js';
-import { findSubject, kindSummaries, productTitleOf, renderPage, listEntities, type PageResult } from './render.js';
+import { documentTitleOf, findSubject, graphTitleOf, kindSummaries, markdownTitleOf, productTitleOf, renderPage, listEntities, type PageResult } from './render.js';
 import { indexCounts, statementsRelyingOn } from './index/queries.js';
+import { PAGE_KIND, STATEMENT_OF } from './index/vocabulary.js';
+import { ACTIVE_FILL_FILE, CHANGED_PAGES_FILE, DOCUMENT_PAGES_FILE, invalidateInterruptedRun, readChangedPages, readDocumentPages } from './changed-pages.js';
 import { documentSections } from './index/sections.js';
 import { webLink } from './index/web-link.js';
 
@@ -311,8 +315,15 @@ export class KnowledgeProduct {
   /** Orders collections, so a listing for older inputs that lands late never replaces a newer one. */
   private problemsSequence = 0;
   private idleTimer: ReturnType<typeof setInterval> | undefined;
+  /** The pages the last fill changed, as told and as kept beside the store (madarch-u3vw2). */
+  private changedPages: ChangedPage[] | undefined;
+  private changedLoaded = false;
+  /** The document entities of the last completed run, by durable page id, as kept beside the store. */
+  private documentBaselineMemo: Map<string, string> | undefined | null;
 
-  constructor(private readonly options: KnowledgeProductOptions) {}
+  constructor(private readonly options: KnowledgeProductOptions) {
+    this.invalidateInterruptedRun();
+  }
 
   get folder(): string {
     return this.options.productFolder;
@@ -652,13 +663,34 @@ export class KnowledgeProduct {
     }
     // The slot is claimed before anything is awaited, so two asks in the store's opening are not two fills.
     this.stopping = false;
-    this.fill = { state: 'running', startedAt: (this.options.now?.() ?? new Date()).toISOString(), commit: 0, commits: 0, gaps: 0 };
+    const startedAt = (this.options.now?.() ?? new Date()).toISOString();
+    // A run under way is marked before it starts: a server that restarts during it must not restore the list of the run
+    // before. The old list is removed as the same act, so a failed or interrupted run leaves it unknown, not stale.
+    let folder: string;
+    try {
+      folder = this.storeFolder();
+    } catch (error) {
+      return { started: false, message: `the run could not find the store it belongs to, so it did not start: ${error instanceof Error ? error.message : String(error)}`, fill: this.fill };
+    }
+    try {
+      mkdirSync(folder, { recursive: true });
+      writeFileSync(this.activeFillFile(), `${JSON.stringify({ startedAt })}\n`, 'utf8');
+      rmSync(join(folder, CHANGED_PAGES_FILE), { force: true });
+    } catch (error) {
+      try { rmSync(this.activeFillFile(), { force: true }); } catch { /* the launched run has not begun; its mark is only a file */ }
+      return { started: false, message: `the run of ${folder} could not be marked as active, so it did not start: ${error instanceof Error ? error.message : String(error)}`, fill: this.fill };
+    }
+    this.changedPages = undefined;
+    this.changedLoaded = true;
+    this.fill = { state: 'running', startedAt, commit: 0, commits: 0, gaps: 0 };
     const chosen = this.chosenAgent();
     this.writer = chosen === null ? { state: 'idle', agent: null, units: [] } : { state: 'waiting', agent: chosen, units: [] };
     this.notify();
     this.running = this.runJob(product, repositories, { language: wanted, languageChanged, languageFrom: written ?? current, ...(options.task === undefined ? {} : { task: options.task }), ...(options.taskPages === undefined ? {} : { taskPages: options.taskPages }) }).finally(() => {
       // A fill that did not reach its end leaves the agent stage unstarted, not waiting for ever.
       if (this.writer.state === 'waiting') this.writer = { ...this.writer, state: 'idle' };
+      // The mark goes only when the run is over, after its result is recorded: a restart before this point has no list.
+      this.clearActiveFill();
       this.running = undefined;
       this.worker = undefined;
     });
@@ -679,6 +711,14 @@ export class KnowledgeProduct {
     } catch (error) {
       failFill(`the product's graph store could not be opened: ${error instanceof Error ? error.message : String(error)}`, 'store');
       return;
+    }
+    // The line this run's changes are counted from: the last publication the reader holds before the worker writes.
+    // A graph with none is a first fill, which writes every page the product has.
+    let publishedBefore: string | null | undefined;
+    try {
+      publishedBefore = await this.lastPublishedAt();
+    } catch (error) {
+      this.options.errorLog?.(`the knowledge wiki could not read when the graph of ${this.storeFolder()} last published, so this run's changed pages are not listed: ${error instanceof Error ? error.message : String(error)}`);
     }
     // A wiki that began shutting down while its store opened starts no worker.
     if (this.closed) {
@@ -760,8 +800,9 @@ export class KnowledgeProduct {
           const made: UnitAgent & { close(): Promise<void> } = {
             run: async (request) => {
               if (this.stopping) throw new Error('the wiki is shutting down; this unit did not start');
-              await built.run(request);
+              return await built.run(request);
             },
+            ...(built.warnings === undefined ? {} : { warnings: () => built.warnings!() }),
             close: () => built.close(),
           };
           this.writerAgent = made;
@@ -881,7 +922,7 @@ export class KnowledgeProduct {
     this.writerAgent = undefined;
     if (this.fill.state === 'done') {
       try {
-        await writeFile(join(this.storeFolder(), 'last-fill.json'), `${JSON.stringify({ finishedAt: this.fill.finishedAt ?? now() })}\n`, 'utf8');
+        await writeFile(join(this.storeFolder(), 'last-fill.json'), `${JSON.stringify({ startedAt: this.fill.startedAt ?? null, finishedAt: this.fill.finishedAt ?? now() })}\n`, 'utf8');
       } catch (error) {
         this.options.errorLog?.(`the knowledge wiki could not record when the fill ended in ${this.storeFolder()}: ${error instanceof Error ? error.message : String(error)}`);
       }
@@ -893,6 +934,212 @@ export class KnowledgeProduct {
       this.writer = { ...this.writer, state: 'failed', current: undefined, finishedAt: now(), code: 'worker-exit', message: `the fill worker ended with exit code ${code} while the agent was writing: ${worker.stderr().trim().split('\n').slice(-6).join(' | ') || 'it said nothing on standard error'}` };
       this.notify();
     }
+    await this.recordChangedPages(publishedBefore);
+  }
+
+  // ---- what a run changed -------------------------------------------------------------------
+
+  /** The file marking a run between its start and the end of its run job. */
+  private activeFillFile(): string {
+    return join(this.storeFolder(), ACTIVE_FILL_FILE);
+  }
+
+  /** The file the changed pages of the last completed run are kept in. */
+  private changedPagesFile(): string {
+    return join(this.storeFolder(), CHANGED_PAGES_FILE);
+  }
+
+  /** The file the document entities of the last completed run are kept in: the line their next run is counted from. */
+  private documentPagesFile(): string {
+    return join(this.storeFolder(), DOCUMENT_PAGES_FILE);
+  }
+
+  /**
+   * A run that was under way when the server stopped cannot be restored: its result was never written, and the list
+   * beside the store belongs to the run before. The mark is what tells the two apart; this removes both the stale list
+   * and the mark, at the launch of the product.
+   */
+  private invalidateInterruptedRun(): void {
+    let folder: string;
+    try {
+      const product = this.product();
+      if ('message' in product) return;
+      folder = this.storeFolder();
+    } catch {
+      return; // a product that cannot be read has no store and no list to restore
+    }
+    try {
+      if (!invalidateInterruptedRun(folder)) return;
+      this.changedPages = undefined;
+      this.changedLoaded = true;
+    } catch (error) {
+      this.options.errorLog?.(`the knowledge wiki could not invalidate the changed pages of the interrupted fill of ${folder}: ${error instanceof Error ? error.message : String(error)}`);
+    }
+  }
+
+  /** The mark is removed once the run is over, whether it completed or failed. */
+  private clearActiveFill(): void {
+    try {
+      rmSync(this.activeFillFile(), { force: true });
+    } catch (error) {
+      this.options.errorLog?.(`the knowledge wiki could not clear the mark of the fill of ${this.storeFolder()}: ${error instanceof Error ? error.message : String(error)}`);
+    }
+  }
+
+  /** When the graph last published a work item, as the reader holds it: the line a run's changes are counted from. */
+  private async lastPublishedAt(): Promise<string | null> {
+    const owner = await this.open();
+    const rows = (await owner.run((tx) => tx.query<{ at: string | null }>(`SELECT max(published_at)::text AS at FROM work_item WHERE published_at IS NOT NULL`))).rows;
+    return rows[0]?.['at'] ?? null;
+  }
+
+  /**
+   * The pages a run changed, from the graph's own account of it: every node and every edge the run opened or closed, the
+   * pages of the entities that are still there, the page a touched statement belongs to through `statement-of`, the
+   * Markdown pages whose file it wrote, and the document entities whose passage changed. A run that starts from an
+   * empty graph (`before` null) wrote every page; after it, only what it touched is named. A page the run removed is not
+   * named: there is no page left to open. Only the kinds the product declares are pages; the index's own nodes and
+   * sections are not.
+   */
+  private async pagesChangedSince(before: string | null): Promise<{ pages: ChangedPage[]; documents: Map<string, string> }> {
+    const context = await this.context();
+    if ('absent' in context) throw new WikiReadError(`the product has no ${context.file}: the wiki shows the kinds that file declares`);
+    const owner = await this.open();
+    // The version a page shows is the one valid now: a node recorded last, whose time ended, is not a page any more.
+    const at = this.validAt();
+    const visible = `v.valid_from <= $3::timestamptz AND $3::timestamptz < v.valid_to`;
+    const visibleEdge = `e.valid_from <= $3::timestamptz AND $3::timestamptz < e.valid_to`;
+    const rows = (await owner.run((tx) => tx.query<{ id: string | null; title: string | null; kind: string; page: boolean; properties: Record<string, unknown> | null }>(
+      `WITH published AS (
+         SELECT id FROM work_item WHERE published_at IS NOT NULL AND ($1::timestamptz IS NULL OR published_at > $1::timestamptz)
+       ), touched AS (
+         SELECT node_id FROM node_version WHERE opened_by IN (SELECT id FROM published) OR closed_by IN (SELECT id FROM published)
+         UNION SELECT src_id FROM edge_version WHERE opened_by IN (SELECT id FROM published) OR closed_by IN (SELECT id FROM published)
+         UNION SELECT dst_id FROM edge_version WHERE opened_by IN (SELECT id FROM published) OR closed_by IN (SELECT id FROM published)
+       ), touched_pages AS (
+         -- A statement's page is not touched when the statement's ground changes: the page is reached through statement-of.
+         SELECT DISTINCT pv.properties->>'id' AS id
+           FROM edge_version e
+           JOIN relation_type ek ON ek.id = e.relation_type_id
+           JOIN node_version sv ON sv.node_id = e.src_id AND sv.recorded_to = 'infinity' AND sv.valid_from <= $3::timestamptz AND $3::timestamptz < sv.valid_to
+           JOIN node_version pv ON pv.node_id = e.dst_id AND pv.recorded_to = 'infinity' AND pv.valid_from <= $3::timestamptz AND $3::timestamptz < pv.valid_to
+          WHERE ek.key = $4 AND e.recorded_to = 'infinity' AND ${visibleEdge}
+            AND sv.node_id IN (SELECT node_id FROM touched)
+       )
+       SELECT v.properties->>'recordKey' AS id, v.label AS title, k.key AS kind, false AS page, v.properties AS properties
+         FROM node_version v JOIN node_kind k ON k.id = v.kind_id
+        WHERE v.recorded_to = 'infinity' AND v.properties ? 'recordKey' AND ${visible}
+          AND ($1::timestamptz IS NULL OR v.node_id IN (SELECT node_id FROM touched))
+       UNION ALL
+       SELECT v.properties->>'id' AS id, v.label AS title, k.key AS kind, true AS page, v.properties AS properties
+         FROM node_version v JOIN node_kind k ON k.id = v.kind_id AND k.key = $2
+        WHERE v.recorded_to = 'infinity' AND v.properties ? 'id' AND ${visible}
+          AND ($1::timestamptz IS NULL OR v.node_id IN (SELECT node_id FROM touched) OR v.properties->>'id' IN (SELECT id FROM touched_pages))`,
+      [before, PAGE_KIND, at, STATEMENT_OF]))).rows;
+    const found = new Map<string, ChangedPage>();
+    for (const row of rows) {
+      const id = row['id'];
+      if (id === null) continue;
+      if (row['page']) {
+        const entity = context.ctx.markdown.get(id);
+        if (entity === undefined) continue;
+        const declaration = context.manifest.kinds.get(entity.kind);
+        if (declaration === undefined) continue;
+        if (!found.has(id)) found.set(id, { id, title: markdownTitleOf(declaration.title, entity) });
+        continue;
+      }
+      const declaration = context.manifest.kinds.get(row['kind']);
+      if (declaration === undefined) continue;
+      const properties = row['properties'] ?? {};
+      const title = graphTitleOf(declaration.title, { key: id, kind: row['kind'], label: row['title'] ?? id, properties });
+      if (!found.has(id)) found.set(id, { id, title });
+    }
+    // A document entity is a page too, and its page id is its durable identity. The line is the last completed run's
+    // entities: a passage whose text, title or address changed is named; a document that gained none is not.
+    const documents = this.documentDigests(context);
+    const baseline = this.documentBaseline();
+    for (const [id, digest] of documents) {
+      if (baseline !== undefined && baseline.get(id) === digest) continue;
+      const entity = context.ctx.docEntities.get(id);
+      if (entity === undefined) continue;
+      const declaration = context.manifest.kinds.get(entity.kind);
+      if (declaration === undefined) continue;
+      if (!found.has(id)) found.set(id, { id, title: documentTitleOf(declaration.title, entity) });
+    }
+    return { pages: [...found.values()].sort((a, b) => byCodePoint(a.id, b.id)), documents };
+  }
+
+  /** The document entities a page stands for, by durable page id, digested as the page renders them. */
+  private documentDigests(context: { manifest: KindsManifest; ctx: RenderContext }): Map<string, string> {
+    const out = new Map<string, string>();
+    for (const entity of context.ctx.docEntities.values()) {
+      const declaration = context.manifest.kinds.get(entity.kind);
+      if (declaration?.source !== 'document') continue;
+      out.set(entity.id, canonicalJsonDigest({
+        kind: entity.kind,
+        title: entity.title,
+        pageTitle: documentTitleOf(declaration.title, entity),
+        identifier: entity.identifier,
+        repo: entity.repo,
+        path: entity.path,
+        anchor: entity.anchor,
+        aliases: entity.aliases,
+        text: entity.text,
+        language: context.ctx.language,
+        localizedStatement: context.ctx.localizedSources.get(entity.id)?.statement ?? null,
+        semantics: entity.semantics,
+        pass: entity.pass,
+        headingPath: entity.headingPath,
+      }));
+    }
+    return out;
+  }
+
+  /** The document entities of the last completed run, or undefined when none is recorded. */
+  private documentBaseline(): Map<string, string> | undefined {
+    if (this.documentBaselineMemo !== undefined) return this.documentBaselineMemo ?? undefined;
+    const baseline = readDocumentPages(this.storeFolder());
+    this.documentBaselineMemo = baseline ?? null;
+    return baseline;
+  }
+
+  /** Records what the run changed: in the fill's state, beside its store, and to the streams. */
+  private async recordChangedPages(before: string | null | undefined): Promise<void> {
+    // A run that did not finish changed nothing the wiki may claim; one whose boundary is unknown would be a guess.
+    if (before === undefined || this.fill.state !== 'done' || this.writer.state === 'failed') return;
+    let changed: ChangedPage[];
+    let documents: Map<string, string>;
+    try {
+      const result = await this.pagesChangedSince(before);
+      changed = result.pages;
+      documents = result.documents;
+    } catch (error) {
+      this.options.errorLog?.(`the knowledge wiki could not list the pages the fill of ${this.storeFolder()} changed: ${error instanceof Error ? error.message : String(error)}`);
+      return;
+    }
+    this.fill = { ...this.fill, changed };
+    this.changedPages = changed;
+    this.changedLoaded = true;
+    try {
+      await writeFile(this.changedPagesFile(), `${JSON.stringify({ startedAt: this.fill.startedAt ?? null, finishedAt: this.fill.finishedAt ?? null, pages: changed })}\n`, 'utf8');
+    } catch (error) {
+      this.options.errorLog?.(`the knowledge wiki could not record which pages the fill of ${this.storeFolder()} changed: ${error instanceof Error ? error.message : String(error)}`);
+    }
+    try {
+      await writeFile(this.documentPagesFile(), `${JSON.stringify({ startedAt: this.fill.startedAt ?? null, finishedAt: this.fill.finishedAt ?? null, entities: Object.fromEntries(documents) })}\n`, 'utf8');
+      this.documentBaselineMemo = documents;
+    } catch (error) {
+      this.options.errorLog?.(`the knowledge wiki could not record the document entities of the fill of ${this.storeFolder()}: ${error instanceof Error ? error.message : String(error)}`);
+    }
+    this.notify();
+  }
+
+  /** The pages the last fill changed, as kept beside the store; absent when none was recorded or it is not that run's. */
+  private lastChangedPages(): ChangedPage[] | undefined {
+    if (this.changedLoaded) return this.changedPages;
+    this.changedLoaded = true;
+    this.changedPages = readChangedPages(this.storeFolder(), this.lastFill());
+    return this.changedPages;
   }
 
   // ---- the agent stage ---------------------------------------------------------------------
@@ -915,25 +1162,75 @@ export class KnowledgeProduct {
     return join(this.options.storeRoot, product.id, 'writer.json');
   }
 
-  /** What the choice file holds: the agent, and the model and reasoning level the reader chose for it. */
-  private choiceRecord(): { agent: string; model?: string; reasoning?: string } | null {
+  /**
+   * What the choice file holds (madarch-j6ho.2): the writer's pair at the top level, as the earlier releases wrote it,
+   * and the other roles under `roles`. A role that is absent is unassigned, never guessed.
+   */
+  private modelAssignments(): ModelAssignments {
     const file = this.choiceFile();
     let text: string;
     try {
       text = readFileSync(file, 'utf8');
     } catch (error) {
-      if ((error as NodeJS.ErrnoException).code === 'ENOENT') return null;
-      throw new Error(`${file}: the chosen agent cannot be read: ${(error as Error).message}`);
+      if ((error as NodeJS.ErrnoException).code === 'ENOENT') return emptyModelAssignments();
+      throw new Error(`${file}: the model roles cannot be read: ${(error as Error).message}`);
     }
-    let body: { agent?: unknown; model?: unknown; reasoning?: unknown };
+    let body: { agent?: unknown; model?: unknown; reasoning?: unknown; roles?: unknown };
     try {
       body = JSON.parse(text) as typeof body;
     } catch (error) {
-      throw new Error(`${file}:1: the chosen agent is not JSON: ${(error as Error).message}; delete the file to choose again`);
+      throw new Error(`${file}:1: the model roles are not JSON: ${(error as Error).message}; delete the file to choose again`);
     }
-    const entry = typeof body.agent === 'string' ? adapterOf(body.agent) : undefined;
-    if (entry === undefined) throw new Error(`${file}:1: ${JSON.stringify(body.agent)} is not an agent madarch offers; delete the file to choose again`);
-    return { agent: entry.id, ...(typeof body.model === 'string' ? { model: body.model } : {}), ...(typeof body.reasoning === 'string' ? { reasoning: body.reasoning } : {}) };
+    const pair = (value: unknown, where: string): ModelPair => {
+      if (typeof value !== 'object' || value === null) throw new Error(`${file}:1: ${where} is not an object with an agent`);
+      const held = value as { agent?: unknown; model?: unknown; reasoning?: unknown };
+      if (typeof held.agent !== 'string') throw new Error(`${file}:1: ${where} has no agent id`);
+      const entry = adapterOf(held.agent);
+      if (entry === undefined) throw new Error(`${file}:1: ${where} names ${JSON.stringify(held.agent)}, which is not an agent madarch offers`);
+      if (held.model !== undefined && typeof held.model !== 'string') throw new Error(`${file}:1: ${where}.model is not a string`);
+      if (held.reasoning !== undefined && typeof held.reasoning !== 'string') throw new Error(`${file}:1: ${where}.reasoning is not a string`);
+      return modelPair({ agent: entry.id, ...(typeof held.model === 'string' ? { model: held.model } : {}), ...(typeof held.reasoning === 'string' ? { reasoning: held.reasoning } : {}) });
+    };
+    if (body.agent !== undefined && typeof body.agent !== 'string') throw new Error(`${file}:1: the writer choice has no agent id`);
+    const roles = body.roles;
+    if (roles !== undefined && (typeof roles !== 'object' || roles === null || Array.isArray(roles))) throw new Error(`${file}:1: roles is not an object`);
+    const heldRoles = (roles ?? {}) as Record<string, unknown>;
+    for (const key of Object.keys(heldRoles)) if (!isModelRole(key)) throw new Error(`${file}:1: roles.${key} is not a role madarch knows (${['writing', 'classification', 'analysis'].join(', ')})`);
+    const writing = typeof body.agent === 'string'
+      ? pair(body, 'the writer choice')
+      : heldRoles.writing === undefined
+        ? null
+        : pair(heldRoles.writing, 'roles.writing');
+    const other = (role: 'classification' | 'analysis'): ModelPair | null => heldRoles[role] === undefined ? null : pair(heldRoles[role], `roles.${role}`);
+    return { writing, classification: other('classification'), analysis: other('analysis') };
+  }
+
+  /** The writer's pair, read as the writing role; compatibility for the callers that ask for one agent. */
+  private choiceRecord(): ModelPair | null {
+    return this.modelAssignments().writing;
+  }
+
+  private async writeAssignments(assignments: ModelAssignments): Promise<void> {
+    const file = this.choiceFile();
+    const any = assignments.writing !== null || assignments.classification !== null || assignments.analysis !== null;
+    if (!any) {
+      await rm(file, { force: true });
+      return;
+    }
+    const body: Record<string, unknown> = {};
+    if (assignments.writing !== null) {
+      body.agent = assignments.writing.agent;
+      if (assignments.writing.model !== undefined) body.model = assignments.writing.model;
+      if (assignments.writing.reasoning !== undefined) body.reasoning = assignments.writing.reasoning;
+    }
+    const roles: Record<string, ModelPair> = {};
+    if (assignments.classification !== null) roles.classification = assignments.classification;
+    if (assignments.analysis !== null) roles.analysis = assignments.analysis;
+    if (Object.keys(roles).length > 0) body.roles = roles;
+    await mkdir(dirname(file), { recursive: true });
+    const temporary = `${file}.${process.pid}.${(this.choiceWrites += 1)}.tmp`;
+    await writeFile(temporary, `${JSON.stringify(body)}\n`, 'utf8');
+    await rename(temporary, file);
   }
 
   /** The agent the reader chose for this product, or null; a file that names an agent madarch does not offer is an error naming it. */
@@ -947,26 +1244,42 @@ export class KnowledgeProduct {
   private readonly choices = new Map<string, { at: number; answer: { ok: true; choices: AgentChoices } | { ok: false; message: string } }>();
   private readonly asking = new Map<string, Promise<{ ok: true; choices: AgentChoices } | { ok: false; message: string }>>();
 
+  /** The roles and the pair each resolves to; unassigned roles carry their fallback note. */
+  modelRoles(): ModelRoleView {
+    return resolveModelRoles(this.modelAssignments());
+  }
+
   /**
-   * The models and reasoning levels the chosen agent reports over ACP (never a list madarch holds). The agent is started
-   * once and its answer kept for five minutes; `fresh` asks again.
+   * The models and reasoning levels one agent reports over ACP (never a list madarch holds), kept for five minutes.
+   * `fresh` asks again. The writing role's caller uses `agentChoices`; a role assignment asks its own agent.
    */
-  async agentChoices(fresh = false): Promise<{ ok: true; agent: { id: string; label: string }; choices: AgentChoices } | { ok: false; message: string }> {
-    const chosen = this.chosenAgent();
-    if (chosen === null) return { ok: false, message: 'no agent is chosen for this product: choose one to see the models it offers' };
-    const kept = this.choices.get(chosen.id);
+  private async agentChoicesFor(id: string, fresh = false): Promise<{ ok: true; agent: { id: string; label: string }; choices: AgentChoices } | { ok: false; message: string }> {
+    const entry = adapterOf(id);
+    if (entry === undefined) return { ok: false, message: `src/knowledge/product.ts: ${JSON.stringify(id)} is not an agent madarch offers` };
+    const kept = this.choices.get(id);
     let answer = kept !== undefined && !fresh && Date.now() - kept.at < 5 * 60_000 ? kept.answer : undefined;
     if (answer === undefined) {
       // One question at a time per agent: asks that arrive meanwhile share its answer, so a page opened twice starts one process.
-      let asking = this.asking.get(chosen.id);
+      let asking = this.asking.get(id);
       if (asking === undefined) {
-        asking = (this.options.choicesQuery ?? queryAgentChoices)(chosen.id, this.env).finally(() => this.asking.delete(chosen.id));
-        this.asking.set(chosen.id, asking);
+        asking = (this.options.choicesQuery ?? queryAgentChoices)(id, this.env).finally(() => this.asking.delete(id));
+        this.asking.set(id, asking);
       }
       answer = await asking;
-      if (answer.ok) this.choices.set(chosen.id, { at: Date.now(), answer });
+      if (answer.ok) this.choices.set(id, { at: Date.now(), answer });
     }
-    return answer.ok ? { ok: true, agent: { id: chosen.id, label: chosen.label }, choices: answer.choices } : { ok: false, message: answer.message };
+    return answer.ok ? { ok: true, agent: { id: entry.id, label: entry.label }, choices: answer.choices } : { ok: false, message: answer.message };
+  }
+
+  async agentChoices(fresh = false): Promise<{ ok: true; agent: { id: string; label: string }; choices: AgentChoices } | { ok: false; message: string }> {
+    const chosen = this.chosenAgent();
+    if (chosen === null) return { ok: false, message: 'no agent is chosen for this product: choose one to see the models it offers' };
+    return await this.agentChoicesFor(chosen.id, fresh);
+  }
+
+  /** The models one named agent reports, for assigning a role to that agent (madarch-j6ho.2). */
+  async agentChoicesForRole(id: string, fresh = false): Promise<{ ok: true; agent: { id: string; label: string }; choices: AgentChoices } | { ok: false; message: string }> {
+    return await this.agentChoicesFor(id, fresh);
   }
 
   /**
@@ -983,7 +1296,7 @@ export class KnowledgeProduct {
     if (this.running !== undefined && (this.writer.state === 'running' || this.writer.state === 'waiting')) return { ok: false, status: 409, message: 'a fill with an agent is running; the choice changes after it ends' };
     const record = this.choiceRecord();
     if (record === null) return { ok: false, status: 409, message: 'no agent is chosen for this product: choose one first' };
-    let next: { agent: string; model?: string; reasoning?: string } = { agent: record.agent, ...(record.model === undefined ? {} : { model: record.model }), ...(record.reasoning === undefined ? {} : { reasoning: record.reasoning }) };
+    let next: ModelPair = modelPair(record);
     const asked = model !== undefined && model !== null || reasoning !== undefined && reasoning !== null;
     const offered = asked ? await this.agentChoices(true) : undefined;
     if (offered !== undefined && !offered.ok) return { ok: false, status: 502, message: offered.message };
@@ -996,11 +1309,7 @@ export class KnowledgeProduct {
       if (!choice.values.some((entry) => entry.value === value)) return { ok: false, status: 400, message: `"${field}" is ${JSON.stringify(value)}, which the agent does not report; it reports ${choice.values.map((entry) => entry.value).join(', ')}` };
       next = { ...next, [field]: value };
     }
-    const file = this.choiceFile();
-    await mkdir(dirname(file), { recursive: true });
-    const temporary = `${file}.${process.pid}.${(this.choiceWrites += 1)}.tmp`;
-    await writeFile(temporary, `${JSON.stringify(next)}\n`, 'utf8');
-    await rename(temporary, file);
+    await this.writeAssignments({ ...this.modelAssignments(), writing: next });
     this.notify();
     return { ok: true, chosen: this.chosenAgent()! };
   }
@@ -1023,7 +1332,7 @@ export class KnowledgeProduct {
   private async chooseOne(id: string | null, install: boolean): Promise<{ ok: true; agent: { id: string; label: string } | null } | { ok: false; status: number; message: string }> {
     if (this.running !== undefined && (this.writer.state === 'running' || this.writer.state === 'waiting')) return { ok: false, status: 409, message: 'a fill with an agent is running; the choice changes after it ends' };
     if (id === null) {
-      await rm(this.choiceFile(), { force: true });
+      await this.writeAssignments({ ...this.modelAssignments(), writing: null });
       this.notify();
       return { ok: true, agent: null };
     }
@@ -1043,15 +1352,61 @@ export class KnowledgeProduct {
       }
       if (!result.ok) return { ok: false, status: 502, message: result.message };
     }
-    const file = this.choiceFile();
-    await mkdir(dirname(file), { recursive: true });
-    const temporary = `${file}.${process.pid}.${(this.choiceWrites += 1)}.tmp`;
     // The model and the reasoning level belong to the agent they were chosen for: the same agent keeps them, another starts clean.
     const before = this.choiceRecord();
-    await writeFile(temporary, `${JSON.stringify(before !== null && before.agent === id ? before : { agent: id })}\n`, 'utf8');
-    await rename(temporary, file);
+    const writing = modelPair(before !== null && before.agent === id ? before : { agent: id });
+    await this.writeAssignments({ ...this.modelAssignments(), writing });
     this.notify();
     return { ok: true, agent: { id: entry.id, label: entry.label } };
+  }
+
+  /**
+   * Assigns one role to an (agent, model) pair, or removes the assignment with `null` (madarch-j6ho.2). The role is
+   * asked for by name; the pair is stored under it, never chosen by a feature. An agent that is not installed is
+   * refused unless the reader said yes to fetching its adapter. A model the agent does not report is refused.
+   */
+  chooseRole(role: string, id: string | null, model?: string | null, reasoning?: string | null, install = false): Promise<{ ok: true; role: ModelRole; pair: ModelPair | null } | { ok: false; status: number; message: string }> {
+    const turn = this.choosing.then(() => this.chooseRoleOne(role, id, model, reasoning, install), () => this.chooseRoleOne(role, id, model, reasoning, install));
+    this.choosing = turn;
+    return turn;
+  }
+
+  private async chooseRoleOne(role: string, id: string | null, model: string | null | undefined, reasoning: string | null | undefined, install: boolean): Promise<{ ok: true; role: ModelRole; pair: ModelPair | null } | { ok: false; status: number; message: string }> {
+    if (!isModelRole(role)) return { ok: false, status: 400, message: `"role" is ${JSON.stringify(role)}: the roles are writing, classification and analysis` };
+    if (this.running !== undefined && (this.writer.state === 'running' || this.writer.state === 'waiting')) return { ok: false, status: 409, message: 'a fill with an agent is running; the role changes after it ends' };
+    if (id === null) {
+      await this.writeAssignments({ ...this.modelAssignments(), [role]: null });
+      this.notify();
+      return { ok: true, role, pair: null };
+    }
+    const entry = adapterOf(id);
+    if (entry === undefined) return { ok: false, status: 400, message: `"agent" is ${JSON.stringify(id)}: madarch offers claude-code, codex, opencode and omp` };
+    const offer = this.agentOffers().find((candidate) => candidate.id === id)!;
+    if (!offer.installed) {
+      if (!install) return { ok: false, status: 409, message: `the ${entry.label} adapter is not installed: say yes to install it into ${offer.install?.folder ?? 'madarch\'s agents folder'}` };
+      if (this.installing !== undefined) return { ok: false, status: 409, message: 'an adapter is being installed; wait for it to end' };
+      const work = installAdapter(id, this.env);
+      this.installing = work;
+      let result: Awaited<typeof work>;
+      try { result = await work; } finally { this.installing = undefined; }
+      if (!result.ok) return { ok: false, status: 502, message: result.message };
+    }
+    const assignments = this.modelAssignments();
+    const previous = assignments[role];
+    let next = modelPair(previous !== null && previous.agent === id ? previous : { agent: id });
+    const asked = model !== undefined && model !== null || reasoning !== undefined && reasoning !== null;
+    const offered = asked ? await this.agentChoicesFor(id, true) : undefined;
+    if (offered !== undefined && !offered.ok) return { ok: false, status: 502, message: offered.message };
+    for (const [field, value, choice] of [['model', model, offered?.ok ? offered.choices.model : null], ['reasoning', reasoning, offered?.ok ? offered.choices.reasoning : null]] as const) {
+      if (value === undefined) continue;
+      if (value === null) { const { [field]: _gone, ...rest } = next; next = rest as typeof next; continue; }
+      if (choice === null || choice === undefined) return { ok: false, status: 409, message: `the agent reports no ${field === 'model' ? 'model' : 'reasoning level'} to choose` };
+      if (!choice.values.some((candidate) => candidate.value === value)) return { ok: false, status: 400, message: `"${field}" is ${JSON.stringify(value)}, which the agent does not report; it reports ${choice.values.map((candidate) => candidate.value).join(', ')}` };
+      next = { ...next, [field]: value };
+    }
+    await this.writeAssignments({ ...assignments, [role]: next });
+    this.notify();
+    return { ok: true, role, pair: next };
   }
 
   writerState(): WriterState {
@@ -1181,6 +1536,10 @@ export class KnowledgeProduct {
     store: string;
     language: string;
     chosenAgent: { id: string; label: string; model?: string; reasoning?: string } | null;
+    /** Every role, its resolved pair and a visible note when it falls back (madarch-j6ho.2). */
+    roles: ModelRoleView;
+    /** The name every agent madarch offers is known by, so a page names an agent before it has read the agents (madarch-j6ho.2). */
+    agentNames: Record<string, string>;
     bounds: typeof WRITER_BOUNDS;
     danger: ReturnType<KnowledgeProduct['dangerPlan']>;
     /** Why the two resets cannot say what they would do (a `docs` folder that is a link out of the product, say); both are then refused. */
@@ -1204,6 +1563,8 @@ export class KnowledgeProduct {
       store: this.storeFolder(),
       language: read.present ? read.manifest.language ?? 'en' : 'en',
       chosenAgent: this.chosenAgent(),
+      roles: this.modelRoles(),
+      agentNames: Object.fromEntries(WRITER_AGENTS.map((id) => [id, adapterOf(id)?.label ?? id])),
       bounds: WRITER_BOUNDS,
       danger,
       ...(dangerError === undefined ? {} : { dangerError }),
@@ -1473,17 +1834,101 @@ export class KnowledgeProduct {
     }
   }
 
-  /** When the last fill of this product ended, as kept beside its store; absent when none was recorded. */
-  private lastFillAt(): string | undefined {
+  /** The run last recorded as finished, with the start that tells it from an earlier one; absent when none was recorded. */
+  private lastFill(): { startedAt: string | null; finishedAt: string } | undefined {
     try {
-      const finished = (JSON.parse(readFileSync(join(this.storeFolder(), 'last-fill.json'), 'utf8')) as { finishedAt?: unknown }).finishedAt;
-      return typeof finished === 'string' ? finished : undefined;
+      const kept = JSON.parse(readFileSync(join(this.storeFolder(), 'last-fill.json'), 'utf8')) as { startedAt?: unknown; finishedAt?: unknown };
+      if (typeof kept.finishedAt !== 'string') return undefined;
+      if (kept.startedAt !== undefined && kept.startedAt !== null && typeof kept.startedAt !== 'string') return undefined;
+      return { startedAt: typeof kept.startedAt === 'string' ? kept.startedAt : null, finishedAt: kept.finishedAt };
     } catch {
       return undefined;
     }
   }
 
+  /**
+   * What the menu asks on every poll (madarch-u3vw.1, the second review). The answer is a pure read of the manifest,
+   * the Markdown and document sources, the graph snapshot and the loop's files, and those are read once per
+   * `statusKey()`, not once per answer: the fill and the writer, which move without touching a file, are taken live
+   * from this process. `statusKey()` is the same key the Problems page keeps its listing under, with the tasks folder
+   * and the store's last finish added — the two files the answer reads that the listing does not.
+   */
   async status(): Promise<WikiStatus> {
+    // A folder that is no product is answered with the file it lacks, and nothing is written into it to stamp a key.
+    const product = this.product();
+    if ('message' in product) throw new WikiReadError(product.message);
+    let key = '';
+    try {
+      key = this.statusKey();
+    } catch {
+      // A product whose inputs cannot be stamped is answered afresh: a key that cannot be computed caches nothing.
+      key = '';
+    }
+    if (key !== '') {
+      const held = this.statusMemo;
+      if (held !== undefined && held.key === key) return this.statusLive(held.body);
+      // Eight polls of one reader, or three readers polling together, wait for one read of the same files.
+      const flight = this.statusFlight;
+      if (flight !== undefined && flight.key === key) return this.statusLive(await flight.promise);
+      const promise = this.statusNow();
+      this.statusFlight = { key, promise };
+      try {
+        const body = await promise;
+        this.statusMemo = { key, body };
+        return body;
+      } finally {
+        if (this.statusFlight?.promise === promise) this.statusFlight = undefined;
+      }
+    }
+    return await this.statusNow();
+  }
+
+  /** What moves without a file: the fill, the writer and the agent, taken from this process on every answer. */
+  private statusLive(body: WikiStatus): WikiStatus {
+    return { ...body, fill: this.statusFill(), writer: this.writer, chosenAgent: this.chosenAgent() };
+  }
+
+  private statusMemo: { key: string; body: WikiStatus } | undefined;
+  private statusFlight: { key: string; promise: Promise<WikiStatus> } | undefined;
+
+  /**
+   * Every file and store state the answer reads besides the fill and the writer, as one key: the Problems listing's
+   * own key (the snapshot, the pins, the plan, the starter set and every file the page reads) and the two the listing
+   * leaves out — the tasks folder, whose closures the menu counts, and the store's last finish, which the menu shows.
+   */
+  private statusKey(): string {
+    let tasks = '-';
+    try {
+      const stat = statSync(join(this.options.productFolder, TASKS_FOLDER));
+      tasks = `${stat.mtimeMs}:${stat.size}`;
+    } catch {
+      // No tasks folder: no task can have changed either.
+    }
+    let finished = '-';
+    try {
+      const stat = statSync(join(this.storeFolder(), 'last-fill.json'));
+      finished = `${stat.mtimeMs}:${stat.size}`;
+    } catch {
+      // No fill has finished yet, or the store is not open: nothing to stamp.
+    }
+    return `${this.problemsKey()}|tasks:${tasks}|finished:${finished}`;
+  }
+
+  /**
+   * The fill the menu shows: live while it runs, and the store's last finish once it is idle. The pages that finish
+   * changed belong to the same record and are read with it (madarch-u3vw.2).
+   */
+  private statusFill(): WikiStatus['fill'] {
+    const incomplete = [...this.pins.values()].some((pin) => pin.filledCommits < pin.commits || pin.commits === 0);
+    if (this.fill.state !== 'idle' || this.pins.size === 0 || incomplete) return this.fill;
+    const last = this.lastFill();
+    const changed = this.lastChangedPages();
+    return last === undefined
+      ? { state: 'done', ...(changed === undefined ? {} : { changed }) }
+      : { state: 'done', finishedAt: last.finishedAt, ...(changed === undefined ? {} : { changed }) };
+  }
+
+  private async statusNow(): Promise<WikiStatus> {
     const product = this.product();
     if ('message' in product) throw new WikiReadError(product.message);
     const common = { product: { name: product.name, id: product.id } };
@@ -1510,7 +1955,7 @@ export class KnowledgeProduct {
       repositories: declared.map((repo) => ({ name: repo.name, filled: (this.pins.get(repo.name)?.filledCommits ?? 0) > 0 })),
       filled: this.pins.size > 0,
       incomplete,
-      fill: this.fill.state === 'idle' && this.pins.size > 0 && !incomplete ? { state: 'done', ...(this.lastFillAt() === undefined ? {} : { finishedAt: this.lastFillAt()! }) } : this.fill,
+      fill: this.statusFill(),
       writer: this.writer,
       bounds: WRITER_BOUNDS,
       chosenAgent: this.chosenAgent(),
@@ -1519,6 +1964,28 @@ export class KnowledgeProduct {
       loop,
       starterOffers: this.starterOffers().length,
     };
+  }
+
+  /**
+   * The manifest's declarations as a stamp reads them: which files to look at, never what to make of them. The
+   * manifest costs a YAML parse of every kind (eleven milliseconds of a status answer the menu polls), and the
+   * declaration a stamp needs changes only with the file: the paths stay the same when a template is deleted, and the
+   * stamp says `absent` for it either way. What the manifest *means* is read fresh where it is drawn, findings and all.
+   */
+  private stampKinds: { stamp: string; read: ReturnType<typeof readKinds> } | undefined;
+
+  private kindsForStamp(folder: string): ReturnType<typeof readKinds> {
+    let stamp = 'absent';
+    try {
+      const stat = statSync(join(folder, KINDS_FILE));
+      stamp = `${stat.mtimeMs}:${stat.size}`;
+    } catch {
+      // The manifest is gone: its declarations are read again, and the read says so.
+    }
+    if (this.stampKinds?.stamp === stamp) return this.stampKinds.read;
+    const read = this.kinds(folder);
+    this.stampKinds = { stamp, read };
+    return read;
   }
 
   /**
@@ -1550,7 +2017,7 @@ export class KnowledgeProduct {
       for (const name of names) if (name.endsWith('.md')) stamp(join(path, name));
     };
     stamp(join(folder, KINDS_FILE));
-    const manifest = this.kinds(folder);
+    const manifest = this.kindsForStamp(folder);
     if (manifest.present) {
       for (const kind of manifest.manifest.kinds.values()) {
         // A template that is gone is a finding of the manifest; creating it is a change of the Problems page too.

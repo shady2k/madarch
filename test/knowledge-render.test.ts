@@ -14,10 +14,11 @@ import { createGraphStore, type GraphId, type GraphStore } from '../src/graph/in
 import type { RenderContext } from '../src/knowledge/blocks.js';
 import { GraphReader } from '../src/knowledge/graph-read.js';
 import { parseKinds } from '../src/knowledge/kinds.js';
+import type { DocEntity } from '../src/knowledge/doc-entities.js';
 import { readDocEntities } from '../src/knowledge/doc-entities.js';
 import { readMarkdownEntities } from '../src/knowledge/markdown.js';
 import type { Block, PageModel } from '../src/knowledge/model.js';
-import { kindSummaries, listEntities, renderPage } from '../src/knowledge/render.js';
+import { documentTitleOf, graphTitleOf, kindSummaries, listEntities, markdownTitleOf, renderPage } from '../src/knowledge/render.js';
 import { Resolver, findAnchor } from '../src/knowledge/resolve.js';
 
 // Record keys are built by concatenation so the neutral-names scan reads no key as a repository source.
@@ -214,6 +215,30 @@ const block = <T extends Block['type']>(model: PageModel, type: T, at = 0): Extr
   if (found === undefined) throw new Error(`the page of ${model.id} has no ${type} block number ${at}: ${model.blocks.map((entry) => entry.type).join(', ')}`);
   return found as Extract<Block, { type: T }>;
 };
+
+describe('a page\'s title', () => {
+  test('is the manifest\'s title attribute, the same title the changed-page list shows, not the label', () => {
+    expect(graphTitleOf('name', { key: 'code.database:internal-42', kind: 'code.database', label: 'internal-42', properties: { name: 'Payments' } })).toBe('Payments');
+    expect(graphTitleOf('name', { key: 'code.database:internal-42', kind: 'code.database', label: 'internal-42', properties: {} })).toBe('internal-42');
+  });
+
+  test('a Markdown page uses its kind\'s title attribute too, and falls back to the title it was read with', () => {
+    const entity = ctx.markdown.get('product:shop')!;
+    expect(markdownTitleOf('title', entity)).toBe(entity.title);
+    expect(markdownTitleOf('nonesuch', entity)).toBe(entity.title);
+  });
+
+  test('a document page uses its kind\'s title attribute too, and falls back to the title it was read with', () => {
+    const entity: DocEntity = {
+      id: 'doc:docs/requirements.md#uc-2', kind: 'requirement', title: 'UC-2 Pay', identifier: 'UC-2', repo: null,
+      path: 'docs/requirements.md', anchor: 'uc-2', aliases: ['uc-2-pay'], line: 10, endLine: 14, text: 'Pay once.',
+      stableId: 'uc-2', semantics: 'term', pass: 'structure', headingPath: ['Requirements'],
+    };
+    expect(documentTitleOf('identifier', entity)).toBe('UC-2');
+    expect(documentTitleOf('title', entity)).toBe('UC-2 Pay');
+    expect(documentTitleOf('nonesuch', entity)).toBe('UC-2 Pay');
+  });
+});
 
 describe('template text and the service page', () => {
   test('{{attribute}} is substituted from the entity, lists joined, and a name the entity lacks is a finding at its template line', async () => {
