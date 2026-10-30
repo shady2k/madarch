@@ -113,6 +113,7 @@ describe('the neighbourhood', () => {
     // Depth 1: the table is a neighbour of a neighbour, and is not drawn.
     expect(boxes.map((box) => box.getAttribute('data-node')).sort()).toEqual(['pay', 'repo', 'routes']);
     expect(boxes.find((box) => box.getAttribute('data-node') === 'routes')!.querySelector('a')!.getAttribute('href')).toBe('/k/e/routes');
+    expect([...container.querySelectorAll('[data-testid^=depth-]')].map((chip) => chip.getAttribute('aria-label'))).toEqual(['1 hop from this page', '2 hops from this page']);
     expect(container.querySelector('[data-testid=more-chip]')!.textContent).toBe('+4 more calls');
     expect(container.querySelector('figcaption')!.textContent).toBe('Showing 3 of 9.');
   });
@@ -367,6 +368,25 @@ describe('a deferred diagram', () => {
 });
 
 describe('the treemap', () => {
+  test('a treemap whose files were changed once says so in the singular', async () => {
+    Object.defineProperty(HTMLElement.prototype, 'clientWidth', { configurable: true, get: () => 800 });
+    try {
+      const block: Block = { type: 'treemap', title: 'Files by size and change', scope: '', total: 1, maxChurn: 1, notes: [], files: [{ id: 'f1', path: 'src/order_service.go', href: '/k/e/f1', lines: 40, churn: 1 }] };
+      const container = into(createElement(BlockView, { block, resolutions: {} }));
+      await until(() => container.querySelector('[data-testid=treemap-file]') !== null, 'the cells');
+      expect(container.querySelector('[data-testid=treemap-legend]')!.textContent).toContain('(up to 1 commit)');
+      await setWikiLanguage('ru');
+      try {
+        const russian = into(createElement(BlockView, { block, resolutions: {} }));
+        await until(() => russian.querySelector('[data-testid=treemap-file]') !== null, 'the cells');
+        expect(russian.querySelector('[data-testid=treemap-legend]')!.textContent).toContain('(до 1 коммита)');
+      } finally {
+        await setWikiLanguage('en');
+      }
+    } finally {
+      delete (HTMLElement.prototype as { clientWidth?: unknown }).clientWidth;
+    }
+  });
   test('area follows the lines, warmth follows the churn, and each file is a link with its numbers in the title', async () => {
     Object.defineProperty(HTMLElement.prototype, 'clientWidth', { configurable: true, get: () => 800 });
     try {

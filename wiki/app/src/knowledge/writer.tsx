@@ -15,6 +15,7 @@ import { KLink } from './blocks.js';
 import { kindNameOf } from './kind-names.js';
 import { K_FILL } from './routes.js';
 import { FailureNote } from './errors.js';
+import { unitLimitWords } from './unit-bounds.js';
 import type { AgentOffer, WikiStatus, WriterUnit } from './types.js';
 
 /** The reader's pick: an agent's id, or `null` for no agent. `undefined` until the reader touches it. */
@@ -59,7 +60,7 @@ export function useAgentChoice(status: WikiStatus): {
 }
 
 function boundWords(status: WikiStatus, t: (key: string, options?: Record<string, unknown>) => string): string {
-  return t('knowledge.writer.bound', { turns: status.bounds.turns, minutes: status.bounds.minutes, calls: status.bounds.toolCalls, attempts: status.bounds.writeAttempts, domains: status.bounds.maxDomains });
+  return t('knowledge.writer.bound', { ...unitLimitWords(status.bounds, t), domains: status.bounds.maxDomains });
 }
 
 /** The choice of the agent, the cost of each in plain words and the bound; the press that follows is the consent. */
