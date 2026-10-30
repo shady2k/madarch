@@ -106,6 +106,16 @@ export class GraphView implements GroundResolver {
     return (await this.node(key)) !== null;
   }
 
+  private prefixList: readonly string[] | undefined;
+
+  /** The node kinds and the writer's page/document targets, so a raw id in prose is read from data. */
+  async keyPrefixes(): Promise<readonly string[]> {
+    if (this.prefixList !== undefined) return this.prefixList;
+    const rows = await this.query<{ key: string }>('SELECT key FROM node_kind ORDER BY key');
+    this.prefixList = [...new Set(['question', 'correction', 'domain', 'product', 'doc', 'engine', 'code.', ...rows.map((row) => row.key)])];
+    return this.prefixList;
+  }
+
   /** The text of a file at the last commit from the graph's content nodes, or null when the graph holds none. */
   async fileText(path: string): Promise<string | null> {
     const file = await this.node(`code.file:${path}`);

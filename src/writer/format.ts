@@ -16,7 +16,7 @@ import { headingLinks } from '../knowledge/markdown.js';
 import type { WrittenAt } from '../knowledge/index/page.js';
 import { isNumbered, nameStatements, sentenceKey } from './names.js';
 import { insertMentionLinks, type MentionName } from './mentions.js';
-import { type Definition, isFootnoteDefinitionLine, type PageReading, readPage, statementsOf } from './sentences.js';
+import { type Definition, type PageReading, readPage, statementsOf } from './sentences.js';
 
 /** One reason a page is refused: the line (1-based, in the whole file), the rule and a message the agent can act on. */
 export interface Refusal {
@@ -42,6 +42,8 @@ export interface GroundResolver {
   uniqueRoute?(method: string, routePath: string): Promise<string | undefined>;
   /** The key of the one symbol of this exact name, when the graph has exactly one; a code span that names it is made a link. */
   uniqueSymbol?(name: string): Promise<string | undefined>;
+  /** The graph's key prefixes at the last commit, used to recognize a raw entity id in prose. */
+  keyPrefixes?(): Promise<readonly string[]>;
 }
 
 /**
@@ -220,16 +222,64 @@ interface TextUnit {
   readonly end: number;
 }
 
-function textUnits(body: string, bodyStart: number, refusals: Refusal[], reader: PageReading): { units: TextUnit[]; definitions: Definition[]; headings: TextUnit[] } {
-  // The tree says what the units and headings are; this scan only names the shapes the format forbids.
-  for (const [index, raw] of body.split('\n').entries()) {
-    const line = bodyStart + index;
-    if (/[\u0001-\u0004]/.test(raw)) refusals.push({ line, rule: 'characters', message: 'the page holds a control character (U+0001 to U+0004), which the format does not allow' });
-    const trimmed = raw.trim();
-    if (/^(```|~~~)/.test(trimmed)) refusals.push({ line, rule: 'fenced-code', message: 'a fenced block is not part of the format: madarch draws diagrams and shows code from the graph, so state each fact as a sentence with grounds' });
-    else if (trimmed.startsWith('|')) refusals.push({ line, rule: 'table', message: 'a table is not part of the format: state each fact as a sentence with its own footnote' });
-    else if (/^<[A-Za-z!/]/.test(trimmed)) refusals.push({ line, rule: 'html', message: 'raw HTML is not part of the format' });
+function lineStarts(body: string): number[] {
+  const starts = [0];
+  for (let at = 0; at < body.length; at += 1) if (body[at] === '\n') starts.push(at + 1);
+  return starts;
+}
+
+/** The 1-based line in the whole file of an offset in the body. */
+function lineAt(starts: readonly number[], bodyStart: number, offset: number): number {
+  let low = 0;
+  let high = starts.length;
+  while (low < high) {
+    const middle = (low + high) >> 1;
+    if (starts[middle]! <= offset) low = middle + 1;
+    else high = middle;
   }
+  return bodyStart + Math.max(0, low - 1);
+}
+
+interface TreeLike {
+  type: string;
+  value?: string;
+  position?: { start?: { line?: number; offset?: number }; end?: { line?: number; offset?: number } };
+  children?: TreeLike[];
+}
+
+function textUnits(body: string, bodyStart: number, refusals: Refusal[], reader: PageReading): { units: TextUnit[]; definitions: Definition[]; headings: TextUnit[] } {
+  // The tree says what the units and headings are; this walk only names the shapes the format forbids.
+  const starts = lineStarts(body);
+  const controlled = new Set<number>();
+  for (let at = 0; at < body.length; at += 1) {
+    const code = body.charCodeAt(at);
+    if (code >= 1 && code <= 4) controlled.add(lineAt(starts, bodyStart, at));
+  }
+  for (const line of controlled) refusals.push({ line, rule: 'characters', message: 'the page holds a control character (U+0001 to U+0004), which the format does not allow' });
+  const startOf = (node: TreeLike): number => node.position?.start?.offset ?? 0;
+  const endOf = (node: TreeLike): number => node.position?.end?.offset ?? startOf(node);
+  const visit = (node: TreeLike): void => {
+    const start = startOf(node);
+    const line = bodyStart + ((node.position?.start?.line ?? 1) - 1);
+    if (node.type === 'code') {
+      const raw = body.slice(start, endOf(node)).trimStart();
+      if (raw.startsWith('```') || raw.startsWith('~~~')) refusals.push({ line, rule: 'fenced-code', message: 'a fenced block is not part of the format: madarch draws diagrams and shows code from the graph, so state each fact as a sentence with grounds' });
+    } else if (node.type === 'table') {
+      refusals.push({ line, rule: 'table', message: 'a table is not part of the format: state each fact as a sentence with its own footnote' });
+    } else if (node.type === 'html') {
+      const localLine = (node.position?.start?.line ?? 1) - 1;
+      const lineStart = starts[Math.max(0, localLine)] ?? 0;
+      const before = body.slice(lineStart, start).trim();
+      const raw = body.slice(start, endOf(node));
+      const first = raw[0];
+      const next = raw[1];
+      if (before === '' && first === '<' && next !== undefined && ((next >= 'A' && next <= 'Z') || (next >= 'a' && next <= 'z') || next === '!' || next === '/')) {
+        refusals.push({ line, rule: 'html', message: 'raw HTML is not part of the format' });
+      }
+    }
+    for (const child of node.children ?? []) visit(child);
+  };
+  visit(reader.root as unknown as TreeLike);
   return reader.units(bodyStart);
 }
 
@@ -262,13 +312,6 @@ const isSpaceCharacter = (character: string | undefined): boolean => character =
 const isTerminalCharacter = (character: string | undefined): boolean => character === '.' || character === '!' || character === '?' || character === '\u2026';
 const isClosingCharacter = (character: string | undefined): boolean => character === ')' || character === ']' || character === '"' || character === "'" || character === '\u201d' || character === '\u2019' || character === '\u00bb';
 const isFootnoteLabelCharacter = (character: string | undefined): boolean => character !== undefined && (character === '_' || character === '-' || character.toLowerCase() !== character.toUpperCase() || (character >= '0' && character <= '9'));
-
-/** The text with the given spans replaced by spaces, so offsets and line breaks stay where they were. */
-function blankSpans(text: string, spans: readonly { start: number; end: number }[]): string {
-  const characters = text.split('');
-  for (const span of spans) for (let at = span.start; at < span.end && at < characters.length; at += 1) if (characters[at] !== '\n') characters[at] = ' ';
-  return characters.join('');
-}
 
 /** The slice `body[from, to)` with the given absolute spans left out. */
 function textWithout(body: string, from: number, to: number, spans: readonly { start: number; end: number }[]): string {
@@ -303,100 +346,149 @@ function groundedEnd(text: string, terminated: boolean): boolean {
   return at >= 0 && isTerminalCharacter(text[at]);
 }
 
-/** The label a question link carries, as written between its brackets. */
-function questionLabel(body: string, link: { start: number; end: number }): string {
-  const close = body.indexOf('](', link.start);
-  return close > link.start && close < link.end ? body.slice(link.start + 1, close) : '';
-}
-
-/** A question link's localized prefix and title: `→ question: …` or `→ вопрос: …`. */
-function questionParts(label: string): { language: string; title: string } | undefined {
-  const trimmed = label.trim();
-  if (!trimmed.startsWith('→')) return undefined;
-  const rest = trimmed.slice(1).trimStart();
-  const colon = rest.indexOf(':');
-  if (colon < 0) return undefined;
-  const language = rest.slice(0, colon).trim();
-  if (language !== 'question' && language !== 'вопрос') return undefined;
-  return { language, title: rest.slice(colon + 1).trim() };
-}
-
-/** The lower-case words of a text, in order. */
-function wordsOf(text: string): string[] {
-  const out: string[] = [];
-  let word = '';
-  for (const character of text) {
-    if (character.toLowerCase() !== character.toUpperCase() || (character >= '0' && character <= '9')) {
-      word += character.toLowerCase();
-    } else if (character === "'" || character === '-') {
-      if (word !== '') word += character;
-    } else if (word !== '') {
-      out.push(word);
-      word = '';
-    }
+/** Whether an offset range lies inside one of the sorted spans. */
+function inSpans(spans: readonly { start: number; end: number }[], start: number, end: number): boolean {
+  let low = 0;
+  let high = spans.length;
+  while (low < high) {
+    const middle = (low + high) >> 1;
+    if (spans[middle]!.start <= start) low = middle + 1;
+    else high = middle;
   }
-  if (word !== '') out.push(word);
+  for (let index = low - 1; index >= 0; index -= 1) {
+    const span = spans[index]!;
+    if (span.end <= start) break;
+    if (start >= span.start && end <= span.end) return true;
+  }
+  return false;
+}
+
+function hasBlank(text: string): boolean {
+  for (const character of text) if (character.trim() === '') return true;
+  return false;
+}
+
+function withoutCall(text: string): string {
+  return text.endsWith('()') ? text.slice(0, -2) : text;
+}
+
+function collapseInline(text: string): string {
+  let out = '';
+  let blank = false;
+  for (const character of text.trim()) {
+    if (character.trim() === '') { blank = out !== ''; continue; }
+    if (blank) out += ' ';
+    blank = false;
+    out += character;
+  }
   return out;
 }
 
-/** The words that make a heading a reference to a question rather than a topic. */
-const REFERENCE_HEADINGS: readonly (readonly string[])[] = [['see', 'question'], ['see', 'also', 'question'], ['см', 'вопрос'], ['см', 'также', 'вопрос'], ['смотрите', 'вопрос']];
-
-function referenceHeading(text: string): boolean {
+/** `POST /pay` when a code span is one method and one absolute path; no HTTP-method list is needed. */
+function routeOf(text: string): { method: string; path: string } | undefined {
   const trimmed = text.trim();
-  if (trimmed.startsWith('→')) {
-    const first = wordsOf(trimmed.slice(1))[0];
-    return first === 'question' || first === 'вопрос';
+  let space = -1;
+  for (let index = 0; index < trimmed.length; index += 1) {
+    if (trimmed[index]!.trim() === '') { space = index; break; }
   }
-  const words = wordsOf(trimmed);
-  return REFERENCE_HEADINGS.some((opening) => opening.length <= words.length && opening.every((word, index) => words[index] === word));
+  if (space <= 0) return undefined;
+  const method = trimmed.slice(0, space);
+  let rest = space + 1;
+  while (rest < trimmed.length && trimmed[rest]!.trim() === '') rest += 1;
+  const path = trimmed.slice(rest);
+  if (path[0] !== '/' || hasBlank(path)) return undefined;
+  return { method, path };
 }
-
-const ROUTE_SPAN = /^(GET|POST|PUT|PATCH|DELETE|HEAD|OPTIONS)\s+(\/\S*)$/;
-const SYMBOL_SPAN = /^([A-Za-z_][A-Za-z0-9_]*(?:\.[A-Za-z_][A-Za-z0-9_]*)*)(?:\(\))?$/;
 
 /**
  * A route or an operation named in a code span is an entity, and an entity is named with a link (madarch-m38l.13):
  * `POST /pay` becomes [POST /pay](madarch:code.route:...) when the graph has that one route, and `refund` becomes a link
  * when exactly one symbol bears the name. A span that names nothing, or something ambiguous, stays as the agent wrote it.
- * Headings, footnote lines and what already sits inside a link are left alone.
+ * The reader's inlineCode nodes say where the spans are; headings, footnote definitions and what already sits inside a
+ * link are left alone.
  */
 async function linkCodeSpans(body: string, resolver: GroundResolver): Promise<string> {
   if (resolver.uniqueRoute === undefined && resolver.uniqueSymbol === undefined) return body;
-  const out: string[] = [];
-  for (const line of body.split('\n')) {
-    const trimmed = line.trim();
-    if (!line.includes('`') || isFootnoteDefinitionLine(trimmed) || /^#{1,6}\s/.test(trimmed) || /^(```|~~~)/.test(trimmed)) { out.push(line); continue; }
-    let rebuilt = '';
-    let cursor = 0;
-    const segment = async (text: string): Promise<string> => {
-      let result = '';
-      let last = 0;
-      for (const match of text.matchAll(/`([^`\n]+)`/g)) {
-        const inner = match[1]!.trim();
-        let key: string | undefined;
-        const route = ROUTE_SPAN.exec(inner);
-        if (route !== null) key = await resolver.uniqueRoute?.(route[1]!, route[2]!);
-        else {
-          const symbol = SYMBOL_SPAN.exec(inner);
-          if (symbol !== null) key = await resolver.uniqueSymbol?.(symbol[1]!);
-        }
-        result += text.slice(last, match.index);
-        result += key === undefined || /\s/.test(key) ? match[0] : `[${inner.replace(/\(\)$/, '')}](madarch:${key})`;
-        last = match.index + match[0].length;
-      }
-      return result + text.slice(last);
-    };
-    const lineReader = readPage(line);
-    for (const link of lineReader.linksIn(0, line.length)) {
-      const written = line.slice(link.start, link.end);
-      rebuilt += await segment(line.slice(cursor, link.start)) + written;
-      cursor = link.end;
-    }
-    rebuilt += await segment(line.slice(cursor));
-    out.push(rebuilt);
+  const reader = readPage(body);
+  const links = reader.linksIn(0, body.length);
+  const units = reader.units(1);
+  const structural = [...units.headings, ...units.definitions].sort((left, right) => left.start - right.start);
+  const codes = reader.tokens.filter((token) => token.kind === 'code');
+  let out = body;
+  for (let index = codes.length - 1; index >= 0; index -= 1) {
+    const code = codes[index]!;
+    if (inSpans(links, code.start, code.end) || inSpans(structural, code.start, code.end)) continue;
+    const inner = code.value.trim();
+    if (inner === '') continue;
+    const route = routeOf(inner);
+    let key: string | undefined;
+    if (route !== undefined) key = await resolver.uniqueRoute?.(route.method, route.path);
+    else if (!hasBlank(inner)) key = await resolver.uniqueSymbol?.(withoutCall(inner));
+    if (key === undefined || hasBlank(key)) continue;
+    const label = withoutCall(collapseInline(inner));
+    out = out.slice(0, code.start) + `[${label}](madarch:${key})` + out.slice(code.end);
   }
-  return out.join('\n');
+  return out;
+}
+
+/** The key prefixes the writer always knows: its page and document targets. */
+const DEFAULT_KEY_PREFIXES: readonly string[] = ['question', 'correction', 'domain', 'product', 'doc', 'engine', 'code.'];
+
+const TOKEN_EDGES = new Set(['(', ')', '[', ']', '{', '}', '<', '>', '"', "'", '“', '”', '«', '»', '.', ',', ';', ':', '!', '?']);
+
+interface TextToken {
+  readonly start: number;
+  readonly end: number;
+  readonly text: string;
+}
+
+/** The whitespace-separated tokens of one parsed text node, with surrounding punctuation removed. */
+function tokensIn(value: string, offset: number): TextToken[] {
+  const out: TextToken[] = [];
+  let start = -1;
+  for (let index = 0; index <= value.length; index += 1) {
+    const character = value[index];
+    const blank = character === undefined || character.trim() === '';
+    if (!blank) {
+      if (start < 0) start = index;
+      continue;
+    }
+    if (start >= 0) {
+      let from = start;
+      let to = index;
+      while (from < to && TOKEN_EDGES.has(value[from]!)) from += 1;
+      while (to > from && TOKEN_EDGES.has(value[to - 1]!)) to -= 1;
+      if (to > from) out.push({ start: offset + from, end: offset + to, text: value.slice(from, to) });
+      start = -1;
+    }
+  }
+  return out;
+}
+
+function hasKeyPrefix(token: string, prefixes: readonly string[]): boolean {
+  if (token.startsWith('madarch:')) token = token.slice('madarch:'.length);
+  for (const prefix of prefixes) {
+    if (prefix.endsWith('.')) {
+      if (token.startsWith(prefix)) return true;
+    } else if (token.startsWith(`${prefix}:`)) return true;
+  }
+  return false;
+}
+
+/** The raw ids written in parsed text and code nodes, outside links; the graph's prefixes are data. */
+function rawEntityTokens(reader: PageReading, body: string, prefixes: readonly string[]): TextToken[] {
+  const links = reader.linksIn(0, body.length);
+  const out: TextToken[] = [];
+  let link = 0;
+  for (const token of reader.tokens) {
+    while (link < links.length && links[link]!.end <= token.start) link += 1;
+    const held = link < links.length && token.start >= links[link]!.start && token.end <= links[link]!.end;
+    if (held) continue;
+    for (const candidate of tokensIn(token.value, token.start)) {
+      if (hasKeyPrefix(candidate.text, prefixes)) out.push(candidate);
+    }
+  }
+  return out;
 }
 
 /**
@@ -416,14 +508,11 @@ export async function checkPage(markdown: string, expected: PageExpectation, res
   const body = await linkCodeSpans(split.body, resolver);
   const reader = readPage(body, expected.language);
   const { units, definitions, headings } = textUnits(body, split.bodyStart, refusals, reader);
-  // Work on source lines, not joined paragraphs, so an id on a later line keeps its true location.
-  const bodyWithoutLinks = blankSpans(body, reader.linksIn(0, body.length));
-  for (const [index, line] of bodyWithoutLinks.split('\n').entries()) {
-    if (isFootnoteDefinitionLine(line.trim())) continue;
-    const outsideLinks = line;
-    for (const match of outsideLinks.matchAll(/(?<![\p{L}\p{N}_])(?:madarch:)?(?:question|correction|domain|product|doc|engine|code\.[a-z][a-z0-9.-]*):[^\s`<>\[\]()]+/gu)) {
-      refusals.push({ line: split.bodyStart + index, rule: 'raw-entity-id', message: `the raw entity id ${JSON.stringify(match[0])} is not reader-facing prose: use a human-readable Markdown link; place a question link at the end of its sentence as [→ question: …](madarch:question:<slug>) or [→ вопрос: …](madarch:question:<slug>)` });
-    }
+  // The tree's text and code nodes carry candidate tokens; a graph key prefix says a token is a raw id.
+  const prefixes = resolver.keyPrefixes === undefined ? DEFAULT_KEY_PREFIXES : await resolver.keyPrefixes();
+  const starts = lineStarts(body);
+  for (const token of rawEntityTokens(reader, body, prefixes)) {
+    refusals.push({ line: lineAt(starts, split.bodyStart, token.start), rule: 'raw-entity-id', message: `the raw entity id ${JSON.stringify(token.text)} is not reader-facing prose: use a human-readable Markdown link; place a question link at the end of its sentence as [→ question: …](madarch:question:<slug>) or [→ вопрос: …](madarch:question:<slug>)` });
   }
 
   const known = new Map<string, boolean>();
@@ -513,8 +602,8 @@ export async function checkPage(markdown: string, expected: PageExpectation, res
   }
   for (const heading of headings) {
     await checkLinks(heading);
-    const headingLinks = reader.linksIn(heading.start, heading.end);
-    if ((reader.wordsOutsideLinks(heading.start, heading.end) === 0 && headingLinks.length > 0) || referenceHeading(heading.text)) {
+    const linksInHeading = reader.linksIn(heading.start, heading.end);
+    if (reader.wordsOutsideLinks(heading.start, heading.end) === 0 && linksInHeading.length > 0) {
       refusals.push({ line: heading.line, rule: 'reference-heading', message: 'a reference-only heading is not a topic: use a descriptive heading and put the human-readable question link at the end of the sentence it concerns ([→ question: …] / [→ вопрос: …])' });
     }
     if (reader.footnotesIn(heading.start, heading.end).length > 0) refusals.push({ line: heading.line, rule: 'heading-footnote', message: 'a heading is connecting text and carries no footnote: put the statement in a sentence below it' });
@@ -533,12 +622,9 @@ export async function checkPage(markdown: string, expected: PageExpectation, res
         refusals.push({ line: unit.line, rule: 'question-link-position', message: 'put the question link after the terminal punctuation and grounds of the sentence it concerns, not in a heading, a separate paragraph or the middle of a claim' });
       }
       for (const link of sentence.questions) {
-        const label = questionLabel(body, link).trim();
-        const localized = questionParts(label);
-        if (localized === undefined || localized.title === '' || localized.title.startsWith('question:') || localized.title.startsWith('madarch:question:')) {
-          refusals.push({ line: unit.line, rule: 'question-link-label', message: 'a question link needs a human-readable title: [→ question: Which decision?](madarch:question:<slug>) / [→ вопрос: Какое решение?](madarch:question:<slug>)' });
-        } else if (expected.language !== undefined && localized.language !== (expected.language === 'ru' ? 'вопрос' : 'question')) {
-          refusals.push({ line: unit.line, rule: 'question-link-language', message: `the question label must follow the wiki language (${expected.language}): use ${expected.language === 'ru' ? '→ вопрос: …' : '→ question: …'}` });
+        const label = reader.linkLabel(link.start, link.end);
+        if (label === '' || label === '→' || label.startsWith('question:') || label.startsWith('madarch:question:')) {
+          refusals.push({ line: unit.line, rule: 'question-link-label', message: 'a question link needs a human-readable title: [Which decision?](madarch:question:<slug>)' });
         }
       }
     }

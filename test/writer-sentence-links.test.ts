@@ -39,11 +39,16 @@ describe('reader-facing entity references', () => {
       expect(refusal?.message).toContain('sentence');
     });
   }
-  for (const heading of ['См. вопрос', 'See question', 'См. вопрос question:delivery', '[Доставка](madarch:domain:orders)', question]) {
+  for (const heading of ['[Доставка](madarch:domain:orders)', question]) {
     test(`refuses a reference-only heading: ${heading}`, async () => {
       expect(await rules(`## ${heading}\n\n${fact}${grounds}`)).toContain('reference-heading');
     });
   }
+  test('plain reference vocabulary is a topic now that the tree decides what a reference is', async () => {
+    expect(await rules(`## См. вопрос\n\n${fact}${grounds}`)).toEqual([]);
+    expect(await rules(`## See question\n\n${fact}${grounds}`)).toEqual([]);
+    expect(await rules(`## См. вопрос question:delivery\n\n${fact}${grounds}`)).toContain('raw-entity-id');
+  });
   for (const heading of [
     `## Сроки ${question}`,
     '## Retention [→ question: Which duration?](madarch:question:delivery)',
@@ -97,10 +102,10 @@ describe('localized sentence-end question links', () => {
     const indexed = statementsOf(`${text}${grounds}\n[^second]: [Source](madarch:code.symbol:src/a.ts#deliver)`, 1);
     expect(indexed.map((statement) => statement.text)).toEqual(['Источники задают разные сроки доставки.', 'Второй факт подтвержден.']);
   });
-  test('English uses the English label and leaves source grounds intact', async () => {
+  test('the label is a title, not a language marker, and source grounds stay intact', async () => {
     const link = '[→ question: Which delivery time applies?](madarch:question:delivery)';
     expect(await rules(`The sources give different delivery times.[^policy] ${link}${grounds}`, { language: 'en' })).toEqual([]);
-    expect(await rules(`${fact} ${link}${grounds}`)).toContain('question-link-language');
+    expect(await rules(`${fact} ${question}${grounds}`)).toEqual([]);
   });
   test('a question cannot replace a ground or be put in the middle of a claim', async () => {
     expect(await rules(`Источники задают разные сроки доставки. ${question}`)).toContain('ungrounded-statement');
