@@ -1,0 +1,87 @@
+{
+  "pages": [
+    {
+      "file": "docs/domains/flags.md",
+      "expectation": {
+        "id": "domain:flags",
+        "kind": "domain",
+        "domains": [
+          "flags",
+          "orders"
+        ],
+        "mustLinkDomains": false,
+        "language": "en"
+      },
+      "markdown": "---\nid: domain:flags\nkind: domain\ntitle: \"Flags\"\nrelates: []\nproducer: agent\nsources: []\n---\n\n## Flags\n\nThe flag is on.[^flag] Restart it.[^restart]\n\n[orders](madarch:domain:orders).\n\n[^flag]: [Flag](madarch:code.symbol:src/flag.ts#flag)\n[^restart]: [Restart](madarch:code.symbol:src/restart.ts#restart)\n",
+      "statements": [
+        {
+          "id": "flag",
+          "labels": [
+            "flag"
+          ],
+          "text": "The flag is on.",
+          "digest": "c322481861c8bb3160c72aab0557f8fb0137c4592a81dbdce72462ac67f22aea",
+          "line": 12,
+          "mentions": [],
+          "grounds": [
+            "code.symbol:src/flag.ts#flag"
+          ]
+        },
+        {
+          "id": "restart",
+          "labels": [
+            "restart"
+          ],
+          "text": "Restart it.",
+          "digest": "d4f35ddcc92f3ca1638d925d24ecaef604c6a1366d4b0a8ff903c754d44a85dc",
+          "line": 12,
+          "mentions": [],
+          "grounds": [
+            "code.symbol:src/restart.ts#restart"
+          ]
+        }
+      ]
+    },
+    {
+      "file": "docs/domains/tokens.md",
+      "expectation": {
+        "id": "domain:tokens",
+        "kind": "domain",
+        "domains": [
+          "tokens"
+        ],
+        "mustLinkDomains": false,
+        "language": "en"
+      },
+      "markdown": "---\nid: domain:tokens\nkind: domain\ntitle: \"Tokens\"\nrelates: []\nproducer: agent\nsources: []\n---\n\nThe token lives for an hour.[^token-lives-hour] A retry makes a new token.[^retry-makes-new-token]\n\n[^token-lives-hour]: [Token](madarch:code.symbol:src/token.ts#token)\n[^retry-makes-new-token]: [Retry](madarch:code.symbol:src/retry.ts#retry)\n",
+      "statements": [
+        {
+          "id": "token-lives-hour",
+          "labels": [
+            "token-lives-hour"
+          ],
+          "text": "The token lives for an hour.",
+          "digest": "bfb3e32ce3ec62b0d753f662bbeeb7f70b85e4a3863294c6687cd70419fff21a",
+          "line": 10,
+          "mentions": [],
+          "grounds": [
+            "code.symbol:src/token.ts#token"
+          ]
+        },
+        {
+          "id": "retry-makes-new-token",
+          "labels": [
+            "retry-makes-new-token"
+          ],
+          "text": "A retry makes a new token.",
+          "digest": "ad8a6e6d91755aa7d9ba86b6c647f1dbdcb114acb94737536ebb2c3762ae88e2",
+          "line": 10,
+          "mentions": [],
+          "grounds": [
+            "code.symbol:src/retry.ts#retry"
+          ]
+        }
+      ]
+    }
+  ]
+}

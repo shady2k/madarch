@@ -430,7 +430,7 @@ async function existingDomainPages(output: string): Promise<string[]> {
 }
 
 /** A domain's declaration as its page gives it now: the title, a summary from its first statement, the keys it relates to. */
-export function declarationOf(path: string, text: string): DomainDeclaration {
+export function declarationOf(path: string, text: string, language?: string): DomainDeclaration {
   const slug = path.replace(/^.*\//, '').replace(/\.md$/, '');
   const { front, body, bodyLine } = splitFrontMatter(text.replace(/\r\n/g, '\n'));
   let record: Record<string, unknown> = {};
@@ -440,7 +440,7 @@ export function declarationOf(path: string, text: string): DomainDeclaration {
   } catch (error) {
     throw new Error(`src/writer/run.ts: ${path}:2: the front matter of the domain page is no YAML, so the domain cannot be declared again: ${(error as Error).message.split('\n')[0]}`);
   }
-  const statements = statementsOf(body, bodyLine);
+  const statements = statementsOf(body, bodyLine, language);
   const title = typeof record['title'] === 'string' && record['title'].trim() !== '' ? record['title'].trim() : slug;
   const relates = Array.isArray(record['relates']) ? (record['relates'] as unknown[]).filter((entry): entry is string => typeof entry === 'string') : [];
   const evidence = relates.length > 0 ? relates : [...new Set(statements.flatMap((statement) => statement.grounds))];
@@ -700,7 +700,7 @@ export async function runWriter(options: WriterOptions): Promise<WriterReport> {
   // The domains the product page declares now, as their pages say, for a product unit that edits.
   const declaredNow = async (): Promise<DomainDeclaration[]> => {
     const out: DomainDeclaration[] = [];
-    for (const page of domainPages) out.push(declarationOf(page, await sink.read(page)));
+    for (const page of domainPages) out.push(declarationOf(page, await sink.read(page), language));
     return out;
   };
 

@@ -989,6 +989,8 @@ export interface GetPageArgs {
   /** A page id (`product:<slug>`, `domain:<slug>`, `question:<slug>`) or a repository path such as `docs/domains/payments.md`. */
   readonly page: string;
   readonly format: 'md' | 'json';
+  /** The wiki's language: the segmenter reads its sentences in it. */
+  readonly language?: string;
 }
 
 /** The path a page id names, when it names one the writer keeps. */
@@ -1034,7 +1036,7 @@ export async function getPage(pages: PageSink, args: GetPageArgs): Promise<Answe
       truncated: shown.length < body.length,
     };
   }
-  const statements = statementsOf(head.body, head.bodyLine);
+  const statements = statementsOf(head.body, head.bodyLine, args.language);
   const { front } = splitFrontMatter(whole);
   let record: Record<string, unknown> = {};
   if (front !== null) {

@@ -1,0 +1,60 @@
+{
+  "pages": [
+    {
+      "file": "docs/product.md",
+      "body": "The shop takes orders from shoppers and charges their cards through a payments service.[^1]\n\nSee the [payment domain](madarch:domain:payment) for how a charge happens.\n\n[^1]: [payments](madarch:code.service:payments), [UC-2](madarch:doc:docs/requirements.md#uc-2)\n",
+      "bodyLine": 10,
+      "statements": [
+        {
+          "id": "1",
+          "labels": [
+            "1"
+          ],
+          "text": "The shop takes orders from shoppers and charges their cards through a payments service.",
+          "digest": "3b29b7afee3a1dc38ee1016a1a148ad0f7db8c01b3b69182fa0b876cf50e48c0",
+          "line": 10,
+          "mentions": [],
+          "grounds": [
+            "code.service:payments",
+            "doc:docs/requirements.md#uc-2"
+          ]
+        }
+      ]
+    },
+    {
+      "file": "docs/domains/payment.md",
+      "body": "Payments are charged through one of two providers chosen by configuration.[^1]\n\nCheckout asks payments to authorize the card for the order's total.[^2]\n\nA refund that brings the refunded total up to the captured amount moves the order to refunded.\n\n[^1]: [PaymentClientFactory](madarch:code.symbol:services/payments/src/providers/factory.ts#PaymentClientFactory), [a function that is not there](madarch:code.symbol:services/payments/src/providers/factory.ts#NoSuchFactory)\n[^2]: [UC-2](madarch:doc:docs/requirements.md#uc-2), [PaymentService.pay](madarch:code.symbol:services/payments/src/domain/payment-service.ts#PaymentService.pay)\n",
+      "bodyLine": 11,
+      "statements": [
+        {
+          "id": "1",
+          "labels": [
+            "1"
+          ],
+          "text": "Payments are charged through one of two providers chosen by configuration.",
+          "digest": "7a2c66b6bdfbb51665dceb2a2cf553d14ede8d589beb753e5145d4122c804694",
+          "line": 11,
+          "mentions": [],
+          "grounds": [
+            "code.symbol:services/payments/src/providers/factory.ts#PaymentClientFactory",
+            "code.symbol:services/payments/src/providers/factory.ts#NoSuchFactory"
+          ]
+        },
+        {
+          "id": "2",
+          "labels": [
+            "2"
+          ],
+          "text": "Checkout asks payments to authorize the card for the order's total.",
+          "digest": "526bc63f4a96dd9ec49126a403412140e7252cdc6057634fe863b0b332e05f55",
+          "line": 13,
+          "mentions": [],
+          "grounds": [
+            "doc:docs/requirements.md#uc-2",
+            "code.symbol:services/payments/src/domain/payment-service.ts#PaymentService.pay"
+          ]
+        }
+      ]
+    }
+  ]
+}

@@ -705,7 +705,7 @@ export class UnitTools {
     this.written = { grounds: verdict.page.grounds, links: verdict.page.links };
     this.produced.pages += 1;
     const written = splitFrontMatter(verdict.page.markdown);
-    this.produced.statements += statementsOf(written.body, written.bodyLine).length;
+    this.produced.statements += statementsOf(written.body, written.bodyLine, this.extras.language).length;
     this.produced.grounds += verdict.page.grounds.length;
     this.produced.links += verdict.page.links.length;
     return ok({ written: true, path: unit.path, entity: enrichmentPageId(unit.entity), grounds: verdict.page.grounds.length });
@@ -998,7 +998,7 @@ export class UnitTools {
     if (isFailure(page)) return page;
     const format = args['format'] ?? 'md';
     if (format !== 'md' && format !== 'json') return fail('bad-argument', '"format" is "md" or "json"');
-    return await this.answered(() => getPage(this.sink, { page, format }));
+    return await this.answered(() => getPage(this.sink, { page, format, ...(this.extras.language === undefined ? {} : { language: this.extras.language }) }));
   }
 
   private async searchQuestionsAnswer(args: Record<string, unknown>): Promise<ToolAnswer> {
@@ -1153,7 +1153,7 @@ export class UnitTools {
             if (statement.page !== this.unit.id) { bad(`about "${entry}": a statement can be named only on your own page (${this.unit.id}); name the page ${statement.page} instead`); continue; }
             const previous = await this.sink.read(this.unit.path).catch(() => undefined);
             const read = previous === undefined ? undefined : splitFrontMatter(previous);
-            const body = read === undefined ? [] : statementsOf(read.body, read.bodyLine);
+            const body = read === undefined ? [] : statementsOf(read.body, read.bodyLine, this.extras.language);
             if (!body.some((s) => s.id === statement.statement)) { bad(`about "${entry}": your page ${this.unit.id} has no statement ${statement.statement}`); continue; }
             about.add(entry);
             continue;
@@ -1310,7 +1310,7 @@ export class UnitTools {
     this.written = { grounds: verdict.page.grounds, links: verdict.page.links };
     this.produced.pages += 1;
     const written = splitFrontMatter(verdict.page.markdown);
-    this.produced.statements += statementsOf(written.body, written.bodyLine).length;
+    this.produced.statements += statementsOf(written.body, written.bodyLine, this.extras.language).length;
     this.produced.grounds += verdict.page.grounds.length;
     this.produced.links += verdict.page.links.length;
     return ok({ written: true, path: this.unit.path, grounds: verdict.page.grounds.length, links: verdict.page.links.length, ...(this.unit.kind === 'product' ? { domains: domains.map((d) => d.slug) } : {}) });

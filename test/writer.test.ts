@@ -153,7 +153,7 @@ function productScript(script: Script = {}): (request: UnitRequest) => Promise<v
     body.push('## Domains', '');
     for (const domain of KEY_DOMAINS) body.push(`- [${domain.title}](madarch:domain:${domain.slug}) is implemented by the [${domain.service} service](madarch:code.service:${domain.service}).[^${domain.slug}]`);
     for (const domain of KEY_DOMAINS) notes.push(footnote(domain.slug, [`code.service:${domain.service}`, `doc:docs/requirements.md#${domain.useCase}`]));
-    body.push('', 'See also the services: ' + keys.map((k) => `[${k.replace('code.service:', '')}](madarch:${k})`).join(', ') + '.');
+    body.push('', ...keys.map((k) => `- [${k.replace('code.service:', '')}](madarch:${k})`));
     if (script.mentions === true) {
       // Plain prose as an agent writes it: the names are not links, and the core must make them links.
       body.push('', '## Stack', '', 'The shop stores carts in Postgres and publishes to Kafka through the outbox.[^stack]', 'UC-1 and BR-3 govern the work, and the Outbox and Capture terms explain them.[^terms]', '');
