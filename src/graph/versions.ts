@@ -10,6 +10,7 @@
  * this too (`graph_append_only` trigger), so a bug here cannot rewrite
  * history.
  */
+import { performance } from 'node:perf_hooks';
 import type { OuterTransaction } from '../history/types.js';
 import { claimDigest as digestOfClaim, edgeKeyHash, edgePayloadDigest, nodePayloadDigest, sha256Hex, type ByteSpan, type ClaimContent, type GraphId } from './digest.js';
 import { GraphClockBehind, GraphError, databaseCode, databaseMessage, type GraphOrigin } from './errors.js';
@@ -28,11 +29,20 @@ export const EDGE_BATCH_SIZE = 100;
 export const IDENTITY_BATCH_SIZE = 100;
 
 /**
- * Rows prepared between yields. Preparing a row awaits memoized promises, so
- * its microtask chain never reaches the event loop on its own; without a turn
- * between bounded pieces the whole publication is one hold (madarch-alzf).
+ * Rows prepared between yields, and the longest preparation may run before a
+ * turn whatever its row count. Preparing a row awaits memoized promises, so
+ * its microtask chain never reaches the event loop on its own; a slow machine
+ * must not turn the row count into a long hold (madarch-alzf, PR #197 CI).
  */
-export const PUBLISH_YIELD_SIZE = 50;
+export const PUBLISH_YIELD_SIZE = 10;
+export const PUBLISH_TURN_MS = 4;
+
+/** A publication's clock for the time budget above. */
+export interface ReaderTurn { at: number }
+
+export function readerTurn(): ReaderTurn {
+  return { at: performance.now() };
+}
 
 /**
  * Yields one macrotask so a wiki read queued behind PGlite is answered between
@@ -41,6 +51,14 @@ export const PUBLISH_YIELD_SIZE = 50;
  */
 export async function yieldToReaders(): Promise<void> {
   await new Promise<void>((resolve) => { setTimeout(() => resolve(), 0); });
+}
+
+/** Gives readers a turn after the row count or the preparation time reaches its bound. */
+export async function yieldBetweenRows(turn: ReaderTurn, done: number): Promise<void> {
+  const now = performance.now();
+  if (done % PUBLISH_YIELD_SIZE !== 0 && now - turn.at < PUBLISH_TURN_MS) return;
+  turn.at = now;
+  await yieldToReaders();
 }
 
 /** The transaction a write runs in and the instant it is recorded at. */

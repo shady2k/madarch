@@ -23,8 +23,8 @@ import { claimDigest, nodePayloadDigest, edgePayloadDigest, edgeKeyHash, sha256H
 import { GraphError, type GraphOrigin } from './errors.js';
 import { ALL_STATES, checkSpan, compareInstants, instantText, tsText, type Instant, type StateSpan } from './time.js';
 import {
-  assertEndpoints, currentEdgeVersions, endEdgeVersion, insertEdgeVersion, insertEdgeVersions, lockNodes, prepareEdgeVersion, reconcileEdges, requireLater, checkId, closeVersion, correctEdgeVersion, correctNodeVersion, currentNodeVersions, edgeIdentity, edgeRow, EDGE_BATCH_SIZE, EDGE_COLUMNS, EDGE_FROM, PUBLISH_YIELD_SIZE,
-  edgeIdentities, endNode, newNodeIdentities, openEdgeVersion, openNodeVersion, prefetchNodeSlices, prefetchNodes, reopenEdge, reopenNode, requireNode, resolveEdge, yieldToReaders,
+  assertEndpoints, currentEdgeVersions, endEdgeVersion, insertEdgeVersion, insertEdgeVersions, lockNodes, prepareEdgeVersion, reconcileEdges, requireLater, checkId, closeVersion, correctEdgeVersion, correctNodeVersion, currentNodeVersions, edgeIdentity, edgeRow, EDGE_BATCH_SIZE, EDGE_COLUMNS, EDGE_FROM,
+  edgeIdentities, endNode, newNodeIdentities, openEdgeVersion, openNodeVersion, prefetchNodeSlices, prefetchNodes, reopenEdge, reopenNode, requireNode, resolveEdge, readerTurn, yieldBetweenRows, yieldToReaders,
   type EdgeVersionRow, type NodeVersionRow, type PreparedEdgeVersion, type WriteContext,
 } from './versions.js';
 import { CONTENT_KIND } from './vocabulary.js';
@@ -246,20 +246,21 @@ export async function publish(ctx: WriteContext, input: PublishInput): Promise<P
     ctx.cascadeLog = result.cascades;
     const run: Run = { ctx, workItem: item.id, owner: { producer: input.producer, scope }, refs: new Map(), result, summary: [], endedNodes: new Set(), writtenNodes: new Set(), touchedEdges: new Set(), currentEdges: new Map(), repeatedEdges: new Set(), pendingEdges: [] };
     const nodes = input.nodes ?? [];
+    const turn = readerTurn();
     await newNodeIdentities(ctx, nodes.filter((node) => node.id === undefined).length);
     for (const [index, node] of nodes.entries()) {
       await publishNode(run, node, `nodes[${index}]`);
-      if ((index + 1) % PUBLISH_YIELD_SIZE === 0) await yieldToReaders();
+      await yieldBetweenRows(turn, index + 1);
     }
     for (const [index, end] of (input.ends ?? []).entries()) {
       await publishEnd(run, end, `ends[${index}]`);
-      if ((index + 1) % PUBLISH_YIELD_SIZE === 0) await yieldToReaders();
+      await yieldBetweenRows(turn, index + 1);
     }
     const edges = input.edges ?? [];
     await prefetchEdgeIdentities(run, edges);
     for (const [index, edge] of edges.entries()) {
       await publishEdge(run, edge, `edges[${index}]`);
-      if ((index + 1) % PUBLISH_YIELD_SIZE === 0) await yieldToReaders();
+      await yieldBetweenRows(turn, index + 1);
     }
     await flushEdges(run);
     if (input.complete !== undefined && input.complete !== false) {
@@ -535,23 +536,25 @@ async function sweep(run: Run, end: string): Promise<void> {
      WHERE v.producer = $1 AND v.scope_id = $2::bigint AND v.recorded_to = 'infinity' AND v.valid_to > $3::timestamptz AND k.key <> $4 ORDER BY 1`,
     [run.owner.producer, run.owner.scope, end, CONTENT_KIND],
   );
+  const nodeTurn = readerTurn();
   for (const [index, row] of nodes.rows.entries()) {
     if (run.writtenNodes.has(row.id) || run.endedNodes.has(row.id)) continue;
     const done = await endNode(ctx, row.id, end, run.workItem, 'complete');
     run.result.swept.nodes += 1;
     run.result.corrections += done.nodeVersionsClosed;
     run.result.cascades.push(...done.cascades);
-    if ((index + 1) % PUBLISH_YIELD_SIZE === 0) await yieldToReaders();
+    await yieldBetweenRows(nodeTurn, index + 1);
   }
   const edges = await ctx.tx.query<Raw>(
     `SELECT ${EDGE_COLUMNS} FROM ${EDGE_FROM} WHERE e.producer = $1 AND e.scope_id = $2::bigint AND e.recorded_to = 'infinity' AND e.valid_to > $3::timestamptz ORDER BY e.id`,
     [run.owner.producer, run.owner.scope, end],
   );
+  const edgeTurn = readerTurn();
   for (const [index, raw] of edges.rows.entries()) {
     const edge = edgeRow(raw);
     if (run.touchedEdges.has(edge.edgeId) || edge.recordedFrom === ctx.at) continue;
     await endEdgeVersion(ctx, edge.versionId, end, { workItem: run.workItem, as: 'correction' }, 'complete');
     run.result.swept.edges += 1;
-    if ((index + 1) % PUBLISH_YIELD_SIZE === 0) await yieldToReaders();
+    await yieldBetweenRows(edgeTurn, index + 1);
   }
 }
