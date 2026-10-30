@@ -89,6 +89,54 @@ describe('the deterministic editorial checks (madarch-ztyq.9)', () => {
     const found = result.findings.find((finding) => finding.kind === 'internal-identifier');
     expect(found).toMatchObject({ page: 'docs/domains/refunds.md', identifier: 'services/orders/src/order.go' });
   });
+  test('a label inside a fenced code block is code, not a glossary synonym', async () => {
+    const fenced: DocEntity = { ...term, text: 'The proof a provider returns when it captured money.\n```\n- Also called: card voucher\n```' };
+    const prose = page('docs/domains/refunds.md', 'Refunds', [
+      'The card voucher arrives after the capture.[^proof]',
+      '',
+      ground('proof', 'madarch:doc:docs/requirements.md#payments'),
+    ].join('\n'));
+    const result = await runEditorialPass({ pages: [prose], documentEntities: [fenced], graph, judge: noJudge(), maxPerPage: 2 });
+    expect(result.findings.filter((finding) => finding.kind === 'glossary-alias')).toEqual([]);
+  });
+
+  test('a grounded sentence is read whole, so an abbreviation does not truncate it', async () => {
+    let read: string[] = [];
+    const prose = page('docs/domains/refunds.md', 'Refunds', [
+      'Dr. Smith approves the refund after 14 days.[^window]',
+      '',
+      ground('window', 'madarch:doc:docs/requirements.md#refunds'),
+    ].join('\n'));
+    const judge: EditorialJudge = { judge: async (pack) => { read = pack.pages.flatMap((held) => held.statements.map((statement) => statement.text)); return { requests: [] }; } };
+    await runEditorialPass({ pages: [prose], documentEntities: [], graph, judge, maxPerPage: 2 });
+    expect(read).toEqual(['Dr. Smith approves the refund after 14 days.']);
+  });
+
+  test('numbers are compared by value: 9 and 14 days conflict, 9 and 09 days or 1,000 and 1000 units do not', async () => {
+    const nine = page('docs/product.md', 'Tiny shop', ['The refund window is 9 days.[^window]', '', ground('window', 'madarch:doc:docs/requirements.md#refunds')].join('\n'));
+    const fourteen = page('docs/domains/refunds.md', 'Refunds', ['The refund window is 14 days.[^window]', '', ground('window', 'madarch:doc:docs/requirements.md#refunds')].join('\n'));
+    const conflict = await runEditorialPass({ pages: [nine, fourteen], documentEntities: [], graph, judge: noJudge(), maxPerPage: 2 });
+    expect(conflict.findings.find((finding) => finding.kind === 'conflicting-fact')).toMatchObject({ value: '14', otherValue: '9' });
+    const leading = page('docs/domains/refunds.md', 'Refunds', ['The refund window is 09 days.[^window]', '', ground('window', 'madarch:doc:docs/requirements.md#refunds')].join('\n'));
+    const same = await runEditorialPass({ pages: [nine, leading], documentEntities: [], graph, judge: noJudge(), maxPerPage: 2 });
+    expect(same.findings.filter((finding) => finding.kind === 'conflicting-fact')).toEqual([]);
+    const thousand = page('docs/product.md', 'Tiny shop', ['The shop keeps 1,000 units.[^stock]', '', ground('stock', 'madarch:doc:docs/requirements.md#stock')].join('\n'));
+    const plain = page('docs/domains/refunds.md', 'Refunds', ['The shop keeps 1000 units.[^stock]', '', ground('stock', 'madarch:doc:docs/requirements.md#stock')].join('\n'));
+    const equal = await runEditorialPass({ pages: [thousand, plain], documentEntities: [], graph, judge: noJudge(), maxPerPage: 2 });
+    expect(equal.findings.filter((finding) => finding.kind === 'conflicting-fact')).toEqual([]);
+  });
+
+  test('a judge that fails is a journaled warning, and the deterministic findings still stand', async () => {
+    const journal = memoryJournal('run-editorial-warning');
+    const result = await runEditorialPass({
+      pages: [refundA, refundB], documentEntities: [], graph, maxPerPage: 2, journal,
+      judge: { judge: async () => { throw new Error('the editing model is down'); } },
+    });
+    expect(result.errors.some((error) => error.includes('the editing model is down'))).toBe(true);
+    expect(result.findings.some((finding) => finding.kind === 'conflicting-fact')).toBe(true);
+    const warning = journal.records.find((record) => record.kind === 'editorial-warning');
+    expect(warning?.arguments).toMatchObject({ message: expect.stringContaining('the editing model is down') });
+  });
 });
 
 describe('the editing judge (madarch-ztyq.9)', () => {

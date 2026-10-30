@@ -28,6 +28,7 @@ import { planTaskRun } from '../loop/task-run.js';
 import type { EditBrief } from '../writer/edit.js';
 import type { UnitsInput, UnitsNeeded } from '../writer/run.js';
 import { editorialAcpJudge, fileJournal, fillWriterState, fsSink, journalFolder, newRunId, PRODUCT_PATH, productSlug, runWriter, type EditorialJudge, type Journal, type ToolClient, type UnitAgent, type WriterReport } from '../writer/index.js';
+import { DEFAULT_EDITORIAL_REQUESTS_PER_PAGE, MAX_EDITORIAL_REQUESTS } from '../writer/editorial.js';
 import type { DraftEnv } from '../product/home.js';
 import { roleOf, type ModelPair } from './model-roles.js';
 import { parseMessage, type FromWorker, type RepositoryPin, type ToWorker, type WorkerStart } from './fill-protocol.js';
@@ -431,6 +432,13 @@ export async function runFillWorker(io: FillWorkerIo): Promise<number> {
       const writerState = fillWriterState(owner, { product: productSlug(start.productName), runId: `writer:${productSlug(start.productName)}:${Date.now().toString(36)}` });
       // The editorial pass journals into the product's own journal folder, under a run of its own: a pass that
       // ran is visible beside the writer's tool calls, and a pass that skipped says why (madarch-ztyq.9).
+      // The product setting arrives with the start and is checked here too: a worker never reads a page by a
+      // bound the product did not validate, and the number the page shows is the number the writer enforces.
+      const editorialRequestsPerPage = start.editorialRequestsPerPage ?? DEFAULT_EDITORIAL_REQUESTS_PER_PAGE;
+      if (typeof editorialRequestsPerPage !== 'number' || !Number.isInteger(editorialRequestsPerPage) || editorialRequestsPerPage < 0 || editorialRequestsPerPage > MAX_EDITORIAL_REQUESTS) {
+        send({ type: 'writer', state: 'failed', code: 'settings', message: `the fill start carried an invalid editorialRequestsPerPage: an integer from 0 to ${MAX_EDITORIAL_REQUESTS} is required, got ${JSON.stringify(start.editorialRequestsPerPage)}` });
+        return 0;
+      }
       const editorialJournal = io.editorial?.journal ?? fileJournal(journalFolder(dirname(graphPath)), newRunId());
       const editing = editorialJudgeFor(start, { ...io.editorial, journal: editorialJournal }, (line) => send({ type: 'log', line }));
       let report: WriterReport;
@@ -448,6 +456,7 @@ export async function runFillWorker(io: FillWorkerIo): Promise<number> {
           onUnitStart: (began) => send({ type: 'unit-start', unit: began.unit, path: began.path }),
           onUnit: (outcome) => send({ type: 'unit-outcome', outcome: { unit: outcome.unit, status: outcome.status, writeAttempts: outcome.writeAttempts, calls: outcome.calls, refusals: outcome.refusals.map((r) => ({ line: r.line, rule: r.rule, message: r.message })), domains: [...outcome.domains], questions: [...outcome.questions] } }),
           editorial: {
+            maxRequestsPerPage: editorialRequestsPerPage,
             ...(editing.jev === undefined ? {} : { jev: editing.jev }),
             ...(editing.judge === undefined ? {} : { judge: editing.judge }),
             ...(editing.skipReason === undefined ? {} : { skipReason: editing.skipReason }),
@@ -474,11 +483,14 @@ export async function runFillWorker(io: FillWorkerIo): Promise<number> {
       const loop = report.loopProblems.length === 0 ? '' : ` Questions and corrections with a problem: ${report.loopProblems.join('; ')}.`;
       const asked = report.questions.length;
       const nothing = report.units === 0 ? ' Nothing needed the agent: no ground changed, no answer or correction was waiting, and the language is the same.' : '';
+      // A judge that did not answer is a warning, not a withdrawn page: the written pages stand and the run report
+      // says the reading could not finish (madarch-ztyq.9, review 199).
+      const editorialWarning = report.editorialProblems.length === 0 ? '' : ` The editorial pass reported: ${report.editorialProblems.join('; ')}.`;
       if (report.ok) {
-        const message = `${nothing}${loop}${stale}${skipped}`.trim();
+        const message = `${nothing}${loop}${stale}${skipped}${editorialWarning}`.trim();
         send({ type: 'writer', state: 'done', ...(message === '' ? {} : { message }), asked });
       } else {
-        send({ type: 'writer', state: 'failed', code: report.indexErrors.length > 0 ? 'index' : 'units', message: `some pages were not written; each unit above says why.${loop}${stale}${skipped}${indexed}`, asked });
+        send({ type: 'writer', state: 'failed', code: report.indexErrors.length > 0 ? 'index' : 'units', message: `some pages were not written; each unit above says why.${loop}${stale}${skipped}${indexed}${editorialWarning}`, asked });
       }
     } catch (error) {
       await snapshot(true).catch(() => undefined);

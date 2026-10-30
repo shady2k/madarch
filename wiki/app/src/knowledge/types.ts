@@ -433,7 +433,7 @@ export type JournalRecord = {
   agent: string;
   model: string | null;
   session: string | null;
-  kind: 'tool-call' | 'refusal' | 'editorial-finding' | 'revision-request' | 'editorial-skip';
+  kind: 'tool-call' | 'refusal' | 'editorial-finding' | 'revision-request' | 'editorial-skip' | 'editorial-warning';
   tool: string;
   arguments: unknown;
   response: string | null;

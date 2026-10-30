@@ -45,6 +45,8 @@ import type { AgentOffer, Block, DocumentListing, DocumentPage, DocumentRef, Fil
 import { neighborhoodOf } from './diagrams.js';
 import { anchorLines, titleOfAnchor } from './anchors.js';
 import { adapterOf, installAdapter, makeUnitAgent, offers, queryAgentChoices, WRITER_AGENTS, WRITER_BOUNDS } from './agents.js';
+import { DEFAULT_EDITORIAL_REQUESTS_PER_PAGE, MAX_EDITORIAL_REQUESTS } from '../writer/editorial.js';
+import type { WriterBounds } from './model.js';
 import { emptyModelAssignments, isModelRole, modelPair, resolveModelRoles, type ModelAssignments, type ModelPair, type ModelRole, type ModelRoleView } from './model-roles.js';
 import type { AgentChoices } from '../fill/acp-choices.js';
 import { addStarterItems, currentOffers, filesAPersonEdited, replaceWithStarterSet, upgradeStarterSet, type StarterOffer, type UpgradeReport, rememberChangedStarterFileIfOwned } from './starter-upgrade.js';
@@ -632,13 +634,21 @@ export class KnowledgeProduct {
       if (set !== undefined) return { started: false, message: set, fill: this.fill };
       this.notify();
     }
+    // The per-page editorial bound is a product setting (madarch-ztyq.9, review 199): read and validated before
+    // the fill claims its slot, and carried to the worker so the writer enforces the same number the page shows.
+    let editorialRequestsPerPage: number;
+    try {
+      editorialRequestsPerPage = this.editorialRequestsPerPage();
+    } catch (error) {
+      return { started: false, message: error instanceof Error ? error.message : String(error), fill: this.fill };
+    }
     // The slot is claimed before anything is awaited, so two asks in the store's opening are not two fills.
     this.stopping = false;
     this.fill = { state: 'running', startedAt: (this.options.now?.() ?? new Date()).toISOString(), commit: 0, commits: 0, gaps: 0 };
     const chosen = this.chosenAgent();
     this.writer = chosen === null ? { state: 'idle', agent: null, units: [] } : { state: 'waiting', agent: chosen, units: [] };
     this.notify();
-    this.running = this.runJob(product, repositories, { language: wanted, languageChanged, languageFrom: written ?? current, ...(options.task === undefined ? {} : { task: options.task }), ...(options.taskPages === undefined ? {} : { taskPages: options.taskPages }) }).finally(() => {
+    this.running = this.runJob(product, repositories, { language: wanted, languageChanged, languageFrom: written ?? current, editorialRequestsPerPage, ...(options.task === undefined ? {} : { task: options.task }), ...(options.taskPages === undefined ? {} : { taskPages: options.taskPages }) }).finally(() => {
       // A fill that did not reach its end leaves the agent stage unstarted, not waiting for ever.
       if (this.writer.state === 'waiting') this.writer = { ...this.writer, state: 'idle' };
       this.running = undefined;
@@ -651,7 +661,7 @@ export class KnowledgeProduct {
    * One fill: a worker process reads the repositories into the primary store and, when an agent is chosen, runs the
    * writer's work; this method hears the worker and keeps the fill's and the writer's state, the pins and the reader.
    */
-  private async runJob(product: ProductIdentity, repositories: readonly { name: string; path: string }[], run: { language: string; languageChanged: boolean; languageFrom: string; task?: string; taskPages?: readonly string[] }): Promise<void> {
+  private async runJob(product: ProductIdentity, repositories: readonly { name: string; path: string }[], run: { language: string; languageChanged: boolean; languageFrom: string; editorialRequestsPerPage: number; task?: string; taskPages?: readonly string[] }): Promise<void> {
     const failFill = (message: string, code: string): void => {
       this.fill = { state: 'failed', startedAt: this.fill.startedAt, finishedAt: (this.options.now?.() ?? new Date()).toISOString(), message, code };
       this.notify();
@@ -685,6 +695,7 @@ export class KnowledgeProduct {
       repositories: repositories.map((repo) => ({ name: repo.name, path: repo.path })),
       writer: this.writer.agent !== null,
       ...(this.writer.agent === null ? {} : { roles: this.modelRoles() }),
+      editorialRequestsPerPage: run.editorialRequestsPerPage,
       language: run.language,
       languageChanged: run.languageChanged,
       languageFrom: run.languageFrom,
@@ -899,25 +910,65 @@ export class KnowledgeProduct {
     return join(this.options.storeRoot, product.id, 'writer.json');
   }
 
+  /** The product's writer settings as stored, before they are read into roles and bounds (madarch-ztyq.9). */
+  private settingsRecord(): Record<string, unknown> {
+    const file = this.choiceFile();
+    let text: string;
+    try {
+      text = readFileSync(file, 'utf8');
+    } catch (error) {
+      if ((error as NodeJS.ErrnoException).code === 'ENOENT') return {};
+      throw new Error(`${file}: the product settings cannot be read: ${(error as Error).message}`);
+    }
+    let body: unknown;
+    try {
+      body = JSON.parse(text);
+    } catch (error) {
+      throw new Error(`${file}:1: the product settings are not JSON: ${(error as Error).message}; delete the file to choose again`);
+    }
+    if (body === null || typeof body !== 'object' || Array.isArray(body)) {
+      throw new Error(`${file}:1: the product settings are a JSON object with agent, roles and the writer's bounds`);
+    }
+    return body as Record<string, unknown>;
+  }
+
+  /** The most revision requests one page may receive in a pass: the stored setting, or the default when none is set. */
+  private editorialRequestsPerPage(): number {
+    const file = this.choiceFile();
+    const value = this.settingsRecord()['editorialRequestsPerPage'];
+    if (value === undefined) return DEFAULT_EDITORIAL_REQUESTS_PER_PAGE;
+    if (typeof value !== 'number' || !Number.isInteger(value) || value < 0 || value > MAX_EDITORIAL_REQUESTS) {
+      throw new Error(`${file}:1: editorialRequestsPerPage is the most revision requests one page may receive, an integer from 0 to ${MAX_EDITORIAL_REQUESTS}; got ${JSON.stringify(value)}`);
+    }
+    return value;
+  }
+
+  /**
+   * Saves the per-page editorial bound (madarch-ztyq.9, review 199). It is the product's setting, so it lives
+   * beside the roles and survives a role being removed; the next fill carries it to the writer.
+   */
+  async setEditorialRequestsPerPage(value: number): Promise<{ ok: true; value: number } | { ok: false; status: number; message: string }> {
+    const file = this.choiceFile();
+    if (typeof value !== 'number' || !Number.isInteger(value) || value < 0 || value > MAX_EDITORIAL_REQUESTS) {
+      return { ok: false, status: 400, message: `${file}:1: editorialRequestsPerPage is the most revision requests one page may receive, an integer from 0 to ${MAX_EDITORIAL_REQUESTS}; got ${JSON.stringify(value)}` };
+    }
+    const body = this.settingsRecord();
+    body.editorialRequestsPerPage = value;
+    await mkdir(dirname(file), { recursive: true });
+    const temporary = `${file}.${process.pid}.${(this.choiceWrites += 1)}.tmp`;
+    await writeFile(temporary, `${JSON.stringify(body)}\n`, 'utf8');
+    await rename(temporary, file);
+    this.notify();
+    return { ok: true, value };
+  }
+
   /**
    * What the choice file holds (madarch-j6ho.2): the writer's pair at the top level, as the earlier releases wrote it,
    * and the other roles under `roles`. A role that is absent is unassigned, never guessed.
    */
   private modelAssignments(): ModelAssignments {
     const file = this.choiceFile();
-    let text: string;
-    try {
-      text = readFileSync(file, 'utf8');
-    } catch (error) {
-      if ((error as NodeJS.ErrnoException).code === 'ENOENT') return emptyModelAssignments();
-      throw new Error(`${file}: the model roles cannot be read: ${(error as Error).message}`);
-    }
-    let body: { agent?: unknown; model?: unknown; reasoning?: unknown; roles?: unknown };
-    try {
-      body = JSON.parse(text) as typeof body;
-    } catch (error) {
-      throw new Error(`${file}:1: the model roles are not JSON: ${(error as Error).message}; delete the file to choose again`);
-    }
+    const body = this.settingsRecord() as { agent?: unknown; model?: unknown; reasoning?: unknown; roles?: unknown };
     const pair = (value: unknown, where: string): ModelPair => {
       if (typeof value !== 'object' || value === null) throw new Error(`${file}:1: ${where} is not an object with an agent`);
       const held = value as { agent?: unknown; model?: unknown; reasoning?: unknown };
@@ -950,11 +1001,13 @@ export class KnowledgeProduct {
   private async writeAssignments(assignments: ModelAssignments): Promise<void> {
     const file = this.choiceFile();
     const any = assignments.writing !== null || assignments.classification !== null || assignments.analysis !== null || assignments.editing !== null;
-    if (!any) {
-      await rm(file, { force: true });
-      return;
-    }
-    const body: Record<string, unknown> = {};
+    // The roles are one part of the product's writer settings: read the stored object and keep every setting this
+    // method does not own, so removing the last role never deletes the editorial bound beside it (madarch-ztyq.9).
+    const body = this.settingsRecord();
+    delete body.agent;
+    delete body.model;
+    delete body.reasoning;
+    delete body.roles;
     if (assignments.writing !== null) {
       body.agent = assignments.writing.agent;
       if (assignments.writing.model !== undefined) body.model = assignments.writing.model;
@@ -965,6 +1018,10 @@ export class KnowledgeProduct {
     if (assignments.analysis !== null) roles.analysis = assignments.analysis;
     if (assignments.editing !== null) roles.editing = assignments.editing;
     if (Object.keys(roles).length > 0) body.roles = roles;
+    if (!any && Object.keys(body).length === 0) {
+      await rm(file, { force: true });
+      return;
+    }
     await mkdir(dirname(file), { recursive: true });
     const temporary = `${file}.${process.pid}.${(this.choiceWrites += 1)}.tmp`;
     await writeFile(temporary, `${JSON.stringify(body)}\n`, 'utf8');
@@ -1278,7 +1335,7 @@ export class KnowledgeProduct {
     roles: ModelRoleView;
     /** The name every agent madarch offers is known by, so a page names an agent before it has read the agents (madarch-j6ho.2). */
     agentNames: Record<string, string>;
-    bounds: typeof WRITER_BOUNDS;
+    bounds: WriterBounds;
     danger: ReturnType<KnowledgeProduct['dangerPlan']>;
     /** Why the two resets cannot say what they would do (a `docs` folder that is a link out of the product, say); both are then refused. */
     dangerError?: string;
@@ -1303,7 +1360,7 @@ export class KnowledgeProduct {
       chosenAgent: this.chosenAgent(),
       roles: this.modelRoles(),
       agentNames: Object.fromEntries(WRITER_AGENTS.map((id) => [id, adapterOf(id)?.label ?? id])),
-      bounds: WRITER_BOUNDS,
+      bounds: { ...WRITER_BOUNDS, editorialRequestsPerPage: this.editorialRequestsPerPage() },
       danger,
       ...(dangerError === undefined ? {} : { dangerError }),
       busy: this.running !== undefined,
@@ -1589,7 +1646,7 @@ export class KnowledgeProduct {
     const declared = this.repositories();
     const context = await this.context();
     if ('absent' in context) {
-      return { ...common, manifest: 'no-manifest', manifestFile: context.file, language: 'en', seeded: [], ...(this.seedError === undefined ? {} : { seedError: this.seedError }), findings: [], kinds: [], groups: [], repositories: declared.map((repo) => ({ name: repo.name, filled: false })), filled: false, incomplete: false, fill: this.fill, writer: this.writer, bounds: WRITER_BOUNDS, chosenAgent: this.chosenAgent(), home: null, roles: {}, loop: this.loopCounts(), starterOffers: 0 };
+      return { ...common, manifest: 'no-manifest', manifestFile: context.file, language: 'en', seeded: [], ...(this.seedError === undefined ? {} : { seedError: this.seedError }), findings: [], kinds: [], groups: [], repositories: declared.map((repo) => ({ name: repo.name, filled: false })), filled: false, incomplete: false, fill: this.fill, writer: this.writer, bounds: { ...WRITER_BOUNDS, editorialRequestsPerPage: this.editorialRequestsPerPage() }, chosenAgent: this.chosenAgent(), home: null, roles: {}, loop: this.loopCounts(), starterOffers: 0 };
     }
     const home = homeKind(context.manifest);
     const homeEntity = home === undefined ? undefined : [...context.ctx.markdown.values()].find((entity) => entity.kind === home.name);
@@ -1609,7 +1666,7 @@ export class KnowledgeProduct {
       incomplete,
       fill: this.fill.state === 'idle' && this.pins.size > 0 && !incomplete ? { state: 'done', ...(this.lastFillAt() === undefined ? {} : { finishedAt: this.lastFillAt()! }) } : this.fill,
       writer: this.writer,
-      bounds: WRITER_BOUNDS,
+      bounds: { ...WRITER_BOUNDS, editorialRequestsPerPage: this.editorialRequestsPerPage() },
       chosenAgent: this.chosenAgent(),
       home: homeEntity?.id ?? null,
       roles: Object.fromEntries([...context.manifest.roles.values()].map((role) => [role.name, { ...(role.open === undefined ? {} : { open: [...role.open] }), lead: [...role.lead] }])),

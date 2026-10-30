@@ -19,9 +19,9 @@
  * Findings and accepted requests are journal entries, so a revision is never a hidden edit.
  */
 import { byCodePoint } from '../model/order.js';
-import { splitFrontMatter } from '../knowledge/markdown.js';
 import { parseTermText } from '../knowledge/glossary.js';
-import { statementsOf, type PageStatement } from './sentences.js';
+import { statementsOfMarkdown } from './editorial-read.js';
+import type { PageStatement } from './sentences.js';
 import type { DocEntity } from '../knowledge/doc-entities.js';
 import type { Journal } from './journal.js';
 
@@ -161,8 +161,7 @@ interface ParsedPage {
 
 /** The statements of a page; a page that is not Markdown with a body simply has none. */
 function parsed(page: EditorialPage): ParsedPage {
-  const split = splitFrontMatter(page.text.split('\r\n').join('\n'));
-  return { page, statements: statementsOf(split.body, split.bodyLine) };
+  return { page, statements: statementsOfMarkdown(page.text) };
 }
 
 const isWordCharacter = (character: string): boolean => character.toLowerCase() !== character.toUpperCase() || (character >= '0' && character <= '9');
@@ -181,23 +180,70 @@ const tokensOf = (text: string): string[] => {
   return tokens;
 };
 
+/**
+ * The complete numeric values of a sentence, exactly as written: digits, `.` or `,` between digits,
+ * and an optional trailing `%`. A separator that is not between digits ends the value.
+ */
 const numbersOf = (text: string): string[] => {
   const numbers: string[] = [];
-  let held = '';
-  for (const character of text) {
-    if (isDigit(character)) held += character;
-    else if (held !== '') { numbers.push(held); held = ''; }
+  let at = 0;
+  while (at < text.length) {
+    if (!isDigit(text[at]!)) { at += 1; continue; }
+    let start = at;
+    while (at < text.length && isDigit(text[at]!)) at += 1;
+    while (at + 1 < text.length && (text[at] === '.' || text[at] === ',') && isDigit(text[at + 1]!)) {
+      at += 1;
+      while (at < text.length && isDigit(text[at]!)) at += 1;
+    }
+    if (at < text.length && text[at] === '%') at += 1;
+    numbers.push(text.slice(start, at));
   }
-  if (held !== '') numbers.push(held);
   return numbers;
 };
 
-/** The sentence's words with every number as one placeholder: two statements with this shape say the same thing, in numbers. */
-const shapeOf = (text: string): string => tokensOf(text).map((token) => {
-  let shape = '';
-  for (const character of token) shape += isDigit(character) ? '#' : character;
-  return shape;
-}).join(' ');
+/** A number's value, not its spelling: `09` is `9`, and `1,000` is `1000`. */
+const numericValue = (raw: string): string => {
+  const percent = raw.endsWith('%');
+  const body = percent ? raw.slice(0, -1) : raw;
+  const parts = body.split(',');
+  let decimal = body;
+  if (parts.length > 1 && !body.includes('.')) {
+    // `1,000` groups three digits: a thousands separator. `9,5` is a decimal comma.
+    const grouped = parts.slice(1).every((part) => part.length === 3 && [...part].every(isDigit));
+    decimal = grouped ? parts.join('') : `${parts.slice(0, -1).join('')}.${parts[parts.length - 1]}`;
+  } else if (parts.length > 1) {
+    decimal = parts.join('');
+  }
+  const value = Number(decimal);
+  return Number.isFinite(value) ? `${String(value)}${percent ? '%' : ''}` : raw;
+};
+
+/** The sentence's words with every complete number as one placeholder: `9 days` and `14 days` share a shape. */
+const shapeOf = (text: string): string => {
+  const out: string[] = [];
+  let held = '';
+  let at = 0;
+  while (at < text.length) {
+    const character = text[at]!;
+    if (isDigit(character)) {
+      if (held !== '') { out.push(held.toLowerCase()); held = ''; }
+      let start = at;
+      while (at < text.length && isDigit(text[at]!)) at += 1;
+      while (at + 1 < text.length && (text[at] === '.' || text[at] === ',') && isDigit(text[at + 1]!)) {
+        at += 1;
+        while (at < text.length && isDigit(text[at]!)) at += 1;
+      }
+      if (at < text.length && text[at] === '%') at += 1;
+      out.push('#');
+      continue;
+    }
+    if (isWordCharacter(character)) held += character;
+    else if (held !== '') { out.push(held.toLowerCase()); held = ''; }
+    at += 1;
+  }
+  if (held !== '') out.push(held.toLowerCase());
+  return out.join(' ');
+};
 
 /** A whole-word occurrence, without a word list and without a regular expression over the prose. */
 function occurrence(text: string, needle: string): number {
@@ -236,7 +282,8 @@ function conflictingFacts(pages: readonly ParsedPage[]): EditorialFinding[] {
         const firstNumbers = numbersOf(first.statement.text);
         const secondNumbers = numbersOf(second.statement.text);
         if (firstNumbers.length === 0 || secondNumbers.length === 0) continue;
-        if (firstNumbers.join('\u0000') === secondNumbers.join('\u0000')) continue;
+        // Compare values, not spellings: `09` and `9` agree, and `1,000` and `1000` agree (review 199).
+        if (firstNumbers.map(numericValue).join('\u0000') === secondNumbers.map(numericValue).join('\u0000')) continue;
         if (shapeOf(first.statement.text) !== shapeOf(second.statement.text)) continue;
         const key = `${ground}\u0000${first.page}\u0000${first.statement.id}\u0000${second.page}\u0000${second.statement.id}`;
         if (once.has(key)) continue;
@@ -257,7 +304,6 @@ function glossaryAliases(pages: readonly ParsedPage[], entities: readonly DocEnt
   const terms = entities.filter((entity) => entity.semantics === 'term').map((entity) => ({ entity, fields: parseTermText(entity.text) }));
   const findings: EditorialFinding[] = [];
   for (const parsedPage of pages) {
-    const pageText = parsedPage.page.text.toLowerCase();
     for (const { entity, fields } of terms) {
       const title = entity.title.trim();
       if (title === '') continue;
@@ -265,7 +311,6 @@ function glossaryAliases(pages: readonly ParsedPage[], entities: readonly DocEnt
         const used = synonym.trim();
         if (used.length < 3 || used.toLowerCase() === title.toLowerCase()) continue;
         if (title.toLowerCase().includes(used.toLowerCase()) || used.toLowerCase().includes(title.toLowerCase())) continue;
-        if (occurrence(pageText, used) < 0) continue;
         const statement = parsedPage.statements.find((held) => occurrence(held.text, used) >= 0 && occurrence(held.text, title) < 0);
         if (statement === undefined) continue;
         findings.push({
@@ -370,7 +415,7 @@ function deterministicRequest(finding: EditorialFinding): RevisionRequest {
   }
 }
 
-function record(journal: Journal | undefined, kind: 'editorial-finding' | 'revision-request' | 'editorial-skip', value: object, point: 'batch' | 'overview' | undefined): void {
+function record(journal: Journal | undefined, kind: 'editorial-finding' | 'revision-request' | 'editorial-skip' | 'editorial-warning', value: object, point: 'batch' | 'overview' | undefined): void {
   if (journal === undefined) return;
   const argumentsValue = point === undefined ? value : { ...value, point };
   journal.record(
@@ -440,7 +485,10 @@ function unreviewedOf(answer: EditorialJudgeAnswer, pack: EditorialJudgePack, er
  * read. When neither is there, the deterministic checks still run and `skipReason` is journalled.
  */
 export async function runEditorialPass(options: EditorialPassOptions): Promise<EditorialPassResult> {
-  const maxPerPage = Math.max(0, Math.floor(options.maxPerPage ?? 2));
+  // The product validates its setting before a fill starts; a direct caller is held to the same range here, and
+  // an absent or nonsensical bound is the default, never an unbounded pass (madarch-ztyq.9, review 199).
+  const bound = options.maxPerPage ?? DEFAULT_EDITORIAL_REQUESTS_PER_PAGE;
+  const maxPerPage = Number.isInteger(bound) ? Math.min(Math.max(0, bound), MAX_EDITORIAL_REQUESTS) : DEFAULT_EDITORIAL_REQUESTS_PER_PAGE;
   const parsedPages = options.pages.map(parsed);
   const findings: EditorialFinding[] = [
     ...conflictingFacts(parsedPages),
@@ -485,7 +533,9 @@ export async function runEditorialPass(options: EditorialPassOptions): Promise<E
       const unreviewed = unreviewedOf(answer, pack, errors);
       remaining = pack.pages.filter((page) => unreviewed.has(page.path));
     } catch (error) {
-      errors.push(`the jev judge did not answer: ${error instanceof Error ? error.message : String(error)}`);
+      const message = `the jev judge did not answer: ${error instanceof Error ? error.message : String(error)}`;
+      errors.push(message);
+      record(options.journal, 'editorial-warning', { message }, options.point);
       remaining = pack.pages;
     }
   }
@@ -495,7 +545,11 @@ export async function runEditorialPass(options: EditorialPassOptions): Promise<E
       const answer = await options.judge.judge(rolePack);
       judged.push(...requestsOf(answer, rolePack, 'editing', errors));
     } catch (error) {
-      errors.push(`the editing judge did not answer: ${error instanceof Error ? error.message : String(error)}`);
+      const message = `the editing judge did not answer: ${error instanceof Error ? error.message : String(error)}`;
+      errors.push(message);
+      // The judge's failure is a warning, not a reason to withdraw a page that was written: the pages stand, and
+      // the run report says the reading could not finish (madarch-ztyq.9, review 199).
+      record(options.journal, 'editorial-warning', { message }, options.point);
     }
   }
 

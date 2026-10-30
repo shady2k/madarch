@@ -19,6 +19,7 @@ import { WikiReadError, type KnowledgeProduct } from '../knowledge/product.js';
 import type { Handled, ReplyMaker } from './http.js';
 import { CHOOSABLE_ROLES, readSettings, writeRole } from '../knowledge/settings.js';
 import { guidePageMarkdown } from '../writer/guides/read.js';
+import { MAX_EDITORIAL_REQUESTS } from '../writer/editorial.js';
 import { kindFileAt, kindFileDocument, kindFileMarkdown, llmsText, pageFileAt, pageFileDocument, pageFileMarkdown } from '../knowledge/page-files.js';
 import type { EntityRef } from '../knowledge/model.js';
 import type { DraftEnv } from '../product/home.js';
@@ -354,11 +355,16 @@ export function createKnowledgePart(
       if (plain !== undefined) return refused(415, { message: plain });
       let body: unknown;
       try { body = await request.json(); } catch (error) { return refused(400, { message: `the request body is not JSON: ${(error as Error).message}` }); }
-      const asked = body as { language?: unknown; model?: unknown; reasoning?: unknown } | null;
-      if (asked === null || typeof asked !== 'object') return refused(400, { message: 'the body is { language?, model?, reasoning? }' });
+      const asked = body as { language?: unknown; model?: unknown; reasoning?: unknown; editorialRequestsPerPage?: unknown } | null;
+      if (asked === null || typeof asked !== 'object') return refused(400, { message: 'the body is { language?, model?, reasoning?, editorialRequestsPerPage? }' });
       for (const field of ['model', 'reasoning'] as const) {
         const value = asked[field];
         if (value !== undefined && value !== null && typeof value !== 'string') return refused(400, { field, message: `"${field}" is a value the agent reports, or null for the agent's own` });
+      }
+      if (asked.editorialRequestsPerPage !== undefined) {
+        if (typeof asked.editorialRequestsPerPage !== 'number') return refused(400, { field: 'editorialRequestsPerPage', message: `"editorialRequestsPerPage" is the most revision requests one page may receive: an integer from 0 to ${MAX_EDITORIAL_REQUESTS}` });
+        const saved = await product.setEditorialRequestsPerPage(asked.editorialRequestsPerPage);
+        if (!saved.ok) return refused(saved.status, { field: 'editorialRequestsPerPage', message: saved.message });
       }
       if (asked.language !== undefined) {
         if (typeof asked.language !== 'string') return refused(400, { field: 'language', message: '"language" is the language the pages are written in: en or ru' });

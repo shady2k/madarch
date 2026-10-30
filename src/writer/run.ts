@@ -31,7 +31,7 @@ import { writtenAtOf } from './basis.js';
 import type { DocEntity } from '../knowledge/doc-entities.js';
 import { detectDocumentLanguage, localizedSourcePath, localizedSourcePrompt, parseLocalizedSource, renderLocalizedSource, LOCALIZED_SOURCE_SCHEMA } from './localized-source.js';
 import { includedNotes, type ChangeNote, type EditBrief } from './edit.js';
-import { statementsOf } from './sentences.js';
+import { statementsOfMarkdown } from './editorial-read.js';
 import { DEFAULT_EDITORIAL_REQUESTS_PER_PAGE, runEditorialPass, type EditorialFinding, type EditorialJudge, type RevisionRequest } from './editorial.js';
 import type { Journal } from './journal.js';
 import { MAX_SLUG_LENGTH, SLUG } from './format.js';
@@ -439,7 +439,7 @@ export function declarationOf(path: string, text: string): DomainDeclaration {
   } catch (error) {
     throw new Error(`src/writer/run.ts: ${path}:2: the front matter of the domain page is no YAML, so the domain cannot be declared again: ${(error as Error).message.split('\n')[0]}`);
   }
-  const statements = statementsOf(body, bodyLine);
+  const statements = statementsOfMarkdown(body, bodyLine);
   const title = typeof record['title'] === 'string' && record['title'].trim() !== '' ? record['title'].trim() : slug;
   const relates = Array.isArray(record['relates']) ? (record['relates'] as unknown[]).filter((entry): entry is string => typeof entry === 'string') : [];
   const evidence = relates.length > 0 ? relates : [...new Set(statements.flatMap((statement) => statement.grounds))];
@@ -752,6 +752,9 @@ export async function runWriter(options: WriterOptions): Promise<WriterReport> {
       const current = await sink.read(page).catch(() => undefined);
       if (current === undefined) { editorialProblems.push(`${path.resolve(options.output, page)}:1: the editorial pass asked for a revision of a page that is not there; no passage was reworked`); continue; }
       const revisions = revisionsOf(pageRequests);
+      // The revision's own bound: the page as it stands and the passages it named. The tools refuse any change
+      // outside them, so the editorial pass can only edit what it asked about (madarch-ztyq.9, review 199).
+      const scopedExtras = { ...extras, revisionScope: { before: current, passages: pageRequests.map((request) => request.passage) } };
       let outcome: UnitOutcome | undefined;
       if (page === PRODUCT_PATH) {
         const digest = writerUnitDigest({ kind: 'product', version: versionOf('product'), scope: slug, language, inputs: [...pinned(), ...revisions.map(textDigest), ...upstreamOf('product')] });
@@ -761,7 +764,7 @@ export async function runWriter(options: WriterOptions): Promise<WriterReport> {
           id: productUnit.id, kind: 'product', scope: slug, path: PRODUCT_PATH, asked: true,
           digest, state: NO_WRITER_STATE, resumed: new Map(), sink, now,
           start: async () => {
-            const tools = new UnitTools(view, productUnit, sink, [], bounds, basis, extras);
+            const tools = new UnitTools(view, productUnit, sink, [], bounds, basis, scopedExtras);
             const declared = await declaredNow();
             return await runUnit(options.agent, tools, await productPrompt(view, productUnit, language, { questions, declared, revisions, reads: readsFor('product') }));
           },
@@ -790,7 +793,7 @@ export async function runWriter(options: WriterOptions): Promise<WriterReport> {
           id: spec.id, kind: 'domains', scope: declaration.slug, path: page, asked: true,
           digest, state: NO_WRITER_STATE, resumed: new Map(), sink, now,
           start: async () => {
-            const tools = new UnitTools(view, spec, sink, declarations, bounds, basis, extras);
+            const tools = new UnitTools(view, spec, sink, declarations, bounds, basis, scopedExtras);
             return await runUnit(options.agent, tools, await domainPrompt(view, spec, productPage, declarations, language, { questions, revisions, reads: readsFor('domains') }));
           },
         });
@@ -810,7 +813,7 @@ export async function runWriter(options: WriterOptions): Promise<WriterReport> {
           digest, state: NO_WRITER_STATE, resumed: new Map(), sink, now,
           start: async () => {
             const spec: UnitSpec = { kind: 'overview', id, path: OVERVIEW_PATH, name: options.productName, productId: productUnit.id };
-            const tools = new UnitTools(view, spec, sink, declarations, bounds, basis, extras);
+            const tools = new UnitTools(view, spec, sink, declarations, bounds, basis, scopedExtras);
             const linked = [...artifactsOf('product-page'), ...artifactsOf('domain-pages')].map((entry) => ({ id: entry.unit, path: entry.path, title: entry.title }));
             return await runUnit(options.agent, tools, await overviewPrompt(view, { id, path: OVERVIEW_PATH, name: options.productName }, linked, language, { questions, revisions, reads: readsFor('overview') }));
           },

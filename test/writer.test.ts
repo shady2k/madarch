@@ -26,6 +26,7 @@ import { parse as parseYaml, parseDocument } from 'yaml';
 import { createPGliteDatabaseOwner, type DatabaseOwner } from '../src/adapters/database-owner.js';
 import { documentSections } from '../src/knowledge/index/sections.js';
 import { localizedSourcePath } from '../src/writer/localized-source.js';
+import { statementsOfMarkdown } from '../src/writer/editorial-read.js';
 import { fillGraph } from '../src/extract/driver/index.js';
 import { KINDS_FILE } from '../src/knowledge/kinds.js';
 import { seedStarterSet } from '../src/knowledge/seed.js';
@@ -536,9 +537,9 @@ describe('the unit tools', () => {
   const header = (scope: string): string => `---\nid: validation:${scope}\nkind: validation\ntitle: Payments\nrelates:\n  - code.service:payments\nproducer: agent\nsources: []\n---\n\n`;
   const grounded = 'Payments run in the payments service.[^1]\n\n[^1]: [payments](madarch:code.service:payments)\n';
 
-  function session(spec: UnitSpec = validationSpec('payments'), bounds = DEFAULT_UNIT_BOUNDS) {
+  function session(spec: UnitSpec = validationSpec('payments'), bounds = DEFAULT_UNIT_BOUNDS, extras: ConstructorParameters<typeof UnitTools>[6] = {}) {
     const sink = memorySink();
-    return { sink, tools: new UnitTools(view, spec, sink, known, bounds) };
+    return { sink, tools: new UnitTools(view, spec, sink, known, bounds, [], extras) };
   }
 
   test('an agent has the fourteen tools that answer questions, and no way to reach the repository, a shell or the disk', () => {
@@ -617,6 +618,75 @@ describe('the unit tools', () => {
     expect([...sink.pages.keys()]).toEqual(['docs/validation/payments.md']);
     expect(tools.outcome()).toMatchObject({ status: 'written', writeAttempts: 2, refusals: [] });
     expect((await tools.call('write_page', { markdown: `${header('payments')}${grounded}` })).isError).toBe(true);
+  });
+
+  test('a revision writes the passage it was asked about and no other', async () => {
+    const scope = validationSpec('payments');
+    const original = `${header('payments')}Payments run in the payments service.[^1] Refunds take nine days.[^2]\n\n[^1]: [payments](madarch:code.service:payments)\n[^2]: [payments](madarch:code.service:payments)\n`;
+    const revised = `${header('payments')}Payments run in the payments service.[^1] Refunds take fourteen days.[^2]\n\n[^1]: [payments](madarch:code.service:payments)\n[^2]: [payments](madarch:code.service:payments)\n`;
+    const sink = memorySink();
+    const first = new UnitTools(view, scope, sink, known, DEFAULT_UNIT_BOUNDS);
+    expect((await first.call('write_page', { markdown: original })).isError).toBe(false);
+    // The editorial pass reads the page the core wrote, whose footnote names the core chose: those names are the
+    // statement ids a revision request carries.
+    const written = sink.pages.get('docs/validation/payments.md')!;
+    const [firstPassage, secondPassage] = statementsOfMarkdown(written).map((statement) => statement.id);
+    const scoped = new UnitTools(view, scope, sink, known, DEFAULT_UNIT_BOUNDS, [], { revisionScope: { before: written, passages: [firstPassage!] } });
+    const answer = await scoped.call('write_page', { markdown: revised });
+    expect((answer.answer as { refused: { rule: string; message: string }[] }).refused.map((refusal) => refusal.rule)).toEqual(['revision-scope']);
+    expect((answer.answer as { refused: { message: string }[] }).refused[0]!.message).toContain('docs/validation/payments.md');
+    expect(sink.pages.get('docs/validation/payments.md')).toBe(written);
+    // The named passage is the one the request may change: the same revision is accepted there.
+    const inScope = new UnitTools(view, scope, sink, known, DEFAULT_UNIT_BOUNDS, [], { revisionScope: { before: written, passages: [secondPassage!] } });
+    expect((await inScope.call('write_page', { markdown: revised })).isError).toBe(false);
+    expect(sink.pages.get('docs/validation/payments.md')).toContain('fourteen days');
+    // A new paragraph beside the named passage is prose the pass did not ask about, even when the named passage
+    // changes too; the block count is part of the bound (madarch-ztyq.9, review 199).
+    const inserted = `${header('payments')}Payments run in the payments service.[^1] Refunds take fourteen days.[^2]\n\nRefunds also need a receipt.[^3]\n\n[^1]: [payments](madarch:code.service:payments)\n[^2]: [payments](madarch:code.service:payments)\n[^3]: [payments](madarch:code.service:payments)\n`;
+    const grown = new UnitTools(view, scope, sink, known, DEFAULT_UNIT_BOUNDS, [], { revisionScope: { before: written, passages: [secondPassage!] } });
+    const grownAnswer = await grown.call('write_page', { markdown: inserted });
+    const grownRules = (grownAnswer.answer as { refused: { rule: string }[] }).refused.map((refusal) => refusal.rule);
+    expect(grownRules.length).toBeGreaterThan(0);
+    expect(grownRules.every((rule) => rule === 'revision-scope')).toBe(true);
+    expect(sink.pages.get('docs/validation/payments.md')).not.toContain('receipt');
+  });
+
+  test('a revision cannot swap the grounds of a passage it was not asked about', async () => {
+    const scope = validationSpec('payments');
+    const original = `${header('payments')}Payments run in the payments service.[^1] Orders run in the ordering service.[^2]\n\n[^1]: [payments](madarch:code.service:payments)\n[^2]: [orders](madarch:code.service:orders)\n`;
+    const sink = memorySink();
+    const first = new UnitTools(view, scope, sink, known, DEFAULT_UNIT_BOUNDS);
+    expect((await first.call('write_page', { markdown: original })).isError).toBe(false);
+    const written = sink.pages.get('docs/validation/payments.md')!;
+    const [paymentsPassage, ordersPassage] = statementsOfMarkdown(written).map((statement) => statement.id);
+    // Swapping two grounds leaves the multiset of definitions unchanged, but only the payments passage was named.
+    const swapped = written.split('\n').map((line) => {
+      if (line.startsWith(`[^${paymentsPassage}]:`)) return `[^${paymentsPassage}]: [orders](madarch:code.service:orders)`;
+      if (line.startsWith(`[^${ordersPassage}]:`)) return `[^${ordersPassage}]: [payments](madarch:code.service:payments)`;
+      return line;
+    }).join('\n');
+    const scoped = new UnitTools(view, scope, sink, known, DEFAULT_UNIT_BOUNDS, [], { revisionScope: { before: written, passages: [paymentsPassage!] } });
+    const answer = await scoped.call('write_page', { markdown: swapped });
+    expect((answer.answer as { refused: { rule: string; message: string }[] }).refused.map((refusal) => refusal.rule)).toEqual(['revision-scope']);
+    expect((answer.answer as { refused: { message: string }[] }).refused[0]!.message).toContain('no named passage stands on it');
+    expect(sink.pages.get('docs/validation/payments.md')).toBe(written);
+  });
+
+  test('a revision cannot change the shape of a passage it was not asked about', async () => {
+    const scope = validationSpec('payments');
+    const original = `${header('payments')}Payments run in the payments service.[^1] Orders run in the ordering service.[^2]\n\n[^1]: [payments](madarch:code.service:payments)\n[^2]: [orders](madarch:code.service:orders)\n`;
+    const sink = memorySink();
+    const first = new UnitTools(view, scope, sink, known, DEFAULT_UNIT_BOUNDS);
+    expect((await first.call('write_page', { markdown: original })).isError).toBe(false);
+    const written = sink.pages.get('docs/validation/payments.md')!;
+    const [paymentsPassage] = statementsOfMarkdown(written).map((statement) => statement.id);
+    // The sentence reads the same, so only the shape under it changed: a passage not named may not be rewritten.
+    const changed = written.replace('Orders run in the ordering service.', 'Orders run in *the ordering service*.');
+    expect(changed).not.toBe(written);
+    const scoped = new UnitTools(view, scope, sink, known, DEFAULT_UNIT_BOUNDS, [], { revisionScope: { before: written, passages: [paymentsPassage!] } });
+    const answer = await scoped.call('write_page', { markdown: changed });
+    expect((answer.answer as { refused: { rule: string; message: string }[] }).refused.map((refusal) => refusal.rule)).toEqual(['revision-scope']);
+    expect(sink.pages.get('docs/validation/payments.md')).toBe(written);
   });
 
   test('a page of another id is refused, so a unit cannot write another unit\'s page', async () => {

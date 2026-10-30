@@ -285,9 +285,22 @@ function LanguageSection({ settings, reload }: { settings: ProductSettings; relo
   );
 }
 
-function BoundsSection({ settings }: { settings: ProductSettings }): ReactElement {
+function BoundsSection({ settings, reload }: { settings: ProductSettings; reload: () => void }): ReactElement {
   const { t } = useTranslation();
   const bounds = settings.bounds;
+  // The revision-request bound is the one bound the reader sets (madarch-ztyq.9, review 199): it is saved in the
+  // product's writer settings and carried to the fill worker, so the number shown here is the number enforced.
+  const [editorial, setEditorial] = useState(String(bounds.editorialRequestsPerPage));
+  const [saving, setSaving] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+  useEffect(() => { setEditorial(String(bounds.editorialRequestsPerPage)); }, [bounds.editorialRequestsPerPage]);
+  const save = (): void => {
+    const value = Number(editorial);
+    if (!Number.isInteger(value) || value < 0 || value > 12) { setError(t('settings.bounds.invalid')); return; }
+    setSaving(true);
+    setError(null);
+    saveProductSettings({ editorialRequestsPerPage: value }).then(() => { setSaving(false); reload(); }, (failure: unknown) => { setSaving(false); setError(message(failure)); });
+  };
   return (
     <Section id="bounds" title={t('settings.bounds.title')} intro={t('settings.bounds.intro')}>
       <dl className="m-0 grid grid-cols-[max-content_1fr] gap-x-6 gap-y-1 text-small">
@@ -298,6 +311,15 @@ function BoundsSection({ settings }: { settings: ProductSettings }): ReactElemen
         <dt className="text-secondary">{t('settings.bounds.domains')}</dt><dd className="m-0">{bounds.maxDomains}</dd>
         <dt className="text-secondary">{t('settings.bounds.editorial')}</dt><dd className="m-0" data-testid="bound-editorial">{bounds.editorialRequestsPerPage}</dd>
       </dl>
+      <div className="mt-3 flex flex-wrap items-end gap-2">
+        <label className="grid gap-1 text-small" htmlFor="settings-editorial-bound">
+          <span className="text-secondary">{t('settings.bounds.editorial')}</span>
+          <input id="settings-editorial-bound" data-testid="bound-editorial-input" className="w-24 rounded-[var(--radius-card)] border border-line px-2 py-1" type="number" min={0} max={12} step={1} value={editorial} disabled={saving || settings.busy} onChange={(event) => setEditorial(event.target.value)} />
+        </label>
+        <Button variant="default" size="default" data-testid="bound-editorial-save" disabled={saving || settings.busy} onClick={save}>{t('settings.bounds.save')}</Button>
+      </div>
+      <p className="mb-0 mt-2 text-small text-muted">{t('settings.bounds.editorialNote')}</p>
+      {error !== null && <p className="mb-0 mt-2 text-small" role="alert">{error}</p>}
     </Section>
   );
 }
@@ -415,7 +437,7 @@ export function SettingsPage({ version, status, refresh }: { version: number; st
       <ModelSection settings={data} reload={again} />
       <RolesSection settings={data} reload={again} />
       <LanguageSection settings={data} reload={again} />
-      <BoundsSection settings={data} />
+      <BoundsSection settings={data} reload={again} />
       <PlacesSection settings={data} />
       <DangerSection settings={data} refresh={again} />
     </section>

@@ -52,6 +52,12 @@ export interface WorkerStart {
    * server: the worker treats the editing role as unresolved and says so.
    */
   roles?: ModelRoleView;
+  /**
+   * The most revision requests one page may receive (madarch-ztyq.9, review 199). It is the product
+   * setting `writer.json` holds, validated before the fill starts; absent from an older server and
+   * then the writer's default applies.
+   */
+  editorialRequestsPerPage?: number;
   language: string;
   languageChanged: boolean;
   /** The language the pages were last written in, when it is known: a translation says from which. */
