@@ -590,7 +590,7 @@ describe('document links', () => {
 
 describe('the sync button', () => {
   const status = (over: Partial<WikiStatus> = {}): WikiStatus => ({
-    product: { name: 'shop', id: 'x' }, manifest: 'ok', manifestFile: 'madarch/kinds.yaml', language: 'en', seeded: [], findings: [], kinds: [], groups: [], repositories: [{ name: 'training', filled: true }], filled: true, incomplete: false, fill: { state: 'done', finishedAt: '2026-10-27T09:00:00.000Z' }, writer: { state: 'idle', agent: null, units: [] }, bounds: { turns: 30, minutes: 10, toolCalls: 80, writeAttempts: 5, maxDomains: 12 }, chosenAgent: null, home: null, ...over,
+    product: { name: 'shop', id: 'x' }, manifest: 'ok', manifestFile: 'madarch/kinds.yaml', language: 'en', seeded: [], findings: [], kinds: [], groups: [], repositories: [{ name: 'training', filled: true }], filled: true, incomplete: false, fill: { state: 'done', finishedAt: '2026-10-27T09:00:00.000Z' }, writer: { state: 'idle', agent: null, units: [] }, bounds: { turns: 30, minutes: 10, toolCalls: 80, writeAttempts: 5, maxDomains: 12, editorialRequestsPerPage: 2 }, chosenAgent: null, home: null, ...over,
   });
   /** The top bar, so the button is proven where the reader sees it, not only as a component of its own. */
   const bar = (state: WikiStatus, refresh: () => void): ReturnType<typeof createElement> => createElement(Toolbar, { status: state, route: { name: 'home' }, menu: null, refresh, products: [], current: 'shop' });
