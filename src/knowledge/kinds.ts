@@ -55,6 +55,12 @@ export interface Finding {
    * not a file of this machine — a manifest's entry, say — has none.
    */
   source?: string;
+  /**
+   * The page this finding stands for, while that page waits for the agent to write it (madarch-m38l.23): the page id the
+   * wiki addresses it by. A finding that names one is not shown while the writer is taking the page up, because the page
+   * is not missing: it is being written. Absent for every problem a reader sees at once.
+   */
+  pending?: string;
 }
 
 /** An edge the product declares between an entity of a kind and the entity at a key (decision 0029: the manifests hold the relations). */

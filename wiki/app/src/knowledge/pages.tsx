@@ -18,11 +18,10 @@ import { getViews, getDocument, getDocuments, getEntities, getPage, getSource, g
 import { syncFrontTabAddress, useTabTitle } from './tabs.js';
 import { currentHistory } from './history-context.js';
 import { HistoryBar } from './history-bar.js';
-import { AgentChoice, WriterCard, useAgentChoice } from './writer.js';
+import { AgentChoice, useAgentChoice, WriterLine } from './writer.js';
 import { FailureNote } from './errors.js';
 import { BlockView, CodeLines, CodePlace, EntityName, Findings, KLink, KMarkdown, PlannedBadge, PlannedContext, brokenWords, groupLabel, scrollToAnchor, sentenceKey, type PlannedMarks } from './blocks.js';
 import { addressOfDocument, addressOfEntity, addressOfJournal, addressOfKind, addressOfStatement } from './routes.js';
-import { hasJournal } from './journal.js';
 import { KindLabels, useKindName } from './kind-names.js';
 import { fillShare, fillWords } from './fill-words.js';
 import { useRead } from './live.js';
@@ -96,7 +95,8 @@ export function EntityPage({ id, version }: { id: string; version: number }): Re
         <h1 data-testid="page-title">{page.title}</h1>
         {page.notes.map((note) => <p key={note} className="text-small text-muted" data-testid="page-note">{note}</p>)}
         {page.planned?.note !== undefined && <p className="text-small" role="alert" data-testid="page-planned-note">{page.planned.note}</p>}
-        {hasJournal(page.id) && <p className="text-small" data-testid="journal-link"><KLink href={addressOfJournal(page.id)}>{t('journal.title')}</KLink></p>}
+        {/* «Как агент писал эту страницу» only where the store holds a journal of it (madarch-m38l.23). */}
+        {page.journal !== undefined && <p className="text-small" data-testid="journal-link"><KLink href={addressOfJournal(page.id)}>{t('journal.title')}</KLink></p>}
       </header>
       <PlannedContext.Provider value={planned}>
       {page.blocks.map((block, index) => {
@@ -258,7 +258,7 @@ export function FillCard({ status, refresh }: { status: WikiStatus; refresh: () 
   return (
     <>
       <FillPart status={status} refresh={refresh} />
-      <WriterCard status={status} refresh={refresh} />
+      <WriterLine status={status} refresh={refresh} />
     </>
   );
 }

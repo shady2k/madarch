@@ -22,7 +22,7 @@ import type { DocEntity } from '../src/knowledge/doc-entities.js';
 import {
   enrichmentPath, enrichmentPageId, fsSink, GraphView, memorySink, memoryWriterState, runWriter, UnitTools, writerGraphProblems,
   writerPageFamily, writerUnitOrder, WRITER_UNIT_KINDS,
-  type PageSink, type UnitAgent, type UnitRequest, type WriterReport,
+  type PageSink, type UnitAgent, type UnitRequest, type WriterReport, type WriterUnitRun,
 } from '../src/writer/index.js';
 import { fillWriterState } from '../src/writer/graph-state.js';
 import { gitEnv } from './git-env.js';
@@ -642,4 +642,98 @@ describe('a unit that cannot run', () => {
       rmSync(scratchProduct, { recursive: true, force: true });
     }
   }, 120_000);
+});
+
+// ---------------------------------------------------------------------------------------------
+// The pages a run counts: every page it takes up, and no page it does not (madarch-m38l.23)
+// ---------------------------------------------------------------------------------------------
+
+describe('the pages a run counts', () => {
+  /** The units a report says stand: written by this run, or kept from an earlier one. */
+  const standing = (report: WriterReport): WriterUnitRun[] => report.graph
+    .flatMap((kind) => kind.units)
+    .filter((unit) => unit.status === 'written' || unit.status === 'kept');
+  /** Every unit of the report's graph, by id. */
+  const unitsOf = (report: WriterReport): WriterUnitRun[] => report.graph.flatMap((kind) => kind.units);
+
+  test('the total is the pages the run takes up, the editorial page included, and is told once the domains are known', async () => {
+    const folder = mkdtempSync(join(tmpdir(), 'madarch-writer-graph-count-'));
+    try {
+      mkdirSync(join(folder, 'docs'), { recursive: true });
+      declareWriterPages(folder);
+      const events: string[] = [];
+      const totals: number[] = [];
+      const report = await runWriter({
+        owner, store, repository, output: folder, productName: 'Tiny shop', agent: scripted().agent, documentEntities: entities, state: memoryWriterState(), sink: fsSink(folder),
+        onUnitStart: (unit) => events.push(`start ${unit.unit}`),
+        onUnit: (outcome) => events.push(`end ${outcome.unit}`),
+        onTotal: (total) => { totals.push(total); events.push(`total ${total}`); },
+      });
+      expect(report.ok).toBe(true);
+      const stands = standing(report).map((unit) => unit.unit);
+      // The editorial pass reads the passages this run enriched and writes its page: it is a page the run takes up.
+      expect(stands).toContain('editorial:tiny-shop');
+      expect([...stands].sort()).toEqual([
+        'domain:ordering', 'editorial:tiny-shop', 'graph-validation:tiny-shop', 'overview:tiny-shop',
+        'product:tiny-shop', 'enrichment:doc:docs/requirements.md#doc-section:1', 'enrichment:doc:docs/requirements.md#doc-section:2',
+        'enrichment:doc:docs/requirements.md#doc-section:3',
+      ].sort());
+      // Every page the count holds is a page the run took up, and no page it took up is missing from the count.
+      expect(totals).toEqual([stands.length]);
+      // The count is told after the product page declared its domains and never again: until then the reader has the
+      // pages that stand and no denominator, and after it the bar never moves backward.
+      expect(events.filter((event) => event.startsWith('total')).length).toBe(1);
+      const told = events.indexOf(`total ${totals[0]}`);
+      expect(events.slice(0, told)).toContain('end product:tiny-shop');
+      expect(events.slice(told)).toContain('start domain:ordering');
+    } finally {
+      rmSync(folder, { recursive: true, force: true });
+    }
+  }, 240_000);
+
+  test('a passage in the pages’ own language is no page of the run, and is not counted', async () => {
+    const folder = mkdtempSync(join(tmpdir(), 'madarch-writer-graph-language-'));
+    try {
+      mkdirSync(join(folder, 'docs'), { recursive: true });
+      declareWriterPages(folder);
+      // The pages' language is the product's own: every passage of the document is already in it, so no localized page
+      // is a page of this run — the count must not hold three pages the run never takes up.
+      const totals: number[] = [];
+      const report = await runWriter({ owner, store, repository, output: folder, productName: 'Tiny shop', agent: scripted().agent, documentEntities: entities, language: 'en', state: memoryWriterState(), sink: fsSink(folder), onTotal: (total) => totals.push(total) });
+      expect(report.ok).toBe(true);
+      expect(unitsOf(report).filter((unit) => unit.unit.startsWith('localized-source:'))).toEqual([]);
+      expect(totals).toEqual([standing(report).length]);
+    } finally {
+      rmSync(folder, { recursive: true, force: true });
+    }
+  }, 240_000);
+
+  test('a page an earlier run kept is told as a page of this run, so its count reaches the end', async () => {
+    const folder = mkdtempSync(join(tmpdir(), 'madarch-writer-graph-kept-'));
+    try {
+      mkdirSync(join(folder, 'docs'), { recursive: true });
+      declareWriterPages(folder);
+      const state = memoryWriterState();
+      const first = await runWriter({ owner, store, repository, output: folder, productName: 'Tiny shop', agent: scripted().agent, documentEntities: entities, language: 'en', state, sink: fsSink(folder) });
+      expect(first.ok).toBe(true);
+      // The same inputs run again on the state of the run that wrote every page: every unit is kept, and each one is
+      // told as a unit of this run too, so the reader's count reaches the end instead of stopping where this run wrote.
+      const started: string[] = [];
+      const agent = scripted();
+      const report = await runWriter({
+        owner, store, repository, output: folder, productName: 'Tiny shop', agent: agent.agent, documentEntities: entities, language: 'en', state, sink: fsSink(folder),
+        onUnitStart: (unit) => started.push(unit.unit),
+        onTotal: (total) => started.push(`total ${total}`),
+      });
+      expect(report.ok).toBe(true);
+      const units = unitsOf(report);
+      expect(agent.seen).toEqual([]);
+      expect(units.map((unit) => `${unit.unit} ${unit.status}`).filter((line) => !line.endsWith(' kept'))).toEqual([]);
+      expect(units).toHaveLength(8);
+      // Every page of the run is told as it starts, the kept ones included, and the count it is told against holds them.
+      expect([...started].sort()).toEqual(['total 8', ...units.map((unit) => unit.unit)].sort());
+    } finally {
+      rmSync(folder, { recursive: true, force: true });
+    }
+  }, 240_000);
 });
