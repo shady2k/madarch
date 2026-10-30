@@ -180,6 +180,9 @@ export type GroupSummary = { group: string; labels: Record<string, string>; /** 
 export type OperationMetadata = { contracts: {entity: EntityRef; protocol: string; directions?: ('publish' | 'subscribe')[]; directionStatus?: 'known' | 'unavailable'; producedBy?: EntityRef[]; consumedBy?: EntityRef[]}[]; implementedBy: EntityRef[]; calledBy: EntityRef[]; cuts: {relation: string; shown: number; total: number}[] };
 export type EntityListing = { kind: string; total: number; rows: EntityRef[]; next: string | null; operations?: Record<string, OperationMetadata> };
 
+/** One page a refresh changed, as the top bar lists it: the page's id and the title its page shows. */
+export type ChangedPage = { id: string; title: string };
+
 export type FillState = {
   rebuilt?: 'extractors-changed';
   state: 'idle' | 'running' | 'done' | 'failed';
@@ -194,6 +197,8 @@ export type FillState = {
   /** What kind of failure it was; the app words it in the reader's language and keeps `message` as the detail. */
   code?: string;
   gaps?: number;
+  /** The pages the run changed; absent when it did not say, empty when it changed none (madarch-u3vw2). */
+  changed?: ChangedPage[];
 };
 
 export type WriterUnit = {
@@ -393,6 +398,18 @@ export type DangerPlan = {
   fresh: { store: string[]; agentPages: string[]; keptPages: string[]; unansweredQuestions: string[]; keptAnswers: string[]; editedStarterFiles: string[]; replacedStarterFiles: string[] };
 };
 
+/** The model roles a feature may ask for (madarch-j6ho.2). */
+export type ModelRoleId = 'writing' | 'classification' | 'analysis';
+export type ModelPair = { agent: string; model?: string; reasoning?: string };
+export type ResolvedModelRole = {
+  role: ModelRoleId;
+  pair: ModelPair | null;
+  source: 'assigned' | 'fallback' | 'none';
+  fallbackFrom?: 'writing';
+  note?: string;
+};
+export type ModelRoleView = { defaultRole: 'writing'; defaultPair: ModelPair | null; roles: ResolvedModelRole[] };
+
 /** The product settings page (madarch-m38l.11): what is set for this product on this machine. */
 export type ProductSettings = {
   product: { name: string; id: string };
@@ -400,6 +417,9 @@ export type ProductSettings = {
   store: string;
   language: string;
   chosenAgent: { id: string; label: string; model?: string; reasoning?: string } | null;
+  roles: ModelRoleView;
+  /** The name every agent madarch offers is known by (madarch-j6ho.2), so a row names its agent at once. */
+  agentNames: Record<string, string>;
   bounds: WriterBounds;
   danger: DangerPlan;
   dangerError?: string;

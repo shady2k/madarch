@@ -6,6 +6,7 @@
   "scripts": {
     "check": "tsc --noEmit",
     "test": "bun test test/",
+    "answer-key:check": "bun scripts/answer-key-check-training.ts",
     "schemas": "bun scripts/generate-schemas.ts",
     "views": "bun scripts/render-views.ts",
     "views:check": "bun scripts/check-views.ts",
