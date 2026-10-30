@@ -123,6 +123,10 @@ None.
 
 ## Design and decisions
 
+- **The merge with #202.** `origin/main` (`b96a5904`) adds `hideEmpty` to refs
+  blocks. `isDrawn` stays the one drawability decision and its `refs` case
+  honours `hideEmpty` with the block's total, so #202's hidden empty block and
+  the member redirect are both kept.
 - **A member is a place, not a page.** `render.ts`'s member branch resolves the
   parent through the declared relation (`memberParent`, which reads the
   relation's direction from the manifest and matches either end), answers with
