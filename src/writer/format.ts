@@ -15,6 +15,7 @@ import { byCodePoint } from '../model/order.js';
 import { headingLinks } from '../knowledge/markdown.js';
 import type { WrittenAt } from '../knowledge/index/page.js';
 import { isNumbered, nameStatements, sentenceKey } from './names.js';
+import { insertMentionLinks, type MentionName } from './mentions.js';
 import { maskInline, plainSentence, QUESTION_LINK, REFERENCE_RUN, sentencesOf, statementsOf, unmask, withoutQuestionLinks } from './sentences.js';
 
 /** One reason a page is refused: the line (1-based, in the whole file), the rule and a message the agent can act on. */
@@ -357,7 +358,7 @@ async function linkCodeSpans(body: string, resolver: GroundResolver): Promise<st
  * Checks one page. Every rule that fails is reported at once, so an agent
  * fixes a page in one round rather than one rule at a time.
  */
-export async function checkPage(markdown: string, expected: PageExpectation, resolver: GroundResolver): Promise<PageCheck> {
+export async function checkPage(markdown: string, expected: PageExpectation, resolver: GroundResolver, mentions: readonly MentionName[] = []): Promise<PageCheck> {
   const located = (refusal: Refusal): Refusal => {
     const location = [expected.file, expected.fullPath].filter((part): part is string => part !== undefined).join(' — ');
     return location === '' ? refusal : { ...refusal, message: `${location}:${refusal.line}: ${refusal.message}` };
@@ -527,7 +528,13 @@ export async function checkPage(markdown: string, expected: PageExpectation, res
   }
   if (units.length === 0) refusals.push({ line: split.bodyStart, rule: 'empty', message: 'the page states nothing: it has no sentence with grounds' });
   if (refusals.length > 0 || front.front === undefined) return { ok: false, refusals: refusals.sort((a, b) => a.line - b.line || byCodePoint(a.rule, b.rule)).map(located) };
-  return { ok: true, page: canonical(front.front, body, defined, links, allGrounds, expected.previous, names) };
+  const page = canonical(front.front, body, defined, links, allGrounds, expected.previous, names);
+  if (mentions.length === 0) return { ok: true, page };
+  // The core writes the link where the agent wrote a known name (madarch-ztyq.8): the agent's own links and
+  // footnote definitions are already structure, so only plain prose gains one. The page is checked first;
+  // insertion cannot make an accepted page unacceptable.
+  const inserted = insertMentionLinks(page.markdown, mentions, { pageId: expected.id, pageTitle: front.front.title, sources: front.front.sources, evidence: front.front.relates });
+  return { ok: true, page: inserted.targets.length === 0 ? page : { ...page, markdown: inserted.markdown, links: [...page.links, ...inserted.targets] } };
 }
 
 /** The names the replaced page gave its sentences, by sentence. */

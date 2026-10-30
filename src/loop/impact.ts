@@ -137,12 +137,13 @@ export async function impactOf(owner: DatabaseOwner, productFolder: string, grou
     // A ground the graph answers nothing for may be a ground the index has not published yet: said, never hidden.
     if (statements.size === before) unindexed.push(ground);
   }
-  // The second hop: a page that links a reached statement, or one of the same entities the reached statements name,
-  // is reached too — the brief's own rule, not every page that happens to link a reached page.
+  // The second hop: a page that links a reached statement, or one of the same grounds the reached statements stand
+  // on, is reached too — the brief's own rule, not every page that happens to link a reached page. Prose links that
+  // the writer inserts over names (madarch-ztyq.8) are reading aids, not evidence, so they do not widen the scope.
   const entities = new Set<string>(wanted);
   for (const statement of statements.values()) {
     const one = byId.get(statement.page)?.statements.find((candidate) => candidate.id === statement.statement);
-    for (const key of [...(one?.grounds ?? []), ...(one?.mentions ?? [])]) entities.add(key);
+    for (const key of one?.grounds ?? []) entities.add(key);
   }
   for (const page of pages) {
     if (reached.some((held) => held.id === page.id)) continue;
