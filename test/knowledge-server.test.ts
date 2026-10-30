@@ -15,6 +15,7 @@ import { startServer, type StartedServer } from '../src/server/http.js';
 import { gitEnv } from './git-env.js';
 import { SAMPLE_IDENTITY, makeProduct, recordKey } from './knowledge-fixture.js';
 import type { Block } from '../src/knowledge/model.js';
+import { historyFigureText, isCountedFigure } from '../src/knowledge/history-figures.js';
 
 const sym = (rest: string): string => recordKey('code.symbol', rest);
 
@@ -414,6 +415,39 @@ describe('the pages for agents', () => {
     const landmarkMarkdown = (await get(`${landmarkAddress}.md`)).body;
     for (const item of held.items) expect(landmarkMarkdown).toContain(`](${item.url})`);
   }, 60_000);
+
+  test('the Markdown of a page writes its history figures in the reader\'s language, as the app draws them', async () => {
+    const ids = [recordKey('code.author', 'Fixture'), recordKey('code.module', 'src')];
+    const countedOf = new Map<string, { kind: string; value: string }[]>();
+    for (const id of ids) {
+      const page = (await get(`/products/tiny/api/k/page?${new URLSearchParams({ id, lang: 'en', full: '1' })}`)).body;
+      const figures = (page.blocks as Block[]).flatMap((block) => block.type === 'history' ? block.sections.flatMap((section) => section.rows.flatMap((row) => row.figures)) : []);
+      const counted = figures.filter((figure) => isCountedFigure(figure.kind));
+      expect(counted.length).toBeGreaterThan(0);
+      countedOf.set(id, counted);
+      const english = (await get(`${pageAddress(id)}.md`)).body;
+      const russian = (await get(`${pageAddress(id)}.md?lang=ru`)).body;
+      for (const figure of counted) {
+        expect(english).toContain(historyFigureText(figure, 'en'));
+        expect(russian).toContain(historyFigureText(figure, 'ru'));
+        // A counted figure is a phrase, never the kind's name followed by the numeral.
+        expect(english).not.toContain(`${figure.kind}: ${figure.value}`);
+        expect(russian).not.toContain(`${figure.kind}: ${figure.value}`);
+      }
+      // The JSON keeps every figure as its kind and its value, whatever the language of the Markdown.
+      const document = (await get(`${pageAddress(id)}.json?lang=ru`)).body;
+      for (const figure of counted) expect(JSON.stringify(document)).toContain(JSON.stringify(figure));
+    }
+    // One author's page holds a commit figure of one and of two, so both forms are written.
+    const author = recordKey('code.author', 'Fixture');
+    expect(countedOf.get(author)!.map((figure) => `${figure.kind} ${figure.value}`)).toEqual(['commits 2', 'commits 1', 'commits 1']);
+    const authorEnglish = (await get(`${pageAddress(author)}.md`)).body;
+    const authorRussian = (await get(`${pageAddress(author)}.md?lang=ru`)).body;
+    expect(authorEnglish).toContain('1 commit');
+    expect(authorEnglish).toContain('2 commits');
+    expect(authorRussian).toContain('1 коммит');
+    expect(authorRussian).toContain('2 коммита');
+  });
 
   test('a kind is Markdown and JSON at its .md and .json siblings, every entity of the kind', async () => {
     const status = (await get('/products/tiny/api/k/status')).body;
