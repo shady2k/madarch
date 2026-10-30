@@ -162,11 +162,10 @@ describe('the blocks', () => {
     expect(container.querySelector('[data-testid=related-cut]')!.textContent).toBe('Showing 3 of 5.');
   });
 
-  test('a related block with nothing to show says so with its title', async () => {
+  test('a related block with nothing to show draws no section', async () => {
     const container = into(createElement(BlockView, { block: { type: 'related', title: 'Imports', groups: [] }, resolutions: {} }));
-    await until(() => container.querySelector('[data-testid=related-empty]') !== null, 'the empty line');
-    expect(container.querySelector('h2')!.textContent).toBe('Imports');
-    expect(container.querySelector('[data-testid=related-empty]')!.textContent).toBe('nothing');
+    expect(container.querySelector('section')).toBeNull();
+    expect(container.textContent).toBe('');
   });
 
   test('callers list each caller with the call site as a link to the source at its line, and say how many there are in all', async () => {

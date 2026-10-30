@@ -30,6 +30,7 @@ import { betweenCounters, NO_COUNTERS, type CallCounters } from './journal.js';
 import { detectStatementLanguage, LOCALIZED_SOURCE_SCHEMA, parseLocalizedSource, renderLocalizedSource } from './localized-source.js';
 import { ENRICHMENT_FRONT_KEYS, enrichmentOverwriteProblem, enrichmentPageId, renderEnrichment } from './enrichment.js';
 import { implementationPlaces, parseFields, renderStructuredBody, structuredKindOf, structuredLanguage, structuredSchema, type NamedPlace, type ScenarioFields, type StructuredFields, type StructuredKind } from './structured.js';
+import { developerPlaces, domainGrounds, domainSchema, renderDomainPage, parseDomainFields, type DomainFields } from './domain-page.js';
 import type { GuidePreparedUnit } from './guides/host-contract.js';
 import { validateGuide } from './guides/validate.js';
 import { renderGuideArtifact } from './guides/artifact.js';
@@ -361,6 +362,18 @@ export function writeEnrichmentTool(kind: StructuredKind): McpToolDefinition {
   };
 }
 
+/**
+ * The write of a domain page (decision 0032, sections 1, 2 and 6; madarch-ztyq.6): the business first — who takes
+ * part, how it goes, the rules that govern it, what can go wrong, what is open — and one section for the developer
+ * at the end, where the routes, functions, tables, events, status codes, headers and timeouts stand. The unit fills
+ * the fields; the core writes the sections and their headings in the wiki's language (`src/writer/domain-page.ts`).
+ */
+export const WRITE_DOMAIN_PAGE_TOOL: McpToolDefinition = {
+  name: 'write_page',
+  description: 'Writes the page of this domain. It opens with the business — participants, the main scenario in numbered steps, the rules that govern it, what can go wrong, what is open — and ends with one section for the developer, the only place where routes, functions, tables, events, status codes, headers and timeouts are named. Every sentence carries the grounds that show it, a business sentence stands on a document section or a service and never on a place of the code, and every place of the developer section is a graph key you resolved. The core writes the sections, their headings in the wiki language and the sentence a part says when the documents settle nothing; a statement you cannot ground is refused, so state it in openPoints instead of inventing it.',
+  inputSchema: domainSchema(),
+};
+
 const fail = (code: string, message: string, extra: Record<string, unknown> = {}): ToolAnswer => ({ answer: { error: { code, message, ...extra } }, isError: true });
 const ok = (answer: unknown): ToolAnswer => ({ answer, isError: false });
 
@@ -464,6 +477,9 @@ export class UnitTools {
       const write = structured === undefined ? WRITE_ENRICHMENT_TOOL : writeEnrichmentTool(structured);
       return WRITER_TOOLS.map((tool) => (tool.name === 'write_page' ? write : tool));
     }
+    // A domain page is the six sections of `src/writer/domain-page.ts`: the unit fills their fields, the core writes
+    // the page, so the business comes first and the code stands in one section at the end.
+    if (this.unit.kind === 'domain') return WRITER_TOOLS.map((tool) => (tool.name === 'write_page' ? WRITE_DOMAIN_PAGE_TOOL : tool));
     return this.unit.kind === 'product' ? WRITER_TOOLS : WRITER_TOOLS.map((tool) => (tool.name === 'write_page' ? { ...tool, inputSchema: object({ markdown: { type: 'string' } }, ['markdown']) } : tool));
   }
 
@@ -677,6 +693,66 @@ export class UnitTools {
     this.produced.grounds += verdict.page.grounds.length;
     this.produced.links += verdict.page.links.length;
     return ok({ written: true, path: unit.path, entity: enrichmentPageId(unit.entity), grounds: verdict.page.grounds.length });
+  }
+
+  /**
+   * The page of this domain, rendered from its fields after every ground resolved: the business sections stand on
+   * document sections and on services, the developer section on keys the graph holds of the very kind its field
+   * says, and a key that does not resolve is refused with the tool that would have found it. Nothing is written on
+   * a refusal, and the refusal names the page at its full path.
+   */
+  private async domainPageOf(value: unknown): Promise<{ readonly markdown: string } | { readonly refusals: readonly Refusal[] }> {
+    const unit = this.unit;
+    if (unit.kind !== 'domain') throw new Error('src/writer/tools.ts: domainPageOf is only for a domain unit');
+    const where = resolve(this.extras.output ?? process.cwd(), unit.path);
+    const read = parseDomainFields(value);
+    if (!read.ok) return { refusals: read.problems.map((problem) => ({ line: problem.line, rule: problem.rule, message: `${where}:${problem.line}: ${problem.message}` })) };
+    const fields: DomainFields = read.fields;
+    const refusals: Refusal[] = [];
+    // The places of the developer section are resolved below, by the kind their field holds: they are not judged a
+    // second time as plain grounds, so one bad key is one refusal.
+    const places = new Set(developerPlaces(fields).map((place) => place.target));
+    const grounds = domainGrounds(fields);
+    for (const target of grounds) {
+      if (places.has(target)) continue;
+      if (target.startsWith('doc:')) {
+        const hash = target.indexOf('#');
+        const path = target.slice('doc:'.length, hash < 0 ? undefined : hash);
+        const anchor = hash < 0 ? '' : target.slice(hash + 1);
+        if (hash <= 'doc:'.length || anchor === '') { refusals.push({ line: 1, rule: 'ground-shape', message: `${where}:1: the ground ${JSON.stringify(target)} is no doc:<path>#<anchor>: name the section of the document, as get_document_sections answers it` }); continue; }
+        if (!(await this.view.docSection(path, anchor))) { refusals.push({ line: 1, rule: 'unresolved-ground', message: `${where}:1: the ground ${JSON.stringify(target)} names a section the document ${path} has not at the last filled commit: get_document_sections finds a section and answers the ground exactly` }); continue; }
+        this.names.set(target, await this.view.nameOf({ type: 'doc', path, anchor: anchor.toLowerCase() }));
+        continue;
+      }
+      // A page a statement stands on — an answered question, a correction — is no graph key: `checkPage` decides
+      // whether this product holds it, with the ids the run gives it (`entities`), so it is left to that check and
+      // named by its own title when the view knows it.
+      if (target.startsWith('question:') || target.startsWith('correction:')) {
+        // Its slug is what a reader sees in the footnote: the question itself is opened by the link.
+        this.names.set(target, target.slice(target.indexOf(':') + 1));
+        continue;
+      }
+      const node = await this.view.node(target);
+      if (node === null) { refusals.push({ line: 1, rule: 'unresolved-ground', message: `${where}:1: the ground ${JSON.stringify(target)} is no key of the graph at the last filled commit: find_nodes answers a service, get_symbol a function, trace_flow a route, and the ground is exactly the key they answer` }); continue; }
+      this.names.set(target, await this.view.nameOf({ type: 'graph', key: target }));
+    }
+    for (const place of developerPlaces(fields)) {
+      const held = (await this.view.node(place.target))?.kind;
+      if (held === undefined) {
+        refusals.push({ line: 1, rule: 'unresolved-place', message: `${where}:1: developer.${place.field} names ${JSON.stringify(place.target)}, and the graph holds no such key at the last filled commit: read the place with ${place.field === 'routes' ? 'trace_flow (the route, by its POST /path or its key)' : place.field === 'functions' ? 'get_symbol (the function, by its name)' : `get_context or find_nodes of kind ${place.nodeKind}`}, and name exactly the key it answers` });
+        continue;
+      }
+      if (held !== place.nodeKind) { refusals.push({ line: 1, rule: 'place-kind', message: `${where}:1: developer.${place.field} names ${JSON.stringify(place.target)}, which is a ${held}: this field holds ${place.nodeKind} keys` }); continue; }
+      this.names.set(place.target, await this.view.nameOf({ type: 'graph', key: place.target }));
+    }
+    if (refusals.length > 0) return { refusals };
+    const rendered = renderDomainPage(fields, {
+      language: structuredLanguage(this.extras.language),
+      labelOf: (target) => this.labelOf(target),
+      domain: { slug: unit.domain.slug, title: unit.domain.title },
+      evidence: unit.domain.evidence,
+    });
+    return { markdown: rendered.markdown };
   }
 
   /** The name a place is shown by: what the graph calls it, resolved when the page's places were. */
@@ -1183,8 +1259,18 @@ export class UnitTools {
     if (this.status === 'written') return fail('already-written', `this unit already wrote ${this.unit.path}`);
     if (this.writeAttempts >= this.bounds.maxWriteAttempts) return fail('no-attempts', `this unit made ${this.bounds.maxWriteAttempts} refused writes and has failed; nothing more is accepted`);
     this.writeAttempts += 1;
-    const markdown = args['markdown'];
-    if (typeof markdown !== 'string' || markdown.trim() === '') return this.refuse([{ line: 0, rule: 'markdown', message: '"markdown" is the whole page as a non-empty text' }]);
+    // A domain page is not the unit's Markdown: it is the six sections of `src/writer/domain-page.ts`, and the core
+    // writes them from the fields the unit gives, so the business comes first and the code stands at the end.
+    let markdown: string;
+    if (this.unit.kind === 'domain') {
+      const rendered = await this.domainPageOf(args['fields']);
+      if ('refusals' in rendered) return this.refuse(rendered.refusals);
+      markdown = rendered.markdown;
+    } else {
+      const supplied = args['markdown'];
+      if (typeof supplied !== 'string' || supplied.trim() === '') return this.refuse([{ line: 0, rule: 'markdown', message: '"markdown" is the whole page as a non-empty text' }]);
+      markdown = supplied;
+    }
     let domains = this.knownDomains;
     if (this.unit.kind === 'product') {
       const checked = await this.validateDomains(args['domains']);

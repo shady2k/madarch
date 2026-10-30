@@ -83,14 +83,14 @@ describe('serveWiki with a product or a manifestless directory', () => {
     const folder = join(base, 'no-manifest');
     mkdirSync(join(folder, 'templates'), { recursive: true });
     writeFileSync(join(folder, 'workspace.yaml'), 'schemaVersion: 1\nid: bare-id\nname: Bare\n');
-    writeFileSync(join(folder, 'templates', 'domain.md'), 'my own template\n');
+    writeFileSync(join(folder, 'templates', 'domain.liquid'), 'my own template\n');
     const result = serving(await serveWiki({ productFolder: folder, appFolder: builtApp(base), port: 0, open: false, print: () => {}, printError: () => {} }));
     const status = await (await fetch(`${result.url}/api/k/status`)).json() as { manifest: string; seeded: string[]; kinds: { kind: string }[] };
     expect(status.manifest).toBe('ok');
-    expect(status.seeded).not.toContain('templates/domain.md');
-    expect(status.seeded).toContain('templates/product.md');
+    expect(status.seeded).not.toContain('templates/domain.liquid');
+    expect(status.seeded).toContain('templates/product.liquid');
     expect(status.kinds.map((kind) => kind.kind)).toContain('code.file');
-    expect(readFileSync(join(folder, 'templates', 'domain.md'), 'utf8')).toBe('my own template\n');
+    expect(readFileSync(join(folder, 'templates', 'domain.liquid'), 'utf8')).toBe('my own template\n');
   }, 60_000);
 
   test('does not fall back for a missing path, non-directory, invalid manifest or dangling manifest symlink', async () => {

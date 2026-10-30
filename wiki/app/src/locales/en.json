@@ -73,6 +73,7 @@
     "chooseProduct": "Choose a product",
     "products": "Products",
     "home": "Home",
+    "waiting": "Waiting for you",
     "kinds": "Pages by kind",
     "documents": "Sources",
     "source": "Source",
@@ -304,6 +305,10 @@
     },
     "glossary": {
       "title": "Glossary",
+      "colTerm": "Term",
+      "colDefinition": "Definition",
+      "colNames": "Names",
+      "colPlace": "Place",
       "lead_one": "{{count}} term, each with the place it is stated.",
       "lead_other": "{{count}} terms, each with the place it is stated.",
       "empty": "This product has no glossary yet. A glossary is a document whose list items start with a bold term; the manifest names it under terms.",
@@ -472,7 +477,12 @@
       "language": "Language",
       "symbol": "Symbol",
       "method": "Method",
-      "path": "Path"
+      "path": "Path",
+      "marker": "Marker",
+      "text": "Text",
+      "line": "Line",
+      "service": "Service",
+      "secret": "Secret"
     },
     "pageNotRead": "Could not read the page of {{id}}: {{reason}}",
     "fillRebuiltExtractors": "Graph rebuilt: extractors changed",
@@ -618,7 +628,8 @@
       "stopWords_few": "Stopping ends the run now. {{count}} pages have already been rewritten by this run: they stay as they are, and the page being written now stays as it was before the run.",
       "stopWords_many": "Stopping ends the run now. {{count}} pages have already been rewritten by this run: they stay as they are, and the page being written now stays as it was before the run.",
       "stopWords_other": "Stopping ends the run now. {{count}} pages have already been rewritten by this run: they stay as they are, and the page being written now stays as it was before the run."
-    }
+    },
+    "pageProblems": "{{count}} problems"
   },
   "loop": {
     "questionsTitle": "Questions",
@@ -659,7 +670,7 @@
     "verifiedHint": "On a local install the author is whatever git says; nothing has checked it.",
     "answerWaiting": "The answer is saved. The next refresh edits the pages this question touches, using it.",
     "answerClosed": "Closed {{when}}: a refresh used this answer on",
-    "problemsIntro": "What is wrong with the pages: statements people marked as wrong, and what the engine found itself. Each says who fixes it.",
+    "problemsIntro": "What is wrong with the product: deterministic findings in the code, contradictions and gaps in the documents, and what the wiki could not resolve. Each problem says what it is, how serious it is, where it stands and why.",
     "noProblems": "No problems. Every ground and link resolves and nobody has recorded a correction.",
     "problemsMissing": "The problems could not be read",
     "openProblems": "To fix ({{count}})",
@@ -671,7 +682,8 @@
       "broken-link": "A link or ground names nothing",
       "unreadable-file": "A file cannot be read",
       "unplaced": "An answer or correction reaches no page",
-      "unread-passage": "A passage no reader decided"
+      "unread-passage": "A passage no reader decided",
+      "manifest": "A manifest finding"
     },
     "because": {
       "correction": "Why:",
@@ -679,7 +691,8 @@
       "broken-link": "What the wiki found:",
       "unreadable-file": "What is wrong:",
       "unplaced": "What is wrong:",
-      "unread-passage": "What the wiki could not read:"
+      "unread-passage": "What the wiki could not read:",
+      "manifest": "What the manifest says:"
     },
     "fixer": {
       "agent": "The agent fixes it",
@@ -691,7 +704,8 @@
       "broken-link": "The agent fixes it at the next refresh, when it edits this page.",
       "unreadable-file": "A person fixes it: open the file at the line shown and correct it; the wiki reads it again at once.",
       "unplaced": "A person fixes it: name a page in the file's \"about\", or add the page.",
-      "unread-passage": "The agent reads it at the next fill: it classifies the passage, or the document’s manifest names the kind it is."
+      "unread-passage": "The agent reads it at the next fill: it classifies the passage, or the document’s manifest names the kind it is.",
+      "manifest": "A person fixes it: open the manifest at the line shown and correct it; the wiki reads it again at once."
     },
     "plan": {
       "title": "What the refresh will do",
@@ -789,13 +803,15 @@
       "addAll": "Add all",
       "kind": "Kind: {{name}} ({{key}})",
       "fields": "Fill in the kind {{name}} ({{key}}): {{fields}}",
+      "rule": "Rule: {{name}} ({{key}})",
+      "ruleFields": "Fill in the rule {{name}} ({{key}}): {{fields}}",
       "group": "Group: {{name}}",
       "roles": "The roles: what each role opens and leads with",
       "role": "Role: {{name}}",
       "documents": "The list of files that are not documents (AGENTS.md and the like)",
       "title_few": "The starter set has {{count}} things this product lacks",
       "title_many": "The starter set has {{count}} things this product lacks",
-      "summary": "The starter set has {{count}} kinds and groups this manifest lacks.",
+      "summary": "The starter set has {{count}} kinds, groups and rules this manifest lacks.",
       "showItems": "Show the items",
       "hideItems": "Hide the items",
       "groupHeading": "{{group}}",
@@ -808,7 +824,54 @@
         "history": "History",
         "product": "Product knowledge"
       }
-    }
+    },
+    "sectionCode": "In the code",
+    "sectionDocuments": "In the documents",
+    "sectionWiki": "In the wiki",
+    "sonar": {
+      "vulnerability": "Vulnerability",
+      "bug": "Bug",
+      "code-smell": "Code smell",
+      "security-hotspot": "Security hotspot"
+    },
+    "severity": {
+      "blocker": "Blocker",
+      "critical": "Critical",
+      "major": "Major",
+      "minor": "Minor",
+      "info": "Info"
+    },
+    "problemPlace": "Place:",
+    "problemEntity": "Entity:",
+    "problemEvidence": "Evidence:",
+    "problemCreateTask": "Create a task",
+    "problemNotAProblem": "Not a problem",
+    "problemDismissPrompt": "Why is this not a problem? The reason is kept as a file in the product repository.",
+    "problemDismissConfirm": "Save the reason",
+    "cancel": "Cancel",
+    "problemDismissed": "Recorded as not a problem.",
+    "problemTaskCreated": "Task {{title}} created.",
+    "problemDismissedCount": "{{count}} marked as not a problem.",
+    "rule": {
+      "dependency.cycle": "Dependency cycle",
+      "security.sql-input": "Untrusted input reaches SQL",
+      "security.export-route": "Route outside the auth group",
+      "large-file": "Large file",
+      "hotspot": "Change hotspot",
+      "dead-export": "Exported but unused",
+      "debt.todo": "TODO",
+      "debt.fixme": "FIXME",
+      "config.required-dev-value": "Required setting has a checked-in value",
+      "dependency.declared-unused": "Dependency declared but unused",
+      "dependency.used-undeclared": "Dependency used but undeclared",
+      "contract.operation-without-route": "Contract operation is not implemented",
+      "contract.route-without-operation": "Route is not in the contract",
+      "document.contradiction": "Contradiction",
+      "document.stale": "Stale statement",
+      "document.undocumented": "Undocumented behaviour",
+      "document.ambiguous-term": "Ambiguous term"
+    },
+    "taskFromProblem": "Opened from a problem on the Problems page."
   },
   "journal": {
     "title": "How the agent wrote this page",
@@ -874,6 +937,22 @@
       "failed": "The agent did not say which models it offers",
       "retry": "Ask again",
       "note": "A model the agent stops offering is skipped at the next fill, and the agent's own is used."
+    },
+    "roles": {
+      "title": "Model roles",
+      "intro": "Features ask for a role, never for a model. Each role has one (agent, model) pair; an unassigned role uses Writing’s pair and says so.",
+      "writing": "Writing",
+      "classification": "Classification",
+      "analysis": "Analysis",
+      "unassigned": "Not assigned",
+      "agentsOwn": "the agent’s own choice",
+      "fallback": "This role is not assigned, so it uses {{role}}’s pair.",
+      "noDefault": "No pair is assigned, and Writing has none, so this role has no pair to use.",
+      "useDefault": "Use {{role}}’s pair",
+      "installs": "{{agent}} (install its adapter)",
+      "assign": "Assign {{role}}",
+      "failed": "The role could not be assigned",
+      "note": "A role changes only when a feature asks for it. Writing is the pair chosen above; no feature names a model itself."
     },
     "language": {
       "title": "Language of the pages",

@@ -1,0 +1,10 @@
+{
+  "fixtureVersion": 1,
+  "expectedOpenQuestions": [
+    {
+      "type": "contradiction",
+      "subject": "Which value is authoritative?",
+      "file": "docs/alpha.md"
+    }
+  ]
+}

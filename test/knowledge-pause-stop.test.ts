@@ -37,12 +37,15 @@ const PRODUCT_PAGE_RU = [
   `- [Числа](madarch:domain:numbers) считаются в [исходном файле](madarch:${FILE}).[^2]`, '',
   `[^1]: [a.ts](madarch:${FILE})`, `[^2]: [a.ts](madarch:${FILE})`,
 ].join('\n');
-const DOMAIN_PAGE_RU = [
-  '---', 'id: domain:numbers', 'kind: domain', 'title: Числа', 'relates:', `  - ${FILE}`, 'producer: agent', 'sources: []', '---', '',
-  '## Как считаются числа', '',
-  'Корневая функция прибавляет единицу к значению, которое возвращает листовая функция, т.е. считает на единицу больше.[^1]', '',
-  `[^1]: [a.ts](madarch:${FILE})`,
-].join('\n');
+const DOMAIN_FIELDS_RU = {
+  title: 'Числа',
+  participants: [{ text: 'Листовая и корневая функции считают числа в исходном файле.', grounds: [FILE] }],
+  mainScenario: [{ text: 'Корневая функция прибавляет единицу к значению, которое возвращает листовая функция.', grounds: [FILE] }],
+  rules: [],
+  whatCanGoWrong: [],
+  openPoints: [],
+  developer: { notes: [] },
+};
 
 /** The agent a fill runs, with the close the filler calls when a unit is done. */
 type AgentWithClose = UnitAgent & { close(): Promise<void> };
@@ -90,7 +93,7 @@ const agent: AgentWithClose = {
     }
     if (request.id === 'domain:numbers') {
       if (holdDomain) await wait();
-      const written = await request.tools.call('write_page', { markdown: DOMAIN_PAGE_RU });
+      const written = await request.tools.call('write_page', { fields: DOMAIN_FIELDS_RU });
       if (written.isError) throw new Error(`the domain page was refused: ${JSON.stringify(written.answer)}`);
       return;
     }

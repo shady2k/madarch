@@ -37,6 +37,7 @@ import type { Graphs } from './graphs.js';
 import { createGraphs } from './graphs.js';
 import type { SourceStoreResult, SourceStores } from './sources.js';
 import { createSourceStores, sourceNameProblem } from './sources.js';
+import { kindFileAt, pageFileAt } from '../knowledge/page-files.js';
 import { createWikiPart, serveAppAssets, type WikiPart } from './wiki-app.js';
 import { MANIFEST_FILE } from '../product/manifest.js';
 import { openProductWiki, type ProductWiki } from '../product-wiki/pages.js';
@@ -298,8 +299,8 @@ export async function startServer(options: ServerOptions): Promise<StartedServer
   /** A browser opening a page of a wiki starts that product's reader at once, so the page's own requests find it started; a probe or a script does not. */
   const opensPage = (request: Request): boolean => request.method === 'GET' && (request.headers.get('accept') ?? '').includes('text/html');
   let productNames: () => { name: string; folder: string; own?: true }[] = () => (productWiki === undefined ? [] : [{ name: productWiki.product.name, folder: basename(productWiki.product.folder) }]);
-  const knowledgeOf = (productFolder: string, own = false): KnowledgePart =>
-    createKnowledgePart({ json: makeJson, refused: wikiRefused, errorLog }, knowledgeHost.of(productFolder), () => productNames(), env as Record<string, string | undefined>, own);
+  const knowledgeOf = (productFolder: string, own = false, prefix = ''): KnowledgePart =>
+    createKnowledgePart({ json: makeJson, refused: wikiRefused, errorLog }, knowledgeHost.of(productFolder), () => productNames(), env as Record<string, string | undefined>, own, prefix);
   const handle = createHandler({
     env,
     sources,
@@ -374,7 +375,7 @@ export async function startServer(options: ServerOptions): Promise<StartedServer
         own: item.own,
         wiki: opened.wiki,
         manifest,
-        handler: createHandler({ env, sources, graphs, log, errorLog, wiki: createWikiPart(makeJson, wikiRefused, opened.wiki, appFolder, { env, outside: knowledgeHost.of(item.folder).changes }), appFolder, unitTool: options.orchestrator?.unitTool, knowledge: knowledgeOf(item.folder, item.own) }),
+        handler: createHandler({ env, sources, graphs, log, errorLog, wiki: createWikiPart(makeJson, wikiRefused, opened.wiki, appFolder, { env, outside: knowledgeHost.of(item.folder).changes }), appFolder, unitTool: options.orchestrator?.unitTool, knowledge: knowledgeOf(item.folder, item.own, `/products/${encodeURIComponent(name)}`) }),
       });
     }
     productEntries.clear();
@@ -532,6 +533,8 @@ export function createHandler(dependencies: {
   interface Route {
     method: string;
     path: string;
+    /** A route whose addresses are a family (`/k/e/<id>.md`) answers where `match` says so; `path` names the family in refusals. */
+    match?: (pathname: string) => boolean;
     handle: (request: Request) => Handled | Promise<Handled>;
   }
 
@@ -570,6 +573,9 @@ export function createHandler(dependencies: {
       { method: 'GET', path: '/api/events', handle: wiki.events },
       ...(dependencies.knowledge === undefined ? [] : ([
         { method: 'GET', path: '/api/k/product', handle: (request: Request) => dependencies.knowledge!.identity(request) },
+        { method: 'GET', path: '/llms.txt', handle: (request: Request) => dependencies.knowledge!.llms(request) },
+        { method: 'GET', path: '/k/e/<id>.md|.json', match: (pathname) => pageFileAt(pathname) !== undefined, handle: (request: Request) => dependencies.knowledge!.pageFile(request) },
+        { method: 'GET', path: '/k/kind/<kind>.md|.json', match: (pathname) => kindFileAt(pathname) !== undefined, handle: (request: Request) => dependencies.knowledge!.kindFile(request) },
         { method: 'GET', path: '/api/k/status', handle: (request: Request) => dependencies.knowledge!.status(request) },
         { method: 'GET', path: '/api/k/page', handle: (request: Request) => dependencies.knowledge!.page(request) },
         { method: 'GET', path: '/api/k/block', handle: (request: Request) => dependencies.knowledge!.block(request) },
@@ -595,6 +601,8 @@ export function createHandler(dependencies: {
         { method: 'POST', path: '/api/k/answer', handle: (request: Request) => dependencies.knowledge!.answer(request) },
         { method: 'POST', path: '/api/k/correction', handle: (request: Request) => dependencies.knowledge!.correction(request) },
         { method: 'GET', path: '/api/k/problems', handle: (request: Request) => dependencies.knowledge!.problems(request) },
+        { method: 'POST', path: '/api/k/problem-dismiss', handle: (request: Request) => dependencies.knowledge!.problemDismiss(request) },
+        { method: 'POST', path: '/api/k/problem-task', handle: (request: Request) => dependencies.knowledge!.problemTask(request) },
         { method: 'GET', path: '/api/k/journal', handle: (request: Request) => dependencies.knowledge!.journal(request) },
         { method: 'GET', path: '/api/k/refresh-plan', handle: (request: Request) => dependencies.knowledge!.refreshPlan(request) },
         { method: 'GET', path: '/api/k/tasks', handle: (request: Request) => dependencies.knowledge!.tasks(request) },
@@ -609,6 +617,7 @@ export function createHandler(dependencies: {
         { method: 'GET', path: '/api/k/product-settings', handle: (request: Request) => dependencies.knowledge!.productSettings(request) },
         { method: 'POST', path: '/api/k/product-settings', handle: (request: Request) => dependencies.knowledge!.productSettings(request) },
         { method: 'GET', path: '/api/k/agent-choices', handle: (request: Request) => dependencies.knowledge!.agentChoices(request) },
+        { method: 'POST', path: '/api/k/model-role', handle: (request: Request) => dependencies.knowledge!.modelRole(request) },
         { method: 'POST', path: '/api/k/starter', handle: (request: Request) => dependencies.knowledge!.starter(request) },
         { method: 'POST', path: '/api/k/rewrite-pages', handle: (request: Request) => dependencies.knowledge!.rewritePages(request) },
         { method: 'POST', path: '/api/k/start-fresh', handle: (request: Request) => dependencies.knowledge!.startFresh(request) },
@@ -1131,7 +1140,7 @@ export function createHandler(dependencies: {
     dependencies.opened?.(request);
     let handled: Handled;
     try {
-      const onPath = routes.filter((each) => each.path === pathname);
+      const onPath = routes.filter((each) => (each.match === undefined ? each.path === pathname : each.match(pathname)));
       if (onPath.length === 0) {
         // Static serving and the SPA fallback answer GET and HEAD only:
         // any other method is a named 405, never an index.html answer.

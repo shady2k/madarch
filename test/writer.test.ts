@@ -167,28 +167,33 @@ function domainScript(spoil: boolean): (request: UnitRequest, domain: (typeof KE
   return async (request, domain) => {
     await call(request, 'get_node', { key: `code.service:${domain.service}` });
     await call(request, 'neighbors', { key: `code.service:${domain.service}`, direction: 'out' });
-    const body: string[] = [`## How ${domain.title.toLowerCase()} works`, ''];
-    const notes: string[] = [];
-    const relates = new Set<string>([`code.service:${domain.service}`]);
-    for (const [index, item] of domain.items.entries()) {
-      const label = String(index + 1);
+    // The code the domain is carried out by: functions of the service, read with the writer's own tool, and each
+    // grounded where a reader of the developer section looks for it.
+    const found = await call(request, 'find_nodes', { kind: 'code.symbol', text: `services/${domain.service}/`, limit: 6 });
+    const functions = (found.answer as { nodes: { key: string }[] }).nodes.map((node) => node.key).filter((key) => !/\s/.test(key)).slice(0, 2).map((key) => ({ target: key }));
+    const scenario: { text: string; grounds: string[] }[] = [];
+    for (const item of domain.items) {
       const grounds = await evidenceFor(request, item);
-      grounds.forEach((g) => { if (g.startsWith('code.')) relates.add(g); });
-      body.push(sentences(item.expectedWikiStatement, label), '');
-      notes.push(footnote(label, grounds));
+      const business = grounds.filter((ground) => !ground.startsWith('code.') || ground.startsWith('code.service:'));
+      scenario.push({ text: item.expectedWikiStatement, grounds: business.length === 0 ? [`code.service:${domain.service}`] : business });
     }
-    const related = KEY_DOMAINS.find((d) => d !== domain)!;
-    body.push('## Requirements', '', `The use case of this domain is described in the requirements.[^uc]`, '', `See also [${related.title}](madarch:domain:${related.slug}).`);
-    notes.push(footnote('uc', [`doc:docs/requirements.md#${domain.useCase}`]));
-    const page = ['---', `id: domain:${domain.slug}`, 'kind: domain', `title: ${domain.title}`, 'relates:', ...[...relates].sort().map((k) => `  - ${k}`), 'producer: agent', 'sources: [docs/requirements.md]', '---', '', ...body, '', ...notes].join('\n');
+    const useCase = `doc:docs/requirements.md#${domain.useCase}`;
+    const fields = {
+      title: domain.title,
+      participants: [{ text: `${domain.title} is what the ${domain.service} service does for a shopper.`, grounds: [`code.service:${domain.service}`, useCase] }],
+      mainScenario: scenario.length === 0 ? [{ text: `${domain.title} has a main scenario its documents tell.`, grounds: [useCase] }] : scenario,
+      developer: { ...(functions.length === 0 ? {} : { functions }), notes: [] },
+    };
     if (spoil) {
-      // An ungrounded sentence and a ground that is not in the graph: both come back to the agent, and nothing is written.
-      const refused = await call(request, 'write_page', { markdown: `${page}\n\nThe domain is very fast.\n\nIt is slow.[^spoiled]\n\n[^spoiled]: [nothing](madarch:code.symbol\u003aservices/${domain.service}/src/nope.ts#Nothing)` });
-      expect(refused.isError).toBe(true);
-      const rules = (refused.answer as { refused: { rule: string }[] }).refused.map((r) => r.rule);
-      expect(rules).toEqual(['ungrounded-statement', 'unresolved-ground']);
+      // A statement with no ground and a place the graph does not hold: both come back to the agent, and nothing is written.
+      const ungrounded = await call(request, 'write_page', { fields: { ...fields, participants: [...fields.participants, { text: 'The domain is very fast.', grounds: [] }] } });
+      expect(ungrounded.isError).toBe(true);
+      expect((ungrounded.answer as { refused: { rule: string }[] }).refused.map((rule) => rule.rule)).toEqual(['field-ungrounded']);
+      const missing = await call(request, 'write_page', { fields: { ...fields, developer: { ...fields.developer, functions: [{ target: `code.symbol:services/${domain.service}/src/nope.ts#Nothing` }] } } });
+      expect(missing.isError).toBe(true);
+      expect((missing.answer as { refused: { rule: string }[] }).refused.map((rule) => rule.rule)).toEqual(['unresolved-place']);
     }
-    const written = await call(request, 'write_page', { markdown: page });
+    const written = await call(request, 'write_page', { fields });
     expect(written.isError).toBe(false);
   };
 }
@@ -330,7 +335,9 @@ describe('the writer over the training repository', () => {
       const names = definitions.map((l) => l.slice(2, l.indexOf(']:')));
       expect(new Set(names).size).toBe(names.length);
       for (const name of names) expect(name).toMatch(/^[a-z][a-z0-9]*(-[a-z0-9]+)*$/);
-      const text = lines.filter((l) => l.trim() !== '' && !/^\[\^[a-z0-9-]+\]: /.test(l) && !l.startsWith('#') && !/^(- )?See also/.test(l) && !/^- \[[^\]]+\]\(madarch:[^)]+\)$/.test(l));
+      // A place of the developer section is a bullet that is a link to its key, with the footnote of its ground: it
+      // names a place, it states nothing (madarch-ztyq.6).
+      const text = lines.filter((l) => l.trim() !== '' && !/^\[\^[a-z0-9-]+\]: /.test(l) && !l.startsWith('#') && !/^(- )?See also/.test(l) && !/^- \[[^\]]+\]\(madarch:[^)]+\)(\[\^[a-z0-9-]+\])?$/.test(l));
       expect(text.length).toBeGreaterThan(0);
       for (const line of text) {
         // Every statement line ends each of its sentences in footnote references.
@@ -387,7 +394,7 @@ describe('the writer over the training repository', () => {
 
   test('a refusal comes back to the agent and the unit goes on: nothing was written until the page was right', () => {
     expect(first.report.product.writeAttempts).toBe(2);
-    for (const domain of first.report.domains) expect(domain.writeAttempts).toBe(2);
+    for (const domain of first.report.domains) expect(domain.writeAttempts).toBe(3);
     expect(second.report.product.writeAttempts).toBe(1);
   });
 
@@ -399,8 +406,11 @@ describe('the writer over the training repository', () => {
   });
 
   test('the prompts hold the format and the graph, and no file content', () => {
-    for (const prompt of first.prompts.values()) {
-      expect(prompt).toContain('Every sentence that states something ends with a footnote');
+    for (const [unit, prompt] of first.prompts.entries()) {
+      // A domain page is written by the core from its unit's fields (madarch-ztyq.6): its prompt carries what the
+      // core writes for it instead of the page format, and the graph the same way.
+      if (unit.startsWith('domain:')) expect(prompt).toContain('## What the core writes for you');
+      else expect(prompt).toContain('Every sentence that states something ends with a footnote');
       expect(prompt).toContain('code.service:orders');
       expect(prompt).not.toContain('CREATE TABLE');
       expect(prompt.length).toBeLessThan(20_000 * 4);
@@ -415,12 +425,15 @@ describe('the writer over the training repository', () => {
 
 describe('the unit tools', () => {
   const productSpec: UnitSpec = { kind: 'product', id: 'product:training-shop', path: 'docs/product.md', name: 'Training shop' };
-  const domainSpec = (slug: string): UnitSpec => ({ kind: 'domain', id: `domain:${slug}`, path: `docs/domains/${slug}.md`, domain: { slug, title: slug, summary: 'x', evidence: ['code.service:payments'] } });
+  // The page format is the same for every kind (`src/writer/format.ts`), and these cases judge the format, not a
+  // domain: a validation unit writes its page as Markdown, so it is the vehicle here. A domain page is written from
+  // its fields and is judged in test/writer-domain-pages.test.ts (madarch-ztyq.6).
+  const validationSpec = (scope: string): UnitSpec => ({ kind: 'validation', id: `validation:${scope}`, path: `docs/validation/${scope}.md`, name: 'Training shop' });
   const known: DomainDeclaration[] = [{ slug: 'payments', title: 'Payments', summary: 'Payments.', evidence: ['code.service:payments'] }];
-  const header = (slug: string): string => `---\nid: domain:${slug}\nkind: domain\ntitle: Payments\nrelates:\n  - code.service:payments\nproducer: agent\nsources: []\n---\n\n`;
+  const header = (scope: string): string => `---\nid: validation:${scope}\nkind: validation\ntitle: Payments\nrelates:\n  - code.service:payments\nproducer: agent\nsources: []\n---\n\n`;
   const grounded = 'Payments run in the payments service.[^1]\n\n[^1]: [payments](madarch:code.service:payments)\n';
 
-  function session(spec: UnitSpec = domainSpec('payments'), bounds = DEFAULT_UNIT_BOUNDS) {
+  function session(spec: UnitSpec = validationSpec('payments'), bounds = DEFAULT_UNIT_BOUNDS) {
     const sink = memorySink();
     return { sink, tools: new UnitTools(view, spec, sink, known, bounds) };
   }
@@ -498,20 +511,20 @@ describe('the unit tools', () => {
     expect((await tools.call('write_page', { markdown: `${header('payments')}Payments run.` })).isError).toBe(true);
     const written = await tools.call('write_page', { markdown: `${header('payments')}${grounded}` });
     expect(written.isError).toBe(false);
-    expect([...sink.pages.keys()]).toEqual(['docs/domains/payments.md']);
+    expect([...sink.pages.keys()]).toEqual(['docs/validation/payments.md']);
     expect(tools.outcome()).toMatchObject({ status: 'written', writeAttempts: 2, refusals: [] });
     expect((await tools.call('write_page', { markdown: `${header('payments')}${grounded}` })).isError).toBe(true);
   });
 
   test('a page of another id is refused, so a unit cannot write another unit\'s page', async () => {
-    const { tools, sink } = session(domainSpec('ordering'));
+    const { tools, sink } = session(validationSpec('ordering'));
     const answer = await tools.call('write_page', { markdown: `${header('payments')}${grounded}` });
-    expect((answer.answer as { refused: { message: string }[] }).refused[0]!.message).toContain('this page\'s id is "domain:ordering"');
+    expect((answer.answer as { refused: { message: string }[] }).refused[0]!.message).toContain('this page\'s id is "validation:ordering"');
     expect(sink.pages.size).toBe(0);
   });
 
   test('attempts are bounded: after the last refusal the unit has failed and nothing more is accepted', async () => {
-    const { tools, sink } = session(domainSpec('payments'), { maxWriteAttempts: 2, maxCalls: 80 });
+    const { tools, sink } = session(validationSpec('payments'), { maxWriteAttempts: 2, maxCalls: 80 });
     expect((await tools.call('write_page', { markdown: `${header('payments')}Payments run.` })).isError).toBe(true);
     const last = await tools.call('write_page', { markdown: `${header('payments')}Payments run.` });
     expect((last.answer as { attemptsLeft: number; note: string }).attemptsLeft).toBe(0);
@@ -536,7 +549,7 @@ describe('the unit tools', () => {
   });
 
   test('the number of tool calls is bounded too', async () => {
-    const { tools } = session(domainSpec('payments'), { maxWriteAttempts: 5, maxCalls: 3 });
+    const { tools } = session(validationSpec('payments'), { maxWriteAttempts: 5, maxCalls: 3 });
     for (let i = 0; i < 3; i += 1) expect((await tools.call('overview', {})).isError).toBe(false);
     const over = await tools.call('overview', {});
     expect((over.answer as { error: { code: string } }).error.code).toBe('call-limit');

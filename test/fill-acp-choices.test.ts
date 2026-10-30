@@ -83,9 +83,11 @@ describe('setting the reader\'s choice', () => {
   test('a value the agent no longer offers is skipped and told, never sent', async () => {
     const { session: opened, sent } = await session('--models');
     const told: string[] = [];
-    await applyPreferences(opened, { model: 'retired-model', reasoning: 'high' }, (line) => told.push(line));
+    const said = await applyPreferences(opened, { model: 'retired-model', reasoning: 'high' }, (line) => told.push(line));
     expect(sent().filter((message) => message.method === 'session/set_config_option').map((call) => call.params?.['value'])).toEqual(['high']);
     expect(told).toEqual(['the agent no longer offers "retired-model" as the model, so the agent\'s own was kept']);
+    // The same lines are handed back, so a judge or a fill can report them where the reader looks (madarch-j6ho.2).
+    expect(said).toEqual(told);
   }, 30_000);
 
   test('an agent with no such choice is told, and the earlier form is set by `session/set_model`', async () => {

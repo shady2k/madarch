@@ -68,8 +68,20 @@ export interface ToolClient {
 }
 
 /** Drives one unit to its end; it reports nothing, the tools' session holds the result. */
+/**
+ * How a run ended. A run that was stopped by a bound or a cancellation is not an answer: a judge that reuses the
+ * writer's agent must not accept what the tools took before the stop (madarch-j6ho.2).
+ */
+export interface UnitRunStatus {
+  readonly completed: boolean;
+  /** What stopped it, in words, when it did not complete. */
+  readonly stopped?: string;
+}
+
 export interface UnitAgent {
-  run(request: UnitRequest): Promise<void>;
+  run(request: UnitRequest): Promise<UnitRunStatus | void>;
+  /** Things the agent told the reader while starting a session, such as a saved model it no longer offers. */
+  warnings?(): readonly string[];
 }
 
 /**

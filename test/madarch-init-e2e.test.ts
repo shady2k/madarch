@@ -14,7 +14,7 @@ import { chmodSync, existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, wr
 import { createServer } from 'node:net';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
-import { ROOT, SAMPLE_IDENTITY, generateTrainingRepository } from './knowledge-fixture.js';
+import { ROOT, SAMPLE_IDENTITY, generateTrainingRepository, withoutEnrichmentKind } from './knowledge-fixture.js';
 import { localizableEntities, localizedScript, LOCALIZED_STATEMENTS } from './knowledge-agent-script.js';
 
 const FAKE_AGENT = join(ROOT, 'test', 'fixtures', 'acp-fake-agent', 'acp-fake-agent.ts');
@@ -67,6 +67,9 @@ beforeAll(async () => {
   initOutput = `${init.stdout}${init.stderr}`;
   // The script answers for every document entity the product's own manifest makes of the repository's documents — read
   // from them, never a list of names — so the fill below finds a statement for each entity it offers (madarch-ztyq.3).
+  // `madarch init` gives the product the starter set, whose manifest declares the enrichment kind; the scripted agent
+  // writes the product and domain pages only, so the kind is dropped from this fixture (see `withoutEnrichmentKind`).
+  withoutEnrichmentKind(join(home, 'training-shop'));
   writeFileSync(join(work, 'script.json'), JSON.stringify(localizedScript({ entities: localizableEntities(join(home, 'training-shop'), repository) })));
   expect(init.status, initOutput).toBe(0);
   url = /The wiki is running at (\S+)/.exec(initOutput)?.[1] ?? '';

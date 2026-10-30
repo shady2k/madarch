@@ -37,19 +37,16 @@ const PRODUCT_PAGE = [
   `- [Numbers](madarch:domain:numbers) are computed in the [source file](madarch:${FILE}).[^2]`, '',
   `[^1]: [a.ts](madarch:${FILE})`, `[^2]: [a.ts](madarch:${FILE})`,
 ].join('\n');
-const DOMAIN_PAGE_RU = [
-  '---', 'id: domain:numbers', 'kind: domain', 'title: Числа', 'relates:', `  - ${FILE}`, 'producer: agent', 'sources: []', '---', '',
-  '## Как считаются числа', '',
-  'Корневая функция прибавляет единицу к значению, которое возвращает листовая функция, т.е. считает на единицу больше.[^1]', '',
-  'См. также [исходный файл](madarch:' + FILE + ').', '',
-  `[^1]: [a.ts](madarch:${FILE})`,
-].join('\n');
-const DOMAIN_PAGE = [
-  '---', 'id: domain:numbers', 'kind: domain', 'title: Numbers', 'relates:', `  - ${FILE}`, 'producer: agent', 'sources: []', '---', '',
-  '## How numbers are computed', '',
-  'The root function adds one to the value the leaf function returns.[^1]', '',
-  `[^1]: [a.ts](madarch:${FILE})`,
-].join('\n');
+/** The fields the domain unit answers with: the business first, in the language the prompt asks for. */
+const domainFieldsOf = (language: 'en' | 'ru', spoil = false): Record<string, unknown> => ({
+  title: language === 'ru' ? 'Числа' : 'Numbers',
+  participants: [
+    { text: language === 'ru' ? 'Числа считает исходный файл продукта.' : 'The product computes numbers in its source file.', grounds: [FILE] },
+    ...(spoil ? [{ text: language === 'ru' ? 'Домен очень быстрый.' : 'The domain is very fast.', grounds: [] }] : []),
+  ],
+  mainScenario: [{ text: language === 'ru' ? 'Корневая функция прибавляет единицу к значению, которое возвращает листовая функция.' : 'The root function adds one to the value the leaf function returns.', grounds: [FILE] }],
+  developer: { notes: [] },
+});
 
 let work: string;
 let home: string;
@@ -91,8 +88,7 @@ const agent: UnitAgent & { close(): Promise<void> } = {
     }
     await gate;
     const russian = request.prompt.includes('in Russian');
-    const markdown = spoilDomain ? `${russian ? DOMAIN_PAGE_RU : DOMAIN_PAGE}\n\nThe domain is very fast.` : russian ? DOMAIN_PAGE_RU : DOMAIN_PAGE;
-    await request.tools.call('write_page', { markdown });
+    await request.tools.call('write_page', { fields: domainFieldsOf(russian ? 'ru' : 'en', spoilDomain) });
   },
   async close(): Promise<void> {},
 };
@@ -332,7 +328,7 @@ describe('one press with an agent chosen', () => {
       const page = await get(`/api/k/page?id=${encodeURIComponent(id)}`);
       expect(page.body.blocks.find((block: { type: string }) => block.type === 'guide').data.guide.locale).toBe('ru');
     }
-    expect(readFileSync(join(home, 'tiny', 'docs', 'domains', 'numbers.md'), 'utf8')).toContain('Как считаются числа');
+    expect(readFileSync(join(home, 'tiny', 'docs', 'domains', 'numbers.md'), 'utf8')).toContain('## Участники');
     const glossary = await get('/api/k/glossary');
     const localizedTerm = glossary.body.terms.find((term: { title: string }) => term.title === 'Tiny account');
     // The file a localized source is kept in is named by the entity's durable identity, which the page id also names.
@@ -360,7 +356,7 @@ describe('one press with an agent chosen', () => {
     const domain = done.writer.units.find((unit: { unit: string }) => unit.unit === 'domain:numbers');
     expect(domain.state).toBe('failed');
     expect(domain.refusals.length).toBeGreaterThan(0);
-    expect(domain.refusals[0]).toMatchObject({ rule: 'ungrounded-statement' });
+    expect(domain.refusals[0]).toMatchObject({ rule: 'field-ungrounded' });
     expect(domain.refusals[0].line).toBeGreaterThan(0);
     expect(done.writer.message).toContain('some pages were not written');
     // The product page of the run stays.
