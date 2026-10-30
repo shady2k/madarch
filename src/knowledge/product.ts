@@ -879,8 +879,9 @@ export class KnowledgeProduct {
     // A resumed run takes the pause off the store: what stands there now is the run that starts, not the one it ended.
     this.clearPause();
     const asked = resuming ? paused : undefined;
-    const task = asked?.task;
-    const taskPages = asked?.taskPages;
+    // A run limited to a task keeps the task it was pressed for; a resumed task carries the one it paused on.
+    const task = asked?.task ?? options.task;
+    const taskPages = asked?.taskPages ?? options.taskPages;
     const resume = asked?.plan === undefined ? undefined : { plan: asked.plan, completedPages: [...asked.completedPages] };
     const startedAt = (this.options.now?.() ?? new Date()).toISOString();
     // A run under way is marked before it starts: a server that restarts during it must not restore the list of the run
