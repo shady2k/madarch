@@ -1974,6 +1974,9 @@ export class KnowledgeProduct {
     const historyNavigation = history === undefined && id.startsWith('code.') ? await Promise.all([...this.pins.keys()].sort(byCodePoint).map(async (repo) => { const indexed = await this.historyAt({ repo, at: '?' }); return { repo, points: indexed.points, ...(indexed.landmarks === undefined ? {} : { landmarks: indexed.landmarks }) }; })) : undefined;
     const planned = history === undefined ? await this.plannedForPage(id) : undefined;
     const owner = await this.open();
+    // A newer snapshot may replace this one while the page is being rendered (a fill swaps readers under open reads).
+    // The rendered owner is still a store, so its page keeps its Problems badge.
+    const ownerWasReader = this.reader?.owner === owner;
     const validAt = this.validAt();
     const pins = new Map(this.pins);
     const rendered: PageResult = await owner.transaction('snapshot', async (transaction) => {
@@ -1990,7 +1993,8 @@ export class KnowledgeProduct {
     if (!rendered.ok || rendered.page.historicalAbsent === true || history !== undefined) return rendered;
     // The caller may hold a renderer whose owner has no store behind it (a snapshot fixture, or a page rendered from an
     // injected transaction). There is no problems database to ask, so the page shows no count and no failure note.
-    if (this.reader?.owner !== owner) return rendered;
+    // An owner that was the reader when the page opened has a store even if a newer snapshot has since replaced it.
+    if (!ownerWasReader && this.reader?.owner !== owner) return rendered;
     // The badge reads the listing last collected, never a walk of its own: a page answers while a fill runs
     // (madarch-m38l.19). A listing older than the page's inputs is a count from the previous revision; the next poll of
     // the status collects the current one.
