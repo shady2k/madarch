@@ -15,6 +15,7 @@ import type { DocEntity } from './doc-entities.js';
 import type { GraphEntity } from './graph-read.js';
 import { parseTermText } from './glossary.js';
 import { detectDocumentLanguage } from '../writer/localized-source.js';
+import { madarchTargets } from '../writer/mentions.js';
 import { readStatements } from './markdown.js';
 import type { Block, EntityRef, RefRow } from './model.js';
 import { documentAddress, entityAddress } from './resolve.js';
@@ -142,8 +143,10 @@ function excerpt(text: string): string {
 
 export async function linkedFromBlock(ctx: RenderContext, subject: Subject, params: Readonly<Record<string, string>>, file: string, line: number): Promise<Block> {
   const title = params['title'] ?? 'Linked from';
-  if (subject.source === 'graph') return { type: 'problem', block: 'linkedfrom', file, line, message: 'the linkedfrom block lists the pages and documents that refer to a page or a document entity; this entity comes from the graph (see its callers and related blocks)' };
-  const id = subject.source === 'document' ? subject.entity.id : subject.entity.id;
+  // A graph page lists the pages whose prose mentions it (madarch-ztyq.8): the core inserts those links, and the index
+  // knows every statement that grounds or mentions the key. Before, a graph page had only its related block.
+  const graphKey = subject.source === 'graph' ? subject.entity.key : undefined;
+  const id = graphKey ?? ('id' in subject.entity ? subject.entity.id : subject.entity.key);
   const rows = new Map<string, RefRow>();
   // 1. The product's pages that ground a statement in this entity or link to it.
   for (const page of [...ctx.markdown.values()].sort((a, b) => byCodePoint(a.id, b.id))) {
@@ -157,8 +160,8 @@ export async function linkedFromBlock(ctx: RenderContext, subject: Subject, para
     }
     let linked = statements > 0;
     if (!linked) {
-      for (const match of page.body.matchAll(/\]\((madarch:[^)\s]+)\)/g)) {
-        const resolution = await ctx.resolver.resolve(match[1]!);
+      for (const target of madarchTargets(page.body)) {
+        const resolution = await ctx.resolver.resolve(`madarch:${target}`);
         if (resolution.state === 'ok' && resolution.entity === id) { linked = true; break; }
       }
     }
@@ -166,11 +169,12 @@ export async function linkedFromBlock(ctx: RenderContext, subject: Subject, para
       ? { entity: refOfMarkdown(ctx, page), note: `${statements} statement${statements === 1 ? '' : 's'} grounded in it`, noteKey: 'statements', noteArgs: { count: statements } }
       : { entity: refOfMarkdown(ctx, page), note: 'links to it', noteKey: 'links' });
   }
-  // 1b. The statements of the index that rely on this section (the index sees the page's footnotes whole).
+  // 1b. The statements of the index that rely on this key (the index sees the page's footnotes whole).
   // The index names a section by its path alone: where the product and a connected repository both hold the path, it cannot tell them apart, and the Markdown reading above stands alone.
   const ambiguous = subject.source === 'document' && [...ctx.docEntities.values()].some((other) => other.path === subject.entity.path && other.anchor === subject.entity.anchor && other.repo !== subject.entity.repo);
-  if (subject.source === 'document' && ctx.index !== undefined && !ambiguous) {
-    const relied = await ctx.index.relyingOn(`doc:${subject.entity.path}#${subject.entity.anchor}`);
+  const indexKey = graphKey ?? (subject.source === 'document' ? `doc:${subject.entity.path}#${subject.entity.anchor}` : undefined);
+  if (indexKey !== undefined && ctx.index !== undefined && !ambiguous) {
+    const relied = await ctx.index.relyingOn(indexKey);
     for (const relying of relied) {
       const page = ctx.markdown.get(relying.page);
       if (page === undefined || rows.has(page.id)) continue;
@@ -198,7 +202,7 @@ export async function linkedFromBlock(ctx: RenderContext, subject: Subject, para
     }
   }
   const ordered = [...rows.values()].sort((a, b) => byCodePoint(a.entity.id, b.entity.id));
-  return { type: 'refs', title, total: ordered.length, rows: ordered.slice(0, REFS_LIMIT) };
+  return { type: 'refs', title, total: ordered.length, rows: ordered.slice(0, REFS_LIMIT), ...(params['hide-empty'] === 'true' ? { hideEmpty: true } : {}) };
 }
 
 /** The glossary term a document entity is: its definition, synonyms, code names, places of use and ambiguity (decision 0031). */

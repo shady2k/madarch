@@ -19,6 +19,7 @@ import { GraphReader } from '../knowledge/graph-read.js';
 import { byCodePoint } from '../model/order.js';
 import { anchorLines, documentAnchors, slugOf } from '../knowledge/anchors.js';
 import type { GroundResolver, MadarchTarget } from './format.js';
+import { graphMentionName, type MentionName } from './mentions.js';
 
 type Raw = Record<string, unknown>;
 
@@ -50,6 +51,7 @@ export class GraphView implements GroundResolver {
   private readonly keyCache = new Map<string, NodeInfo | null>();
   private readonly anchorCache = new Map<string, Set<string> | null>();
   private allAnchors: Set<string> | undefined;
+  private mentionList: readonly MentionName[] | undefined;
 
   private constructor(private readonly owner: DatabaseOwner, private readonly store: GraphStore, readonly at: string) {}
 
@@ -153,6 +155,29 @@ export class GraphView implements GroundResolver {
     const phrase = (heading?.[1] ?? raw.replace(/^\s*(?:[-*+]|\d+[.)])\s+/, '').replace(/^(?:\*\*|__)(.*?)(?:\*\*|__).*$/, '$1')).replace(/[`*_~]/g, '').trim();
     if (phrase === '') return undefined;
     return phrase.length > 60 ? `${phrase.slice(0, 57).replace(/\s+\S*$/, '')}...` : phrase;
+  }
+
+  /**
+   * The graph's node labels a page may mention (madarch-ztyq.8): one entry per exact spelling, the
+   * shortest key when several nodes share a label. A file, a directory, a path, a hash and a route
+   * line are not names; the filter lives in `graphMentionName`, where its reasons are stated.
+   */
+  async mentionNames(): Promise<readonly MentionName[]> {
+    if (this.mentionList !== undefined) return this.mentionList;
+    const rows = await this.query<{ key: string; label: string }>(
+      `SELECT v.properties->>'recordKey' AS key, v.label AS label FROM node_version v JOIN node_kind k ON k.id = v.kind_id
+       WHERE v.properties->>'recordKey' IS NOT NULL AND v.label <> '' AND ${GraphView.SEEN}`,
+      [this.at],
+    );
+    const byLabel = new Map<string, MentionName>();
+    for (const row of rows) {
+      const mention = graphMentionName(row.key, row.label);
+      if (mention === undefined) continue;
+      const held = byLabel.get(mention.name);
+      if (held === undefined || mention.target.length < held.target.length || (mention.target.length === held.target.length && byCodePoint(mention.target, held.target) < 0)) byLabel.set(mention.name, mention);
+    }
+    this.mentionList = [...byLabel.values()].sort((left, right) => byCodePoint(left.name, right.name) || byCodePoint(left.target, right.target));
+    return this.mentionList;
   }
 
   /** The key of the only node of this kind whose key ends as asked and whose label is `label` (when given); undefined when none or several. */

@@ -240,7 +240,7 @@ describe('the pages of the documents\' entities', () => {
     // The domain page grounds "Checkout asks payments..." in UC-2 and in PaymentService.pay in one footnote.
     // The domain page grounds the sentence in UC-2 and PaymentService.pay in one footnote, the product page grounds one in the payments service and UC-2 in another.
     expect(rows(model, 'Implemented by')).toEqual([{ id: PAYMENTS_SERVICE, note: 'grounded with it on the page Online shop' }, { id: PAY, note: 'grounded with it on the page Payment' }]);
-    expect(rows(model, 'Linked from').map((row) => row.id)).toEqual(['domain:payment', 'product:shop']);
+    expect(rows(model, 'Mentioned on').map((row) => row.id)).toEqual(['domain:payment', 'product:shop']);
     expect(model.trail.map((entry) => entry.label)).toEqual(['training: docs/requirements.md']);
     expect(model.findings).toEqual([]);
   });
@@ -278,7 +278,45 @@ describe('the pages of the documents\' entities', () => {
     expect(linked.some((id) => id.startsWith(recordKey('code.symbol', 'services/orders/internal/store/outbox.go#')) && id.endsWith('OutboxWriter'))).toBe(true);
     expect(linked).toContain(recordKey('code.table', 'orders/public.outbox'));
     // The documents that name ADR-0001 outside it: ADR-0002 and the requirements.
-    expect(rows(broker, 'Linked from').map((row) => row.id)).toContain('doc:@training/docs/adr/0002-outbox.md#doc-section:1');
+    expect(rows(broker, 'Mentioned on').map((row) => row.id)).toContain('doc:@training/docs/adr/0002-outbox.md#doc-section:1');
+  });
+
+  test('a graph page lists the pages whose prose mentions it: the service page shows the product page', async () => {
+    const model = await page(PAYMENTS_SERVICE);
+    expect(rows(model, 'Mentioned on')).toEqual([
+      { id: 'product:shop', note: '1 statement grounded in it' },
+    ]);
+  });
+
+  test('a page that another page names lists that page under Mentioned on, not only graph pages', async () => {
+    const model = await page('domain:payment');
+    expect(rows(model, 'Mentioned on')).toEqual([
+      { id: 'product:shop', note: 'links to it' },
+    ]);
+  });
+
+  test('every target the domain page mentions lists the domain under Mentioned on', async () => {
+    const cases = await product.list('doc.use-case', { limit: 50 });
+    const rules = await product.list('doc.rule', { limit: 50 });
+    const terms = await product.list('doc.term', { limit: 50 });
+    const pageId = (rowsOf: { label: string; id: string }[] | undefined, start: string): string => {
+      const found = rowsOf?.find((row) => row.label === start || row.label.startsWith(`${start} `) || row.label.startsWith(`${start}:`));
+      if (found === undefined) throw new Error(`no page whose label starts with ${start}`);
+      return found.id;
+    };
+    const targets = [
+      'code.compose-service:docker-compose.yml#postgres',
+      'code.broker:docker-compose.yml#kafka',
+      'code.table:orders/public.outbox',
+      pageId(cases?.rows, 'UC-1'),
+      pageId(rules?.rows, 'BR-3'),
+      pageId(terms?.rows, 'Outbox'),
+      pageId(terms?.rows, 'Capture'),
+    ];
+    for (const id of targets) {
+      const model = await page(id);
+      expect(rows(model, 'Mentioned on').map((row) => row.id)).toContain('domain:payment');
+    }
   });
 
   test('the glossary defines seven terms, each a page with its definition', async () => {

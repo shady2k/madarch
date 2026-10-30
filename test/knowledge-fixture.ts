@@ -59,8 +59,13 @@ Checkout asks payments to authorize the card for the order's total.[^2]
 
 A refund that brings the refunded total up to the captured amount moves the order to refunded.
 
+[Postgres](madarch:code.compose-service:docker-compose.yml#postgres) keeps the orders and [Kafka](madarch:code.broker:docker-compose.yml#kafka) carries them from the [outbox](madarch:code.table:orders/public.outbox).[^3]
+
+[UC-1](madarch:doc:docs/requirements.md#uc-1) and [BR-3](madarch:doc:docs/requirements.md#br-3) govern the charge, and the [Outbox](madarch:doc:docs/glossary.md#outbox) and [Capture](madarch:doc:docs/glossary.md#capture) terms define it.[^3]
+
 [^1]: [PaymentClientFactory](madarch:${FACTORY}), [a function that is not there](madarch:${MISSING})
 [^2]: [UC-2](madarch:doc:docs/requirements.md#uc-2), [PaymentService.pay](madarch:${PAY})
+[^3]: [Postgres](madarch:code.compose-service:docker-compose.yml#postgres), [Kafka](madarch:code.broker:docker-compose.yml#kafka), [outbox](madarch:code.table:orders/public.outbox), [UC-1](madarch:doc:docs/requirements.md#uc-1), [BR-3](madarch:doc:docs/requirements.md#br-3), [Outbox](madarch:doc:docs/glossary.md#outbox), [Capture](madarch:doc:docs/glossary.md#capture)
 `;
 
 export const SAMPLE_IDENTITY = { GIT_AUTHOR_NAME: 'Fixture', GIT_AUTHOR_EMAIL: 'fixture@example.test', GIT_COMMITTER_NAME: 'Fixture', GIT_COMMITTER_EMAIL: 'fixture@example.test' };
