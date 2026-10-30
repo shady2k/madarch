@@ -37,6 +37,7 @@ import { useWikiStatus } from './live.js';
 import { PendingPages } from './pending.js';
 import { SettingsPage } from './settings.js';
 import { UNIT_STATE_KEY } from './writer.js';
+import { unitLimitWords } from './unit-bounds.js';
 
 /** The mockup's drawn lowercase m mark and dot, kept as one crisp vector glyph. */
 function BrandMark(): ReactElement {
@@ -409,7 +410,7 @@ export function FillMenu({ status, refresh }: { status: WikiStatus; refresh: () 
               </div>
             )}
             {writer.state !== 'running' && writer.state !== 'waiting' && fill.state !== 'running' && <div className="mb-3"><RefreshPreviewView language={pagesLanguage ?? status.language} refreshKey={`${status.fill.finishedAt ?? ''}:${status.writer.finishedAt ?? ''}:${status.loop?.questionsAnswered ?? 0}:${status.loop?.correctionsOpen ?? 0}`} /></div>}
-            <p className="mb-2 mt-0 text-small text-muted" data-testid="refresh-note">{t('knowledge.refreshNote', { turns: status.bounds.turns, minutes: status.bounds.minutes })}</p>
+            <p className="mb-2 mt-0 text-small text-muted" data-testid="refresh-note">{t('knowledge.refreshNote', unitLimitWords(status.bounds, t))}</p>
             <Button variant="default" size="default" disabled={busy} onClick={press} data-testid="refresh">{t('knowledge.refresh')}</Button>
             {refused !== null && <p className="mb-0 mt-2 text-small" role="alert" data-testid="refresh-refused">{refused}</p>}
           </div>

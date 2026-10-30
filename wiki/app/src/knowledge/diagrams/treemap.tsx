@@ -86,7 +86,7 @@ function TreemapBody({ block }: { block: TreemapBlock }): ReactElement {
         </div>
         <figcaption className="dg-legend" data-testid="treemap-legend">
           <span className="dg-key">{t('knowledge.diagram.areaIsLines')}</span>
-          <span className="dg-key"><span className="dg-ramp" aria-hidden="true" />{t('knowledge.diagram.heatIsChurn', { max: block.maxChurn })}</span>
+          <span className="dg-key"><span className="dg-ramp" aria-hidden="true" />{t('knowledge.diagram.heatIsChurn', { count: block.maxChurn })}</span>
           {block.notes.map((note) => <span key={note}>{note}</span>)}
         </figcaption>
       </figure>
