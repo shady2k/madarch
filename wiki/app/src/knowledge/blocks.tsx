@@ -597,7 +597,7 @@ function History({ block }: { block: Extract<Block, { type: 'history' }> }): Rea
               <TableRow>
                 {section.role === 'commits' && <TableHead>{t('knowledge.historyColWhen')}</TableHead>}
                 {section.role === 'commits' && <TableHead>{t('knowledge.historyColWho')}</TableHead>}
-                <TableHead>{section.role !== 'files' ? t('knowledge.historyColWhat') : t('knowledge.historyColFile')}</TableHead>
+                <TableHead>{section.role === 'files' || section.role === 'hotspots' ? t('knowledge.historyColFile') : t('knowledge.historyColWhat')}</TableHead>
                 <TableHead>{t('knowledge.historyColFigures')}</TableHead>
               </TableRow>
             </TableHeader>

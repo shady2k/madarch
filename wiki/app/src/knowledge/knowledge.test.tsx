@@ -161,6 +161,22 @@ describe('the blocks', () => {
     expect(container.querySelector('[data-testid=related-cut]')!.textContent).toBe('Showing 3 of 5.');
   });
 
+  test('a hotspot table heads its paths File, not Commit', async () => {
+    const block: Block = {
+      type: 'history', title: 'History',
+      sections: [
+        { role: 'summary', total: 1, rows: [{ text: '', figures: [{ kind: 'commits', value: '7' }] }] },
+        { role: 'hotspots', total: 1, rows: [{ text: 'svc/a.ts', figures: [{ kind: 'commits', value: '3' }] }] },
+      ],
+      notes: [],
+    };
+    const container = into(createElement(BlockView, { block, resolutions: {} }));
+    await until(() => container.querySelector('tbody tr') !== null, 'the history table');
+    const heads = [...container.querySelectorAll('thead th')].map((head) => head.textContent);
+    expect(heads[0]).toBe('File');
+    expect(heads).not.toContain('Commit');
+  });
+
   test('a related block with nothing to show draws no section', async () => {
     const container = into(createElement(BlockView, { block: { type: 'related', title: 'Imports', groups: [] }, resolutions: {} }));
     expect(container.querySelector('section')).toBeNull();
