@@ -182,6 +182,13 @@ describe('remark structure, not character patterns, decides what is prose', () =
     expect(ambiguous.targets).toEqual([]);
   });
 
+  test('a page does not link its own title, but the same name in another case is still prose', () => {
+    const page = 'Payment is due.\n\nThe payment service charges the card.';
+    const inserted = insertMentionLinks(page, [{ name: 'Payment', target: 'code.service:payments' }], { pageTitle: 'Payment' });
+    expect(inserted.markdown).toContain('Payment is due.');
+    expect(inserted.markdown).toContain('The [payment](madarch:code.service:payments) service charges');
+  });
+
   test('a document collision resolves from the page’s sources, and otherwise stays unlinked', () => {
     const documents: MentionName[] = [
       { name: 'Gateway', target: 'doc:docs/billing.md#gateway', caseSensitive: true },

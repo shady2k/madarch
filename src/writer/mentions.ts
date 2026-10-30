@@ -112,6 +112,7 @@ export function graphMentionName(key: string, label: string): MentionName | unde
  */
 export interface MentionContext {
   readonly pageId?: string;
+  readonly pageTitle?: string;
   readonly sources?: readonly string[];
   readonly evidence?: readonly string[];
 }
@@ -251,7 +252,7 @@ export function insertMentionLinks(markdown: string, names: readonly MentionName
     const end = node.position?.end.offset;
     if (start === undefined || end === undefined || start < cursor) continue;
     result += markdown.slice(cursor, start);
-    result += transformSpan(markdown, start, end, candidates, targets);
+    result += transformSpan(markdown, start, end, candidates, targets, context.pageTitle);
     cursor = end;
   }
   result += markdown.slice(cursor);
@@ -311,6 +312,7 @@ function transformSpan(
   end: number,
   candidates: ReadonlyMap<string, readonly MentionName[]>,
   targets: string[],
+  pageTitle: string | undefined,
 ): string {
   let result = '';
   let last = start;
@@ -366,6 +368,8 @@ function transformSpan(
       const length = candidate.name.length;
       if (index + length > end) continue;
       const slice = text.slice(index, index + length);
+      // A page does not link its own title: it is the subject, not a mention of something else.
+      if (slice === pageTitle) continue;
       const exact = slice === candidate.name;
       if (!exact && (candidate.caseSensitive === true || slice.toLowerCase() !== candidate.name.toLowerCase())) continue;
       if (!isWord(slice[0]) || !isWord(slice[slice.length - 1])) continue;
