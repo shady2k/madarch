@@ -4,14 +4,15 @@
  *
  * `writing` is the writer's existing agent/model choice (madarch-m38l.11),
  * carried over unchanged. `classification` and `analysis` are the two tiers of
- * the answer-key judge. A role that is not assigned uses the default pair
- * (`writing`) and says so: a fallback is never silent.
+ * the answer-key judge; `editing` is the editorial pass of madarch-ztyq.9. A
+ * role that is not assigned uses the default pair (`writing`) and says so: a
+ * fallback is never silent.
  *
  * No model name stands here. The pairs name an agent and, when the reader
  * chose one, the model and reasoning level that agent reported over ACP.
  */
 
-export const MODEL_ROLES = ['writing', 'classification', 'analysis'] as const;
+export const MODEL_ROLES = ['writing', 'classification', 'analysis', 'editing'] as const;
 
 export type ModelRole = typeof MODEL_ROLES[number];
 
@@ -25,6 +26,7 @@ export interface ModelAssignments {
   readonly writing: ModelPair | null;
   readonly classification: ModelPair | null;
   readonly analysis: ModelPair | null;
+  readonly editing: ModelPair | null;
 }
 
 export type ModelRoleSource = 'assigned' | 'fallback' | 'none';
@@ -46,7 +48,7 @@ export interface ModelRoleView {
 }
 
 export function emptyModelAssignments(): ModelAssignments {
-  return { writing: null, classification: null, analysis: null };
+  return { writing: null, classification: null, analysis: null, editing: null };
 }
 
 export function isModelRole(value: string): value is ModelRole {
@@ -99,5 +101,5 @@ export function assignmentsOf(view: ModelRoleView): ModelAssignments {
     const found = roleOf(view, role);
     return found.source === 'assigned' ? found.pair : null;
   };
-  return { writing: pair('writing'), classification: pair('classification'), analysis: pair('analysis') };
+  return { writing: pair('writing'), classification: pair('classification'), analysis: pair('analysis'), editing: pair('editing') };
 }

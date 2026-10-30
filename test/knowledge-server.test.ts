@@ -213,7 +213,9 @@ describe('the fill the reader watches', () => {
     expect((await get(`/products/tiny/api/k/block?id=${encodeURIComponent(key)}`)).status).toBe(400);
     expect((await get(`/products/tiny/api/k/block?id=${encodeURIComponent(key)}&block=sequence-000000000000`)).status).toBe(404);
     const whole = await get(`/products/tiny/api/k/page?id=${encodeURIComponent(key)}&full=1`);
-    expect(whole.body.blocks.map((block: { type: string }) => block.type)).toEqual(expect.arrayContaining(['graph', 'diagrams']));
+    expect(whole.body.blocks.map((block: { type: string }) => block.type)).toContain('graph');
+    // The chain of this function has no step to draw, so the empty section is not on the page (madarch-m38l.21).
+    expect(whole.body.blocks.map((block: { type: string }) => block.type)).not.toContain('diagrams');
     const neighbours = await get(`/products/tiny/api/k/neighborhood?id=${encodeURIComponent(key)}&limit=3`);
     expect(neighbours.status).toBe(200);
     expect(neighbours.body.center).toBe(key);
@@ -293,7 +295,7 @@ describe('the fill the reader watches', () => {
         expect(details).toBeDefined();
         if (!details) throw new Error(`Landmark page ${id} in ${lang} omitted its properties block`);
         expect(details.title).toBe(lang === 'ru' ? 'Сведения' : 'Details');
-        expect(details.rows).toContainEqual({ name: 'commit', value: expectedCommit });
+        expect(details.rows).toContainEqual({ name: 'commit', label: lang === 'ru' ? 'Коммит' : 'Commit', value: expectedCommit });
         const relations = blocks.find((entry): entry is Extract<Block, { type: 'related' }> => entry.type === 'related' && entry.groups.some((group) => group.relation === 'code.held'));
         expect(relations).toBeDefined();
         if (!relations) throw new Error(`Landmark page ${id} in ${lang} omitted its held-file relations`);

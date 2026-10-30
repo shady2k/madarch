@@ -17,7 +17,7 @@ import type { DocEntity, DocumentSource } from './doc-entities.js';
 import { detectDocumentLanguage } from '../writer/localized-source.js';
 import type { KindCount, RelyingStatement } from './index/queries.js';
 import type { GraphEntity, GraphReader, SourceSpan } from './graph-read.js';
-import type { KindsManifest } from './kinds.js';
+import type { KindsManifest, PropertyDecl, PropertyFormat } from './kinds.js';
 import type { MarkdownEntity } from './markdown.js';
 import { readBody } from './markdown.js';
 import type { Block, CallRow, CodeLocation, EntityRef, RelatedGroup } from './model.js';
@@ -371,56 +371,202 @@ export async function sourceBlock(ctx: RenderContext, subject: Subject, params: 
 
 // ---- properties -------------------------------------------------------------------------------
 
-/** A property's value as one line a reader reads: lists joined, objects as compact JSON, cut at 240 characters. */
-function propertyText(value: unknown): string {
-  const text = typeof value === 'string' ? value
-    : typeof value === 'number' || typeof value === 'boolean' ? String(value)
-      : Array.isArray(value) ? value.map((entry) => (typeof entry === 'string' ? entry : JSON.stringify(entry))).join(', ')
-        : JSON.stringify(value);
-  return text.length > 240 ? `${text.slice(0, 239)}…` : text;
+const YES_NO: Readonly<Record<string, readonly [string, string]>> = { en: ['yes', 'no'], ru: ['да', 'нет'] };
+
+/**
+ * One object's values as words, never as JSON: a port's name and numbers, a build's file and context, a script's
+ * command. A key the manifest declares for the property is the label the reader reads, in the reader's language; a
+ * key it does not is shown under its own name, so no value is dropped (madarch-m38l.21).
+ */
+function objectWords(value: Record<string, unknown>, lang: string, fields: ReadonlyMap<string, PropertyDecl> | undefined): string {
+  const parts: string[] = [];
+  for (const [name, held] of Object.entries(value)) {
+    if (held === null || held === undefined || held === '') continue;
+    const declared = fields?.get(name);
+    const label = declared === undefined ? name : declared.labels[lang] ?? declared.labels['en'] ?? name;
+    if (declared !== undefined) {
+      const written = propertyText(held, declared, lang);
+      if (written !== undefined) parts.push(`${label}: ${written.value}`);
+      continue;
+    }
+    if (typeof held === 'string' || typeof held === 'number' || typeof held === 'boolean') parts.push(`${label}: ${held}`);
+    else if (Array.isArray(held)) parts.push(`${label}: ${held.map((entry) => (typeof entry === 'string' || typeof entry === 'number' ? String(entry) : '')).filter(Boolean).join(', ')}`);
+  }
+  return parts.join(', ');
 }
 
-/** The properties of a graph entity as a table, in name order: what the extractor read, with no span (the source block shows it). */
+function portWords(value: unknown): string {
+  if (typeof value === 'string' || typeof value === 'number') return String(value);
+  if (value === null || typeof value !== 'object') return '';
+  const port = value as Record<string, unknown>;
+  const name = typeof port['name'] === 'string' && port['name'] !== '' ? `${port['name']}: ` : '';
+  const number = port['port'] === undefined ? '' : String(port['port']);
+  const target = port['targetPort'] === undefined ? '' : ` → ${String(port['targetPort'])}`;
+  return `${name}${number}${target}`;
+}
 
-/** The property names the wiki has words for, and which of them are instants to write as dates. */
-const PROPERTY_NAMES: Readonly<Record<string, {key: 'authoredAt' | 'committedAt' | 'subject' | 'merge' | 'language' | 'symbol' | 'method' | 'path' | 'marker' | 'text' | 'line' | 'service' | 'secret'; date?: boolean}>> = {
-  authoredAt: {key: 'authoredAt', date: true},
-  committedAt: {key: 'committedAt', date: true},
-  subject: {key: 'subject'},
-  merge: {key: 'merge'},
-  language: {key: 'language'},
-  symbol: {key: 'symbol'},
-  method: {key: 'method'},
-  path: {key: 'path'},
-  marker: {key: 'marker'},
-  text: {key: 'text'},
-  line: {key: 'line'},
-  service: {key: 'service'},
-  secret: {key: 'secret'},
-};
+/**
+ * A property value as the reader reads it. The manifest says how: a list, commands, ports, a date, yes/no.
+ * An object with no reader-facing shape is left out, so serialized JSON never reaches a page (madarch-m38l.21).
+ */
+function propertyText(value: unknown, decl: PropertyDecl, lang: string): { value: string; valueKind?: 'date' | 'boolean' | 'code' } | undefined {
+  if (value === null || value === undefined || value === '') return undefined;
+  if (Array.isArray(value) && value.length === 0) return undefined;
+  const format = decl.format;
+  const words = (entries: readonly unknown[]): string => entries.map((entry) => {
+    if (format === 'ports') return portWords(entry);
+    if (typeof entry === 'string' || typeof entry === 'number' || typeof entry === 'boolean') return String(entry);
+    return entry !== null && typeof entry === 'object' ? objectWords(entry as Record<string, unknown>, lang, undefined) : '';
+  }).filter((entry) => entry !== '').join(format === 'commands' ? '; ' : ', ');
+  let text: string;
+  let valueKind: 'date' | 'boolean' | 'code' | undefined;
+  if (format === 'boolean' || typeof value === 'boolean') {
+    text = (YES_NO[lang] ?? YES_NO['en']!)[value === true ? 0 : 1];
+    valueKind = 'boolean';
+  } else if (format === 'commands') {
+    const parsed = typeof value === 'string' && value.trim().startsWith('[') ? (() => { try { const held: unknown = JSON.parse(value); return Array.isArray(held) ? held : undefined; } catch { return undefined; } })() : undefined;
+    text = parsed === undefined ? (Array.isArray(value) ? words(value) : String(value)) : parsed.map(String).join(' ');
+  } else if (format === 'ports') {
+    text = Array.isArray(value) ? words(value) : portWords(value);
+  } else if (format === 'build') {
+    text = value !== null && typeof value === 'object' && !Array.isArray(value) ? objectWords(value as Record<string, unknown>, lang, decl.fields) : String(value);
+  } else if (format === 'scripts') {
+    const scripts = value !== null && typeof value === 'object' && !Array.isArray(value) ? value as Record<string, unknown> : undefined;
+    text = scripts === undefined ? String(value) : Object.entries(scripts).map(([key, held]) => `${key}: ${typeof held === 'string' ? held : objectWords(held as Record<string, unknown>, lang, undefined)}`).join('; ');
+  } else if (Array.isArray(value)) {
+    text = words(value);
+  } else if (typeof value === 'object') {
+    const summary = objectWords(value as Record<string, unknown>, lang, decl.fields);
+    if (summary === '') return undefined;
+    text = summary;
+  } else {
+    text = String(value);
+  }
+  if (format === 'date') valueKind = 'date';
+  if (format === 'code' && typeof value !== 'object') valueKind = 'code';
+  return { value: text.length > 240 ? `${text.slice(0, 239)}…` : text, ...(valueKind === undefined ? {} : { valueKind }) };
+}
 
-export function propertiesBlock(subject: Subject, params: Readonly<Record<string, string>>, file: string, line: number): Block {
+/** The rows a kind's `details` name, in their order: every key labelled from the manifest, every value written for a reader. */
+export function detailRows(
+  entity: { properties: Record<string, unknown> },
+  details: readonly string[] | undefined,
+  properties: ReadonlyMap<string, PropertyDecl>,
+  lang: string,
+): import('./model.js').PropertyRow[] {
+  if (details === undefined) return [];
+  const rows: import('./model.js').PropertyRow[] = [];
+  for (const name of details) {
+    const decl = properties.get(name);
+    if (decl === undefined) continue;
+    const written = propertyText(entity.properties[name], decl, lang);
+    if (written === undefined) continue;
+    rows.push({ name, label: decl.labels[lang] ?? decl.labels['en'] ?? name, ...written });
+  }
+  return rows;
+}
+
+export function propertiesBlock(
+  subject: Subject,
+  params: Readonly<Record<string, string>>,
+  file: string,
+  line: number,
+  details: readonly string[] | undefined,
+  properties: ReadonlyMap<string, PropertyDecl>,
+  lang: string,
+): Block {
   const title = params['title'] ?? 'Details';
   if (subject.source === 'document') {
     const doc = subject.entity;
-    return { type: 'properties', title, rows: [['identifier', doc.identifier ?? ''], ['document', doc.path], ['line', String(doc.line)]].filter(([, value]) => value !== '').map(([name, value]) => ({ name: name!, value: value! })) };
+    const row = (name: string, value: string): import('./model.js').PropertyRow | undefined => {
+      const decl = properties.get(name);
+      return decl === undefined || value === '' ? undefined : { name, value, label: decl.labels[lang] ?? decl.labels['en'] ?? name };
+    };
+    const rows = [row('identifier', doc.identifier ?? ''), row('document', doc.path), row('line', String(doc.line))].filter((entry): entry is import('./model.js').PropertyRow => entry !== undefined);
+    return { type: 'properties', title, rows };
   }
   if (subject.source !== 'graph') return { type: 'problem', block: 'properties', file, line, message: 'the properties block lists what the extractors read; the entities of this kind are Markdown pages (their front matter is theirs)' };
-  // The bookkeeping a reader never needs, and the names the wiki has words for: a commit's raw effective time and its
-  // first-parent flag stay out, its authored and committed dates are written as dates (madarch-m38l.16).
-  const skipped = new Set(['recordKey', 'span', 'effectiveAt', 'onFirstParent', ...(list(params['skip']) ?? [])]);
-  const rows = Object.entries(subject.entity.properties)
-    .filter(([name, value]) => !skipped.has(name) && value !== null && value !== undefined && value !== '' && !(Array.isArray(value) && value.length === 0))
-    .sort(([a], [b]) => byCodePoint(a, b))
-    .map(([name, value]) => {
-      const named = PROPERTY_NAMES[name];
-      return {
-        name,
-        value: propertyText(value),
-        ...(named === undefined ? {} : { nameKey: named.key, ...(named.date === true && typeof value === 'string' ? { valueKind: 'date' as const } : {}) }),
+  return { type: 'properties', title, rows: detailRows(subject.entity, details, properties, lang) };
+}
+
+// ---- members ----------------------------------------------------------------------------------
+
+/** The fragment a member has on its parent's page: stable for the entity's id, and usable as an HTML id. */
+export function memberAnchor(id: string): string {
+  return `member-${encodeURIComponent(id)}`;
+}
+
+/** The entity whose page a member belongs on: the edge the kind declares, else the property that names the parent. */
+export async function memberParent(ctx: RenderContext, subject: Subject, member: import('./kinds.js').MemberDecl): Promise<GraphEntity | undefined> {
+  if (subject.source !== 'graph') return undefined;
+  const found = await ctx.graph.edgesOf(subject.entity, member.relation, member.direction, 20);
+  // A relation with more edges than the first read is read again to its total: the parent is not the first twenty.
+  const edges = found.total > found.rows.length ? (await ctx.graph.edgesOf(subject.entity, member.relation, member.direction, found.total)).rows : found.rows;
+  const parent = edges.map((row) => row.other).find((other) => member.parentKind === undefined || other.kind === member.parentKind);
+  if (parent !== undefined) return parent;
+  if (member.property === undefined) return undefined;
+  const key = subject.entity.properties[member.property];
+  if (typeof key !== 'string' || key === '') return undefined;
+  return (await ctx.graph.find(key)).find((other) => member.parentKind === undefined || other.kind === member.parentKind);
+}
+
+/**
+ * The members of an entity: its fields, its facets. The page draws them as one table: the member's
+ * short name, the facts that differ between rows, and the entities that read or write it. Facts every
+ * row shares are stated once, above the table, in the reader's language (madarch-m38l.21).
+ */
+export async function membersBlock(
+  ctx: RenderContext,
+  subject: Subject,
+  params: Readonly<Record<string, string>>,
+  file: string,
+  line: number,
+  lang: string,
+): Promise<Block> {
+  const title = params['title'] ?? 'Members';
+  const kind = params['kind'];
+  const relation = params['relation'];
+  if (kind === undefined || kind === '' || relation === undefined || relation === '') return { type: 'problem', block: 'members', file, line, message: 'the members block names the kind and the relation of the members it lists: kind="code.field" relation="code.contains"' };
+  if (subject.source !== 'graph') return { type: 'problem', block: 'members', file, line, message: 'the members block lists entities of the graph; this entity is not one' };
+  const direction = params['direction'] === 'out' ? 'out' : 'in';
+  const limit = toInt(params['limit'], 200, 1, 500);
+  // The template's limit is where the first read starts, not what a reader may reach: a group it cuts is read again to
+  // its true total, as a page's own neighbours are (`views.ts`), so a member is never left out of its own table.
+  const readNeighbours = (take: number) => ctx.graph.neighbors(subject.entity, { relations: [relation], direction, limit: take });
+  let found = await readNeighbours(limit);
+  if (found.some((group) => group.total > group.rows.length)) found = await readNeighbours(Math.max(...found.map((group) => group.total)));
+  const declaration = ctx.manifest.kinds.get(kind);
+  const details = declaration?.details;
+  const kindLabel = declaration?.labels?.[lang]?.one ?? declaration?.labels?.['en']?.one;
+  const kindProperty = ctx.manifest.properties.get('symbolKind');
+  const kindLabelName = kindProperty?.labels[lang] ?? kindProperty?.labels['en'];
+  const omit = new Set(list(params['omit']) ?? []);
+  const rows: import('./model.js').MemberRow[] = [];
+  for (const group of found) {
+    for (const row of group.rows) {
+      if (row.entity.kind !== kind) continue;
+      const [member] = await ctx.graph.find(row.entity.key);
+      if (member === undefined) continue;
+      const readers = list(params['readers']) ?? [];
+      const writers = list(params['writers']) ?? [];
+      const refs = async (relations: readonly string[]): Promise<EntityRef[]> => {
+        const held: EntityRef[] = [];
+        for (const other of relations) {
+          const first = await ctx.graph.edgesOf(member, other, 'in', 100);
+          // A reader list cut by the read is read again to its total: a count without its names is not a list.
+          const edges = first.total > first.rows.length ? (await ctx.graph.edgesOf(member, other, 'in', first.total)).rows : first.rows;
+          for (const edge of edges) held.push(refOfGraph(ctx, edge.other));
+        }
+        return held;
       };
-    });
-  return { type: 'properties', title, rows };
+      const declaredName = member.properties['name'];
+      const name = typeof declaredName === 'string' && declaredName.trim() !== '' ? declaredName : member.label;
+      const values = detailRows(member, details, ctx.manifest.properties, lang).filter((value) => !omit.has(value.name));
+      rows.push({ entity: refOfGraph(ctx, member), name, anchor: memberAnchor(member.key), values, readers: await refs(readers), writers: await refs(writers) });
+    }
+  }
+  // Every member of the kind is a row, so the total is the rows: nothing is counted without being drawn.
+  return { type: 'members', title, ...(kindLabel === undefined ? {} : { kindLabel }), ...(kindLabelName === undefined ? {} : { kindLabelName }), rows, total: rows.length };
 }
 
 // ---- children ---------------------------------------------------------------------------------

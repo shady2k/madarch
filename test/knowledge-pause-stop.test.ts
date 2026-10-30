@@ -29,14 +29,14 @@ const FILE = recordKey('code.file', 'src/a.ts');
 const PRODUCT_FILE = 'docs/product.md';
 const DOMAIN_FILE = 'docs/domains/numbers.md';
 
-const PRODUCT_PAGE_RU = [
-  '---', 'id: product:tiny', 'kind: product', 'title: Крошечный продукт', 'relates:', `  - ${FILE}`, 'producer: agent', 'sources: []', '---', '',
-  '## Что это за продукт', '',
-  'Крошечный продукт считает числа с помощью листовой и корневой функций.[^1]', '',
-  '## Домены', '',
-  `- [Числа](madarch:domain:numbers) считаются в [исходном файле](madarch:${FILE}).[^2]`, '',
-  `[^1]: [a.ts](madarch:${FILE})`, `[^2]: [a.ts](madarch:${FILE})`,
-].join('\n');
+// The home page is written from its eight fields (madarch-ztyq.7), not from Markdown: the core renders the sections,
+// their headings in the wiki's language and the sentence a part says when nothing was found. Only the sections this
+// fixture needs are given; the others are drawn as their own gap sentences.
+const PRODUCT_FIELDS_RU = {
+  title: 'Крошечный продукт',
+  whatItIs: [{ text: 'Крошечный продукт считает числа с помощью листовой и корневой функций.', grounds: [FILE] }],
+  domains: [{ target: 'domain:numbers', text: 'Числа считаются в исходном файле.', grounds: [FILE] }],
+};
 const DOMAIN_FIELDS_RU = {
   title: 'Числа',
   participants: [{ text: 'Листовая и корневая функции считают числа в исходном файле.', grounds: [FILE] }],
@@ -85,7 +85,7 @@ const agent: AgentWithClose = {
       productCalls += 1;
       if (holdProduct) await wait();
       const written = await request.tools.call('write_page', {
-        markdown: PRODUCT_PAGE_RU,
+        fields: PRODUCT_FIELDS_RU,
         domains: [{ slug: 'numbers', title: 'Числа', summary: 'Числа считают листовая и корневая функции.', evidence: [FILE] }],
       });
       if (written.isError) throw new Error(`the product page was refused: ${JSON.stringify(written.answer)}`);
@@ -440,7 +440,7 @@ describe('a stop that arrives while a page is being written', () => {
             // The agent's write_page is handed to the worker, and the person's stop stands behind it in the same queue:
             // the tool call is in flight when the worker reads the stop.
             lines.push(JSON.stringify({ type: 'tool', callId: 1, unit: 'product:tiny', name: 'write_page', args: {
-              markdown: PRODUCT_PAGE_RU,
+              fields: PRODUCT_FIELDS_RU,
               domains: [{ slug: 'numbers', title: 'Числа', summary: 'Числа считают листовая и корневая функции.', evidence: [FILE] }],
             } } as ToWorker));
             lines.push(JSON.stringify({ type: 'stop' } as ToWorker));

@@ -25,6 +25,7 @@ import {
   type PageSink, type UnitAgent, type UnitRequest, type WriterReport, type WriterUnitRun,
 } from '../src/writer/index.js';
 import { fillWriterState } from '../src/writer/graph-state.js';
+import { memoryJournal } from '../src/writer/journal.js';
 import { gitEnv } from './git-env.js';
 import { KINDS_FILE, readKinds } from '../src/knowledge/kinds.js';
 import { seedStarterSet } from '../src/knowledge/seed.js';
@@ -144,7 +145,8 @@ const productPage = page('product:tiny-shop', 'product', 'Tiny shop',
   ['## What the product is', '', 'A shopper places an order.[^what-it-is]', '', '## Domains', '', '- The [ordering domain](madarch:domain:ordering) is where orders are placed.[^what-it-is]'].join('\n'));
 const domainPage = page('domain:ordering', 'domain', 'Ordering', '## How ordering works\n\nA shopper places an order.[^what-it-is]');
 const validationPage = page('graph-validation:tiny-shop', 'validation', 'Graph verdicts', '## What was inspected\n\nA shopper places an order.[^what-it-is]');
-const overviewPage = page('overview:tiny-shop', 'overview', 'Tiny shop', '## What the product is\n\nA shopper places an order.[^what-it-is]');
+/** The fields a home page answers with (madarch-ztyq.7): what the product is, and the domain it points at. */
+const homeFields = { whatItIs: [{ text: 'A shopper places an order.', grounds: [UC1] }], domains: [{ target: 'domain:ordering', text: 'Orders are placed there.', grounds: [UC1] }] };
 const editorialPage = page('editorial:tiny-shop', 'editorial', 'A newcomer reading', '## What was read\n\nThe ordering page says what it is for.[^what-it-is]');
 
 /** The fields a domain unit answers with (madarch-ztyq.6): the business first, grounded on its passage. */
@@ -157,10 +159,10 @@ const domainFields = {
 
 /** The write a unit's page asks for, by the kind of page that unit writes: the page itself, or its fields. */
 function pageOf(request: UnitRequest): { markdown?: string; fields?: unknown; domains?: unknown[] } {
-  if (request.id === 'product:tiny-shop') return { markdown: productPage, domains: [{ slug: 'ordering', title: 'Ordering', summary: 'Orders are placed.', evidence: [UC1] }] };
+  if (request.id === 'product:tiny-shop') return { fields: homeFields, domains: [{ slug: 'ordering', title: 'Ordering', summary: 'Orders are placed.', evidence: [UC1] }] };
   if (request.id === 'domain:ordering') return { fields: domainFields };
   if (request.id === 'graph-validation:tiny-shop') return { markdown: validationPage };
-  if (request.id === 'overview:tiny-shop') return { markdown: overviewPage };
+  if (request.id === 'overview:tiny-shop') return { fields: homeFields };
   if (request.id === 'editorial:tiny-shop') return { markdown: editorialPage };
   return { markdown: '' };
 }
@@ -211,7 +213,7 @@ function scripted(options: { readonly failAt?: string; readonly silentFor?: stri
       const settled = pageOf(request);
       expect(settled.markdown ?? settled.fields, `the scripted agent has no page for ${request.id}`).toBeDefined();
       const written = settled.fields !== undefined
-        ? await request.tools.call('write_page', { fields: settled.fields })
+        ? await request.tools.call('write_page', settled.domains === undefined ? { fields: settled.fields } : { fields: settled.fields, domains: settled.domains })
         : settled.domains === undefined
           ? await request.tools.call('write_page', { markdown: settled.markdown })
           : await request.tools.call('write_page', { markdown: settled.markdown, domains: settled.domains });
@@ -736,4 +738,57 @@ describe('the pages a run counts', () => {
       rmSync(folder, { recursive: true, force: true });
     }
   }, 240_000);
+});
+
+// ---------------------------------------------------------------------------------------------
+// The editorial pass in a run (madarch-ztyq.9): after the page batch and after the overview
+// ---------------------------------------------------------------------------------------------
+
+describe('the editorial pass in a writer run', () => {
+  let report: WriterReport;
+  let calls = 0;
+  let journal: ReturnType<typeof memoryJournal>;
+
+  beforeAll(async () => {
+    const output = join(scratch, 'editorial-product');
+    mkdirSync(join(output, 'docs'), { recursive: true });
+    declareWriterPages(output);
+    writeFileSync(join(output, 'docs/requirements.md'), REQUIREMENTS);
+    journal = memoryJournal('run-editorial-wiring');
+    report = await runWriter({
+      owner, store, repository, output, productName: 'Tiny shop', agent: scripted().agent,
+      documentEntities: entities, state: memoryWriterState(), sink: fsSink(output),
+      editorial: {
+        maxRequestsPerPage: 1,
+        journal,
+        judge: {
+          async judge(pack) {
+            calls += 1;
+            expect(pack.maxPerPage).toBe(1);
+            return { requests: [] };
+          },
+        },
+      },
+    });
+  }, 120_000);
+
+  test('it reads the page batch before the guides, and the complete set once the overview stands', () => {
+    expect(report.editorialPasses.map((pass) => pass.point)).toEqual(['batch', 'overview']);
+    const batch = report.editorialPasses[0]!;
+    const final = report.editorialPasses[1]!;
+    expect(batch.pages).toContain('docs/product.md');
+    expect(batch.pages.some((page) => page.startsWith('docs/domains/'))).toBe(true);
+    expect(batch.pages).not.toContain('docs/overview.md');
+    expect(final.pages).toContain('docs/overview.md');
+    expect(final.pages).toEqual(expect.arrayContaining([...batch.pages]));
+    expect(calls).toBe(2);
+    expect(report.editorialProblems).toEqual([]);
+  });
+
+  test('the pass itself leaves every page in place; the run’s pages are what the writer wrote', () => {
+    // No editorial request was made in this fixture, so the writer wrote each page once; the pass added no write.
+    expect(report.ok).toBe(true);
+    expect(report.revisionRequests).toEqual([]);
+    expect(journal.records.filter((record) => record.kind === 'revision-request')).toEqual([]);
+  });
 });

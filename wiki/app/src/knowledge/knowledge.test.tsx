@@ -162,6 +162,22 @@ describe('the blocks', () => {
     expect(container.querySelector('[data-testid=related-cut]')!.textContent).toBe('Showing 3 of 5.');
   });
 
+  test('a hotspot table heads its paths File, not Commit', async () => {
+    const block: Block = {
+      type: 'history', title: 'History',
+      sections: [
+        { role: 'summary', total: 1, rows: [{ text: '', figures: [{ kind: 'commits', value: '7' }] }] },
+        { role: 'hotspots', total: 1, rows: [{ text: 'svc/a.ts', figures: [{ kind: 'commits', value: '3' }] }] },
+      ],
+      notes: [],
+    };
+    const container = into(createElement(BlockView, { block, resolutions: {} }));
+    await until(() => container.querySelector('tbody tr') !== null, 'the history table');
+    const heads = [...container.querySelectorAll('thead th')].map((head) => head.textContent);
+    expect(heads[0]).toBe('File');
+    expect(heads).not.toContain('Commit');
+  });
+
   test('a related block with nothing to show draws no section', async () => {
     const container = into(createElement(BlockView, { block: { type: 'related', title: 'Imports', groups: [] }, resolutions: {} }));
     expect(container.querySelector('section')).toBeNull();
@@ -309,7 +325,7 @@ function stubFetch(calls: string[], others: (url: string, init?: RequestInit) =>
 
 describe('the fill card', () => {
   const status = (over: Partial<WikiStatus> = {}): WikiStatus => ({
-    product: { name: 'shop', id: 'x' }, manifest: 'ok', manifestFile: 'madarch/kinds.yaml', language: 'en', seeded: [], findings: [], kinds: [], groups: [], repositories: [{ name: 'training', filled: false }], filled: false, incomplete: false, fill: { state: 'idle' }, writer: { state: 'idle', agent: null, units: [] }, bounds: { turns: 30, minutes: 10, toolCalls: 80, writeAttempts: 5, maxDomains: 12 }, chosenAgent: null, home: null, ...over,
+    product: { name: 'shop', id: 'x' }, manifest: 'ok', manifestFile: 'madarch/kinds.yaml', language: 'en', seeded: [], findings: [], kinds: [], groups: [], repositories: [{ name: 'training', filled: false }], filled: false, incomplete: false, fill: { state: 'idle' }, writer: { state: 'idle', agent: null, units: [] }, bounds: { turns: 30, minutes: 10, toolCalls: 80, writeAttempts: 5, maxDomains: 12, editorialRequestsPerPage: 2 }, chosenAgent: null, home: null, ...over,
   });
 
   test('an empty product with a repository says what to do and starts the fill on the press of one button', async () => {
@@ -382,7 +398,7 @@ describe('the fill card', () => {
 
 describe('the agent stage', () => {
   const status = (over: Partial<WikiStatus> = {}): WikiStatus => ({
-    product: { name: 'shop', id: 'x' }, manifest: 'ok', manifestFile: 'madarch/kinds.yaml', language: 'en', seeded: [], findings: [], kinds: [], groups: [], repositories: [{ name: 'training', filled: false }], filled: false, incomplete: false, fill: { state: 'idle' }, writer: { state: 'idle', agent: null, units: [] }, bounds: { turns: 30, minutes: 10, toolCalls: 80, writeAttempts: 5, maxDomains: 12 }, chosenAgent: null, home: null, ...over,
+    product: { name: 'shop', id: 'x' }, manifest: 'ok', manifestFile: 'madarch/kinds.yaml', language: 'en', seeded: [], findings: [], kinds: [], groups: [], repositories: [{ name: 'training', filled: false }], filled: false, incomplete: false, fill: { state: 'idle' }, writer: { state: 'idle', agent: null, units: [] }, bounds: { turns: 30, minutes: 10, toolCalls: 80, writeAttempts: 5, maxDomains: 12, editorialRequestsPerPage: 2 }, chosenAgent: null, home: null, ...over,
   });
 
   test('the empty wiki offers the agents with their state, states the bound in plain words, and one press installs the adapter, saves the choice and starts the fill', async () => {
@@ -533,7 +549,7 @@ describe('the agent stage', () => {
 
 describe('after the run', () => {
   const status = (over: Partial<WikiStatus> = {}): WikiStatus => ({
-    product: { name: 'shop', id: 'x' }, manifest: 'ok', manifestFile: 'madarch/kinds.yaml', language: 'ru', seeded: [], findings: [], kinds: [{ kind: 'domain', source: 'markdown', count: 4, single: false, origins: [] }, { kind: 'product', source: 'markdown', count: 1, single: true, origins: [] }], groups: [], repositories: [{ name: 'training', filled: true }], filled: true, incomplete: false, fill: { state: 'done', finishedAt: '2026-10-23T12:00:00.000Z' }, writer: { state: 'done', agent: { id: 'claude-code', label: 'Claude Code' }, units: [{ unit: 'product:shop', path: 'docs/product.md', state: 'written' }] }, bounds: { turns: 30, minutes: 10, toolCalls: 80, writeAttempts: 5, maxDomains: 12 }, chosenAgent: { id: 'claude-code', label: 'Claude Code' }, home: 'product:shop', ...over,
+    product: { name: 'shop', id: 'x' }, manifest: 'ok', manifestFile: 'madarch/kinds.yaml', language: 'ru', seeded: [], findings: [], kinds: [{ kind: 'domain', source: 'markdown', count: 4, single: false, origins: [] }, { kind: 'product', source: 'markdown', count: 1, single: true, origins: [] }], groups: [], repositories: [{ name: 'training', filled: true }], filled: true, incomplete: false, fill: { state: 'done', finishedAt: '2026-10-23T12:00:00.000Z' }, writer: { state: 'done', agent: { id: 'claude-code', label: 'Claude Code' }, units: [{ unit: 'product:shop', path: 'docs/product.md', state: 'written' }] }, bounds: { turns: 30, minutes: 10, toolCalls: 80, writeAttempts: 5, maxDomains: 12, editorialRequestsPerPage: 2 }, chosenAgent: { id: 'claude-code', label: 'Claude Code' }, home: 'product:shop', ...over,
   });
 
   test('the card of a finished run is gone: its outcome is a quiet status in the top bar that counts the pages', async () => {
@@ -625,7 +641,7 @@ describe('the product selector', () => {
 describe('there is one app', () => {
   const answer = (manifest: 'ok' | 'no-manifest') => async (url: string): Promise<Response> => {
     if (url.endsWith('/api/k/status')) {
-      return new Response(JSON.stringify({ product: { name: 'shop', id: 'x' }, manifest, manifestFile: 'madarch/kinds.yaml', language: 'en', seeded: [], findings: [], kinds: [], groups: [], repositories: [], filled: false, incomplete: false, fill: { state: 'idle' }, writer: { state: 'idle', agent: null, units: [] }, bounds: { turns: 30, minutes: 10, toolCalls: 80, writeAttempts: 5, maxDomains: 12 }, chosenAgent: null, home: null }));
+      return new Response(JSON.stringify({ product: { name: 'shop', id: 'x' }, manifest, manifestFile: 'madarch/kinds.yaml', language: 'en', seeded: [], findings: [], kinds: [], groups: [], repositories: [], filled: false, incomplete: false, fill: { state: 'idle' }, writer: { state: 'idle', agent: null, units: [] }, bounds: { turns: 30, minutes: 10, toolCalls: 80, writeAttempts: 5, maxDomains: 12, editorialRequestsPerPage: 2 }, chosenAgent: null, home: null }));
     }
     if (url.endsWith('/api/k/agents')) return new Response(JSON.stringify({ agents: [], chosen: null }));
     if (url.endsWith('/api/k/products')) return new Response(JSON.stringify({ products: [] }));
@@ -708,7 +724,7 @@ describe('document links', () => {
 
 describe('the sync button', () => {
   const status = (over: Partial<WikiStatus> = {}): WikiStatus => ({
-    product: { name: 'shop', id: 'x' }, manifest: 'ok', manifestFile: 'madarch/kinds.yaml', language: 'en', seeded: [], findings: [], kinds: [], groups: [], repositories: [{ name: 'training', filled: true }], filled: true, incomplete: false, fill: { state: 'done', finishedAt: '2026-10-27T09:00:00.000Z' }, writer: { state: 'idle', agent: null, units: [] }, bounds: { turns: 30, minutes: 10, toolCalls: 80, writeAttempts: 5, maxDomains: 12 }, chosenAgent: null, home: null, ...over,
+    product: { name: 'shop', id: 'x' }, manifest: 'ok', manifestFile: 'madarch/kinds.yaml', language: 'en', seeded: [], findings: [], kinds: [], groups: [], repositories: [{ name: 'training', filled: true }], filled: true, incomplete: false, fill: { state: 'done', finishedAt: '2026-10-27T09:00:00.000Z' }, writer: { state: 'idle', agent: null, units: [] }, bounds: { turns: 30, minutes: 10, toolCalls: 80, writeAttempts: 5, maxDomains: 12, editorialRequestsPerPage: 2 }, chosenAgent: null, home: null, ...over,
   });
   /** The top bar, so the button is proven where the reader sees it, not only as a component of its own. */
   const bar = (state: WikiStatus, refresh: () => void): ReturnType<typeof createElement> => createElement(Toolbar, { status: state, route: { name: 'home' }, menu: null, refresh, products: [], current: 'shop' });
@@ -819,7 +835,7 @@ describe('the sync button', () => {
 
 describe('the badge and the panel it opens', () => {
   const status = (over: Partial<WikiStatus> = {}): WikiStatus => ({
-    product: { name: 'shop', id: 'x' }, manifest: 'ok', manifestFile: 'madarch/kinds.yaml', language: 'en', seeded: [], findings: [], kinds: [], groups: [], repositories: [{ name: 'training', filled: true }], filled: true, incomplete: false, fill: { state: 'done' }, writer: { state: 'done', agent: { id: 'claude-code', label: 'Claude Code' }, units: [{ unit: 'product:shop', path: 'docs/product.md', state: 'written', calls: 6, writeAttempts: 1, kind: 'product', title: 'Online shop', page: 'product:shop', journal: true }] }, bounds: { turns: 30, minutes: 10, toolCalls: 80, writeAttempts: 5, maxDomains: 12 }, chosenAgent: { id: 'claude-code', label: 'Claude Code' }, home: 'product:shop', ...over,
+    product: { name: 'shop', id: 'x' }, manifest: 'ok', manifestFile: 'madarch/kinds.yaml', language: 'en', seeded: [], findings: [], kinds: [], groups: [], repositories: [{ name: 'training', filled: true }], filled: true, incomplete: false, fill: { state: 'done' }, writer: { state: 'done', agent: { id: 'claude-code', label: 'Claude Code' }, units: [{ unit: 'product:shop', path: 'docs/product.md', state: 'written', calls: 6, writeAttempts: 1, kind: 'product', title: 'Online shop', page: 'product:shop', journal: true }] }, bounds: { turns: 30, minutes: 10, toolCalls: 80, writeAttempts: 5, maxDomains: 12, editorialRequestsPerPage: 2 }, chosenAgent: { id: 'claude-code', label: 'Claude Code' }, home: 'product:shop', ...over,
   });
   const running = (): WikiStatus => status({
     writer: {
@@ -915,7 +931,7 @@ describe('a run a person pauses or stops', () => {
         { unit: 'domain:payments', path: 'docs/domains/payments.md', state: 'waiting', kind: 'domain', title: 'Payments' },
       ],
     },
-    bounds: { turns: 30, minutes: 10, toolCalls: 80, writeAttempts: 5, maxDomains: 12 }, chosenAgent: { id: 'claude-code', label: 'Claude Code' }, home: 'product:shop', ...over,
+    bounds: { turns: 30, minutes: 10, toolCalls: 80, writeAttempts: 5, maxDomains: 12, editorialRequestsPerPage: 2 }, chosenAgent: { id: 'claude-code', label: 'Claude Code' }, home: 'product:shop', ...over,
   });
 
   test('the fill page says the run stands paused, and a stop asks first in words that count the pages this run rewrote', async () => {

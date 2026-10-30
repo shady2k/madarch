@@ -283,6 +283,12 @@
     "cutShown": "The excerpt is cut; the whole file is one click away.",
     "colNote": "Why",
     "colValue": "Value",
+    "memberKind": "Kind",
+    "memberName": "Name",
+    "memberMore": "{{count}} more",
+    "memberLess": "show less",
+    "memberReaders": "Read by",
+    "memberWriters": "Written by",
     "colProperty": "Property",
     "inDocument": "in {{path}}, line {{line}}",
     "refNote": {
@@ -1052,7 +1058,11 @@
     },
     "kind": {
       "tool-call": "tool call",
-      "refusal": "refused request"
+      "refusal": "refused request",
+      "editorial-finding": "editorial finding",
+      "revision-request": "revision request",
+      "editorial-skip": "editorial pass skipped",
+      "editorial-warning": "editorial pass warning"
     },
     "unreadable": "Lines of the journal that could not be read",
     "otherRuns": "Other runs that wrote this page"
@@ -1091,6 +1101,7 @@
       "writing": "Writing",
       "classification": "Classification",
       "analysis": "Analysis",
+      "editing": "Editing",
       "unassigned": "Not assigned",
       "agentsOwn": "the agent’s own choice",
       "fallback": "This role is not assigned, so it uses {{role}}’s pair.",
@@ -1108,12 +1119,16 @@
     },
     "bounds": {
       "title": "Writer bounds",
-      "intro": "What the agent may spend on one page. madarch fixes them.",
+      "intro": "What the agent may spend on one page. The revision-request bound is yours to set.",
       "turns": "Turns of the agent per page",
       "minutes": "Minutes per page",
       "calls": "Tool calls per page",
       "attempts": "Write attempts per page",
-      "domains": "Domain pages at most"
+      "domains": "Domain pages at most",
+      "editorial": "Revision requests per page",
+      "editorialNote": "The most revision requests the editorial pass may send one page: a whole number from 0 to 12. Zero keeps the deterministic checks but asks no model for changes.",
+      "save": "Save",
+      "invalid": "Revision requests per page is a whole number from 0 to 12."
     },
     "places": {
       "title": "Where this lives",

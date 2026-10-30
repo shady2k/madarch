@@ -30,11 +30,12 @@ import { TreemapView } from './diagrams/treemap.js';
 import { useKindName } from './kind-names.js';
 import {ContractDiagnosticView} from './contract-diagnostic.js';
 import { addressOfDocument, addressOfStatement, addressOfTask, K_PROBLEMS } from './routes.js';
+import { COUNTED_FIGURES } from '../../../../src/knowledge/history-figures.js';
 import { currentAddress, linkHandlers, openInNewTab, syncFrontTabAddress } from './tabs.js';
 import { remarkStatements, type MNode } from './statements.js';
 import { setShowGrounds, useShowGrounds } from './preferences.js';
 import { TermBlockView, remarkTerms, useTerms } from './glossary.js';
-import type { Block, BrokenWhy, CallRow, CodeLocation, EntityRef, PlannedMarkView, RelatedGroup, Resolution } from './types.js';
+import type { Block, BrokenWhy, CallRow, CodeLocation, EntityRef, PlannedMarkView, PropertyRow, RelatedGroup, Resolution } from './types.js';
 
 /** A link inside the wiki, opened without a reload: in the tab in front, or in a new tab on a middle or control click. */
 export function KLink({ href, children, className, title, testId }: { href: string; children: ReactNode; className?: string; title?: string; testId?: string }): ReactElement {
@@ -375,7 +376,7 @@ function Calls({ block }: { block: Extract<Block, { type: 'callers' | 'callees' 
     return (
       <section data-block={block.type} aria-label={block.title}>
         <h2>{block.title}</h2>
-        <p className="text-small text-muted" data-testid={`${block.type}-empty`}>{t('knowledge.none')}</p>
+        <p className="text-small text-muted" data-testid={`${block.type}-empty`}>{block.emptyNote ?? t('knowledge.none')}</p>
       </section>
     );
   }
@@ -491,12 +492,86 @@ function Properties({ block }: { block: Extract<Block, { type: 'properties' }> }
         <TableBody>
           {block.rows.map((row) => (
             <TableRow key={row.name}>
-              <TableCell className="whitespace-nowrap align-top font-mono text-[0.875em] text-secondary">{row.nameKey === undefined ? row.name : t(`knowledge.property.${row.nameKey}`)}</TableCell>
-              <TableCell className="max-w-[40rem] break-words">{row.valueKind === 'date' ? when(row.value, i18n.language) : row.value}</TableCell>
+              <TableCell className="whitespace-nowrap align-top font-mono text-[0.875em] text-secondary">{row.label ?? (row.nameKey === undefined ? row.name : t(`knowledge.property.${row.nameKey}`))}</TableCell>
+              <TableCell className="max-w-[40rem] break-words">{row.valueKind === 'date' ? when(row.value, i18n.language) : row.valueKind === 'code' ? <code>{row.value}</code> : row.value}</TableCell>
             </TableRow>
           ))}
         </TableBody>
       </Table>
+    </section>
+  );
+}
+
+/** The reader or writer list of one member: a few links, then a button that opens the rest. */
+function MemberRefs({ refs, testId }: { refs: EntityRef[]; testId: 'member-readers' | 'member-writers' }): ReactElement {
+  const { t } = useTranslation();
+  const [open, setOpen] = useState(false);
+  if (refs.length === 0) return <span className="text-muted">—</span>;
+  const short = 3;
+  const shown = open ? refs : refs.slice(0, short);
+  return (
+    <div className="flex flex-wrap items-baseline gap-x-1.5 gap-y-0.5 text-small" data-testid={testId}>
+      {shown.map((entity, at) => <span key={entity.id}>{at > 0 && <span className="text-muted">, </span>}<EntityName entity={entity} /></span>)}
+      {refs.length > short && (
+        <button type="button" className="text-small text-secondary underline underline-offset-2 hover:text-ink" data-testid="member-more" onClick={() => setOpen(!open)}>
+          {open ? t('knowledge.memberLess') : t('knowledge.memberMore', { count: refs.length - short })}
+        </button>
+      )}
+    </div>
+  );
+}
+
+function Members({ block }: { block: Extract<Block, { type: 'members' }> }): ReactElement | null {
+  const { t, i18n } = useTranslation();
+  if (block.rows.length === 0) return null;
+  const names: string[] = [];
+  for (const row of block.rows) for (const value of row.values) if (!names.includes(value.name)) names.push(value.name);
+  const shared: { name: string; label?: string; value: string; valueKind?: PropertyRow['valueKind'] }[] = [];
+  const columns: { name: string; label?: string }[] = [];
+  if (block.kindLabel !== undefined) shared.push({ name: 'symbolKind', label: block.kindLabelName ?? t('knowledge.memberKind'), value: block.kindLabel });
+  for (const name of names) {
+    const held = block.rows.map((row) => row.values.find((value) => value.name === name));
+    if (name === 'symbolKind' && block.kindLabel !== undefined) continue;
+    const first = held.find((value) => value !== undefined);
+    if (first !== undefined && held.every((value) => value !== undefined && value.value === first.value)) shared.push(first);
+    else columns.push({ name, ...(first?.label === undefined ? {} : { label: first.label }) });
+  }
+  const hasReaders = block.rows.some((row) => row.readers.length > 0);
+  const hasWriters = block.rows.some((row) => row.writers.length > 0);
+  return (
+    <section data-block="members" aria-label={block.title}>
+      <h2>{block.title}</h2>
+      {shared.length > 0 && (
+        <p className="mb-2 flex flex-wrap gap-x-2 gap-y-0.5 text-small text-muted" data-testid="member-shared">
+          {shared.map((value, at) => (
+            <span key={value.name}>{at > 0 && <span aria-hidden="true" className="mr-2">·</span>}{value.label ?? value.name}: <span className="text-ink">{value.valueKind === 'date' ? when(value.value, i18n.language) : value.valueKind === 'code' ? <code>{value.value}</code> : value.value}</span></span>
+          ))}
+        </p>
+      )}
+      <Table data-testid="member-table" className="text-[13px] [&_td]:px-3 [&_td]:py-1.5 [&_th]:h-8 [&_th]:px-3">
+        <TableHeader>
+          <TableRow>
+            <TableHead>{t('knowledge.memberName')}</TableHead>
+            {columns.map((column) => <TableHead key={column.name}>{column.label ?? column.name}</TableHead>)}
+            {hasReaders && <TableHead>{t('knowledge.memberReaders')}</TableHead>}
+            {hasWriters && <TableHead>{t('knowledge.memberWriters')}</TableHead>}
+          </TableRow>
+        </TableHeader>
+        <TableBody>
+          {block.rows.map((row) => (
+            <TableRow key={row.entity.id} id={row.anchor} data-testid="member-row" data-member={row.entity.id} className="scroll-mt-24 align-top">
+              <TableCell className="min-w-[9rem] align-top"><span className="font-[550]">{row.name ?? row.entity.label}</span></TableCell>
+              {columns.map((column) => {
+                const value = row.values.find((entry) => entry.name === column.name);
+                return <TableCell key={column.name} className="max-w-[28rem] break-words align-top">{value === undefined ? <span className="text-muted">—</span> : value.valueKind === 'date' ? when(value.value, i18n.language) : value.valueKind === 'code' ? <code>{value.value}</code> : value.value}</TableCell>;
+              })}
+              {hasReaders && <TableCell className="align-top"><MemberRefs refs={row.readers} testId="member-readers" /></TableCell>}
+              {hasWriters && <TableCell className="align-top"><MemberRefs refs={row.writers} testId="member-writers" /></TableCell>}
+            </TableRow>
+          ))}
+        </TableBody>
+      </Table>
+      {block.total > block.rows.length && <p className="mt-2 text-small text-muted" data-testid="members-cut">{t('knowledge.showing', { shown: block.rows.length, total: block.total })}</p>}
     </section>
   );
 }
@@ -576,8 +651,9 @@ function Deferred({ block, pageId, resolutions }: { block: Extract<Block, { type
 /**
  * The figures whose word is counted: the numeral chooses the form of the word in the reader's language
  * (madarch-u3vw.7), so "1 commit", "2 commits", "5 commits" instead of one form glued to every numeral.
+ * The kinds are #195's own list, so the app cannot drift from the page files by keeping a second copy.
  */
-const countedKinds = new Set(['symbols', 'commits', 'files', 'reachable', 'firstParent', 'merges', 'nonMerge', 'authors', 'both', 'onlyThis', 'onlyOther']);
+const countedKinds: ReadonlySet<string> = new Set(COUNTED_FIGURES);
 
 /**
  * The history of a task, a commit or an author (madarch-m38l.16): the commits it names, the files it changed with the
@@ -602,12 +678,12 @@ function History({ block }: { block: Extract<Block, { type: 'history' }> }): Rea
       {block.sections.length === 0 ? <p className="text-small text-muted" data-testid="history-empty">{t('knowledge.none')}</p> : block.sections.map((section) => (
         <div key={`${section.role}-${block.sections.indexOf(section)}`} data-history-section={section.role} className="mb-4">
           {block.sections.length > 1 && <h3 className="text-small text-muted">{section.repository === undefined ? '' : `${section.repository}: `}{t(`knowledge.historySection.${section.role}`)}</h3>}
-          <Table>
+          {section.role === 'summary' ? <p className="flex flex-wrap items-center gap-1" data-testid="history-summary">{section.rows.flatMap((row, at) => row.figures.map((figure, figureAt) => <Badge key={`${figure.kind}-${String(at)}-${String(figureAt)}`} data-figure={figure.kind} title={figureTitle(figure)}>{figureText(figure)}</Badge>))}</p> : <Table>
             <TableHeader>
               <TableRow>
                 {section.role === 'commits' && <TableHead>{t('knowledge.historyColWhen')}</TableHead>}
                 {section.role === 'commits' && <TableHead>{t('knowledge.historyColWho')}</TableHead>}
-                <TableHead>{section.role !== 'files' ? t('knowledge.historyColWhat') : t('knowledge.historyColFile')}</TableHead>
+                <TableHead>{section.role === 'files' || section.role === 'hotspots' ? t('knowledge.historyColFile') : t('knowledge.historyColWhat')}</TableHead>
                 <TableHead>{t('knowledge.historyColFigures')}</TableHead>
               </TableRow>
             </TableHeader>
@@ -632,7 +708,7 @@ function History({ block }: { block: Extract<Block, { type: 'history' }> }): Rea
                 </TableRow>
               ))}
             </TableBody>
-          </Table>
+          </Table>}
           {section.total > section.rows.length && <p className="mt-1.5 text-small text-muted" data-testid="history-cut">{t('knowledge.showing', { shown: section.rows.length, total: section.total })}</p>}
         </div>
       ))}
@@ -640,6 +716,11 @@ function History({ block }: { block: Extract<Block, { type: 'history' }> }): Rea
         <ul className="mt-1.5 text-small text-muted" data-testid="history-notes">
           {block.notes.map((note, index) => <li key={index}>{historyNoteText(note, t)}</li>)}
         </ul>
+      )}
+      {block.more !== undefined && (
+        <p data-testid="history-more" className="mt-1.5 text-small">
+          <KLink href={block.more.href}>{block.more.label} →</KLink>
+        </p>
       )}
     </section>
   );
@@ -680,6 +761,7 @@ export function BlockView({ block, resolutions, pageId }: { block: Block; resolu
     case 'body': return <Body block={block} resolutions={resolutions} {...(pageId === undefined ? {} : { pageId })} />;
     case 'refs': return <Refs block={block} />;
     case 'properties': return <Properties block={block} />;
+    case 'members': return <Members block={block} />;
     case 'stated': return <Stated block={block} />;
     case 'related': return <Related block={block} />;
     case 'callers':

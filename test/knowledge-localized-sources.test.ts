@@ -67,7 +67,7 @@ describe('localized document sources', () => {
 
 describe('a code repository\'s documents in a Russian wiki (madarch-m38l.18)', () => {
   const manifest: KindsManifest = {
-    file: 'madarch/kinds.yaml', roles: new Map(), groups: new Map(), excludeDocuments: [], ignoreBlocks: [], findings: [],
+    file: 'madarch/kinds.yaml', roles: new Map(), properties: new Map(), groups: new Map(), excludeDocuments: [], ignoreBlocks: [], findings: [],
     kinds: new Map([['doc.term', { name: 'doc.term', template: 'templates/term.md', source: 'document', terms: ['**/glossary*.md'], title: 'title', relations: [], line: 1 }]]),
   };
   const inRepository: DocEntity = { id: 'doc:@training/docs/glossary.md#doc-section:2', kind: 'doc.term', title: 'Outbox', identifier: null, repo: 'training', path: 'docs/glossary.md', anchor: 'outbox', aliases: ['outbox'], line: 3, endLine: 3, text: 'The table in which orders queues the messages it will publish.', stableId: 'doc-section:2', semantics: 'term', pass: 'metadata', headingPath: ['Glossary'] };

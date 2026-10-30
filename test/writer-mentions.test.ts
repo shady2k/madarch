@@ -49,7 +49,7 @@ const body = [
   '',
   '`Postgres` is a code span.[^code]',
   '',
-  'See also [Kafka](madarch:code.channel:kafka).',
+  '[Kafka](madarch:code.channel:kafka).',
   '',
   '[^stack]: [orders](madarch:code.service:orders)',
   '[^rules]: [UC-1](madarch:doc:docs/requirements.md#uc-1)',

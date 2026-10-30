@@ -398,6 +398,7 @@ describe('extract operations', () => {
     expect(edgesFrom('code.listens-on', processNode).map((entry) => entry.to)).toEqual([`code.port:${'orders/8080'}`]);
     expect(node(image).properties.tag).toBe('1.4.0');
     expect(node(processNode).properties.binary).toBe('/app/orders');
+    expect(node(processNode).label).toBe('/app/orders');
   });
 
   test('deploy.dockerfiles', () => {

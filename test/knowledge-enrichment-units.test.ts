@@ -38,14 +38,14 @@ const RULES = [
   'Every number a completed calculation produced is listed.',
   '',
 ].join('\n');
-const PRODUCT_PAGE = [
-  '---', 'id: product:tiny', 'kind: product', 'title: Tiny product', 'relates:', `  - ${FILE}`, 'producer: agent', 'sources: []', '---', '',
-  '## What the product is', '',
-  'The tiny product counts numbers with a leaf function and a root function.[^1]', '',
-  '## Domains', '',
-  `- [Numbers](madarch:domain:numbers) are counted in [the source file](madarch:${FILE}).[^2]`, '',
-  `[^1]: [a.ts](madarch:${FILE})`, `[^2]: [a.ts](madarch:${FILE})`,
-].join('\n');
+// The home page is written from its eight fields (madarch-ztyq.7), not from Markdown: the core renders the sections,
+// their headings and the sentence a part says when nothing was found. Only the two sections this fixture needs are
+// given; the rest are drawn as their own gap sentences, which is the page's own admission and not a lost section.
+const PRODUCT_FIELDS = {
+  title: 'Tiny product',
+  whatItIs: [{ text: 'The tiny product counts numbers with a leaf function and a root function.', grounds: [FILE] }],
+  domains: [{ target: 'domain:numbers', text: 'The numbers are counted by the leaf and the root functions.', grounds: [FILE] }],
+};
 const DOMAIN_PAGE = [
   '---', 'id: domain:numbers', 'kind: domain', 'title: Numbers', 'relates:', `  - ${FILE}`, 'producer: agent', 'sources: []', '---', '',
   '## How the numbers are counted', '',
@@ -96,7 +96,7 @@ const agent: AgentWithClose = {
     }
     if (request.id === 'product:tiny') {
       const written = await request.tools.call('write_page', {
-        markdown: PRODUCT_PAGE,
+        fields: PRODUCT_FIELDS,
         domains: [{ slug: 'numbers', title: 'Numbers', summary: 'The numbers are counted by the leaf and the root functions.', evidence: [FILE] }],
       });
       if (written.isError) throw new Error(`the product page was refused: ${JSON.stringify(written.answer)}`);

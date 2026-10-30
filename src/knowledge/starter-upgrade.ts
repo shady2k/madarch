@@ -25,7 +25,7 @@ import { isDeepStrictEqual } from 'node:util';
 import { LineCounter, parseDocument, type Document } from 'yaml';
 import { GIT_LEAKS } from '../product/git.js';
 import { KINDS_FILE, LABEL_LANGUAGES } from './kinds.js';
-import { DOCUMENT_EXCLUDES, GROUPS, ROLES, STARTER_FILES, STARTER_KINDS, STARTER_PROBLEM_RULES, TEMPLATES, kindLines, starterManifest, type StarterKind } from './seed.js';
+import { DETAILS, DOCUMENT_EXCLUDES, GROUPS, ROLES, STARTER_FILES, STARTER_KINDS, STARTER_PROBLEM_RULES, TEMPLATES, kindLines, propertyDeclaration, starterManifest, type StarterKind } from './seed.js';
 
 /** The subjects of the commits madarch itself makes in a product's manifest and templates. */
 export const MADARCH_COMMIT_SUBJECTS: readonly string[] = ['Create the draft product'];
@@ -202,6 +202,21 @@ function writeFile(productFolder: string, path: string, content: string): void {
 
 const LABELS = (kind: StarterKind): { en: string; ru: string } => ({ en: kind.en[0], ru: kind.ru[0] });
 
+/**
+ * The fields of a kind that an older manifest may lack: its place in the tree, its words, and — the additions of
+ * madarch-m38l.21 — the details a page shows and the member line that makes a field a row of its type's table. What
+ * the manifest already says is never replaced; the declaration is the one source both the offer and the addition read.
+ */
+function upgradeFields(kind: StarterKind): string[] {
+  const declaration = starterDeclaration(kind, true) as Record<string, unknown>;
+  return [
+    'group', 'labels', 'description',
+    ...(kind.origin === undefined ? [] : ['origin']),
+    ...(declaration['details'] === undefined ? [] : ['details']),
+    ...(declaration['member'] === undefined ? [] : ['member']),
+  ];
+}
+
 /** What the starter set holds and this manifest lacks. A manifest that cannot be read offers nothing: its findings say why. */
 export function starterOffers(manifestText: string): StarterOffer[] {
   const document = parseDocument(manifestText);
@@ -233,7 +248,7 @@ export function starterOffers(manifestText: string): StarterOffer[] {
       continue;
     }
     if (present === null || typeof present !== 'object') continue;
-    const fields = ['group', 'labels', 'description', ...(kind.origin === undefined ? [] : ['origin'])].filter((field) => (present as Record<string, unknown>)[field] === undefined);
+    const fields = upgradeFields(kind).filter((field) => (present as Record<string, unknown>)[field] === undefined);
     if (fields.length > 0) offers.push({ id: `fields:${kind.name}`, type: 'fields', name: kind.name, labels: LABELS(kind), group: kind.group, fields });
   }
   // A rule the manifest does not declare, or declares without the fields the engine needs, is offered whole or in
@@ -308,12 +323,18 @@ export function addStarterItems(productFolder: string, ids: readonly string[], r
       const kind = STARTER_KINDS.find((candidate) => candidate.name === name);
       if (kind === undefined) throw new Error(`src/knowledge/starter-upgrade.ts: "${name}" is no kind of the starter set`);
       ensureGroup(document, kind.group);
+      // The properties a page of this kind shows are added with it, so the manifest and its details agree (madarch-m38l.21).
+      for (const detail of DETAILS[name] ?? []) {
+        if (document.hasIn(['properties', detail])) continue;
+        const declaration = propertyDeclaration(detail);
+        if (declaration !== undefined) document.setIn(['properties', detail], document.createNode(declaration));
+      }
       const declaration = starterDeclaration(kind, true) as Record<string, unknown>;
       if (id.startsWith('kind:')) {
         if (!document.hasIn(['kinds', name])) document.setIn(['kinds', name], document.createNode(declaration));
         addTemplate(kind);
       } else {
-        for (const field of ['group', 'labels', 'description', 'origin']) {
+        for (const field of upgradeFields(kind)) {
           if (declaration[field] !== undefined && !document.hasIn(['kinds', name, field])) document.setIn(['kinds', name, field], document.createNode(declaration[field]));
         }
       }

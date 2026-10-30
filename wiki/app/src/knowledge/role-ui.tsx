@@ -26,7 +26,7 @@ export function RoleCard(): ReactElement | null {
     chooseRole(role).then(() => setWorking(false), (failure: unknown) => { setWorking(false); setError(failure instanceof Error ? failure.message : String(failure)); });
   };
   return (
-    <div className="fixed inset-0 z-50 grid place-items-center bg-ink/40 p-4" role="presentation" onKeyDown={(event) => { if (event.key === 'Escape' && !working) keep('everything'); }}>
+    <div className="fixed inset-0 wiki-modal-layer grid place-items-center bg-ink/40 p-4" role="presentation" onKeyDown={(event) => { if (event.key === 'Escape' && !working) keep('everything'); }}>
       <div
         role="dialog"
         aria-modal="true"

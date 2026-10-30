@@ -19,7 +19,6 @@ export const TEXT = {
   en: {
     orderingSummary: 'Ordering is what the orders service does when a shopper places an order.',
     paymentsSummary: 'Payments is what the payments service does when it charges a card.',
-    productTitle: 'Training shop', whatItIs: 'What the product is', domains: 'Domains',
     intro: 'The training shop takes orders from shoppers and charges their cards through a payments service.',
     ordering: 'Ordering', payments: 'Payments',
     orderingLine: (service: string) => `is implemented by the [orders service](madarch:${service}).`,
@@ -30,12 +29,15 @@ export const TEXT = {
     orderingSystem: (service: string) => `The orders service takes the order in and keeps it.`,
     paymentsSystem: (service: string) => `The payments service charges the card through a provider.`,
     orderingStatement: "Checkout asks payments to authorize the card for the order's total.",
+    ruleOnce: 'Paying with an idempotency key that was already used returns the first payment; the card is never charged twice.',
+    ruleCap: 'A promotion never takes off more than the subtotal.',
+    stackLine: 'The system is four services on Postgres and Kafka: orders and promotions are Go, payments and checkout are TypeScript with Express.',
+    coverageLine: 'The documents name four use cases, five business rules and four services, and this wiki writes a page for each domain the product declares.',
     paymentsStatement: 'Payments are charged through one of two providers chosen by configuration.',
   },
   ru: {
     orderingSummary: 'Заказы: то, что делает сервис заказов, когда покупатель оформляет заказ.',
     paymentsSummary: 'Платежи: то, что делает сервис платежей, когда списывает деньги с карты.',
-    productTitle: 'Учебный магазин', whatItIs: 'Что это за продукт', domains: 'Домены',
     intro: 'Учебный магазин принимает заказы покупателей и списывает деньги с их карт через сервис платежей.',
     ordering: 'Заказы', payments: 'Платежи',
     orderingLine: (service: string) => `реализует [сервис заказов](madarch:${service}).`,
@@ -46,31 +48,49 @@ export const TEXT = {
     orderingSystem: (service: string) => 'Сервис заказов принимает заказ и хранит его.',
     paymentsSystem: (service: string) => 'Сервис платежей списывает деньги с карты через провайдера.',
     orderingStatement: 'При оформлении заказа сервис заказов просит сервис платежей авторизовать карту на сумму заказа.',
+    ruleOnce: 'Платёж по уже использованному ключу идемпотентности возвращает первый платёж; карта не списывается дважды.',
+    ruleCap: 'Промоакция снимает не больше суммы подытога.',
+    stackLine: 'Система — четыре сервиса на Postgres и Kafka: заказы и промоакции написаны на Go, платежи и оформление — на TypeScript с Express.',
+    coverageLine: 'Документы называют четыре сценария, пять бизнес-правил и четыре сервиса, и эта вики пишет страницу для каждого домена продукта.',
     paymentsStatement: 'Платёж проходит через одного из двух провайдеров, которого выбирает конфигурация.',
   },
 } as const;
 export type ScriptLanguage = keyof typeof TEXT;
 
-/**
- * Where a page's id points: the product the walk fills, whose id is `product:<name>`. A document ground keeps the path the
- * document has in the code repository (`docs/requirements.md`), which the writer reads and the reader resolves to the one
- * repository's document.
- */
-export interface PagePlaces { product?: string }
 
-export const productPage = (language: ScriptLanguage, places: PagePlaces = {}): string => {
+export const productFields = (language: ScriptLanguage): Record<string, unknown> => {
   const t = TEXT[language];
-  return [
-    '---', `id: ${places.product ?? 'product:training-shop'}`, 'kind: product', `title: ${t.productTitle}`, 'relates:', `  - ${ORDERS_SERVICE}`, `  - ${PAYMENTS_SERVICE}`, 'producer: agent', 'sources: [docs/vision.md, docs/requirements.md]', '---', '',
-    `## ${t.whatItIs}`, '',
-    `${t.intro}[^1]`, '',
-    `## ${t.domains}`, '',
-    `- [${t.ordering}](madarch:domain:ordering) ${t.orderingLine(ORDERS_SERVICE)}[^2]`,
-    `- [${t.payments}](madarch:domain:payments) ${t.paymentsLine(PAYMENTS_SERVICE)}[^3]`, '',
-    `[^1]: [orders](madarch:${ORDERS_SERVICE}), [payments](madarch:${PAYMENTS_SERVICE})`,
-    `[^2]: [orders](madarch:${ORDERS_SERVICE}), [UC-1](madarch:doc:docs/requirements.md#uc-1)`,
-    `[^3]: [payments](madarch:${PAYMENTS_SERVICE}), [UC-2](madarch:doc:docs/requirements.md#uc-2)`,
-  ].join('\n');
+  const uc1 = 'doc:docs/requirements.md#uc-1';
+  const uc2 = 'doc:docs/requirements.md#uc-2';
+  const rules = 'doc:docs/requirements.md#business-rules';
+  return {
+    // What the product is, and for whom: the two services that do the work, in the language the prompt asks for.
+    whatItIs: [{ text: t.intro, grounds: [ORDERS_SERVICE, PAYMENTS_SERVICE, 'doc:docs/vision.md#vision'] }],
+    // The main scenarios as the requirements state them, each pointing at the use case a reader opens.
+    scenarios: [
+      { target: uc1, text: t.orderingParticipant, grounds: [uc1, ORDERS_SERVICE] },
+      { target: uc2, text: t.paymentsParticipant, grounds: [uc2, PAYMENTS_SERVICE] },
+    ],
+    // The system map: the services the code holds, each with what it does.
+    // Grounded on the section of the architecture that says how the services talk: a row links its service, and a
+    // link is not a ground (`src/writer/format.ts`, link-is-not-a-ground).
+    system: [
+      { target: ORDERS_SERVICE, text: t.orderingSystem(ORDERS_SERVICE), grounds: [ORDERS_SERVICE, 'doc:docs/architecture.md#how-they-talk'] },
+      { target: PAYMENTS_SERVICE, text: t.paymentsSystem(PAYMENTS_SERVICE), grounds: [PAYMENTS_SERVICE, 'doc:docs/architecture.md#how-they-talk'] },
+    ],
+    // The domains this run declares, each with the page that tells it whole.
+    domains: [
+      { target: 'domain:ordering', text: t.orderingSummary, grounds: [ORDERS_SERVICE, uc1] },
+      { target: 'domain:payments', text: t.paymentsSummary, grounds: [PAYMENTS_SERVICE, uc2] },
+    ],
+    // Two of the rules the requirements state, each pointing at the rule itself.
+    rules: [
+      { target: `${rules}`, text: t.ruleOnce, grounds: ['doc:docs/requirements.md#br-3'] },
+      { target: 'doc:docs/requirements.md#br-5-promotion-cap', text: t.ruleCap, grounds: ['doc:docs/requirements.md#br-5'] },
+    ],
+    technology: [{ text: t.stackLine, grounds: [ORDERS_SERVICE, PAYMENTS_SERVICE] }],
+    coverage: [{ text: t.coverageLine, grounds: ['doc:docs/requirements.md#use-cases', rules, ORDERS_SERVICE] }],
+  };
 };
 /**
  * The fields of a domain page, as the domain unit answers them (`src/writer/domain-page.ts`, madarch-ztyq.6): the
@@ -111,6 +131,12 @@ export const call = (markdown: string, domains?: unknown) => ({ call: { tool: 'w
 
 /** The call a domain unit's prompt asks for: the fields of its page, which the core writes. */
 export const fieldsCall = (fields: unknown) => ({ call: { tool: 'write_page', arguments: { fields } } });
+
+/**
+ * The call a home-page unit's prompt asks for (madarch-ztyq.7): the fields of the eight sections, and, for the product
+ * unit, the domains it declares — the overview unit declares none, because it links the pages the run published.
+ */
+export const homeCall = (fields: unknown, domains?: unknown) => ({ call: { tool: 'write_page', arguments: domains === undefined ? { fields } : { fields, domains } } });
 
 /** The call a localized-source unit's prompt asks for: the one statement it writes, in the wiki's language. */
 export const localizedCall = (statement: string) => ({ call: { tool: 'write_localized_source', arguments: { statement } } });
@@ -208,8 +234,8 @@ function markdownUnder(folder: string, root = folder): string[] {
  * entity the product's documents hold, and an entity neither names is answered with the plain note
  * that no translation is given, so no unit is ever refused for an empty statement.
  */
-export function localizedScript(options: { entities?: readonly LocalizableEntity[]; delays?: { product?: number; ordering?: number; payments?: number }; places?: PagePlaces } = {}) {
-  const base = agentScript(options.delays ?? {}, options.places ?? {});
+export function localizedScript(options: { entities?: readonly LocalizableEntity[]; delays?: { product?: number; ordering?: number; payments?: number } } = {}) {
+  const base = agentScript(options.delays ?? {});
   const named = Object.entries(LOCALIZED_STATEMENTS).map(([title, statement]) => ({ matches: `Entity name: ${title}\n`, steps: [localizedCall(statement), { end: { stopReason: 'end_turn' } }] }));
   const derived = (options.entities ?? [])
     .filter((entity) => LOCALIZED_STATEMENTS[entity.title] === undefined)
@@ -228,7 +254,7 @@ export function localizedScript(options: { entities?: readonly LocalizableEntity
  * `delays` holds the milliseconds each unit takes before it writes, so a walk can see a unit in progress. The agent
  * writes in the language its prompt asks for: English, or Russian when the prompt says "in Russian".
  */
-export function agentScript(delays: { product?: number; ordering?: number; payments?: number } = {}, places: PagePlaces = {}) {
+export function agentScript(delays: { product?: number; ordering?: number; payments?: number } = {}) {
   const wait = (ms: number | undefined): { sleep: number }[] => (ms === undefined ? [] : [{ sleep: ms }]);
   const unit = (language: ScriptLanguage) => {
     const t = TEXT[language];
@@ -241,7 +267,7 @@ export function agentScript(delays: { product?: number; ordering?: number; payme
     const t = TEXT[language];
     return [
       ...wait(delays.product),
-      call(productPage(language, places), [
+      homeCall(productFields(language), [
         { slug: 'ordering', title: t.ordering, summary: t.orderingSummary, evidence: [ORDERS_SERVICE, 'doc:docs/requirements.md#uc-1'] },
         { slug: 'payments', title: t.payments, summary: t.paymentsSummary, evidence: [PAYMENTS_SERVICE, 'doc:docs/requirements.md#uc-2'] },
       ]),

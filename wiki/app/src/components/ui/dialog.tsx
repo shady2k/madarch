@@ -18,10 +18,10 @@ export const DialogDescription = DialogPrimitive.Description;
 export const DialogContent = forwardRef<HTMLDivElement, React.ComponentProps<typeof DialogPrimitive.Content>>(function DialogContent({ className, children, ...props }, ref): ReactElement {
   return (
     <DialogPrimitive.Portal>
-      <DialogPrimitive.Overlay className="fixed inset-0 z-50 bg-ink/40" />
+      <DialogPrimitive.Overlay className="fixed inset-0 wiki-modal-layer bg-ink/40" />
       <DialogPrimitive.Content
         ref={ref}
-        className={cn('fixed left-1/2 top-1/2 z-50 grid max-h-[85dvh] w-[min(34rem,_92vw)] -translate-x-1/2 -translate-y-1/2 gap-3 overflow-y-auto rounded-[var(--radius-panel)] border border-line bg-[var(--surface-menu)] p-5 text-ink shadow-[var(--shadow-high)] outline-none', className)}
+        className={cn('fixed left-1/2 top-1/2 wiki-modal-layer grid max-h-[85dvh] w-[min(34rem,_92vw)] -translate-x-1/2 -translate-y-1/2 gap-3 overflow-y-auto rounded-[var(--radius-panel)] border border-line bg-[var(--surface-menu)] p-5 text-ink shadow-[var(--shadow-high)] outline-none', className)}
         {...props}
       >
         {children}

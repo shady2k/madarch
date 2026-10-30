@@ -7,7 +7,7 @@
  */
 import { parse as parseYaml } from 'yaml';
 import { byCodePoint } from '../../model/order.js';
-import { FOOTNOTE_DEFINITION, statementsOf, type PageStatement } from '../../writer/sentences.js';
+import { isFootnoteDefinitionLine, statementsOf, type PageStatement } from '../../writer/sentences.js';
 import { splitFrontMatter } from '../markdown.js';
 
 /** The basis of a page in one repository: where the writer read it. */
@@ -59,7 +59,7 @@ export function readWrittenAt(value: unknown, file: string): WrittenAt[] {
   });
 }
 
-export function readIndexedPage(file: string, source: string, sha256: (text: string) => string): IndexedPage {
+export function readIndexedPage(file: string, source: string, sha256: (text: string) => string, language?: string): IndexedPage {
   const { front, body, bodyLine } = splitFrontMatter(source.replace(/\r\n/g, '\n'));
   if (front === null) throw new PageReadError(file, 1, 'the page has no front matter');
   let raw: unknown;
@@ -79,9 +79,9 @@ export function readIndexedPage(file: string, source: string, sha256: (text: str
     if (!Array.isArray(value) || value.some((entry) => typeof entry !== 'string')) throw new PageReadError(file, 2, `"${key}" is a list of texts`);
     return [...new Set(value as string[])].sort(byCodePoint);
   };
-  const statements = statementsOf(body, bodyLine);
+  const statements = statementsOf(body, bodyLine, language);
   const mentions = new Set<string>();
-  const prose = body.split('\n').filter((line) => !FOOTNOTE_DEFINITION.test(line.trim())).join('\n');
+  const prose = body.split('\n').filter((line) => !isFootnoteDefinitionLine(line.trim())).join('\n');
   for (const match of prose.matchAll(/\]\(madarch:((?:[^()\s]|\([^()\s]*\))*)\)/g)) mentions.add(match[1]!);
   return {
     id,

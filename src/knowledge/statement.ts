@@ -29,7 +29,7 @@ const CARD_KINDS: ReadonlySet<string> = new Set(['code.service', 'code.package',
 
 async function entityCard(ctx: RenderContext, entity: GraphEntity): Promise<Excerpt> {
   const subject = { source: 'graph' as const, entity };
-  const facts = propertiesBlock(subject, {}, '', 0);
+  const facts = propertiesBlock(subject, {}, '', 0, ctx.manifest.kinds.get(entity.kind)?.details, ctx.manifest.properties, ctx.language);
   const related = await relatedBlock(ctx, subject, { limit: String(CARD_ROWS) }, '', 0);
   const ref = refOfGraph(ctx, entity);
   return {

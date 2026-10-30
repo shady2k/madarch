@@ -30,7 +30,7 @@ export interface TaskClosure {
 }
 
 const git = (repository: string, args: string[]): string =>
-  execFileSync('git', ['-C', repository, ...args], { encoding: 'utf8', env: { ...process.env, LC_ALL: 'C' }, maxBuffer: 64 * 1024 * 1024 });
+  execFileSync('git', ['-C', repository, ...args], { encoding: 'utf8', env: { ...process.env, LC_ALL: 'C' }, maxBuffer: 64 * 1024 * 1024, stdio: ['ignore', 'pipe', 'ignore'] });
 
 /** The branch a repository's commits are read on: `origin/HEAD` when it names one, else the branch checked out. */
 export function defaultBranch(repository: string): string {

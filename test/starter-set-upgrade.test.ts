@@ -10,7 +10,7 @@ import { tmpdir } from 'node:os';
 import { dirname, join } from 'node:path';
 import { afterEach, describe, expect, test } from 'bun:test';
 import { parseKinds, setKindsLanguage } from '../src/knowledge/kinds.js';
-import { STARTER_FILES, STARTER_KINDS, STARTER_PROBLEM_RULES, ensureLoopKinds, starterManifest } from '../src/knowledge/seed.js';
+import { DETAILS, STARTER_FILES, STARTER_KINDS, STARTER_PROBLEM_RULES, TEMPLATES, ensureLoopKinds, starterManifest } from '../src/knowledge/seed.js';
 import { addStarterItems, currentOffers, filesAPersonEdited, provenanceOf, rememberChangedStarterFileIfOwned, replaceWithStarterSet, starterOffers, upgradeStarterSet } from '../src/knowledge/starter-upgrade.js';
 import { gitEnv } from './git-env.js';
 
@@ -293,6 +293,56 @@ describe('a manifest or a template a person edited is never rewritten', () => {
     addStarterItems(product, ['group:product'], record);
     // The starter set's product group opens by itself, and the declaration the upgrade writes carries that with it.
     expect(manifestOf(product).groups.get('product')!.open).toBe(true);
+  });
+
+  test('a kind gains the details and the member the starter set names, keeping the words a person wrote', () => {
+    const { product, record } = oldProduct();
+    const file = join(product, 'madarch', 'kinds.yaml');
+    writeFileSync(join(product, 'templates', 'item-plain.liquid'), TEMPLATES['item-plain.liquid']!);
+    writeFileSync(file, [
+      'kinds:',
+      '  code.field:',
+      '    template: templates/item-plain.liquid',
+      '    source: graph',
+      '    labels:',
+      '      en: { one: Field, many: Fields }',
+      '      ru: { one: Поле, many: Поля }',
+      '    description:',
+      '      en: A field of a type.',
+      '      ru: Поле типа.',
+      '',
+    ].join('\n'));
+    // The offer names both: a page of fields is one table on the type's page, and its details come from the manifest.
+    const offer = starterOffers(read(product, 'madarch/kinds.yaml')).find((candidate) => candidate.id === 'fields:code.field');
+    expect(offer?.fields).toContain('details');
+    expect(offer?.fields).toContain('member');
+    addStarterItems(product, ['fields:code.field'], record);
+    const manifest = manifestOf(product);
+    expect(manifest.findings).toEqual([]);
+    expect(manifest.kinds.get('code.field')!.details).toEqual([...DETAILS['code.field']!]);
+    expect(manifest.kinds.get('code.field')!.member).toMatchObject({ relation: 'code.contains', direction: 'in', parentKind: 'code.symbol' });
+    // What the person wrote stays theirs: the upgrade adds only the fields the kind lacks.
+    expect(manifest.kinds.get('code.field')!.labels?.['ru']?.one).toBe('Поле');
+    expect(manifest.kinds.get('code.field')!.labels?.['en']?.many).toBe('Fields');
+    // The properties the details name come with them, and the value a build holds is declared as data.
+    expect(manifest.properties.get('value')?.labels['ru']).toBe('Значение');
+  });
+
+  test('the starter manifest itself declares the keys of an object value, and reads clean', () => {
+    const folder = mkdtempSync(join(tmpdir(), 'madarch-starter-'));
+    try {
+      for (const starter of STARTER_FILES) {
+        const target = join(folder, starter.path);
+        mkdirSync(dirname(target), { recursive: true });
+        writeFileSync(target, starter.content);
+      }
+      const manifest = parseKinds(read(folder, 'madarch/kinds.yaml'), join(folder, 'madarch/kinds.yaml'), folder);
+      expect(manifest.findings).toEqual([]);
+      expect(manifest.properties.get('build')?.fields?.get('context')?.labels['en']).toBe('Build context');
+      expect(manifest.properties.get('build')?.fields?.get('dockerfile')?.labels['ru']).toBe('Dockerfile');
+    } finally {
+      rmSync(folder, { recursive: true, force: true });
+    }
   });
 
   test('adding the missing fields of a kind fills only what it lacks, and the roles come with the groups they lead', () => {

@@ -138,6 +138,10 @@ export interface KindDecl {
   relations: readonly DeclaredRelation[];
   /** The kind's name in each interface language: `one` for a badge, `many` for the navigation. */
   labels?: Readonly<Record<string, KindLabel>>;
+  /** The properties a page of this kind shows, in this order: keys of the manifest's `properties` map. */
+  details?: readonly string[];
+  /** The kind is a member of another entity's page and has no catalogue page of its own. */
+  member?: MemberDecl;
   line: number;
 }
 
@@ -145,6 +149,33 @@ export interface KindDecl {
 export interface KindLabel {
   one: string;
   many: string;
+}
+
+/** How a property's value is written for a reader: a list, commands, ports, a date, a plain word. */
+export const PROPERTY_FORMATS = ['text', 'list', 'commands', 'ports', 'boolean', 'number', 'date', 'path', 'code', 'build', 'scripts'] as const;
+export type PropertyFormat = (typeof PROPERTY_FORMATS)[number];
+
+/** A property the product names in its manifest: its reader-facing label in each language and how its value is written. */
+export interface PropertyDecl {
+  name: string;
+  labels: Readonly<Record<string, string>>;
+  format: PropertyFormat;
+  line: number;
+  /** The keys of a value that is an object (a build's context, a Dockerfile): their labels, declared as data. */
+  fields?: ReadonlyMap<string, PropertyDecl>;
+}
+
+/**
+ * A kind whose entities are members of another entity's page rather than pages of their own (madarch-m38l.21):
+ * a field of a class, a facet of a file. The relation names the edge to the parent; `property` is the fallback when
+ * the graph holds no edge.
+ */
+export interface MemberDecl {
+  relation: string;
+  direction: 'out' | 'in';
+  parentKind?: string;
+  property?: string;
+  line: number;
 }
 
 /** The renderers a diagram can open on (`diagram:` of the manifest). */
@@ -181,7 +212,15 @@ export interface KindsManifest {
   language?: string;
   /** The renderer the diagrams open on (`diagram:` at the top of the manifest: likec4, mermaid or archify); absent means the environment's, else LikeC4. */
   diagram?: string;
+  /** The reader-facing labels and value formats of the properties the kinds show. */
+  properties: ReadonlyMap<string, PropertyDecl>;
   kinds: ReadonlyMap<string, KindDecl>;
+  /**
+   * Every template path a kind declaration names, including a declaration whose template is missing (or whose other
+   * fields are invalid) and so has no `KindDecl`. The status key reads the paths a declaration names, not only the paths
+   * of the kinds that parsed: creating the missing template changes the answer (madarch-u3vw.8).
+   */
+  declaredTemplates?: readonly string[];
   /** The groups of kinds, in the manifest's order. */
   groups: ReadonlyMap<string, GroupDecl>;
   /** Markdown documents the wiki does not list as documents (harness files, say), as path patterns. */
@@ -209,7 +248,7 @@ export type KindsRead =
   | { present: false; file: string }
   | { present: true; manifest: KindsManifest };
 
-const KIND_KEYS = new Set(['template', 'source', 'folder', 'file', 'title', 'attributes', 'relations', 'labels', 'group', 'origin', 'description', 'identifier', 'terms', 'headings', 'semantics', 'structure']);
+const KIND_KEYS = new Set(['template', 'source', 'folder', 'file', 'title', 'attributes', 'relations', 'labels', 'group', 'origin', 'description', 'identifier', 'terms', 'headings', 'semantics', 'structure', 'details', 'member']);
 
 /** Whether a repository-relative path stays inside the folder: no climbing, not absolute. */
 export function insideFolder(folder: string, path: string): boolean {
@@ -250,6 +289,43 @@ function readParams(value: unknown, file: string, line: number, id: string, find
  * only the predicates, so a rule this manifest does not declare is not run, and a declaration that
  * misses a field is a finding at its line rather than a rule running with a guessed value.
  */
+/**
+ * The keys of an object-valued property (a build's context and its Dockerfile), each declared as { en, ru, format? }.
+ * The engine names no key of a product's value: a key it reads is a key the manifest declares here (madarch-m38l.21).
+ */
+function propertyFields(
+  property: string,
+  raw: unknown,
+  at: (path: (string | number)[]) => number,
+  findings: Finding[],
+  file: string,
+): Map<string, PropertyDecl> {
+  const fields = new Map<string, PropertyDecl>();
+  if (raw === undefined) return fields;
+  if (raw === null || typeof raw !== 'object' || Array.isArray(raw)) {
+    findings.push({ file, line: at(['properties', property, 'fields']), message: `property "${property}": "fields" maps a key of the value to { en, ru, format? }` });
+    return fields;
+  }
+  for (const [key, entry] of Object.entries(raw as Record<string, unknown>)) {
+    const line = at(['properties', property, 'fields', key]);
+    if (key.trim() === '') { findings.push({ file, line, message: `property "${property}": a field name is a name, not the empty string` }); continue; }
+    if (entry === null || typeof entry !== 'object' || Array.isArray(entry)) { findings.push({ file, line, message: `property "${property}" field "${key}": the declaration is { en, ru, format? }` }); continue; }
+    const body = entry as Record<string, unknown>;
+    for (const inner of Object.keys(body)) if (inner !== 'en' && inner !== 'ru' && inner !== 'format') findings.push({ file, line: at(['properties', property, 'fields', key, inner]), message: `property "${property}" field "${key}": "${inner}" is not a field of a field: the fields are en, ru and format` });
+    const labels: Record<string, string> = {};
+    for (const language of LABEL_LANGUAGES) {
+      const text = body[language];
+      // The word a missing language lacks has no line of its own: the finding names the field's declaration.
+      if (typeof text !== 'string' || text.trim() === '') findings.push({ file, line, message: `property "${property}" field "${key}": "${language}" is the word a reader sees` });
+      else labels[language] = text;
+    }
+    const format = body['format'] ?? 'text';
+    if (typeof format !== 'string' || !(PROPERTY_FORMATS as readonly string[]).includes(format)) findings.push({ file, line, message: `property "${property}" field "${key}": "format" is one of ${PROPERTY_FORMATS.join(', ')}, got ${JSON.stringify(format)}` });
+    if (Object.keys(labels).length === LABEL_LANGUAGES.length && typeof format === 'string' && (PROPERTY_FORMATS as readonly string[]).includes(format)) fields.set(key, { name: key, labels, format: format as PropertyFormat, line });
+  }
+  return fields;
+}
+
 function parseProblems(
   raw: unknown,
   at: (path: (string | number)[]) => number,
@@ -354,7 +430,7 @@ function parseProblems(
 }
 
 function nothing(file: string, findings: Finding[]): KindsManifest {
-  return { file, roles: new Map(), kinds: new Map(), groups: new Map(), excludeDocuments: [], ignoreBlocks: [], expect: [], findings, unreadable: true };
+  return { file, roles: new Map(), properties: new Map(), kinds: new Map(), declaredTemplates: [], groups: new Map(), excludeDocuments: [], ignoreBlocks: [], expect: [], findings, unreadable: true };
 }
 
 /** Reads `madarch/kinds.yaml` of a product folder; absent when the product holds none. */
@@ -394,7 +470,34 @@ export function parseKinds(text: string, file: string, productFolder: string): K
       const value = top['diagram'];
       if (typeof value !== 'string' || !DIAGRAM_RENDERER_NAMES.includes(value)) findings.push({ file, line: at(['diagram']), message: `"diagram" is ${JSON.stringify(value)}: the diagrams open on ${DIAGRAM_RENDERER_NAMES.join(', ')}` });
       else diagram = value;
-    } else if (key !== 'kinds' && key !== 'groups' && key !== 'documents' && key !== 'roles' && key !== 'problems') findings.push({ file, line: at([key]), message: `"${key}" is not a field of the manifest: the manifest holds "kinds", "groups", "documents", "roles", "problems", "language" and "diagram"` });
+    } else if (key !== 'kinds' && key !== 'groups' && key !== 'documents' && key !== 'roles' && key !== 'problems' && key !== 'properties') findings.push({ file, line: at([key]), message: `"${key}" is not a field of the manifest: the manifest holds "kinds", "groups", "documents", "roles", "problems", "properties", "language" and "diagram"` });
+  }
+  const properties = new Map<string, PropertyDecl>();
+  const rawProperties = top['properties'];
+  if (rawProperties !== undefined) {
+    if (rawProperties === null || typeof rawProperties !== 'object' || Array.isArray(rawProperties)) {
+      findings.push({ file, line: at(['properties']), message: '"properties" maps a property name to { en, ru, format? }' });
+    } else {
+      for (const [name, entry] of Object.entries(rawProperties as Record<string, unknown>)) {
+        const line = at(['properties', name]);
+        if (name.trim() === '') { findings.push({ file, line, message: 'a property name is a name, not the empty string' }); continue; }
+        if (entry === null || typeof entry !== 'object' || Array.isArray(entry)) { findings.push({ file, line, message: `property "${name}": the declaration is { en, ru, format? }` }); continue; }
+        const body = entry as Record<string, unknown>;
+        for (const key of Object.keys(body)) if (key !== 'en' && key !== 'ru' && key !== 'format' && key !== 'fields') findings.push({ file, line: at(['properties', name, key]), message: `property "${name}": "${key}" is not a field of a property: the fields are en, ru and format` });
+        const labels: Record<string, string> = {};
+        for (const language of LABEL_LANGUAGES) {
+          const text = body[language];
+          if (typeof text !== 'string' || text.trim() === '') findings.push({ file, line: at(['properties', name, language]), message: `property "${name}": "${language}" is the word a reader sees` });
+          else labels[language] = text;
+        }
+        const format = body['format'] ?? 'text';
+        if (typeof format !== 'string' || !(PROPERTY_FORMATS as readonly string[]).includes(format)) findings.push({ file, line: at(['properties', name, 'format']), message: `property "${name}": "format" is one of ${PROPERTY_FORMATS.join(', ')}, got ${JSON.stringify(format)}` });
+        const fields = propertyFields(name, body['fields'], at, findings, file);
+        if (Object.keys(labels).length === LABEL_LANGUAGES.length && typeof format === 'string' && (PROPERTY_FORMATS as readonly string[]).includes(format)) {
+          properties.set(name, { name, labels, format: format as PropertyFormat, line, ...(fields.size === 0 ? {} : { fields }) });
+        }
+      }
+    }
   }
   const problems = parseProblems(top['problems'], at, findings, file);
   const groups = new Map<string, GroupDecl>();
@@ -516,6 +619,7 @@ export function parseKinds(text: string, file: string, productFolder: string): K
     return { ...nothing(file, findings), groups, roles, excludeDocuments, ignoreBlocks: ignoredBlocks };
   }
   const kinds = new Map<string, KindDecl>();
+  const declaredTemplates: string[] = [];
   for (const [name, value] of Object.entries(declared as Record<string, unknown>)) {
     const line = at(['kinds', name]);
     const problem = (path: (string | number)[], message: string): void => {
@@ -533,6 +637,9 @@ export function parseKinds(text: string, file: string, productFolder: string): K
     const source = decl['source'];
     if (source !== 'graph' && source !== 'markdown' && source !== 'document') problem(['source'], `"source" is "graph", "markdown" or "document", got ${JSON.stringify(source)}`);
     const named = decl['template'];
+    // The stamp follows every path a declaration names, even when the declaration is refused below: a template created
+    // for a kind that named it missing changes the manifest's findings and the kinds the wiki shows (madarch-u3vw.8).
+    if (typeof named === 'string' && named.trim() !== '' && insideFolder(productFolder, named)) declaredTemplates.push(named);
     let template = named;
     if (typeof template !== 'string' || template.trim() === '') problem(['template'], '"template" names the template file in the product repository');
     else if (!insideFolder(productFolder, template)) problem(['template'], `the template "${template}" is not a path inside the product repository`);
@@ -609,6 +716,33 @@ export function parseKinds(text: string, file: string, productFolder: string): K
         });
       }
     }
+    const details: string[] = [];
+    const rawDetails = decl['details'];
+    if (rawDetails !== undefined) {
+      if (!Array.isArray(rawDetails) || rawDetails.some((entry) => typeof entry !== 'string' || entry.trim() === '')) problem(['details'], '"details" is a list of the property names the page shows, in their order');
+      else for (const name of rawDetails as string[]) {
+        if (!properties.has(name)) problem(['details'], `"details" names the property ${JSON.stringify(name)}, and "properties" does not declare it`);
+        else details.push(name);
+      }
+    }
+    let member: MemberDecl | undefined;
+    const rawMember = decl['member'];
+    if (rawMember !== undefined) {
+      if (rawMember === null || typeof rawMember !== 'object' || Array.isArray(rawMember)) problem(['member'], '"member" is { relation, direction, parentKind?, property? }');
+      else {
+        const body = rawMember as Record<string, unknown>;
+        for (const key of Object.keys(body)) if (key !== 'relation' && key !== 'direction' && key !== 'parentKind' && key !== 'property') problem(['member', key], `"${key}" is not a field of "member": the fields are relation, direction, parentKind and property`);
+        const relation = body['relation'];
+        const direction = body['direction'];
+        const parentKind = body['parentKind'];
+        const property = body['property'];
+        if (typeof relation !== 'string' || relation.trim() === '') problem(['member', 'relation'], '"relation" is the edge from a member to the entity whose page it belongs to');
+        if (direction !== 'out' && direction !== 'in') problem(['member', 'direction'], '"direction" is "out" (the member names the parent) or "in" (the parent contains the member)');
+        if (parentKind !== undefined && (typeof parentKind !== 'string' || parentKind.trim() === '')) problem(['member', 'parentKind'], '"parentKind" is the kind of the parent entity');
+        if (property !== undefined && (typeof property !== 'string' || property.trim() === '')) problem(['member', 'property'], '"property" names the member property that holds the parent key, when the graph holds no edge');
+        if (typeof relation === 'string' && relation.trim() !== '' && (direction === 'out' || direction === 'in')) member = { relation, direction, ...(typeof parentKind === 'string' && parentKind.trim() !== '' ? { parentKind } : {}), ...(typeof property === 'string' && property.trim() !== '' ? { property } : {}), line: at(['kinds', name, 'member']) };
+      }
+    }
     const labels: Record<string, KindLabel> = {};
     const rawLabels = decl['labels'];
     if (rawLabels !== undefined) {
@@ -640,6 +774,8 @@ export function parseKinds(text: string, file: string, productFolder: string): K
       ...(typeof single === 'string' ? { file: single } : {}),
       title: typeof title === 'string' ? title : 'label',
       ...(Array.isArray(attributes) ? { attributes: attributes as string[] } : {}),
+      ...(details.length > 0 ? { details } : {}),
+      ...(member === undefined ? {} : { member }),
       relations,
       ...(Object.keys(labels).length > 0 ? { labels } : {}),
       line,
@@ -658,7 +794,7 @@ export function parseKinds(text: string, file: string, productFolder: string): K
     }
     return true;
   });
-  return { file, roles, kinds, groups, excludeDocuments, ignoreBlocks: ignoredBlocks, expect: wanted, ...(problems === undefined ? {} : { problems }), findings, ...(language === undefined ? {} : { language }), ...(diagram === undefined ? {} : { diagram }) };
+  return { file, roles, properties, kinds, declaredTemplates: [...new Set(declaredTemplates)], groups, excludeDocuments, ignoreBlocks: ignoredBlocks, expect: wanted, ...(problems === undefined ? {} : { problems }), findings, ...(language === undefined ? {} : { language }), ...(diagram === undefined ? {} : { diagram }) };
 }
 
 /**

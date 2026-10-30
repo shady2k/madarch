@@ -14,12 +14,12 @@ import { CONTEXT_PURPOSES, FLOW_TARGETS } from './answers.js';
 import type { GraphView } from './view.js';
 import { STRUCTURED_SECTIONS, structuredKindOf, structuredLanguage } from './structured.js';
 
-export const PROMPT_VERSION = 'writer@7';
+export const PROMPT_VERSION = 'writer@8';
 
 /** The languages a product's pages are written in, with the name the agent is told. */
-export const CONTENT_LANGUAGES: Readonly<Record<string, { name: string; seeAlso: string }>> = {
-  en: { name: 'English', seeAlso: 'See also' },
-  ru: { name: 'Russian', seeAlso: 'См. также' },
+export const CONTENT_LANGUAGES: Readonly<Record<string, { name: string }>> = {
+  en: { name: 'English' },
+  ru: { name: 'Russian' },
 };
 
 /** The page bound a unit is told: a page is read by a person from the general to the particular. */
@@ -45,7 +45,7 @@ const EXAMPLE = [
   'Payments are taken by the [payments service](madarch:code.service:payments).[^taken-by-payments-service]',
   'A refund is checked before it is made.[^refund-check]',
   '',
-  'See also [ordering](madarch:domain:ordering).',
+  '[ordering](madarch:domain:ordering).',
   '',
   '[^taken-by-payments-service]: [UC-2](madarch:doc:docs/requirements.md#uc-2)',
   '[^refund-check]: [BR-4](madarch:doc:docs/requirements.md#br-4)',
@@ -59,7 +59,7 @@ export function languagePart(language: string): string[] {
     '## The language of the page',
     `- Write every sentence and every heading of the page, and its title, in ${known.name}. Graph keys, file paths, identifiers, link targets, footnote labels and the front matter keys stay exactly as they are, in the language they were found in.`,
     `- The questions you ask (title, question, why, and what each side says) are written in ${known.name} too; their section headings are set by the writer in the wiki's language.`,
-    `- A line that only connects pages starts with "${known.seeAlso}" and holds a few words and links.`,
+    `- A line that only connects pages holds links and the separator punctuation between them, with no words outside those links: one word beside or between the links makes it a statement.`,
     '',
   ];
 }
@@ -97,7 +97,7 @@ export function fixedPart(language = 'en', writesOwnPage = true): string {
     '- A ground is a graph key exactly as find_nodes shows it (`madarch:<key>`), or a document section `madarch:doc:<path>#<anchor>` with an anchor from read_file\'s sectionAnchors. A ground that does not exist in the graph is refused. The label you write on a ground is replaced by the entity\'s own name (a function\'s name, a section\'s heading): do not invent labels, copy the name find_nodes or read_file shows.',
     '- A link is not a ground. Name an entity in the text with a link: `[payments](madarch:code.service:payments)`. Ground a sentence only on what supports it: the code that does the thing or the document section that says it. A sentence whose only ground is the service or module it names is refused.',
     '- Write routes and operations as links to their graph entities, never as code spans: `[POST /pay](madarch:code.route\u003aservices/payments/routes.ts#POST:/pay)` and `[refund](madarch:code.symbol\u003aservices/payments/refund.ts#refund)`. A code span that names exactly one route or symbol of the graph is turned into that link for you; one that names nothing in the graph stays as code and should be rewritten as a plain word. A link whose target is not in the graph is refused. Keys that contain a space cannot be linked; ground on a neighbouring key instead.',
-    '- Only headings (at most ten words, no footnote) and one-sentence "See also" lines of a few words and links may have no footnote. Do not state anything you did not read in the graph or a document: if you are not sure, leave it out.',
+    '- Only headings (at most ten words, no footnote) and one-sentence lines of links and separator punctuation, with no words outside the links, may have no footnote. Do not state anything you did not read in the graph or a document: if you are not sure, leave it out.',
     '',
     ...languagePart(language),
     '## Example of a page',
@@ -185,6 +185,22 @@ export interface UnitContext {
   readonly declared?: readonly DomainDeclaration[];
   /** The pages of the artifacts this unit's kind declares it reads (decision 0032, section 1). */
   readonly reads?: readonly WriterArtifactRead[];
+  /**
+   * The editorial pass's requests for this page (madarch-ztyq.9): each names one statement and says what
+   * to change and why. The unit changes those passages and leaves every other sentence alone.
+   */
+  readonly revisions?: readonly string[];
+}
+
+/** The editorial pass's bounded requests, as the part of a page unit's prompt that authorizes a rework. */
+export function revisionPart(revisions: readonly string[] | undefined): string[] {
+  if (revisions === undefined || revisions.length === 0) return [];
+  return [
+    '## The editorial pass asked for these revisions',
+    'Each request names one statement of this page. Change that passage, and only that passage, for the reason given; keep every other sentence and footnote name as it stands.',
+    ...revisions.map((revision) => `- ${revision}`),
+    '',
+  ];
 }
 
 /** The questions asked about a page, so a unit does not ask them again and knows which are answered. */
@@ -210,20 +226,42 @@ export function otherQuestionsPart(pageId: string, questions: readonly Question[
   ];
 }
 
+/**
+ * The eight fields of a home page (madarch-ztyq.7), in the order a reader reads them: the same page is the
+ * product page, written first, and the overview page, written last (`src/writer/home-page.ts`).
+ */
+function homeFieldsPart(late: boolean): string[] {
+  return [
+    '## The fields, in the order a reader reads them',
+    '- whatItIs: what the product is and for whom, one grounded sentence per part. The page cannot be written without it.',
+    `- scenarios: the main scenarios, each pointing at the page that tells it in full${late ? ' — the page this run published for it, or the document section it stands on' : ' — the section of the document that tells it, doc:<path>#<anchor>'} — with one sentence about what the reader finds there.`,
+    '- system: how the system is put together — its services, modules and stores — each a key of the graph (or a page of this run) with one sentence about the part it is.',
+    `- domains: the domains of the product, each pointing at its page (domain:<slug>)${late ? '' : '; every domain you declare in "domains" appears here'}, with one sentence about it.`,
+    '- rules: the rules and decisions that matter to a reader of the product, each pointing at the section that states it, with one sentence about it.',
+    '- technology: the technology and the size — the language, the frameworks, the stores, how many parts and files the graph holds — each a grounded sentence.',
+    '- coverage: how complete the wiki is: what the documents and the graph hold, and which of it this wiki covers. Do not claim a page this run has not written yet: say what the wiki holds and what it does not hold yet.',
+    '- notConnected: what is not connected — a part with no frontend, a document the product lacks, a place the graph does not join — each a sentence about what the documents and the graph leave unjoined, grounded on what you read.',
+    '',
+  ];
+}
+
 export async function productPrompt(view: GraphView, unit: Extract<UnitSpec, { kind: 'product' }>, language = 'en', context: UnitContext = {}): Promise<string> {
   return [
-    fixedPart(language),
+    fixedPart(language, false),
     '',
     '## Your unit',
-    `You write the product page ${unit.path}: what the product is, for whom, its domains and its architecture. Its id is \`${unit.id}\`, its kind is \`product\`, and its title is the product's name (${unit.name}).`,
+    `You write the home page ${unit.path}: a one-minute overview of ${unit.name} for someone who opened the wiki for the first time. Its id is \`${unit.id}\`, its kind is \`product\`, and its title is the product's name (${unit.name}).`,
+    'The page is eight short sections, in the order below. Each points at the page that says it in full — a document section, a domain page, a part of the graph — instead of restating it, and every sentence a section states carries the ground that shows it. A reader reads it in a minute and follows one link to read the whole thing.',
     `Read the product's documents first (vision, requirements, architecture), then the graph, and keep the page under ${PRODUCT_PAGE_WORDS} words.`,
     '',
+    ...homeFieldsPart(false),
     'Find the product\'s domains: the bounded areas of what the product does, named for the reader (such as payments or ordering), not for a folder. Each domain you declare in write_page\'s "domains" needs a slug, a title, a one-sentence summary and evidence that resolves in the graph (service keys, symbols, document sections). Every declared domain must be linked from the page as `[name](madarch:domain:<slug>)` and described by at least one grounded sentence. Another unit will write each domain\'s page.',
     ...(context.declared === undefined || context.declared.length === 0 ? [] : ['', 'The domains the page declares now (pass them again in "domains", keep their slugs, and add a domain only for what the graph now shows is new):', ...context.declared.map(domainText)]),
     '',
     ...questionsPart(unit.id, context.questions),
     ...otherQuestionsPart(unit.id, context.questions),
     ...(context.brief === undefined ? [] : editPart(context.brief, CONTENT_LANGUAGES[language]?.name ?? language)),
+    ...revisionPart(context.revisions),
     ...earlierArtifactsPart(context.reads ?? []),
     ...await preparedContextPart(view),
   ].join('\n');
@@ -264,6 +302,7 @@ export async function domainPrompt(view: GraphView, unit: Extract<UnitSpec, { ki
     ...questionsPart(unit.id, context.questions),
     ...otherQuestionsPart(unit.id, context.questions),
     ...(context.brief === undefined ? [] : editPart(context.brief, CONTENT_LANGUAGES[language]?.name ?? language, true)),
+    ...revisionPart(context.revisions),
     '## What this domain says about failure',
     '- Compare how neighbouring operations of this domain treat what can go wrong: a shopper whose payment is declined at checkout and one whose refund fails meet two different products. Say what the person sees in each case, as business, in whatCanGoWrong; where one operation has a protection its neighbour lacks (a retry, a timeout, an error the product handles), that is a finding for "developer" — a note grounded on the two functions — and an open point when no document says whether it is intended.',
     '- This comparison belongs to a domain page; it is not repeated on the product page.',
@@ -399,17 +438,18 @@ export async function enrichmentPrompt(view: GraphView, unit: { readonly id: str
  * it links what exists instead of restating it.
  */
 export async function overviewPrompt(view: GraphView, unit: { readonly id: string; readonly path: string; readonly name: string }, pages: readonly { readonly id: string; readonly path: string; readonly title: string }[], language = 'en', context: UnitContext & { readonly reads?: readonly WriterArtifactRead[] } = {}): Promise<string> {
-  const seeAlso = CONTENT_LANGUAGES[language]?.seeAlso ?? 'See also';
   return [
-    fixedPart(language),
+    fixedPart(language, false),
     '',
     '## Your unit',
     `You write the home page ${unit.path}: a one-minute overview of ${unit.name} for someone who opened the wiki for the first time. Its id is \`${unit.id}\`, its kind is \`overview\`.`,
-    'Say what the product is and for whom, its main scenarios, how the system is put together, its domains and the rules and decisions that matter, its technology and size, how complete the wiki is, and what is not connected (a part with no frontend, a document the product lacks). Each of those is one short section, and each points at the page that says it in full instead of restating it.',
+    'The page is eight short sections, in the order below. Each points at the page that says it in full — a page this run published, a document section, a part of the graph — instead of restating it, and every sentence a section states carries the ground that shows it.',
     'You are the last page written: link the pages this run published rather than describing them again, and say plainly what the wiki does not hold yet.',
-    ...(pages.length === 0 ? [] : ['', 'The pages this run published, which you may link as `(madarch:<page id>)`:', ...pages.map((page) => `- ${page.id}: ${page.title} (${page.path})`)]),
-    ...(pages.length === 0 ? [] : ['', `A line that only connects pages starts with "${seeAlso}".`]),
+    ...(pages.length === 0 ? [] : ['A line that only connects pages holds links and separator punctuation, with no words outside those links.']),
     '',
+    ...homeFieldsPart(true),
+    ...(pages.length === 0 ? [] : ['The pages this run published, which you may point a section at as `(madarch:<page id>)`, each with the "label" the reader sees:', ...pages.map((page) => `- ${page.id}: ${page.title} (${page.path})`)]),
+    ...revisionPart(context.revisions),
     ...questionsPart(unit.id, context.questions),
     ...earlierArtifactsPart(context.reads ?? []),
     ...await preparedContextPart(view),

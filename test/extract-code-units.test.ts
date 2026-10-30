@@ -133,6 +133,16 @@ describe('a TypeScript repository', () => {
     expect(gapCount).toBe(0);
   });
 
+  test('a class field is a member entity of its class, with its declared type', () => {
+    const service = symbolKey('src/service.ts', 'Service');
+    const field = nodeOf(nodes, symbolKey('src/service.ts', 'Service.store'));
+    expect(field.kind).toBe('code.field');
+    expect(field.properties['name']).toBe('store');
+    expect(field.properties['symbolKind']).toBe('field');
+    expect(field.properties['typeText']).toBe('Store');
+    expect(edgesOf(edges, 'code.contains', service, field.key)).toHaveLength(1);
+  });
+
   test('a call through a constructor-property field reaches the interface method and, marked, its implementation', () => {
     const run = symbolKey('src/service.ts', 'Service.run');
     const direct = edgesOf(edges, 'code.calls', run, symbolKey('src/store.ts', 'Store.save'));

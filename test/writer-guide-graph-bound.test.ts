@@ -38,12 +38,12 @@ test('complete graph pages retain more than 1200 nodes and guide-only byte overf
   const guides=await createGuideWriter(wiring); // Construction must not eagerly read the oversized guide input.
   await expect(guides.prepare('administrator-guide','en')).rejects.toThrow('complete graph membership exceeds its byte bound');
   const sink=memorySink();const seen:string[]=[];const key='code.file:a.ts';
-  const page=(kind:string,id:string,body:string)=>`---\nid: ${id}\nkind: ${kind}\ntitle: Numbers\nrelates: [${key}]\nproducer: agent\nsources: []\n---\n\n${body}\n\n[^1]: [Source](madarch:${key})\n`;
   const agent:UnitAgent={run:async(request)=>{
    seen.push(request.id);
    if(request.id==='product:numbers'){
     const asked=await request.tools.call('ask_question',{type:'ambiguous-term',title:'Meaning of the computed number',question:'What does the computed number mean to a reader?',why:'The code gives a numeric value but does not explain its business meaning.',sides:[{claim:'The source defines a numeric value.',grounds:[key]}]});expect(asked.isError,JSON.stringify(asked)).toBe(false);
-    const written=await request.tools.call('write_page',{markdown:page('product','product:numbers','The product computes a number.[^1]\n\n## Domains\n\n- [Numbers](madarch:domain:numbers) describe the computed number.[^1]'),domains:[{slug:'numbers',title:'Numbers',summary:'Numbers describe the values the source computes.',evidence:[key]}]});expect(written.isError,JSON.stringify(written)).toBe(false);
+    // The product page is the home page's fields (madarch-ztyq.7): the core writes the sections and the footnotes.
+    const written=await request.tools.call('write_page',{fields:{whatItIs:[{text:'The product computes a number.',grounds:[key]}],domains:[{target:'domain:numbers',text:'Numbers describe the computed number.',grounds:[key]}]},domains:[{slug:'numbers',title:'Numbers',summary:'Numbers describe the values the source computes.',evidence:[key]}]});expect(written.isError,JSON.stringify(written)).toBe(false);
    }else if(request.id==='domain:numbers'){
     // A domain page is written from its fields (madarch-ztyq.6): the business first, the code in "developer".
     const written=await request.tools.call('write_page',{fields:{title:'Numbers',participants:[{text:'The source defines a numeric value.',grounds:[key]}],mainScenario:[{text:'The product computes the number the source defines.',grounds:[key]}],developer:{notes:[]}}});expect(written.isError,JSON.stringify(written)).toBe(false);

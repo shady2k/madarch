@@ -8,6 +8,7 @@
 import { describe, expect, test } from 'bun:test';
 import { checkPage, parseTarget, type GroundResolver, type PageExpectation } from '../src/writer/format.js';
 import { documentAnchors, slugOf } from '../src/writer/view.js';
+import { emptyProductGapMarker } from '../src/writer/empty-product-gap.js';
 
 const KEYS = new Set(['code.service:payments', 'code.service:orders', 'code.symbol\u003aservices/payments/src/providers/factory.ts#PaymentClientFactory']);
 const SECTIONS = new Set(['docs/requirements.md#uc-2', 'docs/requirements.md#br-4', 'docs/vision.md#journeys']);
@@ -46,7 +47,7 @@ describe('a page that follows the format', () => {
     '',
     '- The [payments service](madarch:code.service:payments) takes the charge.[^1]',
     '',
-    'See also [orders](madarch:domain:ordering).',
+    '[orders](madarch:domain:ordering).',
     '',
     '[^1]: [PaymentClientFactory](madarch:code.symbol\u003aservices/payments/src/providers/factory.ts#PaymentClientFactory), [UC-2](madarch:doc:docs/requirements.md#uc-2)',
     '[^2]: [BR-4](madarch:doc:docs/requirements.md#br-4)',
@@ -161,14 +162,38 @@ describe('the refusals', () => {
     expect(verdict.refusals[0]!.line).toBe(11);
   });
 
-  test('a whole paragraph or list item with no footnote is refused; headings and See also lines are not', async () => {
-    expect(await refusedRules(good(`## Payments are central to the shop\n\nSee also the orders page.\n\n- Payments are charged by configuration${foot}`))).toEqual(['ungrounded-statement', 'unused-footnote']);
-    expect(await refusedRules(good(`## Payments are central to the shop\n\nSee also the orders page.\n\n- Charges happen at checkout.[^1]${foot}`))).toEqual([]);
+  test('a model sentence that copies the words of an empty-product gap is refused when it has no structural gap identity', async () => {
+    const gap = 'The documents and the graph this page stands on say nothing yet about what the product is or for whom.';
+    const verdict = await checkPage(good(gap), { ...expectation, emptyProductGapSections: ['what-it-is'] }, resolver);
+    expect(verdict.ok).toBe(false);
+    if (verdict.ok) return;
+    expect(verdict.refusals.map((refusal) => refusal.rule)).toContain('ungrounded-statement');
   });
 
-  test('a statement does not hide behind a See also line: only a few words beside links are connecting text', async () => {
+  test('a gap marker is accepted only for the section the core left empty, and only over the one sentence it identifies', async () => {
+    const gap = 'The documents and the graph this page stands on say nothing yet about what the product is or for whom.';
+    const marked = `${emptyProductGapMarker('what-it-is', gap)}\n${gap}`;
+    const first = await checkPage(good(marked), { ...expectation, emptyProductGapSections: ['what-it-is'] }, resolver);
+    expect(first.ok).toBe(true);
+    if (!first.ok) return;
+    const again = await checkPage(first.page.markdown, { ...expectation, emptyProductGapSections: ['what-it-is'] }, resolver);
+    expect(again.ok).toBe(true);
+    if (again.ok) expect(again.page.markdown).toBe(first.page.markdown);
+    expect(await refusedRules(good(marked), { ...expectation, emptyProductGapSections: ['domains'] })).toContain('empty-product-gap');
+    const wrongDigest = `${emptyProductGapMarker('what-it-is', 'A different sentence.')}\n${gap}`;
+    expect(await refusedRules(good(wrongDigest), { ...expectation, emptyProductGapSections: ['what-it-is'] })).toContain('empty-product-gap');
+    const twoSentences = `${emptyProductGapMarker('what-it-is', gap)}\n${gap} Another claim follows.`;
+    expect(await refusedRules(good(twoSentences), { ...expectation, emptyProductGapSections: ['what-it-is'] })).toContain('empty-product-gap');
+  });
+
+  test('a whole paragraph or list item with no footnote is refused; headings and link-only lines are not', async () => {
+    expect(await refusedRules(good(`## Payments are central to the shop\n\n[orders](madarch:domain:ordering).\n\n- Payments are charged by configuration${foot}`))).toEqual(['ungrounded-statement', 'unused-footnote']);
+    expect(await refusedRules(good(`## Payments are central to the shop\n\n[orders](madarch:domain:ordering).\n\n- Charges happen at checkout.[^1]${foot}`))).toEqual([]);
+  });
+
+  test('a statement does not hide beside or between links: only links and separator punctuation connect', async () => {
     expect(await refusedRules(good(`See also payments are free of charge for every shopper.${foot}`))).toContain('ungrounded-statement');
-    expect(await refusedRules(good(`See also the [payments service](madarch:code.service:payments) and the [orders service](madarch:code.service:orders).\n\nPayments run.[^1]${foot}`))).toEqual([]);
+    expect(await refusedRules(good(`[payments service](madarch:code.service:payments), [orders service](madarch:code.service:orders).\n\nPayments run.[^1]${foot}`))).toEqual([]);
   });
 
   test('a statement does not hide in a link label, behind See also in a longer paragraph, or in a long heading', async () => {

@@ -106,12 +106,14 @@ export const WRITER_UNIT_KINDS: readonly WriterUnitKind[] = [
     contentOwner: 'madarch-mwhd.1',
   },
   {
-    // The product page, which also declares the product's domains; a later task rewrites its
-    // structure (madarch-ztyq.6, ztyq.7), the declaration stays here.
+    // The home page, and the declaration of the product's domains (0032, sections 1 and 7). Version 2: the page
+    // is the one-minute overview of the whole product in eight fixed sections, written from the fields of its
+    // units (madarch-ztyq.7, `src/writer/home-page.ts`), not a free-form body.
     kind: 'product',
-    version: 1,
+    version: 2,
     reads: [{ artifact: 'document-readings', required: false }],
     writes: ['product-page', 'domain-declarations'],
+    contentOwner: 'madarch-ztyq.7',
   },
   {
     // Rules and decisions (0032, section 1): each keeps its own structure and its implementation links,
@@ -158,9 +160,10 @@ export const WRITER_UNIT_KINDS: readonly WriterUnitKind[] = [
     writes: ['guides'],
   },
   {
-    // The home page, written last of the pages a reader opens first (0032, section 11).
+    // The home page, written last of the pages a reader opens first (0032, section 11): the same eight sections as
+    // the product page, at the moment the run can point at the pages it published (madarch-ztyq.7).
     kind: 'overview',
-    version: 1,
+    version: 2,
     reads: [
       { artifact: 'product-page', required: false },
       { artifact: 'domain-pages', required: false },
