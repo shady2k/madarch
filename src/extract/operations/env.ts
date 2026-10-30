@@ -527,6 +527,8 @@ interface EnvDefinition {
   readonly name: string;
   readonly scope: string | null;
   readonly value: string | null;
+  /** True when the definition is explicitly a secret, not a setting that happens to look like one. */
+  readonly secret?: boolean;
   readonly span: ReturnType<TreeText['spanOfLine']>;
 }
 
@@ -578,6 +580,30 @@ function yamlEnvDefinitions(t: TreeText, records: Records, path: string): EnvDef
   const documents = parseAllDocuments(t.text(path), { lineCounter, keepSourceTokens: true });
   const visit = (node: unknown): void => {
     if (!isMap(node)) return;
+    // A Kubernetes Secret is an explicit secret fact: its values are secrets by what the file declares, not by
+    // how often a value repeats. `stringData` holds plain text; `data` holds the same values in base64.
+    const kind = node.items.find((pair) => isScalar(pair.key) && pair.key.value === 'kind')?.value;
+    if (isScalar(kind) && kind.value === 'Secret') {
+      const metadata = node.items.find((pair) => isScalar(pair.key) && pair.key.value === 'metadata')?.value;
+      const secretName = isMap(metadata) ? metadata.items.find((pair) => isScalar(pair.key) && pair.key.value === 'name')?.value : undefined;
+      const scope = isScalar(secretName) && typeof secretName.value === 'string' ? secretName.value : 'secret';
+      for (const field of ['stringData', 'data']) {
+        const held = node.items.find((pair) => isScalar(pair.key) && pair.key.value === field)?.value;
+        if (!isMap(held)) continue;
+        for (const pair of held.items) {
+          if (!isScalar(pair.key) || typeof pair.key.value !== 'string' || !isScalar(pair.value) || pair.value.value === null) continue;
+          const line = lineCounter.linePos(pair.key.range?.[0] ?? 0).line;
+          definitions.push({
+            key: `code.env-definition:${path}#${scope}/${pair.key.value}`,
+            name: pair.key.value,
+            scope: null,
+            value: String(pair.value.value),
+            secret: true,
+            span: t.spanOfLine(path, line),
+          });
+        }
+      }
+    }
     const env = node.items.find((pair) => isScalar(pair.key) && pair.key.value === 'env')?.value;
     if (!isSeq(env)) {
       for (const pair of node.items) {
@@ -677,7 +703,7 @@ export function extractEnv(t: TreeText, records: Records): Map<string, EnvRead[]
       key: definition.key,
       kind: ENVIRONMENT_VALUE_RECORDS.definition.key,
       label,
-      properties: { [ENVIRONMENT_VALUE_RECORDS.definition.field]: definition.value, ...(definition.scope === null ? {} : {scope: definition.scope}) },
+      properties: { [ENVIRONMENT_VALUE_RECORDS.definition.field]: definition.value, ...(definition.scope === null ? {} : {scope: definition.scope}), ...(definition.secret === true ? { secret: true } : {}) },
       span: definition.span,
     });
     // The file that gives the variable its value is the definition's own place in the code, whether or not the code

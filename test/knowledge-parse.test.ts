@@ -13,6 +13,7 @@ import { homeKind, parseKinds, readKinds } from '../src/knowledge/kinds.js';
 import { parseTarget, readBody, readMarkdownEntities, splitFrontMatter } from '../src/knowledge/markdown.js';
 import { STARTER_FILES } from '../src/knowledge/seed.js';
 import { parseTemplate, substitute } from '../src/knowledge/template.js';
+import { closeRenderWorkers, renderLiquidPage, templateSetOf } from '../src/knowledge/liquid.js';
 import { createDraft } from '../src/product/draft.js';
 import { gitEnv } from './git-env.js';
 
@@ -23,6 +24,7 @@ function scratch(): string {
   return folder;
 }
 afterEach(() => {
+  closeRenderWorkers();
   for (const folder of folders.splice(0)) rmSync(folder, { recursive: true, force: true });
 });
 
@@ -74,7 +76,7 @@ describe('the kinds manifest', () => {
     const manifest = parseKinds(text, 'madarch/kinds.yaml', root);
     expect([...manifest.kinds.keys()]).toEqual(['good']);
     expect(manifest.findings.map((finding) => [finding.line, finding.message])).toEqual([
-      [10, '"extra" is not a field of the manifest: the manifest holds "kinds", "groups", "documents", "roles", "language" and "diagram"'],
+      [10, '"extra" is not a field of the manifest: the manifest holds "kinds", "groups", "documents", "roles", "problems", "language" and "diagram"'],
       [3, 'kind "nosource": "source" is "graph", "markdown" or "document", got undefined'],
       [4, 'kind "missing": the template "templates/none.md" does not exist in the product repository'],
       [5, 'kind "climbing": the template "../outside.md" is not a path inside the product repository'],
@@ -213,16 +215,21 @@ describe('a body and its grounds', () => {
 });
 
 describe('the starter set madarch new seeds', () => {
-  test('a new product holds the manifest and the starter templates, the manifest reads without a finding and every template parses without a problem', () => {
+  test('a new product holds the manifest and the starter templates, the manifest reads without a finding and every template parses without a problem', async () => {
     const home = scratch();
     const draft = createDraft({ home, name: 'seeded', gitEnv: gitEnv({ GIT_AUTHOR_NAME: 'a', GIT_AUTHOR_EMAIL: 'a@example.test', GIT_COMMITTER_NAME: 'a', GIT_COMMITTER_EMAIL: 'a@example.test' }) });
     if (draft.outcome !== 'created') throw new Error(JSON.stringify(draft));
     // The starter set of both changes: the document task page and the history task page are two templates of one name
-    // (`task.md` for the document, `history-task.md` for the graph's task), so both stand in the list (madarch-m38l.16).
-    expect(STARTER_FILES.map((file) => file.path)).toEqual(['madarch/kinds.yaml', ...[
-      'product', 'domain', 'guide', 'service', 'package', 'module', 'file', 'symbol', 'route', 'item', 'item-plain', 'contract', 'operation',
-      'history-task', 'commit', 'author', 'database', 'table', 'entity-text', 'term', 'question', 'correction', 'task',
-    ].map((name) => `templates/${name}.md`)]);
+    // (`task.liquid` for the document, `history-task.liquid` for the graph's task), so both stand in the list
+    // (madarch-m38l.16). The base page and the partials come first: every kind extends the base (decision 0032).
+    expect(STARTER_FILES.map((file) => file.path)).toEqual(['madarch/kinds.yaml',
+      'templates/entity.liquid',
+      'templates/partials/around.liquid', 'templates/partials/pages-about.liquid', 'templates/partials/source.liquid',
+      'templates/partials/relations.liquid', 'templates/partials/history.liquid',
+      ...[
+        'product', 'domain', 'guide', 'service', 'package', 'module', 'file', 'symbol', 'route', 'item', 'item-plain', 'contract', 'operation',
+        'history-task', 'commit', 'author', 'database', 'table', 'entity-text', 'enrichment', 'term', 'question', 'correction', 'task',
+      ].map((name) => `templates/${name}.liquid`)]);
     for (const file of STARTER_FILES) expect(readFileSync(join(draft.folder, file.path), 'utf8')).toBe(file.content);
     const read = readKinds(draft.folder);
     if (!read.present) throw new Error('the seeded manifest is absent');
@@ -230,10 +237,20 @@ describe('the starter set madarch new seeds', () => {
     expect([...read.manifest.kinds.keys()].slice(0, 2)).toEqual(['product', 'domain']);
     expect([...read.manifest.kinds.keys()]).toEqual(expect.arrayContaining(['doc.use-case', 'doc.rule', 'doc.decision', 'doc.term', 'code.service', 'code.module', 'code.file', 'code.symbol', 'code.route', 'code.table', 'code.env-var', 'code.ci-job', 'code.test-case']));
     expect(homeKind(read.manifest)!.name).toBe('product');
-    for (const decl of read.manifest.kinds.values()) {
-      const parts = parseTemplate(readFileSync(join(draft.folder, decl.template), 'utf8'));
-      expect(parts.filter((part) => part.type === 'problem')).toEqual([]);
-    }
+    // Every kind's template is one the product's templates hold, and the set reads and draws without a problem: the
+    // engine parses each template it loads, so a template with a tag the library lacks is a finding on the page.
+    const templates = templateSetOf(draft.folder);
+    expect(templates.findings).toEqual([]);
+    for (const decl of read.manifest.kinds.values()) expect(Object.keys(templates.files)).toContain(decl.template);
+    const drawn = await renderLiquidPage({
+      productFolder: draft.folder,
+      template: 'templates/entity.liquid',
+      data: {},
+      defer: false,
+      deferred: [],
+      render: async () => ({ type: 'markdown', markdown: '' }),
+    });
+    expect(drawn.findings).toEqual([]);
   });
 
   test('the starter files carry no engine page: they are the product\'s own text, committed with the draft', () => {
