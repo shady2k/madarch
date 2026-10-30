@@ -182,6 +182,65 @@ describe('the blocks', () => {
     expect(container.querySelector('[data-testid=calls-cut]')!.textContent).toBe('Showing 1 of 5.');
   });
 
+
+  const history: Block = {
+    type: 'history', title: 'Repository history',
+    sections: [{ role: 'summary', total: 1, rows: [{ text: 'shop', figures: [
+      { kind: 'commits', value: '1' },
+      { kind: 'authors', value: '1' },
+      { kind: 'merges', value: '0' },
+      { kind: 'reachable', value: '1' },
+      { kind: 'files', value: '2' },
+      { kind: 'symbols', value: '5' },
+      { kind: 'added', value: '42' },
+      { kind: 'removed', value: '7' },
+      { kind: 'module', value: 'services/orders' },
+    ] }] }],
+    notes: [{ key: 'manyCommits', args: { total: 2, shown: 1 } }],
+  };
+  const figures = (container: HTMLElement): [string, string][] => [...container.querySelectorAll('[data-figure]')].map((badge) => [badge.getAttribute('data-figure')!, (badge.textContent ?? '').trim()]);
+
+  test('every history figure counts in its numeral\'s own form, and the block\'s notes too', async () => {
+    const container = into(createElement(BlockView, { block: history, resolutions: {} }));
+    await until(() => container.querySelector('[data-figure=commits]') !== null, 'the figures');
+    expect(figures(container)).toEqual([
+      ['commits', '1 commit'],
+      ['authors', '1 author'],
+      ['merges', '0 merges'],
+      ['reachable', '1 reachable commit'],
+      ['files', '2 files'],
+      ['symbols', '5 symbols'],
+      ['added', '+42'],
+      ['removed', '−7'],
+      ['module', 'module: services/orders'],
+    ]);
+    expect(container.querySelector('[data-figure=commits]')!.getAttribute('title')).toBe('1 commit');
+    expect(container.querySelector('[data-figure=added]')!.getAttribute('title')).toBe('added lines');
+    expect(container.querySelector('[data-block=history] li')!.textContent).toBe('The list names 2 commits; the first 1 is shown.');
+  });
+
+  test('in Russian the same figures keep the numeral\'s form of Russian, not one fixed word', async () => {
+    await setWikiLanguage('ru');
+    try {
+      const container = into(createElement(BlockView, { block: history, resolutions: {} }));
+      await until(() => container.querySelector('[data-figure=commits]') !== null, 'the figures');
+      expect(figures(container)).toEqual([
+        ['commits', '1 коммит'],
+        ['authors', '1 автор'],
+        ['merges', '0 слияний'],
+        ['reachable', '1 достижимый коммит'],
+        ['files', '2 файла'],
+        ['symbols', '5 символов'],
+        ['added', '+42'],
+        ['removed', '−7'],
+        ['module', 'модуль: services/orders'],
+      ]);
+      expect(container.querySelector('[data-block=history] li')!.textContent).toBe('В списке 2 коммита; показан первый.');
+    } finally {
+      await setWikiLanguage('en');
+    }
+  });
+
   test('source shows the declaration with the file\'s own line numbers, highlighted, under a link that opens the file at the first line', async () => {
     const block: Block = { type: 'source', title: 'Source', location: place, language: 'typescript', text: 'export function charge() {\n  return 1;\n}', truncated: true };
     const container = into(createElement(BlockView, { block, resolutions: {} }));

@@ -553,7 +553,7 @@ function ImpactList({ impact }: { impact: TaskImpact }): ReactElement {
   const { t } = useTranslation();
   return (
     <div className="mt-2" data-testid="task-impact-list">
-      <p className="m-0 text-small font-medium text-ink" data-testid="impact-counts">{t('loop.taskImpactSummary', { pages: impact.counts.pages, statements: impact.counts.statements })}</p>
+      <p className="m-0 text-small font-medium text-ink" data-testid="impact-counts">{t('loop.taskImpactPages', { count: impact.counts.pages })} {t('loop.taskImpactStatements', { count: impact.counts.statements })}</p>
       {impact.pages.length === 0 && impact.statements.length === 0 && <p className="m-0 mt-1 text-small text-muted" data-testid="impact-none">{t('loop.taskImpactNone')}</p>}
       {impact.unindexed.length > 0 && <p className="m-0 mt-1 text-small text-muted" role="status" data-testid="impact-unindexed" title={impact.unindexed.join(', ')}>{t('loop.taskImpactUnindexed', { count: impact.unindexed.length })}</p>}
       {impact.pages.length > 0 && (
@@ -784,7 +784,7 @@ export function TasksPage({ version }: { version: number }): ReactElement {
                     <Badge variant={row.status === 'open' ? 'solid' : 'outline'}>{row.status === 'open' ? t('loop.taskStateOpen') : t('loop.taskStateClosed')}</Badge>
                   </div>
                   <p className="mb-0 mt-1 flex flex-wrap items-center gap-x-3 text-small text-muted" data-testid="task-row-scope">{row.scope.map((one) => <PlaceName key={one.words} place={one.place} />)}</p>
-                  {row.impact !== null && <p className="mb-0 mt-1 text-small text-muted" data-testid="task-row-impact">{t('loop.taskImpactSummary', { pages: row.impact.pages, statements: row.impact.statements })}</p>}
+                  {row.impact !== null && <p className="mb-0 mt-1 text-small text-muted" data-testid="task-row-impact">{t('loop.taskImpactPages', { count: row.impact.pages })} {t('loop.taskImpactStatements', { count: row.impact.statements })}</p>}
                   {row.closedBy !== null && !('person' in row.closedBy) && <p className="mb-0 mt-1 text-small text-muted">{t('loop.taskClosedByCommit', { commit: row.closedBy.commit.slice(0, 10), repository: row.closedBy.repository || t('knowledge.productRepository'), subject: row.closedBy.subject })}</p>}
                 </li>
               ))}
@@ -849,7 +849,7 @@ export function TaskPage({ id, version, refresh }: { id: string; version: number
         {task.impact === null
           ? <p className="m-0 text-small" role="alert">{task.problem ?? t('loop.taskImpactNone')}</p>
           : <ImpactList impact={task.impact} />}
-        <p className="mb-0 mt-2 text-small text-muted" data-testid="task-page-marks">{t('loop.taskMarks', { sections: task.marks.sections, statements: task.marks.statements, entities: task.marks.entities })}</p>
+        <p className="mb-0 mt-2 text-small text-muted" data-testid="task-page-marks">{t('loop.taskMarksSections', { count: task.marks.sections })}{t('loop.taskMarksStatements', { count: task.marks.statements })}{t('loop.taskMarksEntities', { count: task.marks.entities })}</p>
       </section>
       {task.status === 'open' && <TaskBody task={task} refresh={refresh} headline={false} />}
     </article>
