@@ -407,9 +407,9 @@ function routeOf(text: string): { method: string; path: string } | undefined {
  * The reader's inlineCode nodes say where the spans are; headings, footnote definitions and what already sits inside a
  * link are left alone.
  */
-async function linkCodeSpans(body: string, resolver: GroundResolver): Promise<string> {
-  if (resolver.uniqueRoute === undefined && resolver.uniqueSymbol === undefined) return body;
-  const reader = readPage(body);
+async function linkCodeSpans(body: string, resolver: GroundResolver, language?: string): Promise<{ body: string; reader: PageReading }> {
+  const reader = readPage(body, language);
+  if (resolver.uniqueRoute === undefined && resolver.uniqueSymbol === undefined) return { body, reader };
   const links = reader.linksIn(0, body.length);
   const units = reader.units(1);
   const structural = [...units.headings, ...units.definitions].sort((left, right) => left.start - right.start);
@@ -428,7 +428,8 @@ async function linkCodeSpans(body: string, resolver: GroundResolver): Promise<st
     const label = withoutCall(collapseInline(inner));
     out = out.slice(0, code.start) + `[${label}](madarch:${key})` + out.slice(code.end);
   }
-  return out;
+  // The page is parsed once when no code span became a link; a changed body is read again because its offsets moved.
+  return { body: out, reader: out === body ? reader : readPage(out, language) };
 }
 
 /** The key prefixes the writer always knows: its page and document targets. */
@@ -505,8 +506,9 @@ export async function checkPage(markdown: string, expected: PageExpectation, res
   const refusals: Refusal[] = [];
   const front = frontMatterOf(split.front, expected);
   refusals.push(...front.refusals);
-  const body = await linkCodeSpans(split.body, resolver);
-  const reader = readPage(body, expected.language);
+  const linked = await linkCodeSpans(split.body, resolver, expected.language);
+  const body = linked.body;
+  const reader = linked.reader;
   const { units, definitions, headings } = textUnits(body, split.bodyStart, refusals, reader);
   // The tree's text and code nodes carry candidate tokens; a graph key prefix says a token is a raw id.
   const prefixes = resolver.keyPrefixes === undefined ? DEFAULT_KEY_PREFIXES : await resolver.keyPrefixes();
