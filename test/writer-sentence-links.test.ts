@@ -66,12 +66,12 @@ describe('reader-facing entity references', () => {
   test('heading-like text in inline code is not a question link', async () => {
     expect(await rules(`## Сроки \`[вопрос](madarch:question:delivery)\`\n\n${fact}${grounds}`)).not.toContain('question-link-position');
   });
-  test('a services navigation label adds no statement but cannot hide an assertion', async () => {
-    expect(await rules(`${fact}\n\nSee also the services: [Delivery](madarch:domain:orders).${grounds}`)).toEqual([]);
+  test('a line of service links adds no statement but cannot hide an assertion', async () => {
+    expect(await rules(`${fact}\n\n[Delivery](madarch:domain:orders).${grounds}`)).toEqual([]);
     expect(await rules(`${fact}\n\nSee also the services: [Delivery](madarch:domain:orders) are free.${grounds}`)).toContain('ungrounded-statement');
   });
   test('keeps a normal descriptive heading and valid navigation links', async () => {
-    expect(await rules(`## Сроки доставки\n\n${fact}\n\nСм. также [Доставка](madarch:domain:orders).${grounds}`)).toEqual([]);
+    expect(await rules(`## Сроки доставки\n\n${fact}\n\n[Доставка](madarch:domain:orders).${grounds}`)).toEqual([]);
   });
 });
 
@@ -126,9 +126,9 @@ describe('abbreviations and navigation are not phantom claims', () => {
     expect(sentencesOf(maskInline(sentence), 'ru').map((entry) => unmask(entry.text))).toEqual(['См.', 'Доставку для подробностей.[^policy]']);
     expect(await rules(`${sentence}${grounds}`)).toEqual([]);
   });
-  test('navigation-only См. также needs no ground but its targets must resolve', async () => {
-    expect(await rules(`${fact}\n\nСм. также [Доставка](madarch:domain:orders).${grounds}`)).toEqual([]);
-    expect(await rules(`${fact}\n\nСм. также [Неизвестное](madarch:domain:missing).${grounds}`)).toContain('link-outside-graph');
+  test('a line of navigation links needs no ground but its targets must resolve', async () => {
+    expect(await rules(`${fact}\n\n[Доставка](madarch:domain:orders).${grounds}`)).toEqual([]);
+    expect(await rules(`${fact}\n\n[Неизвестное](madarch:domain:missing).${grounds}`)).toContain('link-outside-graph');
   });
   for (const assertion of ['См. также доставка бесплатна.', 'См. также [Доставка](madarch:domain:orders) бесплатна.', 'See also delivery is free.', 'See also [Delivery is free](madarch:domain:orders).']) {
     test(`does not exempt a factual assertion: ${assertion}`, async () => {

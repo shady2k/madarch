@@ -12,7 +12,7 @@
         "mustLinkDomains": false,
         "language": "en"
       },
-      "markdown": "---\nid: domain:flags\nkind: domain\ntitle: \"Flags\"\nrelates: []\nproducer: agent\nsources: []\n---\n\n## Flags\n\nThe flag is on.[^flag] Restart it.[^restart]\n\nSee also [orders](madarch:domain:orders).\n\n[^flag]: [Flag](madarch:code.symbol:src/flag.ts#flag)\n[^restart]: [Restart](madarch:code.symbol:src/restart.ts#restart)\n",
+      "markdown": "---\nid: domain:flags\nkind: domain\ntitle: \"Flags\"\nrelates: []\nproducer: agent\nsources: []\n---\n\n## Flags\n\nThe flag is on.[^flag] Restart it.[^restart]\n\n[orders](madarch:domain:orders).\n\n[^flag]: [Flag](madarch:code.symbol:src/flag.ts#flag)\n[^restart]: [Restart](madarch:code.symbol:src/restart.ts#restart)\n",
       "statements": [
         {
           "id": "flag",

@@ -232,72 +232,29 @@ function textUnits(body: string, bodyStart: number, refusals: Refusal[], reader:
   return reader.units(bodyStart);
 }
 
-/** The most words a link-only line may carry in its labels before it is read as a statement. */
-const LINK_ONLY_WORDS = 5;
+/** The most words one link label may carry before the line reads as a statement rather than a place. */
+const LINK_LABEL_WORDS = 2;
 
-/** The words that open a navigation line, in English and in Russian. They are the format's own syntax, not a reading of the prose. */
-const NAVIGATION_OPENINGS: readonly (readonly string[])[] = [['see', 'also'], ['см', 'также'], ['смотрите', 'также']];
-
-/** The determiners that open a definite noun phrase in a navigation line. */
-const DETERMINERS = new Set(['the', 'a', 'an', 'эта', 'этот', 'эти', 'та', 'то']);
-
-/** The lower-case words of a text, in order. */
-function wordsOf(text: string): string[] {
-  const out: string[] = [];
-  let word = '';
-  for (const character of text) {
-    if (character.toLowerCase() !== character.toUpperCase() || (character >= '0' && character <= '9')) {
-      word += character.toLowerCase();
-    } else if (character === "'" || character === '-') {
-      if (word !== '') word += character;
-    } else if (word !== '') {
-      out.push(word);
-      word = '';
-    }
-  }
-  if (word !== '') out.push(word);
-  return out;
-}
-
-function opensNavigation(text: string): boolean {
-  const words = wordsOf(text);
-  return NAVIGATION_OPENINGS.some((opening) => opening.length <= words.length && opening.every((word, index) => words[index] === word));
-}
+/** The most words all labels of a connecting line may carry together. */
+const LINK_LINE_WORDS = 10;
 
 /**
- * A unit that only connects: a link-only line, or a navigation line whose named
- * links are names. The sentence is a node walk, not a match on its characters:
- * a label is a name when it is at most two words, and no prose may follow the
- * last link, so a claim cannot hide in a label or after the links.
+ * A unit that only connects: every word it shows stands in a link, and the text
+ * outside the links is whitespace or separator punctuation. This is structure,
+ * not vocabulary: one word between or around the links makes the unit a
+ * statement, and a label is a name only when it is at most two words.
  */
 function connecting(unit: TextUnit, reader: PageReading): boolean {
   const views = reader.sentences(unit.start, unit.end);
   if (views.length !== 1) return false;
   const sentence = views[0]!;
-  if (sentence.footnotes.length > 0) return false;
+  if (sentence.footnotes.length > 0 || sentence.questions.length > 0) return false;
   const links = sentence.links.filter((link) => !link.url.startsWith('madarch:question:'));
-  if (links.length === 0) {
-    // A navigation line may name where to look next without linking it: "See
-    // also the orders page." A bare noun phrase starts with a determiner; a
-    // claim ("See also delivery is free") does not, and stays a statement.
-    const words = wordsOf(sentence.plain);
-    const opening = NAVIGATION_OPENINGS.find((prefix) => prefix.length <= words.length && prefix.every((word, index) => words[index] === word));
-    if (opening === undefined) return false;
-    const rest = words.slice(opening.length);
-    return rest.length >= 2 && rest.length <= 3 && DETERMINERS.has(rest[0]!);
-  }
+  if (links.length === 0) return false;
   const labels = links.map((link) => reader.words(link.start, link.end));
-  if (labels.some((count) => count > 2)) return false;
-  if (labels.reduce((sum, count) => sum + count, 0) > 2 * LINK_ONLY_WORDS) return false;
-  const after = reader.words(links[links.length - 1]!.end, sentence.end);
-  if (after > 0) return false;
-  let between = 0;
-  for (let index = 1; index < links.length; index += 1) between += reader.words(links[index - 1]!.end, links[index]!.start);
-  const before = reader.words(sentence.start, links[0]!.start);
-  if (before === 0 && between === 0) return true;
-  if (!opensNavigation(reader.plain(sentence.start, links[0]!.start))) return false;
-  if (before - 2 > 2) return false;
-  return between <= 2 * (links.length - 1);
+  if (labels.some((count) => count > LINK_LABEL_WORDS)) return false;
+  if (labels.reduce((sum, count) => sum + count, 0) > LINK_LINE_WORDS) return false;
+  return reader.wordsOutsideLinks(unit.start, unit.end) === 0;
 }
 
 const isSpaceCharacter = (character: string | undefined): boolean => character === ' ' || character === '\t' || character === '\n' || character === '\r' || character === '\f' || character === '\v';
@@ -361,6 +318,24 @@ function questionParts(label: string): { language: string; title: string } | und
   const language = rest.slice(0, colon).trim();
   if (language !== 'question' && language !== 'вопрос') return undefined;
   return { language, title: rest.slice(colon + 1).trim() };
+}
+
+/** The lower-case words of a text, in order. */
+function wordsOf(text: string): string[] {
+  const out: string[] = [];
+  let word = '';
+  for (const character of text) {
+    if (character.toLowerCase() !== character.toUpperCase() || (character >= '0' && character <= '9')) {
+      word += character.toLowerCase();
+    } else if (character === "'" || character === '-') {
+      if (word !== '') word += character;
+    } else if (word !== '') {
+      out.push(word);
+      word = '';
+    }
+  }
+  if (word !== '') out.push(word);
+  return out;
 }
 
 /** The words that make a heading a reference to a question rather than a topic. */
@@ -585,7 +560,7 @@ export async function checkPage(markdown: string, expected: PageExpectation, res
       }
       if (!groundedEnd(claim, sentence.terminated)) {
         const quoted = reader.plain(sentence.start, sentence.end);
-        refusals.push({ line: unit.line, rule: 'ungrounded-statement', message: `this sentence states something and has no footnote at its end: ${JSON.stringify(quoted.length > 90 ? `${quoted.slice(0, 87)}...` : quoted)}. End it with a footnote reference that lists its grounds, or, if it only connects text, make it a heading or a "See also" line` });
+        refusals.push({ line: unit.line, rule: 'ungrounded-statement', message: `this sentence states something and has no footnote at its end: ${JSON.stringify(quoted.length > 90 ? `${quoted.slice(0, 87)}...` : quoted)}. End it with a footnote reference that lists its grounds, or, if it only connects text, make it a heading or a line of links` });
       }
     }
   }

@@ -23,12 +23,12 @@ const verdictOf = async (body: string) => checkPage(`${front}\n\n${body}\n`, exp
 describe('the writer reads Russian', () => {
   const grounds = '[^1]: [платежи](madarch:code.service:payments), [UC-2](madarch:doc:docs/requirements.md#uc-2)';
 
-  test('a page with grounded Russian sentences, "См. также" as its connecting line and abbreviations passes', async () => {
+  test('a page with grounded Russian sentences, a connecting line of links and abbreviations passes', async () => {
     const verdict = await verdictOf([
       '## Как проходят платежи', '',
       'Платежи принимает [сервис платежей](madarch:code.service:payments), т.е. отдельный сервис со своей базой.[^1]',
       'Возврат проверяется до выполнения, напр. по сумме списания.[^1]', '',
-      'См. также [заказы](madarch:domain:ordering).', '',
+      '[заказы](madarch:domain:ordering).', '',
       grounds,
     ].join('\n'));
     expect(verdict.ok, verdict.ok ? '' : JSON.stringify(verdict.refusals)).toBe(true);
@@ -71,7 +71,7 @@ describe('the agent is told the language', () => {
     const russian = fixedPart('ru');
     expect(russian).toContain('in Russian');
     expect(russian).toContain('every sentence and every heading');
-    expect(russian).toContain('См. также');
+    expect(russian).toContain('no words outside those links');
     expect(russian).toContain('Graph keys, file paths, identifiers');
     expect(fixedPart('en')).toContain('in English');
     expect(() => fixedPart('de')).toThrow('"de" is not a language the writer knows');

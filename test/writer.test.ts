@@ -151,7 +151,7 @@ function productScript(script: Script = {}): (request: UnitRequest) => Promise<v
     body.push('## Domains', '');
     for (const domain of KEY_DOMAINS) body.push(`- [${domain.title}](madarch:domain:${domain.slug}) is implemented by the [${domain.service} service](madarch:code.service:${domain.service}).[^${domain.slug}]`);
     for (const domain of KEY_DOMAINS) notes.push(footnote(domain.slug, [`code.service:${domain.service}`, `doc:docs/requirements.md#${domain.useCase}`]));
-    body.push('', 'See also the services: ' + keys.map((k) => `[${k.replace('code.service:', '')}](madarch:${k})`).join(', ') + '.');
+    body.push('', ...keys.map((k) => `- [${k.replace('code.service:', '')}](madarch:${k})`));
     const page = ['---', 'id: product:training-shop', 'kind: product', 'title: Training shop', 'relates:', ...keys.map((k) => `  - ${k}`), 'producer: agent', 'sources: [docs/vision.md, docs/requirements.md]', '---', '', ...body, '', ...notes].join('\n');
     const domains = KEY_DOMAINS.map((d) => ({ slug: d.slug, title: d.title, summary: `${d.title} is what the ${d.service} service does for a shopper.`, evidence: [`code.service:${d.service}`, `doc:docs/requirements.md#${d.useCase}`] }));
     if (script.firstAttemptSpoiled) {

@@ -46,7 +46,7 @@ describe('a page that follows the format', () => {
     '',
     '- The [payments service](madarch:code.service:payments) takes the charge.[^1]',
     '',
-    'See also [orders](madarch:domain:ordering).',
+    '[orders](madarch:domain:ordering).',
     '',
     '[^1]: [PaymentClientFactory](madarch:code.symbol\u003aservices/payments/src/providers/factory.ts#PaymentClientFactory), [UC-2](madarch:doc:docs/requirements.md#uc-2)',
     '[^2]: [BR-4](madarch:doc:docs/requirements.md#br-4)',
@@ -161,14 +161,14 @@ describe('the refusals', () => {
     expect(verdict.refusals[0]!.line).toBe(11);
   });
 
-  test('a whole paragraph or list item with no footnote is refused; headings and See also lines are not', async () => {
-    expect(await refusedRules(good(`## Payments are central to the shop\n\nSee also the orders page.\n\n- Payments are charged by configuration${foot}`))).toEqual(['ungrounded-statement', 'unused-footnote']);
-    expect(await refusedRules(good(`## Payments are central to the shop\n\nSee also the orders page.\n\n- Charges happen at checkout.[^1]${foot}`))).toEqual([]);
+  test('a whole paragraph or list item with no footnote is refused; headings and link-only lines are not', async () => {
+    expect(await refusedRules(good(`## Payments are central to the shop\n\n[orders](madarch:domain:ordering).\n\n- Payments are charged by configuration${foot}`))).toEqual(['ungrounded-statement', 'unused-footnote']);
+    expect(await refusedRules(good(`## Payments are central to the shop\n\n[orders](madarch:domain:ordering).\n\n- Charges happen at checkout.[^1]${foot}`))).toEqual([]);
   });
 
-  test('a statement does not hide behind a See also line: only a few words beside links are connecting text', async () => {
+  test('a statement does not hide beside or between links: only links and separator punctuation connect', async () => {
     expect(await refusedRules(good(`See also payments are free of charge for every shopper.${foot}`))).toContain('ungrounded-statement');
-    expect(await refusedRules(good(`See also the [payments service](madarch:code.service:payments) and the [orders service](madarch:code.service:orders).\n\nPayments run.[^1]${foot}`))).toEqual([]);
+    expect(await refusedRules(good(`[payments service](madarch:code.service:payments), [orders service](madarch:code.service:orders).\n\nPayments run.[^1]${foot}`))).toEqual([]);
   });
 
   test('a statement does not hide in a link label, behind See also in a longer paragraph, or in a long heading', async () => {

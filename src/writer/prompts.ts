@@ -14,12 +14,12 @@ import { CONTEXT_PURPOSES, FLOW_TARGETS } from './answers.js';
 import type { GraphView } from './view.js';
 import { STRUCTURED_SECTIONS, structuredKindOf, structuredLanguage } from './structured.js';
 
-export const PROMPT_VERSION = 'writer@7';
+export const PROMPT_VERSION = 'writer@8';
 
 /** The languages a product's pages are written in, with the name the agent is told. */
-export const CONTENT_LANGUAGES: Readonly<Record<string, { name: string; seeAlso: string }>> = {
-  en: { name: 'English', seeAlso: 'See also' },
-  ru: { name: 'Russian', seeAlso: 'См. также' },
+export const CONTENT_LANGUAGES: Readonly<Record<string, { name: string }>> = {
+  en: { name: 'English' },
+  ru: { name: 'Russian' },
 };
 
 /** The page bound a unit is told: a page is read by a person from the general to the particular. */
@@ -45,7 +45,7 @@ const EXAMPLE = [
   'Payments are taken by the [payments service](madarch:code.service:payments).[^taken-by-payments-service]',
   'A refund is checked before it is made.[^refund-check]',
   '',
-  'See also [ordering](madarch:domain:ordering).',
+  '[ordering](madarch:domain:ordering).',
   '',
   '[^taken-by-payments-service]: [UC-2](madarch:doc:docs/requirements.md#uc-2)',
   '[^refund-check]: [BR-4](madarch:doc:docs/requirements.md#br-4)',
@@ -59,7 +59,7 @@ export function languagePart(language: string): string[] {
     '## The language of the page',
     `- Write every sentence and every heading of the page, and its title, in ${known.name}. Graph keys, file paths, identifiers, link targets, footnote labels and the front matter keys stay exactly as they are, in the language they were found in.`,
     `- The questions you ask (title, question, why, and what each side says) are written in ${known.name} too; their section headings are set by the writer in the wiki's language.`,
-    `- A line that only connects pages starts with "${known.seeAlso}" and holds a few words and links.`,
+    `- A line that only connects pages holds links and the separator punctuation between them, with no words outside those links: one word beside or between the links makes it a statement.`,
     '',
   ];
 }
@@ -97,7 +97,7 @@ export function fixedPart(language = 'en', writesOwnPage = true): string {
     '- A ground is a graph key exactly as find_nodes shows it (`madarch:<key>`), or a document section `madarch:doc:<path>#<anchor>` with an anchor from read_file\'s sectionAnchors. A ground that does not exist in the graph is refused. The label you write on a ground is replaced by the entity\'s own name (a function\'s name, a section\'s heading): do not invent labels, copy the name find_nodes or read_file shows.',
     '- A link is not a ground. Name an entity in the text with a link: `[payments](madarch:code.service:payments)`. Ground a sentence only on what supports it: the code that does the thing or the document section that says it. A sentence whose only ground is the service or module it names is refused.',
     '- Write routes and operations as links to their graph entities, never as code spans: `[POST /pay](madarch:code.route\u003aservices/payments/routes.ts#POST:/pay)` and `[refund](madarch:code.symbol\u003aservices/payments/refund.ts#refund)`. A code span that names exactly one route or symbol of the graph is turned into that link for you; one that names nothing in the graph stays as code and should be rewritten as a plain word. A link whose target is not in the graph is refused. Keys that contain a space cannot be linked; ground on a neighbouring key instead.',
-    '- Only headings (at most ten words, no footnote) and one-sentence "See also" lines of a few words and links may have no footnote. Do not state anything you did not read in the graph or a document: if you are not sure, leave it out.',
+    '- Only headings (at most ten words, no footnote) and one-sentence lines of links and separator punctuation, with no words outside the links, may have no footnote. Do not state anything you did not read in the graph or a document: if you are not sure, leave it out.',
     '',
     ...languagePart(language),
     '## Example of a page',
@@ -399,7 +399,6 @@ export async function enrichmentPrompt(view: GraphView, unit: { readonly id: str
  * it links what exists instead of restating it.
  */
 export async function overviewPrompt(view: GraphView, unit: { readonly id: string; readonly path: string; readonly name: string }, pages: readonly { readonly id: string; readonly path: string; readonly title: string }[], language = 'en', context: UnitContext & { readonly reads?: readonly WriterArtifactRead[] } = {}): Promise<string> {
-  const seeAlso = CONTENT_LANGUAGES[language]?.seeAlso ?? 'See also';
   return [
     fixedPart(language),
     '',
@@ -408,7 +407,7 @@ export async function overviewPrompt(view: GraphView, unit: { readonly id: strin
     'Say what the product is and for whom, its main scenarios, how the system is put together, its domains and the rules and decisions that matter, its technology and size, how complete the wiki is, and what is not connected (a part with no frontend, a document the product lacks). Each of those is one short section, and each points at the page that says it in full instead of restating it.',
     'You are the last page written: link the pages this run published rather than describing them again, and say plainly what the wiki does not hold yet.',
     ...(pages.length === 0 ? [] : ['', 'The pages this run published, which you may link as `(madarch:<page id>)`:', ...pages.map((page) => `- ${page.id}: ${page.title} (${page.path})`)]),
-    ...(pages.length === 0 ? [] : ['', `A line that only connects pages starts with "${seeAlso}".`]),
+    ...(pages.length === 0 ? [] : ['', 'A line that only connects pages holds links and separator punctuation, with no words outside those links.']),
     '',
     ...questionsPart(unit.id, context.questions),
     ...earlierArtifactsPart(context.reads ?? []),

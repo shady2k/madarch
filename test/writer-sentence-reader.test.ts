@@ -96,6 +96,11 @@ describe('the format validates what the tree says, not a word list in the text',
       .toContain('ungrounded-statement');
   });
 
+  test('a word between navigation links is a statement and needs grounds', async () => {
+    const page = `${header('domain:delivery', 'Delivery')}Delivery takes two days.[^a]\n\nSee also [delivery](madarch:domain:delivery) is [free](madarch:domain:delivery).\n\n[^a]: [A](madarch:code.symbol:src/a.ts#a)\n`;
+    expect(await rules(page, delivery)).toContain('ungrounded-statement');
+  });
+
   test('a footnote-shaped literal inside inline code is no footnote when a page is canonicalized', async () => {
     const markdown = `${header('domain:delivery', 'Delivery')}The token is \`value[^x]\`.[^a]\n\n[^a]: [A](madarch:code.symbol:src/a.ts#a)\n`;
     const checked = await checkPage(markdown, delivery, resolver);
