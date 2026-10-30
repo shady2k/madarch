@@ -16,6 +16,33 @@ import { GraphClockBehind, GraphError, databaseCode, databaseMessage, type Graph
 import { ALL_STATES, checkSpan, checkValid, compareInstants, instantText, plusMicrosecond, tsText, type Instant, type StateSpan } from './time.js';
 import { CLAIM_KIND, CONTENT_KIND, STATE_KIND } from './vocabulary.js';
 
+/**
+ * The most rows one statement in a publication writes. PGlite runs a statement
+ * on the thread that owns it, so a reader waits for the whole statement; a
+ * 5,000-edge publication is written in bounded pieces instead of one long hold
+ * (madarch-alzf, PR #197 latency).
+ */
+export const EDGE_BATCH_SIZE = 100;
+
+/** Identity rows per statement: one row is two scalars, and a reader still waits behind every statement. */
+export const IDENTITY_BATCH_SIZE = 100;
+
+/**
+ * Rows prepared between yields. Preparing a row awaits memoized promises, so
+ * its microtask chain never reaches the event loop on its own; without a turn
+ * between bounded pieces the whole publication is one hold (madarch-alzf).
+ */
+export const PUBLISH_YIELD_SIZE = 50;
+
+/**
+ * Yields one macrotask so a wiki read queued behind PGlite is answered between
+ * batches. The promises a memoized publication awaits resolve as microtasks;
+ * without this the whole 5,221-edge loop is one continuous hold.
+ */
+export async function yieldToReaders(): Promise<void> {
+  await new Promise<void>((resolve) => { setTimeout(() => resolve(), 0); });
+}
+
 /** The transaction a write runs in and the instant it is recorded at. */
 export interface WriteContext {
   tx: OuterTransaction;
@@ -715,9 +742,9 @@ export async function resolveEdge(ctx: WriteContext, input: NewEdgeVersion, path
 }
 
 /**
- * Resolves every key hash a publication will need in three statements: what is
- * already held, the sequence for the rest, and one multi-row insert. The
- * per-edge function below then answers from the memo.
+ * Resolves every key hash a publication will need: what is already held, the
+ * sequence for the rest, and bounded multi-row inserts. The per-edge function
+ * below then answers from the memo.
  */
 export async function edgeIdentities(ctx: WriteContext, keyHashes: readonly string[]): Promise<void> {
   const wanted = [...new Set(keyHashes)].filter((hash) => !ctx.memo.edges.has(hash));
@@ -732,7 +759,12 @@ export async function edgeIdentities(ctx: WriteContext, keyHashes: readonly stri
   // one of these hashes after the select above. Its row wins; the identities
   // this transaction reserved are then gaps, not errors (madarch-alzf review,
   // RARE: concurrent publications).
-  await ctx.tx.query('INSERT INTO edge_identity (id, key_hash) OVERRIDING SYSTEM VALUE SELECT unnest($1::bigint[]), unnest($2::text[]) ON CONFLICT (key_hash) DO NOTHING', [`{${ids.join(',')}}`, `{${missing.join(',')}}`]);
+  for (let at = 0; at < ids.length; at += IDENTITY_BATCH_SIZE) {
+    const idChunk = ids.slice(at, at + IDENTITY_BATCH_SIZE);
+    const hashChunk = missing.slice(at, at + IDENTITY_BATCH_SIZE);
+    await ctx.tx.query('INSERT INTO edge_identity (id, key_hash) OVERRIDING SYSTEM VALUE SELECT unnest($1::bigint[]), unnest($2::text[]) ON CONFLICT (key_hash) DO NOTHING', [`{${idChunk.join(',')}}`, `{${hashChunk.join(',')}}`]);
+    await yieldToReaders();
+  }
   const written = await ctx.tx.query<{ id: string; key_hash: string }>('SELECT id::text AS id, key_hash FROM edge_identity WHERE key_hash = ANY($1::text[])', [`{${missing.join(',')}}`]);
   for (const row of written.rows) ctx.memo.edges.set(row.key_hash, row.id);
   for (const hash of missing) {
