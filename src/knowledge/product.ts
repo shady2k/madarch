@@ -1483,7 +1483,83 @@ export class KnowledgeProduct {
     }
   }
 
+  /**
+   * What the menu asks on every poll (madarch-u3vw.1, the second review). The answer is a pure read of the manifest,
+   * the Markdown and document sources, the graph snapshot and the loop's files, and those are read once per
+   * `statusKey()`, not once per answer: the fill and the writer, which move without touching a file, are taken live
+   * from this process. `statusKey()` is the same key the Problems page keeps its listing under, with the tasks folder
+   * and the store's last finish added — the two files the answer reads that the listing does not.
+   */
   async status(): Promise<WikiStatus> {
+    // A folder that is no product is answered with the file it lacks, and nothing is written into it to stamp a key.
+    const product = this.product();
+    if ('message' in product) throw new WikiReadError(product.message);
+    let key = '';
+    try {
+      key = this.statusKey();
+    } catch {
+      // A product whose inputs cannot be stamped is answered afresh: a key that cannot be computed caches nothing.
+      key = '';
+    }
+    if (key !== '') {
+      const held = this.statusMemo;
+      if (held !== undefined && held.key === key) return this.statusLive(held.body);
+      // Eight polls of one reader, or three readers polling together, wait for one read of the same files.
+      const flight = this.statusFlight;
+      if (flight !== undefined && flight.key === key) return this.statusLive(await flight.promise);
+      const promise = this.statusNow();
+      this.statusFlight = { key, promise };
+      try {
+        const body = await promise;
+        this.statusMemo = { key, body };
+        return body;
+      } finally {
+        if (this.statusFlight?.promise === promise) this.statusFlight = undefined;
+      }
+    }
+    return await this.statusNow();
+  }
+
+  /** What moves without a file: the fill, the writer and the agent, taken from this process on every answer. */
+  private statusLive(body: WikiStatus): WikiStatus {
+    return { ...body, fill: this.statusFill(), writer: this.writer, chosenAgent: this.chosenAgent() };
+  }
+
+  private statusMemo: { key: string; body: WikiStatus } | undefined;
+  private statusFlight: { key: string; promise: Promise<WikiStatus> } | undefined;
+
+  /**
+   * Every file and store state the answer reads besides the fill and the writer, as one key: the Problems listing's
+   * own key (the snapshot, the pins, the plan, the starter set and every file the page reads) and the two the listing
+   * leaves out — the tasks folder, whose closures the menu counts, and the store's last finish, which the menu shows.
+   */
+  private statusKey(): string {
+    let tasks = '-';
+    try {
+      const stat = statSync(join(this.options.productFolder, TASKS_FOLDER));
+      tasks = `${stat.mtimeMs}:${stat.size}`;
+    } catch {
+      // No tasks folder: no task can have changed either.
+    }
+    let finished = '-';
+    try {
+      const stat = statSync(join(this.storeFolder(), 'last-fill.json'));
+      finished = `${stat.mtimeMs}:${stat.size}`;
+    } catch {
+      // No fill has finished yet, or the store is not open: nothing to stamp.
+    }
+    return `${this.problemsKey()}|tasks:${tasks}|finished:${finished}`;
+  }
+
+  /** The fill the menu shows: live while it runs, and the store's last finish once it is idle. */
+  private statusFill(): WikiStatus['fill'] {
+    const incomplete = [...this.pins.values()].some((pin) => pin.filledCommits < pin.commits || pin.commits === 0);
+    if (this.fill.state !== 'idle' || this.pins.size === 0 || incomplete) return this.fill;
+    const at = this.lastFillAt();
+    return { state: 'done', ...(at === undefined ? {} : { finishedAt: at }) };
+  }
+
+  private async statusNow(): Promise<WikiStatus> {
     const product = this.product();
     if ('message' in product) throw new WikiReadError(product.message);
     const common = { product: { name: product.name, id: product.id } };
@@ -1510,7 +1586,7 @@ export class KnowledgeProduct {
       repositories: declared.map((repo) => ({ name: repo.name, filled: (this.pins.get(repo.name)?.filledCommits ?? 0) > 0 })),
       filled: this.pins.size > 0,
       incomplete,
-      fill: this.fill.state === 'idle' && this.pins.size > 0 && !incomplete ? { state: 'done', ...(this.lastFillAt() === undefined ? {} : { finishedAt: this.lastFillAt()! }) } : this.fill,
+      fill: this.statusFill(),
       writer: this.writer,
       bounds: WRITER_BOUNDS,
       chosenAgent: this.chosenAgent(),
@@ -1519,6 +1595,28 @@ export class KnowledgeProduct {
       loop,
       starterOffers: this.starterOffers().length,
     };
+  }
+
+  /**
+   * The manifest's declarations as a stamp reads them: which files to look at, never what to make of them. The
+   * manifest costs a YAML parse of every kind (eleven milliseconds of a status answer the menu polls), and the
+   * declaration a stamp needs changes only with the file: the paths stay the same when a template is deleted, and the
+   * stamp says `absent` for it either way. What the manifest *means* is read fresh where it is drawn, findings and all.
+   */
+  private stampKinds: { stamp: string; read: ReturnType<typeof readKinds> } | undefined;
+
+  private kindsForStamp(folder: string): ReturnType<typeof readKinds> {
+    let stamp = 'absent';
+    try {
+      const stat = statSync(join(folder, KINDS_FILE));
+      stamp = `${stat.mtimeMs}:${stat.size}`;
+    } catch {
+      // The manifest is gone: its declarations are read again, and the read says so.
+    }
+    if (this.stampKinds?.stamp === stamp) return this.stampKinds.read;
+    const read = this.kinds(folder);
+    this.stampKinds = { stamp, read };
+    return read;
   }
 
   /**
@@ -1550,7 +1648,7 @@ export class KnowledgeProduct {
       for (const name of names) if (name.endsWith('.md')) stamp(join(path, name));
     };
     stamp(join(folder, KINDS_FILE));
-    const manifest = this.kinds(folder);
+    const manifest = this.kindsForStamp(folder);
     if (manifest.present) {
       for (const kind of manifest.manifest.kinds.values()) {
         // A template that is gone is a finding of the manifest; creating it is a change of the Problems page too.
