@@ -13,7 +13,7 @@
 import type { GraphEntity } from './graph-read.js';
 import type { Block, HistoryFigure, HistoryNote, HistoryRow, HistorySection } from './model.js';
 import { refOfGraph, type RenderContext, type Subject } from './blocks.js';
-import { projectHistory } from './history-evidence.js';
+import { projectHistory, projectHistoryAcross } from './history-evidence.js';
 
 /** The kinds the history block tells the story of. */
 export const HISTORY_KINDS: ReadonlySet<string> = new Set(['code.task', 'code.commit', 'code.author', 'code.repository', 'code.file', 'code.module', 'code.service', 'code.package']);
@@ -127,13 +127,15 @@ export async function historyBlock(ctx: RenderContext, subject: Subject, params:
   if (typeof more === 'string') return { type: 'problem', block: 'history', file, line, message: more };
   if (subject.source !== 'graph') {
     if (subject.source !== 'markdown' || subject.entity.kind !== 'product') return { type: 'problem', block: 'history', file, line, message: `${ctx.productFolder}/${file}:${line}: the history block reads indexed repository evidence, not this ${subject.entity.kind} page` };
-    const sections: HistorySection[] = [];
-    const notes: HistoryNote[] = [];
-    for (const repository of await ctx.graph.repositories()) {
-      const projected = projectHistory(await ctx.graph.historyEvidence(repository.nodeId), undefined, limit, (one) => refOfGraph(ctx, one));
-      sections.push(...projected.sections.map((section) => ({ ...section, repository: ctx.repoOfScope(repository.nodeId) ?? repository.path })));
-      notes.push(...projected.notes);
-    }
+    const repositories = await ctx.graph.repositories();
+    // The rest of a product's home page is bounded once, across all its repositories (madarch-ztyq.7): twenty
+    // repositories cannot turn a five-row budget into twenty summaries and a hundred hotspots. One repository keeps
+    // its label; a product-wide story says no single repository's name.
+    const projected = projectHistoryAcross(await Promise.all(repositories.map((repository) => ctx.graph.historyEvidence(repository.nodeId))), limit, (one) => refOfGraph(ctx, one));
+    const sections: HistorySection[] = projected.sections.map((section) => repositories.length === 1
+      ? { ...section, repository: ctx.repoOfScope(repositories[0]!.nodeId) ?? repositories[0]!.path }
+      : section);
+    const notes: HistoryNote[] = projected.notes;
     const kept = keptSections(sections, params['sections']);
     if (typeof kept === 'string') return { type: 'problem', block: 'history', file, line, message: kept };
     return { type: 'history', title, sections: kept, notes, ...(more === undefined ? {} : { more }) };
