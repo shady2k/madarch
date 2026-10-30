@@ -7,7 +7,7 @@
  * gaps. Expected values are the facts of the sources written here.
  */
 import { beforeAll, describe, expect, test } from 'bun:test';
-import { extractCode } from '../src/extract/code/index.js';
+import { extractCode, extractCodeWithFacts } from '../src/extract/code/index.js';
 import { cycles } from '../src/extract/code/graph.js';
 import { goImportFolder } from '../src/extract/code/program.js';
 import { fileKey, moduleKey, packageKey, symbolKey } from '../src/extract/code/keys.js';
@@ -314,6 +314,114 @@ describe('skips', () => {
     expect(byName.get('later')!['skipped']).toBe(true);
     expect(byName.get('runs')!['skipped']).toBe(false);
     expect(byName.get('TestMaybe')!['skipped']).toBe(false);
+  });
+});
+
+
+describe('self loops and a pair\'s evidence', () => {
+  test('a node with an edge to itself is a cycle of one only where the caller asks for it', () => {
+    const edges = new Map<string, Set<string>>([['a', new Set(['a'])], ['b', new Set(['b', 'c'])], ['c', new Set(['b'])]]);
+    expect(cycles(['a', 'b', 'c'], edges)).toEqual([['b', 'c']]);
+    expect(cycles(['a', 'b', 'c'], edges, { keepSelfLoops: true })).toEqual([['a'], ['b', 'c']]);
+    expect(cycles(['a'], edges, { keepSelfLoops: true })).toEqual([['a']]);
+    expect(cycles(['d'], new Map([['d', new Set()]]), { keepSelfLoops: true })).toEqual([]);
+  });
+
+  test('a file that imports itself is a file cycle with its one edge, and no module cycle is invented', async () => {
+    const extraction = await extractCode(treeOf({
+      'a/self.ts': 'import { helper } from "./self.js";\nexport function helper() {return 1;}\n',
+    }));
+    const cyclesOf = extraction.nodes.filter((node) => node.kind === 'code.cycle');
+    expect(cyclesOf.map((node) => [node.properties['level'], node.properties['members'], node.properties['edges']])).toEqual([
+      ['file', ['code.file:a/self.ts'], ['code.file:a/self.ts -> code.file:a/self.ts']],
+    ]);
+  });
+
+  test('a cycle that runs through a test file keeps its test-origin edge', async () => {
+    const extraction = await extractCode(treeOf({
+      'a/code.ts': 'import { helper } from "./helper.test.js";\nexport const value = 1;\nexport const both = helper;\n',
+      'a/helper.test.ts': 'import { value } from "./code.js";\nexport const helper = value;\n',
+    }));
+    const members = extraction.nodes.filter((node) => node.kind === 'code.cycle' && node.properties['level'] === 'file').map((node) => node.properties['members']);
+    expect(members).toEqual([['code.file:a/code.ts', 'code.file:a/helper.test.ts']]);
+  });
+
+  test('a pair cycle carries exactly its two edges, without a rescan of the members', async () => {
+    const extraction = await extractCode(treeOf({
+      'a/first.ts': 'import { two } from "./second.js";\nexport const one = 1;\nexport const both = two;\n',
+      'a/second.ts': 'import { one } from "./first.js";\nexport const two = 2;\nexport const both = one;\n',
+      'a/other.ts': 'import { one } from "./first.js";\nexport const other = one;\n',
+    }));
+    const pair = extraction.nodes.find((node) => node.kind === 'code.cycle' && node.properties['level'] === 'file' && node.properties['size'] === 2);
+    expect(pair?.properties['edges']).toEqual([
+      'code.file:a/first.ts -> code.file:a/second.ts',
+      'code.file:a/second.ts -> code.file:a/first.ts',
+    ]);
+  });
+});
+
+describe('the debt markers of comments', () => {
+  test('TODO and FIXME are read from the syntax tree only when they start a comment, and a string or a word that only resembles them is not', async () => {
+    const result = (await extractCodeWithFacts(treeOf({
+      'a/debt.ts': [
+        '// TODO: charge tax before the receipt.',
+        'const text = "TODO: this is a string, not a comment";',
+        '/* FIXME(team): retry twice */',
+        '// TODOS is not TODO',
+        '// see FIXME later',
+        'export const value = 1;',
+      ].join('\n') + '\n',
+    }), { debtMarkers: ['TODO', 'FIXME'] })).extraction;
+    const debts = result.nodes.filter((node) => node.kind === 'code.debt');
+    expect(debts.map((node) => [node.span?.path, node.span?.lineStart, node.properties['marker'], node.properties['text']])).toEqual([
+      ['a/debt.ts', 1, 'TODO', 'charge tax before the receipt.'],
+      ['a/debt.ts', 3, 'FIXME', '(team): retry twice'],
+    ]);
+    expect(debts.map((node) => edgesOf(result.edges, 'code.contains', fileKey('a/debt.ts'), node.key).length)).toEqual([1, 1]);
+    expect(result.gaps).toEqual([]);
+  });
+
+  test('the markers are the manifest\'s words: a marker the product declares is read, and one it does not declare is not', async () => {
+    const files = treeOf({
+      'a/custom.ts': [
+        '// HACK: a workaround the product names',
+        '// TODO: a word this product never declared',
+        'export function work() {}',
+      ].join('\n') + '\n',
+    });
+    const custom = (await extractCodeWithFacts(files, { debtMarkers: ['HACK'] })).extraction;
+    const debts = custom.nodes.filter((node) => node.kind === 'code.debt');
+    expect(debts.map((node) => [node.properties['marker'], node.properties['text'], node.span?.lineStart])).toEqual([['HACK', 'a workaround the product names', 1]]);
+    // The engine has no list of its own: with no declared marker, no comment is a debt marker.
+    expect((await extractCode(files)).nodes.filter((node) => node.kind === 'code.debt')).toEqual([]);
+  });
+});
+
+describe('a debt marker\'s identity', () => {
+  const debtKeyOf = async (source: string, markers: readonly string[] = ['TODO']): Promise<string> => {
+    const extraction = (await extractCodeWithFacts(treeOf({ 'a/debt.ts': source }), { debtMarkers: markers })).extraction;
+    const debt = extraction.nodes.find((node) => node.kind === 'code.debt');
+    if (debt === undefined) throw new Error(`${import.meta.path}: the fixture holds no debt marker`);
+    return debt.key;
+  };
+
+  test('the same comment moved in its file is the same debt, and a different comment at the old offset is another', async () => {
+    const before = await debtKeyOf('export function charge() {\n  // TODO: charge tax\n}\n');
+    const moved = await debtKeyOf('export function charge() {\n\n\n  // TODO: charge tax\n}\n');
+    expect(moved).toBe(before);
+    const other = await debtKeyOf('export function charge() {\n  // TODO: send the receipt\n}\n');
+    expect(other).not.toBe(before);
+    // The comment's bytes changed but the words did not: a re-indented comment is the same statement.
+    expect(await debtKeyOf('export function charge() {\n    //   TODO:   charge   tax\n}\n')).toBe(before);
+  });
+
+  test('the enclosing symbol is part of the identity: the same words in another function are another debt', async () => {
+    const inCharge = await debtKeyOf('export function charge() {\n  // TODO: charge tax\n}\nexport function refund() {}\n');
+    const inRefund = await debtKeyOf('export function charge() {}\nexport function refund() {\n  // TODO: charge tax\n}\n');
+    expect(inCharge).not.toBe(inRefund);
+    // Identical comments in the same symbol stay two nodes, never one silently.
+    const twice = (await extractCodeWithFacts(treeOf({ 'a/debt.ts': 'export function charge() {\n  // TODO: charge tax\n  // TODO: charge tax\n}\n' }), { debtMarkers: ['TODO'] })).extraction;
+    expect(twice.nodes.filter((node) => node.kind === 'code.debt')).toHaveLength(2);
   });
 });
 

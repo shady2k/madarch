@@ -726,7 +726,7 @@ function sectionOf(block: Block, page: PageModel, prefix: string): PageFileSecti
         title: block.title,
         type: 'deferred',
         block: block.block,
-        message: `The page did not draw the block "${block.block}" (line ${block.line}).`,
+        message: `The page did not draw the block "${block.block}" (${block.id}).`,
       };
     case 'definition':
       return {

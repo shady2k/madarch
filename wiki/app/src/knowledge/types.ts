@@ -32,7 +32,7 @@ export type HistoryRow = {
 export type HistorySection = { repository?: string; role: 'commits' | 'files' | 'summary' | 'hotspots' | 'authors' | 'coupling' | 'renames' | 'parents' | 'branches' | 'snapshots'; total: number; rows: HistoryRow[] };
 
 /** One row of a properties block (the engine's `PropertyRow`). */
-export type PropertyRow = { name: string; value: string; nameKey?: 'authoredAt' | 'committedAt' | 'subject' | 'merge' | 'language' | 'symbol' | 'method' | 'path'; valueKind?: 'date' };
+export type PropertyRow = { name: string; value: string; nameKey?: 'authoredAt' | 'committedAt' | 'subject' | 'merge' | 'language' | 'symbol' | 'method' | 'path' | 'marker' | 'text' | 'line' | 'service' | 'secret'; valueKind?: 'date' };
 
 /** One note under a history block (the engine's `HistoryNote`): a key the app writes in the reader's language. */
 export type HistoryNote = { key: 'manyCommits' | 'manyFiles' | 'noCounts' | 'merge' | 'noFiles' | 'partialFiles' | 'symbolsCut' | 'population' | 'observedAuthorship' | 'cochangeNotCause' | 'noImport' | 'importCoverage' | 'membershipCoverage' | 'dateAnomaly' | 'mergeBranch' | 'unchangedMove'; args?: Record<string, string | number> };
@@ -121,7 +121,7 @@ type BlockShape =
   | { type: 'stated'; title: string; place: { repo: string | null; path: string; lineStart: number; lineEnd: number; href: string; commit: string | null; single?: boolean } }
   | { type: 'definition'; title: string; format: string; contract: string; fullPath?: string; location?: CodeLocation; members: DefinitionMember[]; membersTotal: number; membersShown: number; memberCuts: { channel: string; total: number; shown: number }[]; spec: { text: string; lines: number }; document?: Record<string, unknown>; descriptions?: {text: string; path: string; line: number; fullPath: string}[]; selection?: { method: string; path: string; operationId: string }; protobuf?: ProtoDocumentation; diagnostics?: ContractDiagnostic[] }
   | { type: 'history'; title: string; sections: HistorySection[]; notes: HistoryNote[] }
-  | { type: 'deferred'; block: string; title: string; line: number }
+  | { type: 'deferred'; block: string; title: string; id: string }
   | { type: 'problem'; block: string; message: string; file: string; line: number; diagnostic?: ContractDiagnostic };
 
 /** One block of a page; `name` is the template's block it was made from (`implementedby` and `linkedfrom` both draw as `refs`), which the manifest's roles name. */
@@ -141,6 +141,8 @@ export type BrokenWhy =
 export type HistoryContext = { repo: string; at: string; coverage: 'covered' | 'unfilled' | 'before' | 'unknown'; commit: string | null; effectiveAt: string | null; until: string | null; landmarks?: { offered: number; covered: number; limit: number; overflow: boolean; omitted: number; first: string | null; last: string | null; diagnostics: { ref: string; object: string; reason: string }[] }; points: { name: string; commit: string; covered: boolean }[] };
 
 export type PageModel = {
+  /** How many problems name this entity (madarch-m38l.19); absent means none were counted. */
+  problems?: number;
   historyNavigation?: { repo: string; points: { name: string; commit: string; covered: boolean }[]; landmarks?: NonNullable<HistoryContext['landmarks']> }[];
   historicalAbsent?: boolean;
   history?: HistoryContext;
@@ -330,9 +332,24 @@ export type QuestionDetail = QuestionRow & {
 export type AnswerResult = { question: string; state: 'answered'; committed: boolean; commit?: string; note?: string; by: Author; at: string };
 export type CorrectionResult = { correction: string; id: string; file: string; committed: boolean; commit?: string; note?: string; by: Author; at: string };
 
-export type ProblemKind = 'correction' | 'ground-removed' | 'broken-link' | 'unreadable-file' | 'unread-passage' | 'unplaced';
+export type ProblemKind = 'correction' | 'ground-removed' | 'broken-link' | 'unreadable-file' | 'unread-passage' | 'unplaced' | 'manifest' | string;
+export type ProblemSection = 'code' | 'documents' | 'wiki';
+export type SonarKind = 'vulnerability' | 'bug' | 'code-smell' | 'security-hotspot';
+export type ProblemSeverity = 'blocker' | 'critical' | 'major' | 'minor' | 'info';
+export type ProblemLink = { label: string; href: string | null; key: string | null };
 
 export type Problem = {
+  /** The stable id; server listings carry it, a row built by hand need not. */
+  id?: string;
+  section?: ProblemSection;
+  rule?: string;
+  sonar?: SonarKind;
+  severity?: ProblemSeverity;
+  place?: ProblemLink;
+  entity?: ProblemLink | null;
+  evidence?: ProblemLink[];
+  /** What «Создать задачу» opens a task on; absent where the page offers no task. */
+  scope?: { type: 'file'; path: string } | { type: 'symbol'; key: string } | { type: 'lines'; path: string; start: number; end: number };
   kind: ProblemKind;
   fixer: 'agent' | 'person';
   closed: boolean;
@@ -353,7 +370,7 @@ export type Problem = {
 /** One thing the starter set holds and the product's manifest lacks. */
 export type StarterOffer = {
   id: string;
-  type: 'group' | 'roles' | 'role' | 'documents' | 'kind' | 'fields';
+  type: 'group' | 'roles' | 'role' | 'documents' | 'kind' | 'fields' | 'rule';
   name: string;
   labels?: { en: string; ru: string };
   description?: { en: string; ru: string };
@@ -361,7 +378,7 @@ export type StarterOffer = {
   fields?: string[];
 };
 
-export type ProblemListing = { problems: Problem[]; open: number; closed: number; notes: string[]; starter?: StarterOffer[] };
+export type ProblemListing = { problems: Problem[]; sections?: Record<ProblemSection, number>; open: number; closed: number; dismissed?: number; notes: string[]; starter?: StarterOffer[] };
 
 /** A value an agent offers for the model or the reasoning level. */
 export type ChoiceValue = { value: string; name: string; description?: string };
@@ -373,6 +390,18 @@ export type DangerPlan = {
   fresh: { store: string[]; agentPages: string[]; keptPages: string[]; unansweredQuestions: string[]; keptAnswers: string[]; editedStarterFiles: string[]; replacedStarterFiles: string[] };
 };
 
+/** The model roles a feature may ask for (madarch-j6ho.2). */
+export type ModelRoleId = 'writing' | 'classification' | 'analysis';
+export type ModelPair = { agent: string; model?: string; reasoning?: string };
+export type ResolvedModelRole = {
+  role: ModelRoleId;
+  pair: ModelPair | null;
+  source: 'assigned' | 'fallback' | 'none';
+  fallbackFrom?: 'writing';
+  note?: string;
+};
+export type ModelRoleView = { defaultRole: 'writing'; defaultPair: ModelPair | null; roles: ResolvedModelRole[] };
+
 /** The product settings page (madarch-m38l.11): what is set for this product on this machine. */
 export type ProductSettings = {
   product: { name: string; id: string };
@@ -380,6 +409,9 @@ export type ProductSettings = {
   store: string;
   language: string;
   chosenAgent: { id: string; label: string; model?: string; reasoning?: string } | null;
+  roles: ModelRoleView;
+  /** The name every agent madarch offers is known by (madarch-j6ho.2), so a row names its agent at once. */
+  agentNames: Record<string, string>;
   bounds: WriterBounds;
   danger: DangerPlan;
   dangerError?: string;
@@ -456,6 +488,8 @@ export type TaskRow = {
   closedBy: { repository: string; commit: string; at: string; subject: string } | { person: true; at: string | null } | null;
   impact: { pages: number; statements: number } | null;
   problem?: string;
+  /** The problem this task was opened from (madarch-m38l.19). */
+  problemId?: string;
 };
 
 export type TaskListing = { tasks: TaskRow[]; open: number; closed: number; problems: string[]; notes: string[] };

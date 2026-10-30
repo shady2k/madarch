@@ -103,7 +103,9 @@ describe('the manifest fields of the entity pages', () => {
     const read = parseKinds(STARTER_FILES.find((file) => file.path === 'madarch/kinds.yaml')!.content, 'madarch/kinds.yaml', product);
     // Every template the manifest names is one the starter set holds, and the manifest reads with no finding.
     expect(read.findings).toEqual([]);
-    expect(read.kinds.size).toBe(STARTER_FILES.find((file) => file.path === 'madarch/kinds.yaml')!.content.split('\n').filter((line) => /^ {2}[a-z][\w.-]*:$/.test(line)).length);
+    const manifestText = STARTER_FILES.find((file) => file.path === 'madarch/kinds.yaml')!.content;
+    const kindsText = manifestText.slice(manifestText.indexOf('\nkinds:\n') + '\nkinds:\n'.length);
+    expect(read.kinds.size).toBe(kindsText.split('\n').filter((line) => /^ {2}[a-z][\w.-]*:$/.test(line)).length);
     for (const kind of read.kinds.values()) {
       expect(kind.group).toBeDefined();
       expect(kind.descriptions?.['en']).toBeDefined();

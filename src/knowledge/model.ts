@@ -195,7 +195,7 @@ type BlockShape =
   | { type: 'refs'; title: string; total: number; rows: RefRow[] }
   | { type: 'properties'; title: string; rows: PropertyRow[] }
   | { type: 'stated'; title: string; place: { repo: string | null; path: string; lineStart: number; lineEnd: number; href: string; commit: string | null; single?: boolean } }
-  | { type: 'deferred'; block: string; title: string; line: number }
+  | { type: 'deferred'; block: string; title: string; id: string }
   | { type: 'definition'; title: string; format: string; contract: string; fullPath?: string; location?: CodeLocation; members: DefinitionMember[]; membersTotal: number; membersShown: number; memberCuts: { channel: string; total: number; shown: number }[]; spec: { text: string; lines: number }; document?: Record<string, unknown>; descriptions?: {text: string; path: string; line: number; fullPath: string}[]; selection?: { method: string; path: string; operationId: string }; protobuf?: ProtoDocumentation; diagnostics?: ContractDiagnostic[] }
   | { type: 'history'; title: string; sections: HistorySection[]; notes: HistoryNote[] }
   | { type: 'problem'; block: string; message: string; file: string; line: number; diagnostic?: ContractDiagnostic };
@@ -258,7 +258,7 @@ export interface PropertyRow {
   name: string;
   value: string;
   /** The name's key under `knowledge.property.`, where the app knows this name. */
-  nameKey?: 'authoredAt' | 'committedAt' | 'subject' | 'merge' | 'language' | 'symbol' | 'method' | 'path';
+  nameKey?: 'authoredAt' | 'committedAt' | 'subject' | 'merge' | 'language' | 'symbol' | 'method' | 'path' | 'marker' | 'text' | 'line' | 'service' | 'secret';
   /** A date the app writes the way the wiki writes dates, in the reader's language. */
   valueKind?: 'date';
 }
@@ -293,6 +293,8 @@ export interface PageModel {
    * `product.page` adds it after the page is drawn; the page the renderer builds knows nothing of the product's tasks.
    */
   planned?: { entity: PlannedMarkView | null; statements: (PlannedMarkView & { sentence: string })[]; note?: string };
+  /** How many problems name this entity (madarch-m38l.19): the page shows a badge when it is above zero. */
+  problems?: number;
 }
 
 export interface KindSummary {

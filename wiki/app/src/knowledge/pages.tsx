@@ -82,6 +82,7 @@ export function EntityPage({ id, version }: { id: string; version: number }): Re
         <div className="mb-2 flex items-center gap-2">
           <Badge data-testid="page-kind">{kindName(page.kind, 'one')}</Badge>
           {page.planned?.entity != null && <PlannedBadge mark={page.planned.entity} />}
+          {(page.problems ?? 0) > 0 && <span data-testid="page-problems"><KLink href="/k/problems"><Badge variant="solid">{t('knowledge.pageProblems', { count: page.problems })}</Badge></KLink></span>}
         </div>
         <h1 data-testid="page-title">{page.title}</h1>
         {page.notes.map((note) => <p key={note} className="text-small text-muted" data-testid="page-note">{note}</p>)}

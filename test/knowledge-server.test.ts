@@ -203,14 +203,15 @@ describe('the fill the reader watches', () => {
     const callers = page.body.blocks.find((block: { type: string }) => block.type === 'callers');
     expect(callers.rows.map((row: { entity: { id: string }; site: { path: string; lineStart: number } }) => [row.entity.id, row.site.path, row.site.lineStart])).toEqual([[sym('src/b.ts#entry'), 'src/b.ts', 4]]);
 
-    // The diagrams are left to be read on their own, each by the line of its block; `full=1` has them in the page.
+    // The diagrams are left to be read on their own, each by the identity of its name and parameters; `full=1` has them in
+    // the page. A block is known by that identity, never by the line of a template (decision 0032 section 8).
     const deferred = page.body.blocks.filter((block: { type: string }) => block.type === 'deferred');
     expect(deferred.map((block: { block: string }) => block.block)).toEqual(['graph', 'modules', 'sequence']);
-    const drawn = await get(`/products/tiny/api/k/block?id=${encodeURIComponent(key)}&line=${deferred[2].line}`);
+    const drawn = await get(`/products/tiny/api/k/block?id=${encodeURIComponent(key)}&block=${encodeURIComponent(deferred[2].id)}`);
     expect(drawn.status).toBe(200);
     expect(drawn.body.type).toBe('diagrams');
-    expect((await get(`/products/tiny/api/k/block?id=${encodeURIComponent(key)}&line=0`)).status).toBe(400);
-    expect((await get(`/products/tiny/api/k/block?id=${encodeURIComponent(key)}&line=9999`)).status).toBe(404);
+    expect((await get(`/products/tiny/api/k/block?id=${encodeURIComponent(key)}`)).status).toBe(400);
+    expect((await get(`/products/tiny/api/k/block?id=${encodeURIComponent(key)}&block=sequence-000000000000`)).status).toBe(404);
     const whole = await get(`/products/tiny/api/k/page?id=${encodeURIComponent(key)}&full=1`);
     expect(whole.body.blocks.map((block: { type: string }) => block.type)).toEqual(expect.arrayContaining(['graph', 'diagrams']));
     const neighbours = await get(`/products/tiny/api/k/neighborhood?id=${encodeURIComponent(key)}&limit=3`);

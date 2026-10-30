@@ -332,14 +332,7 @@ export function groupLabel(group: RelatedGroup, t: (key: string, options?: Recor
 function Related({ block }: { block: Extract<Block, { type: 'related' }> }): ReactElement | null {
   const { t } = useTranslation();
   const kindName = useKindName();
-  if (block.groups.length === 0) {
-    return (
-      <section data-block="related" aria-label={block.title}>
-        <h2>{block.title}</h2>
-        <p className="text-small text-muted" data-testid="related-empty">{t('knowledge.none')}</p>
-      </section>
-    );
-  }
+  if (block.groups.length === 0) return null;
   return (
     <section data-block="related" aria-label={block.title}>
       <h2>{block.title}</h2>
@@ -562,11 +555,11 @@ function Deferred({ block, pageId, resolutions }: { block: Extract<Block, { type
     const stop = new AbortController();
     setDrawn(null);
     setFailure(null);
-    getBlock(pageId, block.line, i18n.resolvedLanguage ?? 'en', stop.signal).then(setDrawn, (error: unknown) => {
+    getBlock(pageId, block.id, i18n.resolvedLanguage ?? 'en', stop.signal).then(setDrawn, (error: unknown) => {
       if (!(error instanceof DOMException && error.name === 'AbortError')) setFailure(error instanceof Error ? error.message : String(error));
     });
     return () => stop.abort();
-  }, [pageId, block.line, block.block, i18n.resolvedLanguage, opened]);
+  }, [pageId, block.id, block.block, i18n.resolvedLanguage, opened]);
   if (block.block === 'definition') return <details data-testid="contract-definition-disclosure" onToggle={(event) => { if (event.currentTarget.open) setOpened(true); }}>
     <summary className="cursor-pointer text-secondary">{block.title}</summary>
     {opened && (drawn !== null ? <BlockView block={drawn} resolutions={resolutions} {...(pageId === undefined ? {} : {pageId})} /> : <p role={failure === null ? 'status' : 'alert'}>{failure ?? t('knowledge.contractLoading')}</p>)}

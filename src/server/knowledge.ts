@@ -55,9 +55,13 @@ export interface KnowledgePart {
   answer: (request: Request) => Promise<Handled>;
   correction: (request: Request) => Promise<Handled>;
   problems: (request: Request) => Promise<Handled>;
+  problemDismiss: (request: Request) => Promise<Handled>;
+  problemTask: (request: Request) => Promise<Handled>;
   refreshPlan: (request: Request) => Promise<Handled>;
   productSettings: (request: Request) => Promise<Handled>;
   agentChoices: (request: Request) => Promise<Handled>;
+  /** Assigns one model role to an (agent, model) pair, or removes it (madarch-j6ho.2). */
+  modelRole: (request: Request) => Promise<Handled>;
   starter: (request: Request) => Promise<Handled>;
   rewritePages: (request: Request) => Promise<Handled>;
   startFresh: (request: Request) => Promise<Handled>;
@@ -144,10 +148,10 @@ export function createKnowledgePart(
       const query = new URL(request.url).searchParams;
       const id = query.get('id');
       if (id === null || id.trim() === '') return refused(400, { field: 'id', message: '"id" is required: the key or id of the entity whose page holds the block' });
-      const line = Number(query.get('line'));
-      if (!Number.isInteger(line) || line < 1) return refused(400, { field: 'line', message: `"line" is ${JSON.stringify(query.get('line'))}: the line of the block in the page's template, a whole number from 1` });
+      const held = query.get('block');
+      if (held === null || held.trim() === '') return refused(400, { field: 'block', message: `"block" is ${JSON.stringify(query.get('block'))}: the identity of the block of the page, as the page named it` });
       const asked = query.get('lang');
-      const result = await product.block(id, line, asked === 'ru' || asked === 'en' ? asked : undefined, query.has('at') ? { repo: query.get('repo') ?? '', at: query.get('at')! } : undefined);
+      const result = await product.block(id, held, asked === 'ru' || asked === 'en' ? asked : undefined, query.has('at') ? { repo: query.get('repo') ?? '', at: query.get('at')! } : undefined);
       if (!result.ok) return refused(result.status, { field: 'id', message: result.message });
       return { response: json(200, result.block) };
     }),
@@ -338,6 +342,35 @@ export function createKnowledgePart(
       return { response: json(201, { correction: done.correction.slug, id: done.correction.id, file: done.correction.file, committed: done.committed, ...(done.commit === undefined ? {} : { commit: done.commit }), ...(done.note === undefined ? {} : { note: done.note }), by: done.correction.by, at: done.correction.at }) };
     }),
     problems: guarded('list the problems', async () => ({ response: json(200, await product.problems()) })),
+    problemDismiss: guarded('record that a problem is not one', async (request) => {
+      const crossSite = foreign(request); if (crossSite !== undefined) return refused(403, { message: crossSite });
+      if (own) return refused(403, { message: "madarch's own wiki is documentation: a dismissal belongs to the product's repository" });
+      const plain = notJson(request); if (plain !== undefined) return refused(415, { message: plain });
+      let body: unknown; try { body = await request.json(); } catch (error) { return refused(400, { message: `the request body is not JSON: ${(error as Error).message}` }); }
+      const value = body as { id?: unknown; reason?: unknown } | null;
+      if (typeof value?.id !== 'string' || value.id.trim() === '') return refused(400, { field: 'id', message: '"id" is the problem the page listed' });
+      if (typeof value.reason !== 'string') return refused(400, { field: 'reason', message: '"reason" is required: why the problem is not one' });
+      try {
+        return { response: json(201, await product.dismissProblem(value.id, value.reason)) };
+      } catch (error) {
+        if (error instanceof LoopRefusal) return refused(error.status, { field: error.status === 404 ? 'id' : 'reason', message: error.message });
+        throw error;
+      }
+    }),
+    problemTask: guarded('create a task from a problem', async (request) => {
+      const crossSite = foreign(request); if (crossSite !== undefined) return refused(403, { message: crossSite });
+      if (own) return refused(403, { message: "madarch's own wiki is documentation: a task is opened in the product's repository" });
+      const plain = notJson(request); if (plain !== undefined) return refused(415, { message: plain });
+      let body: unknown; try { body = await request.json(); } catch (error) { return refused(400, { message: `the request body is not JSON: ${(error as Error).message}` }); }
+      const id = (body as { id?: unknown } | null)?.id;
+      if (typeof id !== 'string' || id.trim() === '') return refused(400, { field: 'id', message: '"id" is the problem the page listed' });
+      try {
+        return { response: json(201, await product.createProblemTask(id)) };
+      } catch (error) {
+        if (error instanceof LoopRefusal) return refused(error.status, { field: 'id', message: error.message });
+        throw error;
+      }
+    }),
     refreshPlan: guarded('plan the refresh', async (request) => {
       const language = new URL(request.url).searchParams.get('language');
       if (language !== null && language !== 'en' && language !== 'ru') return refused(400, { field: 'language', message: `"language" is en or ru, got ${JSON.stringify(language)}` });
@@ -373,9 +406,33 @@ export function createKnowledgePart(
       // Asking starts the agent's adapter on this machine: only this wiki's own page may.
       const crossSite = foreign(request);
       if (crossSite !== undefined) return refused(403, { message: crossSite });
-      const answer = await product.agentChoices(new URL(request.url).searchParams.get('fresh') === '1');
+      const query = new URL(request.url).searchParams;
+      const addressed = query.get('agent');
+      const answer = addressed === null
+        ? await product.agentChoices(query.get('fresh') === '1')
+        : await product.agentChoicesForRole(addressed, query.get('fresh') === '1');
       if (!answer.ok) return refused(409, { message: answer.message });
       return { response: json(200, answer) };
+    }),
+    modelRole: guarded('assign the model role', async (request) => {
+      const crossSite = foreign(request);
+      if (crossSite !== undefined) return refused(403, { message: crossSite });
+      if (own) return refused(403, { message: "madarch's own wiki is documentation: it has no model roles to assign" });
+      const plain = notJson(request);
+      if (plain !== undefined) return refused(415, { message: plain });
+      let body: unknown;
+      try { body = await request.json(); } catch (error) { return refused(400, { message: `the request body is not JSON: ${(error as Error).message}` }); }
+      const asked = body as { role?: unknown; agent?: unknown; model?: unknown; reasoning?: unknown; install?: unknown } | null;
+      if (typeof asked?.role !== 'string') return refused(400, { field: 'role', message: '"role" is required: writing, classification or analysis' });
+      if (asked.agent !== null && typeof asked.agent !== 'string') return refused(400, { field: 'agent', message: '"agent" is an agent id, or null to remove the role' });
+      for (const field of ['model', 'reasoning'] as const) {
+        const value = asked[field];
+        if (value !== undefined && value !== null && typeof value !== 'string') return refused(400, { field, message: `"${field}" is a value the agent reports, or null for the agent's own` });
+      }
+      if (asked.install !== undefined && typeof asked.install !== 'boolean') return refused(400, { field: 'install', message: '"install" is true or false' });
+      const done = await product.chooseRole(asked.role, asked.agent, asked.model as string | null | undefined, asked.reasoning as string | null | undefined, asked.install === true);
+      if (!done.ok) return refused(done.status, { field: done.message.includes('role') ? 'role' : done.message.includes('agent') ? 'agent' : undefined, message: done.message });
+      return { response: json(200, { role: done.role, pair: done.pair, roles: product.modelRoles() }) };
     }),
     starter: guarded('add to the manifest', async (request) => {
       const crossSite = foreign(request);

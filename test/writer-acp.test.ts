@@ -98,6 +98,18 @@ describe('a unit driven over ACP', () => {
     await expect(fetch(servers[0]!.url, { method: 'POST' })).rejects.toBeDefined();
   });
 
+  test('a saved model the agent no longer offers is reported by the agent, never silent', async () => {
+    const folder = scratch();
+    const tools = stub();
+    const script = join(folder, 'script.json');
+    writeFileSync(script, JSON.stringify({ steps: [{ call: { tool: 'write_page', arguments: { markdown: 'x' } } }, { say: 'done' }, { end: { stopReason: 'end_turn' } }] }));
+    const agent = acpUnitAgent({ spec: { id: 'fake', command: process.execPath, args: [FAKE_AGENT, '--scenario', 'script', '--script', script, '--models'] }, preferences: { model: 'retired-model' } });
+    closers.push(() => agent.close());
+    const status = await agent.run({ id: 'product:shop', prompt: 'WRITE', tools });
+    expect(status).toEqual({ completed: true });
+    expect(agent.warnings?.()).toEqual(['the agent no longer offers "retired-model" as the model, so the agent\'s own was kept']);
+  });
+
   test('a unit whose page is not written is asked again, within the turn limit', async () => {
     const folder = scratch();
     const tools = stub();
