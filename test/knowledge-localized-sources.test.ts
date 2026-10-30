@@ -20,6 +20,7 @@ describe('localized document sources', () => {
     // A definition that holds a colon is prose, not a glossary field: a term whose
     // name was split off must keep its language.
     expect(detectDocumentLanguage('one purchase: its lines, prices and a status.')).toBe('en');
+    expect(detectDocumentLanguage('An order: a purchase made by a customer.')).toBe('en');
   });
 
   test('uses a reversible, path-safe entity identity and round-trips fixed provenance', () => {

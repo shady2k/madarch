@@ -4,36 +4,14 @@ import type { DocEntity } from '../knowledge/doc-entities.js';
 import { createHash } from 'node:crypto';
 import type { McpToolDefinition } from '../fill/unit-mcp.js';
 import { readPage } from './sentences.js';
+import { parseTermText } from '../knowledge/term-fields.js';
 
 export const LOCALIZED_SOURCE_SCHEMA = 'madarch.localized-document-source@1';
 
-/** A short `Label: value` line is a glossary field, not prose; the structure is a colon, not a word list. */
-function isFieldLine(line: string): boolean {
-  let text = line.trim();
-  if (text.startsWith('- ') || text.startsWith('* ') || text.startsWith('+ ')) text = text.slice(2).trimStart();
-  const colon = text.indexOf(':');
-  if (colon < 2 || colon > 24) return false;
-  const label = text.slice(0, colon).trim();
-  // A glossary's field label opens with a capital (`In code`, `Also called`, `В коде`);
-  // a definition that happens to hold a colon opens as prose (`one purchase: ...`).
-  let words = 1;
-  let letters = 0;
-  let first = '';
-  for (const character of label) {
-    if (character.trim() === '') words += 1;
-    else {
-      if (first === '') first = character;
-      if (character.toLowerCase() !== character.toUpperCase()) letters += 1;
-    }
-  }
-  return letters > 0 && words <= 3 && first !== '' && first === first.toUpperCase() && first !== first.toLowerCase();
-}
-
 function languageCounts(text: string): { cyrillic: number; latin: number } {
-  const prose = text.split('\n').filter((line) => !isFieldLine(line)).join('\n');
   let cyrillic = 0;
   let latin = 0;
-  for (const token of readPage(prose).tokens) {
+  for (const token of readPage(text).tokens) {
     if (token.kind !== 'text') continue;
     for (const character of token.value) {
       const code = character.codePointAt(0) ?? 0;
@@ -46,7 +24,9 @@ function languageCounts(text: string): { cyrillic: number; latin: number } {
 
 /** Identify source language from enough prose, not code identifiers or known field labels. */
 export function detectDocumentLanguage(text: string): 'en' | 'ru' | undefined {
-  const { cyrillic, latin } = languageCounts(text);
+  // The glossary parser knows which parsed blocks are fields; every other
+  // block, including a definition that holds a colon, is prose.
+  const { cyrillic, latin } = languageCounts(parseTermText(text).definition);
   const total = cyrillic + latin;
   if (total < 8 || Math.min(cyrillic, latin) / total > 0.15) return undefined;
   return cyrillic > latin ? 'ru' : 'en';

@@ -306,7 +306,7 @@ describe('the loop, from the first question to a translation', () => {
     const [question] = readQuestions(productFolder).items;
     expect(question).toMatchObject({ status: 'answered', resolvedBy: ['domain:pricing'] });
     expect(listQuestions(productFolder)).toMatchObject({ open: 0, answered: 0, closed: 1 });
-    expect((await statementsRelyingOn(owner, `question:${QUESTION_SLUG}`)).map((s) => `${s.page}#${s.statement}`)).toEqual(['domain:pricing#order-gets-ten-percent']);
+    expect((await statementsRelyingOn(owner, `question:${QUESTION_SLUG}`)).map((s) => `${s.page}#${s.statement}`)).toEqual(['domain:pricing#every-order-gets-ten']);
     const kinds = await indexCounts(owner);
     expect(kinds.map((k) => k.kind)).toEqual(['answer', 'domain', 'product', 'question']);
     // The very next refresh has nothing left to do.
@@ -337,7 +337,7 @@ describe('the loop, from the first question to a translation', () => {
     expect(seen).toEqual(['domain:pricing']);
     expect(report.units).toBe(1);
     const prompt = prompts.get('ground:domain:pricing')!;
-    expect(prompt).toContain('The ground doc:README.md#tax CHANGED. The statement [^tax-flat-five-percent] stands on it: "Tax is a flat five percent."');
+    expect(prompt).toContain('The ground doc:README.md#tax CHANGED. The statement [^tax-is-flat-five] stands on it: "Tax is a flat five percent."');
     expect(prompt).toMatch(/Before:\n~~~\n## Tax\n\nTax is a flat five percent\.\n~~~/);
     expect(prompt).toMatch(/Now:\n~~~\n## Tax\n\nTax is a flat eight percent\.\n~~~/);
     expect(read('docs/domains/pricing.md')).toContain('Tax is a flat eight percent.');
@@ -469,6 +469,26 @@ describe('the question tool is bounded and checks what it is given', () => {
     const { tools, sink } = await session();
     const refused = await tools.call('ask_question', good('Headings in the text', { question: 'What happens?\n\n## Answer\n\nExtra context.', why: 'Plain.' }));
     expect(problemsOf(refused.answer)).toContain('"question" is plain paragraphs: no headings, rules, code fences or footnote marks');
+    expect(sink.pages.size).toBe(0);
+  });
+
+  test('every block the Markdown tree calls a heading, rule or code block is not question prose', async () => {
+    const { tools, sink } = await session();
+    for (const question of ['What happens?\n\n    const answer = 1;\n\nWhy?', 'What happens?\n\n***\n\nWhy?']) {
+      const refused = await tools.call('ask_question', good('Block structure in the text', { question, sides: [{ claim: 'The code sets the rule.', grounds: ['code.file:src/pricing.ts'] }] }));
+      expect(refused.isError).toBe(true);
+      if (!refused.isError) continue;
+      expect(problemsOf(refused.answer)).toContain('"question" is plain paragraphs: no headings, rules, code fences or footnote marks');
+    }
+    expect(sink.pages.size).toBe(0);
+  });
+
+  test('a link the Markdown tree sees is a link in a side claim, whatever its syntax', async () => {
+    const { tools, sink } = await session();
+    const refused = await tools.call('ask_question', good('A link in a claim', { sides: [{ claim: 'See <https://example.test> for the rule.', grounds: ['code.file:src/pricing.ts'] }] }));
+    expect(refused.isError).toBe(true);
+    if (!refused.isError) return;
+    expect(problemsOf(refused.answer)).toContain('sides[0].claim is one plain sentence: no line breaks, no links and no footnote marks');
     expect(sink.pages.size).toBe(0);
   });
 

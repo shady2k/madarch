@@ -87,6 +87,10 @@ describe('a page that follows the format', () => {
     expect(again.ok && again.page.markdown === first.page.markdown).toBe(true);
   });
 
+  test('a dotted word that is no complete entity key is prose, not a raw id', async () => {
+    expect(await refusedRules(good('Use code.example for documentation.[^1]\n\n[^1]: [payments](madarch:code.service:payments)'))).not.toContain('raw-entity-id');
+  });
+
   test('a name the agent chose is kept, and the page is the same whatever number a footnote had', async () => {
     const named = good(body.replace(/\[\^1\]/g, '[^b]').replace(/\[\^2\]/g, '[^a]'));
     const verdict = await checkPage(named, expectation, resolver);

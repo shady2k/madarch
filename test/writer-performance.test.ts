@@ -12,30 +12,31 @@ const header = '---\nid: domain:perf\nkind: domain\ntitle: Performance\nrelates:
 const expected: PageExpectation = { id: 'domain:perf', kind: 'domain', domains: ['perf'], mustLinkDomains: false, language: 'en' };
 
 const resolver: GroundResolver = {
-  graphKey: async (key) => key.startsWith('code.symbol:src/a.ts#s'),
+  graphKey: async (key) => key.startsWith('code.symbol:src/a.ts#'),
   docSection: async () => false,
   sourceName: async () => false,
   uniqueRoute: async () => undefined,
-  uniqueSymbol: async () => undefined,
+  uniqueSymbol: async (name) => name.startsWith('code') ? `code.symbol:src/a.ts#${name}` : undefined,
   keyPrefixes: async () => ['code.symbol:'],
 };
 
-/** A page with `n` statements, each a code span and a ground on the same paragraph and its definition. */
+/** A page with `n` statements, each a resolved code span, a question suffix, a ground and the same opening words. */
 function page(n: number): string {
   let body = '';
-  for (let i = 0; i < n; i += 1) body += `Fact ${i} stands at \`code${i}\`.[^g${i}]\n\n`;
+  for (let i = 0; i < n; i += 1) body += `The same opening words stand at \`code${i}\`.[^g${i}] [Which fact ${i}?](madarch:question:q${i})\n\n`;
   for (let i = 0; i < n; i += 1) body += `[^g${i}]: [Source ${i}](madarch:code.symbol:src/a.ts#s${i})\n`;
   return header + body;
 }
 
 async function time(n: number): Promise<number> {
   const markdown = page(n);
-  const checked = await checkPage(markdown, expected, resolver);
+  const expectation: PageExpectation = { ...expected, questions: Array.from({ length: n }, (_, i) => `question:q${i}`) };
+  const checked = await checkPage(markdown, expectation, resolver);
   expect(checked.ok).toBe(true);
   const times: number[] = [];
   for (let run = 0; run < 3; run += 1) {
     const started = performance.now();
-    const again = await checkPage(markdown, expected, resolver);
+    const again = await checkPage(markdown, expectation, resolver);
     times.push(performance.now() - started);
     expect(again.ok).toBe(true);
   }

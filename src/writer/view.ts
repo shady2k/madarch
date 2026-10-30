@@ -144,7 +144,7 @@ export class GraphView implements GroundResolver {
   async keyPrefixes(): Promise<readonly string[]> {
     if (this.prefixList !== undefined) return this.prefixList;
     const rows = await this.query<{ key: string }>('SELECT key FROM node_kind ORDER BY key');
-    this.prefixList = [...new Set(['question', 'correction', 'domain', 'product', 'doc', 'engine', 'code.', ...rows.map((row) => row.key)])];
+    this.prefixList = [...new Set(['question', 'correction', 'domain', 'product', 'doc', 'engine', ...rows.map((row) => row.key)])];
     return this.prefixList;
   }
 

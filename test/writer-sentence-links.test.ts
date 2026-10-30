@@ -105,6 +105,10 @@ describe('localized sentence-end question links', () => {
   test('the label is a title, not a language marker, and source grounds stay intact', async () => {
     const link = '[→ question: Which delivery time applies?](madarch:question:delivery)';
     expect(await rules(`The sources give different delivery times.[^policy] ${link}${grounds}`, { language: 'en' })).toEqual([]);
+    const plain = '[question: Which limit?](madarch:question:delivery)';
+    expect(await rules(`The sources give different delivery times.[^policy] ${plain}${grounds}`, { language: 'en' })).toEqual([]);
+    const russian = '[вопрос: Какой срок?](madarch:question:delivery)';
+    expect(await rules(`${fact} ${russian}${grounds}`)).toEqual([]);
     expect(await rules(`${fact} ${question}${grounds}`)).toEqual([]);
   });
   test('a question cannot replace a ground or be put in the middle of a claim', async () => {

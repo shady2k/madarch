@@ -425,9 +425,8 @@ async function linkCodeSpans(body: string, resolver: GroundResolver, language?: 
   const units = reader.units(1);
   const structural = [...units.headings, ...units.definitions].sort((left, right) => left.start - right.start);
   const codes = reader.tokens.filter((token) => token.kind === 'code');
-  let out = body;
-  for (let index = codes.length - 1; index >= 0; index -= 1) {
-    const code = codes[index]!;
+  const edits: { start: number; end: number; text: string }[] = [];
+  for (const code of codes) {
     if (inSpans(links, code.start, code.end) || inSpans(structural, code.start, code.end)) continue;
     const inner = code.value.trim();
     if (inner === '') continue;
@@ -437,14 +436,37 @@ async function linkCodeSpans(body: string, resolver: GroundResolver, language?: 
     else if (!hasBlank(inner)) key = await resolver.uniqueSymbol?.(withoutCall(inner));
     if (key === undefined || hasBlank(key)) continue;
     const label = withoutCall(collapseInline(inner));
-    out = out.slice(0, code.start) + `[${label}](madarch:${key})` + out.slice(code.end);
+    edits.push({ start: code.start, end: code.end, text: `[${label}](madarch:${key})` });
   }
-  // The page is parsed once when no code span became a link; a changed body is read again because its offsets moved.
-  return { body: out, reader: out === body ? reader : readPage(out, language) };
+  // Assemble every replacement in one pass over the original body: slicing the
+  // page once per converted span would make a page of code spans quadratic.
+  if (edits.length === 0) return { body, reader };
+  let out = '';
+  let cursor = 0;
+  for (const edit of edits.sort((left, right) => left.start - right.start)) {
+    out += body.slice(cursor, edit.start) + edit.text;
+    cursor = edit.end;
+  }
+  out += body.slice(cursor);
+  // The page is read again because the code spans it held are now links.
+  return { body: out, reader: readPage(out, language) };
 }
 
 /** The key prefixes the writer always knows: its page and document targets. */
-const DEFAULT_KEY_PREFIXES: readonly string[] = ['question', 'correction', 'domain', 'product', 'doc', 'engine', 'code.'];
+const DEFAULT_KEY_PREFIXES: readonly string[] = [
+  'question', 'correction', 'domain', 'product', 'doc', 'engine',
+  // The graph's own code kinds. A wildcard `code.` would also accept a word
+  // that merely has the shape of a key, such as `code.example`.
+  'code.analysis', 'code.author', 'code.broker', 'code.channel', 'code.ci-job', 'code.ci-workflow', 'code.column',
+  'code.commit', 'code.compose-service', 'code.contract', 'code.cycle', 'code.database', 'code.debt', 'code.dependency',
+  'code.dockerfile', 'code.document-section', 'code.entry-point', 'code.env-definition', 'code.env-var', 'code.facet',
+  'code.field', 'code.file', 'code.health-endpoint', 'code.healthcheck', 'code.image', 'code.index', 'code.input',
+  'code.lockfile', 'code.logger', 'code.make-target', 'code.manifest', 'code.message', 'code.metric',
+  'code.metrics-endpoint', 'code.migration', 'code.module', 'code.newcomer-command', 'code.newcomer-failure',
+  'code.newcomer-prerequisites', 'code.operation', 'code.package', 'code.port', 'code.probe', 'code.process',
+  'code.repository', 'code.route', 'code.service', 'code.snapshot', 'code.sql-build', 'code.sql-sink', 'code.structure',
+  'code.symbol', 'code.table', 'code.task', 'code.test-case',
+];
 
 const TOKEN_EDGES = new Set(['(', ')', '[', ']', '{', '}', '<', '>', '"', "'", '“', '”', '«', '»', '.', ',', ';', ':', '!', '?']);
 
@@ -481,7 +503,12 @@ function hasKeyPrefix(token: string, prefixes: readonly string[]): boolean {
   if (token.startsWith('madarch:')) token = token.slice('madarch:'.length);
   for (const prefix of prefixes) {
     if (prefix.endsWith('.')) {
-      if (token.startsWith(prefix)) return true;
+      // A wildcard prefix is still a key kind: `code.` must be followed by a
+      // kind and a non-empty value, so the word `code.example` is prose.
+      if (!token.startsWith(prefix)) continue;
+      const rest = token.slice(prefix.length);
+      const colon = rest.indexOf(':');
+      if (colon > 0 && colon < rest.length - 1) return true;
     } else if (token.startsWith(`${prefix}:`)) return true;
   }
   return false;
@@ -623,7 +650,7 @@ export async function checkPage(markdown: string, expected: PageExpectation, res
     const headingWords = reader.words(heading.start, heading.end);
     if (headingWords > HEADING_WORDS) refusals.push({ line: heading.line, rule: 'heading-statement', message: `this heading has ${headingWords} words; a heading is at most ${HEADING_WORDS}, so a statement belongs in a sentence with grounds below it` });
   }
-  const used: string[] = [];
+  const used = new Set<string>();
   const expectedGapSections = new Set(expected.emptyProductGapSections ?? []);
   const acceptedGapSections = new Set<string>();
   for (const unit of units) {
@@ -651,14 +678,18 @@ export async function checkPage(markdown: string, expected: PageExpectation, res
       }
       for (const link of sentence.questions) {
         const label = reader.linkLabel(link.start, link.end);
-        if (label === '' || label === '→' || label.startsWith('question:') || label.startsWith('madarch:question:')) {
+        let spaced = false;
+        for (const character of label) if (character.trim() === '') { spaced = true; break; }
+        // A title is prose in any language. A value written as one unspaced
+        // `kind:value` token is an id, not a title; wording is never judged.
+        if (label === '' || label === '→' || (!spaced && label.includes(':'))) {
           refusals.push({ line: unit.line, rule: 'question-link-label', message: 'a question link needs a human-readable title: [Which decision?](madarch:question:<slug>)' });
         }
       }
     }
     for (const reference of reader.footnotesIn(unit.start, unit.end)) {
       if (!defined.has(reference.label)) refusals.push({ line: unit.line, rule: 'undefined-footnote', message: `[^${reference.label}] is used but never defined: add a line "[^${reference.label}]: [name](madarch:<key>)" at the end` });
-      used.push(reference.label);
+      used.add(reference.label);
     }
     if (connecting(unit, reader)) continue;
     for (const sentence of reader.sentences(unit.start, unit.end)) {
@@ -679,7 +710,7 @@ export async function checkPage(markdown: string, expected: PageExpectation, res
       }
     }
   }
-  for (const [label, entry] of defined) if (!used.includes(label)) refusals.push({ line: entry.line, rule: 'unused-footnote', message: `the footnote [^${label}] is never used in the text` });
+  for (const [label, entry] of defined) if (!used.has(label)) refusals.push({ line: entry.line, rule: 'unused-footnote', message: `the footnote [^${label}] is never used in the text` });
   for (const section of expectedGapSections) {
     if (!acceptedGapSections.has(section)) refusals.push({ line: split.bodyStart, rule: 'empty-product-gap', message: `the core left section "${section}" empty, but this page has no gap sentence carrying the marker the core wrote for it` });
   }
@@ -724,7 +755,7 @@ function canonical(reader: PageReading, front: FrontMatter, defined: Map<string,
     const own = [...new Map(labels.flatMap((label) => defined.get(label)?.grounds ?? []).map((ground) => [ground.target, ground])).values()];
     return { run, own, sentence: run.sentence, labels, hint: own[0]?.label ?? '' };
   });
-  const statementNames = nameStatements(items, previousNames(previous, language));
+  const statementNames = nameStatements(items, previousNames(previous, language), language);
   const cuts = [
     ...reader.definitionSpans().map((span) => ({ start: span.start, end: span.end, run: -1 })),
     ...items.map((item, index) => ({ start: item.run.start, end: item.run.end, run: index })),

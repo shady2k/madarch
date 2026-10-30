@@ -63,6 +63,8 @@ interface SourceIndex {
   readonly codes: readonly Span[];
   readonly targets: readonly Span[];
   readonly links: readonly LinkSpan[];
+  /** The visible text of each link, keyed by its source span. */
+  readonly labels: ReadonlyMap<string, string>;
 }
 
 const parser = unified().use(remarkParse).use(remarkGfm);
@@ -123,12 +125,25 @@ function targetRange(text: string, node: Node): Span | undefined {
   return undefined;
 }
 
+/** The visible text of a link node, as one line. */
+function labelOfNode(node: Node): string {
+  let label = '';
+  const text = (child: Node): void => {
+    if (child.type === 'text' || child.type === 'inlineCode') label += child.value ?? '';
+    else if (child.type === 'break') label += ' ';
+    else for (const grandchild of child.children ?? []) text(grandchild);
+  };
+  for (const child of node.children ?? []) text(child);
+  return label;
+}
+
 /** Every span whose punctuation the segmenter must not see, found in the tree. */
 function indexSource(text: string, from: number, to: number, root: Node): SourceIndex {
   const codes: Span[] = [];
   const targets: Span[] = [];
   const links: LinkSpan[] = [];
   const questions: QuestionSpan[] = [];
+  const labels = new Map<string, string>();
   const definitions = new Map<string, string>();
   walk(root, (node) => {
     if (node.type === 'definition' && node.identifier !== undefined && typeof node.url === 'string' && !definitions.has(node.identifier)) definitions.set(node.identifier, node.url);
@@ -144,6 +159,7 @@ function indexSource(text: string, from: number, to: number, root: Node): Source
       const url = typeof node.url === 'string' ? node.url : node.identifier === undefined ? undefined : definitions.get(node.identifier);
       if (url !== undefined) {
         links.push({ start, end, url });
+        if (node.type !== 'image' && node.type !== 'imageReference') labels.set(`${start}:${end}`, labelOfNode(node));
         if (node.type !== 'image' && node.type !== 'imageReference' && url.startsWith('madarch:question:')) questions.push({ start, end, url });
       }
     }
@@ -167,7 +183,7 @@ function indexSource(text: string, from: number, to: number, root: Node): Source
     footnotes.push({ start: at, end: after, label: text.slice(at + 2, end) });
     at = end;
   }
-  return { footnotes, questions, codes, targets, links };
+  return { footnotes, questions, codes, targets, links, labels };
 }
 
 function maskPunctuation(characters: string[], text: string, span: Span, from: number, to: number): void {
@@ -455,8 +471,18 @@ export class PageReading {
     this.body = body;
     this.root = treeOf(body);
     this.index = indexSource(body, 0, body.length, this.root);
-    this.tokens = [];
-    tokensOf(this.root, this.tokens);
+    const tokens: Token[] = [];
+    tokensOf(this.root, tokens);
+    // A referenced question link is the same suffix as an inline one: its
+    // label is no part of the sentence's plain text or its key.
+    // Both lists are in source order: one cursor skips the question spans a
+    // token has already passed, so the filter stays linear in the page.
+    let question = 0;
+    const questions = this.index.questions;
+    this.tokens = tokens.filter((token) => {
+      while (question < questions.length && questions[question]!.end <= token.start) question += 1;
+      return question >= questions.length || questions[question]!.start >= token.end;
+    });
     this.segmenter = segmenterFor(language);
     this.footnoteAt = atOf(this.index.footnotes);
     this.questionAt = atOf(this.index.questions);
@@ -479,6 +505,13 @@ export class PageReading {
     }));
     this.sentenceCache.set(key, views);
     return views;
+  }
+
+  /** Whether the tree holds any node of these types, at any depth. */
+  hasNodes(types: ReadonlySet<string>): boolean {
+    let found = false;
+    walk(this.root, (node) => { if (types.has(node.type)) found = true; });
+    return found;
   }
 
   /** The sentence text a reader sees: references and question links removed, code kept, blanks collapsed. */
@@ -505,27 +538,7 @@ export class PageReading {
 
   /** The label of a link node, including a question link that `plain` leaves out of a sentence. */
   linkLabel(start: number, end: number): string {
-    let found = '';
-    const collect = (node: Node): boolean => {
-      if (node.type !== 'link' && node.type !== 'linkReference') return false;
-      if (startOf(node) !== start || endOf(node) !== end) return false;
-      let label = '';
-      const text = (child: Node): void => {
-        if (child.type === 'text' || child.type === 'inlineCode') label += child.value ?? '';
-        else if (child.type === 'break') label += ' ';
-        else for (const grandchild of child.children ?? []) text(grandchild);
-      };
-      for (const child of node.children ?? []) text(child);
-      found = collapseBlanks(label).trim();
-      return true;
-    };
-    const visit = (node: Node): boolean => {
-      if (collect(node)) return true;
-      for (const child of node.children ?? []) if (visit(child)) return true;
-      return false;
-    };
-    visit(this.root);
-    return found;
+    return collapseBlanks(this.index.labels.get(`${start}:${end}`) ?? '').trim();
   }
 
   /** The words of `[from, to)` as a reader counts them. */

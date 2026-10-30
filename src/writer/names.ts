@@ -177,16 +177,27 @@ export function nameStatements(items: readonly NamingItem[], previous: ReadonlyM
     const chosen = item.labels.find((label) => !isNumbered(label));
     if (chosen !== undefined) claim(index, chosen);
   });
+  // Each base keeps its own next suffix: trying 2, 3, ... again for every
+  // colliding slug would make a page of shared first words quadratic.
+  const nextSuffix = new Map<string, number>();
+  const suffixed = (base: string): string => {
+    let n = nextSuffix.get(base) ?? 2;
+    while (taken.has(`${base}-${n}`)) n += 1;
+    nextSuffix.set(base, n + 1);
+    const name = `${base}-${n}`;
+    taken.add(name);
+    return name;
+  };
   items.forEach((item, index) => {
     const wanted = out[index] !== undefined ? undefined : slugOf(item.sentence, item.hint, language);
     if (wanted === undefined) return;
     if (claim(index, wanted)) return;
-    for (let n = 2; ; n += 1) if (claim(index, `${wanted}-${n}`)) return;
+    out[index] = suffixed(wanted);
   });
   // A name an agent chose that another statement already holds is suffixed, never silently shared.
   return out.map((name, index) => {
     if (name !== undefined) return name;
     const base = items[index]!.labels.find((label) => !isNumbered(label)) ?? 'statement';
-    for (let n = 2; ; n += 1) if (!taken.has(`${base}-${n}`)) { taken.add(`${base}-${n}`); return `${base}-${n}`; }
+    return suffixed(base);
   });
 }

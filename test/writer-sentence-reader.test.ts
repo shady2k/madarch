@@ -28,6 +28,17 @@ describe('the shared sentence reader', () => {
     ]);
   });
 
+  test('a referenced question suffix is left out of the statement key like an inline one', () => {
+    const body = [
+      'Orders ship tomorrow.[^a] [When?][q]',
+      '',
+      '[^a]: [A](madarch:code.symbol:src/a.ts#a)',
+      '',
+      '[q]: madarch:question:delivery',
+    ].join('\n');
+    expect(statementsOf(body, 1, 'en').map((statement) => statement.text)).toEqual(['Orders ship tomorrow.']);
+  });
+
   test('the tree gives the same statements from a list, a quote and a paragraph', () => {
     const body = [
       'The first fact stands.[^a]',
@@ -130,4 +141,18 @@ describe('pages written by the old writer keep their sentence keys through the n
       expect(statementsOf(body, bodyLine, 'en').map(named)).toEqual(page.statements.map(named));
     });
   }
+
+  test('an old canonical page keeps its names when one sentence is added', async () => {
+    const page = oldWriter.pages[0]!;
+    const expectation = page.expectation as PageExpectation;
+    const before = splitFrontMatter(page.markdown);
+    const closing = page.markdown.indexOf('\n---\n') + '\n---\n'.length;
+    let body = before.body.replace('\n\n[^flag]:', '\n\nA new fact stands.[^3]\n\n[^flag]:');
+    body = body.replace('\n[^restart]: [Restart](madarch:code.symbol:src/restart.ts#restart)', '\n[^restart]: [Restart](madarch:code.symbol:src/restart.ts#restart)\n[^3]: [New](madarch:code.symbol:src/new.ts#new)');
+    const checked = await checkPage(page.markdown.slice(0, closing) + body, { ...expectation, previous: page.markdown }, resolver);
+    expect(checked.ok).toBe(true);
+    if (!checked.ok) return;
+    const { body: checkedBody, bodyLine } = splitFrontMatter(checked.page.markdown);
+    expect(statementsOf(checkedBody, bodyLine, 'en').map((statement) => statement.labels)).toEqual([['flag'], ['restart'], ['new-fact-stands']]);
+  });
 });
