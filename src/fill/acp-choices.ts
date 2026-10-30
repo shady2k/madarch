@@ -54,15 +54,18 @@ export function choicesOf(session: Pick<AcpSession, 'configOptions' | 'models'> 
  * Sets the saved choices on a new session. A value the agent no longer offers is not set and is told in `progress`:
  * a model that was retired never stops a fill.
  */
-export async function applyPreferences(session: AcpSession, preferences: AgentPreferences, progress?: (line: string) => void): Promise<void> {
+export async function applyPreferences(session: AcpSession, preferences: AgentPreferences, progress?: (line: string) => void): Promise<readonly string[]> {
+  const said: string[] = [];
+  const tell = (line: string): void => { said.push(line); progress?.(line); };
   for (const [what, wanted, which] of [['model', preferences.model, 'model'], ['reasoning level', preferences.reasoning, 'reasoning']] as const) {
     if (wanted === undefined) continue;
     // Read again for each: choosing a model can move the reasoning level, and the session holds the state the agent last reported.
     const choice = choicesOf(session)[which];
-    if (choice === null) { progress?.(`the agent reports no ${what} to choose, so ${JSON.stringify(wanted)} was not set`); continue; }
-    if (!choice.values.some((entry) => entry.value === wanted)) { progress?.(`the agent no longer offers ${JSON.stringify(wanted)} as the ${what}, so the agent's own was kept`); continue; }
+    if (choice === null) { tell(`the agent reports no ${what} to choose, so ${JSON.stringify(wanted)} was not set`); continue; }
+    if (!choice.values.some((entry) => entry.value === wanted)) { tell(`the agent no longer offers ${JSON.stringify(wanted)} as the ${what}, so the agent's own was kept`); continue; }
     if (choice.current === wanted) continue;
     if (choice.configId === null) await session.setModel(wanted);
     else await session.setConfigOption(choice.configId, wanted);
   }
+  return said;
 }

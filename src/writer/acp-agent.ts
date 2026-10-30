@@ -24,7 +24,7 @@ import { DEFAULT_STAGE_LIMITS, type StageLimits } from '../fill/stage.js';
 import { createUnitLimitGuard, PROCESS_TIMERS, watchUnitTimeLimit, type UnitLimitCause, type UnitTimers } from '../fill/unit-limits.js';
 import { applyPreferences, choicesOf, type AgentPreferences } from '../fill/acp-choices.js';
 import type { Journal, JournalContext, JournalEntry } from './journal.js';
-import type { ToolClient, UnitAgent, UnitRequest } from './run.js';
+import type { ToolClient, UnitAgent, UnitRequest, UnitRunStatus } from './run.js';
 import type { ToolAnswer } from './tools.js';
 
 export interface AcpAgentOptions {
@@ -156,6 +156,7 @@ export async function serveTools(client: ToolClient, token: string, observer?: T
 }
 
 export function acpUnitAgent(options: AcpAgentOptions): UnitAgent & { close(): Promise<void> } {
+  const warnings: string[] = [];
   const limits = options.limits ?? DEFAULT_STAGE_LIMITS;
   const timers = options.timers ?? PROCESS_TIMERS;
   let connection: AcpConnection | undefined;
@@ -192,7 +193,7 @@ export function acpUnitAgent(options: AcpAgentOptions): UnitAgent & { close(): P
   };
 
   return {
-    async run(request: UnitRequest): Promise<void> {
+    async run(request: UnitRequest): Promise<UnitRunStatus> {
       const privateGuide = request.tools.definitions.some((definition) => definition.name === 'write_guide' || definition.name === 'verify_guide_step');
       // Bind privacy before connecting or creating a session; those operations can themselves refuse.
       const preSession: JournalContext | undefined = options.journal === undefined ? undefined : { run: options.journal.run, unit: request.id, agent: options.spec.id, model: null, session: null, ...(privateGuide ? { privateGuide: true } : {}) };
@@ -211,9 +212,12 @@ export function acpUnitAgent(options: AcpAgentOptions): UnitAgent & { close(): P
       const guard = createUnitLimitGuard({ limits, clock: () => Date.now() });
       let stop: UnitLimitCause | undefined;
       let wrapPending = false;
+      let outcome: UnitRunStatus = { completed: true };
       try {
         const session = await acp.newSession({ cwd: scratch!, mcpServers: [{ name: 'madarch-writer', type: 'http', url: endpoint.url, headers: { Authorization: `Bearer ${token}` } }] });
-        if (options.preferences !== undefined) await applyPreferences(session, options.preferences, options.progress);
+        if (options.preferences !== undefined) {
+          for (const line of await applyPreferences(session, options.preferences, options.progress)) if (!warnings.includes(line)) warnings.push(line);
+        }
         if (journal !== undefined) {
           context = { run: journal.run, unit: request.id, agent: options.spec.id, model: choicesOf(session).model?.current ?? session.model, session: session.sessionId, ...(privateGuide ? { privateGuide: true } : {}) };
           contexts.set(session.sessionId, context);
@@ -248,12 +252,22 @@ export function acpUnitAgent(options: AcpAgentOptions): UnitAgent & { close(): P
               : `The page is not written yet. Call ${writeTool.name} with the required content now; if it was refused, fix every listed problem first.`;
           wrapPending = false;
         }
-        if (stop !== undefined) options.progress?.(`${request.id} stopped: ${guard.describe({ kind: 'stop', cause: stop, state: guard.state() })}`);
+        if (stop !== undefined) {
+          const stopped = guard.describe({ kind: 'stop', cause: stop, state: guard.state() });
+          options.progress?.(`${request.id} stopped: ${stopped}`);
+          outcome = { completed: false, stopped };
+        }
       } finally {
         if (privateGuide) privateInFlight -= 1;
         await endpoint.close();
       }
+      return outcome;
     },
+    /** What the agent said while a session was being prepared, once per session start, never dropped. */
+    warnings(): readonly string[] {
+      return [...warnings];
+    },
+
     async close(): Promise<void> {
       await connection?.close();
       connection = undefined;
