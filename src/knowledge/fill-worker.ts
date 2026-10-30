@@ -25,10 +25,10 @@ import { createGraphStore } from '../graph/index.js';
 import {extractorManifest, prepareExtractorStore} from './extractor-store.js';
 import { indexWorkerProduct } from './index/run.js';
 import { markResolved } from '../loop/answer.js';
-import { briefsFor, neededFrom, neededFromPaths, planRefresh } from '../loop/plan.js';
+import { briefsFor, neededFrom, neededFromPaths, planRefresh, type RefreshPlan } from '../loop/plan.js';
 import { planTaskRun } from '../loop/task-run.js';
 import type { EditBrief } from '../writer/edit.js';
-import type { UnitsInput, UnitsNeeded } from '../writer/run.js';
+import { WriterHalted, type UnitsInput, type UnitsNeeded } from '../writer/run.js';
 import { fillWriterState, fsSink, PRODUCT_PATH, productSlug, runWriter, type ToolClient, type UnitAgent } from '../writer/index.js';
 import { parseMessage, type FromWorker, type RepositoryPin, type ToWorker, type WorkerStart } from './fill-protocol.js';
 import { readKinds } from './kinds.js';
@@ -79,16 +79,58 @@ export async function runFillWorker(io: { lines: AsyncIterable<string>; send: (m
   if (start.type !== 'start') throw new Error(`src/knowledge/fill-worker.ts: the first message of the server is ${JSON.stringify(start.type)}, not "start"`);
 
   let stopping = false;
+  /**
+   * A person's pause: the work in progress is finished (the page being written, the commit being read) and the run ends
+   * before the next one starts, so the next fill takes it up there. Unlike a stop it never ends a unit in progress.
+   * A stop clears it: once a person has stopped, a pause that was pressed before cannot turn the end into a resumable one.
+   */
+  let pausing = false;
   const waiting = new Map<string, { resolve: () => void; reject: (error: Error) => void; tools: ToolClient }>();
   let agentAnswer: ((answer: { ok: true } | { ok: false; message: string }) => void) | undefined;
+  /** The tool calls the server's agent has asked for and whose answer has not been sent yet (madarch-m38l.17). */
+  const inFlight = new Set<Promise<void>>();
+  let fillStopSent = false;
+  let writerStopSent = false;
+  /** Waits until every tool call already in flight has settled, so a stop is reported after the page it may have touched. */
+  const drain = async (): Promise<void> => {
+    while (inFlight.size > 0) await Promise.allSettled([...inFlight]);
+  };
+  const reportFillStopped = async (): Promise<void> => {
+    if (fillStopSent) return;
+    await drain();
+    fillStopSent = true;
+    send({ type: 'fill', state: 'stopped', ...(pausing && !stopping ? { paused: true } : {}) });
+  };
+  const reportWriterStopped = async (): Promise<void> => {
+    if (writerStopSent) return;
+    await drain();
+    writerStopSent = true;
+    const paused = pausing && !stopping;
+    send({ type: 'writer', state: paused ? 'paused' : 'stopped', ...(paused ? {} : { message: 'the run was stopped before the next page; the page in progress stays as it was' }) });
+  };
+  /**
+   * Whether a person halted the run before the next stage, and the server is told so: a pause says it was a pause, so the
+   * run is taken up rather than shown as stopped for good. The staged graph of a rebuild is dropped by the caller's
+   * `finally`, exactly as a stop drops it. A stop wins over a pause and clears it.
+   */
+  const haltedNow = async (): Promise<boolean> => {
+    if (!stopping && !pausing) return false;
+    await reportFillStopped();
+    return true;
+  };
   const endAll = (reason: string): void => {
     stopping = true;
+    pausing = false;
     for (const entry of waiting.values()) entry.reject(new Error(reason));
     waiting.clear();
     agentAnswer?.({ ok: false, message: reason });
   };
   const handle = (message: ToWorker): void => {
     switch (message.type) {
+      case 'pause':
+        // A stop is terminal: a pause that stood before it cannot make the ended run resumable again.
+        if (!stopping) pausing = true;
+        return;
       case 'stop': endAll('the fill worker was stopped'); return;
       case 'agent-ready': agentAnswer?.({ ok: true }); return;
       case 'agent-failed': agentAnswer?.({ ok: false, message: message.message }); return;
@@ -106,10 +148,12 @@ export async function runFillWorker(io: { lines: AsyncIterable<string>; send: (m
           send({ type: 'tool-result', callId: message.callId, answer: { isError: true, answer: { error: 'no-such-unit', message: `the unit ${message.unit} is not running` } }, finished: true });
           return;
         }
-        entry.tools.call(message.name, message.args).then(
+        const call: Promise<void> = entry.tools.call(message.name, message.args).then(
           (answer) => send({ type: 'tool-result', callId: message.callId, answer, finished: entry.tools.finished() }),
           (error: unknown) => send({ type: 'tool-result', callId: message.callId, answer: { isError: true, answer: { error: 'tool-failed', message: error instanceof Error ? error.message : String(error) } }, finished: entry.tools.finished() }),
         );
+        inFlight.add(call);
+        void call.finally(() => inFlight.delete(call));
         return;
       }
       default: return;
@@ -225,6 +269,8 @@ export async function runFillWorker(io: { lines: AsyncIterable<string>; send: (m
           // The last commit's code is read first and is published as one: the code is in the graph from here on, so a
           // snapshot is made at once for the server to show it while the history is being read.
           onCommit: async (done, place) => {
+            // A pause ends the fill before the next commit is read: the commit is not pinned, so the next fill reads it.
+            if (pausing) throw new FillStopped('the fill was paused');
             const held = pins.get(repo.name)!;
             if (place.index > base) await pin({ ...held, commit: done.hash, effectiveTime: done.effectiveTime, filledCommits: place.index });
             send({ type: 'progress', repository: repo.name, commit: place.index, commits: place.commits });
@@ -233,9 +279,11 @@ export async function runFillWorker(io: { lines: AsyncIterable<string>; send: (m
           },
           onPoint: async () => {
             await snapshot(true);
+            if (pausing) throw new FillStopped('the fill was paused');
             if (stopping) throw new FillStopped('the fill was stopped');
           },
         });
+        if (pausing) throw new FillStopped('the fill was paused after history');
         if (stopping) throw new FillStopped('the fill was stopped after history');
         gaps += report.gaps.length + landmarks.diagnostics.length + landmarks.omitted;
       }
@@ -244,7 +292,7 @@ export async function runFillWorker(io: { lines: AsyncIterable<string>; send: (m
     } catch (error) {
       if (error instanceof FillStopped) {
         await snapshot(true).catch(() => undefined);
-        send({ type: 'fill', state: 'stopped' });
+        await reportFillStopped();
         return 0;
       }
       await snapshot(true).catch(() => undefined);
@@ -268,7 +316,7 @@ export async function runFillWorker(io: { lines: AsyncIterable<string>; send: (m
       }
     };
     const first = await indexNow();
-    if(stopping) {send({type:'fill',state:'stopped'});return 0;}
+    if (await haltedNow()) return 0;
     const firstNote = first.error ?? first.unresolved;
     if (firstNote !== undefined) process.stderr.write(`knowledge index: ${firstNote}\n`);
     if (rebuilding) {
@@ -276,15 +324,15 @@ export async function runFillWorker(io: { lines: AsyncIterable<string>; send: (m
       // Close before filesystem replacement. The manifest is committed only with this complete index.
       try {
         await owner.close(); ownerClosed = true;
-        if(stopping) {send({type:'fill',state:'stopped'});return 0;}
+        if (await haltedNow()) return 0;
         prepared.commit();
         graphPath = start.graphPath;
         owner = createPGliteDatabaseOwner({path:graphPath,btreeGist:true}); ownerClosed = false;
         await owner.ready; store = createGraphStore(owner);
-        if(stopping) {send({type:'fill',state:'stopped'});return 0;}
+        if (await haltedNow()) return 0;
         rebuilding = false;
         await snapshot(true);
-        if(stopping) {send({type:'fill',state:'stopped'});return 0;}
+        if (await haltedNow()) return 0;
         send({type:'fill',state:'done',gaps});
       } catch (error) {
         send({type:'fill',state:'failed',code:'rebuild',message:`the replacement graph could not be promoted or snapshotted: ${error instanceof Error?error.message:String(error)}`});
@@ -295,7 +343,8 @@ export async function runFillWorker(io: { lines: AsyncIterable<string>; send: (m
     await snapshot(true).catch(() => undefined);
 
     // ---- the agent stage --------------------------------------------------------------------
-    if (!start.writer || stopping) return 0;
+    if (!start.writer) return 0;
+    if (await haltedNow()) return 0;
     if (repositories.length !== 1) {
       send({ type: 'writer', state: 'failed', code: 'repositories', message: `the writer reads one code repository and the product declares ${repositories.length} (${repositories.map((repo) => repo.name).join(', ')}): nothing was written, so no page is a smaller picture of the product` });
       return 0;
@@ -305,32 +354,44 @@ export async function runFillWorker(io: { lines: AsyncIterable<string>; send: (m
     let planned: Awaited<ReturnType<typeof planRefresh>> | undefined;
     let briefs: ReadonlyMap<string, EditBrief>;
     let needed: (input: UnitsInput) => UnitsNeeded;
+    // A resumed run keeps the plan it paused on and drops the pages it already published from the work, so a completed
+    // page is never asked of the agent again. The current inputs and briefs are still read fresh from the graph
+    // (madarch-m38l.17).
+    const completed = new Set(start.resume?.completedPages ?? []);
+    const remaining = (plan: RefreshPlan): RefreshPlan => ({ ...plan, pages: plan.pages.filter((page) => !completed.has(page.path)) });
     try {
       if (start.task !== undefined) {
         const run = await planTaskRun({ owner, productFolder, task: start.task });
-        briefs = run.briefs;
+        const rest = start.resume === undefined ? run.plan : remaining(start.resume.plan);
+        briefs = new Map([...run.briefs].filter(([path]) => !completed.has(path)));
         needed = neededFromPaths(new Set(briefs.keys()), briefs);
-        send({ type: 'plan', plan: run.plan });
+        send({ type: 'plan', plan: start.resume?.plan ?? run.plan });
+        if (start.resume !== undefined && rest.pages.length === 0) {
+          // Every page of the paused task is done: the writer still runs its non-agent work, and asks for nothing.
+          needed = () => ({ product: false, domain: () => false, brief: () => undefined });
+        }
       } else {
         const repo = repositories[0]!;
         const head = pins.get(repo.name)?.head ?? (await execFileAsync('git', ['rev-parse', 'HEAD'], { cwd: repo.path, encoding: 'utf8' })).stdout.trim();
         planned = await planRefresh({ owner, productFolder, repository: repo, commit: head, language: { from: start.languageFrom ?? null, to: start.language, changed: start.languageChanged } });
-        const built = await briefsFor(planned);
+        const rest = start.resume === undefined ? planned.plan : remaining(start.resume.plan);
+        const read = { ...planned, plan: rest };
+        const built = await briefsFor(read);
         briefs = built;
-        needed = neededFrom(planned, built);
-        send({ type: 'plan', plan: planned.plan });
+        needed = neededFrom(read, built);
+        send({ type: 'plan', plan: start.resume?.plan ?? planned.plan });
       }
     } catch (error) {
       send({ type: 'writer', state: 'failed', code: 'plan', message: `the refresh could not tell which pages need the agent, so it wrote nothing: ${error instanceof Error ? error.message : String(error)}` });
       return 0;
     }
-    if(stopping) return 0;
+    if (await haltedNow()) return 0;
     const answered = new Promise<{ ok: true } | { ok: false; message: string }>((resolve) => { agentAnswer = resolve; });
-    if(stopping) {agentAnswer=undefined;return 0;}
+    if (await haltedNow()) { agentAnswer = undefined; return 0; }
     send({ type: 'agent-wanted' });
     const agentReady = await answered;
     agentAnswer = undefined;
-    if(stopping) return 0;
+    if (await haltedNow()) return 0;
     if (!agentReady.ok) {
       send({ type: 'writer', state: 'failed', code: 'agent', message: agentReady.message });
       return 0;
@@ -343,7 +404,31 @@ export async function runFillWorker(io: { lines: AsyncIterable<string>; send: (m
     };
     const files = fsSink(productFolder);
     // The sink keeps the ability to list the pages: `search_pages` and `get_page` reach an input a unit's prompt cut.
-    const sink = { read: files.read, list: files.list, write: async (relative: string, content: string): Promise<void> => { await files.write(relative, content); send({ type: 'page', path: relative }); } };
+    // A stop fences publication (madarch-m38l.17): no write begins after it, and a write that was already under way is
+    // put back as it was before the worker reports stopped. The check is before and after the write because a stop may
+    // arrive while the write is awaiting its directory or the file itself.
+    const sink = {
+      read: files.read,
+      list: files.list,
+      write: async (relative: string, content: string): Promise<void> => {
+        if (stopping) throw new Error(`the run was stopped before it published ${relative}: the page stays as it was`);
+        const before = await files.read(relative).catch((error: NodeJS.ErrnoException) => {
+          if (error.code === 'ENOENT') return undefined;
+          throw error;
+        });
+        await files.write(relative, content);
+        if (stopping) {
+          try {
+            if (before === undefined) rmSync(join(productFolder, relative), { force: true });
+            else await files.write(relative, before);
+          } catch (error) {
+            throw new Error(`${relative}:1: the stop arrived while this page was being written, and it could not be put back as it was: ${error instanceof Error ? error.message : String(error)}`);
+          }
+          throw new Error(`the run was stopped while ${relative} was being written: the page was put back as it was`);
+        }
+        send({ type: 'page', path: relative });
+      },
+    };
     try {
       const repo = repositories[0]!;
       const kinds = readKinds(productFolder);
@@ -405,6 +490,8 @@ export async function runFillWorker(io: { lines: AsyncIterable<string>; send: (m
         afterWrite: async () => { const result = await indexNow(); if (result.error !== undefined) throw new Error(result.error); },
         onUnitStart: (began) => send({ type: 'unit-start', unit: began.unit, path: began.path }),
         onTotal: (total) => send({ type: 'writer-total', total }),
+        // A person's pause or stop consulted before every page (madarch-m38l.17): the page being written is finished.
+        halt: () => (stopping ? 'stop' : pausing ? 'pause' : undefined),
         onUnit: (outcome) => send({ type: 'unit-outcome', outcome: { unit: outcome.unit, status: outcome.status, writeAttempts: outcome.writeAttempts, calls: outcome.calls, refusals: outcome.refusals.map((r) => ({ line: r.line, rule: r.rule, message: r.message })), domains: [...outcome.domains], questions: [...outcome.questions] } }),
       });
       // A page the reader saw in the preview must be written: a run that silently writes fewer is a failure, not a success.
@@ -432,6 +519,17 @@ export async function runFillWorker(io: { lines: AsyncIterable<string>; send: (m
       }
     } catch (error) {
       await snapshot(true).catch(() => undefined);
+      // A halt is not a failure: the run ended where the person asked, and the pages written so far stand.
+      if (error instanceof WriterHalted) {
+        await reportWriterStopped();
+        return 0;
+      }
+      // A stop that ended the unit in progress is the stop's doing too, not the writer's failure: the last unit may be
+      // the one it ended, so nothing else would notice the halt.
+      if (stopping) {
+        await reportWriterStopped();
+        return 0;
+      }
       send({ type: 'writer', state: 'failed', code: 'stopped', message: `the writer stopped: ${error instanceof Error ? error.message : String(error)}` });
     }
     return 0;
