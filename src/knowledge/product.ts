@@ -59,6 +59,9 @@ import { PAGE_KIND, STATEMENT_OF } from './index/vocabulary.js';
 import { ACTIVE_FILL_FILE, CHANGED_PAGES_FILE, DOCUMENT_PAGES_FILE, invalidateInterruptedRun, readChangedPages, readDocumentPages } from './changed-pages.js';
 import { documentSections } from './index/sections.js';
 import { webLink } from './index/web-link.js';
+import { acpGraphJudge } from './graph-verdict-acp-judge.js';
+import { graphVerdictFile, loadGraphSnapshot, readGraphVerdictState, writeGraphVerdictBudgets, writeGraphVerdictState } from './graph-verdict-store.js';
+import { GRAPH_VERDICT_VALIDATOR_VERSION, graphVerdictFingerprint, graphVerdictReport, graphVerdictRows, graphVerdictsRunnable, runGraphVerdicts, type GraphEvidenceContent, type GraphJudge, type GraphJudgeFactory, type GraphVerdictBudgets, type GraphVerdictMetrics, type GraphVerdictReport, type GraphVerdictRow } from './graph-verdicts.js';
 
 /** The wiki's address of a document, at a section when one is named: the client opens it as it opens any in-wiki link. */
 const documentAddress = (repo: string | null, path: string, anchor?: string): string => {
@@ -193,6 +196,23 @@ export interface KnowledgeProductOptions {
   snapshotMs?: number;
   /** Asks an agent which models it offers; the production one starts its ACP adapter. Tests inject. */
   choicesQuery?: (agentId: string, env: DraftEnv) => Promise<{ ok: true; choices: AgentChoices } | { ok: false; message: string }>;
+  /** Starts a graph verdict judge for a resolved pair; tests inject a scripted one, production starts its ACP agent. */
+  graphJudgeFor?: GraphJudgeFactory;
+  /** A judge the host already built (jev, madarch-mwhd.1 finding 6); it reads a batch before the role judges. */
+  graphJev?: GraphJudge;
+  /** The host's version name for `graphJev`, part of every cache key while it is in use. */
+  graphJevVersion?: string;
+}
+
+/** What the graph verdicts page and its API ask for (madarch-mwhd.1). */
+export interface GraphVerdictProductView {
+  readonly file: string;
+  readonly budgets: GraphVerdictBudgets;
+  readonly rows: readonly GraphVerdictRow[];
+  readonly report: GraphVerdictReport;
+  readonly metrics: GraphVerdictMetrics;
+  /** True when no snapshot had changed and the previous result was read as it stood. */
+  readonly cached: boolean;
 }
 
 /** Runs git in a code repository for one blob; the file is `undefined` when git has none there. */
@@ -337,6 +357,7 @@ export class KnowledgeProduct {
   private swapping: Promise<void> = Promise.resolve();
   /** A reset is under way: no fill starts meanwhile, and no second reset. */
   private resetting = false;
+  private verdictRun: Promise<GraphVerdictProductView> | undefined;
   private lastUse = Date.now();
   /**
    * The Problems listing, kept until the inputs the Problems page reads change (madarch-m38l.19). A status poll reads
@@ -815,8 +836,14 @@ export class KnowledgeProduct {
         case 'fill':
           // The end of the fill is shown once the last snapshot is being read: a page opened at "done" shows everything.
           await this.swapping.catch(() => undefined);
-          if (message.state === 'done') this.fill = { state: 'done', startedAt: this.fill.startedAt, finishedAt: now(), gaps: message.gaps, ...(this.fill.rebuilt === undefined ? {} : {rebuilt:this.fill.rebuilt}) };
-          else if (message.state === 'stopped') this.fill = { state: 'idle', message: 'the fill was stopped; it resumes where it stopped' };
+          if (message.state === 'done') {
+            this.fill = { state: 'done', startedAt: this.fill.startedAt, finishedAt: now(), gaps: message.gaps, ...(this.fill.rebuilt === undefined ? {} : {rebuilt:this.fill.rebuilt}) };
+            // The rules and the judge read the snapshot as soon as the fill ends (madarch-mwhd.1 finding 6): a reader who
+            // opens the settings page afterwards sees what was decided, not a page that has to start the work itself.
+            void this.graphVerdicts({ force: true }).catch((error: unknown) => {
+              this.options.errorLog?.(`the knowledge wiki could not validate the graph after the fill: ${error instanceof Error ? error.message : String(error)}`);
+            });
+          } else if (message.state === 'stopped') this.fill = { state: 'idle', message: 'the fill was stopped; it resumes where it stopped' };
           else this.fill = { state: 'failed', startedAt: this.fill.startedAt, finishedAt: now(), message: message.message, ...(message.code === undefined ? {} : { code: message.code }) };
           this.notify();
           return;
@@ -1339,6 +1366,105 @@ export class KnowledgeProduct {
   /** The roles and the pair each resolves to; unassigned roles carry their fallback note. */
   modelRoles(): ModelRoleView {
     return resolveModelRoles(this.modelAssignments());
+  }
+
+  /**
+   * Every current node and edge with its verdict, reason and the rule or judge
+   * that decided it (madarch-mwhd.1). The first run reuses every unchanged
+   * cached entry; a run whose snapshot, roles and budgets all match is read
+   * from the cache without touching the graph or starting a judge.
+   */
+  graphVerdicts(options: { force?: boolean } = {}): Promise<GraphVerdictProductView> {
+    if (this.verdictRun !== undefined) return this.verdictRun;
+    const run = this.graphVerdictsOne(options.force === true).finally(() => { this.verdictRun = undefined; });
+    this.verdictRun = run;
+    return run;
+  }
+
+  private async graphVerdictsOne(force: boolean): Promise<GraphVerdictProductView> {
+    const file = graphVerdictFile(this.storeFolder());
+    const state = readGraphVerdictState(file);
+    const roles = this.modelRoles();
+    const owner = await this.open();
+    const snapshot = await loadGraphSnapshot(owner);
+    const jev = this.options.graphJev ?? null;
+    const judgeFor = this.options.graphJudgeFor ?? ((pair, role) => acpGraphJudge(pair, role, {
+      env: this.env,
+      ...(this.options.errorLog === undefined ? {} : { progress: (line: string) => this.options.errorLog?.(`the graph ${role} judge: ${line}`) }),
+    }));
+    const fingerprint = graphVerdictFingerprint({
+      snapshot,
+      roles,
+      budgets: state.budgets,
+      validatorVersion: GRAPH_VERDICT_VALIDATOR_VERSION,
+      hasJev: jev !== null,
+      hasJudge: true,
+      ...(this.options.graphJevVersion === undefined ? {} : { jevVersion: this.options.graphJevVersion }),
+    });
+    // The whole-result shortcut is only safe when nothing is waiting: a budget deferral or a failed judge is work the
+    // next run must take up, even when the snapshot has not changed (madarch-mwhd.1 finding 3).
+    if (!force && state.cache !== undefined && state.cache.fingerprint === fingerprint && state.cache.validatorVersion === GRAPH_VERDICT_VALIDATOR_VERSION && !graphVerdictsRunnable(state.cache)) {
+      const rows = graphVerdictRows(state.cache);
+      return {
+        file,
+        budgets: state.budgets,
+        rows,
+        report: graphVerdictReport(rows, state.budgets, GRAPH_VERDICT_VALIDATOR_VERSION, state.cache.generatedAt),
+        metrics: { checked: 0, reused: rows.length, judgeItems: 0, modelCalls: 0 },
+        cached: true,
+      };
+    }
+    // The evidence reader reads the graph's paths at the commits the fill pinned. Paths are repository-relative; the
+    // first present repository holding the path answers, and a path no pinned repository holds stays unresolved.
+    const read = new Map<string, GraphEvidenceContent | undefined>();
+    const readEvidence = async (path: string): Promise<GraphEvidenceContent | undefined> => {
+      if (read.has(path)) return read.get(path);
+      let content: GraphEvidenceContent | undefined;
+      for (const repository of this.repositories()) {
+        if (!repository.present) continue;
+        const pin = this.pins.get(repository.name);
+        if (pin === undefined || pin.commit === '') continue;
+        const text = await gitBlob(join(this.options.productFolder, 'repos', repository.name), pin.commit, path);
+        if (text === undefined) continue;
+        content = { text, repository: repository.name, commit: pin.commit };
+        break;
+      }
+      read.set(path, content);
+      return content;
+    };
+    const result = await runGraphVerdicts({
+      snapshot,
+      roles,
+      budgets: state.budgets,
+      readEvidence,
+      ...(state.cache === undefined ? {} : { previous: state.cache }),
+      ...(this.options.now === undefined ? {} : { now: this.options.now }),
+      ...(jev === null ? {} : { jev }),
+      ...(this.options.graphJevVersion === undefined ? {} : { jevVersion: this.options.graphJevVersion }),
+      judgeFor,
+    });
+    writeGraphVerdictState(file, result.cache);
+    return { file, budgets: state.budgets, rows: result.rows, report: result.report, metrics: result.metrics, cached: false };
+  }
+
+  /** The budgets and, when they exist, the counts from the last run; reading this starts no judge. */
+  graphVerdictSettings(): { file: string; budgets: GraphVerdictBudgets; report?: GraphVerdictReport } {
+    const file = graphVerdictFile(this.storeFolder());
+    const state = readGraphVerdictState(file);
+    if (state.cache === undefined) return { file, budgets: state.budgets };
+    const rows = graphVerdictRows(state.cache);
+    return { file, budgets: state.budgets, report: graphVerdictReport(rows, state.budgets, state.cache.validatorVersion, state.cache.generatedAt) };
+  }
+
+  /** Saves what one run may judge. Both are whole numbers, 0 or more; no verdict is thrown away. */
+  setGraphVerdictBudgets(itemsPerRun: number, modelCallsPerRun: number): { ok: true; budgets: GraphVerdictBudgets } | { ok: false; status: number; message: string } {
+    if (!Number.isInteger(itemsPerRun) || itemsPerRun < 0) return { ok: false, status: 400, message: `"itemsPerRun" is ${JSON.stringify(itemsPerRun)}: a whole number of items, 0 or more` };
+    if (!Number.isInteger(modelCallsPerRun) || modelCallsPerRun < 0) return { ok: false, status: 400, message: `"modelCallsPerRun" is ${JSON.stringify(modelCallsPerRun)}: a whole number of judge calls, 0 or more` };
+    if (this.running !== undefined && (this.writer.state === 'running' || this.writer.state === 'waiting')) return { ok: false, status: 409, message: 'a fill with an agent is running; the graph verdict budgets change after it ends' };
+    const budgets = { itemsPerRun, modelCallsPerRun };
+    writeGraphVerdictBudgets(graphVerdictFile(this.storeFolder()), budgets);
+    this.notify();
+    return { ok: true, budgets };
   }
 
   /**
@@ -2210,6 +2336,9 @@ export class KnowledgeProduct {
     const historyNavigation = history === undefined && id.startsWith('code.') ? await Promise.all([...this.pins.keys()].sort(byCodePoint).map(async (repo) => { const indexed = await this.historyAt({ repo, at: '?' }); return { repo, points: indexed.points, ...(indexed.landmarks === undefined ? {} : { landmarks: indexed.landmarks }) }; })) : undefined;
     const planned = history === undefined ? await this.plannedForPage(id) : undefined;
     const owner = await this.open();
+    // A newer snapshot may replace this one while the page is being rendered (a fill swaps readers under open reads).
+    // The rendered owner is still a store, so its page keeps its Problems badge.
+    const ownerWasReader = this.reader?.owner === owner;
     const validAt = this.validAt();
     const pins = new Map(this.pins);
     const rendered: PageResult = await owner.transaction('snapshot', async (transaction) => {
@@ -2228,7 +2357,8 @@ export class KnowledgeProduct {
     if (!rendered.ok || rendered.page.historicalAbsent === true || history !== undefined) return rendered;
     // The caller may hold a renderer whose owner has no store behind it (a snapshot fixture, or a page rendered from an
     // injected transaction). There is no problems database to ask, so the page shows no count and no failure note.
-    if (this.reader?.owner !== owner) return rendered;
+    // An owner that was the reader when the page opened has a store even if a newer snapshot has since replaced it.
+    if (!ownerWasReader && this.reader?.owner !== owner) return rendered;
     // The badge reads the listing last collected, never a walk of its own: a page answers while a fill runs
     // (madarch-m38l.19). A listing older than the page's inputs is a count from the previous revision; the next poll of
     // the status collects the current one.
