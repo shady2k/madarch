@@ -279,6 +279,43 @@ are real links in the checkout and on the repository's host; the diagrams
 work serves the models themselves. Keep them as citations — the walk keeps
 them, named for what they are.
 
+## Ask your own agent about a repository
+
+The questions the fill's units ask of a repository's graph are served to your
+own agent too, over the Model Context Protocol, from a checkout's own graph:
+
+    madarch mcp --repo ../library
+
+`--repo` names the checkout; without it the command serves the folder you run
+it in. Standard input and output carry the protocol, as a client expects, and
+what the server is doing — the revision it serves, the files that differ from
+it, the folder its graph is kept in — is said on standard error. The server is
+read-only: it answers and writes nothing.
+
+Register it with Claude Code once, naming the checkout it should serve:
+
+    claude mcp add madarch -- madarch mcp --repo /home/you/library
+
+Codex is given the same command line in `~/.codex/config.toml`:
+
+    [mcp_servers.madarch]
+    command = "madarch"
+    args = ["mcp", "--repo", "/home/you/library"]
+
+The first start builds the graph of the commit at `HEAD` and says when it is
+built; a later start reads the graph kept in
+`${XDG_STATE_HOME:-~/.local/state}/madarch/mcp/`, one folder per checkout. A
+file you edit without committing is read again before an answer that names it,
+and the answer names the file and marks what came from it; a file you delete
+without committing is gone from the answers. Every answer names the commit and
+the branch it was read at.
+
+    madarch mcp --journal --repo ../library
+
+prints what the server has been asked and what it saved: per tool the calls,
+the files read again, the answer bytes and the file reads the answers stood in
+for. It starts no server, so it works while one is running.
+
 ## How the commands find the product
 
 The lifecycle commands (`rename`, `remote`, `repo add`, `bootstrap`) take
