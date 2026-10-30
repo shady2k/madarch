@@ -13,6 +13,7 @@ import remarkGfm from 'remark-gfm';
 import remarkParse from 'remark-parse';
 import { unified } from 'unified';
 import type { Block, CodeLocation, EntityRef, KindSummary, PageModel } from './model.js';
+import { historyFigureText } from './history-figures.js';
 import type { Resolution } from './resolve.js';
 import { entityAddress, kindAddress } from './resolve.js';
 
@@ -447,7 +448,7 @@ function markdownLink(title: string, url: string | null): string {
   return url === null ? words : `[${words}](${destination(url)})`;
 }
 
-function itemLine(item: PageFileItem): string {
+function itemLine(item: PageFileItem, language: string): string {
   const parts = [markdownLink(item.title, item.url)];
   if (item.badge !== undefined) parts.push(`(${item.badge})`);
   if (item.note !== undefined && item.note !== '') parts.push(item.note);
@@ -455,33 +456,33 @@ function itemLine(item: PageFileItem): string {
   if (item.place !== undefined) parts.push(`${item.site === undefined ? 'at' : 'stands at'} ${markdownLink(`${item.place.path}:${item.place.line}`, item.place.url)}`);
   if (item.site !== undefined) parts.push(`called at ${markdownLink(`${item.site.path}:${item.site.line}`, item.site.url)}`);
   if (item.broken !== undefined) parts.push(`(no page: ${item.broken})`);
-  if (item.figures !== undefined && item.figures.length > 0) parts.push(item.figures.map((figure) => `${figure.kind}: ${figure.value}`).join(', '));
+  if (item.figures !== undefined && item.figures.length > 0) parts.push(item.figures.map((figure) => historyFigureText(figure, language)).join(', '));
   return `- ${parts.join(' — ')}`;
 }
 
 /** The words of an item without its list marker, for a line that already stands under its own label. */
-function inlineItem(item: PageFileItem): string {
-  const line = itemLine(item);
+function inlineItem(item: PageFileItem, language: string): string {
+  const line = itemLine(item, language);
   return line.startsWith('- ') ? line.slice(2) : line;
 }
 
-function sectionMarkdown(section: PageFileSection): string {
+function sectionMarkdown(section: PageFileSection, language: string): string {
   const lines: string[] = [];
   if (section.title !== '') lines.push(`## ${textNode(section.title)}`);
   const message = (text: string): string => text.split('\n').map((line) => `> ${line}`).join('\n');
   switch (section.type) {
     case 'text':
       if (section.text !== undefined && section.text !== '') lines.push(section.text);
-      for (const item of section.items ?? []) lines.push(itemLine(item));
+      for (const item of section.items ?? []) lines.push(itemLine(item, language));
       break;
     case 'links':
     case 'items':
-      for (const item of section.items ?? []) lines.push(itemLine(item));
+      for (const item of section.items ?? []) lines.push(itemLine(item, language));
       break;
     case 'relations':
       for (const group of section.groups ?? []) {
         lines.push(`### ${textNode(group.relation)} (${group.direction}, ${group.total})`);
-        for (const item of group.items) lines.push(itemLine(item));
+        for (const item of group.items) lines.push(itemLine(item, language));
       }
       break;
     case 'properties':
@@ -491,8 +492,8 @@ function sectionMarkdown(section: PageFileSection): string {
       for (const member of section.members ?? []) {
         lines.push(`### ${textNode(member.title)}`);
         for (const value of member.values) lines.push(`- **${textNode(value.label ?? value.name)}**: ${textNode(value.value)}`);
-        if (member.readers.length > 0) lines.push(`Read by: ${member.readers.map(inlineItem).join(', ')}`);
-        if (member.writers.length > 0) lines.push(`Written by: ${member.writers.map(inlineItem).join(', ')}`);
+        if (member.readers.length > 0) lines.push(`Read by: ${member.readers.map((reader) => inlineItem(reader, language)).join(', ')}`);
+        if (member.writers.length > 0) lines.push(`Written by: ${member.writers.map((writer) => inlineItem(writer, language)).join(', ')}`);
       }
       break;
     case 'source':
@@ -504,23 +505,23 @@ function sectionMarkdown(section: PageFileSection): string {
         lines.push(`### ${textNode(view.label === '' ? view.title : view.label)}`);
         if (view.empty !== null) lines.push(message(view.empty));
         if (view.mermaid !== '') lines.push(fenced(view.mermaid, 'mermaid'));
-        for (const item of view.items) lines.push(itemLine(item));
+        for (const item of view.items) lines.push(itemLine(item, language));
         for (const edge of view.edges) lines.push(`- ${textNode(edge.from)} → ${textNode(edge.to)} — ${textNode(edge.relation)} (${edge.count})`);
         for (const note of view.notes) lines.push(`- ${note}`);
       }
-      for (const item of section.items ?? []) lines.push(itemLine(item));
+      for (const item of section.items ?? []) lines.push(itemLine(item, language));
       for (const edge of section.edges ?? []) lines.push(`- ${textNode(edge.from)} → ${textNode(edge.to)} — ${textNode(edge.relation)} (${edge.count})`);
       break;
     case 'history':
       for (const group of section.groups ?? []) {
         lines.push(`### ${textNode(group.relation)} (${group.total})`);
-        for (const item of group.items) lines.push(itemLine(item));
+        for (const item of group.items) lines.push(itemLine(item, language));
       }
       break;
     case 'contract':
       if (section.place !== undefined) lines.push(`Source: ${markdownLink(`${section.place.path}:${section.place.line}`, section.place.url)}`);
       if (section.text !== undefined) lines.push(fenced(section.text, section.format ?? ''));
-      for (const item of section.items ?? []) lines.push(itemLine(item));
+      for (const item of section.items ?? []) lines.push(itemLine(item, language));
       break;
     case 'problem':
       lines.push(message(section.message ?? ''));
@@ -822,8 +823,9 @@ export function pageFileMarkdown(page: PageModel, prefix = ''): string {
   const meta = `Kind: \`${page.kind}\` · HTML: ${markdownLink(document.address, document.address)} · JSON: ${markdownLink(document.json, document.json)}`;
   parts.push(meta);
   if (document.trail.length > 0) parts.push(`Trail: ${document.trail.map((entry) => markdownLink(entry.title, entry.url)).join(' › ')}`);
+  const language = page.language ?? 'en';
   for (const section of document.sections) {
-    const rendered = sectionMarkdown(section);
+    const rendered = sectionMarkdown(section, language);
     if (rendered !== '') parts.push(rendered);
   }
   if (document.findings.length > 0) {
@@ -856,7 +858,7 @@ export function kindFileMarkdown(document: KindFileDocument): string {
   const parts = [`# ${textNode(document.title)}`, `Kind: \`${document.kind}\` · HTML: ${markdownLink(document.address, document.address)} · JSON: ${markdownLink(document.json, document.json)}`];
   if (document.description !== undefined) parts.push(document.description);
   parts.push(`${document.total} ${document.total === 1 ? 'entity' : 'entities'}.`);
-  if (document.entries.length > 0) parts.push(document.entries.map(itemLine).join('\n'));
+  if (document.entries.length > 0) parts.push(document.entries.map((entry) => itemLine(entry, 'en')).join('\n'));
   return `${parts.join('\n\n')}\n`;
 }
 

@@ -133,3 +133,86 @@ describe('a page written for an agent keeps every address it holds', () => {
     expect(entityAddress('domain:a')).toBe('/k/e/domain%3Aa');
   });
 });
+
+describe("a history figure is written in the words and the form the reader's language gives it", () => {
+  const history = (language: string | undefined, figures: { kind: string; value: string }[]): PageModel => page({
+    ...(language === undefined ? {} : { language }),
+    blocks: [{ type: 'history', title: 'History', sections: [{ role: 'files', total: 1, rows: [{ text: 'src/a.ts', figures: figures as never }] }], notes: [] }],
+  });
+  const figures = (language: string | undefined, values: readonly string[]): string[] =>
+    values.map((value) => pageFileMarkdown(history(language, [{ kind: 'commits', value }]), prefix).split('\n').find((line) => line.startsWith('- src/a.ts'))!);
+
+  test('English says one commit, two commits and every numeral its own form', () => {
+    expect(figures('en', ['0', '1', '2', '5', '11', '12', '14', '21', '101', '1.5'])).toEqual([
+      '- src/a.ts — 0 commits',
+      '- src/a.ts — 1 commit',
+      '- src/a.ts — 2 commits',
+      '- src/a.ts — 5 commits',
+      '- src/a.ts — 11 commits',
+      '- src/a.ts — 12 commits',
+      '- src/a.ts — 14 commits',
+      '- src/a.ts — 21 commits',
+      '- src/a.ts — 101 commits',
+      '- src/a.ts — 1.5 commits',
+    ]);
+  });
+
+  test('Russian says один коммит, два коммита, пять коммитов, and a fraction takes the genitive singular', () => {
+    expect(figures('ru', ['0', '1', '2', '5', '11', '12', '14', '21', '101', '1.5', '1.25'])).toEqual([
+      '- src/a.ts — 0 коммитов',
+      '- src/a.ts — 1 коммит',
+      '- src/a.ts — 2 коммита',
+      '- src/a.ts — 5 коммитов',
+      '- src/a.ts — 11 коммитов',
+      '- src/a.ts — 12 коммитов',
+      '- src/a.ts — 14 коммитов',
+      '- src/a.ts — 21 коммит',
+      '- src/a.ts — 101 коммит',
+      '- src/a.ts — 1.5 коммита',
+      '- src/a.ts — 1.25 коммита',
+    ]);
+  });
+
+  test('every counted kind is written as words, and a page with no language reads as English', () => {
+    const kinds = ['symbols', 'commits', 'files', 'reachable', 'firstParent', 'merges', 'nonMerge', 'authors', 'both', 'onlyThis', 'onlyOther'];
+    const line = (language: string | undefined, kind: string, value: string): string =>
+      pageFileMarkdown(history(language, [{ kind, value }]), prefix).split('\n').find((held) => held.startsWith('- src/a.ts'))!;
+    expect(kinds.map((kind) => line('en', kind, '2'))).toEqual([
+      '- src/a.ts — 2 symbols',
+      '- src/a.ts — 2 commits',
+      '- src/a.ts — 2 files',
+      '- src/a.ts — 2 reachable commits',
+      '- src/a.ts — 2 first-parent commits',
+      '- src/a.ts — 2 merges',
+      '- src/a.ts — 2 non-merge commits',
+      '- src/a.ts — 2 authors',
+      '- src/a.ts — 2 shared changes',
+      '- src/a.ts — 2 changes to this file alone',
+      '- src/a.ts — 2 changes to the other file alone',
+    ]);
+    expect(kinds.map((kind) => line('ru', kind, '1'))).toEqual([
+      '- src/a.ts — 1 символ',
+      '- src/a.ts — 1 коммит',
+      '- src/a.ts — 1 файл',
+      '- src/a.ts — 1 достижимый коммит',
+      '- src/a.ts — 1 коммит основной линии',
+      '- src/a.ts — 1 слияние',
+      '- src/a.ts — 1 коммит без слияний',
+      '- src/a.ts — 1 автор',
+      '- src/a.ts — 1 совместное изменение',
+      '- src/a.ts — 1 изменение только этого файла',
+      '- src/a.ts — 1 изменение только другого файла',
+    ]);
+    expect(line(undefined, 'commits', '1')).toBe('- src/a.ts — 1 commit');
+  });
+
+  test('an uncounted figure keeps its name and value, and the JSON keeps every figure structured', () => {
+    const model = history('ru', [{ kind: 'added', value: '42' }, { kind: 'module', value: 'src/a.ts' }, { kind: 'commits', value: '1' }]);
+    expect(pageFileMarkdown(model, prefix).split('\n').find((line) => line.startsWith('- src/a.ts'))).toBe('- src/a.ts — added: 42, module: src/a.ts, 1 коммит');
+    expect(pageFileDocument(model, prefix).sections[0]!.groups![0]!.items[0]!.figures).toEqual([
+      { kind: 'added', value: '42' },
+      { kind: 'module', value: 'src/a.ts' },
+      { kind: 'commits', value: '1' },
+    ]);
+  });
+});
