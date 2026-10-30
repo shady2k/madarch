@@ -37,7 +37,7 @@ function put(relativePath: string, text: string): void {
 
 const A_SOURCE = "import { f } from './b.js';\n\n/** Calls f. */\nexport function g(): number {\n  return f();\n}\n";
 const B_SOURCE = '/** The number one. */\nexport function f(): number {\n  return 1;\n}\n';
-const INIT_SQL = 'CREATE TABLE saved_items (\n  id TEXT PRIMARY KEY,\n  name TEXT NOT NULL\n);\n';
+const INIT_SQL = 'CREATE TABLE saved_items (\n  id TEXT PRIMARY KEY,\n  name TEXT NOT NULL\n);\n\nCREATE TABLE items (\n  id TEXT PRIMARY KEY,\n  name TEXT NOT NULL\n);\n';
 
 let session: RepositorySession;
 
@@ -120,6 +120,25 @@ describe('the producers that are not code are read again when their files change
     expect(json(gone.answer['error'])).toContain('saved_items');
     restore('db/migrations/0001-init.sql');
   }, 180_000);
+});
+
+describe('a migration that alters a table an unchanged migration declares', () => {
+  test('an added ALTER resolves the table of the migration it does not touch, and the column it adds answers', async () => {
+    // The recheck's input: `items` stands in the committed 0001, and 0002 arrives without a commit.
+    put('db/migrations/0002-note.sql', 'ALTER TABLE items ADD COLUMN note text;\n');
+    const table = await answerOf('get_context', { entity: 'code.table:review-kit/public.items', purpose: 'domain' });
+    expect(table.isError).toBe(false);
+    expect(table.answer['entity']).toMatchObject({ key: 'code.table:review-kit/public.items' });
+    expect(json(table.answer)).toContain('note');
+    const column = await answerOf('get_context', { entity: 'code.table:review-kit/public.items/note', purpose: 'domain' });
+    expect(column.isError).toBe(false);
+    expect(column.answer['entity']).toMatchObject({ key: 'code.table:review-kit/public.items/note', kind: 'code.column' });
+    // The table the unchanged migration declares keeps the columns it declared there.
+    const held = await answerOf('get_context', { entity: 'code.table:review-kit/public.items', purpose: 'domain' });
+    expect(json(held.answer)).toContain('name');
+    restore('db/migrations/0001-init.sql');
+    rmSync(path.join(REPOSITORY, 'db/migrations/0002-note.sql'));
+  }, 120_000);
 });
 
 describe('every answer names the revision it was read at, refusals too', () => {

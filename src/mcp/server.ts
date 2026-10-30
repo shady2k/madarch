@@ -43,17 +43,44 @@ function buildingAnswer(repository: string): Record<string, unknown> {
 }
 
 /**
- * The session a provider holds now, without waiting for one that is still
- * opening: a `ready` promise that has already settled is read, one that has not
- * is not.
+ * The answer a tool call gets once the start has failed for good: the failure is kept and reported on every call,
+ * with the reason the start gave — a count, a bound, what to serve instead — rather than a progress note a client
+ * would keep retrying (madarch-ztyq.10 recheck). A tree too large to build cold, with no graph to reuse, never
+ * becomes servable by waiting.
  */
-async function openSession(provider: RepositoryProvider): Promise<RepositorySession | undefined> {
-  if (!('ready' in provider)) return provider;
-  let session: RepositorySession | undefined;
-  provider.ready.then((one) => { session = one; }).catch(() => undefined);
+function failedAnswer(repository: string, failure: unknown): Record<string, unknown> {
+  const message = failure instanceof Error ? failure.message : String(failure);
+  return {
+    source: { repository, commit: null, branch: null, at: new Date().toISOString(), dirty: [], reextracted: [], building: false },
+    error: { code: 'startup-failed', message },
+  };
+}
+
+/** What a provider holds now: an open session, a start still in flight, or a start that failed for good. */
+type Opened = { readonly session: RepositorySession } | { readonly failure: unknown } | { readonly opening: true };
+
+/**
+ * The session a provider holds now, without waiting for one that is still
+ * opening: a `ready` promise that has already settled is read — as a session or
+ * as the failure it settled with — and one that has not settled is not waited
+ * for.
+ */
+async function openSession(provider: RepositoryProvider): Promise<Opened> {
+  if (!('ready' in provider)) return { session: provider };
+  let opened: Opened = { opening: true };
+  provider.ready.then((one) => { opened = { session: one }; }, (error: unknown) => { opened = { failure: error }; });
   // A promise that already settled queues its continuation before this one, so one await is enough to read it.
   await Promise.resolve();
-  return session;
+  return opened;
+}
+
+/** The result one tool call answers, whether its session is open, opening or failed. */
+async function answerCall(repository: string, provider: RepositoryProvider, tool: string, argumentsValue: unknown): Promise<{ answer: Record<string, unknown>; isError: boolean }> {
+  const opened = await openSession(provider);
+  if ('failure' in opened) return { answer: failedAnswer(repository, opened.failure), isError: true };
+  if ('opening' in opened) return { answer: buildingAnswer(repository), isError: false };
+  const answered = await opened.session.call(tool, argumentsValue);
+  return { answer: answered.answer as Record<string, unknown>, isError: answered.isError };
 }
 
 /** What a run of the server reads and writes; the process's own streams unless a test names others. */
@@ -95,12 +122,7 @@ export async function serveRepositoryMcp(options: RepositoryMcpOptions): Promise
     await serveUnitMcp({
       tools: REPO_TOOLS as readonly McpToolDefinition[],
       info: REPO_MCP_INFO,
-      call: async (tool, argumentsValue) => {
-        const session = await openSession(provider);
-        if (session === undefined) return { answer: buildingAnswer(options.repository), isError: false };
-        const answered = await session.call(tool, argumentsValue);
-        return { answer: answered.answer, isError: answered.isError };
-      },
+      call: (tool, argumentsValue) => answerCall(options.repository, provider, tool, argumentsValue),
       streams: { input: options.input ?? process.stdin, write: (text: string) => { (options.output ?? process.stdout).write(text); } },
     });
   } finally {
@@ -117,11 +139,6 @@ export async function answerRepositoryMcpMessage(message: unknown, provider: Rep
   return await answerUnitMcpMessage(message, {
     tools: REPO_TOOLS,
     info,
-    call: async (tool, argumentsValue) => {
-      const session = await openSession(provider);
-      if (session === undefined) return { answer: buildingAnswer('ready' in provider ? provider.repository : ''), isError: false };
-      const answered = await session.call(tool, argumentsValue);
-      return { answer: answered.answer, isError: answered.isError };
-    },
+    call: (tool, argumentsValue) => answerCall('ready' in provider ? provider.repository : '', provider, tool, argumentsValue),
   });
 }

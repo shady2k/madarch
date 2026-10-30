@@ -17,11 +17,8 @@ import { basename, join, resolve } from 'node:path';
 import { homedir } from 'node:os';
 import { createPGliteDatabaseOwner, type DatabaseOwner } from '../adapters/database-owner.js';
 import { fillGraph } from '../extract/driver/index.js';
-import { extractFiles } from '../extract/driver/files.js';
 import { TREE_EXTRACTORS } from '../extract/driver/extractors.js';
-import { extractCodeWithFacts } from '../extract/code/index.js';
 import { codeLanguageOf } from '../extract/code/source.js';
-import { extractOperations } from '../extract/operations/index.js';
 import { createGraphStore, type GraphStore } from '../graph/index.js';
 import { sha256Hex } from '../graph/digest.js';
 import { defaultKnowledgeRoot } from '../knowledge/product.js';
@@ -125,22 +122,16 @@ async function markerOf(owner: DatabaseOwner, repository: string): Promise<strin
 }
 
 /**
- * How many code files a cold build may hold the tree's expression facts for. The facts are what the contract and
- * data-model extractors read, and they are what a tree's extraction cannot bound: measured on this machine, the
- * fact view of 898 code files took the process past 3 GB and was killed, while the same 898 files read as a graph
- * peaked at 2 668 MB (madarch-ztyq.10 review). The number is the measurement, not a guess: a tree up to this size
- * fits the facts in about 2 GB.
+ * The code files a cold build may have. A cold build runs **every** producer the fill runs — the code, the files,
+ * the operations, the contracts and the data model — because a graph missing a contract's operations or a
+ * migration's tables answers refusals for entities that exist, and that is worse than no graph at all
+ * (madarch-ztyq.10 recheck). The contract and data-model extractors read the tree's expression facts, which are what
+ * a cold build cannot bound: measured on this 6 GB machine, 300 code files with the facts peak at 2 145 MB, the fact
+ * view of 898 files took the process past 3 GB, and the full checkout's 1 041 files were killed at 3 164 MB anon-rss.
+ * So a tree above this bound is refused, with the count, the bound, those measurements and what to serve instead.
+ * The number is the measurement, not a guess: a tree up to this size fits the facts in about 2 GB.
  */
-export const FULL_FACTS_CODE_FILES = 400;
-
-/**
- * The code files a cold build may have, measured on this 6 GB machine: 300 files peak at 1 476 MB, 600 at
- * 1 864 MB, 898 at 2 668 MB, and the fill's own share on top of that — the full checkout's 1 041 files were killed
- * at 3 164 MB anon-rss with the machine's ~3 GB free. The bound keeps a comfortable margin under the smallest
- * measurement that died; a larger tree is not built cold here and is answered with what to serve instead, because
- * being killed mid-build serves nothing at all (madarch-ztyq.10 review).
- */
-export const COLD_BUILD_CODE_FILES = 700;
+export const COLD_BUILD_CODE_FILES = 400;
 
 /**
  * The graph a product fill already holds for this repository and commit, when the madarch home has one. A product's
@@ -177,13 +168,12 @@ async function reusableStore(repository: string, commit: string, env: DraftEnv):
  * folder holds no graph of this commit. `store` names the folder a caller keeps
  * the graph in; without one it is under the state root, per repository.
  *
- * A cold build is bounded (madarch-ztyq.10 review): the graph of a tree whose
- * code files exceed `FULL_FACTS_CODE_FILES` is built without the tree-wide
- * expression facts — the code, file and operation producers only — and says so,
- * because the facts of a whole tree do not fit this machine's memory. A product
- * fill's own graph for the same commit is copied instead of built whenever the
- * madarch home holds one, which is the cheap path for a checkout someone has
- * already filled.
+ * A cold build runs every producer and is bounded (madarch-ztyq.10 recheck): the
+ * graph of a tree whose code files exceed `COLD_BUILD_CODE_FILES` is refused with
+ * the count, the bound and what to serve instead, never built without the contract
+ * and data-model producers the tree's facts pay for. A product fill's own graph for
+ * the same commit is copied instead of built whenever the madarch home holds one,
+ * which is the cheap path for a checkout someone has already filled.
  */
 export async function openRepositoryGraph(options: {
   readonly repository: string;
@@ -228,21 +218,19 @@ export async function openRepositoryGraph(options: {
         log(`madarch mcp: graph reused in ${((performance.now() - started) / 1000).toFixed(1)} s`);
         return {
           owner: again, store: copied, view: built, folder, commit, filled, fillMs: performance.now() - started,
-          close: async () => { releaseFolderLock(folder, held); await again.close(); },
+          close: async () => { await again.close(); releaseFolderLock(folder, held); },
         };
       }
       const tree = workingTree(repository);
       const codeFiles = tree.paths.filter((path) => codeLanguageOf(path) !== undefined).length;
       if (codeFiles > COLD_BUILD_CODE_FILES) {
-        throw new Error(`${folder}:1: the graph of ${repository} would read ${codeFiles} code files, and a cold build here is bounded to ${COLD_BUILD_CODE_FILES} (measured: 898 files peak at 2 668 MB, and the full checkout's 1 041 files were killed at 3 164 MB on this 6 GB machine); serve a graph that exists instead — name the folder a fill built with --store, or fill this repository with \`madarch fill\` so its product store is reused (src/mcp/graph.ts)`);
+        throw new Error(`${folder}:1: the graph of ${repository} would read ${codeFiles} code files, and a cold build here is bounded to ${COLD_BUILD_CODE_FILES} because a cold build runs every producer and their facts do not fit this machine's memory (measured: 300 files with the facts peak at 2 145 MB, 898 files took the process past 3 GB, and the full checkout's 1 041 files were killed at 3 164 MB on this 6 GB machine); serve a graph that exists instead — name the folder a fill built with --store, or fill this repository with \`madarch fill\` so its product store is reused (src/mcp/graph.ts)`);
       }
-      const whole = codeFiles <= FULL_FACTS_CODE_FILES;
-      log(`madarch mcp: building the graph of ${repository} at ${commit.slice(0, 12)} in ${folder} (${codeFiles} code files${whole ? '' : '; the tree-wide expression facts do not fit a cold build, so this graph holds code, files and operations only'})`);
+      log(`madarch mcp: building the graph of ${repository} at ${commit.slice(0, 12)} in ${folder} (${codeFiles} code files)`);
       const before = performance.now();
-      await fillGraph({
-        owner, store, repository,
-        extractors: whole ? TREE_EXTRACTORS : [extractFiles, (one) => extractCodeWithFacts(one, { facts: false }), extractOperations],
-      });
+      // Every producer, not a subset: a graph without the contract's operations or the migration's tables is not a
+      // smaller answer, it is a wrong one (madarch-ztyq.10 recheck).
+      await fillGraph({ owner, store, repository, extractors: TREE_EXTRACTORS });
       // The answers quote code and documents, and both are read from the graph's content nodes rather than from the
       // repository (decision 0026); the fill lists the files, so the text is stored once, here, right after it.
       const built = await GraphView.open(owner, store);
@@ -258,11 +246,13 @@ export async function openRepositoryGraph(options: {
     return {
       owner, store, view, folder, commit, filled,
       fillMs: filled ? performance.now() - started : opened,
-      close: async () => { releaseFolderLock(folder, held); await owner.close(); },
+      // The lock is dropped after the database is closed, never before: a second process that took the folder while
+      // this one was mid-close would open a database another is still shutting down (madarch-ztyq.10 recheck).
+      close: async () => { await owner.close(); releaseFolderLock(folder, held); },
     };
   } catch (error) {
-    releaseFolderLock(folder, held);
     await owner.close().catch(() => undefined);
+    releaseFolderLock(folder, held);
     throw error;
   }
 }

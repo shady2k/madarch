@@ -43,6 +43,30 @@ const PATH_PREFIXES = ['code.file:', 'code.symbol:', 'code.field:', 'code.docume
 const CLOSURE_LIMIT = 400;
 
 /**
+ * How many files a changed producer's own dependencies may add to a refresh. A migration that alters a table says
+ * nothing about the table: `ALTER TABLE items ADD COLUMN note text` resolves only when the migrations that created
+ * `items` are read with it, and the data-model producer must see the same set it would see in a fill
+ * (madarch-ztyq.10 recheck).
+ */
+const PRODUCER_LIMIT = 400;
+
+/** A migration the data-model producer reads: a `.sql` inside a `migrations` folder (prisma's included). */
+function isMigration(path: string): boolean {
+  const segments = path.split('/');
+  const file = segments[segments.length - 1] ?? '';
+  if (!file.endsWith('.sql')) return false;
+  return segments.slice(0, -1).some((segment) => segment === 'migrations');
+}
+
+/** The contract folder a document belongs to — `openapi`, `asyncapi` or `proto` — or undefined. */
+function contractFolderOf(path: string): string | undefined {
+  const segments = path.split('/');
+  if (segments[0] !== 'contracts') return undefined;
+  const folder = segments[1];
+  return folder === 'openapi' || folder === 'asyncapi' || folder === 'proto' ? folder : undefined;
+}
+
+/**
  * The repository path a key names, or null for a key that names no file (a
  * module, a package, a cycle, a relation). The key's own shape is the rule: the
  * path of a keyed record stands between the kind and the `#`.
@@ -74,6 +98,12 @@ export interface LayerRefresh {
 export class WorkingLayer {
   /** The files whose HEAD facts the layer hides: everything git says the working tree changed. */
   private touched = new Set<string>();
+  /**
+   * The files whose facts the layer re-derived beside a changed file: a changed migration's siblings, a changed
+   * spec's folder. Their HEAD facts are hidden too, because what they said was derived from a file the working tree
+   * changed (madarch-ztyq.10 recheck).
+   */
+  private derived = new Set<string>();
   private nodes = new Map<string, ExtractedNode>();
   private edges: ExtractedEdge[] = [];
   private edgeSites: string[] = [];
@@ -90,7 +120,7 @@ export class WorkingLayer {
 
   /** Whether the base graph's facts about a path are hidden by this layer. */
   hides(path: string | undefined): boolean {
-    return path !== undefined && this.touched.has(path);
+    return path !== undefined && (this.touched.has(path) || this.derived.has(path));
   }
 
   /**
@@ -100,8 +130,7 @@ export class WorkingLayer {
    * like (madarch-ztyq.10 review). The kinds this covers err by marking more, never by marking less.
    */
   hidesKey(key: string): boolean {
-    const path = pathOfKey(key);
-    return path !== null && this.touched.has(path);
+    return this.hides(pathOfKey(key) ?? undefined);
   }
 
   /** The entity the working tree declares under a key, when it declares one. */
@@ -145,12 +174,19 @@ export class WorkingLayer {
    *   declarations — an edited caller used to lose its unchanged callee;
    * - the manifests that name a file's module, so a symbol's key stays the key
    *   the base graph gives it;
+   * - the **dependencies of a changed non-code file**: the migrations of the
+   *   schema, because an `ALTER TABLE` resolves against the migration that
+   *   created the table, and the specs of the contract folder, because a
+   *   document may reference another (madarch-ztyq.10 recheck);
    * - and every tree extractor the fill runs, not the code pass alone, so a
    *   migration or an OpenAPI document that changed says so (the SQL data model
    *   and the contracts are producers like the code pass is).
    *
-   * Only rows whose span stands in a changed file are kept: the closure is read
-   * to resolve, never to answer.
+   * Rows whose span stands in a changed file **or in one of its dependencies**
+   * are kept, and the base's facts about those same files are hidden: a table's
+   * column list is derived from the migration that changed, and the derivation
+   * has to be the working tree's, not half of each. The import closure is read
+   * to resolve, never to answer — its own base facts stand.
    */
   async refresh(revision: Revision): Promise<LayerRefresh> {
     const digests = new Map<string, string>();
@@ -176,7 +212,10 @@ export class WorkingLayer {
     const dirty = new Set(present);
     const seeds = present.filter((path) => codeLanguageOf(path) !== undefined);
     const closure = await this.closureOf(seeds, known);
-    const read = [...new Set([...present, ...manifests, ...closure])].sort(byCodePoint);
+    const dependencies = this.dependenciesOf(present, known);
+    // The files whose facts the working tree owns: the changed files and the files their producers derived from.
+    const scope = new Set([...present, ...dependencies]);
+    const read = [...new Set([...present, ...manifests, ...closure, ...dependencies])].sort(byCodePoint);
     const reader: TreeReader = {
       paths: read,
       read: (path: string): Uint8Array => {
@@ -192,11 +231,11 @@ export class WorkingLayer {
       const answered = await extractor(reader);
       const extraction = 'extraction' in answered ? answered.extraction : answered;
       for (const node of extraction.nodes) {
-        if (node.span === undefined || !dirty.has(node.span.path)) continue;
+        if (node.span === undefined || !scope.has(node.span.path)) continue;
         nodes.set(node.key, node);
       }
       for (const edge of extraction.edges) {
-        if (edge.span === undefined || !dirty.has(edge.span.path)) continue;
+        if (edge.span === undefined || !scope.has(edge.span.path)) continue;
         edgeMap.set(`${edge.type}\u0000${edge.from}\u0000${edge.to}\u0000${edge.discriminator}`, edge);
       }
       gaps.push(...extraction.gaps);
@@ -206,6 +245,7 @@ export class WorkingLayer {
     this.edgeSites = this.edges.flatMap((edge) => (edge.span === undefined ? [] : [edge.span.path]));
     this.gaps = gaps;
     this.touched = new Set(revision.touched);
+    this.derived = new Set(dependencies.filter((path) => !this.touched.has(path)));
     this.extracted = digests;
     this.markdown = undefined;
     return { reextracted: present.sort(byCodePoint), gaps: this.gaps };
@@ -258,6 +298,30 @@ export class WorkingLayer {
     this.edgeSites = [];
     this.gaps = [];
     this.markdown = undefined;
+    this.derived = new Set();
+  }
+
+  /**
+   * The files a changed non-code file's producer needs beside it: every migration of the tree when a migration
+   * changed — an `ALTER TABLE` names a table another migration created, and the producer applies migrations in
+   * order — and every document of the changed spec's contract folder, because a document may reference another.
+   * Bounded by `PRODUCER_LIMIT`; a tree with more of either is read up to the bound, and the producer reports what
+   * it could not resolve as its own gap rather than the layer inventing a fact.
+   */
+  private dependenciesOf(present: readonly string[], known: ReadonlySet<string>): string[] {
+    const migrations = present.some(isMigration);
+    const folders = new Set(present.map((path) => contractFolderOf(path)).filter((one): one is string => one !== undefined));
+    if (!migrations && folders.size === 0) return [];
+    const out: string[] = [];
+    for (const path of [...known].sort(byCodePoint)) {
+      if (out.length >= PRODUCER_LIMIT) break;
+      if (migrations && isMigration(path)) out.push(path);
+      else {
+        const folder = contractFolderOf(path);
+        if (folder !== undefined && folders.has(folder)) out.push(path);
+      }
+    }
+    return out;
   }
 
   /** The layer's edges of one relation at a key, in one direction. */
