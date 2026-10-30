@@ -570,6 +570,12 @@ function normalizedCommentText(text: string): string {
     const ctx = program.files.get(path);
     const abstractNames = ctx?.decls.abstractNames ?? new Set<string>();
     const typeText = ctx?.decls.typeText ?? new Map<string, string>();
+    // The initializer a field is declared with is part of the field: its page says what the code holds, not only
+    // what type it holds (madarch-m38l.21).
+    const values = new Map<string, string>();
+    for (const type of ctx?.decls.types ?? []) {
+      for (const member of type.members) if (member.kind === 'field' && member.value !== undefined) values.set(member.qualifiedName, member.value);
+    }
     const sorted = [...file.symbols].filter((symbol) => !symbol.local).sort((left, right) => left.span.startByte - right.span.startByte || byCodePoint(left.key, right.key));
     for (const symbol of sorted) {
       const topLevel = !symbol.qualifiedName.includes('.');
@@ -587,6 +593,8 @@ function normalizedCommentText(text: string): string {
       if (['class', 'method', 'interface'].includes(symbol.symbolKind)) properties['abstract'] = abstractNames.has(symbol.qualifiedName);
       const written = typeText.get(symbol.qualifiedName);
       if (written !== undefined && ['variable', 'constant', 'field', 'property'].includes(symbol.symbolKind)) properties['typeText'] = written;
+      const initial = values.get(symbol.qualifiedName);
+      if (initial !== undefined && symbol.symbolKind === 'field') properties['value'] = initial;
       if (topLevel && mainName === symbol.qualifiedName) properties['entryPoint'] = 'main';
       const entryPoints = starts.get(symbol.key);
       if (entryPoints !== undefined) properties['entryPoints'] = [...new Set(entryPoints)].sort(byCodePoint);

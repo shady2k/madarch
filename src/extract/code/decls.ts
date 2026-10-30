@@ -26,6 +26,8 @@ export interface MemberDecl {
   readonly qualifiedName: string;
   /** The field's type or the method's first result, as the file writes it. */
   readonly type?: string;
+  /** What the file writes after the field's `=`: its initializer, as a reader can read it (madarch-m38l.21). */
+  readonly value?: string;
   /** Where the member is declared; a field needs it to be a member entity (madarch-m38l.21). */
   readonly span?: SyntaxSpan;
   readonly abstract: boolean;
@@ -86,6 +88,18 @@ export async function readDecls(file: SourceFile): Promise<{ readonly decls: Fil
 
 function textOf(node: SyntaxNode, text: string): string {
   return text.slice(node.startIndex, node.endIndex);
+}
+
+/**
+ * A field's initializer as the file writes it. A string literal's quotes are syntax around the value, so they are
+ * dropped; an expression that runs over a line, or over the length a page shows a value in, is not a value a reader
+ * reads and is left out (madarch-m38l.21).
+ */
+function initializerOf(node: SyntaxNode | null, text: string): string | undefined {
+  if (node === null) return undefined;
+  const written = textOf(node, text).trim();
+  if (written === '' || written.includes('\n') || written.length > 80) return undefined;
+  return node.type === 'string' && written.length >= 2 ? written.slice(1, -1) : written;
 }
 
 function named(node: SyntaxNode): SyntaxNode[] {
@@ -387,7 +401,8 @@ function tsClass(name: string, node: SyntaxNode, text: string, typeText: Map<str
             if (!isProperty || pattern === null || pattern.type !== 'identifier') continue;
             const propertyName = textOf(pattern, text);
             const propertyType = tsTypeName(parameter.childForFieldName('type'), text);
-            members.push({ name: propertyName, kind: 'field', qualifiedName: `${name}.${propertyName}`, ...(propertyType === undefined ? {} : { type: propertyType }), span: syntaxSpan(pattern), abstract: false });
+            const propertyValue = initializerOf(parameter.childForFieldName('value'), text);
+            members.push({ name: propertyName, kind: 'field', qualifiedName: `${name}.${propertyName}`, ...(propertyType === undefined ? {} : { type: propertyType }), ...(propertyValue === undefined ? {} : { value: propertyValue }), span: syntaxSpan(pattern), abstract: false });
             const annotation = parameter.childForFieldName('type');
             if (annotation !== null) typeText.set(`${name}.${propertyName}`, textOf(annotation, text).replace(/^:\s*/, ''));
           }
@@ -409,7 +424,8 @@ function tsClass(name: string, node: SyntaxNode, text: string, typeText: Map<str
           const constructed = value.childForFieldName('constructor');
           if (constructed !== null && constructed.type === 'identifier') fieldType = textOf(constructed, text);
         }
-        members.push({ name: written, kind: 'field', qualifiedName: `${name}.${written}`, ...(fieldType === undefined ? {} : { type: fieldType }), span: syntaxSpan(fieldName), abstract: false });
+        const fieldValue = initializerOf(value, text);
+        members.push({ name: written, kind: 'field', qualifiedName: `${name}.${written}`, ...(fieldType === undefined ? {} : { type: fieldType }), ...(fieldValue === undefined ? {} : { value: fieldValue }), span: syntaxSpan(fieldName), abstract: false });
         if (annotation !== null) typeText.set(`${name}.${written}`, textOf(annotation, text).replace(/^:\s*/, ''));
         break;
       }
