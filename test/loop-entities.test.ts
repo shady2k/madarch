@@ -319,10 +319,10 @@ describe('a product made before the loop gets its two kinds', () => {
     expect(old).not.toContain('question:');
     expect(old).not.toContain('expect: [');
     writeFileSync(manifest, old);
-    rmSync(join(folder, 'templates/question.md'));
-    rmSync(join(folder, 'templates/correction.md'));
+    rmSync(join(folder, 'templates/question.liquid'));
+    rmSync(join(folder, 'templates/correction.liquid'));
     const added = ensureLoopKinds(folder);
-    expect(added.sort()).toEqual(['madarch/kinds.yaml', 'templates/correction.md', 'templates/question.md']);
+    expect(added.sort()).toEqual(['madarch/kinds.yaml', 'templates/correction.liquid', 'templates/question.liquid']);
     const read = readKinds(folder);
     if (!read.present) throw new Error('absent');
     expect(read.manifest.findings).toEqual([]);

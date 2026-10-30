@@ -26,7 +26,7 @@ function mount(element: ReturnType<typeof createElement>): HTMLElement {const no
 test('Definition requests neither bytes nor renderer until the reader opens it', async () => {
   let requests = 0;
   globalThis.fetch = Object.assign(async () => {requests++; return new Response(JSON.stringify({type: 'problem', block: 'definition', file: 'api.yaml', line: 1, message: 'fixture refusal'}), {headers: {'content-type': 'application/json'}});}, {preconnect: originalFetch.preconnect});
-  const node = mount(createElement(BlockView, {pageId: 'code.contract:api.yaml', resolutions: {}, block: {type: 'deferred', block: 'definition', title: 'Definition', line: 2}}));
+  const node = mount(createElement(BlockView, {pageId: 'code.contract:api.yaml', resolutions: {}, block: {type: 'deferred', block: 'definition', title: 'Definition', id: 'definition-1a2b3c4d5e6f'}}));
   await until(() => node.querySelector('details') !== null);
   expect(requests).toBe(0); expect(node.querySelector('[data-testid=contract-redoc]')).toBeNull();
   const details = node.querySelector('details')!; details.open = true; details.dispatchEvent(new Event('toggle'));

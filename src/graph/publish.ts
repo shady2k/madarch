@@ -23,8 +23,8 @@ import { claimDigest, nodePayloadDigest, edgePayloadDigest, edgeKeyHash, sha256H
 import { GraphError, type GraphOrigin } from './errors.js';
 import { ALL_STATES, checkSpan, compareInstants, instantText, tsText, type Instant, type StateSpan } from './time.js';
 import {
-  assertEndpoints, currentEdgeVersions, endEdgeVersion, insertEdgeVersion, insertEdgeVersions, lockNodes, prepareEdgeVersion, reconcileEdges, requireLater, checkId, closeVersion, correctEdgeVersion, correctNodeVersion, currentNodeVersions, edgeIdentity, edgeRow, EDGE_COLUMNS, EDGE_FROM,
-  edgeIdentities, endNode, newNodeIdentities, openEdgeVersion, openNodeVersion, prefetchNodeSlices, prefetchNodes, reopenEdge, reopenNode, requireNode, resolveEdge,
+  assertEndpoints, currentEdgeVersions, endEdgeVersion, insertEdgeVersion, insertEdgeVersions, lockNodes, prepareEdgeVersion, reconcileEdges, requireLater, checkId, closeVersion, correctEdgeVersion, correctNodeVersion, currentNodeVersions, edgeIdentity, edgeRow, EDGE_BATCH_SIZE, EDGE_COLUMNS, EDGE_FROM, PUBLISH_YIELD_SIZE,
+  edgeIdentities, endNode, newNodeIdentities, openEdgeVersion, openNodeVersion, prefetchNodeSlices, prefetchNodes, reopenEdge, reopenNode, requireNode, resolveEdge, yieldToReaders,
   type EdgeVersionRow, type NodeVersionRow, type PreparedEdgeVersion, type WriteContext,
 } from './versions.js';
 import { CONTENT_KIND } from './vocabulary.js';
@@ -247,13 +247,20 @@ export async function publish(ctx: WriteContext, input: PublishInput): Promise<P
     const run: Run = { ctx, workItem: item.id, owner: { producer: input.producer, scope }, refs: new Map(), result, summary: [], endedNodes: new Set(), writtenNodes: new Set(), touchedEdges: new Set(), currentEdges: new Map(), repeatedEdges: new Set(), pendingEdges: [] };
     const nodes = input.nodes ?? [];
     await newNodeIdentities(ctx, nodes.filter((node) => node.id === undefined).length);
-    for (const [index, node] of nodes.entries()) await publishNode(run, node, `nodes[${index}]`);
-    for (const [index, end] of (input.ends ?? []).entries()) await publishEnd(run, end, `ends[${index}]`);
+    for (const [index, node] of nodes.entries()) {
+      await publishNode(run, node, `nodes[${index}]`);
+      if ((index + 1) % PUBLISH_YIELD_SIZE === 0) await yieldToReaders();
+    }
+    for (const [index, end] of (input.ends ?? []).entries()) {
+      await publishEnd(run, end, `ends[${index}]`);
+      if ((index + 1) % PUBLISH_YIELD_SIZE === 0) await yieldToReaders();
+    }
     const edges = input.edges ?? [];
     await prefetchEdgeIdentities(run, edges);
     for (const [index, edge] of edges.entries()) {
       await publishEdge(run, edge, `edges[${index}]`);
       if (run.pendingEdges.length >= 500) await flushEdges(run);
+      if ((index + 1) % PUBLISH_YIELD_SIZE === 0) await yieldToReaders();
     }
     await flushEdges(run);
     if (input.complete !== undefined && input.complete !== false) {
@@ -449,8 +456,8 @@ async function flushEdges(run: Run): Promise<void> {
   if (run.pendingEdges.length === 0) return;
   const pending = run.pendingEdges;
   run.pendingEdges = [];
-  for (let at = 0; at < pending.length; at += 500) {
-    const chunk = pending.slice(at, at + 500);
+  for (let at = 0; at < pending.length; at += EDGE_BATCH_SIZE) {
+    const chunk = pending.slice(at, at + EDGE_BATCH_SIZE);
     await run.ctx.tx.query('SAVEPOINT alzf_edge_batch');
     try {
       await insertEdgeVersions(run.ctx, chunk);
@@ -460,6 +467,7 @@ async function flushEdges(run: Run): Promise<void> {
       for (const one of chunk) await insertEdgeVersion(run.ctx, one);
       await run.ctx.tx.query('RELEASE SAVEPOINT alzf_edge_batch');
     }
+    await yieldToReaders();
   }
 }
 
@@ -528,21 +536,23 @@ async function sweep(run: Run, end: string): Promise<void> {
      WHERE v.producer = $1 AND v.scope_id = $2::bigint AND v.recorded_to = 'infinity' AND v.valid_to > $3::timestamptz AND k.key <> $4 ORDER BY 1`,
     [run.owner.producer, run.owner.scope, end, CONTENT_KIND],
   );
-  for (const row of nodes.rows) {
+  for (const [index, row] of nodes.rows.entries()) {
     if (run.writtenNodes.has(row.id) || run.endedNodes.has(row.id)) continue;
     const done = await endNode(ctx, row.id, end, run.workItem, 'complete');
     run.result.swept.nodes += 1;
     run.result.corrections += done.nodeVersionsClosed;
     run.result.cascades.push(...done.cascades);
+    if ((index + 1) % PUBLISH_YIELD_SIZE === 0) await yieldToReaders();
   }
   const edges = await ctx.tx.query<Raw>(
     `SELECT ${EDGE_COLUMNS} FROM ${EDGE_FROM} WHERE e.producer = $1 AND e.scope_id = $2::bigint AND e.recorded_to = 'infinity' AND e.valid_to > $3::timestamptz ORDER BY e.id`,
     [run.owner.producer, run.owner.scope, end],
   );
-  for (const raw of edges.rows) {
+  for (const [index, raw] of edges.rows.entries()) {
     const edge = edgeRow(raw);
     if (run.touchedEdges.has(edge.edgeId) || edge.recordedFrom === ctx.at) continue;
     await endEdgeVersion(ctx, edge.versionId, end, { workItem: run.workItem, as: 'correction' }, 'complete');
     run.result.swept.edges += 1;
+    if ((index + 1) % PUBLISH_YIELD_SIZE === 0) await yieldToReaders();
   }
 }

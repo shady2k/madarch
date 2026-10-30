@@ -14,6 +14,7 @@
  * are findings with the template's file and line, and the page shows them in
  * place of the block, never silently dropped.
  */
+import { createHash } from 'node:crypto';
 import type { Finding } from './kinds.js';
 
 /** The blocks the engine ships. */
@@ -88,6 +89,16 @@ function parseParams(inside: string): Record<string, string> | string {
     at = PARAM.lastIndex;
   }
   return params;
+}
+
+/**
+ * The identity of a block of a page: its name and its parameters, never the line
+ * it stands on, so a template edited above a block keeps the identity a reader's
+ * own read of that block asks for (decision 0032 section 8).
+ */
+export function blockIdentity(name: string, params: Readonly<Record<string, string>>): string {
+  const canonical = JSON.stringify(Object.keys(params).sort().map((key) => [key, params[key]]));
+  return `${name}-${createHash('sha256').update(canonical).digest('hex').slice(0, 12)}`;
 }
 
 const PLACEHOLDER = /\{\{\s*([A-Za-z_][\w.-]*)\s*\}\}/g;
