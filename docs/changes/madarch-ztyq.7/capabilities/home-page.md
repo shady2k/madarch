@@ -50,7 +50,7 @@ A section's places are links, each with the sentence the page says about it and 
 
 ## Requirement: fields-and-gaps — The unit gives fields rather than a body, every field is parsed before the page is judged, and an empty part or an empty product says its gap
 
-The page is written from eight fields in reading order. Every field is checked before any page is judged, so a malformed field is a problem of its own and never a part that vanishes. `whatItIs` is the one required field: at least one grounded sentence of what the product is and for whom, so the page says what it is about before it points anywhere. A field nothing declares is refused with the fields there are. A section whose part is empty says the core's gap sentence about the documents and the graph, never an empty heading and never a claim about the world. When the graph holds no document and no content node, the core writes the whole page as eight gap sentences, with no invented ground and no footnote, and `checkPage` admits exactly those sentences.
+The page is written from eight fields in reading order. Every field is checked before any page is judged, so a malformed field is a problem of its own and never a part that vanishes. `whatItIs` is the one required field: at least one grounded sentence of what the product is and for whom, so the page says what it is about before it points anywhere. A field nothing declares is refused with the fields there are. A section whose part is empty says the core's gap sentence about the documents and the graph, never an empty heading and never a claim about the world. Every gap sentence the core writes carries a marker naming the section the core left empty and the digest of that sentence. `checkPage` reads the marker from the parsed page and admits a gap only for a section the core left empty and only over the one sentence whose digest the marker carries; a sentence that copies a gap's words without that marker is still refused as ungrounded. No gap sentence is compared as text. When the graph holds no document and no content node, the core writes the whole page as eight marked gap sentences, with no invented ground and no footnote.
 
 ### Scenario: what-the-product-is-is-required
 - Given: a unit that gives scenarios and domains but no grounded sentence of what the product is
@@ -65,12 +65,12 @@ The page is written from eight fields in reading order. Every field is checked b
 ### Scenario: an-empty-part-says-its-gap
 - Given: a home page whose unit found no rule and no decision, and no technology
 - When: the page is written
-- Then: each of those sections holds its gap sentence about the documents and the graph, and neither is an empty heading
+- Then: each of those sections holds its gap sentence about the documents and the graph, with the core's marker naming its section and the sentence's digest, and neither is an empty heading
 
 ### Scenario: an-empty-product-is-eight-gap-sentences
 - Given: a product whose graph holds no document and no content node, and a unit that did not describe it
 - When: the unit writes the page
-- Then: the page carries the eight headings, each followed by its core gap sentence, no footnote and no invented ground
+- Then: the page carries the eight headings, each followed by the core's marked gap sentence for that section, no footnote and no invented ground
 
 ## Requirement: one-minute-rest — The app's home keeps the overview and at most six rows outside it, and the whole history is one link away
 
