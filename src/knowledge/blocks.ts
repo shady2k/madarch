@@ -521,7 +521,11 @@ export async function membersBlock(
   if (subject.source !== 'graph') return { type: 'problem', block: 'members', file, line, message: 'the members block lists entities of the graph; this entity is not one' };
   const direction = params['direction'] === 'out' ? 'out' : 'in';
   const limit = toInt(params['limit'], 200, 1, 500);
-  const found = await ctx.graph.neighbors(subject.entity, { relations: [relation], direction, limit });
+  // The template's limit is where the first read starts, not what a reader may reach: a group it cuts is read again to
+  // its true total, as a page's own neighbours are (`views.ts`), so a member is never left out of its own table.
+  const readNeighbours = (take: number) => ctx.graph.neighbors(subject.entity, { relations: [relation], direction, limit: take });
+  let found = await readNeighbours(limit);
+  if (found.some((group) => group.total > group.rows.length)) found = await readNeighbours(Math.max(...found.map((group) => group.total)));
   const declaration = ctx.manifest.kinds.get(kind);
   const details = declaration?.details;
   const kindLabel = declaration?.labels?.[lang]?.one ?? declaration?.labels?.['en']?.one;
@@ -529,19 +533,21 @@ export async function membersBlock(
   const kindLabelName = kindProperty?.labels[lang] ?? kindProperty?.labels['en'];
   const omit = new Set(list(params['omit']) ?? []);
   const rows: import('./model.js').MemberRow[] = [];
-  let total = 0;
   for (const group of found) {
     for (const row of group.rows) {
       if (row.entity.kind !== kind) continue;
-      total += 1;
-      if (rows.length >= limit) continue;
       const [member] = await ctx.graph.find(row.entity.key);
       if (member === undefined) continue;
       const readers = list(params['readers']) ?? [];
       const writers = list(params['writers']) ?? [];
       const refs = async (relations: readonly string[]): Promise<EntityRef[]> => {
         const held: EntityRef[] = [];
-        for (const other of relations) for (const edge of (await ctx.graph.edgesOf(member, other, 'in', 100)).rows) held.push(refOfGraph(ctx, edge.other));
+        for (const other of relations) {
+          const first = await ctx.graph.edgesOf(member, other, 'in', 100);
+          // A reader list cut by the read is read again to its total: a count without its names is not a list.
+          const edges = first.total > first.rows.length ? (await ctx.graph.edgesOf(member, other, 'in', first.total)).rows : first.rows;
+          for (const edge of edges) held.push(refOfGraph(ctx, edge.other));
+        }
         return held;
       };
       const declaredName = member.properties['name'];
@@ -550,7 +556,8 @@ export async function membersBlock(
       rows.push({ entity: refOfGraph(ctx, member), name, anchor: memberAnchor(member.key), values, readers: await refs(readers), writers: await refs(writers) });
     }
   }
-  return { type: 'members', title, ...(kindLabel === undefined ? {} : { kindLabel }), ...(kindLabelName === undefined ? {} : { kindLabelName }), rows, total };
+  // Every member of the kind is a row, so the total is the rows: nothing is counted without being drawn.
+  return { type: 'members', title, ...(kindLabel === undefined ? {} : { kindLabel }), ...(kindLabelName === undefined ? {} : { kindLabelName }), rows, total: rows.length };
 }
 
 // ---- children ---------------------------------------------------------------------------------

@@ -9,7 +9,7 @@ import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { createPGliteDatabaseOwner, type DatabaseOwner } from '../src/adapters/database-owner.js';
 import { createGraphStore, type GraphId, type GraphStore } from '../src/graph/index.js';
-import type { RenderContext } from '../src/knowledge/blocks.js';
+import { membersBlock, type RenderContext } from '../src/knowledge/blocks.js';
 import { GraphReader } from '../src/knowledge/graph-read.js';
 import { parseKinds } from '../src/knowledge/kinds.js';
 import { readDocEntities } from '../src/knowledge/doc-entities.js';
@@ -26,6 +26,11 @@ const READER = K('code.symbol', 'src/b.ts#read');
 const FACET = K('code.facet', 'code.extract.code#code.file:src/a.ts');
 const FIELD = K('code.field', 'code.symbol:src/a.ts#charge#amount');
 const SERVICE = K('code.service', 'shop/orders');
+const LEDGER = K('code.symbol', 'src/ledger.ts#Ledger');
+const LEDGER_FIELDS = Array.from({ length: 201 }, (_, at) => K('code.field', `code.symbol:src/ledger.ts#Ledger#f${String(at + 1).padStart(3, '0')}`));
+const HOT = K('code.symbol', 'src/hot.ts#Hot');
+const HOT_FIELD = K('code.field', 'code.symbol:src/hot.ts#Hot#hot');
+const HOT_READERS = Array.from({ length: 101 }, (_, at) => K('code.symbol', `src/readers/r${String(at + 1).padStart(3, '0')}.ts#read`));
 
 let owner: DatabaseOwner;
 let store: GraphStore;
@@ -58,6 +63,19 @@ beforeAll(async () => {
   await add(FACET, 'code.facet', 'a.ts · src/a.ts', { ownerKey: FILE, language: 'typescript', role: 'code', authors: ['Avery Quinn', 'Rin Tanaka'], commitCount: 3, parsed: true });
   await add(FIELD, 'code.field', 'amount', { name: 'amount', type: 'number', value: '0' });
   await add(SERVICE, 'code.service', 'orders', { language: 'typescript', build: { context: '.', dockerfile: 'Dockerfile', args: ['--prod'] } });
+  // A class with more fields than a members block reads at once, and a field that more callers read than one read returns.
+  await add(LEDGER, 'code.symbol', 'Ledger', { path: 'src/ledger.ts', symbolKind: 'class', span: span('src/ledger.ts', 1, 400) });
+  for (const [at, key] of LEDGER_FIELDS.entries()) {
+    await add(key, 'code.field', `f${String(at + 1).padStart(3, '0')}`, { name: `f${String(at + 1).padStart(3, '0')}`, type: 'number', value: String(at) });
+    await link('code.contains', LEDGER, key);
+  }
+  await add(HOT, 'code.symbol', 'Hot', { path: 'src/hot.ts', symbolKind: 'class', span: span('src/hot.ts', 1, 4) });
+  await add(HOT_FIELD, 'code.field', 'hot', { name: 'hot', type: 'number', value: '1' });
+  await link('code.contains', HOT, HOT_FIELD);
+  for (const [at, key] of HOT_READERS.entries()) {
+    await add(key, 'code.symbol', `read${String(at + 1).padStart(3, '0')}`, { path: `src/readers/r${String(at + 1).padStart(3, '0')}.ts`, symbolKind: 'function' });
+    await link('code.reads-field', key, HOT_FIELD);
+  }
   await link('code.facet-of', FACET, FILE);
   await link('code.contains', CHARGE, FIELD);
   await link('code.reads-field', READER, FIELD);
@@ -220,6 +238,27 @@ describe('details, members and empty sections', () => {
     expect(read.findings[0]!.message).toContain('context');
     expect(read.findings[0]!.message).toContain('ru');
   });
+
+  test('a class with more fields than one read returns draws every field, and the total is the number of rows', async () => {
+    const [ledger] = await ctx.graph.find(LEDGER);
+    expect(ledger).toBeDefined();
+    const members = await membersBlock(ctx, { source: 'graph', entity: ledger! }, { title: 'Fields', kind: 'code.field', relation: 'code.contains', direction: 'out', limit: '200' }, 'templates/symbol.liquid', 1, 'en');
+    if (members.type !== 'members') throw new Error(`the members block is a problem: ${JSON.stringify(members)}`);
+    // The template's limit is where a read starts, not what a reader may reach: the 201st field is on the page like the first.
+    expect(members.total).toBe(201);
+    expect(members.rows).toHaveLength(201);
+    expect(members.rows.map((row) => row.name)).toContain('f201');
+    expect(new Set(members.rows.map((row) => row.anchor)).size).toBe(201);
+  }, 60_000);
+
+  test('a member read by more callers than one read returns draws every caller', async () => {
+    const model = await page(HOT);
+    const fields = block(model, 'members');
+    expect(fields.rows).toHaveLength(1);
+    expect(fields.total).toBe(1);
+    expect(fields.rows[0]!.readers).toHaveLength(101);
+    expect(fields.rows[0]!.readers.map((entity) => entity.id)).toContain(HOT_READERS[100]!);
+  }, 30_000);
 
   test('an empty call list says what was looked for, in the reader\'s language; an empty related list is not drawn at all', async () => {
     const model = await page(SILENT, 'ru');
