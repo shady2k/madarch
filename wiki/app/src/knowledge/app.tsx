@@ -5,10 +5,10 @@
  * page of its own: an empty product says what to do, and a fill that runs while
  * the page is open is read again as each commit lands.
  */
-import { useEffect, useMemo, useState, type ReactElement, type ReactNode } from 'react';
+import { useEffect, useMemo, useRef, useState, type ReactElement, type ReactNode } from 'react';
 import { useTranslation } from 'react-i18next';
 import * as DropdownMenuPrimitive from '@radix-ui/react-dropdown-menu';
-import { AlertTriangleIcon, BookOpenIcon, CheckIcon, ChevronDownIcon, ChevronRightIcon, FolderGit2Icon, GlobeIcon, HelpCircleIcon, HomeIcon, LayoutGridIcon, MenuIcon, SettingsIcon, XIcon } from 'lucide-react';
+import { AlertTriangleIcon, BookOpenIcon, CheckIcon, ChevronDownIcon, ChevronRightIcon, FolderGit2Icon, GlobeIcon, HelpCircleIcon, HomeIcon, LayoutGridIcon, MenuIcon, RefreshCwIcon, SettingsIcon, XIcon } from 'lucide-react';
 import { appPath } from '../app-base.js';
 import { setWikiLanguage, type WikiLanguage } from '../i18n.js';
 import { navigateTo } from '../hold.js';
@@ -21,11 +21,13 @@ import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuLabel,
 import { getProducts, startFill } from './api.js';
 import { KLink } from './blocks.js';
 import { CataloguePage, DocumentPage, DocumentsPage, EntityPage, EmptyHome, FillCard, KindPage, SourcePage, StatementPage, Overview } from './pages.js';
+import { FillPage } from './fill-page.js';
+import { unitName } from './writer.js';
 import { GlossaryContext, GlossaryPage, useGlossary, useGlossaryValue, useTerms } from './glossary.js';
 import { HelpLink, RoleCard, RoleMenu } from './role-ui.js';
 import { RoleContext, leadGroups, loadSettings, useRole, useSettings } from './roles.js';
-import { addressOfEntity, addressOfKind, K_CATALOGUE, K_DOCS, K_GLOSSARY, K_HOME, K_PROBLEMS, K_QUESTIONS, K_TASKS, K_SETTINGS, kRouteOf, type KRoute } from './routes.js';
-import { ProblemsPage, QuestionPage, QuestionsPage, TaskPage, TasksPage, RefreshPreviewView } from './loop.js';
+import { addressOfEntity, addressOfKind, K_CATALOGUE, K_DOCS, K_FILL, K_GLOSSARY, K_HOME, K_PROBLEMS, K_QUESTIONS, K_TASKS, K_SETTINGS, kRouteOf, type KRoute } from './routes.js';
+import { ProblemsPage, QuestionPage, QuestionsPage, TaskPage, TasksPage } from './loop.js';
 import { JournalPage } from './journal.js';
 import { KindLabels, useKindName } from './kind-names.js';
 import { PageSkeleton } from './skeleton.js';
@@ -36,8 +38,6 @@ import type { KindSummary, ProductChoice, WikiStatus } from './types.js';
 import { useWikiStatus } from './live.js';
 import { PendingPages } from './pending.js';
 import { SettingsPage } from './settings.js';
-import { UNIT_STATE_KEY } from './writer.js';
-import { unitLimitWords } from './unit-bounds.js';
 
 /** The mockup's drawn lowercase m mark and dot, kept as one crisp vector glyph. */
 function BrandMark(): ReactElement {
@@ -340,83 +340,198 @@ function pagesOf(status: WikiStatus): number {
 
 /**
  * The fill's state in the toolbar: while it runs, how far it is; after it, a quiet line saying when it ended and how many
- * pages the wiki holds. Opening it shows the units of the last run and the one action to refresh (madarch-m38l.4): the
- * code is read again from the new commits and the pages' links are checked again; the agent writes only the pages
- * that do not exist yet, or all of them when the language of the pages was changed.
+ * pages the wiki holds. The badge opens the one popover of the run (madarch-m38l.23): the whole sentence, what is being
+ * written now, the way to the fill page, and the language the pages are written in. The popover carries no refresh of
+ * its own: the top bar's «Синхронизировать» is the wiki's one refresh (madarch-u3vw.2), and choosing the pages' language
+ * is the one request left here — it starts the run that writes them in it.
  */
 export function FillMenu({ status, refresh }: { status: WikiStatus; refresh: () => void }): ReactElement | null {
   const { t, i18n } = useTranslation();
   const [starting, setStarting] = useState(false);
   const [refused, setRefused] = useState<string | null>(null);
   const [pagesLanguage, setPagesLanguage] = useState<string | null>(null);
+  // The badge's panel is a plain dialog in the toolbar, not a menu with a portal of its own: a badge is a button, and
+  // what it opens is reached by the keyboard (madarch-m38l.23) — Tab from the badge opens it and moves into it, Escape
+  // closes it and puts focus back on the badge. Its height is what the window leaves beside the badge, and the words
+  // that do not fit scroll inside it instead of reaching past the bottom of the window.
+  const chip = useRef<HTMLButtonElement | null>(null);
+  const panel = useRef<HTMLDivElement | null>(null);
+  const wrap = useRef<HTMLDivElement | null>(null);
+  const focusPanel = useRef(false);
+  const [open, setOpen] = useState(false);
+  // Where the panel stands, measured off the badge when it opens: beside the badge and never past the window's edge, and
+  // never taller than the window leaves on that side, so a short window gets a short panel whose words scroll.
+  const [place, setPlace] = useState<{ top: number | null; bottom: number | null; right: number; maxHeight: number }>({ top: null, bottom: null, right: 8, maxHeight: 320 });
+  const openPanel = (): void => {
+    const rect = chip.current?.getBoundingClientRect();
+    if (rect !== undefined) {
+      const below = window.innerHeight - rect.bottom - 12;
+      const over = rect.top - 12;
+      const up = below < 160 && over > below;
+      // The panel is as wide as the window leaves it (`min(26rem, 92vw)`), and it stands inside the window even when
+      // the badge sits in the middle of the bar: its right edge never reaches past the window's, nor its left past the
+      // margin. Above a phone's width the badge is the bar's last control and the two rights are the same one.
+      const width = Math.min(26 * 16, window.innerWidth * 0.92);
+      setPlace({
+        top: up ? null : rect.bottom + 7,
+        bottom: up ? window.innerHeight - rect.top + 7 : null,
+        right: Math.max(8, Math.min(window.innerWidth - rect.right, window.innerWidth - 8 - width)),
+        maxHeight: Math.max(0, Math.min(320, up ? over : below)),
+      });
+    }
+    setOpen(true);
+    focusPanel.current = true;
+  };
+  // The first thing the panel offers takes focus when it opens, so Tab from the badge lands on a real control.
+  useEffect(() => {
+    if (!open || !focusPanel.current) return;
+    focusPanel.current = false;
+    panel.current?.querySelector<HTMLElement>('a[href], button:not([disabled]), input:not([disabled])')?.focus();
+  }, [open]);
+  // A press anywhere else closes it, and so does tabbing out of it.
+  useEffect(() => {
+    if (!open) return undefined;
+    const outside = (event: Event): void => {
+      const target = event.target as Node | null;
+      if (target === null) return;
+      if (panel.current?.contains(target) === true || chip.current?.contains(target) === true) return;
+      setOpen(false);
+    };
+    document.addEventListener('pointerdown', outside, true);
+    return () => { document.removeEventListener('pointerdown', outside, true); };
+  }, [open]);
   const fill = status.fill;
   const writer = status.writer;
   const language = (i18n.resolvedLanguage ?? 'en').startsWith('ru') ? 'ru' : 'en';
   const pages = pagesOf(status);
   if (status.manifest !== 'ok') return null;
+  // The stages of the agent named the way a reader knows them: the kind's name and the page's title (madarch-m38l.23).
+  const authoring = writer.state === 'running' || writer.state === 'waiting';
+  const written = writer.units.filter((unit) => unit.state === 'written').length;
+  // How far the agent is, of the pages this run means to write: «Агент пишет страницы · 12/18». The total comes from the
+  // writer before its first unit and grows only when the product page declares more domains; until it is there the count
+  // stands alone («12»), never against a denominator made of what has merely been taken up.
+  const count = `${written}${writer.total === undefined ? '' : `/${writer.total}`}`;
+  const current = writer.units.find((unit) => unit.unit === writer.current) ?? writer.units.find((unit) => unit.state === 'writing');
+  const currentName = current === undefined ? null : unitName(current, status.kinds, language);
   let label: string;
   let solid = false;
   if (fill.state === 'running') { label = fillWords(fill, t); solid = true; }
   else if (fill.state === 'failed') label = t('knowledge.fillFailed');
-  else if (writer.state === 'running' || writer.state === 'waiting') { label = t('knowledge.fillWriting'); solid = true; }
+  else if (authoring) {
+    label = writer.units.length === 0 ? t('knowledge.fillWriting') : `${t('knowledge.fillWriting')} · ${count}`;
+    solid = true;
+  }
   else if (status.filled) {
     const when = fill.finishedAt === undefined ? null : new Date(fill.finishedAt).toLocaleDateString(language, { day: 'numeric', month: 'short', timeZone: 'UTC' });
     label = when === null ? t('knowledge.fillDoneNoDate', { count: pages }) : t('knowledge.fillDone', { date: when, count: pages });
     if (fill.rebuilt === 'extractors-changed') label = `${t('knowledge.fillRebuiltExtractors')}. ${label}`;
   } else return null;
   const busy = fill.state === 'running' || writer.state === 'running' || writer.state === 'waiting' || starting;
-  const press = (): void => {
+  // The pages' language is the one request in the popover, and it is the fill: the run that writes them in that language.
+  const start = (chosen: 'ru' | 'en'): void => {
+    if (busy) return;
+    setPagesLanguage(chosen);
     setStarting(true);
     setRefused(null);
-    const chosenLanguage = pagesLanguage ?? status.language;
-    startFill(status.chosenAgent?.id ?? null, chosenLanguage !== status.language ? chosenLanguage : undefined).then(
+    startFill(status.chosenAgent?.id ?? null, chosen !== status.language ? chosen : undefined).then(
       () => { setStarting(false); refresh(); },
       (failure: unknown) => { setStarting(false); setRefused(failure instanceof Error ? failure.message : String(failure)); },
     );
   };
+  // Below a phone's width the badge is the dot and the count on one line; its name and the popover keep the whole sentence.
+  const compact = authoring && writer.units.length > 0;
   return (
-    <DropdownMenuPrimitive.Root>
-      <DropdownMenuPrimitive.Trigger asChild>
-        <button type="button" className="fill-chip rounded-[var(--radius-row)] focus-visible:ring-2 focus-visible:ring-ink" data-testid="fill-chip" title={t('knowledge.fillMenuTitle')}>
-          <Badge variant={solid ? 'solid' : 'outline'}>{label}</Badge>
-        </button>
-      </DropdownMenuPrimitive.Trigger>
-      <DropdownMenuPrimitive.Portal>
-        <DropdownMenuPrimitive.Content align="end" sideOffset={7} className="language-menu fill-menu w-[min(26rem,92vw)]" data-testid="fill-menu">
-          <DropdownMenuPrimitive.Label className="language-menu-label">{t('knowledge.fillMenuTitle')}</DropdownMenuPrimitive.Label>
-          <DropdownMenuPrimitive.Separator className="language-menu-separator" />
-          {writer.units.length > 0 && (
-            <ul className="m-0 list-none px-2 pb-2 text-small" data-testid="fill-menu-units">
-              {writer.units.map((unit) => (
-                <li key={unit.unit} className="flex items-center justify-between gap-3 py-0.5"><code>{unit.path}</code><span className="text-muted">{t(UNIT_STATE_KEY[unit.state])}</span></li>
-              ))}
-            </ul>
+    <div
+      // No box of its own: the badge stays the toolbar's flex item it always was, so the one row keeps its width at a
+      // phone's width, and the panel is placed against the window rather than against this wrapper.
+      className="contents"
+      ref={wrap}
+      onKeyDown={(event) => {
+        // Escape gives the badge back its focus, wherever in the panel it was pressed.
+        if (event.key !== 'Escape' || !open) return;
+        event.stopPropagation();
+        setOpen(false);
+        chip.current?.focus();
+      }}
+      onBlur={(event) => {
+        const next = event.relatedTarget as Node | null;
+        if (!open || next === null || wrap.current?.contains(next) === true) return;
+        setOpen(false);
+      }}
+    >
+      <button
+        ref={chip}
+        type="button"
+        className={`fill-chip rounded-[var(--radius-row)] focus-visible:ring-2 focus-visible:ring-ink${compact ? ' fill-chip-writing' : ''}`}
+        data-testid="fill-chip"
+        aria-label={label}
+        aria-haspopup="dialog"
+        aria-expanded={open}
+        aria-controls="fill-menu-panel"
+        title={authoring ? label : t('knowledge.fillMenuTitle')}
+        onClick={() => { if (open) setOpen(false); else openPanel(); }}
+        onKeyDown={(event) => {
+          // Tab from the closed badge opens the panel and lands on its first control; it never swallows a Tab elsewhere.
+          if (open || event.shiftKey || (event.key !== 'Tab' && event.key !== 'ArrowDown')) return;
+          event.preventDefault();
+          openPanel();
+        }}
+      >
+        <Badge variant={solid ? 'solid' : 'outline'}>
+          {authoring && <span aria-hidden="true" className="mr-1.5 inline-block size-1.5 animate-pulse rounded-full bg-current align-middle motion-reduce:animate-none" data-testid="fill-chip-dot" />}
+          <span className="fill-chip-label">
+            {compact
+              ? <><span className="fill-chip-words">{t('knowledge.fillWriting')} · </span><span className="fill-chip-count">{count}</span></>
+              : label}
+          </span>
+        </Badge>
+      </button>
+      {open && (
+        <div
+          ref={panel}
+          id="fill-menu-panel"
+          role="dialog"
+          aria-label={t('knowledge.fillMenuTitle')}
+          data-testid="fill-menu"
+          data-state="open"
+          style={{ position: 'fixed', top: place.top ?? undefined, bottom: place.bottom ?? undefined, right: place.right, maxHeight: place.maxHeight }}
+          className="language-menu fill-menu z-50 w-[min(26rem,92vw)] max-w-[calc(100vw-1rem)] overflow-y-auto overflow-x-hidden overscroll-contain break-words"
+        >
+          <div className="language-menu-label" id="fill-menu-title">{t('knowledge.fillMenuTitle')}</div>
+          <div className="language-menu-separator" role="separator" />
+          {authoring && (
+            // While the agent writes: the whole sentence and what is being written now, and the way to the fill page
+            // (never the paths: the menu is anchored to the top bar and must stay inside a narrow viewport).
+            <div className="px-2 pb-2 text-small" data-testid="fill-menu-live">
+              <p className="m-0 break-words text-ink" data-testid="fill-menu-total">{label}</p>
+              <p className="m-0 mt-1 break-words" data-testid="fill-menu-current">{currentName === null ? t('knowledge.fillPage.waiting') : t('knowledge.fillPage.writingNow', { name: currentName })}</p>
+              <p className="m-0 mt-1"><KLink href={K_FILL} testId="fill-menu-open">{t('knowledge.fillPage.open')}</KLink></p>
+            </div>
           )}
+          {!authoring && writer.units.length > 0 && <p className="m-0 px-2 pb-2 text-small" data-testid="fill-menu-open-line"><KLink href={K_FILL} testId="fill-menu-open">{t('knowledge.fillPage.open')}</KLink></p>}
           {writer.asked !== undefined && writer.asked > 0 && <p className="m-0 px-2 pb-2 text-small" data-testid="fill-menu-asked">{t('loop.agentAsked', { count: writer.asked })}</p>}
           {writer.message !== undefined && <div className="m-0 px-2 pb-2 text-small" data-testid="fill-menu-message"><FailureNote scope="writer" code={writer.code ?? (writer.state === 'done' ? 'note' : undefined)} message={writer.message} /></div>}
           {fill.message !== undefined && fill.state === 'failed' && <div className="m-0 px-2 pb-2 text-small"><FailureNote scope="fill" code={fill.code} message={fill.message} /></div>}
           <div className="px-2 pb-2">
             {status.chosenAgent !== null && (
-              <div className="mb-3" role="radiogroup" aria-label={t('knowledge.writer.languageTitle')} data-testid="menu-language">
+              <div role="radiogroup" aria-label={t('knowledge.writer.languageTitle')} data-testid="menu-language">
                 <div className="mb-1 text-small font-medium text-ink">{t('knowledge.writer.languageTitle')}</div>
                 <div className="flex flex-wrap gap-2">
                   {(['ru', 'en'] as const).map((code) => (
                     <label key={code} className="flex cursor-pointer items-center gap-2 rounded-[var(--radius-card)] border border-line px-2.5 py-1 text-small has-[:checked]:border-ink">
-                      <input type="radio" name="menu-content-language" checked={(pagesLanguage ?? status.language) === code} onChange={() => setPagesLanguage(code)} onClick={(event) => event.stopPropagation()} />
+                      <input type="radio" name="menu-content-language" checked={(pagesLanguage ?? status.language) === code} disabled={busy} onChange={() => start(code)} onClick={(event) => event.stopPropagation()} />
                       <span>{t(code === 'ru' ? 'navigation.russian' : 'navigation.english')}</span>
                     </label>
                   ))}
                 </div>
               </div>
             )}
-            {writer.state !== 'running' && writer.state !== 'waiting' && fill.state !== 'running' && <div className="mb-3"><RefreshPreviewView language={pagesLanguage ?? status.language} refreshKey={`${status.fill.finishedAt ?? ''}:${status.writer.finishedAt ?? ''}:${status.loop?.questionsAnswered ?? 0}:${status.loop?.correctionsOpen ?? 0}`} /></div>}
-            <p className="mb-2 mt-0 text-small text-muted" data-testid="refresh-note">{t('knowledge.refreshNote', unitLimitWords(status.bounds, t))}</p>
-            <Button variant="default" size="default" disabled={busy} onClick={press} data-testid="refresh">{t('knowledge.refresh')}</Button>
-            {refused !== null && <p className="mb-0 mt-2 text-small" role="alert" data-testid="refresh-refused">{refused}</p>}
+            {refused !== null && <p className="mb-0 mt-0 text-small" role="alert" data-testid="fill-menu-refused">{refused}</p>}
           </div>
-        </DropdownMenuPrimitive.Content>
-      </DropdownMenuPrimitive.Portal>
-    </DropdownMenuPrimitive.Root>
+        </div>
+      )}
+    </div>
   );
 }
 
@@ -455,8 +570,10 @@ export function SyncButton({ status, refresh }: { status: WikiStatus; refresh: (
   const changed = fill.changed;
   return (
     <span className="relative flex items-center">
-      <Button variant="default" size="default" className="sync-button" disabled={busy} onClick={press} title={t('knowledge.syncHint')} data-testid="sync">
-        {busy ? t('knowledge.syncRunning') : t('knowledge.sync')}
+      {/* Below a phone's width the name is its icon, and the whole sentence stays the button's name and its tooltip. */}
+      <Button variant="default" size="default" className="sync-button" disabled={busy} onClick={press} aria-label={busy ? t('knowledge.syncRunning') : t('knowledge.sync')} title={t('knowledge.syncHint')} data-testid="sync">
+        <RefreshCwIcon aria-hidden="true" className="sync-icon size-4" data-testid="sync-icon" />
+        <span className="sync-words">{busy ? t('knowledge.syncRunning') : t('knowledge.sync')}</span>
       </Button>
       {open && (
         <div role="region" aria-label={t('knowledge.syncResult')} className="absolute right-0 top-[calc(100%+8px)] z-50 w-[min(28rem,92vw)] rounded-[var(--radius-card)] border border-line bg-page p-3 text-left shadow-lg" data-testid="sync-result">
@@ -642,6 +759,7 @@ export function KnowledgeApp(): ReactElement {
   else if (route.name === 'problems') view = <ProblemsPage version={version} refresh={refresh} />;
   else if (route.name === 'settings') view = <SettingsPage version={version} status={status} refresh={refresh} />;
   else if (route.name === 'journal') view = <JournalPage key={`${route.id}\0${route.run ?? ''}`} id={route.id} run={route.run} version={version} />;
+  else if (route.name === 'fill') view = <FillPage status={status} refresh={refresh} />;
   else if (route.name === 'tasks') view = <TasksPage version={version} />;
   else if (route.name === 'task') view = <TaskPage key={route.id} id={route.id} version={version} refresh={refresh} />;
   else if (route.name === 'docs') view = <DocumentsPage version={version} />;

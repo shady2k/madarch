@@ -49,7 +49,7 @@ import { adapterOf, installAdapter, makeUnitAgent, offers, queryAgentChoices, WR
 import { emptyModelAssignments, isModelRole, modelPair, resolveModelRoles, type ModelAssignments, type ModelPair, type ModelRole, type ModelRoleView } from './model-roles.js';
 import type { AgentChoices } from '../fill/acp-choices.js';
 import { addStarterItems, currentOffers, filesAPersonEdited, replaceWithStarterSet, upgradeStarterSet, type StarterOffer, type UpgradeReport, rememberChangedStarterFileIfOwned } from './starter-upgrade.js';
-import { fileJournal, journalFolder, journalOfUnit, newRunId, type Journal, type PageJournal } from '../writer/journal.js';
+import { fileJournal, journalFolder, journalOfUnit, newRunId, NO_COUNTERS, readJournalFile, type Journal, type PageJournal } from '../writer/journal.js';
 import { productSlug, PRODUCT_PATH, type ToolAnswer, type ToolClient, type UnitAgent } from '../writer/index.js';
 import { CONTENT_LANGUAGES } from '../writer/prompts.js';
 import type { DraftEnv } from '../product/home.js';
@@ -96,6 +96,9 @@ import { defaultSettings } from '../problems/types.js';
 import { readProblemDismissals, writeProblemDismissal } from '../loop/problem-files.js';
 
 const execFileAsync = promisify(execFile);
+
+/** The writer's id for the unit that writes one document's localized source, whose page is the document entity's own id. */
+const LOCALIZED_SOURCE_UNIT = 'localized-source:';
 
 /** The scopes of a confirmed task, each once, in the order the reader sent them. */
 const dedupeScopes = (scopes: readonly TaskScope[]): TaskScope[] => {
@@ -300,6 +303,36 @@ export function createSnapshotHistoryReader() {
     return selectHistory(selection, evidence, completed, landmarks === undefined ? undefined : structuredClone(landmarks));
   };
 }
+
+/**
+ * The writer's units as a reader knows them (madarch-m38l.23): the page each one writes, and that page's kind and title as
+ * the wiki knows them now — from the documents and the Markdown for a page that stands, from the product page's own
+ * declaration for a domain still waiting. Nothing is invented: a unit whose page neither stands nor is declared keeps only
+ * what the run said about it, and no field is filled from the unit's id.
+ */
+function namedUnits(ctx: RenderContext, units: readonly WriterUnit[]): WriterUnit[] {
+  // The writer's enrichment units name a passage of a person's document: `enrichment:<document entity id>` (`enrichmentPath`).
+  const ENRICHMENT_UNIT = 'enrichment:';
+  return units.map((unit) => {
+    const localized = unit.unit.startsWith(LOCALIZED_SOURCE_UNIT) ? unit.unit.slice(LOCALIZED_SOURCE_UNIT.length) : undefined;
+    // A localized source writes a document's page: its kind and title are the document entity's own.
+    const doc = localized === undefined ? undefined : ctx.docEntities.get(localized);
+    const page = ctx.markdown.get(localized ?? unit.unit);
+    // An enrichment's page is a passage of a document, and the passage is read before its page stands: the reader's
+    // title for a page the run is writing now is the passage's own, never the writer's id for it.
+    const passage = page === undefined && unit.unit.startsWith(ENRICHMENT_UNIT) ? ctx.docEntities.get(unit.unit.slice(ENRICHMENT_UNIT.length)) : undefined;
+    const family = unit.unit.slice(0, unit.unit.indexOf(':'));
+    // The unit's own id names the page kind it writes (`product`, `domain`, `administrator-guide`, `enrichment`): a name
+    // only where the manifest declares that kind, so the reader never reads a kind this product does not have.
+    const declared = unit.kind ?? family;
+    const kind = doc?.kind ?? page?.kind ?? (ctx.manifest.kinds.has(declared) ? declared : undefined);
+    const title = doc?.title ?? passage?.title ?? page?.title ?? unit.title;
+    return { ...unit, page: localized ?? unit.unit, ...(kind === undefined ? {} : { kind }), ...(title === undefined ? {} : { title }) };
+  });
+}
+
+/** One read of the status and the render context its writer units were named against. */
+type StatusRead = { body: WikiStatus; ctx: RenderContext | undefined };
 
 export class KnowledgeProduct {
   /** The store the reads are made on: a snapshot of the primary store, or an empty one before any fill (see `fill-protocol.ts`). */
@@ -853,6 +886,13 @@ export class KnowledgeProduct {
           this.writer = { ...this.writer, plan: message.plan };
           this.notify();
           return;
+        case 'writer-total':
+          // How many pages this run means to write in total, so the badge counts down from a real end (madarch-m38l.23).
+          // A total below the pages already announced would read «12 of 10» and draw a bar past its end: the pages that
+          // stand are written, so the total covers them even if a count arrives short.
+          this.writer = { ...this.writer, total: Math.max(message.total, this.writer.units.length) };
+          this.notify();
+          return;
         case 'unit-start':
           if (!this.writer.units.some((unit) => unit.unit === message.unit)) this.writer = { ...this.writer, units: [...this.writer.units, { unit: message.unit, path: message.path, state: 'writing' }] };
           else setUnit(message.unit, { state: 'writing' });
@@ -886,7 +926,7 @@ export class KnowledgeProduct {
           const outcome = message.outcome;
           setUnit(outcome.unit, { state: outcome.status === 'written' ? 'written' : outcome.status === 'failed' ? 'failed' : 'not-written', writeAttempts: outcome.writeAttempts, calls: outcome.calls, refusals: outcome.refusals });
           if (outcome.status === 'written' && outcome.unit.startsWith('product:') && outcome.domains.length > 0) {
-            this.writer = { ...this.writer, units: [...this.writer.units, ...outcome.domains.map((domain): WriterUnit => ({ unit: `domain:${domain.slug}`, path: `docs/domains/${domain.slug}.md`, state: 'waiting' }))] };
+            this.writer = { ...this.writer, units: [...this.writer.units, ...outcome.domains.map((domain): WriterUnit => ({ unit: `domain:${domain.slug}`, kind: 'domain', title: domain.title, page: `domain:${domain.slug}`, path: `docs/domains/${domain.slug}.md`, state: 'waiting' }))] };
           }
           this.notify();
           return;
@@ -1171,12 +1211,64 @@ export class KnowledgeProduct {
 
   // ---- the agent stage ---------------------------------------------------------------------
 
-  /** What the agent did to write one page: the records of the newest run that wrote it, or of the run asked for. */
+  /**
+   * What the agent did to write one page: the records of the newest run that wrote it, or of the run asked for. A page no
+   * run of this machine wrote has an empty journal, which the reader is told in words, rather than a refusal: the journal
+   * is the store's, and which pages it holds is answered by its own files (madarch-m38l.23).
+   */
   journalOf(pageId: string, run?: string): PageJournal {
-    if (!/^(product|domain):[a-z][a-z0-9-]*$/.test(pageId)) {
-      throw new WikiReadError(`${JSON.stringify(pageId)} is no page an agent writes: the journal is kept per product or domain page (product:<slug>, domain:<slug>)`);
+    const unit = this.journalUnitOf(pageId);
+    if (unit === undefined) return { run: null, runs: [], records: [], totals: NO_COUNTERS, problems: [] };
+    return journalOfUnit(journalFolder(this.storeFolder()), unit, run);
+  }
+
+  /** The unit whose journal holds the page: the page's own id, or the localized source of a document's page. */
+  private journalUnitOf(pageId: string): string | undefined {
+    const index = this.journalIndex();
+    return [pageId, `${LOCALIZED_SOURCE_UNIT}${pageId}`].find((candidate) => index.has(candidate));
+  }
+
+  /** The runs whose journal holds the page, oldest first; absent when no run of this machine wrote it. */
+  private pageJournal(pageId: string, index = this.journalIndex()): string[] | undefined {
+    for (const candidate of [pageId, `${LOCALIZED_SOURCE_UNIT}${pageId}`]) {
+      const runs = index.get(candidate);
+      if (runs !== undefined) return [...runs];
     }
-    return journalOfUnit(journalFolder(this.storeFolder()), pageId, run);
+    return undefined;
+  }
+
+  /** What each unit of the journal wrote, by the runs that hold it; each run file is read again only when it has changed. */
+  private readonly journalFiles = new Map<string, { stamp: string; units: Map<string, string[]> }>();
+  private journalIndex(): Map<string, string[]> {
+    // A product whose folder names no store (no manifest beside it, as a reader built for one page may be) holds no
+    // journal: the page is read all the same and says nothing of a journal, rather than refusing to be read.
+    let folder: string;
+    try { folder = journalFolder(this.storeFolder()); } catch { return new Map(); }
+    let names: string[] = [];
+    try { names = readdirSync(folder).filter((name) => name.startsWith('run-') && name.endsWith('.jsonl')).sort(byCodePoint); }
+    catch { names = []; }
+    const index = new Map<string, string[]>();
+    for (const name of names) {
+      const file = join(folder, name);
+      const run = name.slice(0, -'.jsonl'.length);
+      let stamp: string;
+      try { const stat = statSync(file); stamp = `${stat.size}:${stat.mtimeMs}`; }
+      catch { continue; }
+      let entry = this.journalFiles.get(file);
+      if (entry === undefined || entry.stamp !== stamp) {
+        const units = new Map<string, string[]>();
+        for (const record of readJournalFile(file).records) units.set(record.unit, [run]);
+        entry = { stamp, units };
+        this.journalFiles.set(file, entry);
+      }
+      for (const unit of entry.units.keys()) {
+        const runs = index.get(unit);
+        if (runs === undefined) index.set(unit, [run]);
+        else runs.push(run);
+      }
+    }
+    for (const runs of index.values()) runs.sort(byCodePoint);
+    return index;
   }
 
   private get env(): DraftEnv {
@@ -1778,7 +1870,7 @@ export class KnowledgeProduct {
       }
       const text = readProductDocument(product.folder, file);
       if (text === undefined) {
-        localizedFindings.push({ file, line: 1, message: `no localized source exists for ${entity.id}; fill the wiki in ${language} to write it` });
+        localizedFindings.push({ file, line: 1, message: `no localized source exists for ${entity.id}; fill the wiki in ${language} to write it`, pending: entity.id });
         continue;
       }
       const parsed = parseLocalizedSource(file, text, entity, language);
@@ -1846,10 +1938,13 @@ export class KnowledgeProduct {
       documentEntityByAnchor: (repo, path, anchor) => entityByAnchor.get(`${repo ?? ''}\0${path}\0${anchor}`),
       documentEntityById: (repo, path, stableId) => entityById.get(`${repo ?? ''}\0${path}\0${stableId}`),
     });
+    // A page the running fill has taken up is not a problem yet (madarch-m38l.23): the agent is writing it now, and the
+    // page says so in place of the missing statement until the run ends.
+    const writing = this.writer.state === 'waiting' || this.writer.state === 'running';
     return {
-      ctx: { productFolder: product.folder, manifest: read.manifest, graph, markdown, docEntities, localizedSources, language, documents: reading.sources, repositories: history === undefined ? [...pins.keys()].sort(byCodePoint) : [history.repo], webOf, ...(history === undefined ? { index: { relyingOn: (key: string) => statementsRelyingOn(indexOwner, key), counts: () => indexCounts(indexOwner) } } : {}), commitOf: (repo) => history === undefined ? pins.get(repo)?.commit ?? null : repo === history.repo ? history.commit : null, resolver, repoOfScope, readSource },
+      ctx: { productFolder: product.folder, manifest: read.manifest, graph, markdown, docEntities, localizedSources, language, documents: reading.sources, ...(writing ? { awaitsLocalized: true } : {}), repositories: history === undefined ? [...pins.keys()].sort(byCodePoint) : [history.repo], webOf, ...(history === undefined ? { index: { relyingOn: (key: string) => statementsRelyingOn(indexOwner, key), counts: () => indexCounts(indexOwner) } } : {}), commitOf: (repo) => history === undefined ? pins.get(repo)?.commit ?? null : repo === history.repo ? history.commit : null, resolver, repoOfScope, readSource },
       manifest: read.manifest,
-      findings: [...read.manifest.findings, ...markdownRead.findings, ...reading.findings, ...localizedFindings],
+      findings: [...read.manifest.findings, ...markdownRead.findings, ...reading.findings, ...(writing ? localizedFindings.filter((finding) => finding.pending === undefined) : localizedFindings)],
     };
   }
 
@@ -1972,6 +2067,12 @@ export class KnowledgeProduct {
     }
   }
 
+  /** The writer's units as a reader knows them, each saying whether a journal holds its page (madarch-m38l.23). */
+  private unitRows(ctx: RenderContext): WriterUnit[] {
+    const index = this.journalIndex();
+    return namedUnits(ctx, this.writer.units).map((unit) => ({ ...unit, journal: this.pageJournal(unit.page ?? unit.unit, index) !== undefined }));
+  }
+
   /**
    * What the menu asks on every poll (madarch-u3vw.1, the second review). The answer is a pure read of the manifest,
    * the Markdown and document sources, the graph snapshot and the loop's files, and those are read once per
@@ -1992,30 +2093,38 @@ export class KnowledgeProduct {
     }
     if (key !== '') {
       const held = this.statusMemo;
-      if (held !== undefined && held.key === key) return this.statusLive(held.body);
+      if (held !== undefined && held.key === key) return this.statusLive(held.body, held.ctx);
       // Eight polls of one reader, or three readers polling together, wait for one read of the same files.
       const flight = this.statusFlight;
-      if (flight !== undefined && flight.key === key) return this.statusLive(await flight.promise);
+      if (flight !== undefined && flight.key === key) {
+        const read = await flight.promise;
+        return this.statusLive(read.body, read.ctx);
+      }
       const promise = this.statusNow();
       this.statusFlight = { key, promise };
       try {
-        const body = await promise;
-        this.statusMemo = { key, body };
-        return body;
+        const read = await promise;
+        this.statusMemo = { key, ...read };
+        return this.statusLive(read.body, read.ctx);
       } finally {
         if (this.statusFlight?.promise === promise) this.statusFlight = undefined;
       }
     }
-    return await this.statusNow();
+    const read = await this.statusNow();
+    return this.statusLive(read.body, read.ctx);
   }
 
-  /** What moves without a file: the fill, the writer and the agent, taken from this process on every answer. */
-  private statusLive(body: WikiStatus): WikiStatus {
-    return { ...body, fill: this.statusFill(), writer: this.writer, chosenAgent: this.chosenAgent() };
+  /**
+   * What moves without a file: the fill, the writer and the agent, taken from this process on every answer. The units
+   * are named against the context of the cached read, so a unit that starts while the files stay unchanged keeps the
+   * reader-facing kind, title and page the read's documents and Markdown gave it (madarch-m38l.23).
+   */
+  private statusLive(body: WikiStatus, ctx: RenderContext | undefined): WikiStatus {
+    return { ...body, fill: this.statusFill(), writer: ctx === undefined ? this.writer : { ...this.writer, units: this.unitRows(ctx) }, chosenAgent: this.chosenAgent() };
   }
 
-  private statusMemo: { key: string; body: WikiStatus } | undefined;
-  private statusFlight: { key: string; promise: Promise<WikiStatus> } | undefined;
+  private statusMemo: { key: string; body: WikiStatus; ctx: RenderContext | undefined } | undefined;
+  private statusFlight: { key: string; promise: Promise<StatusRead> } | undefined;
 
   /**
    * Every file and store state the answer reads besides the fill and the writer, as one key: the Problems listing's
@@ -2054,14 +2163,14 @@ export class KnowledgeProduct {
       : { state: 'done', finishedAt: last.finishedAt, ...(changed === undefined ? {} : { changed }) };
   }
 
-  private async statusNow(): Promise<WikiStatus> {
+  private async statusNow(): Promise<StatusRead> {
     const product = this.product();
     if ('message' in product) throw new WikiReadError(product.message);
     const common = { product: { name: product.name, id: product.id } };
     const declared = this.repositories();
     const context = await this.context();
     if ('absent' in context) {
-      return { ...common, manifest: 'no-manifest', manifestFile: context.file, language: 'en', seeded: [], ...(this.seedError === undefined ? {} : { seedError: this.seedError }), findings: [], kinds: [], groups: [], repositories: declared.map((repo) => ({ name: repo.name, filled: false })), filled: false, incomplete: false, fill: this.fill, writer: this.writer, bounds: WRITER_BOUNDS, chosenAgent: this.chosenAgent(), home: null, roles: {}, loop: this.loopCounts(), starterOffers: 0 };
+      return { body: { ...common, manifest: 'no-manifest', manifestFile: context.file, language: 'en', seeded: [], ...(this.seedError === undefined ? {} : { seedError: this.seedError }), findings: [], kinds: [], groups: [], repositories: declared.map((repo) => ({ name: repo.name, filled: false })), filled: false, incomplete: false, fill: this.fill, writer: this.writer, bounds: WRITER_BOUNDS, chosenAgent: this.chosenAgent(), home: null, roles: {}, loop: this.loopCounts(), starterOffers: 0 }, ctx: undefined };
     }
     const home = homeKind(context.manifest);
     const homeEntity = home === undefined ? undefined : [...context.ctx.markdown.values()].find((entity) => entity.kind === home.name);
@@ -2069,7 +2178,7 @@ export class KnowledgeProduct {
     const incomplete = [...this.pins.values()].some((pin) => pin.filledCommits < pin.commits || pin.commits === 0);
     const loop = this.loopCounts();
     loop.problemsOpen = await this.openProblems();
-    return {
+    return { ctx: context.ctx, body: {
       ...common,
       manifest: 'ok',
       manifestFile: context.manifest.file,
@@ -2082,14 +2191,14 @@ export class KnowledgeProduct {
       filled: this.pins.size > 0,
       incomplete,
       fill: this.statusFill(),
-      writer: this.writer,
+      writer: { ...this.writer, units: this.unitRows(context.ctx) },
       bounds: WRITER_BOUNDS,
       chosenAgent: this.chosenAgent(),
       home: homeEntity?.id ?? null,
       roles: Object.fromEntries([...context.manifest.roles.values()].map((role) => [role.name, { ...(role.open === undefined ? {} : { open: [...role.open] }), lead: [...role.lead] }])),
       loop,
       starterOffers: this.starterOffers().length,
-    };
+    } };
   }
 
   /**
@@ -2239,7 +2348,9 @@ export class KnowledgeProduct {
       const result = await renderPage(context.ctx, id, lang, history === undefined ? options : { ...options, defer: false });
       if (!result.ok) return result;
       const page = history === undefined ? result.page : withHistoryLinks(result.page, history);
-      return { ok: true, page: { ...page, ...(history === undefined ? { planned, ...(historyNavigation === undefined ? {} : { historyNavigation }) } : { history, blocks: page.blocks.filter((block) => block.type !== 'history') }) } };
+      // Which runs of the journal hold this page, so the page says «Как агент писал эту страницу» only where it can be read.
+      const journal = history === undefined ? this.pageJournal(id) : undefined;
+      return { ok: true, page: { ...page, ...(history === undefined ? { planned, ...(journal === undefined ? {} : { journal }), ...(historyNavigation === undefined ? {} : { historyNavigation }) } : { history, blocks: page.blocks.filter((block) => block.type !== 'history') }) } };
     });
     // The badge is counted after the page's transaction closes: the Problems listing opens a transaction of its own, and a
     // nested one would wait on the pipe the page holds. A listing that cannot be made is said on the page, never shown as 0.
