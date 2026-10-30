@@ -66,6 +66,8 @@ export interface KnowledgePart {
   agentChoices: (request: Request) => Promise<Handled>;
   /** Assigns one model role to an (agent, model) pair, or removes it (madarch-j6ho.2). */
   modelRole: (request: Request) => Promise<Handled>;
+  /** The graph verdict coverage and rows, or the two budgets a run may spend (madarch-mwhd.1). */
+  graphVerdicts: (request: Request) => Promise<Handled>;
   starter: (request: Request) => Promise<Handled>;
   rewritePages: (request: Request) => Promise<Handled>;
   startFresh: (request: Request) => Promise<Handled>;
@@ -462,6 +464,51 @@ export function createKnowledgePart(
       const done = await product.chooseRole(asked.role, asked.agent, asked.model as string | null | undefined, asked.reasoning as string | null | undefined, asked.install === true);
       if (!done.ok) return refused(done.status, { field: done.message.includes('role') ? 'role' : done.message.includes('agent') ? 'agent' : undefined, message: done.message });
       return { response: json(200, { role: done.role, pair: done.pair, roles: product.modelRoles() }) };
+    }),
+    graphVerdicts: guarded('read the graph verdicts', async (request) => {
+      if (request.method === 'GET') {
+        const query = new URL(request.url).searchParams;
+        if (query.get('peek') === '1') {
+          const state = product.graphVerdictSettings();
+          return { response: json(200, {
+            file: state.file, budgets: state.budgets, cached: true,
+            metrics: { checked: 0, reused: state.report?.totals.items ?? 0, judgeItems: 0, modelCalls: 0 },
+            ...(state.report === undefined ? {} : { report: state.report }),
+            total: state.report?.totals.items ?? 0, offset: 0, limit: 0, rows: [],
+          }) };
+        }
+        const verdict = query.get('verdict');
+        // `non-valid` is what the settings page reads: every row a person still has to look at, valid ones excluded.
+        if (verdict !== null && verdict !== 'valid' && verdict !== 'invalid' && verdict !== 'unreviewed' && verdict !== 'non-valid') return refused(400, { field: 'verdict', accepted: 'valid, invalid, unreviewed or non-valid', message: `"verdict" is ${JSON.stringify(verdict)}` });
+        const role = query.get('role');
+        if (role !== null && role !== 'node' && role !== 'edge') return refused(400, { field: 'role', accepted: 'node or edge', message: `"role" is ${JSON.stringify(role)}` });
+        const kind = query.get('kind');
+        const askedLimit = query.get('limit');
+        const limit = askedLimit === null ? 200 : Number(askedLimit);
+        if (!Number.isInteger(limit) || limit < 1 || limit > 1000) return refused(400, { field: 'limit', accepted: '1 to 1000', message: `"limit" is ${JSON.stringify(askedLimit)}` });
+        const askedOffset = query.get('offset');
+        const offset = askedOffset === null ? 0 : Number(askedOffset);
+        if (!Number.isInteger(offset) || offset < 0) return refused(400, { field: 'offset', accepted: 'a whole number from 0', message: `"offset" is ${JSON.stringify(askedOffset)}` });
+        const view = await product.graphVerdicts({ force: query.get('force') === '1' });
+        const all = view.rows.filter((row) => (verdict === null || (verdict === 'non-valid' ? row.verdict !== 'valid' : row.verdict === verdict)) && (role === null || row.role === role) && (kind === null || row.kind === kind));
+        const rows = all.slice(offset, offset + limit);
+        return { response: json(200, { file: view.file, budgets: view.budgets, cached: view.cached, metrics: view.metrics, report: view.report, total: all.length, offset, limit, rows }) };
+      }
+      const crossSite = foreign(request);
+      if (crossSite !== undefined) return refused(403, { message: crossSite });
+      if (own) return refused(403, { message: "madarch's own wiki is documentation: it has no graph verdicts to configure" });
+      const plain = notJson(request);
+      if (plain !== undefined) return refused(415, { message: plain });
+      let body: unknown;
+      try { body = await request.json(); } catch (error) { return refused(400, { message: `the request body is not JSON: ${(error as Error).message}` }); }
+      const asked = body as { itemsPerRun?: unknown; modelCallsPerRun?: unknown } | null;
+      if (asked === null || typeof asked !== 'object') return refused(400, { message: 'the body is { itemsPerRun, modelCallsPerRun }' });
+      if (typeof asked.itemsPerRun !== 'number') return refused(400, { field: 'itemsPerRun', message: `"itemsPerRun" is ${JSON.stringify(asked.itemsPerRun)}: a whole number of items, 0 or more` });
+      if (typeof asked.modelCallsPerRun !== 'number') return refused(400, { field: 'modelCallsPerRun', message: `"modelCallsPerRun" is ${JSON.stringify(asked.modelCallsPerRun)}: a whole number of judge calls, 0 or more` });
+      const done = product.setGraphVerdictBudgets(asked.itemsPerRun, asked.modelCallsPerRun);
+      if (!done.ok) return refused(done.status, { message: done.message });
+      const state = product.graphVerdictSettings();
+      return { response: json(200, { budgets: done.budgets, ...(state.report === undefined ? {} : { report: state.report }) }) };
     }),
     starter: guarded('add to the manifest', async (request) => {
       const crossSite = foreign(request);
