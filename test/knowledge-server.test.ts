@@ -506,3 +506,47 @@ describe('the pages for agents', () => {
     expect(badEscape.body.error.message).toContain('%ZZ.md');
   });
 });
+
+describe('what a refresh changed', () => {
+  /** Presses the fill and waits for its end: the status the Sync button reads when it opens its result. */
+  const refresh = async (): Promise<any> => {
+    const press = await fetch(`${server.url}/products/tiny/api/k/fill`, { method: 'POST' });
+    expect(press.status).toBe(202);
+    let status: any;
+    for (let tries = 0; tries < 400; tries += 1) {
+      status = (await get('/products/tiny/api/k/status')).body;
+      if (status.fill.state !== 'running') break;
+      await new Promise((rest) => setTimeout(rest, 250));
+    }
+    if (status === undefined || status.fill.state === 'running') throw new Error('the fill of the tiny product did not end within 100 s');
+    // The pages the run changed are recorded when it ends, in a notify of their own: wait a little for the status that has them.
+    for (let grace = 0; grace < 40 && status.fill.state === 'done' && status.fill.changed === undefined; grace += 1) {
+      await new Promise((rest) => setTimeout(rest, 250));
+      status = (await get('/products/tiny/api/k/status')).body;
+    }
+    return status;
+  };
+
+  test('a refresh that reads a new commit names the pages of the file it touched and of the function it added; one with nothing new says nothing changed, and every page named opens', async () => {
+    // A store that begins empty (or is rebuilt) names every page it wrote; the next run, with nothing new, names none.
+    await refresh();
+    const settled = await refresh();
+    expect(settled.fill).toMatchObject({ state: 'done', changed: [] });
+    writeFileSync(join(repository, 'src', 'a.ts'), `${A_TS}\nexport function extra(): number {\n  return 2;\n}\n`);
+    git(repository, 'add', '.');
+    git(repository, '-c', 'commit.gpgsign=false', 'commit', '--quiet', '-m', 'Add the extra step', '--date', '2026-03-04T10:00:00Z');
+    const after = await refresh();
+    expect(after.fill.state).toBe('done');
+    const changed: { id: string; title: string }[] = after.fill.changed;
+    const ids = changed.map((page) => page.id);
+    expect(ids).toContain(recordKey('code.file', 'src/a.ts'));
+    expect(ids).toContain(sym('src/a.ts#extra'));
+    expect(ids).not.toContain(recordKey('code.file', 'src/b.ts'));
+    for (const page of changed) {
+      const opened = await get(`/products/tiny/api/k/page?id=${encodeURIComponent(page.id)}`);
+      expect(opened.status).toBe(200);
+      expect(opened.body.title).toBe(page.title);
+    }
+    expect((await refresh()).fill).toMatchObject({ state: 'done', changed: [] });
+  }, 180_000);
+});

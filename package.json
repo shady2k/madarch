@@ -12,7 +12,8 @@
     "views:check": "bun scripts/check-views.ts",
     "contract:check": "bun scripts/check-contract.ts",
     "wiki:demo": "cd wiki/app && bun install --frozen-lockfile && bun run build && cd ../.. && bun scripts/madarch.ts serve --product wiki/demo",
-    "wiki:shots": "bun scripts/wiki-shots.ts"
+    "wiki:shots": "bun scripts/wiki-shots.ts",
+    "graph-verdicts": "bun scripts/graph-verdicts.ts"
   },
   "dependencies": {
     "@agentclientprotocol/sdk": "1.9.0",
