@@ -220,12 +220,12 @@ Filled from the commands actually run on this tree.
 - `bun test test/writer-*.test.ts`: 471 tests passed across 38 files, 6,066 `expect()` calls, 121.35 s; no failure. They include the new `test/writer-structure.test.ts`, the migrated `test/writer-names.test.ts`, `test/writer-home-page.test.ts`, `test/writer-editorial.test.ts` and the linear-time `test/writer-performance.test.ts`.
 - `bun test test/knowledge-*.test.ts`: 574 tests passed across 47 files, no failure; 108,177 `expect()` calls, 705.77 s. All 47 files exited 0.
 - The six files named by the CI log were each run alone on this tree and all exited 0, with these raw summaries:
-  - `test/loop-entities.test.ts`: 31 pass, 0 fail, 126 `expect()` calls; `Ran 31 tests across 1 file. [635.00ms]`. It includes the old-style question file `docs/questions/ten-percent-discount-discount.md`, still found, answered and closed, and an old file's footnote names surviving a rewrite.
-  - `test/loop-refresh.test.ts`: 16 pass, 0 fail, 209 `expect()` calls; `Ran 16 tests across 1 file. [5.75s]`.
-  - `test/loop-server.test.ts`: 11 pass, 0 fail, 183 `expect()` calls; `Ran 11 tests across 1 file. [6.75s]`.
-  - `test/loop-tasks.test.ts`: 9 pass, 0 fail, 107 `expect()` calls; `Ran 9 tests across 1 file. [3.70s]`.
-  - `test/loop-training.test.ts`: 9 pass, 0 fail, 175 `expect()` calls; `Ran 9 tests across 1 file. [121.39s]`.
-  - `test/madarch-init-e2e.test.ts`: 3 pass, 0 fail, 139 `expect()` calls; `Ran 3 tests across 1 file. [113.33s]`.
+  - `test/loop-entities.test.ts`: 31 pass, 0 fail, 126 `expect()` calls; `Ran 31 tests across 1 file. [487.00ms]`. It includes the old-style question file `docs/questions/ten-percent-discount-discount.md`, still found, answered and closed, and an old file's footnote names surviving a rewrite.
+  - `test/loop-refresh.test.ts`: 16 pass, 0 fail, 209 `expect()` calls; `Ran 16 tests across 1 file. [5.85s]`.
+  - `test/loop-server.test.ts`: 11 pass, 0 fail, 183 `expect()` calls; `Ran 11 tests across 1 file. [6.73s]`.
+  - `test/loop-tasks.test.ts`: 9 pass, 0 fail, 107 `expect()` calls; `Ran 9 tests across 1 file. [3.64s]`.
+  - `test/loop-training.test.ts`: 9 pass, 0 fail, 175 `expect()` calls; `Ran 9 tests across 1 file. [122.98s]`.
+  - `test/madarch-init-e2e.test.ts`: 3 pass, 0 fail, 139 `expect()` calls; `Ran 3 tests across 1 file. [117.50s]`.
 - `test/loop-ids.test.ts` proves the content hash is deterministic, ignores whitespace wrapping, sorts and dedupes grounds and scope keys, and changes with each named field: question type, title, question, why and side claim; correction statement, reason and statement key; task title and scope; footnote claim and grounds.
 - The two red tests first failed, then passed after the fixes: `test/writer-sentence-reader.test.ts` proves a link label with a full stop is one sentence, and `test/knowledge-parse.test.ts` proves the knowledge reader counts the same bullet as one grounded statement. `test/writer-quality.test.ts` uses the content hash of the question it creates rather than a hand-written slug.
 - The original 2,000-statement page with 2,000 code spans and 2,000 footnote grounds: 548.2 ms at `eaf70258`, 426.3 ms here, both the median of five runs of `/tmp/perf-ztyq12-v2.ts`. The review fixture adds a question suffix, a resolved code span and shared opening words to every statement: 368.7, 775.3 and 1,847.9 ms at 1,000, 2,000 and 4,000 statements at the base, and 409.7, 830.0 and 1,859.9 ms here (five runs, median); each doubling is about twice the work. `test/writer-performance.test.ts` checks the same growth (1,000 against 2,000 statements, three runs, median) and refuses more than three times the work.
