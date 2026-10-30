@@ -480,7 +480,7 @@ export interface IdentifierMention {
  */
 export function identifierMentions(markdown: string, identifier: string): IdentifierMention[] {
   if (identifier === '') return [];
-  const text = markdown.replace(/\r\n/g, '\n');
+  const text = markdown.replaceAll('\r\n', '\n');
   const root = parseMarkdown(text);
   if (root === undefined) return [];
   const front = frontMatterEnd(text);

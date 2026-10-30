@@ -10,6 +10,8 @@ import { mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'nod
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { renderQuestion, type Question } from '../src/loop/entities.js';
+import { correctionId } from '../src/loop/ids.js';
+import { taskSlug } from '../src/loop/tasks.js';
 import { startServer, type StartedServer } from '../src/server/http.js';
 import { gitEnv } from './git-env.js';
 import { SAMPLE_IDENTITY, makeProduct } from './knowledge-fixture.js';
@@ -20,6 +22,12 @@ const git = (cwd: string, ...args: string[]): string => execFileSync('git', args
 let work: string;
 let server: StartedServer;
 let folder: string;
+
+const CORRECTION_STATEMENT = 'domain:orders#ten-percent-discount';
+const CORRECTION_SENTENCE = 'Orders get a ten percent discount.';
+const CORRECTION_REASON = 'The discount is whatever the caller passes.';
+const CORRECTION_SLUG = correctionId(CORRECTION_SENTENCE, CORRECTION_REASON, CORRECTION_STATEMENT);
+const CORRECTION_FILE = `docs/corrections/${CORRECTION_SLUG}.md`;
 
 const PAGE = `---
 id: domain:orders
@@ -150,15 +158,15 @@ describe('the corrections and the problems', () => {
     const missing = await post('/api/k/correction', { statement: 'domain:orders#no-such-statement', reason: 'wrong' });
     expect(missing.status).toBe(404);
     expect(missing.body.error.message).toContain('the product has no statement domain:orders#no-such-statement');
-    const done = await post('/api/k/correction', { statement: 'domain:orders#ten-percent-discount', reason: 'The discount is whatever the caller passes.' });
+    const done = await post('/api/k/correction', { statement: CORRECTION_STATEMENT, reason: CORRECTION_REASON });
     expect(done.status).toBe(201);
-    expect(done.body).toMatchObject({ correction: 'ten-percent-discount-discount', id: 'correction:ten-percent-discount-discount', file: 'docs/corrections/ten-percent-discount-discount.md', committed: true, by: { name: 'Ada Reader' } });
+    expect(done.body).toMatchObject({ correction: CORRECTION_SLUG, id: `correction:${CORRECTION_SLUG}`, file: CORRECTION_FILE, committed: true, by: { name: 'Ada Reader' } });
     expect(git(folder, 'log', '-1', '--format=%an <%ae>').trim()).toBe('Ada Reader <ada@example.test>');
     expect((await get('/api/k/status')).body.loop.correctionsOpen).toBe(1);
     const problems = await get('/api/k/problems');
     expect(problems.status).toBe(200);
     const correction = problems.body.problems.find((p: { kind: string }) => p.kind === 'correction');
-    expect(correction).toMatchObject({ fixer: 'agent', closed: false, page: 'domain:orders', statement: 'ten-percent-discount', sentence: 'Orders get a ten percent discount.', reason: 'The discount is whatever the caller passes.', file: 'docs/corrections/ten-percent-discount-discount.md', by: { name: 'Ada Reader' } });
+    expect(correction).toMatchObject({ fixer: 'agent', closed: false, page: 'domain:orders', statement: 'ten-percent-discount', sentence: CORRECTION_SENTENCE, reason: CORRECTION_REASON, file: CORRECTION_FILE, by: { name: 'Ada Reader' } });
   });
 
   test('what the engine finds is listed beside them: a ground that names nothing, with the file, the line and who fixes it', async () => {
@@ -233,10 +241,13 @@ describe('the corrections and the problems', () => {
     const created = await post('/api/k/problem-task', { id: contradiction.id });
     expect(created.status).toBe(201);
     expect(created.body).toMatchObject({ state: 'created' });
-    expect(created.body.task.slug).toStartWith('fix-document-contradiction');
+    const taskTitle = 'Fix document.contradiction in docs/questions/discount-percentage.md:1';
+    const expectedTask = taskSlug(taskTitle, [{ type: 'file', path: 'docs/questions/discount-percentage.md' }]);
+    expect(expectedTask).toMatch(/^[0-9a-f]{12}$/);
+    expect(created.body.task.slug).toBe(expectedTask);
     const tasks = (await get('/api/k/tasks')).body;
     const row = tasks.tasks.find((task: { slug: string }) => task.slug === created.body.task.slug);
-    expect(row).toMatchObject({ title: 'Fix document.contradiction in docs/questions/discount-percentage.md:1' });
+    expect(row).toMatchObject({ title: taskTitle });
     expect(row.problemId).toBe(contradiction.id);
     expect(row.scope.map((one: { scope: { type: string; path?: string } }) => [one.scope.type, one.scope.path])).toEqual([['file', 'docs/questions/discount-percentage.md']]);
     const taskPage = (await get(`/api/k/task?id=${encodeURIComponent(created.body.task.id)}`)).body;

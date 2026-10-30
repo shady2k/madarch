@@ -25,7 +25,7 @@ import { parse as parseYaml, stringify as stringifyYaml } from 'yaml';
 import { byCodePoint } from '../model/order.js';
 import { splitFrontMatter } from '../knowledge/markdown.js';
 import { readWrittenAt, type WrittenAt } from '../knowledge/index/page.js';
-import { slugOf } from '../writer/names.js';
+import { questionFootnoteId } from './ids.js';
 import { groundLinks } from '../writer/sentences.js';
 
 export const QUESTIONS_FOLDER = 'docs/questions';
@@ -147,11 +147,16 @@ function frontMatterText(record: Record<string, unknown>): string {
 
 const authorRecord = (author: Author): Record<string, string> => ({ name: author.name, email: author.email, verified: author.verified });
 
-/** The names of the footnotes of a question's sides: readable, unique within the file. */
+/** The footnote name a side was read with; kept so an old file's names survive a re-render. */
+const KEPT_FOOTNOTE = Symbol('kept question footnote');
+
+type SideWithFootnote = Side & { readonly [KEPT_FOOTNOTE]?: string };
+
+/** The names of the footnotes of a question's sides: a content hash, unique within the file; an old file keeps its names. */
 function footnoteNames(sides: readonly Side[]): string[] {
   const taken = new Set<string>();
   return sides.map((side) => {
-    const base = slugOf(side.claim, side.grounds[0] ?? '');
+    const base = (side as SideWithFootnote)[KEPT_FOOTNOTE] ?? questionFootnoteId(side.claim, side.grounds);
     let name = base;
     for (let n = 2; taken.has(name); n += 1) name = `${base}-${n}`;
     taken.add(name);
@@ -305,7 +310,9 @@ export function parseQuestion(file: string, source: string): Question {
   for (const line of sourceSection.lines) {
     const bullet = /^-\s+(.*?)\[\^([\p{L}\p{N}_-]+)\]\s*$/u.exec(line.trim());
     if (bullet === null) continue;
-    sides.push({ claim: bullet[1]!.trim(), grounds: footnotes.get(bullet[2]!) ?? [] });
+    const side: SideWithFootnote = { claim: bullet[1]!.trim(), grounds: footnotes.get(bullet[2]!) ?? [] };
+    Object.defineProperty(side, KEPT_FOOTNOTE, { value: bullet[2]!, enumerable: false });
+    sides.push(side);
   }
   if (sides.length === 0) throw new LoopFileError(file, sourceSection.line, `the section "${words.sources}" holds no grounded statement: each side is a bullet, a sentence ending in a footnote that lists its grounds`);
   const answered = status === 'answered';

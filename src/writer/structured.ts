@@ -31,6 +31,42 @@
 import { byCodePoint } from '../model/order.js';
 
 /** The kinds of passage whose page carries a structure of its own: the unit table's rules, decisions and scenarios. */
+function collapseText(text: string): string {
+  let out = '';
+  let blank = false;
+  for (const character of text) {
+    if (character === '[' || character === ']' || character === '\n' || character.trim() === '') { blank = out !== ''; continue; }
+    if (blank) out += ' ';
+    blank = false;
+    out += character;
+  }
+  return out.trim();
+}
+
+function collapseSentence(text: string): string {
+  let out = '';
+  let blank = false;
+  for (const character of text.trim()) {
+    if (character.trim() === '') { blank = out !== ''; continue; }
+    if (blank) out += ' ';
+    blank = false;
+    out += character;
+  }
+  return out;
+}
+
+function collapseBlankLines(text: string): string {
+  const out: string[] = [];
+  let blanks = 0;
+  for (const line of text.split('\n')) {
+    if (line.trim() === '') { blanks += 1; continue; }
+    if (out.length > 0) out.push(...Array(Math.min(blanks, 1)).fill(''));
+    blanks = 0;
+    out.push(line);
+  }
+  return out.join('\n');
+}
+
 export type StructuredKind = 'scenario' | 'rule' | 'decision';
 
 /** The kinds a document reader may read a passage as. */
@@ -197,7 +233,7 @@ const text = (value: unknown): string | undefined => (typeof value === 'string' 
 
 /** The markdown label of a place: what a reader sees, with the characters that would break the link removed. */
 export function labelOf(label: string): string {
-  return label.replace(/[\[\]\n]/g, ' ').replace(/\s+/g, ' ').trim();
+  return collapseText(label);
 }
 
 /** A ground or a place target as a page names it: `doc:<path>#<anchor>` or a graph key, without the scheme. */
@@ -381,7 +417,7 @@ export class PageWriter {
   raw(line: string): void { this.lines.push(line); }
 
   get body(): string {
-    return `${this.lines.join('\n').replace(/\n{3,}/g, '\n\n').trim()}\n\n${this.notes.join('\n')}\n`;
+    return `${collapseBlankLines(this.lines.join('\n')).trim()}\n\n${this.notes.join('\n')}\n`;
   }
 
   private linkTo(place: NamedPlace): string {
@@ -400,7 +436,7 @@ export class PageWriter {
  * nothing after it (`question-link-position`, `src/writer/format.ts`).
  */
 export function withReference(text: string, label: string): string {
-  const sentence = text.replace(/\s+/g, ' ').trim();
+  const sentence = collapseSentence(text);
   const at = closingQuestionLinkAt(sentence);
   if (at < 0) return `${sentence}[^${label}]`;
   return `${sentence.slice(0, at).trimEnd()}[^${label}] ${sentence.slice(at)}`;

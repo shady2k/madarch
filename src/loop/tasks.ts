@@ -4,7 +4,7 @@ import { join } from 'node:path';
 import { parse as parseYaml, stringify as stringifyYaml } from 'yaml';
 import { byCodePoint } from '../model/order.js';
 import { splitFrontMatter } from '../knowledge/markdown.js';
-import { slugOf } from '../writer/names.js';
+import { taskId } from './ids.js';
 import type { Author } from './entities.js';
 
 export const TASKS_FOLDER = 'docs/tasks';
@@ -126,7 +126,7 @@ export function readTasks(folder: string): { tasks: PlannedTask[]; findings: Tas
   return { tasks, findings };
 }
 
-export function taskSlug(title: string, question: string): string { return slugOf(title, question); }
+export function taskSlug(title: string, scopes: readonly TaskScope[]): string { return taskId(title, scopes.map((scope) => scopeWords(scope))); }
 
 /** Writes one task file whole, and never over another: `wx` refuses a path that exists. */
 export function writeTask(folder: string, file: string, task: Omit<PlannedTask, 'id' | 'file'>): void {

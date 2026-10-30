@@ -27,14 +27,15 @@ import { parse as parseYaml } from 'yaml';
 import { splitFrontMatter } from '../knowledge/markdown.js';
 import { KINDS_FILE, readKinds } from '../knowledge/kinds.js';
 import { parseQuestion, parseStatementRef, QUESTIONS_FOLDER, readCorrections, readQuestions, type Correction, type Question } from '../loop/entities.js';
+import { CONTENT_SLUG } from '../loop/ids.js';
 import { writtenAtOf } from './basis.js';
 import type { DocEntity } from '../knowledge/doc-entities.js';
 import { detectDocumentLanguage, localizedSourcePath, localizedSourcePrompt, parseLocalizedSource, renderLocalizedSource, LOCALIZED_SOURCE_SCHEMA } from './localized-source.js';
 import { includedNotes, type ChangeNote, type EditBrief } from './edit.js';
-import { statementsOf } from './sentences.js';
+import { readPage, statementsOf } from './sentences.js';
 import { DEFAULT_EDITORIAL_REQUESTS_PER_PAGE, runEditorialPass, type EditorialFinding, type EditorialJudge, type RevisionRequest } from './editorial.js';
 import type { Journal } from './journal.js';
-import { MAX_SLUG_LENGTH, SLUG } from './format.js';
+import { MAX_SLUG_LENGTH, parseTarget, SLUG } from './format.js';
 import { domainPrompt, editorialPrompt, enrichmentPrompt, ENRICHMENT_TASKS, overviewPrompt, productPrompt, validationPrompt, type UnitContext, type WriterArtifactRead } from './prompts.js';
 import { documentMentionNames, type MentionName } from './mentions.js';
 import { DEFAULT_UNIT_BOUNDS, UnitTools, type DomainDeclaration, type PageSink, type ToolAnswer, type UnitBounds, type UnitOutcome, type UnitSpec } from './tools.js';
@@ -293,7 +294,10 @@ export interface ResolvedEntity {
  */
 export function unitsNeeded(input: UnitsInput): UnitsNeeded {
   if (input.languageChanged || input.productPage === null) return { product: true, domain: () => true };
-  const linked = [...input.productPage.matchAll(/\(madarch:domain:([a-z][a-z0-9-]*)\)/g)].map((match) => `${DOMAINS_FOLDER}/${match[1]}.md`);
+  const linked = readPage(input.productPage).linksIn(0, input.productPage.length).flatMap((link) => {
+    const target = parseTarget(link.url.slice('madarch:'.length));
+    return target?.type === 'page' && target.id.startsWith('domain:') ? [`${DOMAINS_FOLDER}/${target.id.slice('domain:'.length)}.md`] : [];
+  });
   const missing = linked.some((path) => !input.domainPages.includes(path));
   return { product: missing, domain: (path) => !input.domainPages.includes(path) };
 }
@@ -329,7 +333,8 @@ export function writerPageFamily(relativePath: string): WriterPageFamily | undef
   if (parts.length === 3) {
     const name = parts[2]!.slice(0, -'.md'.length);
     if (folder === 'domains') return familySlug(name) ? 'domain' : undefined;
-    if (folder === 'questions') return familySlug(name) ? 'question' : undefined;
+    // A new question is named by its content hash (madarch-ztyq.12); an older one keeps its readable name.
+    if (folder === 'questions') return familySlug(name) || CONTENT_SLUG.test(name) ? 'question' : undefined;
     return undefined;
   }
   // A file filed under a kind of its own, `docs/<folder>/<kind>/<name>.md` (`localizedSourcePath`,
@@ -456,7 +461,7 @@ async function existingDomainPages(output: string): Promise<string[]> {
 /** A domain's declaration as its page gives it now: the title, a summary from its first statement, the keys it relates to. */
 export function declarationOf(path: string, text: string, language?: string): DomainDeclaration {
   const slug = path.replace(/^.*\//, '').replace(/\.md$/, '');
-  const { front, body, bodyLine } = splitFrontMatter(text.replace(/\r\n/g, '\n'));
+  const { front, body, bodyLine } = splitFrontMatter(text.replaceAll('\r\n', '\n'));
   let record: Record<string, unknown> = {};
   try {
     const raw: unknown = front === null ? {} : parseYaml(front);

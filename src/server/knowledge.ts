@@ -13,6 +13,7 @@ import { languageOf } from '../knowledge/blocks.js';
 import type { ResetPlan } from '../knowledge/reset.js';
 import { archifyFailurePage } from '../knowledge/view-frames.js';
 import { LoopRefusal } from '../loop/answer.js';
+import { QUESTION_SLUG } from '../loop/ids.js';
 import { ProposalRefusal } from '../loop/propose.js';
 import { readScope } from '../loop/tasks.js';
 import { WikiReadError, type KnowledgeProduct } from '../knowledge/product.js';
@@ -342,7 +343,7 @@ export function createKnowledgePart(
     questions: guarded('list the questions', async () => ({ response: json(200, product.questions()) })),
     question: guarded('read the question', async (request) => {
       const id = new URL(request.url).searchParams.get('id');
-      if (id === null || !/^[a-z][a-z0-9]*(-[a-z0-9]+)*$/.test(id)) return refused(400, { field: 'id', message: '"id" is required: a question\'s id, lower-case words joined by hyphens' });
+      if (id === null || !QUESTION_SLUG.test(id)) return refused(400, { field: 'id', message: '"id" is required: a question\'s id, lower-case words joined by hyphens or the 12-character content hash a new file is named by' });
       const detail = await product.question(id);
       if (detail === undefined) return refused(404, { field: 'id', message: `there is no question ${id}: docs/questions/${id}.md is not in the product repository` });
       return { response: json(200, detail) };

@@ -22,8 +22,8 @@ import { revisionScopeProblems } from './editorial-read.js';
 import { checkPage, MAX_SLUG_LENGTH, parseTarget, SLUG, type Refusal } from './format.js';
 import type { WrittenAt } from '../knowledge/index/page.js';
 import { MAX_ABOUT, MAX_SIDES, MAX_TEXT, MAX_TITLE, QUESTION_HEADINGS, QUESTION_TYPES, parseQuestion, parseStatementRef, questionPath, renderQuestion, type Question, type QuestionLanguage, type QuestionType } from '../loop/entities.js';
-import { slugOf } from './names.js';
-import { statementsOf } from './sentences.js';
+import { questionId } from '../loop/ids.js';
+import { readPage, statementsOf } from './sentences.js';
 import { splitFrontMatter } from '../knowledge/markdown.js';
 import type { GraphView } from './view.js';
 import type { MentionName } from './mentions.js';
@@ -38,6 +38,37 @@ import type { GuidePreparedUnit } from './guides/host-contract.js';
 import { validateGuide } from './guides/validate.js';
 import { renderGuideArtifact } from './guides/artifact.js';
 import { firstGuideCursor, guidePagesComplete, readGuidePageContext } from './guides/prepared.js';
+
+/** Source quotations stay as written; the language check reads only the prose around them. */
+function proseForLanguage(value: string): string {
+  let prose = '';
+  for (const token of readPage(value).tokens) if (token.kind === 'text') prose += `${token.value}\n`;
+  let out = '';
+  let quote = '';
+  for (const character of prose) {
+    if (quote !== '') {
+      if (character === quote || (quote === '"' && character === '\n')) quote = '';
+      continue;
+    }
+    if (character === '“') { quote = '”'; continue; }
+    if (character === '«') { quote = '»'; continue; }
+    if (character === '"') { quote = '"'; continue; }
+    out += character;
+  }
+  return out;
+}
+
+function collapseSpaces(text: string): string {
+  let out = '';
+  let blank = false;
+  for (const character of text.trim()) {
+    if (character.trim() === '') { blank = out !== ''; continue; }
+    if (blank) out += ' ';
+    blank = false;
+    out += character;
+  }
+  return out;
+}
 
 /** A domain the product page declares. */
 export interface DomainDeclaration {
@@ -1221,15 +1252,16 @@ export class UnitTools {
     const source = await this.sink.read(question.file);
     const current = parseQuestion(question.file, source);
     if (JSON.stringify(current) !== JSON.stringify(question)) throw new Error(`${resolve(this.extras.output ?? process.cwd(), question.file)}:1: the question changed during comparison; retry against the fresh candidates; nothing was saved`);
-    const header = /^(?:\uFEFF)?---\r?\n([^]*?)\r?\n---(?:\r?\n|$)/.exec(source);
-    if (header === null) throw new Error(`${resolve(this.extras.output ?? process.cwd(), question.file)}:1: cannot update question associations without intact front matter`);
-    const doc = parseDocument(header[1]!);
+    const split = splitFrontMatter(source);
+    if (split.front === null) throw new Error(`${resolve(this.extras.output ?? process.cwd(), question.file)}:1: cannot update question associations without intact front matter`);
+    const doc = parseDocument(split.front);
     if (doc.errors.length > 0) throw new Error(`${resolve(this.extras.output ?? process.cwd(), question.file)}:2: cannot update malformed question metadata`);
     doc.set('about', [...about]);
     const newline = source.includes('\r\n') ? '\r\n' : '\n';
     const opening = source.slice(0, source.indexOf(newline) + newline.length);
     const closing = source.indexOf(newline + '---', opening.length);
-    await this.sink.write(question.file, opening + doc.toString({ lineWidth: 0 }).trimEnd().replace(/\n/g, newline) + source.slice(closing));
+    if (closing < 0) throw new Error(`${resolve(this.extras.output ?? process.cwd(), question.file)}:1: cannot update question associations without intact front matter`);
+    await this.sink.write(question.file, opening + doc.toString({ lineWidth: 0 }).trimEnd().replaceAll('\n', newline) + source.slice(closing));
   }
 
   private async serialQuestion(args: Record<string, unknown>): Promise<ToolAnswer> {
@@ -1250,10 +1282,13 @@ export class UnitTools {
       if (typeof value !== 'string' || value.trim() === '') { bad(`"${name}" is a non-empty text`); return ''; }
       if (value.trim().length > most) bad(`"${name}" is ${value.trim().length} characters; at most ${most}`);
       // The file's own structure (headings, a rule, a fence, footnote marks) is not the question's to write.
-      if (/^\s{0,3}(#{1,6}\s|---\s*$|```|~~~)|\[\^/m.test(value)) bad(`"${name}" is plain paragraphs: no headings, rules, code fences or footnote marks`);
+      const reader = readPage(value);
+      if (reader.hasNodes(new Set(['heading', 'code', 'thematicBreak', 'footnoteDefinition', 'footnoteReference'])) || reader.footnotesIn(0, value.length).length > 0) {
+        bad(`"${name}" is plain paragraphs: no headings, rules, code fences or footnote marks`);
+      }
       return value.trim();
     };
-    const title = bounded('title', MAX_TITLE).replace(/\s+/g, ' ');
+    const title = collapseSpaces(bounded('title', MAX_TITLE));
     const question = bounded('question', MAX_TEXT);
     const why = bounded('why', MAX_TEXT);
     const rawSides = args['sides'];
@@ -1267,7 +1302,11 @@ export class UnitTools {
         const claim = entry['claim'];
         const grounds = entry['grounds'];
         if (typeof claim !== 'string' || claim.trim() === '' || claim.trim().length > MAX_TEXT) { bad(`${where}.claim is a non-empty text of at most ${MAX_TEXT} characters`); continue; }
-        if (/\[\^|\]\(|\n/.test(claim)) { bad(`${where}.claim is one plain sentence: no line breaks, no links and no footnote marks`); continue; }
+        const claimReader = readPage(claim);
+        if (claim.includes('\n') || claim.includes('\r') || claimReader.hasNodes(new Set(['link', 'linkReference', 'footnoteDefinition', 'footnoteReference', 'break'])) || claimReader.footnotesIn(0, claim.length).length > 0) {
+          bad(`${where}.claim is one plain sentence: no line breaks, no links and no footnote marks`);
+          continue;
+        }
         if (!Array.isArray(grounds) || grounds.length === 0 || grounds.some((g) => typeof g !== 'string')) { bad(`${where}.grounds is a non-empty list of graph keys or doc:<path>#<anchor>`); continue; }
         const kept: string[] = [];
         for (const ground of [...new Set((grounds as string[]).map((g) => (g.startsWith('madarch:') ? g.slice('madarch:'.length) : g)))].sort(byCodePoint)) {
@@ -1310,14 +1349,22 @@ export class UnitTools {
         }
       }
     }
-    const slug = title === '' ? '' : slugOf(title);
-    if (title !== '' && slug === 'statement') bad('"title" has no word to name the question by: say what it is about in words');
     if (problems.length > 0) return fail('bad-question', `the question was not saved: ${problems.join('; ')}`, { problems });
     const language = this.extras.language ?? 'en';
-    const proseLanguage = (value: string): string | undefined => detectStatementLanguage(value.replace(/`[^`]*`|[“«][^”»]*[”»]|"[^"\n]*"/g, ''));
+    const proseLanguage = (value: string): string | undefined => detectStatementLanguage(proseForLanguage(value));
     const wrong = [['title', title], ['question', question], ['why', why], ...sides.map((side, index) => [`sides[${index}].claim`, side.claim])].filter(([, value]) => proseLanguage(value!) !== language);
     if (wrong.length > 0) return fail('question-language', `write ${wrong.map(([name]) => name).join(', ')} in ${language}; identifiers and explicit source quotations may stay unchanged`);
+    const wanted = questionId({ type: type as QuestionType, title, question, why, sides });
     const held = await this.existingQuestions();
+    // A different question whose 12-character hash collides takes the next free suffix; the same one keeps its file.
+    const collided = held.find((candidate) => candidate.slug === wanted);
+    let slug = wanted;
+    if (collided !== undefined && questionId(collided) !== wanted) {
+      for (let n = 2; ; n += 1) {
+        const candidate = `${wanted}-${n}`;
+        if (!held.some((heldQuestion) => heldQuestion.slug === candidate)) { slug = candidate; break; }
+      }
+    }
     const seenCandidates = new Set<string>();
     for (const candidate of held) {
       if (seenCandidates.has(candidate.id)) return fail('question-candidates-invalid', `${resolve(this.extras.output ?? process.cwd(), candidate.file)}:2: duplicate candidate id ${candidate.id}; no complete comparison is possible and nothing was saved`);
@@ -1354,7 +1401,7 @@ export class UnitTools {
     const path = questionPath(slug);
     // The serialized, fully read candidate set is authoritative; a failed read is never treated as absence.
     const existing = held.some((candidate) => candidate.file === path);
-    if (existing) return fail('question-exists', `a question "${slug}" is already asked (${path}); if it is yours to ask again it is the same question, and if it is another, give it a title that names what is different`);
+    if (existing) return fail('question-exists', `the same question is already asked (${path}); compare it by meaning and reuse it rather than asking it twice`);
     const now = (this.extras.clock?.() ?? new Date()).toISOString();
     const markdown = renderQuestion({
       language: language in QUESTION_HEADINGS ? language as QuestionLanguage : 'en',

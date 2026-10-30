@@ -93,7 +93,7 @@ export interface EnrichmentDraft {
  * fills `written-at` in on the checked page, so it is not written here.
  */
 export function renderEnrichment(draft: EnrichmentDraft): string {
-  const body = draft.body.replace(/\r\n/g, '\n').trim();
+  const body = draft.body.replaceAll('\r\n', '\n').trim();
   if (body === '') throw new Error(`src/writer/enrichment.ts: the enrichment of ${draft.entity.id} has no body: a page is its statements`);
   const title = draft.title.trim() === '' ? draft.entity.title : draft.title;
   const front = stringify({
@@ -123,10 +123,10 @@ export type EnrichmentRead =
  * can report the file by its path and line instead of writing over it.
  */
 export function parseEnrichment(path: string, text: string, entity: DocEntity): EnrichmentRead {
-  if (text.replace(/\r\n/g, '\n').split('\n')[0] !== '---') return { ok: false, line: 1, message: `${path}:1: an enrichment starts with YAML front matter naming the entity it enriches` };
+  if (text.replaceAll('\r\n', '\n').split('\n')[0] !== '---') return { ok: false, line: 1, message: `${path}:1: an enrichment starts with YAML front matter naming the entity it enriches` };
   let front: unknown;
   try {
-    const split = splitFrontMatter(text.replace(/\r\n/g, '\n'));
+    const split = splitFrontMatter(text.replaceAll('\r\n', '\n'));
     front = split.front === null ? null : (parseYaml(split.front) as unknown);
   } catch (error) {
     return { ok: false, line: 2, message: `${path}:2: the front matter of the enrichment is no YAML: ${(error as Error).message.split('\n')[0]}` };
@@ -137,7 +137,7 @@ export function parseEnrichment(path: string, text: string, entity: DocEntity): 
   if (record['id'] !== enrichmentPageId(entity)) return { ok: false, line: 2, message: `${path}:2: id is ${JSON.stringify(record['id'])} and the id of ${entity.id}'s enrichment is ${JSON.stringify(enrichmentPageId(entity))}: the file is about another entity` };
   if (record['enriches'] !== entity.id) return { ok: false, line: 2, message: `${path}:2: enriches is ${JSON.stringify(record['enriches'])} and this file stands for ${JSON.stringify(entity.id)}` };
   if (record['producer'] !== 'agent') return { ok: false, line: 2, message: `${path}:2: producer is ${JSON.stringify(record['producer'])}: an enrichment is the writer's page, never a person's text` };
-  const split = splitFrontMatter(text.replace(/\r\n/g, '\n'));
+  const split = splitFrontMatter(text.replaceAll('\r\n', '\n'));
   const body = split.body.trim();
   if (body === '') return { ok: false, line: 2, message: `${path}:2: the enrichment holds no body` };
   return { ok: true, entity: entity.id, schema: ENRICHMENT_SCHEMA, body };
@@ -145,9 +145,9 @@ export function parseEnrichment(path: string, text: string, entity: DocEntity): 
 
 /** The page id a written page's front matter names, or undefined when the text is no page of the writer's. */
 export function frontMatterId(text: string): string | undefined {
-  if (text.replace(/\r\n/g, '\n').split('\n')[0] !== '---') return undefined;
+  if (text.replaceAll('\r\n', '\n').split('\n')[0] !== '---') return undefined;
   try {
-    const split = splitFrontMatter(text.replace(/\r\n/g, '\n'));
+    const split = splitFrontMatter(text.replaceAll('\r\n', '\n'));
     if (split.front === null) return undefined;
     const front: unknown = parseYaml(split.front);
     if (typeof front !== 'object' || front === null || Array.isArray(front)) return undefined;
@@ -175,9 +175,9 @@ export function enrichmentOverwriteProblem(path: string, existing: string, entit
  * refuses the write rather than replace a person's words (decision 0032, section 1).
  */
 export function isAgentPage(text: string): boolean {
-  if (text.replace(/\r\n/g, '\n').split('\n')[0] !== '---') return false;
+  if (text.replaceAll('\r\n', '\n').split('\n')[0] !== '---') return false;
   try {
-    const split = splitFrontMatter(text.replace(/\r\n/g, '\n'));
+    const split = splitFrontMatter(text.replaceAll('\r\n', '\n'));
     if (split.front === null) return false;
     const front: unknown = parseYaml(split.front);
     return typeof front === 'object' && front !== null && !Array.isArray(front) && (front as Record<string, unknown>)['producer'] === 'agent';

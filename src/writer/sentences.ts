@@ -63,6 +63,8 @@ interface SourceIndex {
   readonly codes: readonly Span[];
   readonly targets: readonly Span[];
   readonly links: readonly LinkSpan[];
+  /** The visible text of each link, keyed by its source span. */
+  readonly labels: ReadonlyMap<string, string>;
 }
 
 const parser = unified().use(remarkParse).use(remarkGfm);
@@ -99,10 +101,6 @@ function isLabelCharacter(character: string | undefined): boolean {
   return character === '_' || character === '-' || (character.toLowerCase() !== character.toUpperCase()) || (character >= '0' && character <= '9');
 }
 
-function inside(spans: readonly Span[], start: number, end: number): boolean {
-  return spans.some((span) => start >= span.start && end <= span.end);
-}
-
 /** The destination between `](` and its matching `)`, when the link is written inline. */
 function targetRange(text: string, node: Node): Span | undefined {
   const start = startOf(node);
@@ -127,40 +125,65 @@ function targetRange(text: string, node: Node): Span | undefined {
   return undefined;
 }
 
+/** The visible text of a link node, as one line. */
+function labelOfNode(node: Node): string {
+  let label = '';
+  const text = (child: Node): void => {
+    if (child.type === 'text' || child.type === 'inlineCode') label += child.value ?? '';
+    else if (child.type === 'break') label += ' ';
+    else for (const grandchild of child.children ?? []) text(grandchild);
+  };
+  for (const child of node.children ?? []) text(child);
+  return label;
+}
+
 /** Every span whose punctuation the segmenter must not see, found in the tree. */
 function indexSource(text: string, from: number, to: number, root: Node): SourceIndex {
   const codes: Span[] = [];
   const targets: Span[] = [];
   const links: LinkSpan[] = [];
   const questions: QuestionSpan[] = [];
+  const labels = new Map<string, string>();
+  const definitions = new Map<string, string>();
+  walk(root, (node) => {
+    if (node.type === 'definition' && node.identifier !== undefined && typeof node.url === 'string' && !definitions.has(node.identifier)) definitions.set(node.identifier, node.url);
+  });
   walk(root, (node) => {
     const start = startOf(node);
     const end = endOf(node);
     if (end <= from || start >= to) return;
     if (node.type === 'inlineCode') codes.push({ start, end });
-    if (node.type === 'link' || node.type === 'image') {
+    if (node.type === 'link' || node.type === 'image' || node.type === 'linkReference' || node.type === 'imageReference') {
       const target = targetRange(text, node);
       if (target !== undefined) targets.push(target);
-      if ((node.type === 'link' || node.type === 'image') && typeof node.url === 'string') {
-        links.push({ start, end, url: node.url });
-        if (node.type === 'link' && node.url.startsWith('madarch:question:')) questions.push({ start, end, url: node.url });
+      const url = typeof node.url === 'string' ? node.url : node.identifier === undefined ? undefined : definitions.get(node.identifier);
+      if (url !== undefined) {
+        links.push({ start, end, url });
+        if (node.type !== 'image' && node.type !== 'imageReference') labels.set(`${start}:${end}`, labelOfNode(node));
+        if (node.type !== 'image' && node.type !== 'imageReference' && url.startsWith('madarch:question:')) questions.push({ start, end, url });
       }
     }
   });
   // A reference the parser left as text is still a footnote reference; scan the
   // source, skipping code spans and link destinations where brackets are data.
   const footnotes: FootnoteSpan[] = [];
+  let codeCursor = 0;
+  let targetCursor = 0;
   for (let at = from; at < to; at += 1) {
     if (text[at] !== '[' || text[at + 1] !== '^') continue;
     let end = at + 2;
     while (end < to && isLabelCharacter(text[end])) end += 1;
     if (end === at + 2 || text[end] !== ']') continue;
     const after = end + 1;
-    if (inside(codes, at, after) || inside(targets, at, after)) continue;
+    while (codeCursor < codes.length && codes[codeCursor]!.end <= at) codeCursor += 1;
+    while (targetCursor < targets.length && targets[targetCursor]!.end <= at) targetCursor += 1;
+    const inCode = codeCursor < codes.length && codes[codeCursor]!.start <= at && after <= codes[codeCursor]!.end;
+    const inTarget = targetCursor < targets.length && targets[targetCursor]!.start <= at && after <= targets[targetCursor]!.end;
+    if (inCode || inTarget) continue;
     footnotes.push({ start: at, end: after, label: text.slice(at + 2, end) });
     at = end;
   }
-  return { footnotes, questions, codes, targets, links };
+  return { footnotes, questions, codes, targets, links, labels };
 }
 
 function maskPunctuation(characters: string[], text: string, span: Span, from: number, to: number): void {
@@ -174,14 +197,18 @@ function maskPunctuation(characters: string[], text: string, span: Span, from: n
 /** The text the segmenter sees: sentence punctuation in data is blanked; footnote references are blanked whole. */
 function segmentationText(text: string, from: number, to: number, index: SourceIndex): string {
   const characters = text.slice(from, to).split('');
-  for (const span of index.codes) maskPunctuation(characters, text, span, from, to);
-  for (const span of index.targets) maskPunctuation(characters, text, span, from, to);
-  for (const span of index.questions) {
+  // Only the spans inside this range are masked: a page-wide scan per paragraph would make the page quadratic.
+  for (const span of spansIn(index.codes, from, to)) maskPunctuation(characters, text, span, from, to);
+  for (const span of spansIn(index.targets, from, to)) maskPunctuation(characters, text, span, from, to);
+  // A link's visible words are a name, not prose: a full stop inside the label cannot end the sentence the link
+  // introduces. The label itself is still returned by `plain` for the reader.
+  for (const span of spansIn(index.links, from, to)) maskPunctuation(characters, text, span, from, to);
+  for (const span of spansIn(index.questions, from, to)) {
     const start = Math.max(span.start, from);
     const end = Math.min(span.end, to);
     for (let at = start; at < end; at += 1) characters[at - from] = ' ';
   }
-  for (const span of index.footnotes) {
+  for (const span of spansIn(index.footnotes, from, to)) {
     const start = Math.max(span.start, from);
     const end = Math.min(span.end, to);
     for (let at = start; at < end; at += 1) characters[at - from] = ' ';
@@ -447,8 +474,18 @@ export class PageReading {
     this.body = body;
     this.root = treeOf(body);
     this.index = indexSource(body, 0, body.length, this.root);
-    this.tokens = [];
-    tokensOf(this.root, this.tokens);
+    const tokens: Token[] = [];
+    tokensOf(this.root, tokens);
+    // A referenced question link is the same suffix as an inline one: its
+    // label is no part of the sentence's plain text or its key.
+    // Both lists are in source order: one cursor skips the question spans a
+    // token has already passed, so the filter stays linear in the page.
+    let question = 0;
+    const questions = this.index.questions;
+    this.tokens = tokens.filter((token) => {
+      while (question < questions.length && questions[question]!.end <= token.start) question += 1;
+      return question >= questions.length || questions[question]!.start >= token.end;
+    });
     this.segmenter = segmenterFor(language);
     this.footnoteAt = atOf(this.index.footnotes);
     this.questionAt = atOf(this.index.questions);
@@ -473,6 +510,13 @@ export class PageReading {
     return views;
   }
 
+  /** Whether the tree holds any node of these types, at any depth. */
+  hasNodes(types: ReadonlySet<string>): boolean {
+    let found = false;
+    walk(this.root, (node) => { if (types.has(node.type)) found = true; });
+    return found;
+  }
+
   /** The sentence text a reader sees: references and question links removed, code kept, blanks collapsed. */
   plain(from: number, to: number): string {
     let out = '';
@@ -493,6 +537,11 @@ export class PageReading {
       out += token.kind === 'text' ? withoutFootnoteReferences(value) : value;
     }
     return collapseBlanks(out).trim();
+  }
+
+  /** The label of a link node, including a question link that `plain` leaves out of a sentence. */
+  linkLabel(start: number, end: number): string {
+    return collapseBlanks(this.index.labels.get(`${start}:${end}`) ?? '').trim();
   }
 
   /** The words of `[from, to)` as a reader counts them. */
@@ -599,6 +648,7 @@ export class PageReading {
       if (node.type === 'paragraph') {
         const children = node.children ?? [];
         const views = this.sentences(startOf(node), endOf(node));
+        let viewAt = 0;
         for (let index = 0; index < children.length; index += 1) {
           const child = children[index]!;
           if (child.type !== 'footnoteReference') continue;
@@ -612,7 +662,8 @@ export class PageReading {
             end = endOf(reference);
             next += 1;
           }
-          const view = views.find((entry) => entry.start <= start && end <= entry.end);
+          while (viewAt < views.length && views[viewAt]!.end <= start) viewAt += 1;
+          const view = views[viewAt] !== undefined && views[viewAt]!.start <= start && end <= views[viewAt]!.end ? views[viewAt] : undefined;
           out.push({ start, end, labels, sentence: view?.plain ?? this.plain(startOf(node), start) });
           index = next - 1;
         }

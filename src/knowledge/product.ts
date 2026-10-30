@@ -3179,16 +3179,25 @@ export class KnowledgeProduct {
     if (input.scope.length === 0) throw new LoopRefusal(400, 'docs/tasks:1: a confirmed task needs a scope: the section, lines, symbol or statement it changes');
     if (input.grounds.length === 0) throw new LoopRefusal(400, 'docs/tasks:1: a confirmed task needs its grounds: what the change stands on');
     const by = await localIdentity(this.options.productFolder, { ...process.env, ...(this.options.env ?? {}) } as NodeJS.ProcessEnv);
-    const slug = taskSlug(input.title, input.question);
-    const file = `docs/tasks/${slug}.md`;
-    const existing = readTasks(this.options.productFolder);
-    if (existing.findings.length > 0) throw new LoopRefusal(409, `docs/tasks:1: cannot safely check existing tasks: ${existing.findings.map((finding) => `${finding.file}:${finding.line}: ${finding.message}`).join('; ')}`);
-    if (existing.tasks.some((task) => task.slug === slug)) throw new LoopRefusal(409, `${file}:1: a task with this id already exists`);
     // A scope the wiki cannot read back is refused now: a task file it cannot parse would vanish into findings.
     const scopes = dedupeScopes(input.scope);
     const bad = scopes.findIndex((scope) => readScope(JSON.parse(JSON.stringify(scope))) === undefined);
     if (bad >= 0) throw new LoopRefusal(400, `docs/tasks:1: scope[${bad}] is ${JSON.stringify(scopes[bad])}, and a scope is a section { path, anchor }, lines { path, start, end }, file { path }, symbol or statement { key }`);
-    const task = { slug, title: input.title.trim(), status: 'open' as const, question: `question:${input.question}`, answer: `answer:${input.question}`, grounds: [...new Set(input.grounds)].sort(byCodePoint), scope: scopes, by, at: (this.options.now?.() ?? new Date()).toISOString(), closedBy: null, closedAt: null };
+    const title = input.title.trim();
+    const existing = readTasks(this.options.productFolder);
+    if (existing.findings.length > 0) throw new LoopRefusal(409, `docs/tasks:1: cannot safely check existing tasks: ${existing.findings.map((finding) => `${finding.file}:${finding.line}: ${finding.message}`).join('; ')}`);
+    const wanted = taskSlug(title, scopes);
+    const collided = existing.tasks.find((candidate) => candidate.slug === wanted);
+    let slug = wanted;
+    if (collided !== undefined && taskSlug(collided.title, collided.scope) !== wanted) {
+      for (let n = 2; ; n += 1) {
+        const candidate = `${wanted}-${n}`;
+        if (!existing.tasks.some((task) => task.slug === candidate)) { slug = candidate; break; }
+      }
+    }
+    const file = `docs/tasks/${slug}.md`;
+    if (existing.tasks.some((task) => task.slug === slug)) throw new LoopRefusal(409, `${file}:1: a task with this id already exists`);
+    const task = { slug, title, status: 'open' as const, question: `question:${input.question}`, answer: `answer:${input.question}`, grounds: [...new Set(input.grounds)].sort(byCodePoint), scope: scopes, by, at: (this.options.now?.() ?? new Date()).toISOString(), closedBy: null, closedAt: null };
     try {
       writeTask(this.options.productFolder, file, task);
     } catch (error) {
@@ -3400,16 +3409,24 @@ export class KnowledgeProduct {
     const problem = listing.problems.find((candidate) => candidate.id === id);
     if (problem === undefined) throw new LoopRefusal(404, `docs/problems:1: there is no problem ${JSON.stringify(id)} in the current listing: its rule, place or inputs changed, so the page offers no such problem`);
     if (problem.scope === undefined) throw new LoopRefusal(409, `docs/problems:1: the problem ${JSON.stringify(id)} names no place a change can reach, so no task is opened for it`);
-    const [rule, ...rest] = id.split('\u0000');
-    const identity = rest.join('\u0000');
-    const slug = taskSlug(`Fix ${problem.rule} in ${problem.place.label}`, problem.id);
-    const file = `${TASKS_FOLDER}/${slug}.md`;
+    const title = `Fix ${problem.rule} in ${problem.place.label}`;
+    const wanted = taskSlug(title, [problem.scope]);
     const existing = readTasks(this.options.productFolder);
     if (existing.findings.length > 0) throw new LoopRefusal(409, `docs/tasks:1: cannot safely check existing tasks: ${existing.findings.map((finding) => `${finding.file}:${finding.line}: ${finding.message}`).join('; ')}`);
+    // A different task whose 12-character hash collides takes the next free suffix; the same one keeps its file.
+    const collided = existing.tasks.find((candidate) => candidate.slug === wanted);
+    let slug = wanted;
+    if (collided !== undefined && taskSlug(collided.title, collided.scope) !== wanted) {
+      for (let n = 2; ; n += 1) {
+        const candidate = `${wanted}-${n}`;
+        if (!existing.tasks.some((task) => task.slug === candidate)) { slug = candidate; break; }
+      }
+    }
+    const file = `${TASKS_FOLDER}/${slug}.md`;
     if (existing.tasks.some((task) => task.slug === slug)) throw new LoopRefusal(409, `${file}:1: a task with this id already exists`);
     const by = await localIdentity(this.options.productFolder, { ...process.env, ...(this.options.env ?? {}) } as NodeJS.ProcessEnv);
     const task: Omit<PlannedTask, 'id' | 'file'> = {
-      slug, title: `Fix ${problem.rule} in ${problem.place.label}`, status: 'open',
+      slug, title, status: 'open',
       // A problem is not a person's answer: the task names the finding it came from, and the reason is the problem's own.
       question: '', answer: '', problem: problem.id,
       grounds: problem.entity?.key != null ? [problem.entity.key] : [problem.file],
