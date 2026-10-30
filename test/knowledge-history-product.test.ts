@@ -5,6 +5,8 @@
 import { describe, expect, test } from 'bun:test';
 import type { GraphEntity, HistoryEvidence } from '../src/knowledge/graph-read.js';
 import { projectHistoryAcross } from '../src/knowledge/history-evidence.js';
+import { historyBlock } from '../src/knowledge/history.js';
+import type { RenderContext, Subject } from '../src/knowledge/blocks.js';
 
 const entity = (key: string, kind: string, properties: Record<string, unknown> = {}): GraphEntity => ({
   key, kind, label: key, properties, nodeIds: [key], scope: '1',
@@ -30,5 +32,24 @@ describe('a product history is budgeted across repositories', () => {
     expect(shown[1]!.rows).toHaveLength(5);
     expect(shown[1]!.total).toBe(20);
     expect(shown.reduce((count, section) => count + section.rows.length, 0)).toBe(6);
+  });
+});
+
+
+describe('the product page history block keeps its link to the full history', () => {
+  test('the rendered block stays within the budget and still names where the rest lives', async () => {
+    const evidences = Array.from({ length: 20 }, (_, index) => repository(index));
+    const ctx = {
+      productFolder: '/product', language: 'en',
+      manifest: { file: 'madarch/kinds.yaml', kinds: new Map([['code.file', { labels: { en: { one: 'File', many: 'Files' } } }]]) },
+      graph: { repositories: async () => evidences.map((_, index) => ({ nodeId: `repo:${index}`, path: `r${index}` })), historyEvidence: async (nodeId: string) => evidences[Number(nodeId.split(':')[1])]! },
+      repoOfScope: (scope: string) => `repo-${scope}`,
+    } as unknown as RenderContext;
+    const subject = { source: 'markdown', entity: { kind: 'product', id: 'product:shop', title: 'Shop' } } as unknown as Subject;
+    const block = await historyBlock(ctx, subject, { limit: '5', sections: 'summary,hotspots', 'more-kind': 'code.file', more: 'All files' }, 'templates/product.liquid', 10);
+    if (block.type !== 'history') throw new Error(`not a history block: ${block.type}`);
+    expect(block.sections.map((section) => section.role)).toEqual(['summary', 'hotspots']);
+    expect(block.sections.reduce((count, section) => count + section.rows.length, 0)).toBe(6);
+    expect(block.more).toEqual({ href: '/k/kind/code.file', label: 'All files' });
   });
 });
