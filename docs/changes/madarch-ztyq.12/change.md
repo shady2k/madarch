@@ -67,7 +67,7 @@ each doubling of the page is about twice the work, not four times it.
 
 ## Preserved contracts
 
-- product-wiki/pages: a page still has the front matter of its kind, a footnote of grounds on every statement, its links in order of appearance, and the canonical form; `checkPage()` still judges the product, domain, enrichment, overview, validation and editorial pages by the same rules; a sentence that is unchanged keeps the `sentenceKey()` it had and the name stored for that key, so a refresh does not rename the page's statements, and a sentence new to the page gets a name from its own word segments.
+- product-wiki/pages: a page still has the front matter of its kind, a footnote of grounds on every statement, its links in order of appearance, and the canonical form; `checkPage()` still judges the product, domain, enrichment, overview, validation and editorial pages by the same rules; a sentence that is unchanged keeps the `sentenceKey()` it had and the name stored for that key, so a refresh does not rename the page's statements, and a sentence new to the page gets a name from its own word segments. A question, correction, task and question-file footnote keep the id main gave them.
 - product-wiki/front-matter: a page still names the entity it is and the document sections it stands on; its `relates` still holds only graph keys.
 - product-wiki/stages: which pages a refresh writes is still the run's decision, and a page whose inputs did not move is kept.
 
@@ -144,10 +144,24 @@ None.
   `new Intl.Segmenter(language, { granularity: 'word' })`, keeps `isWordLike`
   segments, transliterates Cyrillic and folds case, without a stop list. The
   segmenter is cached per language. The old `STOP_WORDS` set and the regex-based
-  camel split are gone. Direct name production therefore changes for new text
-  (`A refund is allowed within 14 days.` becomes `refund-is-allowed-within`,
-  where the old name was `refund-allowed-within-days`); stored names dominate for
-  unchanged text.
+  camel split are gone from statement naming. Direct name production therefore
+  changes for new text (`A refund is allowed within 14 days.` becomes
+  `refund-is-allowed-within`, where the old name was
+  `refund-allowed-within-days`); stored names dominate for unchanged text.
+- **Ids keep main's spelling; statement names do not.** `idSlugOf()` reproduces
+  main's old `slugOf()` spelling over ASCII id input, including its stop words,
+  for exactly four identities: a question, a correction, a task and a
+  question-file footnote. Those ids are links and file names that already exist,
+  and the correction and task ids are what a reader follows; changing them would
+  break the pages and the API. `slugOf()` and `nameStatements()` never call it.
+  The compatibility table is an identity table over ids, not a way to decide what
+  page prose says.
+- **A label's full stop is part of a name.** The writer's `segmentationText()`
+  masks punctuation over link spans as well as over code and question spans, and
+  the knowledge reader's `sentencesOf()` does not end a sentence on punctuation
+  inside a link. A home-page bullet such as
+  `[BR-5 Promotion cap.](madarch:doc:…) — A promotion …` is therefore one
+  grounded sentence; its link label is a name, not an ungrounded statement.
 - **The sentence key does not move with the name.** `sentenceKey()` collapses whitespace by
   character and keeps the case and punctuation the old key kept, so an unchanged
   sentence has the same key. `nameStatements()` maps the
@@ -169,7 +183,7 @@ None.
   - `view.ts` `DOCUMENT_EXTENSIONS` and `tools.ts`'s matching check read a repository path; `journal.ts` reads a journal file name; `basis.ts` reads a commit hash.
   - `tools.ts` `BROAD_ENTITY` classifies a graph key; `splitFrontMatter()` and the Markdown reader inspect a question file's own header and authored prose. Neither reads a document being checked.
   - `TOKEN_EDGES` is punctuation, not a word list: it trims the edges of a token before the graph's key prefixes are asked.
-  No `STOP_WORDS`, `REFERENCE_HEADINGS`, route/symbol span regex or text word list remains.
+  No `STOP_WORDS`, `REFERENCE_HEADINGS`, route/symbol span regex or text word list remains over page prose. `ID_STOP_WORDS` in `names.ts` is the compatibility table described under "Ids keep main's spelling"; only `idSlugOf()` reads it, and it names question, correction, task and question-file footnote ids.
 
 ## Acceptance evidence
 
@@ -177,11 +191,18 @@ Filled from the commands actually run on this tree; the counts and timings are
 replaced by the final numbers in the handback.
 
 - `bun run check`: `tsc --noEmit` exited 0 on the final tree.
-- `bun test test/writer-*.test.ts`: 468 tests passed across 38 files, 6,060 `expect()` calls, 127.55 s; no failure. They include the new `test/writer-structure.test.ts`, the migrated `test/writer-names.test.ts`, `test/writer-home-page.test.ts`, `test/writer-editorial.test.ts` and the linear-time `test/writer-performance.test.ts`.
-- `bun test test/loop-refresh.test.ts`: 16 tests passed, 208 `expect()` calls; the structural question-prose and question-label guards refuse the reviewed inputs.
-- `bun test test/knowledge-*.test.ts`: 573 tests passed across 47 files, no failure; 108,178 `expect()` calls, 769.09 s of test time. The combined single process exceeds this container's memory ceiling, so every file was run in a fresh Bun process; all 47 exited 0.
+- `bun test test/writer-*.test.ts`: 472 tests passed across 38 files, 6,069 `expect()` calls, 122.69 s; no failure. They include the new `test/writer-structure.test.ts`, the migrated `test/writer-names.test.ts`, `test/writer-home-page.test.ts`, `test/writer-editorial.test.ts` and the linear-time `test/writer-performance.test.ts`.
+- `bun test test/knowledge-*.test.ts`: 574 tests passed across 47 files, no failure; 108,180 `expect()` calls, 762 s of test time. The combined single process exceeds this container's memory ceiling, so every file was run in a fresh Bun process; all 47 exited 0.
+- The six files named by the CI log were each run alone on this tree and all exited 0, with these raw summaries:
+  - `test/loop-entities.test.ts`: 29 pass, 0 fail, 120 `expect()` calls; `Ran 29 tests across 1 file. [660.00ms]`.
+  - `test/loop-refresh.test.ts`: 16 pass, 0 fail, 208 `expect()` calls; `Ran 16 tests across 1 file. [5.78s]`.
+  - `test/loop-server.test.ts`: 11 pass, 0 fail, 182 `expect()` calls; `Ran 11 tests across 1 file. [7.02s]`.
+  - `test/loop-tasks.test.ts`: 9 pass, 0 fail, 107 `expect()` calls; `Ran 9 tests across 1 file. [3.93s]`.
+  - `test/loop-training.test.ts`: 9 pass, 0 fail, 174 `expect()` calls; `Ran 9 tests across 1 file. [146.89s]`.
+  - `test/madarch-init-e2e.test.ts`: 3 pass, 0 fail, 139 `expect()` calls; `Ran 3 tests across 1 file. [139.33s]`.
+- The two red tests first failed, then passed after the fixes: `test/writer-sentence-reader.test.ts` proves a link label with a full stop is one sentence (`14 pass`, 22 `expect()` calls), and `test/knowledge-parse.test.ts` proves the knowledge reader counts the same bullet as one grounded statement (`17 pass`, 171 `expect()` calls). `test/writer-quality.test.ts` now expects main's id `question:how-long-orders-kept` rather than the segmenter's `question:how-long-are-orders` (38 pass, 182 `expect()` calls).
 - The original 2,000-statement page with 2,000 code spans and 2,000 footnote grounds: 548.2 ms at `eaf70258`, 426.3 ms here, both the median of five runs of `/tmp/perf-ztyq12-v2.ts`. The review fixture adds a question suffix, a resolved code span and shared opening words to every statement: 368.7, 775.3 and 1,847.9 ms at 1,000, 2,000 and 4,000 statements at the base, and 409.7, 830.0 and 1,859.9 ms here (five runs, median); each doubling is about twice the work. `test/writer-performance.test.ts` checks the same growth (1,000 against 2,000 statements, three runs, median) and refuses more than three times the work.
-- `bun scripts/wiki-walk-ci.ts --baseline scripts/wiki-walk-baseline.json`: 0 findings — empty-section, raw-key, foreign-language, raw-id and node-without-evidence are all 0 and all at their baseline — over 1,326 entity pages (2,652 renders), 12 documents, 65 kind catalogues and 1,326 catalogue rows and 0 questions; fill 42.7 s, total 158.8 s; the ratchet passes.
+- `bun scripts/wiki-walk-ci.ts --baseline scripts/wiki-walk-baseline.json`: 0 findings — empty-section, raw-key, foreign-language, raw-id and node-without-evidence are all 0 and all at their baseline — over 1,326 entity pages (2,652 renders), 12 documents, 65 kind catalogues and 1,326 catalogue rows and 0 questions; fill 49.7 s, total 161.7 s; the ratchet passes.
 - `node .shady2k/documents.mjs check --phase feature --change madarch-ztyq.12 --target origin/main`: refused only `untracked-change: change/taskIds — a change names existing leaf tasks`; this repository has no `.beads/issues.jsonl` and no tracker leaf for `madarch-ztyq.12`, so the gate cannot see one. No other violation is reported. Its canonical change digest is `9b376d9769b97023eefeeffbb739a2e6771e2c2c89b1623729da701919464998`.
 
 ## DONE WHEN
