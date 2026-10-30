@@ -8,7 +8,7 @@
  * edited, keeping its sentence and adding one grounded in the answer. No model
  * runs; the grounds are facts of the generated repository.
  */
-import { slugOf } from '../src/writer/names.js';
+import { idSlugOf } from '../src/writer/names.js';
 import { ORDERS_SERVICE, agentScript, domainFields, fieldsCall, homeCall, productFields, TEXT, type ScriptLanguage } from './knowledge-agent-script.js';
 import { FACTORY, PAY, PAYMENTS_SERVICE } from './knowledge-fixture.js';
 
@@ -81,7 +81,7 @@ export const LOOP_QUESTIONS: readonly LoopQuestion[] = [
   },
 ];
 
-export const questionSlug = (question: LoopQuestion, language: ScriptLanguage): string => slugOf(question.text[language].title);
+export const questionSlug = (question: LoopQuestion, language: ScriptLanguage): string => idSlugOf(question.text[language].title);
 
 /** The sentences the sides of these contradictions stand on a page, each with its question link at its end. */
 function sidesOf(questions: readonly LoopQuestion[], language: ScriptLanguage, replace?: { readonly item: string; readonly index: number; readonly text: string }): Record<string, unknown>[] {

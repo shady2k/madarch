@@ -128,6 +128,64 @@ export function slugOf(sentence: string, hint = '', language?: string): string {
   return 'statement';
 }
 
+/**
+ * The words the ids of the wiki have always been named by: the compatibility
+ * spelling of `slugOf` from before madarch-ztyq.12. A question, a correction,
+ * a task and a footnote in a question file keep the ids main gave them, so
+ * this list and this scanner stay until those ids are migrated together.
+ */
+const ID_STOP_WORDS = new Set(['a', 'an', 'the', 'is', 'are', 'was', 'were', 'be', 'been', 'it', 'its', 'of', 'to', 'in', 'on', 'at', 'by', 'for', 'and', 'or', 'with', 'that', 'this', 'as', 'from', 'when', 'which', 'each', 'every', 'one']);
+const ID_RUSSIAN_STOP_WORDS = new Set(['and', 'ili', 'dlya', 'pri', 'kak', 'chto', 'eto', 'ot', 'po', 'na', 'iz', 'za', 'ne', 'no', 'li', 'zhe', 'ego', 'ee', 'ikh']);
+
+/** `paymentClient` -> `payment Client`; the inputs are ASCII ids, not prose. */
+function splitIdCamel(text: string): string {
+  let out = '';
+  for (let index = 0; index < text.length; index += 1) {
+    const character = text[index]!;
+    const before = text[index - 1];
+    if (before !== undefined && ((before >= 'a' && before <= 'z') || (before >= '0' && before <= '9')) && character >= 'A' && character <= 'Z') out += ' ';
+    out += character;
+  }
+  return out;
+}
+
+/** The ASCII words of a legacy name input; the same runs main's old regular expression found. */
+function idWords(text: string): string[] {
+  const out: string[] = [];
+  let word = '';
+  for (const character of fold(transliterate(splitIdCamel(text)))) {
+    if (word === '') {
+      if (character >= 'a' && character <= 'z') word = character;
+      continue;
+    }
+    if ((character >= 'a' && character <= 'z') || (character >= '0' && character <= '9')) { word += character; continue; }
+    out.push(word);
+    word = '';
+  }
+  if (word !== '') out.push(word);
+  return out;
+}
+
+/**
+ * A stable id from a title, in the spelling main gave question, correction,
+ * task and question-file footnote ids. New sentence names use `slugOf`; this
+ * function exists only so those ids do not drift while their pages stand.
+ */
+export function idSlugOf(sentence: string, hint = ''): string {
+  for (const source of [sentence, hint]) {
+    const chosen = idWords(source).filter((word) => !ID_STOP_WORDS.has(word) && !ID_RUSSIAN_STOP_WORDS.has(word) && word.length > 1);
+    if (chosen.length === 0) continue;
+    let slug = '';
+    for (const word of chosen.slice(0, MAX_WORDS)) {
+      const next = slug === '' ? word : `${slug}-${word}`;
+      if (next.length > MAX_LENGTH) break;
+      slug = next;
+    }
+    if (slug !== '') return slug;
+  }
+  return 'statement';
+}
+
 /** What the writer knows of one statement of the page being written. */
 export interface NamingItem {
   /** The sentence as a reader sees it (references removed). */

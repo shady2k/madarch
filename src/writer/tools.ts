@@ -22,7 +22,7 @@ import { revisionScopeProblems } from './editorial-read.js';
 import { checkPage, MAX_SLUG_LENGTH, parseTarget, SLUG, type Refusal } from './format.js';
 import type { WrittenAt } from '../knowledge/index/page.js';
 import { MAX_ABOUT, MAX_SIDES, MAX_TEXT, MAX_TITLE, QUESTION_HEADINGS, QUESTION_TYPES, parseQuestion, parseStatementRef, questionPath, renderQuestion, type Question, type QuestionLanguage, type QuestionType } from '../loop/entities.js';
-import { slugOf } from './names.js';
+import { idSlugOf } from './names.js';
 import { readPage, statementsOf } from './sentences.js';
 import { splitFrontMatter } from '../knowledge/markdown.js';
 import type { GraphView } from './view.js';
@@ -1343,7 +1343,7 @@ export class UnitTools {
         }
       }
     }
-    const slug = title === '' ? '' : slugOf(title);
+    const slug = title === '' ? '' : idSlugOf(title);
     if (title !== '' && slug === 'statement') bad('"title" has no word to name the question by: say what it is about in words');
     if (problems.length > 0) return fail('bad-question', `the question was not saved: ${problems.join('; ')}`, { problems });
     const language = this.extras.language ?? 'en';

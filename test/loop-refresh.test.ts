@@ -26,7 +26,7 @@ import { listProblems, listQuestions } from '../src/loop/views.js';
 import { starterProblemSettings } from '../src/knowledge/seed.js';
 import { createDraft } from '../src/product/draft.js';
 import { DEFAULT_UNIT_BOUNDS, GraphView, UnitTools, memorySink, runWriter, type ToolAnswer, type UnitAgent, type UnitRequest, type WriterReport } from '../src/writer/index.js';
-import { slugOf } from '../src/writer/names.js';
+import { idSlugOf, slugOf } from '../src/writer/names.js';
 import { gitEnv } from './git-env.js';
 
 const README = `# Shop
@@ -123,7 +123,7 @@ afterAll(async () => {
 }, 60_000);
 
 const QUESTION_TITLE = 'Which discount does an order get?';
-const QUESTION_SLUG = slugOf(QUESTION_TITLE);
+const QUESTION_SLUG = idSlugOf(QUESTION_TITLE);
 
 /** The grounds the pricing page stands on: the README's sections and the one file the pricing lives in. */
 const README_OVERVIEW = 'doc:README.md#overview';
@@ -437,12 +437,12 @@ describe('the question tool is bounded and checks what it is given', () => {
   test('at most six questions per unit, each saved as a file of the product; the seventh is refused in words', async () => {
     const { tools, sink } = await session();
     const words = ['alpha', 'bravo', 'charlie', 'delta', 'echo', 'foxtrot'];
-    const comparison = (previous: readonly string[]) => previous.map((word) => ({ id: `question:${slugOf(`Question about ${word}`)}`, same: false, reason: 'Each fixture word names a distinct authored decision for the per-unit bound.' }));
+    const comparison = (previous: readonly string[]) => previous.map((word) => ({ id: `question:${idSlugOf(`Question about ${word}`)}`, same: false, reason: 'Each fixture word names a distinct authored decision for the per-unit bound.' }));
     for (const [index, word] of words.entries()) expect((await tools.call('ask_question', good(`Question about ${word}`, { question: `Which policy applies to ${word}?`, comparison: comparison(words.slice(0, index)) }))).isError).toBe(false);
     const seventh = await tools.call('ask_question', good('Question about golf', { question: 'Which policy applies to golf?', comparison: comparison(words) }));
     expect(seventh.isError).toBe(true);
     expect(JSON.stringify(seventh.answer)).toContain('this unit asked its 6 new questions; reuse existing decisions or write your page with what you know');
-    expect([...sink.pages.keys()]).toEqual(['alpha', 'bravo', 'charlie', 'delta', 'echo', 'foxtrot'].map((word) => `docs/questions/${slugOf(`Question about ${word}`)}.md`));
+    expect([...sink.pages.keys()]).toEqual(['alpha', 'bravo', 'charlie', 'delta', 'echo', 'foxtrot'].map((word) => `docs/questions/${idSlugOf(`Question about ${word}`)}.md`));
     expect(tools.outcome().questions).toHaveLength(6);
     expect(tools.finished).toBe(false);
   });

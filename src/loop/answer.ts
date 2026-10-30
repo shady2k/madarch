@@ -15,7 +15,7 @@ import { mkdir, readFile, rename, writeFile } from 'node:fs/promises';
 import { dirname, join } from 'node:path';
 import { promisify } from 'node:util';
 import { byCodePoint } from '../model/order.js';
-import { slugOf } from '../writer/names.js';
+import { idSlugOf } from '../writer/names.js';
 import { readKnowledgePages } from '../knowledge/index/index.js';
 import {
   CORRECTIONS_FOLDER, CORRECTION_KIND, LOCAL_UNVERIFIED, LoopFileError, MAX_ANSWER, MAX_REASON, QUESTION_KIND,
@@ -191,7 +191,7 @@ export async function recordCorrection(input: CorrectionInput): Promise<Correcte
   const title = first.length > 80 ? `${first.slice(0, 79)}…` : first;
   // The slug is chosen inside the turn: two corrections at once never pick the same file.
   return await alone(join(input.productFolder, CORRECTIONS_FOLDER), async () => {
-    const slug = freeSlug(input.productFolder, CORRECTIONS_FOLDER, slugOf(`${parsed.statement} ${reason}`, parsed.statement));
+    const slug = freeSlug(input.productFolder, CORRECTIONS_FOLDER, idSlugOf(`${parsed.statement} ${reason}`, parsed.statement));
     const file = correctionPath(slug);
     const correction: Correction = { slug, id: `${CORRECTION_KIND}:${slug}`, file, title, status: 'open', about: input.statement, statement: found.text, reason, by, at, resolvedBy: [], resolvedAt: null };
     assertInside(input.productFolder, join(input.productFolder, file));

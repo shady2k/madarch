@@ -25,7 +25,7 @@ import { parse as parseYaml, stringify as stringifyYaml } from 'yaml';
 import { byCodePoint } from '../model/order.js';
 import { splitFrontMatter } from '../knowledge/markdown.js';
 import { readWrittenAt, type WrittenAt } from '../knowledge/index/page.js';
-import { slugOf } from '../writer/names.js';
+import { idSlugOf } from '../writer/names.js';
 import { groundLinks } from '../writer/sentences.js';
 
 export const QUESTIONS_FOLDER = 'docs/questions';
@@ -151,7 +151,7 @@ const authorRecord = (author: Author): Record<string, string> => ({ name: author
 function footnoteNames(sides: readonly Side[]): string[] {
   const taken = new Set<string>();
   return sides.map((side) => {
-    const base = slugOf(side.claim, side.grounds[0] ?? '');
+    const base = idSlugOf(side.claim, side.grounds[0] ?? '');
     let name = base;
     for (let n = 2; taken.has(name); n += 1) name = `${base}-${n}`;
     taken.add(name);

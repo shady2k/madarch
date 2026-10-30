@@ -19,7 +19,7 @@ import { startServer, type StartedServer } from '../src/server/http.js';
 import { gitEnv } from './git-env.js';
 import { ORDERS_SERVICE, domainFields, fieldsCall } from './knowledge-agent-script.js';
 import { PAY, SAMPLE_IDENTITY, ROOT, generateTrainingRepository, makeProduct, withoutEnrichmentKind } from './knowledge-fixture.js';
-import { slugOf } from '../src/writer/names.js';
+import { idSlugOf } from '../src/writer/names.js';
 import { ANSWER_TEXT, LOOP_QUESTIONS, contradictionSides, firstRunScript, questionSlug, refreshScript } from './loop-agent-script.js';
 import { SCRIPTED_GUIDE_PATH, SCRIPTED_GUIDE_SOURCE } from './scripted-guide-agent.js';
 import { readerText } from './markdown-reader.js';
@@ -215,7 +215,7 @@ describe('an answer scopes a task, marks only what it reaches, fixes those pages
   const retention = LOOP_QUESTIONS.find((question) => question.item === 'contradiction.retention')!;
   const slug = questionSlug(retention, 'en');
   const answer = 'Orders that were not shipped are removed ninety days after they were placed; the README says they are kept, and the code is right.';
-  const taskSlug = slugOf(`Update the documents: ${retention.text.en.title}`);
+  const taskSlug = idSlugOf(`Update the documents: ${retention.text.en.title}`);
   let proposed: any;
 
   test('the answer proposes a task whose scope is the two README sections the question names, not their files', async () => {
