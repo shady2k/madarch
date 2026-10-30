@@ -38,9 +38,9 @@ import { TermBlockView, remarkTerms, useTerms } from './glossary.js';
 import type { Block, BrokenWhy, CallRow, CodeLocation, EntityRef, PlannedMarkView, RelatedGroup, Resolution } from './types.js';
 
 /** A link inside the wiki, opened without a reload: in the tab in front, or in a new tab on a middle or control click. */
-export function KLink({ href, children, className, title }: { href: string; children: ReactNode; className?: string; title?: string }): ReactElement {
+export function KLink({ href, children, className, title, testId }: { href: string; children: ReactNode; className?: string; title?: string; testId?: string }): ReactElement {
   const target = historyAddress(href);
-  return <a href={appPath(target)} className={className} title={title} {...linkHandlers(target)}>{children}</a>;
+  return <a href={appPath(target)} className={className} title={title} data-testid={testId} {...linkHandlers(target)}>{children}</a>;
 }
 
 /** `path:line` as a link that opens the source at that line. */
