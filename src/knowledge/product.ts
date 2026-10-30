@@ -2376,7 +2376,7 @@ export class KnowledgeProduct {
     const output = { id: GUIDE_OUTPUTS[kind].id, path: declaration?.file ?? 'madarch/kinds.yaml' };
     const file = resolve(ctx.productFolder, output.path);
     const title = ctx.manifest.kinds.get(kind)?.labels?.[locale]?.one ?? kind;
-    const base: PageModel = { id: output.id, kind, title, trail: [], blocks: [], resolutions: {}, findings: [], notes: [], ...(history === undefined ? { planned: await this.plannedForPage(output.id) } : { history }) };
+    const base: PageModel = { id: output.id, kind, language: locale, title, trail: [], blocks: [], resolutions: {}, findings: [], notes: [], ...(history === undefined ? { planned: await this.plannedForPage(output.id) } : { history }) };
     const gap = (en: string, ru: string): PageResult => {
       const message = `${file}:1: $.guide: ${locale === 'ru' ? ru : en}`;
       return { ok: true, page: { ...base, blocks: [{ type: 'problem', block: 'guide', file, line: 1, message }], findings: [{ file, line: 1, message }] } };

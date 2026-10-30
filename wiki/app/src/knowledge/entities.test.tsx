@@ -508,6 +508,23 @@ describe('the catalogue', () => {
       await setWikiLanguage('en');
     }
   });
+
+  test('one entity in one kind reads in the singular, in English and in Russian', async () => {
+    const one = { groups: [{ group: 'code', labels: { en: 'Code', ru: 'Код' } }], kinds: [kind({ kind: 'code.file', group: 'code', count: 1 })] } as unknown as WikiStatus;
+    const english = into(createElement(CataloguePage, { status: one }));
+    await until(() => english.querySelector('[data-testid=catalogue-total]') !== null, 'the catalogue');
+    expect(english.querySelector('[data-testid=catalogue-total]')!.textContent).toBe('1 entity in 1 kind');
+    rendered?.unmount();
+    document.body.innerHTML = '';
+    await setWikiLanguage('ru');
+    try {
+      const russian = into(createElement(CataloguePage, { status: one }));
+      await until(() => russian.querySelector('[data-testid=catalogue-total]') !== null, 'the catalogue');
+      expect(russian.querySelector('[data-testid=catalogue-total]')!.textContent).toBe('1 сущность в 1 виде');
+    } finally {
+      await setWikiLanguage('en');
+    }
+  });
 });
 
 describe('the reasons a row stands in a list', () => {
