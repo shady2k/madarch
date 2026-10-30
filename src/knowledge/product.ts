@@ -2134,7 +2134,9 @@ export class KnowledgeProduct {
   async context(history?: HistoryContext, snapshot?: PageSnapshot): Promise<{ ctx: RenderContext; manifest: KindsManifest; findings: Finding[] } | { absent: true; file: string }> {
     const product = this.product();
     if ('message' in product) throw new WikiReadError(product.message);
-    const read = this.kinds(product.folder);
+    // The manifest is parsed once per revision of its text and the template paths it names: every read asks for it, and a
+    // manifest of many kinds is milliseconds of YAML (madarch-m38l.21). An edit still invalidates by content.
+    const read = this.kindsForStamp(product.folder);
     if (!read.present) return { absent: true, file: read.file };
     const owner = snapshot?.owner ?? await this.open();
     const currentGraph = new GraphReader(owner, snapshot === undefined ? this.validAt : () => snapshot.validAt, undefined, snapshot?.transaction);
@@ -2595,7 +2597,7 @@ export class KnowledgeProduct {
     return `${path}:${hash}`;
   }
 
-  private kindsForStamp(folder: string): ReturnType<typeof readKinds> {
+  private kindsForStamp(folder: string, seed = true): ReturnType<typeof readKinds> {
     // The manifest's declarations are stamped by content too: an edit that keeps its size and mtime is still an edit.
     const manifest = this.contentStamp(join(folder, KINDS_FILE));
     const held = this.stampKinds;
@@ -2603,7 +2605,10 @@ export class KnowledgeProduct {
     // was warmed accepts a kind the read refused, and the files of that kind must be stamped from then on
     // (madarch-u3vw.8). The comparison is a stat per named template, never a parse.
     if (held !== undefined && held.manifest === manifest && this.templateStamps(folder, held.read) === held.templates) return held.read;
-    const read = this.kinds(folder);
+    // A reading that must not write asks for the manifest as it stands: an absent one is not made the starter set, and
+    // is not kept, so the next reading that opens the product still seeds it.
+    const read = seed ? this.kinds(folder) : readKinds(folder);
+    if (!read.present) return read;
     this.stampKinds = { manifest, templates: this.templateStamps(folder, read), read };
     return read;
   }
@@ -2971,8 +2976,9 @@ export class KnowledgeProduct {
   async documents(): Promise<DocumentListing> {
     const product = this.product();
     if ('message' in product) throw new WikiReadError(product.message);
-    // Listing the documents writes nothing: a product with no manifest has no pages of kinds and no excluded files.
-    const read = readKinds(product.folder);
+    // Listing the documents writes nothing: a product with no manifest has no pages of kinds and no excluded files, so
+    // the read never seeds the starter set. A manifest that is there is parsed once per revision, never once per listing.
+    const read = this.kindsForStamp(product.folder, false);
     const manifest: KindsManifest = read.present ? read.manifest : { file: read.file, roles: new Map(), properties: new Map(), kinds: new Map(), declaredTemplates: [], groups: new Map(), excludeDocuments: [], ignoreBlocks: [], findings: [] };
     const documents: DocumentRef[] = [];
     const truncated: DocumentListing['truncated'] = [];
