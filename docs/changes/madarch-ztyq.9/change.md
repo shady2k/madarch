@@ -139,6 +139,11 @@ judge warning is journaled with the pass point, and the writer report carries th
 fail, 1350 expect calls. The document gate's raw output and the exact commands are in
 `/workspace/repo/out/report-ztyq9ci.md`.
 
+Merged `origin/main` (`b96a5904`, #202's mention pass) on top: the pass is unchanged and the mention pass runs
+after it, so the same checks hold — `bun run check` exits 0 at the repository root and in `wiki/app`, `test/writer.test.ts`
+passes 38 tests, the writer and knowledge suites pass file by file, `wiki/app` passes 296 tests, and the wiki walk
+ratchet reports every class at its baseline.
+
 ## DONE WHEN
 A fill of the training product reads its product, domain and overview pages first through the deterministic checks
 and then, when an editing role is explicitly assigned, through the editing judge at the batch and overview points.
