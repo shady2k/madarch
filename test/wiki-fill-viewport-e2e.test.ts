@@ -47,12 +47,16 @@ const PRODUCT_PAGE_RU = [
   `- [Числа](madarch:domain:numbers) считаются в [исходном файле](madarch:${FILE}).[^2]`, '',
   `[^1]: [a.ts](madarch:${FILE})`, `[^2]: [a.ts](madarch:${FILE})`,
 ].join('\n');
-const DOMAIN_PAGE_RU = [
-  '---', 'id: domain:numbers', 'kind: domain', 'title: Числа', 'relates:', `  - ${FILE}`, 'producer: agent', 'sources: []', '---', '',
-  '## Как считаются числа', '',
-  'Корневая функция прибавляет единицу к значению, которое возвращает листовая функция, т.е. считает на единицу больше.[^1]', '',
-  `[^1]: [a.ts](madarch:${FILE})`,
-].join('\n');
+/** The fields a domain unit answers with (src/writer/domain-page.ts): the business first, the code in `developer`. */
+const DOMAIN_FIELDS = {
+  title: 'Числа',
+  participants: [{ text: 'Числа считает листовая функция, а корневая считает на единицу больше.', grounds: [FILE] }],
+  mainScenario: [{ text: 'Корневая функция прибавляет единицу к значению, которое возвращает листовая функция.', grounds: [FILE] }],
+  rules: [],
+  whatCanGoWrong: [],
+  openPoints: [],
+  developer: { notes: [] },
+};
 
 let work: string;
 let server: StartedServer;
@@ -91,7 +95,7 @@ const script: AgentWithClose = {
       return;
     }
     await wait();
-    const written = await request.tools.call('write_page', { markdown: DOMAIN_PAGE_RU });
+    const written = await request.tools.call('write_page', { fields: DOMAIN_FIELDS });
     if (written.isError) throw new Error(`the domain page was refused: ${JSON.stringify(written.answer)}`);
   },
   async close(): Promise<void> {},
@@ -502,9 +506,28 @@ runDescribe('the fill a reader meets', () => {
       };
     });
     expect(opened).toEqual({ role: 'dialog', dialogs: 1, menus: 0, expanded: 'true', controls: 'fill-menu-panel', inside: true, focus: 'fill-menu-open', inPanel: 'fill-menu-panel' });
-    // The languages come next, reachable by the same Tab, and they are offered: nothing runs, so both can be chosen.
-    await page.keyboard.press('Tab');
-    expect(await page.evaluate(() => { const active = document.activeElement as HTMLInputElement | null; return `${active?.tagName}:${active?.type}:${active?.getAttribute('name')}`; })).toBe('INPUT:radio:menu-content-language');
+    // Tab walks the panel's controls in the order they stand in it — the way to the fill page first, and the
+    // languages after it (after the failure's own link, when the run that ended failed) — and never leaves it.
+    const controls = await page.$$eval('[data-testid=fill-menu] a[href], [data-testid=fill-menu] button:not([disabled]), [data-testid=fill-menu] input:not([disabled])', (elements) => {
+      // A radio group is one stop in the Tab order — the browser stops on the checked radio of it, and the arrows
+      // move inside the group — so the panel's stops are its links, its buttons and one input per group.
+      const groups = new Set<string>();
+      return elements.filter((element) => {
+        if (!(element instanceof HTMLInputElement) || element.type !== 'radio') return true;
+        if (groups.has(element.name)) return false;
+        groups.add(element.name);
+        return element.checked;
+      }).map((element) => element.getAttribute('data-testid') ?? element.getAttribute('name') ?? element.tagName);
+    });
+    expect(controls[0]).toBe('fill-menu-open');
+    expect(controls).toContain('menu-content-language');
+    const at = (): Promise<string> => page.evaluate(() => { const active = document.activeElement as HTMLElement | null; return active === null ? 'none' : active.getAttribute('data-testid') ?? active.getAttribute('name') ?? active.tagName; });
+    const walk: string[] = [await at()];
+    for (let step = 1; step < controls.length; step += 1) {
+      await page.keyboard.press('Tab');
+      walk.push(await at());
+    }
+    expect(walk).toEqual(controls);
     expect(await page.$$eval('[data-testid=menu-language] input', (elements) => (elements as HTMLInputElement[]).map((element) => element.disabled))).toEqual([false, false]);
     await captureScreen('keyboard-popover-1150-light.png');
     // Escape shuts the panel and puts the focus back on the badge, where the reader left it.
