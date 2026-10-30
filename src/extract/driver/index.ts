@@ -63,6 +63,7 @@ import { sha256Hex } from '../../graph/index.js';
 import type { GraphRegistry } from '../../graph/vocabulary.js';
 import type { Extraction, SourceSpan, TreeReader } from '../records.js';
 import type { CodeExtractionResult, CodeFacts } from '../code/facts.js';
+import { releaseCodeFacts } from '../code/index.js';
 import { linkExtractions, LINKS_PRODUCER } from './links.js';
 import { endpointRelations } from './relationships.js';
 import { commitTree, resolvePoint, walkDefaultBranch, type CommitFact, type FillPoint } from './git.js';
@@ -109,6 +110,13 @@ export interface FillOptions {
   readonly history?: HistoryExtractor;
   /** The snapshots the caller pins, each name to the revision it pins; handed to the history extractor. */
   readonly snapshots?: Readonly<Record<string, string>>;
+  /**
+   * Extractions an earlier pass already read for the tip commit. They are
+   * linked and published exactly as `extractors` would produce them, without
+   * reading or parsing the tree again; the caller is responsible for having
+   * run every extractor in `extractors` and for releasing their facts.
+   */
+  readonly prepared?: { readonly hash: string; readonly extractions: readonly Extraction[] };
   /**
    * The points whose code structure is read besides the last commit's (0030):
    * release tags or dates. Each is a revision on the first-parent line or a
@@ -394,11 +402,15 @@ export async function fillGraph(options: FillOptions): Promise<FillReport> {
           facts = result.facts;
           extractions.push(result.extraction);
         } else extractions.push(result);
+        Bun.gc(true);
       } catch (error) {
         const name = extractor.name === '' ? 'an unnamed extractor' : `the extractor "${extractor.name}"`;
         throw new Error(`extract driver: ${name} failed over commit ${commit.hash} ("${commit.subject}", generation ${commit.generation}) of ${repository}: ${error instanceof Error ? error.message : String(error)}`, { cause: error });
       }
     }
+    // Every consumer of the code facts has run by now. Keep the records, drop
+    // the reader and the indexes behind them before publishing.
+    releaseCodeFacts(extractions.find((entry) => entry.producer === 'code.extract.code'));
     return extractions;
   };
 
@@ -737,7 +749,11 @@ export async function fillGraph(options: FillOptions): Promise<FillReport> {
     if (skipRead && await alreadyRead(commit)) {
       return { done: { hash: commit.hash, generation: commit.generation, effectiveTime: commit.effectiveTime, durationMs: Date.now() - commitStarted, publications: 0, gaps: 0 }, present: new Map() };
     }
-    const linked = linkExtractions(endpointRelations(await runExtractors(commit, commitTree(repository, commit.hash))), options.owners ?? {});
+    const prepared = options.prepared !== undefined && options.prepared.hash === commit.hash ? options.prepared.extractions : undefined;
+    const rawExtractions = prepared === undefined
+      ? await runExtractors(commit, commitTree(repository, commit.hash))
+      : [...prepared];
+    const linked = linkExtractions(endpointRelations(rawExtractions), options.owners ?? {});
     const extractions = linked.extractions;
     keyOwners = linked.keyOwners;
     const present = new Map(extractions.map((extraction) => [extraction.producer as string, extraction]));

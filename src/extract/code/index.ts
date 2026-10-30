@@ -70,6 +70,11 @@ export { CODE_PRODUCER };
 
 const retainedCodeFacts = new WeakMap<Extraction, {readonly reader: TreeReader; readonly facts: CodeFacts}>();
 
+/** Releases the facts a finished run no longer needs, so a reader and its indexes can be collected. */
+export function releaseCodeFacts(extraction: Extraction | undefined): void {
+  if (extraction !== undefined) retainedCodeFacts.delete(extraction);
+}
+
 /** Only this exact extraction and its original reader can lend retained facts. */
 export function codeFactsOf(extraction: Extraction | undefined, reader: TreeReader): CodeFacts | undefined {
   const retained = extraction === undefined ? undefined : retainedCodeFacts.get(extraction);
@@ -116,6 +121,8 @@ interface Site {
   readonly roles: readonly string[];
   readonly fanOut: readonly string[];
 }
+
+
 
 export async function extractCode(reader: TreeReader): Promise<Extraction> {
   return (await extractCodeWithFacts(reader)).extraction;

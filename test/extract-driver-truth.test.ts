@@ -6,6 +6,7 @@ import {afterAll, beforeAll, expect, test} from 'bun:test';
 import {createPGliteDatabaseOwner, type DatabaseOwner} from '../src/adapters/database-owner.js';
 import {createGraphStore, type GraphStore} from '../src/graph/index.js';
 import {fillGraph} from '../src/extract/driver/index.js';
+import {commitTree} from '../src/extract/driver/git.js';
 import {extractCode} from '../src/extract/code/index.js';
 import {extractFiles} from '../src/extract/driver/files.js';
 import {extractOperations} from '../src/extract/operations/index.js';
@@ -152,3 +153,25 @@ test('never-used empty aggregate opens no work item, but removing its last real 
  writeFileSync(path.join(repository,'main.ts'),'links');commit(repository,'Links','2025-09-02T00:00:00Z');await fillGraph(options);expect(await works()).toHaveLength(1);
  writeFileSync(path.join(repository,'main.ts'),'none');commit(repository,'None again','2025-09-03T00:00:00Z');await fillGraph(options);expect(await works()).toHaveLength(2);expect(await query(`SELECT edge_id FROM edge_version WHERE scope_id=$1::bigint AND producer='code.extract.links' AND recorded_to='infinity' AND valid_to='infinity'`,[first.repositoryNode])).toEqual([]);expect((await fillGraph(options)).commits[0]?.publications).toBe(0);expect(await works()).toHaveLength(2);
 },60000);
+
+
+test('a prepared tip publication uses the extractions it was handed and runs no extractor', async () => {
+ const repository = path.join(workspace, 'prepared'); git(workspace, 'init', '-q', '-b', 'main', repository);
+ writeFileSync(path.join(repository, 'main.ts'), 'prepared file'); const head = commit(repository, 'Prepared', '2025-07-01T00:00:00Z');
+ const prepared = extractFiles(commitTree(repository, head));
+ let calls = 0;
+ const counted = (tree: TreeReader): Extraction => { calls += 1; return extractFiles(tree); };
+ const report = await fillGraph({owner, store, repository, extractors: [counted],
+   prepared: {hash: head, extractions: [prepared]}} as never);
+ expect(calls).toBe(0);
+ expect(report.commits[0]?.publications).toBeGreaterThanOrEqual(0);
+ const files = await query<{key: string}>(`SELECT properties->>'recordKey' AS key FROM node_version WHERE scope_id = $1::bigint AND recorded_to = 'infinity' AND valid_to = 'infinity' AND properties->>'recordKey' = 'code.file:main.ts'`, [report.repositoryNode]);
+ expect(files).toHaveLength(1);
+ const other = path.join(workspace, 'prepared-stale'); git(workspace, 'init', '-q', '-b', 'main', other);
+ writeFileSync(path.join(other, 'main.ts'), 'stale prepared'); commit(other, 'Stale', '2025-07-02T00:00:00Z');
+ let staleCalls = 0;
+ const stale = (tree: TreeReader): Extraction => { staleCalls += 1; return extractFiles(tree); };
+ await fillGraph({owner, store, repository: other, extractors: [stale],
+   prepared: {hash: head, extractions: [prepared]}} as never);
+ expect(staleCalls).toBe(1);
+}, 60_000);

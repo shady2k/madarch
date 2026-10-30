@@ -260,6 +260,7 @@ export async function publish(ctx: WriteContext, input: PublishInput): Promise<P
     await prefetchEdgeIdentities(run, edges);
     for (const [index, edge] of edges.entries()) {
       await publishEdge(run, edge, `edges[${index}]`);
+      if (run.pendingEdges.length >= 500) await flushEdges(run);
       await yieldBetweenRows(turn, index + 1);
     }
     await flushEdges(run);

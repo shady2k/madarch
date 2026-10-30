@@ -58,6 +58,10 @@ try {
  const load = async (path: string) => await import(pathToFileURL(join(engine, path)).href);
 const {commitTree, walkDefaultBranch} = await load('src/extract/driver/git.ts') as typeof import('../src/extract/driver/git.js');
 const {TREE_EXTRACTORS, OWNERS, HISTORY_EXTRACTOR} = await load('src/extract/driver/extractors.ts') as typeof import('../src/extract/driver/extractors.js');
+// A fixture engine may hold only the driver modules; the code module is loaded
+// before it is taken apart only when it is there.
+let releaseCodeFacts: ((extraction: Extraction | undefined) => void) | undefined;
+try { releaseCodeFacts = (await load('src/extract/code/index.ts') as typeof import('../src/extract/code/index.js')).releaseCodeFacts; } catch { releaseCodeFacts = undefined; }
 phase = 'tree';
 const walk = walkDefaultBranch(repository, 'HEAD'); const head = walk.at(-1);
 if (head === undefined) throw new Error(`${repository}:1: audited default branch has no commits`);
@@ -93,16 +97,20 @@ for (const [index, extractor] of TREE_EXTRACTORS.entries()) {
  extractions.push(extraction);
  const ms = Math.round(performance.now() - started);
  appendPartial(index, extraction, ms);
+ Bun.gc(true);
  console.log(`AUDIT_PRODUCER ${index} ${extraction.producer} ${ms}ms nodes=${extraction.nodes.length} edges=${extraction.edges.length} rss=${Math.round(process.memoryUsage().rss/1048576)}MB`);
 }
 // The code facts are only an input to the other extractors; after the last one
 // they are dead weight, and the audit writes its raw rows from the extractions.
 // Collecting them before the raw phase keeps the audit's peak below the
 // container's limit on a repository the size of src/.
+releaseCodeFacts?.(extractions.find((entry) => entry.producer === 'code.extract.code'));
 facts = undefined;
 Bun.gc(true);
 phase = 'history-extraction';
-extractions.push(await HISTORY_EXTRACTOR({path: repository, snapshots: {}}));
+const historyExtraction = await HISTORY_EXTRACTOR({path: repository, snapshots: {}});
+extractions.push(historyExtraction);
+const preparedExtractions = extractions.filter((entry) => entry !== historyExtraction);
 interface AuditNode {
  key: string; identity?: string; version?: string; kind: string; label: string;
  evidence: unknown; producer: string; recordKey?: string | null; properties: Record<string, unknown>;
@@ -152,10 +160,9 @@ const rawNodes: AuditNode[] = extractions.flatMap((extraction) => extraction.nod
 const rawEdges: AuditEdge[] = extractions.flatMap((extraction) => extraction.edges.map((edge, index) => ({...edge, index, producer: extraction.producer, evidence: edge.span ?? null})));
 save('raw-extractions', extractions); save('raw-nodes', rawNodes); save('raw-edges', rawEdges);
 const raw = audit(rawNodes, rawEdges); save('raw-summary', raw);
-// The raw rows have been written and audited; the fill below extracts them again.
-// Holding both copies at once was the audit's peak, so release the raw phase first.
-// The report's `raw` half is read back from the file it was just written to.
-extractions.length = 0;
+// The raw rows have been written and audited; the fill below reuses the same
+// extractions instead of parsing the tree again. Only the flat row copies are
+// released first; the report's `raw` half is read back from its file.
 rawNodes.length = 0;
 rawEdges.length = 0;
 Bun.gc(true);
@@ -163,12 +170,23 @@ const {createPGliteDatabaseOwner} = await load('src/adapters/database-owner.ts')
 const {createGraphStore} = await load('src/graph/index.ts') as typeof import('../src/graph/index.js');
 const {fillGraph} = await load('src/extract/driver/index.ts') as typeof import('../src/extract/driver/index.js');
 phase = 'store-start';
-const owner = createPGliteDatabaseOwner({btreeGist: true}); const store = createGraphStore(owner);
+// A publication of a full src/ tree holds too many PGlite pages for the VM's
+// in-memory store. `--db` writes them to a directory and reopens it before the
+// published rows are read; without it the store stays in memory.
+const dbPath = process.argv.indexOf('--db') < 0 ? undefined : resolve(argument('db'));
+let owner = createPGliteDatabaseOwner({btreeGist: true, ...(dbPath === undefined ? {} : {path: dbPath})}); const store = createGraphStore(owner);
 try {
  phase = 'fill';
  await owner.ready; await store.createSchema();
- const report = await fillGraph({owner, store, repository, extractors: TREE_EXTRACTORS, owners: OWNERS, history: HISTORY_EXTRACTOR});
+ const report = await fillGraph({owner, store, repository, extractors: TREE_EXTRACTORS, owners: OWNERS, history: HISTORY_EXTRACTOR, prepared: {hash: head.hash, extractions: preparedExtractions}});
  save('fill-report', report);
+ preparedExtractions.length = 0; extractions.length = 0;
+ Bun.gc(true);
+ if (dbPath !== undefined) {
+  await owner.close();
+  owner = createPGliteDatabaseOwner({btreeGist: true, path: dbPath});
+  await owner.ready;
+ }
  const nodes = (await owner.run((tx) => tx.query<AuditNode>(`SELECT coalesce(v.properties->>'recordKey', '[unkeyed:' || v.node_id::text || ']') AS key, v.node_id::text AS identity, v.id::text AS version, v.properties->>'recordKey' AS "recordKey", coalesce(k.key, '[missing-kind]') AS kind, v.label, v.producer, v.properties, v.properties->'span' AS evidence, v.valid_from::text AS "validFrom", v.valid_to::text AS "validTo", v.recorded_from::text AS "recordedFrom", v.states::text AS states FROM node_version v LEFT JOIN node_kind k ON k.id=v.kind_id WHERE v.scope_id=$2::bigint AND v.recorded_to='infinity' AND v.valid_from <= $1::timestamptz AND v.valid_to > $1::timestamptz ORDER BY k.key COLLATE "C", v.node_id, v.id`, [head.effectiveTime, report.repositoryNode]))).rows;
  const edges = (await owner.run((tx) => tx.query<AuditEdge>(`SELECT coalesce(r.key, '[missing-relation]') AS type, e.edge_id::text AS identity, e.id::text AS version, e.src_id::text AS "from", e.dst_id::text AS "to", e.discriminator, e.producer, e.properties, e.properties->>'sourceProducer' AS "sourceProducer", e.properties->'span' AS evidence, CASE WHEN e.byte_start IS NULL THEN NULL ELSE jsonb_build_object('start', e.byte_start, 'end', e.byte_end) END AS position, e.valid_from::text AS "validFrom", e.valid_to::text AS "validTo", e.recorded_from::text AS "recordedFrom", e.states::text AS states FROM edge_version e LEFT JOIN relation_type r ON r.id=e.relation_type_id WHERE e.scope_id=$2::bigint AND e.recorded_to='infinity' AND e.valid_from <= $1::timestamptz AND e.valid_to > $1::timestamptz ORDER BY r.key COLLATE "C", e.src_id, e.dst_id, e.discriminator COLLATE "C", e.byte_start, e.id`, [head.effectiveTime, report.repositoryNode]))).rows;
  save('nodes', nodes); save('edges-stored', edges);
