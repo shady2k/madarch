@@ -69,6 +69,12 @@ export interface PageSink {
   read(relativePath: string): Promise<string>;
   /** The files under a folder of the product (`docs/questions`), by repository path; absent when the sink cannot list. */
   list?(folder: string): Promise<string[]>;
+  /**
+   * Every Markdown document the sink serves, by repository path; absent when the sink serves one product's pages.
+   * A sink that serves a whole checkout (the MCP server of `src/mcp/`) answers with all of them, and the page tools
+   * then read any document of the repository, not only the product's own three folders.
+   */
+  documents?(): Promise<string[]>;
 }
 
 /**
@@ -412,23 +418,23 @@ export const WRITE_DOMAIN_PAGE_TOOL: McpToolDefinition = {
   inputSchema: domainSchema(),
 };
 
-const fail = (code: string, message: string, extra: Record<string, unknown> = {}): ToolAnswer => ({ answer: { error: { code, message, ...extra } }, isError: true });
-const ok = (answer: unknown): ToolAnswer => ({ answer, isError: false });
+export const fail = (code: string, message: string, extra: Record<string, unknown> = {}): ToolAnswer => ({ answer: { error: { code, message, ...extra } }, isError: true });
+export const ok = (answer: unknown): ToolAnswer => ({ answer, isError: false });
 
-function argumentsOf(value: unknown): Record<string, unknown> {
+export function argumentsOf(value: unknown): Record<string, unknown> {
   return typeof value === 'object' && value !== null && !Array.isArray(value) ? value as Record<string, unknown> : {};
 }
 
-function text(value: unknown, name: string): string | ToolAnswer {
+export function text(value: unknown, name: string): string | ToolAnswer {
   return typeof value === 'string' && value !== '' ? value : fail('bad-argument', `"${name}" is a non-empty text`);
 }
 
-function count(value: unknown, name: string, least: number, most: number, fallback: number): number | ToolAnswer {
+export function count(value: unknown, name: string, least: number, most: number, fallback: number): number | ToolAnswer {
   if (value === undefined) return fallback;
   return typeof value === 'number' && Number.isInteger(value) && value >= least && value <= most ? value : fail('bad-argument', `"${name}" is a whole number from ${least} to ${most}`);
 }
 
-const isFailure = (value: unknown): value is ToolAnswer => typeof value === 'object' && value !== null && 'isError' in value;
+export const isFailure = (value: unknown): value is ToolAnswer => typeof value === 'object' && value !== null && 'isError' in value;
 
 function shortProperties(properties: Record<string, unknown>): unknown {
   const shown = { ...properties };
