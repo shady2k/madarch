@@ -3,6 +3,7 @@ import { parseDocument, stringify } from 'yaml';
 import type { DocEntity } from '../knowledge/doc-entities.js';
 import { createHash } from 'node:crypto';
 import type { McpToolDefinition } from '../fill/unit-mcp.js';
+import { memoByText } from '../model/memo.js';
 import { readPage } from './sentences.js';
 import { parseTermText } from '../knowledge/term-fields.js';
 
@@ -22,11 +23,24 @@ function languageCounts(text: string): { cyrillic: number; latin: number } {
   return { cyrillic, latin };
 }
 
-/** Identify source language from enough prose, not code identifiers or known field labels. */
-export function detectDocumentLanguage(text: string): 'en' | 'ru' | undefined {
+/**
+ * The letters of a text's prose. This reads the Markdown tree twice (the
+ * glossary's fields, then the prose's own tokens), so the answer is kept by
+ * the text: a page read detects the language of every document it holds, and
+ * an unchanged revision must not be parsed again for each reader.
+ */
+function measureDocumentLanguage(text: string): { cyrillic: number; latin: number } {
   // The glossary parser knows which parsed blocks are fields; every other
   // block, including a definition that holds a colon, is prose.
-  const { cyrillic, latin } = languageCounts(parseTermText(text).definition);
+  return languageCounts(parseTermText(text).definition);
+}
+
+const measuredDocumentLanguage = memoByText(measureDocumentLanguage);
+const measuredStatementLanguage = memoByText(languageCounts);
+
+/** Identify source language from enough prose, not code identifiers or known field labels. */
+export function detectDocumentLanguage(text: string): 'en' | 'ru' | undefined {
+  const { cyrillic, latin } = measuredDocumentLanguage(text);
   const total = cyrillic + latin;
   if (total < 8 || Math.min(cyrillic, latin) / total > 0.15) return undefined;
   return cyrillic > latin ? 'ru' : 'en';
@@ -34,7 +48,7 @@ export function detectDocumentLanguage(text: string): 'en' | 'ru' | undefined {
 
 /** Validate even a short statement without imposing the document detector's minimum length. */
 export function detectStatementLanguage(text: string): 'en' | 'ru' | undefined {
-  const { cyrillic, latin } = languageCounts(text);
+  const { cyrillic, latin } = measuredStatementLanguage(text);
   const total = cyrillic + latin;
   if (total < 2 || Math.min(cyrillic, latin) / total > 0.15) return undefined;
   return cyrillic > latin ? 'ru' : 'en';

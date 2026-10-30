@@ -198,6 +198,15 @@ None.
   through `checkPage()`, and proves the old names are reused and only the new
   sentence's name is new. `canonical()` passes the wiki language to
   `nameStatements()`, so a name is built with that language's segmenter.
+- **A page read does not re-read every document's language.** The writer's
+  language detector reads a document's Markdown tree twice (`parseTermText()`
+  for the glossary's fields and `readPage()` for the prose's tokens, which also
+  builds an `Intl.Segmenter`). `context()` asks for every document's language on
+  every page read, so the tree was being parsed for each reader. `memoByText()`
+  (`src/model/memo.ts`) keeps the measured letters by the exact document text,
+  bounded to 512 revisions and dropping the least recently used. An unchanged
+  revision pays the parse once; an edited document is a new key. The detector
+  itself still reads the tree, with no regex or word list over prose.
 - **The reader advances instead of scanning again.** `segmentationText()` masks
   only the spans inside the paragraph under reading, and the footnote walk in
   `sentences.ts` keeps a cursor into the definition list instead of searching the
@@ -217,8 +226,22 @@ None.
 Filled from the commands actually run on this tree.
 
 - `bun run check`: `tsc --noEmit` exited 0 on the final tree.
-- `bun test test/writer-*.test.ts`: 471 tests passed across 38 files, 6,066 `expect()` calls, 121.35 s; no failure. They include the new `test/writer-structure.test.ts`, the migrated `test/writer-names.test.ts`, `test/writer-home-page.test.ts`, `test/writer-editorial.test.ts` and the linear-time `test/writer-performance.test.ts`.
-- `bun test test/knowledge-*.test.ts`: 574 tests passed across 47 files, no failure; 108,177 `expect()` calls, 705.77 s. All 47 files exited 0.
+- `bun test test/writer-*.test.ts`: 471 tests passed across 38 files, 6,066 `expect()` calls, 121.60 s; no failure. They include the new `test/writer-structure.test.ts`, the migrated `test/writer-names.test.ts`, `test/writer-home-page.test.ts`, `test/writer-editorial.test.ts` and the linear-time `test/writer-performance.test.ts`.
+- `bun test test/knowledge-*.test.ts`: 574 tests passed across 47 files, no failure; 108,177 `expect()` calls, 684.19 s. All 47 files exited 0.
+- `bun test test/memo-by-text.test.ts`: 4 pass, 0 fail, 20 `expect()` calls; `Ran 4 tests across 1 file. [30.00ms]`. It proves one text is computed once, an `undefined` answer is kept, the least recently used revision is dropped, and a limit that cannot hold one text is refused.
+- `bun test test/knowledge-responsive.test.ts`: 1 pass, 0 fail, 14 `expect()` calls; `Ran 1 test across 1 file. [26.81s]`. The fill ran 22 s; `code.file` p99 48 ms and max 49 ms against the unchanged 300 ms bound; the other routes' p99 were `code.file` list 54, `code.symbol` page 54, status 31, `code.symbol` list 34, documents 35 ms. The slowest answer was 249 ms on the `code.symbol` page, under the 1,000 ms ceiling.
+- The same responsive test before the cache asked during the fill at n 1,315, p50 13 ms, p99 42 ms, max 205 ms; `code.file` answered at p50 15, p99 43 ms. `main` at `848a1b61` asked at n 1,490, p50 8, p99 35 ms; `code.file` p50 9, p99 75 ms. After the cache the branch asked at n 1,417, p50 7, p99 47 ms; `code.file` p50 9, p99 48 ms. A second after-cache run had p99 30 ms overall and 35 ms on `code.file`, so the per-route tail moves at these sample counts; the p50 does not. The p99 bound is unchanged at 300 ms.
+- A read-only benchmark over one filled training product, with 300 sequential requests per route (p50 ms), measured the branch before and after the cache on the same store, and `main` on an equally filled store of the same fixture:
+  | route | `main` | branch before | branch after |
+  | --- | ---: | ---: | ---: |
+  | `/api/k/status` | 1 | 1 | 1 |
+  | `/api/k/entities?kind=code.file&limit=100` | 3 | 7 | 3 |
+  | `/api/k/entities?kind=code.symbol&limit=100` | 3 | 7 | 3 |
+  | `/api/k/page?id=code.symbol%3Aservices%2Fpayments` | 8 | 11 | 9 |
+  | `/api/k/page?id=code.file%3Aservices%2Fpayments%2` | 7 | 11 | 7 |
+  | `/api/k/documents` | 2 | 2 | 2 |
+  Under three concurrent clients the branch's `code.file` list p99 moved from 28 ms before to 17 ms after (`main` 25 ms), and its `code.file` page p99 from 42 ms to 37 ms (`main` 28 ms). Every run used 300 sequential requests and 100 per client.
+- The Bun CPU profile of the same read benchmark counts `syntaxExtension` samples at 1,222 on the branch before the cache, 59 after, and 56 on `main`; `Segmenter` samples were 185 before, 0 after, and 1 on `main`. The added Markdown-tree and segmenter work on a page read is gone.
 - The six files named by the CI log were each run alone on this tree and all exited 0, with these raw summaries:
   - `test/loop-entities.test.ts`: 31 pass, 0 fail, 126 `expect()` calls; `Ran 31 tests across 1 file. [487.00ms]`. It includes the old-style question file `docs/questions/ten-percent-discount-discount.md`, still found, answered and closed, and an old file's footnote names surviving a rewrite.
   - `test/loop-refresh.test.ts`: 16 pass, 0 fail, 209 `expect()` calls; `Ran 16 tests across 1 file. [5.85s]`.
@@ -229,8 +252,8 @@ Filled from the commands actually run on this tree.
 - `test/loop-ids.test.ts` proves the content hash is deterministic, ignores whitespace wrapping, sorts and dedupes grounds and scope keys, and changes with each named field: question type, title, question, why and side claim; correction statement, reason and statement key; task title and scope; footnote claim and grounds.
 - The two red tests first failed, then passed after the fixes: `test/writer-sentence-reader.test.ts` proves a link label with a full stop is one sentence, and `test/knowledge-parse.test.ts` proves the knowledge reader counts the same bullet as one grounded statement. `test/writer-quality.test.ts` uses the content hash of the question it creates rather than a hand-written slug.
 - The original 2,000-statement page with 2,000 code spans and 2,000 footnote grounds: 548.2 ms at `eaf70258`, 426.3 ms here, both the median of five runs of `/tmp/perf-ztyq12-v2.ts`. The review fixture adds a question suffix, a resolved code span and shared opening words to every statement: 368.7, 775.3 and 1,847.9 ms at 1,000, 2,000 and 4,000 statements at the base, and 409.7, 830.0 and 1,859.9 ms here (five runs, median); each doubling is about twice the work. `test/writer-performance.test.ts` checks the same growth (1,000 against 2,000 statements, three runs, median) and refuses more than three times the work.
-- `bun scripts/wiki-walk-ci.ts --baseline scripts/wiki-walk-baseline.json`: 0 findings — empty-section, raw-key, foreign-language, raw-id and node-without-evidence are all 0 and all at their baseline — over 1,326 entity pages (2,652 renders), 12 documents, 65 kind catalogues and 1,326 catalogue rows and 0 questions; fill 42.7 s, total 156.8 s; the ratchet passes.
-- `node .shady2k/documents.mjs check --phase feature --change madarch-ztyq.12 --target origin/main`: refused only `untracked-change: change/taskIds — a change names existing leaf tasks`; this repository has no `.beads/issues.jsonl` and no tracker leaf for `madarch-ztyq.12`, so the gate cannot see one. No other violation is reported. Its canonical change digest is `8c7501c0da2b925afa9f6902ca96cc1274d8a8421d83374ee62f7413989ca451`.
+- `bun scripts/wiki-walk-ci.ts --baseline scripts/wiki-walk-baseline.json`: 0 findings — empty-section, raw-key, foreign-language, raw-id and node-without-evidence are all 0 and all at their baseline — over 1,326 entity pages (2,652 renders), 12 documents, 65 kind catalogues and 1,326 catalogue rows and 0 questions; fill 43.7 s, total 148.2 s; the ratchet passes.
+- `node .shady2k/documents.mjs check --phase feature --change madarch-ztyq.12 --target origin/main`: refused only `untracked-change: change/taskIds — a change names existing leaf tasks`; this repository has no `.beads/issues.jsonl` and no tracker leaf for `madarch-ztyq.12`, so the gate cannot see one. No other violation is reported. Its canonical change digest is `c188dc0992d21fba49ce5dd11faae4e40cfeb8bb833e925be77643b5893a325e`.
 
 ## DONE WHEN
 
