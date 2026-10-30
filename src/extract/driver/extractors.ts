@@ -5,6 +5,7 @@
  * needs no other change.
  */
 import { CODE_PRODUCER, extractCodeWithFacts } from '../code/index.js';
+import type { TreeReader } from '../records.js';
 import { extractContracts } from '../contracts/index.js';
 import { extractDataModel } from '../data-model/extract.js';
 import { extractHistory } from '../history/index.js';
@@ -35,12 +36,27 @@ import shellCommandModelSource from '../library-models/shell-command-models.json
 /** Every tree extractor, in the order the driver runs them per commit. */
 const TREE_READERS = [
  {name:'extractFiles',version:3,extractor:extractFiles},
- {name:'extractCode',version:16,extractor:extractCodeWithFacts},
+ {name:'extractCode',version:16,extractor:(tree: TreeReader) => extractCodeWithFacts(tree)},
  {name:'extractOperations',version:18,extractor:extractOperations},
  {name:'extractContracts',version:17,extractor:extractContracts},
  {name:'extractDataModel',version:8,extractor:extractDataModel},
 ] as const;
-export const TREE_EXTRACTORS: readonly TreeExtractor[] = TREE_READERS.map((entry)=>entry.extractor);
+/** What a product adds to the tree extractors: its own words, never the engine's. */
+export interface TreeExtractorOptions {
+  /** The debt markers the product's manifest declares; empty reads none (madarch-m38l.19). */
+  readonly debtMarkers?: readonly string[];
+}
+
+/** The tree extractors with a product's declared words in place; the producer names do not change. */
+export function treeExtractors(options: TreeExtractorOptions = {}): readonly TreeExtractor[] {
+  const debtMarkers = options.debtMarkers ?? [];
+  return TREE_READERS.map((entry) => entry.name === 'extractCode'
+    ? (tree: TreeReader) => extractCodeWithFacts(tree, { debtMarkers })
+    : entry.extractor);
+}
+
+/** The tree extractors with no product words: a caller that reads a tree without a product's manifest. */
+export const TREE_EXTRACTORS: readonly TreeExtractor[] = treeExtractors();
 
 /** The history extractor, published once at the last commit under its own producer. */
 export const HISTORY_EXTRACTOR: HistoryExtractor = (repository) => extractHistory({ repository: repository.path, snapshots: repository.snapshots });

@@ -93,11 +93,11 @@ function declareWriterPages(folder: string): void {
   const file = join(folder, KINDS_FILE);
   const manifest = parseDocument(readFileSync(file, 'utf8'));
   for (const [kind, page] of [['validation', 'docs/validation.md'], ['overview', 'docs/overview.md'], ['editorial', 'docs/editorial.md']] as const) {
-    manifest.setIn(['kinds', kind], { template: 'templates/product.md', source: 'markdown', file: page, origin: 'agent', labels: { en: { one: 'Report', many: 'Reports' } } });
+    manifest.setIn(['kinds', kind], { template: 'templates/product.liquid', source: 'markdown', file: page, origin: 'agent', labels: { en: { one: 'Report', many: 'Reports' } } });
   }
   // The enrichment of a passage is a kind of the wiki too: its pages stand beside the documents, so a product shows them
   // only when its manifest declares the kind (decision 0029).
-  manifest.setIn(['kinds', 'enrichment'], { template: 'templates/product.md', source: 'markdown', folder: 'docs/enrichment', origin: 'agent', labels: { en: { one: 'Enrichment', many: 'Enrichments' } } });
+  manifest.setIn(['kinds', 'enrichment'], { template: 'templates/product.liquid', source: 'markdown', folder: 'docs/enrichment', origin: 'agent', labels: { en: { one: 'Enrichment', many: 'Enrichments' } } });
   writeFileSync(file, manifest.toString());
   const read = readKinds(folder);
   if (!read.present || !read.manifest.kinds.has('validation')) throw new Error(`the fixture manifest of ${folder} does not declare the validation kind: ${JSON.stringify(read.present ? read.manifest.findings : 'no manifest')}`);

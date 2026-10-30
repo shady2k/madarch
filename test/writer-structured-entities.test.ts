@@ -75,22 +75,17 @@ function manifestOf(folder: string): KindsManifest {
 }
 
 /**
- * Gives the product the starter set and then declares the enrichment kind, which is what makes the writer run
- * its enrichment units at all (decision 0029: a page of a kind the manifest does not declare is a page no reader
- * could open). Its template draws the sequence diagram from the route the page relates — the engine's own path
- * (decision 0032, section 8), not a picture the writer concatenates into the page.
+ * Gives the product the starter set, unchanged, and nothing else: the enrichment kind and its template are part of
+ * the set (madarch-u3vw.1), which is what makes the writer run its enrichment units at all and what gives their pages
+ * a page a reader could open (decision 0029). The template draws the sequence diagram from the route the page
+ * relates — the engine's own path (decision 0032, section 8), not a picture the writer concatenates into the page.
  */
 function declareEnrichmentPages(folder: string): void {
   seedStarterSet(folder);
-  const file = join(folder, KINDS_FILE);
-  const manifest = parseDocument(readFileSync(file, 'utf8'));
-  manifest.setIn(['kinds', 'enrichment'], {
-    template: 'templates/enrichment.md', source: 'markdown', folder: 'docs/enrichment', origin: 'agent',
-    labels: { en: { one: 'Enrichment', many: 'Enrichments' }, ru: { one: 'Обогащение', many: 'Обогащения' } },
-  });
-  writeFileSync(file, manifest.toString());
-  writeFileSync(join(folder, 'templates/enrichment.md'), ':::body\n:::sequence\n');
-  if (!manifestOf(folder).kinds.has('enrichment')) throw new Error(`${join(folder, KINDS_FILE)}:1: the fixture manifest does not declare the enrichment kind`);
+  const declared = manifestOf(folder).kinds.get('enrichment');
+  if (declared === undefined) throw new Error(`${join(folder, KINDS_FILE)}:1: the starter set declares no enrichment kind, so the structured pages have no page`);
+  const template = readFileSync(join(folder, declared.template), 'utf8');
+  if (!template.includes('{% sequence')) throw new Error(`${join(folder, declared.template)}:1: the enrichment template draws no sequence block, so a use case carries no chain`);
 }
 
 /** The product's own pages, as the two units that write them would leave them: the enrichments are this test's subject. */

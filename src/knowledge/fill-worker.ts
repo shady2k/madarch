@@ -18,7 +18,9 @@ import { promisify } from 'node:util';
 import { createPGliteDatabaseOwner, type DatabaseOwner } from '../adapters/database-owner.js';
 import { fillGraph } from '../extract/driver/index.js';
 import { repositoryLandmarks } from './history-landmarks.js';
-import { EXTRACTOR_VERSIONS, HISTORY_EXTRACTOR, OWNERS, TREE_EXTRACTORS } from '../extract/driver/extractors.js';
+import { EXTRACTOR_VERSIONS, HISTORY_EXTRACTOR, OWNERS, treeExtractors } from '../extract/driver/extractors.js';
+import { canonicalJsonDigest } from '../model/canonical.js';
+import { byCodePoint } from '../model/order.js';
 import { createGraphStore } from '../graph/index.js';
 import {extractorManifest, prepareExtractorStore} from './extractor-store.js';
 import { indexWorkerProduct } from './index/run.js';
@@ -177,7 +179,15 @@ export async function runFillWorker(io: FillWorkerIo): Promise<number> {
     // a platform that does not let a process lower its own priority runs the fill at the priority it has
   }
   const {productFolder, readRoot, repositories} = start;
-  const prepared = prepareExtractorStore(start.graphPath, extractorManifest(EXTRACTOR_VERSIONS));
+  // The debt markers are the product's words, read from its manifest before the tree is read (madarch-m38l.19, the
+  // review's eighth finding): the extractor has no list of its own. The set is part of the extractor manifest, so a
+  // product that adds a marker rebuilds the graph instead of keeping nodes read under another rule.
+  const declaredRules = readKinds(productFolder);
+  const debtMarkers = declaredRules.present
+    ? [...new Set(Object.values(declaredRules.manifest.problems?.rules ?? {}).flatMap((rule) => rule.predicate === 'debt' && typeof rule.params?.['marker'] === 'string' ? [rule.params['marker']] : []))].sort(byCodePoint)
+    : [];
+  const extractors = treeExtractors({ debtMarkers });
+  const prepared = prepareExtractorStore(start.graphPath, extractorManifest([...EXTRACTOR_VERSIONS, {name: 'product-debt-markers', version: 1, contentDigest: canonicalJsonDigest(debtMarkers)}]));
   let graphPath = prepared.path;
   let rebuilding = prepared.rebuilt;
   if (rebuilding) send({type:'rebuild', reason:'extractors-changed'});
@@ -243,7 +253,7 @@ export async function runFillWorker(io: FillWorkerIo): Promise<number> {
           store,
           repository: repo.path,
           ref: head,
-          extractors: TREE_EXTRACTORS,
+          extractors,
           owners: OWNERS,
           history: HISTORY_EXTRACTOR,
           snapshots: landmarks.snapshots,

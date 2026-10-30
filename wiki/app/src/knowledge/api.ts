@@ -1,7 +1,7 @@
 import { appPath } from '../app-base.js';
 import { historyQuery } from './history-context.js';
 import { readJson, RequestError } from '../api.js';
-import type { AgentChoices, AgentOffer, AnswerResult, Block, CorrectionResult, CreatedTask, DiagramRenderer, DiagramView, DocumentListing, DocumentPageModel, EntityListing, FillState, Glossary, ModelRoleId, ModelRoleView, Neighborhood, PageJournal, PageModel, ProblemListing, ProductChoice, ProductSettings, QuestionDetail, QuestionListing, RefreshPreview, SourceFile, StatementModel, TaskDetail, TaskImpact, TaskListing, TaskProposal, TaskRow, TaskScope, UserSettings, WikiStatus } from './types.js';
+import type { AgentChoices, AgentOffer, AnswerResult, Block, CorrectionResult, CreatedTask, DiagramRenderer, DiagramView, DocumentListing, DocumentPageModel, EntityListing, FillState, Glossary, GraphVerdictBudgets, GraphVerdictFilter, GraphVerdictReport, GraphVerdictRole, GraphVerdictView, ModelRoleId, ModelRoleView, Neighborhood, PageJournal, PageModel, ProblemListing, ProductChoice, ProductSettings, QuestionDetail, QuestionListing, RefreshPreview, SourceFile, StatementModel, TaskDetail, TaskImpact, TaskListing, TaskProposal, TaskRow, TaskScope, UserSettings, WikiStatus } from './types.js';
 
 /** The wiki's status: manifest, kinds, repositories, fill. */
 export const getStatus = (signal?: AbortSignal): Promise<WikiStatus> => readJson<WikiStatus>('read the wiki', '/api/k/status', signal);
@@ -145,6 +145,25 @@ export const getAgentChoicesFor = (agent: string, fresh = false, signal?: AbortS
   return readJson<AgentChoices>('ask the agent for its models', `/api/k/agent-choices?${query.toString()}`, signal);
 };
 
+
+/** The graph verdict coverage and an inspectable slice of rows (madarch-mwhd.1). `peek` reads the saved report and starts no judge. */
+export async function getGraphVerdicts(query: { verdict?: GraphVerdictFilter; role?: GraphVerdictRole; kind?: string; limit?: number; offset?: number; force?: boolean; peek?: boolean } = {}, signal?: AbortSignal): Promise<GraphVerdictView> {
+  const search = new URLSearchParams();
+  if (query.verdict !== undefined) search.set('verdict', query.verdict);
+  if (query.role !== undefined) search.set('role', query.role);
+  if (query.kind !== undefined) search.set('kind', query.kind);
+  if (query.limit !== undefined) search.set('limit', String(query.limit));
+  if (query.offset !== undefined) search.set('offset', String(query.offset));
+  if (query.force === true) search.set('force', '1');
+  if (query.peek === true) search.set('peek', '1');
+  return await readJson<GraphVerdictView>('read the graph verdicts', `/api/k/graph-verdicts${search.size === 0 ? '' : `?${search.toString()}`}`, signal);
+}
+
+/** Saves what one graph verdict run may spend. */
+export async function saveGraphVerdictBudgets(itemsPerRun: number, modelCallsPerRun: number): Promise<{ budgets: GraphVerdictBudgets; report?: GraphVerdictReport }> {
+  return await post<{ budgets: GraphVerdictBudgets; report?: GraphVerdictReport }>('save the graph verdict budgets', '/api/k/graph-verdicts', { itemsPerRun, modelCallsPerRun });
+}
+
 /** Saves the page language, the model and the reasoning level (`null` is the agent's own). */
 export const saveProductSettings = (settings: { language?: string; model?: string | null; reasoning?: string | null; editorialRequestsPerPage?: number }): Promise<ProductSettings> => post<ProductSettings>('save the settings', '/api/k/product-settings', settings);
 
@@ -208,6 +227,12 @@ export const getQuestion = (id: string, signal?: AbortSignal): Promise<QuestionD
 
 export const getProblems = (signal?: AbortSignal): Promise<ProblemListing> => readJson<ProblemListing>('list the problems', '/api/k/problems', signal);
 
+/** «Не проблема»: the reason is kept as a file in the product repository. */
+export const dismissProblem = (id: string, reason: string): Promise<{ file: string; committed: boolean; note?: string; commit?: string }> => post('dismiss the problem', '/api/k/problem-dismiss', { id, reason });
+
+/** «Создать задачу»: a task scoped to the place the problem names (madarch-m38l.14). */
+export const createProblemTask = (id: string): Promise<CreatedTask> => post<CreatedTask>('create a task from the problem', '/api/k/problem-task', { id });
+
 /** Which pages a refresh would touch and why, before it is pressed; `language` is the one the reader means to ask for. */
 export const getRefreshPlan = (language?: string, signal?: AbortSignal): Promise<RefreshPreview> => readJson<RefreshPreview>('plan the refresh', `/api/k/refresh-plan${language === undefined ? '' : `?language=${encodeURIComponent(language)}`}`, signal);
 
@@ -237,7 +262,7 @@ export const answerQuestion = (question: string, text: string): Promise<AnswerRe
 export const correctStatement = (statement: string, reason: string): Promise<CorrectionResult> => post<CorrectionResult>('save the correction', '/api/k/correction', { statement, reason });
 
 /** One block of a page, by the line of its template: what a deferred diagram reads to draw itself. */
-export const getBlock = (id: string, line: number, lang: string, signal?: AbortSignal): Promise<Block> => readJson<Block>(`read the block at line ${line} of the page of ${id}`, `/api/k/block?id=${encodeURIComponent(id)}&line=${line}&lang=${lang === 'ru' ? 'ru' : 'en'}${historyQuery()}`, signal);
+export const getBlock = (id: string, block: string, lang: string, signal?: AbortSignal): Promise<Block> => readJson<Block>(`read the block ${block} of the page of ${id}`, `/api/k/block?id=${encodeURIComponent(id)}&block=${encodeURIComponent(block)}&lang=${lang === 'ru' ? 'ru' : 'en'}${historyQuery()}`, signal);
 
 /** What the agent did to write one page: the records of the newest run that wrote it, or of the run asked for. */
 export const getJournal = (id: string, run: string | null, signal?: AbortSignal): Promise<PageJournal> => readJson<PageJournal>(`read the journal of ${id}`, `/api/k/journal?id=${encodeURIComponent(id)}${run === null ? '' : `&run=${encodeURIComponent(run)}`}`, signal);

@@ -84,7 +84,7 @@ describe('a product made by an earlier madarch, opened by this one', () => {
       { file: manifestFile, line: expectLine, message: expect.stringContaining('the documents hold no entity of kind "doc.decision" (a decision)') },
     ]);
     expect(status.language).toBe('ru');
-    expect(status.groups.map((group) => group.group)).toEqual(['product', 'code', 'contracts', 'data', 'operations', 'tests', 'history']);
+    expect(status.groups.map((group) => group.group)).toEqual(['product', 'code', 'code.structure', 'code.analysis', 'contracts', 'data', 'operations', 'operations.configuration', 'operations.dependencies', 'operations.build-deploy', 'operations.ci-cd', 'operations.runtime', 'operations.newcomer', 'tests', 'history']);
     expect(Object.keys(status.roles).sort()).toEqual(['analyst', 'architect', 'developer', 'operations', 'product', 'tester']);
     const kinds = status.kinds.map((kind) => kind.kind);
     for (const kind of ['doc.use-case', 'doc.rule', 'doc.term', 'code.route', 'code.operation', 'code.contract', 'code.database', 'question', 'correction']) expect(kinds).toContain(kind);
@@ -94,7 +94,7 @@ describe('a product made by an earlier madarch, opened by this one', () => {
     expect(readFileSync(join(folder, 'madarch', 'kinds.yaml'), 'utf8')).toBe(starterManifest('ru'));
     expect(logged.some((line) => line.includes('brought') && line.includes('madarch/kinds.yaml'))).toBe(true);
     // The route's page template is there, so a route page can be drawn.
-    expect(readFileSync(join(folder, 'templates', 'route.md'), 'utf8')).toBe(STARTER_FILES.find((file) => file.path === 'templates/route.md')!.content);
+    expect(readFileSync(join(folder, 'templates', 'route.liquid'), 'utf8')).toBe(STARTER_FILES.find((file) => file.path === 'templates/route.liquid')!.content);
   }, 90_000);
 
   test('a manifest a person edited is left byte for byte; the Problems page offers what the set holds, and adding one reads clean', async () => {
@@ -251,6 +251,51 @@ describe('the model roles (madarch-j6ho.2)', () => {
     expect(await asked.response.json()).toMatchObject({ agent: { id: 'claude-code' }, choices: { model: null, reasoning: null } });
   }, 60_000);
 
+  test('the graph verdict route reads a saved report without starting a judge, and saves whole budgets', async () => {
+    const { folder, store } = oldProduct();
+    installed(root!);
+    const held = product(folder, store, { choicesQuery: async () => ({ ok: true, choices: { model: null, reasoning: null } }) });
+    const id = (held.product() as { id: string }).id;
+    mkdirSync(join(store, id), { recursive: true });
+    const file = join(store, id, 'graph-verdicts.json');
+    writeFileSync(file, JSON.stringify({ validatorVersion: '1', generatedAt: '2026-10-29T10:00:00.000Z', fingerprint: '', budgets: { itemsPerRun: 400, modelCallsPerRun: 4 }, entries: {} }));
+    const makers = {
+      json: (status: number, body: unknown): Response => Response.json(body, { status }),
+      refused: (status: number, error: { message: string }) => ({ response: Response.json({ error }, { status }), refusal: error.message }),
+      errorLog: () => undefined,
+    };
+    const part = createKnowledgePart(makers as never, held, () => [], {});
+    const get = (query: string): Request => new Request(`http://wiki.test/api/k/graph-verdicts${query}`, { headers: { 'sec-fetch-site': 'same-origin' } });
+    const post = (body: unknown, headers: Record<string, string> = {}): Request => new Request('http://wiki.test/api/k/graph-verdicts', { method: 'POST', headers: { 'content-type': 'application/json', ...headers }, body: JSON.stringify(body) });
+    const peek = await part.graphVerdicts(get('?peek=1'));
+    expect(peek.response.status).toBe(200);
+    expect(await peek.response.json()).toMatchObject({ budgets: { itemsPerRun: 400, modelCallsPerRun: 4 }, cached: true, report: { totals: { items: 0, valid: 0, invalid: 0, unreviewed: 0 } }, rows: [] });
+    expect((await part.graphVerdicts(get('?verdict=maybe'))).response.status).toBe(400);
+    // The settings table reads every row a person still has to look at, one page at a time (madarch-mwhd.1, RARE).
+    const nonValid = await part.graphVerdicts(get('?verdict=non-valid&limit=100&offset=0'));
+    expect(nonValid.response.status).toBe(200);
+    expect(await nonValid.response.json()).toMatchObject({ total: 0, offset: 0, limit: 100, rows: [] });
+    expect((await part.graphVerdicts(get('?limit=0'))).response.status).toBe(400);
+    expect((await part.graphVerdicts(post({ itemsPerRun: 50, modelCallsPerRun: 2 }, { 'sec-fetch-site': 'cross-site' }))).response.status).toBe(403);
+    const wrong = await part.graphVerdicts(post({ itemsPerRun: 1.5, modelCallsPerRun: 2 }));
+    expect(wrong.response.status).toBe(400);
+    expect((await wrong.response.json() as { error: { message: string } }).error.message).toContain('itemsPerRun');
+    expect((await part.graphVerdicts(post({}))).response.status).toBe(400);
+    const text = await part.graphVerdicts(post({ itemsPerRun: '50', modelCallsPerRun: 2 }));
+    expect(text.response.status).toBe(400);
+    expect((await text.response.json() as { error: { message: string } }).error.message).toContain('itemsPerRun');
+    const done = await part.graphVerdicts(post({ itemsPerRun: 50, modelCallsPerRun: 2 }, { 'sec-fetch-site': 'same-origin' }));
+    expect(done.response.status).toBe(200);
+    expect(await done.response.json()).toMatchObject({ budgets: { itemsPerRun: 50, modelCallsPerRun: 2 } });
+    expect(JSON.parse(readFileSync(file, 'utf8'))).toMatchObject({ budgets: { itemsPerRun: 50, modelCallsPerRun: 2 }, entries: {} });
+    const run = await part.graphVerdicts(get('?limit=100'));
+    expect(run.response.status).toBe(200);
+    expect(await run.response.json()).toMatchObject({ cached: false, report: { totals: { items: 0, nodes: 0, edges: 0 } }, total: 0, rows: [] });
+    const again = await part.graphVerdicts(get('?limit=100'));
+    expect(again.response.status).toBe(200);
+    expect(await again.response.json()).toMatchObject({ cached: true, metrics: { checked: 0, judgeItems: 0, modelCalls: 0 }, total: 0, rows: [] });
+  }, 60_000);
+
   test('an unknown role and a model the agent does not report are refused in words', async () => {
     const { folder, store } = oldProduct();
     installed(root!);
@@ -338,13 +383,13 @@ describe('the two local resets', () => {
 
   test('«Start from scratch» leaves no agent page and no graph, puts the manifest and templates at the current set, keeps a person\'s page and the agent, and fills again', async () => {
     const { folder, store } = oldProduct();
-    writeFileSync(join(folder, 'templates', 'domain.md'), 'my own template\n');
+    writeFileSync(join(folder, 'templates', 'domain.liquid'), 'my own template\n');
     const counter = { started: 0 };
     const held = product(folder, store, { workerFactory: quickWorker(counter) });
     const id = withPages(folder, store, held);
     const plan = held.dangerPlan();
     expect(plan.fresh.agentPages).toEqual(['docs/product.md', 'docs/domains/orders.md']);
-    expect(plan.fresh.editedStarterFiles).toContain('templates/domain.md');
+    expect(plan.fresh.editedStarterFiles).toContain('templates/domain.liquid');
     expect(plan.rewrite.keptPages).toEqual(['docs/domains/mine.md']);
     const done = await held.startFresh();
     expect(done.ok).toBe(true);

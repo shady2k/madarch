@@ -257,6 +257,7 @@ export const COMMANDS: Record<string, CommandSpec> = {
   'mcp-unit': { positionals: [], flags: { home: false, product: false, port: false, open: false, branch: false, yes: false } },
   'knowledge-read-worker': { positionals: [], flags: { home: false, product: false, port: false, open: false, branch: false, yes: false } },
   'knowledge-fill-worker': { positionals: [], flags: { home: false, product: false, port: false, open: false, branch: false, yes: false } },
+  'knowledge-render-worker': { positionals: [], flags: { home: false, product: false, port: false, open: false, branch: false, yes: false } },
   // The deterministic fill (decision 0026's stages 0 to 7, started by madarch-tzte.21.8): it runs
   // the eight stages over one product and prints what the graph holds afterwards. It serves nothing
   // and takes no agent, so it carries no port and no open.
@@ -612,6 +613,15 @@ export async function main(args: readonly string[], deps: CliDeps = {}): Promise
     const { runReadWorker } = await import('../knowledge/read-worker.js');
     const { standardInputLines } = await import('../knowledge/lines.js');
     const code = await runReadWorker({ lines: standardInputLines(), send: (line) => { process.stdout.write(`${line}\n`); } });
+    // The pipe from the server is still open for reading; the worker is over.
+    await new Promise<void>((done) => { process.stdout.write('', () => done()); });
+    process.exit(code);
+  }
+  if (command === 'knowledge-render-worker') {
+    // The knowledge wiki's Liquid templates, rendered in a process of its own (madarch-u3vw.1): messages are lines on standard input and output.
+    const { runRenderWorker } = await import('../knowledge/render-worker.js');
+    const { standardInputLines } = await import('../knowledge/lines.js');
+    const code = await runRenderWorker({ lines: standardInputLines(), send: (message) => { process.stdout.write(`${message}\n`); } });
     // The pipe from the server is still open for reading; the worker is over.
     await new Promise<void>((done) => { process.stdout.write('', () => done()); });
     process.exit(code);

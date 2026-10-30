@@ -24,7 +24,7 @@ import { CataloguePage, DocumentPage, DocumentsPage, EntityPage, EmptyHome, Fill
 import { GlossaryContext, GlossaryPage, useGlossary, useGlossaryValue, useTerms } from './glossary.js';
 import { HelpLink, RoleCard, RoleMenu } from './role-ui.js';
 import { RoleContext, leadGroups, loadSettings, useRole, useSettings } from './roles.js';
-import { addressOfKind, K_CATALOGUE, K_DOCS, K_GLOSSARY, K_HOME, K_PROBLEMS, K_QUESTIONS, K_TASKS, K_SETTINGS, kRouteOf, type KRoute } from './routes.js';
+import { addressOfEntity, addressOfKind, K_CATALOGUE, K_DOCS, K_GLOSSARY, K_HOME, K_PROBLEMS, K_QUESTIONS, K_TASKS, K_SETTINGS, kRouteOf, type KRoute } from './routes.js';
 import { ProblemsPage, QuestionPage, QuestionsPage, TaskPage, TasksPage, RefreshPreviewView } from './loop.js';
 import { JournalPage } from './journal.js';
 import { KindLabels, useKindName } from './kind-names.js';
@@ -121,20 +121,54 @@ export function ProductSelector({ name, products, current }: { name: string; pro
 /** The kinds that have a top-level page of their own in the navigation (the glossary is the page of the glossary terms): "Pages by kind" does not list them again. Their pages stay reachable from that page and from links. */
 const KINDS_WITH_OWN_PAGE: ReadonlySet<string> = new Set(['doc.term', 'task']);
 
-/** The kinds of the manifest as the navigation shows them: by group, in the manifest's order, the groups with the entities they hold. */
-export function navGroups(status: WikiStatus, pending: (kind: string) => number): { group: string | null; labels: Record<string, string> | null; total: number; kinds: KindSummary[] }[] {
+/** A sub-area of a group, as the navigation and the catalogue draw it. */
+export interface NavSubgroup {
+  group: string;
+  labels: Record<string, string>;
+  total: number;
+  kinds: KindSummary[];
+}
+
+/**
+ * A group of the navigation: its direct kinds and, when it has sub-areas, those
+ * sub-areas in the manifest's order. `kinds` holds every kind the group shows,
+ * sub-areas included, so a role that leads a group keeps its whole branch.
+ */
+export interface NavGroup {
+  group: string | null;
+  labels: Record<string, string> | null;
+  /** The manifest's `open: true`: the menu opens this group by itself, before a reader touches it. */
+  open: boolean;
+  total: number;
+  kinds: KindSummary[];
+  subgroups: NavSubgroup[];
+}
+
+/** The kinds of the manifest as the navigation shows them: top-level groups, each with its sub-areas, in the manifest's order. */
+export function navGroups(status: WikiStatus, pending: (kind: string) => number): NavGroup[] {
   // A group counts every entity of its kinds, the home page included, so the navigation and the catalogue say the same number.
   const counted = status.kinds.filter((kind) => !LOOP_KINDS.has(kind.kind));
   const shown = status.kinds.filter((kind) => !LOOP_KINDS.has(kind.kind) && !KINDS_WITH_OWN_PAGE.has(kind.kind) && !kind.single && (kind.count > 0 || pending(kind.kind) > 0));
-  const declared = status.groups.map((group) => ({ group: group.group as string | null, labels: group.labels as Record<string, string> | null }));
+  const declared = status.groups.map((group) => ({ group: group.group as string | null, labels: group.labels as Record<string, string> | null, parent: group.parent, open: group.open === true }));
   const known = new Set(status.groups.map((group) => group.group));
-  const loose = shown.filter((kind) => kind.group === undefined || !known.has(kind.group));
-  const all = loose.length > 0 ? [...declared, { group: null, labels: null }] : declared;
+  const top = declared.filter((group) => group.parent === undefined || !known.has(group.parent));
+  const children = declared.filter((group) => group.parent !== undefined && known.has(group.parent));
+  const belongs = (kind: KindSummary, group: string | null): boolean => (group === null ? kind.group === undefined || !known.has(kind.group) : kind.group === group);
+  const countedOf = (group: string | null): number => counted.filter((kind) => belongs(kind, group)).reduce((sum, kind) => sum + kind.count, 0);
+  const shownOf = (group: string | null): KindSummary[] => shown.filter((kind) => belongs(kind, group));
+  const loose = shownOf(null);
+  const all = loose.length > 0 ? [...top, { group: null, labels: null, parent: undefined, open: false }] : top;
   return all
-    .map((entry) => {
-      const belongs = (kind: KindSummary): boolean => (entry.group === null ? kind.group === undefined || !known.has(kind.group) : kind.group === entry.group);
-      const kinds = shown.filter(belongs);
-      return { ...entry, kinds, total: counted.filter(belongs).reduce((sum, kind) => sum + kind.count, 0) };
+    .map((entry): NavGroup => {
+      const childrenOf = entry.group === null ? [] : children.filter((child) => child.parent === entry.group);
+      // A sub-area counts every entity of its kinds, as the parent does; a kind with a page of its own is not drawn as a
+      // row, but its entities are not lost from the parent's total (the review). Only rows the menu can draw stand open.
+      const allSubgroups = childrenOf.map((child): NavSubgroup => ({ group: child.group!, labels: child.labels!, total: countedOf(child.group), kinds: shownOf(child.group) }));
+      const subgroups = allSubgroups.filter((child) => child.kinds.length > 0);
+      const childKindNames = new Set(allSubgroups.flatMap((child) => child.kinds.map((kind) => kind.kind)));
+      const direct = shownOf(entry.group).filter((kind) => !childKindNames.has(kind.kind));
+      const kinds = entry.group === null ? shownOf(null) : [...direct, ...subgroups.flatMap((child) => child.kinds)];
+      return { group: entry.group, labels: entry.labels, open: entry.open, total: countedOf(entry.group) + allSubgroups.reduce((sum, child) => sum + child.total, 0), kinds, subgroups };
     })
     .filter((entry) => entry.kinds.length > 0);
 }
@@ -145,6 +179,9 @@ function NavPanel({ status, products, route, onNavigate }: { status: WikiStatus;
   const language = (i18n.resolvedLanguage ?? 'en').startsWith('ru') ? 'ru' : 'en';
   const folder = decodeURIComponent((/^\/products\/([^/]+)/.exec(window.location.pathname)?.[1] ?? ''));
   const questionsOpen = status.loop?.questionsOpen ?? 0;
+  const tasksOpen = status.loop?.tasksOpen ?? 0;
+  // An older server sends only the corrections; the Problems page's own count is preferred when it is there.
+  const problemsOpen = status.loop?.problemsOpen ?? status.loop?.correctionsOpen ?? 0;
   /** The pages of a kind the agent has yet to write: its units that wait or are writing (a unit is named `<kind>:<slug>`). */
   const pendingOf = (kind: string): number => status.writer.units.filter((unit) => unit.unit.startsWith(`${kind}:`) && (unit.state === 'waiting' || unit.state === 'writing')).length;
   const { role, roles } = useRole();
@@ -155,6 +192,36 @@ function NavPanel({ status, products, route, onNavigate }: { status: WikiStatus;
   const link = (active: boolean): string =>
     'nav-link my-px flex items-center gap-2.5 rounded-[var(--radius-row)] px-[10px] py-[9px] text-small no-underline transition-colors duration-150 motion-reduce:transition-none ' +
     (active ? 'nav-current bg-[var(--surface-active)] font-[550] text-ink' : 'text-secondary hover:bg-[var(--surface-hover)] hover:text-ink');
+  const waitingLink = (id: string, href: string, Icon: typeof HomeIcon, label: string, count: number, active: boolean): ReactElement => (
+    <a
+      href={appPath(href)}
+      className={link(active) + (count === 0 ? ' text-muted opacity-60' : '')}
+      aria-current={active ? 'page' : undefined}
+      data-empty={count === 0 ? 'true' : 'false'}
+      data-testid={id}
+      {...pick(href)}
+    >
+      <Icon aria-hidden="true" className="size-4 shrink-0 text-muted" />
+      <span className="min-w-0 flex-1">{label}</span>
+      <span className="text-small text-muted" data-testid={`${id}-count`}>{count}</span>
+    </a>
+  );
+  const directOf = (entry: NavGroup): KindSummary[] => {
+    const inSubgroup = new Set(entry.subgroups.flatMap((subgroup) => subgroup.kinds.map((kind) => kind.kind)));
+    return entry.kinds.filter((kind) => !inSubgroup.has(kind.kind));
+  };
+  const kindLink = (kind: KindSummary, padding = '!pl-[30px]'): ReactElement => {
+    const active = route.name === 'kind' && route.kind === kind.kind;
+    return (
+      <a key={kind.kind} href={appPath(addressOfKind(kind.kind))} className={link(active) + ` !py-[7px] ${padding}`} aria-current={active ? 'page' : undefined} data-nav-kind={kind.kind} {...pick(addressOfKind(kind.kind))}>
+        <span className="min-w-0 flex-1 truncate">{kindName(kind.kind, 'many')}</span>
+        <span className="text-small text-muted" data-testid="nav-count">
+          {kind.count}
+          {pendingOf(kind.kind) > 0 && <span className="ml-1" title={t('knowledge.pendingCount', { count: pendingOf(kind.kind) })} data-testid="nav-pending">+{pendingOf(kind.kind)}</span>}
+        </span>
+      </a>
+    );
+  };
   return (
     <>
       <a href={appPath(K_HOME)} data-testid="nav-brand" className="nav-brand flex items-center gap-2.5 px-2 py-[14px] text-ink no-underline hover:text-ink focus-visible:ring-2 focus-visible:ring-ink focus-visible:ring-offset-2" {...pick(K_HOME)}>
@@ -168,6 +235,12 @@ function NavPanel({ status, products, route, onNavigate }: { status: WikiStatus;
           <HomeIcon aria-hidden="true" className="size-4 shrink-0 text-muted" />
           <span className="min-w-0 flex-1">{t('knowledge.home')}</span>
         </a>
+        <div data-testid="nav-waiting" className="mb-2 mt-2">
+          <h2 className="mb-1 px-2 text-[12px] uppercase tracking-[0.08em] text-muted">{t('knowledge.waiting')}</h2>
+          {waitingLink('nav-questions', K_QUESTIONS, HelpCircleIcon, t('loop.questionsTitle'), questionsOpen, route.name === 'questions' || route.name === 'question')}
+          {waitingLink('nav-tasks', K_TASKS, CheckIcon, t('loop.tasksTitle'), tasksOpen, route.name === 'tasks' || route.name === 'task')}
+          {waitingLink('nav-problems', K_PROBLEMS, AlertTriangleIcon, t('loop.problemsTitle'), problemsOpen, route.name === 'problems')}
+        </div>
         <a href={appPath(K_CATALOGUE)} className={link(route.name === 'catalogue')} aria-current={route.name === 'catalogue' ? 'page' : undefined} data-testid="nav-catalogue" {...pick(K_CATALOGUE)}>
           <LayoutGridIcon aria-hidden="true" className="size-4 shrink-0 text-muted" />
           <span className="min-w-0 flex-1">{t('knowledge.catalogue')}</span>
@@ -183,7 +256,7 @@ function NavPanel({ status, products, route, onNavigate }: { status: WikiStatus;
         {groups.map((entry) => {
           const key = entry.group ?? '\0other';
           const holdsActive = route.name === 'kind' && entry.kinds.some((kind) => kind.kind === route.kind);
-          const open = opened[key] ?? (holdsActive || entry.group === 'product');
+          const open = opened[key] ?? (holdsActive || entry.open);
           return (
             <div key={key} data-nav-group={entry.group ?? ''} className="mb-0.5">
               <button
@@ -197,48 +270,36 @@ function NavPanel({ status, products, route, onNavigate }: { status: WikiStatus;
                 <span className="min-w-0 flex-1 truncate">{entry.labels === null ? t('knowledge.groupOther') : entry.labels[language] ?? entry.labels['en'] ?? entry.group}</span>
                 <span className="text-small font-normal text-muted" data-testid="nav-group-count">{entry.total}</span>
               </button>
-              {open && entry.kinds.map((kind) => {
-                const active = route.name === 'kind' && route.kind === kind.kind;
-                return (
-                  <a key={kind.kind} href={appPath(addressOfKind(kind.kind))} className={link(active) + ' !py-[7px] !pl-[30px]'} aria-current={active ? 'page' : undefined} data-nav-kind={kind.kind} {...pick(addressOfKind(kind.kind))}>
-                    <span className="min-w-0 flex-1 truncate">{kindName(kind.kind, 'many')}</span>
-                    <span className="text-small text-muted" data-testid="nav-count">
-                      {kind.count}
-                      {pendingOf(kind.kind) > 0 && <span className="ml-1" title={t('knowledge.pendingCount', { count: pendingOf(kind.kind) })} data-testid="nav-pending">+{pendingOf(kind.kind)}</span>}
-                    </span>
-                  </a>
-                );
-              })}
+              {open && (
+                <>
+                  {directOf(entry).map((kind) => kindLink(kind))}
+                  {entry.subgroups.map((subgroup) => (
+                    <div key={subgroup.group} data-nav-subgroup={subgroup.group} data-testid="nav-subgroup" className="mb-0.5">
+                      <div className="flex items-center gap-2 py-[5px] pl-[30px] pr-[10px] text-[11px] uppercase tracking-[0.06em] text-muted">
+                        <span className="min-w-0 flex-1 truncate">{subgroup.labels[language] ?? subgroup.labels['en'] ?? subgroup.group}</span>
+                        <span className="font-normal" data-testid="nav-subgroup-count">{subgroup.total}</span>
+                      </div>
+                      {subgroup.kinds.map((kind) => kindLink(kind, '!pl-[42px]'))}
+                    </div>
+                  ))}
+                </>
+              )}
             </div>
           );
         })}
-        <a href={appPath(K_QUESTIONS)} className={link(route.name === 'questions' || route.name === 'question') + ' mt-4'} aria-current={route.name === 'questions' || route.name === 'question' ? 'page' : undefined} data-testid="nav-questions" {...pick(K_QUESTIONS)}>
-          <HelpCircleIcon aria-hidden="true" className="size-4 shrink-0 text-muted" />
-          <span className="min-w-0 flex-1">{t('loop.questionsTitle')}</span>
-          {questionsOpen > 0 && <span className="text-small text-muted" data-testid="nav-questions-count">{questionsOpen}</span>}
-        </a>
-        <a href={appPath(K_TASKS)} className={link(route.name === 'tasks' || route.name === 'task')} aria-current={route.name === 'tasks' ? 'page' : undefined} data-testid="nav-tasks" {...pick(K_TASKS)}>
-          <CheckIcon aria-hidden="true" className="size-4 shrink-0 text-muted" />
-          <span className="min-w-0 flex-1">{t('loop.tasksTitle')}</span>
-        </a>
-        <a href={appPath(K_PROBLEMS)} className={link(route.name === 'problems')} aria-current={route.name === 'problems' ? 'page' : undefined} data-testid="nav-problems" {...pick(K_PROBLEMS)}>
-          <AlertTriangleIcon aria-hidden="true" className="size-4 shrink-0 text-muted" />
-          <span className="min-w-0 flex-1">{t('loop.problemsTitle')}</span>
-          {(status.loop?.correctionsOpen ?? 0) > 0 && <span className="text-small text-muted" data-testid="nav-problems-count">{status.loop?.correctionsOpen ?? 0}</span>}
-        </a>
+      </nav>
+      <div className="border-t border-line py-2" data-testid="nav-foot">
         <a href={appPath(K_DOCS)} className={link(route.name === 'docs' || route.name === 'doc')} aria-current={route.name === 'docs' || route.name === 'doc' ? 'page' : undefined} data-testid="nav-documents" {...pick(K_DOCS)}>
           <FolderGit2Icon aria-hidden="true" className="size-4 shrink-0 text-muted" />
           <span className="min-w-0 flex-1">{t('knowledge.documents')}</span>
         </a>
-      </nav>
-      {status.own !== true && (
-        <div className="border-t border-line py-2">
+        {status.own !== true && (
           <a href={appPath(K_SETTINGS)} className={link(route.name === 'settings')} aria-current={route.name === 'settings' ? 'page' : undefined} data-testid="nav-settings" {...pick(K_SETTINGS)}>
             <SettingsIcon aria-hidden="true" className="size-4 shrink-0 text-muted" />
             <span className="min-w-0 flex-1">{t('settings.nav')}</span>
           </a>
-        </div>
-      )}
+        )}
+      </div>
     </>
   );
 }
@@ -358,7 +419,78 @@ export function FillMenu({ status, refresh }: { status: WikiStatus; refresh: () 
   );
 }
 
-function Toolbar({ status, route, menu, refresh, products, current }: { status: WikiStatus; route: KRoute; menu: ReactNode; refresh: () => void; products: readonly ProductChoice[]; current: string | null }): ReactElement {
+/**
+ * «Синхронизировать» in the top bar (madarch-u3vw2): the wiki's one refresh, the fill, pressed without opening the fill
+ * menu. When the run it started ends, the pages it changed open by themselves, each one a link to its page; a run that
+ * changed no page says so in one line, and one that failed says why. The button is spent while a run is under way.
+ */
+export function SyncButton({ status, refresh }: { status: WikiStatus; refresh: () => void }): ReactElement | null {
+  const { t } = useTranslation();
+  const [starting, setStarting] = useState(false);
+  const [pressed, setPressed] = useState<string | null>(null);
+  const [open, setOpen] = useState(false);
+  const [refused, setRefused] = useState<string | null>(null);
+  const fill = status.fill;
+  const writer = status.writer;
+  const busy = fill.state === 'running' || writer.state === 'running' || writer.state === 'waiting' || starting;
+  // The press remembers the run that was on record when it was made: the first end that is not that run is this one.
+  const ended = (fill.state === 'done' || fill.state === 'failed') && !busy && pressed !== null && (fill.finishedAt ?? '') !== pressed;
+  useEffect(() => {
+    if (!ended) return;
+    setPressed(null);
+    setOpen(true);
+  }, [ended]);
+  if (status.own === true || status.manifest !== 'ok' || !status.filled || status.repositories.length === 0) return null;
+  const press = (): void => {
+    setStarting(true);
+    setRefused(null);
+    setOpen(false);
+    const before = fill.finishedAt ?? '';
+    startFill(status.chosenAgent?.id ?? null).then(
+      () => { setStarting(false); setPressed(before); refresh(); },
+      (failure: unknown) => { setStarting(false); setRefused(failure instanceof Error ? failure.message : String(failure)); },
+    );
+  };
+  const changed = fill.changed;
+  return (
+    <span className="relative flex items-center">
+      <Button variant="default" size="default" className="sync-button" disabled={busy} onClick={press} title={t('knowledge.syncHint')} data-testid="sync">
+        {busy ? t('knowledge.syncRunning') : t('knowledge.sync')}
+      </Button>
+      {open && (
+        <div role="region" aria-label={t('knowledge.syncResult')} className="absolute right-0 top-[calc(100%+8px)] z-50 w-[min(28rem,92vw)] rounded-[var(--radius-card)] border border-line bg-page p-3 text-left shadow-lg" data-testid="sync-result">
+          <div className="mb-2 flex items-center justify-between gap-2">
+            <span className="text-small font-medium text-ink">{t('knowledge.syncResult')}</span>
+            <button type="button" className="cursor-pointer rounded p-1 text-muted hover:text-ink" aria-label={t('knowledge.syncClose')} data-testid="sync-close" onClick={() => setOpen(false)}>
+              <XIcon aria-hidden="true" className="size-4" />
+            </button>
+          </div>
+          {fill.state === 'failed' ? (
+            <div className="text-small" data-testid="sync-failed"><FailureNote scope="fill" code={fill.code} message={fill.message} /></div>
+          ) : writer.state === 'failed' ? (
+            <div className="text-small" data-testid="sync-writer-failed"><FailureNote scope="writer" code={writer.code} message={writer.message} /></div>
+          ) : changed === undefined ? (
+            <p className="m-0 text-small text-muted" data-testid="sync-unknown">{t('knowledge.syncUnknown')}</p>
+          ) : changed.length === 0 ? (
+            <p className="m-0 text-small" data-testid="sync-nothing">{t('knowledge.syncNothing')}</p>
+          ) : (
+            <>
+              <p className="mb-1 mt-0 text-small text-muted" data-testid="sync-count">{t('knowledge.syncChanged', { count: changed.length })}</p>
+              <ul className="m-0 max-h-[50vh] list-none overflow-auto p-0 text-small" data-testid="sync-changed">
+                {changed.map((page) => (
+                  <li key={page.id} className="py-0.5"><KLink href={addressOfEntity(page.id)} className="text-ink hover:underline">{page.title}</KLink></li>
+                ))}
+              </ul>
+            </>
+          )}
+        </div>
+      )}
+      {refused !== null && <p className="absolute right-0 top-[calc(100%+8px)] z-50 m-0 w-[min(28rem,92vw)] rounded-[var(--radius-card)] border border-line bg-page p-2 text-small shadow-lg" role="alert" data-testid="sync-refused">{refused}</p>}
+    </span>
+  );
+}
+
+export function Toolbar({ status, route, menu, refresh, products, current }: { status: WikiStatus; route: KRoute; menu: ReactNode; refresh: () => void; products: readonly ProductChoice[]; current: string | null }): ReactElement {
   const { t } = useTranslation();
   const kindName = useKindName();
   const where = route.name === 'questions' || route.name === 'question' ? t('loop.questionsTitle') : route.name === 'problems' ? t('loop.problemsTitle') : route.name === 'tasks' ? t('loop.tasksTitle') : route.name === 'settings' ? t('settings.title') : route.name === 'journal' ? t('journal.title') : route.name === 'kind' ? kindName(route.kind, 'many') : route.name === 'source' ? t('knowledge.source') : route.name === 'docs' || route.name === 'doc' ? t('knowledge.documents') : route.name === 'catalogue' ? t('knowledge.catalogue') : route.name === 'glossary' ? t('knowledge.glossary.title') : route.name === 'statement' ? t('knowledge.statement') : route.name === 'entity' ? null : t('knowledge.home');
@@ -375,6 +507,7 @@ function Toolbar({ status, route, menu, refresh, products, current }: { status: 
           </KLink>
         )}
         {menu}
+        <SyncButton status={status} refresh={refresh} />
         {status.own !== true && <FillMenu status={status} refresh={refresh} />}
         <RoleMenu />
         <HelpLink products={products} current={current} />
@@ -523,8 +656,10 @@ export function KnowledgeApp(): ReactElement {
       <GlossaryContext.Provider value={glossaryValue}>
       <RoleCard />
       <div className="shell flex min-h-dvh bg-page text-ink [font-family:var(--font-sans)] text-body" data-testid="knowledge-app">
-        <aside id="app-nav" className="app-nav sticky top-0 hidden h-dvh w-[240px] wide:w-[260px] shrink-0 flex-col border-r border-line bg-chrome px-[14px] wide:px-[18px] md:flex" aria-label={t('navigation.aria')}>
-          {nav()}
+        {/* The menu's ground spans the page, not one window: the column stretches to the shell's height, and only the
+            list inside it stays in view (sticky, one window tall) as the reader scrolls (madarch-u3vw.6). */}
+        <aside id="app-nav" className="app-nav hidden w-[240px] wide:w-[260px] shrink-0 border-r border-line bg-chrome md:flex" aria-label={t('navigation.aria')}>
+          <div className="sticky top-0 flex h-dvh w-full flex-col px-[14px] wide:px-[18px]">{nav()}</div>
         </aside>
         <div className="shell-main flex min-w-0 flex-1 flex-col">
           {/* The top bar and the tab bar stay put; only the page below them scrolls. */}
