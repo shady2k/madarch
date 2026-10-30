@@ -9,7 +9,7 @@
  */
 import { afterAll, beforeAll, describe, expect, test } from 'bun:test';
 import { execFileSync } from 'node:child_process';
-import { chmodSync, existsSync, mkdirSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs';
+import { chmodSync, existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import puppeteer, { type Browser, type Page } from 'puppeteer';
@@ -186,8 +186,15 @@ const badgeAt = async (): Promise<{ words: string | null; count: string | null; 
   return { words: words?.textContent ?? null, count: count?.textContent ?? null, mark: mark?.getAttribute('data-testid') ?? null, name: element.getAttribute('aria-label'), visible: { words: width(words), count: width(count), mark: width(mark) } };
 });
 
-/** How Russian counts pages: the one, the few and the many, as the words of the question say them. */
-const ruPages = (count: number): string => (count === 1 ? `${count} страница` : count >= 2 && count <= 4 ? `${count} страницы` : `${count} страниц`);
+/** The stop question in Russian for a count, asked of the locale's own plural family rather than spelled here. */
+const ruStopWords = (count: number): string => {
+  const file = join(ROOT, 'wiki', 'app', 'src', 'locales', 'ru.json');
+  const family = JSON.parse(readFileSync(file, 'utf8'))['knowledge']['fillPage'] as Record<string, string>;
+  const form = `stopWords_${new Intl.PluralRules('ru').select(count)}`;
+  const sentence = family[form];
+  if (sentence === undefined) throw new Error(`the Russian stop question has no ${form} in ${file}`);
+  return sentence.replace('{{count}}', String(count));
+};
 
 runDescribe('a person pauses and stops the run', () => {
   beforeAll(async () => {
@@ -344,7 +351,7 @@ runDescribe('a person pauses and stops the run', () => {
     expect(await page.$$eval('[data-testid=stop-dialog]', (elements) => elements.length)).toBe(1);
     expect(await page.$eval('[data-testid=stop-dialog]', (element) => element.getAttribute('role'))).toBe('dialog');
     const words = await page.$eval('[data-testid=stop-dialog-words]', (element) => element.textContent?.trim() ?? '');
-    expect(words.startsWith(`Остановка завершит запуск сейчас. Уже переписаны ${ruPages(written)}`)).toBe(true);
+    expect(words).toBe(ruStopWords(written));
     expect(words.endsWith('останется такой, какой была до запуска.')).toBe(true);
     // The question and the popover that holds it stand inside the screen, and the words wrap instead of running off it.
     const box = await page.$eval('[data-testid=fill-menu]', (element) => { const rect = element.getBoundingClientRect(); return { left: rect.left, right: rect.right, top: rect.top, bottom: rect.bottom, scrollWidth: element.scrollWidth, clientWidth: element.clientWidth }; });
