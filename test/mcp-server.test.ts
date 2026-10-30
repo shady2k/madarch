@@ -198,7 +198,7 @@ describe('the working tree is preferred to the commit', () => {
     // The journal keeps what the call cost: the file the layer read again, and the file reads the answer saved.
     const entry = readJournal(session.stateFolder).at(-1)!;
     expect(entry.reextracted).toEqual(['src/store.ts']);
-    expect(entry.readsSaved).toBeGreaterThan(0);
+    expect(entry.readsAvoided).toBeGreaterThan(0);
     expect(entry.answerBytes).toBeGreaterThan(100);
   }, 60_000);
 
@@ -248,7 +248,7 @@ describe('the journal', () => {
     // A file the layer read again is one the answer's source named as changed.
     const dirty = (warmed.answer['source'] as Record<string, unknown>)['dirty'] as { path: string }[];
     expect([...last.reextracted].every((file) => dirty.some((one) => one.path === file))).toBe(true);
-    expect(last.readsSaved).toBeGreaterThan(0);
+    expect(last.readsAvoided).toBeGreaterThan(0);
     const summary = summarize(session.stateFolder);
     expect(summary.calls).toBe(entries.length);
     expect(summary.tools.find((one) => one.tool === 'get_symbol')!.calls).toBeGreaterThan(0);
@@ -284,11 +284,19 @@ describe('the command as a client starts it', () => {
     child.stdin.write(`${JSON.stringify({ jsonrpc: '2.0', id: 2, method: 'tools/list', params: {} })}\n`);
     const listed = await nextLine();
     expect(((listed['result'] as Record<string, unknown>)['tools'] as { name: string }[]).map((tool) => tool.name)).toEqual([...REPO_TOOL_NAMES]);
-    child.stdin.write(`${JSON.stringify({ jsonrpc: '2.0', id: 3, method: 'tools/call', params: { name: 'get_symbol', arguments: { name: 'saveItem' } } })}\n`);
-    const called = await nextLine();
-    const content = (called['result'] as Record<string, unknown>)['content'] as { type: string; text: string }[];
-    expect(content[0]!.type).toBe('text');
-    const body = JSON.parse(content[0]!.text) as Record<string, unknown>;
+    // A client that asks while the graph is building is told so and asks again (madarch-ztyq.10 review): the server
+    // answers its handshake at once and builds in the background.
+    let body: Record<string, unknown> = {};
+    for (let attempt = 0; attempt < 120; attempt++) {
+      child.stdin.write(`${JSON.stringify({ jsonrpc: '2.0', id: 3 + attempt, method: 'tools/call', params: { name: 'get_symbol', arguments: { name: 'saveItem' } } })}\n`);
+      const called = await nextLine();
+      const content = (called['result'] as Record<string, unknown>)['content'] as { type: string; text: string }[];
+      expect(content[0]!.type).toBe('text');
+      body = JSON.parse(content[0]!.text) as Record<string, unknown>;
+      if ((body['error'] as Record<string, unknown> | undefined)?.['code'] !== 'graph-building') break;
+      await new Promise((resolve) => setTimeout(resolve, 500));
+    }
+    expect(body['error']).toBeUndefined();
     expect((body['source'] as Record<string, unknown>)['repository']).toBe(REPOSITORY);
     expect(body['selected']).toMatchObject({ key: 'code.symbol:src/store.ts#saveItem' });
     const exited = new Promise<number | null>((resolve) => child.on('exit', (code) => resolve(code)));

@@ -150,7 +150,15 @@ export async function answerUnitMcpMessage(message: unknown, options: UnitMcpOpt
       if (tools.some((tool) => tool.name === name) === false) {
         return error(held.id, INVALID_PARAMS, `${JSON.stringify(name)} is no tool of this server: the tools are ${tools.map((tool) => tool.name).join(', ')} (src/fill/unit-tools.ts)`);
       }
-      const answered = await options.call(name, params['arguments']);
+      let answered: UnitToolAnswer;
+      try {
+        answered = await options.call(name, params['arguments']);
+      } catch (thrown) {
+        // A tool that throws answers *this* call and keeps the stream: the failure is the call's own content, as the
+        // specification's `isError` result is, and the next call is served (madarch-ztyq.10 review).
+        const message = thrown instanceof Error ? thrown.message : String(thrown);
+        return result(held.id, { content: [{ type: 'text', text: JSON.stringify({ error: { code: 'tool-failed', message } }) }], isError: true });
+      }
       // The answer's own JSON is the content block, compact: the caps a read answers within are counts of
       // the answer's own text, and a pretty-printed copy would be a longer text than the one they bounded.
       return result(held.id, { content: [{ type: 'text', text: JSON.stringify(answered.answer) }], isError: answered.isError });

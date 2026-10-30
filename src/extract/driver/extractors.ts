@@ -45,13 +45,19 @@ const TREE_READERS = [
 export interface TreeExtractorOptions {
   /** The debt markers the product's manifest declares; empty reads none (madarch-m38l.19). */
   readonly debtMarkers?: readonly string[];
+  /**
+   * Whether the code pass keeps its tree-wide expression facts (default true). A caller that reads the graph alone
+   * and cannot hold a whole tree's facts — the working-tree layer, a bounded cold build — says false; the graph's
+   * nodes and edges are the same either way (madarch-ztyq.10 review).
+   */
+  readonly facts?: boolean;
 }
 
 /** The tree extractors with a product's declared words in place; the producer names do not change. */
 export function treeExtractors(options: TreeExtractorOptions = {}): readonly TreeExtractor[] {
   const debtMarkers = options.debtMarkers ?? [];
   return TREE_READERS.map((entry) => entry.name === 'extractCode'
-    ? (tree: TreeReader) => extractCodeWithFacts(tree, { debtMarkers })
+    ? (tree: TreeReader) => extractCodeWithFacts(tree, { debtMarkers, ...(options.facts === false ? { facts: false } : {}) })
     : entry.extractor);
 }
 

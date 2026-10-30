@@ -24,8 +24,15 @@ export interface JournalEntry {
   readonly reextracted: readonly string[];
   /** The files the answer shows or stands on: what a reader would have opened instead. */
   readonly covered: readonly string[];
-  /** The estimate of file reads the answer saved: the files it covered. */
-  readonly readsSaved: number;
+  /** The reads the tool measured it avoided: the reads it did not have to make, counted per call. */
+  readonly readsAvoided: number;
+  /** Whether the call answered its question: an error or an ambiguity answered nothing. 1 or 0. */
+  readonly questionsAnswered: number;
+  /**
+   * The estimate of the files the answer stands on: the files a reader would have opened to write it. An estimate,
+   * not a measurement — a covered file may not have been read in full, or at all.
+   */
+  readonly evidenceFiles: number;
   readonly durationMs: number;
   readonly revision: { readonly commit: string; readonly branch: string };
 }
@@ -36,7 +43,11 @@ export interface JournalToolSummary {
   readonly calls: number;
   readonly answerBytes: number;
   readonly reextracted: number;
-  readonly readsSaved: number;
+  /** Distinct `(tool, arguments)` calls: the second of two identical calls saved nothing new. */
+  readonly uniqueCalls: number;
+  readonly readsAvoided: number;
+  readonly questionsAnswered: number;
+  readonly evidenceFiles: number;
 }
 
 /** What a whole journal adds up to. */
@@ -45,7 +56,10 @@ export interface JournalSummary {
   readonly calls: number;
   readonly answerBytes: number;
   readonly reextractions: number;
-  readonly readsSaved: number;
+  readonly uniqueCalls: number;
+  readonly readsAvoided: number;
+  readonly questionsAnswered: number;
+  readonly evidenceFiles: number;
   readonly tools: readonly JournalToolSummary[];
   readonly last: JournalEntry | null;
 }
@@ -74,28 +88,56 @@ export function readJournal(folder: string): JournalEntry[] {
   return entries;
 }
 
-/** What a journal adds up to, by tool, in code point order of the tool's name. */
+/**
+ * What a journal adds up to, by tool, in code point order of the tool's name.
+ *
+ * A call is counted when it is made; a *saving* is counted once it is new. Two
+ * identical calls (`get_symbol g` twice) are two calls and one avoided read:
+ * the second answered the same file the first did, and counting it again would
+ * report a saving nobody received (madarch-ztyq.10 review). The three numbers a
+ * person reads are kept apart, because only the first is measured:
+ *
+ * - `readsAvoided` — the reads the tools measured they did not have to make;
+ * - `questionsAnswered` — the calls that answered their question (an error or
+ *   an ambiguous name answered none);
+ * - `evidenceFiles` — an estimate of the files the answers stand on.
+ */
 export function summarize(folder: string): JournalSummary {
   const entries = readJournal(folder);
-  const byTool = new Map<string, { calls: number; answerBytes: number; reextracted: number; readsSaved: number }>();
+  const seen = new Set<string>();
+  const byTool = new Map<string, { calls: number; answerBytes: number; reextracted: number; uniqueCalls: number; readsAvoided: number; questionsAnswered: number; evidenceFiles: number }>();
   let answerBytes = 0;
   let reextractions = 0;
-  let readsSaved = 0;
+  let readsAvoided = 0;
+  let questionsAnswered = 0;
+  let evidenceFiles = 0;
+  let uniqueCalls = 0;
   for (const entry of entries) {
-    const held = byTool.get(entry.tool) ?? { calls: 0, answerBytes: 0, reextracted: 0, readsSaved: 0 };
+    const identity = `${entry.tool}\u0000${JSON.stringify(entry.arguments)}`;
+    const first = !seen.has(identity);
+    if (first) seen.add(identity);
+    const held = byTool.get(entry.tool) ?? { calls: 0, answerBytes: 0, reextracted: 0, uniqueCalls: 0, readsAvoided: 0, questionsAnswered: 0, evidenceFiles: 0 };
     held.calls += 1;
     held.answerBytes += entry.answerBytes;
     held.reextracted += entry.reextracted.length;
-    held.readsSaved += entry.readsSaved;
+    held.questionsAnswered += entry.questionsAnswered;
+    if (first) {
+      held.uniqueCalls += 1;
+      held.readsAvoided += entry.readsAvoided;
+      held.evidenceFiles += entry.evidenceFiles;
+      uniqueCalls += 1;
+      readsAvoided += entry.readsAvoided;
+      evidenceFiles += entry.evidenceFiles;
+    }
     byTool.set(entry.tool, held);
     answerBytes += entry.answerBytes;
     reextractions += entry.reextracted.length;
-    readsSaved += entry.readsSaved;
+    questionsAnswered += entry.questionsAnswered;
   }
   const tools = [...byTool.entries()]
     .map(([tool, held]) => ({ tool, ...held }))
     .sort((left, right) => byCodePoint(left.tool, right.tool));
-  return { file: journalFile(folder), calls: entries.length, answerBytes, reextractions, readsSaved, tools, last: entries.at(-1) ?? null };
+  return { file: journalFile(folder), calls: entries.length, uniqueCalls, answerBytes, reextractions, readsAvoided, questionsAnswered, evidenceFiles, tools, last: entries.at(-1) ?? null };
 }
 
 /** The summary as a person reads it, one line per tool. */
@@ -103,9 +145,9 @@ export function summaryLines(summary: JournalSummary): string[] {
   if (summary.calls === 0) return [`madarch mcp: no call is journaled in ${summary.file}`];
   const lines = [`madarch mcp: ${summary.calls} calls journaled in ${summary.file}`];
   for (const tool of summary.tools) {
-    lines.push(`  ${tool.tool}: ${tool.calls} calls, ${tool.reextracted} files re-extracted, ${tool.answerBytes} answer bytes, ${tool.readsSaved} file reads saved`);
+    lines.push(`  ${tool.tool}: ${tool.calls} calls (${tool.uniqueCalls} distinct), ${tool.reextracted} files re-extracted, ${tool.answerBytes} answer bytes, ${tool.readsAvoided} file reads avoided, ${tool.questionsAnswered} questions answered, ${tool.evidenceFiles} evidence files (estimate)`);
   }
-  lines.push(`total: ${summary.calls} calls, ${summary.reextractions} file re-extractions, ${summary.answerBytes} answer bytes, ${summary.readsSaved} file reads saved`);
+  lines.push(`total: ${summary.calls} calls (${summary.uniqueCalls} distinct), ${summary.reextractions} file re-extractions, ${summary.answerBytes} answer bytes, ${summary.readsAvoided} file reads avoided, ${summary.questionsAnswered} questions answered, ${summary.evidenceFiles} evidence files (estimate)`);
   if (summary.last !== null) lines.push(`last call: ${summary.last.at} ${summary.last.tool} at ${summary.last.revision.commit.slice(0, 12)}`);
   return lines;
 }

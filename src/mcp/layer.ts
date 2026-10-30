@@ -23,7 +23,10 @@
 import { existsSync } from 'node:fs';
 import { resolve } from 'node:path';
 import type { ExtractedEdge, ExtractedNode, ExtractionGap, TreeReader } from '../extract/records.js';
-import { extractCodeWithFacts } from '../extract/code/index.js';
+import { extractFileSyntax } from '../fill/stages/syntax-extract.js';
+import { resolveSpecifier } from '../fill/stages/syntax-facts.js';
+import { codeLanguageOf } from '../extract/code/source.js';
+import { treeExtractors } from '../extract/driver/extractors.js';
 import type { GraphEntity, GraphReader, NeighborEdge, NeighborGroup } from '../knowledge/graph-read.js';
 import type { GraphView } from '../writer/view.js';
 import { byCodePoint } from '../model/order.js';
@@ -31,6 +34,13 @@ import { readWorkingFile, workingTree, type Revision } from './git.js';
 
 /** The column of a key that names the path it was read from, for the kinds whose keys carry one. */
 const PATH_PREFIXES = ['code.file:', 'code.symbol:', 'code.field:', 'code.document-section:'] as const;
+
+/**
+ * How many files the import closure of the changed files may add to a refresh. An edit is read with what it
+ * imports, because a call through an unchanged file cannot be resolved without that file's declarations; the bound
+ * keeps one edit in a heavily imported file from reading the tree (madarch-ztyq.10 review).
+ */
+const CLOSURE_LIMIT = 400;
 
 /**
  * The repository path a key names, or null for a key that names no file (a
@@ -83,7 +93,12 @@ export class WorkingLayer {
     return path !== undefined && this.touched.has(path);
   }
 
-  /** Whether a key's own path stands among the changed files, so the base graph's node of it is not the truth. */
+  /**
+   * Whether a key's own path stands among the changed files. The key's shape is the only thing a key says about
+   * itself, so this is the marking fallback below and never the invalidation rule: a fact is hidden when the
+   * provenance the base graph records for it — the span it was read at — is a changed path, whatever its key looks
+   * like (madarch-ztyq.10 review). The kinds this covers err by marking more, never by marking less.
+   */
   hidesKey(key: string): boolean {
     const path = pathOfKey(key);
     return path !== null && this.touched.has(path);
@@ -121,13 +136,30 @@ export class WorkingLayer {
    * Re-extracts the changed files when their content is not the content the
    * layer was built from, and answers what it read. An empty answer means the
    * layer already describes this working tree.
+   *
+   * What one refresh reads (madarch-ztyq.10 review):
+   *
+   * - every changed file git names, so a fact about it is the working tree's;
+   * - the **import closure** of the changed code files, because a call through a
+   *   name the caller imports cannot be resolved without the callee's
+   *   declarations — an edited caller used to lose its unchanged callee;
+   * - the manifests that name a file's module, so a symbol's key stays the key
+   *   the base graph gives it;
+   * - and every tree extractor the fill runs, not the code pass alone, so a
+   *   migration or an OpenAPI document that changed says so (the SQL data model
+   *   and the contracts are producers like the code pass is).
+   *
+   * Only rows whose span stands in a changed file are kept: the closure is read
+   * to resolve, never to answer.
    */
   async refresh(revision: Revision): Promise<LayerRefresh> {
-    const present = revision.touched.filter((path) => existsSync(resolve(this.repository, path)) && readWorkingFile(this.repository, path) !== null);
     const digests = new Map<string, string>();
-    for (const path of present) {
-      const bytes = readWorkingFile(this.repository, path);
-      if (bytes !== null) digests.set(path, Bun.hash(bytes).toString(16));
+    const present: string[] = [];
+    for (const path of revision.touched) {
+      if (!existsSync(resolve(this.repository, path))) continue;
+      const bytes = this.readPresent(path);
+      digests.set(path, Bun.hash(bytes).toString(16));
+      present.push(path);
     }
     const sameTouched = this.touched.size === revision.touched.length && revision.touched.every((path) => this.touched.has(path));
     const sameContent = this.extracted.size === digests.size && [...digests].every(([path, digest]) => this.extracted.get(path) === digest);
@@ -138,11 +170,13 @@ export class WorkingLayer {
       this.extracted = new Map();
       return { reextracted: [], gaps: [] };
     }
-    // The extraction reads the changed files and the manifests that name a file's module, so a symbol's key is the
-    // same key the base graph gives it; nothing else of the tree is read.
     const tree = workingTree(this.repository);
+    const known = new Set(tree.paths);
     const manifests = tree.paths.filter(isManifest);
-    const read = [...new Set([...present, ...manifests])].sort(byCodePoint);
+    const dirty = new Set(present);
+    const seeds = present.filter((path) => codeLanguageOf(path) !== undefined);
+    const closure = await this.closureOf(seeds, known);
+    const read = [...new Set([...present, ...manifests, ...closure])].sort(byCodePoint);
     const reader: TreeReader = {
       paths: read,
       read: (path: string): Uint8Array => {
@@ -151,24 +185,71 @@ export class WorkingLayer {
         return bytes;
       },
     };
-    const result = await extractCodeWithFacts(reader);
-    const changed = new Set(present);
     const nodes = new Map<string, ExtractedNode>();
-    for (const node of result.extraction.nodes) {
-      // A node is the working tree's when the file that declares it changed; the manifests' own module and package
-      // nodes are read again but say the same thing, so they are kept as they are.
-      if (node.span !== undefined && !changed.has(node.span.path)) continue;
-      nodes.set(node.key, node);
+    const edgeMap = new Map<string, ExtractedEdge>();
+    const gaps: ExtractionGap[] = [];
+    for (const extractor of treeExtractors({ facts: false })) {
+      const answered = await extractor(reader);
+      const extraction = 'extraction' in answered ? answered.extraction : answered;
+      for (const node of extraction.nodes) {
+        if (node.span === undefined || !dirty.has(node.span.path)) continue;
+        nodes.set(node.key, node);
+      }
+      for (const edge of extraction.edges) {
+        if (edge.span === undefined || !dirty.has(edge.span.path)) continue;
+        edgeMap.set(`${edge.type}\u0000${edge.from}\u0000${edge.to}\u0000${edge.discriminator}`, edge);
+      }
+      gaps.push(...extraction.gaps);
     }
-    const edges = result.extraction.edges.filter((edge) => edge.span !== undefined && changed.has(edge.span.path));
     this.nodes = nodes;
-    this.edges = edges;
-    this.edgeSites = edges.flatMap((edge) => (edge.span === undefined ? [] : [edge.span.path]));
-    this.gaps = result.extraction.gaps;
+    this.edges = [...edgeMap.values()];
+    this.edgeSites = this.edges.flatMap((edge) => (edge.span === undefined ? [] : [edge.span.path]));
+    this.gaps = gaps;
     this.touched = new Set(revision.touched);
     this.extracted = digests;
     this.markdown = undefined;
     return { reextracted: present.sort(byCodePoint), gaps: this.gaps };
+  }
+
+  /** One changed file's bytes, with the full path on the error a directory or a broken link raises. */
+  private readPresent(path: string): Uint8Array {
+    try {
+      const bytes = readWorkingFile(this.repository, path);
+      if (bytes === null) throw new Error('the file cannot be read');
+      return bytes;
+    } catch (error) {
+      const reason = error instanceof Error ? error.message : String(error);
+      throw new Error(`${resolve(this.repository, path)}:1: the changed file ${path} could not be read: ${reason} (src/mcp/layer.ts)`);
+    }
+  }
+
+  /**
+   * The changed code files and the files they import, transitively, up to
+   * `CLOSURE_LIMIT`: the declarations a call in a changed file is resolved
+   * against. A file that cannot be parsed is left out of the walk, not an
+   * error — the extraction that follows reports its own gaps.
+   */
+  private async closureOf(seeds: readonly string[], known: ReadonlySet<string>): Promise<string[]> {
+    const out = new Set<string>();
+    const queue = [...seeds];
+    while (queue.length > 0 && out.size < CLOSURE_LIMIT) {
+      const path = queue.shift()!;
+      if (out.has(path)) continue;
+      out.add(path);
+      const bytes = readWorkingFile(this.repository, path);
+      if (bytes === null || codeLanguageOf(path) === undefined) continue;
+      let imports: readonly { readonly specifier: string }[] = [];
+      try {
+        imports = (await extractFileSyntax(path, bytes)).imports;
+      } catch {
+        continue;
+      }
+      for (const one of imports) {
+        const target = resolveSpecifier(path, one.specifier, known);
+        if (target !== undefined && !out.has(target) && codeLanguageOf(target) !== undefined) queue.push(target);
+      }
+    }
+    return [...out];
   }
 
   private clear(): void {
@@ -237,13 +318,19 @@ export class RepositoryReads {
     return found;
   }
 
+  /**
+   * The entity of a key: the working tree's when it declares one, the base graph's otherwise — unless the base
+   * graph's own provenance for that entity (the span it was read at) is a changed file, in which case the file on
+   * disk is the truth and a base entity the working tree no longer declares is gone. The rule is the provenance,
+   * not the shape of the key: SQL tables, contract operations and sections live in files whose keys do not name a
+   * path (madarch-ztyq.10 review).
+   */
   async entity(key: string): Promise<GraphEntity | undefined> {
     const held = this.layer.entity(key);
     if (held !== undefined) return held;
-    // A key whose file the working tree changed and which the working tree no longer declares is a key the graph
-    // must not answer for: the file on disk is the truth.
-    if (this.layer.hidesKey(key)) return undefined;
-    return await this.rawBaseEntity(key);
+    const base = await this.rawBaseEntity(key);
+    if (base !== undefined && this.layer.hides(base.span?.path)) return undefined;
+    return base;
   }
 
   async list(kind: string, options: { q?: string; limit: number }): Promise<{ rows: GraphEntity[]; total: number }> {
@@ -264,7 +351,7 @@ export class RepositoryReads {
    * hidden rows the page held.
    */
   private page(base: readonly GraphEntity[], baseTotal: number, kind: string, options: { q?: string; prefix?: string; limit: number }): { rows: GraphEntity[]; total: number } {
-    const visible = base.filter((row) => !this.layer.hidesKey(row.key));
+    const visible = base.filter((row) => !this.layer.hides(row.span?.path));
     const hidden = base.length - visible.length;
     const merged = new Map<string, GraphEntity>();
     for (const row of visible) merged.set(row.key, row);
@@ -314,7 +401,15 @@ export class RepositoryReads {
     if (base === undefined) return { total: 0, rows: [] };
     const page = await this.reader.edgesOf(base, relation, direction, READ_ALL);
     if (this.layer.dirtyPaths.length === 0) return page;
-    const rows = page.rows.filter((row) => !this.layer.hides(row.span?.path));
+    // Both ends are read through the layer (madarch-ztyq.10 review): an edge whose site is a changed file is the
+    // working tree's, and an edge whose *other* end stands in a changed file the working tree no longer declares is
+    // no edge — a deleted callee is not the caller's callee.
+    const rows: NeighborEdge[] = [];
+    for (const row of page.rows) {
+      if (this.layer.hides(row.span?.path)) continue;
+      if (await this.entity(row.other.key) === undefined) continue;
+      rows.push(row);
+    }
     return { total: rows.length, rows };
   }
 

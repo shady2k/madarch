@@ -87,27 +87,53 @@ export class RepositorySession {
     return { revision, reextracted: [...refreshed.reextracted] };
   }
 
-  /** One tool call, answered from the working tree as it is now. */
+  /**
+   * One tool call, answered from the working tree as it is now.
+   *
+   * Every answer names the revision it was read at, refusals and failures
+   * included, and it gets that `source` here, in one place: the answering
+   * functions show the source they were handed, and a call that never reached
+   * them still says which commit it was asked about (madarch-ztyq.10 review).
+   *
+   * A refresh that fails answers *this* request and keeps serving: the failure
+   * is the call's own answer, and the next call reads the working tree again.
+   */
   async call(tool: string, argumentsValue: unknown): Promise<RepoToolAnswer> {
     const started = performance.now();
-    const { revision, reextracted } = await this.catchUp();
-    const reads = new RepositoryReads(this.graph.view, this.walkLayer);
-    const pages = new RepositoryPages(this.graph.view, this.walkLayer);
-    const source = {
+    let revision = this.revision;
+    let reextracted: string[] = [];
+    const source = (): Record<string, unknown> => ({
       repository: this.absolute,
       commit: revision.commit,
       branch: revision.branch,
       at: this.graph.view.at,
       dirty: revision.dirty.map((one) => ({ path: one.path, status: one.status })),
       reextracted: [...reextracted],
-    };
-    const answered = await callRepoTool(tool, argumentsValue, {
-      reads,
-      pages,
-      questions: async () => await repositoryQuestions(pages),
-      source,
     });
-    const answer = markUncommitted(answered.answer, this.walkLayer);
+    let answered: RepoToolAnswer;
+    let questionsAnswered = 0;
+    try {
+      const caught = await this.catchUp();
+      revision = caught.revision;
+      reextracted = [...caught.reextracted];
+      const reads = new RepositoryReads(this.graph.view, this.walkLayer);
+      const pages = new RepositoryPages(this.graph.view, this.walkLayer);
+      answered = await callRepoTool(tool, argumentsValue, {
+        reads,
+        pages,
+        questions: async () => await repositoryQuestions(pages),
+        source: source(),
+      });
+      if (!answered.isError) {
+        const body = answered.answer as Record<string, unknown>;
+        // An ambiguous name is a question asked and not answered: the caller must ask again, by another name.
+        questionsAnswered = body['candidates'] !== undefined && body['selected'] == null ? 0 : 1;
+      }
+    } catch (error) {
+      const message = error instanceof Error ? error.message : String(error);
+      answered = { isError: true, answer: { error: { code: 'refresh-failed', message } }, reads: [], covered: [] } as RepoToolAnswer;
+    }
+    const answer = markUncommitted({ ...(answered.answer as Record<string, unknown>), source: source() }, this.walkLayer);
     const bytes = Buffer.byteLength(JSON.stringify(answer), 'utf8');
     recordCall(this.folder, {
       at: new Date().toISOString(),
@@ -116,7 +142,9 @@ export class RepositorySession {
       answerBytes: bytes,
       reextracted,
       covered: answered.covered,
-      readsSaved: answered.covered.length,
+      readsAvoided: answered.reads.length,
+      questionsAnswered,
+      evidenceFiles: answered.covered.length,
       durationMs: Math.round(performance.now() - started),
       revision: { commit: revision.commit, branch: revision.branch },
     });
