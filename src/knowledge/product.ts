@@ -311,6 +311,9 @@ function namedUnits(ctx: RenderContext, units: readonly WriterUnit[]): WriterUni
   });
 }
 
+/** One read of the status and the render context its writer units were named against. */
+type StatusRead = { body: WikiStatus; ctx: RenderContext | undefined };
+
 export class KnowledgeProduct {
   /** The store the reads are made on: a snapshot of the primary store, or an empty one before any fill (see `fill-protocol.ts`). */
   private reader: { owner: DatabaseOwner; seq: number; path: string } | undefined;
@@ -1964,30 +1967,38 @@ export class KnowledgeProduct {
     }
     if (key !== '') {
       const held = this.statusMemo;
-      if (held !== undefined && held.key === key) return this.statusLive(held.body);
+      if (held !== undefined && held.key === key) return this.statusLive(held.body, held.ctx);
       // Eight polls of one reader, or three readers polling together, wait for one read of the same files.
       const flight = this.statusFlight;
-      if (flight !== undefined && flight.key === key) return this.statusLive(await flight.promise);
+      if (flight !== undefined && flight.key === key) {
+        const read = await flight.promise;
+        return this.statusLive(read.body, read.ctx);
+      }
       const promise = this.statusNow();
       this.statusFlight = { key, promise };
       try {
-        const body = await promise;
-        this.statusMemo = { key, body };
-        return body;
+        const read = await promise;
+        this.statusMemo = { key, ...read };
+        return this.statusLive(read.body, read.ctx);
       } finally {
         if (this.statusFlight?.promise === promise) this.statusFlight = undefined;
       }
     }
-    return await this.statusNow();
+    const read = await this.statusNow();
+    return this.statusLive(read.body, read.ctx);
   }
 
-  /** What moves without a file: the fill, the writer and the agent, taken from this process on every answer. */
-  private statusLive(body: WikiStatus): WikiStatus {
-    return { ...body, fill: this.statusFill(), writer: this.writer, chosenAgent: this.chosenAgent() };
+  /**
+   * What moves without a file: the fill, the writer and the agent, taken from this process on every answer. The units
+   * are named against the context of the cached read, so a unit that starts while the files stay unchanged keeps the
+   * reader-facing kind, title and page the read's documents and Markdown gave it (madarch-m38l.23).
+   */
+  private statusLive(body: WikiStatus, ctx: RenderContext | undefined): WikiStatus {
+    return { ...body, fill: this.statusFill(), writer: ctx === undefined ? this.writer : { ...this.writer, units: this.unitRows(ctx) }, chosenAgent: this.chosenAgent() };
   }
 
-  private statusMemo: { key: string; body: WikiStatus } | undefined;
-  private statusFlight: { key: string; promise: Promise<WikiStatus> } | undefined;
+  private statusMemo: { key: string; body: WikiStatus; ctx: RenderContext | undefined } | undefined;
+  private statusFlight: { key: string; promise: Promise<StatusRead> } | undefined;
 
   /**
    * Every file and store state the answer reads besides the fill and the writer, as one key: the Problems listing's
@@ -2026,14 +2037,14 @@ export class KnowledgeProduct {
       : { state: 'done', finishedAt: last.finishedAt, ...(changed === undefined ? {} : { changed }) };
   }
 
-  private async statusNow(): Promise<WikiStatus> {
+  private async statusNow(): Promise<StatusRead> {
     const product = this.product();
     if ('message' in product) throw new WikiReadError(product.message);
     const common = { product: { name: product.name, id: product.id } };
     const declared = this.repositories();
     const context = await this.context();
     if ('absent' in context) {
-      return { ...common, manifest: 'no-manifest', manifestFile: context.file, language: 'en', seeded: [], ...(this.seedError === undefined ? {} : { seedError: this.seedError }), findings: [], kinds: [], groups: [], repositories: declared.map((repo) => ({ name: repo.name, filled: false })), filled: false, incomplete: false, fill: this.fill, writer: this.writer, bounds: WRITER_BOUNDS, chosenAgent: this.chosenAgent(), home: null, roles: {}, loop: this.loopCounts(), starterOffers: 0 };
+      return { body: { ...common, manifest: 'no-manifest', manifestFile: context.file, language: 'en', seeded: [], ...(this.seedError === undefined ? {} : { seedError: this.seedError }), findings: [], kinds: [], groups: [], repositories: declared.map((repo) => ({ name: repo.name, filled: false })), filled: false, incomplete: false, fill: this.fill, writer: this.writer, bounds: WRITER_BOUNDS, chosenAgent: this.chosenAgent(), home: null, roles: {}, loop: this.loopCounts(), starterOffers: 0 }, ctx: undefined };
     }
     const home = homeKind(context.manifest);
     const homeEntity = home === undefined ? undefined : [...context.ctx.markdown.values()].find((entity) => entity.kind === home.name);
@@ -2041,7 +2052,7 @@ export class KnowledgeProduct {
     const incomplete = [...this.pins.values()].some((pin) => pin.filledCommits < pin.commits || pin.commits === 0);
     const loop = this.loopCounts();
     loop.problemsOpen = await this.openProblems();
-    return {
+    return { ctx: context.ctx, body: {
       ...common,
       manifest: 'ok',
       manifestFile: context.manifest.file,
@@ -2061,7 +2072,7 @@ export class KnowledgeProduct {
       roles: Object.fromEntries([...context.manifest.roles.values()].map((role) => [role.name, { ...(role.open === undefined ? {} : { open: [...role.open] }), lead: [...role.lead] }])),
       loop,
       starterOffers: this.starterOffers().length,
-    };
+    } };
   }
 
   /**
