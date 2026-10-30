@@ -174,6 +174,33 @@ function unrelated(card: any) { card.name; }
     expect(await extractCode(reader({'src/main.ts': 'import "node:fs";'}))).toEqual(await extractCode(reader({'src/main.ts': 'import "node:fs";'})));
   });
 
+  test('a field initializer is the field value, read from the syntax tree', async () => {
+    const source = `class Ledger {
+  readonly currency: string = "EUR";
+  private balance = 0;
+  limit: number;
+  enabled = true;
+  constructor(private readonly owner: string = "shop") {}
+  total(): number { return this.balance; }
+}
+`;
+    const ex = await extractCode(reader({'src/main.ts': source}));
+    const field = (name: string) => {
+      const node = ex.nodes.find((item) => item.key === sym(`Ledger.${name}`));
+      if (node === undefined) throw new Error(`missing field Ledger.${name}; found ${JSON.stringify(ex.nodes.map((item) => item.key))}`);
+      return node;
+    };
+    // The value is what the file writes after the `=`: a string literal without its quotes, a number, a boolean.
+    expect(field('currency').properties.value).toBe('EUR');
+    expect(field('balance').properties.value).toBe('0');
+    expect(field('enabled').properties.value).toBe('true');
+    // A field the file declares and never initializes has no value, and a method is not a field.
+    expect(field('limit').properties.value).toBeUndefined();
+    expect(field('total').properties.value).toBeUndefined();
+    // A constructor's property parameter (`private readonly owner: string = "shop"`) is a field too.
+    expect(field('owner').properties.value).toBe('shop');
+  });
+
   test('unicode-use-spans: field evidence uses UTF-8 byte offsets at the identifier', async () => {
     const source = 'class Cardnet { name = "карта"; read() { return this.name; } }';
     const ex = await extractCode(reader({'src/main.ts': source}));

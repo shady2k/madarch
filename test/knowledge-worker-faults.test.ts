@@ -99,6 +99,66 @@ describe('a fill worker that ends while a unit waits for a tool answer', () => {
   }, 90_000);
 });
 
+describe('a person who presses before the fill worker exists', () => {
+  /** A product whose store is still opening, with a worker that records what the server sends it. */
+  const opening = (): { product: KnowledgeProduct; sent: ToWorker[]; out: ReturnType<typeof channel>; finish: () => Promise<void> } => {
+    const { folder, store } = tinyProduct();
+    const sent: ToWorker[] = [];
+    const out = channel();
+    let exit!: (code: number) => void;
+    const exited = new Promise<number>((resolve) => { exit = resolve; });
+    const worker: FillWorkerHandle = { send: (message) => { sent.push(message); }, lines: out.lines, exited, stderr: () => '', kill: () => undefined };
+    const product = new KnowledgeProduct({
+      productFolder: folder, storeRoot: store,
+      env: { HOME: join(root!, 'user'), PATH: join(root!, 'none') },
+      workerFactory: () => worker,
+    });
+    return {
+      product, sent, out,
+      finish: async () => { out.end(); exit(0); await product.settled(); await product.close(); },
+    };
+  };
+
+  test('a pause pressed while the store opens is delivered right after start', async () => {
+    const held = opening();
+    try {
+      // No await between the start and the press: runJob is waiting on its reader, and this.worker is still undefined.
+      const starting = held.product.startFill();
+      const pressed = await held.product.pauseRun();
+      expect(pressed).toMatchObject({ ok: true });
+      expect(await starting).toMatchObject({ started: true });
+      for (let tries = 0; tries < 400 && !held.sent.some((message) => message.type === 'start'); tries += 1) await new Promise((rest) => setTimeout(rest, 25));
+      const kinds = held.sent.map((message) => message.type);
+      expect(kinds[0]).toBe('start');
+      expect(kinds).toContain('pause');
+      expect(kinds.indexOf('pause')).toBeGreaterThan(kinds.indexOf('start'));
+    } finally {
+      await held.finish();
+    }
+  }, 90_000);
+
+  test('a stop pressed while the store opens is delivered right after start, and wins over a pause', async () => {
+    const held = opening();
+    try {
+      const starting = held.product.startFill();
+      expect(await held.product.pauseRun()).toMatchObject({ ok: true });
+      expect(await held.product.stopRun({ confirm: true })).toMatchObject({ ok: true });
+      expect(await starting).toMatchObject({ started: true });
+      for (let tries = 0; tries < 400 && !held.sent.some((message) => message.type === 'start'); tries += 1) await new Promise((rest) => setTimeout(rest, 25));
+      const kinds = held.sent.map((message) => message.type);
+      expect(kinds[0]).toBe('start');
+      expect(kinds).toContain('stop');
+      expect(kinds.indexOf('stop')).toBeGreaterThan(kinds.indexOf('start'));
+      // The worker's own end of the stop: the server records the run as stopped, not as a pause it could resume.
+      held.out.push(JSON.stringify({ type: 'fill', state: 'stopped' } as FromWorker));
+      for (let tries = 0; tries < 100 && held.product.fillState().state !== 'stopped'; tries += 1) await new Promise((rest) => setTimeout(rest, 10));
+      expect(held.product.fillState().state).toBe('stopped');
+    } finally {
+      await held.finish();
+    }
+  }, 90_000);
+});
+
 describe('a wiki that shuts down while its store opens', () => {
   test('starts no fill worker', async () => {
     const { folder, store } = tinyProduct();

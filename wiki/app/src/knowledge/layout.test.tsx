@@ -49,7 +49,7 @@ afterEach(() => {
 });
 
 const json = (body: unknown, status = 200): Response => new Response(JSON.stringify(body), { status });
-const BOUNDS = { turns: 30, minutes: 10, toolCalls: 80, writeAttempts: 5, maxDomains: 12 };
+const BOUNDS = { turns: 30, minutes: 10, toolCalls: 80, writeAttempts: 5, maxDomains: 12, editorialRequestsPerPage: 2 };
 const kind = (over: Partial<KindSummary>): KindSummary => ({ kind: 'code.file', source: 'graph', count: 1, single: false, origins: ['code'], ...over });
 const status = (over: Partial<WikiStatus> = {}): WikiStatus => ({
   product: { name: 'shop', id: 'p1' }, manifest: 'ok', manifestFile: 'madarch/kinds.yaml', language: 'en', seeded: [], findings: [], kinds: [], groups: [],

@@ -43,6 +43,8 @@ export interface RefRow {
   /** The same reason as a key and its values, so the app says it in the reader's language; a row whose note is a quotation has none. */
   noteKey?: 'named' | 'groundedWith' | 'statements' | 'links';
   noteArgs?: Record<string, string | number>;
+  /** The note is quoted source text, not the engine's words. */
+  quoted?: true;
 }
 
 export interface RelatedGroup {
@@ -108,6 +110,8 @@ export interface ChainLane {
   href: string | null;
   /** The container the lane belongs to (a service, a database, the broker): lanes of one group stand together. */
   group: string;
+  /** How the group is named to a reader; the internal `group` stays the key the graph is read by. */
+  groupLabel?: string;
 }
 
 /** One step: `from` to `to`, a link to what it reaches, the line it is read at. */
@@ -128,6 +132,8 @@ export interface ChainStep {
    */
   layer: number;
   note?: string;
+  /** The note names code identifiers rather than speaking prose. */
+  technical?: true;
 }
 
 /** One end-to-end chain from an entry point. */
@@ -183,6 +189,7 @@ export interface TreemapFile {
 type BlockShape =
   | { type: 'guide'; data: import('../writer/guides/read.js').GuidePageData }
   | { type: 'markdown'; markdown: string }
+  | { type: 'members'; title: string; kindLabel?: string; kindLabelName?: string; rows: MemberRow[]; total: number }
   | { type: 'term'; title: string; definition: string; synonyms: string[]; code: string[]; usedIn: string | null; ambiguous: string | null; localized?: { statement: string; original: string; sourceDocument: string; sourceLine: number; sourceEndLine: number } }
   | { type: 'body'; markdown: string; file: string; statements: number; ungrounded: { text: string; line: number }[]; localized?: { statement: string; original: string; sourceDocument: string; sourceLine: number; sourceEndLine: number } }
   | { type: 'graph'; title: string; neighborhood: Neighborhood; depth: number; shown: number; total: number }
@@ -197,7 +204,7 @@ type BlockShape =
   | { type: 'stated'; title: string; place: { repo: string | null; path: string; lineStart: number; lineEnd: number; href: string; commit: string | null; single?: boolean } }
   | { type: 'deferred'; block: string; title: string; id: string }
   | { type: 'definition'; title: string; format: string; contract: string; fullPath?: string; location?: CodeLocation; members: DefinitionMember[]; membersTotal: number; membersShown: number; memberCuts: { channel: string; total: number; shown: number }[]; spec: { text: string; lines: number }; document?: Record<string, unknown>; descriptions?: {text: string; path: string; line: number; fullPath: string}[]; selection?: { method: string; path: string; operationId: string }; protobuf?: ProtoDocumentation; diagnostics?: ContractDiagnostic[] }
-  | { type: 'history'; title: string; sections: HistorySection[]; notes: HistoryNote[] }
+  | { type: 'history'; title: string; sections: HistorySection[]; notes: HistoryNote[]; more?: HistoryMore }
   | { type: 'problem'; block: string; message: string; file: string; line: number; diagnostic?: ContractDiagnostic };
 
 
@@ -247,24 +254,54 @@ export interface HistoryNote {
   args?: Record<string, string | number>;
 }
 
+/**
+ * Where the rest of a history lives, when the block was asked for a part of it (`more-kind`): the page that lists
+ * every entity of a kind, and the words the link says it in. The block names no kind of its own; the template does.
+ */
+export interface HistoryMore {
+  /** The wiki address of the kind's listing, `/k/kind/<kind>`. */
+  href: string;
+  /** The link's words, in the reader's language: the template's `more`, else the manifest's name for the kind. */
+  label: string;
+}
+
 /** One figure of a history row: added or removed lines, symbols, commits, files, or the module a file belongs to. */
 export interface HistoryFigure {
   kind: 'added' | 'removed' | 'symbols' | 'commits' | 'files' | 'module' | 'reachable' | 'firstParent' | 'merges' | 'nonMerge' | 'authors' | 'since' | 'until' | 'both' | 'onlyThis' | 'onlyOther' | 'authoredAt' | 'committedAt' | 'effectiveAt' | 'similarity';
   value: string;
 }
 
-/** One row of a properties block: the name the extractor gave it, and, where the app knows the name, its key in the reader's language. */
+/** One row of a properties block: the name the extractor gave it, the manifest's label, and the value written for a reader. */
 export interface PropertyRow {
   name: string;
   value: string;
-  /** The name's key under `knowledge.property.`, where the app knows this name. */
+  /** The property's label in the language the page was asked in, from the manifest. */
+  label?: string;
+  /** The name's key under `knowledge.property.`, where a product made before madarch-m38l.21 names it there. */
   nameKey?: 'authoredAt' | 'committedAt' | 'subject' | 'merge' | 'language' | 'symbol' | 'method' | 'path' | 'marker' | 'text' | 'line' | 'service' | 'secret';
-  /** A date the app writes the way the wiki writes dates, in the reader's language. */
-  valueKind?: 'date';
+  /** A date or a yes/no value the app writes in the reader's language. */
+  valueKind?: 'date' | 'boolean' | 'code';
+}
+
+/** One member of an entity (a field of a class, a facet of a file): its name, its labelled facts and who reads or writes it. */
+export interface MemberRow {
+  entity: EntityRef;
+  /** The member's own short name: the declaring type is already the page's heading. */
+  name: string;
+  /** The fragment this member has on its parent's page; an old member address lands here. */
+  anchor: string;
+  /** Every fact the member's kind declares, in manifest order; the page draws the shared ones once. */
+  values: PropertyRow[];
+  readers: EntityRef[];
+  writers: EntityRef[];
 }
 
 /** One block of a page; `name` is the template's block it was made from (`implementedby` and `linkedfrom` both draw as `refs`), which the manifest's roles name. */
-export type Block = BlockShape & { name?: string };
+export type Block = BlockShape & {
+  name?: string;
+  /** What a block looked for and did not find, in the reader's language, when absence itself informs the reader. */
+  emptyNote?: string;
+};
 
 export interface PageModel {
   historyNavigation?: { repo: string; points: { name: string; commit: string; covered: boolean }[]; landmarks?: NonNullable<import('./temporal.js').HistoryContext['landmarks']> }[];
@@ -288,6 +325,8 @@ export interface PageModel {
   findings: Finding[];
   /** A reader's notes the page carries: an ambiguous key, a source that moved. */
   notes: string[];
+  /** An old member address: the parent page to open, at the member's fragment. */
+  redirect?: { id: string; anchor: string };
   /**
    * The planned change this entity's page stands in, and the statements of the page that rely on one (madarch-m38l.14).
    * `product.page` adds it after the page is drawn; the page the renderer builds knows nothing of the product's tasks.
@@ -338,7 +377,11 @@ export interface ChangedPage {
 export interface FillState {
   /** The index was rebuilt because its deterministic readers changed. */
   rebuilt?: 'extractors-changed';
-  state: 'idle' | 'running' | 'done' | 'failed';
+  /**
+   * `paused` is a person's pause: the fill ended at its next commit and the run is taken up by the next fill.
+   * `stopped` is a person's stop: the run ended now, and the pages it had rewritten stay as they are.
+   */
+  state: 'idle' | 'running' | 'paused' | 'stopped' | 'done' | 'failed';
   /** The repository being read. */
   repository?: string;
   /** Commits read of the commits to read, in the repository being read. */
@@ -389,8 +432,12 @@ export interface WriterUnit {
 
 /** The agent stage that continues the fill: the chosen agent, the units and where they stand. */
 export interface WriterState {
-  /** `idle` before any run, `waiting` while the code fill runs ahead of it. */
-  state: 'idle' | 'waiting' | 'running' | 'done' | 'failed';
+  /**
+   * `idle` before any run, `waiting` while the code fill runs ahead of it. `paused` is a person's pause: the page being
+   * written was finished and the run stands before the next one, and a server that starts again reads it from disk.
+   * `stopped` is a person's stop: the run ended now and the page in progress stays as it was before the run.
+   */
+  state: 'idle' | 'waiting' | 'running' | 'paused' | 'stopped' | 'done' | 'failed';
   agent: { id: string; label: string } | null;
   units: WriterUnit[];
   /** The unit writing now. */
@@ -415,6 +462,8 @@ export interface WriterState {
 
 /** What one agent costs to use and what the stage is bound by, stated for the reader before the press. */
 export interface WriterBounds {
+  /** The most revision requests the editorial pass may send one page (madarch-ztyq.9). */
+  readonly editorialRequestsPerPage: number;
   /** Agent turns one unit may take. */
   turns: number;
   /** Minutes one unit may run. */
@@ -477,8 +526,12 @@ export interface WikiStatus {
   roles: Record<string, { open?: string[]; lead: string[] }>;
   /** This is madarch's own wiki (documentation): no fill is offered. Set by the server, not by the product. */
   own?: boolean;
-  /** The loop of questions and corrections (madarch-m38l.7), counted from their files. */
-  loop: { questionsOpen: number; questionsAnswered: number; correctionsOpen: number; tasksOpen: number; problemsOpen: number };
+  /**
+   * The loop of questions and corrections (madarch-m38l.7), counted from their files. `problemsOpen` is absent while the
+   * listing for exactly the inputs the answer reads is not collected: a count collected for other inputs is never shown
+   * (madarch-u3vw.8), and a reader falls back to the corrections it counts from their files.
+   */
+  loop: { questionsOpen: number; questionsAnswered: number; correctionsOpen: number; tasksOpen: number; problemsOpen?: number };
   /** How many things the current starter set holds that this product's edited manifest lacks (the Problems page offers them). */
   starterOffers: number;
 }

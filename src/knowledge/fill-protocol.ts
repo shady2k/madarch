@@ -13,6 +13,7 @@
  */
 import type { RefreshPlan } from '../loop/plan.js';
 import type { DomainDeclaration } from '../writer/tools.js';
+import type { ModelRoleView } from './model-roles.js';
 
 /** What a repository was filled to: kept in the primary store (`knowledge_fill`) and told to the server. */
 export interface RepositoryPin {
@@ -44,6 +45,19 @@ export interface WorkerStart {
   repositories: { name: string; path: string }[];
   /** Run the agent stage after the fill. */
   writer: boolean;
+  /**
+   * The reader's resolved model roles (madarch-ztyq.9). The worker resolves `editing` from this view:
+   * an assigned or fallback pair starts the editing judge; `none` leaves the deterministic editorial
+   * checks running and says in the journal why the reading part was skipped. Absent from an older
+   * server: the worker treats the editing role as unresolved and says so.
+   */
+  roles?: ModelRoleView;
+  /**
+   * The most revision requests one page may receive (madarch-ztyq.9, review 199). It is the product
+   * setting `writer.json` holds, validated before the fill starts; absent from an older server and
+   * then the writer's default applies.
+   */
+  editorialRequestsPerPage?: number;
   language: string;
   languageChanged: boolean;
   /** The language the pages were last written in, when it is known: a translation says from which. */
@@ -55,6 +69,11 @@ export interface WorkerStart {
   task?: string;
   /** The pages the reader saw in the preview and pressed to run: the worker refuses a run that writes fewer of them. */
   taskPages?: string[];
+  /**
+   * The remaining work of a paused run (madarch-m38l.17): the plan it had reached, and the pages it had published.
+   * A resumed run writes the plan's pages that are not in `completedPages`, and never translates a completed one again.
+   */
+  resume?: { plan: RefreshPlan; completedPages: string[] };
   /** The least time between two snapshots, in milliseconds. */
   snapshotMs: number;
 }
@@ -67,6 +86,12 @@ export type ToWorker =
   | { type: 'unit-end'; id: string; error?: string }
   /** The server's agent calls a tool of the unit it is running; the worker answers with `tool-result`. */
   | { type: 'tool'; callId: number; unit: string; name: string; args: unknown }
+  /**
+   * A person's pause: the work in progress is finished, and the run ends at its next commit rather than at once. The
+   * worker says which stage it ended in, so the server can show the run as paused and take it up again.
+   */
+  | { type: 'pause' }
+  /** A person's stop: the work in progress ends now. */
   | { type: 'stop' };
 
 export interface UnitSummary {
@@ -88,7 +113,8 @@ export type FromWorker =
   /** A snapshot is ready; `pins` are what the repositories were filled to in it, applied when the server reads it so source and graph agree. */
   | { type: 'snapshot'; seq: number; pins: RepositoryPin[] }
   | { type: 'fill'; state: 'done'; gaps: number }
-  | { type: 'fill'; state: 'stopped' }
+  /** `paused` tells a person's pause from a stop and from the server's own shutdown; the run is taken up by the next fill. */
+  | { type: 'fill'; state: 'stopped'; paused?: boolean }
   /** `code` names the kind of failure for the app to word in the reader's language; `message` is the engineer's detail. */
   | { type: 'fill'; state: 'failed'; message: string; code?: string }
   /** Which pages the refresh will touch and why, told before the agent is asked for its first unit. */
@@ -103,6 +129,8 @@ export type FromWorker =
   | { type: 'page'; path: string }
   | { type: 'writer'; state: 'done'; message?: string; asked?: number }
   | { type: 'writer'; state: 'failed'; message: string; asked?: number; code?: string }
+  /** A person's pause between two pages, or a stop: the page in progress is left as it was before the run. */
+  | { type: 'writer'; state: 'paused' | 'stopped'; message?: string }
   | { type: 'log'; line: string };
 
 /** Reads a line as a message; the error names the line it could not read. */

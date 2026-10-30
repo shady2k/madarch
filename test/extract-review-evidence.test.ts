@@ -45,13 +45,16 @@ test('audit import and raw-extractor failures always leave unique run identity a
   expect(new Set(failures.map((failure) => failure.runId)).size).toBe(4);
   for (const run of runs) {
    const identity = JSON.parse(readFileSync(join(out,run,'identity.json'),'utf8'));
-   expect(identity.runtimeFiles.map((file:{path:string})=>file.path.split('/').at(-1))).toEqual(['extract-truth-audit.ts','extract-truth-evidence.ts','extract-truth-safety.ts','order.ts'].sort());expect(identity.runtimeDigest).toHaveLength(64);expect(JSON.parse(readFileSync(join(out,run,'failure.json'),'utf8')).runtimeUnchanged).toBe(true);expect(identity.runtimeFiles.every((file:{sha256:string})=>file.sha256.length===64)).toBe(true);
+   expect(identity.runtimeFiles.map((file:{path:string})=>file.path.split('/').at(-1))).toEqual(['extract-truth-audit.ts','extract-truth-evidence.ts','extract-truth-json.ts','extract-truth-safety.ts','order.ts'].sort());expect(identity.runtimeDigest).toHaveLength(64);expect(JSON.parse(readFileSync(join(out,run,'failure.json'),'utf8')).runtimeUnchanged).toBe(true);expect(identity.runtimeFiles.every((file:{sha256:string})=>file.sha256.length===64)).toBe(true);
    expect(identity.engineFiles.length).toBe(2); expect(identity.fixtureFiles[0].sha256).toHaveLength(64);
    expect(readdirSync(join(out,run))).not.toContain('completion.json');
    const failure = JSON.parse(readFileSync(join(out,run,'failure.json'),'utf8'));
    if (['raw-extractor-1','history-extraction'].includes(failure.phase)) {
     const partial = JSON.parse(readFileSync(join(out,run,'raw-extractions-partial.json'),'utf8'));
-    expect(partial.complete).toBe(false); expect(partial.extractions).toEqual([first]);
+    expect(partial).toMatchObject({complete: false, file: 'raw-extractions-partial.jsonl'});
+    expect(partial.producers.map((entry: {index: number; producer: string}) => [entry.index, entry.producer])).toEqual([[0, first.producer]]);
+    const lines = readFileSync(join(out,run,'raw-extractions-partial.jsonl'),'utf8').trim().split('\n').map((line) => JSON.parse(line));
+    expect(lines).toHaveLength(1); expect(lines[0]).toMatchObject({complete: false, index: 0, producer: first.producer, extraction: first});
    }
   }
  } finally {rmSync(root,{recursive:true,force:true});}
@@ -98,11 +101,11 @@ test('external audit runner records and rechecks its own helper hashes independe
  const root=mkdtempSync(join(tmpdir(),'madarch-audit-runtime-'));
  try {
   const runner=join(root,'runner');const engine=join(root,'engine');const repository=join(root,'repository');const output=join(root,'out');mkdirSync(join(runner,'scripts'),{recursive:true});mkdirSync(join(runner,'src/model'),{recursive:true});mkdirSync(join(engine,'src/extract/driver'),{recursive:true});mkdirSync(repository);
-  for(const relative of ['scripts/extract-truth-audit.ts','scripts/extract-truth-evidence.ts','scripts/extract-truth-safety.ts','src/model/order.ts'])cpSync(resolve(import.meta.dir,'..',relative),join(runner,relative));
+  for(const relative of ['scripts/extract-truth-audit.ts','scripts/extract-truth-evidence.ts','scripts/extract-truth-json.ts','scripts/extract-truth-safety.ts','src/model/order.ts'])cpSync(resolve(import.meta.dir,'..',relative),join(runner,relative));
   const helper=join(runner,'scripts/extract-truth-evidence.ts');const original=readFileSync(helper,'utf8');writeFileSync(join(repository,'source.ts'),'exact');
   writeFileSync(join(engine,'src/extract/driver/git.ts'),`import {appendFileSync} from 'node:fs';appendFileSync(${JSON.stringify(helper)},'\\n// injected runtime mutation\\n');throw new Error('fixture changes only external executing helper');`);
   const child=Bun.spawn([process.execPath,join(runner,'scripts/extract-truth-audit.ts'),'--engine',engine,'--repository',repository,'--out',output],{stdout:'pipe',stderr:'pipe'});const [exit]=await Promise.all([child.exited,new Response(child.stdout).text(),new Response(child.stderr).text()]);expect(exit).not.toBe(0);
-  const run=join(output,readdirSync(output)[0]!);const identity=JSON.parse(readFileSync(join(run,'identity.json'),'utf8'));expect(identity.runtimeFiles).toHaveLength(4);expect(identity.runtimeFiles.every((file:{path:string})=>file.path.startsWith(runner))).toBe(true);expect(identity.engineFiles.every((file:{path:string})=>!file.path.includes('evidence'))).toBe(true);expect(readFileSync(helper,'utf8')).not.toBe(original);const recorded=identity.runtimeFiles.find((file:{path:string})=>file.path===helper);expect(recorded.sha256).toBe(createHash('sha256').update(original).digest('hex'));expect(recorded.sha256).not.toBe(createHash('sha256').update(readFileSync(helper)).digest('hex'));expect(JSON.parse(readFileSync(join(run,'failure.json'),'utf8')).runtimeUnchanged).toBe(false);expect(existsSync(join(run,'completion.json'))).toBe(false);
+  const run=join(output,readdirSync(output)[0]!);const identity=JSON.parse(readFileSync(join(run,'identity.json'),'utf8'));expect(identity.runtimeFiles).toHaveLength(5);expect(identity.runtimeFiles.every((file:{path:string})=>file.path.startsWith(runner))).toBe(true);expect(identity.engineFiles.every((file:{path:string})=>!file.path.includes('evidence'))).toBe(true);expect(readFileSync(helper,'utf8')).not.toBe(original);const recorded=identity.runtimeFiles.find((file:{path:string})=>file.path===helper);expect(recorded.sha256).toBe(createHash('sha256').update(original).digest('hex'));expect(recorded.sha256).not.toBe(createHash('sha256').update(readFileSync(helper)).digest('hex'));expect(JSON.parse(readFileSync(join(run,'failure.json'),'utf8')).runtimeUnchanged).toBe(false);expect(existsSync(join(run,'completion.json'))).toBe(false);
  } finally {rmSync(root,{recursive:true,force:true});}
 },20000);
 
@@ -139,5 +142,34 @@ test('audit unwraps the code extractor\'s {extraction, facts} result before it a
   expect(failure.error.message).toContain('database-owner.ts');
   expect(JSON.parse(readFileSync(join(run,'raw-nodes.json'),'utf8')).map((node:{key:string}) => node.key)).toEqual(['code.symbol:fixture.ts#first']);
   expect(JSON.parse(readFileSync(join(run,'raw-summary.json'),'utf8')).nodes).toBe(1);
+  // The streamed writer must produce exactly what the built-in serializer would,
+  // byte for byte, so existing audit consumers keep reading the same file.
+  const rawExtractions = readFileSync(join(run,'raw-extractions.json'),'utf8');
+  expect(rawExtractions).toBe(JSON.stringify(JSON.parse(rawExtractions), null, 2)+'\n');
  } finally {rmSync(root,{recursive:true,force:true});}
 }, 20_000);
+
+test('audit hands the code pass resolved facts to every later extractor, as the fill driver does', async () => {
+ const root = mkdtempSync(join(tmpdir(), 'madarch-audit-facts-'));
+ try {
+  const engine = join(root,'engine'); const repository = join(root,'repository'); const out = join(root,'out');
+  mkdirSync(join(engine,'src/extract/driver'),{recursive:true}); mkdirSync(repository,{recursive:true});
+  writeFileSync(join(repository,'fixture.ts'),'const value = 1;');
+  writeFileSync(join(engine,'src/extract/driver/git.ts'),`export const walkDefaultBranch = () => [{hash:'fixture-head',effectiveTime:'2025-01-01T00:00:00Z'}]; export const commitTree = () => ({paths:['fixture.ts'],read: () => new TextEncoder().encode('const value = 1;')});`);
+  const first = {producer:'code.extract.code',nodes:[],edges:[],gaps:[]};
+  const second = {producer:'code.fixture.second',nodes:[],edges:[],gaps:[]};
+  writeFileSync(join(engine,'src/extract/driver/extractors.ts'),`export const TREE_EXTRACTORS = [
+   () => ({extraction: ${JSON.stringify(first)}, facts: {marker: 'shared'}}),
+   (_tree, code, facts) => { if (code === undefined || facts?.marker !== 'shared') throw new Error('the code pass facts were not passed to the later extractor'); return ${JSON.stringify(second)}; },
+  ]; export const OWNERS = {}; export const HISTORY_EXTRACTOR = () => {throw new Error('stop after raw extraction');};`);
+  const child = Bun.spawn([process.execPath, resolve(import.meta.dir,'../scripts/extract-truth-audit.ts'),'--engine',engine,'--repository',repository,'--out',out],{stdout:'pipe',stderr:'pipe'});
+  const [exit] = await Promise.all([child.exited,new Response(child.stdout).text(),new Response(child.stderr).text()]);
+  expect(exit).not.toBe(0);
+  const run = join(out, readdirSync(out)[0]!);
+  const failure = JSON.parse(readFileSync(join(run,'failure.json'),'utf8'));
+  expect(failure.phase).toBe('history-extraction');
+  const lines = readFileSync(join(run,'raw-extractions-partial.jsonl'),'utf8').trim().split('\n').map((line) => JSON.parse(line));
+  expect(lines.map((line:{producer:string}) => line.producer)).toEqual(['code.extract.code','code.fixture.second']);
+ } finally {rmSync(root,{recursive:true,force:true});}
+}, 20_000);
+

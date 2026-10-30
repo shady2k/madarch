@@ -19,6 +19,7 @@ import { WikiReadError, type KnowledgeProduct } from '../knowledge/product.js';
 import type { Handled, ReplyMaker } from './http.js';
 import { CHOOSABLE_ROLES, readSettings, writeRole } from '../knowledge/settings.js';
 import { guidePageMarkdown } from '../writer/guides/read.js';
+import { MAX_EDITORIAL_REQUESTS } from '../writer/editorial.js';
 import { kindFileAt, kindFileDocument, kindFileMarkdown, llmsText, pageFileAt, pageFileDocument, pageFileMarkdown } from '../knowledge/page-files.js';
 import type { EntityRef } from '../knowledge/model.js';
 import type { DraftEnv } from '../product/home.js';
@@ -42,6 +43,10 @@ export interface KnowledgePart {
   viewFrame: (request: Request) => Promise<Handled>;
   source: (request: Request) => Promise<Handled>;
   fill: (request: Request) => Promise<Handled>;
+  /** A person's «Пауза»: the page and the commit in progress are finished, and the run ends before the next one. */
+  pause: (request: Request) => Promise<Handled>;
+  /** A person's «Остановить»: the run ends now; the body's `confirm` is the second press that ends it. */
+  stop: (request: Request) => Promise<Handled>;
   agents: (request: Request) => Promise<Handled>;
   chooseAgent: (request: Request) => Promise<Handled>;
   products: (request: Request) => Promise<Handled>;
@@ -253,6 +258,31 @@ export function createKnowledgePart(
       if (!started.started) return refused(409, { message: started.message });
       return { response: json(202, { fill: started.fill }) };
     }),
+    pause: guarded('pause the fill', async (request) => {
+      const crossSite = foreign(request);
+      if (crossSite !== undefined) return refused(403, { message: crossSite });
+      if (own) return refused(409, { message: "madarch's own wiki is documentation: there is no run to pause" });
+      const paused = await product.pauseRun();
+      if (!paused.ok) return refused(paused.status, { message: paused.message });
+      return { response: json(200, { fill: paused.fill, writer: paused.writer }) };
+    }),
+    stop: guarded('stop the fill', async (request) => {
+      const crossSite = foreign(request);
+      if (crossSite !== undefined) return refused(403, { message: crossSite });
+      if (own) return refused(409, { message: "madarch's own wiki is documentation: there is no run to stop" });
+      // The second press confirms: the first answer counts the pages this run rewrote and says that they stay.
+      let confirm = false;
+      if (request.headers.get('content-type')?.includes('application/json')) {
+        let body: unknown;
+        try { body = await request.json(); } catch (error) { return refused(400, { message: `the request body is not JSON: ${(error as Error).message}` }); }
+        const asked = (body as { confirm?: unknown } | null)?.confirm;
+        if (asked !== undefined && typeof asked !== 'boolean') return refused(400, { field: 'confirm', message: '"confirm" is true for the press that ends the run: the answer to the first press names the pages it keeps' });
+        confirm = asked === true;
+      }
+      const stopped = await product.stopRun({ confirm });
+      if (!stopped.ok) return refused(stopped.status, { message: stopped.message });
+      return { response: json(200, { fill: stopped.fill, writer: stopped.writer }) };
+    }),
     agents: guarded('list the agents', async () => ({ response: json(200, { agents: product.agentOffers(), chosen: product.chosenAgent() }) })),
     chooseAgent: guarded('choose the agent', async (request) => {
       const crossSite = foreign(request);
@@ -387,11 +417,16 @@ export function createKnowledgePart(
       if (plain !== undefined) return refused(415, { message: plain });
       let body: unknown;
       try { body = await request.json(); } catch (error) { return refused(400, { message: `the request body is not JSON: ${(error as Error).message}` }); }
-      const asked = body as { language?: unknown; model?: unknown; reasoning?: unknown } | null;
-      if (asked === null || typeof asked !== 'object') return refused(400, { message: 'the body is { language?, model?, reasoning? }' });
+      const asked = body as { language?: unknown; model?: unknown; reasoning?: unknown; editorialRequestsPerPage?: unknown } | null;
+      if (asked === null || typeof asked !== 'object') return refused(400, { message: 'the body is { language?, model?, reasoning?, editorialRequestsPerPage? }' });
       for (const field of ['model', 'reasoning'] as const) {
         const value = asked[field];
         if (value !== undefined && value !== null && typeof value !== 'string') return refused(400, { field, message: `"${field}" is a value the agent reports, or null for the agent's own` });
+      }
+      if (asked.editorialRequestsPerPage !== undefined) {
+        if (typeof asked.editorialRequestsPerPage !== 'number') return refused(400, { field: 'editorialRequestsPerPage', message: `"editorialRequestsPerPage" is the most revision requests one page may receive: an integer from 0 to ${MAX_EDITORIAL_REQUESTS}` });
+        const saved = await product.setEditorialRequestsPerPage(asked.editorialRequestsPerPage);
+        if (!saved.ok) return refused(saved.status, { field: 'editorialRequestsPerPage', message: saved.message });
       }
       if (asked.language !== undefined) {
         if (typeof asked.language !== 'string') return refused(400, { field: 'language', message: '"language" is the language the pages are written in: en or ru' });
@@ -425,7 +460,7 @@ export function createKnowledgePart(
       let body: unknown;
       try { body = await request.json(); } catch (error) { return refused(400, { message: `the request body is not JSON: ${(error as Error).message}` }); }
       const asked = body as { role?: unknown; agent?: unknown; model?: unknown; reasoning?: unknown; install?: unknown } | null;
-      if (typeof asked?.role !== 'string') return refused(400, { field: 'role', message: '"role" is required: writing, classification or analysis' });
+      if (typeof asked?.role !== 'string') return refused(400, { field: 'role', message: '"role" is required: writing, classification, analysis or editing' });
       if (asked.agent !== null && typeof asked.agent !== 'string') return refused(400, { field: 'agent', message: '"agent" is an agent id, or null to remove the role' });
       for (const field of ['model', 'reasoning'] as const) {
         const value = asked[field];

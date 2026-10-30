@@ -8,6 +8,24 @@ type Ref = (entity: GraphEntity) => NonNullable<HistoryRow['entity']>;
 const day = (value: unknown): string => typeof value === 'string' ? value.slice(0, 10) : '';
 const instant = (value: unknown): string => typeof value === 'string' ? value.replace(/(?:\.(\d+))?Z$/, (_all, digits: string | undefined) => `.${(digits ?? '').padEnd(6, '0')}Z`) : '';
 
+/**
+ * One product-wide projection across repositories (madarch-ztyq.7 review): the limit bounds the whole story, not
+ * each repository. Entities and edges are deduplicated by their graph identity, so a shared author or commit that
+ * several repository reads return is counted once.
+ */
+export function projectHistoryAcross(evidences: readonly HistoryEvidence[], limit: number, ref: Ref): HistoryProjection {
+  const entities = new Map<string, GraphEntity>();
+  const edges = new Map<string, HistoryEvidence['edges'][number]>();
+  for (const evidence of evidences) {
+    for (const entity of evidence.entities) if (!entities.has(entity.key)) entities.set(entity.key, entity);
+    for (const edge of evidence.edges) {
+      const identity = `${edge.from}\u0000${edge.to}\u0000${edge.relation}\u0000${JSON.stringify(edge.properties)}`;
+      if (!edges.has(identity)) edges.set(identity, edge);
+    }
+  }
+  return projectHistory({ entities: [...entities.values()], edges: [...edges.values()] }, undefined, limit, ref);
+}
+
 /** A projection never reads Git or guesses ownership, causality, or data absent from its evidence. */
 export function projectHistory(evidence: HistoryEvidence, subject: GraphEntity | undefined, limit: number, ref: Ref): HistoryProjection {
   const entities = new Map(evidence.entities.map((entity) => [entity.key, entity]));

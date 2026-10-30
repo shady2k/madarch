@@ -18,6 +18,7 @@ import { resolve } from 'node:path';
 import { parseDocument } from 'yaml';
 import { byCodePoint } from '../model/order.js';
 import type { McpToolDefinition } from '../fill/unit-mcp.js';
+import { revisionScopeProblems } from './editorial-read.js';
 import { checkPage, MAX_SLUG_LENGTH, parseTarget, SLUG, type Refusal } from './format.js';
 import type { WrittenAt } from '../knowledge/index/page.js';
 import { MAX_ABOUT, MAX_SIDES, MAX_TEXT, MAX_TITLE, QUESTION_HEADINGS, QUESTION_TYPES, parseQuestion, parseStatementRef, questionPath, renderQuestion, type Question, type QuestionLanguage, type QuestionType } from '../loop/entities.js';
@@ -32,6 +33,7 @@ import { detectStatementLanguage, LOCALIZED_SOURCE_SCHEMA, parseLocalizedSource,
 import { ENRICHMENT_FRONT_KEYS, enrichmentOverwriteProblem, enrichmentPageId, renderEnrichment } from './enrichment.js';
 import { implementationPlaces, parseFields, renderStructuredBody, structuredKindOf, structuredLanguage, structuredSchema, type NamedPlace, type ScenarioFields, type StructuredFields, type StructuredKind } from './structured.js';
 import { developerPlaces, domainGrounds, domainSchema, renderDomainPage, parseDomainFields, type DomainFields } from './domain-page.js';
+import { emptyProductGapSections, homeGrounds, homeLinks, homeSchema, homeTargetPaths, parseHomeFields, renderEmptyHomePage, renderHomePage, type HomeFields } from './home-page.js';
 import type { GuidePreparedUnit } from './guides/host-contract.js';
 import { validateGuide } from './guides/validate.js';
 import { renderGuideArtifact } from './guides/artifact.js';
@@ -167,11 +169,21 @@ export interface UnitExtras {
   /** The graph reads the answers make: the pinned snapshot reader of the fill's view unless a caller gives its own. */
   readonly reads?: GraphReads;
   /**
+   * A revision's bound (madarch-ztyq.9, review 199): the page as it stands before the write and the
+   * statement ids the editorial pass named. A write that changes anything else is refused.
+   */
+  readonly revisionScope?: { readonly before: string; readonly passages: readonly string[] };
+  /**
    * Every artifact this run has produced, in code point order of its path: the pages a later unit may read. A unit's
    * prompt carries at most `ARTIFACT_LIMIT` of them, so `search_pages` with `all` is how it reaches the rest — the tool
    * that keeps a cut prompt from becoming a lost input (decision 0032, section 1).
    */
   readonly produced?: () => Promise<readonly ProducedArtifactRead[]>;
+  /**
+   * The pages of this run a home page may point at by id, besides its domains (the overview unit links the pages
+   * this run published). A page id that is neither one of these nor a declared domain is refused, never written.
+   */
+  readonly linkedPages?: readonly string[];
   /** The names this product's documents give their entities: the writer's prose links them where it wrote plain text. */
   readonly mentions?: readonly MentionName[];
 }
@@ -402,6 +414,29 @@ export function writeEnrichmentTool(kind: StructuredKind): McpToolDefinition {
  * at the end, where the routes, functions, tables, events, status codes, headers and timeouts stand. The unit fills
  * the fields; the core writes the sections and their headings in the wiki's language (`src/writer/domain-page.ts`).
  */
+/**
+ * The tool of a home page (madarch-ztyq.7): the product page and the overview page carry the eight sections of
+ * `src/writer/home-page.ts`, and the core writes them from the fields the unit gives. A home page points at the
+ * page that says each thing in full; it does not restate it.
+ */
+export function writeHomePageTool(withDomains: boolean): McpToolDefinition {
+  const domains = {
+    type: 'array',
+    description: 'The product\'s domains, each with evidence that resolves in the graph. Every declared domain appears in the "domains" field of the page.',
+    items: object({
+      slug: { type: 'string', description: 'Lower-case words joined by hyphens, like "payments".' },
+      title: { type: 'string' },
+      summary: { type: 'string', description: 'One sentence of what the domain is.' },
+      evidence: { type: 'array', items: { type: 'string' }, description: 'Graph keys or doc:<path>#<anchor> that show the domain exists.' },
+    }, ['slug', 'title', 'summary', 'evidence']),
+  };
+  return {
+    name: 'write_page',
+    description: 'Writes the home page: a one-minute overview of the whole product in eight sections — what it is and for whom, its main scenarios, how the system is put together, its domains, the key rules and decisions, its technology and size, how complete the wiki is, and what is not connected. Each section points at the page that says it in full. You give the fields, the core writes the sections, their headings in the wiki language and the sentence a part says when you found nothing; every statement carries the grounds that show it, and a place that does not resolve is refused.',
+    inputSchema: object(withDomains ? { fields: homeSchema(), domains } : { fields: homeSchema() }, withDomains ? ['fields', 'domains'] : ['fields']),
+  };
+}
+
 export const WRITE_DOMAIN_PAGE_TOOL: McpToolDefinition = {
   name: 'write_page',
   description: 'Writes the page of this domain. It opens with the business — participants, the main scenario in numbered steps, the rules that govern it, what can go wrong, what is open — and ends with one section for the developer, the only place where routes, functions, tables, events, status codes, headers and timeouts are named. Every sentence carries the grounds that show it, a business sentence stands on a document section or a service and never on a place of the code, and every place of the developer section is a graph key you resolved. The core writes the sections, their headings in the wiki language and the sentence a part says when the documents settle nothing; a statement you cannot ground is refused, so state it in openPoints instead of inventing it.',
@@ -527,7 +562,10 @@ export class UnitTools {
     // A domain page is the six sections of `src/writer/domain-page.ts`: the unit fills their fields, the core writes
     // the page, so the business comes first and the code stands in one section at the end.
     if (this.unit.kind === 'domain') return WRITER_TOOLS.map((tool) => (tool.name === 'write_page' ? WRITE_DOMAIN_PAGE_TOOL : tool));
-    return this.unit.kind === 'product' ? WRITER_TOOLS : WRITER_TOOLS.map((tool) => (tool.name === 'write_page' ? { ...tool, inputSchema: object({ markdown: { type: 'string' } }, ['markdown']) } : tool));
+    // A home page is the eight sections of `src/writer/home-page.ts`: the product page and the overview page are the
+    // same thing at two moments of the run, and neither is a free-form body.
+    if (this.unit.kind === 'product' || this.unit.kind === 'overview') return WRITER_TOOLS.map((tool) => (tool.name === 'write_page' ? writeHomePageTool(this.unit.kind === 'product') : tool));
+    return WRITER_TOOLS.map((tool) => (tool.name === 'write_page' ? { ...tool, inputSchema: object({ markdown: { type: 'string' } }, ['markdown']) } : tool));
   }
 
   /** Whether the unit can still do anything: it wrote its page, or ran out of attempts or calls. */
@@ -726,6 +764,13 @@ export class UnitTools {
       extraFrontKeys: ENRICHMENT_FRONT_KEYS,
     }, this.view, await this.mentionNames());
     if (!verdict.ok) return this.refuse(verdict.refusals);
+    // A revision may write the passages the editorial pass named and nothing else: the check reads both pages as
+    // Markdown trees, so a changed sentence, a changed definition or an insertion elsewhere is refused here, before
+    // the sink is touched (madarch-ztyq.9, review 199).
+    if (this.extras.revisionScope !== undefined) {
+      const outside = revisionScopeProblems(this.unit.path, resolve(this.extras.output ?? process.cwd(), this.unit.path), this.extras.revisionScope.before, verdict.page.markdown, this.extras.revisionScope.passages);
+      if (outside.length > 0) return this.refuse(outside.map((message) => ({ line: 1, rule: 'revision-scope', message })));
+    }
     const unused = [...this.answersUsed].filter((id) => !verdict.page.grounds.includes(id));
     if (unused.length > 0) return this.refuse(unused.map((id) => ({ line: 1, rule: 'answer-not-used', message: `use the answer returned for ${id} and ground its rewritten sentence on that answered question` })));
     const lost = this.contradictionProblems(verdict.page.grounds);
@@ -799,6 +844,93 @@ export class UnitTools {
       domain: { slug: unit.domain.slug, title: unit.domain.title },
       evidence: unit.domain.evidence,
     });
+    return { markdown: rendered.markdown };
+  }
+
+  /**
+   * Whether this product is empty: it has no document and no content node or relation to stand a sentence on.
+   * A repository node alone, or an engine's own bookkeeping, is not content.
+   */
+  private async isEmptyProduct(): Promise<boolean> {
+    const seen = await this.view.overview();
+    if (seen.documents.length > 0 || seen.relations.length > 0) return false;
+    return seen.kinds.every(({ kind, count }) => count === 0 || kind === 'code.repository' || kind.startsWith('engine:'));
+  }
+
+  /**
+   * The home page, rendered from its fields after every place and ground resolved: each section points at a page
+   * a reader can follow — a declared domain, a section of a document, a key of the graph, or a page this run
+   * published — and a place that does not resolve is refused, naming the tool that would have found it. Nothing is
+   * written on a refusal.
+   */
+  private async homePageOf(value: unknown, declared: readonly DomainDeclaration[], emptyProduct = false): Promise<{ readonly markdown: string; readonly emptyProduct?: true } | { readonly refusals: readonly Refusal[] }> {
+    const unit = this.unit;
+    if (unit.kind !== 'product' && unit.kind !== 'overview') throw new Error('src/writer/tools.ts: homePageOf is only for a product or an overview unit');
+    const where = resolve(this.extras.output ?? process.cwd(), unit.path);
+    if (emptyProduct) {
+      const record = typeof value === 'object' && value !== null && !Array.isArray(value) ? value as Record<string, unknown> : {};
+      const title = typeof record['title'] === 'string' && record['title'].trim() !== '' ? record['title'].trim() : undefined;
+      return { markdown: renderEmptyHomePage({ language: structuredLanguage(this.extras.language), labelOf: (target) => this.labelOf(target), page: { id: unit.id, kind: unit.kind, title: unit.name } }, title).markdown, emptyProduct: true };
+    }
+    const read = parseHomeFields(value);
+    if (!read.ok) return { refusals: read.problems.map((problem) => ({ line: problem.line, rule: problem.rule, message: `${where}:${problem.line}: ${problem.message}` })) };
+    const fields: HomeFields = read.fields;
+    const refusals: Refusal[] = [];
+    const pathOf = new Map<string, string[]>();
+    for (const entry of homeTargetPaths(fields)) pathOf.set(entry.target, [...pathOf.get(entry.target) ?? [], `fields.${entry.path}`]);
+    const at = (target: string): string => [...new Set(pathOf.get(target) ?? [])].join(' or ');
+    const titles = new Map<string, string>(declared.map((domain) => [`domain:${domain.slug}`, domain.title] as const));
+    const published = new Set<string>([...titles.keys(), ...(this.extras.linkedPages ?? [])]);
+    // Every section names where the reader reads the whole thing: a place that does not resolve is refused here,
+    // before a byte is written, never left as a link that opens nothing.
+    for (const row of homeLinks(fields)) {
+      const target = row.target;
+      const title = titles.get(target);
+      if (title !== undefined) { this.names.set(target, title); continue; }
+      if (published.has(target)) {
+        if (row.label === undefined) { refusals.push({ line: 1, rule: 'link-label', message: `${where}:1: the section points at the page ${JSON.stringify(target)}, whose id a reader cannot read: give the place its "label", the words the page shows` }); continue; }
+        this.names.set(target, row.label);
+        continue;
+      }
+      const parsed = parseTarget(target);
+      if (parsed === undefined) { refusals.push({ line: 1, rule: 'link-shape', message: `${where}:1: ${at(target)}: "${target}" is no place a section points at: name a page (domain:<slug>), a document section (doc:<path>#<anchor>) or a graph key, as the tools answer it` }); continue; }
+      if (parsed.type === 'doc') {
+        if (!(await this.view.docSection(parsed.path, parsed.anchor))) { refusals.push({ line: 1, rule: 'unresolved-link', message: `${where}:1: ${at(target)}: the section points at ${JSON.stringify(target)}, and the document ${parsed.path} has no section ${JSON.stringify(parsed.anchor)} at the last filled commit: get_document_sections finds it and answers it exactly` }); continue; }
+        this.names.set(target, await this.view.nameOf({ type: 'doc', path: parsed.path, anchor: parsed.anchor }));
+        continue;
+      }
+      if (parsed.type === 'page') {
+        refusals.push({ line: 1, rule: 'unresolved-link', message: `${where}:1: ${at(target)}: the section points at ${JSON.stringify(target)}, and this run wrote no such page and declared no such domain: the pages are ${[...published].sort(byCodePoint).join(', ')}` });
+        continue;
+      }
+      const node = await this.view.node(parsed.key);
+      if (node === null) { refusals.push({ line: 1, rule: 'unresolved-link', message: `${where}:1: ${at(target)}: the section points at ${JSON.stringify(target)}, which is no key of the graph at the last filled commit: find_nodes answers a service, get_symbol a function, and the link is exactly the key they answer` }); continue; }
+      this.names.set(parsed.key, await this.view.nameOf({ type: 'graph', key: parsed.key }));
+    }
+    const placed = new Set(homeLinks(fields).map((row) => row.target));
+    for (const target of homeGrounds(fields)) {
+      if (placed.has(target)) continue;
+      if (target.startsWith('doc:')) {
+        const hash = target.indexOf('#');
+        const path = target.slice('doc:'.length, hash < 0 ? undefined : hash);
+        const anchor = hash < 0 ? '' : target.slice(hash + 1);
+        if (hash <= 'doc:'.length || anchor === '') { refusals.push({ line: 1, rule: 'ground-shape', message: `${where}:1: ${at(target)}: the ground ${JSON.stringify(target)} is no doc:<path>#<anchor>: name the section of the document, as get_document_sections answers it` }); continue; }
+        if (!(await this.view.docSection(path, anchor))) { refusals.push({ line: 1, rule: 'unresolved-ground', message: `${where}:1: ${at(target)}: the ground ${JSON.stringify(target)} names a section the document ${path} has not at the last filled commit: get_document_sections finds a section and answers the ground exactly` }); continue; }
+        this.names.set(target, await this.view.nameOf({ type: 'doc', path, anchor: anchor.toLowerCase() }));
+        continue;
+      }
+      if (target.startsWith('question:') || target.startsWith('correction:')) { this.names.set(target, target.slice(target.indexOf(':') + 1)); continue; }
+      const node = await this.view.node(target);
+      if (node === null) { refusals.push({ line: 1, rule: 'unresolved-ground', message: `${where}:1: ${at(target)}: the ground ${JSON.stringify(target)} is no key of the graph at the last filled commit: find_nodes answers a service, get_symbol a function, and the ground is exactly the key they answer` }); continue; }
+      this.names.set(target, await this.view.nameOf({ type: 'graph', key: target }));
+    }
+    // Every declared domain has its own section: the page that names the product's domains names all of them, so a
+    // reader who opens the home page sees the same domains the rest of the wiki is built around.
+    for (const domain of declared) {
+      if (!fields.domains.some((row) => row.target === `domain:${domain.slug}`)) refusals.push({ line: 1, rule: 'domain-not-linked', message: `${where}:1: the "domains" field names every domain the answer declares: add domain:${domain.slug} with the sentence the page says about it` });
+    }
+    if (refusals.length > 0) return { refusals };
+    const rendered = renderHomePage(fields, { language: structuredLanguage(this.extras.language), labelOf: (target) => this.labelOf(target), page: { id: unit.id, kind: unit.kind, title: unit.name } });
     return { markdown: rendered.markdown };
   }
 
@@ -1309,7 +1441,28 @@ export class UnitTools {
     // A domain page is not the unit's Markdown: it is the six sections of `src/writer/domain-page.ts`, and the core
     // writes them from the fields the unit gives, so the business comes first and the code stands at the end.
     let markdown: string;
-    if (this.unit.kind === 'domain') {
+    let domains = this.knownDomains;
+    let emptyProduct = false;
+    if (this.unit.kind === 'product') {
+      // A call with no domains list is the old refusal before anything is read; only a unit that named its
+      // (possibly empty) domain list can be asking for the empty-product page.
+      const empty = Array.isArray(args['domains']) && await this.isEmptyProduct();
+      if (!empty) {
+        const checked = await this.validateDomains(args['domains']);
+        if ('problems' in checked) return this.refuse(checked.problems);
+        domains = checked.domains;
+      } else domains = [];
+      const rendered = await this.homePageOf(args['fields'], domains, empty);
+      if ('refusals' in rendered) return this.refuse(rendered.refusals);
+      markdown = rendered.markdown;
+      emptyProduct = 'emptyProduct' in rendered;
+    } else if (this.unit.kind === 'overview') {
+      const empty = await this.isEmptyProduct();
+      const rendered = await this.homePageOf(args['fields'], domains, empty);
+      if ('refusals' in rendered) return this.refuse(rendered.refusals);
+      markdown = rendered.markdown;
+      emptyProduct = 'emptyProduct' in rendered;
+    } else if (this.unit.kind === 'domain') {
       const rendered = await this.domainPageOf(args['fields']);
       if ('refusals' in rendered) return this.refuse(rendered.refusals);
       markdown = rendered.markdown;
@@ -1318,18 +1471,19 @@ export class UnitTools {
       if (typeof supplied !== 'string' || supplied.trim() === '') return this.refuse([{ line: 0, rule: 'markdown', message: '"markdown" is the whole page as a non-empty text' }]);
       markdown = supplied;
     }
-    let domains = this.knownDomains;
-    if (this.unit.kind === 'product') {
-      const checked = await this.validateDomains(args['domains']);
-      if ('problems' in checked) return this.refuse(checked.problems);
-      domains = checked.domains;
-    }
     // The page this one replaces, when there is one: a sentence that stands keeps its footnote name.
     const previous = await this.sink.read(this.unit.path).catch(() => undefined);
     const questions = await this.existingQuestions();
     const entities = [...new Set([...(await this.extras.entityIds?.() ?? []), ...questions.filter((question) => question.status === 'answered').map((question) => question.id)])];
-    const verdict = await checkPage(markdown, { file: this.unit.path, fullPath: resolve(this.extras.output ?? process.cwd(), this.unit.path), language: this.extras.language === 'ru' ? 'ru' : 'en', questions: questions.map((question) => question.id), ...(previous === undefined ? {} : { previous }), ...(entities === undefined ? {} : { entities }), ...(this.basis.length === 0 ? {} : { writtenAt: this.basis }), id: this.unit.id, kind: this.unit.kind, domains: domains.map((d) => d.slug), mustLinkDomains: this.unit.kind === 'product', ...(this.unit.kind === 'domain' && this.unit.productId !== undefined ? { productId: this.unit.productId } : {}) }, this.view, await this.mentionNames());
+    const verdict = await checkPage(markdown, { file: this.unit.path, fullPath: resolve(this.extras.output ?? process.cwd(), this.unit.path), language: this.extras.language === 'ru' ? 'ru' : 'en', questions: questions.map((question) => question.id), ...(previous === undefined ? {} : { previous }), ...(entities === undefined ? {} : { entities }), ...(this.basis.length === 0 ? {} : { writtenAt: this.basis }), id: this.unit.id, kind: this.unit.kind, domains: domains.map((d) => d.slug), mustLinkDomains: this.unit.kind === 'product', ...(this.unit.kind === 'domain' && this.unit.productId !== undefined ? { productId: this.unit.productId } : {}), ...(emptyProduct ? { emptyProductGapSections: emptyProductGapSections() } : {}) }, this.view, await this.mentionNames());
     if (!verdict.ok) return this.refuse(verdict.refusals);
+    // A revision may write the passages the editorial pass named and nothing else: the check reads both pages as
+    // Markdown trees, so a changed sentence, a changed definition or an insertion elsewhere is refused here, before
+    // the sink is touched (madarch-ztyq.9, review 199).
+    if (this.extras.revisionScope !== undefined) {
+      const outside = revisionScopeProblems(this.unit.path, resolve(this.extras.output ?? process.cwd(), this.unit.path), this.extras.revisionScope.before, verdict.page.markdown, this.extras.revisionScope.passages);
+      if (outside.length > 0) return this.refuse(outside.map((message) => ({ line: 1, rule: 'revision-scope', message })));
+    }
     const unused = [...this.answersUsed].filter((id) => !verdict.page.grounds.includes(id));
     if (unused.length > 0) return this.refuse(unused.map((id) => ({ line: 1, rule: 'answer-not-used', message: `use the answer returned for ${id} and ground its rewritten sentence on that answered question` })));
     const lost = this.contradictionProblems(verdict.page.grounds);

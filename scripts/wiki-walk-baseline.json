@@ -2,10 +2,10 @@
   "product": "shop",
   "note": "Per-class counts of the walk over the generated training product (madarch-j6ho.1). This file may only go down: a fix that lowers a count lowers the number here, and CI fails when a class is above it or a class it does not name appears.",
   "counts": {
-    "empty-section": 3252,
-    "raw-key": 4704,
-    "foreign-language": 6357,
-    "raw-id": 426,
-    "node-without-evidence": 450
+    "empty-section": 0,
+    "raw-key": 0,
+    "foreign-language": 0,
+    "raw-id": 0,
+    "node-without-evidence": 0
   }
 }

@@ -127,9 +127,11 @@ describe('the journal of a unit driven over ACP', () => {
     expect(calls.map((record) => record.outcome)).toEqual(['refused', 'refused', 'refused']);
     expect(calls[0]!.arguments).toEqual({});
     expect(calls[1]!.arguments).toEqual({ type: 'gap' });
-    expect(calls[0]!.reason).toContain('markdown');
+    // A product unit's write_page takes the home page's fields beside the domains it declares (madarch-ztyq.7):
+    // arguments with neither are refused before anything is read, and the refusal is what the journal holds.
+    expect(calls[0]!.reason).toContain('domains');
     expect(calls[1]!.reason).toContain('bad-question');
-    expect(calls[2]!.reason).toContain('markdown');
+    expect(calls[2]!.reason).toContain('domains');
     expect(JSON.parse(calls[1]!.response!)).toMatchObject({ error: { code: 'bad-question' } });
     expect(calls[1]!.responseBytes).toBe(Buffer.byteLength(calls[1]!.response!, 'utf8'));
     expect(calls.every((record) => record.isError && !record.truncated)).toBe(true);

@@ -19,7 +19,7 @@ export const DropdownMenuContent = forwardRef<HTMLDivElement, ComponentProps<typ
         ref={ref}
         sideOffset={sideOffset}
         className={cn(
-          'ui-menu z-50 min-w-[220px] overflow-hidden rounded-[var(--radius-card)] border border-line bg-[var(--surface-menu)] p-1 text-ink shadow-[var(--shadow-high)]',
+          'ui-menu wiki-modal-layer min-w-[220px] overflow-hidden rounded-[var(--radius-card)] border border-line bg-[var(--surface-menu)] p-1 text-ink shadow-[var(--shadow-high)]',
           className,
         )}
         {...props}

@@ -170,6 +170,14 @@ function pricingFieldsRu(discountKey: string): Record<string, unknown> {
   };
 }
 
+/**
+ * The fields of the home page (madarch-ztyq.7): what the shop is, and one row per domain the unit declares, each
+ * pointing at the page a reader opens and standing on the file the domain lives in.
+ */
+function homeFields(options: { readonly what: string; readonly rows: readonly { target: string; text: string; grounds: string[] }[] }): Record<string, unknown> {
+  return { whatItIs: [{ text: options.what, grounds: [README_OVERVIEW] }], domains: options.rows };
+}
+
 describe('the loop, from the first question to a translation', () => {
   let discountKey: string;
   const prompts = new Map<string, string>();
@@ -183,13 +191,7 @@ describe('the loop, from the first question to a translation', () => {
         prompts.set(`first:${request.id}`, request.prompt);
         if (request.id.startsWith('product:')) {
           const written = await call(request, 'write_page', {
-            markdown: [
-              '---', 'id: product:loop-shop', 'kind: product', 'title: Loop shop', 'relates:', '  - code.file\u003asrc/pricing.ts', 'producer: agent', 'sources: [README.md]', '---', '',
-              '## What it is', '', 'The shop prices and ships orders.[^shop-prices-ships-orders]', '',
-              '## Domains', '', '- [Pricing](madarch:domain:pricing) covers discounts and tax.[^pricing-covers-discounts-tax]', '',
-              '[^shop-prices-ships-orders]: [README](madarch:doc:README.md#overview)',
-              '[^pricing-covers-discounts-tax]: [pricing](madarch:code.file\u003asrc/pricing.ts)',
-            ].join('\n'),
+            fields: homeFields({ what: 'The shop prices and ships orders.', rows: [{ target: 'domain:pricing', text: 'Pricing: covers discounts and tax.', grounds: [PRICING_FILE] }] }),
             domains: [{ slug: 'pricing', title: 'Pricing', summary: 'How an order is priced.', evidence: ['code.file\u003asrc/pricing.ts'] }],
           });
           expect(written.isError).toBe(false);
@@ -234,7 +236,9 @@ describe('the loop, from the first question to a translation', () => {
     expect(question!.writtenAt).toHaveLength(1);
     // The question is in the graph beside the pages: kind question with two statements, grounded on the README and the code.
     // The domain page holds the five sections the unit filled and its one note for the developer, one statement each.
-    expect(await indexCounts(owner)).toEqual([{ kind: 'domain', pages: 1, statements: 6 }, { kind: 'product', pages: 1, statements: 2 }, { kind: 'question', pages: 1, statements: 2 }]);
+    // The home page holds the two statements its unit wrote and the six sections it left open, each saying in one
+    // grounded sentence what the documents and the graph do not settle (madarch-ztyq.7).
+    expect(await indexCounts(owner)).toEqual([{ kind: 'domain', pages: 1, statements: 6 }, { kind: 'product', pages: 1, statements: 8 }, { kind: 'question', pages: 1, statements: 2 }]);
     expect((await statementsRelyingOn(owner, discountKey)).map((s) => `${s.pageKind}:${s.page}`)).toEqual(['domain:domain:pricing', `question:question:${QUESTION_SLUG}`]);
     expect(listQuestions(productFolder)).toMatchObject({ open: 1, answered: 0, closed: 0 });
   }, 300_000);
@@ -381,14 +385,8 @@ describe('the loop, from the first question to a translation', () => {
 
   test('a change of language is a translation of every page, with the page in front of the unit and the names kept', async () => {
     seen.length = 0;
-    // The product page is Markdown, as its unit writes it; the domain page is the fields of its six sections.
-    const russianProduct = [
-      '---', 'id: product:loop-shop', 'kind: product', 'title: Магазин', 'relates:', '  - code.file\u003asrc/pricing.ts', 'producer: agent', 'sources: [README.md]', '---', '',
-      '## Что это', '', 'Магазин считает цены и отправляет заказы.[^shop-prices-ships-orders]', '',
-      '## Домены', '', '- [Цены](madarch:domain:pricing) отвечают за скидки и налог.[^pricing-covers-discounts-tax]', '',
-      '[^shop-prices-ships-orders]: [README](madarch:doc:README.md#overview)',
-      '[^pricing-covers-discounts-tax]: [pricing](madarch:code.file\u003asrc/pricing.ts)',
-    ].join('\n');
+    // Both pages answer with fields: the home page's eight sections and the domain page's six, which the core writes.
+    const russianHome = homeFields({ what: 'Магазин считает цены и отправляет заказы.', rows: [{ target: 'domain:pricing', text: 'Цены: отвечают за скидки и налог.', grounds: [PRICING_FILE] }] });
     // The answers are collected and judged after the run: an assertion thrown inside the agent is caught by the
     // writer and shown as a failed unit, which would hide the refusal that caused it.
     const answers: string[] = [];
@@ -397,7 +395,7 @@ describe('the loop, from the first question to a translation', () => {
         seen.push(request.id);
         prompts.set(`ru:${request.id}`, request.prompt);
         const written = await call(request, 'write_page', request.id.startsWith('product:')
-          ? { markdown: russianProduct, domains: [{ slug: 'pricing', title: 'Цены', summary: 'Как считается цена заказа.', evidence: ['code.file\u003asrc/pricing.ts'] }] }
+          ? { fields: russianHome, domains: [{ slug: 'pricing', title: 'Цены', summary: 'Как считается цена заказа.', evidence: ['code.file\u003asrc/pricing.ts'] }] }
           : { fields: pricingFieldsRu(discountKey) });
         answers.push(`${request.id}: ${JSON.stringify(written.answer)}`);
       },
@@ -494,8 +492,8 @@ describe('retained answers used by fresh pages (madarch-m38l.22)', () => {
       const declarations = [{ slug: 'pricing', title: 'Pricing', summary: 'The order pricing rules.', evidence: ['code.file:src/pricing.ts'] }, ...(mode === 'partial' ? [{ slug: 'shipping', title: 'Shipping', summary: 'The delivery rules.', evidence: ['code.file:src/pricing.ts'] }] : [])];
       const agent: UnitAgent = { run: async (request) => {
         if (request.id.startsWith('product:')) {
-          const markdown = ['---', 'id: product:closure-shop', 'kind: product', 'title: Closure shop', 'relates: []', 'producer: agent', 'sources: [README.md]', '---', '', 'The shop prices orders.[^shop]', '', '## Domains', '', ...declarations.map((domain) => `- [${domain.title}](madarch:domain:${domain.slug}) covers order rules.[^shop]`), '', '[^shop]: [README](madarch:doc:README.md#overview)'].join('\n');
-          const result = await call(request, 'write_page', { markdown, domains: declarations }); expect(result.isError, JSON.stringify(result.answer)).toBe(false); return;
+          const fields = homeFields({ what: 'The shop prices orders.', rows: declarations.map((domain) => ({ target: `domain:${domain.slug}`, text: `${domain.title}: covers order rules.`, grounds: [PRICING_FILE] })) });
+          const result = await call(request, 'write_page', { fields, domains: declarations }); expect(result.isError, JSON.stringify(result.answer)).toBe(false); return;
         }
         if (mode === 'failed' || request.id === 'domain:shipping') return;
         // The page's one rule stands on this mode's ground: the answer, or a README section — and in "mention" the
@@ -557,7 +555,7 @@ describe('retained corrections used by recreated pages (madarch-m38l.22)', () =>
         prompts.set(request.id, request.prompt);
         if (request.id.startsWith('product:')) {
           written.push(await call(request, 'write_page', {
-            markdown: ['---', 'id: product:refill-policy', 'kind: product', 'title: Policy', 'relates: []', 'producer: agent', 'sources: [README.md]', '---', '', 'The shop prices orders.[^shop]', '', '- [Pricing](madarch:domain:pricing) covers order pricing.[^domain]', '', '[^shop]: [README](madarch:doc:README.md#overview)', '[^domain]: [pricing](madarch:code.file:src/pricing.ts)'].join('\n'),
+            fields: homeFields({ what: 'The shop prices orders.', rows: [{ target: 'domain:pricing', text: 'Pricing: covers order pricing.', grounds: [PRICING_FILE] }] }),
             domains: [{ slug: 'pricing', title: 'Pricing', summary: 'The order pricing rules.', evidence: ['code.file:src/pricing.ts'] }],
           }));
         } else {

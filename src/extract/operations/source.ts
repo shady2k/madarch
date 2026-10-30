@@ -6,7 +6,7 @@
 import type { Extraction, SourceSpan, TreeReader } from '../records.js';
 import { byCodePoint } from '../../model/order.js';
 import type {
-  CodeBindingFact, CodeCallFact, CodeExpressionFact, CodeFactId, CodeFacts, CodeFileFact, CodeImportFact, CodeSymbolFact,
+  CodeBindingFact, CodeCallFact, CodeExpressionFact, CodeExportFact, CodeFactId, CodeFacts, CodeFieldFact, CodeFileFact, CodeImportFact, CodeSiteFact, CodeSymbolFact,
 } from '../code/facts.js';
 import {codeFactsOf} from '../code/index.js';
 import { evaluateLibraryModels } from '../library-models/evaluate.js';
@@ -27,38 +27,50 @@ Object.freeze(EMPTY_INDEX);
  * the whole-array scan it replaces always gave.
  */
 export class FactIndex<T> {
-  private readonly groups: ReadonlyMap<string, readonly T[]>;
+  /** One entry is held as itself; only a repeated key allocates an array. */
+  private constructor(private readonly groups: ReadonlyMap<string, T | readonly T[]>) {}
 
-  constructor(entries: Iterable<readonly [string, T]>) {
-    const grouped = new Map<string, T[]>();
-    for (const [key, entry] of entries) {
-      const held = grouped.get(key);
-      if (held === undefined) grouped.set(key, [entry]);
-      else held.push(entry);
+  private static build<T>(entries: Iterable<readonly [string, T]>): FactIndex<T> {
+    const grouped = new Map<string, T | T[]>();
+    for (const [at, item] of entries) {
+      const held = grouped.get(at);
+      if (held === undefined) grouped.set(at, item);
+      else if (Array.isArray(held)) held.push(item);
+      else grouped.set(at, [held as T, item]);
     }
-    const groups = new Map<string, readonly T[]>();
-    for (const [key, held] of grouped) {
-      Object.freeze(held);
-      groups.set(key, held);
-    }
-    this.groups = groups;
+    // A group is the proof's whole answer: a caller can read it, never shrink it.
+    for (const held of grouped.values()) if (Array.isArray(held)) Object.freeze(held);
+    return new FactIndex<T>(grouped);
+  }
+
+  static fromItems<T>(items: readonly T[], key: (item: T) => string): FactIndex<T> {
+    return FactIndex.build((function* () { for (const item of items) yield [key(item), item] as const; })());
+  }
+
+  static fromPairs<T>(pairs: Iterable<readonly [string, T]>): FactIndex<T> {
+    return FactIndex.build(pairs);
   }
 
   /** Every entry under one key, in the facts' own order; none when nothing matches. */
   all(key: string): readonly T[] {
-    return this.groups.get(key) ?? EMPTY_INDEX;
+    const held = this.groups.get(key);
+    if (held === undefined) return EMPTY_INDEX;
+    // One entry is held as itself; its answer is still an array a caller cannot shrink.
+    return Array.isArray(held) ? held : Object.freeze([held as T]);
   }
 
   /** The keys this index holds. */
   keys(): readonly string[] {
-    return [...this.groups.keys()];
+    return Object.freeze([...this.groups.keys()]);
   }
 }
 
 /** One index that holds one entry per item, grouped by a key of that item. */
 function groupedBy<T>(items: readonly T[] | undefined, key: (item: T) => string): FactIndex<T> {
-  return new FactIndex((items ?? []).map((item) => [key(item), item] as const));
+  return FactIndex.fromItems(items ?? [], key);
 }
+
+export const spanKey = (span: SourceSpan): string => JSON.stringify([span.path, span.byteStart, span.byteEnd]);
 
 export class TreeText {
   /** The tree's paths, as a set for `has`. */
@@ -112,6 +124,13 @@ export class TreeText {
   readonly symbolsByKey: FactIndex<CodeSymbolFact>;
   readonly importsByPath: FactIndex<CodeImportFact>;
   readonly filesByPath: FactIndex<CodeFileFact>;
+  /** The same facts under the keys the HTTP proofs ask for, built once instead of rescanned per call. */
+  readonly expressionsBySyntax: FactIndex<CodeExpressionFact>;
+  readonly expressionsBySpan: FactIndex<CodeExpressionFact>;
+  readonly parentsByChild: FactIndex<CodeExpressionFact>;
+  readonly sitesBySpan: FactIndex<CodeSiteFact>;
+  readonly exportsById: FactIndex<CodeExportFact>;
+  readonly fieldsByKey: FactIndex<CodeFieldFact>;
 
   /** The callable sites this view has already proved, and the bytes' boundary tables. */
   private readonly callables = new Map<string, readonly FunctionSite[]>();
@@ -124,8 +143,7 @@ export class TreeText {
     this.has = (path) => paths.has(path);
     this.expressionsByPath = groupedBy(this.facts?.expressions, (expression) => expression.path);
     this.expressionsById = groupedBy(this.facts?.expressions, (expression) => expression.id);
-    this.childrenByParent = new FactIndex((this.facts?.expressions ?? []).flatMap((expression) =>
-      expression.children.map((child) => [expression.id, child] as const)));
+    this.childrenByParent = FactIndex.fromPairs((function* (facts: CodeFacts | undefined) { for (const expression of facts?.expressions ?? []) for (const child of expression.children) yield [expression.id, child] as const; })(this.facts));
     this.callsByExpression = groupedBy(this.facts?.calls, (call) => call.expression);
     this.bindingsById = groupedBy(this.facts?.bindings, (binding) => binding.id);
     this.bindingsByInitializer = groupedBy((this.facts?.bindings ?? []).filter((binding) => binding.initializer !== undefined),
@@ -134,6 +152,12 @@ export class TreeText {
     this.symbolsByKey = groupedBy(this.facts?.symbols, (symbol) => symbol.key);
     this.importsByPath = groupedBy(this.facts?.imports, (entry) => entry.path);
     this.filesByPath = groupedBy(this.facts?.files, (file) => file.path);
+    this.expressionsBySyntax = groupedBy(this.facts?.expressions, (expression) => expression.syntaxKind);
+    this.expressionsBySpan = groupedBy(this.facts?.expressions, (expression) => spanKey(expression.span));
+    this.parentsByChild = FactIndex.fromPairs((function* (facts: CodeFacts | undefined) { for (const expression of facts?.expressions ?? []) for (const child of expression.children) yield [child, expression] as const; })(this.facts));
+    this.sitesBySpan = groupedBy(this.facts?.sites, (site) => spanKey(site.span));
+    this.exportsById = groupedBy(this.facts?.exports, (entry) => entry.id);
+    this.fieldsByKey = groupedBy(this.facts?.fields, (field) => field.key);
   }
 
   /** The callable sites already proved for a path in this view, when one asked before. */

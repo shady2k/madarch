@@ -22,17 +22,21 @@ import { join } from 'node:path';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { afterAll, beforeAll, describe, expect, test } from 'bun:test';
-import { parse as parseYaml } from 'yaml';
+import { parse as parseYaml, parseDocument } from 'yaml';
 import { createPGliteDatabaseOwner, type DatabaseOwner } from '../src/adapters/database-owner.js';
 import { documentSections } from '../src/knowledge/index/sections.js';
 import { localizedSourcePath } from '../src/writer/localized-source.js';
+import { HOME_SECTIONS } from '../src/writer/home-page.js';
+import { statementsOfMarkdown } from '../src/writer/editorial-read.js';
 import { fillGraph } from '../src/extract/driver/index.js';
+import { KINDS_FILE } from '../src/knowledge/kinds.js';
+import { seedStarterSet } from '../src/knowledge/seed.js';
 import { HISTORY_EXTRACTOR, OWNERS, TREE_EXTRACTORS } from '../src/extract/driver/extractors.js';
 import { createGraphStore, type GraphStore } from '../src/graph/index.js';
 import { changedGrounds, gitReader, indexKnowledge, readIndexedPage, statementsRelyingOn } from '../src/knowledge/index/index.js';
 import {
-  DEFAULT_UNIT_BOUNDS, GraphView, UnitTools, WRITER_TOOLS, fsSink, memorySink, runWriter, slugOf,
-  type DomainDeclaration, type MentionName, type ToolAnswer, type UnitAgent, type UnitRequest, type UnitSpec, type WriterReport,
+  DEFAULT_UNIT_BOUNDS, GraphView, UnitTools, WRITER_TOOLS, fsSink, memoryJournal, memorySink, runWriter, slugOf,
+  type DomainDeclaration, type EditorialJudge, type Journal, type MentionName, type ToolAnswer, type UnitAgent, type UnitOutcome, type UnitRequest, type UnitSpec, type WriterReport,
 } from '../src/writer/index.js';
 
 const ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
@@ -106,10 +110,9 @@ async function groundOf(request: UnitRequest, place: { path: string; symbol?: st
   return hit !== undefined && !/\s/.test(hit.key) ? hit.key : file;
 }
 
-/** A statement of the key as grounded sentences: every sentence ends with the same footnote. */
-function sentences(statement: string, label: string): string {
-  const parts = statement.replace(/\s+/g, ' ').trim().split(/(?<=[.!?])\s+/);
-  return parts.map((part) => `${/[.!?]$/.test(part) ? part : `${part}.`}[^${label}]`).join(' ');
+/** The sentences of a key statement, each with its own punctuation: a field statement is one sentence. */
+function sentencesOfText(statement: string): string[] {
+  return statement.replace(/\s+/g, ' ').trim().split(/(?<=[.!?])\s+/).map((part) => (/[.!?]$/.test(part) ? part : `${part}.`));
 }
 
 async function evidenceFor(request: UnitRequest, item: KeyItem): Promise<string[]> {
@@ -134,39 +137,60 @@ interface Script {
   readonly mentions?: boolean;
 }
 
+/**
+ * The product unit's answer (madarch-ztyq.7): the fields of the home page, never its Markdown. The core writes the
+ * eight sections, their headings and the footnotes; the unit gives each section its statements and the places it
+ * points at, and the same fields are rendered the same way in English and in Russian.
+ */
 function productScript(script: Script = {}): (request: UnitRequest) => Promise<void> {
   return async (request) => {
     await call(request, 'overview');
     const vision = await call(request, 'read_file', { path: 'docs/vision.md' });
     expect((vision.answer as { sectionAnchors: string[] }).sectionAnchors).toContain('users');
-    await call(request, 'read_file', { path: 'docs/requirements.md' });
+    const requirements = await call(request, 'read_file', { path: 'docs/requirements.md' });
+    expect((requirements.answer as { sectionAnchors: string[] }).sectionAnchors).toContain('uc-1');
     const services = await call(request, 'find_nodes', { kind: 'code.service' });
-    const keys = (services.answer as { nodes: { key: string }[] }).nodes.map((n) => n.key);
-    const statements = [...itemsOf(/^stack\.passport$/), ...itemsOf(/^doc\.vision$/), ...itemsOf(/^doc\.use-cases$/), ...itemsOf(/^architecture\.composition-root$/)];
-    const body: string[] = ['## What the product is', ''];
-    const notes: string[] = [];
-    for (const [index, item] of statements.entries()) {
-      const label = String(index + 1);
-      body.push(sentences(item.expectedWikiStatement, label), '');
-      notes.push(footnote(label, await evidenceFor(request, item)));
-    }
-    body.push('## Domains', '');
-    for (const domain of KEY_DOMAINS) body.push(`- [${domain.title}](madarch:domain:${domain.slug}) is implemented by the [${domain.service} service](madarch:code.service:${domain.service}).[^${domain.slug}]`);
-    for (const domain of KEY_DOMAINS) notes.push(footnote(domain.slug, [`code.service:${domain.service}`, `doc:docs/requirements.md#${domain.useCase}`]));
-    body.push('', ...keys.map((k) => `- [${k.replace('code.service:', '')}](madarch:${k})`));
-    if (script.mentions === true) {
-      // Plain prose as an agent writes it: the names are not links, and the core must make them links.
-      body.push('', '## Stack', '', 'The shop stores carts in Postgres and publishes to Kafka through the outbox.[^stack]', 'UC-1 and BR-3 govern the work, and the Outbox and Capture terms explain them.[^terms]', '');
-      notes.push(footnote('stack', ['code.service:orders']));
-      notes.push(footnote('terms', ['doc:docs/requirements.md#uc-1']));
-    }
-    const page = ['---', 'id: product:training-shop', 'kind: product', 'title: Training shop', 'relates:', ...keys.map((k) => `  - ${k}`), 'producer: agent', 'sources: [docs/vision.md, docs/requirements.md]', '---', '', ...body, '', ...notes].join('\n');
+    expect((services.answer as { nodes: { key: string }[] }).nodes.map((n) => n.key)).toContain('code.service:orders');
+    const stated = async (items: KeyItem[]): Promise<{ text: string; grounds: string[] }[]> => {
+      const out: { text: string; grounds: string[] }[] = [];
+      for (const item of items) {
+        const grounds = await evidenceFor(request, item);
+        for (const text of sentencesOfText(item.expectedWikiStatement)) out.push({ text, grounds });
+      }
+      return out;
+    };
+    // Plain prose as an agent writes it: the names are not links, and the core must make them links. It sits in
+    // the technology section, whose heading the core writes and never links (madarch-ztyq.8).
+    const mentions = script.mentions === true ? [
+      { text: 'The shop stores carts in Postgres and publishes to Kafka through the outbox.', grounds: ['code.service:orders'] },
+      { text: 'UC-1 and BR-3 govern the work, and the Outbox and Capture terms explain them.', grounds: ['doc:docs/requirements.md#uc-1'] },
+    ] : [];
+    const fields = {
+      whatItIs: await stated(itemsOf(/^doc\.vision$/)),
+      scenarios: await Promise.all(KEY_DOMAINS.map(async (domain) => {
+        const item = itemsOf(new RegExp(`^flow\.${domain.service}\.`))[0]!;
+        return { target: `doc:docs/requirements.md#${domain.useCase}`, text: sentencesOfText(item.expectedWikiStatement)[0]!, grounds: await evidenceFor(request, item) };
+      })),
+      system: await Promise.all(itemsOf(/^service\./).map(async (item) => ({
+        target: `code.service:${item.id.slice('service.'.length)}`,
+        text: sentencesOfText(item.expectedWikiStatement)[0]!,
+        grounds: await evidenceFor(request, item),
+      }))),
+      domains: KEY_DOMAINS.map((domain) => ({
+        target: `domain:${domain.slug}`,
+        text: `${domain.title} is what the ${domain.service} service does for a shopper.`,
+        grounds: [`code.service:${domain.service}`, `doc:docs/requirements.md#${domain.useCase}`],
+      })),
+      technology: [...await stated([...itemsOf(/^stack\.passport$/), ...itemsOf(/^architecture\.composition-root$/)]), ...mentions],
+    };
     const domains = KEY_DOMAINS.map((d) => ({ slug: d.slug, title: d.title, summary: `${d.title} is what the ${d.service} service does for a shopper.`, evidence: [`code.service:${d.service}`, `doc:docs/requirements.md#${d.useCase}`] }));
     if (script.firstAttemptSpoiled) {
-      const refused = await call(request, 'write_page', { markdown: `${page}\n\nThe shop is fast.`, domains });
+      // A field nothing declares comes back to the agent with the fields there are, and nothing is written.
+      const refused = await call(request, 'write_page', { fields: { ...fields, architecture: [] }, domains });
       expect(refused.isError).toBe(true);
+      expect((refused.answer as { refused: { message: string }[] }).refused[0]!.message).toContain('"architecture" names nothing');
     }
-    const written = await call(request, 'write_page', { markdown: page, domains });
+    const written = await call(request, 'write_page', { fields, domains });
     expect(written.isError).toBe(false);
   };
 }
@@ -206,11 +230,28 @@ function domainScript(spoil: boolean): (request: UnitRequest, domain: (typeof KE
   };
 }
 
+/** Gives the scratch product the starter set and declares the overview page kind this test needs. */
+function declareOverview(folder: string): void {
+  mkdirSync(join(folder, 'docs'), { recursive: true });
+  seedStarterSet(folder);
+  const file = join(folder, KINDS_FILE);
+  const manifest = parseDocument(readFileSync(file, 'utf8'));
+  manifest.setIn(['kinds', 'overview'], { template: 'templates/product.md', source: 'markdown', file: 'docs/overview.md', origin: 'agent', labels: { en: { one: 'Overview', many: 'Overviews' } } });
+  writeFileSync(file, manifest.toString());
+}
+
 interface Run {
   report: WriterReport;
   pages: Map<string, string>;
   prompts: Map<string, string>;
+  /** Every prompt that carried an editorial revision request, in the order the writer asked. */
+  revisionPrompts: string[];
+  /** Every unit outcome the run announced, in order. */
+  unitOutcomes: UnitOutcome[];
 }
+
+// The editorial pass asks a unit for revisions after its page is accepted; the run hands its judge the page.
+// ---------------------------------------------------------------------------------------------
 
 /** The target of the first Markdown link whose label is exactly `label`; fails when the page has none. */
 function linkTarget(markdown: string, label: string): string {
@@ -229,20 +270,36 @@ const MENTION_NAMES: readonly MentionName[] = [
   { name: 'Capture', target: 'doc:docs/glossary.md#capture', caseSensitive: true },
 ];
 
-async function run(options: { spoilProduct?: boolean; spoilDomains?: boolean; mentions?: boolean } = {}): Promise<Run> {
+async function run(options: { spoilProduct?: boolean; spoilDomains?: boolean; output?: string; refuseRevisions?: boolean; mentions?: boolean; editorial?: { judge?: EditorialJudge; maxRequestsPerPage?: number; journal?: Journal; skipReason?: string } } = {}): Promise<Run> {
   const sink = memorySink();
   const prompts = new Map<string, string>();
+  const revisionPrompts: string[] = [];
+  const unitOutcomes: UnitOutcome[] = [];
+  const refusing = new Set<string>();
   const product = productScript({ ...(options.spoilProduct === true ? { firstAttemptSpoiled: true } : {}), ...(options.mentions === true ? { mentions: true } : {}) });
   const domain = domainScript(options.spoilDomains === true);
   const agent: UnitAgent = {
     run: async (request) => {
       prompts.set(request.id, request.prompt);
+      const revision = request.prompt.includes('## The editorial pass asked for these revisions');
+      if (revision) revisionPrompts.push(request.prompt);
+      if (options.refuseRevisions === true && (revision || refusing.has(request.id))) {
+        // The agent cannot answer the revision: every attempt is a page the contract refuses, and the unit keeps trying
+        // until its bound is spent, exactly as an editing model that will not follow the request does.
+        refusing.add(request.id);
+        await request.tools.call('write_page', {});
+        return;
+      }
       if (request.id === 'product:training-shop') await product(request);
-      else await domain(request, KEY_DOMAINS.find((d) => `domain:${d.slug}` === request.id)!);
+      else if (request.id.startsWith('overview:')) {
+        // The overview page is the same home page as the product page, written last: the unit gives
+        // the eight fields, and the core writes the headings, the places and the gap sentences.
+        await product(request);
+      } else await domain(request, KEY_DOMAINS.find((d) => `domain:${d.slug}` === request.id)!);
     },
   };
-  const report = await runWriter({ owner, store, repository, output: path.join(scratch, 'unused-output'), productName: 'Training shop', agent, sink, ...(options.mentions === true ? { mentions: MENTION_NAMES } : {}) });
-  return { report, pages: sink.pages, prompts };
+  const report = await runWriter({ owner, store, repository, output: options.output ?? path.join(scratch, 'unused-output'), productName: 'Training shop', agent, sink, onUnit: (outcome) => unitOutcomes.push(outcome), ...(options.mentions === true ? { mentions: MENTION_NAMES } : {}), ...(options.editorial === undefined ? {} : { editorial: options.editorial }) });
+  return { report, pages: sink.pages, prompts, revisionPrompts, unitOutcomes };
 }
 
 // ---------------------------------------------------------------------------------------------
@@ -296,6 +353,79 @@ describe('the writer over the training repository', () => {
     second = await run();
   }, 600_000);
 
+  test('the editorial pass runs on the filled training product after the page batch and after the overview, and journals every request at its point', async () => {
+    const journal = memoryJournal('run-editorial-training');
+    const calls: string[][] = [];
+    const judge: EditorialJudge = {
+      async judge(pack) {
+        calls.push(pack.pages.map((page) => page.path));
+        const page = pack.pages.find((held) => held.statements.length > 0);
+        if (page === undefined) return { requests: [] };
+        return { requests: [{ page: page.path, passage: page.statements[0]!.id, change: 'Say this so a newcomer can follow it.', why: 'The first sentence assumes the rest of the page.' }] };
+      },
+    };
+    const output = join(scratch, 'editorial-training-product');
+    declareOverview(output);
+    const editorial = await run({ output, editorial: { journal, maxRequestsPerPage: 2, judge } });
+    // The writer's own report says both points ran; the fake judge saw the batch (product + domains)
+    // before the overview, then the complete set.
+    expect(editorial.report.editorialPasses.map((pass) => pass.point)).toEqual(['batch', 'overview']);
+    expect(editorial.report.editorialPasses[0]!.pages).not.toContain('docs/overview.md');
+    expect(editorial.report.editorialPasses[1]!.pages).toContain('docs/overview.md');
+    expect(calls).toHaveLength(2);
+    expect(calls[0]!.some((page) => page.startsWith('docs/domains/'))).toBe(true);
+    expect(calls[1]).toEqual(expect.arrayContaining([...calls[0]!]));
+    expect(editorial.report.editorialProblems).toEqual([]);
+    // Each point's requests are journal entries tagged with the point, so a revision is never hidden.
+    const at = (point: string) => journal.records.filter((record) => record.kind === 'revision-request' && (record.arguments as { point?: string }).point === point);
+    expect(at('batch').length).toBeGreaterThan(0);
+    expect(at('overview').length).toBeGreaterThan(0);
+    // The fake judge was asked at both points; the deterministic findings lead the bound, so these
+    // records prove the pass ran and journalled at each point, and test/writer-editorial.test.ts
+    // proves the editing role's own requests are bounded and journalled.
+    expect(editorial.report.revisionRequests.length).toBeGreaterThanOrEqual(2);
+  }, 240_000);
+
+  test('an unassigned editing role records its findings and leaves every page exactly as the writer wrote it', async () => {
+    const baselineOutput = join(scratch, 'editorial-skipped-baseline');
+    declareOverview(baselineOutput);
+    const baseline = await run({ output: baselineOutput });
+    const skippedOutput = join(scratch, 'editorial-skipped-product');
+    declareOverview(skippedOutput);
+    const skipped = await run({ output: skippedOutput, editorial: { skipReason: 'the editing role is not assigned', maxRequestsPerPage: 2 } });
+    // The checks still run and their requests are reported, but no model is asked and no page is reworked.
+    expect(skipped.report.revisionRequests.length).toBeGreaterThan(0);
+    expect(skipped.revisionPrompts).toEqual([]);
+    expect([...skipped.pages.keys()]).toEqual([...baseline.pages.keys()]);
+    for (const [page, text] of baseline.pages) expect(skipped.pages.get(page)).toBe(text);
+    expect(skipped.unitOutcomes.filter((outcome) => outcome.unit === 'domain:ordering').map((outcome) => outcome.status)).toEqual(['written']);
+    expect(skipped.report.ok).toBe(true);
+  }, 240_000);
+
+  test('a revision the agent refuses leaves the page and the unit that wrote it as they stood', async () => {
+    const output = join(scratch, 'editorial-refused-product');
+    declareOverview(output);
+    let asked = false;
+    const judge: EditorialJudge = {
+      async judge(pack) {
+        if (asked) return { requests: [] };
+        const page = pack.pages.find((held) => held.path === 'docs/domains/ordering.md' && held.statements.length > 0);
+        if (page === undefined) return { requests: [] };
+        asked = true;
+        return { requests: [{ page: page.path, passage: page.statements[0]!.id, change: 'Say this so a newcomer can follow it.', why: 'The first sentence assumes the rest of the page.' }] };
+      },
+    };
+    const refused = await run({ output, editorial: { judge, maxRequestsPerPage: 1 }, refuseRevisions: true });
+    // The revision was asked for and refused; the page the unit wrote before the pass is still its page.
+    expect(refused.revisionPrompts.length).toBeGreaterThan(0);
+    expect(refused.revisionPrompts[0]).toContain('The product unit declared this domain: Ordering is what the orders service does for a shopper.');
+    expect(refused.report.domains.map((domain) => [domain.unit, domain.status])).toEqual([['domain:ordering', 'written'], ['domain:payments', 'written']]);
+    expect(refused.report.ok).toBe(true);
+    expect(refused.report.editorialProblems.some((problem) => problem.includes('docs/domains/ordering.md'))).toBe(true);
+    // The revision is not the page unit's attempt: it does not announce a second, failed outcome for the same unit.
+    expect(refused.unitOutcomes.filter((outcome) => outcome.unit === 'domain:ordering').map((outcome) => outcome.status)).toEqual(['written']);
+  }, 240_000);
+
   test('runs one unit for the product and one per domain, in that order, and writes their three files', () => {
     expect(JSON.stringify([first.report.product.refusals, ...first.report.domains.map((d) => d.refusals)])).toBe('[[],[],[]]');
     expect(first.report.ok).toBe(true);
@@ -319,8 +449,10 @@ describe('the writer over the training repository', () => {
       expect(target.startsWith('code.')).toBe(true);
       expect(await view.graphKey(target)).toBe(true);
     }
-    // A heading is not prose: the section title keeps the agent's text.
-    expect(page).toContain('\n## Stack\n');
+    // The headings belong to the core, which writes them, so none is linked; `writer-mentions` proves the
+    // structural skip for a heading that names a known entity.
+    const technology = HOME_SECTIONS.find((section) => section.id === 'technology')!;
+    expect(page).toContain(`\n## ${technology.heading.en}\n`);
     // The page states the paragraph it wrote, and each sentence keeps its ground.
     expect(page).toContain('stores carts in [Postgres]');
     // `Kafka` names both the broker and its compose service and the page has no evidence which it means:
@@ -395,6 +527,25 @@ describe('the writer over the training repository', () => {
     }
   });
 
+  test('the product page is the eight sections of a home page, in order, each pointing at the page that says it in full', () => {
+    const page = first.pages.get('docs/product.md')!;
+    const headings = page.split('\n').filter((line) => line.startsWith('## ')).map((line) => line.slice(3));
+    expect(headings).toEqual(HOME_SECTIONS.map((section) => section.heading.en));
+    // Each section carries its own part: what the product is, its scenarios, how it is put together, its domains,
+    // its rules, its technology, how complete the wiki is, and what is not connected.
+    const sections = page.split('\n## ').slice(1);
+    expect(sections).toHaveLength(8);
+    for (const section of sections) expect(section.split('\n').filter((line) => line.trim() !== '' && !line.startsWith('[')).length).toBeGreaterThan(1);
+    // The scenarios point at the document section that tells them, the system at the graph's own keys, and the
+    // domains at the pages the run declares.
+    expect(page).toContain('](madarch:doc:docs/requirements.md#uc-1)');
+    expect(page).toContain('](madarch:code.service:orders)');
+    for (const domain of KEY_DOMAINS) expect(page).toContain(`](madarch:domain:${domain.slug})`);
+    // A part the unit found nothing for says so of the documents and the graph, never as an empty heading.
+    expect(page).toContain(HOME_SECTIONS.find((section) => section.id === 'coverage')!.gap!.en);
+    expect(page).toContain(HOME_SECTIONS.find((section) => section.id === 'not-connected')!.gap!.en);
+  });
+
   test('every ground of every footnote resolves: a key the graph holds at the fill, or a section the document has', async () => {
     let grounds = 0;
     for (const markdown of first.pages.values()) {
@@ -458,7 +609,9 @@ describe('the writer over the training repository', () => {
     for (const [unit, prompt] of first.prompts.entries()) {
       // A domain page is written by the core from its unit's fields (madarch-ztyq.6): its prompt carries what the
       // core writes for it instead of the page format, and the graph the same way.
-      if (unit.startsWith('domain:')) expect(prompt).toContain('## What the core writes for you');
+      // A domain page and the home page are written by the core from their unit's fields (madarch-ztyq.6, ztyq.7):
+      // their prompts carry what the core writes for them instead of the page format.
+      if (unit.startsWith('domain:') || unit === 'product:training-shop') expect(prompt).toContain('## What the core writes for you');
       else expect(prompt).toContain('Every sentence that states something ends with a footnote');
       expect(prompt).toContain('code.service:orders');
       expect(prompt).not.toContain('CREATE TABLE');
@@ -482,9 +635,9 @@ describe('the unit tools', () => {
   const header = (scope: string): string => `---\nid: validation:${scope}\nkind: validation\ntitle: Payments\nrelates:\n  - code.service:payments\nproducer: agent\nsources: []\n---\n\n`;
   const grounded = 'Payments run in the payments service.[^1]\n\n[^1]: [payments](madarch:code.service:payments)\n';
 
-  function session(spec: UnitSpec = validationSpec('payments'), bounds = DEFAULT_UNIT_BOUNDS) {
+  function session(spec: UnitSpec = validationSpec('payments'), bounds = DEFAULT_UNIT_BOUNDS, extras: ConstructorParameters<typeof UnitTools>[6] = {}) {
     const sink = memorySink();
-    return { sink, tools: new UnitTools(view, spec, sink, known, bounds) };
+    return { sink, tools: new UnitTools(view, spec, sink, known, bounds, [], extras) };
   }
 
   test('an agent has the fourteen tools that answer questions, and no way to reach the repository, a shell or the disk', () => {
@@ -565,6 +718,77 @@ describe('the unit tools', () => {
     expect((await tools.call('write_page', { markdown: `${header('payments')}${grounded}` })).isError).toBe(true);
   });
 
+  test('a revision writes the passage it was asked about and no other', async () => {
+    const scope = validationSpec('payments');
+    const original = `${header('payments')}Payments run in the payments service.[^1] Refunds take nine days.[^2]\n\n[^1]: [payments](madarch:code.service:payments)\n[^2]: [payments](madarch:code.service:payments)\n`;
+    const revised = `${header('payments')}Payments run in the payments service.[^1] Refunds take fourteen days.[^2]\n\n[^1]: [payments](madarch:code.service:payments)\n[^2]: [payments](madarch:code.service:payments)\n`;
+    const sink = memorySink();
+    const first = new UnitTools(view, scope, sink, known, DEFAULT_UNIT_BOUNDS);
+    expect((await first.call('write_page', { markdown: original })).isError).toBe(false);
+    // The editorial pass reads the page the core wrote, whose footnote names the core chose: those names are the
+    // statement ids a revision request carries.
+    const written = sink.pages.get('docs/validation/payments.md')!;
+    const [firstPassage, secondPassage] = statementsOfMarkdown(written).map((statement) => statement.id);
+    const scoped = new UnitTools(view, scope, sink, known, DEFAULT_UNIT_BOUNDS, [], { revisionScope: { before: written, passages: [firstPassage!] } });
+    const answer = await scoped.call('write_page', { markdown: revised });
+    expect((answer.answer as { refused: { rule: string; message: string }[] }).refused.map((refusal) => refusal.rule)).toEqual(['revision-scope']);
+    expect((answer.answer as { refused: { message: string }[] }).refused[0]!.message).toContain('docs/validation/payments.md');
+    expect(sink.pages.get('docs/validation/payments.md')).toBe(written);
+    // The named passage is the one the request may change: the same revision is accepted there.
+    const inScope = new UnitTools(view, scope, sink, known, DEFAULT_UNIT_BOUNDS, [], { revisionScope: { before: written, passages: [secondPassage!] } });
+    expect((await inScope.call('write_page', { markdown: revised })).isError).toBe(false);
+    expect(sink.pages.get('docs/validation/payments.md')).toContain('fourteen days');
+    // A new paragraph beside the named passage is prose the pass did not ask about, even when the named passage
+    // changes too; the block count is part of the bound (madarch-ztyq.9, review 199).
+    const inserted = `${header('payments')}Payments run in the payments service.[^1] Refunds take fourteen days.[^2]\n\nRefunds also need a receipt.[^3]\n\n[^1]: [payments](madarch:code.service:payments)\n[^2]: [payments](madarch:code.service:payments)\n[^3]: [payments](madarch:code.service:payments)\n`;
+    const grown = new UnitTools(view, scope, sink, known, DEFAULT_UNIT_BOUNDS, [], { revisionScope: { before: written, passages: [secondPassage!] } });
+    const grownAnswer = await grown.call('write_page', { markdown: inserted });
+    const grownRules = (grownAnswer.answer as { refused: { rule: string }[] }).refused.map((refusal) => refusal.rule);
+    expect(grownRules.length).toBeGreaterThan(0);
+    expect(grownRules.every((rule) => rule === 'revision-scope')).toBe(true);
+    expect(sink.pages.get('docs/validation/payments.md')).not.toContain('receipt');
+  });
+
+  test('a revision cannot swap the grounds of a passage it was not asked about', async () => {
+    const scope = validationSpec('payments');
+    const original = `${header('payments')}Payments run in the payments service.[^1] Orders run in the ordering service.[^2]\n\n[^1]: [payments](madarch:code.service:payments)\n[^2]: [orders](madarch:code.service:orders)\n`;
+    const sink = memorySink();
+    const first = new UnitTools(view, scope, sink, known, DEFAULT_UNIT_BOUNDS);
+    expect((await first.call('write_page', { markdown: original })).isError).toBe(false);
+    const written = sink.pages.get('docs/validation/payments.md')!;
+    const [paymentsPassage, ordersPassage] = statementsOfMarkdown(written).map((statement) => statement.id);
+    // Swapping two grounds leaves the multiset of definitions unchanged, but only the payments passage was named.
+    const swapped = written.split('\n').map((line) => {
+      if (line.startsWith(`[^${paymentsPassage}]:`)) return `[^${paymentsPassage}]: [orders](madarch:code.service:orders)`;
+      if (line.startsWith(`[^${ordersPassage}]:`)) return `[^${ordersPassage}]: [payments](madarch:code.service:payments)`;
+      return line;
+    }).join('\n');
+    const scoped = new UnitTools(view, scope, sink, known, DEFAULT_UNIT_BOUNDS, [], { revisionScope: { before: written, passages: [paymentsPassage!] } });
+    const answer = await scoped.call('write_page', { markdown: swapped });
+    expect((answer.answer as { refused: { rule: string; message: string }[] }).refused.map((refusal) => refusal.rule)).toEqual(['revision-scope']);
+    expect((answer.answer as { refused: { message: string }[] }).refused[0]!.message).toContain('no named passage stands on it');
+    expect(sink.pages.get('docs/validation/payments.md')).toBe(written);
+  });
+
+  test('a revision cannot change the shape of a passage it was not asked about', async () => {
+    const scope = validationSpec('payments');
+    const original = `${header('payments')}Payments run in the payments service.[^1] Orders run in the ordering service.[^2]\n\n[^1]: [payments](madarch:code.service:payments)\n[^2]: [orders](madarch:code.service:orders)\n`;
+    const sink = memorySink();
+    const first = new UnitTools(view, scope, sink, known, DEFAULT_UNIT_BOUNDS);
+    expect((await first.call('write_page', { markdown: original })).isError).toBe(false);
+    const written = sink.pages.get('docs/validation/payments.md')!;
+    const [paymentsPassage] = statementsOfMarkdown(written).map((statement) => statement.id);
+    // The sentence reads the same, so only the shape under it changed: a passage not named may not be rewritten.
+    // The agent sends the page it would write, without the links the core adds; the pass compares the stored page,
+    // which has them, with the page this draft becomes (madarch-ztyq.8).
+    const changed = original.replace('Orders run in the ordering service.', 'Orders run in *the ordering service*.');
+    expect(changed).not.toBe(original);
+    const scoped = new UnitTools(view, scope, sink, known, DEFAULT_UNIT_BOUNDS, [], { revisionScope: { before: written, passages: [paymentsPassage!] } });
+    const answer = await scoped.call('write_page', { markdown: changed });
+    expect((answer.answer as { refused: { rule: string; message: string }[] }).refused.map((refusal) => refusal.rule)).toEqual(['revision-scope']);
+    expect(sink.pages.get('docs/validation/payments.md')).toBe(written);
+  });
+
   test('a page of another id is refused, so a unit cannot write another unit\'s page', async () => {
     const { tools, sink } = session(validationSpec('ordering'));
     const answer = await tools.call('write_page', { markdown: `${header('payments')}${grounded}` });
@@ -605,21 +829,25 @@ describe('the unit tools', () => {
     expect(tools.finished).toBe(true);
   });
 
-  test('the product page declares its domains with evidence that must resolve, and links each of them', async () => {
-    const page = (links: string): string => `---\nid: product:training-shop\nkind: product\ntitle: Training shop\nrelates: []\nproducer: agent\nsources: []\n---\n\n${links}\n\n[^1]: [payments](madarch:code.service:payments)\n`;
+  test('the home page declares its domains with evidence that must resolve, and points at each of them', async () => {
     const declaration = { slug: 'payments', title: 'Payments', summary: 'Payments.', evidence: ['code.service:payments'] };
+    const fields = (target: string): Record<string, unknown> => ({
+      whatItIs: [{ text: 'The shop takes payments.', grounds: ['code.service:payments'] }],
+      domains: [{ target, text: 'Payments take the money.', grounds: ['code.service:payments'] }],
+    });
     const missing = session(productSpec).tools;
-    expect((await missing.call('write_page', { markdown: page('The shop takes payments.[^1]') })).isError).toBe(true);
+    expect((await missing.call('write_page', { fields: fields('domain:payments') })).isError).toBe(true);
     const unresolved = session(productSpec).tools;
-    const bad = await unresolved.call('write_page', { markdown: page('The [payments](madarch:domain:payments) domain exists.[^1]'), domains: [{ ...declaration, evidence: ['code.service:nothing'] }] });
+    const bad = await unresolved.call('write_page', { fields: fields('domain:payments'), domains: [{ ...declaration, evidence: ['code.service:nothing'] }] });
     expect(JSON.stringify(bad.answer)).toContain('does not resolve in the graph');
-    const badSlug = await session(productSpec).tools.call('write_page', { markdown: page('The [payments](madarch:domain:payments) domain exists.[^1]'), domains: [{ ...declaration, slug: 'Pay Ments' }] });
+    const badSlug = await session(productSpec).tools.call('write_page', { fields: fields('domain:payments'), domains: [{ ...declaration, slug: 'Pay Ments' }] });
     expect(JSON.stringify(badSlug.answer)).toContain('lower-case words');
+    // A declared domain the page does not point at is refused: the home page names every domain the run builds.
     const unlinked = session(productSpec).tools;
-    const notLinked = await unlinked.call('write_page', { markdown: page('The shop takes payments.[^1]'), domains: [declaration] });
+    const notLinked = await unlinked.call('write_page', { fields: fields('code.service:payments'), domains: [declaration] });
     expect((notLinked.answer as { refused: { rule: string }[] }).refused.map((r) => r.rule)).toEqual(['domain-not-linked']);
     const { tools, sink } = session(productSpec);
-    const ok = await tools.call('write_page', { markdown: page('The [payments](madarch:domain:payments) domain exists.[^1]'), domains: [declaration] });
+    const ok = await tools.call('write_page', { fields: fields('domain:payments'), domains: [declaration] });
     expect(ok.isError).toBe(false);
     expect([...sink.pages.keys()]).toEqual(['docs/product.md']);
     expect(tools.outcome().domains.map((d) => d.slug)).toEqual(['payments']);

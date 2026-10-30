@@ -17,6 +17,8 @@ export const CODE_PRODUCER = 'code.extract.code' as const;
 // ---- node kinds -----------------------------------------------------------
 
 export const KIND_SYMBOL = 'code.symbol';
+/** A field or property a class, struct or interface declares: a member entity, not a page of its own (madarch-m38l.21). */
+export const KIND_FIELD = 'code.field';
 export const KIND_FILE = 'code.file';
 export const KIND_MODULE = 'code.module';
 export const KIND_PACKAGE = 'code.package';

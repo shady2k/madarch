@@ -33,6 +33,7 @@ import {
   KIND_CYCLE,
   KIND_DEBT,
   KIND_FILE,
+  KIND_FIELD,
   KIND_MODULE,
   KIND_PACKAGE,
   KIND_SYMBOL,
@@ -69,6 +70,11 @@ const decoder = new TextDecoder('utf-8', { fatal: true });
 export { CODE_PRODUCER };
 
 const retainedCodeFacts = new WeakMap<Extraction, {readonly reader: TreeReader; readonly facts: CodeFacts}>();
+
+/** Releases the facts a finished run no longer needs, so a reader and its indexes can be collected. */
+export function releaseCodeFacts(extraction: Extraction | undefined): void {
+  if (extraction !== undefined) retainedCodeFacts.delete(extraction);
+}
 
 /** Only this exact extraction and its original reader can lend retained facts. */
 export function codeFactsOf(extraction: Extraction | undefined, reader: TreeReader): CodeFacts | undefined {
@@ -116,6 +122,8 @@ interface Site {
   readonly roles: readonly string[];
   readonly fanOut: readonly string[];
 }
+
+
 
 export async function extractCode(reader: TreeReader): Promise<Extraction> {
   return (await extractCodeWithFacts(reader)).extraction;
@@ -255,6 +263,19 @@ export async function extractCodeWithFacts(reader: TreeReader, options: CodeExtr
       if (holder !== undefined) symbols[index] = {...symbol, keptKey: holder.key};
     }
     files.push({ source, syntax, resolution, decls, symbols, callbackValues });
+  }
+  // Fields and properties are member entities: they have names, types and readers, and no page of their own.
+  // The declaration reader knows them even where the syntax pass keeps no symbol; adding them here lets the
+  // resolver tie `this.field` to the member and lets the type own it by `code.contains` (madarch-m38l.21).
+  for (const file of files) {
+    for (const type of file.decls.types) {
+      for (const member of type.members) {
+        if (member.kind !== 'field' || member.span === undefined) continue;
+        const key = symbolKey(file.source.path, member.qualifiedName);
+        if (file.symbols.some((symbol) => symbol.key === key)) continue;
+        file.symbols.push({ key, qualifiedName: member.qualifiedName, name: member.name, symbolKind: 'field', span: member.span, definitionSpan: member.span, local: false, keptKey: key, functionLike: false });
+      }
+    }
   }
   const parsedFiles = files.filter((file) => file.syntax.parsed);
   const fileFacts = new Map(files.map((file) => [file.source.path, file]));
@@ -556,6 +577,12 @@ function normalizedCommentText(text: string): string {
     const ctx = program.files.get(path);
     const abstractNames = ctx?.decls.abstractNames ?? new Set<string>();
     const typeText = ctx?.decls.typeText ?? new Map<string, string>();
+    // The initializer a field is declared with is part of the field: its page says what the code holds, not only
+    // what type it holds (madarch-m38l.21).
+    const values = new Map<string, string>();
+    for (const type of ctx?.decls.types ?? []) {
+      for (const member of type.members) if (member.kind === 'field' && member.value !== undefined) values.set(member.qualifiedName, member.value);
+    }
     const sorted = [...file.symbols].filter((symbol) => !symbol.local).sort((left, right) => left.span.startByte - right.span.startByte || byCodePoint(left.key, right.key));
     for (const symbol of sorted) {
       const topLevel = !symbol.qualifiedName.includes('.');
@@ -573,6 +600,8 @@ function normalizedCommentText(text: string): string {
       if (['class', 'method', 'interface'].includes(symbol.symbolKind)) properties['abstract'] = abstractNames.has(symbol.qualifiedName);
       const written = typeText.get(symbol.qualifiedName);
       if (written !== undefined && ['variable', 'constant', 'field', 'property'].includes(symbol.symbolKind)) properties['typeText'] = written;
+      const initial = values.get(symbol.qualifiedName);
+      if (initial !== undefined && symbol.symbolKind === 'field') properties['value'] = initial;
       if (topLevel && mainName === symbol.qualifiedName) properties['entryPoint'] = 'main';
       const entryPoints = starts.get(symbol.key);
       if (entryPoints !== undefined) properties['entryPoints'] = [...new Set(entryPoints)].sort(byCodePoint);
@@ -580,7 +609,8 @@ function normalizedCommentText(text: string): string {
         properties['deadExport'] = (referencedFrom.get(symbol.key) ?? 0) === 0 && properties['entryPoint'] === undefined;
       }
       const label = properties['inline'] === true ? symbol.qualifiedName.replace(/\.callback@(\d+):\d+$/, ' callback (line $1)') : symbol.qualifiedName;
-      addNode({ key: symbol.key, kind: KIND_SYMBOL, label, properties, span: toSpan(path, symbol.span) });
+      const field = symbol.symbolKind === 'field' || symbol.symbolKind === 'property';
+      addNode({ key: symbol.key, kind: field ? KIND_FIELD : KIND_SYMBOL, label, properties, span: toSpan(path, symbol.span) });
       addEdge({ type: REL_CONTAINS, from: fileKey(path), to: symbol.key, discriminator: '', properties: {} });
     }
   }

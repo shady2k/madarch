@@ -127,8 +127,8 @@ describe('the end-to-end chains match the answer key\'s flows', () => {
     const pay = recordKey('code.symbol', 'services/payments/src/domain/payment-service.ts#PaymentService.pay');
     expect(ofType(await page(pay), 'sequence')[0]!.label).toBe('POST /payments');
     expect(ofType(await page('domain:payment'), 'sequence').map((view) => view.label)).toContain('POST /payments');
-    const lonely = ofType(await page(recordKey('code.symbol', 'scripts/token.mjs#encode')), 'sequence')[0]!;
-    expect(lonely.notes[0] ?? lonely.empty ?? 'no chain').toMatch(/no route of the graph reaches this function|No route or function/);
+    // A function no route reaches has no steps to draw: the empty chain section is left off the page (madarch-m38l.21).
+    expect(ofType(await page(recordKey('code.symbol', 'scripts/token.mjs#encode')), 'sequence')).toEqual([]);
   });
 });
 
@@ -312,17 +312,22 @@ describe('the drawn views: C4, components, ER, state and deployment, and the hot
     expect(domain!.up).toMatchObject({ spec: { type: 'domain-map' } });
   });
 
-  test('the treemap gives the files their lines and their churn from history: order_service.go is the hotspot, lock files are left out and said (hotspot, large-file)', async () => {
+  test('a service page is where its treemap lives: the files it holds with their lines and their churn from history, order_service.go its hotspot, its lock file left out and said (hotspot, large-file)', async () => {
     expect(hasItem('hotspot')).toBe(true);
-    const treemap = block(await page('product:shop'), 'treemap');
+    const treemap = block(await page('code.service:orders'), 'treemap');
+    expect(treemap.scope).toBe('services/orders');
     const byPath = new Map(treemap.files.map((file) => [file.path, file]));
     const hot = byPath.get('services/orders/internal/application/order_service.go')!;
     expect(hot.churn).toBe(28);
+    expect(hot.lines).toBeGreaterThan(200);
     expect(treemap.maxChurn).toBe(28);
     expect(Math.max(...treemap.files.map((file) => file.churn))).toBe(hot.churn);
-    expect(byPath.get('services/payments/src/api/legacy-report.ts')!.lines).toBeGreaterThan(700);
-    expect([...byPath.keys()].some((path) => path.endsWith('package-lock.json'))).toBe(false);
+    // A service's picture is its own folder: no other service's files are in it.
+    expect([...byPath.keys()].every((path) => path.startsWith('services/orders/'))).toBe(true);
+    // The lock file the service pins its dependencies with is left out and said.
+    expect([...byPath.keys()].some((path) => path.endsWith('go.sum'))).toBe(false);
     expect(treemap.notes.join(' ')).toContain('lock file');
-    expect(treemap.total).toBe(115);
+    const pay = block(await page('code.service:payments'), 'treemap');
+    expect(pay.files.find((file) => file.path === 'services/payments/src/api/legacy-report.ts')!.lines).toBeGreaterThan(700);
   });
 });

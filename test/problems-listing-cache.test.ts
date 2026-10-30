@@ -74,8 +74,18 @@ describe('the count of problems is collected once per revision', () => {
     collections = 0;
     const answers = await Promise.all(Array.from({ length: 8 }, async () => await get('/api/k/status')));
     for (const answer of answers) expect(answer.status).toBe(200);
+    // The eight polls share one collection. The collection is keyed after the reader opens, so their answers are
+    // pending; the next status poll reads the listing under that key and carries its count without walking again.
+    let problemsOpen: unknown;
+    for (let i = 0; i < 200 && typeof problemsOpen !== 'number'; i += 1) {
+      if (i > 0) await new Promise((rest) => setTimeout(rest, 10));
+      const answer = await get('/api/k/status');
+      expect(answer.status).toBe(200);
+      problemsOpen = answer.body.loop.problemsOpen;
+    }
     // The product holds findings of its own, so the count is a collection and not the fallback of the store's state.
-    expect(answers[0]!.body.loop.problemsOpen).toBeGreaterThan(0);
+    expect(typeof problemsOpen).toBe('number');
+    expect(problemsOpen).toBeGreaterThan(0);
     expect(collections).toBe(1);
   });
 

@@ -169,7 +169,7 @@ describe('wiki internationalization', () => {
   });
 
   test('the bound of one unit is a phrase for each numeral, never a bare number after a fixed word', () => {
-    const bounds = (turns: number): { turns: number; minutes: number; toolCalls: number; writeAttempts: number; maxDomains: number } => ({ turns, minutes: 10, toolCalls: 80, writeAttempts: 5, maxDomains: 12 });
+    const bounds = (turns: number): { turns: number; minutes: number; toolCalls: number; writeAttempts: number; maxDomains: number; editorialRequestsPerPage: number } => ({ turns, minutes: 10, toolCalls: 80, writeAttempts: 5, maxDomains: 12, editorialRequestsPerPage: 2 });
     const words = (language: 'en' | 'ru', turns: number): string => i18n.t('knowledge.writer.bound', { ...unitLimitWords(bounds(turns), (key, options) => i18n.t(key, { ...options, lng: language })), domains: 12, lng: language });
     expect(words('en', 1)).toContain('bound by 1 turn, 10 minutes, 80 tool calls and 5 refused writes');
     expect(words('en', 30)).toContain('bound by 30 turns, 10 minutes, 80 tool calls and 5 refused writes');

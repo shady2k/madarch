@@ -17,6 +17,7 @@ import type { WrittenAt } from '../knowledge/index/page.js';
 import { isNumbered, nameStatements, sentenceKey } from './names.js';
 import { insertMentionLinks, type MentionName } from './mentions.js';
 import { type Definition, type PageReading, readPage, statementsOf } from './sentences.js';
+import { emptyProductGapDigest, type EmptyProductGap } from './empty-product-gap.js';
 
 /** One reason a page is refused: the line (1-based, in the whole file), the rule and a message the agent can act on. */
 export interface Refusal {
@@ -75,6 +76,11 @@ export interface PageExpectation {
   readonly entities?: readonly string[];
   /** All fresh question ids, including unanswered questions: links, not necessarily grounds. */
   readonly questions?: readonly string[];
+  /**
+   * The sections the core left empty on an empty product's page (madarch-ztyq.7). Each gap sentence must carry the
+   * marker the core wrote beside it, naming its section and the digest of its words; no sentence is accepted by text.
+   */
+  readonly emptyProductGapSections?: readonly string[];
   /** The wiki language, when known at the write boundary. */
   readonly language?: 'en' | 'ru';
   /** Product-relative file and its full path, when the caller knows them. */
@@ -220,6 +226,8 @@ interface TextUnit {
   readonly text: string;
   readonly start: number;
   readonly end: number;
+  /** The core's structural identity of an empty-product gap sentence, when this unit carries one. */
+  readonly gap?: EmptyProductGap;
 }
 
 function lineStarts(body: string): number[] {
@@ -250,6 +258,7 @@ interface TreeLike {
 function textUnits(body: string, bodyStart: number, refusals: Refusal[], reader: PageReading): { units: TextUnit[]; definitions: Definition[]; headings: TextUnit[] } {
   // The tree says what the units and headings are; this walk only names the shapes the format forbids.
   const starts = lineStarts(body);
+  const gapLines = new Set(reader.gapMarkerLines());
   const controlled = new Set<number>();
   for (let at = 0; at < body.length; at += 1) {
     const code = body.charCodeAt(at);
@@ -267,7 +276,9 @@ function textUnits(body: string, bodyStart: number, refusals: Refusal[], reader:
     } else if (node.type === 'table') {
       refusals.push({ line, rule: 'table', message: 'a table is not part of the format: state each fact as a sentence with its own footnote' });
     } else if (node.type === 'html') {
-      const localLine = (node.position?.start?.line ?? 1) - 1;
+      const gapLine = node.position?.start?.line ?? 1;
+      if (gapLines.has(gapLine)) return;
+      const localLine = gapLine - 1;
       const lineStart = starts[Math.max(0, localLine)] ?? 0;
       const before = body.slice(lineStart, start).trim();
       const raw = body.slice(start, endOf(node));
@@ -613,8 +624,23 @@ export async function checkPage(markdown: string, expected: PageExpectation, res
     if (headingWords > HEADING_WORDS) refusals.push({ line: heading.line, rule: 'heading-statement', message: `this heading has ${headingWords} words; a heading is at most ${HEADING_WORDS}, so a statement belongs in a sentence with grounds below it` });
   }
   const used: string[] = [];
+  const expectedGapSections = new Set(expected.emptyProductGapSections ?? []);
+  const acceptedGapSections = new Set<string>();
   for (const unit of units) {
     await checkLinks(unit);
+    let gapAccepted = false;
+    if (unit.gap !== undefined) {
+      const marked = reader.sentences(unit.start, unit.end);
+      const digest = marked.length === 1 ? emptyProductGapDigest(reader.plain(marked[0]!.start, marked[0]!.end)) : undefined;
+      if (!expectedGapSections.has(unit.gap.section)) {
+        refusals.push({ line: unit.line, rule: 'empty-product-gap', message: `the gap marker names section "${unit.gap.section}", which the core did not leave empty: a gap sentence is admitted only for a section the core wrote as empty` });
+      } else if (digest === undefined || digest !== unit.gap.digest) {
+        refusals.push({ line: unit.line, rule: 'empty-product-gap', message: `the gap marker for section "${unit.gap.section}" does not match its sentence: a gap sentence is admitted only when the core wrote both, one sentence with the digest the marker carries` });
+      } else {
+        acceptedGapSections.add(unit.gap.section);
+        gapAccepted = true;
+      }
+    }
     for (const sentence of reader.sentences(unit.start, unit.end)) {
       if (sentence.questions.length === 0) continue;
       const claim = textWithout(body, sentence.start, sentence.end, sentence.questions);
@@ -647,13 +673,16 @@ export async function checkPage(markdown: string, expected: PageExpectation, res
       if (supports.length > 0 && supports.every((target) => named.has(target) && /^madarch:code\.(service|module):/.test(target))) {
         refusals.push({ line: unit.line, rule: 'link-is-not-a-ground', message: `this sentence is grounded only on ${[...new Set(supports)].map((t) => t.slice('madarch:'.length)).join(', ')}, which it already names with a link; a link names an entity and a ground supports the sentence: ground it on the code or the document section that shows what it says` });
       }
-      if (!groundedEnd(claim, sentence.terminated)) {
+      if (!groundedEnd(claim, sentence.terminated) && !gapAccepted) {
         const quoted = reader.plain(sentence.start, sentence.end);
         refusals.push({ line: unit.line, rule: 'ungrounded-statement', message: `this sentence states something and has no footnote at its end: ${JSON.stringify(quoted.length > 90 ? `${quoted.slice(0, 87)}...` : quoted)}. End it with a footnote reference that lists its grounds, or, if it only connects text, make it a heading or a line of links` });
       }
     }
   }
   for (const [label, entry] of defined) if (!used.includes(label)) refusals.push({ line: entry.line, rule: 'unused-footnote', message: `the footnote [^${label}] is never used in the text` });
+  for (const section of expectedGapSections) {
+    if (!acceptedGapSections.has(section)) refusals.push({ line: split.bodyStart, rule: 'empty-product-gap', message: `the core left section "${section}" empty, but this page has no gap sentence carrying the marker the core wrote for it` });
+  }
   if (expected.mustLinkDomains) {
     for (const slug of expected.domains) if (!links.includes(`domain:${slug}`)) refusals.push({ line: split.bodyStart, rule: 'domain-not-linked', message: `the declared domain "${slug}" is not linked from the page: mention it as [name](madarch:domain:${slug})` });
   }

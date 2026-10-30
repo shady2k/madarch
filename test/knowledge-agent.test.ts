@@ -29,14 +29,12 @@ const git = (cwd: string, ...args: string[]): string => execFileSync('git', args
 const A_TS = ['export function leaf(): number {', '  return 1;', '}', '', 'export function root(): number {', '  return leaf() + 1;', '}', ''].join('\n');
 const FILE = recordKey('code.file', 'src/a.ts');
 
-const PRODUCT_PAGE = [
-  '---', 'id: product:tiny', 'kind: product', 'title: Tiny', 'relates:', `  - ${FILE}`, 'producer: agent', 'sources: []', '---', '',
-  '## What the product is', '',
-  'The tiny product computes numbers with a leaf function and a root function.[^1]', '',
-  '## Domains', '',
-  `- [Numbers](madarch:domain:numbers) are computed in the [source file](madarch:${FILE}).[^2]`, '',
-  `[^1]: [a.ts](madarch:${FILE})`, `[^2]: [a.ts](madarch:${FILE})`,
-].join('\n');
+// The product unit answers with the fields of the home page (madarch-ztyq.7): the core writes the eight sections,
+// their headings and the footnotes.
+const PRODUCT_FIELDS: Record<string, unknown> = {
+  whatItIs: [{ text: 'The tiny product computes numbers with a leaf function and a root function.', grounds: [FILE] }],
+  domains: [{ target: 'domain:numbers', text: `Numbers are computed in the [source file](madarch:${FILE}).`, grounds: [FILE] }],
+};
 /** The fields the domain unit answers with: the business first, in the language the prompt asks for. */
 const domainFieldsOf = (language: 'en' | 'ru', spoil = false): Record<string, unknown> => ({
   title: language === 'ru' ? 'Числа' : 'Numbers',
@@ -80,7 +78,7 @@ const agent: UnitAgent & { close(): Promise<void> } = {
     }
     if (request.id === 'product:tiny') {
       const written = await request.tools.call('write_page', {
-        markdown: PRODUCT_PAGE,
+        fields: PRODUCT_FIELDS,
         domains: [{ slug: 'numbers', title: 'Numbers', summary: 'Numbers are what the leaf and root functions compute.', evidence: [FILE] }],
       });
       if (written.isError) throw new Error(`the product page was refused: ${JSON.stringify(written.answer)}`);
@@ -153,7 +151,7 @@ describe('the choice of the agent', () => {
   test('the wiki offers Claude Code, Codex, OpenCode and omp (not Pi) with their state, states the bound in numbers, and has chosen none', async () => {
     const status = await get('/api/k/status');
     expect(status.body.chosenAgent).toBeNull();
-    expect(status.body.bounds).toEqual({ turns: 30, minutes: 10, toolCalls: 80, writeAttempts: 5, maxDomains: 12 });
+    expect(status.body.bounds).toEqual({ turns: 30, minutes: 10, toolCalls: 80, writeAttempts: 5, maxDomains: 12, editorialRequestsPerPage: 2 });
     expect(status.body.writer).toMatchObject({ state: 'idle', agent: null, units: [] });
     const agents = await get('/api/k/agents');
     expect(agents.body.chosen).toBeNull();

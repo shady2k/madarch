@@ -15,13 +15,13 @@ import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/com
 import { Input } from '@/components/ui/input.js';
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@/components/ui/table.js';
 import { getViews, getDocument, getDocuments, getEntities, getPage, getSource, getStatement, correctStatement, startFill } from './api.js';
-import { useTabTitle } from './tabs.js';
+import { syncFrontTabAddress, useTabTitle } from './tabs.js';
 import { currentHistory } from './history-context.js';
 import { HistoryBar } from './history-bar.js';
 import { AgentChoice, useAgentChoice, WriterLine } from './writer.js';
 import { FailureNote } from './errors.js';
 import { BlockView, CodeLines, CodePlace, EntityName, Findings, KLink, KMarkdown, PlannedBadge, PlannedContext, brokenWords, groupLabel, scrollToAnchor, sentenceKey, type PlannedMarks } from './blocks.js';
-import { addressOfDocument, addressOfJournal, addressOfKind, addressOfStatement } from './routes.js';
+import { addressOfDocument, addressOfEntity, addressOfJournal, addressOfKind, addressOfStatement } from './routes.js';
 import { KindLabels, useKindName } from './kind-names.js';
 import { fillShare, fillWords } from './fill-words.js';
 import { useRead } from './live.js';
@@ -59,6 +59,15 @@ export function EntityPage({ id, version }: { id: string; version: number }): Re
   const { data: page, error } = useRead<PageModel>(`${id}\0${language}\0${JSON.stringify(selectedHistory)}`, version, (signal) => getPage(id, language, signal, (reason) => t('knowledge.pageNotRead', { id, reason })));
   const { role, roles } = useRole();
   useTabTitle(page?.title ?? (error !== null ? t('knowledge.noSuchPage') : null));
+  // An old member address opens the parent's page at the member's fragment (madarch-m38l.21).
+  useEffect(() => {
+    if (page?.redirect === undefined) return;
+    const address = `${addressOfEntity(page.redirect.id)}#${encodeURIComponent(page.redirect.anchor)}`;
+    window.history.replaceState({}, '', appPath(address));
+    syncFrontTabAddress();
+    const timer = setTimeout(() => document.getElementById(page.redirect!.anchor)?.scrollIntoView({ block: 'start' }), 0);
+    return () => clearTimeout(timer);
+  }, [page?.redirect?.id, page?.redirect?.anchor]);
   if (page === null && error === null) return <PageSkeleton testId="page-loading" />;
   if (page === null) {
     return (
