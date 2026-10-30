@@ -201,6 +201,13 @@ None.
   baseline`, over 1 326 entity pages and 2 652 renders.
 - The touched tests and the knowledge batches pass: 187 tests in 10 files, 297
   in 20 files, 152 in 13 files and 17 in one file, 0 failures.
+- Merged `origin/main` (`c9446232`, PR #192's fill page) on top: a member kind
+  still has no page of its own and its old address opens the parent's page at the
+  member's anchor, while #192's journal link is drawn where the server says a
+  journal holds the page. After the merge `bun run check` answers `CHECK 0` at the
+  repository root and in `wiki/app`; the render, view, vertical, fill, snapshot
+  and walk batches pass 57, 39, 57, 66 and 103 tests with 0 failures; `wiki/app`
+  passes 305 tests; the ratchet reports every class at its baseline.
 
 ## DONE WHEN
 
