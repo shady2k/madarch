@@ -37,7 +37,7 @@
  * line there is a protocol error the agent reports as madarch's fault.
  */
 import { runningVersion } from '../product/version.js';
-import { UNIT_TOOL_NAMES, UNIT_TOOLS, type UnitToolAnswer } from './unit-tools.js';
+import { UNIT_TOOLS, type UnitToolAnswer } from './unit-tools.js';
 
 /** The protocol revisions this server knows, newest first. */
 export const MCP_PROTOCOL_VERSIONS = ['2025-06-18', '2025-03-26', '2024-11-05'] as const;
@@ -156,7 +156,7 @@ export async function answerUnitMcpMessage(message: unknown, options: UnitMcpOpt
       return result(held.id, { content: [{ type: 'text', text: JSON.stringify(answered.answer) }], isError: answered.isError });
     }
     default:
-      return error(held.id, METHOD_NOT_FOUND, `${JSON.stringify(method)} is no method of this server: it offers initialize, ping, tools/list and tools/call, and the tools are ${UNIT_TOOL_NAMES.join(', ')}`);
+      return error(held.id, METHOD_NOT_FOUND, `${JSON.stringify(method)} is no method of this server: it offers initialize, ping, tools/list and tools/call, and the tools are ${tools.map((tool) => tool.name).join(', ')} (src/fill/unit-mcp.ts)`);
   }
 }
 
