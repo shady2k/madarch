@@ -18,7 +18,7 @@ import { canonicalJsonDigest } from '../../model/canonical.js';
 import { byCodePoint } from '../../model/order.js';
 import { isStandardLibrary } from './packages.js';
 import { readGoMod } from '../../fill/stages/manifest-format.js';
-import { extractFileResolution, type ExtractedFileResolution } from '../../fill/stages/resolution-extract.js';
+import { extractFileResolution, type ExtractedResolutionImport } from '../../fill/stages/resolution-extract.js';
 import { extractFileSyntax, type ExtractedFileSyntax, type SyntaxSpan } from '../../fill/stages/syntax-extract.js';
 import { resolveSpecifier } from '../../fill/stages/syntax-facts.js';
 import type { ExtractedEdge, ExtractedNode, Extraction, ExtractionGap, PropertyValue, SchemaKey, SourceSpan, TreeReader } from '../records.js';
@@ -107,7 +107,14 @@ interface Manifest {
 interface FileFacts {
   readonly source: SourceFile;
   readonly syntax: ExtractedFileSyntax;
-  readonly resolution: ExtractedFileResolution;
+  /**
+   * The file's imports, kept: the program of the whole tree is built from them.
+   * The places the file mentions a name are read again, one file at a time, when
+   * that file's own sites are resolved (madarch-ztyq.10 review): kept for every
+   * file of the tree they were the largest thing the pass held, and a mention is
+   * used by one iteration and never after.
+   */
+  readonly imports: readonly ExtractedResolutionImport[];
   readonly decls: FileDecls;
   readonly symbols: FileSymbol[];
   readonly callbackValues: readonly SourceSpan[];
@@ -133,6 +140,14 @@ export async function extractCode(reader: TreeReader): Promise<Extraction> {
 export interface CodeExtractionOptions {
   /** The debt markers the product's manifest declares (`problems.rules.*.params.marker`), read from comments. */
   readonly debtMarkers?: readonly string[];
+  /**
+   * Whether the caller also wants the semantic fact view (the query layer's expressions and sites), or only the
+   * graph. Defaults to true. A caller that reads nodes and edges alone — the fill, and the repository graph the
+   * MCP server builds — may say false: the tree's expression facts were, for madarch's own 898 files, the largest
+   * thing a cold extraction held at once (megabytes per file, madarch-ztyq.10 review). The export chains still
+   * resolve: only the identity of an expression is kept when the facts are not.
+   */
+  readonly facts?: boolean;
 }
 
 /** The existing code pass, with its immutable semantic view retained for consumers. */
@@ -262,7 +277,7 @@ export async function extractCodeWithFacts(reader: TreeReader, options: CodeExtr
       const holder = holderAt(symbols, symbol.span.startByte);
       if (holder !== undefined) symbols[index] = {...symbol, keptKey: holder.key};
     }
-    files.push({ source, syntax, resolution, decls, symbols, callbackValues });
+    files.push({ source, syntax, imports: resolution.imports, decls, symbols, callbackValues });
   }
   // Fields and properties are member entities: they have names, types and readers, and no page of their own.
   // The declaration reader knows them even where the syntax pass keeps no symbol; adding them here lets the
@@ -287,7 +302,7 @@ export async function extractCodeWithFacts(reader: TreeReader, options: CodeExtr
   for (const file of parsedFiles) {
     const { decls } = file;
     const imports = new Map<string, Binding>();
-    for (const entry of file.resolution.imports) {
+    for (const entry of file.imports) {
       if (file.source.language === 'go') {
         const folder = goImportFolder(entry.specifier, goModules, goFolders);
         if (folder !== undefined) imports.set(entry.specifier, { kind: 'package', scope: folder });
@@ -321,6 +336,12 @@ export async function extractCodeWithFacts(reader: TreeReader, options: CodeExtr
   const keptTarget = (key: string): string | undefined => symbolByKey.get(key)?.keptKey;
 
   // ---- the sites -----------------------------------------------------------------------
+  // The expression facts are folded as each file is read: the post-loop export chains ask only whether an
+  // expression identity exists and which identifiers a binding owns, so a caller who asked for no facts keeps
+  // those two answers instead of every expression of the tree (madarch-ztyq.10 review).
+  const keepFacts = options.facts !== false;
+  const expressionIds = new Set<string>();
+  const declarationExpressionIds = new Map<string, string[]>();
   const sitesByFile = new Map<string, Site[]>();
   const imports: CodeImportFact[] = [];
   const bindings: CodeBindingFact[] = [];
@@ -334,11 +355,14 @@ export async function extractCodeWithFacts(reader: TreeReader, options: CodeExtr
   for (const file of parsedFiles) {
     const path = file.source.path;
     const sites: Site[] = [];
-    const mentionAt = new Map<string, (typeof file.resolution.mentions)[number]>();
-    for (const mention of file.resolution.mentions) mentionAt.set(`${mention.span.startLine}:${mention.span.startColumn}`, mention);
+    // The mention list of this file, read now and released before the next file's: the tree's names are resolved
+    // against the program built above, so no other file's mentions are needed (madarch-ztyq.10 review).
+    const resolution = await extractFileResolution(path, file.source.bytes);
+    const mentionAt = new Map<string, (typeof resolution.mentions)[number]>();
+    for (const mention of resolution.mentions) mentionAt.set(`${mention.span.startLine}:${mention.span.startColumn}`, mention);
     const covered = new Set<string>();
     try {
-      const resolved = resolveFile(path, file.resolution, allPaths, symbolsByFile, lineCountOf(file.source.bytes));
+      const resolved = resolveFile(path, resolution, allPaths, symbolsByFile, lineCountOf(file.source.bytes));
       for (const occurrence of resolved.occurrences) {
         const at = `${occurrence.span.startLine}:${occurrence.span.startColumn}`;
         covered.add(at);
@@ -353,7 +377,7 @@ export async function extractCodeWithFacts(reader: TreeReader, options: CodeExtr
     if (file.source.language === 'go') {
       // A Go package shares its names across its files; the plain-name resolver sees one file.
       const own = new Set(file.symbols.map((symbol) => symbol.qualifiedName));
-      for (const mention of file.resolution.mentions) {
+      for (const mention of resolution.mentions) {
         if (mention.through !== undefined || mention.parameterBound || covered.has(`${mention.span.startLine}:${mention.span.startColumn}`)) continue;
         if (own.has(mention.name)) continue;
         const top = program.top(folderOf(path), mention.name);
@@ -361,7 +385,7 @@ export async function extractCodeWithFacts(reader: TreeReader, options: CodeExtr
         sites.push({ span: mention.span, to: symbolKey(top.file, top.name), use: mention.use === 'call' ? 'call' : 'reference', roles: [mention.access], fanOut: [] });
       }
     }
-    const fileImports: CodeImportFact[] = file.resolution.imports.flatMap((entry): CodeImportFact[] => {
+    const fileImports: CodeImportFact[] = resolution.imports.flatMap((entry): CodeImportFact[] => {
       const span = toSpan(path, entry.span);
       const local = file.source.language === 'go' ? program.goImportLocal(path, entry.specifier, entry.local) : entry.local;
       if (local === undefined) {
@@ -380,6 +404,15 @@ export async function extractCodeWithFacts(reader: TreeReader, options: CodeExtr
     bindings.push(...members.bindings);
     fields.push(...members.fields);
     expressions.push(...members.expressions);
+    if (!keepFacts) {
+      for (const expression of members.expressions) {
+        expressionIds.add(expression.id);
+        if (expression.bindingId === undefined) continue;
+        const key = JSON.stringify([expression.bindingId, expression.span.byteStart, expression.span.byteEnd]);
+        declarationExpressionIds.set(key, [...(declarationExpressionIds.get(key) ?? []), expression.id]);
+      }
+      expressions.length = 0;
+    }
     calls.push(...members.calls);
     for (const callable of members.callables) {
       if (callables.has(callable.key) || ambiguousCallables.has(callable.key)) { ambiguousCallables.add(callable.key); callables.delete(callable.key); gap(path, `line ${callable.bodySpan.lineStart}: duplicate canonical callable metadata for ${callable.key}`); continue; }
@@ -404,20 +437,27 @@ export async function extractCodeWithFacts(reader: TreeReader, options: CodeExtr
       sites.push({ span: site.span, to: site.to, use: site.use, roles: site.roles ?? ['read-access'], fanOut: site.fanOut });
     }
     sitesByFile.set(path, sites);
+    // A caller who asked for no facts reads a tree it cannot hold; collecting every few files keeps the peak at
+    // the graph's own size instead of the garbage the parse of a whole tree leaves behind (madarch-ztyq.10 review).
+    if (!keepFacts && typeof Bun !== 'undefined' && sitesByFile.size % 5 === 0) Bun.gc(true);
   }
 
   // Join exported values here, beside the existing program resolver. Consumers
   // follow only these identities; they never resolve source module names again.
-  const expressionIndex = new Map(expressions.map((entry) => [entry.id, entry]));
+  const expressionIndex = keepFacts ? new Map(expressions.map((entry) => [entry.id, entry])) : undefined;
   const bindingIndex = new Map(bindings.map((entry) => [entry.id, entry]));
+  const hasExpression = (id: string): boolean => keepFacts ? expressionIndex!.has(id) : expressionIds.has(id);
   // Keep every candidate: duplicate declaration identities must still fail closed.
   const declarationExpressions = new Map<string, CodeExpressionFact[]>();
-  for (const expression of expressions) {
+  if (keepFacts) for (const expression of expressions) {
     if (expression.bindingId === undefined) continue;
     const key = JSON.stringify([expression.bindingId, expression.span.byteStart, expression.span.byteEnd]);
     const held = declarationExpressions.get(key) ?? [];
     held.push(expression); declarationExpressions.set(key, held);
   }
+  const identifierIds = (key: string): string[] => keepFacts
+    ? (declarationExpressions.get(key) ?? []).map((expression) => expression.id)
+    : declarationExpressionIds.get(key) ?? [];
   const exportedValues = new Map<string, CodeExportFact[]>();
   for (const entry of exports) {
     const key = JSON.stringify([entry.path, entry.name]);
@@ -430,12 +470,12 @@ export async function extractCodeWithFacts(reader: TreeReader, options: CodeExtr
     const candidates = exportedValues.get(key) ?? [];
     if (candidates.length !== 1) return undefined;
     const entry = candidates[0]!;
-    if (entry.expression !== undefined && expressionIndex.has(entry.expression)) return { expression: entry.expression, chain: [entry.id] };
+    if (entry.expression !== undefined && hasExpression(entry.expression)) return { expression: entry.expression, chain: [entry.id] };
     if (entry.localBinding !== undefined) {
       const binding = bindingIndex.get(entry.localBinding);
       // The declaration's own identifier retains reassignment and alias guards.
-      const identifiers = binding === undefined ? [] : declarationExpressions.get(JSON.stringify([entry.localBinding, binding.span.byteStart, binding.span.byteEnd])) ?? [];
-      if (identifiers.length === 1) return { expression: identifiers[0]!.id, chain: [entry.id] };
+      const identifiers = binding === undefined ? [] : identifierIds(JSON.stringify([entry.localBinding, binding.span.byteStart, binding.span.byteEnd]));
+      if (identifiers.length === 1) return { expression: identifiers[0]!, chain: [entry.id] };
     }
     if (entry.reexport?.targetPath !== undefined) {
       const target = exportedValue(entry.reexport.targetPath, entry.reexport.name, active);
@@ -1032,12 +1072,13 @@ function normalizedCommentText(text: string): string {
     }).sort((left, right) => byCodePoint(left.path, right.path)),
     symbols: files.flatMap((file) => file.symbols.filter((symbol) => !symbol.local).map((symbol) => ({ key: symbol.key, path: file.source.path, name: symbol.name, qualifiedName: symbol.qualifiedName, symbolKind: symbol.symbolKind, callable: symbol.functionLike, span: toSpan(file.source.path, symbol.span), ...callables.get(symbol.key) }))).sort((left, right) => byCodePoint(left.key, right.key)),
     fields: fields.sort((left,right)=>byCodePoint(left.key,right.key) || left.span.byteStart-right.span.byteStart),
-    imports: imports.sort(byId), exports: exports.sort(byId), bindings: bindings.sort(byId), expressions: expressions.sort(byId),
+    imports: imports.sort(byId), exports: exports.sort(byId), bindings: bindings.sort(byId), expressions: keepFacts ? expressions.sort(byId) : [],
     calls: calls.sort((left, right) => byCodePoint(left.expression, right.expression)),
-    sites: [...sitesByFile].flatMap(([path, sites]) => sites.map((site) => ({ path, span: toSpan(path, site.span), to: site.to, use: site.use, roles: [...site.roles], fanOut: [...site.fanOut], holder: holderAt(symbolsByFile.get(path) ?? [], site.span.startByte)?.keptKey ?? fileKey(path) }))).sort((left, right) => byCodePoint(left.path, right.path) || left.span.byteStart - right.span.byteStart || byCodePoint(left.to, right.to)),
+    sites: keepFacts ? [...sitesByFile].flatMap(([path, sites]) => sites.map((site) => ({ path, span: toSpan(path, site.span), to: site.to, use: site.use, roles: [...site.roles], fanOut: [...site.fanOut], holder: holderAt(symbolsByFile.get(path) ?? [], site.span.startByte)?.keptKey ?? fileKey(path) }))).sort((left, right) => byCodePoint(left.path, right.path) || left.span.byteStart - right.span.byteStart || byCodePoint(left.to, right.to)) : [],
     gaps: sortedGaps.map((gap) => ({ ...gap })),
   });
-  retainedCodeFacts.set(extraction, {reader, facts});
+  // A caller who asked for no facts holds no fact view: nothing may answer for this extraction later.
+  if (keepFacts) retainedCodeFacts.set(extraction, {reader, facts});
   return { extraction, facts };
 }
 

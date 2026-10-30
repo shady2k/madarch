@@ -70,6 +70,9 @@ export const SHORT_HELP = [
   '  stop      Stop the background server',
   '  status    Show it: address, pid, uptime, products',
   '',
+  'Tools:',
+  "  mcp       Serve this checkout's graph to an agent over the Model Context Protocol",
+  '',
   'Other:',
   '  version   Show the version',
   '  upgrade   Upgrade madarch',
@@ -565,6 +568,13 @@ async function askRepoMode(): Promise<RepoConnectMode> {
 
 export async function main(args: readonly string[], deps: CliDeps = {}): Promise<number> {
   if (args[0] === 'fill') return fillCommand(args.slice(1));
+  // The MCP server is a program of its own that happens to be reached through this command: it reads its own flags
+  // (`--repo`, `--store`, `--journal`) and must start even in a folder that is no product, so it is dispatched before
+  // the command table is consulted.
+  if (args[0] === 'mcp') {
+    const { mcpCommand } = await import('../mcp/cli.js');
+    return await mcpCommand(args.slice(1));
+  }
   if (args.length === 1 && (args[0] === '--version' || args[0] === '-v')) return versionCommand();
   if (args.length === 0 || args[0] === 'help' || args[0] === '--help' || args[0] === '-h') {
     console.log(args.length === 0 ? `${whereHelp()}\n\n${SHORT_HELP}` : SHORT_HELP);

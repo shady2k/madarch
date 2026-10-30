@@ -279,6 +279,57 @@ are real links in the checkout and on the repository's host; the diagrams
 work serves the models themselves. Keep them as citations — the walk keeps
 them, named for what they are.
 
+## Ask your own agent about a repository
+
+The questions the fill's units ask of a repository's graph are served to your
+own agent too, over the Model Context Protocol, from a checkout's own graph:
+
+    madarch mcp --repo ../library
+
+`--repo` names the checkout; without it the command serves the folder you run
+it in. Standard input and output carry the protocol, as a client expects, and
+what the server is doing — the revision it serves, the files that differ from
+it, the folder its graph is kept in — is said on standard error. The server is
+read-only: it answers and writes nothing.
+
+Register it with Claude Code once, naming the checkout it should serve:
+
+    claude mcp add madarch -- madarch mcp --repo /home/you/library
+
+Codex is given the same command line in `~/.codex/config.toml`:
+
+    [mcp_servers.madarch]
+    command = "madarch"
+    args = ["mcp", "--repo", "/home/you/library"]
+
+The first start builds the graph of the commit at `HEAD` and says when it is
+built; a later start reads the graph kept in
+`${XDG_STATE_HOME:-~/.local/state}/madarch/mcp/`, one folder per checkout. The
+handshake and the tool list answer while it is still building, and a tool call
+made before it is ready says `graph building`, so nothing waits on the build
+inside a client's own timeout. When your madarch home already holds a product's
+graph of the same repository and commit, the server copies and serves that
+instead of extracting the repository again. A cold build reads the tree file by
+file, runs every producer the fill runs — the code, the contracts, the data
+model — and serves a checkout of up to four hundred code files, whose facts this
+machine holds in about two gigabytes; a larger checkout is refused with what to
+serve instead, because a graph without a contract's operations or a migration's
+tables would answer refusals for entities that exist. The refusal is kept: every
+tool call answers it with an error and the reason, never a note that the graph is
+still building. A
+file you edit without committing is read again before an answer that names it,
+and the answer names the file and marks what came from it; a file you delete
+without committing is gone from the answers. Every answer names the commit and
+the branch it was read at.
+
+    madarch mcp --journal --repo ../library
+
+prints what the server has been asked and what it saved: per tool the calls and
+the distinct calls, the files read again, the answer bytes, the file reads the
+answers avoided — measured, not guessed — the questions they answered, and the
+files their evidence stands on, which is an estimate; a lookup repeated with the
+same arguments counts another call and no further saving. It starts no server, so it works while one is running.
+
 ## How the commands find the product
 
 The lifecycle commands (`rename`, `remote`, `repo add`, `bootstrap`) take

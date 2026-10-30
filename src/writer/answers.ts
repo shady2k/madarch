@@ -952,6 +952,9 @@ export interface SearchPagesArgs {
 const PAGE_FOLDERS = ['docs/domains', 'docs/questions'] as const;
 
 async function pagePaths(pages: PageSink): Promise<string[]> {
+  // A sink that serves a whole checkout says which documents it holds (`documents()`); a product's own sink holds the
+  // home page and its two folders.
+  if (pages.documents !== undefined) return [...new Set(await pages.documents())].sort(byCodePoint);
   const found: string[] = ['docs/product.md'];
   if (pages.list === undefined) return found;
   for (const folder of PAGE_FOLDERS) found.push(...(await pages.list(folder)));
@@ -1037,8 +1040,10 @@ export interface GetPageArgs {
 }
 
 /** The path a page id names, when it names one the writer keeps. */
-function pathOfPage(page: string): string | null {
+function pathOfPage(page: string, anyDocument = false): string | null {
   if (page.endsWith('.md') && page.startsWith('docs/')) return page;
+  // A sink that serves a whole checkout reads any of its Markdown documents: `README.md`, a decision, a change record.
+  if (anyDocument && page.endsWith('.md') && !page.startsWith('/') && !page.split('/').includes('..')) return page;
   const colon = page.indexOf(':');
   if (colon < 0) return null;
   const kind = page.slice(0, colon);
@@ -1051,7 +1056,7 @@ function pathOfPage(page: string): string | null {
 
 /** One page of the product: the Markdown as written, or its front matter and its statements with their grounds. */
 export async function getPage(pages: PageSink, args: GetPageArgs): Promise<AnswerResult> {
-  const path = pathOfPage(args.page);
+  const path = pathOfPage(args.page, pages.documents !== undefined);
   if (path === null) throw new AnswerRefusal('bad-page', `${JSON.stringify(args.page)} is no page the writer keeps: pass a page id such as product:<slug>, domain:<slug> or question:<slug>, or a path such as docs/domains/<slug>.md`);
   const head = await readHead(pages, path);
   if (head === null) {
