@@ -15,6 +15,7 @@ export type KRoute =
   | { name: 'problems' }
   | { name: 'settings' }
   | { name: 'journal'; id: string; run: string | null }
+  | { name: 'fill' }
   | { name: 'tasks' }
   | { name: 'task'; id: string }
   | { name: 'statement'; id: string; sentence: string; turn: number };
@@ -30,6 +31,8 @@ export const K_SETTINGS = '/k/settings';
 export function addressOfJournal(id: string, run?: string): string {
   return `/k/journal?${new URLSearchParams({ id, ...(run === undefined ? {} : { run }) }).toString()}`;
 }
+/** Where the fill stands, page by page, while it writes and after it ends (madarch-m38l.23). */
+export const K_FILL = '/k/fill';
 export const K_TASKS = '/k/tasks';
 /** Where one task stands: its scope, its impact and the way to fix the pages now (madarch-m38l.14). */
 export const addressOfTask = (id: string): string => `/k/task?${new URLSearchParams({ id }).toString()}`;
@@ -62,6 +65,7 @@ export function kRouteOf(pathname: string, search = ''): KRoute | null {
   }
   if (path === '/k/problems' || path === '/k/problems/') return { name: 'problems' };
   if (path === '/k/settings' || path === '/k/settings/') return { name: 'settings' };
+  if (path === '/k/fill' || path === '/k/fill/') return { name: 'fill' };
   if (path === '/k/journal') {
     const query = new URLSearchParams(search);
     const id = query.get('id');
