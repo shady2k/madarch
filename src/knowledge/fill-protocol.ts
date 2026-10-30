@@ -13,6 +13,7 @@
  */
 import type { RefreshPlan } from '../loop/plan.js';
 import type { DomainDeclaration } from '../writer/tools.js';
+import type { ModelRoleView } from './model-roles.js';
 
 /** What a repository was filled to: kept in the primary store (`knowledge_fill`) and told to the server. */
 export interface RepositoryPin {
@@ -44,6 +45,19 @@ export interface WorkerStart {
   repositories: { name: string; path: string }[];
   /** Run the agent stage after the fill. */
   writer: boolean;
+  /**
+   * The reader's resolved model roles (madarch-ztyq.9). The worker resolves `editing` from this view:
+   * an assigned or fallback pair starts the editing judge; `none` leaves the deterministic editorial
+   * checks running and says in the journal why the reading part was skipped. Absent from an older
+   * server: the worker treats the editing role as unresolved and says so.
+   */
+  roles?: ModelRoleView;
+  /**
+   * The most revision requests one page may receive (madarch-ztyq.9, review 199). It is the product
+   * setting `writer.json` holds, validated before the fill starts; absent from an older server and
+   * then the writer's default applies.
+   */
+  editorialRequestsPerPage?: number;
   language: string;
   languageChanged: boolean;
   /** The language the pages were last written in, when it is known: a translation says from which. */

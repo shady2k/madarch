@@ -177,7 +177,7 @@ export async function saveGraphVerdictBudgets(itemsPerRun: number, modelCallsPer
 }
 
 /** Saves the page language, the model and the reasoning level (`null` is the agent's own). */
-export const saveProductSettings = (settings: { language?: string; model?: string | null; reasoning?: string | null }): Promise<ProductSettings> => post<ProductSettings>('save the settings', '/api/k/product-settings', settings);
+export const saveProductSettings = (settings: { language?: string; model?: string | null; reasoning?: string | null; editorialRequestsPerPage?: number }): Promise<ProductSettings> => post<ProductSettings>('save the settings', '/api/k/product-settings', settings);
 
 /** Adds items of the starter set to the product's manifest; answers the files written. */
 export const addStarter = (ids: string[]): Promise<{ written: string[] }> => post<{ written: string[] }>('add to the manifest', '/api/k/starter', { ids });

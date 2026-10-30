@@ -121,7 +121,7 @@ const withFiles = (...nodes: GraphNodeItem[]): GraphSnapshot => {
 };
 
 const NO_ROLES = resolveModelRoles(emptyModelAssignments());
-const TWO_ROLES = resolveModelRoles({ writing: { agent: 'writer' }, classification: { agent: 'classifier' }, analysis: { agent: 'analyst' } });
+const TWO_ROLES = resolveModelRoles({ writing: { agent: 'writer' }, classification: { agent: 'classifier' }, analysis: { agent: 'analyst' }, editing: null });
 const pairOf = (view: ModelRoleView, agent: string): ModelPair => view.roles.find((role) => role.pair?.agent === agent)?.pair ?? { agent };
 
 class FakeJudge implements GraphJudge {
@@ -416,7 +416,7 @@ describe('judging', () => {
     });
     expect(rowOf(first, 'x-0')?.source).toBe('classification');
     const secondJudge = new FakeJudge((item) => ({ id: item.id, verdict: 'valid', reason: 'another classifier sees it' }));
-    const otherRoles = resolveModelRoles({ writing: { agent: 'writer' }, classification: { agent: 'other-classifier' }, analysis: { agent: 'analyst' } });
+    const otherRoles = resolveModelRoles({ writing: { agent: 'writer' }, classification: { agent: 'other-classifier' }, analysis: { agent: 'analyst' }, editing: null });
     const second = await runGraphVerdicts({
       snapshot, roles: otherRoles, budgets: { itemsPerRun: 1, modelCallsPerRun: 1 }, previous: first.cache,
       judgeFor: factory({ classification: secondJudge }),

@@ -185,6 +185,22 @@ export interface UnitContext {
   readonly declared?: readonly DomainDeclaration[];
   /** The pages of the artifacts this unit's kind declares it reads (decision 0032, section 1). */
   readonly reads?: readonly WriterArtifactRead[];
+  /**
+   * The editorial pass's requests for this page (madarch-ztyq.9): each names one statement and says what
+   * to change and why. The unit changes those passages and leaves every other sentence alone.
+   */
+  readonly revisions?: readonly string[];
+}
+
+/** The editorial pass's bounded requests, as the part of a page unit's prompt that authorizes a rework. */
+export function revisionPart(revisions: readonly string[] | undefined): string[] {
+  if (revisions === undefined || revisions.length === 0) return [];
+  return [
+    '## The editorial pass asked for these revisions',
+    'Each request names one statement of this page. Change that passage, and only that passage, for the reason given; keep every other sentence and footnote name as it stands.',
+    ...revisions.map((revision) => `- ${revision}`),
+    '',
+  ];
 }
 
 /** The questions asked about a page, so a unit does not ask them again and knows which are answered. */
@@ -245,6 +261,7 @@ export async function productPrompt(view: GraphView, unit: Extract<UnitSpec, { k
     ...questionsPart(unit.id, context.questions),
     ...otherQuestionsPart(unit.id, context.questions),
     ...(context.brief === undefined ? [] : editPart(context.brief, CONTENT_LANGUAGES[language]?.name ?? language)),
+    ...revisionPart(context.revisions),
     ...earlierArtifactsPart(context.reads ?? []),
     ...await preparedContextPart(view),
   ].join('\n');
@@ -285,6 +302,7 @@ export async function domainPrompt(view: GraphView, unit: Extract<UnitSpec, { ki
     ...questionsPart(unit.id, context.questions),
     ...otherQuestionsPart(unit.id, context.questions),
     ...(context.brief === undefined ? [] : editPart(context.brief, CONTENT_LANGUAGES[language]?.name ?? language, true)),
+    ...revisionPart(context.revisions),
     '## What this domain says about failure',
     '- Compare how neighbouring operations of this domain treat what can go wrong: a shopper whose payment is declined at checkout and one whose refund fails meet two different products. Say what the person sees in each case, as business, in whatCanGoWrong; where one operation has a protection its neighbour lacks (a retry, a timeout, an error the product handles), that is a finding for "developer" — a note grounded on the two functions — and an open point when no document says whether it is intended.',
     '- This comparison belongs to a domain page; it is not repeated on the product page.',
@@ -431,6 +449,7 @@ export async function overviewPrompt(view: GraphView, unit: { readonly id: strin
     '',
     ...homeFieldsPart(true),
     ...(pages.length === 0 ? [] : ['The pages this run published, which you may point a section at as `(madarch:<page id>)`, each with the "label" the reader sees:', ...pages.map((page) => `- ${page.id}: ${page.title} (${page.path})`)]),
+    ...revisionPart(context.revisions),
     ...questionsPart(unit.id, context.questions),
     ...earlierArtifactsPart(context.reads ?? []),
     ...await preparedContextPart(view),

@@ -18,6 +18,7 @@ import { resolve } from 'node:path';
 import { parseDocument } from 'yaml';
 import { byCodePoint } from '../model/order.js';
 import type { McpToolDefinition } from '../fill/unit-mcp.js';
+import { revisionScopeProblems } from './editorial-read.js';
 import { checkPage, MAX_SLUG_LENGTH, parseTarget, SLUG, type Refusal } from './format.js';
 import type { WrittenAt } from '../knowledge/index/page.js';
 import { MAX_ABOUT, MAX_SIDES, MAX_TEXT, MAX_TITLE, QUESTION_HEADINGS, QUESTION_TYPES, parseQuestion, parseStatementRef, questionPath, renderQuestion, type Question, type QuestionLanguage, type QuestionType } from '../loop/entities.js';
@@ -136,6 +137,11 @@ export interface UnitExtras {
   readonly questions?: () => Promise<readonly Question[]>;
   /** The graph reads the answers make: the pinned snapshot reader of the fill's view unless a caller gives its own. */
   readonly reads?: GraphReads;
+  /**
+   * A revision's bound (madarch-ztyq.9, review 199): the page as it stands before the write and the
+   * statement ids the editorial pass named. A write that changes anything else is refused.
+   */
+  readonly revisionScope?: { readonly before: string; readonly passages: readonly string[] };
   /**
    * Every artifact this run has produced, in code point order of its path: the pages a later unit may read. A unit's
    * prompt carries at most `ARTIFACT_LIMIT` of them, so `search_pages` with `all` is how it reaches the rest — the tool
@@ -727,6 +733,13 @@ export class UnitTools {
       extraFrontKeys: ENRICHMENT_FRONT_KEYS,
     }, this.view, await this.mentionNames());
     if (!verdict.ok) return this.refuse(verdict.refusals);
+    // A revision may write the passages the editorial pass named and nothing else: the check reads both pages as
+    // Markdown trees, so a changed sentence, a changed definition or an insertion elsewhere is refused here, before
+    // the sink is touched (madarch-ztyq.9, review 199).
+    if (this.extras.revisionScope !== undefined) {
+      const outside = revisionScopeProblems(this.unit.path, resolve(this.extras.output ?? process.cwd(), this.unit.path), this.extras.revisionScope.before, verdict.page.markdown, this.extras.revisionScope.passages);
+      if (outside.length > 0) return this.refuse(outside.map((message) => ({ line: 1, rule: 'revision-scope', message })));
+    }
     const unused = [...this.answersUsed].filter((id) => !verdict.page.grounds.includes(id));
     if (unused.length > 0) return this.refuse(unused.map((id) => ({ line: 1, rule: 'answer-not-used', message: `use the answer returned for ${id} and ground its rewritten sentence on that answered question` })));
     const lost = this.contradictionProblems(verdict.page.grounds);
@@ -1433,6 +1446,13 @@ export class UnitTools {
     const entities = [...new Set([...(await this.extras.entityIds?.() ?? []), ...questions.filter((question) => question.status === 'answered').map((question) => question.id)])];
     const verdict = await checkPage(markdown, { file: this.unit.path, fullPath: resolve(this.extras.output ?? process.cwd(), this.unit.path), language: this.extras.language === 'ru' ? 'ru' : 'en', questions: questions.map((question) => question.id), ...(previous === undefined ? {} : { previous }), ...(entities === undefined ? {} : { entities }), ...(this.basis.length === 0 ? {} : { writtenAt: this.basis }), id: this.unit.id, kind: this.unit.kind, domains: domains.map((d) => d.slug), mustLinkDomains: this.unit.kind === 'product', ...(this.unit.kind === 'domain' && this.unit.productId !== undefined ? { productId: this.unit.productId } : {}), ...(emptyProduct ? { emptyProductGapSections: emptyProductGapSections() } : {}) }, this.view, await this.mentionNames());
     if (!verdict.ok) return this.refuse(verdict.refusals);
+    // A revision may write the passages the editorial pass named and nothing else: the check reads both pages as
+    // Markdown trees, so a changed sentence, a changed definition or an insertion elsewhere is refused here, before
+    // the sink is touched (madarch-ztyq.9, review 199).
+    if (this.extras.revisionScope !== undefined) {
+      const outside = revisionScopeProblems(this.unit.path, resolve(this.extras.output ?? process.cwd(), this.unit.path), this.extras.revisionScope.before, verdict.page.markdown, this.extras.revisionScope.passages);
+      if (outside.length > 0) return this.refuse(outside.map((message) => ({ line: 1, rule: 'revision-scope', message })));
+    }
     const unused = [...this.answersUsed].filter((id) => !verdict.page.grounds.includes(id));
     if (unused.length > 0) return this.refuse(unused.map((id) => ({ line: 1, rule: 'answer-not-used', message: `use the answer returned for ${id} and ground its rewritten sentence on that answered question` })));
     const lost = this.contradictionProblems(verdict.page.grounds);

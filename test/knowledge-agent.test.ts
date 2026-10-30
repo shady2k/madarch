@@ -151,7 +151,7 @@ describe('the choice of the agent', () => {
   test('the wiki offers Claude Code, Codex, OpenCode and omp (not Pi) with their state, states the bound in numbers, and has chosen none', async () => {
     const status = await get('/api/k/status');
     expect(status.body.chosenAgent).toBeNull();
-    expect(status.body.bounds).toEqual({ turns: 30, minutes: 10, toolCalls: 80, writeAttempts: 5, maxDomains: 12 });
+    expect(status.body.bounds).toEqual({ turns: 30, minutes: 10, toolCalls: 80, writeAttempts: 5, maxDomains: 12, editorialRequestsPerPage: 2 });
     expect(status.body.writer).toMatchObject({ state: 'idle', agent: null, units: [] });
     const agents = await get('/api/k/agents');
     expect(agents.body.chosen).toBeNull();

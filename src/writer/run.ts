@@ -32,6 +32,8 @@ import type { DocEntity } from '../knowledge/doc-entities.js';
 import { detectDocumentLanguage, localizedSourcePath, localizedSourcePrompt, parseLocalizedSource, renderLocalizedSource, LOCALIZED_SOURCE_SCHEMA } from './localized-source.js';
 import { includedNotes, type ChangeNote, type EditBrief } from './edit.js';
 import { statementsOf } from './sentences.js';
+import { DEFAULT_EDITORIAL_REQUESTS_PER_PAGE, runEditorialPass, type EditorialFinding, type EditorialJudge, type RevisionRequest } from './editorial.js';
+import type { Journal } from './journal.js';
 import { MAX_SLUG_LENGTH, SLUG } from './format.js';
 import { domainPrompt, editorialPrompt, enrichmentPrompt, ENRICHMENT_TASKS, overviewPrompt, productPrompt, validationPrompt, type UnitContext, type WriterArtifactRead } from './prompts.js';
 import { documentMentionNames, type MentionName } from './mentions.js';
@@ -156,6 +158,20 @@ export interface WriterOptions {
    * run then resumes instead of starting over.
    */
   readonly state?: WriterState;
+  /**
+   * The editorial pass (madarch-ztyq.9): the editing role's judge, the most requests one page may receive
+   * (a product setting), and the journal its findings and requests are recorded in. Absent, no editorial
+   * pass runs and the run is exactly what it was before this change.
+   */
+  readonly editorial?: {
+    /** The host's judge of first resort; it reads the whole pack before the editing role does. */
+    readonly jev?: EditorialJudge;
+    readonly judge?: EditorialJudge;
+    readonly maxRequestsPerPage?: number;
+    readonly journal?: Journal;
+    /** Why there is no editing judge; the deterministic checks still run and the journal says this. */
+    readonly skipReason?: string;
+  };
 }
 
 export interface WriterReport {
@@ -199,6 +215,14 @@ export interface WriterReport {
   readonly overview: WriterKindRun;
   /** The editorial pass's unit. */
   readonly editorial: WriterKindRun;
+  /** The editorial pass's deterministic findings (madarch-ztyq.9). */
+  readonly editorialFindings: readonly EditorialFinding[];
+  /** The bounded revisions the editorial pass asked the writer for; the writer reworks those passages only. */
+  readonly revisionRequests: readonly RevisionRequest[];
+  /** What the editorial pass could not accept or do: a judge's unknown page or passage, or its failure. */
+  readonly editorialProblems: readonly string[];
+  /** Where the editorial pass ran and which reader pages it read (madarch-ztyq.9): after the page batch, and after the overview. */
+  readonly editorialPasses: readonly { readonly point: 'batch' | 'overview'; readonly pages: readonly string[] }[];
 }
 
 /** How one unit of the graph ended: it wrote, it was kept from an earlier run, or it ended without its page. */
@@ -746,6 +770,154 @@ export async function runWriter(options: WriterOptions): Promise<WriterReport> {
     const text = await sink.read(page).catch(() => undefined);
     note(artifact, { kind, unit, path: page, title, ...(text === undefined ? {} : { text }) });
   };
+  // ---- the editorial pass (madarch-ztyq.9) -----------------------------------------------------
+  // It reads the pages a batch wrote and returns bounded requests; this writer, not the pass, reworks
+  // the named passages. A run without an editing role still gets the deterministic findings, and a run
+  // with no `editorial` option is exactly what it was before this change.
+  const editorialFindings: EditorialFinding[] = [];
+  const revisionRequests: RevisionRequest[] = [];
+  const editorialProblems: string[] = [];
+  const editorialPoints: { point: 'batch' | 'overview'; pages: string[] }[] = [];
+  const readerPages = (): { path: string; title: string; artifact: WriterArtifact; unit: string; kind: WriterUnitKindName }[] => {
+    const seen = new Map<string, { path: string; title: string; artifact: WriterArtifact; unit: string; kind: WriterUnitKindName }>();
+    for (const artifact of ['product-page', 'domain-pages', 'overview-page'] as const) {
+      for (const item of artifactsOf(artifact)) if (!seen.has(item.path)) seen.set(item.path, { path: item.path, title: item.title, artifact, unit: item.unit, kind: item.kind });
+    }
+    return [...seen.values()].sort((left, right) => byCodePoint(left.path, right.path));
+  };
+  const forgetPage = (artifact: WriterArtifact, page: string): void => {
+    produced.set(artifact, (produced.get(artifact) ?? []).filter((item) => item.path !== page));
+  };
+  const revisionsOf = (requests: readonly RevisionRequest[]): string[] => requests.map((request) => `[^${request.passage}]: ${request.change} Why: ${request.why}`);
+  /** Reworks only the named passages of one page, through the page's own unit and tools. */
+  const rework = async (requests: readonly RevisionRequest[]): Promise<void> => {
+    const byPage = new Map<string, RevisionRequest[]>();
+    for (const request of requests) {
+      const held = byPage.get(request.page) ?? [];
+      held.push(request);
+      byPage.set(request.page, held);
+    }
+    for (const [page, pageRequests] of [...byPage].sort(([left], [right]) => byCodePoint(left, right))) {
+      const current = await sink.read(page).catch(() => undefined);
+      if (current === undefined) { editorialProblems.push(`${path.resolve(options.output, page)}:1: the editorial pass asked for a revision of a page that is not there; no passage was reworked`); continue; }
+      const revisions = revisionsOf(pageRequests);
+      // The revision's own bound: the page as it stands and the passages it named. The tools refuse any change
+      // outside them, so the editorial pass can only edit what it asked about (madarch-ztyq.9, review 199).
+      const scopedExtras = { ...extras, revisionScope: { before: current, passages: pageRequests.map((request) => request.passage) } };
+      let outcome: UnitOutcome | undefined;
+      if (page === PRODUCT_PATH) {
+        const digest = writerUnitDigest({ kind: 'product', version: versionOf('product'), scope: slug, language, inputs: [...pinned(), ...revisions.map(textDigest), ...upstreamOf('product')] });
+        // A revision is not the page's own attempt: it keeps its own fresh bounds and never writes the page unit's state
+        // or status. A refusal is reported here, and the outcome (and artifact) the unit wrote before the pass stands.
+        const run = await runGraphUnit({
+          id: productUnit.id, kind: 'product', scope: slug, path: PRODUCT_PATH, asked: true,
+          digest, state: NO_WRITER_STATE, resumed: new Map(), sink, now,
+          start: async () => {
+            const tools = new UnitTools(view, productUnit, sink, [], bounds, basis, scopedExtras);
+            const declared = await declaredNow();
+            return await runUnit(options.agent, tools, await productPrompt(view, productUnit, language, { questions, declared, revisions, reads: readsFor('product') }));
+          },
+        });
+        outcome = run.outcome;
+        if (outcome?.status === 'written') {
+          product = outcome;
+          productPage = await sink.read(PRODUCT_PATH).catch(() => productPage);
+          // The revised product page carries the declarations the unit wrote with it; reading them back only from
+          // the pages already on disk would drop them when the product page is the run's first page (test sink).
+          declarations = outcome.domains.length > 0 ? outcome.domains : await declaredNow();
+          forgetPage('product-page', PRODUCT_PATH);
+          await rememberPage('product-page', 'product', productUnit.id, PRODUCT_PATH, options.productName);
+        }
+      } else if (page.startsWith(`${DOMAINS_FOLDER}/`)) {
+        const pageName = page.slice(page.lastIndexOf('/') + 1);
+        const slugOfPage = pageName.endsWith('.md') ? pageName.slice(0, -'.md'.length) : pageName;
+        // The product unit's declaration is the domain's own summary and evidence. Reading them back from the page is
+        // only a fallback: a page's first sentence is not the summary that was declared, and a revision must keep the
+        // declaration the run was given (madarch-ztyq.9, CI follow-up).
+        let declaration = declarations.find((entry) => entry.slug === slugOfPage);
+        if (declaration === undefined) {
+          try { declaration = declarationOf(page, current); } catch (error) { editorialProblems.push(`${path.resolve(options.output, page)}:1: ${error instanceof Error ? error.message : String(error)}`); continue; }
+        }
+        const spec: UnitSpec = { kind: 'domain', id: `domain:${declaration.slug}`, path: page, domain: declaration, productId: productUnit.id };
+        const digest = writerUnitDigest({ kind: 'domains', version: versionOf('domains'), scope: declaration.slug, language, inputs: [...pinned(), declaration.summary, ...declaration.evidence, ...revisions.map(textDigest), ...upstreamOf('domains')] });
+        const run = await runGraphUnit({
+          id: spec.id, kind: 'domains', scope: declaration.slug, path: page, asked: true,
+          digest, state: NO_WRITER_STATE, resumed: new Map(), sink, now,
+          start: async () => {
+            const tools = new UnitTools(view, spec, sink, declarations, bounds, basis, scopedExtras);
+            return await runUnit(options.agent, tools, await domainPrompt(view, spec, productPage, declarations, language, { questions, revisions, reads: readsFor('domains') }));
+          },
+        });
+        outcome = run.outcome;
+        if (outcome?.status === 'written') {
+          const held = domainOutcomes.findIndex((entry) => entry.path === page);
+          if (held >= 0) domainOutcomes[held] = outcome; else domainOutcomes.push(outcome);
+          declarations = declarations.map((entry) => entry.slug === declaration.slug ? declaration : entry);
+          forgetPage('domain-pages', page);
+          await rememberPage('domain-pages', 'domains', spec.id, page, declaration.title);
+        }
+      } else if (page === OVERVIEW_PATH) {
+        const id = productUnitId('overview', slug);
+        const digest = writerUnitDigest({ kind: 'overview', version: versionOf('overview'), scope: slug, language, inputs: [...pinned(), ...revisions.map(textDigest), ...upstreamOf('overview')] });
+        const run = await runGraphUnit({
+          id, kind: 'overview', scope: slug, path: OVERVIEW_PATH, asked: true,
+          digest, state: NO_WRITER_STATE, resumed: new Map(), sink, now,
+          start: async () => {
+            const spec: UnitSpec = { kind: 'overview', id, path: OVERVIEW_PATH, name: options.productName, productId: productUnit.id };
+            const tools = new UnitTools(view, spec, sink, declarations, bounds, basis, scopedExtras);
+            const linked = [...artifactsOf('product-page'), ...artifactsOf('domain-pages')].map((entry) => ({ id: entry.unit, path: entry.path, title: entry.title }));
+            return await runUnit(options.agent, tools, await overviewPrompt(view, { id, path: OVERVIEW_PATH, name: options.productName }, linked, language, { questions, revisions, reads: readsFor('overview') }));
+          },
+        });
+        outcome = run.outcome;
+        if (outcome?.status === 'written') {
+          forgetPage('overview-page', OVERVIEW_PATH);
+          await rememberPage('overview-page', 'overview', id, OVERVIEW_PATH, `The home page of ${options.productName}`);
+        }
+      } else {
+        editorialProblems.push(`${path.resolve(options.output, page)}:1: the editorial pass asked for a revision of a page the writer does not rework; the passage was left as it stands`);
+        continue;
+      }
+      if (outcome !== undefined && outcome.status !== 'written') {
+        // A refusal must leave the page the unit wrote byte for byte; the tools never write on a refusal, but the
+        // revision's own sink is restored here as well so no half-applied revision can stand (madarch-ztyq.9).
+        const after = await sink.read(page).catch(() => undefined);
+        if (after !== undefined && after !== current) await sink.write(page, current);
+        editorialProblems.push(`${page}:1: the editorial revision did not write the page: ${unitEndedOn(outcome)}`);
+      }
+    }
+  };
+  /** One editorial point: read the pages that stand, find, judge, journal, and rework only the named passages. */
+  const editorialPoint = async (point: 'batch' | 'overview'): Promise<void> => {
+    if (options.editorial === undefined) return;
+    const listed = readerPages();
+    const pages: { path: string; title: string; text: string }[] = [];
+    for (const entry of listed) {
+      const text = await sink.read(entry.path).catch(() => undefined);
+      if (text !== undefined) pages.push({ path: entry.path, title: entry.title, text });
+    }
+    if (pages.length === 0) return;
+    editorialPoints.push({ point, pages: pages.map((page) => page.path) });
+    const result = await runEditorialPass({
+      pages,
+      documentEntities: options.documentEntities ?? [],
+      graph: view,
+      maxPerPage: options.editorial.maxRequestsPerPage ?? DEFAULT_EDITORIAL_REQUESTS_PER_PAGE,
+      point,
+      ...(options.editorial.jev === undefined ? {} : { jev: options.editorial.jev }),
+      ...(options.editorial.judge === undefined ? {} : { judge: options.editorial.judge }),
+      ...(options.editorial.journal === undefined ? {} : { journal: options.editorial.journal }),
+      ...(options.editorial.skipReason === undefined ? {} : { skipReason: options.editorial.skipReason }),
+    });
+    editorialFindings.push(...result.findings);
+    revisionRequests.push(...result.requests);
+    editorialProblems.push(...result.errors);
+    // Findings and requests are always recorded. Rework, however, belongs to the editing role: with no assigned role
+    // there is nobody to ask for a change, and the deterministic findings alone must not rewrite a page the writer
+    // just wrote (madarch-ztyq.9, CI follow-up: an unassigned editing role must write exactly what it wrote before).
+    if (options.editorial.skipReason === undefined) await rework(result.requests);
+  };
+
   /**
    * Why one of the graph's own pages does not run, or undefined when the product's wiki shows its kind. The manifest
    * says which kinds the wiki shows (decision 0029), so a page of a kind the product does not declare is a page no
@@ -1044,6 +1216,9 @@ export async function runWriter(options: WriterOptions): Promise<WriterReport> {
           await rememberPage('domain-pages', kind, spec.id, page, declaration.title);
         }
         kinds.push({ kind, position, state: 'ran', units: runs });
+        // The product page and the domain pages are the reader-page batch: read them now, before the
+        // guides and the home page, and ask for bounded revisions while those pages still can change.
+        await editorialPoint('batch');
         break;
       }
       case 'guides': {
@@ -1116,6 +1291,9 @@ export async function runWriter(options: WriterOptions): Promise<WriterReport> {
         runs.push(run.run);
         if (run.run.status === 'written' || run.run.status === 'kept') await rememberPage('overview-page', kind, id, OVERVIEW_PATH, `The home page of ${options.productName}`);
         kinds.push({ kind, position, state: 'ran', units: runs });
+        // The home page is the last reader page: the pass runs once more over the complete set, so a
+        // fact two pages now state differently is found after the page that could introduce it.
+        await editorialPoint('overview');
         break;
       }
       case 'editorial': {
@@ -1184,5 +1362,9 @@ export async function runWriter(options: WriterOptions): Promise<WriterReport> {
     validation: kindOf('graph-validation'),
     overview: kindOf('overview'),
     editorial: kindOf('editorial'),
+    editorialFindings,
+    revisionRequests,
+    editorialProblems,
+    editorialPasses: editorialPoints,
   };
 }

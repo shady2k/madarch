@@ -194,6 +194,7 @@ describe('the model roles (madarch-j6ho.2)', () => {
     expect(view.roles.find((role) => role.role === 'writing')).toEqual({ role: 'writing', pair: { agent: 'claude-code', model: 'opus', reasoning: 'high' }, source: 'assigned' });
     expect(view.roles.find((role) => role.role === 'classification')).toMatchObject({ source: 'fallback', fallbackFrom: 'writing', pair: { agent: 'claude-code', model: 'opus', reasoning: 'high' } });
     expect(view.roles.find((role) => role.role === 'analysis')?.note).toContain('analysis is not assigned');
+    expect(view.roles.find((role) => role.role === 'editing')).toMatchObject({ source: 'fallback', fallbackFrom: 'writing', pair: { agent: 'claude-code', model: 'opus', reasoning: 'high' } });
     expect(held.settingsView().roles).toEqual(view);
     // The names the page shows beside a pair, so a row never stands with an agent's id in it (madarch-j6ho.2).
     expect(held.settingsView().agentNames).toMatchObject({ 'claude-code': 'Claude Code', codex: 'Codex' });
@@ -322,6 +323,34 @@ describe('the two local resets', () => {
     writeFileSync(join(store, id, 'writer.json'), '{"agent":"claude-code","model":"opus"}\n');
     return id;
   }
+
+  test('the editorial request bound is a saved product setting, validated at 0 to 12, and carried to the fill worker', async () => {
+    const { folder, store } = oldProduct();
+    const starts: { editorialRequestsPerPage?: number }[] = [];
+    const worker = (): FillWorkerHandle => ({
+      send: (message) => { if ((message as { type?: string }).type === 'start') starts.push(message as { editorialRequestsPerPage?: number }); },
+      lines: (async function* () { /* says nothing */ })(), exited: Promise.resolve(0), stderr: () => '', kill: () => undefined,
+    });
+    const held = product(folder, store, { workerFactory: worker });
+    const id = withPages(folder, store, held);
+    expect(held.settingsView().bounds.editorialRequestsPerPage).toBe(2);
+    for (const value of [0, 1]) {
+      expect(await held.setEditorialRequestsPerPage(value)).toEqual({ ok: true, value });
+      expect(held.settingsView().bounds.editorialRequestsPerPage).toBe(value);
+      expect(JSON.parse(readFileSync(join(store, id, 'writer.json'), 'utf8')).editorialRequestsPerPage).toBe(value);
+      expect((await held.startFill()).started).toBe(true);
+      await held.settled();
+      expect(starts.at(-1)?.editorialRequestsPerPage).toBe(value);
+    }
+    for (const value of [-1, 1.5, 13]) {
+      const refused = await held.setEditorialRequestsPerPage(value);
+      expect(refused).toMatchObject({ ok: false, status: 400 });
+      if (!refused.ok) expect(refused.message).toContain(join(store, id, 'writer.json'));
+    }
+    // A later role change keeps the bound: it is the product's, not the role's.
+    await held.chooseRole('classification', null);
+    expect(JSON.parse(readFileSync(join(store, id, 'writer.json'), 'utf8')).editorialRequestsPerPage).toBe(1);
+  }, 90_000);
 
   test('«Rewrite the pages» removes the agent\'s pages only, keeps the graph and a person\'s pages, and starts a fill with the chosen agent', async () => {
     const { folder, store } = oldProduct();

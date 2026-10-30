@@ -88,6 +88,16 @@ describe('glossary terms', () => {
     expect(madarchLinks(fields.ambiguous)).toEqual(['madarch:doc:docs/reference.md#question']);
   });
 
+  test('a field written without a list mark is still a field, not definition prose', () => {
+    expect(parseTermText('Plain words.\n\nAlso called: manifests\n\nIn code: `madarch/kinds.yaml`')).toEqual({
+      definition: 'Plain words.',
+      synonyms: ['manifests'],
+      code: ['madarch/kinds.yaml'],
+      usedIn: null,
+      ambiguous: null,
+    });
+  });
+
   test('a term without labels has only its definition and is not ambiguous', () => {
     expect(parseTermText('Plain words.')).toEqual({ definition: 'Plain words.', synonyms: [], code: [], usedIn: null, ambiguous: null });
   });
