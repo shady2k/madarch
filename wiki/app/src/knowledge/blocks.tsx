@@ -20,6 +20,7 @@ import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card.j
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@/components/ui/table.js';
 import { getBlock } from './api.js';
 import { historyAddress } from './history-context.js';
+import { historyNoteText } from './history-note.js';
 import { highlight } from './highlight.js';
 import { colorize, type ColoredToken } from './shiki.js';
 import { PendingPages } from './pending.js';
@@ -573,6 +574,12 @@ function Deferred({ block, pageId, resolutions }: { block: Extract<Block, { type
 }
 
 /**
+ * The figures whose word is counted: the numeral chooses the form of the word in the reader's language
+ * (madarch-u3vw.7), so "1 commit", "2 commits", "5 commits" instead of one form glued to every numeral.
+ */
+const countedKinds = new Set(['symbols', 'commits', 'files', 'reachable', 'firstParent', 'merges', 'nonMerge', 'authors', 'both', 'onlyThis', 'onlyOther']);
+
+/**
  * The history of a task, a commit or an author (madarch-m38l.16): the commits it names, the files it changed with the
  * lines it added and removed, or the files its commits touched most. Each figure is a badge whose word comes from the
  * reader's language, so a row reads "2026-01-02 · Ada · +42 −7".
@@ -583,9 +590,12 @@ function History({ block }: { block: Extract<Block, { type: 'history' }> }): Rea
   const figureText = (figure: { kind: string; value: string }): string => {
     if (figure.kind === 'added') return `+${figure.value}`;
     if (figure.kind === 'removed') return `−${figure.value}`;
-    if (['module', 'since', 'until', 'authoredAt', 'committedAt', 'effectiveAt', 'similarity'].includes(figure.kind)) return `${t(`knowledge.historyFigure.${figure.kind}`)}: ${figure.value}`;
-    return `${figure.value} ${t(`knowledge.historyFigure.${figure.kind}`)}`;
+    const key = `knowledge.historyFigure.${figure.kind}`;
+    if (countedKinds.has(figure.kind)) return t(key, { count: Number(figure.value) });
+    return `${t(key)}: ${figure.value}`;
   };
+  /** A badge's title: the same words for a counted figure, so it agrees with the numeral it names. */
+  const figureTitle = (figure: { kind: string; value: string }): string => (countedKinds.has(figure.kind) ? figureText(figure) : t(`knowledge.historyFigure.${figure.kind}`));
   return (
     <section data-block="history" aria-label={block.title}>
       <h2>{block.title}</h2>
@@ -612,7 +622,7 @@ function History({ block }: { block: Extract<Block, { type: 'history' }> }): Rea
                   <TableCell>
                     <span className="flex flex-wrap items-center gap-1">
                       {row.figures.map((figure, at) => (
-                        <Badge key={`${figure.kind}-${String(at)}`} data-figure={figure.kind} title={t(`knowledge.historyFigure.${figure.kind}`)}>
+                        <Badge key={`${figure.kind}-${String(at)}`} data-figure={figure.kind} title={figureTitle(figure)}>
                           {figureText(figure)}
                         </Badge>
                       ))}
@@ -628,7 +638,7 @@ function History({ block }: { block: Extract<Block, { type: 'history' }> }): Rea
       ))}
       {block.notes.length > 0 && (
         <ul className="mt-1.5 text-small text-muted" data-testid="history-notes">
-          {block.notes.map((note, index) => <li key={index}>{t(`knowledge.historyNote.${note.key}`, note.args ?? {})}</li>)}
+          {block.notes.map((note, index) => <li key={index}>{historyNoteText(note, t)}</li>)}
         </ul>
       )}
       {block.more !== undefined && (

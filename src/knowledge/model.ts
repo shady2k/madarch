@@ -284,6 +284,11 @@ export interface PageModel {
   history?: import('./temporal.js').HistoryContext;
   id: string;
   kind: string;
+  /**
+   * The language the page's own words are written in — the reader's interface language, else the product's
+   * content language — so a page file writes its figures in the same words the app draws (madarch-u3vw.7).
+   */
+  language?: string;
   /** The page's name: the attribute the manifest's `title` names. */
   title: string;
   /** Entities above this one: the way up to the product. */

@@ -33,7 +33,7 @@ export function HistoryBar({ history, navigation, absent }: { history?: HistoryC
       {date !== '' && link(address(date), t('knowledge.historyOpenDate'))}
     </div>
     {landmarks !== undefined && <div className="mt-2 text-small" data-testid="history-landmarks">
-      <p>{t('knowledge.historyLandmarkCounts', { covered: landmarks.covered, offered: landmarks.offered, limit: landmarks.limit })}</p>
+      <p>{t('knowledge.historyLandmarkCovered', { count: landmarks.covered })}{t('knowledge.historyLandmarkOffered', { count: landmarks.offered })}{t('knowledge.historyLandmarkLimit', { limit: landmarks.limit })}</p>
       {landmarks.first !== null && <p>{t('knowledge.historyLandmarkBounds', { first: landmarks.first, last: landmarks.last })}</p>}
       {landmarks.overflow && <p>{t('knowledge.historyLandmarkOmitted', { count: landmarks.omitted })}</p>}
       {landmarks.diagnostics.length > 0 && <details><summary>{t('knowledge.historyLandmarkUnsupported', { count: landmarks.diagnostics.length })}</summary><ul>{landmarks.diagnostics.map((one) => <li key={one.ref} className="break-all">{one.ref} · {one.object} · {one.reason}</li>)}</ul></details>}

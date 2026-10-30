@@ -410,6 +410,46 @@ export type ResolvedModelRole = {
 };
 export type ModelRoleView = { defaultRole: 'writing'; defaultPair: ModelPair | null; roles: ResolvedModelRole[] };
 
+
+/** One graph node or edge and its verdict (madarch-mwhd.1). */
+export type GraphVerdict = 'valid' | 'invalid' | 'unreviewed';
+/** Every verdict a person still has to look at: the settings table asks for these, valid rows excluded. */
+export type GraphVerdictFilter = GraphVerdict | 'non-valid';
+export type GraphVerdictRole = 'node' | 'edge';
+export type GraphVerdictRow = {
+  role: GraphVerdictRole;
+  id: string;
+  kind: string;
+  label: string;
+  verdict: GraphVerdict;
+  reason: string;
+  rule: string;
+  source: 'rule' | 'jev' | 'classification' | 'analysis' | 'person' | 'none' | 'budget' | 'judge-failed';
+  tier?: string;
+};
+export type GraphVerdictKindReport = { role: GraphVerdictRole; kind: string; total: number; valid: number; invalid: number; unreviewed: number };
+export type GraphVerdictReport = {
+  generatedAt: string;
+  validatorVersion: string;
+  budgets: GraphVerdictBudgets;
+  totals: { items: number; nodes: number; edges: number; valid: number; invalid: number; unreviewed: number };
+  byKind: GraphVerdictKindReport[];
+  sources: { source: GraphVerdictRow['source']; count: number }[];
+  reasons: { reason: string; count: number }[];
+};
+export type GraphVerdictBudgets = { itemsPerRun: number; modelCallsPerRun: number };
+export type GraphVerdictView = {
+  file: string;
+  budgets: GraphVerdictBudgets;
+  cached: boolean;
+  metrics: { checked: number; reused: number; judgeItems: number; modelCalls: number };
+  report?: GraphVerdictReport;
+  total: number;
+  offset: number;
+  limit: number;
+  rows: GraphVerdictRow[];
+};
+
 /** The product settings page (madarch-m38l.11): what is set for this product on this machine. */
 export type ProductSettings = {
   product: { name: string; id: string };
