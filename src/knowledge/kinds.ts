@@ -215,6 +215,12 @@ export interface KindsManifest {
   /** The reader-facing labels and value formats of the properties the kinds show. */
   properties: ReadonlyMap<string, PropertyDecl>;
   kinds: ReadonlyMap<string, KindDecl>;
+  /**
+   * Every template path a kind declaration names, including a declaration whose template is missing (or whose other
+   * fields are invalid) and so has no `KindDecl`. The status key reads the paths a declaration names, not only the paths
+   * of the kinds that parsed: creating the missing template changes the answer (madarch-u3vw.8).
+   */
+  declaredTemplates?: readonly string[];
   /** The groups of kinds, in the manifest's order. */
   groups: ReadonlyMap<string, GroupDecl>;
   /** Markdown documents the wiki does not list as documents (harness files, say), as path patterns. */
@@ -424,7 +430,7 @@ function parseProblems(
 }
 
 function nothing(file: string, findings: Finding[]): KindsManifest {
-  return { file, roles: new Map(), properties: new Map(), kinds: new Map(), groups: new Map(), excludeDocuments: [], ignoreBlocks: [], expect: [], findings, unreadable: true };
+  return { file, roles: new Map(), properties: new Map(), kinds: new Map(), declaredTemplates: [], groups: new Map(), excludeDocuments: [], ignoreBlocks: [], expect: [], findings, unreadable: true };
 }
 
 /** Reads `madarch/kinds.yaml` of a product folder; absent when the product holds none. */
@@ -613,6 +619,7 @@ export function parseKinds(text: string, file: string, productFolder: string): K
     return { ...nothing(file, findings), groups, roles, excludeDocuments, ignoreBlocks: ignoredBlocks };
   }
   const kinds = new Map<string, KindDecl>();
+  const declaredTemplates: string[] = [];
   for (const [name, value] of Object.entries(declared as Record<string, unknown>)) {
     const line = at(['kinds', name]);
     const problem = (path: (string | number)[], message: string): void => {
@@ -630,6 +637,9 @@ export function parseKinds(text: string, file: string, productFolder: string): K
     const source = decl['source'];
     if (source !== 'graph' && source !== 'markdown' && source !== 'document') problem(['source'], `"source" is "graph", "markdown" or "document", got ${JSON.stringify(source)}`);
     const named = decl['template'];
+    // The stamp follows every path a declaration names, even when the declaration is refused below: a template created
+    // for a kind that named it missing changes the manifest's findings and the kinds the wiki shows (madarch-u3vw.8).
+    if (typeof named === 'string' && named.trim() !== '' && insideFolder(productFolder, named)) declaredTemplates.push(named);
     let template = named;
     if (typeof template !== 'string' || template.trim() === '') problem(['template'], '"template" names the template file in the product repository');
     else if (!insideFolder(productFolder, template)) problem(['template'], `the template "${template}" is not a path inside the product repository`);
@@ -784,7 +794,7 @@ export function parseKinds(text: string, file: string, productFolder: string): K
     }
     return true;
   });
-  return { file, roles, properties, kinds, groups, excludeDocuments, ignoreBlocks: ignoredBlocks, expect: wanted, ...(problems === undefined ? {} : { problems }), findings, ...(language === undefined ? {} : { language }), ...(diagram === undefined ? {} : { diagram }) };
+  return { file, roles, properties, kinds, declaredTemplates: [...new Set(declaredTemplates)], groups, excludeDocuments, ignoreBlocks: ignoredBlocks, expect: wanted, ...(problems === undefined ? {} : { problems }), findings, ...(language === undefined ? {} : { language }), ...(diagram === undefined ? {} : { diagram }) };
 }
 
 /**

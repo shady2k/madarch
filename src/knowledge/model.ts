@@ -526,8 +526,12 @@ export interface WikiStatus {
   roles: Record<string, { open?: string[]; lead: string[] }>;
   /** This is madarch's own wiki (documentation): no fill is offered. Set by the server, not by the product. */
   own?: boolean;
-  /** The loop of questions and corrections (madarch-m38l.7), counted from their files. */
-  loop: { questionsOpen: number; questionsAnswered: number; correctionsOpen: number; tasksOpen: number; problemsOpen: number };
+  /**
+   * The loop of questions and corrections (madarch-m38l.7), counted from their files. `problemsOpen` is absent while the
+   * listing for exactly the inputs the answer reads is not collected: a count collected for other inputs is never shown
+   * (madarch-u3vw.8), and a reader falls back to the corrections it counts from their files.
+   */
+  loop: { questionsOpen: number; questionsAnswered: number; correctionsOpen: number; tasksOpen: number; problemsOpen?: number };
   /** How many things the current starter set holds that this product's edited manifest lacks (the Problems page offers them). */
   starterOffers: number;
 }
