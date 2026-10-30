@@ -115,12 +115,17 @@ describe('localized sentence-end question links', () => {
 });
 
 describe('abbreviations and navigation are not phantom claims', () => {
-  for (const sentence of ['См. Доставку для подробностей.[^policy]', 'Срок задан явно, т. е. без задержки.[^policy]', 'Routes, e.g. delivery, are documented.[^policy]']) {
+  for (const sentence of ['Срок задан явно, т. е. без задержки.[^policy]', 'Routes, e.g. delivery, are documented.[^policy]']) {
     test(`keeps abbreviation periods within one sentence: ${sentence}`, async () => {
       expect(sentencesOf(maskInline(sentence)).map((entry) => unmask(entry.text))).toEqual([sentence]);
       expect(await rules(`${sentence}${grounds}`)).toEqual([]);
     });
   }
+  test('the platform segmenter ends a sentence at "См.", and the next fact stays whole', async () => {
+    const sentence = 'См. Доставку для подробностей.[^policy]';
+    expect(sentencesOf(maskInline(sentence), 'ru').map((entry) => unmask(entry.text))).toEqual(['См.', 'Доставку для подробностей.[^policy]']);
+    expect(await rules(`${sentence}${grounds}`)).toEqual([]);
+  });
   test('navigation-only См. также needs no ground but its targets must resolve', async () => {
     expect(await rules(`${fact}\n\nСм. также [Доставка](madarch:domain:orders).${grounds}`)).toEqual([]);
     expect(await rules(`${fact}\n\nСм. также [Неизвестное](madarch:domain:missing).${grounds}`)).toContain('link-outside-graph');

@@ -7,7 +7,7 @@
  */
 import { parse as parseYaml } from 'yaml';
 import { byCodePoint } from '../../model/order.js';
-import { FOOTNOTE_DEFINITION, statementsOf, type PageStatement } from '../../writer/sentences.js';
+import { isFootnoteDefinitionLine, statementsOf, type PageStatement } from '../../writer/sentences.js';
 import { splitFrontMatter } from '../markdown.js';
 
 /** The basis of a page in one repository: where the writer read it. */
@@ -81,7 +81,7 @@ export function readIndexedPage(file: string, source: string, sha256: (text: str
   };
   const statements = statementsOf(body, bodyLine, language);
   const mentions = new Set<string>();
-  const prose = body.split('\n').filter((line) => !FOOTNOTE_DEFINITION.test(line.trim())).join('\n');
+  const prose = body.split('\n').filter((line) => !isFootnoteDefinitionLine(line.trim())).join('\n');
   for (const match of prose.matchAll(/\]\(madarch:((?:[^()\s]|\([^()\s]*\))*)\)/g)) mentions.add(match[1]!);
   return {
     id,

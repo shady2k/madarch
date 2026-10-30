@@ -15,7 +15,7 @@ import { byCodePoint } from '../model/order.js';
 import { headingLinks } from '../knowledge/markdown.js';
 import type { WrittenAt } from '../knowledge/index/page.js';
 import { isNumbered, nameStatements, sentenceKey } from './names.js';
-import { maskInline, plainSentence, QUESTION_LINK, readUnits, REFERENCE_RUN, sentencesOf, statementsOf, unmask, withoutQuestionLinks } from './sentences.js';
+import { type Definition, isFootnoteDefinitionLine, type PageReading, readPage, statementsOf } from './sentences.js';
 
 /** One reason a page is refused: the line (1-based, in the whole file), the rule and a message the agent can act on. */
 export interface Refusal {
@@ -119,11 +119,6 @@ export const MAX_SLUG_LENGTH = 40;
 const FRONT_KEYS = ['id', 'kind', 'title', 'relates', 'producer', 'sources'] as const;
 /** Keys the writer fills in; an agent may leave them out, and what it writes is replaced. */
 const WRITER_KEYS = ['written-at'] as const;
-const LINK = /\[([^\]\n]*)\]\(((?:[^()\s]|\([^()\s]*\))*)\)/g;
-const FOOTNOTE_DEFINITION = /^\[\^([A-Za-z0-9_-]+)\]:[ \t]*(.*)$/;
-const FOOTNOTE_REFERENCE = /\[\^([A-Za-z0-9_-]+)\]/g;
-/** The words that open a connecting "See also" line, in English and in Russian (`См. также`, `Смотрите также`). */
-const SEE_ALSO = /^(?:see also|см\.?\s+также|смотрите также)(?![\p{L}\p{N}])/iu;
 /** The most words a heading may have; a longer one reads as a statement. */
 const HEADING_WORDS = 10;
 
@@ -217,21 +212,15 @@ export function parseTarget(target: string): MadarchTarget | undefined {
 }
 
 /** The words of a unit: link targets and footnote references removed, markup dropped. */
-function plainWords(text: string): string[] {
-  const stripped = text
-    .replace(LINK, (_whole, label: string) => label)
-    .replace(FOOTNOTE_REFERENCE, '')
-    .replace(/[`*_]/g, '');
-  return stripped.match(/[\p{L}\p{N}][\p{L}\p{N}'-]*/gu) ?? [];
-}
-
 interface TextUnit {
   readonly line: number;
   readonly text: string;
+  readonly start: number;
+  readonly end: number;
 }
 
-function textUnits(body: string, bodyStart: number, refusals: Refusal[]): { units: TextUnit[]; definitions: { label: string; line: number; text: string }[]; headings: TextUnit[] } {
-  // The Markdown tree says what the units are; this scan only names the shapes the format forbids.
+function textUnits(body: string, bodyStart: number, refusals: Refusal[], reader: PageReading): { units: TextUnit[]; definitions: Definition[]; headings: TextUnit[] } {
+  // The tree says what the units and headings are; this scan only names the shapes the format forbids.
   for (const [index, raw] of body.split('\n').entries()) {
     const line = bodyStart + index;
     if (/[\u0001-\u0004]/.test(raw)) refusals.push({ line, rule: 'characters', message: 'the page holds a control character (U+0001 to U+0004), which the format does not allow' });
@@ -240,41 +229,151 @@ function textUnits(body: string, bodyStart: number, refusals: Refusal[]): { unit
     else if (trimmed.startsWith('|')) refusals.push({ line, rule: 'table', message: 'a table is not part of the format: state each fact as a sentence with its own footnote' });
     else if (/^<[A-Za-z!/]/.test(trimmed)) refusals.push({ line, rule: 'html', message: 'raw HTML is not part of the format' });
   }
-  return readUnits(body, bodyStart);
+  return reader.units(bodyStart);
 }
 
 /** The most words a link-only line may carry in its labels before it is read as a statement. */
 const LINK_ONLY_WORDS = 5;
 
-/** A short factual label is still a claim, not navigation. Structural checks below also forbid prose beside links. */
-function assertionLabel(text: string): boolean {
-  return /(?<![\p{L}\p{N}])(?:is|are|was|were|has|have|stores?|keeps?|requires?|supports?|costs?|free|бесплат[\p{L}]*|хран[\p{L}]*|требу[\p{L}]*|поддержива[\p{L}]*|стоит|стоят|явля[\p{L}]*)(?![\p{L}\p{N}])/iu.test(text.replace(LINK, (_whole, label: string) => label));
+/** The words that open a navigation line, in English and in Russian. They are the format's own syntax, not a reading of the prose. */
+const NAVIGATION_OPENINGS: readonly (readonly string[])[] = [['see', 'also'], ['см', 'также'], ['смотрите', 'также']];
+
+/** The determiners that open a definite noun phrase in a navigation line. */
+const DETERMINERS = new Set(['the', 'a', 'an', 'эта', 'этот', 'эти', 'та', 'то']);
+
+/** The lower-case words of a text, in order. */
+function wordsOf(text: string): string[] {
+  const out: string[] = [];
+  let word = '';
+  for (const character of text) {
+    if (character.toLowerCase() !== character.toUpperCase() || (character >= '0' && character <= '9')) {
+      word += character.toLowerCase();
+    } else if (character === "'" || character === '-') {
+      if (word !== '') word += character;
+    } else if (word !== '') {
+      out.push(word);
+      word = '';
+    }
+  }
+  if (word !== '') out.push(word);
+  return out;
+}
+
+function opensNavigation(text: string): boolean {
+  const words = wordsOf(text);
+  return NAVIGATION_OPENINGS.some((opening) => opening.length <= words.length && opening.every((word, index) => words[index] === word));
 }
 
 /**
- * A unit that only connects: a one-sentence "See also" line, or nothing but
- * links and punctuation. The words in link labels count: a statement does not
- * hide in a label or behind "See also".
+ * A unit that only connects: a link-only line, or a navigation line whose named
+ * links are names. The sentence is a node walk, not a match on its characters:
+ * a label is a name when it is at most two words, and no prose may follow the
+ * last link, so a claim cannot hide in a label or after the links.
  */
-function connecting(text: string, language?: string): boolean {
-  const plain = text.replace(FOOTNOTE_REFERENCE, '').trim();
-  const labelWords = plainWords([...plain.matchAll(LINK)].map((m) => m[1]!).join(' ')).length;
-  if (SEE_ALSO.test(plain)) {
-    const rest = plain.replace(SEE_ALSO, '').replace(LINK, '').replace(/[\s,;:.–—-]+/g, ' ').trim();
-    // Only navigation glue is exempt. Word counts alone used to accept short claims such as "delivery is free".
-    const navigation = /^(?:(?:the|and|or|page|pages|section|sections|service|services|и|или|страница|страницы|страницу|раздел|разделы|сервис|сервисы)\s*)*$/iu.test(rest)
-      || (labelWords === 0 && /^(?:the\s+)?(?:[\p{L}\p{N}'-]+\s+){1,3}(?:page|section)$/iu.test(rest));
-    return sentencesOf(maskInline(plain), language).length <= 1 && navigation && labelWords <= 2 * LINK_ONLY_WORDS && !assertionLabel(plain);
+function connecting(unit: TextUnit, reader: PageReading): boolean {
+  const views = reader.sentences(unit.start, unit.end);
+  if (views.length !== 1) return false;
+  const sentence = views[0]!;
+  if (sentence.footnotes.length > 0) return false;
+  const links = sentence.links.filter((link) => !link.url.startsWith('madarch:question:'));
+  if (links.length === 0) {
+    // A navigation line may name where to look next without linking it: "See
+    // also the orders page." A bare noun phrase starts with a determiner; a
+    // claim ("See also delivery is free") does not, and stays a statement.
+    const words = wordsOf(sentence.plain);
+    const opening = NAVIGATION_OPENINGS.find((prefix) => prefix.length <= words.length && prefix.every((word, index) => words[index] === word));
+    if (opening === undefined) return false;
+    const rest = words.slice(opening.length);
+    return rest.length >= 2 && rest.length <= 3 && DETERMINERS.has(rest[0]!);
   }
-  const rest = plain.replace(LINK, '').replace(/[\s,;:.\u2013\u2014-]+/g, '');
-  return rest === '' && plain.includes('](') && labelWords <= LINK_ONLY_WORDS && !assertionLabel(plain);
+  const labels = links.map((link) => reader.words(link.start, link.end));
+  if (labels.some((count) => count > 2)) return false;
+  if (labels.reduce((sum, count) => sum + count, 0) > 2 * LINK_ONLY_WORDS) return false;
+  const after = reader.words(links[links.length - 1]!.end, sentence.end);
+  if (after > 0) return false;
+  let between = 0;
+  for (let index = 1; index < links.length; index += 1) between += reader.words(links[index - 1]!.end, links[index]!.start);
+  const before = reader.words(sentence.start, links[0]!.start);
+  if (before === 0 && between === 0) return true;
+  if (!opensNavigation(reader.plain(sentence.start, links[0]!.start))) return false;
+  if (before - 2 > 2) return false;
+  return between <= 2 * (links.length - 1);
 }
 
-/** Parses the grounds of a footnote definition: links separated by commas and nothing else. */
-function groundsOf(text: string): { links: { label: string; target: string }[]; leftover: string } {
-  const links: { label: string; target: string }[] = [];
-  const leftover = text.replace(LINK, (_whole, label: string, target: string) => { links.push({ label, target }); return ''; }).replace(/[\s,]+/g, '');
-  return { links, leftover };
+const isSpaceCharacter = (character: string | undefined): boolean => character === ' ' || character === '\t' || character === '\n' || character === '\r' || character === '\f' || character === '\v';
+const isTerminalCharacter = (character: string | undefined): boolean => character === '.' || character === '!' || character === '?' || character === '\u2026';
+const isClosingCharacter = (character: string | undefined): boolean => character === ')' || character === ']' || character === '"' || character === "'" || character === '\u201d' || character === '\u2019' || character === '\u00bb';
+const isFootnoteLabelCharacter = (character: string | undefined): boolean => character !== undefined && (character === '_' || character === '-' || character.toLowerCase() !== character.toUpperCase() || (character >= '0' && character <= '9'));
+
+/** The text with the given spans replaced by spaces, so offsets and line breaks stay where they were. */
+function blankSpans(text: string, spans: readonly { start: number; end: number }[]): string {
+  const characters = text.split('');
+  for (const span of spans) for (let at = span.start; at < span.end && at < characters.length; at += 1) if (characters[at] !== '\n') characters[at] = ' ';
+  return characters.join('');
+}
+
+/** The slice `body[from, to)` with the given absolute spans left out. */
+function textWithout(body: string, from: number, to: number, spans: readonly { start: number; end: number }[]): string {
+  let out = '';
+  let cursor = from;
+  for (const span of spans) {
+    if (span.end <= from || span.start >= to) continue;
+    out += body.slice(cursor, Math.max(cursor, span.start));
+    cursor = Math.max(cursor, span.end);
+  }
+  return out + body.slice(cursor, to);
+}
+
+/** Whether the text ends in one or more footnote references, and, when the sentence is terminated, in terminal punctuation before them. */
+function groundedEnd(text: string, terminated: boolean): boolean {
+  let end = text.length;
+  while (end > 0 && isSpaceCharacter(text[end - 1])) end -= 1;
+  let references = 0;
+  for (;;) {
+    if (end === 0 || text[end - 1] !== ']') break;
+    let at = end - 2;
+    while (at >= 0 && isFootnoteLabelCharacter(text[at])) at -= 1;
+    if (at < 1 || text[at] !== '^' || text[at - 1] !== '[' || at === end - 2) break;
+    references += 1;
+    end = at - 1;
+  }
+  if (references === 0) return false;
+  if (!terminated) return true;
+  let at = end - 1;
+  while (at >= 0 && isSpaceCharacter(text[at])) at -= 1;
+  while (at >= 0 && isClosingCharacter(text[at])) at -= 1;
+  return at >= 0 && isTerminalCharacter(text[at]);
+}
+
+/** The label a question link carries, as written between its brackets. */
+function questionLabel(body: string, link: { start: number; end: number }): string {
+  const close = body.indexOf('](', link.start);
+  return close > link.start && close < link.end ? body.slice(link.start + 1, close) : '';
+}
+
+/** A question link's localized prefix and title: `→ question: …` or `→ вопрос: …`. */
+function questionParts(label: string): { language: string; title: string } | undefined {
+  const trimmed = label.trim();
+  if (!trimmed.startsWith('→')) return undefined;
+  const rest = trimmed.slice(1).trimStart();
+  const colon = rest.indexOf(':');
+  if (colon < 0) return undefined;
+  const language = rest.slice(0, colon).trim();
+  if (language !== 'question' && language !== 'вопрос') return undefined;
+  return { language, title: rest.slice(colon + 1).trim() };
+}
+
+/** The words that make a heading a reference to a question rather than a topic. */
+const REFERENCE_HEADINGS: readonly (readonly string[])[] = [['see', 'question'], ['see', 'also', 'question'], ['см', 'вопрос'], ['см', 'также', 'вопрос'], ['смотрите', 'вопрос']];
+
+function referenceHeading(text: string): boolean {
+  const trimmed = text.trim();
+  if (trimmed.startsWith('→')) {
+    const first = wordsOf(trimmed.slice(1))[0];
+    return first === 'question' || first === 'вопрос';
+  }
+  const words = wordsOf(trimmed);
+  return REFERENCE_HEADINGS.some((opening) => opening.length <= words.length && opening.every((word, index) => words[index] === word));
 }
 
 const ROUTE_SPAN = /^(GET|POST|PUT|PATCH|DELETE|HEAD|OPTIONS)\s+(\/\S*)$/;
@@ -291,7 +390,7 @@ async function linkCodeSpans(body: string, resolver: GroundResolver): Promise<st
   const out: string[] = [];
   for (const line of body.split('\n')) {
     const trimmed = line.trim();
-    if (!line.includes('`') || FOOTNOTE_DEFINITION.test(trimmed) || /^#{1,6}\s/.test(trimmed) || /^(```|~~~)/.test(trimmed)) { out.push(line); continue; }
+    if (!line.includes('`') || isFootnoteDefinitionLine(trimmed) || /^#{1,6}\s/.test(trimmed) || /^(```|~~~)/.test(trimmed)) { out.push(line); continue; }
     let rebuilt = '';
     let cursor = 0;
     const segment = async (text: string): Promise<string> => {
@@ -312,9 +411,11 @@ async function linkCodeSpans(body: string, resolver: GroundResolver): Promise<st
       }
       return result + text.slice(last);
     };
-    for (const link of line.matchAll(LINK)) {
-      rebuilt += await segment(line.slice(cursor, link.index)) + link[0];
-      cursor = link.index + link[0].length;
+    const lineReader = readPage(line);
+    for (const link of lineReader.linksIn(0, line.length)) {
+      const written = line.slice(link.start, link.end);
+      rebuilt += await segment(line.slice(cursor, link.start)) + written;
+      cursor = link.end;
     }
     rebuilt += await segment(line.slice(cursor));
     out.push(rebuilt);
@@ -337,11 +438,13 @@ export async function checkPage(markdown: string, expected: PageExpectation, res
   const front = frontMatterOf(split.front, expected);
   refusals.push(...front.refusals);
   const body = await linkCodeSpans(split.body, resolver);
-  const { units, definitions, headings } = textUnits(body, split.bodyStart, refusals);
+  const reader = readPage(body, expected.language);
+  const { units, definitions, headings } = textUnits(body, split.bodyStart, refusals, reader);
   // Work on source lines, not joined paragraphs, so an id on a later line keeps its true location.
-  for (const [index, line] of split.body.split('\n').entries()) {
-    if (FOOTNOTE_DEFINITION.test(line.trim())) continue;
-    const outsideLinks = line.replace(LINK, '');
+  const bodyWithoutLinks = blankSpans(body, reader.linksIn(0, body.length));
+  for (const [index, line] of bodyWithoutLinks.split('\n').entries()) {
+    if (isFootnoteDefinitionLine(line.trim())) continue;
+    const outsideLinks = line;
     for (const match of outsideLinks.matchAll(/(?<![\p{L}\p{N}_])(?:madarch:)?(?:question|correction|domain|product|doc|engine|code\.[a-z][a-z0-9.-]*):[^\s`<>\[\]()]+/gu)) {
       refusals.push({ line: split.bodyStart + index, rule: 'raw-entity-id', message: `the raw entity id ${JSON.stringify(match[0])} is not reader-facing prose: use a human-readable Markdown link; place a question link at the end of its sentence as [→ question: …](madarch:question:<slug>) or [→ вопрос: …](madarch:question:<slug>)` });
     }
@@ -372,7 +475,7 @@ export async function checkPage(markdown: string, expected: PageExpectation, res
   const allGrounds: string[] = [];
   for (const definition of definitions) {
     if (defined.has(definition.label)) { refusals.push({ line: definition.line, rule: 'footnote', message: `the footnote [^${definition.label}] is defined twice` }); continue; }
-    const { links, leftover } = groundsOf(definition.text);
+    const { links, leftover } = reader.groundsIn(definition.start, definition.end);
     if (links.length === 0) refusals.push({ line: definition.line, rule: 'ungrounded-footnote', message: `the footnote [^${definition.label}] lists no ground: it is one or more madarch: links separated by commas` });
     if (leftover !== '') refusals.push({ line: definition.line, rule: 'footnote', message: `the footnote [^${definition.label}] holds text that is no ground (${JSON.stringify(leftover.slice(0, 40))}): only madarch: links separated by commas` });
     for (const ground of links) {
@@ -410,8 +513,8 @@ export async function checkPage(markdown: string, expected: PageExpectation, res
 
   const links: string[] = [];
   const checkLinks = async (unit: TextUnit): Promise<void> => {
-    for (const match of unit.text.matchAll(LINK)) {
-      const target = match[2]!;
+    for (const link of reader.linksIn(unit.start, unit.end)) {
+      const target = link.url;
       if (!target.startsWith('madarch:')) { refusals.push({ line: unit.line, rule: 'link-scheme', message: `the link ${JSON.stringify(target)} is no madarch: link: mention an entity as [name](madarch:<graph key>)` }); continue; }
       const parsed = parseTarget(target.slice('madarch:'.length));
       if (parsed === undefined) { refusals.push({ line: unit.line, rule: 'link-shape', message: `the link target ${JSON.stringify(target)} is no graph key (kind:path), doc:<path>#<anchor> or domain:<slug>` }); continue; }
@@ -434,58 +537,54 @@ export async function checkPage(markdown: string, expected: PageExpectation, res
   }
   for (const heading of headings) {
     await checkLinks(heading);
-    const outsideLinks = heading.text.replace(LINK, '').replace(/[`*_\s:,.→–—-]/g, '');
-    if ((outsideLinks === '' && [...heading.text.matchAll(LINK)].length > 0) || /^(?:see\s+(?:also\s+)?question|см\.?\s+(?:также\s+)?вопрос|смотрите\s+вопрос|→\s*(?:question|вопрос))(?![\p{L}\p{N}])/iu.test(heading.text)) {
+    const headingLinks = reader.linksIn(heading.start, heading.end);
+    if ((reader.wordsOutsideLinks(heading.start, heading.end) === 0 && headingLinks.length > 0) || referenceHeading(heading.text)) {
       refusals.push({ line: heading.line, rule: 'reference-heading', message: 'a reference-only heading is not a topic: use a descriptive heading and put the human-readable question link at the end of the sentence it concerns ([→ question: …] / [→ вопрос: …])' });
     }
-    if (FOOTNOTE_REFERENCE.test(heading.text)) refusals.push({ line: heading.line, rule: 'heading-footnote', message: 'a heading is connecting text and carries no footnote: put the statement in a sentence below it' });
-    FOOTNOTE_REFERENCE.lastIndex = 0;
-    const headingWords = plainWords(heading.text).length;
+    if (reader.footnotesIn(heading.start, heading.end).length > 0) refusals.push({ line: heading.line, rule: 'heading-footnote', message: 'a heading is connecting text and carries no footnote: put the statement in a sentence below it' });
+    const headingWords = reader.words(heading.start, heading.end);
     if (headingWords > HEADING_WORDS) refusals.push({ line: heading.line, rule: 'heading-statement', message: `this heading has ${headingWords} words; a heading is at most ${HEADING_WORDS}, so a statement belongs in a sentence with grounds below it` });
   }
   const used: string[] = [];
   for (const unit of units) {
     await checkLinks(unit);
-    for (const sentence of sentencesOf(maskInline(unit.text), expected.language)) {
-      const shown = unmask(sentence.text);
-      const questionLinks = [...shown.matchAll(QUESTION_LINK)];
-      if (questionLinks.length === 0) continue;
-      const claim = withoutQuestionLinks(shown);
-      const first = questionLinks[0]!;
-      const suffix = shown.slice(first.index).replace(QUESTION_LINK, '').trim();
-      if (!sentence.terminated || !/[.!?…][)"'”’»]*(?:\[\^[A-Za-z0-9_-]+\])*$/.test(claim) || suffix !== '') {
+    for (const sentence of reader.sentences(unit.start, unit.end)) {
+      if (sentence.questions.length === 0) continue;
+      const claim = textWithout(body, sentence.start, sentence.end, sentence.questions);
+      const first = sentence.questions[0]!;
+      const suffix = textWithout(body, first.end, sentence.end, sentence.questions).trim();
+      if (!sentence.terminated || !groundedEnd(claim, true) || suffix !== '') {
         refusals.push({ line: unit.line, rule: 'question-link-position', message: 'put the question link after the terminal punctuation and grounds of the sentence it concerns, not in a heading, a separate paragraph or the middle of a claim' });
       }
-      for (const link of questionLinks) {
-        const label = link[1]!.trim();
-        const localized = /^→\s*(question|вопрос):\s*(.+)$/u.exec(label);
-        if (localized === null || localized[2]!.trim() === '' || /^(?:madarch:)?question:/.test(localized[2]!.trim())) {
+      for (const link of sentence.questions) {
+        const label = questionLabel(body, link).trim();
+        const localized = questionParts(label);
+        if (localized === undefined || localized.title === '' || localized.title.startsWith('question:') || localized.title.startsWith('madarch:question:')) {
           refusals.push({ line: unit.line, rule: 'question-link-label', message: 'a question link needs a human-readable title: [→ question: Which decision?](madarch:question:<slug>) / [→ вопрос: Какое решение?](madarch:question:<slug>)' });
-        } else if (expected.language !== undefined && localized[1] !== (expected.language === 'ru' ? 'вопрос' : 'question')) {
+        } else if (expected.language !== undefined && localized.language !== (expected.language === 'ru' ? 'вопрос' : 'question')) {
           refusals.push({ line: unit.line, rule: 'question-link-language', message: `the question label must follow the wiki language (${expected.language}): use ${expected.language === 'ru' ? '→ вопрос: …' : '→ question: …'}` });
         }
       }
     }
-    for (const match of unit.text.matchAll(FOOTNOTE_REFERENCE)) {
-      if (!defined.has(match[1]!)) refusals.push({ line: unit.line, rule: 'undefined-footnote', message: `[^${match[1]}] is used but never defined: add a line "[^${match[1]}]: [name](madarch:<key>)" at the end` });
-      used.push(match[1]!);
+    for (const reference of reader.footnotesIn(unit.start, unit.end)) {
+      if (!defined.has(reference.label)) refusals.push({ line: unit.line, rule: 'undefined-footnote', message: `[^${reference.label}] is used but never defined: add a line "[^${reference.label}]: [name](madarch:<key>)" at the end` });
+      used.push(reference.label);
     }
-    if (connecting(unit.text, expected.language)) continue;
-    for (const sentence of sentencesOf(maskInline(unit.text), expected.language)) {
-      const claim = withoutQuestionLinks(sentence.text);
-      const shown = unmask(claim);
-      const hasLink = shown.includes('](madarch:');
-      if (plainWords(shown).length < 2 && !hasLink) continue;
-      const labels = [...shown.matchAll(FOOTNOTE_REFERENCE)].map((m) => m[1]!);
-      const named = new Set([...shown.matchAll(LINK)].map((m) => m[2]!));
+    if (connecting(unit, reader)) continue;
+    for (const sentence of reader.sentences(unit.start, unit.end)) {
+      const claim = textWithout(body, sentence.start, sentence.end, sentence.questions);
+      const linksOfSentence = sentence.links.filter((link) => !link.url.startsWith('madarch:question:'));
+      const hasLink = linksOfSentence.some((link) => link.url.startsWith('madarch:'));
+      if (reader.words(sentence.start, sentence.end) < 2 && !hasLink) continue;
+      const labels = sentence.footnotes.map((reference) => reference.label);
+      const named = new Set(linksOfSentence.map((link) => link.url));
       const supports = labels.flatMap((label) => defined.get(label)?.grounds.map((g) => g.target) ?? []);
       // A link names an entity; it does not support the sentence that names it. A container named in a sentence and used as its only ground says nothing the link does not.
       if (supports.length > 0 && supports.every((target) => named.has(target) && /^madarch:code\.(service|module):/.test(target))) {
         refusals.push({ line: unit.line, rule: 'link-is-not-a-ground', message: `this sentence is grounded only on ${[...new Set(supports)].map((t) => t.slice('madarch:'.length)).join(', ')}, which it already names with a link; a link names an entity and a ground supports the sentence: ground it on the code or the document section that shows what it says` });
       }
-      const grounded = sentence.terminated ? /[.!?\u2026][)"'\u201d\u2019\u00bb]*(?:\[\^[A-Za-z0-9_-]+\])+$/.test(claim) : /(?:\[\^[A-Za-z0-9_-]+\])+$/.test(claim);
-      if (!grounded) {
-        const quoted = shown.replace(LINK, (_w, label: string) => label);
+      if (!groundedEnd(claim, sentence.terminated)) {
+        const quoted = reader.plain(sentence.start, sentence.end);
         refusals.push({ line: unit.line, rule: 'ungrounded-statement', message: `this sentence states something and has no footnote at its end: ${JSON.stringify(quoted.length > 90 ? `${quoted.slice(0, 87)}...` : quoted)}. End it with a footnote reference that lists its grounds, or, if it only connects text, make it a heading or a "See also" line` });
       }
     }
@@ -496,34 +595,18 @@ export async function checkPage(markdown: string, expected: PageExpectation, res
   }
   if (units.length === 0) refusals.push({ line: split.bodyStart, rule: 'empty', message: 'the page states nothing: it has no sentence with grounds' });
   if (refusals.length > 0 || front.front === undefined) return { ok: false, refusals: refusals.sort((a, b) => a.line - b.line || byCodePoint(a.rule, b.rule)).map(located) };
-  return { ok: true, page: canonical(front.front, body, defined, links, allGrounds, expected.previous, expected.language, names) };
+  return { ok: true, page: canonical(reader, front.front, defined, links, allGrounds, expected.previous, expected.language, names) };
 }
 
 /** The names the replaced page gave its sentences, by sentence. */
 function previousNames(previous: string | undefined, language?: string): Map<string, string> {
   const names = new Map<string, string>();
   if (previous === undefined) return names;
-  const lines = previous.replace(/\r\n/g, '\n').split('\n');
-  const end = lines[0] === '---' ? lines.indexOf('---', 1) : -1;
-  if (end < 0) return names;
+  const split = splitFrontMatter(previous.replace(/\r\n/g, '\n'));
+  if ('rule' in split) return names;
   // A numbered label is no name: a page still numbered is renamed when it is written again.
-  for (const statement of statementsOf(lines.slice(end + 1).join('\n'), end + 2, language)) if (!isNumbered(statement.labels[0]!) && !names.has(sentenceKey(statement.text))) names.set(sentenceKey(statement.text), statement.labels[0]!);
+  for (const statement of statementsOf(split.body, split.bodyStart, language)) if (!isNumbered(statement.labels[0]!) && !names.has(sentenceKey(statement.text))) names.set(sentenceKey(statement.text), statement.labels[0]!);
   return names;
-}
-
-/** The sentence a run of footnote references ends: the text since the previous run, a blank line or a new list item, cut at its last sentence start. */
-function sentenceBefore(text: string, from: number, to: number, language?: string): string {
-  let start = from;
-  const blank = text.lastIndexOf('\n\n', to);
-  if (blank >= start) start = blank + 2;
-  const item = /\n(?=\s*(?:[-*+]|\d+[.)])\s|#{1,6}\s|>)/g;
-  const slice = text.slice(start, to);
-  let last = 0;
-  for (const match of slice.matchAll(item)) last = match.index + 1;
-  start += last;
-  const chunk = text.slice(start, to).replace(/^\s*(?:[-*+]|\d+[.)]|>)\s*/, '');
-  const sentences = sentencesOf(maskInline(chunk), language);
-  return plainSentence(sentences.length === 0 ? chunk : sentences[sentences.length - 1]!.text);
 }
 
 /**
@@ -534,27 +617,40 @@ function sentenceBefore(text: string, from: number, to: number, language?: strin
  * their grounds; a name several sentences shared is made unique. The same
  * checked page, with the same replaced page, always gives the same bytes.
  */
-function canonical(front: FrontMatter, body: string, defined: Map<string, { line: number; grounds: { label: string; target: string }[] }>, links: string[], grounds: string[], previous: string | undefined, language: string | undefined, names: ReadonlyMap<string, string> = new Map()): CheckedPage {
-  const lines: string[] = [];
-  for (const raw of body.split('\n')) {
-    if (FOOTNOTE_DEFINITION.test(raw.trim())) continue;
-    lines.push(raw.replace(/[ \t]+$/, ''));
-  }
-  const text = lines.join('\n').replace(/\n{3,}/g, '\n\n').trim();
-  const runs = [...text.matchAll(REFERENCE_RUN)].map((match) => ({ at: match.index, length: match[0].length, labels: [...new Set([...match[0].matchAll(FOOTNOTE_REFERENCE)].map((m) => m[1]!))] }));
-  const items = runs.map((run, index) => {
-    const own = [...new Map(run.labels.flatMap((label) => defined.get(label)?.grounds ?? []).map((ground) => [ground.target, ground])).values()];
-    return { run, own, sentence: sentenceBefore(text, index === 0 ? 0 : runs[index - 1]!.at + runs[index - 1]!.length, run.at, language), labels: run.labels, hint: own[0]?.label ?? '' };
+function canonical(reader: PageReading, front: FrontMatter, defined: Map<string, { line: number; grounds: { label: string; target: string }[] }>, links: string[], grounds: string[], previous: string | undefined, language: string | undefined, names: ReadonlyMap<string, string> = new Map()): CheckedPage {
+  const body = reader.body;
+  const runs = reader.runs();
+  const items = runs.map((run) => {
+    const labels = [...new Set(run.labels)];
+    const own = [...new Map(labels.flatMap((label) => defined.get(label)?.grounds ?? []).map((ground) => [ground.target, ground])).values()];
+    return { run, own, sentence: run.sentence, labels, hint: own[0]?.label ?? '' };
   });
   const statementNames = nameStatements(items, previousNames(previous, language));
+  const cuts = [
+    ...reader.definitionSpans().map((span) => ({ start: span.start, end: span.end, run: -1 })),
+    ...items.map((item, index) => ({ start: item.run.start, end: item.run.end, run: index })),
+  ].sort((left, right) => left.start - right.start);
   let renamed = '';
   let cursor = 0;
-  items.forEach((item, index) => {
-    renamed += `${text.slice(cursor, item.run.at)}[^${statementNames[index]}]`;
-    cursor = item.run.at + item.run.length;
-  });
-  renamed += text.slice(cursor);
-  const notes = items.map((item, index) => `[^${statementNames[index]}]: ${item.own.map((ground) => `[${(names.get(ground.target) ?? ground.label).replace(/[\[\]]/g, '')}](${ground.target})`).join(', ')}`);
+  for (const cut of cuts) {
+    renamed += body.slice(cursor, cut.start);
+    if (cut.run >= 0) renamed += `[^${statementNames[cut.run]}]`;
+    cursor = Math.max(cursor, cut.end);
+  }
+  renamed += body.slice(cursor);
+  // Blank lines collapse and trailing blanks go, as the format always wrote them.
+  const kept: string[] = [];
+  let blank = false;
+  for (const raw of renamed.split('\n')) {
+    let line = raw;
+    while (line.endsWith(' ') || line.endsWith('\t')) line = line.slice(0, -1);
+    if (line === '') { if (kept.length > 0) blank = true; continue; }
+    if (blank) kept.push('');
+    blank = false;
+    kept.push(line);
+  }
+  renamed = kept.join('\n');
+  const notes = items.map((item, index) => `[^${statementNames[index]}]: ${item.own.map((ground) => `[${(names.get(ground.target) ?? ground.label).replaceAll('[', '').replaceAll(']', '')}](${ground.target})`).join(', ')}`);
   const yamlList = (name: string, list: readonly string[]): string => (list.length === 0 ? `${name}: []` : `${name}:\n${list.map((entry) => `  - ${JSON.stringify(entry)}`).join('\n')}`);
   const writtenAt = front.writtenAt.length === 0 ? [] : [`written-at:\n${front.writtenAt.map((entry) => [`  - repository: ${JSON.stringify(entry.repository)}`, `    commit: ${entry.commit}`, ...(entry.branch === undefined ? [] : [`    branch: ${JSON.stringify(entry.branch)}`]), ...(entry.origin === undefined ? [] : [`    origin: ${JSON.stringify(entry.origin)}`])].join('\n')).join('\n')}`];
   const header = [

@@ -4,32 +4,22 @@
  * statement is a sentence that ends in footnote references; its name is the
  * footnote's name (`[^refund-window]`).
  *
- * The reader parses the page once as a Markdown tree and asks the platform's
- * sentence segmenter for the sentence boundaries in the wiki's language. It
- * never splits text itself: code spans, link targets, question links and
- * footnote references are masked from the tree before the segmenter sees them,
- * so their punctuation cannot invent a sentence. The word list of abbreviations
- * the first reader kept is gone: an abbreviation is `Intl.Segmenter`'s
- * knowledge of the language, not a list in the engine.
+ * A page is parsed once as a Markdown tree; the platform's sentence segmenter
+ * gives the boundaries in the wiki's language, and every later question — what
+ * a sentence says, which references it ends in, which links it names — is
+ * answered from that tree and those ranges. The reader never splits text with a
+ * regular expression or a word list: code spans, link targets, question links
+ * and footnote references are masked from the tree before the segmenter sees
+ * them, so their punctuation cannot invent a sentence, and their contents are
+ * never read as prose.
  */
 import remarkGfm from 'remark-gfm';
 import remarkParse from 'remark-parse';
 import { unified } from 'unified';
 import { sha256Hex } from '../graph/digest.js';
 
-/** Inline links as written; kept for the writer's independent format checks. */
-export const LINK = /\[([^\]\n]*)\]\(((?:[^()\s]|\([^()\s]*\))*)\)/g;
-export const FOOTNOTE_DEFINITION = /^\[\^([\p{L}\p{N}_-]+)\]:[ \t]*(.*)$/u;
-export const FOOTNOTE_REFERENCE = /\[\^([\p{L}\p{N}_-]+)\]/gu;
-/** A run of adjacent footnote references: the end of one sentence. */
-export const REFERENCE_RUN = /(?:\[\^[\p{L}\p{N}_-]+\])+/gu;
-/** Question references qualify a sentence; they are not part of its factual text or its grounds. */
-export const QUESTION_LINK = /\[([^\]\n]*)\]\((madarch:question:[^()\s]+)\)/g;
-
-/** Characters that stood for a masked sentence end in the old reader; kept so old text still unmasks. */
-const UNMASK: Record<string, string> = { '\u0001': '.', '\u0002': '!', '\u0003': '?', '\u0004': '\u2026' };
-/** The text with its masked sentence ends restored. */
-export const unmask = (text: string): string => text.replace(/[\u0001-\u0004]/g, (character) => UNMASK[character]!);
+/** Inline code is never prose; kept as a name to say so at the call sites that read the tree. */
+export const codeSpan = (node: { type: string }): boolean => node.type === 'inlineCode';
 
 export interface Sentence {
   readonly text: string;
@@ -54,11 +44,11 @@ interface Span {
   readonly end: number;
 }
 
-interface FootnoteSpan extends Span {
+export interface FootnoteSpan extends Span {
   readonly label: string;
 }
 
-interface LinkSpan extends Span {
+export interface LinkSpan extends Span {
   readonly url: string;
 }
 
@@ -137,7 +127,7 @@ function targetRange(text: string, node: Node): Span | undefined {
 }
 
 /** Every span whose punctuation the segmenter must not see, found in the tree. */
-function indexSource(text: string, from: number, to: number, root: Node = treeOf(text)): SourceIndex {
+function indexSource(text: string, from: number, to: number, root: Node): SourceIndex {
   const codes: Span[] = [];
   const targets: Span[] = [];
   const links: LinkSpan[] = [];
@@ -150,9 +140,9 @@ function indexSource(text: string, from: number, to: number, root: Node = treeOf
     if (node.type === 'link' || node.type === 'image') {
       const target = targetRange(text, node);
       if (target !== undefined) targets.push(target);
-      if (node.type === 'link' && typeof node.url === 'string') {
+      if ((node.type === 'link' || node.type === 'image') && typeof node.url === 'string') {
         links.push({ start, end, url: node.url });
-        if (node.url.startsWith('madarch:question:')) questions.push({ start, end, url: node.url });
+        if (node.type === 'link' && node.url.startsWith('madarch:question:')) questions.push({ start, end, url: node.url });
       }
     }
   });
@@ -209,39 +199,6 @@ function segmenterFor(language: string | undefined): Intl.Segmenter {
   }
 }
 
-
-function isLetter(character: string | undefined): boolean {
-  return character !== undefined && character.toLowerCase() !== character.toUpperCase();
-}
-
-function isUpper(character: string | undefined): boolean {
-  if (character === undefined) return false;
-  const lower = character.toLowerCase();
-  const upper = character.toUpperCase();
-  return lower !== upper && character === upper;
-}
-
-/**
- * A segmenter knows most abbreviations. A two-letter abbreviation it does not
- * know (Russian `См.`, a title such as `Dr.`) is a word of one or two letters
- * before a full stop, followed by a capital; blank its full stop so the
- * segmenter keeps it inside the sentence. This is a shape, not a word list.
- */
-function blankShortAbbreviations(masked: string): string {
-  const characters = masked.split('');
-  for (let at = 0; at < characters.length; at += 1) {
-    if (characters[at] !== '.') continue;
-    let start = at;
-    while (start > 0 && isLetter(characters[start - 1])) start -= 1;
-    const length = at - start;
-    if (length < 1 || length > 2) continue;
-    let next = at + 1;
-    while (next < characters.length && isSpace(characters[next])) next += 1;
-    if (next < characters.length && isUpper(characters[next])) characters[at] = '\u0000';
-  }
-  return characters.join('');
-}
-
 function endsSentence(masked: string): boolean {
   let at = masked.length - 1;
   while (at >= 0 && isSpace(masked[at])) at -= 1;
@@ -249,14 +206,43 @@ function endsSentence(masked: string): boolean {
   return at >= 0 && isTerminal(masked[at]);
 }
 
-interface SentenceRange extends Span {
+export interface SentenceRange extends Span {
   readonly terminated: boolean;
 }
 
+/** A span lookup by its start, built once per page. */
+type SpanAt<T extends Span> = ReadonlyMap<number, T>;
+
+function atOf<T extends Span>(spans: readonly T[]): SpanAt<T> {
+  const map = new Map<number, T>();
+  for (const span of spans) if (!map.has(span.start)) map.set(span.start, span);
+  return map;
+}
+
+/** The first span starting at or after `at`, by binary search over a sorted array. */
+function firstAtOrAfter<T extends Span>(spans: readonly T[], at: number): number {
+  let low = 0;
+  let high = spans.length;
+  while (low < high) {
+    const middle = (low + high) >> 1;
+    if (spans[middle]!.start < at) low = middle + 1;
+    else high = middle;
+  }
+  return low;
+}
+
+function spansIn<T extends Span>(spans: readonly T[], from: number, to: number): T[] {
+  const out: T[] = [];
+  for (let at = firstAtOrAfter(spans, from); at < spans.length && spans[at]!.start < to; at += 1) {
+    if (spans[at]!.end <= to) out.push(spans[at]!);
+  }
+  return out;
+}
+
 /** Sentence ranges in `text[from, to)`: segmenter boundaries, extended over the notes and question suffix they end. */
-function sentenceRanges(text: string, from: number, to: number, language: string | undefined, index: SourceIndex): SentenceRange[] {
+function sentenceRanges(text: string, from: number, to: number, segmenter: Intl.Segmenter, index: SourceIndex, footnoteAt: SpanAt<FootnoteSpan>, questionAt: SpanAt<QuestionSpan>): SentenceRange[] {
   const masked = segmentationText(text, from, to, index);
-  const parts = [...segmenterFor(language).segment(blankShortAbbreviations(masked))];
+  const parts = [...segmenter.segment(masked)];
   const out: SentenceRange[] = [];
   let cursor = 0;
   for (const part of parts) {
@@ -272,13 +258,13 @@ function sentenceRanges(text: string, from: number, to: number, language: string
     for (;;) {
       let next = after;
       while (next < masked.length && isSpace(text[from + next])) next += 1;
-      const footnote = index.footnotes.find((span) => span.start === from + next && span.end <= to);
-      if (footnote !== undefined) {
+      const footnote = footnoteAt.get(from + next);
+      if (footnote !== undefined && footnote.end <= to) {
         after = footnote.end - from;
         continue;
       }
-      const question = index.questions.find((span) => span.start === from + next && span.end <= to);
-      if (question !== undefined) {
+      const question = questionAt.get(from + next);
+      if (question !== undefined && question.end <= to) {
         after = question.end - from;
         continue;
       }
@@ -297,88 +283,35 @@ function sentenceRanges(text: string, from: number, to: number, language: string
   return out;
 }
 
-/** Masks code spans, link targets and question links from the tree; the text itself is returned unchanged. */
-export function maskInline(text: string): string {
-  return text;
+/** The text with its masked sentence ends restored; the reader no longer masks them, so this is the text itself. */
+export const unmask = (text: string): string => text;
+
+interface Token {
+  readonly start: number;
+  readonly end: number;
+  readonly kind: 'text' | 'code' | 'space';
+  readonly value: string;
 }
 
-/** Splits a Markdown text into sentences in the wiki's language. */
-export function sentencesOf(masked: string, language?: string): Sentence[] {
-  const text = masked.trim();
-  if (text === '') return [];
-  const offset = masked.indexOf(text);
-  const index = indexSource(masked, 0, masked.length);
-  return sentenceRanges(masked, offset, offset + text.length, language, index).map((range) => ({
-    text: masked.slice(range.start, range.end).trim(),
-    terminated: range.terminated,
-  }));
-}
-
-export interface TextUnit {
-  readonly line: number;
-  readonly text: string;
-}
-
-export interface Definition {
-  readonly label: string;
-  readonly line: number;
-  readonly text: string;
-}
-
-function joined(lines: string): string {
-  return lines.split('\n').map((line) => line.trim()).join(' ');
-}
-
-function headingText(raw: string): string {
-  const first = raw.split('\n')[0]!.trim();
-  if (!first.startsWith('#')) return first.trim();
-  let at = 0;
-  while (first[at] === '#') at += 1;
-  while (first[at] === ' ' || first[at] === '\t') at += 1;
-  return first.slice(at).trim();
-}
-
-/** The units of a body (paragraphs, list items, quotes), its headings and its footnote definitions, without judging any of them. */
-export function readUnits(body: string, bodyStart: number): { units: TextUnit[]; definitions: Definition[]; headings: TextUnit[] } {
-  const root = treeOf(body);
-  const units: TextUnit[] = [];
-  const headings: TextUnit[] = [];
-  const definitions: Definition[] = [];
-  const lineOf = (node: Node): number => bodyStart + (node.position?.start.line ?? 1) - 1;
-  const collect = (node: Node, inDefinition: boolean): void => {
-    if (node.type === 'footnoteDefinition') {
-      const raw = body.slice(startOf(node), endOf(node));
-      const marker = raw.indexOf(']:');
-      const text = joined(marker >= 0 ? raw.slice(marker + 2) : raw);
-      definitions.push({ label: node.identifier ?? node.label ?? '', line: lineOf(node), text });
-      return;
+/** The inline text of the tree, node by node, with footnote references and question links left out. */
+function tokensOf(node: Node, out: Token[]): void {
+  for (const child of node.children ?? []) {
+    if (child.type === 'footnoteReference') continue;
+    if (child.type === 'link' && typeof child.url === 'string' && child.url.startsWith('madarch:question:')) continue;
+    if (child.type === 'text' || child.type === 'html') {
+      out.push({ start: startOf(child), end: endOf(child), kind: 'text', value: child.value ?? '' });
+      continue;
     }
-    if (node.type === 'paragraph' && !inDefinition) {
-      units.push({ line: lineOf(node), text: joined(body.slice(startOf(node), endOf(node))) });
-      return;
+    if (child.type === 'inlineCode') {
+      out.push({ start: startOf(child), end: endOf(child), kind: 'code', value: child.value ?? '' });
+      continue;
     }
-    if (node.type === 'heading' && !inDefinition) {
-      headings.push({ line: lineOf(node), text: headingText(body.slice(startOf(node), endOf(node))) });
-      return;
+    if (child.type === 'break') {
+      out.push({ start: startOf(child), end: endOf(child), kind: 'space', value: ' ' });
+      continue;
     }
-    for (const child of node.children ?? []) collect(child, inDefinition);
-  };
-  collect(root, false);
-  return { units, definitions, headings };
-}
-
-function plainOfNode(node: Node, out: string[]): void {
-  if (node.type === 'footnoteReference') return;
-  if (node.type === 'link' && typeof node.url === 'string' && node.url.startsWith('madarch:question:')) return;
-  if (node.type === 'text' || node.type === 'inlineCode' || node.type === 'html') {
-    out.push(node.value ?? '');
-    return;
+    tokensOf(child, out);
   }
-  if (node.type === 'break') {
-    out.push(' ');
-    return;
-  }
-  for (const child of node.children ?? []) plainOfNode(child, out);
 }
 
 function withoutFootnoteReferences(text: string): string {
@@ -414,6 +347,295 @@ function collapseBlanks(text: string): string {
   return out.join('');
 }
 
+function isWordStart(character: string): boolean {
+  return character.toLowerCase() !== character.toUpperCase() || (character >= '0' && character <= '9');
+}
+
+function wordCount(text: string): number {
+  let count = 0;
+  let inWord = false;
+  for (const character of text) {
+    if (isWordStart(character)) {
+      if (!inWord) count += 1;
+      inWord = true;
+    } else if (inWord && (character === "'" || character === '-')) {
+      // A word continues over an apostrophe or a hyphen.
+    } else {
+      inWord = false;
+    }
+  }
+  return count;
+}
+
+/** A sentence as the reader sees it: its source span, its plain words, and the nodes inside its range. */
+export interface SentenceView {
+  /** The sentence as written, trimmed: references and question links included. */
+  readonly text: string;
+  readonly start: number;
+  readonly end: number;
+  readonly terminated: boolean;
+  readonly plain: string;
+  readonly footnotes: readonly FootnoteSpan[];
+  readonly questions: readonly QuestionSpan[];
+  readonly links: readonly LinkSpan[];
+}
+
+/** One statement's run of footnote references, with the sentence it ends. */
+export interface StatementRun {
+  readonly start: number;
+  readonly end: number;
+  readonly labels: readonly string[];
+  readonly sentence: string;
+}
+
+export interface TextUnit {
+  readonly line: number;
+  readonly text: string;
+  readonly start: number;
+  readonly end: number;
+}
+
+export interface Definition {
+  readonly label: string;
+  readonly line: number;
+  readonly text: string;
+  /** The definition's grounds, without `[^name]:`. */
+  readonly start: number;
+  readonly end: number;
+}
+
+function joined(lines: string): string {
+  return lines.split('\n').map((line) => line.trim()).join(' ');
+}
+
+function headingText(raw: string): string {
+  const first = raw.split('\n')[0]!.trim();
+  if (!first.startsWith('#')) return first.trim();
+  let at = 0;
+  while (first[at] === '#') at += 1;
+  while (first[at] === ' ' || first[at] === '\t') at += 1;
+  return first.slice(at).trim();
+}
+
+/** Whether a trimmed line is a footnote definition (`[^name]: grounds`), found by characters, not by a pattern over the prose. */
+export function isFootnoteDefinitionLine(trimmed: string): boolean {
+  if (!trimmed.startsWith('[^')) return false;
+  let at = 2;
+  while (at < trimmed.length && isLabelCharacter(trimmed[at])) at += 1;
+  return at > 2 && trimmed[at] === ']' && trimmed[at + 1] === ':';
+}
+
+/**
+ * One page, parsed once (madarch-ztyq.11): the tree, the spans of the nodes the
+ * segmenter must not read, the segmenter of the wiki's language, and the inline
+ * text tokens. Every question the format asks is answered from these.
+ */
+export class PageReading {
+  readonly body: string;
+  readonly root: Node;
+  readonly index: SourceIndex;
+  readonly tokens: Token[];
+  private readonly segmenter: Intl.Segmenter;
+  private readonly footnoteAt: SpanAt<FootnoteSpan>;
+  private readonly questionAt: SpanAt<QuestionSpan>;
+  private readonly sentenceCache = new Map<string, SentenceView[]>();
+
+  constructor(body: string, language?: string) {
+    this.body = body;
+    this.root = treeOf(body);
+    this.index = indexSource(body, 0, body.length, this.root);
+    this.tokens = [];
+    tokensOf(this.root, this.tokens);
+    this.segmenter = segmenterFor(language);
+    this.footnoteAt = atOf(this.index.footnotes);
+    this.questionAt = atOf(this.index.questions);
+  }
+
+  /** The sentences in `[from, to)`, with their ranges and the nodes inside them; a range is segmented once. */
+  sentences(from: number, to: number): SentenceView[] {
+    const key = `${from}:${to}`;
+    const held = this.sentenceCache.get(key);
+    if (held !== undefined) return held;
+    const views = sentenceRanges(this.body, from, to, this.segmenter, this.index, this.footnoteAt, this.questionAt).map((range) => ({
+      text: this.body.slice(range.start, range.end).trim(),
+      start: range.start,
+      end: range.end,
+      terminated: range.terminated,
+      plain: this.plain(range.start, range.end),
+      footnotes: spansIn(this.index.footnotes, range.start, range.end),
+      questions: spansIn(this.index.questions, range.start, range.end),
+      links: spansIn(this.index.links, range.start, range.end),
+    }));
+    this.sentenceCache.set(key, views);
+    return views;
+  }
+
+  /** The sentence text a reader sees: references and question links removed, code kept, blanks collapsed. */
+  plain(from: number, to: number): string {
+    let out = '';
+    let low = 0;
+    let high = this.tokens.length;
+    while (low < high) {
+      const middle = (low + high) >> 1;
+      if (this.tokens[middle]!.end <= from) low = middle + 1;
+      else high = middle;
+    }
+    for (let index = low; index < this.tokens.length; index += 1) {
+      const token = this.tokens[index]!;
+      if (token.start >= to) break;
+      const start = Math.max(token.start, from);
+      const end = Math.min(token.end, to);
+      if (start >= end) continue;
+      const value = start === token.start && end === token.end ? token.value : token.value.slice(start - token.start, end - token.start);
+      out += token.kind === 'text' ? withoutFootnoteReferences(value) : value;
+    }
+    return collapseBlanks(out).trim();
+  }
+
+  /** The words of `[from, to)` as a reader counts them. */
+  words(from: number, to: number): number {
+    return wordCount(this.plain(from, to));
+  }
+
+  /** Every footnote reference used in `[from, to)`, in order. */
+  footnotesIn(from: number, to: number): FootnoteSpan[] {
+    return spansIn(this.index.footnotes, from, to);
+  }
+
+  /** Every link in `[from, to)`, in order. */
+  linksIn(from: number, to: number): LinkSpan[] {
+    return spansIn(this.index.links, from, to);
+  }
+
+  /** The links of a footnote definition's grounds in `[from, to)`, and the characters that are neither a link nor a separator. */
+  groundsIn(from: number, to: number): { links: { label: string; target: string }[]; leftover: string } {
+    const found = spansIn(this.index.links, from, to);
+    const links = found.map((link) => ({ label: this.plain(link.start, link.end), target: link.url }));
+    let leftover = '';
+    const outside = (start: number, end: number): void => {
+      for (let at = start; at < end; at += 1) {
+        const character = this.body[at]!;
+        if (character === ',' || isSpace(character)) continue;
+        leftover += character;
+      }
+    };
+    let cursor = from;
+    for (const link of found) {
+      outside(cursor, link.start);
+      cursor = Math.max(cursor, link.end);
+    }
+    outside(cursor, to);
+    return { links, leftover };
+  }
+
+  /** The words of `[from, to)` that stand outside links; the link labels are counted separately. */
+  wordsOutsideLinks(from: number, to: number): number {
+    let words = 0;
+    let cursor = from;
+    for (const link of spansIn(this.index.links, from, to)) {
+      words += this.words(cursor, link.start);
+      cursor = Math.max(cursor, link.end);
+    }
+    return words + this.words(cursor, to);
+  }
+
+  /** The units of a body (paragraphs and list items), its headings and its footnote definitions, with their spans. */
+  units(bodyStart: number): { units: TextUnit[]; definitions: Definition[]; headings: TextUnit[] } {
+    const units: TextUnit[] = [];
+    const headings: TextUnit[] = [];
+    const definitions: Definition[] = [];
+    const lineOf = (node: Node): number => bodyStart + (node.position?.start.line ?? 1) - 1;
+    const collect = (node: Node, inDefinition: boolean): void => {
+      if (node.type === 'footnoteDefinition') {
+        const start = startOf(node);
+        const end = endOf(node);
+        const raw = this.body.slice(start, end);
+        const marker = raw.indexOf(']:');
+        const text = joined(marker >= 0 ? raw.slice(marker + 2) : raw);
+        definitions.push({ label: node.identifier ?? node.label ?? '', line: lineOf(node), text, start: start + (marker >= 0 ? marker + 2 : 0), end });
+        return;
+      }
+      if (node.type === 'paragraph' && !inDefinition) {
+        units.push({ line: lineOf(node), text: joined(this.body.slice(startOf(node), endOf(node))), start: startOf(node), end: endOf(node) });
+        return;
+      }
+      if (node.type === 'heading' && !inDefinition) {
+        headings.push({ line: lineOf(node), text: headingText(this.body.slice(startOf(node), endOf(node))), start: startOf(node), end: endOf(node) });
+        return;
+      }
+      for (const child of node.children ?? []) collect(child, inDefinition);
+    };
+    collect(this.root, false);
+    return { units, definitions, headings };
+  }
+
+  /** The runs of adjacent footnote references of the paragraphs, each with the sentence that ends in it. */
+  runs(): StatementRun[] {
+    const out: StatementRun[] = [];
+    const collect = (node: Node): void => {
+      if (node.type === 'footnoteDefinition') return;
+      if (node.type === 'paragraph') {
+        const children = node.children ?? [];
+        const views = this.sentences(startOf(node), endOf(node));
+        for (let index = 0; index < children.length; index += 1) {
+          const child = children[index]!;
+          if (child.type !== 'footnoteReference') continue;
+          const start = startOf(child);
+          const labels = [child.identifier ?? child.label ?? ''];
+          let end = endOf(child);
+          let next = index + 1;
+          while (next < children.length && children[next]!.type === 'footnoteReference' && startOf(children[next]!) === end) {
+            const reference = children[next]!;
+            labels.push(reference.identifier ?? reference.label ?? '');
+            end = endOf(reference);
+            next += 1;
+          }
+          const view = views.find((entry) => entry.start <= start && end <= entry.end);
+          out.push({ start, end, labels, sentence: view?.plain ?? this.plain(startOf(node), start) });
+          index = next - 1;
+        }
+        return;
+      }
+      for (const child of node.children ?? []) collect(child);
+    };
+    collect(this.root);
+    return out;
+  }
+
+  /** The source spans of the footnote definitions, so a canonical body can leave them out. */
+  definitionSpans(): Span[] {
+    const spans: Span[] = [];
+    walk(this.root, (node) => {
+      if (node.type === 'footnoteDefinition') spans.push({ start: startOf(node), end: endOf(node) });
+    });
+    return spans;
+  }
+}
+
+/** Parses a page once; the same object answers every later question about it. */
+export function readPage(body: string, language?: string): PageReading {
+  return new PageReading(body, language);
+}
+
+/** Masks code spans, link targets and question links from the tree; the text itself is returned unchanged. */
+export function maskInline(text: string): string {
+  return text;
+}
+
+/** Splits a Markdown text into sentences in the wiki's language. */
+export function sentencesOf(masked: string, language?: string): Sentence[] {
+  const text = masked.trim();
+  if (text === '') return [];
+  const offset = masked.indexOf(text);
+  const reader = readPage(masked, language);
+  return reader.sentences(offset, offset + text.length).map((range) => ({ text: range.text, terminated: range.terminated }));
+}
+
+/** The units of a body (paragraphs, list items, quotes), its headings and its footnote definitions, without judging any of them. */
+export function readUnits(body: string, bodyStart: number): { units: TextUnit[]; definitions: Definition[]; headings: TextUnit[] } {
+  return readPage(body).units(bodyStart);
+}
+
 /** The grounds of a footnote definition: its links, in order. */
 export function groundLinks(text: string): { label: string; target: string }[] {
   const links: { label: string; target: string }[] = [];
@@ -421,7 +643,7 @@ export function groundLinks(text: string): { label: string; target: string }[] {
   walk(root, (node) => {
     if (node.type !== 'link' || typeof node.url !== 'string') return;
     const parts: string[] = [];
-    for (const child of node.children ?? []) plainOfNode(child, parts);
+    for (const child of node.children ?? []) if (child.type === 'text' || child.type === 'inlineCode') parts.push(child.value ?? '');
     links.push({ label: collapseBlanks(parts.join('')), target: node.url });
   });
   return links;
@@ -429,18 +651,18 @@ export function groundLinks(text: string): { label: string; target: string }[] {
 
 /** A sentence as a reader sees it: references removed, links as their labels, markup dropped, blanks collapsed. */
 export function plainSentence(text: string): string {
-  const out: string[] = [];
-  plainOfNode(treeOf(text), out);
-  return collapseBlanks(withoutFootnoteReferences(out.join(''))).trim();
+  const reader = readPage(text);
+  return reader.plain(0, text.length);
 }
 
 /** Question references are qualifiers; remove them from the text they follow while leaving the rest as written. */
 export function withoutQuestionLinks(text: string): string {
-  const index = indexSource(text, 0, text.length);
-  if (index.questions.length === 0) return text.trim();
+  const reader = readPage(text);
+  const questions = reader.linksIn(0, text.length).filter((link) => link.url.startsWith('madarch:question:'));
+  if (questions.length === 0) return text.trim();
   let out = '';
   let cursor = 0;
-  for (const span of [...index.questions].sort((left, right) => left.start - right.start)) {
+  for (const span of questions) {
     out += text.slice(cursor, span.start);
     cursor = span.end;
   }
@@ -467,10 +689,9 @@ export interface PageStatement {
 
 /** The statements of a body, in document order. `bodyStart` is the line the body starts at; `language` is the wiki's. */
 export function statementsOf(body: string, bodyStart: number, language?: string): PageStatement[] {
-  const root = treeOf(body);
-  const index = indexSource(body, 0, body.length, root);
+  const reader = new PageReading(body, language);
   const grounds = new Map<string, string[]>();
-  walk(root, (node) => {
+  walk(reader.root, (node) => {
     if (node.type !== 'footnoteDefinition') return;
     const label = node.identifier ?? node.label ?? '';
     if (grounds.has(label)) return;
@@ -488,25 +709,19 @@ export function statementsOf(body: string, bodyStart: number, language?: string)
   const statementsIn = (node: Node): void => {
     if (node.type === 'footnoteDefinition') return;
     if (node.type === 'paragraph') {
-      const from = startOf(node);
-      const to = endOf(node);
-      for (const range of sentenceRanges(body, from, to, language, index)) {
-        const text = body.slice(range.start, range.end);
-        const labels = index.footnotes.filter((span) => span.start >= range.start && span.end <= range.end).map((span) => span.label);
+      for (const view of reader.sentences(startOf(node), endOf(node))) {
+        const labels = view.footnotes.map((span) => span.label);
         if (labels.length === 0) continue;
         const first = labels[0]!;
         const count = (seen.get(first) ?? 0) + 1;
         seen.set(first, count);
-        const plain = plainSentence(text);
         const own = [...new Set(labels.flatMap((label) => grounds.get(label) ?? grounds.get(label.toLowerCase()) ?? []))];
-        const mentions = [...new Set(index.links
-          .filter((link) => link.start >= range.start && link.end <= range.end && link.url.startsWith('madarch:'))
-          .map((link) => link.url.slice('madarch:'.length)))];
+        const mentions = [...new Set(view.links.filter((link) => link.url.startsWith('madarch:')).map((link) => link.url.slice('madarch:'.length)))];
         out.push({
           id: count === 1 ? first : `${first}~${count}`,
           labels,
-          text: plain,
-          digest: sha256Hex(new TextEncoder().encode(plain)),
+          text: view.plain,
+          digest: sha256Hex(new TextEncoder().encode(view.plain)),
           line: lineOf(node),
           mentions,
           grounds: own,
@@ -516,6 +731,6 @@ export function statementsOf(body: string, bodyStart: number, language?: string)
     }
     for (const child of node.children ?? []) statementsIn(child);
   };
-  statementsIn(root);
+  statementsIn(reader.root);
   return out;
 }
