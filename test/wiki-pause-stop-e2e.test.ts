@@ -313,6 +313,14 @@ runDescribe('a person pauses and stops the run', () => {
   }, 180_000);
 
   test('at 1150 the top bar says the run stands paused, its popover carries the same row and the stop question, both inside the screen', async () => {
+    // The case stands alone as well as after the one before it, which presses «Пауза» in the page: if the run is
+    // still writing, the page in progress is let finish and the pause is pressed here, so the top bar read below is
+    // the top bar of a run that stands.
+    if ((await get('/api/k/status')).body.writer.state !== 'paused') {
+      for (const release of opens.splice(0)) release();
+      expect((await post('/api/k/pause', {})).status).toBe(200);
+      await until('the writer to stand paused', async () => (await get('/api/k/status')).body, (body) => body.writer.state === 'paused');
+    }
     await page.setViewport(WIDE);
     await open('/products/tiny/k');
     await page.waitForSelector('[data-testid=fill-chip]', { timeout: 20000 });
