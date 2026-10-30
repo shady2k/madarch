@@ -479,6 +479,11 @@ runDescribe('the fill a reader meets', () => {
   }, 120_000);
 
   test('the badge opens its panel from the keyboard, Tab walks into it, and Escape gives the badge its focus back', async () => {
+    // The case stands alone as well as after the ones before it: the run the fixture held is let go first, since the
+    // panel a reader meets when nothing is under way is the one walked here — while a run goes, the languages are
+    // offered and disabled, and no press may start another.
+    for (const release of opens.splice(0)) release();
+    await until('the writer to end', async () => (await get('/api/k/status')).body, (body) => body.writer.state === 'done' || body.writer.state === 'failed');
     await page.setViewport(WIDE);
     await open('/products/tiny/k');
     await page.waitForSelector('[data-testid=fill-chip]', { timeout: 20000 });
