@@ -22,6 +22,7 @@ import { PAY, SAMPLE_IDENTITY, ROOT, generateTrainingRepository, makeProduct, wi
 import { slugOf } from '../src/writer/names.js';
 import { ANSWER_TEXT, LOOP_QUESTIONS, contradictionSides, firstRunScript, questionSlug, refreshScript } from './loop-agent-script.js';
 import { SCRIPTED_GUIDE_PATH, SCRIPTED_GUIDE_SOURCE } from './scripted-guide-agent.js';
+import { readerText } from './markdown-reader.js';
 
 const git = (cwd: string, ...args: string[]): string => execFileSync('git', args, { cwd, env: gitEnv(SAMPLE_IDENTITY), encoding: 'utf8' }).trim();
 const sha = (path: string): string => createHash('sha256').update(readFileSync(path)).digest('hex');
@@ -191,7 +192,9 @@ describe('the agent asks, a person answers, the refresh edits one page', () => {
     const lineIn = (markdown: string, sentence: string): string | undefined => markdown.split('\n').find((line) => line.includes(sentence));
     expect(lineIn(before.payments, charged)).toBeDefined();
     expect(lineIn(after, charged)).toBe(lineIn(before.payments, charged));
-    expect(after).toContain('The payment token the documents mention is the CardToken, the vault reference to a card, as a person decided.');
+    expect(after).toContain('[payments](madarch:code.service:payments)');
+    expect(readerText(after)).toContain('The payment token the documents mention is the CardToken, the vault reference to a card, as a person decided.');
+    expect(after).toContain('[CardToken](madarch:');
     expect(after).toContain(`(madarch:question:${slug})`);
     const detail = (await get(`/api/k/question?id=${slug}`)).body;
     expect(detail).toMatchObject({ state: 'closed', closedBy: ['domain:payments'], answer: { text: ANSWER_TEXT.en } });
@@ -279,7 +282,8 @@ describe('an answer scopes a task, marks only what it reaches, fixes those pages
     };
     // The agent's page: the ordering page's fields as the first run wrote them, with the sentence the README ground
     // reached now stating the code's rule.
-    expect(before.ordering).toContain(READMES_KEEP_ORDERS);
+    expect(readerText(before.ordering)).toContain(READMES_KEEP_ORDERS);
+    expect(before.ordering).toContain('[orders](madarch:code.service:orders)');
     const written = orderingFields(REMOVED_AFTER_NINETY_DAYS);
     expect(JSON.stringify(written)).not.toContain(READMES_KEEP_ORDERS);
     writeFileSync(scriptFile, JSON.stringify({ byPrompt: [{ matches: `(madarch:task:${taskSlug})`, steps: [fieldsCall(written), { end: { stopReason: 'end_turn' } }] }], steps: [{ end: { stopReason: 'end_turn' } }] }));
@@ -293,12 +297,12 @@ describe('an answer scopes a task, marks only what it reaches, fixes those pages
     expect(sha(join(product, 'docs/product.md'))).toBe(before.product);
     expect(sha(join(product, 'docs/domains/payments.md'))).toBe(before.payments);
     const ordering = readFileSync(join(product, 'docs/domains/ordering.md'), 'utf8');
-    expect(ordering).toContain(REMOVED_AFTER_NINETY_DAYS);
-    expect(ordering).not.toContain(READMES_KEEP_ORDERS);
+    expect(readerText(ordering)).toContain(REMOVED_AFTER_NINETY_DAYS);
+    expect(readerText(ordering)).not.toContain(READMES_KEEP_ORDERS);
     // Every side of every contradiction the page kept still stands, with the question link at the end of its sentence.
     for (const question of LOOP_QUESTIONS.filter((held) => held.unit === 'ordering' && held.type === 'contradiction')) {
       const claims = question.item === 'contradiction.retention' ? [REMOVED_AFTER_NINETY_DAYS, question.text.en.claims[1]!] : question.text.en.claims;
-      for (const claim of claims) expect(ordering).toContain(claim);
+      for (const claim of claims) expect(readerText(ordering)).toContain(claim);
       expect(ordering).toContain(`(madarch:question:${questionSlug(question, 'en')})`);
     }
   }, 3_000_000);
