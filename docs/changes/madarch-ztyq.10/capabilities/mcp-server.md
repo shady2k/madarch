@@ -118,16 +118,26 @@ read-only.
 
 ## Requirement: refresh-resolution — A changed file is read again with what it imports and by every producer the fill runs
 The files a refresh reads shall be the files git reports as changed, the import closure of the changed code
-files — the unchanged files whose declarations a call in a changed file is resolved against — and the
-manifests that name a file's module. Every extractor the fill runs shall read that set, not the code pass
-alone: a SQL migration or an OpenAPI document changed without a commit shall be read again, and the table
-or operation it adds or drops shall answer or stop answering in the next call. Only facts whose span is a
-changed file shall be kept; the closure is read to resolve, never to answer.
+files — the unchanged files whose declarations a call in a changed file is resolved against — the
+manifests that name a file's module, and the dependencies of a changed non-code file: every migration of
+the tree when a migration changed, because an `ALTER TABLE` names a table another migration created, and
+every document of the changed spec's contract folder, because a document may reference another. Every
+extractor the fill runs shall read that set, not the code pass alone: a SQL migration or an OpenAPI
+document changed without a commit shall be read again, and the table or operation it adds or drops shall
+answer or stop answering in the next call. Facts whose span is a changed file or one of those dependencies
+shall be kept, and the base graph's facts about the same files hidden, because a column list derived from a
+changed migration is the working tree's whole, never half of each; the import closure alone is read to
+resolve, never to answer.
 
 ### Scenario: an-edited-caller-keeps-its-unchanged-callee
 - Given: a server serving a checkout, and an uncommitted edit that adds a function to a file which calls a function of another file
 - When: a client asks for the added function and traces its flow
 - Then: the answer names the added declaration, the trace reaches the unchanged callee, and the call the file made before the edit is still its call
+
+### Scenario: a-migration-alters-a-table-another-migration-declares
+- Given: a server serving a checkout whose committed migration declares a table, and an uncommitted migration that adds a column to it
+- When: a client asks `get_context` for the table and for the column the uncommitted migration adds
+- Then: the table answers with the column it declared and the column the uncommitted migration adds, and the added column answers as an entity of its own
 
 ### Scenario: a-migration-changed-without-a-commit-is-read
 - Given: a server serving a checkout, a migration that `HEAD` does not hold and one whose table it drops
@@ -156,11 +166,16 @@ The server shall answer `initialize`, `ping` and `tools/list` as soon as it read
 a graph, and a tool call made while the graph is building shall be answered with a `graph building` answer
 whose source says it is building rather than by making the client wait. A start whose madarch home holds a
 product fill's graph for the same repository and commit shall serve that graph, copying it into the state
-folder and saying that it reused it, without extracting the repository again. A cold build shall be
-bounded: it streams the tree file by file, holds one file's facts at a time, and reads at most 700 code
-files, which this machine measures at 2 668 MB for 898 files and killed at 3 164 MB for the checkout's
-1 041; a tree beyond the bound shall be refused with the count, the bound, the measurement and what to
-serve instead, never built until the machine kills it.
+folder and saying that it reused it, without extracting the repository again. A cold build shall run every
+producer the fill runs — code, files, operations, contracts and the data model — never a subset, because a
+graph without a contract's operations or a migration's tables answers refusals for entities that exist.
+A cold build shall be bounded: it streams the tree file by file, holds one file's facts at a time, and
+reads at most 400 code files, which this machine measures at 2 145 MB for 300 files with the facts the
+producers read and killed at 3 164 MB for the checkout's 1 041; a tree beyond the bound shall be refused
+with the count, the bound, the measurement and what to serve instead, never built until the machine kills
+it and never built with a producer left out.
+A start that fails for good — a tree past the bound with no graph to reuse — shall be kept, and every tool
+call shall answer that failure with `isError` true and the reason the start gave, never a progress note.
 
 ### Scenario: a-product-graph-is-reused
 - Given: a madarch home whose product knowledge store holds the graph of a repository at its `HEAD`
@@ -171,6 +186,11 @@ serve instead, never built until the machine kills it.
 - Given: a server whose graph is still building
 - When: a client sends `initialize`, `tools/list` and then `tools/call`
 - Then: the first two answer at once, and the call's answer says `graph building` and names the repository as building in its source
+
+### Scenario: a-failed-start-is-answered-on-every-call
+- Given: a server whose start failed for good because the tree is past the bound and no graph is there to reuse
+- When: a client sends `initialize`, then a tool call, then the same tool call again
+- Then: the handshake answers, and both calls answer `isError` true with the start's own reason, the file count and the bound, and no call says the graph is building
 
 ### Scenario: a-tree-beyond-the-bound-is-refused-with-what-to-serve
 - Given: a checkout whose code files exceed the cold build's bound
@@ -214,7 +234,7 @@ counted once it is new, so no repeated call reports a read nobody avoided.
 The state folder's lock shall be created atomically, so two processes starting together cannot both believe
 they hold it, and the file shall name its holder. A second process shall be refused with an error naming
 the lock file and the holder, and a lock whose holder is gone shall be taken over once. The lock shall be
-held until the graph's database is closed and dropped by its holder alone.
+held until the graph's database is closed — dropped only after that close has finished, so no second process enters a folder whose database is still shutting down — and dropped by its holder alone.
 
 ### Scenario: a-second-server-on-one-folder-is-refused
 - Given: a folder whose lock one live process holds

@@ -309,11 +309,14 @@ handshake and the tool list answer while it is still building, and a tool call
 made before it is ready says `graph building`, so nothing waits on the build
 inside a client's own timeout. When your madarch home already holds a product's
 graph of the same repository and commit, the server copies and serves that
-instead of extracting the repository again. A cold build is bounded: it reads
-the tree file by file and serves a checkout of up to seven hundred code files,
-which this machine builds in about two and a half gigabytes; a larger checkout
-is refused with what to serve instead — a graph a fill built, named with
-`--store`. A
+instead of extracting the repository again. A cold build reads the tree file by
+file, runs every producer the fill runs — the code, the contracts, the data
+model — and serves a checkout of up to four hundred code files, whose facts this
+machine holds in about two gigabytes; a larger checkout is refused with what to
+serve instead, because a graph without a contract's operations or a migration's
+tables would answer refusals for entities that exist. The refusal is kept: every
+tool call answers it with an error and the reason, never a note that the graph is
+still building. A
 file you edit without committing is read again before an answer that names it,
 and the answer names the file and marks what came from it; a file you delete
 without committing is gone from the answers. Every answer names the commit and

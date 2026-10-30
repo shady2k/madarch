@@ -75,12 +75,12 @@ what did this server save me?
   refuses a folder that is not a checkout with exit 2, and the administrator guide says how a client
   registers it. Scenarios: `the-command-serves-the-current-folder`,
   `a-path-that-is-not-a-checkout-is-refused`.
-- mcp-server/refresh-resolution (new): a changed file is read again with the import closure of its code files and by every extractor the fill runs, so a call through an unchanged file resolves, and a migration or a contract changed without a commit answers or stops answering. Scenarios: `an-edited-caller-keeps-its-unchanged-callee`, `a-migration-changed-without-a-commit-is-read`.
+- mcp-server/refresh-resolution (new): a changed file is read again with the import closure of its code files, with the dependencies of a changed non-code file — the tree's migrations, the changed spec's contract folder — and by every extractor the fill runs, so a call through an unchanged file resolves, a migration that alters a table another migration declares finds it, and a migration or a contract changed without a commit answers or stops answering; facts derived from a changed file or its dependencies are the working tree's whole. Scenarios: `an-edited-caller-keeps-its-unchanged-callee`, `a-migration-alters-a-table-another-migration-declares`, `a-migration-changed-without-a-commit-is-read`.
 - mcp-server/source-provenance (new): a base fact is hidden by the span the base graph recorded for it, not by the shape of its key, and both ends of an edge are resolved through the working-tree layer, so a deleted symbol is never named as a callee. Scenarios: `an-operation-removed-from-a-contract-stops-answering`, `a-deleted-callee-is-no-callee`.
-- mcp-server/cold-start (new): a start answers its handshake at once and says `graph building` to a tool call made before the graph is ready; a product fill's graph for the same commit is reused instead of extracted; a cold build streams by file and is bounded to 700 code files, with the measurement stated, and a larger tree is refused with what to serve instead. Scenarios: `a-product-graph-is-reused`, `the-handshake-answers-before-the-graph-is-built`, `a-tree-beyond-the-bound-is-refused-with-what-to-serve`.
+- mcp-server/cold-start (new): a start answers its handshake at once and says `graph building` to a tool call made before the graph is ready; a product fill's graph for the same commit is reused instead of extracted; a cold build runs every producer — code, files, operations, contracts, data model — streams by file and is bounded to 400 code files, with the measurement stated; a larger tree is refused with what to serve instead rather than built with a producer left out, and a start that fails for good is kept and answered on every tool call with `isError` true and its reason. Scenarios: `a-product-graph-is-reused`, `the-handshake-answers-before-the-graph-is-built`, `a-failed-start-is-answered-on-every-call`, `a-tree-beyond-the-bound-is-refused-with-what-to-serve`.
 - mcp-server/source-on-every-answer (new): every tool result, refusals and failures included, carries the revision and the changed files, stamped in one place; a failed refresh answers that call with its file, line and full path and the server keeps serving. Scenarios: `a-refusal-names-its-revision`, `a-failing-refresh-keeps-the-stream`.
 - mcp-server/journal-accounting (new): the journal keeps the measured reads avoided, the questions answered and the estimated evidence files apart, per tool and in total, and counts a saving once no matter how often the identical call repeats. Scenarios: `repeated-calls-are-counted-once`, `measured-and-estimated-are-separate`.
-- mcp-server/folder-lock (new): the state folder's lock is created atomically, names its holder, is refused to a second process with the lock file and the holder named, and is held until the graph's database is closed. Scenario: `a-second-server-on-one-folder-is-refused`.
+- mcp-server/folder-lock (new): the state folder's lock is created atomically, names its holder, is refused to a second process with the lock file and the holder named, and is dropped only after the graph's database has finished closing. Scenario: `a-second-server-on-one-folder-is-refused`.
 
 Complete proposed capability text: `capabilities/mcp-server.md`. It is the whole capability, not a
 hand-written delta.
@@ -173,10 +173,13 @@ The start is bounded in time and memory. The handshake and the tool list answer 
 a tool call made while it builds says `graph building` with a source that says the same; a madarch home
 that holds a product fill's graph for the same repository and commit is copied and served instead of
 extracted (measured here: 65 code files in 0.3 s of copying and 1.9 s to open, against 124.5 s and
-2 307 MB for the cold build); and a cold build is bounded to 700 code files, measured on this 6 GB
-machine at 1 476 MB for 300 files, 1 864 MB for 600 and 2 668 MB for 898, with the checkout's own 1 041
-files killed at 3 164 MB. A larger tree is refused with the count, the bound and what to serve instead,
-because a process killed mid-build serves nothing. The folder's lock is created with `O_EXCL`, names its
+2 307 MB for the cold build); and a cold build is bounded to 400 code files, because it runs every producer
+and their facts are what memory cannot bound — measured on this 6 GB machine at 2 145 MB for 300 files with
+the facts, with the fact view of 898 files past 3 GB and the checkout's own 1 041 files killed at 3 164 MB.
+A larger tree is refused with the count, the bound and what to serve instead, because a process killed
+mid-build serves nothing, and a graph built without the contract or data-model producer answers refusals for
+entities that exist — the refusal is the smaller harm. A start that fails for good is kept and answered on
+every tool call, instead of a caller polling a "graph building" note forever. The folder's lock is created with `O_EXCL`, names its
 holder, is refused to a second process and taken over only once its holder is gone.
 
 ## Acceptance evidence
