@@ -19,13 +19,13 @@
  */
 import { canonicalJsonDigest } from '../model/canonical.js';
 import { byCodePoint } from '../model/order.js';
-import { claimDigest, nodePayloadDigest, edgePayloadDigest, sha256Hex, type ByteSpan, type ClaimContent, type GraphId } from './digest.js';
+import { claimDigest, nodePayloadDigest, edgePayloadDigest, edgeKeyHash, sha256Hex, type ByteSpan, type ClaimContent, type GraphId } from './digest.js';
 import { GraphError, type GraphOrigin } from './errors.js';
 import { ALL_STATES, checkSpan, compareInstants, instantText, tsText, type Instant, type StateSpan } from './time.js';
 import {
-  assertEndpoints, endEdgeVersion, lockNodes, reconcileEdges, requireLater, checkId, closeVersion, correctEdgeVersion, correctNodeVersion, currentNodeVersions, edgeIdentity, edgeRow, EDGE_COLUMNS, EDGE_FROM,
-  endNode, openEdgeVersion, openNodeVersion, reopenEdge, reopenNode, requireNode, resolveEdge,
-  type EdgeVersionRow, type NodeVersionRow, type WriteContext,
+  assertEndpoints, currentEdgeVersions, endEdgeVersion, insertEdgeVersion, insertEdgeVersions, lockNodes, prepareEdgeVersion, reconcileEdges, requireLater, checkId, closeVersion, correctEdgeVersion, correctNodeVersion, currentNodeVersions, edgeIdentity, edgeRow, EDGE_BATCH_SIZE, EDGE_COLUMNS, EDGE_FROM,
+  edgeIdentities, endNode, newNodeIdentities, openEdgeVersion, openNodeVersion, prefetchNodeSlices, prefetchNodes, reopenEdge, reopenNode, requireNode, resolveEdge, readerTurn, yieldBetweenRows, yieldToReaders,
+  type EdgeVersionRow, type NodeVersionRow, type PreparedEdgeVersion, type WriteContext,
 } from './versions.js';
 import { CONTENT_KIND } from './vocabulary.js';
 
@@ -184,6 +184,11 @@ interface Run {
   endedNodes: Set<GraphId>;
   writtenNodes: Set<GraphId>;
   touchedEdges: Set<GraphId>;
+  /** Current edge versions read once for the publication; an identity repeated inside it is read again instead. */
+  currentEdges: Map<GraphId, EdgeVersionRow[]>;
+  repeatedEdges: Set<GraphId>;
+  /** New edge versions whose checks passed and whose insert waits for the batch. */
+  pendingEdges: PreparedEdgeVersion[];
 }
 
 function refuseForeign(item: { producer?: string; scope?: GraphId; origin?: GraphOrigin }, run: Run, path: string): void {
@@ -239,11 +244,25 @@ export async function publish(ctx: WriteContext, input: PublishInput): Promise<P
     result.publishedDigest = previous.rows[0].published_digest;
   } else {
     ctx.cascadeLog = result.cascades;
-    const run: Run = { ctx, workItem: item.id, owner: { producer: input.producer, scope }, refs: new Map(), result, summary: [], endedNodes: new Set(), writtenNodes: new Set(), touchedEdges: new Set() };
+    const run: Run = { ctx, workItem: item.id, owner: { producer: input.producer, scope }, refs: new Map(), result, summary: [], endedNodes: new Set(), writtenNodes: new Set(), touchedEdges: new Set(), currentEdges: new Map(), repeatedEdges: new Set(), pendingEdges: [] };
     const nodes = input.nodes ?? [];
-    for (const [index, node] of nodes.entries()) await publishNode(run, node, `nodes[${index}]`);
-    for (const [index, end] of (input.ends ?? []).entries()) await publishEnd(run, end, `ends[${index}]`);
-    for (const [index, edge] of (input.edges ?? []).entries()) await publishEdge(run, edge, `edges[${index}]`);
+    const turn = readerTurn();
+    await newNodeIdentities(ctx, nodes.filter((node) => node.id === undefined).length);
+    for (const [index, node] of nodes.entries()) {
+      await publishNode(run, node, `nodes[${index}]`);
+      await yieldBetweenRows(turn, index + 1);
+    }
+    for (const [index, end] of (input.ends ?? []).entries()) {
+      await publishEnd(run, end, `ends[${index}]`);
+      await yieldBetweenRows(turn, index + 1);
+    }
+    const edges = input.edges ?? [];
+    await prefetchEdgeIdentities(run, edges);
+    for (const [index, edge] of edges.entries()) {
+      await publishEdge(run, edge, `edges[${index}]`);
+      await yieldBetweenRows(turn, index + 1);
+    }
+    await flushEdges(run);
     if (input.complete !== undefined && input.complete !== false) {
       const end = input.complete === true ? ctx.at : instantText(input.complete.validTo, OP, 'complete.validTo');
       run.summary.push({ complete: end });
@@ -368,6 +387,90 @@ async function publishEnd(run: Run, end: PublishEnd, path: string): Promise<void
   run.result.cascades.push(...done.cascades);
 }
 
+/**
+ * Resolves the identity keys of every edge up front, so the transaction writes
+ * them in one batch instead of one insert per edge, and reads every touched
+ * identity's current versions in one statement.
+ *
+ * This step is deliberately non-validating. It computes what the key hashes
+ * would be and stops there; every semantic check, and the endpoint coverage
+ * check that needs a slice read, stays in the ordered publication loop. A
+ * prefetch that called `resolveEdge` could report `edges[1].relation` before
+ * `edges[0].dst` had been checked, changing which malformed edge wins
+ * (madarch-alzf review, RARE: prefetch must not change validation order). If
+ * an input cannot be cheaply named here, the prefetch skips entirely and the
+ * loop reports the first malformed edge in its own order.
+ */
+async function prefetchEdgeIdentities(run: Run, edges: readonly PublishEdge[]): Promise<void> {
+  if (edges.length === 0) return;
+  const hashes: string[] = [];
+  const endpoints: GraphId[] = [];
+  for (const [index, edge] of edges.entries()) {
+    const path = `edges[${index}]`;
+    try {
+      const endpoint = (ref: NodeRef, at: string): GraphId | undefined => {
+        if ('id' in ref) return checkId(ref.id, OP, at, edge.origin);
+        return run.refs.get(ref.ref);
+      };
+      const src = endpoint(edge.src, `${path}.src`);
+      const dst = endpoint(edge.dst, `${path}.dst`);
+      if (src === undefined || dst === undefined) return;
+      const hash = edgeKeyHash({
+        relation: edge.relation,
+        src,
+        dst,
+        discriminator: edge.discriminator ?? '',
+        position: edge.position ?? null,
+      });
+      hashes.push(hash);
+      endpoints.push(src, dst);
+    } catch {
+      // A shape the ordered loop will reject is not something this shortcut
+      // may report first; leaving the prefetch undone keeps its path.
+      return;
+    }
+  }
+  await prefetchNodes(run.ctx, endpoints);
+  await lockNodes(run.ctx, endpoints, 'SHARE');
+  await prefetchNodeSlices(run.ctx, endpoints);
+  await edgeIdentities(run.ctx, hashes);
+  const counts = new Map<GraphId, number>();
+  for (const hash of hashes) {
+    const identity = run.ctx.memo.edges.get(hash)!;
+    counts.set(identity, (counts.get(identity) ?? 0) + 1);
+  }
+  const single: GraphId[] = [];
+  for (const [identity, count] of counts) {
+    if (count === 1) single.push(identity);
+    else run.repeatedEdges.add(identity);
+  }
+  run.currentEdges = await currentEdgeVersions(run.ctx, single);
+}
+
+/**
+ * Writes the edge versions whose checks passed. A chunk the database refuses
+ * is rolled back and each edge is written alone, so the refusal still names
+ * the edge and path that caused it.
+ */
+async function flushEdges(run: Run): Promise<void> {
+  if (run.pendingEdges.length === 0) return;
+  const pending = run.pendingEdges;
+  run.pendingEdges = [];
+  for (let at = 0; at < pending.length; at += EDGE_BATCH_SIZE) {
+    const chunk = pending.slice(at, at + EDGE_BATCH_SIZE);
+    await run.ctx.tx.query('SAVEPOINT alzf_edge_batch');
+    try {
+      await insertEdgeVersions(run.ctx, chunk);
+      await run.ctx.tx.query('RELEASE SAVEPOINT alzf_edge_batch');
+    } catch {
+      await run.ctx.tx.query('ROLLBACK TO SAVEPOINT alzf_edge_batch');
+      for (const one of chunk) await insertEdgeVersion(run.ctx, one);
+      await run.ctx.tx.query('RELEASE SAVEPOINT alzf_edge_batch');
+    }
+    await yieldToReaders();
+  }
+}
+
 async function publishEdge(run: Run, edge: PublishEdge, path: string): Promise<void> {
   const { ctx } = run;
   const origin = edge.origin;
@@ -384,18 +487,27 @@ async function publishEdge(run: Run, edge: PublishEdge, path: string): Promise<v
   run.summary.push({ keyHash: resolved.keyHash, payload, states, validFrom, validTo: validTo ?? null });
   const identity = await edgeIdentity(ctx, resolved.keyHash);
   run.touchedEdges.add(identity);
-  const found = await ctx.tx.query<Raw>(`SELECT ${EDGE_COLUMNS} FROM ${EDGE_FROM} WHERE e.edge_id = $1::bigint AND e.recorded_to = 'infinity'`, [identity]);
-  const current = found.rows.map(edgeRow);
+  let current: EdgeVersionRow[];
+  if (run.repeatedEdges.has(identity)) {
+    // A repeated identity must see the version the earlier item wrote.
+    await flushEdges(run);
+    const found = await ctx.tx.query<Raw>(`SELECT ${EDGE_COLUMNS} FROM ${EDGE_FROM} WHERE e.edge_id = $1::bigint AND e.recorded_to = 'infinity'`, [identity]);
+    current = found.rows.map(edgeRow);
+  } else {
+    current = run.currentEdges.get(identity) ?? [];
+  }
   for (const version of current) checkOwned(version, 'edge', identity, run, path, origin);
   const { target, nextStart } = pickTarget(current, states, validFrom);
+  if (target === undefined) {
+    const to = validTo ?? nextStart;
+    run.pendingEdges.push(await prepareEdgeVersion(ctx, { ...base, ...(to === undefined ? {} : { validTo: to }) }, path));
+    run.result.edgeVersionsOpened += 1;
+    return;
+  }
   const open = async (to: string | undefined): Promise<void> => {
     await openEdgeVersion(ctx, { ...base, ...(to === undefined ? {} : { validTo: to }) }, path);
     run.result.edgeVersionsOpened += 1;
   };
-  if (target === undefined) {
-    await open(validTo ?? nextStart);
-    return;
-  }
   const samePayload = target.payloadDigest === payload;
   if (samePayload && (validTo === undefined || validTo === target.validTo)) {
     run.result.unchanged += 1;
@@ -424,21 +536,25 @@ async function sweep(run: Run, end: string): Promise<void> {
      WHERE v.producer = $1 AND v.scope_id = $2::bigint AND v.recorded_to = 'infinity' AND v.valid_to > $3::timestamptz AND k.key <> $4 ORDER BY 1`,
     [run.owner.producer, run.owner.scope, end, CONTENT_KIND],
   );
-  for (const row of nodes.rows) {
+  const nodeTurn = readerTurn();
+  for (const [index, row] of nodes.rows.entries()) {
     if (run.writtenNodes.has(row.id) || run.endedNodes.has(row.id)) continue;
     const done = await endNode(ctx, row.id, end, run.workItem, 'complete');
     run.result.swept.nodes += 1;
     run.result.corrections += done.nodeVersionsClosed;
     run.result.cascades.push(...done.cascades);
+    await yieldBetweenRows(nodeTurn, index + 1);
   }
   const edges = await ctx.tx.query<Raw>(
     `SELECT ${EDGE_COLUMNS} FROM ${EDGE_FROM} WHERE e.producer = $1 AND e.scope_id = $2::bigint AND e.recorded_to = 'infinity' AND e.valid_to > $3::timestamptz ORDER BY e.id`,
     [run.owner.producer, run.owner.scope, end],
   );
-  for (const raw of edges.rows) {
+  const edgeTurn = readerTurn();
+  for (const [index, raw] of edges.rows.entries()) {
     const edge = edgeRow(raw);
     if (run.touchedEdges.has(edge.edgeId) || edge.recordedFrom === ctx.at) continue;
     await endEdgeVersion(ctx, edge.versionId, end, { workItem: run.workItem, as: 'correction' }, 'complete');
     run.result.swept.edges += 1;
+    await yieldBetweenRows(edgeTurn, index + 1);
   }
 }

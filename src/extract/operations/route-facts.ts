@@ -3,8 +3,15 @@ import type {CodeBindingFact,CodeCallFact,CodeExpressionFact,CodeImportFact} fro
 import type {SourceSpan} from '../records.js';
 import {byCodePoint} from '../../model/order.js';
 import {functionsOf,type FunctionSite} from './symbol-sites.js';
-import type {TreeText} from './source.js';
+import {spanKey, type TreeText} from './source.js';
 import {httpModels,type HttpModel,type HttpRole,type HttpParameterType} from '../library-models/http-models.js';
+/** The registry's export models indexed by package: a call site asks only for its own package. */
+const httpModelsByPackage:ReadonlyMap<string,readonly HttpModel[]>=(()=>{
+ const grouped=new Map<string,HttpModel[]>();
+ for(const model of httpModels){if(model.target.kind!=='export')continue;const held=grouped.get(model.package);if(held===undefined)grouped.set(model.package,[model]);else held.push(model);}
+ for(const held of grouped.values())Object.freeze(held);
+ return grouped;
+})();
 export interface HttpRegistrationFact {readonly span:SourceSpan;readonly path:string;readonly method:string;readonly handler?:FunctionSite;readonly handlerExpression?:string;readonly receiverExpression:string;readonly ports:readonly string[]}
 const contains=(a:SourceSpan,b:SourceSpan):boolean=>a.path===b.path&&a.byteStart<=b.byteStart&&b.byteEnd<=a.byteEnd;
 const same=(a:SourceSpan,b:SourceSpan):boolean=>contains(a,b)&&contains(b,a);
@@ -21,9 +28,16 @@ class HttpFacts {
  private readonly origins=new Map<string,HttpOrigin|undefined>();
  private readonly callModels=new Map<string,readonly HttpModel[]>();
  private readonly listenerPorts=new Map<string,readonly string[]>();
+ private readonly canonicalSites=new Map<string,FunctionSite|undefined>();
+ private readonly owners=new Map<string,FunctionSite|undefined>();
+ private readonly callsByPath=new Map<string,CodeCallFact[]>();
+ private readonly exportModels=new Map<string,readonly HttpModel[]>();
+ private readonly externals=new Map<string,{package:string;path:readonly string[]}>();
+ private readonly siteAtSpan=new Map<string,FunctionSite|undefined>();
  constructor(private readonly t:TreeText){
   const index=<T>(items:readonly T[],key:(item:T)=>string,target:Map<string,T>):void=>{const duplicates=new Set<string>();for(const item of items){const id=key(item);if(target.has(id)||duplicates.has(id)){target.delete(id);duplicates.add(id);}else target.set(id,item);}};
   index(t.facts?.expressions??[],x=>x.id,this.expressions);index(t.facts?.bindings??[],x=>x.id,this.bindings);index(t.facts?.imports??[],x=>x.id,this.imports);index(t.facts?.calls??[],x=>x.expression,this.calls);
+  for(const call of this.calls.values()){const held=this.callsByPath.get(call.span.path);if(held===undefined)this.callsByPath.set(call.span.path,[call]);else held.push(call);}
   const mark=(id:string,seen=new Set<string>()):void=>{if(seen.has(id))return;seen.add(id);const expression=this.expressions.get(id);if(expression===undefined)return;if(expression.bindingId!==undefined)this.written.add(expression.bindingId);for(const child of expression.children)mark(child,seen);};
   for(const expression of this.expressions.values()){
    if(['assignment_expression','augmented_assignment_expression','assignment_statement'].includes(expression.syntaxKind))for(const id of expression.fields.left??[])mark(id);
@@ -65,19 +79,36 @@ class HttpFacts {
  }
  private call(id:string):CodeCallFact|undefined{const x=this.expression(id);const call=this.calls.get(id);if(x===undefined||call===undefined||!same(call.span,x.span)||x.callee!==call.callee||JSON.stringify(x.arguments??[])!==JSON.stringify(call.arguments)||!x.children.includes(call.callee))return undefined;return call.arguments.some(id=>{const argument=this.expression(id);return argument===undefined||!contains(call.span,argument.span);})?undefined:call;}
  private external(id:string,seen=new Set<string>()):{package:string;path:readonly string[]}|undefined{
-  if(seen.has(id))return undefined;seen.add(id);const x=this.unwrap(id);if(x===undefined)return undefined;
-  if(x.receiver!==undefined&&x.member!==undefined){const receiver=this.expression(x.receiver);if(receiver===undefined||!contains(x.span,receiver.span)||!x.children.includes(receiver.id))return undefined;const origin=this.external(receiver.id,seen);return origin===undefined?undefined:{...origin,path:[...origin.path,x.member]};}
-  const binding=this.binding(x);const imported=binding?.importId===undefined?undefined:this.imports.get(binding.importId);
-  if(binding?.kind!=='import'||imported===undefined||imported.targetPath!==undefined||imported.typeOnly||imported.path!==x.path)return undefined;
-  return {package:imported.specifier,path:imported.imported.form==='named'?[imported.imported.name]:imported.imported.form==='default'?['default']:[]};
+  if(seen.has(id))return undefined;
+  const held=this.externals.get(id);if(held!==undefined)return held;
+  seen.add(id);const x=this.unwrap(id);if(x===undefined)return undefined;
+  let origin:{package:string;path:readonly string[]}|undefined;
+  if(x.receiver!==undefined&&x.member!==undefined){const receiver=this.expression(x.receiver);if(receiver!==undefined&&contains(x.span,receiver.span)&&x.children.includes(receiver.id)){const receiverOrigin=this.external(receiver.id,seen);origin=receiverOrigin===undefined?undefined:{...receiverOrigin,path:[...receiverOrigin.path,x.member]};}}
+  else {
+   const binding=this.binding(x);const imported=binding?.importId===undefined?undefined:this.imports.get(binding.importId);
+   if(binding?.kind==='import'&&imported!==undefined&&imported.targetPath===undefined&&!imported.typeOnly&&imported.path===x.path)origin={package:imported.specifier,path:imported.imported.form==='named'?[imported.imported.name]:imported.imported.form==='default'?['default']:[]};
+  }
+  if(origin!==undefined)this.externals.set(id,origin);return origin;
  }
  /** One path's callable sites as the view proved them; no second cache of its own. */
  private sites(path:string):readonly FunctionSite[]{return this.t.callableSites(path)??functionsOf(this.t,path);}
- private canonical(key:string):FunctionSite|undefined{const symbol=unique(this.t.symbolsByKey.all(key).filter(x=>x.callable));return symbol===undefined?undefined:unique(this.sites(symbol.path).filter(site=>site.key===key&&same(site.span,symbol.span)));}
- private owner(span:SourceSpan):FunctionSite|undefined{const raw=this.t.symbolsByPath.all(span.path).filter(x=>x.callable&&x.span.byteStart<=span.byteStart&&span.byteStart<x.span.byteEnd).sort((a,b)=>a.span.byteEnd-a.span.byteStart-(b.span.byteEnd-b.span.byteStart));const first=raw[0];if(first===undefined||raw[1]!==undefined&&same(first.span,raw[1].span)||first.bodySpan===undefined||!contains(first.bodySpan,span))return undefined;return this.canonical(first.key);}
+ private siteAt(value:CodeExpressionFact):FunctionSite|undefined{
+  const key=spanKey(value.span);if(this.siteAtSpan.has(key))return this.siteAtSpan.get(key);
+  const site=unique(this.sites(value.path).filter(site=>same(site.span,value.span)));this.siteAtSpan.set(key,site);return site;
+ }
+ private canonical(key:string):FunctionSite|undefined{
+  if(this.canonicalSites.has(key))return this.canonicalSites.get(key);
+  const symbol=unique(this.t.symbolsByKey.all(key).filter(x=>x.callable));const site=symbol===undefined?undefined:unique(this.sites(symbol.path).filter(site=>site.key===key&&same(site.span,symbol.span)));this.canonicalSites.set(key,site);return site;
+ }
+ private owner(span:SourceSpan):FunctionSite|undefined{
+  const key=spanKey(span);if(this.owners.has(key))return this.owners.get(key);
+  const raw=this.t.symbolsByPath.all(span.path).filter(x=>x.callable&&x.span.byteStart<=span.byteStart&&span.byteStart<x.span.byteEnd).sort((a,b)=>a.span.byteEnd-a.span.byteStart-(b.span.byteEnd-b.span.byteStart));const first=raw[0];
+  const owner=first===undefined||raw[1]!==undefined&&same(first.span,raw[1].span)||first.bodySpan===undefined||!contains(first.bodySpan,span)?undefined:this.canonical(first.key);
+  this.owners.set(key,owner);return owner;
+ }
  private target(callee:CodeExpressionFact):FunctionSite|undefined{
   const property=callee.receiver===undefined?callee:this.field(callee,callee.syntaxKind==='selector_expression'?'field':'property');
-  const targets=property===undefined?[]:[...new Set((this.t.facts?.sites??[]).filter(site=>site.use==='call'&&same(property.span,site.span)).map(site=>site.to))];const sites=targets.map(key=>this.canonical(key)).filter((site):site is FunctionSite=>site!==undefined);
+  const targets=property===undefined?[]:[...new Set(this.t.sitesBySpan.all(spanKey(property.span)).filter(site=>site.use==='call').map(site=>site.to))];const sites=targets.map(key=>this.canonical(key)).filter((site):site is FunctionSite=>site!==undefined);
   if(sites.length===1){
    const site=sites[0]!;
    if(callee.bindingId!==undefined){const binding=this.binding(callee);if(binding===undefined||binding.kind==='parameter'||binding.kind==='receiver')return undefined;if(binding.kind==='import'){const imported=binding.importId===undefined?undefined:this.imports.get(binding.importId);if(imported===undefined||this.importedTarget(imported)===undefined)return undefined;}else if(binding.initializer===undefined&&!contains(site.span,binding.span))return undefined;}
@@ -104,8 +135,8 @@ class HttpFacts {
   if(type?.syntaxKind!=='type_identifier')return undefined;let binding:CodeBindingFact|undefined;
   if(type.bindingId!==undefined)binding=this.binding(type);
   else {
-   const site=unique((this.t.facts?.sites??[]).filter(site=>site.use==='type'&&site.path===type.path&&same(site.span,type.span)));
-   const symbol=site===undefined?undefined:unique((this.t.facts?.symbols??[]).filter(symbol=>symbol.key===site.to&&!symbol.callable));
+   const site=unique(this.t.sitesBySpan.all(spanKey(type.span)).filter(site=>site.use==='type'&&site.path===type.path));
+   const symbol=site===undefined?undefined:unique(this.t.symbolsByKey.all(site.to).filter(symbol=>!symbol.callable));
    if(symbol===undefined||symbol.path===type.path||!this.sameGoPackage(type.path,symbol.path))return undefined;
    binding=unique([...this.bindings.values()].filter(binding=>binding.kind==='type'&&binding.path===symbol.path&&binding.typeDeclaration!==undefined&&same(binding.typeDeclaration.declarationSpan,symbol.span)));
   }
@@ -142,10 +173,10 @@ class HttpFacts {
   }
   if(value.receiver!==undefined&&value.member!==undefined){
    const property=this.field(value,'field');if(property===undefined||property.name!==value.member)return undefined;
-   const sites=(this.t.facts?.sites??[]).filter(site=>site.use==='reference'&&same(site.span,property.span));const target=unique([...new Set(sites.map(site=>site.to))]);
-   const field=target===undefined?undefined:unique((this.t.facts?.fields??[]).filter(field=>field.key===target));
+   const sites=this.t.sitesBySpan.all(spanKey(property.span)).filter(site=>site.use==='reference');const target=unique([...new Set(sites.map(site=>site.to))]);
+   const field=target===undefined?undefined:unique(this.t.fieldsByKey.all(target));
    const owner=this.valueType(value.receiver,seen);const raw=field===undefined?undefined:this.expression(field.typeExpression);const declaration=field===undefined?undefined:this.expression(field.ownerDeclaration);
-   const symbol=field===undefined?undefined:unique((this.t.facts?.symbols??[]).filter(symbol=>symbol.key===field.key&&!symbol.callable));
+   const symbol=field===undefined?undefined:unique(this.t.symbolsByKey.all(field.key).filter(symbol=>!symbol.callable));
    if(field===undefined||owner===undefined||raw===undefined||declaration?.syntaxKind!=='type_spec'||symbol===undefined||symbol.path!==field.path||!contains(symbol.span,field.span)||field.name!==value.member||field.ownerDeclaration!==owner.binding.typeDeclaration?.expression||!contains(declaration.span,field.span)||!contains(declaration.span,raw.span))return undefined;
    const fieldDeclaration=unique(this.pathExpressions(declaration.path).filter(expression=>expression.syntaxKind==='field_declaration'&&contains(declaration.span,expression.span)&&contains(expression.span,field.span)&&this.field(expression,'type')?.id===raw.id&&(expression.fields.name??[]).some(id=>{const name=this.expression(id);return name!==undefined&&same(name.span,field.span);} )));
    return fieldDeclaration===undefined?undefined:this.declaredType(raw);
@@ -172,19 +203,19 @@ class HttpFacts {
   const receiver=this.unwrap(callee.receiver);if(receiver===undefined||expected===undefined)return false;
   const call=this.call(receiver.id);const constructor=call===undefined?undefined:this.expression(call.callee);if(constructor===undefined)return false;
   const target=this.target(constructor);if(target===undefined||target.receiverType!==undefined)return false;
-  const declaration=unique([...this.expressions.values()].filter(expression=>expression.syntaxKind==='function_declaration'&&same(expression.span,target.span)));
+  const declaration=unique(this.t.expressionsBySpan.all(spanKey(target.span)).filter(expression=>expression.syntaxKind==='function_declaration'));
   const resultType=declaration===undefined?undefined:this.field(declaration,'result');const declared=resultType===undefined?undefined:this.declaredType(resultType);
   let result=this.returned(target);const pointer=result?.syntaxKind==='unary_expression'&&result.operator==='&';if(result?.syntaxKind==='unary_expression'&&!pointer)return false;if(pointer&&result!==undefined)result=this.field(result,'operand');
   if(result?.syntaxKind!=='composite_literal'||declared===undefined)return false;const raw=this.field(result,'type');const literal=raw===undefined?undefined:this.declaredType(raw);
   return literal!==undefined&&literal.binding.id===declared.binding.id&&pointer===declared.pointer&&declared.binding.id===expected.binding.id&&(!expected.pointer||pointer);
  }
  private returned(site:FunctionSite):CodeExpressionFact|undefined{
-  const returns=[...this.expressions.values()].filter(x=>x.syntaxKind==='return_statement'&&contains(site.span,x.span)&&this.owner(x.span)?.key===site.key);const statement=unique(returns);if(statement===undefined)return undefined;
+  const returns=this.t.expressionsBySyntax.all('return_statement').filter(x=>contains(site.span,x.span)&&this.owner(x.span)?.key===site.key);const statement=unique(returns);if(statement===undefined)return undefined;
   const owner=(this.t.facts?.symbols??[]).find(symbol=>symbol.key===site.key);if(owner?.bodySpan===undefined)return undefined;
   let node=statement;const seen=new Set<string>();
   while(!same(node.span,owner.bodySpan)){
    if(seen.has(node.id))return undefined;seen.add(node.id);
-   const parent=unique([...this.expressions.values()].filter(expression=>expression.children.includes(node.id)));
+   const parent=unique(this.t.parentsByChild.all(node.id));
    if(parent===undefined||!['statement_block','block','statement_list'].includes(parent.syntaxKind)||!contains(owner.bodySpan,parent.span))return undefined;node=parent;
   }
   let value=unique(this.children(statement)??[]);const wrappers=new Set<string>();
@@ -193,16 +224,21 @@ class HttpFacts {
   }
   return value;
  }
- private exportedModels(id:string):readonly HttpModel[]{const imported=this.external(id);const expression=this.expression(id);const language=this.t.facts?.files.find(file=>file.path===expression?.path)?.language;const ecosystem=language===undefined?undefined:language==='go'?'go':'node';return imported===undefined?[]:httpModels.filter(model=>model.target.kind==='export'&&model.ecosystem===ecosystem&&model.package===imported.package&&model.target.paths.some(path=>JSON.stringify(path)===JSON.stringify(imported.path)));}
+ private exportedModels(id:string):readonly HttpModel[]{
+  const held=this.exportModels.get(id);if(held!==undefined)return held;
+  const imported=this.external(id);const expression=this.expression(id);const language=this.t.facts?.files.find(file=>file.path===expression?.path)?.language;const ecosystem=language===undefined?undefined:language==='go'?'go':'node';
+  const models=imported===undefined?[]:(httpModelsByPackage.get(imported.package)??[]).filter(model=>model.target.kind==='export'&&model.ecosystem===ecosystem&&model.target.paths.some(path=>JSON.stringify(path)===JSON.stringify(imported.path)));
+  const frozen:readonly HttpModel[]=models;this.exportModels.set(id,frozen);return frozen;
+ }
  /** Abstract values retain lexical substitutions; no argument is assumed transparent. */
  private origin(id:string):HttpOrigin|undefined{if(this.origins.has(id))return this.origins.get(id);const flow=this.flow(id,new Map(),new Set());const origin=flow?.kind==='origin'?flow.origin:undefined;this.origins.set(id,origin);return origin;}
  /** A sole returned Go literal shares its span with its expression_list.
   * Select the callable by its exact canonical body edge, not its span alone. */
  private declaration(site:FunctionSite):CodeExpressionFact|undefined{
-  const symbol=unique((this.t.facts?.symbols??[]).filter(symbol=>symbol.key===site.key&&symbol.callable&&same(symbol.span,site.span)));
+  const symbol=unique(this.t.symbolsByKey.all(site.key).filter(symbol=>symbol.callable&&same(symbol.span,site.span)));
   if(symbol?.bodySpan===undefined||symbol.bodySyntaxKind===undefined)return undefined;const bodySpan=symbol.bodySpan;
-  return unique([...this.expressions.values()].filter(expression=>{
-   if(!['func_literal','function_declaration','method_declaration','function_expression','arrow_function'].includes(expression.syntaxKind)||!same(expression.span,site.span))return false;const body=this.field(expression,'body');
+  return unique(this.t.expressionsBySpan.all(spanKey(site.span)).filter(expression=>{
+   if(!['func_literal','function_declaration','method_declaration','function_expression','arrow_function'].includes(expression.syntaxKind))return false;const body=this.field(expression,'body');
    return body!==undefined&&body.syntaxKind===symbol.bodySyntaxKind&&same(body.span,bodySpan);
   }));
  }
@@ -234,10 +270,10 @@ class HttpFacts {
   if(['parenthesized_expression','literal_element','expression_list'].includes(value.syntaxKind)){const child=unique(this.children(value)??[]);return child===undefined?undefined:this.flow(child.id,environment,next);}
   const registry=unique(this.exportedModels(value.id).filter(model=>model.effect.kind==='registry'));
   if(registry?.effect.kind==='registry')return {kind:'origin',origin:this.defaultOrigin(registry.package,registry.effect.role,value.path)};
-  let callable=unique(this.sites(value.path).filter(site=>same(site.span,value.span)));
+  let callable=this.siteAt(value);
   if(callable===undefined){
    const property=value.receiver===undefined?value:this.field(value,value.syntaxKind==='selector_expression'?'field':'property');
-   const keys=property===undefined?[]:[...new Set((this.t.facts?.sites??[]).filter(site=>site.use==='reference'&&same(site.span,property.span)).map(site=>site.to))];
+   const keys=property===undefined?[]:[...new Set(this.t.sitesBySpan.all(spanKey(property.span)).filter(site=>site.use==='reference').map(site=>site.to))];
    const candidate=keys.length===1?this.canonical(keys[0]!):undefined;
    const binding=value.bindingId===undefined?undefined:this.binding(value);
    if(candidate!==undefined&&(value.bindingId===undefined||binding!==undefined&&binding.kind!=='parameter'&&binding.kind!=='receiver')&&(candidate.receiverType===undefined||this.methodReceiver(value,candidate)))callable=candidate;
@@ -281,14 +317,14 @@ class HttpFacts {
   for(const model of httpModels){
    if(model.effect.kind!=='handler'||!this.signature(closure.site,model,false))continue;
    const candidates:HttpFlow[]=[];
-   for(const raw of this.calls.values()){
+   for(const raw of this.callsByPath.get(closure.site.path)??[]){
     const call=this.call(raw.expression);const member=call===undefined?undefined:this.member(call);
     if(call===undefined||member?.receiver===undefined||member.member!==model.effect.member||this.owner(call.span)?.key!==closure.site.key||call.arguments.length!==2||!this.handlerParameter(member.receiver))continue;
     if(!call.arguments.every((argument,index)=>this.callbackArgument(argument,parameters[index]!.binding,model,index,new Set())))continue;
     // Conditional forwarding would not prove that this callback serves the receiver.
-    let statement=this.expression(call.expression);const symbol=unique((this.t.facts?.symbols??[]).filter(symbol=>symbol.key===closure.site.key));
+    let statement=this.expression(call.expression);const symbol=unique(this.t.symbolsByKey.all(closure.site.key));
     while(statement!==undefined&&symbol?.bodySpan!==undefined&&!same(statement.span,symbol.bodySpan)){
-     const parent=unique([...this.expressions.values()].filter(expression=>expression.children.includes(statement!.id)));
+     const parent=unique(this.t.parentsByChild.all(statement!.id));
      if(parent===undefined||!['expression_statement','block','statement_list'].includes(parent.syntaxKind)){statement=undefined;break;}statement=parent;
     }
     if(statement===undefined||symbol?.bodySpan===undefined||!same(statement.span,symbol.bodySpan))continue;
@@ -324,14 +360,14 @@ class HttpFacts {
    if(!symbol.callable||!model.effect.writerMembers.includes(symbol.name))continue;const site=this.canonical(symbol.key);
    const receiverBinding=symbol.receiver===undefined?undefined:this.bindings.get(symbol.receiver.bindingId);const rawType=receiverBinding===undefined?undefined:this.parameterType(receiverBinding);const receiver=rawType===undefined?undefined:this.declaredType(rawType);
    if(receiver?.binding.id!==type.id)continue;if(site===undefined)return false;const parameters=this.parameters(site);if(parameters===undefined)return false;
-   const calls=[...this.calls.values()].map(raw=>this.call(raw.expression)).filter((call):call is CodeCallFact=>call!==undefined&&this.owner(call.span)?.key===site.key);
+   const calls=(this.callsByPath.get(site.span.path)??[]).map(raw=>this.call(raw.expression)).filter((call):call is CodeCallFact=>call!==undefined&&this.owner(call.span)?.key===site.key);
    const forwarded=calls.filter(call=>{const member=this.member(call);const embedded=member?.receiver===undefined?undefined:this.expression(member.receiver);const base=embedded?.receiver===undefined?undefined:this.expression(embedded.receiver);const receiverBinding=symbol.receiver?.bindingId;
     return member?.member===symbol.name&&embedded?.member===expected.path.at(-1)&&base?.bindingId===receiverBinding&&call.arguments.length===parameters.length&&call.arguments.every((argument,index)=>this.expression(argument)?.bindingId===parameters[index]?.binding.id);
    });
    if(forwarded.length!==1||calls.length!==1)return false;
-   const call=forwarded[0]!;let node=this.expression(call.expression);const owner=unique((this.t.facts?.symbols??[]).filter(entry=>entry.key===site.key));
+   const call=forwarded[0]!;let node=this.expression(call.expression);const owner=unique(this.t.symbolsByKey.all(site.key));
    while(node!==undefined&&owner?.bodySpan!==undefined&&!same(node.span,owner.bodySpan)){
-    const parent=unique([...this.expressions.values()].filter(expression=>expression.children.includes(node!.id)));
+    const parent=unique(this.t.parentsByChild.all(node!.id));
     if(parent===undefined||!['expression_statement','expression_list','return_statement','block','statement_list'].includes(parent.syntaxKind))return false;node=parent;
    }
    if(node===undefined||owner?.bodySpan===undefined||!same(node.span,owner.bodySpan))return false;
@@ -436,7 +472,7 @@ class HttpFacts {
   let direct=this.target(value);
   if(direct===undefined&&['identifier','selector_expression','member_expression'].includes(value.syntaxKind)){
    const property=value.receiver===undefined?value:this.field(value,value.syntaxKind==='selector_expression'?'field':'property');
-   const keys=property===undefined?[]:[...new Set((this.t.facts?.sites??[]).filter(site=>site.use==='reference'&&same(site.span,property.span)).map(site=>site.to))];
+   const keys=property===undefined?[]:[...new Set(this.t.sitesBySpan.all(spanKey(property.span)).filter(site=>site.use==='reference').map(site=>site.to))];
    const candidate=keys.length===1?this.canonical(keys[0]!):undefined;const binding=value.bindingId===undefined?undefined:this.binding(value);
    const imported=binding?.kind==='import'&&binding.importId!==undefined?this.imports.get(binding.importId):undefined;
    const bound=value.bindingId===undefined||binding!==undefined&&binding.kind!=='parameter'&&binding.kind!=='receiver'&&(binding.kind!=='import'||imported!==undefined&&this.importedTarget(imported)!==undefined);

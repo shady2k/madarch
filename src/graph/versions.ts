@@ -16,6 +16,58 @@ import { GraphClockBehind, GraphError, databaseCode, databaseMessage, type Graph
 import { ALL_STATES, checkSpan, checkValid, compareInstants, instantText, plusMicrosecond, tsText, type Instant, type StateSpan } from './time.js';
 import { CLAIM_KIND, CONTENT_KIND, STATE_KIND } from './vocabulary.js';
 
+/**
+ * The most rows one statement in a publication writes. PGlite runs a statement
+ * on the thread that owns it, so a reader waits for the whole statement; a
+ * 5,000-edge publication is written in bounded pieces instead of one long hold
+ * (madarch-alzf, PR #197 latency).
+ */
+export const EDGE_BATCH_SIZE = 100;
+
+/** Identity rows per statement: one row is two scalars, and a reader still waits behind every statement. */
+export const IDENTITY_BATCH_SIZE = 100;
+
+/**
+ * Rows one read or lock statement asks for. A publication that names 1,393
+ * endpoints must not hold the reader for one statement over all of them; it
+ * asks in pages of this size and yields between pages (madarch-alzf, PR #197
+ * latency). The bound is rows, so it does not grow with the machine's speed.
+ */
+export const PREFETCH_BATCH_SIZE = 100;
+
+/**
+ * Rows prepared between yields, and the longest preparation may run before a
+ * turn whatever its row count. Preparing a row awaits memoized promises, so
+ * its microtask chain never reaches the event loop on its own; a slow machine
+ * must not turn the row count into a long hold (madarch-alzf, PR #197 CI).
+ */
+export const PUBLISH_YIELD_SIZE = 10;
+export const PUBLISH_TURN_MS = 4;
+
+/** A publication's clock for the time budget above. */
+export interface ReaderTurn { at: number }
+
+export function readerTurn(): ReaderTurn {
+  return { at: performance.now() };
+}
+
+/**
+ * Yields one macrotask so a wiki read queued behind PGlite is answered between
+ * batches. The promises a memoized publication awaits resolve as microtasks;
+ * without this the whole 5,221-edge loop is one continuous hold.
+ */
+export async function yieldToReaders(): Promise<void> {
+  await new Promise<void>((resolve) => { setTimeout(() => resolve(), 0); });
+}
+
+/** Gives readers a turn after the row count or the preparation time reaches its bound. */
+export async function yieldBetweenRows(turn: ReaderTurn, done: number): Promise<void> {
+  const now = performance.now();
+  if (done % PUBLISH_YIELD_SIZE !== 0 && now - turn.at < PUBLISH_TURN_MS) return;
+  turn.at = now;
+  await yieldToReaders();
+}
+
 /** The transaction a write runs in and the instant it is recorded at. */
 export interface WriteContext {
   tx: OuterTransaction;
@@ -43,11 +95,21 @@ export interface WriteMemo {
   readonly kinds: Map<string, string>;
   /** Edge key hashes to the identity they stand for. */
   readonly edges: Map<string, GraphId>;
+  /** Relation keys to their registry row, which this transaction cannot change. */
+  readonly relations: Map<string, RelationInfo>;
+  /** A node's current slices, until that node's own versions change in this transaction. */
+  readonly slices: Map<GraphId, Slice[]>;
+  /** Identities a publication reserved ahead, in the order its new nodes will take them. */
+  readonly newNodes: GraphId[];
+  /** Identities this transaction already locks in SHARE mode, so repeated edge checks do not ask again. */
+  readonly shareLocks: Set<GraphId>;
+  /** Identities this transaction already locks in UPDATE mode, which is stronger than SHARE. */
+  readonly updateLocks: Set<GraphId>;
 }
 
 /** The empty memory a transaction starts with. */
 export function writeMemo(): WriteMemo {
-  return {nodes: new Set(), kinds: new Map(), edges: new Map()};
+  return {nodes: new Set(), kinds: new Map(), edges: new Map(), relations: new Map(), slices: new Map(), newNodes: [], shareLocks: new Set(), updateLocks: new Set()};
 }
 
 /** Who owns a version: the extraction recipe and the scope node it ran for. */
@@ -224,15 +286,39 @@ export interface RelationInfo {
 }
 
 export async function relationInfo(ctx: WriteContext, key: string, operation: string, path: string, origin?: GraphOrigin): Promise<RelationInfo> {
+  const held = ctx.memo.relations.get(key);
+  if (held !== undefined) return held;
   const found = await ctx.tx.query<{ id: string; discriminated: boolean; positioned: boolean }>('SELECT id::text AS id, discriminated, positioned FROM relation_type WHERE key = $1', [key]);
   const row = found.rows[0];
   if (row === undefined) throw new GraphError(operation, path, `the relation type "${key}" is not registered: the engine declares its own keys and the product's registry declares the rest`, origin);
+  ctx.memo.relations.set(key, row);
   return row;
 }
 
 export async function newNodeIdentity(ctx: WriteContext): Promise<GraphId> {
+  const reserved = ctx.memo.newNodes.shift();
+  if (reserved !== undefined) return reserved;
   const made = await ctx.tx.query<{ id: string }>('INSERT INTO node_identity (created_at) VALUES ($1::timestamptz) RETURNING id::text AS id', [ctx.at]);
   return made.rows[0]!.id;
+}
+
+/**
+ * Reserves `count` identities in pages of `PREFETCH_BATCH_SIZE`, two statements
+ * per page instead of two per node. A publication knows how many new nodes it
+ * has before it opens any of them, so the sequence and the identity rows are
+ * written as batches and the reader gets a turn between them.
+ */
+export async function newNodeIdentities(ctx: WriteContext, count: number): Promise<void> {
+  if (count <= 0) return;
+  for (let at = 0; at < count; at += PREFETCH_BATCH_SIZE) {
+    const size = Math.min(PREFETCH_BATCH_SIZE, count - at);
+    const made = await ctx.tx.query<{ id: string }>('SELECT nextval(pg_get_serial_sequence($1, $2))::text AS id FROM generate_series(1, $3::int)', ['node_identity', 'id', size]);
+    const ids = made.rows.map((row) => row.id);
+    await ctx.tx.query('INSERT INTO node_identity (id, created_at) OVERRIDING SYSTEM VALUE SELECT unnest($1::bigint[]), $2::timestamptz', [`{${ids.join(',')}}`, ctx.at]);
+    for (const id of ids) ctx.memo.nodes.add(id);
+    ctx.memo.newNodes.push(...ids);
+    if (at + size < count) await yieldToReaders();
+  }
 }
 
 /** Refuses an identity that has no row, naming where it was given. */
@@ -246,9 +332,25 @@ export async function requireNode(ctx: WriteContext, id: GraphId, operation: str
 
 /** Locks node identities in ascending order, so a writer ending a node and a writer inserting an edge to it serialise and never deadlock. */
 export async function lockNodes(ctx: WriteContext, ids: readonly GraphId[], mode: 'SHARE' | 'UPDATE'): Promise<void> {
-  const sorted = [...new Set(ids)].sort((a, b) => (BigInt(a) < BigInt(b) ? -1 : BigInt(a) > BigInt(b) ? 1 : 0));
+  // A lock this transaction already holds is not asked for again: a publication checks thousands of edges, and each
+  // endpoint's SHARE lock is the same lock. UPDATE is stronger than SHARE and remembered for both.
+  const sorted = [...new Set(ids)]
+    .filter((id) => !ctx.memo.updateLocks.has(id) && (mode === 'UPDATE' || !ctx.memo.shareLocks.has(id)))
+    .sort((a, b) => (BigInt(a) < BigInt(b) ? -1 : BigInt(a) > BigInt(b) ? 1 : 0));
   if (sorted.length === 0) return;
-  await ctx.tx.query(`SELECT id FROM node_identity WHERE id = ANY($1::bigint[]) ORDER BY id FOR ${mode}`, [`{${sorted.join(',')}}`]);
+  for (let at = 0; at < sorted.length; at += PREFETCH_BATCH_SIZE) {
+    const chunk = sorted.slice(at, at + PREFETCH_BATCH_SIZE);
+    await ctx.tx.query(`SELECT id FROM node_identity WHERE id = ANY($1::bigint[]) ORDER BY id FOR ${mode}`, [`{${chunk.join(',')}}`]);
+    for (const id of chunk) {
+      if (mode === 'UPDATE') {
+        ctx.memo.updateLocks.add(id);
+        ctx.memo.shareLocks.delete(id);
+      } else {
+        ctx.memo.shareLocks.add(id);
+      }
+    }
+    if (at + chunk.length < sorted.length) await yieldToReaders();
+  }
 }
 
 export interface NewNodeVersion {
@@ -321,6 +423,7 @@ export async function openNodeVersion(ctx: WriteContext, input: NewNodeVersion, 
         String(states.from), String(states.to), input.owner.producer, scope, input.openedBy ?? null, payload, JSON.stringify(stored), stateKey === null ? null : String(stateKey)],
     ),
   );
+  ctx.memo.slices.delete(nodeId);
   return { nodeId, versionId: made.rows[0]!.id };
 }
 
@@ -354,6 +457,43 @@ export async function loadEdgeVersion(ctx: WriteContext, versionId: GraphId, pat
 export async function currentNodeVersions(ctx: WriteContext, nodeId: GraphId): Promise<NodeVersionRow[]> {
   const found = await ctx.tx.query<Raw>(`SELECT ${NODE_COLUMNS} FROM ${NODE_FROM} WHERE v.node_id = $1::bigint AND v.recorded_to = 'infinity' ORDER BY v.valid_from, lower(v.states), v.id`, [nodeId]);
   return found.rows.map(nodeRow);
+}
+
+/** Remembers which of these identities have a row, so each edge check does not ask for its ends one by one. */
+export async function prefetchNodes(ctx: WriteContext, ids: readonly GraphId[]): Promise<void> {
+  const wanted = [...new Set(ids)].filter((id) => !ctx.memo.nodes.has(id));
+  if (wanted.length === 0) return;
+  for (let at = 0; at < wanted.length; at += PREFETCH_BATCH_SIZE) {
+    const chunk = wanted.slice(at, at + PREFETCH_BATCH_SIZE);
+    const found = await ctx.tx.query<{ id: string }>('SELECT id::text AS id FROM node_identity WHERE id = ANY($1::bigint[])', [`{${chunk.join(',')}}`]);
+    for (const row of found.rows) ctx.memo.nodes.add(row.id);
+    if (at + chunk.length < wanted.length) await yieldToReaders();
+  }
+}
+
+/** Reads the current slices of many nodes in bounded pages, before the checks that ask for them one by one. */
+export async function prefetchNodeSlices(ctx: WriteContext, ids: readonly GraphId[]): Promise<void> {
+  const wanted = [...new Set(ids)].filter((id) => !ctx.memo.slices.has(id));
+  if (wanted.length === 0) return;
+  const grouped = new Map<GraphId, Slice[]>();
+  for (let at = 0; at < wanted.length; at += PREFETCH_BATCH_SIZE) {
+    const chunk = wanted.slice(at, at + PREFETCH_BATCH_SIZE);
+    const found = await ctx.tx.query<Raw>(
+      `SELECT node_id::text AS node_id, ${tsText('valid_from')} AS valid_from, ${tsText('valid_to')} AS valid_to, lower(states) AS lo, upper(states) AS hi
+       FROM node_version WHERE node_id = ANY($1::bigint[]) AND recorded_to = 'infinity' AND recorded_from <= $2::timestamptz
+       ORDER BY node_id, valid_from, lower(states), id`,
+      [`{${chunk.join(',')}}`, ctx.at],
+    );
+    for (const row of found.rows) {
+      const id = row['node_id'] as string;
+      const held = grouped.get(id);
+      const slice = { validFrom: row['valid_from'] as string, validTo: row['valid_to'] as string, statesFrom: Number(row['lo']), statesTo: Number(row['hi']) };
+      if (held === undefined) grouped.set(id, [slice]);
+      else held.push(slice);
+    }
+    if (at + chunk.length < wanted.length) await yieldToReaders();
+  }
+  for (const id of wanted) ctx.memo.slices.set(id, grouped.get(id) ?? []);
 }
 
 export interface NodePatch {
@@ -407,6 +547,7 @@ export async function correctNodeVersion(ctx: WriteContext, versionId: GraphId, 
       [versionId, label, digest, validFrom, validTo, ctx.at, String(states.from), String(states.to), openedBy, payload, JSON.stringify(properties), stateKey === null ? null : String(stateKey)],
     ),
   );
+  ctx.memo.slices.delete(old.nodeId);
   await reconcileEdges(ctx, old.nodeId, mode, closure.workItem, `${path}.version`, origin);
   return made.rows[0]!.id;
 }
@@ -425,12 +566,18 @@ interface Slice {
 }
 
 async function currentSlices(ctx: WriteContext, nodeId: GraphId): Promise<Slice[]> {
+  // A prefetch has already answered this identity, including an empty array:
+  // an empty answer is a fact, not a miss (madarch-alzf review, COMMON).
+  const held = ctx.memo.slices.get(nodeId);
+  if (held !== undefined) return held;
   const found = await ctx.tx.query<Raw>(
     `SELECT ${tsText('valid_from')} AS valid_from, ${tsText('valid_to')} AS valid_to, lower(states)::text AS lo, upper(states)::text AS hi
      FROM node_version WHERE node_id = $1::bigint AND recorded_to = 'infinity' AND recorded_from <= $2::timestamptz`,
     [nodeId, ctx.at],
   );
-  return found.rows.map((r) => ({ validFrom: r['valid_from'] as string, validTo: r['valid_to'] as string, statesFrom: Number(r['lo']), statesTo: Number(r['hi']) }));
+  const slices = found.rows.map((r) => ({ validFrom: r['valid_from'] as string, validTo: r['valid_to'] as string, statesFrom: Number(r['lo']), statesTo: Number(r['hi']) }));
+  ctx.memo.slices.set(nodeId, slices);
+  return slices;
 }
 
 /**
@@ -516,6 +663,7 @@ export async function removeNodeVersion(ctx: WriteContext, versionId: GraphId, w
   await lockNodes(ctx, [old.nodeId], 'UPDATE');
   requireLater(ctx, old.recordedFrom, 'remove node version', `${path}.version`, origin);
   await closeVersion(ctx, 'node_version', versionId, { workItem, as: 'correction' }, `${path}.version`, origin);
+  ctx.memo.slices.delete(old.nodeId);
   return await reconcileEdges(ctx, old.nodeId, 'cascade', workItem, `${path}.version`, origin);
 }
 
@@ -565,6 +713,7 @@ export async function endNode(ctx: WriteContext, nodeId: GraphId, validToInput: 
       result.nodeVersionsReopened += 1;
     }
   }
+  ctx.memo.slices.delete(nodeId);
   const touching = await ctx.tx.query<Raw>(
     `SELECT ${EDGE_COLUMNS} FROM ${EDGE_FROM} WHERE (e.src_id = $1::bigint OR e.dst_id = $1::bigint) AND e.recorded_to = 'infinity' AND e.valid_to > $2::timestamptz ORDER BY e.id FOR UPDATE OF e`,
     [nodeId, validTo],
@@ -634,6 +783,45 @@ export async function resolveEdge(ctx: WriteContext, input: NewEdgeVersion, path
   return { relation, discriminator, position, keyHash: edgeKeyHash({ relation: input.relation, src, dst, discriminator, position }) };
 }
 
+/**
+ * Resolves every key hash a publication will need: what is already held, the
+ * sequence for the rest, and bounded multi-row reads and inserts. The per-edge
+ * function below then answers from the memo.
+ */
+export async function edgeIdentities(ctx: WriteContext, keyHashes: readonly string[]): Promise<void> {
+  const wanted = [...new Set(keyHashes)].filter((hash) => !ctx.memo.edges.has(hash));
+  if (wanted.length === 0) return;
+  for (let at = 0; at < wanted.length; at += PREFETCH_BATCH_SIZE) {
+    const chunk = wanted.slice(at, at + PREFETCH_BATCH_SIZE);
+    const existing = await ctx.tx.query<{ id: string; key_hash: string }>('SELECT id::text AS id, key_hash FROM edge_identity WHERE key_hash = ANY($1::text[])', [`{${chunk.join(',')}}`]);
+    for (const row of existing.rows) ctx.memo.edges.set(row.key_hash, row.id);
+    if (at + chunk.length < wanted.length) await yieldToReaders();
+  }
+  const missing = wanted.filter((hash) => !ctx.memo.edges.has(hash));
+  if (missing.length === 0) return;
+  const made = await ctx.tx.query<{ id: string }>('SELECT nextval(pg_get_serial_sequence($1, $2))::text AS id FROM generate_series(1, $3::int)', ['edge_identity', 'id', missing.length]);
+  const ids = made.rows.map((row) => row.id);
+  // Another publication under a different producer/scope lock may have written
+  // one of these hashes after the select above. Its row wins; the identities
+  // this transaction reserved are then gaps, not errors (madarch-alzf review,
+  // RARE: concurrent publications).
+  for (let at = 0; at < ids.length; at += IDENTITY_BATCH_SIZE) {
+    const idChunk = ids.slice(at, at + IDENTITY_BATCH_SIZE);
+    const hashChunk = missing.slice(at, at + IDENTITY_BATCH_SIZE);
+    await ctx.tx.query('INSERT INTO edge_identity (id, key_hash) OVERRIDING SYSTEM VALUE SELECT unnest($1::bigint[]), unnest($2::text[]) ON CONFLICT (key_hash) DO NOTHING', [`{${idChunk.join(',')}}`, `{${hashChunk.join(',')}}`]);
+    await yieldToReaders();
+  }
+  for (let at = 0; at < missing.length; at += PREFETCH_BATCH_SIZE) {
+    const chunk = missing.slice(at, at + PREFETCH_BATCH_SIZE);
+    const written = await ctx.tx.query<{ id: string; key_hash: string }>('SELECT id::text AS id, key_hash FROM edge_identity WHERE key_hash = ANY($1::text[])', [`{${chunk.join(',')}}`]);
+    for (const row of written.rows) ctx.memo.edges.set(row.key_hash, row.id);
+    if (at + chunk.length < missing.length) await yieldToReaders();
+  }
+  for (const hash of missing) {
+    if (!ctx.memo.edges.has(hash)) throw new Error(`edge identity ${hash} was neither inserted nor read after the conflict`);
+  }
+}
+
 /** The identity one key hash stands for: asked once per transaction, since the row never changes after it is written. */
 export async function edgeIdentity(ctx: WriteContext, keyHash: string): Promise<GraphId> {
   const held = ctx.memo.edges.get(keyHash);
@@ -644,8 +832,24 @@ export async function edgeIdentity(ctx: WriteContext, keyHash: string): Promise<
   return identity;
 }
 
-/** Opens an edge version after endpoint integrity has been checked; returns its identity and version. */
-export async function openEdgeVersion(ctx: WriteContext, input: NewEdgeVersion, path = 'edge'): Promise<{ edgeId: GraphId; versionId: GraphId }> {
+/** An edge version whose checks passed, ready to be written alone or with its siblings. */
+export interface PreparedEdgeVersion {
+  input: NewEdgeVersion;
+  path: string;
+  edgeId: GraphId;
+  relationId: GraphId;
+  discriminator: string;
+  position: ByteSpan | null;
+  validFrom: string;
+  validTo: string;
+  states: StateSpan;
+  properties: Record<string, unknown>;
+  payload: string;
+  scope: GraphId;
+}
+
+/** Checks an edge version exactly as `openEdgeVersion` does, without writing it. */
+export async function prepareEdgeVersion(ctx: WriteContext, input: NewEdgeVersion, path = 'edge'): Promise<PreparedEdgeVersion> {
   const origin = input.origin;
   const validFrom = instantText(input.validFrom, OP_OPEN_EDGE, `${path}.validFrom`, origin);
   const validTo = instantText(input.validTo ?? 'infinity', OP_OPEN_EDGE, `${path}.validTo`, origin);
@@ -661,19 +865,91 @@ export async function openEdgeVersion(ctx: WriteContext, input: NewEdgeVersion, 
   await assertEndpoints(ctx, { src: input.src, dst: input.dst, validFrom, validTo, states }, OP_OPEN_EDGE, path, origin);
   const edgeId = await edgeIdentity(ctx, resolved.keyHash);
   const payload = edgePayloadDigest({ relation: input.relation, src: input.src, dst: input.dst, discriminator: resolved.discriminator, position: resolved.position, properties });
-  const made = await guarded(OP_OPEN_EDGE, path, origin, () =>
+  return { input, path, edgeId, relationId: resolved.relation.id, discriminator: resolved.discriminator, position: resolved.position, validFrom, validTo, states, properties, payload, scope };
+}
+
+/** Writes one prepared edge version, naming its path when the database refuses it. */
+export async function insertEdgeVersion(ctx: WriteContext, prepared: PreparedEdgeVersion): Promise<GraphId> {
+  const { input, path } = prepared;
+  const made = await guarded(OP_OPEN_EDGE, path, input.origin, () =>
     ctx.tx.query<{ id: string }>(
       `INSERT INTO edge_version (edge_id, relation_type_id, src_id, dst_id, discriminator, byte_start, byte_end, valid_from, valid_to, recorded_from, states,
                                 producer, scope_id, opened_by, payload_digest, properties)
        VALUES ($1::bigint, $2::bigint, $3::bigint, $4::bigint, $5, $6::bigint, $7::bigint, $8::timestamptz, $9::timestamptz, $10::timestamptz,
                int8range($11::bigint, $12::bigint), $13, $14::bigint, $15::bigint, $16, $17::jsonb)
        RETURNING id::text AS id`,
-      [edgeId, resolved.relation.id, input.src, input.dst, resolved.discriminator, resolved.position === null ? null : String(resolved.position.start),
-        resolved.position === null ? null : String(resolved.position.end), validFrom, validTo, ctx.at, String(states.from), String(states.to),
-        input.owner.producer, scope, input.openedBy ?? null, payload, JSON.stringify(properties)],
+      [prepared.edgeId, prepared.relationId, input.src, input.dst, prepared.discriminator, prepared.position === null ? null : String(prepared.position.start),
+        prepared.position === null ? null : String(prepared.position.end), prepared.validFrom, prepared.validTo, ctx.at, String(prepared.states.from), String(prepared.states.to),
+        input.owner.producer, prepared.scope, input.openedBy ?? null, prepared.payload, JSON.stringify(prepared.properties)],
     ),
   );
-  return { edgeId, versionId: made.rows[0]!.id };
+  return made.rows[0]!.id;
+}
+
+/**
+ * Writes prepared edge versions as one statement per chunk. The caller wraps a
+ * chunk so that a refusal falls back to `insertEdgeVersion`, which names the
+ * edge and path the database refused; successful chunks keep the write count
+ * proportional to publications, not edges.
+ */
+export async function insertEdgeVersions(ctx: WriteContext, prepared: readonly PreparedEdgeVersion[]): Promise<void> {
+  if (prepared.length === 0) return;
+  const rows = prepared.map((one) => ({
+    edge_id: one.edgeId,
+    relation_type_id: one.relationId,
+    src_id: one.input.src,
+    dst_id: one.input.dst,
+    discriminator: one.discriminator,
+    byte_start: one.position === null ? null : String(one.position.start),
+    byte_end: one.position === null ? null : String(one.position.end),
+    valid_from: one.validFrom,
+    valid_to: one.validTo,
+    recorded_from: ctx.at,
+    states_from: String(one.states.from),
+    states_to: String(one.states.to),
+    producer: one.input.owner.producer,
+    scope_id: one.scope,
+    opened_by: one.input.openedBy ?? null,
+    payload_digest: one.payload,
+    properties: one.properties,
+  }));
+  await ctx.tx.query(
+    `INSERT INTO edge_version (edge_id, relation_type_id, src_id, dst_id, discriminator, byte_start, byte_end, valid_from, valid_to, recorded_from, states,
+                              producer, scope_id, opened_by, payload_digest, properties)
+     SELECT edge_id::bigint, relation_type_id::bigint, src_id::bigint, dst_id::bigint, discriminator,
+            byte_start::bigint, byte_end::bigint, valid_from::timestamptz, valid_to::timestamptz, recorded_from::timestamptz,
+            int8range(states_from::bigint, states_to::bigint), producer, scope_id::bigint, opened_by::bigint, payload_digest, properties
+     FROM jsonb_to_recordset($1::jsonb) AS x(edge_id text, relation_type_id text, src_id text, dst_id text, discriminator text,
+                                              byte_start text, byte_end text, valid_from text, valid_to text, recorded_from text,
+                                              states_from text, states_to text, producer text, scope_id text, opened_by text,
+                                              payload_digest text, properties jsonb)`,
+    [JSON.stringify(rows)],
+  );
+}
+
+/** Opens an edge version after endpoint integrity has been checked; returns its identity and version. */
+export async function openEdgeVersion(ctx: WriteContext, input: NewEdgeVersion, path = 'edge'): Promise<{ edgeId: GraphId; versionId: GraphId }> {
+  const prepared = await prepareEdgeVersion(ctx, input, path);
+  return { edgeId: prepared.edgeId, versionId: await insertEdgeVersion(ctx, prepared) };
+}
+
+/** The current versions of several edge identities, grouped by identity, in bounded reads. */
+export async function currentEdgeVersions(ctx: WriteContext, edgeIds: readonly GraphId[]): Promise<Map<GraphId, EdgeVersionRow[]>> {
+  const wanted = [...new Set(edgeIds)];
+  const grouped = new Map<GraphId, EdgeVersionRow[]>();
+  if (wanted.length === 0) return grouped;
+  for (let at = 0; at < wanted.length; at += PREFETCH_BATCH_SIZE) {
+    const chunk = wanted.slice(at, at + PREFETCH_BATCH_SIZE);
+    const found = await ctx.tx.query<Raw>(`SELECT ${EDGE_COLUMNS} FROM ${EDGE_FROM} WHERE e.edge_id = ANY($1::bigint[]) AND e.recorded_to = 'infinity' ORDER BY e.edge_id, e.valid_from, lower(e.states), e.id`, [`{${chunk.join(',')}}`]);
+    for (const raw of found.rows) {
+      const row = edgeRow(raw);
+      const held = grouped.get(row.edgeId);
+      if (held === undefined) grouped.set(row.edgeId, [row]);
+      else held.push(row);
+    }
+    if (at + chunk.length < wanted.length) await yieldToReaders();
+  }
+  return grouped;
 }
 
 export interface EdgePatch {
