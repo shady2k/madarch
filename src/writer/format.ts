@@ -500,7 +500,7 @@ export async function checkPage(markdown: string, expected: PageExpectation, res
     const location = [expected.file, expected.fullPath].filter((part): part is string => part !== undefined).join(' — ');
     return location === '' ? refusal : { ...refusal, message: `${location}:${refusal.line}: ${refusal.message}` };
   };
-  const split = splitFrontMatter(markdown.replace(/\r\n/g, '\n'));
+  const split = splitFrontMatter(markdown.replaceAll('\r\n', '\n'));
   if ('rule' in split) return { ok: false, refusals: [located(split)] };
   const refusals: Refusal[] = [];
   const front = frontMatterOf(split.front, expected);
@@ -670,7 +670,7 @@ export async function checkPage(markdown: string, expected: PageExpectation, res
 function previousNames(previous: string | undefined, language?: string): Map<string, string> {
   const names = new Map<string, string>();
   if (previous === undefined) return names;
-  const split = splitFrontMatter(previous.replace(/\r\n/g, '\n'));
+  const split = splitFrontMatter(previous.replaceAll('\r\n', '\n'));
   if ('rule' in split) return names;
   // A numbered label is no name: a page still numbered is renamed when it is written again.
   for (const statement of statementsOf(split.body, split.bodyStart, language)) if (!isNumbered(statement.labels[0]!) && !names.has(sentenceKey(statement.text))) names.set(sentenceKey(statement.text), statement.labels[0]!);

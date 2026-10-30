@@ -3,16 +3,39 @@ import { parseDocument, stringify } from 'yaml';
 import type { DocEntity } from '../knowledge/doc-entities.js';
 import { createHash } from 'node:crypto';
 import type { McpToolDefinition } from '../fill/unit-mcp.js';
+import { readPage } from './sentences.js';
 
 export const LOCALIZED_SOURCE_SCHEMA = 'madarch.localized-document-source@1';
 
+/** A short `Label: value` line is a glossary field, not prose; the structure is a colon, not a word list. */
+function isFieldLine(line: string): boolean {
+  let text = line.trim();
+  if (text.startsWith('- ') || text.startsWith('* ') || text.startsWith('+ ')) text = text.slice(2).trimStart();
+  const colon = text.indexOf(':');
+  if (colon < 2 || colon > 24) return false;
+  const label = text.slice(0, colon).trim();
+  let words = 1;
+  let letters = 0;
+  for (const character of label) {
+    if (character.trim() === '') words += 1;
+    else if (character.toLowerCase() !== character.toUpperCase()) letters += 1;
+  }
+  return letters > 0 && words <= 3;
+}
+
 function languageCounts(text: string): { cyrillic: number; latin: number } {
-  const prose = text.replace(/`[^`]*`/g, ' ').replace(/^\s*(?:[-*+]\s+|\d+[.)]\s+)?(?:In code|Code names|Also called|Synonyms|Used in|Ambiguous|в коде|также называют|синонимы|где используется|неоднозначно)\s*:\s*.*$/gim, ' ');
-  const letters = [...prose.matchAll(/[\p{L}]/gu)].map((match) => match[0]!);
-  return {
-    cyrillic: letters.filter((letter) => /\p{Script=Cyrillic}/u.test(letter)).length,
-    latin: letters.filter((letter) => /\p{Script=Latin}/u.test(letter)).length,
-  };
+  const prose = text.split('\n').filter((line) => !isFieldLine(line)).join('\n');
+  let cyrillic = 0;
+  let latin = 0;
+  for (const token of readPage(prose).tokens) {
+    if (token.kind !== 'text') continue;
+    for (const character of token.value) {
+      const code = character.codePointAt(0) ?? 0;
+      if (code >= 0x0400 && code <= 0x04ff) cyrillic += 1;
+      else if ((code >= 0x41 && code <= 0x5a) || (code >= 0x61 && code <= 0x7a) || (code >= 0x00c0 && code <= 0x024f) || (code >= 0x1e00 && code <= 0x1eff)) latin += 1;
+    }
+  }
+  return { cyrillic, latin };
 }
 
 /** Identify source language from enough prose, not code identifiers or known field labels. */
@@ -65,7 +88,7 @@ export type LocalizedSourceRead = { ok: true; source: LocalizedDocumentSource } 
 
 /** Reads a product-owned artifact and checks its identity and immutable source against the current extracted entity. */
 export function parseLocalizedSource(path: string, text: string, entity: DocEntity, language: string): LocalizedSourceRead {
-  const lines = text.replace(/\r\n/g, '\n').split('\n');
+  const lines = text.replaceAll('\r\n', '\n').split('\n');
   if (lines[0] !== '---') return { ok: false, line: 1, message: 'localized source starts with YAML front matter' };
   const end = lines.indexOf('---', 1);
   if (end < 0) return { ok: false, line: 1, message: 'localized source front matter is not closed' };
@@ -86,15 +109,24 @@ export function parseLocalizedSource(path: string, text: string, entity: DocEnti
   const sourceLanguage = record['source-language'];
   if (sourceLanguage !== 'en' && sourceLanguage !== 'ru') return fail('source-language', '"en" or "ru"');
   const body = lines.slice(end + 1).join('\n');
-  const match = /^## Localized statement\s*\n+([\s\S]*?)\n+## In the source\s*\n+([\s\S]*?)\s*$/.exec(body.trim());
-  if (match === null || match[1]!.trim() === '' || match[2]!.trim() === '') return { ok: false, line: end + 2, message: 'localized source has non-empty Localized statement and In the source sections' };
-  if (detectStatementLanguage(match[1]!) !== language) return { ok: false, line: end + 2, message: `localized statement does not appear to be in ${language}` };
-  if (match[2]!.trim() !== entity.text.trim()) return { ok: false, line: end + 2 + body.split('\n').findIndex((line) => line.trim() === '## In the source') + 1, message: 'In the source does not match the current extracted document section' };
+  const bodyLines = body.trim().split('\n');
+  let statementAt = -1;
+  let sourceAt = -1;
+  for (let index = 0; index < bodyLines.length; index += 1) {
+    if (statementAt < 0 && bodyLines[index]!.trim() === '## Localized statement') statementAt = index;
+    else if (sourceAt < 0 && bodyLines[index]!.trim() === '## In the source') sourceAt = index;
+  }
+  if (statementAt < 0 || sourceAt <= statementAt) return { ok: false, line: end + 2, message: 'localized source has non-empty Localized statement and In the source sections' };
+  const statement = bodyLines.slice(statementAt + 1, sourceAt).join('\n').trim();
+  const original = bodyLines.slice(sourceAt + 1).join('\n').trim();
+  if (statement === '' || original === '') return { ok: false, line: end + 2, message: 'localized source has non-empty Localized statement and In the source sections' };
+  if (detectStatementLanguage(statement) !== language) return { ok: false, line: end + 2, message: `localized statement does not appear to be in ${language}` };
+  if (original !== entity.text.trim()) return { ok: false, line: end + 3 + sourceAt, message: 'In the source does not match the current extracted document section' };
   return { ok: true, source: {
     schema: LOCALIZED_SOURCE_SCHEMA, entity: entity.id, kind: entity.kind,
     wikiLanguage: language as 'en' | 'ru', sourceLanguage: sourceLanguage as 'en' | 'ru',
     sourceDocument: String(record['source-document']), sourceLine: entity.line, sourceEndLine: entity.endLine,
-    original: entity.text, statement: match[1]!.trim(),
+    original: entity.text, statement,
   } };
 }
 

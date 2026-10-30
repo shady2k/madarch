@@ -162,9 +162,18 @@ const read = (path: string, all: readonly string[], start: number, end: number):
 
 const shorten = (text: string, most: number): string => (text.length <= most ? text : `${text.slice(0, most - 1)}…`);
 
-/** The words a text is matched by: its letters and digits, in lower case. */
+/** The words a text is matched by: the language's word-like segments, lower case. */
 function words(text: string): string[] {
-  return (text.toLowerCase().match(/[\p{L}\p{N}][\p{L}\p{N}_-]*/gu) ?? []);
+  const out: string[] = [];
+  for (const segment of new Intl.Segmenter(undefined, { granularity: 'word' }).segment(text.toLowerCase())) {
+    if (!segment.isWordLike) continue;
+    let word = '';
+    for (const character of segment.segment) {
+      if (character === '_' || character === '-' || character >= '0' && character <= '9' || character.toLowerCase() !== character.toUpperCase()) word += character;
+    }
+    if (word !== '') out.push(word);
+  }
+  return out;
 }
 
 /** How many of the intent's words a text holds, each counted once; a word matches a longer one that contains it. */
@@ -179,10 +188,37 @@ function score(intent: readonly string[], text: string): number {
   return found;
 }
 
-const headingOf = (line: string): string =>
-  line.replace(/^\s{0,3}#{1,6}\s+/, '').replace(/\s*\{#[\w-]+\}\s*$/, '').replace(/\s*#+\s*$/, '').trim();
+function headingOf(line: string): string {
+  let text = line.trimStart();
+  let hash = 0;
+  while (text[hash] === '#') hash += 1;
+  if (hash > 0 && hash <= 6) text = text.slice(hash).trimStart();
+  const anchor = text.lastIndexOf('{#');
+  if (anchor >= 0 && text.trimEnd().endsWith('}')) text = text.slice(0, anchor);
+  text = text.trimEnd();
+  while (text.endsWith('#')) text = text.slice(0, -1).trimEnd();
+  return text.trim();
+}
 
-const isHeading = (line: string): boolean => /^\s{0,3}#{1,6}\s/.test(line);
+const isHeading = (line: string): boolean => {
+  let at = 0;
+  while (line[at] === ' ' && at < 3) at += 1;
+  let hash = 0;
+  while (line[at + hash] === '#') hash += 1;
+  return hash > 0 && hash <= 6 && line[at + hash] === ' ';
+};
+
+function collapse(text: string): string {
+  let out = '';
+  let blank = false;
+  for (const character of text.trim()) {
+    if (character.trim() === '') { blank = out !== ''; continue; }
+    if (blank) out += ' ';
+    blank = false;
+    out += character;
+  }
+  return out;
+}
 
 /** The repository path a symbol, file or route key names; undefined for a key that names no file. */
 function pathOf(key: string): string | undefined {
@@ -219,7 +255,14 @@ function signatureOf(all: readonly string[], span: { lineStart: number; lineEnd:
     const text = all[line - 1] ?? '';
     taken.push(text);
     end = line;
-    if (/[{(]|=>|;\s*$/.test(text)) break;
+    let close = false;
+    for (let at = 0; at < text.length; at += 1) if (text[at] === '{' || text[at] === '(' || (text[at] === '=' && text[at + 1] === '>')) { close = true; break; }
+    if (!close) {
+      let at = text.length - 1;
+      while (at >= 0 && text[at]!.trim() === '') at -= 1;
+      if (at >= 0 && text[at] === ';') close = true;
+    }
+    if (close) break;
   }
   const text = taken.join('\n');
   return { text: shorten(text, 400), lineStart: span.lineStart, lineEnd: end, cut: end < span.lineEnd || text.length > 400 };
@@ -872,7 +915,7 @@ export async function getDocumentSections(graph: GraphReads, args: GetDocumentSe
         heading,
         lineStart,
         lineEnd,
-        excerpt: shorten(section.text.replace(/\s+/g, ' ').trim(), SECTION_EXCERPT),
+        excerpt: shorten(collapse(section.text), SECTION_EXCERPT),
         matched,
         read: read(path, body, lineStart, lineEnd),
       });

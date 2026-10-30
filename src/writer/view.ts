@@ -47,6 +47,38 @@ const DOCUMENT_EXTENSIONS = /\.(md|markdown)$/i;
 
 export { documentAnchors, slugOf };
 
+/** A section identifier such as `uc-2`, written without a regular expression. */
+function isSectionIdentifier(anchor: string): boolean {
+  let at = 0;
+  while (at < anchor.length && anchor[at]! >= 'a' && anchor[at]! <= 'z') at += 1;
+  if (at === 0 || anchor[at] !== '-') return false;
+  at += 1;
+  const digits = at;
+  while (at < anchor.length && anchor[at]! >= '0' && anchor[at]! <= '9') at += 1;
+  return at > digits && at === anchor.length;
+}
+
+/** The readable phrase of a heading or list line, without Markdown's markers. */
+function headingPhrase(raw: string): string {
+  let text = raw.trim();
+  let hash = 0;
+  while (text[hash] === '#') hash += 1;
+  if (hash > 0 && hash <= 6) text = text.slice(hash).trimStart();
+  else if (text.startsWith('- ') || text.startsWith('* ') || text.startsWith('+ ')) text = text.slice(2).trimStart();
+  else {
+    let digits = 0;
+    while (text[digits]! >= '0' && text[digits]! <= '9') digits += 1;
+    if (digits > 0 && (text[digits] === '.' || text[digits] === ')') && text[digits + 1] === ' ') text = text.slice(digits + 2);
+  }
+  const anchor = text.lastIndexOf('{#');
+  if (anchor >= 0 && text.endsWith('}')) text = text.slice(0, anchor).trimEnd();
+  while (text.endsWith('#')) text = text.slice(0, -1).trimEnd();
+  if ((text.startsWith('**') && text.endsWith('**')) || (text.startsWith('__') && text.endsWith('__'))) text = text.slice(2, -2);
+  let out = '';
+  for (const character of text) if (character !== '`' && character !== '*' && character !== '_' && character !== '~') out += character;
+  return out.trim();
+}
+
 export class GraphView implements GroundResolver {
   private readonly keyCache = new Map<string, NodeInfo | null>();
   private readonly anchorCache = new Map<string, Set<string> | null>();
@@ -155,16 +187,17 @@ export class GraphView implements GroundResolver {
       return node === null || node.label.trim() === '' ? undefined : node.label.trim();
     }
     if (target.type !== 'doc') return undefined;
-    if (/^[a-z]+-\d+$/.test(target.anchor)) return target.anchor.toUpperCase();
+    if (isSectionIdentifier(target.anchor)) return target.anchor.toUpperCase();
     const text = await this.fileText(target.path);
     if (text === null) return undefined;
     const line = anchorLines(text).get(target.anchor);
     if (line === undefined) return undefined;
-    const raw = text.split('\n')[line - 1] ?? '';
-    const heading = /^#{1,6}\s+(.*?)\s*(?:\{#[\w-]+\})?\s*#*\s*$/.exec(raw);
-    const phrase = (heading?.[1] ?? raw.replace(/^\s*(?:[-*+]|\d+[.)])\s+/, '').replace(/^(?:\*\*|__)(.*?)(?:\*\*|__).*$/, '$1')).replace(/[`*_~]/g, '').trim();
+    const phrase = headingPhrase(text.split('\n')[line - 1] ?? '');
     if (phrase === '') return undefined;
-    return phrase.length > 60 ? `${phrase.slice(0, 57).replace(/\s+\S*$/, '')}...` : phrase;
+    if (phrase.length <= 60) return phrase;
+    let cut = 57;
+    while (cut > 0 && phrase[cut] !== undefined && phrase[cut]!.trim() !== '') cut -= 1;
+    return `${phrase.slice(0, cut > 0 ? cut : 57).trimEnd()}...`;
   }
 
   /**
