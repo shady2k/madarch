@@ -119,6 +119,8 @@ export async function renderPage(ctx: RenderContext, id: string, lang?: string, 
   // A section with nothing in it is not a section a reader meets: leave an empty related block out of the page, and the
   // app draws no heading over an empty table (madarch-m38l.19).
   blocks = blocks.filter((block) => block.type !== 'related' || block.groups.length > 0);
+  // A list of the pages that mention this one is shown when there are some: a page nobody mentions says nothing there.
+  blocks = blocks.filter((block) => block.type !== 'refs' || block.hideEmpty !== true || block.total > 0);
   // Every `madarch:` link the page's text holds is resolved here, once, and shown as broken when it does not.
   const urls = new Set<string>();
   const bodyLinks: { url: string; line: number; ground: boolean }[] = [];
