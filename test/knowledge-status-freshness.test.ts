@@ -9,7 +9,7 @@ import { execFileSync } from 'node:child_process';
 import { mkdirSync, mkdtempSync, readFileSync, rmSync, statSync, utimesSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
-import { KnowledgeProduct } from '../src/knowledge/product.js';
+import { KnowledgeProduct, type FillWorkerHandle } from '../src/knowledge/product.js';
 import { renderCorrection } from '../src/loop/entities.js';
 import { writeTask } from '../src/loop/tasks.js';
 import { gitEnv } from './git-env.js';
@@ -50,11 +50,26 @@ function fixture(): Fixture {
   return { folder, repository, store: join(root, 'store') };
 }
 
-function productOf({ folder, store }: Fixture): KnowledgeProduct {
-  const held = new KnowledgeProduct({ productFolder: folder, storeRoot: store });
+function productOf({ folder, store }: Fixture, options: { workerFactory?: () => FillWorkerHandle } = {}): KnowledgeProduct {
+  const held = new KnowledgeProduct({ productFolder: folder, storeRoot: store, ...options });
   open.push(held);
   return held;
 }
+
+/** A fill that starts and says nothing until the test lets it go, so the product stays in the fill's state. */
+function heldFill(): { worker: () => FillWorkerHandle; release: () => void } {
+  let release!: () => void;
+  const hold = new Promise<void>((resolve) => { release = resolve; });
+  return {
+    worker: () => ({ send: () => undefined, lines: (async function* () { await hold; })(), exited: hold.then(() => 0), stderr: () => '', kill: () => undefined }),
+    release: () => release(),
+  };
+}
+
+/** A page of a Markdown folder kind whose one ground names nothing: the Problems page counts it. */
+// A page of the kind whose template appeared later: it names no kind, so reading it is a finding — and the count of
+// open problems moves by one when the folder of that kind is stamped at all.
+const GHOST_PAGE = ['---', 'id: ghost:a', '---', 'The ghost stands here.', ''].join('\n');
 
 /** A whole-second timestamp, so a restored mtime is byte for byte the one the warm answer saw. */
 const FIXED = 1_700_000_000;
@@ -92,16 +107,17 @@ describe('the status answer reads what its inputs say now', () => {
     const held = productOf(fixtureSet);
     await held.status();
     const before = await held.status();
-    expect(before.loop.problemsOpen).toBeGreaterThan(0);
+    const openBefore = before.loop.problemsOpen ?? -1;
+    expect(openBefore).toBeGreaterThan(0);
 
     write('applied');
     // The first answer after the edit sees a new key and, while the listing is still collecting, may answer with the
     // previous count. The next answer must not keep that count once the listing for these inputs is there.
     await held.status();
     const listed = await held.problems();
-    expect(listed.open).toBe(before.loop.problemsOpen - 1);
+    expect(listed.open).toBe(openBefore - 1);
     const after = await held.status();
-    expect(after.loop.problemsOpen).toBe(before.loop.problemsOpen - 1);
+    expect(after.loop.problemsOpen).toBe(openBefore - 1);
   }, 60_000);
 
   test('a template written for a declaration that named it missing makes the kind appear', async () => {
@@ -188,4 +204,96 @@ describe('a change whose size and mtime are unchanged', () => {
     const after = await held.status();
     expect(after.product.name).toBe('shoo');
   }, 60_000);
+});
+
+describe('a count the answer cannot have collected is pending, not a count for other inputs', () => {
+  test('a correction applied while a fill runs never leaves the previous count in the menu', async () => {
+    const fixtureSet = fixture();
+    mkdirSync(join(fixtureSet.folder, 'docs', 'corrections'), { recursive: true });
+    const correction = join(fixtureSet.folder, 'docs', 'corrections', 'price.md');
+    const write = (status: 'open' | 'applied'): void => writeFileSync(correction, renderCorrection({
+      slug: 'price', title: 'The price', status, about: 'product:shop#price', statement: 'The price is ten.',
+      reason: 'The price is eleven.', by: { name: 'Ada Reader', email: 'ada@example.test', verified: 'local, not verified' },
+      at: '2026-10-24T09:00:00.000Z', resolvedBy: [], resolvedAt: null,
+    }));
+    write('open');
+    const fill = heldFill();
+    const held = productOf(fixtureSet, { workerFactory: fill.worker });
+    await held.status();
+    const before = await held.status();
+    const openBefore = before.loop.problemsOpen ?? -1;
+    expect(openBefore).toBeGreaterThan(0);
+    expect((await held.startFill()).started).toBe(true);
+
+    write('applied');
+    // The fill suppresses the collection of the listing for these inputs: the answer must not carry the count that was
+    // collected for the previous ones, nor keep it through the memo on the next poll.
+    try {
+      const during = await held.status();
+      expect(during.loop.problemsOpen).not.toBe(openBefore);
+      const again = await held.status();
+      expect(again.loop.problemsOpen).not.toBe(openBefore);
+    } finally {
+      fill.release();
+      await held.settled();
+    }
+    const listed = await held.problems();
+    expect(listed.open).toBe(openBefore - 1);
+    const after = await held.status();
+    expect(after.loop.problemsOpen).toBe(openBefore - 1);
+  }, 90_000);
+});
+
+describe('a kind whose template appears after the answer was warmed', () => {
+  test('a Markdown kind accepted when its template is written stamps its folder from then on', async () => {
+    const fixtureSet = fixture();
+    const manifest = join(fixtureSet.folder, 'madarch', 'kinds.yaml');
+    const text = readFileSync(manifest, 'utf8');
+    writeFileSync(manifest, text.replace('kinds:\n', 'kinds:\n  ghost:\n    template: templates/ghost.md\n    source: markdown\n    folder: pages/ghost\n'));
+
+    const held = productOf(fixtureSet);
+    await held.status();
+    const before = await held.status();
+    expect(kind(before, 'ghost')).toBeUndefined();
+
+    writeFileSync(join(fixtureSet.folder, 'templates', 'ghost.md'), '# Ghost\n');
+    const made = await held.status();
+    expect(kind(made, 'ghost')).toBeDefined();
+    // The count with the kind accepted and no page of it yet: the baseline the next page is read against.
+    const base = await held.problems();
+
+    mkdirSync(join(fixtureSet.folder, 'pages', 'ghost'), { recursive: true });
+    writeFileSync(join(fixtureSet.folder, 'pages', 'ghost', 'a.md'), GHOST_PAGE);
+    const listed = await held.problems();
+    expect(listed.open).toBe(base.open + 1);
+    const after = await held.status();
+    expect(after.loop.problemsOpen).toBe(base.open + 1);
+  }, 90_000);
+
+  test('a template written as the fallback of a missing one is stamped before either exists', async () => {
+    const fixtureSet = fixture();
+    const manifest = join(fixtureSet.folder, 'madarch', 'kinds.yaml');
+    const text = readFileSync(manifest, 'utf8');
+    writeFileSync(manifest, text.replace('kinds:\n', 'kinds:\n  ghost:\n    template: templates/ghost.md\n    source: markdown\n    folder: pages/ghost\n'));
+
+    const held = productOf(fixtureSet);
+    await held.status();
+    const before = await held.status();
+    expect(kind(before, 'ghost')).toBeUndefined();
+    expect(before.findings.some((finding) => finding.message.includes('templates/ghost.md') && finding.message.includes('does not exist'))).toBe(true);
+
+    // Neither template exists when the answer is warmed: the parser takes the Liquid fallback once it is written.
+    writeFileSync(join(fixtureSet.folder, 'templates', 'ghost.liquid'), '# Ghost\n');
+    const made = await held.status();
+    expect(kind(made, 'ghost')).toBeDefined();
+    expect(made.findings.some((finding) => finding.message.includes('templates/ghost.md'))).toBe(false);
+    const base = await held.problems();
+
+    mkdirSync(join(fixtureSet.folder, 'pages', 'ghost'), { recursive: true });
+    writeFileSync(join(fixtureSet.folder, 'pages', 'ghost', 'a.md'), GHOST_PAGE);
+    const listed = await held.problems();
+    expect(listed.open).toBe(base.open + 1);
+    const after = await held.status();
+    expect(after.loop.problemsOpen).toBe(base.open + 1);
+  }, 90_000);
 });
