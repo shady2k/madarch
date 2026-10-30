@@ -38,6 +38,8 @@ export class FactIndex<T> {
       else if (Array.isArray(held)) held.push(item);
       else grouped.set(at, [held as T, item]);
     }
+    // A group is the proof's whole answer: a caller can read it, never shrink it.
+    for (const held of grouped.values()) if (Array.isArray(held)) Object.freeze(held);
     return new FactIndex<T>(grouped);
   }
 
@@ -53,12 +55,13 @@ export class FactIndex<T> {
   all(key: string): readonly T[] {
     const held = this.groups.get(key);
     if (held === undefined) return EMPTY_INDEX;
-    return Array.isArray(held) ? held : [held as T];
+    // One entry is held as itself; its answer is still an array a caller cannot shrink.
+    return Array.isArray(held) ? held : Object.freeze([held as T]);
   }
 
   /** The keys this index holds. */
   keys(): readonly string[] {
-    return [...this.groups.keys()];
+    return Object.freeze([...this.groups.keys()]);
   }
 }
 
