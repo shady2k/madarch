@@ -18,9 +18,10 @@ pattern of characters rather than by the graph's own key prefixes; and every
 paragraph and every reference could scan the whole page again.
 
 This change makes the decisions structural. A question link is recognized by its
-target `madarch:question:…`; a reference heading is a heading whose only content
-is such a link; a raw entity id is a parsed text or code token whose prefix the
-graph declares; a code span is a tree `inlineCode` node; and a statement's name is
+target `madarch:question:…`; a reference-only heading is a heading whose words
+all stand in links and which has at least one (a question link in a heading is
+refused separately); a raw entity id is a parsed text or code token whose prefix
+the graph declares; a code span is a tree `inlineCode` node; and a statement's name is
 built from `Intl.Segmenter` word segments in the wiki's language. The sentence
 reader masks only the spans inside the paragraph it is reading, and its footnote
 walk advances a cursor instead of searching the page for every reference.
@@ -94,10 +95,11 @@ None.
 - **A link is known by its target.** `parseTarget()` still parses a target once;
   `questionLinksOf()` now asks whether the parsed target is a question, and
   `linkLabel()` reads the label from the tree. The English and Russian prefix
-  checks and `REFERENCE_HEADINGS` are gone. A heading is a reference heading when
-  every token in it is a question link and there is at least one; a heading that
-  merely says "See question" is an ordinary topic heading and is no longer
-  accepted as a reference heading by a word list.
+  checks and `REFERENCE_HEADINGS` are gone. A heading is reference-only when all
+  its words stand inside links and it has at least one link; a question link in a
+  heading is refused by its target. A heading that merely says "See question" is
+  an ordinary topic heading and is no longer accepted as a reference heading by a
+  word list.
 - **A raw id is a token the graph recognizes.** `GraphView.keyPrefixes()` answers
   the `node_kind` prefixes of the graph plus the page and document prefixes; the
   format scans parsed text and `inlineCode` tokens outside link and heading spans
@@ -117,9 +119,9 @@ None.
   (`A refund is allowed within 14 days.` becomes `refund-is-allowed-within`,
   where the old name was `refund-allowed-within-days`); stored names dominate for
   unchanged text.
-- **The sentence key does not move with the name.** `sentenceKey()` lower-cases
-  and collapses whitespace by character and keeps the punctuation the old key
-  kept, so an unchanged sentence has the same key. `nameStatements()` maps the
+- **The sentence key does not move with the name.** `sentenceKey()` collapses whitespace by
+  character and keeps the case and punctuation the old key kept, so an unchanged
+  sentence has the same key. `nameStatements()` maps the
   previous page's key to its stored name before producing any new name, and the
   migration test writes a page, appends one sentence and proves the old names are
   reused and only the new sentence's name is new.
@@ -143,10 +145,11 @@ Filled from the commands actually run on this tree; the counts and timings are
 replaced by the final numbers in the handback.
 
 - `bun run check`: `tsc --noEmit` exited 0 on the final tree.
-- `bun test test/writer-*.test.ts`: 426 tests passed across 36 files, including the new `test/writer-structure.test.ts`, the migrated `test/writer-names.test.ts` and the linear-time `test/writer-performance.test.ts` (3.57 s); no failure. The line before the performance file was added had 425 tests across 35 files and 5,876 `expect()` calls.
-- `bun test test/knowledge-*.test.ts`: 539 tests passed across 42 files, no failure; 135,215 `expect()` calls, 604.80 s on the final tree.
+- `bun test test/writer-*.test.ts`: 426 tests passed across 36 files, 5,886 `expect()` calls, 48.70 s; no failure. They include the new `test/writer-structure.test.ts`, the migrated `test/writer-names.test.ts` and the linear-time `test/writer-performance.test.ts` (2.84 s).
+- `bun test test/knowledge-*.test.ts`: 539 tests passed across 42 files, no failure; 135,216 `expect()` calls, 414.06 s of test time. The combined single process was killed by this container's memory ceiling (dmesg records the OOM kill), so every file was run in a fresh Bun process; all 42 exited 0.
 - The 2,000-statement page with 2,000 code spans and 2,000 footnote grounds: 555.3 ms before, 406.7 ms after, both the median of ten runs (first run included) of `/tmp/perf-ztyq12-v2.ts` against the base worktree at `eaf70258` and this tree. At 1,000, 2,000 and 4,000 statements the after times are 187.8, 404.2 and 836.7 ms (five runs), so doubling the page doubles the check; the before times are 262.6, 555.3 and 1,309.1 ms. `test/writer-performance.test.ts` checks the same growth (1,000 against 2,000 statements, three runs, median) and refuses more than three times the work.
-- `node .shady2k/documents.mjs check --phase feature --change madarch-ztyq.12 --target origin/main`: refused only `untracked-change: change/taskIds — a change names existing leaf tasks`; this repository has no `.beads/issues.jsonl` and no tracker leaf for `madarch-ztyq.12`, so the gate cannot see one. No other violation is reported. Its canonical change digest is `6ecaaa6af00aaff3c376c9d1ffacd15d307c46b57d217bf60a01b2e50321d499`.
+- `bun scripts/wiki-walk-ci.ts --baseline scripts/wiki-walk-baseline.json`: 15,189 findings and every class exactly at its baseline — 3,252 empty-section, 4,704 raw-key, 6,357 foreign-language, 426 raw-id and 450 node-without-evidence — so the ratchet passes.
+- `node .shady2k/documents.mjs check --phase feature --change madarch-ztyq.12 --target origin/main`: refused only `untracked-change: change/taskIds — a change names existing leaf tasks`; this repository has no `.beads/issues.jsonl` and no tracker leaf for `madarch-ztyq.12`, so the gate cannot see one. No other violation is reported. Its canonical change digest is `9b376d9769b97023eefeeffbb739a2e6771e2c2c89b1623729da701919464998`.
 
 ## DONE WHEN
 
