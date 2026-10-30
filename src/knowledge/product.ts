@@ -311,6 +311,8 @@ export class KnowledgeProduct {
   private problemsFlight: { key: string; promise: Promise<ProblemListing> } | undefined;
   /** Orders collections, so a listing for older inputs that lands late never replaces a newer one. */
   private problemsSequence = 0;
+  /** The key whose background collection failed: the menu does not walk it again on every poll. */
+  private problemsFailed: string | undefined;
   private idleTimer: ReturnType<typeof setInterval> | undefined;
 
   constructor(private readonly options: KnowledgeProductOptions) {}
@@ -1619,36 +1621,50 @@ export class KnowledgeProduct {
     }
     if (keys.key !== '') {
       const held = this.statusMemo;
-      if (held !== undefined && held.key === keys.key) return this.statusLive(held.body, keys.problems);
+      // A body whose count was left pending is made again once the fill that held its collection back has ended: the
+      // answer it starts lands for the next poll, and the memo never keeps a pending body past the fill.
+      const usable = held !== undefined && held.key === keys.key && (!held.pending || this.fill.state === 'running' || this.problemsFlight !== undefined);
+      if (usable) return this.statusLive(held.body, held.problemsKey, keys.problems);
       // Eight polls of one reader, or three readers polling together, wait for one read of the same files.
       const flight = this.statusFlight;
-      if (flight !== undefined && flight.key === keys.key) return this.statusLive(await flight.promise, keys.problems);
+      if (flight !== undefined && flight.key === keys.key) {
+        const made = await flight.promise;
+        return this.statusLive(made.body, made.problems, made.problems);
+      }
       const promise = this.statusNow();
       this.statusFlight = { key: keys.key, promise };
       try {
-        const body = this.statusLive(await promise, keys.problems);
-        this.statusMemo = { key: keys.key, problemsKey: keys.problems, body };
-        return body;
+        const made = await promise;
+        this.statusMemo = { key: keys.key, problemsKey: made.problems, pending: made.problems === '', body: made.body };
+        return this.statusLive(made.body, made.problems, made.problems);
       } finally {
         if (this.statusFlight?.promise === promise) this.statusFlight = undefined;
       }
     }
-    return await this.statusNow();
+    return (await this.statusNow()).body;
   }
 
   /**
-   * What moves without a file: the fill, the writer and the agent, taken from this process on every answer. A Problems
-   * listing that landed after the body was made replaces the count it carries: the answer never keeps a count collected
-   * for inputs the cache already replaced (madarch-u3vw.8).
+   * What moves without a file: the fill, the writer and the agent, taken from this process on every answer. The Problems
+   * count is the one collected for exactly these inputs, else absent: an answer never keeps a count collected for inputs
+   * the cache has replaced — while a fill holds the collection back, the answer is pending (madarch-u3vw.8).
    */
-  private statusLive(body: WikiStatus, problemsKey: string): WikiStatus {
+  private statusLive(body: WikiStatus, bodyProblems: string, problems: string): WikiStatus {
     const collected = this.problemsCache;
-    const loop = collected === undefined || collected.key !== problemsKey ? body.loop : { ...body.loop, problemsOpen: collected.listing.open };
+    let loop = body.loop;
+    if (bodyProblems === '' || bodyProblems !== problems) {
+      // No listing for these inputs: the count is pending, and a reader shows the corrections it counts from their files.
+      const { problemsOpen: _pending, ...rest } = loop;
+      loop = rest;
+    } else if (collected !== undefined && collected.key === problems) {
+      // A listing that landed after the body was made is the count for these inputs.
+      loop = { ...loop, problemsOpen: collected.listing.open };
+    }
     return { ...body, loop, fill: this.statusFill(), writer: this.writer, chosenAgent: this.chosenAgent() };
   }
 
-  private statusMemo: { key: string; problemsKey: string; body: WikiStatus } | undefined;
-  private statusFlight: { key: string; promise: Promise<WikiStatus> } | undefined;
+  private statusMemo: { key: string; problemsKey: string; pending: boolean; body: WikiStatus } | undefined;
+  private statusFlight: { key: string; promise: Promise<{ body: WikiStatus; problems: string }> } | undefined;
 
   /**
    * Every file and store state the answer reads besides the fill and the writer, as one key: the Problems listing's
@@ -1712,22 +1728,25 @@ export class KnowledgeProduct {
     return { state: 'done', ...(at === undefined ? {} : { finishedAt: at }) };
   }
 
-  private async statusNow(): Promise<WikiStatus> {
+  private async statusNow(): Promise<{ body: WikiStatus; problems: string }> {
     const product = this.product();
     if ('message' in product) throw new WikiReadError(product.message);
     const common = { product: { name: product.name, id: product.id } };
     const declared = this.repositories();
     const context = await this.context();
     if ('absent' in context) {
-      return { ...common, manifest: 'no-manifest', manifestFile: context.file, language: 'en', seeded: [], ...(this.seedError === undefined ? {} : { seedError: this.seedError }), findings: [], kinds: [], groups: [], repositories: declared.map((repo) => ({ name: repo.name, filled: false })), filled: false, incomplete: false, fill: this.fill, writer: this.writer, bounds: WRITER_BOUNDS, chosenAgent: this.chosenAgent(), home: null, roles: {}, loop: this.loopCounts(), starterOffers: 0 };
+      const body: WikiStatus = { ...common, manifest: 'no-manifest', manifestFile: context.file, language: 'en', seeded: [], ...(this.seedError === undefined ? {} : { seedError: this.seedError }), findings: [], kinds: [], groups: [], repositories: declared.map((repo) => ({ name: repo.name, filled: false })), filled: false, incomplete: false, fill: this.fill, writer: this.writer, bounds: WRITER_BOUNDS, chosenAgent: this.chosenAgent(), home: null, roles: {}, loop: this.loopCounts(), starterOffers: 0 };
+      return { body, problems: '' };
     }
     const home = homeKind(context.manifest);
     const homeEntity = home === undefined ? undefined : [...context.ctx.markdown.values()].find((entity) => entity.kind === home.name);
     const kinds = await kindSummaries(context.ctx);
     const incomplete = [...this.pins.values()].some((pin) => pin.filledCommits < pin.commits || pin.commits === 0);
     const loop = this.loopCounts();
-    loop.problemsOpen = await this.openProblems();
-    return {
+    // The count is the one collected for exactly the inputs this body reads; absent, the answer carries no count at all.
+    const problems = await this.openProblems();
+    if (problems !== undefined) loop.problemsOpen = problems.count;
+    const body: WikiStatus = {
       ...common,
       manifest: 'ok',
       manifestFile: context.manifest.file,
@@ -1748,15 +1767,25 @@ export class KnowledgeProduct {
       loop,
       starterOffers: this.starterOffers().length,
     };
+    // The key is taken once more after the body is made: a change of the inputs while it was made leaves the count
+    // pending rather than carried to the next poll (madarch-u3vw.8).
+    let shown = '';
+    if (problems !== undefined) {
+      const current = this.problemsKeySafe();
+      if (current !== '' && current === problems.key) shown = current;
+    }
+    return { body, problems: shown };
   }
 
   /**
    * The manifest's declarations as a stamp reads them: which files to look at, never what to make of them. The
    * manifest costs a YAML parse of every kind (eleven milliseconds of a status answer the menu polls), and the
    * declaration a stamp needs changes only with the file: the paths stay the same when a template is deleted, and the
-   * stamp says `absent` for it either way. What the manifest *means* is read fresh where it is drawn, findings and all.
+   * stamp says `absent` for it either way. A template's appearance is the one thing outside the manifest that changes
+   * which declarations are accepted, so it is compared too (madarch-u3vw.8). What the manifest *means* is read fresh
+   * where it is drawn, findings and all.
    */
-  private stampKinds: { stamp: string; read: ReturnType<typeof readKinds> } | undefined;
+  private stampKinds: { manifest: string; templates: string; read: ReturnType<typeof readKinds> } | undefined;
   /** A file's content hash, kept beside the metadata that says whether it can have changed since the last poll. */
   private readonly contentStamps = new Map<string, { mtimeMs: number; ctimeMs: number; size: number; ino: number; hash: string }>();
 
@@ -1787,11 +1816,36 @@ export class KnowledgeProduct {
 
   private kindsForStamp(folder: string): ReturnType<typeof readKinds> {
     // The manifest's declarations are stamped by content too: an edit that keeps its size and mtime is still an edit.
-    const stamp = this.contentStamp(join(folder, KINDS_FILE));
-    if (this.stampKinds?.stamp === stamp) return this.stampKinds.read;
+    const manifest = this.contentStamp(join(folder, KINDS_FILE));
+    const held = this.stampKinds;
+    // Which declarations the manifest accepts also depends on the files it names: a template written after the answer
+    // was warmed accepts a kind the read refused, and the files of that kind must be stamped from then on
+    // (madarch-u3vw.8). The comparison is a stat per named template, never a parse.
+    if (held !== undefined && held.manifest === manifest && this.templateStamps(folder, held.read) === held.templates) return held.read;
     const read = this.kinds(folder);
-    this.stampKinds = { stamp, read };
+    this.stampKinds = { manifest, templates: this.templateStamps(folder, read), read };
     return read;
+  }
+
+  /**
+   * The template paths a declaration names, and the Liquid fallback the parser takes for a named `.md` that does not
+   * exist: writing the fallback accepts a kind, so the path is stamped before either file exists (madarch-u3vw.8).
+   */
+  private templatePaths(read: ReturnType<typeof readKinds>): string[] {
+    if (!read.present) return [];
+    const named = new Set<string>(read.manifest.declaredTemplates ?? []);
+    for (const kind of read.manifest.kinds.values()) named.add(kind.template);
+    const paths = new Set<string>();
+    for (const path of named) {
+      paths.add(path);
+      if (path.endsWith('.md')) paths.add(`${path.slice(0, -'.md'.length)}.liquid`);
+    }
+    return [...paths];
+  }
+
+  /** The template candidates of a read, each by its content; the paths are compared to say whether a kind can have appeared. */
+  private templateStamps(folder: string, read: ReturnType<typeof readKinds>): string {
+    return this.templatePaths(read).map((path) => this.contentStamp(join(folder, path))).join('\n');
   }
 
   /**
@@ -1809,12 +1863,10 @@ export class KnowledgeProduct {
     parts.push(this.contentStamp(join(folder, KINDS_FILE)));
     const manifest = this.kindsForStamp(folder);
     if (manifest.present) {
-      // Every path a declaration names is stamped, even one whose kind was refused: creating the missing template is
-      // what makes the kind and clears its finding, and the manifest's own mtime may not move when only that file is
-      // written (madarch-u3vw.8).
-      const templates = new Set(manifest.manifest.declaredTemplates ?? []);
-      for (const kind of manifest.manifest.kinds.values()) templates.add(kind.template);
-      for (const template of templates) parts.push(this.contentStamp(join(folder, template)));
+      // Every path a declaration names is stamped, even one whose kind was refused, and the Liquid fallback of a named
+      // `.md` before it exists: creating either is what makes the kind and clears its finding, and the manifest's own
+      // mtime may not move when only that file is written (madarch-u3vw.8).
+      for (const template of this.templatePaths(manifest)) parts.push(this.contentStamp(join(folder, template)));
       for (const kind of manifest.manifest.kinds.values()) {
         if (kind.source !== 'markdown') continue;
         if (kind.file !== undefined) parts.push(this.contentStamp(join(folder, kind.file)));
@@ -1839,24 +1891,28 @@ export class KnowledgeProduct {
    * files, every repository's head and the unplaced units; a product whose page cannot be read falls back to the
    * corrections, which are read from their files without the page resolver.
    */
-  private async openProblems(): Promise<number> {
+  private async openProblems(): Promise<{ count: number; key: string } | undefined> {
     const key = this.problemsKey();
     const cached = this.problemsCache;
     // The listing already collected for exactly these inputs: no walk.
-    if (cached !== undefined && cached.key === key) return cached.listing.open;
-    // The first reader of a product pays for its one collection, so the menu has a count from its first poll.
+    if (cached !== undefined && cached.key === key) return { count: cached.listing.open, key };
+    // The first reader of a product pays for its one collection, so the menu has a count from its first poll. The key is
+    // taken after the store is open: it carries the reader's revision, and the next poll must find this count under the
+    // same key rather than treat it as collected for other inputs.
     if (cached === undefined && this.fill.state !== 'running') {
       try {
         const owner = await this.open();
-        return (await this.problemsFor(this.problemsKey(), owner)).open;
+        const fresh = this.problemsKey();
+        return { count: (await this.problemsFor(fresh, owner)).open, key: fresh };
       } catch {
-        return this.loopCounts().correctionsOpen;
+        return undefined;
       }
     }
-    // Every other poll answers with the count last collected and leaves the collection to the background, so no answer
-    // waits for a walk of the graph — and no answer walks it while a fill runs (madarch-m38l.19).
+    // Every other poll leaves the collection to the background, so no answer waits for a walk of the graph — and no
+    // answer walks it while a fill runs (madarch-m38l.19). Until that collection lands, the answer says pending: the
+    // count it holds is one collected for other inputs, and it is never shown (madarch-u3vw.8).
     this.refreshProblems(key);
-    return cached?.listing.open ?? this.loopCounts().correctionsOpen;
+    return undefined;
   }
 
   /** How many questions wait for an answer or for a refresh, and how many corrections wait for one, from their files. */
@@ -2468,6 +2524,7 @@ export class KnowledgeProduct {
     const promise = this.collectProblems(owner)
       .then((listing) => {
         if (this.problemsCache === undefined || this.problemsCache.sequence < sequence) this.problemsCache = { key, sequence, listing };
+        this.problemsFailed = undefined;
         // A status body made while this listing was collecting carries the previous count. It is made again from the
         // listing that landed for exactly its inputs; a body already answered from this cache keeps the count through
         // statusLive (madarch-u3vw.8).
@@ -2481,17 +2538,21 @@ export class KnowledgeProduct {
     return promise;
   }
 
-  /** Collects the listing for the current inputs in the background; a page or a fill never waits for it. */
+  /**
+   * Collects the listing for the current inputs in the background; a page or a fill never waits for it. A key whose
+   * collection failed is not walked again on every poll of the menu: a change of the inputs, or a listing that lands,
+   * is what tries it again (madarch-u3vw.8).
+   */
   private refreshProblems(key: string = this.problemsKeySafe()): void {
     if (this.fill.state === 'running' || this.problemsFlight !== undefined) return;
-    if (key === '' || this.problemsCache?.key === key) return;
+    if (key === '' || this.problemsCache?.key === key || this.problemsFailed === key) return;
     void this.open()
       .then((owner) => {
         const current = this.problemsKeySafe();
         if (current === '' || this.problemsCache?.key === current) return undefined;
         return this.problemsFor(current, owner);
       })
-      .catch(() => undefined);
+      .catch(() => { this.problemsFailed = key; });
   }
 
   private async collectProblems(owner: DatabaseOwner): Promise<ProblemListing> {
