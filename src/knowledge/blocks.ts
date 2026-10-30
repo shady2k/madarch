@@ -493,7 +493,9 @@ export function memberAnchor(id: string): string {
 export async function memberParent(ctx: RenderContext, subject: Subject, member: import('./kinds.js').MemberDecl): Promise<GraphEntity | undefined> {
   if (subject.source !== 'graph') return undefined;
   const found = await ctx.graph.edgesOf(subject.entity, member.relation, member.direction, 20);
-  const parent = found.rows.map((row) => row.other).find((other) => member.parentKind === undefined || other.kind === member.parentKind);
+  // A relation with more edges than the first read is read again to its total: the parent is not the first twenty.
+  const edges = found.total > found.rows.length ? (await ctx.graph.edgesOf(subject.entity, member.relation, member.direction, found.total)).rows : found.rows;
+  const parent = edges.map((row) => row.other).find((other) => member.parentKind === undefined || other.kind === member.parentKind);
   if (parent !== undefined) return parent;
   if (member.property === undefined) return undefined;
   const key = subject.entity.properties[member.property];

@@ -62,10 +62,19 @@ export async function renderPage(ctx: RenderContext, id: string, lang?: string, 
   // A member kind has no page of its own: an old address opens the parent's page at the member's fragment (madarch-m38l.21).
   if (decl.member !== undefined) {
     const parent = await memberParent(ctx, subject, decl.member);
-    if (parent !== undefined) {
-      const parentPage = await renderPage(ctx, parent.key, lang, options);
-      if (parentPage.ok) return { ok: true, page: { ...parentPage.page, redirect: { id: parent.key, anchor: memberAnchor(idOf(subject)) } } };
+    if (parent === undefined) {
+      // The page a member belongs on is its parent's, and there is none: drawing the member alone would show a table of
+      // one row that no page admits to holding, so the address answers with what the manifest declares and what is missing.
+      const holds = decl.member.parentKind === undefined ? 'nothing holds it' : `no ${decl.member.parentKind} holds it`;
+      return {
+        ok: false,
+        status: 404,
+        message: `"${id}" is an entity of kind ${decl.name}, which ${ctx.manifest.file}:${decl.line} declares a member by ${decl.member.relation} (${decl.member.direction}), and ${holds}: there is no page to show it on`,
+      };
     }
+    const parentPage = await renderPage(ctx, parent.key, lang, options);
+    if (parentPage.ok) return { ok: true, page: { ...parentPage.page, redirect: { id: parent.key, anchor: memberAnchor(idOf(subject)) } } };
+    return parentPage;
   }
   const findings: Finding[] = [];
   let blocks: Block[] = [];

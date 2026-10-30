@@ -31,6 +31,7 @@ const LEDGER_FIELDS = Array.from({ length: 201 }, (_, at) => K('code.field', `co
 const HOT = K('code.symbol', 'src/hot.ts#Hot');
 const HOT_FIELD = K('code.field', 'code.symbol:src/hot.ts#Hot#hot');
 const HOT_READERS = Array.from({ length: 101 }, (_, at) => K('code.symbol', `src/readers/r${String(at + 1).padStart(3, '0')}.ts#read`));
+const ORPHAN = K('code.field', 'code.symbol:src/gone.ts#Gone#lost');
 
 let owner: DatabaseOwner;
 let store: GraphStore;
@@ -62,6 +63,8 @@ beforeAll(async () => {
   await add(READER, 'code.symbol', 'read', { path: 'src/b.ts', symbolKind: 'function', span: span('src/b.ts', 1, 2) });
   await add(FACET, 'code.facet', 'a.ts · src/a.ts', { ownerKey: FILE, language: 'typescript', role: 'code', authors: ['Avery Quinn', 'Rin Tanaka'], commitCount: 3, parsed: true });
   await add(FIELD, 'code.field', 'amount', { name: 'amount', type: 'number', value: '0' });
+  // A member whose parent the graph does not hold: the kind is declared a member, and nothing contains it.
+  await add(ORPHAN, 'code.field', 'lost', { name: 'lost', type: 'number' });
   await add(SERVICE, 'code.service', 'orders', { language: 'typescript', build: { context: '.', dockerfile: 'Dockerfile', args: ['--prod'] } });
   // A class with more fields than a members block reads at once, and a field that more callers read than one read returns.
   await add(LEDGER, 'code.symbol', 'Ledger', { path: 'src/ledger.ts', symbolKind: 'class', span: span('src/ledger.ts', 1, 400) });
@@ -259,6 +262,20 @@ describe('details, members and empty sections', () => {
     expect(fields.rows[0]!.readers).toHaveLength(101);
     expect(fields.rows[0]!.readers.map((entity) => entity.id)).toContain(HOT_READERS[100]!);
   }, 30_000);
+
+  test('a member no parent holds is refused with the manifest line that declares it, not drawn as a page of its own', async () => {
+    const result = await renderPage(ctx, ORPHAN);
+    if (result.ok) throw new Error(`the orphan member was drawn as the page ${result.page.id}`);
+    expect(result.status).toBe(404);
+    const file = join(product, 'madarch', 'kinds.yaml');
+    const lines = (await Bun.file(file).text()).split('\n');
+    // The address, the kind, the relation and its direction, the parent kind, and where the manifest declared it.
+    expect(result.message).toContain(ORPHAN);
+    expect(result.message).toContain('code.field');
+    expect(result.message).toContain('code.contains (in)');
+    expect(result.message).toContain('no code.symbol holds it');
+    expect(result.message).toContain(`${file}:${lines.indexOf('  code.field:') + 1} declares`);
+  });
 
   test('an empty call list says what was looked for, in the reader\'s language; an empty related list is not drawn at all', async () => {
     const model = await page(SILENT, 'ru');
