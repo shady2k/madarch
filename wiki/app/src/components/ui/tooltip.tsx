@@ -21,7 +21,7 @@ export const TooltipContent = forwardRef<
         ref={ref}
         sideOffset={sideOffset}
         className={cn(
-          'z-50 rounded-[var(--radius-row)] border border-line bg-[var(--surface-menu)] px-2 py-1 text-small text-ink shadow-[var(--shadow-high)]',
+          'wiki-modal-layer rounded-[var(--radius-row)] border border-line bg-[var(--surface-menu)] px-2 py-1 text-small text-ink shadow-[var(--shadow-high)]',
           'tooltip-surface [--tw-ring-color:transparent]',
           className,
         )}
