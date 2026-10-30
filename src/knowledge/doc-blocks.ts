@@ -15,7 +15,7 @@ import type { DocEntity } from './doc-entities.js';
 import type { GraphEntity } from './graph-read.js';
 import { parseTermText } from './glossary.js';
 import { detectDocumentLanguage } from '../writer/localized-source.js';
-import { madarchTargets } from '../writer/mentions.js';
+import { identifierMentions, madarchTargets } from '../writer/mentions.js';
 import { readStatements } from './markdown.js';
 import type { Block, EntityRef, RefRow } from './model.js';
 import { documentAddress, entityAddress } from './resolve.js';
@@ -135,9 +135,20 @@ export async function implementedByBlock(ctx: RenderContext, subject: Subject, p
   return { type: 'refs', title, total: ordered.length, rows: ordered.slice(0, REFS_LIMIT) };
 }
 
-/** The line of a text that names the identifier, as a short excerpt. */
+/** The line of a text that names the identifier, as a short excerpt (the line is already one line). */
 function excerpt(text: string): string {
-  const flat = text.replace(/[*_`]/g, '').replace(/\s+/g, ' ').trim();
+  let flat = '';
+  let space = false;
+  for (const character of text) {
+    if (character === '*' || character === '_' || character === '`') continue;
+    if (character === ' ' || character === '\t' || character === '\n' || character === '\r') {
+      if (flat !== '') space = true;
+      continue;
+    }
+    if (space) { flat += ' '; space = false; }
+    flat += character;
+  }
+  flat = flat.trim();
   return flat.length > 120 ? `${flat.slice(0, 119)}…` : flat;
 }
 
@@ -185,20 +196,19 @@ export async function linkedFromBlock(ctx: RenderContext, subject: Subject, para
   // 2. The documents that name the identifier, outside the section itself.
   if (subject.source === 'document' && subject.entity.identifier !== null) {
     const doc: DocEntity = subject.entity;
-    const named = new RegExp(`(?<![A-Za-z0-9-])${doc.identifier!.replace('-', '\\-')}(?![0-9A-Za-z])`, 'i');
+    const identifier: string = doc.identifier!;
     for (const source of ctx.documents) {
-      const lines = source.text.replace(/\r\n/g, '\n').split('\n');
       const own = source.repo === doc.repo && source.path === doc.path;
-      lines.forEach((text, index) => {
-        const number = index + 1;
-        if (!named.test(text) || (own && number >= doc.line && number <= doc.endLine)) return;
+      // The parser says which lines are rendered prose: code, comments and unused notes are not.
+      for (const { line: number, text } of identifierMentions(source.text, identifier)) {
+        if (own && number >= doc.line && number <= doc.endLine) continue;
         const enclosing = [...ctx.docEntities.values()].find((entity) => entity.repo === source.repo && entity.path === source.path && number >= entity.line && number <= entity.endLine);
         const place = source.repo === null ? source.path : `${source.repo}: ${source.path}`;
         const entity: EntityRef = enclosing !== undefined && enclosing.id !== doc.id
           ? { id: enclosing.id, kind: enclosing.kind, label: enclosing.title, href: ctx.manifest.kinds.has(enclosing.kind) ? entityAddress(enclosing.id) : null }
           : { id: `doc:${source.repo === null ? '' : `@${source.repo}/`}${source.path}#L${number}`, kind: 'document', label: `${place}:${number}`, href: documentAddress(source.repo, source.path) };
         if (!rows.has(entity.id)) rows.set(entity.id, { entity, note: excerpt(text) });
-      });
+      }
     }
   }
   const ordered = [...rows.values()].sort((a, b) => byCodePoint(a.entity.id, b.entity.id));

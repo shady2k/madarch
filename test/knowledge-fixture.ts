@@ -36,11 +36,14 @@ relates:
 producer: agent
 sources: [docs/vision.md]
 ---
+<!-- [orders](madarch:code.channel:orders.events) -->
 The shop takes orders from shoppers and charges their cards through a payments service.[^1]
 
 See the [payment domain](madarch:domain:payment) for how a charge happens.
 
 [^1]: [payments](madarch:${PAYMENTS_SERVICE}), [UC-2](madarch:doc:docs/requirements.md#uc-2)
+
+[^invisible]: [orders](madarch:code.channel:orders.events)
 `;
 
 export const SAMPLE_DOMAIN = `---

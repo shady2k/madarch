@@ -288,6 +288,13 @@ describe('the pages of the documents\' entities', () => {
     ]);
   });
 
+  test('an invisible comment and an unused footnote definition create no Mentioned on row', async () => {
+    const model = await page(recordKey('code.channel', 'orders.events'));
+    const mentioned = model.blocks.find((entry) => entry.type === 'refs' && entry.title === 'Mentioned on');
+    const ids = mentioned?.type === 'refs' ? mentioned.rows.map((row) => row.entity.id) : [];
+    expect(ids).not.toContain('product:shop');
+  });
+
   test('a page that another page names lists that page under Mentioned on, not only graph pages', async () => {
     const model = await page('domain:payment');
     expect(rows(model, 'Mentioned on')).toEqual([

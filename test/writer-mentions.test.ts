@@ -8,7 +8,9 @@
  * own labels. No product name is written in the engine, and these tests supply the names as a caller does.
  */
 import { describe, expect, test } from 'bun:test';
-import { checkPage, insertMentionLinks, type GroundResolver, type MentionName, type PageExpectation } from '../src/writer/index.js';
+import { checkPage, insertMentionLinks, madarchTargets, type GroundResolver, type MentionName, type PageExpectation } from '../src/writer/index.js';
+import { linkedFromBlock } from '../src/knowledge/doc-blocks.js';
+import type { RenderContext } from '../src/knowledge/blocks.js';
 
 const KEYS = new Set(['code.service:orders', 'code.service:postgres', 'code.channel:kafka', 'code.table:outbox']);
 const SECTIONS = new Set(['docs/requirements.md#uc-1', 'docs/requirements.md#br-3', 'docs/glossary.md#outbox', 'docs/glossary.md#capture']);
@@ -122,4 +124,126 @@ describe('a checked page links the names the product knows', () => {
     ]);
     expect(cased.markdown).toBe('[Postgres](madarch:code.service:postgres) and [postgres](madarch:code.table:outbox)');
   });
+});
+
+
+describe('remark structure, not character patterns, decides what is prose', () => {
+  test('a setext heading, indented code and a reference link/definition stay as written; only the plain line links', () => {
+    const page = [
+      'Kafka',
+      '=====',
+      '',
+      '    Kafka',
+      '',
+      '[Kafka]',
+      '',
+      '[Kafka]: https://example.org',
+      '',
+      'Kafka',
+    ].join('\n');
+    const inserted = insertMentionLinks(page, [{ name: 'Kafka', target: 'code.channel:kafka' }]);
+    expect(inserted.targets).toEqual(['code.channel:kafka']);
+    expect(inserted.markdown.startsWith('Kafka\n=====')).toBe(true);
+    expect(inserted.markdown).toContain('    Kafka');
+    expect(inserted.markdown).toContain('[Kafka]\n\n[Kafka]: https://example.org');
+    expect(inserted.markdown.split('[Kafka](madarch:code.channel:kafka)').length - 1).toBe(1);
+  });
+
+  test('a four-backtick fence keeps every line of its code, including an internal three-backtick line', () => {
+    const page = [
+      '````',
+      'Kafka',
+      '```',
+      'Kafka',
+      '````',
+      '',
+      'Kafka',
+    ].join('\n');
+    const inserted = insertMentionLinks(page, [{ name: 'Kafka', target: 'code.channel:kafka' }]);
+    expect(inserted.targets).toEqual(['code.channel:kafka']);
+    expect(inserted.markdown).toContain('````\nKafka\n```\nKafka\n````');
+    expect(inserted.markdown.split('[Kafka](madarch:code.channel:kafka)').length - 1).toBe(1);
+  });
+
+  test('a shared name resolves from the page’s evidence, and an ambiguous one stays plain', () => {
+    const candidates: MentionName[] = [
+      { name: 'Gateway', target: 'code.service:a' },
+      { name: 'Gateway', target: 'code.service:payments' },
+    ];
+    const evidenced = insertMentionLinks('The [Gateway](madarch:code.service:payments) page calls the Gateway service.', candidates);
+    expect(evidenced.targets).toEqual(['code.service:payments']);
+    expect(evidenced.markdown).toContain('the [Gateway](madarch:code.service:payments) service');
+    // The page itself is the context: a page of code.service:payments resolves to that service.
+    const ownPage = insertMentionLinks('Gateway', candidates, { pageId: 'code.service:payments' });
+    expect(ownPage.markdown).toBe('[Gateway](madarch:code.service:payments)');
+    // No evidence leaves both candidates possible, so neither is guessed at.
+    const ambiguous = insertMentionLinks('The Gateway service.', candidates);
+    expect(ambiguous.markdown).toBe('The Gateway service.');
+    expect(ambiguous.targets).toEqual([]);
+  });
+
+  test('a document collision resolves from the page’s sources, and otherwise stays unlinked', () => {
+    const documents: MentionName[] = [
+      { name: 'Gateway', target: 'doc:docs/billing.md#gateway', caseSensitive: true },
+      { name: 'Gateway', target: 'doc:docs/payments.md#gateway', caseSensitive: true },
+    ];
+    const resolved = insertMentionLinks('Gateway', documents, { sources: ['docs/payments.md'] });
+    expect(resolved.markdown).toBe('[Gateway](madarch:doc:docs/payments.md#gateway)');
+    const ambiguous = insertMentionLinks('Gateway', documents);
+    expect(ambiguous.markdown).toBe('Gateway');
+    expect(ambiguous.targets).toEqual([]);
+  });
+
+  test('www, ftp, mailto and bare email addresses are not prose names', () => {
+    const page = 'www.Kafka.org ftp://host/Kafka mailto:Kafka@example.org Kafka@example.org https://host/Kafka <ftp://host/Kafka> Kafka';
+    const inserted = insertMentionLinks(page, [{ name: 'Kafka', target: 'code.channel:kafka' }]);
+    expect(inserted.targets).toEqual(['code.channel:kafka']);
+    for (const address of ['www.Kafka.org', 'ftp://host/Kafka', 'mailto:Kafka@example.org', 'Kafka@example.org', 'https://host/Kafka', '<ftp://host/Kafka>']) expect(inserted.markdown).toContain(address);
+    expect(inserted.markdown.split('[Kafka](madarch:code.channel:kafka)').length - 1).toBe(1);
+    expect(inserted.markdown.endsWith('[Kafka](madarch:code.channel:kafka)')).toBe(true);
+  });
+
+  test('UC-1 has complete identifier boundaries, so UC-1-extra and UC-1extra stay unlinked', () => {
+    const inserted = insertMentionLinks('UC-1-extra, UC-1, UC-1extra and UC-1_extra', [{ name: 'UC-1', target: 'doc:docs/requirements.md#uc-1', caseSensitive: true }]);
+    expect(inserted.markdown).toBe('UC-1-extra, [UC-1](madarch:doc:docs/requirements.md#uc-1), UC-1extra and UC-1_extra');
+    expect(inserted.targets).toEqual(['doc:docs/requirements.md#uc-1']);
+  });
+
+  test('invisible links and unused footnote definitions are not parsed, rendered targets', () => {
+    const page = [
+      'Kafka[^used]',
+      '',
+      '<!-- [Kafka](madarch:code.broker:kafka) -->',
+      '',
+      '[^used]: [Kafka](madarch:code.broker:kafka)',
+      '',
+      '[^unused]: [Kafka](madarch:code.broker:kafka)',
+    ].join('\n');
+    expect(madarchTargets(page)).toEqual(['code.broker:kafka']);
+    const unused = ['Kafka', '', '<!-- [Kafka](madarch:code.broker:kafka) -->', '', '[^unused]: [Kafka](madarch:code.broker:kafka)'].join('\n');
+    expect(madarchTargets(unused)).toEqual([]);
+  });
+
+  test('a document identifier counts only where parsed prose renders it, not in code, comments or unused notes', async () => {
+    const doc = {
+      id: 'doc:@repo/docs/own.md#uc-1', kind: 'doc.use-case', title: 'UC-1', repo: 'repo', path: 'docs/own.md', anchor: 'uc-1',
+      identifier: 'UC-1', line: 1, endLine: 1, text: 'UC-1', semantics: 'section',
+    };
+    const source = {
+      repo: 'repo', path: 'docs/other.md', title: 'Other',
+      text: ['`UC-1`', '', '<!-- UC-1 -->', '', 'UC-1', '', '[^unused]: UC-1'].join('\n'),
+    };
+    const ctx = {
+      markdown: new Map(),
+      documents: [source],
+      docEntities: new Map([[doc.id, doc]]),
+      manifest: { kinds: new Map() },
+      resolver: { resolve: async () => ({ state: 'broken' }) },
+    } as unknown as RenderContext;
+    const result = await linkedFromBlock(ctx, { source: 'document', entity: doc } as never, {}, 'docs/own.md', 1);
+    expect(result.type).toBe('refs');
+    if (result.type !== 'refs') return;
+    expect(result.rows.map((row) => row.entity.id)).toEqual(['doc:@repo/docs/other.md#L5']);
+  });
+
 });

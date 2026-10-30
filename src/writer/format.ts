@@ -533,7 +533,7 @@ export async function checkPage(markdown: string, expected: PageExpectation, res
   // The core writes the link where the agent wrote a known name (madarch-ztyq.8): the agent's own links and
   // footnote definitions are already structure, so only plain prose gains one. The page is checked first;
   // insertion cannot make an accepted page unacceptable.
-  const inserted = insertMentionLinks(page.markdown, mentions);
+  const inserted = insertMentionLinks(page.markdown, mentions, { pageId: expected.id, sources: front.front.sources, evidence: front.front.relates });
   return { ok: true, page: inserted.targets.length === 0 ? page : { ...page, markdown: inserted.markdown, links: [...page.links, ...inserted.targets] } };
 }
 

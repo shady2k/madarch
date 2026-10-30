@@ -472,7 +472,8 @@ export class UnitTools {
     if (this.mentionList !== undefined) return this.mentionList;
     const documents = this.extras.mentions ?? [];
     const held = new Set(documents.map((entry) => entry.name));
-    const graph = await this.view.mentionNames();
+    // A tool's view is the graph view of a run; a test may hand it a smaller resolver, which names nothing.
+    const graph = typeof this.view.mentionNames === 'function' ? await this.view.mentionNames() : [];
     this.mentionList = [...documents, ...graph.filter((entry) => !held.has(entry.name))];
     return this.mentionList;
   }

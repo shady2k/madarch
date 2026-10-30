@@ -158,9 +158,10 @@ export class GraphView implements GroundResolver {
   }
 
   /**
-   * The graph's node labels a page may mention (madarch-ztyq.8): one entry per exact spelling, the
-   * shortest key when several nodes share a label. A file, a directory, a path, a hash and a route
-   * line are not names; the filter lives in `graphMentionName`, where its reasons are stated.
+   * The graph's node labels a page may mention (madarch-ztyq.8): one entry per node, so a label
+   * several nodes share keeps every candidate and the page's evidence decides which it means. A
+   * file, a directory, a path, a hash and a route line are not names; the filter lives in
+   * `graphMentionName`, where its reasons are stated.
    */
   async mentionNames(): Promise<readonly MentionName[]> {
     if (this.mentionList !== undefined) return this.mentionList;
@@ -169,14 +170,15 @@ export class GraphView implements GroundResolver {
        WHERE v.properties->>'recordKey' IS NOT NULL AND v.label <> '' AND ${GraphView.SEEN}`,
       [this.at],
     );
-    const byLabel = new Map<string, MentionName>();
+    // A label several nodes share is kept as several candidates: the page's evidence decides which one
+    // it means, and without evidence the mention stays plain (madarch-ztyq.8, review 202).
+    const byTarget = new Map<string, MentionName>();
     for (const row of rows) {
       const mention = graphMentionName(row.key, row.label);
-      if (mention === undefined) continue;
-      const held = byLabel.get(mention.name);
-      if (held === undefined || mention.target.length < held.target.length || (mention.target.length === held.target.length && byCodePoint(mention.target, held.target) < 0)) byLabel.set(mention.name, mention);
+      if (mention === undefined || byTarget.has(mention.target)) continue;
+      byTarget.set(mention.target, mention);
     }
-    this.mentionList = [...byLabel.values()].sort((left, right) => byCodePoint(left.name, right.name) || byCodePoint(left.target, right.target));
+    this.mentionList = [...byTarget.values()].sort((left, right) => byCodePoint(left.name, right.name) || byCodePoint(left.target, right.target));
     return this.mentionList;
   }
 

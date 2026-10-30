@@ -314,7 +314,7 @@ describe('the writer over the training repository', () => {
     expect(linkTarget(page, 'BR-3')).toBe('doc:docs/requirements.md#br-3');
     expect(linkTarget(page, 'Outbox')).toBe('doc:docs/glossary.md#outbox');
     expect(linkTarget(page, 'Capture')).toBe('doc:docs/glossary.md#capture');
-    for (const label of ['Postgres', 'Kafka', 'outbox']) {
+    for (const label of ['Postgres', 'outbox']) {
       const target = linkTarget(page, label);
       expect(target.startsWith('code.')).toBe(true);
       expect(await view.graphKey(target)).toBe(true);
@@ -323,7 +323,10 @@ describe('the writer over the training repository', () => {
     expect(page).toContain('\n## Stack\n');
     // The page states the paragraph it wrote, and each sentence keeps its ground.
     expect(page).toContain('stores carts in [Postgres]');
-    expect(page).toContain('publishes to [Kafka]');
+    // `Kafka` names both the broker and its compose service and the page has no evidence which it means:
+    // an ambiguous mention stays plain (madarch-ztyq.8, review 202).
+    expect(page).toContain('publishes to Kafka');
+    expect(page).not.toContain('[Kafka](madarch:');
     expect(page).toContain('through the [outbox]');
   }, 600_000);
 
