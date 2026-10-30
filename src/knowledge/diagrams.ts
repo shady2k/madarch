@@ -967,7 +967,8 @@ export async function treemapBlock(ctx: RenderContext, subject: Subject, params:
   if (hidden.length > 0) notes.push(w.hiddenFiles(lockfiles, declared));
   if (unread > 0) notes.push(w.unreadFiles(unread));
   files.sort((a, b) => byCodePoint(a.path, b.path));
-  // The note counts what is drawn, not every node the first read returned: hidden lock files and generated files are not cells.
-  if (found.total > found.rows.length) notes.push(w.filesRead(files.length, found.total));
+  // The note counts what is drawn, not every node the first read returned: hidden lock files and generated files are not
+  // cells, and neither is a file with no lines — the tree draws nothing for it (`treemap.tsx` filters it out too).
+  if (found.total > found.rows.length) notes.push(w.filesRead(files.filter((file) => file.lines > 0).length, found.total));
   return { type: 'treemap', title, scope, files, maxChurn: files.reduce((max, file) => Math.max(max, file.churn), 0), total: found.total, notes };
 }

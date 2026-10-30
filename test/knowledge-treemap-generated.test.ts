@@ -225,6 +225,17 @@ test('the limit and the order keep their meaning: the first files by path, the c
   expect(block.maxChurn).toBe(10);
 });
 
+test('the count of drawn files leaves out a file with no lines, as the tree draws none for it', async () => {
+  const paths = Array.from({ length: 12 }, (_, at) => `catalog/f${String(at + 1).padStart(2, '0')}.ts`);
+  const empty = new Set(['catalog/f02.ts', 'catalog/f05.ts']);
+  const f = fixture(paths.map((path) => fileRow(path, { lines: empty.has(path) ? 0 : 4 })));
+  const block = await treemapOf(f, { limit: '10' });
+  // Ten files are read; the two the tree draws no cell for are not counted as shown.
+  expect(block.files).toHaveLength(10);
+  expect(block.files.filter((file) => file.lines === 0).map((file) => file.path)).toEqual(['catalog/f02.ts', 'catalog/f05.ts']);
+  expect(block.notes).toEqual(['Showing the first 8 of 12 files by path.']);
+});
+
 test('the note counts every reason the graph gives, names no pattern, and reads no hidden file', async () => {
   const f = fixture(
     [
