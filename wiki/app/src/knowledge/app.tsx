@@ -585,8 +585,10 @@ export function KnowledgeApp(): ReactElement {
       <GlossaryContext.Provider value={glossaryValue}>
       <RoleCard />
       <div className="shell flex min-h-dvh bg-page text-ink [font-family:var(--font-sans)] text-body" data-testid="knowledge-app">
-        <aside id="app-nav" className="app-nav sticky top-0 hidden h-dvh w-[240px] wide:w-[260px] shrink-0 flex-col border-r border-line bg-chrome px-[14px] wide:px-[18px] md:flex" aria-label={t('navigation.aria')}>
-          {nav()}
+        {/* The menu's ground spans the page, not one window: the column stretches to the shell's height, and only the
+            list inside it stays in view (sticky, one window tall) as the reader scrolls (madarch-u3vw.6). */}
+        <aside id="app-nav" className="app-nav hidden w-[240px] wide:w-[260px] shrink-0 border-r border-line bg-chrome md:flex" aria-label={t('navigation.aria')}>
+          <div className="sticky top-0 flex h-dvh w-full flex-col px-[14px] wide:px-[18px]">{nav()}</div>
         </aside>
         <div className="shell-main flex min-w-0 flex-1 flex-col">
           {/* The top bar and the tab bar stay put; only the page below them scrolls. */}
