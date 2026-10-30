@@ -27,14 +27,14 @@ const A_TS = ['export function leaf(): number {', '  return 1;', '}', '', 'expor
 const FILE = recordKey('code.file', 'src/a.ts');
 const GLOSSARY = '# Glossary\n\n- **Tiny account** - An account that holds the number results from a completed calculation.\n- **Tiny ledger** - A ledger that lists every number a completed calculation produced.\n- **X** - X.\n';
 
-const PRODUCT_PAGE_RU = [
-  '---', 'id: product:tiny', 'kind: product', 'title: Крошечный продукт', 'relates:', `  - ${FILE}`, 'producer: agent', 'sources: []', '---', '',
-  '## Что это за продукт', '',
-  'Крошечный продукт считает числа с помощью листовой и корневой функций.[^1]', '',
-  '## Домены', '',
-  `- [Числа](madarch:domain:numbers) считаются в [исходном файле](madarch:${FILE}).[^2]`, '',
-  `[^1]: [a.ts](madarch:${FILE})`, `[^2]: [a.ts](madarch:${FILE})`,
-].join('\n');
+// The home page is written from its eight fields (madarch-ztyq.7), not from Markdown: the core renders the sections,
+// their headings in the wiki's language and the sentence a part says when nothing was found. Only the sections this
+// fixture needs are given; the others are drawn as their own gap sentences.
+const PRODUCT_FIELDS_RU = {
+  title: 'Крошечный продукт',
+  whatItIs: [{ text: 'Крошечный продукт считает числа с помощью листовой и корневой функций.', grounds: [FILE] }],
+  domains: [{ target: 'domain:numbers', text: 'Числа считаются в исходном файле.', grounds: [FILE] }],
+};
 const DOMAIN_PAGE_RU = [
   '---', 'id: domain:numbers', 'kind: domain', 'title: Числа', 'relates:', `  - ${FILE}`, 'producer: agent', 'sources: []', '---', '',
   '## Как считаются числа', '',
@@ -82,7 +82,7 @@ const agent: AgentWithClose = {
     }
     if (request.id === 'product:tiny') {
       const written = await request.tools.call('write_page', {
-        markdown: PRODUCT_PAGE_RU,
+        fields: PRODUCT_FIELDS_RU,
         domains: [{ slug: 'numbers', title: LONG_TITLE, summary: 'Числа считают листовая и корневая функции.', evidence: [FILE] }],
       });
       if (written.isError) throw new Error(`the product page was refused: ${JSON.stringify(written.answer)}`);
