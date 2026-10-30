@@ -34,7 +34,7 @@ import { linesOf } from './lines.js';
 import { createTemplateEngine, type BlockRequest, type RenderLimits, type RenderPart, type TemplateEngine } from './liquid-engine.js';
 import { type RenderReply, type RenderRequest, type RenderWorkerProcess } from './render-worker.js';
 import { TEMPLATES as STARTER_TEMPLATES } from './seed.js';
-import { BLOCK_NAMES, blockIdentity } from './template.js';
+import { BLOCK_NAMES, blockIdentity, foldLanguageParams } from './template.js';
 import { decodeWire, encodeWire } from './wire.js';
 
 /** The bounds a page's template runs under, counted by Liquid; a test names its own to see one fire. */
@@ -552,18 +552,14 @@ async function outcomeOf(input: LiquidPageInput, reply: RenderReply | Stop | und
 }
 
 /**
- * One block of the page: its parameters as the templates wrote them, and the
- * language's own title folded into `title`. A block the page leaves to a read of
+ * One block of the page: its parameters as the templates wrote them, and every
+ * parameter the language writes its own way (`title-ru`) folded into its base. A block the page leaves to a read of
  * its own, and every block but the one asked for by `only`, answer as deferred:
  * the page says where they stand and the reader's own read draws them. A block is
  * read once however many times the page is rendered.
  */
 async function readBlock(input: LiquidPageInput, request: BlockRequest, read: Map<string, Block>): Promise<Block> {
-  const params: Record<string, string> = {};
-  for (const [name, value] of Object.entries(request.params)) {
-    if (!name.startsWith('title-')) params[name] = value;
-    else if (input.lang !== undefined && name === `title-${input.lang}`) params['title'] = value;
-  }
+  const params = foldLanguageParams(request.params, input.lang);
   const id = blockIdentity(request.name, params);
   const key = `${request.name}|${JSON.stringify(Object.entries(params).sort())}`;
   const held = read.get(key);

@@ -64,12 +64,13 @@ them, as label.
   'partials/source.liquid': `{% source title=title title-ru=title_ru %}`,
   'partials/relations.liquid': `{% related title=title title-ru=title_ru %}`,
   'partials/history.liquid': `{% history title=title title-ru=title_ru %}`,
+  // The home page is read in a minute: what the product is, its system map, and the history as one line of totals and
+  // the five files that change most, with the whole list of files one click away. The treemap and the relation table
+  // are not on it: they live on the pages of what they describe.
   'product.liquid': `{% layout "./entity.liquid" %}
 {% block lead %}{% body %}{% endblock %}
-{% block parts %}{% history title="Repository history" title-ru="История репозиториев" %}
-{% system title="The system" title-ru="Система" %}
-{% treemap title="Files by size and change" title-ru="Файлы по размеру и изменчивости" %}{% endblock %}
-{% block describedby %}{% related title="Relates to" title-ru="Связано с" relation="relates" %}{% endblock %}
+{% block parts %}{% system title="The system" title-ru="Система" %}
+{% history title="Repository history" title-ru="История репозиториев" sections="summary,hotspots" limit=5 more-kind="code.file" more="All files" more-ru="Все файлы" %}{% endblock %}
 `,
   'domain.liquid': `{% layout "./entity.liquid" %}
 {# A domain page opens with what the domain is and how it goes: its text, the architecture of the domain and the

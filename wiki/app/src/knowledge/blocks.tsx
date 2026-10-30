@@ -592,7 +592,7 @@ function History({ block }: { block: Extract<Block, { type: 'history' }> }): Rea
       {block.sections.length === 0 ? <p className="text-small text-muted" data-testid="history-empty">{t('knowledge.none')}</p> : block.sections.map((section) => (
         <div key={`${section.role}-${block.sections.indexOf(section)}`} data-history-section={section.role} className="mb-4">
           {block.sections.length > 1 && <h3 className="text-small text-muted">{section.repository === undefined ? '' : `${section.repository}: `}{t(`knowledge.historySection.${section.role}`)}</h3>}
-          <Table>
+          {section.role === 'summary' ? <p className="flex flex-wrap items-center gap-1" data-testid="history-summary">{section.rows.flatMap((row, at) => row.figures.map((figure, figureAt) => <Badge key={`${figure.kind}-${String(at)}-${String(figureAt)}`} data-figure={figure.kind} title={t(`knowledge.historyFigure.${figure.kind}`)}>{figureText(figure)}</Badge>))}</p> : <Table>
             <TableHeader>
               <TableRow>
                 {section.role === 'commits' && <TableHead>{t('knowledge.historyColWhen')}</TableHead>}
@@ -622,7 +622,7 @@ function History({ block }: { block: Extract<Block, { type: 'history' }> }): Rea
                 </TableRow>
               ))}
             </TableBody>
-          </Table>
+          </Table>}
           {section.total > section.rows.length && <p className="mt-1.5 text-small text-muted" data-testid="history-cut">{t('knowledge.showing', { shown: section.rows.length, total: section.total })}</p>}
         </div>
       ))}
@@ -630,6 +630,11 @@ function History({ block }: { block: Extract<Block, { type: 'history' }> }): Rea
         <ul className="mt-1.5 text-small text-muted" data-testid="history-notes">
           {block.notes.map((note, index) => <li key={index}>{t(`knowledge.historyNote.${note.key}`, note.args ?? {})}</li>)}
         </ul>
+      )}
+      {block.more !== undefined && (
+        <p data-testid="history-more" className="mt-1.5 text-small">
+          <KLink href={block.more.href}>{block.more.label} →</KLink>
+        </p>
       )}
     </section>
   );

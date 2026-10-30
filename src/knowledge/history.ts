@@ -18,6 +18,12 @@ import { projectHistory } from './history-evidence.js';
 /** The kinds the history block tells the story of. */
 export const HISTORY_KINDS: ReadonlySet<string> = new Set(['code.task', 'code.commit', 'code.author', 'code.repository', 'code.file', 'code.module', 'code.service', 'code.package']);
 
+/**
+ * The kinds of list the block can build, in the order it builds them. A template asks for the ones it wants with
+ * `sections="summary,hotspots"`, so a page that is meant to be read in a minute carries the whole story elsewhere.
+ */
+export const HISTORY_SECTIONS: readonly HistorySection['role'][] = ['summary', 'hotspots', 'commits', 'files', 'authors', 'coupling', 'renames', 'parents', 'branches', 'snapshots'];
+
 const toInt = (value: string | undefined, fallback: number, min: number, max: number): number => {
   const parsed = value === undefined ? Number.NaN : Number(value);
   return Number.isInteger(parsed) ? Math.min(max, Math.max(min, parsed)) : fallback;
@@ -87,10 +93,38 @@ async function commitRows(ctx: RenderContext, commit: GraphEntity, limit: number
   return { sections: rows.length === 0 ? [] : [{ role: 'files', total: found.total, rows }], notes };
 }
 
+/**
+ * The sections the template asked for, or every section the block built. A name the block has no section of is a
+ * problem that says which names it reads, never a silently shorter page.
+ */
+function keptSections(sections: readonly HistorySection[], wanted: string | undefined): HistorySection[] | string {
+  if (wanted === undefined) return [...sections];
+  const names = wanted.split(',').map((name) => name.trim()).filter((name) => name !== '');
+  for (const name of names) {
+    if (!HISTORY_SECTIONS.includes(name as HistorySection['role'])) return `"${name}" is not a section of the history block: it reads ${HISTORY_SECTIONS.join(', ')}`;
+  }
+  return sections.filter((section) => names.includes(section.role));
+}
+
+/**
+ * Where the rest of the story lives, when the template names a kind (`more-kind`): the kind's listing, and the words
+ * the link says it in — the template's `more`, else the manifest's own name for the kind in the reader's language.
+ */
+function moreOf(ctx: RenderContext, params: Readonly<Record<string, string>>, lang: string | undefined): { href: string; label: string } | string | undefined {
+  const kind = params['more-kind'];
+  if (kind === undefined) return undefined;
+  const decl = ctx.manifest.kinds.get(kind);
+  if (decl === undefined) return `the manifest ${ctx.manifest.file} declares no kind "${kind}": the history block cannot say where its rest lives`;
+  const label = params['more'] ?? decl.labels?.[lang ?? ctx.language]?.many ?? kind;
+  return { href: `/k/kind/${kind}`, label };
+}
+
 /** The history block: the story of a task, a commit or an author, from the graph's own facts. */
-export async function historyBlock(ctx: RenderContext, subject: Subject, params: Readonly<Record<string, string>>, file: string, line: number): Promise<Block> {
+export async function historyBlock(ctx: RenderContext, subject: Subject, params: Readonly<Record<string, string>>, file: string, line: number, lang?: string): Promise<Block> {
   const title = params['title'] ?? 'History';
   const limit = toInt(params['limit'], 100, 1, 500);
+  const more = moreOf(ctx, params, lang);
+  if (typeof more === 'string') return { type: 'problem', block: 'history', file, line, message: more };
   if (subject.source !== 'graph') {
     if (subject.source !== 'markdown' || subject.entity.kind !== 'product') return { type: 'problem', block: 'history', file, line, message: `${ctx.productFolder}/${file}:${line}: the history block reads indexed repository evidence, not this ${subject.entity.kind} page` };
     const sections: HistorySection[] = [];
@@ -100,7 +134,9 @@ export async function historyBlock(ctx: RenderContext, subject: Subject, params:
       sections.push(...projected.sections.map((section) => ({ ...section, repository: ctx.repoOfScope(repository.nodeId) ?? repository.path })));
       notes.push(...projected.notes);
     }
-    return { type: 'history', title, sections, notes };
+    const kept = keptSections(sections, params['sections']);
+    if (typeof kept === 'string') return { type: 'problem', block: 'history', file, line, message: kept };
+    return { type: 'history', title, sections: kept, notes, ...(more === undefined ? {} : { more }) };
   }
   const entity = subject.entity;
   let built = entity.kind === 'code.task' ? await taskRows(ctx, entity, limit) : entity.kind === 'code.commit' ? await commitRows(ctx, entity, limit) : undefined;
@@ -111,5 +147,7 @@ export async function historyBlock(ctx: RenderContext, subject: Subject, params:
   if (built === undefined) {
     return { type: 'problem', block: 'history', file, line, message: `the history block tells the story of a task, a commit or an author, and this page is a ${entity.kind}: use the related block for its relations` };
   }
-  return { type: 'history', title, sections: built.sections, notes: built.notes };
+  const kept = keptSections(built.sections, params['sections']);
+  if (typeof kept === 'string') return { type: 'problem', block: 'history', file, line, message: kept };
+  return { type: 'history', title, sections: kept, notes: built.notes, ...(more === undefined ? {} : { more }) };
 }

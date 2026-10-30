@@ -197,7 +197,7 @@ type BlockShape =
   | { type: 'stated'; title: string; place: { repo: string | null; path: string; lineStart: number; lineEnd: number; href: string; commit: string | null; single?: boolean } }
   | { type: 'deferred'; block: string; title: string; id: string }
   | { type: 'definition'; title: string; format: string; contract: string; fullPath?: string; location?: CodeLocation; members: DefinitionMember[]; membersTotal: number; membersShown: number; memberCuts: { channel: string; total: number; shown: number }[]; spec: { text: string; lines: number }; document?: Record<string, unknown>; descriptions?: {text: string; path: string; line: number; fullPath: string}[]; selection?: { method: string; path: string; operationId: string }; protobuf?: ProtoDocumentation; diagnostics?: ContractDiagnostic[] }
-  | { type: 'history'; title: string; sections: HistorySection[]; notes: HistoryNote[] }
+  | { type: 'history'; title: string; sections: HistorySection[]; notes: HistoryNote[]; more?: HistoryMore }
   | { type: 'problem'; block: string; message: string; file: string; line: number; diagnostic?: ContractDiagnostic };
 
 
@@ -245,6 +245,17 @@ export interface HistoryRow {
 export interface HistoryNote {
   key: 'manyCommits' | 'manyFiles' | 'noCounts' | 'merge' | 'noFiles' | 'partialFiles' | 'symbolsCut' | 'population' | 'observedAuthorship' | 'cochangeNotCause' | 'noImport' | 'importCoverage' | 'membershipCoverage' | 'dateAnomaly' | 'mergeBranch' | 'unchangedMove';
   args?: Record<string, string | number>;
+}
+
+/**
+ * Where the rest of a history lives, when the block was asked for a part of it (`more-kind`): the page that lists
+ * every entity of a kind, and the words the link says it in. The block names no kind of its own; the template does.
+ */
+export interface HistoryMore {
+  /** The wiki address of the kind's listing, `/k/kind/<kind>`. */
+  href: string;
+  /** The link's words, in the reader's language: the template's `more`, else the manifest's name for the kind. */
+  label: string;
 }
 
 /** One figure of a history row: added or removed lines, symbols, commits, files, or the module a file belongs to. */

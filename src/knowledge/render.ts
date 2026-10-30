@@ -26,7 +26,7 @@ import type { MarkdownEntity } from './markdown.js';
 import type { Block, EntityListing, EntityRef, KindSummary, PageModel } from './model.js';
 import { documentAddress, noEntityMessage, type Resolution } from './resolve.js';
 import { renderLiquidPage } from './liquid.js';
-import { blockIdentity, parseTemplate, substitute } from './template.js';
+import { blockIdentity, foldLanguageParams, parseTemplate, substitute } from './template.js';
 import { termLinks } from './glossary.js';
 
 export type PageResult = { ok: true; page: PageModel } | { ok: false; status: 404 | 500; message: string };
@@ -179,7 +179,7 @@ function allowedAttribute(decl: KindDecl, name: string): boolean {
   return decl.attributes === undefined || decl.attributes.includes(name) || RESERVED_ATTRIBUTES.includes(name);
 }
 
-/** The parameters of a block of a Markdown template (0029): `{{attribute}}` substituted, and the language's `title-<lang>` folded in. */
+/** The parameters of a block of a Markdown template (0029): `{{attribute}}` substituted, and every `<name>-<lang>` folded into `<name>`. */
 function legacyParams(
   raw: Readonly<Record<string, string>>,
   line: number,
@@ -190,12 +190,7 @@ function legacyParams(
 ): Record<string, string> {
   const params: Record<string, string> = {};
   for (const [name, text] of Object.entries(raw)) params[name] = substitute(text, line, file, value, findings, { escape: false });
-  for (const name of Object.keys(params)) {
-    if (!name.startsWith('title-')) continue;
-    if (lang !== undefined && name === `title-${lang}`) params['title'] = params[name]!;
-    delete params[name];
-  }
-  return { ...params };
+  return foldLanguageParams(params, lang);
 }
 
 async function renderBlock(ctx: RenderContext, subject: Subject, name: string, params: Readonly<Record<string, string>>, file: string, line: number, lang: string | undefined): Promise<Block> {
@@ -203,7 +198,7 @@ async function renderBlock(ctx: RenderContext, subject: Subject, name: string, p
     case 'body': return bodyBlock(ctx, subject, name, file, line);
     case 'graph': return await graphBlock(ctx, subject, params);
     case 'treemap': return await treemapBlock(ctx, subject, params);
-    case 'history': return await historyBlock(ctx, subject, params, file, line);
+    case 'history': return await historyBlock(ctx, subject, params, file, line, lang);
     case 'definition': return await definitionBlock(ctx, subject, params, file, line);
     case 'related': return await relatedBlock(ctx, subject, params, file, line);
     case 'callers': return await callBlock(ctx, subject, 'in', params, file, line);
