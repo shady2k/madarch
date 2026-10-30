@@ -116,7 +116,7 @@ type BlockShape =
   | { type: 'callers'; title: string; total: number; rows: CallRow[] }
   | { type: 'callees'; title: string; total: number; rows: CallRow[] }
   | { type: 'source'; title: string; location: CodeLocation; language: string; text: string; truncated: boolean }
-  | { type: 'refs'; title: string; total: number; rows: RefRow[] }
+  | { type: 'refs'; title: string; total: number; rows: RefRow[]; hideEmpty?: boolean }
   | { type: 'properties'; title: string; rows: PropertyRow[] }
   | { type: 'stated'; title: string; place: { repo: string | null; path: string; lineStart: number; lineEnd: number; href: string; commit: string | null; single?: boolean } }
   | { type: 'definition'; title: string; format: string; contract: string; fullPath?: string; location?: CodeLocation; members: DefinitionMember[]; membersTotal: number; membersShown: number; memberCuts: { channel: string; total: number; shown: number }[]; spec: { text: string; lines: number }; document?: Record<string, unknown>; descriptions?: {text: string; path: string; line: number; fullPath: string}[]; selection?: { method: string; path: string; operationId: string }; protobuf?: ProtoDocumentation; diagnostics?: ContractDiagnostic[] }
@@ -156,6 +156,8 @@ export type PageModel = {
   notes: string[];
   /** The planned change this page stands in, and the statements of it a task's grounds reach (madarch-m38l.14). */
   planned?: { entity: PlannedMarkView | null; statements: (PlannedMarkView & { sentence: string })[]; note?: string };
+  /** The runs of this machine whose journal holds this page, oldest first; absent when no run wrote it (madarch-m38l.23). */
+  journal?: string[];
 };
 
 export type Origin = 'agent' | 'person' | 'code' | 'history';
@@ -201,10 +203,17 @@ export type FillState = {
 export type WriterUnit = {
   unit: string;
   path: string;
+  /** The kind the manifest declares for the page this unit writes, and the page's title: what a reader calls it (madarch-m38l.23). */
+  kind?: string;
+  title?: string;
+  /** The page this unit writes, once its id is known: the address its link opens. */
+  page?: string;
   state: 'waiting' | 'writing' | 'written' | 'failed' | 'not-written';
   writeAttempts?: number;
   calls?: number;
   refusals?: { line: number; rule: string; message: string }[];
+  /** Whether a journal on this machine holds this page: the row links to one only where it does (madarch-m38l.23). */
+  journal?: boolean;
 };
 
 export type WriterState = {
@@ -219,6 +228,8 @@ export type WriterState = {
   asked?: number;
   /** Which pages this run touches and why; known once the code is read, before the agent starts. */
   plan?: RefreshPlan;
+  /** How many pages this run means to write in total; absent until the writer counts them. */
+  total?: number;
 };
 
 export type WriterBounds = { turns: number; minutes: number; toolCalls: number; writeAttempts: number; maxDomains: number };
