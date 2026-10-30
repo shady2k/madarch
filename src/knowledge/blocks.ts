@@ -366,13 +366,24 @@ export async function sourceBlock(ctx: RenderContext, subject: Subject, params: 
 
 const YES_NO: Readonly<Record<string, readonly [string, string]>> = { en: ['yes', 'no'], ru: ['да', 'нет'] };
 
-/** One object's values as words, never as JSON: a port's name and numbers, a build's file and context, a script's command. */
-function objectWords(value: Record<string, unknown>): string {
+/**
+ * One object's values as words, never as JSON: a port's name and numbers, a build's file and context, a script's
+ * command. A key the manifest declares for the property is the label the reader reads, in the reader's language; a
+ * key it does not is shown under its own name, so no value is dropped (madarch-m38l.21).
+ */
+function objectWords(value: Record<string, unknown>, lang: string, fields: ReadonlyMap<string, PropertyDecl> | undefined): string {
   const parts: string[] = [];
   for (const [name, held] of Object.entries(value)) {
     if (held === null || held === undefined || held === '') continue;
-    if (typeof held === 'string' || typeof held === 'number' || typeof held === 'boolean') parts.push(`${name} ${held}`);
-    else if (Array.isArray(held)) parts.push(`${name} ${held.map((entry) => (typeof entry === 'string' || typeof entry === 'number' ? String(entry) : '')).filter(Boolean).join(', ')}`);
+    const declared = fields?.get(name);
+    const label = declared === undefined ? name : declared.labels[lang] ?? declared.labels['en'] ?? name;
+    if (declared !== undefined) {
+      const written = propertyText(held, declared, lang);
+      if (written !== undefined) parts.push(`${label}: ${written.value}`);
+      continue;
+    }
+    if (typeof held === 'string' || typeof held === 'number' || typeof held === 'boolean') parts.push(`${label}: ${held}`);
+    else if (Array.isArray(held)) parts.push(`${label}: ${held.map((entry) => (typeof entry === 'string' || typeof entry === 'number' ? String(entry) : '')).filter(Boolean).join(', ')}`);
   }
   return parts.join(', ');
 }
@@ -391,13 +402,14 @@ function portWords(value: unknown): string {
  * A property value as the reader reads it. The manifest says how: a list, commands, ports, a date, yes/no.
  * An object with no reader-facing shape is left out, so serialized JSON never reaches a page (madarch-m38l.21).
  */
-function propertyText(value: unknown, format: PropertyFormat, lang: string): { value: string; valueKind?: 'date' | 'boolean' | 'code' } | undefined {
+function propertyText(value: unknown, decl: PropertyDecl, lang: string): { value: string; valueKind?: 'date' | 'boolean' | 'code' } | undefined {
   if (value === null || value === undefined || value === '') return undefined;
   if (Array.isArray(value) && value.length === 0) return undefined;
+  const format = decl.format;
   const words = (entries: readonly unknown[]): string => entries.map((entry) => {
     if (format === 'ports') return portWords(entry);
     if (typeof entry === 'string' || typeof entry === 'number' || typeof entry === 'boolean') return String(entry);
-    return entry !== null && typeof entry === 'object' ? objectWords(entry as Record<string, unknown>) : '';
+    return entry !== null && typeof entry === 'object' ? objectWords(entry as Record<string, unknown>, lang, undefined) : '';
   }).filter((entry) => entry !== '').join(format === 'commands' ? '; ' : ', ');
   let text: string;
   let valueKind: 'date' | 'boolean' | 'code' | undefined;
@@ -410,13 +422,14 @@ function propertyText(value: unknown, format: PropertyFormat, lang: string): { v
   } else if (format === 'ports') {
     text = Array.isArray(value) ? words(value) : portWords(value);
   } else if (format === 'build') {
-    text = value !== null && typeof value === 'object' && !Array.isArray(value) ? objectWords(value as Record<string, unknown>) : String(value);
+    text = value !== null && typeof value === 'object' && !Array.isArray(value) ? objectWords(value as Record<string, unknown>, lang, decl.fields) : String(value);
   } else if (format === 'scripts') {
-    text = value !== null && typeof value === 'object' && !Array.isArray(value) ? Object.entries(value as Record<string, unknown>).map(([key, held]) => `${key}: ${typeof held === 'string' ? held : objectWords(held as Record<string, unknown>)}`).join('; ') : String(value);
+    const scripts = value !== null && typeof value === 'object' && !Array.isArray(value) ? value as Record<string, unknown> : undefined;
+    text = scripts === undefined ? String(value) : Object.entries(scripts).map(([key, held]) => `${key}: ${typeof held === 'string' ? held : objectWords(held as Record<string, unknown>, lang, undefined)}`).join('; ');
   } else if (Array.isArray(value)) {
     text = words(value);
   } else if (typeof value === 'object') {
-    const summary = objectWords(value as Record<string, unknown>);
+    const summary = objectWords(value as Record<string, unknown>, lang, decl.fields);
     if (summary === '') return undefined;
     text = summary;
   } else {
@@ -439,7 +452,7 @@ export function detailRows(
   for (const name of details) {
     const decl = properties.get(name);
     if (decl === undefined) continue;
-    const written = propertyText(entity.properties[name], decl.format, lang);
+    const written = propertyText(entity.properties[name], decl, lang);
     if (written === undefined) continue;
     rows.push({ name, label: decl.labels[lang] ?? decl.labels['en'] ?? name, ...written });
   }

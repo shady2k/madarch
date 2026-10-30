@@ -294,7 +294,18 @@ export const ROLES: readonly { name: string; lead: string[]; open: string[] }[] 
   { name: 'tester', lead: ['tests', 'product'], open: ['stated', 'implementedby', 'linkedfrom', 'related', 'properties', 'callers', 'children'] },
 ];
 
-export const PROPERTY_LABELS: Readonly<Record<string, { en: string; ru: string; format?: string }>> = {
+/**
+ * A property's declaration as the starter set writes it: the words a reader sees in each language, how the value is
+ * written, and, for a value that is an object, the keys it holds and their labels (a build's context, its Dockerfile).
+ */
+export interface PropertyLabel {
+  en: string;
+  ru: string;
+  format?: string;
+  fields?: Readonly<Record<string, { en: string; ru: string; format?: string }>>;
+}
+
+export const PROPERTY_LABELS: Readonly<Record<string, PropertyLabel>> = {
   language: { en: "Language", ru: "Язык", format: "text" },
   frameworks: { en: "Frameworks", ru: "Фреймворки", format: "list" },
   infrastructure: { en: "Infrastructure", ru: "Инфраструктура", format: "list" },
@@ -391,7 +402,11 @@ export const PROPERTY_LABELS: Readonly<Record<string, { en: string; ru: string; 
   repository: { en: "Repository", ru: "Репозиторий", format: "text" },
   tag: { en: "Tag", ru: "Тег", format: "text" },
   image: { en: "Image", ru: "Образ", format: "text" },
-  build: { en: "Build", ru: "Сборка", format: "build" },
+  build: {
+    en: "Build", ru: "Сборка", format: "build",
+    // The keys a compose build holds. The engine reads them because the manifest names them, not because it knows a product.
+    fields: { context: { en: "Build context", ru: "Контекст сборки", format: "path" }, dockerfile: { en: "Dockerfile", ru: "Dockerfile", format: "path" } },
+  },
   ports: { en: "Ports", ru: "Порты", format: "ports" },
   dependsOn: { en: "Depends on", ru: "Зависит от", format: "list" },
   environment: { en: "Environment", ru: "Окружение", format: "list" },
@@ -591,6 +606,20 @@ export const STARTER_KINDS: readonly StarterKind[] = [
 
 export const yamlText = (text: string): string => JSON.stringify(text);
 
+/** One property of `PROPERTY_LABELS` as the manifest's flow mapping, its value's keys included. */
+function propertyYaml(label: PropertyLabel): string {
+  const fields = label.fields === undefined ? '' : `, fields: { ${Object.entries(label.fields).map(([key, field]) => `${key}: ${propertyYaml(field)}`).join(', ')} }`;
+  return `{ en: ${yamlText(label.en)}, ru: ${yamlText(label.ru)}, format: ${yamlText(label.format ?? 'text')}${fields} }`;
+}
+
+/** One property's declaration as the manifest's YAML nodes: what an upgrade adds when a kind needs a property it names. */
+export function propertyDeclaration(name: string): Record<string, unknown> | undefined {
+  const label = PROPERTY_LABELS[name];
+  if (label === undefined) return undefined;
+  const fields = label.fields === undefined ? {} : Object.fromEntries(Object.entries(label.fields).map(([key, field]) => [key, { en: field.en, ru: field.ru, format: field.format ?? 'text' }]));
+  return { en: label.en, ru: label.ru, format: label.format ?? 'text', ...(label.fields === undefined ? {} : { fields }) };
+}
+
 /** The exclusion list of the manifest's `documents` section. */
 export const DOCUMENT_EXCLUDES: readonly string[] = ['AGENTS.md', 'CLAUDE.md', 'GEMINI.md', '**/AGENTS.md', '**/CLAUDE.md', '**/GEMINI.md'];
 
@@ -699,7 +728,7 @@ function kindsManifest(): string {
     "groups:",
     ...GROUPS.map((group) => `  ${group.name}: { en: ${yamlText(group.en)}, ru: ${yamlText(group.ru)}${group.parent === undefined ? '' : `, parent: ${group.parent}`}${group.open === undefined ? '' : ', open: true'} }`),
     "properties:",
-    ...Object.entries(PROPERTY_LABELS).map(([name, label]) => `  ${name}: { en: ${yamlText(label.en)}, ru: ${yamlText(label.ru)}, format: ${yamlText(label.format ?? 'text')} }`),
+    ...Object.entries(PROPERTY_LABELS).map(([name, label]) => `  ${name}: ${propertyYaml(label)}`),
     "documents:",
     "  exclude: [AGENTS.md, CLAUDE.md, GEMINI.md, \"**/AGENTS.md\", \"**/CLAUDE.md\", \"**/GEMINI.md\"]",
     // The document kinds the wiki says the documents hold: one that no section of any document is read as is a finding, so a

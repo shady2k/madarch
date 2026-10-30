@@ -155,6 +155,8 @@ export interface PropertyDecl {
   labels: Readonly<Record<string, string>>;
   format: PropertyFormat;
   line: number;
+  /** The keys of a value that is an object (a build's context, a Dockerfile): their labels, declared as data. */
+  fields?: ReadonlyMap<string, PropertyDecl>;
 }
 
 /**
@@ -275,6 +277,43 @@ function readParams(value: unknown, file: string, line: number, id: string, find
  * only the predicates, so a rule this manifest does not declare is not run, and a declaration that
  * misses a field is a finding at its line rather than a rule running with a guessed value.
  */
+/**
+ * The keys of an object-valued property (a build's context and its Dockerfile), each declared as { en, ru, format? }.
+ * The engine names no key of a product's value: a key it reads is a key the manifest declares here (madarch-m38l.21).
+ */
+function propertyFields(
+  property: string,
+  raw: unknown,
+  at: (path: (string | number)[]) => number,
+  findings: Finding[],
+  file: string,
+): Map<string, PropertyDecl> {
+  const fields = new Map<string, PropertyDecl>();
+  if (raw === undefined) return fields;
+  if (raw === null || typeof raw !== 'object' || Array.isArray(raw)) {
+    findings.push({ file, line: at(['properties', property, 'fields']), message: `property "${property}": "fields" maps a key of the value to { en, ru, format? }` });
+    return fields;
+  }
+  for (const [key, entry] of Object.entries(raw as Record<string, unknown>)) {
+    const line = at(['properties', property, 'fields', key]);
+    if (key.trim() === '') { findings.push({ file, line, message: `property "${property}": a field name is a name, not the empty string` }); continue; }
+    if (entry === null || typeof entry !== 'object' || Array.isArray(entry)) { findings.push({ file, line, message: `property "${property}" field "${key}": the declaration is { en, ru, format? }` }); continue; }
+    const body = entry as Record<string, unknown>;
+    for (const inner of Object.keys(body)) if (inner !== 'en' && inner !== 'ru' && inner !== 'format') findings.push({ file, line: at(['properties', property, 'fields', key, inner]), message: `property "${property}" field "${key}": "${inner}" is not a field of a field: the fields are en, ru and format` });
+    const labels: Record<string, string> = {};
+    for (const language of LABEL_LANGUAGES) {
+      const text = body[language];
+      // The word a missing language lacks has no line of its own: the finding names the field's declaration.
+      if (typeof text !== 'string' || text.trim() === '') findings.push({ file, line, message: `property "${property}" field "${key}": "${language}" is the word a reader sees` });
+      else labels[language] = text;
+    }
+    const format = body['format'] ?? 'text';
+    if (typeof format !== 'string' || !(PROPERTY_FORMATS as readonly string[]).includes(format)) findings.push({ file, line, message: `property "${property}" field "${key}": "format" is one of ${PROPERTY_FORMATS.join(', ')}, got ${JSON.stringify(format)}` });
+    if (Object.keys(labels).length === LABEL_LANGUAGES.length && typeof format === 'string' && (PROPERTY_FORMATS as readonly string[]).includes(format)) fields.set(key, { name: key, labels, format: format as PropertyFormat, line });
+  }
+  return fields;
+}
+
 function parseProblems(
   raw: unknown,
   at: (path: (string | number)[]) => number,
@@ -432,7 +471,7 @@ export function parseKinds(text: string, file: string, productFolder: string): K
         if (name.trim() === '') { findings.push({ file, line, message: 'a property name is a name, not the empty string' }); continue; }
         if (entry === null || typeof entry !== 'object' || Array.isArray(entry)) { findings.push({ file, line, message: `property "${name}": the declaration is { en, ru, format? }` }); continue; }
         const body = entry as Record<string, unknown>;
-        for (const key of Object.keys(body)) if (key !== 'en' && key !== 'ru' && key !== 'format') findings.push({ file, line: at(['properties', name, key]), message: `property "${name}": "${key}" is not a field of a property: the fields are en, ru and format` });
+        for (const key of Object.keys(body)) if (key !== 'en' && key !== 'ru' && key !== 'format' && key !== 'fields') findings.push({ file, line: at(['properties', name, key]), message: `property "${name}": "${key}" is not a field of a property: the fields are en, ru and format` });
         const labels: Record<string, string> = {};
         for (const language of LABEL_LANGUAGES) {
           const text = body[language];
@@ -441,7 +480,10 @@ export function parseKinds(text: string, file: string, productFolder: string): K
         }
         const format = body['format'] ?? 'text';
         if (typeof format !== 'string' || !(PROPERTY_FORMATS as readonly string[]).includes(format)) findings.push({ file, line: at(['properties', name, 'format']), message: `property "${name}": "format" is one of ${PROPERTY_FORMATS.join(', ')}, got ${JSON.stringify(format)}` });
-        if (Object.keys(labels).length === LABEL_LANGUAGES.length && typeof format === 'string' && (PROPERTY_FORMATS as readonly string[]).includes(format)) properties.set(name, { name, labels, format: format as PropertyFormat, line });
+        const fields = propertyFields(name, body['fields'], at, findings, file);
+        if (Object.keys(labels).length === LABEL_LANGUAGES.length && typeof format === 'string' && (PROPERTY_FORMATS as readonly string[]).includes(format)) {
+          properties.set(name, { name, labels, format: format as PropertyFormat, line, ...(fields.size === 0 ? {} : { fields }) });
+        }
       }
     }
   }

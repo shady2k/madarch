@@ -25,6 +25,7 @@ const SILENT = K('code.symbol', 'src/a.ts#silent');
 const READER = K('code.symbol', 'src/b.ts#read');
 const FACET = K('code.facet', 'code.extract.code#code.file:src/a.ts');
 const FIELD = K('code.field', 'code.symbol:src/a.ts#charge#amount');
+const SERVICE = K('code.service', 'shop/orders');
 
 let owner: DatabaseOwner;
 let store: GraphStore;
@@ -39,7 +40,7 @@ beforeAll(async () => {
   await owner.ready;
   store = createGraphStore(owner, { now: () => new Date('2026-06-01T00:00:00Z') });
   await store.createSchema();
-  await store.registerCodeSchema({ kinds: ['code.file', 'code.symbol', 'code.facet', 'code.field'], relations: [{ key: 'code.facet-of' }, { key: 'code.contains' }, { key: 'code.reads-field' }, { key: 'code.calls' }] });
+  await store.registerCodeSchema({ kinds: ['code.file', 'code.symbol', 'code.facet', 'code.field', 'code.service'], relations: [{ key: 'code.facet-of' }, { key: 'code.contains' }, { key: 'code.reads-field' }, { key: 'code.calls' }] });
   const scope = await store.newNode();
   await store.openNode({ nodeId: scope, kind: 'code.repository', label: 'shop', properties: { path: '/work/shop' }, validFrom: '2026-01-01T00:00:00Z', owner: { producer: 'code.extract.driver', scope } });
   const ids = new Map<string, GraphId>();
@@ -56,6 +57,7 @@ beforeAll(async () => {
   await add(READER, 'code.symbol', 'read', { path: 'src/b.ts', symbolKind: 'function', span: span('src/b.ts', 1, 2) });
   await add(FACET, 'code.facet', 'a.ts · src/a.ts', { ownerKey: FILE, language: 'typescript', role: 'code', authors: ['Avery Quinn', 'Rin Tanaka'], commitCount: 3, parsed: true });
   await add(FIELD, 'code.field', 'amount', { name: 'amount', type: 'number', value: '0' });
+  await add(SERVICE, 'code.service', 'orders', { language: 'typescript', build: { context: '.', dockerfile: 'Dockerfile', args: ['--prod'] } });
   await link('code.facet-of', FACET, FILE);
   await link('code.contains', CHARGE, FIELD);
   await link('code.reads-field', READER, FIELD);
@@ -76,6 +78,7 @@ beforeAll(async () => {
     '  path: { en: Path, ru: Путь }',
     '  steps: { en: Steps, ru: Шаги }',
     '  uses: { en: Actions, ru: Действия }',
+    '  build: { en: Build, ru: Сборка, format: build, fields: { context: { en: Build context, ru: Контекст сборки }, dockerfile: { en: Dockerfile, ru: Dockerfile } } }',
     '  workingDirectory: { en: Working directory, ru: Рабочая папка }',
     'kinds:',
     '  code.file:',
@@ -90,6 +93,10 @@ beforeAll(async () => {
     '    source: graph',
     '    member: { relation: code.facet-of, direction: out, parentKind: code.file }',
     '    details: [language, role, authors, commitCount]',
+    '  code.service:',
+    '    template: templates/item.liquid',
+    '    source: graph',
+    '    details: [language, build]',
     '  code.field:',
     '    template: templates/item.liquid',
     '    source: graph',
@@ -179,6 +186,39 @@ describe('details, members and empty sections', () => {
       { name: 'value', label: 'Value', value: '0' },
     ]);
     expect(fields.rows[0]!.readers.map((entity) => entity.id)).toEqual([READER]);
+  });
+
+  test('a nested value is labelled from the manifest: a build shows its context and its Dockerfile, not JSON keys', async () => {
+    const [en, ru] = [await page(SERVICE, 'en'), await page(SERVICE, 'ru')];
+    const row = (model: PageModel) => {
+      const found = block(model, 'properties').rows.find((entry) => entry.name === 'build');
+      if (found === undefined) throw new Error(`the page of ${model.id} has no build row: ${JSON.stringify(block(model, 'properties').rows)}`);
+      return found;
+    };
+    expect(row(en).label).toBe('Build');
+    expect(row(ru).label).toBe('Сборка');
+    // The keys the manifest declares are words a reader knows, in the language the page is read in.
+    expect(row(en).value).toContain('Build context: .');
+    expect(row(en).value).toContain('Dockerfile: Dockerfile');
+    expect(row(ru).value).toContain('Контекст сборки: .');
+    expect(row(ru).value).toContain('Dockerfile: Dockerfile');
+    expect(row(ru).value).not.toContain('context');
+    expect(row(ru).value).not.toContain('dockerfile');
+    // A key the manifest does not declare is shown under its own name: no value is dropped from the page.
+    expect(row(en).value).toContain('args: --prod');
+  });
+
+  test('a nested value the manifest misdeclares is a finding with its file, line and path', () => {
+    const file = join(product, 'madarch', 'nested.yaml');
+    const read = parseKinds([
+      'properties:', '  build:', '    en: Build', '    ru: Сборка', '    fields:', '      context:', '        en: Build context', 'kinds:', '',
+    ].join('\n'), file, product);
+    expect(read.findings.length).toBeGreaterThan(0);
+    expect(read.findings[0]!.file).toBe(file);
+    expect(read.findings[0]!.line).toBe(6);
+    expect(read.findings[0]!.message).toContain('build');
+    expect(read.findings[0]!.message).toContain('context');
+    expect(read.findings[0]!.message).toContain('ru');
   });
 
   test('an empty call list says what was looked for, in the reader\'s language; an empty related list is not drawn at all', async () => {
