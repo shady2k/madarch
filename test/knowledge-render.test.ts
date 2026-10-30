@@ -102,6 +102,11 @@ beforeAll(async () => {
     writeFileSync(join(productFolder, path), text);
   };
   write('madarch/kinds.yaml', [
+    'properties:',
+    '  line: { en: Line, ru: Строка }',
+    '  marker: { en: Marker, ru: Маркер }',
+    '  path: { en: Path, ru: Путь }',
+    '  text: { en: Text, ru: Текст }',
     'kinds:',
     '  product:',
     '    template: templates/product.md',
@@ -125,6 +130,7 @@ beforeAll(async () => {
     '  code.debt:',
     '    template: templates/item-plain.md',
     '    source: graph',
+    '    details: [line, marker, path, text]',
     '  code.database:',
     '    template: templates/database.md',
     '    source: graph',
@@ -198,8 +204,8 @@ afterAll(async () => {
   rmSync(productFolder, { recursive: true, force: true });
 });
 
-async function page(id: string): Promise<PageModel> {
-  const result = await renderPage(ctx, id);
+async function page(id: string, lang?: string): Promise<PageModel> {
+  const result = await renderPage(ctx, id, lang);
   if (!result.ok) throw new Error(`no page for ${id}: ${result.message}`);
   return result.page;
 }
@@ -248,7 +254,7 @@ describe('template text and the service page', () => {
     const model = await page(SERVICE);
     const problems = model.blocks.filter((entry) => entry.type === 'problem');
     expect(problems.map((entry) => entry.type === 'problem' ? [entry.file, entry.line] : [])).toEqual([['templates/service.md', 5], ['templates/service.md', 6]]);
-    expect(model.findings.map((entry) => entry.message)).toContain('"nonsense" is not a block of the library (body, graph, related, callers, callees, source, er, sequence, system, modules, treemap, history, definition, stated, implementedby, linkedfrom, properties, children, term)');
+    expect(model.findings.map((entry) => entry.message)).toContain('"nonsense" is not a block of the library (body, graph, related, callers, callees, source, er, sequence, system, modules, treemap, history, definition, stated, implementedby, linkedfrom, properties, children, term, members)');
     expect(model.findings.some((entry) => entry.line === 6 && entry.message.includes('closes nothing'))).toBe(true);
   });
 
@@ -332,6 +338,14 @@ describe('the function page', () => {
     expect(chain!.mermaidSource).toContain('sequenceDiagram');
   });
 
+  test('a Russian page words the chain notes in Russian, keeping code names as names', async () => {
+    const [chain] = (await page(HANDLE, 'ru')).blocks.flatMap((entry) => (entry.type === 'diagrams' ? entry.views : []));
+    const notes = chain!.notes.join(' ');
+    expect(notes).toContain('Внутри функции шаги идут в порядке исходного текста');
+    expect(notes).not.toContain('Inside a function');
+    expect(chain!.edges[2]!.note).toBe('вызывается снова; шаги показаны выше');
+  });
+
   test('a function no route reaches starts its own chain and says so, and its calls are the steps drawn', async () => {
     const [chain] = (await page(HANDLE)).blocks.flatMap((entry) => (entry.type === 'diagrams' ? entry.views : []));
     expect(chain!.notes[0]).toContain('no route of the graph reaches this function');
@@ -361,10 +375,10 @@ describe('a debt marker', () => {
     const model = await page(DEBT);
     const properties = block(model, 'properties');
     expect(properties.rows).toEqual([
-      { name: 'line', value: '4', nameKey: 'line' },
-      { name: 'marker', value: 'TODO', nameKey: 'marker' },
-      { name: 'path', value: 'svc/billing/src/a.ts', nameKey: 'path' },
-      { name: 'text', value: 'bill it', nameKey: 'text' },
+      { name: 'line', label: 'Line', value: '4' },
+      { name: 'marker', label: 'Marker', value: 'TODO' },
+      { name: 'path', label: 'Path', value: 'svc/billing/src/a.ts' },
+      { name: 'text', label: 'Text', value: 'bill it' },
     ]);
     const related = model.blocks.filter((entry) => entry.type === 'related');
     expect(related.map((entry) => entry.title)).toEqual(['Relations']);
@@ -452,7 +466,7 @@ describe('a document entity\'s page', () => {
       [AUDIT, 'found'],
       [K('code.symbol', 'svc/billing/src/a.ts#nothere'), 'broken'],
     ]);
-    expect(block(model, 'refs', 1).rows).toEqual([]);
+    expect(model.blocks.filter((entry) => entry.type === 'refs')).toHaveLength(1);
   });
 
   test('a ground that names the section opens the entity\'s page, and the section\'s own anchor and a heading anchor behave as before', async () => {

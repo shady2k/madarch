@@ -287,6 +287,29 @@ main blockquote p:last-child {
   margin-block-end: 0;
 }
 
+/* A quote owns its inner spacing: a heading or paragraph that opens or closes it starts at the quote's edge, and the
+   heading after a quote does not inherit the quote's larger top margin (madarch-m38l.21). */
+main blockquote > :first-child {
+  margin-block-start: 0;
+}
+
+main blockquote > :last-child {
+  margin-block-end: 0;
+}
+
+main blockquote h1,
+main blockquote h2,
+main blockquote h3,
+main blockquote h4,
+main blockquote h5,
+main blockquote h6 {
+  margin-block: 0.5em 0;
+}
+
+main blockquote + * {
+  margin-block-start: 0.95em;
+}
+
 /* 4.3 Inline code: the code pair on its grey ground. */
 main :not(pre) > code {
   font-family: var(--font-mono);

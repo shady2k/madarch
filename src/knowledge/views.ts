@@ -157,6 +157,8 @@ export interface ViewEdge {
   kind?: string;
   /** What the step adds: the middleware a route runs under, the code that calls a service remotely. */
   note?: string;
+  /** The note names code identifiers rather than speaking prose. */
+  technical?: true;
   href?: string | null;
   location?: CodeLocation;
 }
@@ -239,8 +241,8 @@ const WORDS = {
     domainOf: (title: string) => `Домен: ${title}`, event: (name: string) => `событие ${name}`, nothingNearby: 'К этому домену не привязано ничего из того, что знает граф.',
   },
 };
-export type Words = (typeof WORDS)['en'];
-export const wordsOf = (lang: string | undefined): Words => (lang === 'ru' ? WORDS.ru : WORDS.en);
+export type Words = (typeof WORDS)['en'] & { lang: 'en' | 'ru' };
+export const wordsOf = (lang: string | undefined): Words => ({ ...(lang === 'ru' ? WORDS.ru : WORDS.en), lang: lang === 'ru' ? 'ru' : 'en' });
 
 const via = (word: string, label: string): string => {
   // One label per relation: a label that already says the verb is not said twice ("publishes publishes").
@@ -373,7 +375,7 @@ const VIA_WORD: Readonly<Record<string, string>> = { http: 'HTTP', grpc: 'gRPC',
 
 async function containerView(ctx: RenderContext, spec: ViewSpec, w: Words): Promise<GraphView> {
   const title = w.containers;
-  const model = await systemModel(ctx);
+  const model = await systemModel(ctx, w.lang);
   if (model.nodes.length === 0) return empty(spec, title, w.containers, w.noServices);
   const kindOf: Record<string, string> = { service: 'container', database: 'database', topic: 'channel', external: 'external' };
   const entities = new Map<string, GraphEntity | undefined>();
@@ -442,7 +444,7 @@ async function containerView(ctx: RenderContext, spec: ViewSpec, w: Words): Prom
 
 async function contextView(ctx: RenderContext, spec: ViewSpec, w: Words, productTitle: string): Promise<GraphView> {
   const title = w.context;
-  const model = await systemModel(ctx);
+  const model = await systemModel(ctx, w.lang);
   const services = model.nodes.filter((node) => node.kind === 'service');
   if (services.length === 0) return empty(spec, title, w.context, w.noServices);
   const system: ViewElement = { id: 'product', label: productTitle, kind: 'product', detail: w.system, href: null, dashed: false, drill: { spec: { type: 'c4-container', subject: '' }, title: w.containers } };
@@ -474,7 +476,7 @@ async function componentView(ctx: RenderContext, spec: ViewSpec, w: Words): Prom
   if (service === undefined || service.kind !== 'code.service') throw new ViewRefusal(404, `"${spec.subject}" is no service of the graph: a component view is the modules of a service`);
   const up = { spec: { type: 'c4-container' as const, subject: '' }, title: w.containers };
   const title = `${w.components}: ${service.label}`;
-  const model = await modulesBlockModel(ctx, { source: 'graph', entity: service });
+  const model = await modulesBlockModel(ctx, { source: 'graph', entity: service }, w.lang);
   if (model === undefined) return empty(spec, title, w.components, w.noModules(service.span?.path ?? service.key), up);
   if (model.nodes.length === 0) return empty(spec, title, w.components, w.noModules(dirname(service.span?.path ?? '.')), up);
   let nodes = model.nodes;
@@ -723,8 +725,11 @@ async function participantsOf(ctx: RenderContext, chain: Chain): Promise<Map<str
       const database = lane.group.replace(/ database$/, '');
       const entity = await entityAt(ctx, `code.database:${database}`);
       if (entity !== undefined) href = hrefOf(ctx, entity);
+    } else if (lane.kind === 'code.channel') {
+      const brokers = await ctx.graph.list('code.broker', { limit: 1 });
+      if (brokers.rows[0] !== undefined) href = hrefOf(ctx, brokers.rows[0]);
     }
-    participants.set(lane.group, { id: `lane:${lane.group}`, label: lane.group, kind, href, dashed: lane.kind === 'actor' });
+    participants.set(lane.group, { id: `lane:${lane.group}`, label: lane.groupLabel ?? lane.group, kind, href, dashed: lane.kind === 'actor' });
   }
   return participants;
 }
@@ -735,8 +740,8 @@ async function sequenceViews(ctx: RenderContext, spec: ViewSpec, subject: Subjec
   if (spec.entry !== undefined) {
     const entity = await entityAt(ctx, spec.entry);
     if (entity === undefined) throw new ViewRefusal(404, `"${spec.entry}" is no route or function of the graph: a chain starts at one`);
-    entries.push(...(await entriesOf(ctx, { source: 'graph', entity })));
-  } else if (subject !== undefined) entries.push(...(await entriesOf(ctx, subject)));
+    entries.push(...(await entriesOf(ctx, { source: 'graph', entity }, w.lang)));
+  } else if (subject !== undefined) entries.push(...(await entriesOf(ctx, subject, w.lang)));
   if (entries.length === 0) return [empty(spec, title, w.sequence, w.noEntry)];
   const drawn = entries.slice(0, 3);
   // A page with more entry points than the three drawn says so on every chain, rather than showing three as if the
@@ -744,7 +749,7 @@ async function sequenceViews(ctx: RenderContext, spec: ViewSpec, subject: Subjec
   const foldedEntries = entries.length > drawn.length ? [w.entriesFolded(drawn.length, entries.length)] : [];
   const views: GraphView[] = [];
   for (const entry of drawn) {
-    const chain = await chainFrom(ctx, entry, { limit: 100, depth: 6 });
+    const chain = await chainFrom(ctx, entry, { limit: 100, depth: 6, lang: w.lang });
     const participants = await participantsOf(ctx, chain);
     const laneGroup = new Map(chain.lanes.map((lane) => [lane.id, lane.group]));
     const steps = budgetedSteps(chain.steps);
@@ -758,7 +763,7 @@ async function sequenceViews(ctx: RenderContext, spec: ViewSpec, subject: Subjec
       ...(step.order === 'unordered' ? { why: w.unorderedWhy } : {}),
       step: step.n,
       kind: step.kind,
-      ...(step.note === undefined ? {} : { note: step.note }),
+      ...(step.note === undefined ? {} : { note: step.note }), ...(step.technical === true ? { technical: true } : {}),
       href: step.href,
       ...(step.site === undefined ? {} : { location: step.site }),
     });
@@ -805,9 +810,10 @@ async function deploymentView(ctx: RenderContext, spec: ViewSpec, w: Words): Pro
     have.add(element.id);
     elements.push(element);
   };
-  const fileNode = (path: string): string => {
+  const fileNode = async (path: string): Promise<string> => {
     const id = `file:${path}`;
-    add({ id, label: path, kind: 'node', href: null, dashed: false });
+    const entity = typeof ctx.graph.find === 'function' ? (await ctx.graph.find(`code.file:${path}`))[0] : undefined;
+    add({ id, label: path, kind: 'node', href: entity === undefined ? null : hrefOf(ctx, entity), ...(entity?.span === undefined ? {} : { location: locationOf(ctx, entity.scope, entity.span) }), dashed: false });
     return id;
   };
   const place = (entity: GraphEntity): { location?: CodeLocation } => (entity.span === undefined ? {} : { location: locationOf(ctx, entity.scope, entity.span) });
@@ -817,15 +823,15 @@ async function deploymentView(ctx: RenderContext, spec: ViewSpec, w: Words): Pro
   for (const service of compose.rows) {
     const ports = Array.isArray(service.properties['ports']) ? (service.properties['ports'] as unknown[]).map(String).join(', ') : '';
     const detail = [service.properties['image'] !== null && service.properties['image'] !== undefined ? String(service.properties['image']) : '', ports === '' ? '' : `ports ${ports}`].filter(Boolean).join(' · ');
-    add({ id: service.key, label: service.label, kind: 'container', ...(detail === '' ? {} : { detail }), href: hrefOf(ctx, service), ...place(service), dashed: false, parent: fileNode(pathOf(service)) });
+    add({ id: service.key, label: service.label, kind: 'container', ...(detail === '' ? {} : { detail }), href: hrefOf(ctx, service), ...place(service), dashed: false, parent: await fileNode(pathOf(service)) });
   }
   for (const deployment of deployments.rows) {
     const replicas = deployment.properties['replicas'];
     const detail = [typeof replicas === 'number' ? w.replicas(replicas) : '', deployment.properties['image'] === null || deployment.properties['image'] === undefined ? '' : String(deployment.properties['image'])].filter(Boolean).join(' · ');
-    add({ id: deployment.key, label: deployment.label, kind: 'container', ...(detail === '' ? {} : { detail }), href: hrefOf(ctx, deployment), ...place(deployment), dashed: false, parent: fileNode(pathOf(deployment)) });
+    add({ id: deployment.key, label: deployment.label, kind: 'container', ...(detail === '' ? {} : { detail }), href: hrefOf(ctx, deployment), ...place(deployment), dashed: false, parent: await fileNode(pathOf(deployment)) });
   }
   for (const service of kubeServices.rows) {
-    add({ id: service.key, label: service.label, kind: 'channel', detail: 'Service', href: hrefOf(ctx, service), ...place(service), dashed: false, parent: fileNode(pathOf(service)) });
+    add({ id: service.key, label: service.label, kind: 'channel', detail: 'Service', href: hrefOf(ctx, service), ...place(service), dashed: false, parent: await fileNode(pathOf(service)) });
   }
   for (const dockerfile of dockerfiles.rows) {
     add({ id: dockerfile.key, label: pathOf(dockerfile), kind: 'image', detail: 'Dockerfile', href: hrefOf(ctx, dockerfile), ...place(dockerfile), dashed: false });
@@ -884,8 +890,8 @@ async function domainsOf(ctx: RenderContext, kind: string): Promise<{ id: string
 }
 
 /** The links between services, as the code has them: direct calls, and the topics one publishes and another consumes. */
-async function serviceLinks(ctx: RenderContext): Promise<{ from: string; to: string; label: string }[]> {
-  const model = await systemModel(ctx);
+async function serviceLinks(ctx: RenderContext, lang?: string): Promise<{ from: string; to: string; label: string }[]> {
+  const model = await systemModel(ctx, lang);
   const services = new Set(model.nodes.filter((node) => node.kind === 'service').map((node) => node.id));
   const links: { from: string; to: string; label: string }[] = [];
   for (const edge of model.edges) if (services.has(edge.from) && services.has(edge.to)) links.push({ from: edge.from, to: edge.to, label: VIA_WORD[edge.via] ?? edge.via });
@@ -915,7 +921,7 @@ async function domainMapView(ctx: RenderContext, spec: ViewSpec, w: Words): Prom
   }
   const edges: ViewEdge[] = [];
   const seen = new Set<string>();
-  for (const link of await serviceLinks(ctx)) {
+  for (const link of await serviceLinks(ctx, w.lang)) {
     for (const from of copies.get(link.from) ?? []) for (const to of copies.get(link.to) ?? []) {
       if (from.split('|')[0] === to.split('|')[0]) continue;
       const key = `${from}>${to}>${link.label}`;
@@ -939,7 +945,7 @@ async function domainView(ctx: RenderContext, spec: ViewSpec, w: Words): Promise
   const edges: ViewEdge[] = [];
   const have = new Set([page.id]);
   const ids = new Set(mine.services);
-  const model = await systemModel(ctx);
+  const model = await systemModel(ctx, w.lang);
   const nodeOf = new Map(model.nodes.map((node) => [node.id, node]));
   for (const key of mine.services) {
     const [entity] = await ctx.graph.find(key);
@@ -963,7 +969,7 @@ async function domainView(ctx: RenderContext, spec: ViewSpec, w: Words): Promise
     }
   }
   // Neighbouring domains: the services of other domains these services call or are called by.
-  const links = await serviceLinks(ctx);
+  const links = await serviceLinks(ctx, w.lang);
   const seenNeighbour = new Set<string>();
   for (const other of domains) {
     if (other.id === page.id) continue;

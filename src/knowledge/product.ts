@@ -11,6 +11,7 @@
  * kept in the store (`knowledge_fill`), so a source view shows the bytes the
  * graph's spans were read from, and a restarted server still knows.
  */
+import { memberParent } from './blocks.js';
 import { glossaryTerms, termLinks, type GlossaryTerm } from './glossary.js';
 import { GUIDE_OUTPUTS } from '../writer/guides/host-contract.js';
 import type { GuideContextFor, GuideHostFor } from '../writer/guides/host.js';
@@ -1344,6 +1345,18 @@ export class KnowledgeProduct {
       if (declaration === undefined) continue;
       const properties = row['properties'] ?? {};
       const title = graphTitleOf(declaration.title, { key: id, kind: row['kind'], label: row['title'] ?? id, properties });
+      if (declaration.member !== undefined) {
+        // A member has no page of its own: what changed is the page of the entity that holds it, at the member's
+        // fragment. Naming the member's title would name a page a reader cannot open under that title.
+        const entity = (await context.ctx.graph.find(id)).find((candidate) => candidate.kind === row['kind']);
+        if (entity === undefined) continue;
+        const parent = await memberParent(context.ctx, { source: 'graph', entity }, declaration.member);
+        if (parent === undefined) continue;
+        const parentDeclaration = context.manifest.kinds.get(parent.kind);
+        if (parentDeclaration === undefined) continue;
+        if (!found.has(parent.key)) found.set(parent.key, { id: parent.key, title: graphTitleOf(parentDeclaration.title, parent) });
+        continue;
+      }
       if (!found.has(id)) found.set(id, { id, title });
     }
     // A document entity is a page too, and its page id is its durable identity. The line is the last completed run's
@@ -2805,7 +2818,7 @@ export class KnowledgeProduct {
     if ('message' in product) throw new WikiReadError(product.message);
     // Listing the documents writes nothing: a product with no manifest has no pages of kinds and no excluded files.
     const read = readKinds(product.folder);
-    const manifest: KindsManifest = read.present ? read.manifest : { file: read.file, roles: new Map(), kinds: new Map(), groups: new Map(), excludeDocuments: [], ignoreBlocks: [], findings: [] };
+    const manifest: KindsManifest = read.present ? read.manifest : { file: read.file, roles: new Map(), properties: new Map(), kinds: new Map(), groups: new Map(), excludeDocuments: [], ignoreBlocks: [], findings: [] };
     const documents: DocumentRef[] = [];
     const truncated: DocumentListing['truncated'] = [];
     // The product's own pages (the files of its Markdown kinds) are entity pages, and the manifest names the harness files that are no product document.

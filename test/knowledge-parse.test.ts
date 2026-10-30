@@ -76,13 +76,13 @@ describe('the kinds manifest', () => {
     const manifest = parseKinds(text, 'madarch/kinds.yaml', root);
     expect([...manifest.kinds.keys()]).toEqual(['good']);
     expect(manifest.findings.map((finding) => [finding.line, finding.message])).toEqual([
-      [10, '"extra" is not a field of the manifest: the manifest holds "kinds", "groups", "documents", "roles", "problems", "language" and "diagram"'],
+      [10, '"extra" is not a field of the manifest: the manifest holds "kinds", "groups", "documents", "roles", "problems", "properties", "language" and "diagram"'],
       [3, 'kind "nosource": "source" is "graph", "markdown" or "document", got undefined'],
       [4, 'kind "missing": the template "templates/none.md" does not exist in the product repository'],
       [5, 'kind "climbing": the template "../outside.md" is not a path inside the product repository'],
       [6, 'kind "both": a markdown kind names exactly one of "folder" (many entities) and "file" (one entity)'],
       [7, 'kind "neither": a markdown kind names exactly one of "folder" (many entities) and "file" (one entity)'],
-      [8, 'kind "stray": "colour" is not a field of a kind: the fields are template, source, folder, file, title, attributes, relations, labels, group, origin, description, identifier, terms, headings, semantics, structure'],
+      [8, 'kind "stray": "colour" is not a field of a kind: the fields are template, source, folder, file, title, attributes, relations, labels, group, origin, description, identifier, terms, headings, semantics, structure, details, member'],
       [9, 'kind "graphfolder": a graph kind has no "folder" or "file": its entities come from the graph'],
     ]);
     expect(manifest.findings.every((finding) => finding.file === 'madarch/kinds.yaml')).toBe(true);
@@ -123,7 +123,7 @@ describe('the template', () => {
   test('an unknown block, a stray closing line and unreadable parameters are problems at their line', () => {
     const parts = parseTemplate([':::chart', ':::', ':::related{title}', ':::related{a=1 a=2}', ':::source'].join('\n'));
     expect(parts.map((part) => (part.type === 'problem' ? [part.line, part.message] : [part.type]))).toEqual([
-      [1, '"chart" is not a block of the library (body, graph, related, callers, callees, source, er, sequence, system, modules, treemap, history, definition, stated, implementedby, linkedfrom, properties, children, term)'],
+      [1, '"chart" is not a block of the library (body, graph, related, callers, callees, source, er, sequence, system, modules, treemap, history, definition, stated, implementedby, linkedfrom, properties, children, term, members)'],
       [2, 'a ":::" line closes nothing: a block is one line, ":::name{parameters}"'],
       [3, 'the parameters of :::related are unreadable: "title" is not name=value'],
       [4, 'the parameters of :::related are unreadable: "a" is given twice'],

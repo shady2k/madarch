@@ -445,10 +445,12 @@ export function extractDeploy(t: TreeText, records: Records): void {
     const started = processOf(t, reading);
     if (started === undefined) continue;
     const mainFile = started.source !== null && !started.source.endsWith('.ts') ? `${started.source}/main.go` : started.source;
+    // A process is titled by what it runs, not by the file it was declared in (madarch-m38l.21).
+    const commandWords = parseExecForm(reading.command ?? '').join(' ');
     records.add({
       key: started.key,
       kind: 'code.process',
-      label: started.key.slice(started.key.indexOf(':') + 1),
+      label: commandWords === '' ? started.key.slice(started.key.indexOf(':') + 1) : commandWords,
       properties: { binary: started.binary, command: reading.command } satisfies { [key: string]: PropertyValue },
       span: mainFile !== null && t.has(mainFile) ? t.spanOfFile(mainFile) : t.spanOfFile(reading.path),
     });

@@ -127,8 +127,8 @@ describe('the end-to-end chains match the answer key\'s flows', () => {
     const pay = recordKey('code.symbol', 'services/payments/src/domain/payment-service.ts#PaymentService.pay');
     expect(ofType(await page(pay), 'sequence')[0]!.label).toBe('POST /payments');
     expect(ofType(await page('domain:payment'), 'sequence').map((view) => view.label)).toContain('POST /payments');
-    const lonely = ofType(await page(recordKey('code.symbol', 'scripts/token.mjs#encode')), 'sequence')[0]!;
-    expect(lonely.notes[0] ?? lonely.empty ?? 'no chain').toMatch(/no route of the graph reaches this function|No route or function/);
+    // A function no route reaches has no steps to draw: the empty chain section is left off the page (madarch-m38l.21).
+    expect(ofType(await page(recordKey('code.symbol', 'scripts/token.mjs#encode')), 'sequence')).toEqual([]);
   });
 });
 
