@@ -44,12 +44,13 @@ spans and text nodes; the graph already holds the key prefixes and the language
 already has a segmenter, so matching the rendered text again is both a second
 source of truth and a source of engine-specific behaviour.
 
-The measurable benefit is linear reading. Before this change a 2,000-statement
-page with 2,000 code spans and 2,000 footnote grounds took 555.3 ms. The same
-page now takes 406.7 ms (median of ten runs each), which is 1.37 times faster, and
-the cost grows with the page rather than with its square: at 1,000, 2,000 and
-4,000 statements the new check takes 187.8, 404.2 and 836.7 ms, against 262.6,
-555.3 and 1,309.1 ms before.
+The measurable benefit is linear reading. On the original 2,000-statement page
+with 2,000 code spans and 2,000 footnote grounds the base at `eaf70258` takes
+548.2 ms and this tree 426.3 ms (median of five runs each), 1.29 times faster. On
+the review fixture, which adds a question suffix, a resolved code span and shared
+opening words to every statement, the base takes 368.7, 775.3 and 1,847.9 ms at
+1,000, 2,000 and 4,000 statements, and this tree 409.7, 830.0 and 1,859.9 ms:
+each doubling of the page is about twice the work, not four times it.
 
 ## Out of scope
 
@@ -110,7 +111,35 @@ None.
   recognized by its method and absolute path characters, a symbol by its
   identifier characters; the resolver still decides whether the graph holds
   exactly one route or symbol. Line-by-line matching and the two span regexes are
-  gone.
+  gone. Every replacement is assembled in one pass over the original body.
+- **A question's prose is parsed, not matched.** `ask_question` reads the Markdown
+  tree of `title`, `question`, `why` and of each side's `claim`: a heading, a code
+  block, a thematic break or a footnote is refused as question prose, and a side
+  claim also refuses a link or a line break. Front matter is split with
+  `splitFrontMatter()` and written with `replaceAll`. No regular expression reads
+  the question file's text.
+- **A question title is prose in any language.** The format refuses an empty
+  label, an arrow alone, or a label written as one unspaced `kind:value` token;
+  a title containing a space is accepted whatever its wording, so
+  `[question: Which limit?]` and `[вопрос: Какой срок?]` both pass and
+  `[question:limit]` is refused. No English or Russian prefix decides it.
+- **A raw id needs a complete declared key.** The graph's `node_kind` prefixes are
+  the authority; the fallback list holds the graph's own code kinds. A wildcard
+  prefix, if one is supplied, must be followed by a non-empty kind and value, so
+  `code.example` is prose while `code.symbol:src/a.ts#a` is a key. The
+  unrestricted `code.` fallback is gone.
+- **Glossary fields come from the term parser.** `parseTermText()` now lives in
+  `src/knowledge/term-fields.ts`, which both the glossary and the localized-source
+  reader import without a cycle. `detectDocumentLanguage()` counts only
+  `parseTermText(text).definition`, so a definition that holds a colon
+  (`An order: a purchase made by a customer.`) remains prose; capitalization is
+  no longer a field test.
+- **The hot paths are linear.** Link labels are indexed once in `indexSource()`,
+  code-span replacements are assembled once, footnote labels are a `Set`, each
+  base name keeps its own suffix counter, and a cursor skips question spans when
+  the reader filters tokens. The performance fixture now holds question suffixes,
+  resolved code spans, distinct footnotes and statements sharing their opening
+  words.
 - **A name is a sequence of word segments.** `words()` uses
   `new Intl.Segmenter(language, { granularity: 'word' })`, keeps `isWordLike`
   segments, transliterates Cyrillic and folds case, without a stop list. The
@@ -122,9 +151,12 @@ None.
 - **The sentence key does not move with the name.** `sentenceKey()` collapses whitespace by
   character and keeps the case and punctuation the old key kept, so an unchanged
   sentence has the same key. `nameStatements()` maps the
-  previous page's key to its stored name before producing any new name, and the
-  migration test writes a page, appends one sentence and proves the old names are
-  reused and only the new sentence's name is new.
+  previous page's key to its stored name before producing any new name. The
+  migration test loads an old-writer canonical page from
+  `test/fixtures/old-writer-pages.json`, appends one sentence, checks the result
+  through `checkPage()`, and proves the old names are reused and only the new
+  sentence's name is new. `canonical()` passes the wiki language to
+  `nameStatements()`, so a name is built with that language's segmenter.
 - **The reader advances instead of scanning again.** `segmentationText()` masks
   only the spans inside the paragraph under reading, and the footnote walk in
   `sentences.ts` keeps a cursor into the definition list instead of searching the
@@ -135,7 +167,7 @@ None.
   - `answers.ts` recognizes a graph key in a flow entry and parses a `METHOD path` command entry.
   - `prompts.ts` filters `product:` and `domain:` ids out of a question's `about` list; `graph.ts` validates a kind slug from the manifest.
   - `view.ts` `DOCUMENT_EXTENSIONS` and `tools.ts`'s matching check read a repository path; `journal.ts` reads a journal file name; `basis.ts` reads a commit hash.
-  - `tools.ts` `BROAD_ENTITY` classifies a graph key; its front-matter expression reads a question file's own header; its `bounded()` and claim guards refuse headings, rules, fences, links, line breaks and footnote marks in a question's own fields. None of them reads a document being checked.
+  - `tools.ts` `BROAD_ENTITY` classifies a graph key; `splitFrontMatter()` and the Markdown reader inspect a question file's own header and authored prose. Neither reads a document being checked.
   - `TOKEN_EDGES` is punctuation, not a word list: it trims the edges of a token before the graph's key prefixes are asked.
   No `STOP_WORDS`, `REFERENCE_HEADINGS`, route/symbol span regex or text word list remains.
 
@@ -145,10 +177,11 @@ Filled from the commands actually run on this tree; the counts and timings are
 replaced by the final numbers in the handback.
 
 - `bun run check`: `tsc --noEmit` exited 0 on the final tree.
-- `bun test test/writer-*.test.ts` after merging `origin/main` (`6f07d86e`): 465 tests passed across 38 files, 6,054 `expect()` calls, 109.59 s; no failure. They include the new `test/writer-structure.test.ts`, the migrated `test/writer-names.test.ts`, `test/writer-home-page.test.ts`, `test/writer-editorial.test.ts` and the linear-time `test/writer-performance.test.ts`.
-- `bun test test/knowledge-*.test.ts`: 539 tests passed across 42 files, no failure; 135,216 `expect()` calls, 583.30 s of test time. The combined single process was killed by this container's memory ceiling (dmesg records the OOM kill), so every file was run in a fresh Bun process; all 42 exited 0.
-- The 2,000-statement page with 2,000 code spans and 2,000 footnote grounds: 555.3 ms before, 406.7 ms after, both the median of ten runs (first run included) of `/tmp/perf-ztyq12-v2.ts` against the base worktree at `eaf70258` and this tree. At 1,000, 2,000 and 4,000 statements the after times are 187.8, 404.2 and 836.7 ms (five runs), so doubling the page doubles the check; the before times are 262.6, 555.3 and 1,309.1 ms. `test/writer-performance.test.ts` checks the same growth (1,000 against 2,000 statements, three runs, median) and refuses more than three times the work.
-- `bun scripts/wiki-walk-ci.ts --baseline scripts/wiki-walk-baseline.json`: 0 findings — empty-section, raw-key, foreign-language, raw-id and node-without-evidence are all 0 and all at their baseline — over 1,326 entity pages (2,652 renders), 12 documents, 65 kind catalogues and 1,326 catalogue rows; the ratchet passes.
+- `bun test test/writer-*.test.ts`: 468 tests passed across 38 files, 6,060 `expect()` calls, 127.55 s; no failure. They include the new `test/writer-structure.test.ts`, the migrated `test/writer-names.test.ts`, `test/writer-home-page.test.ts`, `test/writer-editorial.test.ts` and the linear-time `test/writer-performance.test.ts`.
+- `bun test test/loop-refresh.test.ts`: 16 tests passed, 208 `expect()` calls; the structural question-prose and question-label guards refuse the reviewed inputs.
+- `bun test test/knowledge-*.test.ts`: 573 tests passed across 47 files, no failure; 108,178 `expect()` calls, 769.09 s of test time. The combined single process exceeds this container's memory ceiling, so every file was run in a fresh Bun process; all 47 exited 0.
+- The original 2,000-statement page with 2,000 code spans and 2,000 footnote grounds: 548.2 ms at `eaf70258`, 426.3 ms here, both the median of five runs of `/tmp/perf-ztyq12-v2.ts`. The review fixture adds a question suffix, a resolved code span and shared opening words to every statement: 368.7, 775.3 and 1,847.9 ms at 1,000, 2,000 and 4,000 statements at the base, and 409.7, 830.0 and 1,859.9 ms here (five runs, median); each doubling is about twice the work. `test/writer-performance.test.ts` checks the same growth (1,000 against 2,000 statements, three runs, median) and refuses more than three times the work.
+- `bun scripts/wiki-walk-ci.ts --baseline scripts/wiki-walk-baseline.json`: 0 findings — empty-section, raw-key, foreign-language, raw-id and node-without-evidence are all 0 and all at their baseline — over 1,326 entity pages (2,652 renders), 12 documents, 65 kind catalogues and 1,326 catalogue rows and 0 questions; fill 42.7 s, total 158.8 s; the ratchet passes.
 - `node .shady2k/documents.mjs check --phase feature --change madarch-ztyq.12 --target origin/main`: refused only `untracked-change: change/taskIds — a change names existing leaf tasks`; this repository has no `.beads/issues.jsonl` and no tracker leaf for `madarch-ztyq.12`, so the gate cannot see one. No other violation is reported. Its canonical change digest is `9b376d9769b97023eefeeffbb739a2e6771e2c2c89b1623729da701919464998`.
 
 ## DONE WHEN
