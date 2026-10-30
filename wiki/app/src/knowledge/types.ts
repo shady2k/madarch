@@ -119,7 +119,7 @@ type BlockShape =
   | { type: 'callers'; title: string; total: number; rows: CallRow[] }
   | { type: 'callees'; title: string; total: number; rows: CallRow[] }
   | { type: 'source'; title: string; location: CodeLocation; language: string; text: string; truncated: boolean }
-  | { type: 'refs'; title: string; total: number; rows: RefRow[] }
+  | { type: 'refs'; title: string; total: number; rows: RefRow[]; hideEmpty?: boolean }
   | { type: 'properties'; title: string; rows: PropertyRow[] }
   | { type: 'stated'; title: string; place: { repo: string | null; path: string; lineStart: number; lineEnd: number; href: string; commit: string | null; single?: boolean } }
   | { type: 'definition'; title: string; format: string; contract: string; fullPath?: string; location?: CodeLocation; members: DefinitionMember[]; membersTotal: number; membersShown: number; memberCuts: { channel: string; total: number; shown: number }[]; spec: { text: string; lines: number }; document?: Record<string, unknown>; descriptions?: {text: string; path: string; line: number; fullPath: string}[]; selection?: { method: string; path: string; operationId: string }; protobuf?: ProtoDocumentation; diagnostics?: ContractDiagnostic[] }

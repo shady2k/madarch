@@ -34,6 +34,7 @@ import { includedNotes, type ChangeNote, type EditBrief } from './edit.js';
 import { statementsOf } from './sentences.js';
 import { MAX_SLUG_LENGTH, SLUG } from './format.js';
 import { domainPrompt, editorialPrompt, enrichmentPrompt, ENRICHMENT_TASKS, overviewPrompt, productPrompt, validationPrompt, type UnitContext, type WriterArtifactRead } from './prompts.js';
+import { documentMentionNames, type MentionName } from './mentions.js';
 import { DEFAULT_UNIT_BOUNDS, UnitTools, type DomainDeclaration, type PageSink, type ToolAnswer, type UnitBounds, type UnitOutcome, type UnitSpec } from './tools.js';
 import { GraphView, ingestContent, type ContentReport } from './view.js';
 import { textDigest, WRITER_UNIT_KINDS, writerUnitDigest, writerUnitKind, writerUnitOrder, type WriterArtifact, type WriterUnitKindName } from './graph.js';
@@ -107,6 +108,8 @@ export interface WriterOptions {
   readonly languageChanged?: boolean;
   /** Extracted document entities of the product and its code repositories to localize with agent units. */
   readonly documentEntities?: readonly DocEntity[];
+  /** Names the product's documents give their entities, when a caller already holds them; the default reads `documentEntities`. */
+  readonly mentions?: readonly MentionName[];
   /**
    * Which pages need an agent unit. The seam of the incremental update (madarch-m38l.7): given the pages already
    * written, it answers what to write. The default is `unitsNeeded`: a page that is missing, and every page when the
@@ -592,7 +595,8 @@ export async function runWriter(options: WriterOptions): Promise<WriterReport> {
   // `list_pages` is how the unit reaches what the prompt cut (decision 0032, section 1).
   const producedNow = async (): Promise<readonly { artifact: string; kind: string; unit: string; path: string; title: string }[]> =>
     [...produced.values()].flat().map((item) => ({ artifact: item.artifact, kind: item.kind, unit: item.unit, path: item.path, title: item.title }));
-  const extras = { entityIds: async () => entityIds, output: options.output, language, questions: liveQuestions, produced: producedNow, ...(options.clock === undefined ? {} : { clock: options.clock }) };
+  const mentions = options.mentions ?? documentMentionNames(options.documentEntities ?? []);
+  const extras = { entityIds: async () => entityIds, output: options.output, language, questions: liveQuestions, produced: producedNow, mentions, ...(options.clock === undefined ? {} : { clock: options.clock }) };
   let existingProduct: string | null = null;
   try { existingProduct = await sink.read(PRODUCT_PATH); } catch { existingProduct = null; }
   const domainPages = await existingDomainPages(options.output);
