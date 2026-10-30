@@ -31,7 +31,7 @@ import { detectStatementLanguage, LOCALIZED_SOURCE_SCHEMA, parseLocalizedSource,
 import { ENRICHMENT_FRONT_KEYS, enrichmentOverwriteProblem, enrichmentPageId, renderEnrichment } from './enrichment.js';
 import { implementationPlaces, parseFields, renderStructuredBody, structuredKindOf, structuredLanguage, structuredSchema, type NamedPlace, type ScenarioFields, type StructuredFields, type StructuredKind } from './structured.js';
 import { developerPlaces, domainGrounds, domainSchema, renderDomainPage, parseDomainFields, type DomainFields } from './domain-page.js';
-import { homeGrounds, homeLinks, homeSchema, parseHomeFields, renderHomePage, type HomeFields } from './home-page.js';
+import { emptyProductGaps, homeGrounds, homeLinks, homeSchema, homeTargetPaths, parseHomeFields, renderEmptyHomePage, renderHomePage, type HomeFields } from './home-page.js';
 import type { GuidePreparedUnit } from './guides/host-contract.js';
 import { validateGuide } from './guides/validate.js';
 import { renderGuideArtifact } from './guides/artifact.js';
@@ -788,19 +788,37 @@ export class UnitTools {
   }
 
   /**
+   * Whether this product is empty: it has no document and no content node or relation to stand a sentence on.
+   * A repository node alone, or an engine's own bookkeeping, is not content.
+   */
+  private async isEmptyProduct(): Promise<boolean> {
+    const seen = await this.view.overview();
+    if (seen.documents.length > 0 || seen.relations.length > 0) return false;
+    return seen.kinds.every(({ kind, count }) => count === 0 || kind === 'code.repository' || kind.startsWith('engine:'));
+  }
+
+  /**
    * The home page, rendered from its fields after every place and ground resolved: each section points at a page
    * a reader can follow — a declared domain, a section of a document, a key of the graph, or a page this run
    * published — and a place that does not resolve is refused, naming the tool that would have found it. Nothing is
    * written on a refusal.
    */
-  private async homePageOf(value: unknown, declared: readonly DomainDeclaration[]): Promise<{ readonly markdown: string } | { readonly refusals: readonly Refusal[] }> {
+  private async homePageOf(value: unknown, declared: readonly DomainDeclaration[], emptyProduct = false): Promise<{ readonly markdown: string; readonly emptyProduct?: true } | { readonly refusals: readonly Refusal[] }> {
     const unit = this.unit;
     if (unit.kind !== 'product' && unit.kind !== 'overview') throw new Error('src/writer/tools.ts: homePageOf is only for a product or an overview unit');
     const where = resolve(this.extras.output ?? process.cwd(), unit.path);
+    if (emptyProduct) {
+      const record = typeof value === 'object' && value !== null && !Array.isArray(value) ? value as Record<string, unknown> : {};
+      const title = typeof record['title'] === 'string' && record['title'].trim() !== '' ? record['title'].trim() : undefined;
+      return { markdown: renderEmptyHomePage({ language: structuredLanguage(this.extras.language), labelOf: (target) => this.labelOf(target), page: { id: unit.id, kind: unit.kind, title: unit.name } }, title).markdown, emptyProduct: true };
+    }
     const read = parseHomeFields(value);
     if (!read.ok) return { refusals: read.problems.map((problem) => ({ line: problem.line, rule: problem.rule, message: `${where}:${problem.line}: ${problem.message}` })) };
     const fields: HomeFields = read.fields;
     const refusals: Refusal[] = [];
+    const pathOf = new Map<string, string[]>();
+    for (const entry of homeTargetPaths(fields)) pathOf.set(entry.target, [...pathOf.get(entry.target) ?? [], `fields.${entry.path}`]);
+    const at = (target: string): string => [...new Set(pathOf.get(target) ?? [])].join(' or ');
     const titles = new Map<string, string>(declared.map((domain) => [`domain:${domain.slug}`, domain.title] as const));
     const published = new Set<string>([...titles.keys(), ...(this.extras.linkedPages ?? [])]);
     // Every section names where the reader reads the whole thing: a place that does not resolve is refused here,
@@ -815,18 +833,18 @@ export class UnitTools {
         continue;
       }
       const parsed = parseTarget(target);
-      if (parsed === undefined) { refusals.push({ line: 1, rule: 'link-shape', message: `${where}:1: "${target}" is no place a section points at: name a page (domain:<slug>), a document section (doc:<path>#<anchor>) or a graph key, as the tools answer it` }); continue; }
+      if (parsed === undefined) { refusals.push({ line: 1, rule: 'link-shape', message: `${where}:1: ${at(target)}: "${target}" is no place a section points at: name a page (domain:<slug>), a document section (doc:<path>#<anchor>) or a graph key, as the tools answer it` }); continue; }
       if (parsed.type === 'doc') {
-        if (!(await this.view.docSection(parsed.path, parsed.anchor))) { refusals.push({ line: 1, rule: 'unresolved-link', message: `${where}:1: the section points at ${JSON.stringify(target)}, and the document ${parsed.path} has no section ${JSON.stringify(parsed.anchor)} at the last filled commit: get_document_sections finds it and answers it exactly` }); continue; }
+        if (!(await this.view.docSection(parsed.path, parsed.anchor))) { refusals.push({ line: 1, rule: 'unresolved-link', message: `${where}:1: ${at(target)}: the section points at ${JSON.stringify(target)}, and the document ${parsed.path} has no section ${JSON.stringify(parsed.anchor)} at the last filled commit: get_document_sections finds it and answers it exactly` }); continue; }
         this.names.set(target, await this.view.nameOf({ type: 'doc', path: parsed.path, anchor: parsed.anchor }));
         continue;
       }
       if (parsed.type === 'page') {
-        refusals.push({ line: 1, rule: 'unresolved-link', message: `${where}:1: the section points at ${JSON.stringify(target)}, and this run wrote no such page and declared no such domain: the pages are ${[...published].sort(byCodePoint).join(', ')}` });
+        refusals.push({ line: 1, rule: 'unresolved-link', message: `${where}:1: ${at(target)}: the section points at ${JSON.stringify(target)}, and this run wrote no such page and declared no such domain: the pages are ${[...published].sort(byCodePoint).join(', ')}` });
         continue;
       }
       const node = await this.view.node(parsed.key);
-      if (node === null) { refusals.push({ line: 1, rule: 'unresolved-link', message: `${where}:1: the section points at ${JSON.stringify(target)}, which is no key of the graph at the last filled commit: find_nodes answers a service, get_symbol a function, and the link is exactly the key they answer` }); continue; }
+      if (node === null) { refusals.push({ line: 1, rule: 'unresolved-link', message: `${where}:1: ${at(target)}: the section points at ${JSON.stringify(target)}, which is no key of the graph at the last filled commit: find_nodes answers a service, get_symbol a function, and the link is exactly the key they answer` }); continue; }
       this.names.set(parsed.key, await this.view.nameOf({ type: 'graph', key: parsed.key }));
     }
     const placed = new Set(homeLinks(fields).map((row) => row.target));
@@ -836,14 +854,14 @@ export class UnitTools {
         const hash = target.indexOf('#');
         const path = target.slice('doc:'.length, hash < 0 ? undefined : hash);
         const anchor = hash < 0 ? '' : target.slice(hash + 1);
-        if (hash <= 'doc:'.length || anchor === '') { refusals.push({ line: 1, rule: 'ground-shape', message: `${where}:1: the ground ${JSON.stringify(target)} is no doc:<path>#<anchor>: name the section of the document, as get_document_sections answers it` }); continue; }
-        if (!(await this.view.docSection(path, anchor))) { refusals.push({ line: 1, rule: 'unresolved-ground', message: `${where}:1: the ground ${JSON.stringify(target)} names a section the document ${path} has not at the last filled commit: get_document_sections finds a section and answers the ground exactly` }); continue; }
+        if (hash <= 'doc:'.length || anchor === '') { refusals.push({ line: 1, rule: 'ground-shape', message: `${where}:1: ${at(target)}: the ground ${JSON.stringify(target)} is no doc:<path>#<anchor>: name the section of the document, as get_document_sections answers it` }); continue; }
+        if (!(await this.view.docSection(path, anchor))) { refusals.push({ line: 1, rule: 'unresolved-ground', message: `${where}:1: ${at(target)}: the ground ${JSON.stringify(target)} names a section the document ${path} has not at the last filled commit: get_document_sections finds a section and answers the ground exactly` }); continue; }
         this.names.set(target, await this.view.nameOf({ type: 'doc', path, anchor: anchor.toLowerCase() }));
         continue;
       }
       if (target.startsWith('question:') || target.startsWith('correction:')) { this.names.set(target, target.slice(target.indexOf(':') + 1)); continue; }
       const node = await this.view.node(target);
-      if (node === null) { refusals.push({ line: 1, rule: 'unresolved-ground', message: `${where}:1: the ground ${JSON.stringify(target)} is no key of the graph at the last filled commit: find_nodes answers a service, get_symbol a function, and the ground is exactly the key they answer` }); continue; }
+      if (node === null) { refusals.push({ line: 1, rule: 'unresolved-ground', message: `${where}:1: ${at(target)}: the ground ${JSON.stringify(target)} is no key of the graph at the last filled commit: find_nodes answers a service, get_symbol a function, and the ground is exactly the key they answer` }); continue; }
       this.names.set(target, await this.view.nameOf({ type: 'graph', key: target }));
     }
     // Every declared domain has its own section: the page that names the product's domains names all of them, so a
@@ -1364,17 +1382,24 @@ export class UnitTools {
     // writes them from the fields the unit gives, so the business comes first and the code stands at the end.
     let markdown: string;
     let domains = this.knownDomains;
+    let emptyProduct = false;
     if (this.unit.kind === 'product') {
-      const checked = await this.validateDomains(args['domains']);
-      if ('problems' in checked) return this.refuse(checked.problems);
-      domains = checked.domains;
-      const rendered = await this.homePageOf(args['fields'], domains);
+      const empty = await this.isEmptyProduct();
+      if (!empty) {
+        const checked = await this.validateDomains(args['domains']);
+        if ('problems' in checked) return this.refuse(checked.problems);
+        domains = checked.domains;
+      } else domains = [];
+      const rendered = await this.homePageOf(args['fields'], domains, empty);
       if ('refusals' in rendered) return this.refuse(rendered.refusals);
       markdown = rendered.markdown;
+      emptyProduct = 'emptyProduct' in rendered;
     } else if (this.unit.kind === 'overview') {
-      const rendered = await this.homePageOf(args['fields'], domains);
+      const empty = await this.isEmptyProduct();
+      const rendered = await this.homePageOf(args['fields'], domains, empty);
       if ('refusals' in rendered) return this.refuse(rendered.refusals);
       markdown = rendered.markdown;
+      emptyProduct = 'emptyProduct' in rendered;
     } else if (this.unit.kind === 'domain') {
       const rendered = await this.domainPageOf(args['fields']);
       if ('refusals' in rendered) return this.refuse(rendered.refusals);
@@ -1388,7 +1413,7 @@ export class UnitTools {
     const previous = await this.sink.read(this.unit.path).catch(() => undefined);
     const questions = await this.existingQuestions();
     const entities = [...new Set([...(await this.extras.entityIds?.() ?? []), ...questions.filter((question) => question.status === 'answered').map((question) => question.id)])];
-    const verdict = await checkPage(markdown, { file: this.unit.path, fullPath: resolve(this.extras.output ?? process.cwd(), this.unit.path), language: this.extras.language === 'ru' ? 'ru' : 'en', questions: questions.map((question) => question.id), ...(previous === undefined ? {} : { previous }), ...(entities === undefined ? {} : { entities }), ...(this.basis.length === 0 ? {} : { writtenAt: this.basis }), id: this.unit.id, kind: this.unit.kind, domains: domains.map((d) => d.slug), mustLinkDomains: this.unit.kind === 'product', ...(this.unit.kind === 'domain' && this.unit.productId !== undefined ? { productId: this.unit.productId } : {}) }, this.view);
+    const verdict = await checkPage(markdown, { file: this.unit.path, fullPath: resolve(this.extras.output ?? process.cwd(), this.unit.path), language: this.extras.language === 'ru' ? 'ru' : 'en', questions: questions.map((question) => question.id), ...(previous === undefined ? {} : { previous }), ...(entities === undefined ? {} : { entities }), ...(this.basis.length === 0 ? {} : { writtenAt: this.basis }), id: this.unit.id, kind: this.unit.kind, domains: domains.map((d) => d.slug), mustLinkDomains: this.unit.kind === 'product', ...(this.unit.kind === 'domain' && this.unit.productId !== undefined ? { productId: this.unit.productId } : {}), ...(emptyProduct ? { emptyProductGaps: emptyProductGaps(this.extras.language === 'ru' ? 'ru' : 'en') } : {}) }, this.view);
     if (!verdict.ok) return this.refuse(verdict.refusals);
     const unused = [...this.answersUsed].filter((id) => !verdict.page.grounds.includes(id));
     if (unused.length > 0) return this.refuse(unused.map((id) => ({ line: 1, rule: 'answer-not-used', message: `use the answer returned for ${id} and ground its rewritten sentence on that answered question` })));

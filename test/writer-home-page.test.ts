@@ -8,7 +8,7 @@
  * that cannot be written is refused with the field it stands in rather than written shorter.
  */
 import { describe, expect, test } from 'bun:test';
-import { HOME_SECTIONS, homeGrounds, homeRelates, homeSources, homeStatements, parseHomeFields, renderHomePage, type HomeFields } from '../src/writer/home-page.js';
+import { EMPTY_PRODUCT_GAPS, HOME_SECTIONS, homeGrounds, homeRelates, homeSources, homeStatements, parseHomeFields, renderEmptyHomePage, renderHomePage, type HomeFields } from '../src/writer/home-page.js';
 
 const labels: Record<string, string> = {
   'code.service:shop': 'Shop service',
@@ -75,8 +75,27 @@ describe('the home page is eight sections in the order a reader reads them', () 
     expect(links.some((line) => line.includes('[Buy a thing](madarch:doc:docs/use-cases.md#uc-1)'))).toBe(true);
   });
 
-  test('a page without a grounded sentence of what the product is cannot be rendered', () => {
+  test('a page without a grounded sentence of what the product is cannot be rendered while the product has evidence', () => {
     expect(() => renderHomePage({ ...fields, whatItIs: [] }, context)).toThrow('what the product is');
+  });
+
+  test('an omitted notConnected says connections were not assessed, never that nothing is unconnected', () => {
+    const gap = HOME_SECTIONS.find((section) => section.id === 'not-connected')!.gap!;
+    expect(gap.en).toContain('have not yet been assessed');
+    expect(gap.en).not.toContain('leave nothing unconnected');
+    expect(gap.ru).toContain('ещё не оценивались');
+    const { markdown } = renderHomePage({ ...fields, notConnected: [] }, context);
+    expect(markdown).toContain(gap.en);
+    expect(markdown).not.toContain('leave nothing unconnected');
+  });
+
+  test('an empty product is written as eight gap sentences, with no invented ground', () => {
+    const { markdown } = renderEmptyHomePage({ ...context, page: { ...context.page, title: 'Shop' } });
+    const sections = sectionsOf(markdown);
+    expect(sections.map((section) => section.heading)).toEqual(HOME_SECTIONS.map((section) => section.heading.en));
+    for (const section of sections) expect(section.lines).toEqual([EMPTY_PRODUCT_GAPS.en[section.heading === HOME_SECTIONS[0]!.heading.en ? 'what-it-is' : HOME_SECTIONS.find((one) => one.heading.en === section.heading)!.id]]);
+    expect(markdown).not.toMatch(/\[\^[A-Za-z0-9_-]+\]/);
+    expect(markdown).toContain('sources: []');
   });
 });
 

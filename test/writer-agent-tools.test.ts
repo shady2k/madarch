@@ -496,6 +496,7 @@ function view(read: GraphReads = stubReads()): GraphView {
   return {
     at: TOOL_AT,
     reader: () => undefined,
+    overview: async () => ({ kinds: [{ kind: 'code.service', count: 1 }], relations: [], documents: ['docs/requirements.md'] }),
     fileText: async (path: string) => await read.fileText(path),
     documentPaths: async () => await read.documentPaths(),
     // The one key a page stands on by kind: the node a domain page resolves before it is rendered, and the kind a
@@ -678,3 +679,51 @@ describe('the journal counts what a call did, not only that it was made', () => 
   });
 });
 
+
+
+describe('a home page refusal names the field it stands in (madarch-ztyq.7 review)', () => {
+  const PRODUCT: UnitSpec = { kind: 'product', id: 'product:shop', path: 'docs/product.md', name: 'Shop' };
+  const grounded = { whatItIs: [{ text: 'A shop sells things.', grounds: ['doc:docs/requirements.md#uc-2'] }] };
+  const domains = [{ slug: 'payments', title: 'Payments', summary: 'Payments are taken.', evidence: ['code.service:payments'] }];
+  const domainRow = { target: 'domain:payments', text: 'Payments take the money.', grounds: ['doc:docs/requirements.md#uc-2'] };
+  const product = (read: GraphReads, sink: PageSink = memorySink()): UnitTools => new UnitTools(view(read), PRODUCT, sink, [], DEFAULT_UNIT_BOUNDS, BASIS, { reads: read, questions: async () => [] });
+
+  test('an unresolved place names fields.scenarios[0].target', async () => {
+    const written = await product(stubReads()).call('write_page', {
+      fields: { ...grounded, scenarios: [{ target: 'code.service:missing', text: 'Nothing holds this.', grounds: ['doc:docs/requirements.md#uc-2'] }], domains: [domainRow] },
+      domains,
+    });
+    expect(written.isError).toBe(true);
+    expect(JSON.stringify(written.answer)).toContain('fields.scenarios[0].target');
+  });
+
+  test('an unresolved ground names fields.whatItIs[0].grounds[0]', async () => {
+    const written = await product(stubReads()).call('write_page', {
+      fields: { whatItIs: [{ text: 'A shop sells things.', grounds: ['code.service:missing'] }], domains: [domainRow] },
+      domains,
+    });
+    expect(written.isError).toBe(true);
+    expect(JSON.stringify(written.answer)).toContain('fields.whatItIs[0].grounds[0]');
+  });
+
+  test('an empty product gets the explicit page of gap sentences instead of a refusal', async () => {
+    const reads = stubReads();
+    const empty = {
+      ...view(reads),
+      overview: async () => ({ kinds: [], relations: [], documents: [] }),
+      node: async () => null,
+      graphKey: async () => false,
+      docSection: async () => false,
+      documentPaths: async () => [],
+    } as unknown as GraphView;
+    const sink = memorySink();
+    const session = new UnitTools(empty, PRODUCT, sink, [], DEFAULT_UNIT_BOUNDS, BASIS, { reads, questions: async () => [] });
+    const written = await session.call('write_page', { fields: { whatItIs: [] }, domains: [] });
+    expect(written.isError, JSON.stringify(written.answer)).toBe(false);
+    expect(written.answer).toMatchObject({ written: true, path: 'docs/product.md' });
+    const page = sink.pages.get('docs/product.md')!;
+    expect(page.split('\n').filter((line) => line.startsWith('## '))).toHaveLength(8);
+    expect(page).toContain('have not yet been assessed');
+    expect(page).not.toMatch(/\[\^[A-Za-z0-9_-]+\]/);
+  });
+});

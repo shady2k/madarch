@@ -72,6 +72,11 @@ export interface PageExpectation {
   readonly entities?: readonly string[];
   /** All fresh question ids, including unanswered questions: links, not necessarily grounds. */
   readonly questions?: readonly string[];
+  /**
+   * The gap sentences of an empty product's page (madarch-ztyq.7): the core wrote every one of them, so they may stand
+   * without a ground. No other ungrounded sentence is admitted.
+   */
+  readonly emptyProductGaps?: readonly string[];
   /** The wiki language, when known at the write boundary. */
   readonly language?: 'en' | 'ru';
   /** Product-relative file and its full path, when the caller knows them. */
@@ -514,7 +519,8 @@ export async function checkPage(markdown: string, expected: PageExpectation, res
       if (supports.length > 0 && supports.every((target) => named.has(target) && /^madarch:code\.(service|module):/.test(target))) {
         refusals.push({ line: unit.line, rule: 'link-is-not-a-ground', message: `this sentence is grounded only on ${[...new Set(supports)].map((t) => t.slice('madarch:'.length)).join(', ')}, which it already names with a link; a link names an entity and a ground supports the sentence: ground it on the code or the document section that shows what it says` });
       }
-      const grounded = sentence.terminated ? /[.!?\u2026][)"'\u201d\u2019\u00bb]*(?:\[\^[A-Za-z0-9_-]+\])+$/.test(claim) : /(?:\[\^[A-Za-z0-9_-]+\])+$/.test(claim);
+      const grounded = (sentence.terminated ? /[.!?\u2026][)"'\u201d\u2019\u00bb]*(?:\[\^[A-Za-z0-9_-]+\])+$/.test(claim) : /(?:\[\^[A-Za-z0-9_-]+\])+$/.test(claim))
+        || (expected.emptyProductGaps?.some((gap) => gap.replace(/\s+/g, ' ').trim() === shown.replace(/\s+/g, ' ').trim()) ?? false);
       if (!grounded) {
         const quoted = shown.replace(LINK, (_w, label: string) => label);
         refusals.push({ line: unit.line, rule: 'ungrounded-statement', message: `this sentence states something and has no footnote at its end: ${JSON.stringify(quoted.length > 90 ? `${quoted.slice(0, 87)}...` : quoted)}. End it with a footnote reference that lists its grounds, or, if it only connects text, make it a heading or a "See also" line` });

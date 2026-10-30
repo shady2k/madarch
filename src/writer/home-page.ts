@@ -58,7 +58,7 @@ export const HOME_SECTIONS: readonly HomeSectionDecl[] = [
   { id: 'rules', field: 'rules', shape: 'linked', heading: { en: 'Key rules and decisions', ru: 'Главные правила и решения' }, gap: { en: 'The documents this page stands on name no rule and no decision of the product.', ru: 'Документы, на которых стоит эта страница, не называют правил и решений продукта.' } },
   { id: 'technology', field: 'technology', shape: 'statements', heading: { en: 'Technology and size', ru: 'Технологии и размер' }, gap: { en: 'The documents and the graph this page stands on say nothing about the technology.', ru: 'Документы и граф, на которых стоит эта страница, ничего не говорят о технологиях.' } },
   { id: 'coverage', field: 'coverage', shape: 'statements', heading: { en: 'How complete the wiki is', ru: 'Насколько полна вики' }, gap: { en: 'This page cannot yet say how much of the product the wiki covers.', ru: 'Эта страница пока не может сказать, насколько полно вики покрывает продукт.' } },
-  { id: 'not-connected', field: 'notConnected', shape: 'statements', heading: { en: 'What is not connected', ru: 'Что не связано' }, gap: { en: 'The documents and the graph this page stands on leave nothing unconnected.', ru: 'В документах и графе, на которых стоит эта страница, не осталось ничего несвязанного.' } },
+  { id: 'not-connected', field: 'notConnected', shape: 'statements', heading: { en: 'What is not connected', ru: 'Что не связано' }, gap: { en: 'Connections between the parts of the product have not yet been assessed.', ru: 'Связи между частями продукта ещё не оценивались.' } },
 ];
 
 /**
@@ -129,6 +129,38 @@ export function homeRelates(fields: HomeFields): readonly string[] {
 export function homeSources(fields: HomeFields): readonly string[] {
   const targets = [...homeStatements(fields).flatMap((statement) => statement.grounds), ...homeLinks(fields).map((row) => row.target)];
   return [...new Set(targets.filter((target) => target.startsWith('doc:')).map((target) => target.slice('doc:'.length).split('#')[0]!).filter((path) => path !== ''))].sort(byCodePoint);
+}
+
+/** One target of the page's fields, and every field path that names it: `scenarios[0].target`, `whatItIs[0].grounds[0]`. */
+export interface HomeTargetPath {
+  readonly target: string;
+  readonly path: string;
+}
+
+/**
+ * Every graph key or document section a home page's fields name, paired with the field and index that names it.
+ * A refusal quotes this path, so a unit can fix the field it wrote rather than search the whole page.
+ */
+export function homeTargetPaths(fields: HomeFields): readonly HomeTargetPath[] {
+  const found: HomeTargetPath[] = [];
+  const statement = (field: HomeField, rows: readonly GroundedStatement[]): void => {
+    for (const [index, row] of rows.entries()) for (const [ground, target] of row.grounds.entries()) found.push({ target, path: `${field}[${index}].grounds[${ground}]` });
+  };
+  const link = (field: HomeField, rows: readonly HomeLink[]): void => {
+    for (const [index, row] of rows.entries()) {
+      found.push({ target: row.target, path: `${field}[${index}].target` });
+      for (const [ground, target] of row.grounds.entries()) found.push({ target, path: `${field}[${index}].grounds[${ground}]` });
+    }
+  };
+  statement('whatItIs', fields.whatItIs);
+  link('scenarios', fields.scenarios);
+  link('system', fields.system);
+  link('domains', fields.domains);
+  link('rules', fields.rules);
+  statement('technology', fields.technology);
+  statement('coverage', fields.coverage);
+  statement('notConnected', fields.notConnected);
+  return found;
 }
 
 /** A problem of one page's fields: the rule, the sentence a unit acts on, and where it lands (line 1: nothing is written yet). */
@@ -255,6 +287,56 @@ export function renderHomePage(fields: HomeFields, context: HomeRenderContext): 
   }
   const relates = homeRelates(fields);
   return { markdown: `${homeFrontMatter(fields, context, relates)}\n${page.body}`, relates };
+}
+
+/**
+ * What an empty product's page says in each section: a gap sentence for every heading, because there is no document
+ * section and no graph key to stand on, and inventing one would be worse than saying the product was not described.
+ */
+export const EMPTY_PRODUCT_GAPS: Readonly<Record<StructuredLanguage, Readonly<Record<HomeSectionId, string>>>> = {
+  en: {
+    'what-it-is': 'The documents and the graph this page stands on say nothing yet about what the product is or for whom.',
+    'scenarios': 'The documents this page stands on name no main scenario of the product.',
+    'system': 'The graph this page stands on holds no part of the system to show.',
+    'domains': 'The product page names no domain of the product.',
+    'rules': 'The documents this page stands on name no rule and no decision of the product.',
+    'technology': 'The documents and the graph this page stands on say nothing about the technology.',
+    'coverage': 'This page cannot yet say how much of the product the wiki covers.',
+    'not-connected': 'Connections between the parts of the product have not yet been assessed.',
+  },
+  ru: {
+    'what-it-is': 'Документы и граф, на которых стоит эта страница, пока ничего не говорят о том, что это за продукт и для кого он.',
+    'scenarios': 'Документы, на которых стоит эта страница, не называют главных сценариев продукта.',
+    'system': 'В графе, на котором стоит эта страница, нет частей системы, которые можно показать.',
+    'domains': 'Страница продукта не называет ни одного домена продукта.',
+    'rules': 'Документы, на которых стоит эта страница, не называют правил и решений продукта.',
+    'technology': 'Документы и граф, на которых стоит эта страница, ничего не говорят о технологиях.',
+    'coverage': 'Эта страница пока не может сказать, насколько полно вики покрывает продукт.',
+    'not-connected': 'Связи между частями продукта ещё не оценивались.',
+  },
+};
+
+/** The gap sentences of an empty product's page, in reading order: what `checkPage` can accept without grounds. */
+export function emptyProductGaps(language: StructuredLanguage): readonly string[] {
+  return HOME_SECTIONS.map((section) => EMPTY_PRODUCT_GAPS[language][section.id]);
+}
+
+/**
+ * The page a fresh product gets when its graph holds no document and no node to stand a sentence on: the eight
+ * headings, each saying its gap. It is the core's page, not the unit's, so every sentence is one of the declarations
+ * above and no model text is admitted as an ungrounded claim.
+ */
+export function renderEmptyHomePage(context: HomeRenderContext, title?: string): RenderedHomePage {
+  const page = new PageWriter({ language: context.language, labelOf: context.labelOf, passage: '', unreachedRoutes: [] });
+  for (const section of HOME_SECTIONS) {
+    page.heading(section);
+    page.raw(EMPTY_PRODUCT_GAPS[context.language][section.id]);
+  }
+  const fields: HomeFields = {
+    ...(title === undefined ? {} : { title }),
+    whatItIs: [], scenarios: [], system: [], domains: [], rules: [], technology: [], coverage: [], notConnected: [],
+  };
+  return { markdown: `${homeFrontMatter(fields, context, [])}\n${page.body}`, relates: [] };
 }
 
 /** The page's front matter: what it is, the keys it relates, and the documents it stands on. */
