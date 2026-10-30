@@ -126,12 +126,19 @@ export function requirement3(graph: Graph): Violations {
   return violations;
 }
 
-/** The symbol relationships the task names, each with the endpoint kind it must reach. */
-const SYMBOL_RELATIONS: readonly {type: string; to: string; expected: number}[] = [
-  {type: 'code.reads', to: 'code.symbol:', expected: 559},
-  {type: 'code.uses-type', to: 'code.symbol:', expected: 371},
-  {type: 'code.calls', to: 'code.symbol:', expected: 436},
-  {type: 'code.implements', to: 'code.symbol:', expected: 19},
+/**
+ * The relationships the task names, each with the kind of node its far end must be. The kind is read from the graph's
+ * own rows, not guessed from a record key's prefix: a key is a convention, a kind is what the extractor declared
+ * (madarch-m38l.21).
+ */
+const SYMBOL_RELATIONS: readonly {type: string; endpoint: string; expected: number}[] = [
+  // Measured on the fixture: 581 reads in all. The old prefix test counted a field's key as a symbol's, because a
+  // field's record key begins with its type's; by kind the reads split 214 to symbols and 367 to fields.
+  {type: 'code.reads', endpoint: 'code.symbol', expected: 214},
+  {type: 'code.reads', endpoint: 'code.field', expected: 367},
+  {type: 'code.uses-type', endpoint: 'code.symbol', expected: 371},
+  {type: 'code.calls', endpoint: 'code.symbol', expected: 436},
+  {type: 'code.implements', endpoint: 'code.symbol', expected: 19},
 ];
 
 const symbolKeys = (graph: Graph): string[] => keysOfKind(graph, 'code.symbol');
@@ -154,9 +161,10 @@ export function requirement4(graph: Graph): Violations {
   // connected by that fact: it is dead code, named as dead. Every other symbol reaches another symbol.
   const dead = new Set(graph.rows.filter((row) => row.properties['deadExport'] === true).map((row) => row.key));
   for (const symbol of symbolKeys(graph)) if (!connected.has(symbol) && !dead.has(symbol) && !symbol.includes('.callback@')) violations.push(`${symbol}: isolated from reads, calls, type uses and members`);
+  const kindOfKey = new Map(graph.rows.map((row) => [row.key, row.kind]));
   for (const relation of SYMBOL_RELATIONS) {
-    const held = edgesOf(graph, relation.type).filter((edge) => edge.to.startsWith(relation.to));
-    if (held.length !== relation.expected) violations.push(`${relation.type}: ${held.length} edges to ${relation.to}*, expected ${relation.expected}`);
+    const held = edgesOf(graph, relation.type).filter((edge) => kindOfKey.get(edge.to) === relation.endpoint);
+    if (held.length !== relation.expected) violations.push(`${relation.type}: ${held.length} edges to ${relation.endpoint}, expected ${relation.expected}`);
   }
   // A read inside a function starts at that function; a read in a file's own top-level code (a script, a
   // module-level constant) starts at the file, which is the truthful origin and not a gap.
@@ -375,6 +383,7 @@ describe('the graph-truth audit of the training repository', () => {
       {name: '2 a route with no handler', broken: dropEdge(graph, (edge) => edge.type === 'code.handled-by' && edge.from.endsWith('#POST:/orders')), expected: /#POST:\/orders: 0 handlers/},
       {name: '3 a probe with the wrong path', broken: {rows: graph.rows.map((row) => (row.key.endsWith('/livenessProbe') ? {...row, properties: {...row.properties, path: '/nope'}} : row)), edges: graph.edges}, expected: /livenessProbe: path \/nope/},
       {name: '4 a read that starts outside a function', broken: {rows: graph.rows, edges: [...graph.edges, {type: 'code.reads', from: 'code.database:orders', to: 'code.symbol:services/orders/internal/domain/order.go#Order.ID'}]}, expected: /a read whose origin is neither a function nor a file/},
+      {name: '4 a field whose row is declared a symbol', broken: {rows: graph.rows.map((row) => (row.kind === 'code.field' ? {...row, kind: 'code.symbol'} : row)), edges: graph.edges}, expected: /code\.reads: \d+ edges to code\.symbol, expected 214/},
       {name: '5 a file that loses its deployment', broken: dropEdge(graph, (edge) => edge.type === 'code.contains' && edge.to === 'code.k8s-deployment:deploy/k8s/orders.yaml#orders'), expected: /code\.file:deploy\/k8s\/orders\.yaml: does not reach/},
       {name: '6 a dependency import without a version', broken: {rows: graph.rows.map((row) => (row.key === 'code.dependency:services/payments/package.json#express' ? {...row, properties: {...row.properties, version: undefined}} : row)), edges: graph.edges}, expected: /names no version/},
       {name: '7 a channel nobody consumes twice', broken: dropEdge(graph, (edge) => edge.type === 'code.consumes' && edge.to === 'code.channel:payments.events'), expected: /payments\.events: no function consumes it|2 unconsumed channels/},
