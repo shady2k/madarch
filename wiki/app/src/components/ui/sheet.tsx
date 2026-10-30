@@ -27,11 +27,11 @@ export const SheetContent = forwardRef<
 >(function SheetContent({ className, children, side = 'left', title = 'Navigation', closeLabel = 'Close', ...props }, ref): ReactElement {
   return (
     <DialogPrimitive.Portal>
-      <DialogPrimitive.Overlay className="fixed inset-0 z-50 bg-ink/40" />
+      <DialogPrimitive.Overlay className="fixed inset-0 wiki-modal-layer bg-ink/40" />
       <DialogPrimitive.Content
         ref={ref}
         className={cn(
-          'sheet-drawer fixed z-50 flex w-[min(280px,_82vw)] flex-col rounded-r-[var(--radius-panel)] border border-line bg-[var(--surface-menu)] shadow-[var(--nav-shadow)] outline-none',
+          'sheet-drawer fixed wiki-modal-layer flex w-[min(280px,_82vw)] flex-col rounded-r-[var(--radius-panel)] border border-line bg-[var(--surface-menu)] shadow-[var(--nav-shadow)] outline-none',
           sideClasses[side],
           className,
         )}

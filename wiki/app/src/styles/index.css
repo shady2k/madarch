@@ -729,9 +729,27 @@ main .footnotes {
 }
 
 
+/* The layer above every diagram and its full-screen frame. LikeC4 reaches 200 for its panel, 2000 for an overlay and
+ * 4000 for a toast; the diagrams below are isolated so those layers stay inside the drawing, and the app's own
+ * dialogs and popovers take this layer in case a diagram renderer portals one of them to the body. */
+:root {
+  --layer-modal: 10000;
+}
+
+.wiki-modal-layer {
+  z-index: var(--layer-modal);
+}
+
+/* Radix writes z-index: auto inline on the wrapper it portals a dropdown or tooltip through; its transform also makes
+ * that wrapper a stacking context, so the content's own layer cannot lift it out. The wrapper itself takes the modal
+ * layer. */
+[data-radix-popper-content-wrapper] {
+  z-index: var(--layer-modal) !important;
+}
+
 /* A restrained top-layer language menu, aligned with the shared neutral tokens. */
 .language-menu {
-  z-index: 60;
+  z-index: var(--layer-modal);
   min-inline-size: 170px;
   padding: 5px;
   border: 1px solid var(--border);
@@ -830,6 +848,16 @@ main .footnotes {
  * at the reading measure; a wide diagram scrolls in its own box, never the
  * page. LikeC4 sizes its view to the box when it is revealed (the same
  * nudge the static wiki's module gives it). */
+/* Every diagram is its own stacking context. LikeC4's navigation panel sits at z-index 200 inside the view's shadow
+ * root; without isolation that layer competes with the page's own dialogs, because a shadow root does not isolate
+ * stacking contexts. The host still paints in normal flow, below every modal layer. */
+.diagram-mermaid,
+.diagram-likec4,
+likec4-view,
+.dg-likec4-view {
+  isolation: isolate;
+}
+
 .diagram-mermaid,
 .diagram-likec4 {
   margin-block: 1em;

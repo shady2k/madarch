@@ -496,7 +496,7 @@ export function FillMenu({ status, refresh }: { status: WikiStatus; refresh: () 
           data-testid="fill-menu"
           data-state="open"
           style={{ position: 'fixed', top: place.top ?? undefined, bottom: place.bottom ?? undefined, right: place.right, maxHeight: place.maxHeight }}
-          className="language-menu fill-menu z-50 w-[min(26rem,92vw)] max-w-[calc(100vw-1rem)] overflow-y-auto overflow-x-hidden overscroll-contain break-words"
+          className="language-menu fill-menu w-[min(26rem,92vw)] max-w-[calc(100vw-1rem)] overflow-y-auto overflow-x-hidden overscroll-contain break-words"
         >
           <div className="language-menu-label" id="fill-menu-title">{t('knowledge.fillMenuTitle')}</div>
           <div className="language-menu-separator" role="separator" />
@@ -576,7 +576,7 @@ export function SyncButton({ status, refresh }: { status: WikiStatus; refresh: (
         <span className="sync-words">{busy ? t('knowledge.syncRunning') : t('knowledge.sync')}</span>
       </Button>
       {open && (
-        <div role="region" aria-label={t('knowledge.syncResult')} className="absolute right-0 top-[calc(100%+8px)] z-50 w-[min(28rem,92vw)] rounded-[var(--radius-card)] border border-line bg-page p-3 text-left shadow-lg" data-testid="sync-result">
+        <div role="region" aria-label={t('knowledge.syncResult')} className="absolute right-0 top-[calc(100%+8px)] wiki-modal-layer w-[min(28rem,92vw)] rounded-[var(--radius-card)] border border-line bg-page p-3 text-left shadow-lg" data-testid="sync-result">
           <div className="mb-2 flex items-center justify-between gap-2">
             <span className="text-small font-medium text-ink">{t('knowledge.syncResult')}</span>
             <button type="button" className="cursor-pointer rounded p-1 text-muted hover:text-ink" aria-label={t('knowledge.syncClose')} data-testid="sync-close" onClick={() => setOpen(false)}>
@@ -603,7 +603,7 @@ export function SyncButton({ status, refresh }: { status: WikiStatus; refresh: (
           )}
         </div>
       )}
-      {refused !== null && <p className="absolute right-0 top-[calc(100%+8px)] z-50 m-0 w-[min(28rem,92vw)] rounded-[var(--radius-card)] border border-line bg-page p-2 text-small shadow-lg" role="alert" data-testid="sync-refused">{refused}</p>}
+      {refused !== null && <p className="absolute right-0 top-[calc(100%+8px)] wiki-modal-layer m-0 w-[min(28rem,92vw)] rounded-[var(--radius-card)] border border-line bg-page p-2 text-small shadow-lg" role="alert" data-testid="sync-refused">{refused}</p>}
     </span>
   );
 }
