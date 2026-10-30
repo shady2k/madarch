@@ -9,10 +9,14 @@
  */
 import { afterAll, beforeAll, describe, expect, test } from 'bun:test';
 import { execFileSync } from 'node:child_process';
-import { mkdirSync, mkdtempSync, readFileSync, rmSync } from 'node:fs';
+import { mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { KnowledgeProduct } from '../src/knowledge/product.js';
+import { createHandler, type Handled, type Refusal, type ServerHandler } from '../src/server/http.js';
+import { createKnowledgePart } from '../src/server/knowledge.js';
+import { createWikiPart } from '../src/server/wiki-app.js';
+import { openProductWiki } from '../src/product-wiki/pages.js';
 import type { Block, PageModel } from '../src/knowledge/model.js';
 import { FACTORY, MISSING, PAY, PAYMENTS_SERVICE, ROOT, generateTrainingRepository, makeProduct, recordKey, writeSamplePages } from './knowledge-fixture.js';
 
@@ -71,6 +75,18 @@ function lineOf(path: string, text: string): number {
   return at + 1;
 }
 
+/**
+ * A page's address: the entity's id with the terminal dot of a `.md` or
+ * `.json` suffix encoded, so the address is not read as that file's sibling.
+ */
+const addressOf = (key: string): string => {
+  const encoded = encodeURIComponent(key);
+  for (const suffix of ['.md', '.json']) {
+    if (encoded.endsWith(suffix)) return `/k/e/${encoded.slice(0, -suffix.length)}%2E${suffix.slice(1)}`;
+  }
+  return `/k/e/${encoded}`;
+};
+
 describe('the payments service page', () => {
   test('it names the stack the answer key gives (TypeScript, Express) and lists the files the key says a reader must be able to reach', async () => {
     const model = await page(PAYMENTS_SERVICE);
@@ -93,7 +109,7 @@ describe('the payments service page', () => {
   test('every file on the page is a link to the file\'s page, and the graph block draws the service with its package', async () => {
     const model = await page(PAYMENTS_SERVICE);
     const rows = block(model, 'related', 0).groups[0]!.rows;
-    expect(rows.every((row) => row.entity.href === `/k/e/${encodeURIComponent(row.entity.id)}`)).toBe(true);
+    expect(rows.every((row) => row.entity.href === addressOf(row.entity.id))).toBe(true);
     expect(block(model, 'graph').neighborhood.edges.some((edge) => edge.relation === 'code.contains')).toBe(true);
   });
 });
@@ -539,4 +555,149 @@ describe('the neighbourhood of a page agrees with its relations block', () => {
     expect(missing, `relations the relations block shows and the neighbourhood hides (${String(missing.length)}):\n${missing.slice(0, 40).join('\n')}`).toEqual([]);
     expect(empty, `pages with relations and an empty neighbourhood: ${empty.join(', ')}`).toEqual([]);
   }, 900_000);
+});
+
+describe('every page and every kind as a file for agents', () => {
+  let handler: ServerHandler;
+  let appFolder: string;
+
+  beforeAll(() => {
+    const opened = openProductWiki(folder);
+    if (!opened.ok) throw new Error(`the product's wiki did not open: ${opened.message}`);
+    appFolder = join(work, 'agent-app');
+    mkdirSync(appFolder, { recursive: true });
+    writeFileSync(join(appFolder, 'index.html'), '<!doctype html><html><head><title>app</title></head><body><div id="root"></div></body></html>');
+    const json = (status: number, body: unknown): Response => Response.json(body, { status });
+    const refused = (status: number, error: Refusal): Handled => ({ response: Response.json({ message: error.message, error }, { status }), refusal: error.message });
+    handler = createHandler({
+      log: () => undefined,
+      errorLog: () => undefined,
+      appFolder,
+      wiki: createWikiPart(json, refused, opened.wiki, appFolder),
+      // The product filled in `beforeAll`, read as it is: the same store, so no second process opens it.
+      knowledge: createKnowledgePart({ json, refused, errorLog: () => undefined }, product, () => [{ name: 'training-shop', folder }], {}, false, ''),
+    });
+  });
+
+  const at = async (path: string): Promise<{ status: number; type: string | null; text: string }> => {
+    const response = await handler(new Request(`http://wiki.test${path}`));
+    return { status: response.status, type: response.headers.get('content-type'), text: await response.text() };
+  };
+
+  const pageKeys = ['schema', 'id', 'kind', 'title', 'address', 'json', 'markdown', 'trail', 'sections', 'findings', 'notes', 'planned'];
+  const sectionKeys = ['title', 'type', 'text', 'links', 'items', 'groups', 'properties', 'place', 'language', 'format', 'views', 'edges', 'total', 'shown', 'depth', 'file', 'line', 'statements', 'ungrounded', 'diagnostics', 'block', 'message', 'notes'];
+  const sectionTypes = ['text', 'links', 'relations', 'items', 'properties', 'source', 'diagram', 'history', 'contract', 'problem', 'deferred'];
+
+  /** Every wiki address a document holds under a `url`, so the Markdown can be asked for each of them. */
+  const urlsIn = (value: unknown, found: string[] = []): string[] => {
+    if (Array.isArray(value)) { for (const entry of value) urlsIn(entry, found); return found; }
+    if (value === null || typeof value !== 'object') return found;
+    for (const [key, held] of Object.entries(value)) {
+      if (key === 'url' && typeof held === 'string' && held.startsWith('/k/')) found.push(held);
+      else urlsIn(held, found);
+    }
+    return found;
+  };
+
+  test('every entity of every kind answers as Markdown and JSON, with every address it names a link in the Markdown', async () => {
+    const status = await product.status();
+    let pages = 0;
+    const declaredKinds = status.kinds.map((declaration: { kind: string }) => declaration.kind);
+    for (const kind of status.kinds) {
+      const ids: string[] = [];
+      let after: string | undefined;
+      let listed = 0;
+      for (;;) {
+        const listing = await product.list(kind.kind, { ...(after === undefined ? {} : { after }), limit: 500 });
+        if (listing === undefined) throw new Error(`the filled product declares no kind ${kind.kind}`);
+        ids.push(...listing.rows.map((row) => row.id));
+        listed = listing.total;
+        if (listing.next === null) break;
+        after = listing.next;
+      }
+      // The operations catalogue counts the channels of actual contracts beside the operations; a kind never loses an entity.
+      expect(listed).toBeGreaterThanOrEqual(kind.count);
+      expect(ids.length).toBe(listed);
+
+      const listAddress = `/k/kind/${encodeURIComponent(kind.kind)}`;
+      const listDocument = await at(`${listAddress}.json`);
+      expect(listDocument.status).toBe(200);
+      expect(listDocument.type).toContain('application/json');
+      const list = JSON.parse(listDocument.text);
+      expect(Object.keys(list).filter((key) => !['schema', 'kind', 'title', 'description', 'address', 'json', 'markdown', 'total', 'entries'].includes(key))).toEqual([]);
+      expect(list).toMatchObject({ schema: 'madarch.kind.v1', kind: kind.kind, address: listAddress, json: `${listAddress}.json`, markdown: `${listAddress}.md`, total: listed });
+      expect(list.entries.map((entry: { id: string }) => entry.id)).toEqual(ids);
+      expect(list.entries.every((entry: { url: string | null }) => entry.url !== null && entry.url.startsWith('/k/e/'))).toBe(true);
+      const listMarkdown = await at(`${listAddress}.md`);
+      expect(listMarkdown.status).toBe(200);
+      expect(listMarkdown.type).toContain('text/markdown');
+      expect(listMarkdown.text).toContain(`# ${list.title}`);
+      for (const entry of list.entries) expect(listMarkdown.text).toContain(`](${entry.url})`);
+
+      for (const id of ids) {
+        const address = addressOf(id);
+        const json = await at(`${address}.json`);
+        expect(json.status).toBe(200);
+        expect(json.type).toContain('application/json');
+        const document = JSON.parse(json.text);
+        expect(Object.keys(document).filter((key) => !pageKeys.includes(key))).toEqual([]);
+        expect(document).toMatchObject({ schema: 'madarch.page.v1', id, address, markdown: `${address}.md`, json: `${address}.json` });
+        // The operations catalogue lists a channel beside its operations, and the channel's page carries its own kind.
+        expect(declaredKinds).toContain(document.kind);
+        expect(document.sections.length).toBeGreaterThanOrEqual(1);
+        for (const section of document.sections) {
+          expect(Object.keys(section).filter((key) => !sectionKeys.includes(key))).toEqual([]);
+          expect(typeof section.title).toBe('string');
+          expect(sectionTypes).toContain(section.type);
+        }
+        const markdown = await at(`${address}.md`);
+        expect(markdown.status).toBe(200);
+        expect(markdown.type).toContain('text/markdown');
+        expect(markdown.text).toContain(`# ${document.title.split('\n').join(' ')}`);
+        for (const section of document.sections) {
+          if (section.title !== '') expect(markdown.text).toContain(`## ${section.title.split('\n').join(' ')}`);
+        }
+        for (const url of new Set(urlsIn(document.sections))) expect(markdown.text).toContain(`](${url})`);
+        pages += 1;
+      }
+    }
+    expect(pages).toBeGreaterThan(0);
+  }, 900_000);
+
+  test("the product's llms.txt names every kind and its lists, and each HTML page names its Markdown", async () => {
+    const status = await product.status();
+    const llms = await at('/llms.txt');
+    expect(llms.status).toBe(200);
+    expect(llms.type).toContain('text/plain');
+    expect(llms.text).toContain(`# ${status.product.name}`);
+    for (const kind of status.kinds) {
+      const address = `/k/kind/${encodeURIComponent(kind.kind)}`;
+      expect(llms.text).toContain(`kind \`${kind.kind}\``);
+      expect(llms.text).toContain(`${address}.md`);
+      expect(llms.text).toContain(`${address}.json`);
+      const html = await at(address);
+      expect(html.status).toBe(200);
+      expect(html.text).toContain(`<link rel="alternate" type="text/markdown" href="${address}.md">`);
+    }
+    const first = await product.list(status.kinds[0]!.kind, { limit: 1 });
+    const id = first!.rows[0]!.id;
+    const address = addressOf(id);
+    const html = await at(address);
+    expect(html.status).toBe(200);
+    expect(html.text).toContain(`<link rel="alternate" type="text/markdown" href="${address}.md">`);
+  }, 120_000);
+
+  test('the payments service page keeps its whole relation lists in the JSON and its text and links in the Markdown', async () => {
+    const model = await page(PAYMENTS_SERVICE);
+    const address = addressOf(PAYMENTS_SERVICE);
+    const document = JSON.parse((await at(`${address}.json`)).text);
+    const groups: { relation: string; direction: string; total: number; items: { id: string; url: string | null }[] }[] = document.sections.flatMap((section: { type: string; groups?: unknown[] }) => section.type === 'relations' ? section.groups ?? [] : []);
+    const expected = model.blocks.flatMap((entry) => entry.type === 'related' ? entry.groups.map((group) => ({ relation: group.relation, direction: group.direction, ids: group.rows.map((row) => row.entity.id) })) : []);
+    expect(expected.length).toBeGreaterThan(0);
+    expect(groups.map((group) => ({ relation: group.relation, direction: group.direction, ids: group.items.map((item) => item.id) }))).toEqual(expected);
+    const markdown = (await at(`${address}.md`)).text;
+    expect(markdown).toContain('typescript');
+    expect(markdown).toContain('express');
+    for (const group of groups) for (const item of group.items) if (item.url !== null) expect(markdown).toContain(`](${item.url})`);
+  }, 120_000);
 });

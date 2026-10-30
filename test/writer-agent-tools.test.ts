@@ -498,6 +498,9 @@ function view(read: GraphReads = stubReads()): GraphView {
     reader: () => undefined,
     fileText: async (path: string) => await read.fileText(path),
     documentPaths: async () => await read.documentPaths(),
+    // The one key a page stands on by kind: the node a domain page resolves before it is rendered, and the kind a
+    // developer place must be of. A key the stub does not hold is no node at all.
+    node: async (key: string) => (key in KEYS ? { id: key, key, kind: key.slice(0, key.indexOf(':')), label: KEYS[key]!, properties: {} } : null),
     graphKey: async (key: string) => key in KEYS,
     docSection: async (path: string, anchor: string) => `${path}#${anchor}` in SECTIONS,
     sourceName: async () => true,
@@ -513,25 +516,16 @@ function tools(sink: PageSink = memorySink(), read: GraphReads = stubReads(), qu
   return new UnitTools(view(read), DOMAIN, sink, [], DEFAULT_UNIT_BOUNDS, BASIS, { reads: read, questions });
 }
 
-const PAGE = [
-  '---',
-  'id: domain:payments',
-  'kind: domain',
-  'title: Payments',
-  'relates:',
-  '  - code.service:payments',
-  'producer: agent',
-  'sources: []',
-  '---',
-  '',
-  '## How payments work',
-  '',
-  'Payments are taken by the [payments service](madarch:code.service:payments).[^taken]',
-  'A refund writes the payment row.[^writes]',
-  '',
-  '[^taken]: [UC-2](madarch:doc:docs/requirements.md#uc-2)',
-  '[^writes]: [refund](madarch:code.symbol:services/payments/refund.ts#refund)',
-].join('\n');
+/** The six sections of the payments page (madarch-ztyq.6), one statement each, and the code's note for the developer. */
+const DOMAIN_FIELDS: Record<string, unknown> = {
+  title: 'Payments',
+  participants: [{ text: 'The shopper pays for an order through the [payments service](madarch:code.service:payments).', grounds: ['doc:docs/requirements.md#uc-2'] }],
+  mainScenario: [{ text: 'The payments service charges the card for the order.', grounds: ['doc:docs/requirements.md#uc-2'] }],
+  rules: [{ text: 'A payment is taken once per order.', grounds: ['doc:docs/requirements.md#uc-2'] }],
+  whatCanGoWrong: [{ text: 'A card can be declined and the order waits unpaid.', grounds: ['doc:docs/requirements.md#uc-2'] }],
+  openPoints: [{ text: 'No document says how long a declined card is retried.', grounds: ['doc:docs/requirements.md#uc-2'] }],
+  developer: { notes: [{ text: 'A refund writes the payment row.', grounds: ['code.symbol:services/payments/refund.ts#refund'] }] },
+};
 
 describe('a unit holds the tools that answer its questions', () => {
   test('the seven answers are tools, of a product unit and of a domain unit alike', () => {
@@ -539,9 +533,19 @@ describe('a unit holds the tools that answer its questions', () => {
     for (const name of ['get_symbol', 'get_context', 'trace_flow', 'get_document_sections', 'search_pages', 'get_page', 'search_questions', 'read_file']) expect(names).toContain(name);
     const held = tools().tools.map((tool) => tool.name);
     for (const name of ['get_symbol', 'get_context', 'trace_flow', 'get_document_sections', 'search_pages', 'get_page', 'search_questions']) expect(held).toContain(name);
-    // A domain unit writes no domains: the product unit's write_page takes them, and its own is the only difference.
-    const write = tools().tools.find((tool) => tool.name === 'write_page')!;
-    expect(JSON.stringify(write.inputSchema)).not.toContain('domains');
+    // A domain unit writes no page of its own Markdown and declares no domains (madarch-ztyq.6): its write_page
+    // takes the page's title and the fields of its six sections, and the core writes the page. The product unit's
+    // takes markdown and the domains it declares, and that is the whole difference between the two.
+    const domainWrite = tools().tools.find((tool) => tool.name === 'write_page')!;
+    const domainSchema = domainWrite.inputSchema as { properties: Record<string, unknown>; required?: readonly string[] };
+    expect(Object.keys(domainSchema.properties)).toEqual(['title', 'participants', 'mainScenario', 'rules', 'whatCanGoWrong', 'openPoints', 'developer']);
+    expect(domainSchema.required).toEqual(['participants', 'mainScenario']);
+    const productWrite = new UnitTools(view(), { kind: 'product', id: 'product:shop', path: 'docs/product.md', name: 'Shop' }, memorySink(), [], DEFAULT_UNIT_BOUNDS, BASIS, { reads: stubReads(), questions: async () => [] }).tools.find((tool) => tool.name === 'write_page')!;
+    const productSchema = productWrite.inputSchema as { properties: Record<string, unknown> };
+    expect(Object.keys(productSchema.properties)).toContain('markdown');
+    expect(Object.keys(productSchema.properties)).toContain('domains');
+    expect(Object.keys(domainSchema.properties)).not.toContain('markdown');
+    expect(Object.keys(domainSchema.properties)).not.toContain('domains');
   });
 
   test('every answer names the repository, the revision and the instant it was read at, with its evidence and its cuts', async () => {
@@ -583,10 +587,11 @@ describe('a unit holds the tools that answer its questions', () => {
   test('what the unit produced is counted: the page, its statements, their grounds and links, and a question', async () => {
     const sink = memorySink();
     const session = tools(sink);
-    const written = await session.call('write_page', { markdown: PAGE });
+    const written = await session.call('write_page', { fields: DOMAIN_FIELDS });
     expect(written.isError, JSON.stringify(written.answer)).toBe(false);
-    // Two statements, two footnotes of grounds, and one link in the text: a footnote's ground is a ground, not a link.
-    expect(written.counters?.produced).toEqual({ pages: 1, statements: 2, grounds: 2, links: 1, questions: 0 });
+    // One statement per section and the developer's note: six footnotes of one ground each, and one link in the
+    // text. A footnote's ground is a ground, not a link, and the core wrote the sections from the fields.
+    expect(written.counters?.produced).toEqual({ pages: 1, statements: 6, grounds: 6, links: 1, questions: 0 });
     const empty = await session.call('ask_question', { type: 'gap' });
     expect(empty.isError).toBe(true);
     expect(session.counters().produced.questions).toBe(0);

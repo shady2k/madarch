@@ -27,6 +27,7 @@ const SERVICE = K('code.service', 'billing');
 const PACKAGE = K('code.package', 'svc/billing');
 const MODULE = K('code.module', 'svc/billing/src');
 const FILE_A = K('code.file', 'svc/billing/src/a.ts');
+const DEBT = K('code.debt', 'svc/billing/src/a.ts#10');
 const FILE_B = K('code.file', 'svc/billing/src/b.ts');
 const CHARGE = K('code.symbol', 'svc/billing/src/a.ts#charge');
 const AUDIT = K('code.symbol', 'svc/billing/src/a.ts#audit');
@@ -53,7 +54,7 @@ beforeAll(async () => {
   store = createGraphStore(owner, { now: () => new Date('2026-06-01T00:00:00Z') });
   await store.createSchema();
   await store.registerCodeSchema({
-    kinds: ['code.service', 'code.package', 'code.module', 'code.database', 'code.table', 'code.column'],
+    kinds: ['code.service', 'code.package', 'code.module', 'code.database', 'code.table', 'code.column', 'code.debt'],
     relations: [{ key: 'code.foreign-key', discriminated: true }, { key: 'code.manifest-of' }],
   });
   const scope = await store.newNode();
@@ -76,12 +77,14 @@ beforeAll(async () => {
   await add(CHARGE, 'code.symbol', 'charge', { path: 'svc/billing/src/a.ts', symbolKind: 'function', span: span('svc/billing/src/a.ts', 3, 6) });
   await add(AUDIT, 'code.symbol', 'audit', { path: 'svc/billing/src/a.ts', symbolKind: 'function', span: span('svc/billing/src/a.ts', 8, 10) });
   await add(HANDLE, 'code.symbol', 'handle', { path: 'svc/billing/src/b.ts', symbolKind: 'function', span: span('svc/billing/src/b.ts', 1, 4) });
+  await add(DEBT, 'code.debt', 'TODO: bill it', { marker: 'TODO', text: 'bill it', path: 'svc/billing/src/a.ts', line: 4, span: span('svc/billing/src/a.ts', 4, 4) });
   await link('code.contains', PACKAGE, MODULE);
   await link('code.contains', MODULE, FILE_A);
   await link('code.contains', MODULE, FILE_B);
   await link('code.contains', FILE_A, CHARGE);
   await link('code.contains', FILE_A, AUDIT);
   await link('code.contains', FILE_B, HANDLE);
+  await link('code.contains', FILE_A, DEBT);
   await link('code.calls', HANDLE, CHARGE, { span: span('svc/billing/src/b.ts', 3, 3) });
   await link('code.calls', AUDIT, CHARGE, { span: span('svc/billing/src/a.ts', 9, 9) });
   await link('code.calls', CHARGE, AUDIT, { span: span('svc/billing/src/a.ts', 5, 5) });
@@ -119,6 +122,9 @@ beforeAll(async () => {
     '  code.file:',
     '    template: templates/file.md',
     '    source: graph',
+    '  code.debt:',
+    '    template: templates/item-plain.md',
+    '    source: graph',
     '  code.database:',
     '    template: templates/database.md',
     '    source: graph',
@@ -143,6 +149,7 @@ beforeAll(async () => {
   ].join('\n'));
   write('templates/symbol.md', '{{symbolKind}} in {{path}}\n:::source\n:::callers\n:::callees\n:::sequence\n:::related{title="Declared in" relation="code.contains" direction="in"}\n:::er\n');
   write('templates/file.md', '{{path}}\n:::source\n:::related{title="Imports" relation="code.imports" direction="out"}\n:::related{title="Imported by" relation="code.imports" direction="in"}\n');
+  write('templates/item-plain.md', ':::properties{title="Details"}\n:::graph{title="Around this"}\n:::related{title="Relations"}\n:::related{title="Pages about this" relation="relates"}\n');
   write('templates/database.md', ':::er{limit=5}\n');
   write('docs/product.md', ['---', 'id: product:shop', 'kind: product', 'title: The shop', 'relates:', `  - ${SERVICE}`, 'producer: agent', '---', `The shop bills customers through the billing service.[^1]`, '', `[^1]: [billing](madarch:${SERVICE})`, ''].join('\n'));
   write('docs/domains/billing.md', [
@@ -349,12 +356,28 @@ describe('the function page', () => {
   });
 });
 
+describe('a debt marker', () => {
+  test('its properties are named in the reader\'s words, and a related section with nothing in it is not drawn', async () => {
+    const model = await page(DEBT);
+    const properties = block(model, 'properties');
+    expect(properties.rows).toEqual([
+      { name: 'line', value: '4', nameKey: 'line' },
+      { name: 'marker', value: 'TODO', nameKey: 'marker' },
+      { name: 'path', value: 'svc/billing/src/a.ts', nameKey: 'path' },
+      { name: 'text', value: 'bill it', nameKey: 'text' },
+    ]);
+    const related = model.blocks.filter((entry) => entry.type === 'related');
+    expect(related.map((entry) => entry.title)).toEqual(['Relations']);
+    expect(related[0]!.groups.map((group) => group.relation)).toEqual(['code.contains']);
+  });
+});
+
 describe('files, imports and the database', () => {
   test('a file shows its whole source when it has no span, and its imports in both directions', async () => {
     const model = await page(FILE_A);
     expect(block(model, 'source').text).toBe(A_TS.replace(/\n$/, ''));
-    expect(block(model, 'related', 0).groups).toEqual([]);
-    const importedBy = block(model, 'related', 1);
+    expect(model.blocks.some((entry) => entry.type === 'related' && entry.groups.length === 0)).toBe(false);
+    const importedBy = block(model, 'related', 0);
     expect(importedBy.groups[0]!.rows.map((row) => row.entity.id)).toEqual([FILE_B]);
   });
 
@@ -454,6 +477,7 @@ describe('what has a page', () => {
       { kind: 'code.service', source: 'graph', single: false, count: 1, origins: ['code'] },
       { kind: 'code.symbol', source: 'graph', single: false, count: 3, origins: ['code'] },
       { kind: 'code.file', source: 'graph', single: false, count: 2, origins: ['code'] },
+      { kind: 'code.debt', source: 'graph', single: false, count: 1, origins: ['code'] },
       { kind: 'code.database', source: 'graph', single: false, count: 1, origins: ['code'] },
       { kind: 'doc.use-case', source: 'document', single: false, count: 1, origins: ['person'] },
     ]);

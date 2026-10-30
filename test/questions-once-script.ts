@@ -2,6 +2,7 @@
 import { readFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { LOOP_QUESTIONS, ORDERING_CORRECTED, paymentsRefreshed, questionSlug, type LoopQuestion } from './loop-agent-script.js';
+import { fieldsCall } from './knowledge-agent-script.js';
 import { localizedScript, agentScript, TEXT, type ScriptLanguage } from './knowledge-agent-script.js';
 import { ROOT } from './knowledge-fixture.js';
 
@@ -97,15 +98,15 @@ export function onceFirstScript() {
     const paraphrase = language === 'ru' ? (unit === 'ordering' ? 'Какие из противоречащих обещаний магазина верны?' : 'Должен ли магазин соблюдать обещания README или реализованные правила?') : (unit === 'ordering' ? 'Which conflicting shop promises are correct?' : 'Should the shop follow its README promises or its implemented rules?');
     const proposal = ask(decision, language);
     steps.push({ call: { ...proposal.call, arguments: { ...proposal.call.arguments, title: paraphrase, question: paraphrase, ...(unit === 'payments' ? { type: 'gap', sides: [proposal.call.arguments.sides[1]!] } : {}) } } });
+    // Both sides of the contradiction the unit asked stand on the page, each as its own grounded sentence with the
+    // question link at its end: the writer refuses a page that drops a side of a contradiction its unit asked.
     const written = entry.steps.map((step) => {
       const call = (step as any).call;
       if (call?.tool !== 'write_page') return step;
-      const markdown: string = call.arguments.markdown;
-      const at = markdown.indexOf('\n[^1]:');
       const label = language === 'ru' ? 'вопрос' : 'question';
-      const body = decision.sides.map((grounds, index) => `${decision.text[language].claims[index]}[^promise-${index}] [→ ${label}: ${decision.text[language].title}](madarch:question:${questionSlug(decision, language)})`).join('\n\n');
-      const notes = decision.sides.map((grounds, index) => `[^promise-${index}]: ${grounds.map((ground) => `[source](madarch:${ground})`).join(', ')}`).join('\n');
-      return { call: { ...call, arguments: { ...call.arguments, markdown: `${markdown.slice(0, at)}\n\n${body}${markdown.slice(at)}\n${notes}` } } };
+      const fields = call.arguments.fields as Record<string, unknown>;
+      const sides = decision.sides.map((grounds, index) => ({ text: `${decision.text[language].claims[index]} [→ ${label}: ${decision.text[language].title}](madarch:question:${questionSlug(decision, language)})`, grounds: [...grounds] }));
+      return { call: { ...call, arguments: { ...call.arguments, fields: { ...fields, whatCanGoWrong: [...((fields['whatCanGoWrong'] as Record<string, unknown>[]) ?? []), ...sides] } } } };
     });
     return { ...entry, steps: [...steps, ...written] };
   });
@@ -113,23 +114,25 @@ export function onceFirstScript() {
 }
 export function onceRefreshScript(language: ScriptLanguage) {
   const question = ONCE_QUESTIONS.find((candidate) => candidate.item === 'open.term')!;
-  return { byPrompt: [{ matches: `(madarch:question:${questionSlug(question, language)})`, steps: [ask(question, language), { call: { tool: 'write_page', arguments: { markdown: paymentsRefreshed(language) } } }, { end: { stopReason: 'end_turn' } }] }], steps: [{ end: { stopReason: 'end_turn' } }] };
+  return { byPrompt: [{ matches: `(madarch:question:${questionSlug(question, language)})`, steps: [ask(question, language), fieldsCall(paymentsRefreshed(language)), { end: { stopReason: 'end_turn' } }] }], steps: [{ end: { stopReason: 'end_turn' } }] };
 }
 /** Refill asks only the kept answer again; removed unanswered decisions are not re-created by this fixture script. */
 export function onceRefillScript(language: ScriptLanguage, correction?: { readonly slug: string; readonly statement: string }) {
   const base = agentScript();
   const question = ONCE_QUESTIONS.find((candidate) => candidate.item === 'open.term')!;
   const byPrompt = base.byPrompt.map((entry) => {
-    if (entry.matches.includes(TEXT[language].paymentsSummary)) return { ...entry, steps: [ask(question, language), { call: { tool: 'write_page', arguments: { markdown: paymentsRefreshed(language) } } }, { end: { stopReason: 'end_turn' } }] };
+    if (entry.matches.includes(TEXT[language].paymentsSummary)) return { ...entry, steps: [ask(question, language), fieldsCall(paymentsRefreshed(language)), { end: { stopReason: 'end_turn' } }] };
     if (correction === undefined || !entry.matches.includes(TEXT[language].orderingSummary)) return entry;
+    // The corrected sentence replaces the one the page carried, and stands on the correction the people wrote.
     return { ...entry, steps: entry.steps.map((step) => {
       const call = (step as any).call;
       if (call?.tool !== 'write_page') return step;
-      const markdown: string = call.arguments.markdown;
-      const original = `${TEXT[language].orderingStatement}[^1]`;
-      if (markdown.split(original).length !== 2) throw new Error('refill fixture must replace exactly the original ordering sentence');
-      const corrected = markdown.replace(original, `${ORDERING_CORRECTED[language]}[^${correction.statement}]`).replace('[^1]:', `[^${correction.statement}]: [the correction](madarch:correction:${correction.slug}),`);
-      return { call: { ...call, arguments: { ...call.arguments, markdown: corrected } } };
+      const fields = call.arguments.fields as Record<string, unknown>;
+      const steps = (fields['mainScenario'] as Record<string, unknown>[]) ?? [];
+      const at = steps.findIndex((one) => one['text'] === TEXT[language].orderingStatement);
+      if (at < 0) throw new Error('refill fixture must replace exactly the original ordering sentence');
+      const corrected = steps.map((one, index) => index === at ? { text: ORDERING_CORRECTED[language], grounds: [...(one['grounds'] as string[]), `correction:${correction.slug}`] } : one);
+      return { call: { ...call, arguments: { ...call.arguments, fields: { ...fields, mainScenario: corrected } } } };
     }) };
   });
   return { ...base, byPrompt: [...localized(), ...byPrompt] };

@@ -25,7 +25,7 @@ import { isDeepStrictEqual } from 'node:util';
 import { LineCounter, parseDocument, type Document } from 'yaml';
 import { GIT_LEAKS } from '../product/git.js';
 import { KINDS_FILE, LABEL_LANGUAGES } from './kinds.js';
-import { DOCUMENT_EXCLUDES, GROUPS, ROLES, STARTER_FILES, STARTER_KINDS, TEMPLATES, kindLines, starterManifest, type StarterKind } from './seed.js';
+import { DOCUMENT_EXCLUDES, GROUPS, ROLES, STARTER_FILES, STARTER_KINDS, STARTER_PROBLEM_RULES, TEMPLATES, kindLines, starterManifest, type StarterKind } from './seed.js';
 
 /** The subjects of the commits madarch itself makes in a product's manifest and templates. */
 export const MADARCH_COMMIT_SUBJECTS: readonly string[] = ['Create the draft product'];
@@ -34,9 +34,9 @@ export type Provenance = 'absent' | 'current' | 'madarch' | 'person';
 
 /** One thing the starter set holds and the product's manifest lacks, offered for the Problems page to add. */
 export interface StarterOffer {
-  /** `group:<name>`, `roles`, `role:<name>`, `documents`, `kind:<name>` or `fields:<kind>`. */
+  /** `group:<name>`, `roles`, `role:<name>`, `documents`, `kind:<name>`, `fields:<kind>` or `rule:<id>`. */
   readonly id: string;
-  readonly type: 'group' | 'roles' | 'role' | 'documents' | 'kind' | 'fields';
+  readonly type: 'group' | 'roles' | 'role' | 'documents' | 'kind' | 'fields' | 'rule';
   readonly name: string;
   /** The kind's or group's name in each interface language. */
   readonly labels?: { readonly en: string; readonly ru: string };
@@ -55,6 +55,12 @@ export interface UpgradeReport {
   readonly written: string[];
   /** Files left as they are because a person edited them (or because nothing shows madarch alone wrote them). */
   readonly kept: string[];
+  /**
+   * The kinds whose template is still an old Markdown one a person edited: the manifest of 0032 names Liquid
+   * templates, and a kind whose `templates/<name>.md` a person wrote keeps that reference, so the page a person
+   * shaped is the page the wiki draws (madarch-u3vw.1).
+   */
+  readonly keptReferences: { kind: string; template: string }[];
   /** What the set holds and the product's manifest lacks. */
   readonly offers: StarterOffer[];
 }
@@ -132,7 +138,11 @@ function onlyMadarchAdditions(working: string, committed: string): boolean {
     const decl = data.kinds?.[kind.name];
     if (decl === undefined || c.hasIn(['kinds', kind.name])) continue;
     // The kind madarch added is the starter's declaration whole, with or without its group; any edit inside it is a person's.
-    if (!isDeepStrictEqual(decl, starterDeclaration(kind, true)) && !isDeepStrictEqual(decl, starterDeclaration(kind, false))) return false;
+    // Madarch's own rename of a template is not an edit: a declaration naming `templates/<kind>.md` is the one 0.2 wrote
+    // before decision 0032 made the templates Liquid (`templates/<kind>.liquid`), and nothing else of it differs.
+    const asWritten = [starterDeclaration(kind, true), starterDeclaration(kind, false)];
+    const beforeLiquid = asWritten.map((declaration) => ({ ...(declaration as Record<string, unknown>), template: String((declaration as { template: string }).template).replace(/\.liquid$/, '.md') }));
+    if (![...asWritten, ...beforeLiquid].some((declaration) => isDeepStrictEqual(decl, declaration))) return false;
     c.setIn(['kinds', kind.name], c.createNode(decl));
   }
   if (typeof data.language === 'string') c.set('language', data.language);
@@ -226,17 +236,37 @@ export function starterOffers(manifestText: string): StarterOffer[] {
     const fields = ['group', 'labels', 'description', ...(kind.origin === undefined ? [] : ['origin'])].filter((field) => (present as Record<string, unknown>)[field] === undefined);
     if (fields.length > 0) offers.push({ id: `fields:${kind.name}`, type: 'fields', name: kind.name, labels: LABELS(kind), group: kind.group, fields });
   }
+  // A rule the manifest does not declare, or declares without the fields the engine needs, is offered whole or in
+  // part. What the manifest already says — its enabled switch, a severity a person chose — is never replaced.
+  const problems = data['problems'];
+  const declaredRules = problems !== null && typeof problems === 'object' && !Array.isArray(problems) && (problems as Record<string, unknown>)['rules'] !== null && typeof (problems as Record<string, unknown>)['rules'] === 'object' && !Array.isArray((problems as Record<string, unknown>)['rules'])
+    ? (problems as Record<string, unknown>)['rules'] as Record<string, unknown>
+    : {};
+  for (const rule of STARTER_PROBLEM_RULES) {
+    const present = declaredRules[rule.id];
+    if (present === undefined) { offers.push({ id: `rule:${rule.id}`, type: 'rule', name: rule.id, labels: rule.label }); continue; }
+    if (present === null || typeof present !== 'object' || Array.isArray(present)) continue;
+    const fields = ['predicate', 'kind', 'sonar', 'severity', 'section', 'action', 'label', ...(rule.params === undefined ? [] : ['params'])]
+      .filter((field) => (present as Record<string, unknown>)[field] === undefined);
+    if (fields.length > 0) offers.push({ id: `rule:${rule.id}`, type: 'rule', name: rule.id, labels: rule.label, fields });
+  }
   return offers;
 }
 
 function starterGroupNode(document: Document, name: string): unknown {
   const group = GROUPS.find((candidate) => candidate.name === name)!;
-  return document.createNode({ en: group.en, ru: group.ru });
+  return document.createNode({ en: group.en, ru: group.ru, ...(group.parent === undefined ? {} : { parent: group.parent }), ...(group.open === undefined ? {} : { open: group.open }) });
 }
 
+/**
+ * Writes the group and, before it, the group it is a sub-area of. A manifest
+ * gains the whole branch: a sub-area never stands without its parent.
+ */
 function ensureGroup(document: Document, name: string): void {
   if (document.hasIn(['groups', name])) return;
-  if (!GROUPS.some((candidate) => candidate.name === name)) return;
+  const group = GROUPS.find((candidate) => candidate.name === name);
+  if (group === undefined) return;
+  if (group.parent !== undefined) ensureGroup(document, group.parent);
   document.setIn(['groups', name], starterGroupNode(document, name));
 }
 
@@ -287,8 +317,25 @@ export function addStarterItems(productFolder: string, ids: readonly string[], r
           if (declaration[field] !== undefined && !document.hasIn(['kinds', name, field])) document.setIn(['kinds', name, field], document.createNode(declaration[field]));
         }
       }
+    } else if (id.startsWith('rule:')) {
+      const name = id.slice('rule:'.length);
+      const rule = STARTER_PROBLEM_RULES.find((candidate) => candidate.id === name);
+      if (rule === undefined) throw new Error(`src/knowledge/starter-upgrade.ts: "${name}" is no rule of the starter set (${STARTER_PROBLEM_RULES.map((candidate) => candidate.id).join(', ')})`);
+      const declaration: Record<string, unknown> = {
+        predicate: rule.predicate, kind: rule.kind, sonar: rule.sonar, severity: rule.severity, section: rule.section,
+        action: rule.action, label: { en: rule.label.en, ru: rule.label.ru },
+        ...(rule.params === undefined ? {} : { params: { ...rule.params } }),
+      };
+      if (!document.hasIn(['problems', 'rules', name])) {
+        // A rule the manifest does not declare is added with the starter's enabled switch too.
+        document.setIn(['problems', 'rules', name], document.createNode({ ...declaration, enabled: rule.enabled !== false }));
+      } else {
+        for (const [field, value] of Object.entries(declaration)) {
+          if (!document.hasIn(['problems', 'rules', name, field])) document.setIn(['problems', 'rules', name, field], document.createNode(value));
+        }
+      }
     } else {
-      throw new Error(`src/knowledge/starter-upgrade.ts: "${id}" is not an item of the starter set; the items are group:<name>, roles, role:<name>, documents, kind:<name> and fields:<kind>`);
+      throw new Error(`src/knowledge/starter-upgrade.ts: "${id}" is not an item of the starter set; the items are group:<name>, roles, role:<name>, documents, kind:<name>, fields:<kind> and rule:<id>`);
     }
   }
   const next = document.toString();
@@ -333,7 +380,7 @@ export function rememberChangedStarterFileIfOwned(productFolder: string, recordF
 
 export function upgradeStarterSet(productFolder: string, recordFile: string): UpgradeReport {
   const record = readRecordSoftly(recordFile);
-  const report: UpgradeReport = { rewritten: [], written: [], kept: [], offers: [] };
+  const report: UpgradeReport = { rewritten: [], written: [], kept: [], offers: [], keptReferences: [] };
   const remembered: Record<string, string> = {};
   for (const starter of STARTER_FILES) {
     const provenance = provenanceOf(productFolder, starter.path, starter.content, record);
@@ -357,6 +404,9 @@ export function upgradeStarterSet(productFolder: string, recordFile: string): Up
     }
   }
   if (Object.keys(remembered).length > 0) remember(recordFile, remembered);
+  // A kind whose old Markdown template a person edited keeps being drawn by that template: the manifest the upgrade
+  // wrote names the Liquid one, and a page a person shaped is not silently replaced by one nobody wrote.
+  if (report.rewritten.includes(KINDS_FILE)) keepPersonTemplates(productFolder, report);
   if (report.kept.includes(KINDS_FILE)) {
     try {
       report.offers.push(...starterOffers(readFileSync(join(productFolder, KINDS_FILE), 'utf8')));
@@ -365,6 +415,52 @@ export function upgradeStarterSet(productFolder: string, recordFile: string): Up
     }
   }
   return report;
+}
+
+
+/**
+ * Whether an old template of the set of 0029 (a `.md` file) carries a person's edit: git tracks it, and either a commit
+ * that is not madarch's touched it or the working copy differs from the committed one. A file nobody tracks shows no
+ * edit (madarch's own `ensureLoopKinds` writes the question and correction templates into a working tree).
+ */
+function personEditedTemplate(productFolder: string, path: string): boolean {
+  const stat = lstatSync(join(productFolder, path), { throwIfNoEntry: false });
+  if (stat === undefined || !stat.isFile()) return false;
+  if (git(productFolder, ['ls-files', '--error-unmatch', '--', path]) === undefined) return false;
+  const subjects = (git(productFolder, ['log', '--format=%s', '--', path]) ?? '').split('\n').filter((line) => line !== '');
+  if (subjects.length === 0 || !subjects.every((subject) => MADARCH_COMMIT_SUBJECTS.includes(subject))) return true;
+  const committed = git(productFolder, ['show', `HEAD:${path}`]);
+  if (committed === undefined) return false;
+  try {
+    return readFileSync(join(productFolder, path), 'utf8') !== committed;
+  } catch {
+    return false;
+  }
+}
+
+/** Points every kind whose old Markdown template a person edited back at it, and says so in the report. */
+function keepPersonTemplates(productFolder: string, report: UpgradeReport): void {
+  const file = join(productFolder, KINDS_FILE);
+  let document: Document;
+  try {
+    document = parseDocument(readFileSync(file, 'utf8'));
+  } catch {
+    return;
+  }
+  const kinds = document.getIn(['kinds']) as { items?: { key: { toJSON(): unknown }; value: { get(key: string): unknown } }[] } | undefined;
+  const items = kinds?.items ?? [];
+  let changed = false;
+  for (const pair of items) {
+    const name = String(pair.key.toJSON());
+    const template = pair.value.get('template');
+    if (typeof template !== 'string' || !template.endsWith('.liquid')) continue;
+    const legacy = template.replace(/\.liquid$/, '.md');
+    if (!personEditedTemplate(productFolder, legacy)) continue;
+    document.setIn(['kinds', name, 'template'], legacy);
+    report.keptReferences.push({ kind: name, template: legacy });
+    changed = true;
+  }
+  if (changed) writeFile(productFolder, KINDS_FILE, document.toString());
 }
 
 /** A record that cannot be read proves nothing; the files are then judged by their history alone. */

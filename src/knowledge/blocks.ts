@@ -184,6 +184,27 @@ export function attributeOf(subject: Subject, name: string): string | undefined 
   return stringify(entity.front[name]) ?? stringify(dig(entity.front, name));
 }
 
+/**
+ * The attributes a page's Liquid template reads, as `{{label}}` and as
+ * `{{page.label}}`: the reserved ones every page has, the ones its kind declares,
+ * and — for a kind that declares none — every flat property the entity holds.
+ * They are the values `attributeOf` gives, so a page says the same thing in
+ * either template language.
+ */
+export function pageAttributes(subject: Subject, declared?: readonly string[]): Record<string, string> {
+  const names = new Set<string>(['label', 'title', 'key', 'keyrest', 'id', 'kind', 'slug', 'file', 'producer']);
+  if (declared !== undefined) for (const name of declared) names.add(name);
+  else if (subject.source === 'graph') for (const name of Object.keys(subject.entity.properties)) names.add(name);
+  else if (subject.source === 'markdown') for (const name of Object.keys(subject.entity.front)) names.add(name);
+  else for (const name of ['identifier', 'path', 'repo', 'anchor', 'line']) names.add(name);
+  const attributes: Record<string, string> = {};
+  for (const name of [...names].sort()) {
+    const value = attributeOf(subject, name);
+    if (value !== undefined) attributes[name] = value;
+  }
+  return attributes;
+}
+
 // ---- body -------------------------------------------------------------------------------------
 
 export function bodyBlock(ctx: RenderContext, subject: Subject, block: string, file: string, line: number): Block {
@@ -362,7 +383,7 @@ function propertyText(value: unknown): string {
 /** The properties of a graph entity as a table, in name order: what the extractor read, with no span (the source block shows it). */
 
 /** The property names the wiki has words for, and which of them are instants to write as dates. */
-const PROPERTY_NAMES: Readonly<Record<string, {key: 'authoredAt' | 'committedAt' | 'subject' | 'merge' | 'language' | 'symbol' | 'method' | 'path'; date?: boolean}>> = {
+const PROPERTY_NAMES: Readonly<Record<string, {key: 'authoredAt' | 'committedAt' | 'subject' | 'merge' | 'language' | 'symbol' | 'method' | 'path' | 'marker' | 'text' | 'line' | 'service' | 'secret'; date?: boolean}>> = {
   authoredAt: {key: 'authoredAt', date: true},
   committedAt: {key: 'committedAt', date: true},
   subject: {key: 'subject'},
@@ -371,6 +392,11 @@ const PROPERTY_NAMES: Readonly<Record<string, {key: 'authoredAt' | 'committedAt'
   symbol: {key: 'symbol'},
   method: {key: 'method'},
   path: {key: 'path'},
+  marker: {key: 'marker'},
+  text: {key: 'text'},
+  line: {key: 'line'},
+  service: {key: 'service'},
+  secret: {key: 'secret'},
 };
 
 export function propertiesBlock(subject: Subject, params: Readonly<Record<string, string>>, file: string, line: number): Block {
