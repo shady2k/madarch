@@ -121,7 +121,7 @@ type BlockShape =
   | { type: 'stated'; title: string; place: { repo: string | null; path: string; lineStart: number; lineEnd: number; href: string; commit: string | null; single?: boolean } }
   | { type: 'definition'; title: string; format: string; contract: string; fullPath?: string; location?: CodeLocation; members: DefinitionMember[]; membersTotal: number; membersShown: number; memberCuts: { channel: string; total: number; shown: number }[]; spec: { text: string; lines: number }; document?: Record<string, unknown>; descriptions?: {text: string; path: string; line: number; fullPath: string}[]; selection?: { method: string; path: string; operationId: string }; protobuf?: ProtoDocumentation; diagnostics?: ContractDiagnostic[] }
   | { type: 'history'; title: string; sections: HistorySection[]; notes: HistoryNote[] }
-  | { type: 'deferred'; block: string; title: string; line: number }
+  | { type: 'deferred'; block: string; title: string; id: string }
   | { type: 'problem'; block: string; message: string; file: string; line: number; diagnostic?: ContractDiagnostic };
 
 /** One block of a page; `name` is the template's block it was made from (`implementedby` and `linkedfrom` both draw as `refs`), which the manifest's roles name. */
@@ -395,6 +395,18 @@ export type DangerPlan = {
   fresh: { store: string[]; agentPages: string[]; keptPages: string[]; unansweredQuestions: string[]; keptAnswers: string[]; editedStarterFiles: string[]; replacedStarterFiles: string[] };
 };
 
+/** The model roles a feature may ask for (madarch-j6ho.2). */
+export type ModelRoleId = 'writing' | 'classification' | 'analysis';
+export type ModelPair = { agent: string; model?: string; reasoning?: string };
+export type ResolvedModelRole = {
+  role: ModelRoleId;
+  pair: ModelPair | null;
+  source: 'assigned' | 'fallback' | 'none';
+  fallbackFrom?: 'writing';
+  note?: string;
+};
+export type ModelRoleView = { defaultRole: 'writing'; defaultPair: ModelPair | null; roles: ResolvedModelRole[] };
+
 /** The product settings page (madarch-m38l.11): what is set for this product on this machine. */
 export type ProductSettings = {
   product: { name: string; id: string };
@@ -402,6 +414,9 @@ export type ProductSettings = {
   store: string;
   language: string;
   chosenAgent: { id: string; label: string; model?: string; reasoning?: string } | null;
+  roles: ModelRoleView;
+  /** The name every agent madarch offers is known by (madarch-j6ho.2), so a row names its agent at once. */
+  agentNames: Record<string, string>;
   bounds: WriterBounds;
   danger: DangerPlan;
   dangerError?: string;

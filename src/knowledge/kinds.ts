@@ -526,10 +526,18 @@ export function parseKinds(text: string, file: string, productFolder: string): K
     for (const key of Object.keys(decl)) if (!KIND_KEYS.has(key)) problem([key], `"${key}" is not a field of a kind: the fields are ${[...KIND_KEYS].join(', ')}`);
     const source = decl['source'];
     if (source !== 'graph' && source !== 'markdown' && source !== 'document') problem(['source'], `"source" is "graph", "markdown" or "document", got ${JSON.stringify(source)}`);
-    const template = decl['template'];
+    const named = decl['template'];
+    let template = named;
     if (typeof template !== 'string' || template.trim() === '') problem(['template'], '"template" names the template file in the product repository');
     else if (!insideFolder(productFolder, template)) problem(['template'], `the template "${template}" is not a path inside the product repository`);
-    else if (!existsSync(join(productFolder, template)) || !statSync(join(productFolder, template)).isFile()) problem(['template'], `the template "${template}" does not exist in the product repository`);
+    else if (!existsSync(join(productFolder, template)) || !statSync(join(productFolder, template)).isFile()) {
+      // A kind that names a Markdown template of 0029 and a product that holds the Liquid template of the same name (the
+      // starter set of 0032 was written beside the old files) is drawn by that one: the rename is madarch's, and a
+      // product need not edit its manifest for it (madarch-u3vw.1).
+      const liquid = typeof template === 'string' && template.endsWith('.md') ? `${template.slice(0, -'.md'.length)}.liquid` : undefined;
+      if (liquid !== undefined && existsSync(join(productFolder, liquid)) && statSync(join(productFolder, liquid)).isFile()) template = liquid;
+      else problem(['template'], `the template "${String(named)}" does not exist in the product repository`);
+    }
     const folder = decl['folder'];
     const single = decl['file'];
     if (source === 'markdown') {

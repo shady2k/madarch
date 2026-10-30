@@ -133,17 +133,17 @@ describe('the end-to-end chains match the answer key\'s flows', () => {
 });
 
 describe('the diagrams a page leaves to be read on their own', () => {
-  test('a page asked for with defer answers a place for each diagram, and the block route draws one by its template line, so the page answers at once', async () => {
+  test('a page asked for with defer answers a place for each diagram, and the block route draws one by the identity of its name and parameters, so the page answers at once', async () => {
     const pay = recordKey('code.symbol', 'services/payments/src/domain/payment-service.ts#PaymentService.pay');
     const answered = await product.page(pay, 'en', { defer: true });
     if (!answered.ok) throw new Error(answered.message);
     const deferred = answered.page.blocks.filter((entry) => entry.type === 'deferred');
     expect(deferred.map((entry) => entry.block)).toEqual(['graph', 'modules', 'sequence']);
     expect(answered.page.blocks.some((entry) => entry.type === 'diagrams' || entry.type === 'graph')).toBe(false);
-    const drawn = await product.block(pay, deferred[2]!.line, 'en');
+    const drawn = await product.block(pay, deferred[2]!.id, 'en');
     if (!drawn.ok) throw new Error(drawn.message);
     expect(drawn.block).toMatchObject({ type: 'diagrams' });
-    expect(await product.block(pay, 9999, 'en')).toMatchObject({ ok: false, status: 404 });
+    expect(await product.block(pay, 'sequence-000000000000', 'en')).toMatchObject({ ok: false, status: 404 });
   });
 });
 

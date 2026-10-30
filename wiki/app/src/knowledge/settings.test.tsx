@@ -57,7 +57,18 @@ const BOUNDS = { turns: 30, minutes: 10, toolCalls: 80, writeAttempts: 5, maxDom
 
 const settings = (over: Partial<ProductSettings> = {}): ProductSettings => ({
   product: { name: 'shop', id: 'p1' }, folder: '/products/sample-product', store: '/state/knowledge/p1', language: 'ru',
-  chosenAgent: { id: 'claude-code', label: 'Claude Code' }, bounds: BOUNDS, busy: false,
+  chosenAgent: { id: 'claude-code', label: 'Claude Code' },
+  roles: {
+    defaultRole: 'writing',
+    defaultPair: { agent: 'claude-code' },
+    roles: [
+      { role: 'writing', pair: { agent: 'claude-code' }, source: 'assigned' },
+      { role: 'classification', pair: { agent: 'claude-code' }, source: 'fallback', fallbackFrom: 'writing', note: 'classification is not assigned, so it uses the default pair (writing)' },
+      { role: 'analysis', pair: { agent: 'claude-code' }, source: 'fallback', fallbackFrom: 'writing', note: 'analysis is not assigned, so it uses the default pair (writing)' },
+    ],
+  },
+  bounds: BOUNDS, busy: false,
+  agentNames: { 'claude-code': 'Claude Code', codex: 'Codex' },
   danger: {
     rewrite: { agentPages: ['docs/product.md', 'docs/domains/payments.md'], keptPages: ['docs/domains/mine.md'] },
     fresh: { unansweredQuestions: ['docs/questions/open.md'], keptAnswers: ['docs/questions/answered.md', 'docs/questions/other.md'], store: ['/x/graph'], agentPages: ['docs/product.md', 'docs/domains/payments.md'], keptPages: ['docs/domains/mine.md'], editedStarterFiles: ['templates/domain.md'], replacedStarterFiles: ['madarch/kinds.yaml', 'templates/domain.md'] },
@@ -93,6 +104,7 @@ describe('the product settings page', () => {
       if (url.endsWith('/api/k/product-settings')) return json(current);
       if (url.endsWith('/api/k/agent-choices') || url.includes('/api/k/agent-choices?')) return json(choices);
       if (url.endsWith('/api/k/agents')) return json({ agents: [{ id: 'claude-code', label: 'Claude Code', installed: true, login: 'signed-in', loginDetail: '', install: null }, { id: 'codex', label: 'Codex', installed: false, login: 'unknown', loginDetail: '', install: { package: '@zed-industries/codex-acp', version: '1.0.0', size: '40 MB', folder: '/h/agents' } }], chosen: { id: 'claude-code', label: 'Claude Code' } });
+      if (url.endsWith('/api/k/model-role')) return json({ role: (body as { role: string }).role, pair: null, roles: current.roles });
       if (url.endsWith('/api/k/rewrite-pages') || url.endsWith('/api/k/start-fresh') || url.endsWith('/api/k/agent')) return json({});
       return json({ message: 'not here' }, 404);
     };
@@ -116,6 +128,78 @@ describe('the product settings page', () => {
     expect(page.querySelector('[data-testid=bound-turns]')!.textContent).toBe('30');
     expect(page.querySelector('[data-testid=places-folder]')!.textContent).toBe('/products/sample-product');
     expect(page.querySelector('[data-testid=places-push]')!.textContent).toContain('no git push');
+  });
+
+  test('shows all three roles, the fallback note, and posts a role assignment with the role it names', async () => {
+    const calls: { url: string; body: unknown }[] = [];
+    stub(calls);
+    const page = into(createElement(SettingsPage, { version: 0, status: status(), refresh: () => undefined }));
+    await until(() => page.querySelector('[data-testid=settings-role-classification]') !== null, 'the roles');
+    expect(page.querySelector('[data-testid=settings-role-writing]')!.textContent).toContain('Writing');
+    expect(page.querySelector('[data-testid=settings-role-classification]')!.textContent).toContain('Classification');
+    expect(page.querySelector('[data-testid=settings-role-analysis]')!.textContent).toContain('Analysis');
+    expect(page.querySelector('[data-testid=settings-role-pair-writing]')!.textContent).toBe("Claude Code · the agent’s own choice");
+    expect(page.querySelector('[data-testid=settings-role-fallback-classification]')!.textContent).toBe("This role is not assigned, so it uses Writing’s pair.");
+    const select = page.querySelector('[data-testid=settings-role-select-classification]') as HTMLSelectElement;
+    // The agents' availability is a second read; wait for it, then hold the exact choices it leaves.
+    const agentChoices = (): (string | null)[] => [...select.querySelectorAll('option')].map((option) => option.textContent);
+    await until(() => agentChoices().join('\n') === ["Use Writing’s pair", 'Claude Code', 'Codex (install its adapter)'].join('\n'), 'the agents the role may use');
+    expect(agentChoices()).toEqual(["Use Writing’s pair", 'Claude Code', 'Codex (install its adapter)']);
+    select.value = 'codex';
+    select.dispatchEvent(new window.Event('change', { bubbles: true }));
+    await until(() => calls.length === 1, 'the role assignment');
+    expect(calls[0]!.url).toContain('/api/k/model-role');
+    expect(calls[0]!.body).toEqual({ role: 'classification', agent: 'codex', install: true });
+  });
+
+  test('a role names its agent at once, without waiting for the agents to be read', async () => {
+    // The agents are asked for and never answer: the row still stands with the name a reader knows, because the settings
+    // bring the names of the agents they name (madarch-j6ho.2).
+    (globalThis as { fetch?: unknown }).fetch = async (url: string) => {
+      if (url.endsWith('/api/k/product-settings')) return json(settings());
+      if (url.endsWith('/api/k/agents')) return await new Promise<Response>(() => undefined);
+      return json({ message: 'not here' }, 404);
+    };
+    const page = into(createElement(SettingsPage, { version: 0, status: status(), refresh: () => undefined }));
+    await until(() => page.querySelector('[data-testid=settings-role-pair-writing]') !== null, 'the writing role');
+    expect(page.querySelector('[data-testid=settings-role-pair-writing]')!.textContent).toBe("Claude Code · the agent’s own choice");
+    expect(page.querySelector('[data-testid=settings-role-pair-classification]')!.textContent).toBe("Claude Code · the agent’s own choice");
+    // The selector keeps the agents it can assign even while their list has not answered.
+    const select = page.querySelector('[data-testid=settings-role-select-classification]') as HTMLSelectElement;
+    expect([...select.querySelectorAll('option')].map((option) => option.textContent)).toEqual(["Use Writing’s pair", 'Claude Code', 'Codex']);
+  });
+
+  test('an assigned classification or analysis role gets its own model and reasoning choice from its agent', async () => {
+    const calls: { url: string; body: unknown }[] = [];
+    stub(calls, settings({
+      roles: {
+        defaultRole: 'writing',
+        defaultPair: { agent: 'claude-code' },
+        roles: [
+          { role: 'writing', pair: { agent: 'claude-code' }, source: 'assigned' },
+          { role: 'classification', pair: { agent: 'claude-code', model: 'sonnet' }, source: 'assigned' },
+          { role: 'analysis', pair: { agent: 'claude-code' }, source: 'assigned' },
+        ],
+      },
+    }));
+    const page = into(createElement(SettingsPage, { version: 0, status: status(), refresh: () => undefined }));
+    await until(() => page.querySelector('[data-testid=settings-role-model-classification]') !== null, 'the classifier’s model choice');
+    // The writing role has no second selector: its own section above already chooses its model.
+    expect(page.querySelector('[data-testid=settings-role-model-writing]')).toBeNull();
+    const model = page.querySelector('[data-testid=settings-role-model-classification]') as HTMLSelectElement;
+    expect([...model.querySelectorAll('option')].map((option) => option.textContent)).toEqual(["The agent's own choice (Sonnet)", 'Sonnet', 'Opus']);
+    expect(model.value).toBe('sonnet');
+    model.value = 'opus';
+    model.dispatchEvent(new window.Event('change', { bubbles: true }));
+    await until(() => calls.some((call) => call.url.endsWith('/api/k/model-role')), 'the classifier’s model save');
+    expect(calls.at(-1)!.body).toEqual({ role: 'classification', agent: 'claude-code', model: 'opus' });
+    // The analysis role asks for the same agent’s choices and offers its own reasoning level.
+    const reasoning = page.querySelector('[data-testid=settings-role-reasoning-analysis]') as HTMLSelectElement;
+    expect([...reasoning.querySelectorAll('option')].map((option) => option.textContent)).toEqual(["The agent's own choice", 'Low', 'High']);
+    reasoning.value = 'high';
+    reasoning.dispatchEvent(new window.Event('change', { bubbles: true }));
+    await until(() => calls.at(-1)!.body !== undefined && JSON.stringify(calls.at(-1)!.body).includes('reasoning'), 'the analyst’s reasoning save');
+    expect(calls.at(-1)!.body).toEqual({ role: 'analysis', agent: 'claude-code', reasoning: 'high' });
   });
 
   test('choosing a model, a reasoning level and a language saves exactly that', async () => {
@@ -242,6 +326,8 @@ describe('the product settings page', () => {
     expect(page.querySelector('[data-testid=danger-fresh] h3')!.textContent).toBe('Начать с нуля');
     expect(page.querySelector('[data-testid=danger-rewrite] h3')!.textContent).toBe('Переписать страницы');
     expect(page.querySelector('[data-testid=settings-danger]')!.textContent).toContain('Локально: меняется только копия продукта в /products/sample-product на этой машине.');
+    expect(page.querySelector('[data-testid=settings-role-classification]')!.textContent).toContain('Классификация');
+    expect(page.querySelector('[data-testid=settings-role-fallback-analysis]')!.textContent).toContain('использует пару «Написание»');
   });
 });
 
