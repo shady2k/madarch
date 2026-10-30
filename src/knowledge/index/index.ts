@@ -37,7 +37,7 @@ export function readKnowledgePages(productFolder: string): { pages: IndexedPage[
   for (const entity of read.entities) {
     try {
       const source = readFileSync(join(productFolder, entity.file), 'utf8');
-      const page = readIndexedPage(entity.file, source, sha);
+      const page = readIndexedPage(entity.file, source, sha, kinds.manifest.language ?? 'en');
       pages.push(page);
       // An answered question is two entities in the index: the question, and the answer a person gave to it (madarch-m38l.7).
       if (entity.kind === 'question' && entity.front['status'] === 'answered') {

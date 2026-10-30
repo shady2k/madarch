@@ -59,7 +59,7 @@ export function readWrittenAt(value: unknown, file: string): WrittenAt[] {
   });
 }
 
-export function readIndexedPage(file: string, source: string, sha256: (text: string) => string): IndexedPage {
+export function readIndexedPage(file: string, source: string, sha256: (text: string) => string, language?: string): IndexedPage {
   const { front, body, bodyLine } = splitFrontMatter(source.replace(/\r\n/g, '\n'));
   if (front === null) throw new PageReadError(file, 1, 'the page has no front matter');
   let raw: unknown;
@@ -79,7 +79,7 @@ export function readIndexedPage(file: string, source: string, sha256: (text: str
     if (!Array.isArray(value) || value.some((entry) => typeof entry !== 'string')) throw new PageReadError(file, 2, `"${key}" is a list of texts`);
     return [...new Set(value as string[])].sort(byCodePoint);
   };
-  const statements = statementsOf(body, bodyLine);
+  const statements = statementsOf(body, bodyLine, language);
   const mentions = new Set<string>();
   const prose = body.split('\n').filter((line) => !FOOTNOTE_DEFINITION.test(line.trim())).join('\n');
   for (const match of prose.matchAll(/\]\(madarch:((?:[^()\s]|\([^()\s]*\))*)\)/g)) mentions.add(match[1]!);

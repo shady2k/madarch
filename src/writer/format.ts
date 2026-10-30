@@ -15,7 +15,7 @@ import { byCodePoint } from '../model/order.js';
 import { headingLinks } from '../knowledge/markdown.js';
 import type { WrittenAt } from '../knowledge/index/page.js';
 import { isNumbered, nameStatements, sentenceKey } from './names.js';
-import { maskInline, plainSentence, QUESTION_LINK, REFERENCE_RUN, sentencesOf, statementsOf, unmask, withoutQuestionLinks } from './sentences.js';
+import { maskInline, plainSentence, QUESTION_LINK, readUnits, REFERENCE_RUN, sentencesOf, statementsOf, unmask, withoutQuestionLinks } from './sentences.js';
 
 /** One reason a page is refused: the line (1-based, in the whole file), the rule and a message the agent can act on. */
 export interface Refusal {
@@ -231,47 +231,16 @@ interface TextUnit {
 }
 
 function textUnits(body: string, bodyStart: number, refusals: Refusal[]): { units: TextUnit[]; definitions: { label: string; line: number; text: string }[]; headings: TextUnit[] } {
-  const units: TextUnit[] = [];
-  const headings: TextUnit[] = [];
-  const definitions: { label: string; line: number; text: string }[] = [];
-  let paragraph: { line: number; parts: string[] } | undefined;
-  const flush = (): void => {
-    if (paragraph !== undefined) units.push({ line: paragraph.line, text: paragraph.parts.join(' ') });
-    paragraph = undefined;
-  };
+  // The Markdown tree says what the units are; this scan only names the shapes the format forbids.
   for (const [index, raw] of body.split('\n').entries()) {
     const line = bodyStart + index;
     if (/[\u0001-\u0004]/.test(raw)) refusals.push({ line, rule: 'characters', message: 'the page holds a control character (U+0001 to U+0004), which the format does not allow' });
     const trimmed = raw.trim();
-    if (trimmed === '') { flush(); continue; }
-    if (/^(```|~~~)/.test(trimmed)) {
-      flush();
-      refusals.push({ line, rule: 'fenced-code', message: 'a fenced block is not part of the format: madarch draws diagrams and shows code from the graph, so state each fact as a sentence with grounds' });
-      continue;
-    }
-    if (trimmed.startsWith('|')) {
-      flush();
-      refusals.push({ line, rule: 'table', message: 'a table is not part of the format: state each fact as a sentence with its own footnote' });
-      continue;
-    }
-    const definition = FOOTNOTE_DEFINITION.exec(trimmed);
-    if (definition !== null) { flush(); definitions.push({ label: definition[1]!, line, text: definition[2]! }); continue; }
-    if (/^<[A-Za-z!/]/.test(trimmed)) {
-      flush();
-      refusals.push({ line, rule: 'html', message: 'raw HTML is not part of the format' });
-      continue;
-    }
-    const heading = /^#{1,6}\s+(.*)$/.exec(trimmed);
-    if (heading !== null) { flush(); headings.push({ line, text: heading[1]! }); continue; }
-    const item = /^(?:[-*+]|\d+[.)])\s+(.*)$/.exec(trimmed);
-    if (item !== null) { flush(); units.push({ line, text: item[1]! }); continue; }
-    const quote = /^>\s?(.*)$/.exec(trimmed);
-    const content = quote !== null ? quote[1]! : trimmed;
-    if (paragraph === undefined) paragraph = { line, parts: [content] };
-    else paragraph.parts.push(content);
+    if (/^(```|~~~)/.test(trimmed)) refusals.push({ line, rule: 'fenced-code', message: 'a fenced block is not part of the format: madarch draws diagrams and shows code from the graph, so state each fact as a sentence with grounds' });
+    else if (trimmed.startsWith('|')) refusals.push({ line, rule: 'table', message: 'a table is not part of the format: state each fact as a sentence with its own footnote' });
+    else if (/^<[A-Za-z!/]/.test(trimmed)) refusals.push({ line, rule: 'html', message: 'raw HTML is not part of the format' });
   }
-  flush();
-  return { units, definitions, headings };
+  return readUnits(body, bodyStart);
 }
 
 /** The most words a link-only line may carry in its labels before it is read as a statement. */
@@ -287,7 +256,7 @@ function assertionLabel(text: string): boolean {
  * links and punctuation. The words in link labels count: a statement does not
  * hide in a label or behind "See also".
  */
-function connecting(text: string): boolean {
+function connecting(text: string, language?: string): boolean {
   const plain = text.replace(FOOTNOTE_REFERENCE, '').trim();
   const labelWords = plainWords([...plain.matchAll(LINK)].map((m) => m[1]!).join(' ')).length;
   if (SEE_ALSO.test(plain)) {
@@ -295,7 +264,7 @@ function connecting(text: string): boolean {
     // Only navigation glue is exempt. Word counts alone used to accept short claims such as "delivery is free".
     const navigation = /^(?:(?:the|and|or|page|pages|section|sections|service|services|и|или|страница|страницы|страницу|раздел|разделы|сервис|сервисы)\s*)*$/iu.test(rest)
       || (labelWords === 0 && /^(?:the\s+)?(?:[\p{L}\p{N}'-]+\s+){1,3}(?:page|section)$/iu.test(rest));
-    return sentencesOf(maskInline(plain)).length <= 1 && navigation && labelWords <= 2 * LINK_ONLY_WORDS && !assertionLabel(plain);
+    return sentencesOf(maskInline(plain), language).length <= 1 && navigation && labelWords <= 2 * LINK_ONLY_WORDS && !assertionLabel(plain);
   }
   const rest = plain.replace(LINK, '').replace(/[\s,;:.\u2013\u2014-]+/g, '');
   return rest === '' && plain.includes('](') && labelWords <= LINK_ONLY_WORDS && !assertionLabel(plain);
@@ -477,7 +446,7 @@ export async function checkPage(markdown: string, expected: PageExpectation, res
   const used: string[] = [];
   for (const unit of units) {
     await checkLinks(unit);
-    for (const sentence of sentencesOf(maskInline(unit.text))) {
+    for (const sentence of sentencesOf(maskInline(unit.text), expected.language)) {
       const shown = unmask(sentence.text);
       const questionLinks = [...shown.matchAll(QUESTION_LINK)];
       if (questionLinks.length === 0) continue;
@@ -501,8 +470,8 @@ export async function checkPage(markdown: string, expected: PageExpectation, res
       if (!defined.has(match[1]!)) refusals.push({ line: unit.line, rule: 'undefined-footnote', message: `[^${match[1]}] is used but never defined: add a line "[^${match[1]}]: [name](madarch:<key>)" at the end` });
       used.push(match[1]!);
     }
-    if (connecting(unit.text)) continue;
-    for (const sentence of sentencesOf(maskInline(unit.text))) {
+    if (connecting(unit.text, expected.language)) continue;
+    for (const sentence of sentencesOf(maskInline(unit.text), expected.language)) {
       const claim = withoutQuestionLinks(sentence.text);
       const shown = unmask(claim);
       const hasLink = shown.includes('](madarch:');
@@ -527,23 +496,23 @@ export async function checkPage(markdown: string, expected: PageExpectation, res
   }
   if (units.length === 0) refusals.push({ line: split.bodyStart, rule: 'empty', message: 'the page states nothing: it has no sentence with grounds' });
   if (refusals.length > 0 || front.front === undefined) return { ok: false, refusals: refusals.sort((a, b) => a.line - b.line || byCodePoint(a.rule, b.rule)).map(located) };
-  return { ok: true, page: canonical(front.front, body, defined, links, allGrounds, expected.previous, names) };
+  return { ok: true, page: canonical(front.front, body, defined, links, allGrounds, expected.previous, expected.language, names) };
 }
 
 /** The names the replaced page gave its sentences, by sentence. */
-function previousNames(previous: string | undefined): Map<string, string> {
+function previousNames(previous: string | undefined, language?: string): Map<string, string> {
   const names = new Map<string, string>();
   if (previous === undefined) return names;
   const lines = previous.replace(/\r\n/g, '\n').split('\n');
   const end = lines[0] === '---' ? lines.indexOf('---', 1) : -1;
   if (end < 0) return names;
   // A numbered label is no name: a page still numbered is renamed when it is written again.
-  for (const statement of statementsOf(lines.slice(end + 1).join('\n'), end + 2)) if (!isNumbered(statement.labels[0]!) && !names.has(sentenceKey(statement.text))) names.set(sentenceKey(statement.text), statement.labels[0]!);
+  for (const statement of statementsOf(lines.slice(end + 1).join('\n'), end + 2, language)) if (!isNumbered(statement.labels[0]!) && !names.has(sentenceKey(statement.text))) names.set(sentenceKey(statement.text), statement.labels[0]!);
   return names;
 }
 
 /** The sentence a run of footnote references ends: the text since the previous run, a blank line or a new list item, cut at its last sentence start. */
-function sentenceBefore(text: string, from: number, to: number): string {
+function sentenceBefore(text: string, from: number, to: number, language?: string): string {
   let start = from;
   const blank = text.lastIndexOf('\n\n', to);
   if (blank >= start) start = blank + 2;
@@ -553,7 +522,7 @@ function sentenceBefore(text: string, from: number, to: number): string {
   for (const match of slice.matchAll(item)) last = match.index + 1;
   start += last;
   const chunk = text.slice(start, to).replace(/^\s*(?:[-*+]|\d+[.)]|>)\s*/, '');
-  const sentences = sentencesOf(maskInline(chunk));
+  const sentences = sentencesOf(maskInline(chunk), language);
   return plainSentence(sentences.length === 0 ? chunk : sentences[sentences.length - 1]!.text);
 }
 
@@ -565,7 +534,7 @@ function sentenceBefore(text: string, from: number, to: number): string {
  * their grounds; a name several sentences shared is made unique. The same
  * checked page, with the same replaced page, always gives the same bytes.
  */
-function canonical(front: FrontMatter, body: string, defined: Map<string, { line: number; grounds: { label: string; target: string }[] }>, links: string[], grounds: string[], previous: string | undefined, names: ReadonlyMap<string, string> = new Map()): CheckedPage {
+function canonical(front: FrontMatter, body: string, defined: Map<string, { line: number; grounds: { label: string; target: string }[] }>, links: string[], grounds: string[], previous: string | undefined, language: string | undefined, names: ReadonlyMap<string, string> = new Map()): CheckedPage {
   const lines: string[] = [];
   for (const raw of body.split('\n')) {
     if (FOOTNOTE_DEFINITION.test(raw.trim())) continue;
@@ -575,9 +544,9 @@ function canonical(front: FrontMatter, body: string, defined: Map<string, { line
   const runs = [...text.matchAll(REFERENCE_RUN)].map((match) => ({ at: match.index, length: match[0].length, labels: [...new Set([...match[0].matchAll(FOOTNOTE_REFERENCE)].map((m) => m[1]!))] }));
   const items = runs.map((run, index) => {
     const own = [...new Map(run.labels.flatMap((label) => defined.get(label)?.grounds ?? []).map((ground) => [ground.target, ground])).values()];
-    return { run, own, sentence: sentenceBefore(text, index === 0 ? 0 : runs[index - 1]!.at + runs[index - 1]!.length, run.at), labels: run.labels, hint: own[0]?.label ?? '' };
+    return { run, own, sentence: sentenceBefore(text, index === 0 ? 0 : runs[index - 1]!.at + runs[index - 1]!.length, run.at, language), labels: run.labels, hint: own[0]?.label ?? '' };
   });
-  const statementNames = nameStatements(items, previousNames(previous));
+  const statementNames = nameStatements(items, previousNames(previous, language));
   let renamed = '';
   let cursor = 0;
   items.forEach((item, index) => {
