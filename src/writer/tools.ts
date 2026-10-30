@@ -26,6 +26,7 @@ import { slugOf } from './names.js';
 import { statementsOf } from './sentences.js';
 import { splitFrontMatter } from '../knowledge/markdown.js';
 import type { GraphView } from './view.js';
+import type { MentionName } from './mentions.js';
 import { AnswerRefusal, CONTEXT_PURPOSES, EVIDENCE_SHOWN, FLOW_DEPTH, FLOW_STEPS, FLOW_TARGETS, PAGES_SHOWN, QUESTIONS_SHOWN, UNRESOLVED_SHOWN, getContext, getDocumentSections, getPage, getSymbol, searchPages, searchQuestions, traceFlow, SnapshotReads, type AnswerResult, type ContextPurpose, type FlowTarget, type GraphReads, type SourceRead } from './answers.js';
 import { betweenCounters, NO_COUNTERS, type CallCounters } from './journal.js';
 import { detectStatementLanguage, LOCALIZED_SOURCE_SCHEMA, parseLocalizedSource, renderLocalizedSource } from './localized-source.js';
@@ -146,6 +147,8 @@ export interface UnitExtras {
    * that keeps a cut prompt from becoming a lost input (decision 0032, section 1).
    */
   readonly produced?: () => Promise<readonly ProducedArtifactRead[]>;
+  /** The names this product's documents give their entities: the writer's prose links them where it wrote plain text. */
+  readonly mentions?: readonly MentionName[];
 }
 
 /** One artifact a unit may read: what it is, the page it stands in, and how a reader names it. */
@@ -455,6 +458,8 @@ export class UnitTools {
   private snapshot: GraphReads | undefined;
   /** The names the graph gives the places a structured page named, resolved when its write was checked. */
   private readonly names = new Map<string, string | undefined>();
+  /** The names a page may link, merged once from the documents and the graph (madarch-ztyq.8). */
+  private mentionList: readonly MentionName[] | undefined;
 
   constructor(
     private readonly view: GraphView,
@@ -467,6 +472,17 @@ export class UnitTools {
     private readonly basis: readonly WrittenAt[] = [],
     private readonly extras: UnitExtras = {},
   ) {}
+
+  /** The document names first (an exact spelling wins), then the graph's labels that no document already names. */
+  private async mentionNames(): Promise<readonly MentionName[]> {
+    if (this.mentionList !== undefined) return this.mentionList;
+    const documents = this.extras.mentions ?? [];
+    const held = new Set(documents.map((entry) => entry.name));
+    // A tool's view is the graph view of a run; a test may hand it a smaller resolver, which names nothing.
+    const graph = typeof this.view.mentionNames === 'function' ? await this.view.mentionNames() : [];
+    this.mentionList = [...documents, ...graph.filter((entry) => !held.has(entry.name))];
+    return this.mentionList;
+  }
 
   get tools(): readonly McpToolDefinition[] {
     if (this.unit.kind === 'administrator-guide' || this.unit.kind === 'user-guide') return [
@@ -683,7 +699,7 @@ export class UnitTools {
       domains: [],
       mustLinkDomains: false,
       extraFrontKeys: ENRICHMENT_FRONT_KEYS,
-    }, this.view);
+    }, this.view, await this.mentionNames());
     if (!verdict.ok) return this.refuse(verdict.refusals);
     // A revision may write the passages the editorial pass named and nothing else: the check reads both pages as
     // Markdown trees, so a changed sentence, a changed definition or an insertion elsewhere is refused here, before
@@ -1294,7 +1310,7 @@ export class UnitTools {
     const previous = await this.sink.read(this.unit.path).catch(() => undefined);
     const questions = await this.existingQuestions();
     const entities = [...new Set([...(await this.extras.entityIds?.() ?? []), ...questions.filter((question) => question.status === 'answered').map((question) => question.id)])];
-    const verdict = await checkPage(markdown, { file: this.unit.path, fullPath: resolve(this.extras.output ?? process.cwd(), this.unit.path), language: this.extras.language === 'ru' ? 'ru' : 'en', questions: questions.map((question) => question.id), ...(previous === undefined ? {} : { previous }), ...(entities === undefined ? {} : { entities }), ...(this.basis.length === 0 ? {} : { writtenAt: this.basis }), id: this.unit.id, kind: this.unit.kind, domains: domains.map((d) => d.slug), mustLinkDomains: this.unit.kind === 'product', ...(this.unit.kind === 'domain' && this.unit.productId !== undefined ? { productId: this.unit.productId } : {}) }, this.view);
+    const verdict = await checkPage(markdown, { file: this.unit.path, fullPath: resolve(this.extras.output ?? process.cwd(), this.unit.path), language: this.extras.language === 'ru' ? 'ru' : 'en', questions: questions.map((question) => question.id), ...(previous === undefined ? {} : { previous }), ...(entities === undefined ? {} : { entities }), ...(this.basis.length === 0 ? {} : { writtenAt: this.basis }), id: this.unit.id, kind: this.unit.kind, domains: domains.map((d) => d.slug), mustLinkDomains: this.unit.kind === 'product', ...(this.unit.kind === 'domain' && this.unit.productId !== undefined ? { productId: this.unit.productId } : {}) }, this.view, await this.mentionNames());
     if (!verdict.ok) return this.refuse(verdict.refusals);
     // A revision may write the passages the editorial pass named and nothing else: the check reads both pages as
     // Markdown trees, so a changed sentence, a changed definition or an insertion elsewhere is refused here, before

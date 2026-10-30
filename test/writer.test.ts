@@ -35,7 +35,7 @@ import { createGraphStore, type GraphStore } from '../src/graph/index.js';
 import { changedGrounds, gitReader, indexKnowledge, readIndexedPage, statementsRelyingOn } from '../src/knowledge/index/index.js';
 import {
   DEFAULT_UNIT_BOUNDS, GraphView, UnitTools, WRITER_TOOLS, fsSink, memoryJournal, memorySink, runWriter, slugOf,
-  type DomainDeclaration, type EditorialJudge, type Journal, type ToolAnswer, type UnitAgent, type UnitOutcome, type UnitRequest, type UnitSpec, type WriterReport,
+  type DomainDeclaration, type EditorialJudge, type Journal, type MentionName, type ToolAnswer, type UnitAgent, type UnitOutcome, type UnitRequest, type UnitSpec, type WriterReport,
 } from '../src/writer/index.js';
 
 const ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
@@ -133,6 +133,8 @@ const footnote = (label: string, grounds: readonly string[]): string => `[^${lab
 interface Script {
   /** Pages the fake sends before the right one, to show a refusal reaches the agent. */
   readonly firstAttemptSpoiled?: boolean;
+  /** Write a paragraph of plain names the core must link (madarch-ztyq.8). */
+  readonly mentions?: boolean;
 }
 
 function productScript(script: Script = {}): (request: UnitRequest) => Promise<void> {
@@ -155,6 +157,12 @@ function productScript(script: Script = {}): (request: UnitRequest) => Promise<v
     for (const domain of KEY_DOMAINS) body.push(`- [${domain.title}](madarch:domain:${domain.slug}) is implemented by the [${domain.service} service](madarch:code.service:${domain.service}).[^${domain.slug}]`);
     for (const domain of KEY_DOMAINS) notes.push(footnote(domain.slug, [`code.service:${domain.service}`, `doc:docs/requirements.md#${domain.useCase}`]));
     body.push('', 'See also the services: ' + keys.map((k) => `[${k.replace('code.service:', '')}](madarch:${k})`).join(', ') + '.');
+    if (script.mentions === true) {
+      // Plain prose as an agent writes it: the names are not links, and the core must make them links.
+      body.push('', '## Stack', '', 'The shop stores carts in Postgres and publishes to Kafka through the outbox.[^stack]', 'UC-1 and BR-3 govern the work, and the Outbox and Capture terms explain them.[^terms]', '');
+      notes.push(footnote('stack', ['code.service:orders']));
+      notes.push(footnote('terms', ['doc:docs/requirements.md#uc-1']));
+    }
     const page = ['---', 'id: product:training-shop', 'kind: product', 'title: Training shop', 'relates:', ...keys.map((k) => `  - ${k}`), 'producer: agent', 'sources: [docs/vision.md, docs/requirements.md]', '---', '', ...body, '', ...notes].join('\n');
     const domains = KEY_DOMAINS.map((d) => ({ slug: d.slug, title: d.title, summary: `${d.title} is what the ${d.service} service does for a shopper.`, evidence: [`code.service:${d.service}`, `doc:docs/requirements.md#${d.useCase}`] }));
     if (script.firstAttemptSpoiled) {
@@ -221,13 +229,33 @@ interface Run {
   unitOutcomes: UnitOutcome[];
 }
 
-async function run(options: { spoilProduct?: boolean; spoilDomains?: boolean; output?: string; refuseRevisions?: boolean; editorial?: { judge?: EditorialJudge; maxRequestsPerPage?: number; journal?: Journal; skipReason?: string } } = {}): Promise<Run> {
+// The editorial pass asks a unit for revisions after its page is accepted; the run hands its judge the page.
+// ---------------------------------------------------------------------------------------------
+
+/** The target of the first Markdown link whose label is exactly `label`; fails when the page has none. */
+function linkTarget(markdown: string, label: string): string {
+  const at = markdown.indexOf(`[${label}](madarch:`);
+  if (at < 0) throw new Error(`the page has no link labelled ${label}: ${JSON.stringify(markdown.slice(0, 400))}`);
+  const from = at + label.length + 3;
+  const to = markdown.indexOf(')', from);
+  const target = markdown.slice(from, to);
+  return target.startsWith('madarch:') ? target.slice('madarch:'.length) : target;
+}
+
+const MENTION_NAMES: readonly MentionName[] = [
+  { name: 'UC-1', target: 'doc:docs/requirements.md#uc-1', caseSensitive: true },
+  { name: 'BR-3', target: 'doc:docs/requirements.md#br-3', caseSensitive: true },
+  { name: 'Outbox', target: 'doc:docs/glossary.md#outbox', caseSensitive: true },
+  { name: 'Capture', target: 'doc:docs/glossary.md#capture', caseSensitive: true },
+];
+
+async function run(options: { spoilProduct?: boolean; spoilDomains?: boolean; output?: string; refuseRevisions?: boolean; mentions?: boolean; editorial?: { judge?: EditorialJudge; maxRequestsPerPage?: number; journal?: Journal; skipReason?: string } } = {}): Promise<Run> {
   const sink = memorySink();
   const prompts = new Map<string, string>();
   const revisionPrompts: string[] = [];
   const unitOutcomes: UnitOutcome[] = [];
   const refusing = new Set<string>();
-  const product = productScript(options.spoilProduct === true ? { firstAttemptSpoiled: true } : {});
+  const product = productScript({ ...(options.spoilProduct === true ? { firstAttemptSpoiled: true } : {}), ...(options.mentions === true ? { mentions: true } : {}) });
   const domain = domainScript(options.spoilDomains === true);
   const agent: UnitAgent = {
     run: async (request) => {
@@ -247,7 +275,7 @@ async function run(options: { spoilProduct?: boolean; spoilDomains?: boolean; ou
       } else await domain(request, KEY_DOMAINS.find((d) => `domain:${d.slug}` === request.id)!);
     },
   };
-  const report = await runWriter({ owner, store, repository, output: options.output ?? path.join(scratch, 'unused-output'), productName: 'Training shop', agent, sink, onUnit: (outcome) => unitOutcomes.push(outcome), ...(options.editorial === undefined ? {} : { editorial: options.editorial }) });
+  const report = await runWriter({ owner, store, repository, output: options.output ?? path.join(scratch, 'unused-output'), productName: 'Training shop', agent, sink, onUnit: (outcome) => unitOutcomes.push(outcome), ...(options.mentions === true ? { mentions: MENTION_NAMES } : {}), ...(options.editorial === undefined ? {} : { editorial: options.editorial }) });
   return { report, pages: sink.pages, prompts, revisionPrompts, unitOutcomes };
 }
 
@@ -384,6 +412,30 @@ describe('the writer over the training repository', () => {
     expect([...first.pages.keys()].sort()).toEqual(['docs/domains/ordering.md', 'docs/domains/payments.md', 'docs/product.md']);
     expect([...first.prompts.keys()]).toEqual(['product:training-shop', 'domain:ordering', 'domain:payments']);
   });
+
+  test('an agent writes plain names, and the core links every mention to the page the product knows', async () => {
+    const mentioned = await run({ mentions: true });
+    const page = mentioned.pages.get('docs/product.md')!;
+    // A document identifier and a glossary term keep the address of their page; a graph label names its node.
+    expect(linkTarget(page, 'UC-1')).toBe('doc:docs/requirements.md#uc-1');
+    expect(linkTarget(page, 'BR-3')).toBe('doc:docs/requirements.md#br-3');
+    expect(linkTarget(page, 'Outbox')).toBe('doc:docs/glossary.md#outbox');
+    expect(linkTarget(page, 'Capture')).toBe('doc:docs/glossary.md#capture');
+    for (const label of ['Postgres', 'outbox']) {
+      const target = linkTarget(page, label);
+      expect(target.startsWith('code.')).toBe(true);
+      expect(await view.graphKey(target)).toBe(true);
+    }
+    // A heading is not prose: the section title keeps the agent's text.
+    expect(page).toContain('\n## Stack\n');
+    // The page states the paragraph it wrote, and each sentence keeps its ground.
+    expect(page).toContain('stores carts in [Postgres]');
+    // `Kafka` names both the broker and its compose service and the page has no evidence which it means:
+    // an ambiguous mention stays plain (madarch-ztyq.8, review 202).
+    expect(page).toContain('publishes to Kafka');
+    expect(page).not.toContain('[Kafka](madarch:');
+    expect(page).toContain('through the [outbox]');
+  }, 600_000);
 
   test('stores the text files in the graph before any unit runs, and says what it left out', async () => {
     const content = first.report.content;
@@ -681,8 +733,10 @@ describe('the unit tools', () => {
     const written = sink.pages.get('docs/validation/payments.md')!;
     const [paymentsPassage] = statementsOfMarkdown(written).map((statement) => statement.id);
     // The sentence reads the same, so only the shape under it changed: a passage not named may not be rewritten.
-    const changed = written.replace('Orders run in the ordering service.', 'Orders run in *the ordering service*.');
-    expect(changed).not.toBe(written);
+    // The agent sends the page it would write, without the links the core adds; the pass compares the stored page,
+    // which has them, with the page this draft becomes (madarch-ztyq.8).
+    const changed = original.replace('Orders run in the ordering service.', 'Orders run in *the ordering service*.');
+    expect(changed).not.toBe(original);
     const scoped = new UnitTools(view, scope, sink, known, DEFAULT_UNIT_BOUNDS, [], { revisionScope: { before: written, passages: [paymentsPassage!] } });
     const answer = await scoped.call('write_page', { markdown: changed });
     expect((answer.answer as { refused: { rule: string; message: string }[] }).refused.map((refusal) => refusal.rule)).toEqual(['revision-scope']);

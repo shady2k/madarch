@@ -1,3 +1,4 @@
+export { documentMentionNames, documentMentionTarget, graphMentionName, insertMentionLinks, madarchTargets, type MentionContext, type MentionInsertion, type MentionName } from './mentions.js';
 export { checkPage, parseTarget, SLUG, type CheckedPage, type FrontMatter, type GroundResolver, type PageCheck, type PageExpectation, type PageKind, type Refusal } from './format.js';
 export { GraphView, ingestContent, documentAnchors, slugOf, CONTENT_PRODUCER, type ContentReport } from './view.js';
 export { UnitTools, WRITER_TOOLS, WRITE_ENRICHMENT_TOOL, writeEnrichmentTool, DEFAULT_UNIT_BOUNDS, type DomainDeclaration, type PageSink, type ToolAnswer, type UnitBounds, type UnitOutcome, type UnitSpec } from './tools.js';

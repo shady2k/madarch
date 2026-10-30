@@ -16,6 +16,7 @@ import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { ROOT, SAMPLE_IDENTITY, generateTrainingRepository, withoutEnrichmentKind } from './knowledge-fixture.js';
 import { localizableEntities, localizedScript, LOCALIZED_STATEMENTS } from './knowledge-agent-script.js';
+import { readerText } from './markdown-reader.js';
 
 const FAKE_AGENT = join(ROOT, 'test', 'fixtures', 'acp-fake-agent', 'acp-fake-agent.ts');
 
@@ -134,12 +135,15 @@ describe('the one press', () => {
     const homePage = await pageOf('product:training-shop');
     expect(homePage.status).toBe(200);
     const homeBody = homePage.body.blocks.find((block: { type: string }) => block.type === 'body');
-    expect(homeBody.markdown).toContain('The training shop takes orders from shoppers');
+    expect(readerText(homeBody.markdown)).toContain('The training shop takes orders from shoppers');
+    expect(homeBody.markdown).toContain('[orders](madarch:code.service:orders)');
+    expect(homeBody.markdown).toContain('[payments](madarch:code.service:payments)');
     expect(homeBody.ungrounded).toEqual([]);
     const payments = await pageOf('domain:payments');
     expect(payments.status).toBe(200);
     const paymentsBody = payments.body.blocks.find((block: { type: string }) => block.type === 'body');
-    expect(paymentsBody.markdown).toContain('Payments are charged through one of two providers chosen by configuration.');
+    expect(readerText(paymentsBody.markdown)).toContain('Payments are charged through one of two providers chosen by configuration.');
+    expect(paymentsBody.markdown).toContain('[payments](madarch:code.service:payments)');
     expect(paymentsBody.ungrounded).toEqual([]);
     for (const model of [homePage.body, payments.body, (await pageOf('domain:ordering')).body]) {
       const resolutions = Object.values(model.resolutions) as { state: string; reason?: string }[];
@@ -189,7 +193,7 @@ describe('the one press', () => {
     }
     const paymentsRu = await pageOf('domain:payments');
     const paymentsRuBody = paymentsRu.body.blocks.find((block: { type: string }) => block.type === 'body');
-    expect(paymentsRuBody.markdown).toContain('Платёж проходит через одного из двух провайдеров');
+    expect(readerText(paymentsRuBody.markdown)).toContain('Платёж проходит через одного из двух провайдеров');
     expect(paymentsRuBody.ungrounded).toEqual([]);
     expect(paymentsRu.body.findings).toEqual([]);
 
