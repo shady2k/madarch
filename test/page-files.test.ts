@@ -106,7 +106,7 @@ describe('a page written for an agent keeps every address it holds', () => {
     const model = page({
       blocks: [{
         type: 'members', title: 'Fields and properties', total: 1,
-        rows: [{ entity: { id: 'code.field:src/a.ts#Store.value', kind: 'code.field', label: 'Store.value', href: null }, anchor: 'member-code.field%3Asrc%2Fa.ts%23Store.value', values: [], readers: [reader], writers: [] }],
+        rows: [{ entity: { id: 'code.field:src/a.ts#Store.value', kind: 'code.field', label: 'Store.value', href: null }, name: 'value', anchor: 'member-code.field%3Asrc%2Fa.ts%23Store.value', values: [], readers: [reader], writers: [] }],
       }],
     });
     const markdown = pageFileMarkdown(model, prefix);

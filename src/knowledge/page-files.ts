@@ -737,7 +737,7 @@ function sectionOf(block: Block, page: PageModel, prefix: string): PageFileSecti
         type: 'members',
         total: block.total,
         members: block.rows.map((row) => ({
-          title: row.entity.label,
+          title: row.name,
           anchor: row.anchor,
           values: row.values.map((value) => ({ name: value.name, label: value.label, value: value.value })),
           readers: row.readers.map((entity) => itemOf(entity, prefix)),

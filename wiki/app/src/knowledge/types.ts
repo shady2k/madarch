@@ -33,7 +33,7 @@ export type HistorySection = { repository?: string; role: 'commits' | 'files' | 
 
 /** One row of a properties block (the engine's `PropertyRow`). */
 export type PropertyRow = { name: string; value: string; label?: string; nameKey?: 'authoredAt' | 'committedAt' | 'subject' | 'merge' | 'language' | 'symbol' | 'method' | 'path' | 'marker' | 'text' | 'line' | 'service' | 'secret'; valueKind?: 'date' | 'boolean' | 'code' };
-export type MemberRow = { entity: EntityRef; anchor: string; values: PropertyRow[]; readers: EntityRef[]; writers: EntityRef[] };
+export type MemberRow = { entity: EntityRef; name: string; anchor: string; values: PropertyRow[]; readers: EntityRef[]; writers: EntityRef[] };
 
 /** One note under a history block (the engine's `HistoryNote`): a key the app writes in the reader's language. */
 export type HistoryNote = { key: 'manyCommits' | 'manyFiles' | 'noCounts' | 'merge' | 'noFiles' | 'partialFiles' | 'symbolsCut' | 'population' | 'observedAuthorship' | 'cochangeNotCause' | 'noImport' | 'importCoverage' | 'membershipCoverage' | 'dateAnomaly' | 'mergeBranch' | 'unchangedMove'; args?: Record<string, string | number> };
@@ -119,7 +119,7 @@ type BlockShape =
   | { type: 'source'; title: string; location: CodeLocation; language: string; text: string; truncated: boolean }
   | { type: 'refs'; title: string; total: number; rows: RefRow[] }
   | { type: 'properties'; title: string; rows: PropertyRow[] }
-  | { type: 'members'; title: string; rows: MemberRow[]; total: number }
+  | { type: 'members'; title: string; kindLabel?: string; kindLabelName?: string; rows: MemberRow[]; total: number }
   | { type: 'stated'; title: string; place: { repo: string | null; path: string; lineStart: number; lineEnd: number; href: string; commit: string | null; single?: boolean } }
   | { type: 'definition'; title: string; format: string; contract: string; fullPath?: string; location?: CodeLocation; members: DefinitionMember[]; membersTotal: number; membersShown: number; memberCuts: { channel: string; total: number; shown: number }[]; spec: { text: string; lines: number }; document?: Record<string, unknown>; descriptions?: {text: string; path: string; line: number; fullPath: string}[]; selection?: { method: string; path: string; operationId: string }; protobuf?: ProtoDocumentation; diagnostics?: ContractDiagnostic[] }
   | { type: 'history'; title: string; sections: HistorySection[]; notes: HistoryNote[] }

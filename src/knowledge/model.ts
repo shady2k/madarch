@@ -189,7 +189,7 @@ export interface TreemapFile {
 type BlockShape =
   | { type: 'guide'; data: import('../writer/guides/read.js').GuidePageData }
   | { type: 'markdown'; markdown: string }
-  | { type: 'members'; title: string; rows: MemberRow[]; total: number }
+  | { type: 'members'; title: string; kindLabel?: string; kindLabelName?: string; rows: MemberRow[]; total: number }
   | { type: 'term'; title: string; definition: string; synonyms: string[]; code: string[]; usedIn: string | null; ambiguous: string | null; localized?: { statement: string; original: string; sourceDocument: string; sourceLine: number; sourceEndLine: number } }
   | { type: 'body'; markdown: string; file: string; statements: number; ungrounded: { text: string; line: number }[]; localized?: { statement: string; original: string; sourceDocument: string; sourceLine: number; sourceEndLine: number } }
   | { type: 'graph'; title: string; neighborhood: Neighborhood; depth: number; shown: number; total: number }
@@ -275,8 +275,11 @@ export interface PropertyRow {
 /** One member of an entity (a field of a class, a facet of a file): its name, its labelled facts and who reads or writes it. */
 export interface MemberRow {
   entity: EntityRef;
+  /** The member's own short name: the declaring type is already the page's heading. */
+  name: string;
   /** The fragment this member has on its parent's page; an old member address lands here. */
   anchor: string;
+  /** Every fact the member's kind declares, in manifest order; the page draws the shared ones once. */
   values: PropertyRow[];
   readers: EntityRef[];
   writers: EntityRef[];

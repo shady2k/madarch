@@ -136,7 +136,7 @@ them, as label.
 {% block around %}{% render "./partials/around.liquid", title="Around this function", title_ru="Вокруг этой функции" %}{% endblock %}
 {% block chain %}{% modules title="State machines" title-ru="Конечные автоматы" %}
 {% sequence title="End-to-end chain" title-ru="Сквозная цепочка" scenario=page.label %}{% endblock %}
-{% block parts %}{% members title="Fields and properties" title-ru="Поля и свойства" kind="code.field" relation="code.contains" direction="out" readers="code.reads" writers="code.writes" %}{% endblock %}
+{% block parts %}{% members title="Fields and properties" title-ru="Поля и свойства" kind="code.field" relation="code.contains" direction="out" readers="code.reads" writers="code.writes" omit="qualifiedName" %}{% endblock %}
 {% block relations %}{% related title="Tests and types" title-ru="Тесты и типы" relation="code.tests,code.implements,code.inherits" %}{% endblock %}
 {% block describedby %}{% render "./partials/pages-about.liquid", title="Pages about this function", title_ru="Страницы об этой функции" %}{% endblock %}
 `,

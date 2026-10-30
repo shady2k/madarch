@@ -489,8 +489,9 @@ export async function memberParent(ctx: RenderContext, subject: Subject, member:
 }
 
 /**
- * The members of an entity: its fields, its facets. Each member is drawn as its own small section with the
- * details its kind declares and the entities that read or write it (madarch-m38l.21).
+ * The members of an entity: its fields, its facets. The page draws them as one table: the member's
+ * short name, the facts that differ between rows, and the entities that read or write it. Facts every
+ * row shares are stated once, above the table, in the reader's language (madarch-m38l.21).
  */
 export async function membersBlock(
   ctx: RenderContext,
@@ -508,7 +509,12 @@ export async function membersBlock(
   const direction = params['direction'] === 'out' ? 'out' : 'in';
   const limit = toInt(params['limit'], 200, 1, 500);
   const found = await ctx.graph.neighbors(subject.entity, { relations: [relation], direction, limit });
-  const details = ctx.manifest.kinds.get(kind)?.details;
+  const declaration = ctx.manifest.kinds.get(kind);
+  const details = declaration?.details;
+  const kindLabel = declaration?.labels?.[lang]?.one ?? declaration?.labels?.['en']?.one;
+  const kindProperty = ctx.manifest.properties.get('symbolKind');
+  const kindLabelName = kindProperty?.labels[lang] ?? kindProperty?.labels['en'];
+  const omit = new Set(list(params['omit']) ?? []);
   const rows: import('./model.js').MemberRow[] = [];
   let total = 0;
   for (const group of found) {
@@ -525,10 +531,13 @@ export async function membersBlock(
         for (const other of relations) for (const edge of (await ctx.graph.edgesOf(member, other, 'in', 100)).rows) held.push(refOfGraph(ctx, edge.other));
         return held;
       };
-      rows.push({ entity: refOfGraph(ctx, member), anchor: memberAnchor(member.key), values: detailRows(member, details, ctx.manifest.properties, lang), readers: await refs(readers), writers: await refs(writers) });
+      const declaredName = member.properties['name'];
+      const name = typeof declaredName === 'string' && declaredName.trim() !== '' ? declaredName : member.label;
+      const values = detailRows(member, details, ctx.manifest.properties, lang).filter((value) => !omit.has(value.name));
+      rows.push({ entity: refOfGraph(ctx, member), name, anchor: memberAnchor(member.key), values, readers: await refs(readers), writers: await refs(writers) });
     }
   }
-  return { type: 'members', title, rows, total };
+  return { type: 'members', title, ...(kindLabel === undefined ? {} : { kindLabel }), ...(kindLabelName === undefined ? {} : { kindLabelName }), rows, total };
 }
 
 // ---- children ---------------------------------------------------------------------------------

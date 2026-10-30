@@ -33,7 +33,7 @@ import { currentAddress, linkHandlers, openInNewTab, syncFrontTabAddress } from 
 import { remarkStatements, type MNode } from './statements.js';
 import { setShowGrounds, useShowGrounds } from './preferences.js';
 import { TermBlockView, remarkTerms, useTerms } from './glossary.js';
-import type { Block, BrokenWhy, CallRow, CodeLocation, EntityRef, PlannedMarkView, RelatedGroup, Resolution } from './types.js';
+import type { Block, BrokenWhy, CallRow, CodeLocation, EntityRef, PlannedMarkView, PropertyRow, RelatedGroup, Resolution } from './types.js';
 
 /** A link inside the wiki, opened without a reload: in the tab in front, or in a new tab on a middle or control click. */
 export function KLink({ href, children, className, title }: { href: string; children: ReactNode; className?: string; title?: string }): ReactElement {
@@ -500,33 +500,75 @@ function Properties({ block }: { block: Extract<Block, { type: 'properties' }> }
   );
 }
 
-function Members({ block }: { block: Extract<Block, { type: 'members' }> }): ReactElement | null {
+/** The reader or writer list of one member: a few links, then a button that opens the rest. */
+function MemberRefs({ refs, testId }: { refs: EntityRef[]; testId: 'member-readers' | 'member-writers' }): ReactElement {
   const { t } = useTranslation();
+  const [open, setOpen] = useState(false);
+  if (refs.length === 0) return <span className="text-muted">—</span>;
+  const short = 3;
+  const shown = open ? refs : refs.slice(0, short);
+  return (
+    <div className="flex flex-wrap items-baseline gap-x-1.5 gap-y-0.5 text-small" data-testid={testId}>
+      {shown.map((entity, at) => <span key={entity.id}>{at > 0 && <span className="text-muted">, </span>}<EntityName entity={entity} /></span>)}
+      {refs.length > short && (
+        <button type="button" className="text-small text-secondary underline underline-offset-2 hover:text-ink" data-testid="member-more" onClick={() => setOpen(!open)}>
+          {open ? t('knowledge.memberLess') : t('knowledge.memberMore', { count: refs.length - short })}
+        </button>
+      )}
+    </div>
+  );
+}
+
+function Members({ block }: { block: Extract<Block, { type: 'members' }> }): ReactElement | null {
+  const { t, i18n } = useTranslation();
   if (block.rows.length === 0) return null;
+  const names: string[] = [];
+  for (const row of block.rows) for (const value of row.values) if (!names.includes(value.name)) names.push(value.name);
+  const shared: { name: string; label?: string; value: string; valueKind?: PropertyRow['valueKind'] }[] = [];
+  const columns: { name: string; label?: string }[] = [];
+  if (block.kindLabel !== undefined) shared.push({ name: 'symbolKind', label: block.kindLabelName ?? t('knowledge.memberKind'), value: block.kindLabel });
+  for (const name of names) {
+    const held = block.rows.map((row) => row.values.find((value) => value.name === name));
+    if (name === 'symbolKind' && block.kindLabel !== undefined) continue;
+    const first = held.find((value) => value !== undefined);
+    if (first !== undefined && held.every((value) => value !== undefined && value.value === first.value)) shared.push(first);
+    else columns.push({ name, ...(first?.label === undefined ? {} : { label: first.label }) });
+  }
+  const hasReaders = block.rows.some((row) => row.readers.length > 0);
+  const hasWriters = block.rows.some((row) => row.writers.length > 0);
   return (
     <section data-block="members" aria-label={block.title}>
       <h2>{block.title}</h2>
-      <div className="flex flex-col gap-6">
-        {block.rows.map((row) => (
-          <div key={row.entity.id} id={row.anchor} data-member={row.entity.id} className="scroll-mt-24">
-            <h3 className="mb-2 text-large"><EntityName entity={row.entity} /></h3>
-            {row.values.length > 0 && (
-              <Table>
-                <TableBody>
-                  {row.values.map((value) => (
-                    <TableRow key={value.name}>
-                      <TableCell className="w-1/3 whitespace-nowrap align-top text-secondary">{value.label ?? value.name}</TableCell>
-                      <TableCell className="break-words">{value.valueKind === 'date' ? value.value : value.value}</TableCell>
-                    </TableRow>
-                  ))}
-                </TableBody>
-              </Table>
-            )}
-            {row.readers.length > 0 && <p className="mt-2 text-small"><span className="text-muted">{t('knowledge.memberReaders')}: </span>{row.readers.map((entity, at) => <span key={entity.id}>{at > 0 && ', '}<EntityName entity={entity} /></span>)}</p>}
-            {row.writers.length > 0 && <p className="mt-1 text-small"><span className="text-muted">{t('knowledge.memberWriters')}: </span>{row.writers.map((entity, at) => <span key={entity.id}>{at > 0 && ', '}<EntityName entity={entity} /></span>)}</p>}
-          </div>
-        ))}
-      </div>
+      {shared.length > 0 && (
+        <p className="mb-2 flex flex-wrap gap-x-2 gap-y-0.5 text-small text-muted" data-testid="member-shared">
+          {shared.map((value, at) => (
+            <span key={value.name}>{at > 0 && <span aria-hidden="true" className="mr-2">·</span>}{value.label ?? value.name}: <span className="text-ink">{value.valueKind === 'date' ? when(value.value, i18n.language) : value.valueKind === 'code' ? <code>{value.value}</code> : value.value}</span></span>
+          ))}
+        </p>
+      )}
+      <Table data-testid="member-table" className="text-[13px] [&_td]:px-3 [&_td]:py-1.5 [&_th]:h-8 [&_th]:px-3">
+        <TableHeader>
+          <TableRow>
+            <TableHead>{t('knowledge.memberName')}</TableHead>
+            {columns.map((column) => <TableHead key={column.name}>{column.label ?? column.name}</TableHead>)}
+            {hasReaders && <TableHead>{t('knowledge.memberReaders')}</TableHead>}
+            {hasWriters && <TableHead>{t('knowledge.memberWriters')}</TableHead>}
+          </TableRow>
+        </TableHeader>
+        <TableBody>
+          {block.rows.map((row) => (
+            <TableRow key={row.entity.id} id={row.anchor} data-testid="member-row" data-member={row.entity.id} className="scroll-mt-24 align-top">
+              <TableCell className="min-w-[9rem] align-top"><span className="font-[550]">{row.name ?? row.entity.label}</span></TableCell>
+              {columns.map((column) => {
+                const value = row.values.find((entry) => entry.name === column.name);
+                return <TableCell key={column.name} className="max-w-[28rem] break-words align-top">{value === undefined ? <span className="text-muted">—</span> : value.valueKind === 'date' ? when(value.value, i18n.language) : value.valueKind === 'code' ? <code>{value.value}</code> : value.value}</TableCell>;
+              })}
+              {hasReaders && <TableCell className="align-top"><MemberRefs refs={row.readers} testId="member-readers" /></TableCell>}
+              {hasWriters && <TableCell className="align-top"><MemberRefs refs={row.writers} testId="member-writers" /></TableCell>}
+            </TableRow>
+          ))}
+        </TableBody>
+      </Table>
       {block.total > block.rows.length && <p className="mt-2 text-small text-muted" data-testid="members-cut">{t('knowledge.showing', { shown: block.rows.length, total: block.total })}</p>}
     </section>
   );
