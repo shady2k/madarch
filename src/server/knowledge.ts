@@ -42,6 +42,10 @@ export interface KnowledgePart {
   viewFrame: (request: Request) => Promise<Handled>;
   source: (request: Request) => Promise<Handled>;
   fill: (request: Request) => Promise<Handled>;
+  /** A person's «Пауза»: the page and the commit in progress are finished, and the run ends before the next one. */
+  pause: (request: Request) => Promise<Handled>;
+  /** A person's «Остановить»: the run ends now; the body's `confirm` is the second press that ends it. */
+  stop: (request: Request) => Promise<Handled>;
   agents: (request: Request) => Promise<Handled>;
   chooseAgent: (request: Request) => Promise<Handled>;
   products: (request: Request) => Promise<Handled>;
@@ -252,6 +256,31 @@ export function createKnowledgePart(
       const started = await product.startFill({ ...(expectAgent === undefined ? {} : { expectAgent }), ...(language === undefined ? {} : { language }) });
       if (!started.started) return refused(409, { message: started.message });
       return { response: json(202, { fill: started.fill }) };
+    }),
+    pause: guarded('pause the fill', async (request) => {
+      const crossSite = foreign(request);
+      if (crossSite !== undefined) return refused(403, { message: crossSite });
+      if (own) return refused(409, { message: "madarch's own wiki is documentation: there is no run to pause" });
+      const paused = await product.pauseRun();
+      if (!paused.ok) return refused(paused.status, { message: paused.message });
+      return { response: json(200, { fill: paused.fill, writer: paused.writer }) };
+    }),
+    stop: guarded('stop the fill', async (request) => {
+      const crossSite = foreign(request);
+      if (crossSite !== undefined) return refused(403, { message: crossSite });
+      if (own) return refused(409, { message: "madarch's own wiki is documentation: there is no run to stop" });
+      // The second press confirms: the first answer counts the pages this run rewrote and says that they stay.
+      let confirm = false;
+      if (request.headers.get('content-type')?.includes('application/json')) {
+        let body: unknown;
+        try { body = await request.json(); } catch (error) { return refused(400, { message: `the request body is not JSON: ${(error as Error).message}` }); }
+        const asked = (body as { confirm?: unknown } | null)?.confirm;
+        if (asked !== undefined && typeof asked !== 'boolean') return refused(400, { field: 'confirm', message: '"confirm" is true for the press that ends the run: the answer to the first press names the pages it keeps' });
+        confirm = asked === true;
+      }
+      const stopped = await product.stopRun({ confirm });
+      if (!stopped.ok) return refused(stopped.status, { message: stopped.message });
+      return { response: json(200, { fill: stopped.fill, writer: stopped.writer }) };
     }),
     agents: guarded('list the agents', async () => ({ response: json(200, { agents: product.agentOffers(), chosen: product.chosenAgent() }) })),
     chooseAgent: guarded('choose the agent', async (request) => {

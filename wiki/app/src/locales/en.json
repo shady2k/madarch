@@ -733,7 +733,21 @@
       "writingNow": "Writing: {{name}}",
       "waiting": "Waiting for the first page",
       "open": "Open the fill",
-      "idle": "The fill has not run yet."
+      "idle": "The fill has not run yet.",
+      "pause": "Pause",
+      "paused": "Paused",
+      "pausedCount": "Paused: {{done}} of {{total}} written",
+      "resume": "Resume",
+      "stop": "Stop",
+      "stopCancel": "Do not stop",
+      "stopConfirm": "Stop the run",
+      "stopped": "Stopped",
+      "stoppedCount": "Stopped: {{done}} of {{total}} written; those pages stay",
+      "stopTitle": "Stop the run?",
+      "stopWords_one": "Stopping ends the run now. {{count}} page has already been rewritten by this run: it stays as it is, and the page being written now stays as it was before the run.",
+      "stopWords_few": "Stopping ends the run now. {{count}} pages have already been rewritten by this run: they stay as they are, and the page being written now stays as it was before the run.",
+      "stopWords_many": "Stopping ends the run now. {{count}} pages have already been rewritten by this run: they stay as they are, and the page being written now stays as it was before the run.",
+      "stopWords_other": "Stopping ends the run now. {{count}} pages have already been rewritten by this run: they stay as they are, and the page being written now stays as it was before the run."
     },
     "pageProblems": "{{count}} problems"
   },
