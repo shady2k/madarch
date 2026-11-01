@@ -9,7 +9,8 @@
  * code point order of their ids (the source reads the pins, so where the pins
  * come from — the product's manifest, its `repos/` — is the wiring's business
  * and not this stage's). A unit writes three facts and no more, and the tree it
- * read is read once, when the reader opens.
+ * read is read once, through the static context's whole-repository reading:
+ * stage 0 is the one static stage whose unit is the repository itself.
  *
  * Ids come from `src/fill/facts.ts`: the same repository at the same commit has
  * one `snapshot` id on every machine and in every run, and the coverage node
@@ -19,9 +20,10 @@
 import { Type } from 'typebox';
 import { byCodePoint } from '../../model/order.js';
 import { FACT_KINDS, makeNodeFact, type Fact, type FactProvenance } from '../facts.js';
-import type { SnapshotReader, SnapshotSource } from '../snapshot.js';
+import type { SnapshotSource } from '../snapshot.js';
 import { DEFAULT_STAGE_DEFAULTS, type FillStage, type StageContext, type StageExecutionResult, type StagePlan, type StageUnit } from '../stage.js';
-import { checkFactDraft, evidenceAt, provenanceOf } from './draft.js';
+import { checkFactDraft, evidenceAtPlace, provenanceOfPlace } from './draft.js';
+import type { StaticRepositoryTree } from './static-context.js';
 
 /** The stage's id, as it is registered and as its units are named. */
 export const SNAPSHOT_STAGE_ID = 'snapshot';
@@ -67,16 +69,23 @@ export function createSnapshotStage(sources: SnapshotSource): FillStage {
     },
     execute: async (unit: StageUnit, context: StageContext): Promise<StageExecutionResult> => {
       refuseWhenCancelled(unit, context);
-      const reader = await sources.open(unit.scope);
+      const held = context.static;
+      if (held === undefined) {
+        throw new Error(`the unit "${unit.id}" runs the snapshot stage's static reading, and its context holds no pinned repository: a run hands a static stage its repository's path-scoped answers (src/fill/stages/snapshot.ts, decision 0033)`);
+      }
+      // Stage 0 is the one static stage whose unit is the repository itself, so
+      // it names the whole-tree reading: the tree it counts, the paths it files
+      // and the paths it cannot file are what its facts are about.
+      const tree = await held.repository.repositoryTree();
       refuseWhenCancelled(unit, context);
-      const provenance = provenanceOf(reader);
-      for (const fact of factsFor(reader, provenance)) {
+      const provenance = provenanceOfPlace(tree);
+      for (const fact of factsFor(tree, provenance)) {
         // The evidence of a fact about a whole repository is the repository at
         // the commit: the tree it was read from, no path of the tree in it.
-        context.draft.write({ kind: 'fact', evidence: evidenceAt(reader), value: fact });
+        context.draft.write({ kind: 'fact', evidence: evidenceAtPlace(tree), value: fact });
       }
       context.progress(
-        `read the tree of ${reader.repository} at ${reader.commit}: ${reader.fileCount} ${reader.fileCount === 1 ? 'file' : 'files'}, ${reader.byteCount} bytes`,
+        `read the tree of ${tree.repository} at ${tree.commit}: ${tree.fileCount} ${tree.fileCount === 1 ? 'file' : 'files'}, ${tree.byteCount} bytes`,
         1,
       );
       return { outcome: 'draft' };
@@ -100,11 +109,11 @@ export function createSnapshotStage(sources: SnapshotSource): FillStage {
  * carries no gap, and a gap is never silence: `complete` is false exactly when
  * something is named here.
  */
-function factsFor(reader: SnapshotReader, provenance: FactProvenance): readonly Fact[] {
-  const repository = reader.repository;
+function factsFor(tree: StaticRepositoryTree, provenance: FactProvenance): readonly Fact[] {
+  const repository = tree.repository;
   const repositoryFact = makeNodeFact({
     kind: 'repository',
-    value: { repository, form: reader.form, ...(reader.defaultBranch === undefined ? {} : { defaultBranch: reader.defaultBranch }) },
+    value: { repository, form: tree.form, ...(tree.defaultBranch === undefined ? {} : { defaultBranch: tree.defaultBranch }) },
     provenance,
     layer: 'extracted',
   });
@@ -112,15 +121,15 @@ function factsFor(reader: SnapshotReader, provenance: FactProvenance): readonly 
     kind: 'snapshot',
     value: {
       repository,
-      commit: reader.commit,
-      tree: reader.tree,
-      fileCount: reader.fileCount,
-      byteCount: reader.byteCount,
+      commit: tree.commit,
+      tree: tree.tree,
+      fileCount: tree.fileCount,
+      byteCount: tree.byteCount,
     },
     provenance,
     layer: 'extracted',
   });
-  const entries = reader.entries();
+  const entries = tree.entries;
   const read = [...new Set(entries
     .filter((entry) => entry.form !== 'commit')
     .map((entry) => (entry.form === 'link' ? 'symbolic-link' : 'file')))].sort(byCodePoint);
@@ -130,7 +139,7 @@ function factsFor(reader: SnapshotReader, provenance: FactProvenance): readonly 
   const seen = new Set<string>();
   for (const path of [
     ...entries.filter((entry) => entry.form === 'commit').map((entry) => String(entry.path)),
-    ...reader.unfiled().map((entry) => entry.path),
+    ...tree.unfiled.map((entry) => entry.path),
   ].sort(byCodePoint)) {
     if (seen.has(path)) continue;
     seen.add(path);

@@ -38,11 +38,13 @@
  * file that is no code at all is the inventory's and the later stages' business,
  * not this stage's.
  *
- * **Bytes.** A file's bytes come from the pinned snapshot through
- * `SnapshotSource` (`src/fill/snapshot.ts`, stage 0), bound to the commit the
- * run pinned; the stage never reads a checkout's working tree. The extraction
- * itself is pure (`syntax-extract.ts`), so the same bytes answer the same facts
- * on every machine and in every run.
+ * **Bytes.** A unit's bytes come from its static stage context (decision 0033,
+ * "Capability boundaries"): one repository pinned at one commit, one file's
+ * bytes below the size cap, and path-scoped lookups for the file's own imports.
+ * The stage never holds a tree reader and never reads a checkout's working
+ * tree; a file above the cap is a named `too-large` gap. The extraction itself
+ * is pure (`syntax-extract.ts`), so the same bytes answer the same facts on
+ * every machine and in every run.
  */
 import { Type } from 'typebox';
 import { byCodePoint } from '../../model/order.js';
@@ -54,10 +56,11 @@ import {
   type FillStage, type StageContext, type StageDraftSet, type StageExecutionResult,
   type StageGraphReader, type StagePlan, type StageUnit,
 } from '../stage.js';
-import { checkFactDraft, evidenceAt } from './draft.js';
+import { checkFactDraft, evidenceAtPlace } from './draft.js';
+import type { StaticStageSource } from './static-context.js';
 import { publishedTreeRead, publishedTreeRows, rolesFor } from './inventory.js';
 import { extractFileSyntax, unreadFileSyntax, type ExtractedFileSyntax } from './syntax-extract.js';
-import { syntaxFacts, type SyntaxFactSet } from './syntax-facts.js';
+import { importCandidates, syntaxFacts, type SyntaxFactSet } from './syntax-facts.js';
 import { movedBySpecifiers, publishedGapRows, publishedGapsRead, publishedImportRows, publishedImportsRead } from './syntax-specifiers.js';
 
 /** The stage's id, as it is registered and as its units are named. */
@@ -108,7 +111,7 @@ export function createSyntaxStage(sources: SnapshotSource): FillStage {
     configSchema: Type.Object({}),
     defaults: { ...DEFAULT_STAGE_DEFAULTS, config: {} },
     plan: async (graph: StageGraphReader): Promise<StagePlan> => planSyntax(sources, graph),
-    execute: async (unit: StageUnit, context: StageContext): Promise<StageExecutionResult> => executeSyntaxUnit(sources, unit, context),
+    execute: async (unit: StageUnit, context: StageContext): Promise<StageExecutionResult> => executeSyntaxUnit(unit, context),
     validate: (draft: StageDraftSet) => checkFactDraft(SYNTAX_STAGE_ID, SYNTAX_STAGE_KINDS, draft),
   };
 }
@@ -209,15 +212,15 @@ export function plannedUnit(id: string): { repository: string; path: string } {
  * commit stands in another repository) is published as a coverage gap, since a
  * file this stage did not read must say so.
  */
-async function executeSyntaxUnit(sources: SnapshotSource, unit: StageUnit, context: StageContext): Promise<StageExecutionResult> {
+async function executeSyntaxUnit(unit: StageUnit, context: StageContext): Promise<StageExecutionResult> {
   refuseWhenCancelled(unit, context);
   const planned = plannedUnit(unit.id);
-  const reader = await sources.open(planned.repository);
+  const source = staticSourceOf(unit, context);
   refuseWhenCancelled(unit, context);
-  const entry = reader.entry(planned.path);
+  const entry = await source.entry(planned.path);
   if (entry === undefined) {
     context.progress(
-      `${planned.path} is not in the tree of ${planned.repository} at ${reader.commit}: this unit publishes nothing, and what an earlier run wrote there is retracted`,
+      `${planned.path} is not in the tree of ${planned.repository} at ${source.commit}: this unit publishes nothing, and what an earlier run wrote there is retracted`,
       1,
     );
     return { outcome: 'draft' };
@@ -228,17 +231,38 @@ async function executeSyntaxUnit(sources: SnapshotSource, unit: StageUnit, conte
     // read, and neither is dropped in silence — the file's coverage says so.
     const set = syntaxFacts({
       repository: planned.repository,
-      commit: reader.commit,
+      commit: source.commit,
       path: repositoryPath(planned.path),
       findings: unreadFileSyntax(planned.path, 'unsupported'),
-      files: reader.files().map((other) => other.path),
+      files: [],
     });
-    writeDraft(context, reader, planned.path, set);
+    writeDraft(context, source, planned.path, set);
     const what = entry.form === 'link' ? 'a symbolic link, whose bytes are the path it points at' : 'a submodule, whose tree stands in the repository it names';
     context.progress(`${planned.path} is ${what}: the file is published as a coverage gap and not read`, 1);
     return { outcome: 'draft' };
   }
-  const bytes = await reader.read(planned.path);
+
+  const file = await source.file(planned.path);
+  if (file === undefined) {
+    context.progress(`${planned.path} is not in the tree of ${planned.repository} at ${source.commit}: this unit publishes nothing, and what an earlier run wrote there is retracted`, 1);
+    return { outcome: 'draft' };
+  }
+  if (file.unread !== undefined) {
+    // A file above the static cap, or one whose bytes this stage cannot take, is
+    // named as a gap and never parsed as if the bytes it does not hold were the
+    // whole file (decision 0033, "Capability boundaries").
+    const set = syntaxFacts({
+      repository: planned.repository,
+      commit: source.commit,
+      path: repositoryPath(planned.path),
+      findings: unreadFileSyntax(planned.path, file.unread),
+      files: [],
+    });
+    writeDraft(context, source, planned.path, set);
+    context.progress(`${planned.path} of ${planned.repository} is ${file.unread === 'too-large' ? 'above the static reading cap' : 'not a source text this stage reads'}: the file is published as a ${file.unread} coverage gap and not read`, 1);
+    return { outcome: 'draft' };
+  }
+  const bytes = file.content!;
   refuseWhenCancelled(unit, context);
   let findings: ExtractedFileSyntax;
   try {
@@ -251,25 +275,47 @@ async function executeSyntaxUnit(sources: SnapshotSource, unit: StageUnit, conte
     findings = unreadFileSyntax(planned.path, 'error');
     context.progress(`${planned.path} of ${planned.repository} is nested past what this reader can walk: the file is published as a coverage gap and not read`, 1);
   }
+  // The import targets this file names, each checked through a path-scoped
+  // lookup of the pinned tree: no list of the repository's files is read into
+  // memory to resolve one file's imports (decision 0033).
+  const known = new Set<string>();
+  for (const imported of findings.imports) {
+    for (const candidate of importCandidates(planned.path, imported.specifier)) {
+      if (known.has(candidate)) break;
+      if ((await source.entry(candidate)) !== undefined) {
+        known.add(candidate);
+        break;
+      }
+    }
+  }
   const set = syntaxFacts({
     repository: planned.repository,
-    commit: reader.commit,
+    commit: source.commit,
     path: repositoryPath(planned.path),
     findings,
-    files: reader.files().map((file) => file.path),
+    files: [...known],
   });
-  writeDraft(context, reader, planned.path, set);
+  writeDraft(context, source, planned.path, set);
   const read = findings.parsed ? `read ${planned.path}` : `${planned.path} was not read`;
   context.progress(
-    `${read} of ${planned.repository} at ${reader.commit}: ${findings.symbols.length} ${findings.symbols.length === 1 ? 'symbol' : 'symbols'}, ${findings.imports.length} ${findings.imports.length === 1 ? 'import' : 'imports'}, ${findings.comments.length} ${findings.comments.length === 1 ? 'comment' : 'comments'}`,
+    `${read} of ${planned.repository} at ${source.commit}: ${findings.symbols.length} ${findings.symbols.length === 1 ? 'symbol' : 'symbols'}, ${findings.imports.length} ${findings.imports.length === 1 ? 'import' : 'imports'}, ${findings.comments.length} ${findings.comments.length === 1 ? 'comment' : 'comments'}`,
     1,
   );
   return { outcome: 'draft' };
 }
 
+/** The unit's static repository, refused by name where the run handed none: a static unit reads only through its own context. */
+function staticSourceOf(unit: StageUnit, context: StageContext): StaticStageSource {
+  const held = context.static;
+  if (held === undefined) {
+    throw new Error(`the unit "${unit.id}" runs the syntax stage's static reading, and its context holds no pinned repository: a run hands a static stage its repository's path-scoped answers (src/fill/stages/syntax.ts, decision 0033)`);
+  }
+  return held.repository;
+}
+
 /** Writes each of one file's facts into the unit's draft, citing the repository, the commit and the path they were read from. */
-function writeDraft(context: StageContext, reader: SnapshotReader, path: string, set: SyntaxFactSet): void {
-  const evidence = evidenceAt(reader, path);
+function writeDraft(context: StageContext, source: StaticStageSource, path: string, set: SyntaxFactSet): void {
+  const evidence = evidenceAtPlace(source, path);
   for (const fact of set.facts) context.draft.write({ kind: 'fact', evidence, value: fact });
 }
 

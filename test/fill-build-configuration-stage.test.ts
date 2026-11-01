@@ -26,6 +26,7 @@ import { join } from 'node:path';
 import { checkFact, makeNodeFact, repositoryPath } from '../src/fill/facts.js';
 import { deriveStageGraph } from '../src/fill/registry.js';
 import { createGitSnapshotSource } from '../src/fill/snapshot.js';
+import { staticStageContext, staticStageSourceOf } from '../src/fill/stages/static-context.js';
 import { DEFAULT_STAGE_LIMITS, type StageContext, type StageDraftWrite, type StageUnit } from '../src/fill/stage.js';
 import {
   BUILD_CONFIGURATION_STAGE_ID, createBuildConfigurationStage, manifestKindOf, publishedManifestsRead,
@@ -77,22 +78,44 @@ interface Recorder {
   readonly queries: string[];
 }
 
+/** The source the last fixture pinned: what `contextFor` hands a static stage as its repository. */
+let testSource: ReturnType<typeof createGitSnapshotSource> | undefined;
+
+/** A fixture's source, remembered for the context of the units read through it. */
+function snapshotSource(...args: Parameters<typeof createGitSnapshotSource>): ReturnType<typeof createGitSnapshotSource> {
+  const source = createGitSnapshotSource(...args);
+  testSource = source;
+  return source;
+}
+
+/** The repository a unit's scope names: `<repository>` or `<repository>:<path>`. */
+function repositoryOfScope(scope: string): string {
+  // A unit id names its kind first (`file:<repository>:<path>`); a unit scope is
+  // `<repository>:<path>` or `<repository>`.
+  const parts = scope.split(':');
+  if (parts[0] === 'file' || parts[0] === 'directory') return parts[1] ?? '';
+  return parts.length === 1 ? scope : parts[0]!;
+}
+
 /** One unit's context: the reads answered by the test, the draft collected here, and a signal the test holds. */
-function contextFor(unit: StageUnit, answer: (read: string) => readonly unknown[] = () => []): { context: StageContext; recorder: Recorder; controller: AbortController } {
+async function contextFor(unit: StageUnit, answer: (read: string) => readonly unknown[] = () => [], staticUnit = false): Promise<{ context: StageContext; recorder: Recorder; controller: AbortController }> {
   const recorder: Recorder = { writes: [], notes: [], queries: [] };
   const controller = new AbortController();
+  const graph = {
+    query: async (read: string) => {
+      recorder.queries.push(read);
+      return answer(read);
+    },
+  };
+  const repository = !staticUnit || testSource === undefined ? undefined : await staticStageSourceOf(testSource, repositoryOfScope(unit.scope));
   return {
     recorder,
     controller,
     context: {
       unit,
       config: { id: 'test', version: 1, enabled: true, concurrency: 1, limits: DEFAULT_STAGE_LIMITS, config: {} },
-      graph: {
-        query: async (read: string) => {
-          recorder.queries.push(read);
-          return answer(read);
-        },
-      },
+      graph,
+      ...(repository === undefined ? {} : { static: staticStageContext(repository, graph) }),
       draft: {
         write: (entry: StageDraftWrite) => { recorder.writes.push(entry); },
         writes: () => ({ writes: recorder.writes }),
@@ -160,12 +183,12 @@ function unitIds(plan: { units: readonly { id: string }[] }): string[] {
 
 /** The stage over one fixture's pin. */
 function stageOver(root: string, commit: string, id = 'orders-api'): FillStage {
-  return createBuildConfigurationStage(createGitSnapshotSource([{ id, form: 'code', root, commit }]));
+  return createBuildConfigurationStage(snapshotSource([{ id, form: 'code', root, commit }]));
 }
 
 /** One unit run, as the test reads it back. */
 async function executed(stage: FillStage, unitId: string, answer: (read: string) => readonly unknown[] = () => []): Promise<Recorder> {
-  const { context, recorder } = contextFor({ id: unitId, scope: unitId }, answer);
+  const { context, recorder } = await contextFor({ id: unitId, scope: unitId }, answer, stage.id === 'inventory');
   const outcome = await stage.execute({ id: unitId, scope: unitId }, context);
   expect(outcome).toEqual({ outcome: 'draft' });
   return recorder;
@@ -189,7 +212,7 @@ describe('the stage is registered', () => {
     try {
       await f.write('package.json', '{ "name": "orders-api" }\n');
       const commit = f.commit();
-      const registry = createStageRegistry({ snapshots: createGitSnapshotSource([{ id: 'orders-api', form: 'code', root: f.root, commit }]) });
+      const registry = createStageRegistry({ snapshots: snapshotSource([{ id: 'orders-api', form: 'code', root: f.root, commit }]) });
       const read = deriveStageGraph(registry);
       expect(read.ok).toBe(true);
       if (!read.ok) return;
@@ -524,7 +547,7 @@ describe('deploy units and the environment', () => {
 
       // The `consumes` edge stands on the file node stage 1 published for the
       // Dockerfile: one node for one file, whoever reads it.
-      const inventory = createInventoryStage(createGitSnapshotSource([{ id: 'orders-api', form: 'code', root: f.root, commit }]));
+      const inventory = createInventoryStage(snapshotSource([{ id: 'orders-api', form: 'code', root: f.root, commit }]));
       const fileUnit = await executed(inventory, 'file:orders-api:services/billing/Dockerfile');
       const fileId = oneFact(fileUnit.writes, 'file').id;
       for (const edge of factsOf(recorder.writes).filter((fact) => fact.kind === 'consumes')) {
@@ -917,7 +940,7 @@ describe('one unit', () => {
       await f.write('package.json', '{ "name": "orders-api" }\n');
       const commit = f.commit();
       const stage = stageOver(f.root, commit);
-      const { context, recorder, controller } = contextFor({ id: 'manifest:orders-api:package.json', scope: 'orders-api:package.json' });
+      const { context, recorder, controller } = await contextFor({ id: 'manifest:orders-api:package.json', scope: 'orders-api:package.json' });
       controller.abort();
       await expect(stage.execute({ id: 'manifest:orders-api:package.json', scope: 'orders-api:package.json' }, context)).rejects.toThrow('was cancelled');
       expect(recorder.writes).toEqual([]);

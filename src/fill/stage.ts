@@ -20,6 +20,7 @@
  */
 import { type TSchema } from 'typebox';
 import type { AcpMcpServer } from './acp.js';
+import type { StaticStageContext } from './stages/static-context.js';
 
 /** How much of the product one capability or fact kind is about. */
 export type CapabilityScope = 'product' | 'repository' | 'package' | 'cluster' | 'file';
@@ -253,6 +254,14 @@ export interface StageContext {
   config: ResolvedStageConfiguration;
   /** Tracked reads of the pinned graph. */
   graph: StageGraphReader;
+  /**
+   * One pinned repository's path-scoped answers for a static stage (decision
+   * 0033, "Capability boundaries"): one file's bytes, its entry, whether a
+   * folder stands, and bounded reads of the graph. A static stage never holds a
+   * tree reader; a stage that plans from the tree reads it in its plan, where
+   * the run, not a worker, is doing the reading.
+   */
+  static?: StaticStageContext;
   /** Private draft writes, visible to other units only as draft. */
   draft: StageDraftWriter;
   /** Progress the run's view shows. */

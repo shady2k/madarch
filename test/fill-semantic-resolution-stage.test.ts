@@ -24,6 +24,7 @@ import { join } from 'node:path';
 import { checkFact } from '../src/fill/facts.js';
 import { deriveStageGraph } from '../src/fill/registry.js';
 import { createGitSnapshotSource, type SnapshotSource } from '../src/fill/snapshot.js';
+import { staticStageContext, staticStageSourceOf } from '../src/fill/stages/static-context.js';
 import { DEFAULT_STAGE_LIMITS, type StageContext, type StageDraftWrite, type StageUnit } from '../src/fill/stage.js';
 import { publishedTreeRead, createInventoryStage, type PublishedTreeRow } from '../src/fill/stages/inventory.js';
 import {
@@ -79,22 +80,32 @@ interface Recorder {
   readonly queries: string[];
 }
 
+/** The repository a unit's scope names: `<repository>` or `<repository>:<path>`. */
+function repositoryOfScope(scope: string): string {
+  const parts = scope.split(':');
+  if (parts[0] === 'file' || parts[0] === 'directory') return parts[1] ?? '';
+  return parts.length === 1 ? scope : parts[0]!;
+}
+
 /** One unit's context: the reads answered by the test, the draft collected here, and a signal the test holds. */
-function contextFor(unit: StageUnit, answer: (read: string) => readonly unknown[] | Promise<readonly unknown[]> = () => []): { context: StageContext; recorder: Recorder; controller: AbortController } {
+async function contextFor(unit: StageUnit, answer: (read: string) => readonly unknown[] | Promise<readonly unknown[]> = () => [], source?: SnapshotSource): Promise<{ context: StageContext; recorder: Recorder; controller: AbortController }> {
   const recorder: Recorder = { writes: [], notes: [], queries: [] };
   const controller = new AbortController();
+  const graph = {
+    query: async (read: string) => {
+      recorder.queries.push(read);
+      return await answer(read);
+    },
+  };
+  const repository = source === undefined ? undefined : await staticStageSourceOf(source, repositoryOfScope(unit.scope));
   return {
     recorder,
     controller,
     context: {
       unit,
       config: { id: SEMANTIC_RESOLUTION_STAGE_ID, version: 1, enabled: true, concurrency: 1, limits: DEFAULT_STAGE_LIMITS, config: {} },
-      graph: {
-        query: async (read: string) => {
-          recorder.queries.push(read);
-          return await answer(read);
-        },
-      },
+      graph,
+      ...(repository === undefined ? {} : { static: staticStageContext(repository, graph) }),
       draft: {
         write: (entry: StageDraftWrite) => { recorder.writes.push(entry); },
         writes: () => ({ writes: recorder.writes }),
@@ -209,14 +220,14 @@ async function publishedAt(source: SnapshotSource): Promise<Published> {
   const inventory = createInventoryStage(source);
   const tree: StageDraftWrite[] = [];
   for (const unit of (await inventory.plan({ query: async () => [] })).units) {
-    const run = contextFor(unit);
+    const run = await contextFor(unit, () => [], source);
     await inventory.execute(unit, run.context);
     tree.push(...run.recorder.writes);
   }
   const syntax = createSyntaxStage(source);
   const writes: StageDraftWrite[] = [];
   for (const unit of (await syntax.plan({ query: async () => [] })).units) {
-    const run = contextFor(unit);
+    const run = await contextFor(unit, () => [], source);
     await syntax.execute(unit, run.context);
     writes.push(...run.recorder.writes);
   }
@@ -279,7 +290,7 @@ function symbolIdOf(published: Published, path: string, qualifiedName: string): 
 /** The stage, one unit and what it wrote: the shape every execution test reads. */
 async function runUnit(source: SnapshotSource, unit: StageUnit, graph: (read: string) => readonly unknown[] | Promise<readonly unknown[]>): Promise<{ readonly stage: ReturnType<typeof createSemanticResolutionStage>; readonly run: { context: StageContext; recorder: Recorder; controller: AbortController }; readonly outcome: unknown }> {
   const stage = createSemanticResolutionStage(source);
-  const run = contextFor(unit, graph);
+  const run = await contextFor(unit, graph);
   const outcome = await stage.execute(unit, run.context);
   return { stage, run, outcome };
 }
@@ -544,7 +555,7 @@ describe('the resolution stage plans the files a commit moves', () => {
       // The vanished path's unit publishes nothing, which is how the facts an
       // earlier run wrote for it are retracted.
       const gone = plan.units.find((unit) => unit.id === 'file:orders-api:src/a.ts')!;
-      const run = contextFor(gone, graphOf(published, 'orders-api'));
+      const run = await contextFor(gone, graphOf(published, 'orders-api'));
       expect(await stage.execute(gone, run.context)).toEqual({ outcome: 'draft' });
       expect(run.recorder.writes).toEqual([]);
       expect(run.recorder.notes[0]).toContain('src/a.ts');
@@ -710,7 +721,7 @@ describe('one unit resolves the file it names', () => {
       const commit = await writeFixture(f, CALLS_AN_EXPORTED_FUNCTION);
       const source = sourceAt(f.root, commit);
       const stage = createSemanticResolutionStage(source);
-      const run = contextFor({ id: 'file:orders-api:src/a.ts', scope: 'orders-api:src/a.ts' });
+      const run = await contextFor({ id: 'file:orders-api:src/a.ts', scope: 'orders-api:src/a.ts' });
       run.controller.abort();
       const message = await refusedBy(() => stage.execute({ id: 'file:orders-api:src/a.ts', scope: 'orders-api:src/a.ts' }, run.context));
       expect(message).toContain('file:orders-api:src/a.ts');
@@ -818,7 +829,8 @@ describe('one unit resolves the file it names', () => {
       };
       const stage = createSemanticResolutionStage(failing);
       const unit = { id: 'file:orders-api:src/a.ts', scope: 'orders-api:src/a.ts' };
-      const message = await refusedBy(() => stage.execute(unit, contextFor(unit, graphOf(published, 'orders-api')).context));
+      const read = await contextFor(unit, graphOf(published, 'orders-api'));
+      const message = await refusedBy(() => stage.execute(unit, read.context));
       expect(message).toContain('out of bounds');
     } finally {
       await f.dispose();

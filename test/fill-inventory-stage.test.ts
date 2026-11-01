@@ -25,6 +25,7 @@ import { join } from 'node:path';
 import { checkFact } from '../src/fill/facts.js';
 import { deriveStageGraph } from '../src/fill/registry.js';
 import { createGitSnapshotSource } from '../src/fill/snapshot.js';
+import { staticStageContext, staticStageSourceOf } from '../src/fill/stages/static-context.js';
 import { DEFAULT_STAGE_LIMITS, type StageContext, type StageDraftWrite, type StageUnit } from '../src/fill/stage.js';
 import { createStageRegistry } from '../src/fill/stages/index.js';
 import { createInventoryStage, publishedTreeRead, rolesFor, type PublishedTreeRow } from '../src/fill/stages/inventory.js';
@@ -72,22 +73,43 @@ interface Recorder {
   readonly queries: string[];
 }
 
+/** The source the last test fixture pinned: what `contextFor` hands the stage as its static repository. */
+let testSource: ReturnType<typeof createGitSnapshotSource> | undefined;
+
+/** A fixture's source, remembered for the context of the units read through it. */
+function snapshotSource(...args: Parameters<typeof createGitSnapshotSource>): ReturnType<typeof createGitSnapshotSource> {
+  const source = createGitSnapshotSource(...args);
+  testSource = source;
+  return source;
+}
+
+/** The repository a unit's scope names: `<repository>` or `<repository>:<path>`. */
+function repositoryOfScope(scope: string): string {
+  // A unit id names its kind first (`file:<repository>:<path>`); a unit scope is
+  // `<repository>:<path>` or `<repository>`.
+  const parts = scope.split(':');
+  if (parts[0] === 'file' || parts[0] === 'directory') return parts[1] ?? '';
+  return parts.length === 1 ? scope : parts[0]!;
+}
+
 /** One unit's context: the reads answered by the test, the draft collected here, and a signal the test holds. */
-function contextFor(unit: StageUnit, answer: (read: string) => readonly unknown[] = () => []): { context: StageContext; recorder: Recorder; controller: AbortController } {
+async function contextFor(unit: StageUnit, answer: (read: string) => readonly unknown[] = () => [], source = testSource, controller = new AbortController()): Promise<{ context: StageContext; recorder: Recorder; controller: AbortController }> {
   const recorder: Recorder = { writes: [], notes: [], queries: [] };
-  const controller = new AbortController();
+  const graph = {
+    query: async (read: string) => {
+      recorder.queries.push(read);
+      return answer(read);
+    },
+  };
+  const repository = source === undefined ? undefined : await staticStageSourceOf(source, repositoryOfScope(unit.scope));
   return {
     recorder,
     controller,
     context: {
       unit,
       config: { id: 'test', version: 1, enabled: true, concurrency: 1, limits: DEFAULT_STAGE_LIMITS, config: {} },
-      graph: {
-        query: async (read: string) => {
-          recorder.queries.push(read);
-          return answer(read);
-        },
-      },
+      graph,
+      ...(repository === undefined ? {} : { static: staticStageContext(repository, graph) }),
       draft: {
         write: (entry: StageDraftWrite) => { recorder.writes.push(entry); },
         writes: () => ({ writes: recorder.writes }),
@@ -165,7 +187,7 @@ describe('the stages are registered', () => {
     try {
       await f.write('src/a.ts', 'export const a = 1;\n');
       const commit = f.commit();
-      const registry = createStageRegistry({ snapshots: createGitSnapshotSource([{ id: 'orders-api', form: 'code', root: f.root, commit }]) });
+      const registry = createStageRegistry({ snapshots: snapshotSource([{ id: 'orders-api', form: 'code', root: f.root, commit }]) });
       const read = deriveStageGraph(registry);
       expect(read.ok).toBe(true);
       if (!read.ok) return;
@@ -222,7 +244,7 @@ describe('the snapshot stage', () => {
     try {
       await f.write('src/a.ts', 'export const a = 1;\n');
       const commit = f.commit();
-      const source = createGitSnapshotSource([
+      const source = snapshotSource([
         { id: 'web', form: 'code', root: f.root, commit },
         { id: 'catalog-api', form: 'product', root: f.root, commit, defaultBranch: 'main' },
       ]);
@@ -232,7 +254,7 @@ describe('the snapshot stage', () => {
       expect(plan.coverage).toBe('planned');
       expect(plan.units.map((unit) => unit.scope)).toEqual(['catalog-api', 'web']);
       // A run that pins nothing plans nothing, and says so: the fill is not starved.
-      const empty = createSnapshotStage(createGitSnapshotSource([]));
+      const empty = createSnapshotStage(snapshotSource([]));
       expect(await empty.plan({ query: async () => [] })).toEqual({ units: [], coverage: 'nothing-found' });
     } finally {
       await f.dispose();
@@ -246,8 +268,8 @@ describe('the snapshot stage', () => {
       await f.write('README.md', '# fixture\n');
       const commit = f.commit();
       const tree = f.git('rev-parse', `${commit}^{tree}`).trim();
-      const stage = createSnapshotStage(createGitSnapshotSource([{ id: 'orders-api', form: 'code', root: f.root, commit }]));
-      const { context, recorder } = contextFor({ id: 'orders-api', scope: 'orders-api' });
+      const stage = createSnapshotStage(snapshotSource([{ id: 'orders-api', form: 'code', root: f.root, commit }]));
+      const { context, recorder } = await contextFor({ id: 'orders-api', scope: 'orders-api' });
       expect(await stage.execute({ id: 'orders-api', scope: 'orders-api' }, context)).toEqual({ outcome: 'draft' });
       expect(kindsOf(recorder.writes)).toEqual(['coverage', 'repository', 'snapshot']);
       // Every write is a fact the schema reads.
@@ -286,8 +308,8 @@ describe('the snapshot stage', () => {
       f.git('update-index', '--add', '--cacheinfo', `160000,${first},sub`);
       f.git('commit', '-qm', 'submodule');
       const second = f.git('rev-parse', 'HEAD').trim();
-      const stage = createSnapshotStage(createGitSnapshotSource([{ id: 'orders-api', form: 'code', root: f.root, commit: second }]));
-      const { context, recorder } = contextFor({ id: 'orders-api', scope: 'orders-api' });
+      const stage = createSnapshotStage(snapshotSource([{ id: 'orders-api', form: 'code', root: f.root, commit: second }]));
+      const { context, recorder } = await contextFor({ id: 'orders-api', scope: 'orders-api' });
       await stage.execute({ id: 'orders-api', scope: 'orders-api' }, context);
       const coverage = factsOf(recorder.writes).find((fact) => fact.kind === 'coverage');
       expect(coverage?.value['complete']).toBe(false);
@@ -304,8 +326,8 @@ describe('the snapshot stage', () => {
       await f.write('src/a.ts', 'export const a = 1;\n');
       await symlink('src/a.ts', join(f.root, 'link.ts'));
       const commit = f.commit();
-      const stage = createSnapshotStage(createGitSnapshotSource([{ id: 'orders-api', form: 'code', root: f.root, commit }]));
-      const { context, recorder } = contextFor({ id: 'orders-api', scope: 'orders-api' });
+      const stage = createSnapshotStage(snapshotSource([{ id: 'orders-api', form: 'code', root: f.root, commit }]));
+      const { context, recorder } = await contextFor({ id: 'orders-api', scope: 'orders-api' });
       await stage.execute({ id: 'orders-api', scope: 'orders-api' }, context);
       const [coverage, , snapshot] = factsOf(recorder.writes);
       // A link's bytes are the path it points at, so the tree holds two files
@@ -326,8 +348,8 @@ describe('the snapshot stage', () => {
       await f.write('a\\b.txt', 'the backslash file\n');
       await f.write('C:/inside.txt', 'the drive-shaped file\n');
       const commit = f.commit();
-      const stage = createSnapshotStage(createGitSnapshotSource([{ id: 'orders-api', form: 'code', root: f.root, commit }]));
-      const { context, recorder } = contextFor({ id: 'orders-api', scope: 'orders-api' });
+      const stage = createSnapshotStage(snapshotSource([{ id: 'orders-api', form: 'code', root: f.root, commit }]));
+      const { context, recorder } = await contextFor({ id: 'orders-api', scope: 'orders-api' });
       await stage.execute({ id: 'orders-api', scope: 'orders-api' }, context);
       const coverage = factsOf(recorder.writes).find((fact) => fact.kind === 'coverage');
       expect(coverage?.value['complete']).toBe(false);
@@ -350,18 +372,21 @@ describe('the snapshot stage', () => {
     try {
       await f.write('src/a.ts', 'export const a = 1;\n');
       const commit = f.commit();
-      const real = createGitSnapshotSource([{ id: 'orders-api', form: 'code', root: f.root, commit }]);
-      const { context, recorder, controller } = contextFor({ id: 'orders-api', scope: 'orders-api' });
+      const real = snapshotSource([{ id: 'orders-api', form: 'code', root: f.root, commit }]);
+      const controller = new AbortController();
       // A source that cancels in the moment the reader is handed over: the
-      // check after the open is what this proves.
-      const stage = createSnapshotStage({
+      // static context opens it, and the check before the unit reads is what
+      // this proves.
+      const cancelling = {
         pins: () => real.pins(),
-        open: async (repository) => {
+        open: async (repository: string) => {
           const reader = await real.open(repository);
           controller.abort();
           return reader;
         },
-      });
+      };
+      const { context, recorder } = await contextFor({ id: 'orders-api', scope: 'orders-api' }, () => [], cancelling, controller);
+      const stage = createSnapshotStage(cancelling);
       await expect(stage.execute({ id: 'orders-api', scope: 'orders-api' }, context)).rejects.toThrow('was cancelled');
       expect(recorder.writes).toEqual([]);
     } finally {
@@ -374,14 +399,14 @@ describe('the snapshot stage', () => {
     try {
       await f.write('src/a.ts', 'export const a = 1;\n');
       const commit = f.commit();
-      const stage = createSnapshotStage(createGitSnapshotSource([{ id: 'orders-api', form: 'code', root: f.root, commit }]));
-      const once = contextFor({ id: 'orders-api', scope: 'orders-api' });
-      const twice = contextFor({ id: 'orders-api', scope: 'orders-api' });
+      const stage = createSnapshotStage(snapshotSource([{ id: 'orders-api', form: 'code', root: f.root, commit }]));
+      const once = await contextFor({ id: 'orders-api', scope: 'orders-api' });
+      const twice = await contextFor({ id: 'orders-api', scope: 'orders-api' });
       await stage.execute({ id: 'orders-api', scope: 'orders-api' }, once.context);
       await stage.execute({ id: 'orders-api', scope: 'orders-api' }, twice.context);
       expect(factsOf(twice.recorder.writes).map((fact) => fact.id)).toEqual(factsOf(once.recorder.writes).map((fact) => fact.id));
       // A cancelled unit raises rather than draft an empty set, which would retract what it wrote before.
-      const cancelled = contextFor({ id: 'orders-api', scope: 'orders-api' });
+      const cancelled = await contextFor({ id: 'orders-api', scope: 'orders-api' });
       cancelled.controller.abort();
       await expect(stage.execute({ id: 'orders-api', scope: 'orders-api' }, cancelled.context)).rejects.toThrow('was cancelled');
       expect(cancelled.recorder.writes).toEqual([]);
@@ -401,7 +426,7 @@ describe('the inventory stage', () => {
       await f.write('src/a.ts', 'export const a = 1;\n');
       await f.write('src/nested/b.go', 'package b\n');
       const commit = f.commit();
-      const stage = createInventoryStage(createGitSnapshotSource([{ id: 'orders-api', form: 'code', root: f.root, commit }]));
+      const stage = createInventoryStage(snapshotSource([{ id: 'orders-api', form: 'code', root: f.root, commit }]));
       const plan = await stage.plan({ query: async (read) => { expect(read).toBe(publishedTreeRead('orders-api')); return []; } });
       expect(unitIds(plan)).toEqual([
         'directory:orders-api:src',
@@ -419,7 +444,7 @@ describe('the inventory stage', () => {
         // --allow-empty`, since git stages no empty tree otherwise.
         bare.git('commit', '--allow-empty', '-qm', 'empty');
         const empty = bare.git('rev-parse', 'HEAD').trim();
-        const emptyStage = createInventoryStage(createGitSnapshotSource([{ id: 'orders-api', form: 'code', root: bare.root, commit: empty }]));
+        const emptyStage = createInventoryStage(snapshotSource([{ id: 'orders-api', form: 'code', root: bare.root, commit: empty }]));
         expect(await emptyStage.plan({ query: async () => [] })).toEqual({ units: [], coverage: 'nothing-found' });
       } finally {
         await bare.dispose();
@@ -437,9 +462,9 @@ describe('the inventory stage', () => {
       await f.write('README.md', '# fixture\n');
       const commit = f.commit();
       const blob = f.git('rev-parse', `${commit}:src/a.ts`).trim();
-      const source = createGitSnapshotSource([{ id: 'orders-api', form: 'code', root: f.root, commit }]);
+      const source = snapshotSource([{ id: 'orders-api', form: 'code', root: f.root, commit }]);
       const stage = createInventoryStage(source);
-      const { context, recorder } = contextFor({ id: 'file:orders-api:src/a.ts', scope: 'orders-api:src/a.ts' });
+      const { context, recorder } = await contextFor({ id: 'file:orders-api:src/a.ts', scope: 'orders-api:src/a.ts' });
       expect(await stage.execute({ id: 'file:orders-api:src/a.ts', scope: 'orders-api:src/a.ts' }, context)).toEqual({ outcome: 'draft' });
       expect(kindsOf(recorder.writes)).toEqual(['file', 'contains']);
       for (const write of recorder.writes) expect(checkFact(factOf(write))).toEqual([]);
@@ -467,14 +492,14 @@ describe('the inventory stage', () => {
       expect(await stage.validate({ writes: recorder.writes }, { query: async () => [] })).toEqual({ ok: true });
 
       // A file at the repository's root stands in the repository node stage 0 published.
-      const rootUnit = contextFor({ id: 'file:orders-api:README.md', scope: 'orders-api:README.md' });
+      const rootUnit = await contextFor({ id: 'file:orders-api:README.md', scope: 'orders-api:README.md' });
       await stage.execute({ id: 'file:orders-api:README.md', scope: 'orders-api:README.md' }, rootUnit.context);
       const repositoryNode = factsOf(await drafted({ id: 'orders-api', scope: 'orders-api' }, createSnapshotStage(source)))
         .find((fact) => fact.kind === 'repository');
       expect(factsOf(rootUnit.recorder.writes)[1]?.value['from']).toBe(repositoryNode?.id);
 
       // A top-level folder stands in the repository node too.
-      const folderUnit = contextFor({ id: 'directory:orders-api:src', scope: 'orders-api:src' });
+      const folderUnit = await contextFor({ id: 'directory:orders-api:src', scope: 'orders-api:src' });
       await stage.execute({ id: 'directory:orders-api:src', scope: 'orders-api:src' }, folderUnit.context);
       expect(kindsOf(folderUnit.recorder.writes)).toEqual(['directory', 'contains']);
       expect(factsOf(folderUnit.recorder.writes)[1]?.value['from']).toBe(repositoryNode?.id);
@@ -506,13 +531,13 @@ describe('the inventory stage', () => {
       await f.write('src/b.ts', 'export const b = 1;\n');
       const first = f.commit();
       let commit = first;
-      const source = createGitSnapshotSource(() => [{ id: 'orders-api', form: 'code', root: f.root, commit }]);
+      const source = snapshotSource(() => [{ id: 'orders-api', form: 'code', root: f.root, commit }]);
       const stage = createInventoryStage(source);
       // The first run: nothing is published, so every path is planned and written.
       const firstPlan = await stage.plan({ query: async () => [] });
       const published: StageDraftWrite[] = [];
       for (const unit of firstPlan.units) {
-        const run = contextFor(unit);
+        const run = await contextFor(unit);
         await stage.execute(unit, run.context);
         published.push(...run.recorder.writes);
       }
@@ -527,7 +552,7 @@ describe('the inventory stage', () => {
       commit = f.commit();
       const second = await stage.plan({ query: async () => publishedRows(published, 'orders-api') });
       expect(unitIds(second)).toEqual(['directory:orders-api:src', 'file:orders-api:src/a.ts']);
-      const run = contextFor(second.units[1]!);
+      const run = await contextFor(second.units[1]!);
       await stage.execute(second.units[1]!, run.context);
       const written = factsOf(run.recorder.writes);
       expect(written.map((fact) => fact.kind)).toEqual(['file', 'contains']);
@@ -547,12 +572,12 @@ describe('the inventory stage', () => {
       await f.write('src/a.ts', 'export const a = 1;\n');
       const first = f.commit();
       let commit = first;
-      const source = createGitSnapshotSource(() => [{ id: 'orders-api', form: 'code', root: f.root, commit }]);
+      const source = snapshotSource(() => [{ id: 'orders-api', form: 'code', root: f.root, commit }]);
       const stage = createInventoryStage(source);
       const firstPlan = await stage.plan({ query: async () => [] });
       const published: StageDraftWrite[] = [];
       for (const unit of firstPlan.units) {
-        const run = contextFor(unit);
+        const run = await contextFor(unit);
         await stage.execute(unit, run.context);
         published.push(...run.recorder.writes);
       }
@@ -564,12 +589,12 @@ describe('the inventory stage', () => {
       const plan = await stage.plan({ query: async () => publishedRows(published, 'orders-api') });
       expect(unitIds(plan)).toEqual(['directory:orders-api:src', 'file:orders-api:src/a.ts', 'file:orders-api:src/b.ts']);
       // The vanished path's unit publishes nothing: the publication retracts what the first run wrote there.
-      const retraction = contextFor({ id: 'file:orders-api:src/a.ts', scope: 'orders-api:src/a.ts' });
+      const retraction = await contextFor({ id: 'file:orders-api:src/a.ts', scope: 'orders-api:src/a.ts' });
       await stage.execute({ id: 'file:orders-api:src/a.ts', scope: 'orders-api:src/a.ts' }, retraction.context);
       expect(retraction.recorder.writes).toEqual([]);
       expect(retraction.recorder.notes[0]).toContain('publishes nothing');
       // The new path's fact is its own: another id, and no path of the old one.
-      const moved = contextFor({ id: 'file:orders-api:src/b.ts', scope: 'orders-api:src/b.ts' });
+      const moved = await contextFor({ id: 'file:orders-api:src/b.ts', scope: 'orders-api:src/b.ts' });
       await stage.execute({ id: 'file:orders-api:src/b.ts', scope: 'orders-api:src/b.ts' }, moved.context);
       const newFile = factsOf(moved.recorder.writes).find((fact) => fact.kind === 'file');
       expect(newFile?.value['path']).toBe('src/b.ts');
@@ -589,12 +614,12 @@ describe('the inventory stage', () => {
       await f.write('keep.ts', 'export const k = 1;\n');
       const first = f.commit();
       let commit = first;
-      const source = createGitSnapshotSource(() => [{ id: 'orders-api', form: 'code', root: f.root, commit }]);
+      const source = snapshotSource(() => [{ id: 'orders-api', form: 'code', root: f.root, commit }]);
       const stage = createInventoryStage(source);
       const firstPlan = await stage.plan({ query: async () => [] });
       const published: StageDraftWrite[] = [];
       for (const unit of firstPlan.units) {
-        const run = contextFor(unit);
+        const run = await contextFor(unit);
         await stage.execute(unit, run.context);
         published.push(...run.recorder.writes);
       }
@@ -616,7 +641,7 @@ describe('the inventory stage', () => {
         'file:orders-api:src/nested/b.go',
       ]);
       for (const id of ['directory:orders-api:src', 'directory:orders-api:src/nested']) {
-        const folder = contextFor({ id, scope: id.slice('directory:'.length) });
+        const folder = await contextFor({ id, scope: id.slice('directory:'.length) });
         await stage.execute({ id, scope: id.slice('directory:'.length) }, folder.context);
         expect(folder.recorder.writes).toEqual([]);
         expect(folder.recorder.notes[0]).toContain('publishes nothing');
@@ -633,8 +658,8 @@ describe('the inventory stage', () => {
     try {
       await f.write('src/a.ts', 'export const a = 1;\n');
       const commit = f.commit();
-      const stage = createInventoryStage(createGitSnapshotSource([{ id: 'orders-api', form: 'code', root: f.root, commit }]));
-      const unplanned = contextFor({ id: 'src/a.ts', scope: 'orders-api:src/a.ts' });
+      const stage = createInventoryStage(snapshotSource([{ id: 'orders-api', form: 'code', root: f.root, commit }]));
+      const unplanned = await contextFor({ id: 'src/a.ts', scope: 'orders-api:src/a.ts' });
       await expect(stage.execute({ id: 'src/a.ts', scope: 'orders-api:src/a.ts' }, unplanned.context)).rejects.toThrow('is not one this stage plans');
       // A read that answers a row for another repository, a kind the stage does
       // not hold, a path that is no path, a blob that is no blob, a key the read
@@ -656,7 +681,7 @@ describe('the inventory stage', () => {
         if (rows.length > 1) expect(String(message)).toContain('row 2');
         else expect(String(message)).toContain('row 1');
       }
-      const cancelled = contextFor({ id: 'file:orders-api:src/a.ts', scope: 'orders-api:src/a.ts' });
+      const cancelled = await contextFor({ id: 'file:orders-api:src/a.ts', scope: 'orders-api:src/a.ts' });
       cancelled.controller.abort();
       await expect(stage.execute({ id: 'file:orders-api:src/a.ts', scope: 'orders-api:src/a.ts' }, cancelled.context)).rejects.toThrow('was cancelled');
       expect(cancelled.recorder.writes).toEqual([]);
@@ -670,8 +695,8 @@ describe('the inventory stage', () => {
     try {
       await f.write('src/a.ts', 'export const a = 1;\n');
       const commit = f.commit();
-      const stage = createInventoryStage(createGitSnapshotSource([{ id: 'orders-api', form: 'code', root: f.root, commit }]));
-      const run = contextFor({ id: 'file:orders-api:src/a.ts', scope: 'orders-api:src/a.ts' });
+      const stage = createInventoryStage(snapshotSource([{ id: 'orders-api', form: 'code', root: f.root, commit }]));
+      const run = await contextFor({ id: 'file:orders-api:src/a.ts', scope: 'orders-api:src/a.ts' });
       await stage.execute({ id: 'file:orders-api:src/a.ts', scope: 'orders-api:src/a.ts' }, run.context);
       const [file, contains] = factsOf(run.recorder.writes) as [DraftFact, DraftFact];
       const broken = await stage.validate({
@@ -697,7 +722,7 @@ describe('the inventory stage', () => {
 
 /** What one unit's draft set held, for a test that reads it back. */
 async function drafted(unit: StageUnit, stage: { execute: (unit: StageUnit, context: StageContext) => unknown }): Promise<readonly StageDraftWrite[]> {
-  const run = contextFor(unit);
+  const run = await contextFor(unit);
   await stage.execute(unit, run.context);
   return run.recorder.writes;
 }

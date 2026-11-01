@@ -1,0 +1,29 @@
+{
+  "stages": {
+    "src/fill/stages/snapshot.ts": {
+      "allows": [
+        "repositoryTree"
+      ]
+    },
+    "src/fill/stages/inventory.ts": {},
+    "src/fill/stages/syntax.ts": {}
+  },
+  "forbiddenTypes": [
+    "SnapshotSource",
+    "SnapshotReader",
+    "TreeReader",
+    "TreeText",
+    "CodeFacts",
+    "ExtractDriver",
+    "Snapshot"
+  ],
+  "forbiddenModules": [
+    "src/fill/snapshot.ts",
+    "src/extract/driver",
+    "src/extract/code",
+    "src/extract/operations"
+  ],
+  "wholeRepositoryMembers": [
+    "repositoryTree"
+  ]
+}

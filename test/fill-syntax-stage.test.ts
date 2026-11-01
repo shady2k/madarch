@@ -24,6 +24,7 @@ import { join } from 'node:path';
 import { checkFact } from '../src/fill/facts.js';
 import { deriveStageGraph } from '../src/fill/registry.js';
 import { createGitSnapshotSource } from '../src/fill/snapshot.js';
+import { staticStageContext, staticStageSourceOf } from '../src/fill/stages/static-context.js';
 import { DEFAULT_STAGE_LIMITS, type StageContext, type StageDraftWrite, type StageUnit } from '../src/fill/stage.js';
 import { createInventoryStage, publishedTreeRead, type PublishedTreeRow } from '../src/fill/stages/inventory.js';
 import { createSnapshotStage } from '../src/fill/stages/snapshot.js';
@@ -74,22 +75,44 @@ interface Recorder {
   readonly queries: string[];
 }
 
+/** The source the last test fixture pinned: what `contextFor` hands the stage as its static repository. */
+let testSource: ReturnType<typeof createGitSnapshotSource> | undefined;
+
+/** A fixture's source, remembered for the context of the units read through it. */
+function snapshotSource(...args: Parameters<typeof createGitSnapshotSource>): ReturnType<typeof createGitSnapshotSource> {
+  const source = createGitSnapshotSource(...args);
+  testSource = source;
+  return source;
+}
+
+/** The repository a unit's scope names: `<repository>` or `<repository>:<path>`. */
+function repositoryOfScope(scope: string): string {
+  // A unit id names its kind first (`file:<repository>:<path>`); a unit scope is
+  // `<repository>:<path>` or `<repository>`.
+  const parts = scope.split(':');
+  if (parts[0] === 'file' || parts[0] === 'directory') return parts[1] ?? '';
+  return parts.length === 1 ? scope : parts[0]!;
+}
+
 /** One unit's context: the reads answered by the test, the draft collected here, and a signal the test holds. */
-function contextFor(unit: StageUnit, answer: (read: string) => readonly unknown[] = () => []): { context: StageContext; recorder: Recorder; controller: AbortController } {
+async function contextFor(unit: StageUnit, answer: (read: string) => readonly unknown[] = () => []): Promise<{ context: StageContext; recorder: Recorder; controller: AbortController }> {
   const recorder: Recorder = { writes: [], notes: [], queries: [] };
   const controller = new AbortController();
+  const graph = {
+    query: async (read: string) => {
+      recorder.queries.push(read);
+      return answer(read);
+    },
+  };
+  const repository = testSource === undefined ? undefined : await staticStageSourceOf(testSource, repositoryOfScope(unit.scope));
   return {
     recorder,
     controller,
     context: {
       unit,
       config: { id: 'syntax', version: 1, enabled: true, concurrency: 1, limits: DEFAULT_STAGE_LIMITS, config: {} },
-      graph: {
-        query: async (read: string) => {
-          recorder.queries.push(read);
-          return answer(read);
-        },
-      },
+      graph,
+      ...(repository === undefined ? {} : { static: staticStageContext(repository, graph) }),
       draft: {
         write: (entry: StageDraftWrite) => { recorder.writes.push(entry); },
         writes: () => ({ writes: recorder.writes }),
@@ -156,7 +179,7 @@ async function inventoryFacts(root: string, commit: string, repository: string):
   const plan = await stage.plan({ query: async () => [] });
   const published: StageDraftWrite[] = [];
   for (const unit of plan.units) {
-    const run = contextFor(unit);
+    const run = await contextFor(unit);
     await stage.execute(unit, run.context);
     published.push(...run.recorder.writes);
   }
@@ -210,7 +233,7 @@ async function publishedAt(root: string, commit: string, repository: string): Pr
   const stage = createSyntaxStage(createGitSnapshotSource([{ id: repository, form: 'code', root, commit }]));
   const writes: StageDraftWrite[] = [];
   for (const unit of (await stage.plan({ query: async () => [] })).units) {
-    const run = contextFor(unit);
+    const run = await contextFor(unit);
     await stage.execute(unit, run.context);
     writes.push(...run.recorder.writes);
   }
@@ -247,7 +270,7 @@ describe('the syntax stage is registered', () => {
     try {
       await f.write('src/orders.ts', 'export const orders = 1;\n');
       const commit = f.commit();
-      const registry = createStageRegistry({ snapshots: createGitSnapshotSource([{ id: 'orders-api', form: 'code', root: f.root, commit }]) });
+      const registry = createStageRegistry({ snapshots: snapshotSource([{ id: 'orders-api', form: 'code', root: f.root, commit }]) });
       const read = deriveStageGraph(registry);
       expect(read.ok).toBe(true);
       if (!read.ok) return;
@@ -300,7 +323,7 @@ describe('the syntax stage plans one unit per source file', () => {
       await f.write('src/helper.ts', 'export const helper = 1;\n');
       await f.write('scripts/run.py', 'print("hello")\n');
       const commit = f.commit();
-      const stage = createSyntaxStage(createGitSnapshotSource([{ id: 'orders-api', form: 'code', root: f.root, commit }]));
+      const stage = createSyntaxStage(snapshotSource([{ id: 'orders-api', form: 'code', root: f.root, commit }]));
       // The three reads one repository's plan makes: the tree, and the two facts
       // about specifiers this stage published (its gaps and its import edges).
       const reads: string[] = [];
@@ -318,7 +341,7 @@ describe('the syntax stage plans one unit per source file', () => {
       try {
         await bare.write('README.md', '# nothing to read\n');
         const empty = bare.commit();
-        const emptyStage = createSyntaxStage(createGitSnapshotSource([{ id: 'orders-api', form: 'code', root: bare.root, commit: empty }]));
+        const emptyStage = createSyntaxStage(snapshotSource([{ id: 'orders-api', form: 'code', root: bare.root, commit: empty }]));
         expect(await emptyStage.plan({ query: async () => [] })).toEqual({ units: [], coverage: 'nothing-found' });
       } finally {
         await bare.dispose();
@@ -334,7 +357,7 @@ describe('the syntax stage plans one unit per source file', () => {
       await f.write('src/orders.ts', 'export const orders = 1;\n');
       await f.write('src/helper.ts', 'export const helper = 1;\n');
       let commit = f.commit();
-      const source = createGitSnapshotSource(() => [{ id: 'orders-api', form: 'code', root: f.root, commit }]);
+      const source = snapshotSource(() => [{ id: 'orders-api', form: 'code', root: f.root, commit }]);
       const stage = createSyntaxStage(source);
       const published = await inventoryFacts(f.root, commit, 'orders-api');
       // The first run read both files.
@@ -348,7 +371,7 @@ describe('the syntax stage plans one unit per source file', () => {
       commit = f.commit();
       const second = await stage.plan({ query: graphOf(published, [], 'orders-api') });
       expect(unitIds(second)).toEqual(['file:orders-api:src/orders.ts']);
-      const run = contextFor(second.units[0]!);
+      const run = await contextFor(second.units[0]!);
       await stage.execute(second.units[0]!, run.context);
       expect(factsOfKind(run.recorder.writes, 'symbol')[0]?.value['file']).toBe('src/orders.ts');
       expect(run.recorder.writes[0]?.evidence).toBe(`orders-api@${commit}:src/orders.ts`);
@@ -364,7 +387,7 @@ describe('the syntax stage plans one unit per source file', () => {
     try {
       await f.write('src/orders.ts', 'export const orders = 1;\n');
       let commit = f.commit();
-      const stage = createSyntaxStage(createGitSnapshotSource(() => [{ id: 'orders-api', form: 'code', root: f.root, commit }]));
+      const stage = createSyntaxStage(snapshotSource(() => [{ id: 'orders-api', form: 'code', root: f.root, commit }]));
       const published = await inventoryFacts(f.root, commit, 'orders-api');
       f.git('mv', 'src/orders.ts', 'src/moved.ts');
       commit = f.commit();
@@ -373,13 +396,13 @@ describe('the syntax stage plans one unit per source file', () => {
       // The vanished path's unit publishes nothing: the publication retracts
       // every fact the first run wrote for that file.
       const vanished = { id: fileUnitId('orders-api', 'src/orders.ts'), scope: 'orders-api:src/orders.ts' };
-      const retraction = contextFor(vanished);
+      const retraction = await contextFor(vanished);
       expect(await stage.execute(vanished, retraction.context)).toEqual({ outcome: 'draft' });
       expect(retraction.recorder.writes).toEqual([]);
       expect(retraction.recorder.notes[0]).toContain('publishes nothing');
       // The new path's facts name the new path and nothing of the old one.
       const moved = { id: fileUnitId('orders-api', 'src/moved.ts'), scope: 'orders-api:src/moved.ts' };
-      const run = contextFor(moved);
+      const run = await contextFor(moved);
       await stage.execute(moved, run.context);
       expect(factsOfKind(run.recorder.writes, 'symbol')[0]?.value['file']).toBe('src/moved.ts');
       expect(JSON.stringify(run.recorder.writes)).not.toContain('src/orders.ts');
@@ -396,7 +419,7 @@ describe('the syntax stage plans one unit per source file', () => {
       await f.write('src/a.ts', "import { create } from './b.js';\n\nexport function run(): void {\n  create();\n}\n");
       await f.write('src/c.ts', 'export const other = 1;\n');
       let commit = f.commit();
-      const stage = createSyntaxStage(createGitSnapshotSource(() => [{ id: 'orders-api', form: 'code', root: f.root, commit }]));
+      const stage = createSyntaxStage(snapshotSource(() => [{ id: 'orders-api', form: 'code', root: f.root, commit }]));
       const first = await publishedAt(f.root, commit, 'orders-api');
       expect(gapRows(first.writes)).toEqual([{ kind: 'coverage', file: 'src/a.ts', what: './b.js' }]);
       expect(importRows(first.writes)).toEqual([]);
@@ -410,7 +433,7 @@ describe('the syntax stage plans one unit per source file', () => {
       // The re-read publishes the edge the specifier names now, and a coverage
       // with no gap left in it.
       const importer = plan.units.find((unit) => unit.id === 'file:orders-api:src/a.ts')!;
-      const run = contextFor(importer);
+      const run = await contextFor(importer);
       await stage.execute(importer, run.context);
       expect(factsOfKind(run.recorder.writes, 'import').map((fact) => fact.value['specifier'])).toEqual(['./b.js']);
       expect(factOfKind(run.recorder.writes, 'coverage').value).toEqual({
@@ -435,7 +458,7 @@ describe('the syntax stage plans one unit per source file', () => {
       await f.write('src/b.ts', 'export function create(): void {}\n');
       await f.write('src/a.ts', "import { create } from './b.js';\n\nexport function run(): void {\n  create();\n}\n");
       let commit = f.commit();
-      const stage = createSyntaxStage(createGitSnapshotSource(() => [{ id: 'orders-api', form: 'code', root: f.root, commit }]));
+      const stage = createSyntaxStage(snapshotSource(() => [{ id: 'orders-api', form: 'code', root: f.root, commit }]));
       const first = await publishedAt(f.root, commit, 'orders-api');
       expect(importRows(first.writes).map((row) => row.to)).toEqual([fileIdOf(first.tree, 'src/b.ts')]);
       // The file the specifier named is gone, and no byte of `src/a.ts` moved.
@@ -445,7 +468,7 @@ describe('the syntax stage plans one unit per source file', () => {
       // The importer, and the vanished path's own retraction.
       expect(unitIds(plan)).toEqual(['file:orders-api:src/a.ts', 'file:orders-api:src/b.ts']);
       const importer = plan.units.find((unit) => unit.id === 'file:orders-api:src/a.ts')!;
-      const run = contextFor(importer);
+      const run = await contextFor(importer);
       await stage.execute(importer, run.context);
       // The specifier names no file of the repository now: no edge is written,
       // and the coverage says which specifier could not be tied.
@@ -481,7 +504,7 @@ describe('the syntax stage plans one unit per source file', () => {
       await f.write('src/b.ts', 'export function create(): void {}\n');
       await f.write('src/a.ts', "import { create } from './b.js';\n\nexport function run(): void {\n  create();\n}\n");
       let commit = f.commit();
-      const stage = createSyntaxStage(createGitSnapshotSource(() => [{ id: 'orders-api', form: 'code', root: f.root, commit }]));
+      const stage = createSyntaxStage(snapshotSource(() => [{ id: 'orders-api', form: 'code', root: f.root, commit }]));
       const first = await publishedAt(f.root, commit, 'orders-api');
       expect(importRows(first.writes).map((row) => row.to)).toEqual([fileIdOf(first.tree, 'src/b.ts')]);
       // A `src/b.js` appears beside it: the specifier names that file now, and no
@@ -494,7 +517,7 @@ describe('the syntax stage plans one unit per source file', () => {
       // which is the file fact the inventory published for `src/b.js`.
       const settled = await publishedAt(f.root, commit, 'orders-api');
       const importer = plan.units.find((unit) => unit.id === 'file:orders-api:src/a.ts')!;
-      const run = contextFor(importer);
+      const run = await contextFor(importer);
       await stage.execute(importer, run.context);
       expect(factsOfKind(run.recorder.writes, 'import').map((fact) => fact.value['to'])).toEqual([fileIdOf(settled.tree, 'src/b.js')]);
       // A second run of an unchanged commit plans nothing.
@@ -523,10 +546,10 @@ describe('the syntax stage reads one source file', () => {
         '',
       ].join('\n'));
       const commit = f.commit();
-      const sources = createGitSnapshotSource([{ id: 'orders-api', form: 'code', root: f.root, commit }]);
+      const sources = snapshotSource([{ id: 'orders-api', form: 'code', root: f.root, commit }]);
       const stage = createSyntaxStage(sources);
       const unit = { id: fileUnitId('orders-api', 'src/orders.ts'), scope: 'orders-api:src/orders.ts' };
-      const run = contextFor(unit);
+      const run = await contextFor(unit);
       expect(await stage.execute(unit, run.context)).toEqual({ outcome: 'draft' });
 
       // Exactly what the task names: two symbols, their definitions and the import edge.
@@ -583,9 +606,9 @@ describe('the syntax stage reads one source file', () => {
     try {
       await f.write('scripts/run.py', 'def main():\n    pass\n');
       const commit = f.commit();
-      const stage = createSyntaxStage(createGitSnapshotSource([{ id: 'orders-api', form: 'code', root: f.root, commit }]));
+      const stage = createSyntaxStage(snapshotSource([{ id: 'orders-api', form: 'code', root: f.root, commit }]));
       const unit = { id: fileUnitId('orders-api', 'scripts/run.py'), scope: 'orders-api:scripts/run.py' };
-      const run = contextFor(unit);
+      const run = await contextFor(unit);
       await stage.execute(unit, run.context);
       expect(kindsOf(run.recorder.writes)).toEqual(['coverage']);
       expect(factOfKind(run.recorder.writes, 'coverage').value).toEqual({
@@ -616,9 +639,9 @@ describe('the syntax stage reads one source file', () => {
         '',
       ].join('\n'));
       const commit = f.commit();
-      const stage = createSyntaxStage(createGitSnapshotSource([{ id: 'orders-api', form: 'code', root: f.root, commit }]));
+      const stage = createSyntaxStage(snapshotSource([{ id: 'orders-api', form: 'code', root: f.root, commit }]));
       const unit = { id: fileUnitId('orders-api', 'cmd/server/main.go'), scope: 'orders-api:cmd/server/main.go' };
-      const run = contextFor(unit);
+      const run = await contextFor(unit);
       await stage.execute(unit, run.context);
       expect(factsOfKind(run.recorder.writes, 'symbol').map((fact) => fact.value['qualifiedName']).sort()).toEqual(['Start', 'main']);
       expect(factOfKind(run.recorder.writes, 'comment').value).toEqual({ text: 'Start greets the caller.', form: 'line' });
@@ -643,9 +666,9 @@ describe('the syntax stage reads one source file', () => {
       const deep = `${Array.from({ length: depth }, (_, index) => `function f${index}() {`).join('\n')}\n${'}'.repeat(depth)}\n`;
       await f.write('src/deep.ts', deep);
       const commit = f.commit();
-      const stage = createSyntaxStage(createGitSnapshotSource([{ id: 'orders-api', form: 'code', root: f.root, commit }]));
+      const stage = createSyntaxStage(snapshotSource([{ id: 'orders-api', form: 'code', root: f.root, commit }]));
       const unit = { id: fileUnitId('orders-api', 'src/deep.ts'), scope: 'orders-api:src/deep.ts' };
-      const run = contextFor(unit);
+      const run = await contextFor(unit);
       expect(await stage.execute(unit, run.context)).toEqual({ outcome: 'draft' });
       expect(kindsOf(run.recorder.writes)).toEqual(['coverage']);
       expect(factOfKind(run.recorder.writes, 'coverage').value).toEqual({
@@ -666,16 +689,16 @@ describe('the syntax stage reads one source file', () => {
     try {
       await f.write('src/orders.ts', 'export function first(): void {}\n');
       const commit = f.commit();
-      const stage = createSyntaxStage(createGitSnapshotSource([{ id: 'orders-api', form: 'code', root: f.root, commit }]));
+      const stage = createSyntaxStage(snapshotSource([{ id: 'orders-api', form: 'code', root: f.root, commit }]));
       const unit = { id: fileUnitId('orders-api', 'src/orders.ts'), scope: 'orders-api:src/orders.ts' };
-      const once = contextFor(unit);
-      const twice = contextFor(unit);
+      const once = await contextFor(unit);
+      const twice = await contextFor(unit);
       await stage.execute(unit, once.context);
       await stage.execute(unit, twice.context);
       expect(factsOf(twice.recorder.writes).map((fact) => fact.id)).toEqual(factsOf(once.recorder.writes).map((fact) => fact.id));
       // A cancellation raises rather than draft an empty set, which would
       // retract every fact the unit's earlier generation published.
-      const cancelled = contextFor(unit);
+      const cancelled = await contextFor(unit);
       cancelled.controller.abort();
       await expect(stage.execute(unit, cancelled.context)).rejects.toThrow('was cancelled');
       expect(cancelled.recorder.writes).toEqual([]);
@@ -693,8 +716,8 @@ describe('the syntax stage refuses what it cannot read', () => {
     try {
       await f.write('src/orders.ts', 'export const orders = 1;\n');
       const commit = f.commit();
-      const stage = createSyntaxStage(createGitSnapshotSource([{ id: 'orders-api', form: 'code', root: f.root, commit }]));
-      const unplanned = contextFor({ id: 'src/orders.ts', scope: 'orders-api:src/orders.ts' });
+      const stage = createSyntaxStage(snapshotSource([{ id: 'orders-api', form: 'code', root: f.root, commit }]));
+      const unplanned = await contextFor({ id: 'src/orders.ts', scope: 'orders-api:src/orders.ts' });
       const message = await refusedBy(() => stage.execute({ id: 'src/orders.ts', scope: 'orders-api:src/orders.ts' }, unplanned.context));
       expect(message).toContain('is not one this stage plans');
       expect(unplanned.recorder.writes).toEqual([]);
@@ -723,7 +746,7 @@ describe('the syntax stage refuses what it cannot read', () => {
       // Rows for a repository the read was not made for are refused too.
       const wrongRepository = await refusedBy(() => stage.plan({ query: async () => [{ kind: 'directory', repository: 'web', path: 'src' }] }));
       expect(wrongRepository).toContain('the read was for "orders-api"');
-      const cancelled = contextFor({ id: fileUnitId('orders-api', 'src/orders.ts'), scope: 'orders-api:src/orders.ts' });
+      const cancelled = await contextFor({ id: fileUnitId('orders-api', 'src/orders.ts'), scope: 'orders-api:src/orders.ts' });
       cancelled.controller.abort();
       await expect(stage.execute({ id: fileUnitId('orders-api', 'src/orders.ts'), scope: 'orders-api:src/orders.ts' }, cancelled.context)).rejects.toThrow('was cancelled');
       expect(cancelled.recorder.writes).toEqual([]);
@@ -737,7 +760,7 @@ describe('the syntax stage refuses what it cannot read', () => {
     try {
       await f.write('src/a.ts', "import { create } from './b.js';\n");
       const commit = f.commit();
-      const stage = createSyntaxStage(createGitSnapshotSource([{ id: 'orders-api', form: 'code', root: f.root, commit }]));
+      const stage = createSyntaxStage(snapshotSource([{ id: 'orders-api', form: 'code', root: f.root, commit }]));
       const fileId = fileFactIdOf('orders-api', 'src/b.ts');
       const gapsRead = publishedGapsRead('orders-api');
       const importsRead = publishedImportsRead('orders-api');
@@ -769,9 +792,9 @@ describe('the syntax stage refuses what it cannot read', () => {
     try {
       await f.write('src/orders.ts', 'export const orders = 1;\n');
       const commit = f.commit();
-      const stage = createSyntaxStage(createGitSnapshotSource([{ id: 'orders-api', form: 'code', root: f.root, commit }]));
+      const stage = createSyntaxStage(snapshotSource([{ id: 'orders-api', form: 'code', root: f.root, commit }]));
       const unit = { id: fileUnitId('orders-api', 'src/orders.ts'), scope: 'orders-api:src/orders.ts' };
-      const run = contextFor(unit);
+      const run = await contextFor(unit);
       await stage.execute(unit, run.context);
       const symbol = factOfKind(run.recorder.writes, 'symbol');
       const broken = await stage.validate({

@@ -37,6 +37,9 @@ import { labelOf } from './graph-reads.js';
 import { readNodeDiagrams } from './graph-diagrams.js';
 import { commitNarrativePages, type NarrativeOutboxResult } from './narrative-outbox.js';
 import { NARRATIVE_STAGE_ID } from './stages/narrative.js';
+import { INVENTORY_STAGE_ID } from './stages/inventory.js';
+import { SNAPSHOT_STAGE_ID } from './stages/snapshot.js';
+import { SYNTAX_STAGE_ID } from './stages/syntax.js';
 import { createPageReadCache } from './page-cache.js';
 import type { Fact, FactLayer, FactSource } from './facts.js';
 import { answerMembership, graphReadsOver, recordedReadText, type DraftReading, type GraphReadLimits } from './graph-reads.js';
@@ -66,6 +69,7 @@ import type { QueueService } from './queue.js';
 import { createFillStateSchema, readChain, readLatestRun, readRun, readRunUnits } from './state-store.js';
 import type { StageRegistry } from './registry.js';
 import type { SnapshotSource } from './snapshot.js';
+import { staticStageSourceOf } from './stages/static-context.js';
 import {
   callUnitTool,
   createUnitToolsHost,
@@ -362,6 +366,24 @@ export interface FillOrchestratorServiceOptions {
   readonly control?: (product: FillProduct) => RunControlReader;
 }
 
+/** The stages that read the pinned tree through a static unit context (decision 0033). */
+const STATIC_STAGE_IDS: ReadonlySet<string> = new Set([SNAPSHOT_STAGE_ID, INVENTORY_STAGE_ID, SYNTAX_STAGE_ID]);
+
+/**
+ * The repository a static unit's scope names: `<repository>` for the snapshot
+ * stage's units and `<repository>:<path>` for a file's or a folder's. A scope
+ * that names no repository is refused here, naming the unit and the file, so a
+ * static stage is never handed another repository's bytes.
+ */
+function repositoryOfScope(ref: UnitRef): string {
+  const at = ref.scope.indexOf(':');
+  const repository = at < 0 ? ref.scope : ref.scope.slice(0, at);
+  if (repository.trim() === '') {
+    throw new Error(`fill-orchestrator: the unit ${JSON.stringify(ref.unitId)} of stage ${JSON.stringify(ref.stageId)} has the scope ${JSON.stringify(ref.scope)}, which names no repository: a static unit's scope starts with the repository it reads (src/fill/orchestrator-host.ts)`);
+  }
+  return repository;
+}
+
 /** The units' queue's name in the process's database. */
 export const DEFAULT_FILL_QUEUE = 'fill-units';
 
@@ -502,6 +524,13 @@ async function fileDecision(
       snapshot: () => wiring.snapshot(),
       graph: (ref, transaction) => wiring.graph(ref, transaction),
       inputs: (ref) => wiring.inputs(ref),
+      // A static stage (0033, "Capability boundaries") is handed its pinned repository's path-scoped
+      // answers here: the host owns the snapshot source, and a stage never receives the reader.
+      staticSource: async (ref) => {
+        if (!STATIC_STAGE_IDS.has(ref.stageId)) return undefined;
+        const source = await sourceOf(wiring, product);
+        return await staticStageSourceOf(source, repositoryOfScope(ref));
+      },
       facts: wiring.facts ?? FACT_APPLICATION,
       ...(options.clock === undefined ? {} : { clock: options.clock }),
       control: options.control !== undefined ? options.control(product) : async (runId: string) => await consumeFillControl(product.folder, runId),

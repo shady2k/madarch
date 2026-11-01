@@ -4,7 +4,7 @@
   "type": "module",
   "packageManager": "bun@1.4.2",
   "scripts": {
-    "check": "tsc --noEmit",
+    "check": "tsc --noEmit && node scripts/check-static-stage-boundaries.ts",
     "test": "bun test test/",
     "answer-key:check": "bun scripts/answer-key-check-training.ts",
     "schemas": "bun scripts/generate-schemas.ts",

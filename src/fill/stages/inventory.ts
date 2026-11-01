@@ -35,7 +35,7 @@ import { byCodePoint } from '../../model/order.js';
 import { ID_PATTERN } from '../../model/schema.js';
 import {
   FACT_KINDS, isRepositoryPath, makeEdgeFact, makeNodeFact, repositoryPath,
-  type Fact, type FactProvenance, type FactRange, type FileRole, type FileValue,
+  type Fact, type FactProvenance, type FactRange, type FileRole, type FileValue, type RepositoryForm,
 } from '../facts.js';
 import type { SnapshotEntry, SnapshotReader, SnapshotSource } from '../snapshot.js';
 import {
@@ -43,7 +43,8 @@ import {
   type FillStage, type StageContext, type StageDraftSet, type StageExecutionResult,
   type StageGraphReader, type StagePlan, type StageUnit,
 } from '../stage.js';
-import { checkFactDraft, evidenceAt, provenanceOf } from './draft.js';
+import { checkFactDraft, evidenceAtPlace, provenanceOfPlace } from './draft.js';
+import type { StaticStageSource } from './static-context.js';
 
 /** The stage's id, as it is registered and as its units are named. */
 export const INVENTORY_STAGE_ID = 'inventory';
@@ -138,7 +139,7 @@ export function createInventoryStage(sources: SnapshotSource): FillStage {
     configSchema: Type.Object({}),
     defaults: { ...DEFAULT_STAGE_DEFAULTS, config: {} },
     plan: async (graph: StageGraphReader): Promise<StagePlan> => planInventory(sources, graph),
-    execute: async (unit: StageUnit, context: StageContext): Promise<StageExecutionResult> => executeInventoryUnit(sources, unit, context),
+    execute: async (unit: StageUnit, context: StageContext): Promise<StageExecutionResult> => executeInventoryUnit(unit, context),
     validate: (draft: StageDraftSet) => checkFactDraft(INVENTORY_STAGE_ID, INVENTORY_STAGE_KINDS, draft),
   };
 }
@@ -307,28 +308,29 @@ export function publishedTreeRows(rows: readonly unknown[], repository: string, 
  * what an earlier run wrote for it (madarch-tzte.20.2's publication semantics;
  * this change states the request, not the mechanism).
  */
-async function executeInventoryUnit(sources: SnapshotSource, unit: StageUnit, context: StageContext): Promise<StageExecutionResult> {
+async function executeInventoryUnit(unit: StageUnit, context: StageContext): Promise<StageExecutionResult> {
   refuseWhenCancelled(unit, context);
   const planned = plannedUnit(unit.id);
-  const reader = await sources.open(planned.repository);
-  refuseWhenCancelled(unit, context);
-  const provenance = provenanceOf(reader);
+  const source = staticSourceOf(unit, context);
+  const provenance = provenanceOfPlace(source);
   // A folder stands in the tree while a file of this repository stands in it:
   // git holds no empty folder, so a path with no file under it is gone.
-  const stands = planned.kind === 'file' || foldersOf(reader).has(planned.path);
+  const stands = planned.kind === 'file' ? (await source.entry(planned.path)) !== undefined : await source.holdsDirectory(planned.path);
   const facts = !stands
     ? []
     : planned.kind === 'file'
-      ? await fileFacts(reader, planned.path, provenance)
-      : directoryFacts(reader, planned.path, provenance);
+      ? await fileFacts(source, planned.path, provenance)
+      : directoryFacts(source, planned.path, provenance);
   if (facts.length === 0) {
-    context.progress(`the ${planned.kind} ${planned.path} does not stand in ${planned.repository} at ${reader.commit}: this unit publishes nothing, and what an earlier run wrote there is retracted`, 1);
+    context.progress(`the ${planned.kind} ${planned.path} does not stand in ${planned.repository} at ${source.commit}: this unit publishes nothing, and what an earlier run wrote there is retracted`, 1);
     return { outcome: 'draft' };
   }
   for (const fact of facts) {
-    context.draft.write({ kind: 'fact', evidence: evidenceAt(reader, planned.path), value: fact });
+    // The evidence names the pinned bytes the write stands on, read through the unit's own context:
+    // no machine path and no reader reach the stage.
+    context.draft.write({ kind: 'fact', evidence: evidenceAtPlace(source, planned.path), value: fact });
   }
-  context.progress(`wrote ${facts.length} ${facts.length === 1 ? 'fact' : 'facts'} for ${planned.kind} ${planned.path} of ${planned.repository} at ${reader.commit}`, 1);
+  context.progress(`wrote ${facts.length} ${facts.length === 1 ? 'fact' : 'facts'} for ${planned.kind} ${planned.path} of ${planned.repository} at ${source.commit}`, 1);
   return { outcome: 'draft' };
 }
 
@@ -339,30 +341,33 @@ async function executeInventoryUnit(sources: SnapshotSource, unit: StageUnit, co
  * a claim about it — and its bytes are the tree's count of them, which the
  * reader has already checked against what git answers.
  */
-async function fileFacts(reader: SnapshotReader, path: string, provenance: FactProvenance): Promise<readonly Fact[]> {
-  const entry: SnapshotEntry | undefined = reader.entry(path);
+async function fileFacts(source: StaticStageSource, path: string, provenance: FactProvenance): Promise<readonly Fact[]> {
+  const file = await source.file(path);
   // A path the commit does not hold, and one that holds a submodule's commit,
   // are no file of this repository: the unit publishes nothing.
-  if (entry === undefined || entry.form === 'commit') return [];
-  // The same decoding `readText` answers with, the byte order mark included:
-  // two readings of one file's bytes must not disagree by a code unit.
-  const text = new TextDecoder('utf-8', { ignoreBOM: true }).decode(await reader.read(entry.path));
-  const language = languageFor(entry.path);
+  if (file === undefined || file.form === 'commit') return [];
+  const language = languageFor(file.path);
   const placed: FileValue = {
-    repository: reader.repository,
-    path: entry.path,
-    roles: rolesFor(entry.path),
-    blob: entry.id,
+    repository: source.repository,
+    path: repositoryPath(file.path),
+    roles: rolesFor(file.path),
+    blob: file.id,
     ...(language === undefined ? {} : { language }),
-    ...(entry.bytes === undefined ? {} : { bytes: entry.bytes }),
+    ...(file.bytes === undefined ? {} : { bytes: file.bytes }),
   };
-  const file = makeNodeFact({
+  // The same decoding the reader answers with, the byte order mark included: two
+  // readings of one file's bytes must not disagree by a code unit. A file above
+  // the static cap holds no bytes here: its range is the first line, as far as
+  // the reading went, and stage 3 publishes the `too-large` gap that says so.
+  const text = file.content === undefined ? undefined : new TextDecoder('utf-8', { ignoreBOM: true }).decode(file.content);
+  const range = text === undefined ? { startLine: 1, startColumn: 0, endLine: 1, endColumn: 0 } : wholeFileRange(text);
+  const fact = makeNodeFact({
     kind: 'file',
     value: placed,
-    provenance: { ...provenance, place: { file: entry.path, range: wholeFileRange(text) } },
+    provenance: { ...provenance, place: { file: repositoryPath(file.path), range } },
     layer: 'extracted',
   });
-  return [file, containment(reader, entry.path, file.id, provenance)];
+  return [fact, containment(source.repository, source.form, file.path, fact.id, provenance)];
 }
 
 /**
@@ -378,14 +383,14 @@ export function wholeFileRange(text: string): FactRange {
 }
 
 /** One folder's facts: its node, and the edge from the folder (or the repository) it stands in. */
-function directoryFacts(reader: SnapshotReader, path: string, provenance: FactProvenance): readonly Fact[] {
+function directoryFacts(source: StaticStageSource, path: string, provenance: FactProvenance): readonly Fact[] {
   const directory = makeNodeFact({
     kind: 'directory',
-    value: { repository: reader.repository, path: repositoryPath(path) },
+    value: { repository: source.repository, path: repositoryPath(path) },
     provenance,
     layer: 'extracted',
   });
-  return [directory, containment(reader, path, directory.id, provenance)];
+  return [directory, containment(source.repository, source.form, path, directory.id, provenance)];
 }
 
 /**
@@ -394,11 +399,11 @@ function directoryFacts(reader: SnapshotReader, path: string, provenance: FactPr
  * the one stage 0 published — its identity is the repository's name alone, so
  * the same node is named here whatever commit it was pinned at.
  */
-function containment(reader: SnapshotReader, path: string, child: string, provenance: FactProvenance): Fact {
+function containment(repository: string, form: RepositoryForm, path: string, child: string, provenance: FactProvenance): Fact {
   const parent = parentOf(path);
   const container = parent === undefined
-    ? makeNodeFact({ kind: 'repository', value: { repository: reader.repository, form: reader.form }, provenance, layer: 'extracted' })
-    : makeNodeFact({ kind: 'directory', value: { repository: reader.repository, path: repositoryPath(parent) }, provenance, layer: 'extracted' });
+    ? makeNodeFact({ kind: 'repository', value: { repository, form }, provenance, layer: 'extracted' })
+    : makeNodeFact({ kind: 'directory', value: { repository, path: repositoryPath(parent) }, provenance, layer: 'extracted' });
   return makeEdgeFact({ kind: 'contains', value: { from: container.id, to: child }, provenance, layer: 'extracted' });
 }
 
@@ -420,6 +425,15 @@ function plannedUnit(id: string): PlannedUnit {
  * no draft: the publication of an empty fact set retracts what an earlier run
  * wrote, which a cancellation must never do in silence.
  */
+/** The unit's static repository, refused by name where the run handed none: a static unit reads only through its own context. */
+function staticSourceOf(unit: StageUnit, context: StageContext): StaticStageSource {
+  const held = context.static;
+  if (held === undefined) {
+    throw new Error(`the unit "${unit.id}" runs the inventory's static reading, and its context holds no pinned repository: a run hands a static stage its repository's path-scoped answers (src/fill/stages/inventory.ts, decision 0033)`);
+  }
+  return held.repository;
+}
+
 function refuseWhenCancelled(unit: StageUnit, context: StageContext): void {
   if (context.signal.aborted) {
     throw new Error(`the unit "${unit.id}" was cancelled before it read the pinned tree: a cancelled unit publishes nothing`);

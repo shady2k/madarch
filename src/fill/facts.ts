@@ -656,6 +656,14 @@ export interface SymbolValue {
   readonly scipKind?: string;
   /** The name a reader sees (`create`), where the qualified name reads worse. */
   readonly displayName?: string;
+  /**
+   * The symbol's name across the product (decision 0033, "The file is the unit
+   * of static work"): `<repository>:<path>#<qualifiedName>`, the name a reader
+   * of another file queries the graph by. The qualified name is the symbol's
+   * place in its file; the global name adds the file's place in the product, so
+   * two files' `create` are two names and one file's `create` is one.
+   */
+  readonly globalName?: string;
   /** The signature as the resolver rendered it (`create(order: Order): Promise<void>`). */
   readonly signature?: string;
   /**
@@ -1447,8 +1455,9 @@ export const FACT_KINDS: { readonly [K in FactKind]: FactKindDefinition<K> } = {
     place: 'required',
     layers: ['extracted'],
     // 1: the name, kind and disambiguator stage 3 declares. 2: the importance
-    // stage 5's PageRank gives it, in [0, 1] (its own move).
-    version: 2,
+    // stage 5's PageRank gives it, in [0, 1] (its own move). 3: the global name
+    // stage 3 gives it, so another file resolves it by query (decision 0033).
+    version: 3,
     identityValue: (value) => [
       ['repository', value.repository],
       ['file', value.file],
@@ -2165,7 +2174,7 @@ const VALUE_FIELDS: { readonly [K in FactKind]: readonly (keyof FactValueOf<K> &
   'table': ['repository', 'name', 'engine'],
   'column': ['repository', 'table', 'name', 'dataType'],
   'environment-variable': ['name'],
-  'symbol': ['repository', 'file', 'qualifiedName', 'symbolKind', 'disambiguator', 'scipKind', 'displayName', 'signature', 'importance'],
+  'symbol': ['repository', 'file', 'qualifiedName', 'symbolKind', 'disambiguator', 'scipKind', 'displayName', 'globalName', 'signature', 'importance'],
   'occurrence': ['symbol', 'roles'],
   'entry-point': ['repository', 'file', 'name', 'form'],
   'comment': ['text', 'form'],
