@@ -18,7 +18,7 @@ import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { createHash } from 'node:crypto';
 import { createPGliteDatabaseOwner, type DatabaseOwner } from '../src/adapters/database-owner.js';
-import { createGraphStore, type EdgeEntry, type GraphStore, type NodeVersionRow } from '../src/graph/index.js';
+import { createGraphStore, outerTransactionOf, type EdgeEntry, type GraphStore, type NodeVersionRow } from '../src/graph/index.js';
 import { createFillStateSchema, createRun, createUnit, advanceUnit, leaseUnit } from '../src/fill/state-store.js';
 import { createOrchestratorSchema, publishUnit, recordUnitDraft } from '../src/fill/orchestrator-store.js';
 import { createGitSnapshotSource, type SnapshotSource } from '../src/fill/snapshot.js';
@@ -28,7 +28,7 @@ import { createSnapshotStage } from '../src/fill/stages/snapshot.js';
 import { createSyntaxStage } from '../src/fill/stages/syntax.js';
 import { staticGraphReaderOf, staticStageContext, staticStageSourceOf } from '../src/fill/stages/static-context.js';
 import { createStaticStageReadReader } from '../src/fill/stages/static-reads.js';
-import { CODE_GRAPH_VOCABULARY, outerTransactionOf, publishStaticUnit } from '../src/fill/stages/static-graph.js';
+import { CODE_GRAPH_VOCABULARY, staticUnitPublicationOf, type StaticEnd } from '../src/fill/stages/static-graph.js';
 import { nodesOfKind } from './fill-static-drafts.js';
 
 const NOW = 1_700_000_000_000;
@@ -131,13 +131,15 @@ async function publishDrafted(owner: DatabaseOwner, store: GraphStore, runId: st
     identity: { inputsDigest: digest, stageId: drafted.stage.id, stageVersion: drafted.stage.version },
     at: NOW,
     revalidate: async () => ({ membership: 'no reads', members: 0 }),
-    apply: async (executor, writes, publicationDigest) => await publishStaticUnit(outerTransactionOf(executor), store, {
-      unitId: drafted.unitId,
-      stageId: drafted.stage.id,
-      generation: 1,
-      digest: publicationDigest,
-      writes,
-    }),
+    apply: async (executor, writes, publicationDigest) => {
+      await store.publishUnit(staticUnitPublicationOf({
+        unitId: drafted.unitId,
+        stageId: drafted.stage.id,
+        digest: publicationDigest,
+        writes,
+      }), outerTransactionOf(executor));
+      return writes.length;
+    },
   });
   expect(outcome.outcome).toBe('published');
   if (outcome.outcome !== 'published') throw new Error('the publication was not published');
@@ -259,18 +261,23 @@ describe('the static stages publish into the 0028 graph', () => {
     const changed = drafted.writes.map((write) => (write.kind === 'node'
       ? { ...write, value: { ...write.value, properties: { ...write.value.properties, bytes: 999 } } }
       : write)) as StageDraftWrite[];
-    await owner.transaction('write', async (executor) => await publishStaticUnit(outerTransactionOf(executor), store, {
-      unitId: drafted.unitId, stageId: drafted.stage.id, generation: 2, digest: 'changed-reading', writes: changed,
-    }));
+    const second = await owner.transaction('write', async (executor) => await store.publishUnit(staticUnitPublicationOf({
+      unitId: drafted.unitId, stageId: drafted.stage.id, digest: 'changed-reading', writes: changed,
+    }), outerTransactionOf(executor)));
+    // The store allocates the next generation under the unit's one scope: the first publication was generation 1.
+    expect(second.generation).toBe(2);
     const corrected = await store.byKey(key, { limit: 2 });
     expect(corrected.rows).toHaveLength(1);
     expect(corrected.rows[0]!.nodeId).toBe(nodeId);
     expect(corrected.rows[0]!.properties).toMatchObject({ bytes: 999 });
 
-    // The same unit, an empty draft: the node and its edges end, and no other unit's facts move.
-    await owner.transaction('write', async (executor) => await publishStaticUnit(outerTransactionOf(executor), store, {
-      unitId: drafted.unitId, stageId: drafted.stage.id, generation: 3, digest: 'empty-reading', writes: [],
-    }));
+    // The same unit, an empty draft: the node and its edges end, and no other unit's facts move. It is the
+    // unit's third generation, under the same scope the changed reading published under.
+    const third = await owner.transaction('write', async (executor) => await store.publishUnit(staticUnitPublicationOf({
+      unitId: drafted.unitId, stageId: drafted.stage.id, digest: 'empty-reading', writes: [],
+    }), outerTransactionOf(executor)));
+    expect(third.generation).toBe(3);
+    expect(third.scope).toBe(second.scope);
     expect((await store.byKey(key, { limit: 2 })).rows).toHaveLength(0);
   }, 120_000);
 
@@ -288,9 +295,13 @@ describe('the static stages publish into the 0028 graph', () => {
     const edge = (to: string): StageDraftWrite => ({ kind: 'edge', evidence: 'fixture', value: {
       relation: 'code.contains', from: { key: 'file:from' }, to: { key: to }, properties: { factKind: 'contains' },
     } });
-    await expect(owner.transaction('write', async (executor) => await publishStaticUnit(outerTransactionOf(executor), store, {
-      unitId: 'snapshot/missing', stageId: 'snapshot', generation: 1, digest: 'missing', writes: [node('file:from'), edge('file:missing')],
-    }))).rejects.toThrow('no node in the graph carries it');
+    const missing = await owner.transaction('write', async (executor) => await store.publishUnit(staticUnitPublicationOf({
+      unitId: 'snapshot/missing', stageId: 'snapshot', digest: 'missing', writes: [node('file:from'), edge('file:missing')],
+    }), outerTransactionOf(executor))).catch((error: Error) => error);
+    expect(missing).toBeInstanceOf(Error);
+    expect((missing as Error).message).toContain('no node in the graph carries it');
+    expect((missing as Error).message).toContain('publish unit:');
+    expect((missing as Error).message).toContain('path edges(to');
 
     // Two current nodes that carry one key are a corrupt graph, never a choice.
     const validFrom = new Date().toISOString();
@@ -298,9 +309,98 @@ describe('the static stages publish into the 0028 graph', () => {
       const nodeId = await store.newNode();
       await store.openNode({ nodeId, kind: 'code.file', label, properties: { recordKey: 'file:duplicate', factKind: 'file', repository: REPOSITORY, path: label }, validFrom, owner: { producer: 'fixture', scope: nodeId } });
     }
-    await expect(owner.transaction('write', async (executor) => await publishStaticUnit(outerTransactionOf(executor), store, {
-      unitId: 'snapshot/duplicate', stageId: 'snapshot', generation: 1, digest: 'duplicate', writes: [node('file:from'), node('file:duplicate'), edge('file:duplicate')],
-    }))).rejects.toThrow('current nodes carry it');
+    const twoNodes = await owner.transaction('write', async (executor) => await store.publishUnit(staticUnitPublicationOf({
+      unitId: 'snapshot/duplicate', stageId: 'snapshot', digest: 'duplicate', writes: [node('file:from'), node('file:duplicate'), edge('file:duplicate')],
+    }), outerTransactionOf(executor))).catch((error: Error) => error);
+    expect(twoNodes).toBeInstanceOf(Error);
+    expect((twoNodes as Error).message).toContain('current nodes carry it');
+    expect((twoNodes as Error).message).toContain('publish unit:');
+    expect((twoNodes as Error).message).toContain('path nodes("file:duplicate")');
+
+    // An edge's from end is resolved and refused by its own path, never the to end's.
+    const fromEnd = (end: StaticEnd): StageDraftWrite => ({ kind: 'edge', evidence: 'fixture', value: {
+      relation: 'code.contains', from: end, to: { key: 'file:from' }, properties: { factKind: 'contains' },
+    } });
+    const missingFrom = await owner.transaction('write', async (executor) => await store.publishUnit(staticUnitPublicationOf({
+      unitId: 'snapshot/missing-from', stageId: 'snapshot', digest: 'missing-from', writes: [node('file:from'), fromEnd({ key: 'file:missing-from' })],
+    }), outerTransactionOf(executor))).catch((error: Error) => error);
+    expect((missingFrom as Error).message).toContain('no node in the graph carries it');
+    expect((missingFrom as Error).message).toContain('path edges(from');
+
+    // A key two current nodes carry is refused when an edge end, not this draft's node, names it.
+    for (const label of ['c', 'd']) {
+      const nodeId = await store.newNode();
+      await store.openNode({ nodeId, kind: 'code.file', label, properties: { recordKey: 'file:edge-duplicate', factKind: 'file', repository: REPOSITORY, path: label }, validFrom, owner: { producer: 'fixture', scope: nodeId } });
+    }
+    const twoEnds = await owner.transaction('write', async (executor) => await store.publishUnit(staticUnitPublicationOf({
+      unitId: 'snapshot/two-ends', stageId: 'snapshot', digest: 'two-ends', writes: [node('file:from'), fromEnd({ key: 'file:edge-duplicate' })],
+    }), outerTransactionOf(executor))).catch((error: Error) => error);
+    expect((twoEnds as Error).message).toContain('current nodes carry it');
+    expect((twoEnds as Error).message).toContain('path edges("file:edge-duplicate")');
+  }, 120_000);
+
+  test('a unit that names no key, a key two of its nodes carry and a node with an empty key are refused, with file, line, path and full path', async () => {
+    const owner = createPGliteDatabaseOwner({ btreeGist: true });
+    owners.push(owner);
+    await createFillStateSchema(owner);
+    await createOrchestratorSchema(owner);
+    const store = createGraphStore(owner);
+    await store.createSchema();
+    await store.registerCodeSchema(CODE_GRAPH_VOCABULARY);
+    // The empty key and the whitespace-only one both name no unit: the store refuses both by name,
+    // with the file, the line, the input path and the full path of the refusal.
+    for (const key of ['', '   ']) {
+      const refused = await owner.transaction('write', async (executor) => await store.publishUnit(staticUnitPublicationOf({
+        unitId: key, stageId: 'snapshot', digest: 'no-unit', writes: [],
+      }), outerTransactionOf(executor))).catch((error: Error) => error);
+      expect(refused).toBeInstanceOf(Error);
+      const message = (refused as Error).message;
+      expect(message).toContain('publication scope:');
+      expect(message).toContain('a publication scope names the unit it holds by a non-empty key');
+      expect(message).toContain('path scopeKey');
+      expect(message).toContain('src/graph/publish.ts:');
+      expect(message).toContain('full path');
+      // The full path is the repository's own file, not a placeholder: the message ends with it.
+      expect(message).toContain(join(import.meta.dir, '..', 'src', 'graph', 'publish.ts'));
+    }
+    const node = (key: string): StageDraftWrite => ({ kind: 'node', evidence: 'fixture', value: {
+      key, kind: 'code.file', label: key, properties: { recordKey: key, factKind: 'file', repository: REPOSITORY, path: key },
+    } });
+    // One unit names one node by one key, and a node names a non-empty key.
+    const duplicate = await owner.transaction('write', async (executor) => await store.publishUnit(staticUnitPublicationOf({
+      unitId: 'snapshot/duplicate-key', stageId: 'snapshot', digest: 'duplicate-key', writes: [node('file:a'), node('file:a')],
+    }), outerTransactionOf(executor))).catch((error: Error) => error);
+    expect((duplicate as Error).message).toContain('one unit names one node by one key');
+    expect((duplicate as Error).message).toContain('publish unit:');
+    expect((duplicate as Error).message).toContain('path nodes[1].key');
+    // An empty key and a whitespace-only one name no node.
+    for (const key of ['', '   ']) {
+      const empty = await owner.transaction('write', async (executor) => await store.publishUnit(staticUnitPublicationOf({
+        unitId: `snapshot/empty-node-${key.length}`, stageId: 'snapshot', digest: `empty-node-${key.length}`, writes: [node(key)],
+      }), outerTransactionOf(executor))).catch((error: Error) => error);
+      expect(empty).toBeInstanceOf(Error);
+      expect((empty as Error).message).toContain('an empty key names nothing');
+      expect((empty as Error).message).toContain('publish unit:');
+      expect((empty as Error).message).toContain('path nodes[0].key');
+    }
+    // The store's own producer guard, reached without the fill's mapping.
+    const noProducer = await owner.transaction('write', async (executor) => await store.publishUnit({
+      producer: '', scopeKey: 'snapshot/no-producer', inputDigest: 'no-producer', leaseToken: 'fill-static:no-producer', leaseUntil: new Date(Date.now() + 60_000).toISOString(), nodes: [], edges: [],
+    }, outerTransactionOf(executor))).catch((error: Error) => error);
+    expect((noProducer as Error).message).toContain('a publication names its producer');
+    expect((noProducer as Error).message).toContain('publish unit:');
+    expect((noProducer as Error).message).toContain('path producer');
+    // An edge end may name a node the graph already holds by its identity, not only by a key.
+    const existing = await store.newNode();
+    await store.openNode({ nodeId: existing, kind: 'code.file', label: 'existing.ts', properties: { recordKey: 'file:existing', factKind: 'file', repository: REPOSITORY, path: 'existing.ts' }, validFrom: new Date().toISOString(), owner: { producer: 'fixture', scope: existing } });
+    const byIdentity = await owner.transaction('write', async (executor) => await store.publishUnit(staticUnitPublicationOf({
+      unitId: 'snapshot/edge-by-identity', stageId: 'snapshot', digest: 'edge-by-identity',
+      writes: [
+        node('file:from'),
+        { kind: 'edge', evidence: 'fixture', value: { relation: 'code.contains', from: { key: 'file:from' }, to: { id: existing }, properties: { factKind: 'contains' } } } as StageDraftWrite,
+      ],
+    }), outerTransactionOf(executor)));
+    expect(byIdentity.publication.edgeVersionsOpened).toBe(1);
   }, 120_000);
 
   test('a repeated publication of one unit writes no new node or edge version', async () => {
@@ -330,13 +430,12 @@ describe('the static stages publish into the 0028 graph', () => {
     // The same draft, published again under the same unit and digest: the graph answers the same input.
     for (const unit of drafted) {
       const digest = createHash('sha256').update(JSON.stringify(unit.writes)).digest('hex');
-      await owner.transaction('write', async (executor) => await publishStaticUnit(outerTransactionOf(executor), store, {
+      await owner.transaction('write', async (executor) => await store.publishUnit(staticUnitPublicationOf({
         unitId: unit.unitId,
         stageId: unit.stage.id,
-        generation: 1,
         digest,
         writes: unit.writes,
-      }));
+      }), outerTransactionOf(executor)));
     }
     const after = await owner.run(async (tx) => ({
       nodes: Number((await tx.query<{ n: string }>('SELECT count(*)::text AS n FROM node_version')).rows[0]!.n),

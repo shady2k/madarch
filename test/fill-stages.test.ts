@@ -80,7 +80,10 @@ async function countGraphKinds(owner: DatabaseOwner): Promise<Record<string, num
 /** The node kinds one snapshot unit published, read from the graph: the unit's own scope and producer. */
 async function unitNodes(owner: DatabaseOwner, unitId: string): Promise<readonly { readonly fact: { readonly kind: string; readonly value: Record<string, unknown> } }[]> {
   return await owner.run(async (tx) => {
-    const scope = await tx.query<{ node_id: string }>('SELECT node_id::text AS node_id FROM fill_graph_scope WHERE unit_id = $1', [unitId]);
+    const scope = await tx.query<{ node_id: string }>(
+      "SELECT s.node_id::text AS node_id FROM publication_scope s WHERE s.producer = 'fill.' || split_part($1, '/', 1) AND s.scope_key = $1",
+      [unitId],
+    );
     const nodeId = scope.rows[0]?.node_id;
     if (nodeId === undefined) return [];
     const rows = await tx.query<{ kind: string; properties: Record<string, unknown> }>(

@@ -18,7 +18,8 @@ import type { DatabaseOwner } from '../adapters/database-owner.js';
 import type { OuterTransaction } from '../history/types.js';
 import type { GraphId } from './digest.js';
 import {
-  leaseWorkItem, openWorkItem, publish, type LeaseInput, type PublishInput, type PublishResult, type WorkItemInput,
+  leaseWorkItem, openWorkItem, publish, publishUnit,
+  type LeaseInput, type PublishInput, type PublishResult, type PublishUnitInput, type PublishUnitResult, type UnitEdgeDraft, type UnitEnd, type UnitNodeDraft, type WorkItemInput,
 } from './publish.js';
 import {
   readAll, readByKey, readByProperty, readCallees, readCallers, readClaims, readContentBytes, readEdgesByProperty, readNode, readOutgoingDiff, readRelationsWithin, readStateChain, readTraversal, resolveLens,
@@ -41,7 +42,8 @@ export { ALL_STATES, plusMicrosecond, type Instant, type StateSpan } from './tim
 export { CODE_NODE_KINDS, CODE_PREFIX, CODE_RELATIONS, ENGINE_NODE_KINDS, ENGINE_PREFIX, ENGINE_RELATIONS, CALLS, CONTAINS, STATE_KIND, CONTENT_KIND, CLAIM_KIND, ACCEPTANCE_KIND, type GraphRegistry, type RelationDeclaration } from './vocabulary.js';
 export { claimCanonicalForm, claimDigest, sha256Hex, type ByteSpan, type ClaimContent, type EvidenceSpan, type GraphId } from './digest.js';
 export type { EdgeEntry, GraphLens, OutgoingDiff, Page, PageOptions, ClaimEntry, StateEntry } from './reads.js';
-export type { PublishInput, PublishNode, PublishEdge, PublishEnd, PublishResult, WorkItemInput, LeaseInput, NodeRef } from './publish.js';
+export type { PublishInput, PublishNode, PublishEdge, PublishEnd, PublishResult, PublishUnitInput, PublishUnitResult, UnitEdgeDraft, UnitEnd, UnitNodeDraft, WorkItemInput, LeaseInput, NodeRef } from './publish.js';
+export { outerTransactionOf, type QueryExecutor } from './transaction.js';
 export type { NewNodeVersion, NewEdgeVersion, NodePatch, EdgePatch, NodeVersionRow, EdgeVersionRow, EndResult } from './versions.js';
 
 export interface GraphStoreOptions {
@@ -166,6 +168,16 @@ export class GraphStore {
   /** Publishes a unit's result in one transaction; see `publish.ts` for the fencing it enforces. */
   publish(input: PublishInput, transaction?: OuterTransaction): Promise<PublishResult> {
     return this.write(transaction, (ctx) => publish(ctx, input));
+  }
+
+  /**
+   * Publishes one unit's nodes and edges: the scope its caller's key names, the
+   * generation the store allocates, the publication lock, and `complete: true`,
+   * all inside the caller's transaction (decision 0027's one atomic operation;
+   * decision 0033, item 3). See `publishUnit` in `publish.ts`.
+   */
+  publishUnit(input: PublishUnitInput, transaction?: OuterTransaction): Promise<PublishUnitResult> {
+    return this.write(transaction, (ctx) => publishUnit(ctx, input));
   }
 
   /** One node as the lens sees it, or null. */

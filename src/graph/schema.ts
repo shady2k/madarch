@@ -1,7 +1,8 @@
 /**
  * The temporal graph's tables (decision 0028, "Tables" and "Time"): the
- * identities, the versions, the encoded vocabulary and the extraction queue's
- * work items, and nothing else. The module owns exactly these tables
+ * identities, the versions, the encoded vocabulary, the publication scopes one
+ * producer names its units by (decision 0027) and the extraction queue's work
+ * items, and nothing else. The module owns exactly these tables
  * (`GRAPH_TABLES`); the vector index and pg-boss's tables belong to other
  * modules.
  *
@@ -26,6 +27,7 @@ export const GRAPH_TABLES = [
   'node_identity',
   'node_kind',
   'node_version',
+  'publication_scope',
   'relation_type',
   'work_item',
 ] as const;
@@ -76,6 +78,16 @@ const SCHEMA: readonly string[] = [
   `CREATE TABLE IF NOT EXISTS edge_identity (
     id bigint GENERATED ALWAYS AS IDENTITY PRIMARY KEY,
     key_hash text NOT NULL UNIQUE CHECK (length(key_hash) = 64)
+  )`,
+  // The stable identity one producer publishes one unit under (decision 0027's per-unit scope, decision
+  // 0033's per-file units): the caller's key names it, and a later run of the unit finds the same node, so
+  // its publication corrects its own versions rather than opening a second identity.
+  `CREATE TABLE IF NOT EXISTS publication_scope (
+    producer text NOT NULL CHECK (producer <> ''),
+    scope_key text NOT NULL CHECK (scope_key <> ''),
+    node_id bigint NOT NULL REFERENCES node_identity (id),
+    last_generation bigint NOT NULL DEFAULT 0 CHECK (last_generation >= 0),
+    PRIMARY KEY (producer, scope_key)
   )`,
   `CREATE TABLE IF NOT EXISTS work_item (
     id bigint GENERATED ALWAYS AS IDENTITY PRIMARY KEY,

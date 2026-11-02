@@ -21,10 +21,11 @@ import { canonicalJsonDigest } from '../model/canonical.js';
 import { byCodePoint } from '../model/order.js';
 import { claimDigest, nodePayloadDigest, edgePayloadDigest, edgeKeyHash, sha256Hex, type ByteSpan, type ClaimContent, type GraphId } from './digest.js';
 import { GraphError, type GraphOrigin } from './errors.js';
+import { readByKey, resolveLens } from './reads.js';
 import { ALL_STATES, checkSpan, compareInstants, instantText, tsText, type Instant, type StateSpan } from './time.js';
 import {
   assertEndpoints, currentEdgeVersions, endEdgeVersion, insertEdgeVersion, insertEdgeVersions, lockNodes, prepareEdgeVersion, reconcileEdges, requireLater, checkId, closeVersion, correctEdgeVersion, correctNodeVersion, currentNodeVersions, edgeIdentity, edgeRow, EDGE_BATCH_SIZE, EDGE_COLUMNS, EDGE_FROM,
-  edgeIdentities, endNode, newNodeIdentities, openEdgeVersion, openNodeVersion, prefetchNodeSlices, prefetchNodes, reopenEdge, reopenNode, requireNode, resolveEdge, readerTurn, yieldBetweenRows, yieldToReaders,
+  edgeIdentities, endNode, newNodeIdentities, newNodeIdentity, openEdgeVersion, openNodeVersion, prefetchNodeSlices, prefetchNodes, reopenEdge, reopenNode, requireNode, resolveEdge, readerTurn, yieldBetweenRows, yieldToReaders,
   type EdgeVersionRow, type NodeVersionRow, type PreparedEdgeVersion, type WriteContext,
 } from './versions.js';
 import { CONTENT_KIND } from './vocabulary.js';
@@ -80,6 +81,70 @@ export async function leaseWorkItem(ctx: WriteContext, input: LeaseInput, path =
     [input.producer, scope, String(input.generation), input.leaseToken, until, input.inputDigest ?? null],
   );
   if (moved.rows.length === 0) throw new GraphError('lease work item', path, `no unpublished work item for generation ${input.generation} of producer "${input.producer}" and scope ${scope}`);
+}
+
+const OP_SCOPE = 'publication scope';
+
+/** The advisory lock one producer's and one scope's publications take: the store's own key, never a caller's. */
+function publicationLockKey(producer: string, scope: GraphId): string {
+  return `graph-publication:${producer}:${scope}`;
+}
+
+/** Takes the publication lock of one producer and scope inside the caller's transaction. */
+async function lockPublication(ctx: WriteContext, producer: string, scope: GraphId): Promise<void> {
+  await ctx.tx.query('SELECT pg_advisory_xact_lock(hashtextextended($1, 0))', [publicationLockKey(producer, scope)]);
+}
+
+/**
+ * The stable node identity one producer publishes one unit under (decision 0027:
+ * a unit's publication replaces only that unit's facts; decision 0033: the file
+ * is the unit of static work). The caller names the unit by its own key; the
+ * store owns the identity, records it once in `publication_scope`, and a later
+ * run of the same unit publishes under the same scope rather than opening a
+ * second identity. A key that is empty names no unit.
+ */
+async function publicationScope(ctx: WriteContext, producer: string, scopeKey: string): Promise<GraphId> {
+  if (scopeKey.trim() === '') throw new GraphError(OP_SCOPE, 'scopeKey', located(107, 'a publication scope names the unit it holds by a non-empty key'));
+  const found = await ctx.tx.query<{ node_id: string }>('SELECT node_id::text AS node_id FROM publication_scope WHERE producer = $1 AND scope_key = $2', [producer, scopeKey]);
+  if (found.rows[0] !== undefined) return found.rows[0].node_id;
+  const made = await newNodeIdentity(ctx);
+  // The upsert always answers the scope's row: the one this transaction inserted, or the one another
+  // publisher committed first. Under a repeatable-read snapshot the second case is a serialization
+  // failure the caller retries, never a second identity; the identity this transaction reserved is
+  // then unused, as it was before the race.
+  const inserted = await ctx.tx.query<{ node_id: string }>(
+    `INSERT INTO publication_scope (producer, scope_key, node_id) VALUES ($1, $2, $3::bigint)
+     ON CONFLICT (producer, scope_key) DO UPDATE SET node_id = publication_scope.node_id
+     RETURNING node_id::text AS node_id`,
+    [producer, scopeKey, made],
+  );
+  return inserted.rows[0]!.node_id;
+}
+
+/**
+ * The next generation of one producer and scope, allocated by the scope's own
+ * counter inside the caller's transaction: an update of one row is atomic
+ * whatever the transaction's snapshot says, so two publishers of one unit can
+ * never allocate a generation twice. The counter rolls back with a publication
+ * that does not commit, so a refused publication spends no generation.
+ */
+async function nextGeneration(ctx: WriteContext, producer: string, scopeKey: string): Promise<number> {
+  // The scope row was read or inserted just above, so the update always answers it; its own
+  // `last_generation >= 0` check and the `generation > 0` check of `openWorkItem` guard the rest.
+  const found = await ctx.tx.query<{ g: string }>(
+    'UPDATE publication_scope SET last_generation = last_generation + 1 WHERE producer = $1 AND scope_key = $2 RETURNING last_generation::text AS g',
+    [producer, scopeKey],
+  );
+  return Number(found.rows[0]!.g);
+}
+
+/** The file the store's refusals name, and its full path: the briefing's error bar (file, line and full path). */
+const FILE = 'src/graph/publish.ts';
+const FULL_PATH = `${import.meta.dir}/publish.ts`;
+
+/** A refusal's words with the code location a reader can open: `src/graph/publish.ts:<line>: <message>; full path <path>`. */
+function located(line: number, message: string): string {
+  return `${FILE}:${line}: ${message}; full path ${FULL_PATH}`;
 }
 
 export type NodeRef = { id: GraphId } | { ref: string };
@@ -163,6 +228,152 @@ export interface PublishResult {
   publishedDigest: string;
 }
 
+/**
+ * One end of a unit's edge: a node of the same unit's draft, named by the key
+ * its node was written with, or a node the graph already holds, named by the
+ * key its current version carries.
+ */
+export type UnitEnd = { readonly key: string } | { readonly id: GraphId };
+
+/** One node a unit's draft writes; `key` is the fact id the next run asks the graph by. */
+export interface UnitNodeDraft {
+  readonly key: string;
+  readonly kind: string;
+  readonly label: string;
+  readonly properties: Readonly<Record<string, unknown>>;
+}
+
+/** One edge a unit's draft writes; a position is the byte span of a positioned relation. */
+export interface UnitEdgeDraft {
+  readonly relation: string;
+  readonly from: UnitEnd;
+  readonly to: UnitEnd;
+  readonly properties?: Readonly<Record<string, unknown>>;
+  readonly position?: ByteSpan;
+}
+
+/**
+ * What one unit's publication is made of: the producer, the caller's stable key
+ * for the unit's scope, the input digest and lease that fence it, and the nodes
+ * and edges it writes. A publication is always the whole of its unit
+ * (`complete: true`): a node or edge the draft does not repeat ends, so a path
+ * a later run no longer holds retracts its own facts and no other unit's move.
+ */
+export interface PublishUnitInput {
+  readonly producer: string;
+  /** The caller's stable key naming the unit; one unit publishes under one scope, now and on every later run. */
+  readonly scopeKey: string;
+  /** The digest of what the unit read; the work item and the publication must name the same one. */
+  readonly inputDigest: string;
+  readonly leaseToken: string;
+  readonly leaseUntil: Instant;
+  readonly nodes: readonly UnitNodeDraft[];
+  readonly edges: readonly UnitEdgeDraft[];
+  /** The valid time the graph records for these versions; the store's own clock when it names none. */
+  readonly validFrom?: Instant;
+}
+
+/** What one unit's publication answered: the scope it published under, the generation it allocated, and the store's own result. */
+export interface PublishUnitResult {
+  readonly scope: GraphId;
+  readonly generation: number;
+  readonly publication: PublishResult;
+}
+
+/** The nodes and edges a unit's publication repeats, read back once as the keys the graph holds them under. */
+async function heldKeys(ctx: WriteContext, keys: Iterable<string>, where: (key: string) => string): Promise<Map<string, GraphId>> {
+  const lens = await resolveLens(ctx.tx, undefined, ctx.now());
+  const held = new Map<string, GraphId>();
+  for (const key of keys) {
+    const page = await readByKey(ctx.tx, key, lens, { limit: 2 });
+    if (page.rows.length > 1) {
+      throw new GraphError('publish unit', where(key), located(290, `${String(page.rows.length)} current nodes carry it, and one key names one node (the key is ${JSON.stringify(key)}; decision 0028)`));
+    }
+    const found = page.rows[0];
+    if (found !== undefined) held.set(key, found.nodeId);
+  }
+  return held;
+}
+
+/**
+ * Publishes one unit's nodes and edges in the caller's transaction: the store
+ * resolves or creates the unit's stable scope from the caller's key, takes the
+ * publication lock, allocates the unit's next generation, opens its work item
+ * and applies the whole draft with `complete: true`. The caller hands it a
+ * publication digest and a lease; the generation, the lock and the scope are
+ * the store's own (decision 0027's one atomic operation; 0033, item 3).
+ *
+ * A node's key that the graph already holds as exactly one current node is the
+ * identity that node corrects, so a changed unit keeps its node rather than
+ * opening a second one. An edge end names either a node of this draft or one
+ * the graph holds under that key; anything else is refused by key, because an
+ * edge joins nodes that exist. Two current nodes under one key are a corrupt
+ * graph, never a choice.
+ */
+export async function publishUnit(ctx: WriteContext, input: PublishUnitInput): Promise<PublishUnitResult> {
+  if (input.producer === '') throw new GraphError('publish unit', 'producer', located(314, 'a publication names its producer'));
+  const scope = await publicationScope(ctx, input.producer, input.scopeKey);
+  await lockPublication(ctx, input.producer, scope);
+  const generation = await nextGeneration(ctx, input.producer, input.scopeKey);
+  await openWorkItem(ctx, { producer: input.producer, scope, generation, inputDigest: input.inputDigest, leaseToken: input.leaseToken, leaseUntil: input.leaseUntil }, 'workItem');
+
+  const keyed = new Set<string>();
+  for (const [index, node] of input.nodes.entries()) {
+    if (node.key.trim() === '') throw new GraphError('publish unit', `nodes[${index}].key`, located(322, 'a unit node names the key its next run asks it by, and an empty key names nothing'));
+    if (keyed.has(node.key)) throw new GraphError('publish unit', `nodes[${index}].key`, located(323, `the key ${JSON.stringify(node.key)} stands on an earlier node of this publication: one unit names one node by one key`));
+    keyed.add(node.key);
+  }
+  const held = await heldKeys(ctx, keyed, (key) => `nodes(${JSON.stringify(key)})`);
+  const validFrom = input.validFrom ?? ctx.now();
+  const nodes: PublishNode[] = [...input.nodes]
+    .sort((left, right) => byCodePoint(left.key, right.key))
+    .map((node) => ({
+      ref: node.key,
+      ...(held.has(node.key) ? { id: held.get(node.key)! } : {}),
+      kind: node.kind,
+      label: node.label,
+      properties: { ...node.properties },
+      validFrom,
+    }));
+
+  const unresolved = new Set<string>();
+  for (const edge of input.edges) {
+    for (const end of [edge.from, edge.to]) if ('key' in end && !keyed.has(end.key)) unresolved.add(end.key);
+  }
+  const existing = await heldKeys(ctx, unresolved, (key) => `edges(${JSON.stringify(key)})`);
+  const endpoint = (end: UnitEnd, where: string): NodeRef => {
+    if ('id' in end) return { id: end.id };
+    if (keyed.has(end.key)) return { ref: end.key };
+    const found = existing.get(end.key);
+    if (found === undefined) {
+      throw new GraphError('publish unit', where, located(349, `the edge names ${JSON.stringify(end.key)}, and no node in the graph carries it: an edge joins nodes that exist (decision 0028)`));
+    }
+    return { id: found };
+  };
+  const edges: PublishEdge[] = [...input.edges]
+    .sort((left, right) => byCodePoint(JSON.stringify([left.relation, left.from, left.to, left.position ?? null]), JSON.stringify([right.relation, right.from, right.to, right.position ?? null])))
+    .map((edge) => ({
+      relation: edge.relation,
+      src: endpoint(edge.from, `edges(from ${JSON.stringify(edge.from)})`),
+      dst: endpoint(edge.to, `edges(to ${JSON.stringify(edge.to)})`),
+      ...(edge.position === undefined ? {} : { position: { start: edge.position.start, end: edge.position.end } }),
+      ...(edge.properties === undefined ? {} : { properties: { ...edge.properties } }),
+      validFrom,
+    }));
+
+  const publication = await publish(ctx, {
+    producer: input.producer,
+    scope,
+    generation,
+    leaseToken: input.leaseToken,
+    inputDigest: input.inputDigest,
+    nodes,
+    edges,
+    complete: true,
+  });
+  return { scope, generation, publication };
+}
+
 const OP = 'publish';
 
 interface Locked {
@@ -218,7 +429,7 @@ export async function publish(ctx: WriteContext, input: PublishInput): Promise<P
   const scope = checkId(input.scope, OP, 'scope');
   if (input.producer === '') throw new GraphError(OP, 'producer', 'a publication names its producer');
   // One publication at a time per producer and scope: the stream's "has this input been published" question is answered under this lock.
-  await ctx.tx.query(`SELECT pg_advisory_xact_lock(hashtextextended($1, 0))`, [`graph-publication:${input.producer}:${scope}`]);
+  await lockPublication(ctx, input.producer, scope);
   const locked = await ctx.tx.query<{ id: string; published: boolean; lease_token: string; lease_until: string; input_digest: string }>(
     `SELECT id::text AS id, published_at IS NOT NULL AS published, lease_token, ${tsText('lease_until')} AS lease_until, input_digest
      FROM work_item WHERE producer = $1 AND scope_id = $2::bigint AND generation = $3::bigint FOR UPDATE`,

@@ -80,7 +80,7 @@ import type { StageRegistry } from '../fill/registry.js';
 import { createGitSnapshotSource, type RepositoryPin, type SnapshotSource } from '../fill/snapshot.js';
 import { createStageReadReader, createStageReadSchema } from '../fill/stage-reads.js';
 import { createStaticStageReadReader } from '../fill/stages/static-reads.js';
-import { ensureGraphSchema, outerTransactionOf } from '../fill/stages/static-graph.js';
+import { ensureGraphSchema } from '../fill/stages/static-graph.js';
 import type { AgentStageWiring } from '../fill/stages/agent-stage.js';
 import { createStageRegistry } from '../fill/stages/index.js';
 import { sameFolder } from './git.js';
@@ -163,7 +163,7 @@ export async function createStagesFill(options: StagesFillOptions): Promise<Stag
     snapshot: () => snapshotOf(identity, registry, repin()),
     configuration: (): FillStageConfigurationRead => readFillStageConfiguration(folder),
     graph: (ref, transaction) => (registry.get(ref.stageId)?.staticReading === true
-      ? createStaticStageReadReader(store, transaction === undefined ? undefined : outerTransactionOf(transaction))
+      ? createStaticStageReadReader(store, transaction)
       : createStageReadReader({
         database: options.database,
         snapshot: snapshots,

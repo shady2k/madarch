@@ -30,9 +30,8 @@ import { draftSetOf, factGraph, writeScope, type CheckedWriteDraft, type Checked
 import type { FillStageConfigurationRead } from './config.js';
 import type { SqlExecutor } from '../query/sql-driver.js';
 import { FACT_APPLICATION, createFactStoreSchema } from './fact-store.js';
-import { createGraphStore, type GraphStore } from '../graph/index.js';
-import { ensureGraphSchema, outerTransactionOf, publishStaticUnit } from './stages/static-graph.js';
-import { CODE_GRAPH_VOCABULARY } from './stages/static-graph.js';
+import { createGraphStore, outerTransactionOf, type GraphStore } from '../graph/index.js';
+import { ensureGraphSchema, staticUnitPublicationOf } from './stages/static-graph.js';
 import { staticGraphReaderOf } from './stages/static-context.js';
 import { emptyNextStep, emptyPageSetMessage, emptyQuestionSet, readDecisionSubject, readPageChanges, readPageModel, readPageSet, type GraphDecisionWrite, type GraphPagesSource } from './graph-pages.js';
 import { answerDocument, acceptanceDocument, ANSWERS_FOLDER, ACCEPTANCES_FOLDER, commitDecision, decisionFile, discardDecision, stageDecision, type DecisionRecord, type StagedDecision } from './decisions.js';
@@ -551,18 +550,21 @@ async function fileDecision(
       // and one bounded neighbourhood. They never receive the store.
       staticGraph: (ref) => (registry.get(ref.stageId)?.staticReading === true ? staticGraphReaderOf(graph) : undefined),
       // The static stages' drafts are graph items, applied by the publication's own transaction into the
-      // 0028 graph. Every other stage still lands its fact set where the wiring says (today the fill's
-      // fact store), and a host that names another landing point keeps it for those stages.
+      // 0028 graph. The graph store's one unit publication owns the scope its caller's key names, the
+      // generation allocation and the publication lock (decision 0033, item 3); the orchestrator's executor
+      // is adapted at the storage boundary, never in a stage module. Every other stage still lands its fact
+      // set where the wiring says (today the fill's fact store), and a host that names another landing point
+      // keeps it for those stages.
       facts: {
         apply: async (input) => {
           if (registry.get(input.unit.stageId)?.staticReading === true) {
-            return await publishStaticUnit(outerTransactionOf(input.executor), graph, {
+            await graph.publishUnit(staticUnitPublicationOf({
               unitId: input.unit.unitId,
               stageId: input.unit.stageId,
-              generation: input.unit.generation,
               digest: input.digest,
               writes: input.writes,
-            });
+            }), outerTransactionOf(input.executor));
+            return input.writes.length;
           }
           return await (wiring.facts ?? FACT_APPLICATION).apply(input);
         },

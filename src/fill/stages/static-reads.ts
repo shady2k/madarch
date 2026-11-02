@@ -11,8 +11,7 @@
  * reading of the graph, and an empty answer for a read nobody wrote is exactly
  * the silent smaller result decision 0033 forbids.
  */
-import type { EdgeEntry, GraphStore, NodeVersionRow } from '../../graph/index.js';
-import type { OuterTransaction } from '../../history/types.js';
+import { outerTransactionOf, type EdgeEntry, type GraphStore, type NodeVersionRow, type QueryExecutor } from '../../graph/index.js';
 import type { StageGraphReader } from '../stage.js';
 import { PUBLISHED_REPOSITORY_READ, PUBLISHED_UNFILED_READ, type PublishedRepositoryRow, type PublishedUnfiledRow } from './snapshot.js';
 import { PUBLISHED_CONTAINMENT_READ, type PublishedContainmentRow } from './inventory.js';
@@ -43,11 +42,14 @@ function recordKeyOf(row: NodeVersionRow, what: string): string {
 
 /**
  * The reader one static stage's plan asks. Every read is answered from `store`,
- * inside `executor` when the caller opened a transaction, and every row is
- * built in code point order so the membership digest of one answer does not
- * move with a database's collation.
+ * inside the transaction the caller's executor opened when it named one, and
+ * every row is built in code point order so the membership digest of one answer
+ * does not move with a database's collation.
  */
-export function createStaticStageReadReader(store: GraphStore, executor?: OuterTransaction): StageGraphReader {
+export function createStaticStageReadReader(store: GraphStore, executor?: QueryExecutor): StageGraphReader {
+  // The caller's executor becomes the store's outer transaction at the storage boundary (decision 0033,
+  // item 3): a plan read runs in the transaction the orchestrator already opened.
+  const transaction = executor === undefined ? undefined : outerTransactionOf(executor);
   const all = async <T>(fetch: (page: { after?: string; limit?: number }) => Promise<{ rows: T[]; next: string | null }>): Promise<T[]> => {
     const rows: T[] = [];
     let after: string | undefined;
@@ -74,16 +76,16 @@ export function createStaticStageReadReader(store: GraphStore, executor?: OuterT
             throw new Error(`the static stage's recorded read ${JSON.stringify(text)} names no bounded read this reader answers: a read is by key, by global name or by one neighbourhood, with its value and cap (src/fill/stages/static-reads.ts)`);
           }
           const page = { limit: read.limit };
-          if (read.kind === 'key') return (await store.byKey(read.value, page, executor)).rows.map(staticNodeOf);
-          if (read.kind === 'globalName') return (await store.byGlobalName(read.value, page, executor)).rows.map(staticNodeOf);
+          if (read.kind === 'key') return (await store.byKey(read.value, page, transaction)).rows.map(staticNodeOf);
+          if (read.kind === 'globalName') return (await store.byGlobalName(read.value, page, transaction)).rows.map(staticNodeOf);
           if (!Array.isArray(read.relations) || read.relations.some((relation) => typeof relation !== 'string') || (read.direction !== 'out' && read.direction !== 'in')) {
             throw new Error(`the static stage's recorded neighbourhood read ${JSON.stringify(text)} names no relations or direction (src/fill/stages/static-reads.ts)`);
           }
-          return (await store.neighbourhood(read.value, read.relations as readonly string[], read.direction, page, executor)).rows.map(staticNodeOf);
+          return (await store.neighbourhood(read.value, read.relations as readonly string[], read.direction, page, transaction)).rows.map(staticNodeOf);
         }
         case PUBLISHED_TREE_READ: {
-          const files = await all((page) => store.byProperty('code.file', 'repository', repository, { ...page, limit: page.limit ?? PLAN_PAGE }, executor));
-          const directories = await all((page) => store.byProperty('code.directory', 'repository', repository, { ...page, limit: page.limit ?? PLAN_PAGE }, executor));
+          const files = await all((page) => store.byProperty('code.file', 'repository', repository, { ...page, limit: page.limit ?? PLAN_PAGE }, transaction));
+          const directories = await all((page) => store.byProperty('code.directory', 'repository', repository, { ...page, limit: page.limit ?? PLAN_PAGE }, transaction));
           const rows: PublishedTreeRow[] = [];
           for (const node of files) {
             const held = propertiesOf(node);
@@ -95,8 +97,8 @@ export function createStaticStageReadReader(store: GraphStore, executor?: OuterT
           return rows.sort((left, right) => `${left.path}\u0000${left.kind}` < `${right.path}\u0000${right.kind}` ? -1 : `${left.path}\u0000${left.kind}` > `${right.path}\u0000${right.kind}` ? 1 : 0);
         }
         case PUBLISHED_REPOSITORY_READ: {
-          const nodes = await all((page) => store.byProperty('code.repository', 'repository', repository, { ...page, limit: page.limit ?? PLAN_PAGE }, executor));
-          const commits = await all((page) => store.byProperty('code.commit', 'repository', repository, { ...page, limit: page.limit ?? PLAN_PAGE }, executor));
+          const nodes = await all((page) => store.byProperty('code.repository', 'repository', repository, { ...page, limit: page.limit ?? PLAN_PAGE }, transaction));
+          const commits = await all((page) => store.byProperty('code.commit', 'repository', repository, { ...page, limit: page.limit ?? PLAN_PAGE }, transaction));
           const rows: PublishedRepositoryRow[] = nodes.map(() => ({ kind: 'repository', repository }));
           for (const node of commits) {
             const held = propertiesOf(node);
@@ -105,14 +107,14 @@ export function createStaticStageReadReader(store: GraphStore, executor?: OuterT
           return rows.sort((left, right) => (left.kind === right.kind ? 0 : left.kind === 'repository' ? -1 : 1));
         }
         case PUBLISHED_UNFILED_READ: {
-          const nodes = await all((page) => store.byProperty('code.coverage', 'repository', repository, { ...page, limit: page.limit ?? PLAN_PAGE }, executor));
+          const nodes = await all((page) => store.byProperty('code.coverage', 'repository', repository, { ...page, limit: page.limit ?? PLAN_PAGE }, transaction));
           return nodes
             .filter((node) => propertiesOf(node)['unfiledPath'] === true)
             .map((node): PublishedUnfiledRow => ({ kind: 'coverage', repository, path: String(propertiesOf(node)['scope']) }))
             .sort((left, right) => (left.path < right.path ? -1 : left.path > right.path ? 1 : 0));
         }
         case PUBLISHED_GAPS_READ: {
-          const nodes = await all((page) => store.byProperty('code.coverage', 'repository', repository, { ...page, limit: page.limit ?? PLAN_PAGE }, executor));
+          const nodes = await all((page) => store.byProperty('code.coverage', 'repository', repository, { ...page, limit: page.limit ?? PLAN_PAGE }, transaction));
           const rows: PublishedGapRow[] = [];
           for (const node of nodes) {
             const held = propertiesOf(node);
@@ -130,11 +132,11 @@ export function createStaticStageReadReader(store: GraphStore, executor?: OuterT
           return rows.sort((left, right) => (left.file === right.file ? (left.what < right.what ? -1 : left.what > right.what ? 1 : 0) : left.file < right.file ? -1 : 1));
         }
         case PUBLISHED_CONTAINMENT_READ: {
-          const found = await all((page) => store.byProperty('code.repository', 'repository', repository, { ...page, limit: page.limit ?? PLAN_PAGE }, executor));
+          const found = await all((page) => store.byProperty('code.repository', 'repository', repository, { ...page, limit: page.limit ?? PLAN_PAGE }, transaction));
           if (found.length === 0) return [];
           const rows: PublishedContainmentRow[] = [];
           for (const repositoryNode of found) {
-            const edges = await all((page) => store.relationsWithin(repositoryNode.nodeId, 'code.contains', undefined, { ...page, limit: page.limit ?? PLAN_PAGE }, executor));
+            const edges = await all((page) => store.relationsWithin(repositoryNode.nodeId, 'code.contains', undefined, { ...page, limit: page.limit ?? PLAN_PAGE }, transaction));
             for (const entry of edges as readonly EdgeEntry[]) {
               const properties = entry.edge.properties !== null && typeof entry.edge.properties === 'object' ? entry.edge.properties as Record<string, unknown> : {};
               if (properties['factKind'] !== 'contains') continue;
@@ -147,7 +149,7 @@ export function createStaticStageReadReader(store: GraphStore, executor?: OuterT
           return rows.sort((left, right) => (`${left.child}\u0000${left.to}` < `${right.child}\u0000${right.to}` ? -1 : `${left.child}\u0000${left.to}` > `${right.child}\u0000${right.to}` ? 1 : 0));
         }
         case PUBLISHED_COVERAGE_READ: {
-          const nodes = await all((page) => store.byProperty('code.coverage', 'repository', repository, { ...page, limit: page.limit ?? PLAN_PAGE }, executor));
+          const nodes = await all((page) => store.byProperty('code.coverage', 'repository', repository, { ...page, limit: page.limit ?? PLAN_PAGE }, transaction));
           return nodes
             .filter((node) => typeof propertiesOf(node)['blob'] === 'string')
             .map((node): PublishedCoverageRow => ({ kind: 'coverage', file: String(propertiesOf(node)['scope']), blob: String(propertiesOf(node)['blob']) }))
@@ -155,7 +157,7 @@ export function createStaticStageReadReader(store: GraphStore, executor?: OuterT
         }
         case PUBLISHED_IMPORTS_READ: {
           const rows: PublishedImportRow[] = [];
-          const edges = await all((page) => store.edgesByProperty('code.imports', 'repository', repository, { ...page, limit: page.limit ?? PLAN_PAGE }, executor));
+          const edges = await all((page) => store.edgesByProperty('code.imports', 'repository', repository, { ...page, limit: page.limit ?? PLAN_PAGE }, transaction));
           for (const entry of edges as readonly EdgeEntry[]) {
             const specifier = (entry.edge.properties !== null && typeof entry.edge.properties === 'object' ? (entry.edge.properties as Record<string, unknown>)['specifier'] : undefined);
             if (typeof specifier !== 'string' || specifier === '') {

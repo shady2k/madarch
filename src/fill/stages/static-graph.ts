@@ -2,7 +2,7 @@
  * What a static stage's private draft writes into the product's one temporal
  * graph (decision 0033's "The file is the unit of static work"; decision 0028's
  * publication). A stage writes graph items into its draft; the orchestrator's
- * one publication transaction applies them through `GraphStore.publish`, so
+ * one publication transaction applies them through `GraphStore.publishUnit`, so
  * nothing of the stage reaches a database on its own.
  *
  * Item 7 of decision 0033 keeps two vocabularies. The stages construct facts in
@@ -15,18 +15,15 @@
  * the next run finds the same node by the same key and corrects it instead of
  * opening a second identity.
  *
- * A unit's publication is scoped to the unit (a bare identity from
- * `graph-scope.ts`), so `complete: true` replaces exactly what that unit wrote
- * before: a vanished file's unit publishes nothing and its node and edges end,
- * and no other file's facts move.
+ * The graph store scopes a unit's publication by the caller's unit id
+ * (`publication_scope`), so `complete: true` replaces exactly what that unit
+ * wrote before: a vanished file's unit publishes nothing and its node and edges
+ * end, and no other file's facts move. The store allocates the generation and
+ * takes the publication lock itself; this module maps a draft and no more.
  */
-import { byCodePoint } from '../../model/order.js';
-import type { GraphId, GraphStore, PublishEdge, PublishNode } from '../../graph/index.js';
-import type { OuterTransaction } from '../../history/types.js';
-import type { SqlExecutor } from '../../query/sql-driver.js';
+import type { GraphId, GraphStore, PublishUnitInput, UnitEdgeDraft, UnitNodeDraft } from '../../graph/index.js';
 import type { Fact, FactKind } from '../facts.js';
 import type { StageDraftSet, StageDraftWrite, StageValidation } from '../stage.js';
-import { staticScopeOf } from './graph-scope.js';
 import { fileFactIdOf } from './syntax-facts.js';
 
 /** The node kinds this mapping writes, by the fact kind that writes them (decision 0028's `code.*`). */
@@ -265,15 +262,12 @@ export function checkStaticGraphDraft(stageId: string, kinds: readonly string[],
   return errors.length === 0 ? { ok: true } : { ok: false, errors };
 }
 
-/** What one static unit's publication is made of: the unit, the stage, its generation, its digest and its draft writes. */
+/** What one static unit's publication is made of: the unit, the stage, its publication digest and its draft writes. */
 export interface StaticUnitPublication {
   readonly unitId: string;
   readonly stageId: string;
-  readonly generation: number;
   /** The publication digest the orchestrator computed; the graph's work item carries it too, so a repeat writes nothing. */
   readonly digest: string;
-  /** The valid time the graph records for these versions; the caller's clock when it names none. */
-  readonly validFrom?: string;
   readonly writes: readonly StageDraftWrite[];
 }
 
@@ -293,98 +287,44 @@ export function staticProducerOf(stageId: string): string {
 }
 
 /**
- * The publication's executor as the store's outer transaction: the orchestrator
- * hands the apply step an `SqlExecutor`, and the graph's reads and writes take
- * the same `{ query }` shape under the store's own row type.
- */
-export function outerTransactionOf(executor: SqlExecutor): OuterTransaction {
-  return {
-    query: async <Row extends object>(sql: string, values?: readonly unknown[]) => await executor.query<Row & Record<string, unknown>>(sql, values),
-  };
-}
-
-/**
- * Applies one static unit's draft to the 0028 graph, inside the transaction the
- * orchestrator opened for its publication: the same atomic operation that
- * settles the queue job and writes the unit's events, so the graph and the
- * fill's state move together or not at all.
+ * The graph store's publication input for one static unit's draft (decision
+ * 0033, items 3 and 7; decision 0027's one atomic operation). The draft's
+ * `node` and `edge` writes are the graph's own items; every other write kind
+ * is refused here, by name, before the store is asked to publish anything.
  *
- * The unit publishes under its own stable scope, with `complete: true`: every
- * version of this unit's producer and scope that the draft does not repeat
- * ends. A file deleted from the tree therefore retracts exactly its own node
- * and edges, and no other unit's facts move.
+ * The caller's key is the unit's id in the fill's store: the graph store owns
+ * the scope it names (`publication_scope`) and allocates the generation, so a
+ * later run of the same unit publishes under the same scope. The lease covers
+ * the publication's own transaction: the store's publication lock, not this
+ * lease, is what fences two publishers of one unit.
  */
-export async function publishStaticUnit(executor: OuterTransaction, store: GraphStore, input: StaticUnitPublication): Promise<number> {
-  const nodes = input.writes.filter((write): write is Extract<StageDraftWrite, { kind: 'node' }> => write.kind === 'node').map((write) => write.value);
-  const edges = input.writes.filter((write): write is Extract<StageDraftWrite, { kind: 'edge' }> => write.kind === 'edge').map((write) => write.value);
-  if (nodes.length !== input.writes.length - edges.length) {
-    const wrong = input.writes.find((write) => write.kind !== 'node' && write.kind !== 'edge');
-    throw new Error(`fill-static-graph: unit ${JSON.stringify(input.unitId)} of stage ${JSON.stringify(input.stageId)} submitted a "${String(wrong?.kind)}" write, and a static unit publishes graph nodes and edges only (src/fill/stages/static-graph.ts)`);
+export function staticUnitPublicationOf(input: StaticUnitPublication): PublishUnitInput {
+  const nodes: UnitNodeDraft[] = [];
+  const edges: UnitEdgeDraft[] = [];
+  for (const [index, write] of input.writes.entries()) {
+    if (write.kind === 'node') {
+      nodes.push({ key: write.value.key, kind: write.value.kind, label: write.value.label, properties: { ...write.value.properties } });
+      continue;
+    }
+    if (write.kind === 'edge') {
+      edges.push({
+        relation: write.value.relation,
+        from: write.value.from,
+        to: write.value.to,
+        ...(write.value.properties === undefined ? {} : { properties: { ...write.value.properties } }),
+        ...(write.value.position === undefined ? {} : { position: write.value.position }),
+      });
+      continue;
+    }
+    throw new Error(`src/fill/stages/static-graph.ts:319: write ${index + 1} of unit ${JSON.stringify(input.unitId)} of stage ${JSON.stringify(input.stageId)} is a "${write.kind}" write, and a static unit publishes graph nodes and edges only; full path ${import.meta.dir}/static-graph.ts`);
   }
-  const producer = staticProducerOf(input.stageId);
-  const scope = await staticScopeOf(executor, store, input.unitId);
-  // One generation per publication under this unit's own scope. The advisory lock is the one the store's
-  // publication takes, so two publishers of one unit cannot allocate one generation twice.
-  await executor.query('SELECT pg_advisory_xact_lock(hashtextextended($1, 0))', [`graph-publication:${producer}:${scope}`]);
-  const generationRow = await executor.query<{ g: string }>(
-    'SELECT (coalesce(max(generation), 0) + 1)::text AS g FROM work_item WHERE producer = $1 AND scope_id = $2::bigint',
-    [producer, scope],
-  );
-  const generation = Number(generationRow.rows[0]!.g);
-  const leaseToken = `fill-static:${input.digest}`;
-  const leaseUntil = new Date(Date.now() + 60 * 60 * 1000).toISOString();
-  await store.openWorkItem({ producer, scope, generation, inputDigest: input.digest, leaseToken, leaseUntil }, executor);
-
-  const validFrom = input.validFrom ?? new Date().toISOString();
-  // A node the unit published before keeps its identity: the graph corrects it instead of opening a second
-  // node with one key. A key that names more than one current node is a corrupt graph, never a choice.
-  const held = new Map<string, GraphId>();
-  for (const node of nodes) {
-    const page = await store.byKey(node.key, { limit: 2 }, executor);
-    if (page.rows.length > 1) {
-      throw new Error(`fill-static-graph: unit ${JSON.stringify(input.unitId)} of stage ${JSON.stringify(input.stageId)} writes the key ${JSON.stringify(node.key)}, and ${String(page.rows.length)} current nodes carry it: one key names one node (src/fill/stages/static-graph.ts)`);
-    }
-    const found = page.rows[0];
-    if (found !== undefined) held.set(node.key, found.nodeId);
-  }
-  const drafted = new Set(nodes.map((node) => node.key));
-  const endpoint = async (end: StaticEnd, where: string): Promise<{ id: GraphId } | { ref: string }> => {
-    if ('id' in end) return { id: end.id };
-    if (drafted.has(end.key)) return { ref: end.key };
-    const page = await store.byKey(end.key, { limit: 2 }, executor);
-    if (page.rows.length === 0) {
-      throw new Error(`fill-static-graph: unit ${JSON.stringify(input.unitId)} of stage ${JSON.stringify(input.stageId)} writes ${where} to the key ${JSON.stringify(end.key)}, and no node in the graph carries it: an edge joins nodes that exist (decision 0028; src/fill/stages/static-graph.ts)`);
-    }
-    if (page.rows.length > 1) {
-      throw new Error(`fill-static-graph: unit ${JSON.stringify(input.unitId)} of stage ${JSON.stringify(input.stageId)} writes ${where} to the key ${JSON.stringify(end.key)}, and ${String(page.rows.length)} current nodes carry it: one key names one node (src/fill/stages/static-graph.ts)`);
-    }
-    return { id: page.rows[0]!.nodeId };
+  return {
+    producer: staticProducerOf(input.stageId),
+    scopeKey: input.unitId,
+    inputDigest: input.digest,
+    leaseToken: `fill-static:${input.digest}`,
+    leaseUntil: new Date(Date.now() + 60 * 60 * 1000).toISOString(),
+    nodes,
+    edges,
   };
-
-  // Deterministic order: two runs of one draft publish the same rows in the same order, so a replay is the
-  // same input digest and writes nothing.
-  const publishNodes: PublishNode[] = [...nodes]
-    .sort((left, right) => byCodePoint(left.key, right.key))
-    .map((node) => ({
-      ref: node.key,
-      ...(held.has(node.key) ? { id: held.get(node.key)! } : {}),
-      kind: node.kind,
-      label: node.label,
-      properties: { ...node.properties },
-      validFrom,
-    }));
-  const publishEdges: PublishEdge[] = [];
-  for (const edge of [...edges].sort((left, right) => byCodePoint(JSON.stringify([left.relation, left.from, left.to, left.position ?? null]), JSON.stringify([right.relation, right.from, right.to, right.position ?? null])))) {
-    const where = `edges to ${JSON.stringify([edge.relation, edge.from, edge.to])}`;
-    publishEdges.push({
-      relation: edge.relation,
-      src: await endpoint(edge.from, where),
-      dst: await endpoint(edge.to, where),
-      ...(edge.position === undefined ? {} : { position: { start: edge.position.start, end: edge.position.end } }),
-      ...(edge.properties === undefined ? {} : { properties: { ...edge.properties } }),
-      validFrom,
-    });
-  }
-  await store.publish({ producer, scope, generation, leaseToken, inputDigest: input.digest, nodes: publishNodes, edges: publishEdges, complete: true }, executor);
-  return nodes.length + edges.length;
 }

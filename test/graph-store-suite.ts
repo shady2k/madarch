@@ -175,7 +175,7 @@ export function graphStoreTests(label: string, getOwner: () => DatabaseOwner): v
   describe(`temporal graph store on ${label}`, () => {
     run('graph-only: the module creates exactly the graph tables, and btree_gist is loaded', async (env) => {
       const tables = await env.query<{ table_name: string }>(`SELECT table_name FROM information_schema.tables WHERE table_schema = current_schema() AND table_type = 'BASE TABLE' ORDER BY table_name`);
-      expect(tables.map((t) => t.table_name)).toEqual(['edge_identity', 'edge_version', 'node_identity', 'node_kind', 'node_version', 'relation_type', 'work_item']);
+      expect(tables.map((t) => t.table_name)).toEqual(['edge_identity', 'edge_version', 'node_identity', 'node_kind', 'node_version', 'publication_scope', 'relation_type', 'work_item']);
       expect((await env.query(`SELECT 1 FROM pg_extension WHERE extname = 'btree_gist'`)).length).toBe(1);
       // A second createSchema changes nothing.
       const before = await env.count('node_kind');
