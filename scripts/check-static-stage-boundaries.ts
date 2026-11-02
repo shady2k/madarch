@@ -1,19 +1,21 @@
 /**
  * The static stage boundary check (decision 0033, "Capability boundaries"): a
- * static stage's `execute` receives one pinned repository's path-scoped answers
- * and bounded graph reads, and never obtains a whole-tree reader or a
+ * static stage's `execute` receives one pinned file's bytes and bounded reads
+ * of the 0028 graph, and never obtains a whole-tree reader or a
  * repository-wide semantic object.
  *
  * The check is type-aware: it opens the repository's TypeScript project, finds
  * each configured stage's `execute` function (and every local function that
  * function calls), and asks the checker for the type of every identifier in
  * them. A type whose declaration stands in a forbidden module, or whose name is
- * one of the forbidden types, fails the check with the file, line and column.
- * The one whole-repository reading, `repositoryTree()`, is allowed only to the
- * stage the configuration names.
+ * one of the forbidden types, fails the check. A member name the configuration
+ * lists as answering a whole repository fails it too, named by the identifier
+ * that reached it. Every failure names the stage, the file, the line, the
+ * column and the reached symbol.
  *
  * The rules live in `static-stage-boundaries.json` and change only in a commit
- * that carries the owner's decision.
+ * that carries the owner's decision. There is no per-stage exception: decision
+ * 0033, item 5, says no whole-tree reader exists for a static stage to call.
  */
 import { readFileSync } from 'node:fs';
 import { resolve } from 'node:path';
@@ -21,26 +23,25 @@ import { pathToFileURL } from 'node:url';
 import { API } from 'typescript/unstable/sync';
 import { SyntaxKind } from 'typescript/unstable/ast';
 
-export interface StaticStageBoundaryRule {
-  /** The capabilities this stage may use from the static context; every other member is refused. */
-  readonly allows?: readonly string[];
-}
-
 export interface StaticStageBoundaryConfig {
-  readonly stages: Readonly<Record<string, StaticStageBoundaryRule>>;
+  readonly stages: Readonly<Record<string, Record<string, never>>>;
   /** Type names a static stage's `execute` may never hold. */
   readonly forbiddenTypes: readonly string[];
   /** Source files or folders a static stage's `execute` may never obtain a type from. */
   readonly forbiddenModules: readonly string[];
-  /** The static context's members that read a whole repository; only a stage that allows one may name it. */
+  /** Member names that answer a whole repository; no static stage may name one. */
   readonly wholeRepositoryMembers: readonly string[];
 }
 
 export interface StaticStageBoundaryFailure {
+  /** The stage id the configuration named. */
+  readonly stage: string;
   readonly file: string;
   readonly line: number;
   readonly column: number;
   readonly message: string;
+  /** The type or member the stage reached, as the checker named it. */
+  readonly reached: string;
 }
 
 /** The check's failures, in the order the stage files were read and the identifiers walked. */
@@ -54,24 +55,27 @@ export function checkStaticStageBoundaries(options: { readonly root: string; rea
     if (project === undefined) throw new Error(`the static stage boundary check opened no TypeScript project for ${resolve(root, options.tsconfigPath ?? 'tsconfig.json')}: the check needs the repository's project to resolve a stage's types`);
     const failures: StaticStageBoundaryFailure[] = [];
     for (const [stagePath, rule] of Object.entries(config.stages)) {
+      if (rule !== null && typeof rule === 'object' && Object.keys(rule).length > 0) {
+        throw new Error(`the static stage boundary check reads ${resolve(root, options.configPath)} and the stage ${JSON.stringify(stagePath)} holds ${Object.keys(rule).join(', ')}: a static stage has no exception, and a rule is no longer read (decision 0033, item 5)`);
+      }
       const file = project.program.getSourceFile(resolve(root, stagePath));
       if (file === undefined) {
-        failures.push({ file: resolve(root, stagePath), line: 1, column: 1, message: `the static stage boundary check knows no source at this path: the configured stage is not part of the repository's TypeScript project` });
+        failures.push({ stage: stagePath, file: resolve(root, stagePath), line: 1, column: 1, reached: stagePath, message: `the static stage boundary check knows no source at this path: the configured stage is not part of the repository's TypeScript project` });
         continue;
       }
       const execute = findExecute(file);
       if (execute === undefined) {
-        failures.push({ file: resolve(root, stagePath), line: 1, column: 1, message: 'the configured static stage declares no `execute` function: the boundary check reads what a unit runs, and the stage it was pointed at holds none' });
+        failures.push({ stage: stagePath, file: resolve(root, stagePath), line: 1, column: 1, reached: 'execute', message: 'the configured static stage declares no `execute` function: the boundary check reads what a unit runs, and the stage it was pointed at holds none' });
         continue;
       }
-      visit(execute, file, new Set(), new Set(rule.allows ?? []));
+      visit(stagePath, execute, file, new Set());
     }
     return failures;
 
-    function refuse(node: any, message: string): void {
+    function refuse(stage: string, node: any, reached: string, message: string): void {
       const file = node.getSourceFile() as any;
       const at = file.getLineAndCharacterOfPosition(node.getStart(file));
-      failures.push({ file: file.fileName, line: at.line + 1, column: at.character + 1, message });
+      failures.push({ stage, file: file.fileName, line: at.line + 1, column: at.character + 1, message, reached });
     }
 
     function findExecute(file: any): any {
@@ -83,26 +87,25 @@ export function checkStaticStageBoundaries(options: { readonly root: string; rea
       return found;
     }
 
-    function visit(node: any, file: any, visited: Set<any>, allowed: ReadonlySet<string>): void {
+    function visit(stage: string, node: any, file: any, visited: Set<any>): void {
       walkTree(node, (child) => {
         if (child.kind === SyntaxKind.Identifier) {
           const name = child.text as string;
-          if (config.wholeRepositoryMembers.includes(name) && !allowed.has(name)) {
-            refuse(child, `the static stage names "${name}", which reads the whole repository: this stage's context allows ${allowed.size === 0 ? 'no whole-repository reading' : [...allowed].sort().map((each) => `"${each}"`).join(', ')} (decision 0033)`);
+          if (config.wholeRepositoryMembers.includes(name)) {
+            refuse(stage, child, name, `the static stage ${JSON.stringify(stage)} names "${name}", which answers a whole repository: a static stage receives one file's bytes and bounded graph queries, and has no whole-tree reader or repository-wide object to call (decision 0033, item 5)`);
           }
           const type = project.checker.getTypeAtLocation(child);
           const forbidden = type === undefined ? undefined : forbiddenOf(type);
           if (forbidden !== undefined) {
-            refuse(child, `the static stage obtains ${forbidden}, which its static context does not hand it: a static unit reads one file's bytes and bounded graph queries, never a whole-tree reader (decision 0033)`);
+            refuse(stage, child, forbidden, `the static stage ${JSON.stringify(stage)} obtains ${forbidden}, which its static context does not hand it: a static unit reads one file's bytes and bounded graph queries, never a whole-tree reader or a repository-wide object (decision 0033, item 5)`);
           }
-          // A local function the execute calls is walked too: a stage does not
-          // clean its hands by calling a helper that holds the reader.
+          // A local function the execute calls is walked too: a stage does not clean its hands by calling a helper that holds the reader.
           const symbol = project.checker.getSymbolAtLocation(child);
           const declaration = symbol?.declarations?.[0]?.resolve(project);
           if (declaration !== undefined && !visited.has(declaration)) {
             visited.add(declaration);
-            if (declaration.kind === SyntaxKind.FunctionDeclaration && declaration.body !== undefined) visit(declaration.body, declaration.getSourceFile(), visited, allowed);
-            else if (declaration.kind === SyntaxKind.VariableDeclaration && declaration.initializer !== undefined && isFunction(declaration.initializer)) visit(declaration.initializer, declaration.getSourceFile(), visited, allowed);
+            if (declaration.kind === SyntaxKind.FunctionDeclaration && declaration.body !== undefined) visit(stage, declaration.body, declaration.getSourceFile(), visited);
+            else if (declaration.kind === SyntaxKind.VariableDeclaration && declaration.initializer !== undefined && isFunction(declaration.initializer)) visit(stage, declaration.initializer, declaration.getSourceFile(), visited);
           }
         }
       });
@@ -168,7 +171,7 @@ function main(argv: readonly string[]): number {
   const failures = checkStaticStageBoundaries({ root, configPath, tsconfigPath });
   if (failures.length === 0) return 0;
   for (const failure of failures) {
-    process.stderr.write(`${failure.file}:${failure.line}:${failure.column}: ${failure.message}\n`);
+    process.stderr.write(`${failure.file}:${failure.line}:${failure.column}: ${failure.stage}: ${failure.message}\n`);
   }
   process.stderr.write(`the static stage boundary check found ${failures.length} ${failures.length === 1 ? 'violation' : 'violations'} in ${resolve(root, configPath)}\n`);
   return 1;

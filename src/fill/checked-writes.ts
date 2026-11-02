@@ -800,7 +800,7 @@ async function write(session: CheckedWriteSession, request: ToolWrite): Promise<
   }
   if (refusals.length > 0) return { refusals };
 
-  const entry: StageDraftWrite = { kind: request.tool, evidence: evidenceOf(cited), value: fact as unknown };
+  const entry = { kind: request.tool, evidence: evidenceOf(cited), value: fact as unknown } as StageDraftWrite;
   await session.draft.append(entry);
   // The position is the one the write took in the set it read; the count is the set's own size after it,
   // read again, so a set another writer added to is never answered as a smaller one.

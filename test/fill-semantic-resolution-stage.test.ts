@@ -26,7 +26,9 @@ import { deriveStageGraph } from '../src/fill/registry.js';
 import { createGitSnapshotSource, type SnapshotSource } from '../src/fill/snapshot.js';
 import { staticStageContext, staticStageSourceOf } from '../src/fill/stages/static-context.js';
 import { DEFAULT_STAGE_LIMITS, type StageContext, type StageDraftWrite, type StageUnit } from '../src/fill/stage.js';
-import { publishedTreeRead, createInventoryStage, type PublishedTreeRow } from '../src/fill/stages/inventory.js';
+import { publishedContainmentRead, publishedTreeRead, createInventoryStage, type PublishedTreeRow } from '../src/fill/stages/inventory.js';
+import { createSnapshotStage, publishedRepositoryRead } from '../src/fill/stages/snapshot.js';
+import { gapRowsOf as staticGapRowsOf, importRowsOf as staticImportRowsOf, itemsOf as staticItemsOf, treeRowsOf } from './fill-static-drafts.js';
 import {
   compilerIndexRead, createSemanticResolutionStage, indexRows,
   publishedReadRows, publishedReadsRead, publishedSymbolsRead, symbolRows, SEMANTIC_RESOLUTION_STAGE_ID,
@@ -105,7 +107,7 @@ async function contextFor(unit: StageUnit, answer: (read: string) => readonly un
       unit,
       config: { id: SEMANTIC_RESOLUTION_STAGE_ID, version: 1, enabled: true, concurrency: 1, limits: DEFAULT_STAGE_LIMITS, config: {} },
       graph,
-      ...(repository === undefined ? {} : { static: staticStageContext(repository, graph) }),
+      ...(repository === undefined ? {} : { static: staticStageContext(repository, { byKey: async () => [], byGlobalName: async () => [], neighbourhood: async () => [] }) }),
       draft: {
         write: (entry: StageDraftWrite) => { recorder.writes.push(entry); },
         writes: () => ({ writes: recorder.writes }),
@@ -149,15 +151,9 @@ function factOfKind(writes: readonly StageDraftWrite[], kind: string): DraftFact
   return held[0]!;
 }
 
-/** What a fact store would answer for one repository's stage-1 tree: the file and directory facts a draft set holds. */
+/** What the graph answers for one repository's stage-1 tree: the snapshot's `code.file` and `code.directory` nodes. */
 function publishedRows(writes: readonly StageDraftWrite[], repository: string): readonly PublishedTreeRow[] {
-  const rows: PublishedTreeRow[] = [];
-  for (const fact of factsOf(writes)) {
-    if (fact.kind !== 'file' && fact.kind !== 'directory') continue;
-    const blob = fact.value['blob'];
-    rows.push({ kind: fact.kind, repository, path: String(fact.value['path']), ...(typeof blob === 'string' ? { blob } : {}) });
-  }
-  return rows;
+  return treeRowsOf(writes, repository);
 }
 
 /** What a fact store would answer for this stage's own last reading: one row a file, with the files its resolution read. */
@@ -170,41 +166,30 @@ function readRows(writes: readonly StageDraftWrite[]): readonly { readonly kind:
   return rows;
 }
 
-/** What a fact store would answer for one repository's stage-3 gaps: the coverage facts a draft set holds, one row a gap. */
+/** What the graph answers for one repository's stage-3 gaps: the syntax stage's coverage nodes, one row a gap. */
 function gapRows(writes: readonly StageDraftWrite[]): readonly { readonly kind: 'coverage'; readonly file: string; readonly what: string }[] {
-  const rows: { kind: 'coverage'; file: string; what: string }[] = [];
-  for (const fact of factsOf(writes)) {
-    if (fact.kind !== 'coverage') continue;
-    const unread = fact.value['unread'] as readonly { readonly what: string }[] | undefined;
-    for (const gap of unread ?? []) rows.push({ kind: 'coverage', file: String(fact.value['scope']), what: gap.what });
-  }
-  return rows;
+  return staticGapRowsOf(writes);
 }
 
-/** What a fact store would answer for one repository's stage-3 imports: the `import` edges a draft set holds. */
+/** What the graph answers for one repository's stage-3 imports: the syntax stage's `code.imports` edges. */
 function importRows(writes: readonly StageDraftWrite[]): readonly PublishedImportRow[] {
-  return factsOf(writes).filter((fact) => fact.kind === 'import').map((fact) => ({
-    kind: 'import' as const,
-    from: String(fact.value['from']),
-    to: String(fact.value['to']),
-    specifier: String(fact.value['specifier']),
-  }));
+  return staticImportRowsOf(writes);
 }
 
-/** What a fact store would answer for one file's stage-3 symbols: the `symbol` facts a draft set holds for that file. */
+/** What the graph answers for one file's stage-3 symbols: the syntax stage's `code.symbol` nodes for that file. */
 function symbolRowsOf(writes: readonly StageDraftWrite[], path: string): readonly Record<string, unknown>[] {
-  return factsOf(writes)
-    .filter((fact) => fact.kind === 'symbol' && fact.value['file'] === path && fact.provenance.place !== undefined)
-    .map((fact) => ({
+  return staticItemsOf(writes)
+    .filter((item) => item.kind === 'symbol' && item.value['file'] === path && item.provenance.place !== undefined)
+    .map((item) => ({
       kind: 'symbol' as const,
-      id: fact.id,
+      id: item.id,
       file: path,
-      qualifiedName: String(fact.value['qualifiedName']),
-      symbolKind: fact.value['symbolKind'],
-      startLine: fact.provenance.place!.range.startLine,
-      startColumn: fact.provenance.place!.range.startColumn,
-      endLine: fact.provenance.place!.range.endLine,
-      endColumn: fact.provenance.place!.range.endColumn,
+      qualifiedName: String(item.value['qualifiedName']),
+      symbolKind: item.value['symbolKind'],
+      startLine: item.provenance.place!.range.startLine,
+      startColumn: item.provenance.place!.range.startColumn,
+      endLine: item.provenance.place!.range.endLine,
+      endColumn: item.provenance.place!.range.endColumn,
     }));
 }
 
@@ -217,29 +202,39 @@ interface Published {
 }
 
 async function publishedAt(source: SnapshotSource): Promise<Published> {
-  const inventory = createInventoryStage(source);
+  const repository = (await source.pins())[0]!.id;
+  const snapshot = createSnapshotStage(source);
   const tree: StageDraftWrite[] = [];
-  for (const unit of (await inventory.plan({ query: async () => [] })).units) {
+  for (const unit of (await snapshot.plan({ query: async () => [] })).units) {
     const run = await contextFor(unit, () => [], source);
-    await inventory.execute(unit, run.context);
+    await snapshot.execute(unit, run.context);
     tree.push(...run.recorder.writes);
   }
+  const planGraph = async (read: string): Promise<readonly unknown[]> => {
+    if (read === publishedTreeRead(repository)) return treeRowsOf(tree, repository);
+    if (read === publishedRepositoryRead(repository)) return [{ kind: 'repository', repository }];
+    if (read === publishedContainmentRead(repository)) return [];
+    return [];
+  };
+  const inventory = createInventoryStage(source);
+  const containment: StageDraftWrite[] = [];
+  for (const unit of (await inventory.plan({ query: planGraph })).units) {
+    const run = await contextFor(unit, () => [], source);
+    await inventory.execute(unit, run.context);
+    containment.push(...run.recorder.writes);
+  }
   const syntax = createSyntaxStage(source);
+  const syntaxGraph = async (read: string): Promise<readonly unknown[]> => {
+    if (read === publishedTreeRead(repository)) return treeRowsOf(tree, repository);
+    return [];
+  };
   const writes: StageDraftWrite[] = [];
-  for (const unit of (await syntax.plan({ query: async () => [] })).units) {
+  for (const unit of (await syntax.plan({ query: syntaxGraph })).units) {
     const run = await contextFor(unit, () => [], source);
     await syntax.execute(unit, run.context);
     writes.push(...run.recorder.writes);
   }
-  return { tree: publishedRows(tree, repositoryOf(tree)), writes };
-}
-
-/** The repository a set of inventory facts was published for. */
-function repositoryOf(writes: readonly StageDraftWrite[]): string {
-  for (const fact of factsOf(writes)) {
-    if (fact.kind === 'file') return String(fact.value['repository']);
-  }
-  throw new Error('the inventory published no file fact: this test needs its repository name');
+  return { tree: treeRowsOf([...tree, ...containment], repository), writes };
 }
 
 /** The graph one resolution run reads: the published tree, the imports, the symbols, and the compiler's index. */
@@ -249,9 +244,9 @@ function graphOf(published: Published, repository: string, options: { readonly i
     if (read === publishedReadsRead(repository)) return readRows(published.resolution ?? []);
     if (read === publishedImportsRead(repository)) return importRows(published.writes);
     if (read === publishedGapsRead(repository)) return gapRows(published.writes);
-    for (const fact of factsOf(published.writes)) {
-      if (fact.kind !== 'symbol') continue;
-      const path = String(fact.value['file']);
+    for (const item of staticItemsOf(published.writes)) {
+      if (item.kind !== 'symbol') continue;
+      const path = String(item.value['file']);
       if (read === publishedSymbolsRead(repository, path)) return symbolRowsOf(published.writes, path);
     }
     const indexed = /stage-4-compiler-index/.exec(read);
@@ -282,7 +277,7 @@ async function refusedBy(call: () => unknown): Promise<string> {
  * The id stage 3 published for one file's symbol, by its qualified name.
  */
 function symbolIdOf(published: Published, path: string, qualifiedName: string): string {
-  const held = factsOf(published.writes).filter((fact) => fact.kind === 'symbol' && fact.value['file'] === path && fact.value['qualifiedName'] === qualifiedName);
+  const held = staticItemsOf(published.writes).filter((item) => item.kind === 'symbol' && item.value['file'] === path && item.value['qualifiedName'] === qualifiedName);
   if (held.length !== 1) throw new Error(`stage 3 published ${held.length} symbols named ${qualifiedName} in ${path}, and this test needs exactly one`);
   return held[0]!.id;
 }
@@ -323,22 +318,22 @@ describe('the semantic resolution stage is registered', () => {
       const registry = createStageRegistry({ snapshots: sourceAt(f.root, commit) });
       const read = deriveStageGraph(registry);
       if (!read.ok) throw new Error(`the graph did not derive: ${JSON.stringify(read)}`);
-      expect(read.graph.order).toEqual(['snapshot', 'history', 'inventory', 'build-configuration', 'document-index', 'syntax', 'semantic-resolution', 'modules']);
+      expect(read.graph.order).toEqual(['snapshot', 'build-configuration', 'document-index', 'history', 'inventory', 'syntax', 'semantic-resolution', 'modules']);
       expect(read.graph.edges).toEqual([
         { from: 'build-configuration', to: 'modules', via: 'package' },
-        { from: 'inventory', to: 'build-configuration', via: 'file' },
-        { from: 'inventory', to: 'document-index', via: 'file' },
-        { from: 'inventory', to: 'modules', via: 'file' },
-        { from: 'inventory', to: 'semantic-resolution', via: 'file' },
-        { from: 'inventory', to: 'syntax', via: 'file' },
         { from: 'semantic-resolution', to: 'modules', via: 'call' },
         { from: 'semantic-resolution', to: 'modules', via: 'inherits' },
         { from: 'semantic-resolution', to: 'modules', via: 'reference' },
+        { from: 'snapshot', to: 'build-configuration', via: 'file' },
         { from: 'snapshot', to: 'build-configuration', via: 'snapshot' },
+        { from: 'snapshot', to: 'document-index', via: 'file' },
         { from: 'snapshot', to: 'document-index', via: 'snapshot' },
         { from: 'snapshot', to: 'history', via: 'snapshot' },
-        { from: 'snapshot', to: 'inventory', via: 'repository' },
-        { from: 'snapshot', to: 'inventory', via: 'snapshot' },
+        { from: 'snapshot', to: 'inventory', via: 'directory' },
+        { from: 'snapshot', to: 'inventory', via: 'file' },
+        { from: 'snapshot', to: 'modules', via: 'file' },
+        { from: 'snapshot', to: 'semantic-resolution', via: 'file' },
+        { from: 'snapshot', to: 'syntax', via: 'file' },
         { from: 'syntax', to: 'modules', via: 'import' },
         { from: 'syntax', to: 'modules', via: 'symbol' },
         { from: 'syntax', to: 'semantic-resolution', via: 'import' },

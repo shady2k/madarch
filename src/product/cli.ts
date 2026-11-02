@@ -725,7 +725,7 @@ async function fillStagesCommand(parsed: Parsed, home: string | undefined): Prom
   // own folder yet (the host would make it; this command opens the owner itself).
   await mkdir(dirname(fillDatabasePath(resolvedHome)), { recursive: true });
   const workers = parsed.workers ?? 16;
-  const owner = createPGliteDatabaseOwner({ path: fillDatabasePath(resolvedHome) });
+  const owner = createPGliteDatabaseOwner({ path: fillDatabasePath(resolvedHome), btreeGist: true });
   let service: FillOrchestratorService | undefined;
   let exit = 0;
   try {

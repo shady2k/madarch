@@ -30,6 +30,10 @@ import { draftSetOf, factGraph, writeScope, type CheckedWriteDraft, type Checked
 import type { FillStageConfigurationRead } from './config.js';
 import type { SqlExecutor } from '../query/sql-driver.js';
 import { FACT_APPLICATION, createFactStoreSchema } from './fact-store.js';
+import { createGraphStore, type GraphStore } from '../graph/index.js';
+import { ensureGraphSchema, outerTransactionOf, publishStaticUnit } from './stages/static-graph.js';
+import { CODE_GRAPH_VOCABULARY } from './stages/static-graph.js';
+import { staticGraphReaderOf } from './stages/static-context.js';
 import { emptyNextStep, emptyPageSetMessage, emptyQuestionSet, readDecisionSubject, readPageChanges, readPageModel, readPageSet, type GraphDecisionWrite, type GraphPagesSource } from './graph-pages.js';
 import { answerDocument, acceptanceDocument, ANSWERS_FOLDER, ACCEPTANCES_FOLDER, commitDecision, decisionFile, discardDecision, stageDecision, type DecisionRecord, type StagedDecision } from './decisions.js';
 import { applyDecisions } from './declared.js';
@@ -37,9 +41,6 @@ import { labelOf } from './graph-reads.js';
 import { readNodeDiagrams } from './graph-diagrams.js';
 import { commitNarrativePages, type NarrativeOutboxResult } from './narrative-outbox.js';
 import { NARRATIVE_STAGE_ID } from './stages/narrative.js';
-import { INVENTORY_STAGE_ID } from './stages/inventory.js';
-import { SNAPSHOT_STAGE_ID } from './stages/snapshot.js';
-import { SYNTAX_STAGE_ID } from './stages/syntax.js';
 import { createPageReadCache } from './page-cache.js';
 import type { Fact, FactLayer, FactSource } from './facts.js';
 import { answerMembership, graphReadsOver, recordedReadText, type DraftReading, type GraphReadLimits } from './graph-reads.js';
@@ -366,9 +367,6 @@ export interface FillOrchestratorServiceOptions {
   readonly control?: (product: FillProduct) => RunControlReader;
 }
 
-/** The stages that read the pinned tree through a static unit context (decision 0033). */
-const STATIC_STAGE_IDS: ReadonlySet<string> = new Set([SNAPSHOT_STAGE_ID, INVENTORY_STAGE_ID, SYNTAX_STAGE_ID]);
-
 /**
  * The repository a static unit's scope names: `<repository>` for the snapshot
  * stage's units and `<repository>:<path>` for a file's or a folder's. A scope
@@ -400,22 +398,29 @@ export function createFillOrchestratorService(options: FillOrchestratorServiceOp
   const databasePath = options.databasePath ?? fillDatabasePath(options.home);
   const queueName = options.queueName ?? DEFAULT_FILL_QUEUE;
   const limits = { ...DEFAULT_ORCHESTRATOR_LIMITS, ...options.limits };
-  let opening: Promise<{ owner: DatabaseOwner; queue: QueueService; opened: boolean }> | undefined;
+  let opening: Promise<{ owner: DatabaseOwner; queue: QueueService; graph: GraphStore; opened: boolean }> | undefined;
+  let graphStore: GraphStore | undefined;
   let stopped = false;
 
-  async function open(): Promise<{ owner: DatabaseOwner; queue: QueueService; opened: boolean }> {
+  async function open(): Promise<{ owner: DatabaseOwner; queue: QueueService; graph: GraphStore; opened: boolean }> {
     if (opening !== undefined) return await opening;
     opening = (async () => {
       // PGlite opens a data directory, and the state folder it stands in may not be there yet: the
       // process's own folder under the products home is made on the first run asked for.
       const lent = options.owner;
       if (lent === undefined) await mkdir(dirname(databasePath), { recursive: true });
-      const database = lent ?? createPGliteDatabaseOwner({ path: databasePath });
+      const database = lent ?? createPGliteDatabaseOwner({ path: databasePath, btreeGist: true });
       await createFillStateSchema(database);
       await createOrchestratorSchema(database);
       // The store a published fact set lands in is the fill's own (`fact-store.ts`): its tables are
-      // created with the rest of the fill's, so a wiring that lands facts there finds them.
+      // created with the rest of the fill's, so a wiring that lands facts there finds them. The three
+      // static stages do not land there: their publication writes the 0028 graph below (decision 0033).
       await createFactStoreSchema(database);
+      // The one temporal graph the static stages publish into and read through (decision 0028; 0033's
+      // capability boundary). Its tables are created before a run of a registry with static stages plans,
+      // never inside a publication's transaction (`ensureGraph`).
+      const graph = createGraphStore(database);
+      graphStore = graph;
       const queue = options.queueFactory !== undefined
         ? await options.queueFactory(database)
         : await createPgBossQueue({ owner: database });
@@ -429,7 +434,7 @@ export function createFillOrchestratorService(options: FillOrchestratorServiceOp
         retryBackoff: false,
         singletons: true,
       });
-      return { owner: database, queue, opened: lent === undefined };
+      return { owner: database, queue, graph, opened: lent === undefined };
     })();
     return await opening;
   }
@@ -502,6 +507,14 @@ async function fileDecision(
    * (`cancelRun`'s revocation), leaving the work in flight. Building it once also keeps a product's stage registry
    * and wiring in one place for every run of it.
    */
+  /** The graph's tables and vocabulary, created once per process before a registry with static stages runs. */
+  let graphReady: Promise<void> | undefined;
+  async function ensureGraph(): Promise<void> {
+    if (graphStore === undefined) throw new Error('fill-orchestrator: the graph schema was asked for before the process\'s owner was opened (src/fill/orchestrator-host.ts)');
+    graphReady ??= ensureGraphSchema(graphStore);
+    await graphReady;
+  }
+
   const orchestrators = new Map<string, FillOrchestrator>();
   /** The registry each product's orchestrator was built over: what the pages outbox asks for by name. */
   const registries = new Map<string, StageRegistry>();
@@ -513,7 +526,10 @@ async function fileDecision(
     if ('ok' in wired) return wired;
     const { wiring, registry } = wired;
     registries.set(product.name, registry);
-    const { owner, queue } = await open();
+    const { owner, queue, graph } = await open();
+    // A registry with any static stage publishes into the 0028 graph: its tables and vocabulary stand
+    // before the first plan reads them, outside every publication's transaction.
+    if (registry.all().some((stage) => stage.staticReading === true)) await ensureGraph();
     const built = createOrchestrator({
       database: owner,
       registry,
@@ -527,11 +543,30 @@ async function fileDecision(
       // A static stage (0033, "Capability boundaries") is handed its pinned repository's path-scoped
       // answers here: the host owns the snapshot source, and a stage never receives the reader.
       staticSource: async (ref) => {
-        if (!STATIC_STAGE_IDS.has(ref.stageId)) return undefined;
+        if (registry.get(ref.stageId)?.staticReading !== true) return undefined;
         const source = await sourceOf(wiring, product);
         return await staticStageSourceOf(source, repositoryOfScope(ref));
       },
-      facts: wiring.facts ?? FACT_APPLICATION,
+      // The same stages read the graph through three bounded questions (0033): by key, by global name
+      // and one bounded neighbourhood. They never receive the store.
+      staticGraph: (ref) => (registry.get(ref.stageId)?.staticReading === true ? staticGraphReaderOf(graph) : undefined),
+      // The static stages' drafts are graph items, applied by the publication's own transaction into the
+      // 0028 graph. Every other stage still lands its fact set where the wiring says (today the fill's
+      // fact store), and a host that names another landing point keeps it for those stages.
+      facts: {
+        apply: async (input) => {
+          if (registry.get(input.unit.stageId)?.staticReading === true) {
+            return await publishStaticUnit(outerTransactionOf(input.executor), graph, {
+              unitId: input.unit.unitId,
+              stageId: input.unit.stageId,
+              generation: input.unit.generation,
+              digest: input.digest,
+              writes: input.writes,
+            });
+          }
+          return await (wiring.facts ?? FACT_APPLICATION).apply(input);
+        },
+      },
       ...(options.clock === undefined ? {} : { clock: options.clock }),
       control: options.control !== undefined ? options.control(product) : async (runId: string) => await consumeFillControl(product.folder, runId),
       ...(wiring.guard === undefined ? {} : { guard: wiring.guard }),

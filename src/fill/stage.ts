@@ -20,6 +20,7 @@
  */
 import { type TSchema } from 'typebox';
 import type { AcpMcpServer } from './acp.js';
+import type { StaticEdgeDraft, StaticNodeDraft } from './stages/static-graph.js';
 import type { StaticStageContext } from './stages/static-context.js';
 
 /** How much of the product one capability or fact kind is about. */
@@ -148,7 +149,11 @@ export type StageDraftWrite =
   | { kind: 'fact'; evidence: string; value: unknown }
   | { kind: 'entity'; evidence: string; value: unknown }
   | { kind: 'link'; evidence: string; value: unknown }
-  | { kind: 'question'; evidence: string; value: unknown };
+  | { kind: 'question'; evidence: string; value: unknown }
+  /** One graph node a static stage's draft writes (decision 0033): applied by the publication's own transaction. */
+  | { kind: 'node'; evidence: string; value: StaticNodeDraft }
+  /** One graph edge a static stage's draft writes; both ends name nodes by their key. */
+  | { kind: 'edge'; evidence: string; value: StaticEdgeDraft };
 
 /** The draft set a unit's writes collect into while it runs. */
 export interface StageDraftSet {
@@ -310,6 +315,14 @@ export interface FillStage {
   configSchema: TSchema;
   /** The stage's defaults, before the product's configuration speaks. */
   defaults: StageDefaults;
+  /**
+   * Whether the stage is one of decision 0033's static stages: its units read one
+   * file's bytes and bounded graph queries through `StageContext.static`, and its
+   * draft writes graph nodes and edges that the publication's transaction applies
+   * to the 0028 graph. A host dispatches on this marker, never on a stage id a
+   * product could reuse.
+   */
+  readonly staticReading?: boolean;
   /**
    * Whether the stage's units read and write through the unit's own MCP server
    * (0026, "Agents and tools"). A stage that declares it is handed

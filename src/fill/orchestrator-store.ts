@@ -36,10 +36,11 @@ import { here, raise, withLocation } from './fsm-core.js';
 import { FACT_RANK_FIELDS } from './facts.js';
 import { advanceUnitIn, type UnitRecord } from './state-store.js';
 import type { StageDraftWrite } from './stage.js';
+import { STATIC_GRAPH_SCOPE_SCHEMA, STATIC_GRAPH_SCOPE_TABLE } from './stages/graph-scope.js';
 
 /** The orchestrator's own tables; `createOrchestratorSchema` creates them and every error names the ones it touched. */
 export const ORCHESTRATOR_TABLES = [
-  'fill_run_configuration', 'fill_run_stage', 'fill_unit_plan', 'fill_unit_read', 'fill_unit_draft', 'fill_unit_draft_part', 'fill_unit_split', 'fill_publication', 'fill_event',
+  'fill_run_configuration', 'fill_run_stage', 'fill_unit_plan', 'fill_unit_read', 'fill_unit_draft', 'fill_unit_draft_part', 'fill_unit_split', 'fill_publication', 'fill_event', STATIC_GRAPH_SCOPE_TABLE,
 ] as const;
 
 const SCHEMA: readonly string[] = [
@@ -133,6 +134,7 @@ const SCHEMA: readonly string[] = [
     published_at bigint NOT NULL,
     PRIMARY KEY (unit_id, generation)
   )`,
+  STATIC_GRAPH_SCOPE_SCHEMA,
 ];
 
 /**

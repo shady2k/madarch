@@ -21,7 +21,7 @@ import {
   leaseWorkItem, openWorkItem, publish, type LeaseInput, type PublishInput, type PublishResult, type WorkItemInput,
 } from './publish.js';
 import {
-  readAll, readCallees, readCallers, readClaims, readContentBytes, readNode, readOutgoingDiff, readRelationsWithin, readStateChain, readTraversal, resolveLens,
+  readAll, readByKey, readByProperty, readCallees, readCallers, readClaims, readContentBytes, readEdgesByProperty, readNode, readOutgoingDiff, readRelationsWithin, readStateChain, readTraversal, resolveLens,
   type ClaimEntry, type EdgeEntry, type GraphLens, type OutgoingDiff, type Page, type PageOptions, type StateEntry,
 } from './reads.js';
 import { registerCodeSchema, registerVocabulary } from './register.js';
@@ -206,6 +206,31 @@ export class GraphStore {
       const resolved = await resolveLens(tx, { ...lens, state: 0 }, this.nowText());
       return await readStateChain(tx, resolved);
     });
+  }
+
+  /** The nodes whose current version carries the record key, in node id order, one bounded page. */
+  byKey(key: string, options?: PageOptions, transaction?: OuterTransaction): Promise<Page<NodeVersionRow>> {
+    return this.read(transaction, async (tx) => await readByKey(tx, key, await this.lens(tx, undefined), options));
+  }
+
+  /** The nodes of one kind whose current version carries `value` in the property `field`: one bounded page. */
+  byProperty(kind: string, field: string, value: string, options?: PageOptions, transaction?: OuterTransaction): Promise<Page<NodeVersionRow>> {
+    return this.read(transaction, async (tx) => await readByProperty(tx, kind, field, value, await this.lens(tx, undefined), options));
+  }
+
+  /** The symbols whose global name is `name`: the graph's own query by the name a reader of another file writes (0033). */
+  byGlobalName(name: string, options?: PageOptions, transaction?: OuterTransaction): Promise<Page<NodeVersionRow>> {
+    return this.byProperty('code.symbol', 'globalName', name, options, transaction);
+  }
+
+  /** One bounded page of the edges of one relation whose property carries a value. */
+  edgesByProperty(relation: string, field: string, value: string, options?: PageOptions, transaction?: OuterTransaction): Promise<Page<EdgeEntry>> {
+    return this.read(transaction, async (tx) => await readEdgesByProperty(tx, relation, field, value, await this.lens(tx, undefined), options));
+  }
+
+  /** One bounded page of the nodes reachable from `start` through `relations`, in node id order. */
+  neighbourhood(start: GraphId, relations: readonly string[], direction: 'out' | 'in', options?: PageOptions, transaction?: OuterTransaction): Promise<Page<NodeVersionRow>> {
+    return this.read(transaction, async (tx) => await readTraversal(tx, start, relations, direction, await this.lens(tx, undefined), options));
   }
 
   /** The bytes of a content node, or of a span of them, found by digest; null when no content has it. */

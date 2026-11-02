@@ -53,9 +53,49 @@ function commitAll(folder: string, message: string): string {
   return git(folder, 'rev-parse', 'HEAD');
 }
 
+/** The graph kinds the three static stages publish, counted as the fact kinds they used to be, so one assertion reads both stores. */
+async function countGraphKinds(owner: DatabaseOwner): Promise<Record<string, number>> {
+  return await owner.run(async (tx) => {
+    const counts: Record<string, number> = {};
+    const nodes = await tx.query<{ kind: string; n: string }>(
+      `SELECT k.key AS kind, count(*)::text AS n FROM node_version v JOIN node_kind k ON k.id = v.kind_id
+       WHERE v.recorded_to = 'infinity' AND v.valid_to = 'infinity' AND k.key IN ('code.file', 'code.directory', 'code.symbol', 'code.coverage', 'code.commit', 'code.repository')
+       GROUP BY k.key`,
+    );
+    const nodeName: Record<string, string> = { 'code.file': 'file', 'code.directory': 'directory', 'code.symbol': 'symbol', 'code.coverage': 'coverage', 'code.commit': 'snapshot', 'code.repository': 'repository' };
+    for (const row of nodes.rows) counts[nodeName[row.kind] ?? row.kind] = Number(row.n);
+    const edges = await tx.query<{ relation: string; fact: string | null; n: string }>(
+      `SELECT r.key AS relation, e.properties->>'factKind' AS fact, count(*)::text AS n FROM edge_version e JOIN relation_type r ON r.id = e.relation_type_id
+       WHERE e.recorded_to = 'infinity' AND e.valid_to = 'infinity' AND r.key IN ('code.occurrence', 'code.imports', 'code.contains')
+       GROUP BY r.key, e.properties->>'factKind'`,
+    );
+    for (const row of edges.rows) {
+      const kind = row.relation === 'code.occurrence' ? 'occurrence' : row.relation === 'code.imports' ? 'import' : row.fact === 'defines' ? 'defines' : 'contains';
+      counts[kind] = (counts[kind] ?? 0) + Number(row.n);
+    }
+    return counts;
+  });
+}
+
+/** The node kinds one snapshot unit published, read from the graph: the unit's own scope and producer. */
+async function unitNodes(owner: DatabaseOwner, unitId: string): Promise<readonly { readonly fact: { readonly kind: string; readonly value: Record<string, unknown> } }[]> {
+  return await owner.run(async (tx) => {
+    const scope = await tx.query<{ node_id: string }>('SELECT node_id::text AS node_id FROM fill_graph_scope WHERE unit_id = $1', [unitId]);
+    const nodeId = scope.rows[0]?.node_id;
+    if (nodeId === undefined) return [];
+    const rows = await tx.query<{ kind: string; properties: Record<string, unknown> }>(
+      `SELECT k.key AS kind, v.properties FROM node_version v JOIN node_kind k ON k.id = v.kind_id
+       WHERE v.scope_id = $1::bigint AND v.recorded_to = 'infinity' AND v.valid_to = 'infinity' ORDER BY v.node_id`,
+      [nodeId],
+    );
+    const name: Record<string, string> = { 'code.repository': 'repository', 'code.commit': 'snapshot' };
+    return rows.rows.map((row) => ({ fact: { kind: name[row.kind] ?? row.kind, value: row.properties } }));
+  });
+}
+
 /** Opens one product for runs: its wiring, its host over an owner this test closes. */
 async function openProduct(folder: string): Promise<OpenProduct> {
-  const owner: DatabaseOwner = createPGliteDatabaseOwner();
+  const owner: DatabaseOwner = createPGliteDatabaseOwner({ btreeGist: true });
   const fill = await createStagesFill({ product: folder, database: owner });
   const home = mkdtempSync(join(tmpdir(), 'madarch-stages-home-'));
   const service = createFillOrchestratorService({ home, owner, registry: fill.registry, wiring: () => fill.wiring });
@@ -68,8 +108,8 @@ async function openProduct(folder: string): Promise<OpenProduct> {
       if (!result.ok) throw new Error(`the run ${runId} was refused: ${result.code}: ${result.reason}`);
       return result;
     },
-    counts: async () => await countPublishedFactsByKind(owner),
-    unitFacts: async (unitId) => await readUnitFacts(owner, unitId),
+    counts: async () => ({ ...await countPublishedFactsByKind(owner), ...await countGraphKinds(owner) }),
+    unitFacts: async (unitId) => await unitNodes(owner, unitId),
     close: async () => {
       await service.stop();
       await owner.close();
@@ -127,7 +167,7 @@ describe('the wiring of one product', () => {
   test('a manifest that does not read, and a product name that is no repository name, are refused with the file', async () => {
     const broken = join(root, 'broken');
     mkdirSync(broken, { recursive: true });
-    const owner = createPGliteDatabaseOwner();
+    const owner = createPGliteDatabaseOwner({ btreeGist: true });
     try {
       writeFileSync(join(broken, 'workspace.yaml'), 'schemaVersion: 1\nid: 6d9f9c2a-1b7c-4e0e-9a92-27f1d1a2b3c4\nname: [\n');
       await expect(createStagesFill({ product: broken, database: owner })).rejects.toThrow(
@@ -175,7 +215,7 @@ describe('the wiring of one product', () => {
     // A declared repository whose folder holds no checkout is refused by name:
     // the wiring never guesses a commit for a repository that is not there.
     unlinkSync(api);
-    const owner = createPGliteDatabaseOwner();
+    const owner = createPGliteDatabaseOwner({ btreeGist: true });
     try {
       const fill = await createStagesFill({ product: declared, database: owner });
       await expect(pinsOf(fill)).rejects.toThrow(new RegExp(`${api} is no Git checkout of its own`));
@@ -220,11 +260,11 @@ describe('two runs over one product', () => {
     expect(first?.units.length).toBeGreaterThan(0);
     expect(first?.units.every((unit) => unit.state === 'published')).toBe(true);
     expect(first?.reused).toEqual([]);
-    // The kinds the stages that read the tree publish: the pinned snapshot, the
-    // inventory's files and folders, the packages a manifest declares, the
-    // symbols and imports the syntax stage finds, the documents and their
-    // sections, and the modules a repository's graph clusters into.
-    for (const kind of ['coverage', 'contains', 'directory', 'file', 'module', 'package', 'symbol', 'defines', 'import', 'occurrence', 'document', 'section', 'commit', 'task-key']) {
+    // The three static stages publish into the 0028 graph: the pinned snapshot, the tree's files and
+    // folders, the tree's containment, and the syntax stage's symbols, definitions, mentions and
+    // imports. The stages after them still read the fill's fact store (tasks 2.2 to 2.4), so their
+    // kinds — package, module, document, commit — are the next tasks' assertions.
+    for (const kind of ['coverage', 'contains', 'defines', 'directory', 'file', 'import', 'occurrence', 'snapshot', 'symbol']) {
       expect(afterFirst[kind] ?? 0).toBeGreaterThan(0);
     }
     expect(afterFirst['file']).toBe(5);
@@ -236,20 +276,23 @@ describe('two runs over one product', () => {
     const planned = new Set((second?.units ?? []).map((unit) => unit.unitId));
     // The file whose bytes moved, in the stages that read its bytes.
     for (const unitId of [
-      'inventory/file:shop:src/total.ts',
+      // The file whose bytes moved is the snapshot's unit, and the syntax stage reads it again.
+      'snapshot/file:shop:src/total.ts',
       'syntax/file:shop:src/total.ts',
       'semantic-resolution/file:shop:src/total.ts',
-      // The folder it stands in holds a file this run writes.
-      'inventory/directory:shop:src',
     ]) {
       expect(planned.has(unitId)).toBe(true);
     }
+    // The commit's propagation plans the inventory's unit too, because the inventory consumes the snapshot's
+    // `file` kind; its draft is the same containment edge, so the graph opens no new edge version.
+    expect(planned.has('inventory/file:shop:src/total.ts')).toBe(true);
     // Its dependant: src/order.ts imports ./total.js, so the resolution stage
     // re-resolves it although its own bytes did not move (21.6's own rule).
     expect(planned.has('semantic-resolution/file:shop:src/order.ts')).toBe(true);
     // The files the commit did not touch are not computed again: their bytes and
     // their resolutions stand as the first run published them.
     for (const unitId of [
+      'snapshot/file:shop:src/order.ts',
       'inventory/file:shop:src/order.ts',
       'syntax/file:shop:src/order.ts',
       'inventory/file:shop:docs/readme.md',
@@ -301,10 +344,10 @@ describe('two runs over one product', () => {
     // repository at one commit (0026, stage 0), so the graph holds one snapshot
     // of it after two runs — the second run's — and the shape is what says the
     // wiring read the pins again instead of standing on the first run's commit.
-    const facts = await opened!.unitFacts('snapshot/shop');
-    // One unit per repository at one commit writes three facts (0026, stage 0):
-    // the snapshot, the repository node and the coverage of the reading.
-    expect(facts.map((entry) => entry.fact.kind).sort()).toEqual(['coverage', 'repository', 'snapshot']);
+    const facts = await opened!.unitFacts('snapshot/repository:shop');
+    // One unit per repository at one commit writes two graph nodes (decision 0033, stage 0):
+    // the repository node and the commit it pinned.
+    expect(facts.map((entry) => entry.fact.kind).sort()).toEqual(['repository', 'snapshot']);
     const snapshot = facts.find((entry) => entry.fact.kind === 'snapshot')!;
     expect((snapshot.fact.value as { commit: string; repository: string }).commit).toBe(git(product, 'rev-parse', 'HEAD'));
     expect((snapshot.fact.value as { repository: string }).repository).toBe('shop');

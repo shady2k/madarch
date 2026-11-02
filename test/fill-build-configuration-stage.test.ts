@@ -34,6 +34,7 @@ import {
 } from '../src/fill/stages/build-configuration.js';
 import { createStageRegistry } from '../src/fill/stages/index.js';
 import { createInventoryStage } from '../src/fill/stages/inventory.js';
+import { fileFactIdOf } from '../src/fill/stages/syntax-facts.js';
 import type { FillStage } from '../src/fill/stage.js';
 
 // ---- the test's own repository, context and graph ---------------------------
@@ -115,7 +116,7 @@ async function contextFor(unit: StageUnit, answer: (read: string) => readonly un
       unit,
       config: { id: 'test', version: 1, enabled: true, concurrency: 1, limits: DEFAULT_STAGE_LIMITS, config: {} },
       graph,
-      ...(repository === undefined ? {} : { static: staticStageContext(repository, graph) }),
+      ...(repository === undefined ? {} : { static: staticStageContext(repository, { byKey: async () => [], byGlobalName: async () => [], neighbourhood: async () => [] }) }),
       draft: {
         write: (entry: StageDraftWrite) => { recorder.writes.push(entry); },
         writes: () => ({ writes: recorder.writes }),
@@ -207,7 +208,7 @@ async function refusedBy(call: () => unknown): Promise<string> {
 // ---- the registry ----------------------------------------------------------
 
 describe('the stage is registered', () => {
-  test('the build and configuration stage registers, after the snapshot and the inventory', async () => {
+  test('the build and configuration stage registers, after the snapshot that publishes the files it reads', async () => {
     const f = await fixture();
     try {
       await f.write('package.json', '{ "name": "orders-api" }\n');
@@ -221,22 +222,25 @@ describe('the stage is registered', () => {
       // document index, the syntax stage and the semantic resolution, which runs
       // after the syntax stage it reads): the graph is the one every registered
       // stage derives.
-      expect(read.graph.order).toEqual(['snapshot', 'history', 'inventory', 'build-configuration', 'document-index', 'syntax', 'semantic-resolution', 'modules']);
+      expect(read.graph.order).toEqual(['snapshot', 'build-configuration', 'document-index', 'history', 'inventory', 'syntax', 'semantic-resolution', 'modules']);
+      // Every stage that reads a file reads the snapshot's `file` node, and the inventory reads its
+      // `file` and `directory` nodes to draw containment: the inventory no longer publishes the node
+      // the later stages stand on.
       expect(read.graph.edges).toEqual([
         { from: 'build-configuration', to: 'modules', via: 'package' },
-        { from: 'inventory', to: 'build-configuration', via: 'file' },
-        { from: 'inventory', to: 'document-index', via: 'file' },
-        { from: 'inventory', to: 'modules', via: 'file' },
-        { from: 'inventory', to: 'semantic-resolution', via: 'file' },
-        { from: 'inventory', to: 'syntax', via: 'file' },
         { from: 'semantic-resolution', to: 'modules', via: 'call' },
         { from: 'semantic-resolution', to: 'modules', via: 'inherits' },
         { from: 'semantic-resolution', to: 'modules', via: 'reference' },
+        { from: 'snapshot', to: 'build-configuration', via: 'file' },
         { from: 'snapshot', to: 'build-configuration', via: 'snapshot' },
+        { from: 'snapshot', to: 'document-index', via: 'file' },
         { from: 'snapshot', to: 'document-index', via: 'snapshot' },
         { from: 'snapshot', to: 'history', via: 'snapshot' },
-        { from: 'snapshot', to: 'inventory', via: 'repository' },
-        { from: 'snapshot', to: 'inventory', via: 'snapshot' },
+        { from: 'snapshot', to: 'inventory', via: 'directory' },
+        { from: 'snapshot', to: 'inventory', via: 'file' },
+        { from: 'snapshot', to: 'modules', via: 'file' },
+        { from: 'snapshot', to: 'semantic-resolution', via: 'file' },
+        { from: 'snapshot', to: 'syntax', via: 'file' },
         { from: 'syntax', to: 'modules', via: 'import' },
         { from: 'syntax', to: 'modules', via: 'symbol' },
         { from: 'syntax', to: 'semantic-resolution', via: 'import' },
@@ -545,11 +549,10 @@ describe('deploy units and the environment', () => {
         { repository: 'orders-api', file: 'services/billing/Dockerfile', name: '["bun", "run", "start"]', form: 'main' },
       ]);
 
-      // The `consumes` edge stands on the file node stage 1 published for the
-      // Dockerfile: one node for one file, whoever reads it.
-      const inventory = createInventoryStage(snapshotSource([{ id: 'orders-api', form: 'code', root: f.root, commit }]));
-      const fileUnit = await executed(inventory, 'file:orders-api:services/billing/Dockerfile');
-      const fileId = oneFact(fileUnit.writes, 'file').id;
+      // The `consumes` edge stands on the file node the snapshot published for
+      // the Dockerfile: one node for one file, whoever reads it. A file fact's
+      // id is its repository and its path, so the test knows it without a run.
+      const fileId = fileFactIdOf('orders-api', 'services/billing/Dockerfile');
       for (const edge of factsOf(recorder.writes).filter((fact) => fact.kind === 'consumes')) {
         expect(edge.value['from']).toBe(fileId);
       }

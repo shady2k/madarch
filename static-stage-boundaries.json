@@ -1,10 +1,6 @@
 {
   "stages": {
-    "src/fill/stages/snapshot.ts": {
-      "allows": [
-        "repositoryTree"
-      ]
-    },
+    "src/fill/stages/snapshot.ts": {},
     "src/fill/stages/inventory.ts": {},
     "src/fill/stages/syntax.ts": {}
   },
@@ -15,15 +11,26 @@
     "TreeText",
     "CodeFacts",
     "ExtractDriver",
-    "Snapshot"
+    "Snapshot",
+    "GraphStore",
+    "DatabaseOwner",
+    "SqlExecutor",
+    "UnitGraphReader",
+    "StageGraphReader"
   ],
   "forbiddenModules": [
     "src/fill/snapshot.ts",
+    "src/fill/fact-store.ts",
+    "src/graph/index.ts",
+    "src/graph/publish.ts",
+    "src/graph/reads.ts",
     "src/extract/driver",
     "src/extract/code",
     "src/extract/operations"
   ],
   "wholeRepositoryMembers": [
-    "repositoryTree"
+    "repositoryTree",
+    "entries",
+    "unfiled"
   ]
 }

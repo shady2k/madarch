@@ -116,7 +116,7 @@ import type { ChainEvidence, RunEvidence } from './fsm.js';
 import type { QueueService, ClaimedJob } from './queue.js';
 import type { FillStageConfigurationRead } from './config.js';
 import type { FillStage, StagePlan } from './stage.js';
-import { staticStageContext, type StaticStageSource } from './stages/static-context.js';
+import { STATIC_GRAPH_READ, staticGraphRead, staticStageContext, type StaticGraphNode, type StaticGraphReader, type StaticStageSource } from './stages/static-context.js';
 
 // ---------------------------------------------------------------------------------------------
 // The seams a caller passes
@@ -276,6 +276,12 @@ export interface OrchestratorOptions {
    * itself and a stage never receives a tree reader.
    */
   readonly staticSource?: (ref: UnitRef) => Promise<StaticStageSource | undefined> | StaticStageSource | undefined;
+  /**
+   * The graph a static unit reads through (decision 0033): bounded by key, by
+   * global name and by one neighbourhood, never a whole table. The host owns
+   * the store; a stage is handed the reader and nothing wider.
+   */
+  readonly staticGraph?: (ref: UnitRef) => Promise<StaticGraphReader | undefined> | StaticGraphReader | undefined;
   /** Every durable progress event, once it is committed. */
   readonly sink?: ProgressSink;
   /** Where the orchestrator's own lines go; nothing by default. */
@@ -301,6 +307,7 @@ export interface FillOrchestrator {
   readonly guard: HumanEditGuard | undefined;
   readonly unitTools: ((request: UnitToolsOpening) => Promise<StageUnitTools | undefined>) | undefined;
   readonly staticSource: ((ref: UnitRef) => Promise<StaticStageSource | undefined>) | undefined;
+  readonly staticGraph: ((ref: UnitRef) => Promise<StaticGraphReader | undefined>) | undefined;
   readonly sink: ProgressSink | undefined;
   readonly log: (line: string) => void;
   /**
@@ -338,6 +345,7 @@ export function createOrchestrator(options: OrchestratorOptions): FillOrchestrat
     guard: options.guard,
     unitTools: options.unitTools === undefined ? undefined : async (request) => await options.unitTools!(request),
     staticSource: options.staticSource === undefined ? undefined : async (ref) => await options.staticSource!(ref),
+    staticGraph: options.staticGraph === undefined ? undefined : async (ref) => await options.staticGraph!(ref),
     sink: options.sink,
     log: options.log ?? (() => undefined),
     authority: new Map(),
@@ -1545,12 +1553,26 @@ async function attemptUnit(
     // A static stage is handed its pinned repository, path-scoped, and never a tree reader (0033): the
     // source is the host's, and the reads it makes of the graph go through this attempt's tracked reader.
     const staticSource = orchestrator.staticSource === undefined ? undefined : await orchestrator.staticSource(unitRef(unit, plan));
+    const staticGraph = orchestrator.staticGraph === undefined ? undefined : await orchestrator.staticGraph(unitRef(unit, plan));
+    // Every bounded read through the static context is recorded as this generation's dependency, exactly as a
+    // stage's own tracked read is: the publication's recheck replays it, and an answer that moved refuses the
+    // publication rather than writing facts the graph no longer supports (decision 0027).
+    const recordStatic = async (text: string, rows: readonly StaticGraphNode[]): Promise<readonly StaticGraphNode[]> => {
+      await recordUnitRead(orchestrator.database, { unitId: unit.unitId, generation: unit.generation, query: recordedReadText(text), rows, membership: answerMembership(text, rows), at: orchestrator.clock() });
+      await emit(orchestrator, { runId: unit.runId, at: orchestrator.clock(), stage: unit.stageId, unitId: unit.unitId, generation: unit.generation, kind: 'unit-read', summary: `${unit.unitId} read "${text}" and answered ${rows.length} ${rows.length === 1 ? 'node' : 'nodes'}` });
+      return rows;
+    };
+    const trackedStatic: StaticGraphReader | undefined = staticGraph === undefined ? undefined : {
+      byKey: async (key, options) => await recordStatic(staticGraphRead({ kind: 'key', value: key, limit: options?.limit ?? 256 }), await staticGraph.byKey(key, options)),
+      byGlobalName: async (name, options) => await recordStatic(staticGraphRead({ kind: 'globalName', value: name, limit: options?.limit ?? 256 }), await staticGraph.byGlobalName(name, options)),
+      neighbourhood: async (nodeId, options) => await recordStatic(staticGraphRead({ kind: 'neighbourhood', value: nodeId, limit: options.limit ?? 256, relations: options.relations, direction: options.direction }), await staticGraph.neighbourhood(nodeId, options)),
+    };
     context = {
       unit: { id: plan.stageUnitId, scope: plan.scope },
       ...(tools === undefined ? {} : { tools }),
       config,
       graph: attemptReader,
-      ...(staticSource === undefined ? {} : { static: staticStageContext(staticSource, attemptReader) }),
+      ...(staticSource === undefined || trackedStatic === undefined ? {} : { static: staticStageContext(staticSource, trackedStatic) }),
       draft: draftWriter,
       ...(sealedChildren.length === 0 ? {} : { sealedChildren }),
       // A stage reports its progress synchronously; the notes are kept in order and written as the run's

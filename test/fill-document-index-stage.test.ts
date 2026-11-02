@@ -220,10 +220,10 @@ describe('the document index stage is registered', () => {
       const order = [...derived.graph.order];
       expect(order).toContain('document-index');
       expect(order.indexOf('snapshot')).toBeLessThan(order.indexOf('document-index'));
-      // A link to a code path names the node stage 1 publishes, so the
-      // inventory runs first; the snapshot is what pins the commit.
-      expect(order.indexOf('inventory')).toBeLessThan(order.indexOf('document-index'));
-      expect(derived.graph.edges.some((edge) => edge.from === 'inventory' && edge.to === 'document-index' && edge.via === 'file')).toBe(true);
+      // A link to a code path names the file node the snapshot publishes, and the snapshot is what
+      // pins the commit; the inventory draws containment, which this stage does not read.
+      expect(order.indexOf('snapshot')).toBeLessThan(order.indexOf('document-index'));
+      expect(derived.graph.edges.some((edge) => edge.from === 'snapshot' && edge.to === 'document-index' && edge.via === 'file')).toBe(true);
       const stage = registry.get('document-index');
       expect(stage?.produces.map((produced) => produced.kind)).toEqual(['coverage', 'document', 'document-link', 'section', 'task-key']);
     } finally {

@@ -71,13 +71,16 @@ import { isRepositoryPath } from '../fill/facts.js';
 import { ID_PATTERN } from '../model/schema.js';
 import type { FillStageConfigurationRead } from '../fill/config.js';
 import { readFillStageConfiguration } from '../fill/config.js';
-import type { FactStoreDatabase } from '../fill/fact-store.js';
+import type { DatabaseOwner } from '../adapters/database-owner.js';
+import { createGraphStore, type GraphStore } from '../graph/index.js';
 import type { FillProduct, ProductFillWiring } from '../fill/orchestrator-host.js';
 import type { UnitRef } from '../fill/orchestrator.js';
 import type { RunSnapshot } from '../fill/orchestrator-store.js';
 import type { StageRegistry } from '../fill/registry.js';
 import { createGitSnapshotSource, type RepositoryPin, type SnapshotSource } from '../fill/snapshot.js';
 import { createStageReadReader, createStageReadSchema } from '../fill/stage-reads.js';
+import { createStaticStageReadReader } from '../fill/stages/static-reads.js';
+import { ensureGraphSchema, outerTransactionOf } from '../fill/stages/static-graph.js';
 import type { AgentStageWiring } from '../fill/stages/agent-stage.js';
 import { createStageRegistry } from '../fill/stages/index.js';
 import { sameFolder } from './git.js';
@@ -93,7 +96,7 @@ export interface StagesFillOptions {
    * the process's one owner (decision 0027). This module reads and writes it
    * through the host; it neither opens nor closes it.
    */
-  readonly database: FactStoreDatabase;
+  readonly database: DatabaseOwner;
   /**
    * The agent the product's units are driven with (decision 0026, "Agents and
    * tools"): where it is named, the agent unit stage is registered beside the eight
@@ -152,14 +155,20 @@ export async function createStagesFill(options: StagesFillOptions): Promise<Stag
   // stands before any run: it is the store's own schema, and no read may create
   // it (a read inside a publication's transaction could not).
   await createStageReadSchema(options.database);
+  // The 0028 graph the static stages publish into and plan from (decision 0033). One store over the
+  // process's owner: its tables and the extractor vocabulary are created with the rest of the fill's.
+  const store: GraphStore = createGraphStore(options.database);
+  await ensureGraphSchema(store);
   const wiring: ProductFillWiring = {
     snapshot: () => snapshotOf(identity, registry, repin()),
     configuration: (): FillStageConfigurationRead => readFillStageConfiguration(folder),
-    graph: (ref, transaction) => createStageReadReader({
-      database: options.database,
-      snapshot: snapshots,
-      ...(transaction === undefined ? {} : { executor: transaction }),
-    }),
+    graph: (ref, transaction) => (registry.get(ref.stageId)?.staticReading === true
+      ? createStaticStageReadReader(store, transaction === undefined ? undefined : outerTransactionOf(transaction))
+      : createStageReadReader({
+        database: options.database,
+        snapshot: snapshots,
+        ...(transaction === undefined ? {} : { executor: transaction }),
+      })),
     source: (): SnapshotSource => snapshots,
     inputs: (ref) => inputsOf(identity, registry, pins(), ref),
   };

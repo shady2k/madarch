@@ -1,8 +1,8 @@
 /**
  * The static stage boundary check (decision 0033, "Capability boundaries"): a
- * stage that obtains a whole-tree reader or a repository-wide semantic object
- * fails, naming its file, line and column; the three static stages this
- * repository holds pass.
+ * stage that reaches a whole-tree reader or a repository-wide object fails,
+ * naming the stage, the file, the line and the reached symbol; the three static
+ * stages this repository holds pass with no exception.
  *
  * The planted case is a fixture no stage registers: the check is pointed at it
  * by a configuration of its own, and the repository's own configuration is run
@@ -28,13 +28,13 @@ function run(config: string): { readonly code: number; readonly stderr: string }
 }
 
 describe('the static stage boundary check', () => {
-  test('the three static stages of this repository pass', () => {
+  test('the three static stages of this repository pass, with no exception listed', () => {
     const checked = run('static-stage-boundaries.json');
     expect(checked.stderr).toBe('');
     expect(checked.code).toBe(0);
   }, 60_000);
 
-  test('a planted stage that obtains a whole-tree reader fails, naming the file, the line and the type', () => {
+  test('a planted stage that calls the tree reader or obtains a repository-wide object fails, naming stage, file, line and symbol', () => {
     const folder = mkdtempSync(join(tmpdir(), 'madarch-static-boundary-'));
     const config = join(folder, 'config.json');
     writeFileSync(config, JSON.stringify({
@@ -45,7 +45,30 @@ describe('the static stage boundary check', () => {
     }));
     const checked = run(config);
     expect(checked.code).toBe(1);
-    expect(checked.stderr).toContain(resolve(root, 'test/fixtures/static-stage-boundary/forbidden.ts') + ':8:');
+    const file = resolve(root, 'test/fixtures/static-stage-boundary/forbidden.ts');
+    expect(checked.stderr).toContain(`${file}:14:`);
+    expect(checked.stderr).toContain('test/fixtures/static-stage-boundary/forbidden.ts');
+    expect(checked.stderr).toContain('repositoryTree');
     expect(checked.stderr).toContain('SnapshotSource');
+    // The whole-repository member is refused by name, and a stage has no exception to name it.
+    expect(checked.stderr).not.toContain('allows');
+  }, 60_000);
+
+  test('a configuration that gives a stage an exception is refused', () => {
+    const folder = mkdtempSync(join(tmpdir(), 'madarch-static-boundary-'));
+    const config = join(folder, 'config.json');
+    writeFileSync(config, JSON.stringify({
+      stages: { 'src/fill/stages/snapshot.ts': { allows: ['repositoryTree'] } },
+      forbiddenTypes: [],
+      forbiddenModules: [],
+      wholeRepositoryMembers: ['repositoryTree'],
+    }));
+    let message = '';
+    try {
+      execFileSync('node', ['scripts/check-static-stage-boundaries.ts', '--root', root, '--config', config], { cwd: root, encoding: 'utf8', stdio: ['ignore', 'pipe', 'pipe'] });
+    } catch (error) {
+      message = String((error as { stderr?: string }).stderr ?? (error as Error).message);
+    }
+    expect(message).toContain('no exception');
   }, 60_000);
 });

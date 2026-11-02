@@ -197,6 +197,15 @@ export interface FactRange {
   readonly endLine: number;
   /** The offset just past the last character in `endLine`, 0-based; equal to `startColumn` when the range is empty. */
   readonly endColumn: number;
+  /**
+   * The range's first byte in the file's own bytes, when the reader knows it
+   * (the syntax stage's own spans do). It is not part of a place's identity:
+   * the line and column are, and a byte offset is how the graph store positions
+   * an occurrence edge (decision 0028, `code.occurrence`).
+   */
+  readonly startByte?: number;
+  /** The byte just past the range's last byte; present exactly when `startByte` is. */
+  readonly endByte?: number;
 }
 
 /** Where in a repository a fact was read: the file, and the range inside it. */
@@ -2213,7 +2222,7 @@ const PROVENANCE_FIELDS: readonly string[] = ['place', 'repository', 'source'];
 const SOURCE_FIELDS: readonly string[] = ['system', 'version'];
 const REPOSITORY_FIELDS: readonly string[] = ['commit', 'id'];
 const PLACE_FIELDS: readonly string[] = ['file', 'range'];
-const RANGE_FIELDS: readonly string[] = ['endColumn', 'endLine', 'startColumn', 'startLine'];
+const RANGE_FIELDS: readonly string[] = ['endByte', 'endColumn', 'endLine', 'startByte', 'startColumn', 'startLine'];
 const TERM_FIELDS: Readonly<Record<string, readonly string[]>> = {
   external: ['form', 'url'],
   literal: ['form', 'text'],
@@ -2376,6 +2385,22 @@ function placeProblemsOf(place: unknown): FactProblem[] {
   }
   if (startLine !== undefined && startColumn !== undefined && endLine !== undefined && endColumn !== undefined && endLine === startLine && endColumn < startColumn) {
     problems.push({ path: 'provenance.place.range.endColumn', message: `${endColumn} ends the range before column ${startColumn} starts it` });
+  }
+  // A byte span is both ends or neither: half a span positions no occurrence.
+  const startByte = fields['startByte'];
+  const endByte = fields['endByte'];
+  if ((startByte === undefined) !== (endByte === undefined)) {
+    problems.push({ path: 'provenance.place.range', message: 'a range names its byte span as both startByte and endByte, or neither' });
+  } else if (startByte !== undefined && endByte !== undefined) {
+    if (typeof startByte !== 'number' || !Number.isInteger(startByte) || startByte < 0) {
+      problems.push({ path: 'provenance.place.range.startByte', message: `${shown(startByte)} is no byte offset: a span starts at a whole byte from zero` });
+    }
+    if (typeof endByte !== 'number' || !Number.isInteger(endByte)) {
+      problems.push({ path: 'provenance.place.range.endByte', message: `${shown(endByte)} is no byte offset: a span ends at a whole byte` });
+    }
+    if (typeof startByte === 'number' && typeof endByte === 'number' && endByte <= startByte) {
+      problems.push({ path: 'provenance.place.range.endByte', message: `the byte span [${startByte}, ${endByte}) ends before it starts: a position covers at least one byte` });
+    }
   }
   return problems;
 }

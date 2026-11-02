@@ -219,6 +219,8 @@ export function placeOf(path: RepositoryPath, span: SyntaxSpan): FactPlace {
       startColumn: span.startColumn,
       endLine: span.endLine,
       endColumn: span.endColumn,
+      startByte: span.startByte,
+      endByte: span.endByte,
     },
   };
 }
