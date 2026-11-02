@@ -29,6 +29,7 @@ import { createSyntaxStage } from '../src/fill/stages/syntax.js';
 import { staticGraphReaderOf, staticStageContext, staticStageSourceOf } from '../src/fill/stages/static-context.js';
 import { createStaticStageReadReader } from '../src/fill/stages/static-reads.js';
 import { CODE_GRAPH_VOCABULARY, outerTransactionOf, publishStaticUnit } from '../src/fill/stages/static-graph.js';
+import { nodesOfKind } from './fill-static-drafts.js';
 
 const NOW = 1_700_000_000_000;
 const PRODUCT = 'fixture-product';
@@ -108,7 +109,7 @@ async function draftStage(stage: FillStage, source: SnapshotSource, store: Graph
  * a run and a generation in the fill's state, the draft recorded, and the
  * publication's own transaction applying it to the graph.
  */
-async function publishDrafted(owner: DatabaseOwner, store: GraphStore, runId: string, drafted: Drafted): Promise<void> {
+async function publishDrafted(owner: DatabaseOwner, store: GraphStore, runId: string, drafted: Drafted): Promise<{ readonly facts: number }> {
   const digest = createHash('sha256').update(JSON.stringify(drafted.writes)).digest('hex');
   await createUnit(owner, { unitId: drafted.unitId, product: PRODUCT, runId, stageId: drafted.stage.id, scopeKey: drafted.unitId, inputsDigest: digest, retries: 2, at: NOW });
   expect((await advanceUnit(owner, { unitId: drafted.unitId, event: { type: 'admit', at: NOW, generation: 1 } })).ok).toBe(true);
@@ -139,6 +140,8 @@ async function publishDrafted(owner: DatabaseOwner, store: GraphStore, runId: st
     }),
   });
   expect(outcome.outcome).toBe('published');
+  if (outcome.outcome !== 'published') throw new Error('the publication was not published');
+  return outcome.record;
 }
 
 /** A node's properties, as the graph answered them. */
@@ -185,7 +188,11 @@ describe('the static stages publish into the 0028 graph', () => {
 
     const stages = [createSnapshotStage(source), createInventoryStage(source), createSyntaxStage(source)];
     for (const stage of stages) {
-      for (const drafted of await draftStage(stage, source, store)) await publishDrafted(owner, store, 'run-1', drafted);
+      for (const drafted of await draftStage(stage, source, store)) {
+        const record = await publishDrafted(owner, store, 'run-1', drafted);
+        // The publication's own count is what its apply step wrote: every node and edge of the draft.
+        expect(record.facts).toBe(drafted.writes.length);
+      }
     }
 
     // Every file the tree holds is a code.file node, one unit's reading each.
@@ -223,6 +230,77 @@ describe('the static stages publish into the 0028 graph', () => {
 
     // A second pass reads the graph and names no unit: nothing is written twice.
     for (const stage of stages) expect((await stage.plan(createStaticStageReadReader(store))).units).toEqual([]);
+  }, 120_000);
+
+  test('a changed unit corrects its own node, and an empty draft retracts it', async () => {
+    const f = await fixture();
+    folders.push(f);
+    await f.write('src/a.ts', 'export const a = 1;\n');
+    const commit = f.commit();
+    const source = createGitSnapshotSource([{ id: REPOSITORY, form: 'code', root: f.root, commit }]);
+    const owner = createPGliteDatabaseOwner({ btreeGist: true });
+    owners.push(owner);
+    await createFillStateSchema(owner);
+    await createOrchestratorSchema(owner);
+    const store = createGraphStore(owner);
+    await store.createSchema();
+    await store.registerCodeSchema(CODE_GRAPH_VOCABULARY);
+    await createRun(owner, { runId: 'run-1', product: PRODUCT, at: NOW });
+
+    const stage = createSnapshotStage(source);
+    const drafted = (await draftStage(stage, source, store)).find((unit) => unit.unitId.endsWith('src/a.ts'))!;
+    await publishDrafted(owner, store, 'run-1', drafted);
+    const key = nodesOfKind(drafted.writes, 'code.file')[0]!.key;
+    const before = await store.byKey(key, { limit: 2 });
+    expect(before.rows).toHaveLength(1);
+    const nodeId = before.rows[0]!.nodeId;
+
+    // The same unit, a changed reading: the node keeps its identity and its new properties are the version shown.
+    const changed = drafted.writes.map((write) => (write.kind === 'node'
+      ? { ...write, value: { ...write.value, properties: { ...write.value.properties, bytes: 999 } } }
+      : write)) as StageDraftWrite[];
+    await owner.transaction('write', async (executor) => await publishStaticUnit(outerTransactionOf(executor), store, {
+      unitId: drafted.unitId, stageId: drafted.stage.id, generation: 2, digest: 'changed-reading', writes: changed,
+    }));
+    const corrected = await store.byKey(key, { limit: 2 });
+    expect(corrected.rows).toHaveLength(1);
+    expect(corrected.rows[0]!.nodeId).toBe(nodeId);
+    expect(corrected.rows[0]!.properties).toMatchObject({ bytes: 999 });
+
+    // The same unit, an empty draft: the node and its edges end, and no other unit's facts move.
+    await owner.transaction('write', async (executor) => await publishStaticUnit(outerTransactionOf(executor), store, {
+      unitId: drafted.unitId, stageId: drafted.stage.id, generation: 3, digest: 'empty-reading', writes: [],
+    }));
+    expect((await store.byKey(key, { limit: 2 })).rows).toHaveLength(0);
+  }, 120_000);
+
+  test('a publisher refuses an edge whose end no node carries, and a key two nodes carry', async () => {
+    const owner = createPGliteDatabaseOwner({ btreeGist: true });
+    owners.push(owner);
+    await createFillStateSchema(owner);
+    await createOrchestratorSchema(owner);
+    const store = createGraphStore(owner);
+    await store.createSchema();
+    await store.registerCodeSchema(CODE_GRAPH_VOCABULARY);
+    const node = (key: string): StageDraftWrite => ({ kind: 'node', evidence: 'fixture', value: {
+      key, kind: 'code.file', label: key, properties: { recordKey: key, factKind: 'file', repository: REPOSITORY, path: key },
+    } });
+    const edge = (to: string): StageDraftWrite => ({ kind: 'edge', evidence: 'fixture', value: {
+      relation: 'code.contains', from: { key: 'file:from' }, to: { key: to }, properties: { factKind: 'contains' },
+    } });
+    await expect(owner.transaction('write', async (executor) => await publishStaticUnit(outerTransactionOf(executor), store, {
+      unitId: 'snapshot/missing', stageId: 'snapshot', generation: 1, digest: 'missing', writes: [node('file:from'), edge('file:missing')],
+    }))).rejects.toThrow('no node in the graph carries it');
+
+    // Two current nodes that carry one key are a corrupt graph, never a choice.
+    const validFrom = new Date().toISOString();
+    for (const label of ['a', 'b']) {
+      const nodeId = await store.newNode();
+      await store.openNode({ nodeId, kind: 'code.file', label, properties: { recordKey: 'file:duplicate', factKind: 'file', repository: REPOSITORY, path: label }, validFrom, owner: { producer: 'fixture', scope: nodeId } });
+    }
+    await expect(owner.transaction('write', async (executor) => await publishStaticUnit(outerTransactionOf(executor), store, {
+      unitId: 'snapshot/duplicate', stageId: 'snapshot', generation: 1, digest: 'duplicate', writes: [node('file:from'), node('file:duplicate'), edge('file:duplicate')],
+    }))).rejects.toThrow('current nodes carry it');
   }, 120_000);
 
   test('a repeated publication of one unit writes no new node or edge version', async () => {
