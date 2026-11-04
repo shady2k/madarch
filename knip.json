@@ -1,0 +1,43 @@
+{
+  "$schema": "https://unpkg.com/knip@6/schema.json",
+  "entry": [
+    "scripts/*.ts",
+    "src/index.ts",
+    "test/**/*.test.ts",
+    "test/deadline.ts",
+    "test/questions-once-browser-check.ts",
+    "test/queue-binary-driver.ts",
+    "test/run-scratch.ts",
+    "test/type-checks/*.ts",
+    "wiki/app/index.html",
+    "wiki/app/src/main.tsx",
+    "wiki/app/src/**/*.test.tsx",
+    "wiki/app/src/**/*.test.ts",
+    "wiki/app/test/**/*.test.ts",
+    "wiki/app/test/deadline.ts",
+    "wiki/app/test/run-scratch.ts",
+    "wiki/app/vite.config.ts"
+  ],
+  "project": [
+    "scripts/**/*.ts",
+    "src/**/*.ts",
+    "test/**/*.ts",
+    "wiki/app/src/**/*.tsx",
+    "wiki/app/src/**/*.ts",
+    "wiki/app/test/**/*.ts"
+  ],
+  "ignore": [
+    "test/fixtures/**",
+    "wiki/app/dist/**",
+    "wiki/app/test/fixtures/**",
+    "wiki/starlight/**"
+  ],
+  "include": [
+    "files",
+    "exports",
+    "nsExports",
+    "types",
+    "nsTypes",
+    "enumMembers"
+  ]
+}

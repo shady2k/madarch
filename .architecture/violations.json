@@ -1,0 +1,6232 @@
+[
+  {
+    "rule": "no-unreachable-code",
+    "file": "src/check/model-check.ts",
+    "symbol": "ModelCheckFinding"
+  },
+  {
+    "rule": "no-unreachable-code",
+    "file": "src/check/model-problems.ts",
+    "symbol": "HIDDEN_COUPLING_MIN_COMMITS"
+  },
+  {
+    "rule": "no-unreachable-code",
+    "file": "src/check/model-problems.ts",
+    "symbol": "HUB_THRESHOLD"
+  },
+  {
+    "rule": "no-unreachable-code",
+    "file": "src/check/model-problems.ts",
+    "symbol": "PROBLEM_KINDS"
+  },
+  {
+    "rule": "no-unreachable-code",
+    "file": "src/check/model-problems.ts",
+    "symbol": "ProblemKind"
+  },
+  {
+    "rule": "no-unreachable-code",
+    "file": "src/extract/code/bodies.ts",
+    "symbol": "MemberSite"
+  },
+  {
+    "rule": "no-unreachable-code",
+    "file": "src/extract/code/decls.ts",
+    "symbol": "BaseDecl"
+  },
+  {
+    "rule": "no-unreachable-code",
+    "file": "src/extract/code/decls.ts",
+    "symbol": "MemberDecl"
+  },
+  {
+    "rule": "no-unreachable-code",
+    "file": "src/extract/code/decls.ts",
+    "symbol": "MethodDecl"
+  },
+  {
+    "rule": "no-unreachable-code",
+    "file": "src/extract/code/decls.ts",
+    "symbol": "TopDecl"
+  },
+  {
+    "rule": "no-unreachable-code",
+    "file": "src/extract/code/decls.ts",
+    "symbol": "TypeDecl"
+  },
+  {
+    "rule": "no-unreachable-code",
+    "file": "src/extract/code/keys.ts",
+    "symbol": "handlerKey"
+  },
+  {
+    "rule": "no-unreachable-code",
+    "file": "src/extract/code/program.ts",
+    "symbol": "BaseInfo"
+  },
+  {
+    "rule": "no-unreachable-code",
+    "file": "src/extract/code/program.ts",
+    "symbol": "folderOf"
+  },
+  {
+    "rule": "no-unreachable-code",
+    "file": "src/extract/code/query.ts",
+    "symbol": "CODE_QUERY_ASSETS"
+  },
+  {
+    "rule": "no-unreachable-code",
+    "file": "src/extract/code/resolve.ts",
+    "symbol": "ResolvedEdge"
+  },
+  {
+    "rule": "no-unreachable-code",
+    "file": "src/extract/code/resolve.ts",
+    "symbol": "ResolvedOccurrence"
+  },
+  {
+    "rule": "no-unreachable-code",
+    "file": "src/extract/code/resolve.ts",
+    "symbol": "idOfKey"
+  },
+  {
+    "rule": "no-unreachable-code",
+    "file": "src/extract/code/source.ts",
+    "symbol": "nameOf"
+  },
+  {
+    "rule": "no-unreachable-code",
+    "file": "src/extract/code/tests.ts",
+    "symbol": "TestKind"
+  },
+  {
+    "rule": "no-unreachable-code",
+    "file": "src/extract/contracts/asyncapi.ts",
+    "symbol": "AsyncApiChannel"
+  },
+  {
+    "rule": "no-unreachable-code",
+    "file": "src/extract/contracts/go-code.ts",
+    "symbol": "GoRoute"
+  },
+  {
+    "rule": "no-unreachable-code",
+    "file": "src/extract/contracts/go-code.ts",
+    "symbol": "RawStart"
+  },
+  {
+    "rule": "no-unreachable-code",
+    "file": "src/extract/contracts/openapi.ts",
+    "symbol": "OpenApiOperation"
+  },
+  {
+    "rule": "no-unreachable-code",
+    "file": "src/extract/contracts/proto.ts",
+    "symbol": "ProtoRpc"
+  },
+  {
+    "rule": "no-unreachable-code",
+    "file": "src/extract/contracts/ts-code.ts",
+    "symbol": "TsRoute"
+  },
+  {
+    "rule": "no-unreachable-code",
+    "file": "src/extract/contracts/ts-code.ts",
+    "symbol": "TsStarted"
+  },
+  {
+    "rule": "no-unreachable-code",
+    "file": "src/extract/contracts/walk.ts",
+    "symbol": "enclosingFunctionName"
+  },
+  {
+    "rule": "no-unreachable-code",
+    "file": "src/extract/data-model/access.ts",
+    "symbol": "AccessLanguage"
+  },
+  {
+    "rule": "no-unreachable-code",
+    "file": "src/extract/data-model/access.ts",
+    "symbol": "CodeTableDeclaration"
+  },
+  {
+    "rule": "no-unreachable-code",
+    "file": "src/extract/data-model/keys.ts",
+    "symbol": "DATA_MODEL_EDGE_TYPES"
+  },
+  {
+    "rule": "no-unreachable-code",
+    "file": "src/extract/data-model/keys.ts",
+    "symbol": "DATA_MODEL_NODE_KINDS"
+  },
+  {
+    "rule": "no-unreachable-code",
+    "file": "src/extract/data-model/keys.ts",
+    "symbol": "DEFAULT_SCHEMA"
+  },
+  {
+    "rule": "no-unreachable-code",
+    "file": "src/extract/data-model/prisma.ts",
+    "symbol": "PrismaField"
+  },
+  {
+    "rule": "no-unreachable-code",
+    "file": "src/extract/data-model/prisma.ts",
+    "symbol": "PrismaModelAttribute"
+  },
+  {
+    "rule": "no-unreachable-code",
+    "file": "src/extract/data-model/sql.ts",
+    "symbol": "SqlForeignKeyDecl"
+  },
+  {
+    "rule": "no-unreachable-code",
+    "file": "src/extract/data-model/text-scan.ts",
+    "symbol": "ScannedComment"
+  },
+  {
+    "rule": "no-unreachable-code",
+    "file": "src/extract/data-model/text-scan.ts",
+    "symbol": "ScannedString"
+  },
+  {
+    "rule": "no-unreachable-code",
+    "file": "src/extract/data-model/text-scan.ts",
+    "symbol": "ScannedText"
+  },
+  {
+    "rule": "no-unreachable-code",
+    "file": "src/extract/data-model/text-scan.ts",
+    "symbol": "insideAny"
+  },
+  {
+    "rule": "no-unreachable-code",
+    "file": "src/extract/data-model/text-scan.ts",
+    "symbol": "scanGoText"
+  },
+  {
+    "rule": "no-unreachable-code",
+    "file": "src/extract/data-model/text-scan.ts",
+    "symbol": "scanTsLikeText"
+  },
+  {
+    "rule": "no-unreachable-code",
+    "file": "src/extract/driver/git.ts",
+    "symbol": "canonicalInstant"
+  },
+  {
+    "rule": "no-unreachable-code",
+    "file": "src/extract/driver/gitattributes.ts",
+    "symbol": "GeneratedReason"
+  },
+  {
+    "rule": "no-unreachable-code",
+    "file": "src/extract/driver/gitattributes.ts",
+    "symbol": "GitAttributesGap"
+  },
+  {
+    "rule": "no-unreachable-code",
+    "file": "src/extract/driver/index.ts",
+    "symbol": "CommitFact"
+  },
+  {
+    "rule": "no-unreachable-code",
+    "file": "src/extract/driver/index.ts",
+    "symbol": "CommitFill"
+  },
+  {
+    "rule": "no-unreachable-code",
+    "file": "src/extract/history/commits.ts",
+    "symbol": "authorKey"
+  },
+  {
+    "rule": "no-unreachable-code",
+    "file": "src/extract/history/commits.ts",
+    "symbol": "subjectWithoutTaskKey"
+  },
+  {
+    "rule": "no-unreachable-code",
+    "file": "src/extract/history/commits.ts",
+    "symbol": "taskKeyNode"
+  },
+  {
+    "rule": "no-unreachable-code",
+    "file": "src/extract/history/commits.ts",
+    "symbol": "taskKeysOf"
+  },
+  {
+    "rule": "no-unreachable-code",
+    "file": "src/extract/history/files.ts",
+    "symbol": "fileKey"
+  },
+  {
+    "rule": "no-unreachable-code",
+    "file": "src/extract/history/files.ts",
+    "symbol": "snapshotKey"
+  },
+  {
+    "rule": "no-unreachable-code",
+    "file": "src/extract/history/git.ts",
+    "symbol": "LOG_FIELD"
+  },
+  {
+    "rule": "no-unreachable-code",
+    "file": "src/extract/history/git.ts",
+    "symbol": "LOG_RECORD"
+  },
+  {
+    "rule": "no-unreachable-code",
+    "file": "src/extract/history/git.ts",
+    "symbol": "LogChange"
+  },
+  {
+    "rule": "no-unreachable-code",
+    "file": "src/extract/history/git.ts",
+    "symbol": "runGit"
+  },
+  {
+    "rule": "no-unreachable-code",
+    "file": "src/extract/history/git.ts",
+    "symbol": "runGitBytes"
+  },
+  {
+    "rule": "no-unreachable-code",
+    "file": "src/extract/history/index.ts",
+    "symbol": "HISTORY_PRODUCER"
+  },
+  {
+    "rule": "no-unreachable-code",
+    "file": "src/extract/library-models/http-models.ts",
+    "symbol": "HttpEffect"
+  },
+  {
+    "rule": "no-unreachable-code",
+    "file": "src/extract/library-models/http-models.ts",
+    "symbol": "HttpTarget"
+  },
+  {
+    "rule": "no-unreachable-code",
+    "file": "src/extract/library-models/metric-semantic-models.ts",
+    "symbol": "MetricReceiverOperation"
+  },
+  {
+    "rule": "no-unreachable-code",
+    "file": "src/extract/library-models/model.ts",
+    "symbol": "LibraryRoleFact"
+  },
+  {
+    "rule": "no-unreachable-code",
+    "file": "src/extract/library-models/model.ts",
+    "symbol": "MetricRegistryMetadata"
+  },
+  {
+    "rule": "no-unreachable-code",
+    "file": "src/extract/library-models/model.ts",
+    "symbol": "TextWriteMetadata"
+  },
+  {
+    "rule": "no-unreachable-code",
+    "file": "src/extract/library-models/outbox-models.ts",
+    "symbol": "OutboxOperationModel"
+  },
+  {
+    "rule": "no-unreachable-code",
+    "file": "src/extract/library-models/outbox-models.ts",
+    "symbol": "OutboxReceiverModel"
+  },
+  {
+    "rule": "no-unreachable-code",
+    "file": "src/extract/library-models/repository-conventions.ts",
+    "symbol": "ComposeServiceDeclaration"
+  },
+  {
+    "rule": "no-unreachable-code",
+    "file": "src/extract/library-models/repository-conventions.ts",
+    "symbol": "ForeignManifestFolder"
+  },
+  {
+    "rule": "no-unreachable-code",
+    "file": "src/extract/library-models/repository-conventions.ts",
+    "symbol": "MigrationSeries"
+  },
+  {
+    "rule": "no-unreachable-code",
+    "file": "src/extract/library-models/repository-conventions.ts",
+    "symbol": "PrismaSchemaPlace"
+  },
+  {
+    "rule": "no-unreachable-code",
+    "file": "src/extract/library-models/repository-conventions.ts",
+    "symbol": "SchemaScript"
+  },
+  {
+    "rule": "no-unreachable-code",
+    "file": "src/extract/library-models/shell-command-models.ts",
+    "symbol": "HttpShellCommandModel"
+  },
+  {
+    "rule": "no-unreachable-code",
+    "file": "src/extract/library-models/shell-command-models.ts",
+    "symbol": "NonHttpShellCommandModel"
+  },
+  {
+    "rule": "no-unreachable-code",
+    "file": "src/extract/library-models/shell-command-models.ts",
+    "symbol": "NonHttpShellOptionModel"
+  },
+  {
+    "rule": "no-unreachable-code",
+    "file": "src/extract/operations/build.ts",
+    "symbol": "ciWorkflows"
+  },
+  {
+    "rule": "no-unreachable-code",
+    "file": "src/extract/operations/build.ts",
+    "symbol": "makeTargets"
+  },
+  {
+    "rule": "no-unreachable-code",
+    "file": "src/extract/operations/compose.ts",
+    "symbol": "ComposeVariable"
+  },
+  {
+    "rule": "no-unreachable-code",
+    "file": "src/extract/operations/prometheus-text.ts",
+    "symbol": "PrometheusTextDeclaration"
+  },
+  {
+    "rule": "no-unreachable-code",
+    "file": "src/extract/operations/prometheus-text.ts",
+    "symbol": "PrometheusTextError"
+  },
+  {
+    "rule": "no-unreachable-code",
+    "file": "src/extract/operations/prometheus-text.ts",
+    "symbol": "PrometheusTextRange"
+  },
+  {
+    "rule": "no-unreachable-code",
+    "file": "src/extract/operations/prometheus-text.ts",
+    "symbol": "PrometheusTextSample"
+  },
+  {
+    "rule": "no-unreachable-code",
+    "file": "src/extract/operations/source.ts",
+    "symbol": "declaredUnits"
+  },
+  {
+    "rule": "no-unreachable-code",
+    "file": "src/extract/operations/symbol-sites.ts",
+    "symbol": "bindingShadowed"
+  },
+  {
+    "rule": "no-unreachable-code",
+    "file": "src/extract/operations/symbol-sites.ts",
+    "symbol": "closeDelimiter"
+  },
+  {
+    "rule": "no-unreachable-code",
+    "file": "src/extract/operations/symbol-sites.ts",
+    "symbol": "escaped"
+  },
+  {
+    "rule": "no-unreachable-code",
+    "file": "src/extract/operations/symbol-sites.ts",
+    "symbol": "receiverListenerPorts"
+  },
+  {
+    "rule": "no-unreachable-code",
+    "file": "src/extract/operations/symbol-sites.ts",
+    "symbol": "relativeSource"
+  },
+  {
+    "rule": "no-unreachable-code",
+    "file": "src/extract/operations/symbol-sites.ts",
+    "symbol": "sourceSpan"
+  },
+  {
+    "rule": "no-unreachable-code",
+    "file": "src/extract/operations/symbol-sites.ts",
+    "symbol": "withoutComments"
+  },
+  {
+    "rule": "no-unreachable-code",
+    "file": "src/extract/records.ts",
+    "symbol": "NodeKey"
+  },
+  {
+    "rule": "no-unreachable-code",
+    "file": "src/extract/service-units.ts",
+    "symbol": "filesOfUnit"
+  },
+  {
+    "rule": "no-unreachable-code",
+    "file": "src/fill/acp-choices.ts",
+    "symbol": "Choice"
+  },
+  {
+    "rule": "no-unreachable-code",
+    "file": "src/fill/acp-choices.ts",
+    "symbol": "ChoiceValue"
+  },
+  {
+    "rule": "no-unreachable-code",
+    "file": "src/fill/acp-install.ts",
+    "symbol": "redactInstallerOutput"
+  },
+  {
+    "rule": "no-unreachable-code",
+    "file": "src/fill/acp-probe.ts",
+    "symbol": "AcpAdapterInstall"
+  },
+  {
+    "rule": "no-unreachable-code",
+    "file": "src/fill/acp-probe.ts",
+    "symbol": "AcpAdapterLoginStore"
+  },
+  {
+    "rule": "no-unreachable-code",
+    "file": "src/fill/acp-probe.ts",
+    "symbol": "acpAgentFolderName"
+  },
+  {
+    "rule": "no-unreachable-code",
+    "file": "src/fill/acp-probe.ts",
+    "symbol": "shellWord"
+  },
+  {
+    "rule": "no-unreachable-code",
+    "file": "src/fill/acp.ts",
+    "symbol": "AcpInitializeResult"
+  },
+  {
+    "rule": "no-unreachable-code",
+    "file": "src/fill/acp.ts",
+    "symbol": "AcpUpdateKind"
+  },
+  {
+    "rule": "no-unreachable-code",
+    "file": "src/fill/acp.ts",
+    "symbol": "AcpUsageReport"
+  },
+  {
+    "rule": "no-unreachable-code",
+    "file": "src/fill/agent-packet.ts",
+    "symbol": "AgentAnswerField"
+  },
+  {
+    "rule": "no-unreachable-code",
+    "file": "src/fill/agent-packet.ts",
+    "symbol": "AgentScaleWords"
+  },
+  {
+    "rule": "no-unreachable-code",
+    "file": "src/fill/agent-packet.ts",
+    "symbol": "MAX_MEMBER_ROWS"
+  },
+  {
+    "rule": "no-unreachable-code",
+    "file": "src/fill/agent-packet.ts",
+    "symbol": "MAX_SECTION_ROWS"
+  },
+  {
+    "rule": "no-unreachable-code",
+    "file": "src/fill/agent-packet.ts",
+    "symbol": "PacketNode"
+  },
+  {
+    "rule": "no-unreachable-code",
+    "file": "src/fill/agent-packet.ts",
+    "symbol": "UnitMember"
+  },
+  {
+    "rule": "no-unreachable-code",
+    "file": "src/fill/agent-packet.ts",
+    "symbol": "UnitPacketPlace"
+  },
+  {
+    "rule": "no-unreachable-code",
+    "file": "src/fill/agent-packet.ts",
+    "symbol": "rankedMembers"
+  },
+  {
+    "rule": "no-unreachable-code",
+    "file": "src/fill/agent-packet.ts",
+    "symbol": "shapeRules"
+  },
+  {
+    "rule": "no-unreachable-code",
+    "file": "src/fill/checked-writes.ts",
+    "symbol": "DraftedWrite"
+  },
+  {
+    "rule": "no-unreachable-code",
+    "file": "src/fill/checked-writes.ts",
+    "symbol": "SIMILAR_ENTITY_CAP"
+  },
+  {
+    "rule": "no-unreachable-code",
+    "file": "src/fill/checked-writes.ts",
+    "symbol": "SimilarEntities"
+  },
+  {
+    "rule": "no-unreachable-code",
+    "file": "src/fill/checked-writes.ts",
+    "symbol": "Similarity"
+  },
+  {
+    "rule": "no-unreachable-code",
+    "file": "src/fill/checked-writes.ts",
+    "symbol": "WriteRefusal"
+  },
+  {
+    "rule": "no-unreachable-code",
+    "file": "src/fill/checked-writes.ts",
+    "symbol": "WrittenNode"
+  },
+  {
+    "rule": "no-unreachable-code",
+    "file": "src/fill/decisions.ts",
+    "symbol": "ACCEPTANCE_FIELDS"
+  },
+  {
+    "rule": "no-unreachable-code",
+    "file": "src/fill/decisions.ts",
+    "symbol": "ACCEPTANCE_HEADING"
+  },
+  {
+    "rule": "no-unreachable-code",
+    "file": "src/fill/decisions.ts",
+    "symbol": "ACCEPTED"
+  },
+  {
+    "rule": "no-unreachable-code",
+    "file": "src/fill/decisions.ts",
+    "symbol": "ANSWER_FIELDS"
+  },
+  {
+    "rule": "no-unreachable-code",
+    "file": "src/fill/decisions.ts",
+    "symbol": "ANSWER_HEADING"
+  },
+  {
+    "rule": "no-unreachable-code",
+    "file": "src/fill/decisions.ts",
+    "symbol": "DecisionProblem"
+  },
+  {
+    "rule": "no-unreachable-code",
+    "file": "src/fill/decisions.ts",
+    "symbol": "REJECTED"
+  },
+  {
+    "rule": "no-unreachable-code",
+    "file": "src/fill/decisions.ts",
+    "symbol": "VERDICTS"
+  },
+  {
+    "rule": "no-unreachable-code",
+    "file": "src/fill/decisions.ts",
+    "symbol": "WORDS_HEADING"
+  },
+  {
+    "rule": "no-unreachable-code",
+    "file": "src/fill/declared.ts",
+    "symbol": "DECLARED_HOLDER"
+  },
+  {
+    "rule": "no-unreachable-code",
+    "file": "src/fill/declared.ts",
+    "symbol": "DECLARED_SOURCE_SYSTEM"
+  },
+  {
+    "rule": "no-unreachable-code",
+    "file": "src/fill/declared.ts",
+    "symbol": "DECLARED_TABLES"
+  },
+  {
+    "rule": "no-unreachable-code",
+    "file": "src/fill/declared.ts",
+    "symbol": "DecisionAcceptance"
+  },
+  {
+    "rule": "no-unreachable-code",
+    "file": "src/fill/declared.ts",
+    "symbol": "DecisionAnswer"
+  },
+  {
+    "rule": "no-unreachable-code",
+    "file": "src/fill/declared.ts",
+    "symbol": "DeclaredRefusal"
+  },
+  {
+    "rule": "no-unreachable-code",
+    "file": "src/fill/declared.ts",
+    "symbol": "DeclaredWrite"
+  },
+  {
+    "rule": "no-unreachable-code",
+    "file": "src/fill/declared.ts",
+    "symbol": "decisionOf"
+  },
+  {
+    "rule": "no-unreachable-code",
+    "file": "src/fill/declared.ts",
+    "symbol": "factOfRecord"
+  },
+  {
+    "rule": "no-unreachable-code",
+    "file": "src/fill/declared.ts",
+    "symbol": "wordsOf"
+  },
+  {
+    "rule": "no-unreachable-code",
+    "file": "src/fill/diagrams.ts",
+    "symbol": "DIAGRAM_TYPE_DECLARATIONS"
+  },
+  {
+    "rule": "no-unreachable-code",
+    "file": "src/fill/diagrams.ts",
+    "symbol": "DiagramAncestor"
+  },
+  {
+    "rule": "no-unreachable-code",
+    "file": "src/fill/diagrams.ts",
+    "symbol": "DiagramDrillDown"
+  },
+  {
+    "rule": "no-unreachable-code",
+    "file": "src/fill/diagrams.ts",
+    "symbol": "DiagramEdge"
+  },
+  {
+    "rule": "no-unreachable-code",
+    "file": "src/fill/diagrams.ts",
+    "symbol": "DiagramPage"
+  },
+  {
+    "rule": "no-unreachable-code",
+    "file": "src/fill/facts.ts",
+    "symbol": "ANSWER_DECISIONS"
+  },
+  {
+    "rule": "no-unreachable-code",
+    "file": "src/fill/facts.ts",
+    "symbol": "AnswerValue"
+  },
+  {
+    "rule": "no-unreachable-code",
+    "file": "src/fill/facts.ts",
+    "symbol": "ApiEndpointValue"
+  },
+  {
+    "rule": "no-unreachable-code",
+    "file": "src/fill/facts.ts",
+    "symbol": "BindingValue"
+  },
+  {
+    "rule": "no-unreachable-code",
+    "file": "src/fill/facts.ts",
+    "symbol": "BindsEdgeValue"
+  },
+  {
+    "rule": "no-unreachable-code",
+    "file": "src/fill/facts.ts",
+    "symbol": "COMMENT_FORMS"
+  },
+  {
+    "rule": "no-unreachable-code",
+    "file": "src/fill/facts.ts",
+    "symbol": "CallEdgeValue"
+  },
+  {
+    "rule": "no-unreachable-code",
+    "file": "src/fill/facts.ts",
+    "symbol": "ClaimValue"
+  },
+  {
+    "rule": "no-unreachable-code",
+    "file": "src/fill/facts.ts",
+    "symbol": "ColumnValue"
+  },
+  {
+    "rule": "no-unreachable-code",
+    "file": "src/fill/facts.ts",
+    "symbol": "CommitValue"
+  },
+  {
+    "rule": "no-unreachable-code",
+    "file": "src/fill/facts.ts",
+    "symbol": "ConsumesEdgeValue"
+  },
+  {
+    "rule": "no-unreachable-code",
+    "file": "src/fill/facts.ts",
+    "symbol": "ContainsEdgeValue"
+  },
+  {
+    "rule": "no-unreachable-code",
+    "file": "src/fill/facts.ts",
+    "symbol": "DEPENDENCY_BASES"
+  },
+  {
+    "rule": "no-unreachable-code",
+    "file": "src/fill/facts.ts",
+    "symbol": "DEPLOY_FORMS"
+  },
+  {
+    "rule": "no-unreachable-code",
+    "file": "src/fill/facts.ts",
+    "symbol": "DefinesEdgeValue"
+  },
+  {
+    "rule": "no-unreachable-code",
+    "file": "src/fill/facts.ts",
+    "symbol": "DependencyBasis"
+  },
+  {
+    "rule": "no-unreachable-code",
+    "file": "src/fill/facts.ts",
+    "symbol": "DependencyEdgeValue"
+  },
+  {
+    "rule": "no-unreachable-code",
+    "file": "src/fill/facts.ts",
+    "symbol": "DeployUnitValue"
+  },
+  {
+    "rule": "no-unreachable-code",
+    "file": "src/fill/facts.ts",
+    "symbol": "DirectoryValue"
+  },
+  {
+    "rule": "no-unreachable-code",
+    "file": "src/fill/facts.ts",
+    "symbol": "DocumentLinkEdgeValue"
+  },
+  {
+    "rule": "no-unreachable-code",
+    "file": "src/fill/facts.ts",
+    "symbol": "DocumentValue"
+  },
+  {
+    "rule": "no-unreachable-code",
+    "file": "src/fill/facts.ts",
+    "symbol": "ENTITY_PROPOSAL_FORMS"
+  },
+  {
+    "rule": "no-unreachable-code",
+    "file": "src/fill/facts.ts",
+    "symbol": "ENTRY_POINT_FORMS"
+  },
+  {
+    "rule": "no-unreachable-code",
+    "file": "src/fill/facts.ts",
+    "symbol": "EdgeFact"
+  },
+  {
+    "rule": "no-unreachable-code",
+    "file": "src/fill/facts.ts",
+    "symbol": "EntityProposalValue"
+  },
+  {
+    "rule": "no-unreachable-code",
+    "file": "src/fill/facts.ts",
+    "symbol": "EntryPointValue"
+  },
+  {
+    "rule": "no-unreachable-code",
+    "file": "src/fill/facts.ts",
+    "symbol": "EnvironmentVariableValue"
+  },
+  {
+    "rule": "no-unreachable-code",
+    "file": "src/fill/facts.ts",
+    "symbol": "FILE_ROLES"
+  },
+  {
+    "rule": "no-unreachable-code",
+    "file": "src/fill/facts.ts",
+    "symbol": "FactPlaceRule"
+  },
+  {
+    "rule": "no-unreachable-code",
+    "file": "src/fill/facts.ts",
+    "symbol": "FactRegistryRelation"
+  },
+  {
+    "rule": "no-unreachable-code",
+    "file": "src/fill/facts.ts",
+    "symbol": "INHERITS_FORMS"
+  },
+  {
+    "rule": "no-unreachable-code",
+    "file": "src/fill/facts.ts",
+    "symbol": "INTERACTION_FORMS"
+  },
+  {
+    "rule": "no-unreachable-code",
+    "file": "src/fill/facts.ts",
+    "symbol": "IdentityPart"
+  },
+  {
+    "rule": "no-unreachable-code",
+    "file": "src/fill/facts.ts",
+    "symbol": "InheritsEdgeValue"
+  },
+  {
+    "rule": "no-unreachable-code",
+    "file": "src/fill/facts.ts",
+    "symbol": "InteractionEdgeValue"
+  },
+  {
+    "rule": "no-unreachable-code",
+    "file": "src/fill/facts.ts",
+    "symbol": "InteractionForm"
+  },
+  {
+    "rule": "no-unreachable-code",
+    "file": "src/fill/facts.ts",
+    "symbol": "MODULE_PROPOSAL_CHANGES"
+  },
+  {
+    "rule": "no-unreachable-code",
+    "file": "src/fill/facts.ts",
+    "symbol": "MODULE_SEEDS"
+  },
+  {
+    "rule": "no-unreachable-code",
+    "file": "src/fill/facts.ts",
+    "symbol": "ModuleProposal"
+  },
+  {
+    "rule": "no-unreachable-code",
+    "file": "src/fill/facts.ts",
+    "symbol": "ModuleProposalChange"
+  },
+  {
+    "rule": "no-unreachable-code",
+    "file": "src/fill/facts.ts",
+    "symbol": "ModuleValue"
+  },
+  {
+    "rule": "no-unreachable-code",
+    "file": "src/fill/facts.ts",
+    "symbol": "NodeFact"
+  },
+  {
+    "rule": "no-unreachable-code",
+    "file": "src/fill/facts.ts",
+    "symbol": "OCCURRENCE_ROLES"
+  },
+  {
+    "rule": "no-unreachable-code",
+    "file": "src/fill/facts.ts",
+    "symbol": "OccurrenceRole"
+  },
+  {
+    "rule": "no-unreachable-code",
+    "file": "src/fill/facts.ts",
+    "symbol": "OccurrenceValue"
+  },
+  {
+    "rule": "no-unreachable-code",
+    "file": "src/fill/facts.ts",
+    "symbol": "PACKAGE_FORMS"
+  },
+  {
+    "rule": "no-unreachable-code",
+    "file": "src/fill/facts.ts",
+    "symbol": "PackageValue"
+  },
+  {
+    "rule": "no-unreachable-code",
+    "file": "src/fill/facts.ts",
+    "symbol": "ProvidesEdgeValue"
+  },
+  {
+    "rule": "no-unreachable-code",
+    "file": "src/fill/facts.ts",
+    "symbol": "QuestionValue"
+  },
+  {
+    "rule": "no-unreachable-code",
+    "file": "src/fill/facts.ts",
+    "symbol": "RESOLUTION_PRECISIONS"
+  },
+  {
+    "rule": "no-unreachable-code",
+    "file": "src/fill/facts.ts",
+    "symbol": "RULE_FORMS"
+  },
+  {
+    "rule": "no-unreachable-code",
+    "file": "src/fill/facts.ts",
+    "symbol": "ReferenceEdgeValue"
+  },
+  {
+    "rule": "no-unreachable-code",
+    "file": "src/fill/facts.ts",
+    "symbol": "RepositoryRef"
+  },
+  {
+    "rule": "no-unreachable-code",
+    "file": "src/fill/facts.ts",
+    "symbol": "RepositoryValue"
+  },
+  {
+    "rule": "no-unreachable-code",
+    "file": "src/fill/facts.ts",
+    "symbol": "ResolvesEdgeValue"
+  },
+  {
+    "rule": "no-unreachable-code",
+    "file": "src/fill/facts.ts",
+    "symbol": "RuleForm"
+  },
+  {
+    "rule": "no-unreachable-code",
+    "file": "src/fill/facts.ts",
+    "symbol": "RuleValue"
+  },
+  {
+    "rule": "no-unreachable-code",
+    "file": "src/fill/facts.ts",
+    "symbol": "SYMBOL_KINDS"
+  },
+  {
+    "rule": "no-unreachable-code",
+    "file": "src/fill/facts.ts",
+    "symbol": "SectionValue"
+  },
+  {
+    "rule": "no-unreachable-code",
+    "file": "src/fill/facts.ts",
+    "symbol": "StateValue"
+  },
+  {
+    "rule": "no-unreachable-code",
+    "file": "src/fill/facts.ts",
+    "symbol": "TableValue"
+  },
+  {
+    "rule": "no-unreachable-code",
+    "file": "src/fill/facts.ts",
+    "symbol": "TaskKeyEdgeValue"
+  },
+  {
+    "rule": "no-unreachable-code",
+    "file": "src/fill/facts.ts",
+    "symbol": "TestValue"
+  },
+  {
+    "rule": "no-unreachable-code",
+    "file": "src/fill/facts.ts",
+    "symbol": "TransitionEdgeValue"
+  },
+  {
+    "rule": "no-unreachable-code",
+    "file": "src/fill/graph-diagrams.ts",
+    "symbol": "DiagramNode"
+  },
+  {
+    "rule": "no-unreachable-code",
+    "file": "src/fill/graph-pages.ts",
+    "symbol": "GRAPH_INDEX_ADDRESS"
+  },
+  {
+    "rule": "no-unreachable-code",
+    "file": "src/fill/graph-pages.ts",
+    "symbol": "GraphAnswerRecord"
+  },
+  {
+    "rule": "no-unreachable-code",
+    "file": "src/fill/graph-pages.ts",
+    "symbol": "GraphCodeLink"
+  },
+  {
+    "rule": "no-unreachable-code",
+    "file": "src/fill/graph-pages.ts",
+    "symbol": "GraphNarrative"
+  },
+  {
+    "rule": "no-unreachable-code",
+    "file": "src/fill/graph-pages.ts",
+    "symbol": "GraphNarrativeSentence"
+  },
+  {
+    "rule": "no-unreachable-code",
+    "file": "src/fill/graph-pages.ts",
+    "symbol": "GraphPageChange"
+  },
+  {
+    "rule": "no-unreachable-code",
+    "file": "src/fill/graph-pages.ts",
+    "symbol": "GraphPageCount"
+  },
+  {
+    "rule": "no-unreachable-code",
+    "file": "src/fill/graph-pages.ts",
+    "symbol": "GraphPageFact"
+  },
+  {
+    "rule": "no-unreachable-code",
+    "file": "src/fill/graph-pages.ts",
+    "symbol": "GraphPageNodeRef"
+  },
+  {
+    "rule": "no-unreachable-code",
+    "file": "src/fill/graph-pages.ts",
+    "symbol": "GraphQuestion"
+  },
+  {
+    "rule": "no-unreachable-code",
+    "file": "src/fill/graph-pages.ts",
+    "symbol": "GraphQuestionGroup"
+  },
+  {
+    "rule": "no-unreachable-code",
+    "file": "src/fill/graph-pages.ts",
+    "symbol": "GraphRelation"
+  },
+  {
+    "rule": "no-unreachable-code",
+    "file": "src/fill/graph-pages.ts",
+    "symbol": "NO_GRAPH_SOURCE_MESSAGE"
+  },
+  {
+    "rule": "no-unreachable-code",
+    "file": "src/fill/graph-pages.ts",
+    "symbol": "PAGE_ADDRESS_PREFIX"
+  },
+  {
+    "rule": "no-unreachable-code",
+    "file": "src/fill/graph-pages.ts",
+    "symbol": "PAGE_CHANGES_PER_ANSWER"
+  },
+  {
+    "rule": "no-unreachable-code",
+    "file": "src/fill/graph-pages.ts",
+    "symbol": "PAGE_CHANGE_TABLE"
+  },
+  {
+    "rule": "no-unreachable-code",
+    "file": "src/fill/graph-pages.ts",
+    "symbol": "PAGE_LIST_TOKENS"
+  },
+  {
+    "rule": "no-unreachable-code",
+    "file": "src/fill/graph-pages.ts",
+    "symbol": "PAGE_NARRATIVE_IDS"
+  },
+  {
+    "rule": "no-unreachable-code",
+    "file": "src/fill/graph-pages.ts",
+    "symbol": "PAGE_SET_FETCH"
+  },
+  {
+    "rule": "no-unreachable-code",
+    "file": "src/fill/graph-pages.ts",
+    "symbol": "PAGE_SET_HELD_SQL"
+  },
+  {
+    "rule": "no-unreachable-code",
+    "file": "src/fill/graph-pages.ts",
+    "symbol": "PAGE_SET_KINDS_SQL"
+  },
+  {
+    "rule": "no-unreachable-code",
+    "file": "src/fill/graph-pages.ts",
+    "symbol": "PAGE_SNAPSHOT_SCOPES"
+  },
+  {
+    "rule": "no-unreachable-code",
+    "file": "src/fill/graph-pages.ts",
+    "symbol": "QUESTIONS_RANKED"
+  },
+  {
+    "rule": "no-unreachable-code",
+    "file": "src/fill/graph-pages.ts",
+    "symbol": "answerOf"
+  },
+  {
+    "rule": "no-unreachable-code",
+    "file": "src/fill/graph-pages.ts",
+    "symbol": "isPageKind"
+  },
+  {
+    "rule": "no-unreachable-code",
+    "file": "src/fill/graph-pages.ts",
+    "symbol": "pageFactOf"
+  },
+  {
+    "rule": "no-unreachable-code",
+    "file": "src/fill/graph-pages.ts",
+    "symbol": "pageRefOf"
+  },
+  {
+    "rule": "no-unreachable-code",
+    "file": "src/fill/graph-pages.ts",
+    "symbol": "readProductQuestions"
+  },
+  {
+    "rule": "no-unreachable-code",
+    "file": "src/fill/graph-reads.ts",
+    "symbol": "ClaimRow"
+  },
+  {
+    "rule": "no-unreachable-code",
+    "file": "src/fill/graph-reads.ts",
+    "symbol": "CoverageGapRow"
+  },
+  {
+    "rule": "no-unreachable-code",
+    "file": "src/fill/graph-reads.ts",
+    "symbol": "EvidenceLine"
+  },
+  {
+    "rule": "no-unreachable-code",
+    "file": "src/fill/graph-reads.ts",
+    "symbol": "GRAPH_READ_TABLES"
+  },
+  {
+    "rule": "no-unreachable-code",
+    "file": "src/fill/graph-reads.ts",
+    "symbol": "GRAPH_READ_TOOLS"
+  },
+  {
+    "rule": "no-unreachable-code",
+    "file": "src/fill/graph-reads.ts",
+    "symbol": "GraphEdgeRef"
+  },
+  {
+    "rule": "no-unreachable-code",
+    "file": "src/fill/graph-reads.ts",
+    "symbol": "GraphReadEnvelope"
+  },
+  {
+    "rule": "no-unreachable-code",
+    "file": "src/fill/graph-reads.ts",
+    "symbol": "GraphReadRef"
+  },
+  {
+    "rule": "no-unreachable-code",
+    "file": "src/fill/graph-reads.ts",
+    "symbol": "GraphReadTool"
+  },
+  {
+    "rule": "no-unreachable-code",
+    "file": "src/fill/graph-reads.ts",
+    "symbol": "GraphTermRef"
+  },
+  {
+    "rule": "no-unreachable-code",
+    "file": "src/fill/graph-reads.ts",
+    "symbol": "HOLDING_EDGE_KINDS"
+  },
+  {
+    "rule": "no-unreachable-code",
+    "file": "src/fill/graph-reads.ts",
+    "symbol": "REFERENCE_EDGE_KINDS"
+  },
+  {
+    "rule": "no-unreachable-code",
+    "file": "src/fill/graph-reads.ts",
+    "symbol": "ReadingUnit"
+  },
+  {
+    "rule": "no-unreachable-code",
+    "file": "src/fill/graph-reads.ts",
+    "symbol": "ReferenceRow"
+  },
+  {
+    "rule": "no-unreachable-code",
+    "file": "src/fill/graph-reads.ts",
+    "symbol": "SCOPE_KINDS"
+  },
+  {
+    "rule": "no-unreachable-code",
+    "file": "src/fill/graph-reads.ts",
+    "symbol": "STRUCTURE_EDGE_KINDS"
+  },
+  {
+    "rule": "no-unreachable-code",
+    "file": "src/fill/graph-reads.ts",
+    "symbol": "ScopeEdgeCount"
+  },
+  {
+    "rule": "no-unreachable-code",
+    "file": "src/fill/graph-reads.ts",
+    "symbol": "ScopeHeld"
+  },
+  {
+    "rule": "no-unreachable-code",
+    "file": "src/fill/graph-reads.ts",
+    "symbol": "SpanRow"
+  },
+  {
+    "rule": "no-unreachable-code",
+    "file": "src/fill/graph-reads.ts",
+    "symbol": "factOfRow"
+  },
+  {
+    "rule": "no-unreachable-code",
+    "file": "src/fill/graph-reads.ts",
+    "symbol": "missingNode"
+  },
+  {
+    "rule": "no-unreachable-code",
+    "file": "src/fill/narrative-text.ts",
+    "symbol": "NARRATIVE_SENTENCE_CODE_POINTS"
+  },
+  {
+    "rule": "no-unreachable-code",
+    "file": "src/fill/next-step.ts",
+    "symbol": "GraphNextStepRule"
+  },
+  {
+    "rule": "no-unreachable-code",
+    "file": "src/fill/next-step.ts",
+    "symbol": "NEXT_STEP_RULES"
+  },
+  {
+    "rule": "no-unreachable-code",
+    "file": "src/fill/next-step.ts",
+    "symbol": "NextStepQuestion"
+  },
+  {
+    "rule": "no-unreachable-code",
+    "file": "src/fill/next-step.ts",
+    "symbol": "answerQuestionStep"
+  },
+  {
+    "rule": "no-unreachable-code",
+    "file": "src/fill/next-step.ts",
+    "symbol": "coverNodeStep"
+  },
+  {
+    "rule": "no-unreachable-code",
+    "file": "src/fill/next-step.ts",
+    "symbol": "nothingToDo"
+  },
+  {
+    "rule": "no-unreachable-code",
+    "file": "src/fill/next-step.ts",
+    "symbol": "reviewAssumptionStep"
+  },
+  {
+    "rule": "no-unreachable-code",
+    "file": "src/fill/orchestrator-host.ts",
+    "symbol": "DEFAULT_FILL_QUEUE"
+  },
+  {
+    "rule": "no-unreachable-code",
+    "file": "src/fill/orchestrator-host.ts",
+    "symbol": "FillActivity"
+  },
+  {
+    "rule": "no-unreachable-code",
+    "file": "src/fill/orchestrator-host.ts",
+    "symbol": "FillProgressAnswer"
+  },
+  {
+    "rule": "no-unreachable-code",
+    "file": "src/fill/orchestrator-host.ts",
+    "symbol": "FillRunControl"
+  },
+  {
+    "rule": "no-unreachable-code",
+    "file": "src/fill/orchestrator-host.ts",
+    "symbol": "FillRunControlAnswer"
+  },
+  {
+    "rule": "no-unreachable-code",
+    "file": "src/fill/orchestrator-host.ts",
+    "symbol": "FillRunRequest"
+  },
+  {
+    "rule": "no-unreachable-code",
+    "file": "src/fill/orchestrator-host.ts",
+    "symbol": "ProductFill"
+  },
+  {
+    "rule": "no-unreachable-code",
+    "file": "src/fill/orchestrator-host.ts",
+    "symbol": "UnitToolsRequest"
+  },
+  {
+    "rule": "no-unreachable-code",
+    "file": "src/fill/orchestrator-store.ts",
+    "symbol": "DRAFT_PART_WRITES"
+  },
+  {
+    "rule": "no-unreachable-code",
+    "file": "src/fill/orchestrator-store.ts",
+    "symbol": "PROGRESS_KINDS"
+  },
+  {
+    "rule": "no-unreachable-code",
+    "file": "src/fill/orchestrator-store.ts",
+    "symbol": "PUBLISHED_DRAFT_WRITES"
+  },
+  {
+    "rule": "no-unreachable-code",
+    "file": "src/fill/orchestrator-store.ts",
+    "symbol": "UnitRecord"
+  },
+  {
+    "rule": "no-unreachable-code",
+    "file": "src/fill/orchestrator-store.ts",
+    "symbol": "draftDigest"
+  },
+  {
+    "rule": "no-unreachable-code",
+    "file": "src/fill/orchestrator-store.ts",
+    "symbol": "readUnitDraftHeadIn"
+  },
+  {
+    "rule": "no-unreachable-code",
+    "file": "src/fill/orchestrator-store.ts",
+    "symbol": "retractUnitDraftIn"
+  },
+  {
+    "rule": "no-unreachable-code",
+    "file": "src/fill/orchestrator.ts",
+    "symbol": "AdmittedUnit"
+  },
+  {
+    "rule": "no-unreachable-code",
+    "file": "src/fill/orchestrator.ts",
+    "symbol": "CacheKeyVerdict"
+  },
+  {
+    "rule": "no-unreachable-code",
+    "file": "src/fill/orchestrator.ts",
+    "symbol": "ORCHESTRATOR_TABLES"
+  },
+  {
+    "rule": "no-unreachable-code",
+    "file": "src/fill/orchestrator.ts",
+    "symbol": "PlannedUnit"
+  },
+  {
+    "rule": "no-unreachable-code",
+    "file": "src/fill/orchestrator.ts",
+    "symbol": "StageGuardOutcome"
+  },
+  {
+    "rule": "no-unreachable-code",
+    "file": "src/fill/orchestrator.ts",
+    "symbol": "StageGuardVerdict"
+  },
+  {
+    "rule": "no-unreachable-code",
+    "file": "src/fill/orchestrator.ts",
+    "symbol": "StaleUnit"
+  },
+  {
+    "rule": "no-unreachable-code",
+    "file": "src/fill/orchestrator.ts",
+    "symbol": "SweptUnit"
+  },
+  {
+    "rule": "no-unreachable-code",
+    "file": "src/fill/orchestrator.ts",
+    "symbol": "UnitRefusal"
+  },
+  {
+    "rule": "no-unreachable-code",
+    "file": "src/fill/orchestrator.ts",
+    "symbol": "WorkResult"
+  },
+  {
+    "rule": "no-unreachable-code",
+    "file": "src/fill/orchestrator.ts",
+    "symbol": "blockRun"
+  },
+  {
+    "rule": "no-unreachable-code",
+    "file": "src/fill/orchestrator.ts",
+    "symbol": "failRun"
+  },
+  {
+    "rule": "no-unreachable-code",
+    "file": "src/fill/orchestrator.ts",
+    "symbol": "generationFresh"
+  },
+  {
+    "rule": "no-unreachable-code",
+    "file": "src/fill/orchestrator.ts",
+    "symbol": "guardStage"
+  },
+  {
+    "rule": "no-unreachable-code",
+    "file": "src/fill/orchestrator.ts",
+    "symbol": "replanAfterPublications"
+  },
+  {
+    "rule": "no-unreachable-code",
+    "file": "src/fill/orchestrator.ts",
+    "symbol": "settleRun"
+  },
+  {
+    "rule": "no-unreachable-code",
+    "file": "src/fill/orchestrator.ts",
+    "symbol": "stageCacheVersions"
+  },
+  {
+    "rule": "no-unreachable-code",
+    "file": "src/fill/page-cache.ts",
+    "symbol": "PRODUCT_CACHE_ENTRIES"
+  },
+  {
+    "rule": "no-unreachable-code",
+    "file": "src/fill/page-changes.ts",
+    "symbol": "PAGE_ADDRESS_PREFIX"
+  },
+  {
+    "rule": "no-unreachable-code",
+    "file": "src/fill/registry.ts",
+    "symbol": "StageCycle"
+  },
+  {
+    "rule": "no-unreachable-code",
+    "file": "src/fill/registry.ts",
+    "symbol": "StageGraphEdge"
+  },
+  {
+    "rule": "no-unreachable-code",
+    "file": "src/fill/registry.ts",
+    "symbol": "StageProblem"
+  },
+  {
+    "rule": "no-unreachable-code",
+    "file": "src/fill/registry.ts",
+    "symbol": "readFillStageConfiguration"
+  },
+  {
+    "rule": "no-unreachable-code",
+    "file": "src/fill/snapshot.ts",
+    "symbol": "SNAPSHOT_ENTRY_FORMS"
+  },
+  {
+    "rule": "no-unreachable-code",
+    "file": "src/fill/snapshot.ts",
+    "symbol": "SNAPSHOT_MODES"
+  },
+  {
+    "rule": "no-unreachable-code",
+    "file": "src/fill/snapshot.ts",
+    "symbol": "SnapshotEntryForm"
+  },
+  {
+    "rule": "no-unreachable-code",
+    "file": "src/fill/snapshot.ts",
+    "symbol": "SnapshotMode"
+  },
+  {
+    "rule": "no-unreachable-code",
+    "file": "src/fill/stage-reads.ts",
+    "symbol": "READ_PAGE_ROWS"
+  },
+  {
+    "rule": "no-unreachable-code",
+    "file": "src/fill/stage-reads.ts",
+    "symbol": "STAGE_FACT_VIEW"
+  },
+  {
+    "rule": "no-unreachable-code",
+    "file": "src/fill/stage.ts",
+    "symbol": "CapabilityFreshness"
+  },
+  {
+    "rule": "no-unreachable-code",
+    "file": "src/fill/stage.ts",
+    "symbol": "StageProduces"
+  },
+  {
+    "rule": "no-unreachable-code",
+    "file": "src/fill/stage.ts",
+    "symbol": "StageProgress"
+  },
+  {
+    "rule": "no-unreachable-code",
+    "file": "src/fill/stage.ts",
+    "symbol": "StageSealedChild"
+  },
+  {
+    "rule": "no-unreachable-code",
+    "file": "src/fill/stages/agent-stage.ts",
+    "symbol": "AGENT_SOURCE_SYSTEM"
+  },
+  {
+    "rule": "no-unreachable-code",
+    "file": "src/fill/stages/agent-stage.ts",
+    "symbol": "AgentLevel"
+  },
+  {
+    "rule": "no-unreachable-code",
+    "file": "src/fill/stages/agent-stage.ts",
+    "symbol": "AgentPlaceReader"
+  },
+  {
+    "rule": "no-unreachable-code",
+    "file": "src/fill/stages/agent-stage.ts",
+    "symbol": "MAX_NUDGE_PLACES"
+  },
+  {
+    "rule": "no-unreachable-code",
+    "file": "src/fill/stages/agent-stage.ts",
+    "symbol": "heldRead"
+  },
+  {
+    "rule": "no-unreachable-code",
+    "file": "src/fill/stages/agent-stage.ts",
+    "symbol": "ownershipScopeOf"
+  },
+  {
+    "rule": "no-unreachable-code",
+    "file": "src/fill/stages/agent-stage.ts",
+    "symbol": "pathOfPlace"
+  },
+  {
+    "rule": "no-unreachable-code",
+    "file": "src/fill/stages/agent-stage.ts",
+    "symbol": "repositoriesRead"
+  },
+  {
+    "rule": "no-unreachable-code",
+    "file": "src/fill/stages/agent-stage.ts",
+    "symbol": "validateDraft"
+  },
+  {
+    "rule": "no-unreachable-code",
+    "file": "src/fill/stages/agent-unit.ts",
+    "symbol": "AGENT_UNIT_DECLARATION"
+  },
+  {
+    "rule": "no-unreachable-code",
+    "file": "src/fill/stages/agent-unit.ts",
+    "symbol": "AGENT_UNIT_KINDS"
+  },
+  {
+    "rule": "no-unreachable-code",
+    "file": "src/fill/stages/agent-unit.ts",
+    "symbol": "AGENT_UNIT_STAGE_VERSION"
+  },
+  {
+    "rule": "no-unreachable-code",
+    "file": "src/fill/stages/agent-unit.ts",
+    "symbol": "AGENT_UNIT_TASK"
+  },
+  {
+    "rule": "no-unreachable-code",
+    "file": "src/fill/stages/agent-unit.ts",
+    "symbol": "AgentLevel"
+  },
+  {
+    "rule": "no-unreachable-code",
+    "file": "src/fill/stages/agent-unit.ts",
+    "symbol": "AgentPlaceReader"
+  },
+  {
+    "rule": "no-unreachable-code",
+    "file": "src/fill/stages/agent-unit.ts",
+    "symbol": "AgentPlaceSet"
+  },
+  {
+    "rule": "no-unreachable-code",
+    "file": "src/fill/stages/agent-unit.ts",
+    "symbol": "AgentScaleLevel"
+  },
+  {
+    "rule": "no-unreachable-code",
+    "file": "src/fill/stages/agent-unit.ts",
+    "symbol": "AgentStageDeclaration"
+  },
+  {
+    "rule": "no-unreachable-code",
+    "file": "src/fill/stages/agent-unit.ts",
+    "symbol": "AgentStageScale"
+  },
+  {
+    "rule": "no-unreachable-code",
+    "file": "src/fill/stages/agent-unit.ts",
+    "symbol": "AgentStageWiring"
+  },
+  {
+    "rule": "no-unreachable-code",
+    "file": "src/fill/stages/agent-unit.ts",
+    "symbol": "AgentUnitContext"
+  },
+  {
+    "rule": "no-unreachable-code",
+    "file": "src/fill/stages/agent-unit.ts",
+    "symbol": "MAX_PLAN_DEPTH"
+  },
+  {
+    "rule": "no-unreachable-code",
+    "file": "src/fill/stages/agent-unit.ts",
+    "symbol": "MemberPlace"
+  },
+  {
+    "rule": "no-unreachable-code",
+    "file": "src/fill/stages/agent-unit.ts",
+    "symbol": "SPLIT_CHILDREN"
+  },
+  {
+    "rule": "no-unreachable-code",
+    "file": "src/fill/stages/agent-unit.ts",
+    "symbol": "agentIdentity"
+  },
+  {
+    "rule": "no-unreachable-code",
+    "file": "src/fill/stages/agent-unit.ts",
+    "symbol": "coverageWrites"
+  },
+  {
+    "rule": "no-unreachable-code",
+    "file": "src/fill/stages/agent-unit.ts",
+    "symbol": "heldRead"
+  },
+  {
+    "rule": "no-unreachable-code",
+    "file": "src/fill/stages/agent-unit.ts",
+    "symbol": "pathOfPlace"
+  },
+  {
+    "rule": "no-unreachable-code",
+    "file": "src/fill/stages/agent-unit.ts",
+    "symbol": "placeMembers"
+  },
+  {
+    "rule": "no-unreachable-code",
+    "file": "src/fill/stages/agent-unit.ts",
+    "symbol": "productUnits"
+  },
+  {
+    "rule": "no-unreachable-code",
+    "file": "src/fill/stages/agent-unit.ts",
+    "symbol": "repositoriesOf"
+  },
+  {
+    "rule": "no-unreachable-code",
+    "file": "src/fill/stages/agent-unit.ts",
+    "symbol": "repositoriesRead"
+  },
+  {
+    "rule": "no-unreachable-code",
+    "file": "src/fill/stages/agent-unit.ts",
+    "symbol": "repositoryNameOf"
+  },
+  {
+    "rule": "no-unreachable-code",
+    "file": "src/fill/stages/agent-unit.ts",
+    "symbol": "validateDraft"
+  },
+  {
+    "rule": "no-unreachable-code",
+    "file": "src/fill/stages/boundaries.ts",
+    "symbol": "BOUNDARIES_STAGE_VERSION"
+  },
+  {
+    "rule": "no-unreachable-code",
+    "file": "src/fill/stages/boundaries.ts",
+    "symbol": "boundariesSections"
+  },
+  {
+    "rule": "no-unreachable-code",
+    "file": "src/fill/stages/boundaries.ts",
+    "symbol": "boundaryPlaces"
+  },
+  {
+    "rule": "no-unreachable-code",
+    "file": "src/fill/stages/build-configuration.ts",
+    "symbol": "BUILD_CONFIGURATION_STAGE_KINDS"
+  },
+  {
+    "rule": "no-unreachable-code",
+    "file": "src/fill/stages/build-configuration.ts",
+    "symbol": "BUILD_CONFIGURATION_STAGE_VERSION"
+  },
+  {
+    "rule": "no-unreachable-code",
+    "file": "src/fill/stages/build-configuration.ts",
+    "symbol": "manifestUnitId"
+  },
+  {
+    "rule": "no-unreachable-code",
+    "file": "src/fill/stages/doc-intent.ts",
+    "symbol": "DOC_INTENT_STAGE_VERSION"
+  },
+  {
+    "rule": "no-unreachable-code",
+    "file": "src/fill/stages/doc-intent.ts",
+    "symbol": "docIntentSections"
+  },
+  {
+    "rule": "no-unreachable-code",
+    "file": "src/fill/stages/document-index.ts",
+    "symbol": "DOCUMENT_INDEX_STAGE_ID"
+  },
+  {
+    "rule": "no-unreachable-code",
+    "file": "src/fill/stages/document-index.ts",
+    "symbol": "DOCUMENT_INDEX_STAGE_KINDS"
+  },
+  {
+    "rule": "no-unreachable-code",
+    "file": "src/fill/stages/document-index.ts",
+    "symbol": "DOCUMENT_INDEX_STAGE_VERSION"
+  },
+  {
+    "rule": "no-unreachable-code",
+    "file": "src/fill/stages/document-index.ts",
+    "symbol": "DocumentHeading"
+  },
+  {
+    "rule": "no-unreachable-code",
+    "file": "src/fill/stages/document-index.ts",
+    "symbol": "DocumentLine"
+  },
+  {
+    "rule": "no-unreachable-code",
+    "file": "src/fill/stages/document-index.ts",
+    "symbol": "DocumentPlace"
+  },
+  {
+    "rule": "no-unreachable-code",
+    "file": "src/fill/stages/document-index.ts",
+    "symbol": "DocumentReading"
+  },
+  {
+    "rule": "no-unreachable-code",
+    "file": "src/fill/stages/document-index.ts",
+    "symbol": "LineLink"
+  },
+  {
+    "rule": "no-unreachable-code",
+    "file": "src/fill/stages/document-index.ts",
+    "symbol": "LineTaskKey"
+  },
+  {
+    "rule": "no-unreachable-code",
+    "file": "src/fill/stages/document-index.ts",
+    "symbol": "headingsOf"
+  },
+  {
+    "rule": "no-unreachable-code",
+    "file": "src/fill/stages/document-index.ts",
+    "symbol": "linesOfBytes"
+  },
+  {
+    "rule": "no-unreachable-code",
+    "file": "src/fill/stages/document-index.ts",
+    "symbol": "linksOf"
+  },
+  {
+    "rule": "no-unreachable-code",
+    "file": "src/fill/stages/document-index.ts",
+    "symbol": "markExamples"
+  },
+  {
+    "rule": "no-unreachable-code",
+    "file": "src/fill/stages/document-index.ts",
+    "symbol": "markdownEntriesOf"
+  },
+  {
+    "rule": "no-unreachable-code",
+    "file": "src/fill/stages/document-index.ts",
+    "symbol": "parseDocumentScope"
+  },
+  {
+    "rule": "no-unreachable-code",
+    "file": "src/fill/stages/document-index.ts",
+    "symbol": "pathNodeId"
+  },
+  {
+    "rule": "no-unreachable-code",
+    "file": "src/fill/stages/document-index.ts",
+    "symbol": "readDocument"
+  },
+  {
+    "rule": "no-unreachable-code",
+    "file": "src/fill/stages/document-index.ts",
+    "symbol": "taskKeysOf"
+  },
+  {
+    "rule": "no-unreachable-code",
+    "file": "src/fill/stages/document-index.ts",
+    "symbol": "textOf"
+  },
+  {
+    "rule": "no-unreachable-code",
+    "file": "src/fill/stages/document-index.ts",
+    "symbol": "treePathsOf"
+  },
+  {
+    "rule": "no-unreachable-code",
+    "file": "src/fill/stages/document-index.ts",
+    "symbol": "validateDraft"
+  },
+  {
+    "rule": "no-unreachable-code",
+    "file": "src/fill/stages/document-index.ts",
+    "symbol": "visibleText"
+  },
+  {
+    "rule": "no-unreachable-code",
+    "file": "src/fill/stages/history.ts",
+    "symbol": "HISTORY_INPUT_CAPABILITY"
+  },
+  {
+    "rule": "no-unreachable-code",
+    "file": "src/fill/stages/history.ts",
+    "symbol": "HISTORY_SELF_CAPABILITY"
+  },
+  {
+    "rule": "no-unreachable-code",
+    "file": "src/fill/stages/history.ts",
+    "symbol": "HISTORY_SOURCE_SYSTEM"
+  },
+  {
+    "rule": "no-unreachable-code",
+    "file": "src/fill/stages/history.ts",
+    "symbol": "HistoryAncestry"
+  },
+  {
+    "rule": "no-unreachable-code",
+    "file": "src/fill/stages/history.ts",
+    "symbol": "HistoryCommit"
+  },
+  {
+    "rule": "no-unreachable-code",
+    "file": "src/fill/stages/intent-history.ts",
+    "symbol": "INTENT_HISTORY_COMMENT_ROWS"
+  },
+  {
+    "rule": "no-unreachable-code",
+    "file": "src/fill/stages/intent-history.ts",
+    "symbol": "INTENT_HISTORY_COMMIT_ROWS"
+  },
+  {
+    "rule": "no-unreachable-code",
+    "file": "src/fill/stages/intent-history.ts",
+    "symbol": "INTENT_HISTORY_STAGE_VERSION"
+  },
+  {
+    "rule": "no-unreachable-code",
+    "file": "src/fill/stages/intent-history.ts",
+    "symbol": "INTENT_HISTORY_TOUCHED_ROWS"
+  },
+  {
+    "rule": "no-unreachable-code",
+    "file": "src/fill/stages/intent-history.ts",
+    "symbol": "commentsRead"
+  },
+  {
+    "rule": "no-unreachable-code",
+    "file": "src/fill/stages/intent-history.ts",
+    "symbol": "taskKeysRead"
+  },
+  {
+    "rule": "no-unreachable-code",
+    "file": "src/fill/stages/inventory.ts",
+    "symbol": "INVENTORY_STAGE_ID"
+  },
+  {
+    "rule": "no-unreachable-code",
+    "file": "src/fill/stages/inventory.ts",
+    "symbol": "INVENTORY_STAGE_KINDS"
+  },
+  {
+    "rule": "no-unreachable-code",
+    "file": "src/fill/stages/inventory.ts",
+    "symbol": "INVENTORY_STAGE_VERSION"
+  },
+  {
+    "rule": "no-unreachable-code",
+    "file": "src/fill/stages/inventory.ts",
+    "symbol": "directoryUnitId"
+  },
+  {
+    "rule": "no-unreachable-code",
+    "file": "src/fill/stages/inventory.ts",
+    "symbol": "fileUnitId"
+  },
+  {
+    "rule": "no-unreachable-code",
+    "file": "src/fill/stages/manifest-format.ts",
+    "symbol": "ComposeEnvFile"
+  },
+  {
+    "rule": "no-unreachable-code",
+    "file": "src/fill/stages/manifest-format.ts",
+    "symbol": "ComposeService"
+  },
+  {
+    "rule": "no-unreachable-code",
+    "file": "src/fill/stages/manifest-format.ts",
+    "symbol": "ComposeVariable"
+  },
+  {
+    "rule": "no-unreachable-code",
+    "file": "src/fill/stages/manifest-format.ts",
+    "symbol": "DockerfileInstruction"
+  },
+  {
+    "rule": "no-unreachable-code",
+    "file": "src/fill/stages/manifest-format.ts",
+    "symbol": "TextPath"
+  },
+  {
+    "rule": "no-unreachable-code",
+    "file": "src/fill/stages/modules.ts",
+    "symbol": "ClusteringFact"
+  },
+  {
+    "rule": "no-unreachable-code",
+    "file": "src/fill/stages/modules.ts",
+    "symbol": "DEFAULT_MAX_FAN_IN"
+  },
+  {
+    "rule": "no-unreachable-code",
+    "file": "src/fill/stages/modules.ts",
+    "symbol": "DEFAULT_SIZE_THRESHOLD"
+  },
+  {
+    "rule": "no-unreachable-code",
+    "file": "src/fill/stages/modules.ts",
+    "symbol": "MIN_MAX_FAN_IN"
+  },
+  {
+    "rule": "no-unreachable-code",
+    "file": "src/fill/stages/modules.ts",
+    "symbol": "MODULES_STAGE_KINDS"
+  },
+  {
+    "rule": "no-unreachable-code",
+    "file": "src/fill/stages/modules.ts",
+    "symbol": "MODULES_STAGE_VERSION"
+  },
+  {
+    "rule": "no-unreachable-code",
+    "file": "src/fill/stages/narrative.ts",
+    "symbol": "NARRATED_KINDS"
+  },
+  {
+    "rule": "no-unreachable-code",
+    "file": "src/fill/stages/narrative.ts",
+    "symbol": "NARRATIVE_KINDS"
+  },
+  {
+    "rule": "no-unreachable-code",
+    "file": "src/fill/stages/narrative.ts",
+    "symbol": "NARRATIVE_PAGES_PER_RUN"
+  },
+  {
+    "rule": "no-unreachable-code",
+    "file": "src/fill/stages/narrative.ts",
+    "symbol": "NARRATIVE_STAGE_VERSION"
+  },
+  {
+    "rule": "no-unreachable-code",
+    "file": "src/fill/stages/narrative.ts",
+    "symbol": "NARRATIVE_STATEMENT_ROWS"
+  },
+  {
+    "rule": "no-unreachable-code",
+    "file": "src/fill/stages/narrative.ts",
+    "symbol": "narrativeSections"
+  },
+  {
+    "rule": "no-unreachable-code",
+    "file": "src/fill/stages/narrative.ts",
+    "symbol": "narrativeUnits"
+  },
+  {
+    "rule": "no-unreachable-code",
+    "file": "src/fill/stages/overview.ts",
+    "symbol": "OVERVIEW_MODULE_ROWS"
+  },
+  {
+    "rule": "no-unreachable-code",
+    "file": "src/fill/stages/overview.ts",
+    "symbol": "OVERVIEW_SECTION_ROWS"
+  },
+  {
+    "rule": "no-unreachable-code",
+    "file": "src/fill/stages/overview.ts",
+    "symbol": "OVERVIEW_STAGE_VERSION"
+  },
+  {
+    "rule": "no-unreachable-code",
+    "file": "src/fill/stages/overview.ts",
+    "symbol": "overviewSections"
+  },
+  {
+    "rule": "no-unreachable-code",
+    "file": "src/fill/stages/recovery.ts",
+    "symbol": "RECOVERY_INTENT_ROWS"
+  },
+  {
+    "rule": "no-unreachable-code",
+    "file": "src/fill/stages/recovery.ts",
+    "symbol": "RECOVERY_MODEL_ROWS"
+  },
+  {
+    "rule": "no-unreachable-code",
+    "file": "src/fill/stages/recovery.ts",
+    "symbol": "RECOVERY_OVERVIEW_ROWS"
+  },
+  {
+    "rule": "no-unreachable-code",
+    "file": "src/fill/stages/recovery.ts",
+    "symbol": "RECOVERY_SCALE"
+  },
+  {
+    "rule": "no-unreachable-code",
+    "file": "src/fill/stages/recovery.ts",
+    "symbol": "RECOVERY_STAGE_VERSION"
+  },
+  {
+    "rule": "no-unreachable-code",
+    "file": "src/fill/stages/recovery.ts",
+    "symbol": "RECOVERY_SUMMARY_ROWS"
+  },
+  {
+    "rule": "no-unreachable-code",
+    "file": "src/fill/stages/resolution-extract.ts",
+    "symbol": "MENTION_USES"
+  },
+  {
+    "rule": "no-unreachable-code",
+    "file": "src/fill/stages/resolution-extract.ts",
+    "symbol": "MentionUse"
+  },
+  {
+    "rule": "no-unreachable-code",
+    "file": "src/fill/stages/resolution-facts.ts",
+    "symbol": "IndexResolutionRow"
+  },
+  {
+    "rule": "no-unreachable-code",
+    "file": "src/fill/stages/resolution-facts.ts",
+    "symbol": "RESOLUTION_SOURCE"
+  },
+  {
+    "rule": "no-unreachable-code",
+    "file": "src/fill/stages/resolution-facts.ts",
+    "symbol": "placeOf"
+  },
+  {
+    "rule": "no-unreachable-code",
+    "file": "src/fill/stages/semantic-resolution.ts",
+    "symbol": "SEMANTIC_RESOLUTION_STAGE_KINDS"
+  },
+  {
+    "rule": "no-unreachable-code",
+    "file": "src/fill/stages/semantic-resolution.ts",
+    "symbol": "SEMANTIC_RESOLUTION_STAGE_VERSION"
+  },
+  {
+    "rule": "no-unreachable-code",
+    "file": "src/fill/stages/snapshot.ts",
+    "symbol": "SNAPSHOT_STAGE_ID"
+  },
+  {
+    "rule": "no-unreachable-code",
+    "file": "src/fill/stages/snapshot.ts",
+    "symbol": "SNAPSHOT_STAGE_KINDS"
+  },
+  {
+    "rule": "no-unreachable-code",
+    "file": "src/fill/stages/snapshot.ts",
+    "symbol": "SNAPSHOT_STAGE_VERSION"
+  },
+  {
+    "rule": "no-unreachable-code",
+    "file": "src/fill/stages/syntax-extract.ts",
+    "symbol": "ExtractedCallableBoundary"
+  },
+  {
+    "rule": "no-unreachable-code",
+    "file": "src/fill/stages/syntax-extract.ts",
+    "symbol": "ExtractedComment"
+  },
+  {
+    "rule": "no-unreachable-code",
+    "file": "src/fill/stages/syntax-extract.ts",
+    "symbol": "ExtractedEntryPoint"
+  },
+  {
+    "rule": "no-unreachable-code",
+    "file": "src/fill/stages/syntax-extract.ts",
+    "symbol": "ExtractedImport"
+  },
+  {
+    "rule": "no-unreachable-code",
+    "file": "src/fill/stages/syntax-extract.ts",
+    "symbol": "SYNTAX_LANGUAGES"
+  },
+  {
+    "rule": "no-unreachable-code",
+    "file": "src/fill/stages/syntax-facts.ts",
+    "symbol": "placeOf"
+  },
+  {
+    "rule": "no-unreachable-code",
+    "file": "src/fill/stages/syntax.ts",
+    "symbol": "SYNTAX_STAGE_KINDS"
+  },
+  {
+    "rule": "no-unreachable-code",
+    "file": "src/fill/stages/syntax.ts",
+    "symbol": "SYNTAX_STAGE_VERSION"
+  },
+  {
+    "rule": "no-unreachable-code",
+    "file": "src/fill/stages/understanding.ts",
+    "symbol": "ChildModule"
+  },
+  {
+    "rule": "no-unreachable-code",
+    "file": "src/fill/stages/understanding.ts",
+    "symbol": "ChildSummary"
+  },
+  {
+    "rule": "no-unreachable-code",
+    "file": "src/fill/stages/understanding.ts",
+    "symbol": "MAX_ORDERED_DEPTH"
+  },
+  {
+    "rule": "no-unreachable-code",
+    "file": "src/fill/stages/understanding.ts",
+    "symbol": "UNDERSTANDING_SCALE"
+  },
+  {
+    "rule": "no-unreachable-code",
+    "file": "src/fill/stages/understanding.ts",
+    "symbol": "UNDERSTANDING_STAGE_VERSION"
+  },
+  {
+    "rule": "no-unreachable-code",
+    "file": "src/fill/stages/understanding.ts",
+    "symbol": "childModulesOf"
+  },
+  {
+    "rule": "no-unreachable-code",
+    "file": "src/fill/stages/understanding.ts",
+    "symbol": "understandingSections"
+  },
+  {
+    "rule": "no-unreachable-code",
+    "file": "src/fill/unit-limits.ts",
+    "symbol": "UnitLimitState"
+  },
+  {
+    "rule": "no-unreachable-code",
+    "file": "src/fill/unit-limits.ts",
+    "symbol": "UnitMoment"
+  },
+  {
+    "rule": "no-unreachable-code",
+    "file": "src/fill/unit-mcp-server.ts",
+    "symbol": "UNIT_TOOL_TIMEOUT_MS"
+  },
+  {
+    "rule": "no-unreachable-code",
+    "file": "src/fill/unit-mcp.ts",
+    "symbol": "JsonRpcMessage"
+  },
+  {
+    "rule": "no-unreachable-code",
+    "file": "src/fill/unit-mcp.ts",
+    "symbol": "UnitToolCallForwarder"
+  },
+  {
+    "rule": "no-unreachable-code",
+    "file": "src/fill/unit-mcp.ts",
+    "symbol": "answeredVersion"
+  },
+  {
+    "rule": "no-unreachable-code",
+    "file": "src/fill/unit-tools.ts",
+    "symbol": "OpenUnitTools"
+  },
+  {
+    "rule": "no-unreachable-code",
+    "file": "src/fill/unit-tools.ts",
+    "symbol": "UnitToolName"
+  },
+  {
+    "rule": "no-unreachable-code",
+    "file": "src/fill/unit-tools.ts",
+    "symbol": "unitTool"
+  },
+  {
+    "rule": "no-unreachable-code",
+    "file": "src/graph/reads.ts",
+    "symbol": "ContentSpan"
+  },
+  {
+    "rule": "no-unreachable-code",
+    "file": "src/graph/reads.ts",
+    "symbol": "DiffEntry"
+  },
+  {
+    "rule": "no-unreachable-code",
+    "file": "src/graph/versions.ts",
+    "symbol": "IDENTITY_BATCH_SIZE"
+  },
+  {
+    "rule": "no-unreachable-code",
+    "file": "src/graph/versions.ts",
+    "symbol": "Owner"
+  },
+  {
+    "rule": "no-unreachable-code",
+    "file": "src/graph/versions.ts",
+    "symbol": "PREFETCH_BATCH_SIZE"
+  },
+  {
+    "rule": "no-unreachable-code",
+    "file": "src/graph/versions.ts",
+    "symbol": "PUBLISH_TURN_MS"
+  },
+  {
+    "rule": "no-unreachable-code",
+    "file": "src/graph/versions.ts",
+    "symbol": "PUBLISH_YIELD_SIZE"
+  },
+  {
+    "rule": "no-unreachable-code",
+    "file": "src/graph/versions.ts",
+    "symbol": "firstUncovered"
+  },
+  {
+    "rule": "no-unreachable-code",
+    "file": "src/graph/versions.ts",
+    "symbol": "guarded"
+  },
+  {
+    "rule": "no-unreachable-code",
+    "file": "src/graph/versions.ts",
+    "symbol": "kindId"
+  },
+  {
+    "rule": "no-unreachable-code",
+    "file": "src/graph/versions.ts",
+    "symbol": "loadEdgeVersion"
+  },
+  {
+    "rule": "no-unreachable-code",
+    "file": "src/graph/versions.ts",
+    "symbol": "loadNodeVersion"
+  },
+  {
+    "rule": "no-unreachable-code",
+    "file": "src/graph/versions.ts",
+    "symbol": "relationInfo"
+  },
+  {
+    "rule": "no-unreachable-code",
+    "file": "src/graph/vocabulary.ts",
+    "symbol": "isEngineKey"
+  },
+  {
+    "rule": "no-unreachable-code",
+    "file": "src/history/assertions.ts",
+    "symbol": "environmentDefinitionWithoutBindings"
+  },
+  {
+    "rule": "no-unreachable-code",
+    "file": "src/history/index.ts",
+    "symbol": null
+  },
+  {
+    "rule": "no-unreachable-code",
+    "file": "src/identity/identity.ts",
+    "symbol": "Verification"
+  },
+  {
+    "rule": "no-unreachable-code",
+    "file": "src/knowledge/anchors.ts",
+    "symbol": "anchorsOf"
+  },
+  {
+    "rule": "no-unreachable-code",
+    "file": "src/knowledge/anchors.ts",
+    "symbol": "blockAnchors"
+  },
+  {
+    "rule": "no-unreachable-code",
+    "file": "src/knowledge/anchors.ts",
+    "symbol": "headingLines"
+  },
+  {
+    "rule": "no-unreachable-code",
+    "file": "src/knowledge/anchors.ts",
+    "symbol": "sectionOfHeading"
+  },
+  {
+    "rule": "no-unreachable-code",
+    "file": "src/knowledge/answer-key-check.ts",
+    "symbol": "AnswerKeyLocation"
+  },
+  {
+    "rule": "no-unreachable-code",
+    "file": "src/knowledge/answer-key-check.ts",
+    "symbol": "AnswerKeyQuestionSummary"
+  },
+  {
+    "rule": "no-unreachable-code",
+    "file": "src/knowledge/answer-key-check.ts",
+    "symbol": "AnswerKeySeam"
+  },
+  {
+    "rule": "no-unreachable-code",
+    "file": "src/knowledge/answer-key-check.ts",
+    "symbol": "AnswerKeyThreshold"
+  },
+  {
+    "rule": "no-unreachable-code",
+    "file": "src/knowledge/answer-key-check.ts",
+    "symbol": "EvidencePassage"
+  },
+  {
+    "rule": "no-unreachable-code",
+    "file": "src/knowledge/answer-key-check.ts",
+    "symbol": "LocationEvidence"
+  },
+  {
+    "rule": "no-unreachable-code",
+    "file": "src/knowledge/answer-key-check.ts",
+    "symbol": "ProductEvidenceSource"
+  },
+  {
+    "rule": "no-unreachable-code",
+    "file": "src/knowledge/answer-key-judge.ts",
+    "symbol": "JudgeRoleNote"
+  },
+  {
+    "rule": "no-unreachable-code",
+    "file": "src/knowledge/answer-key-judge.ts",
+    "symbol": "JudgeTier"
+  },
+  {
+    "rule": "no-unreachable-code",
+    "file": "src/knowledge/answer-key-judge.ts",
+    "symbol": "JudgeTierCounts"
+  },
+  {
+    "rule": "no-unreachable-code",
+    "file": "src/knowledge/answer-key-judge.ts",
+    "symbol": "JudgeVerdict"
+  },
+  {
+    "rule": "no-unreachable-code",
+    "file": "src/knowledge/answer-key-judge.ts",
+    "symbol": "countsOfPacks"
+  },
+  {
+    "rule": "no-unreachable-code",
+    "file": "src/knowledge/blocks.ts",
+    "symbol": "SOURCE_BLOCK_LINES"
+  },
+  {
+    "rule": "no-unreachable-code",
+    "file": "src/knowledge/blocks.ts",
+    "symbol": "detailRows"
+  },
+  {
+    "rule": "no-unreachable-code",
+    "file": "src/knowledge/blocks.ts",
+    "symbol": "relationWord"
+  },
+  {
+    "rule": "no-unreachable-code",
+    "file": "src/knowledge/contract-document.ts",
+    "symbol": "withContractReason"
+  },
+  {
+    "rule": "no-unreachable-code",
+    "file": "src/knowledge/definition.ts",
+    "symbol": "DEFINITION_KINDS"
+  },
+  {
+    "rule": "no-unreachable-code",
+    "file": "src/knowledge/diagrams.ts",
+    "symbol": "QUIET_RELATIONS"
+  },
+  {
+    "rule": "no-unreachable-code",
+    "file": "src/knowledge/diagrams.ts",
+    "symbol": "collectNeighbors"
+  },
+  {
+    "rule": "no-unreachable-code",
+    "file": "src/knowledge/diagrams.ts",
+    "symbol": "entryOfSymbol"
+  },
+  {
+    "rule": "no-unreachable-code",
+    "file": "src/knowledge/doc-blocks.ts",
+    "symbol": "nameMentions"
+  },
+  {
+    "rule": "no-unreachable-code",
+    "file": "src/knowledge/doc-entities.ts",
+    "symbol": "DecidingPass"
+  },
+  {
+    "rule": "no-unreachable-code",
+    "file": "src/knowledge/doc-entities.ts",
+    "symbol": "DocIdentities"
+  },
+  {
+    "rule": "no-unreachable-code",
+    "file": "src/knowledge/doc-entities.ts",
+    "symbol": "DocIdentity"
+  },
+  {
+    "rule": "no-unreachable-code",
+    "file": "src/knowledge/doc-entities.ts",
+    "symbol": "DocumentAddress"
+  },
+  {
+    "rule": "no-unreachable-code",
+    "file": "src/knowledge/doc-entities.ts",
+    "symbol": "DocumentIdentities"
+  },
+  {
+    "rule": "no-unreachable-code",
+    "file": "src/knowledge/doc-entities.ts",
+    "symbol": "IDENTITIES_FILE"
+  },
+  {
+    "rule": "no-unreachable-code",
+    "file": "src/knowledge/doc-entities.ts",
+    "symbol": "documentKey"
+  },
+  {
+    "rule": "no-unreachable-code",
+    "file": "src/knowledge/doc-entities.ts",
+    "symbol": "identifierOf"
+  },
+  {
+    "rule": "no-unreachable-code",
+    "file": "src/knowledge/doc-entities.ts",
+    "symbol": "parseDocumentAddress"
+  },
+  {
+    "rule": "no-unreachable-code",
+    "file": "src/knowledge/doc-entities.ts",
+    "symbol": "readDocIdentities"
+  },
+  {
+    "rule": "no-unreachable-code",
+    "file": "src/knowledge/doc-entities.ts",
+    "symbol": "writeDocIdentities"
+  },
+  {
+    "rule": "no-unreachable-code",
+    "file": "src/knowledge/doc-identities.ts",
+    "symbol": "DocIdentity"
+  },
+  {
+    "rule": "no-unreachable-code",
+    "file": "src/knowledge/doc-identities.ts",
+    "symbol": "IDENTITY_PREFIX"
+  },
+  {
+    "rule": "no-unreachable-code",
+    "file": "src/knowledge/doc-identities.ts",
+    "symbol": "identityName"
+  },
+  {
+    "rule": "no-unreachable-code",
+    "file": "src/knowledge/doc-sources.ts",
+    "symbol": "DOCUMENT_BUDGET_BYTES"
+  },
+  {
+    "rule": "no-unreachable-code",
+    "file": "src/knowledge/doc-sources.ts",
+    "symbol": "DOCUMENT_BYTES"
+  },
+  {
+    "rule": "no-unreachable-code",
+    "file": "src/knowledge/doc-tree.ts",
+    "symbol": "DocNodeType"
+  },
+  {
+    "rule": "no-unreachable-code",
+    "file": "src/knowledge/doc-tree.ts",
+    "symbol": "SectionWalk"
+  },
+  {
+    "rule": "no-unreachable-code",
+    "file": "src/knowledge/doc-tree.ts",
+    "symbol": "sectionWalk"
+  },
+  {
+    "rule": "no-unreachable-code",
+    "file": "src/knowledge/doc-tree.ts",
+    "symbol": "sectionsOf"
+  },
+  {
+    "rule": "no-unreachable-code",
+    "file": "src/knowledge/fill-protocol.ts",
+    "symbol": "ToolDefinition"
+  },
+  {
+    "rule": "no-unreachable-code",
+    "file": "src/knowledge/fill-protocol.ts",
+    "symbol": "UnitSummary"
+  },
+  {
+    "rule": "no-unreachable-code",
+    "file": "src/knowledge/glossary.ts",
+    "symbol": "TermField"
+  },
+  {
+    "rule": "no-unreachable-code",
+    "file": "src/knowledge/graph-verdict-rules.ts",
+    "symbol": "GRAPH_NODE_ESCALATIONS"
+  },
+  {
+    "rule": "no-unreachable-code",
+    "file": "src/knowledge/graph-verdict-rules.ts",
+    "symbol": "GraphDirection"
+  },
+  {
+    "rule": "no-unreachable-code",
+    "file": "src/knowledge/graph-verdict-rules.ts",
+    "symbol": "GraphKindEscalation"
+  },
+  {
+    "rule": "no-unreachable-code",
+    "file": "src/knowledge/graph-verdict-rules.ts",
+    "symbol": "SPANLESS_EDGE_KINDS"
+  },
+  {
+    "rule": "no-unreachable-code",
+    "file": "src/knowledge/graph-verdicts.ts",
+    "symbol": "GraphEvidenceFile"
+  },
+  {
+    "rule": "no-unreachable-code",
+    "file": "src/knowledge/graph-verdicts.ts",
+    "symbol": "GraphJudgeEvidence"
+  },
+  {
+    "rule": "no-unreachable-code",
+    "file": "src/knowledge/graph-verdicts.ts",
+    "symbol": "GraphVerdictCacheEntry"
+  },
+  {
+    "rule": "no-unreachable-code",
+    "file": "src/knowledge/graph-verdicts.ts",
+    "symbol": "GraphVerdictKindReport"
+  },
+  {
+    "rule": "no-unreachable-code",
+    "file": "src/knowledge/graph-verdicts.ts",
+    "symbol": "GraphVerdictReasonReport"
+  },
+  {
+    "rule": "no-unreachable-code",
+    "file": "src/knowledge/graph-verdicts.ts",
+    "symbol": "GraphVerdictRole"
+  },
+  {
+    "rule": "no-unreachable-code",
+    "file": "src/knowledge/graph-verdicts.ts",
+    "symbol": "GraphVerdictSource"
+  },
+  {
+    "rule": "no-unreachable-code",
+    "file": "src/knowledge/history-landmarks.ts",
+    "symbol": "LandmarkDiagnostic"
+  },
+  {
+    "rule": "no-unreachable-code",
+    "file": "src/knowledge/history-landmarks.ts",
+    "symbol": "MAX_HISTORY_LANDMARK_TREES"
+  },
+  {
+    "rule": "no-unreachable-code",
+    "file": "src/knowledge/history.ts",
+    "symbol": "HISTORY_KINDS"
+  },
+  {
+    "rule": "no-unreachable-code",
+    "file": "src/knowledge/history.ts",
+    "symbol": "HISTORY_SECTIONS"
+  },
+  {
+    "rule": "no-unreachable-code",
+    "file": "src/knowledge/history.ts",
+    "symbol": "dayOf"
+  },
+  {
+    "rule": "no-unreachable-code",
+    "file": "src/knowledge/index/index.ts",
+    "symbol": "DigestMethod"
+  },
+  {
+    "rule": "no-unreachable-code",
+    "file": "src/knowledge/index/index.ts",
+    "symbol": "GROUNDED_BY"
+  },
+  {
+    "rule": "no-unreachable-code",
+    "file": "src/knowledge/index/index.ts",
+    "symbol": "GroundDigest"
+  },
+  {
+    "rule": "no-unreachable-code",
+    "file": "src/knowledge/index/index.ts",
+    "symbol": "GroundStatus"
+  },
+  {
+    "rule": "no-unreachable-code",
+    "file": "src/knowledge/index/index.ts",
+    "symbol": "INDEX_PRODUCER"
+  },
+  {
+    "rule": "no-unreachable-code",
+    "file": "src/knowledge/index/index.ts",
+    "symbol": "IndexHead"
+  },
+  {
+    "rule": "no-unreachable-code",
+    "file": "src/knowledge/index/index.ts",
+    "symbol": "IndexInput"
+  },
+  {
+    "rule": "no-unreachable-code",
+    "file": "src/knowledge/index/index.ts",
+    "symbol": "IndexReport"
+  },
+  {
+    "rule": "no-unreachable-code",
+    "file": "src/knowledge/index/index.ts",
+    "symbol": "KindCount"
+  },
+  {
+    "rule": "no-unreachable-code",
+    "file": "src/knowledge/index/index.ts",
+    "symbol": "MENTIONS"
+  },
+  {
+    "rule": "no-unreachable-code",
+    "file": "src/knowledge/index/index.ts",
+    "symbol": "NowState"
+  },
+  {
+    "rule": "no-unreachable-code",
+    "file": "src/knowledge/index/index.ts",
+    "symbol": "PAGE_KIND"
+  },
+  {
+    "rule": "no-unreachable-code",
+    "file": "src/knowledge/index/index.ts",
+    "symbol": "PageReadError"
+  },
+  {
+    "rule": "no-unreachable-code",
+    "file": "src/knowledge/index/index.ts",
+    "symbol": "PlaceInput"
+  },
+  {
+    "rule": "no-unreachable-code",
+    "file": "src/knowledge/index/index.ts",
+    "symbol": "RELATES"
+  },
+  {
+    "rule": "no-unreachable-code",
+    "file": "src/knowledge/index/index.ts",
+    "symbol": "Remote"
+  },
+  {
+    "rule": "no-unreachable-code",
+    "file": "src/knowledge/index/index.ts",
+    "symbol": "SECTION_KIND"
+  },
+  {
+    "rule": "no-unreachable-code",
+    "file": "src/knowledge/index/index.ts",
+    "symbol": "STATEMENT_KIND"
+  },
+  {
+    "rule": "no-unreachable-code",
+    "file": "src/knowledge/index/index.ts",
+    "symbol": "STATEMENT_OF"
+  },
+  {
+    "rule": "no-unreachable-code",
+    "file": "src/knowledge/index/index.ts",
+    "symbol": "Unresolved"
+  },
+  {
+    "rule": "no-unreachable-code",
+    "file": "src/knowledge/index/index.ts",
+    "symbol": "WebLink"
+  },
+  {
+    "rule": "no-unreachable-code",
+    "file": "src/knowledge/index/index.ts",
+    "symbol": "WorkerIndexOptions"
+  },
+  {
+    "rule": "no-unreachable-code",
+    "file": "src/knowledge/index/index.ts",
+    "symbol": "WrittenAt"
+  },
+  {
+    "rule": "no-unreachable-code",
+    "file": "src/knowledge/index/index.ts",
+    "symbol": "digestGround"
+  },
+  {
+    "rule": "no-unreachable-code",
+    "file": "src/knowledge/index/index.ts",
+    "symbol": "pageKey"
+  },
+  {
+    "rule": "no-unreachable-code",
+    "file": "src/knowledge/index/index.ts",
+    "symbol": "parseRemote"
+  },
+  {
+    "rule": "no-unreachable-code",
+    "file": "src/knowledge/index/index.ts",
+    "symbol": "readWrittenAt"
+  },
+  {
+    "rule": "no-unreachable-code",
+    "file": "src/knowledge/index/index.ts",
+    "symbol": "sectionDigest"
+  },
+  {
+    "rule": "no-unreachable-code",
+    "file": "src/knowledge/index/index.ts",
+    "symbol": "sectionKey"
+  },
+  {
+    "rule": "no-unreachable-code",
+    "file": "src/knowledge/index/index.ts",
+    "symbol": "statementKey"
+  },
+  {
+    "rule": "no-unreachable-code",
+    "file": "src/knowledge/index/index.ts",
+    "symbol": "webLink"
+  },
+  {
+    "rule": "no-unreachable-code",
+    "file": "src/knowledge/index/publish.ts",
+    "symbol": "Unresolved"
+  },
+  {
+    "rule": "no-unreachable-code",
+    "file": "src/knowledge/index/publish.ts",
+    "symbol": "pageKey"
+  },
+  {
+    "rule": "no-unreachable-code",
+    "file": "src/knowledge/index/publish.ts",
+    "symbol": "statementKey"
+  },
+  {
+    "rule": "no-unreachable-code",
+    "file": "src/knowledge/index/queries.ts",
+    "symbol": "GroundStatus"
+  },
+  {
+    "rule": "no-unreachable-code",
+    "file": "src/knowledge/index/queries.ts",
+    "symbol": "PAGE_KIND"
+  },
+  {
+    "rule": "no-unreachable-code",
+    "file": "src/knowledge/index/queries.ts",
+    "symbol": "STATEMENT_KIND"
+  },
+  {
+    "rule": "no-unreachable-code",
+    "file": "src/knowledge/index/web-link.ts",
+    "symbol": "hostKind"
+  },
+  {
+    "rule": "no-unreachable-code",
+    "file": "src/knowledge/kinds.ts",
+    "symbol": "DIAGRAM_RENDERER_NAMES"
+  },
+  {
+    "rule": "no-unreachable-code",
+    "file": "src/knowledge/kinds.ts",
+    "symbol": "DeclaredRelation"
+  },
+  {
+    "rule": "no-unreachable-code",
+    "file": "src/knowledge/kinds.ts",
+    "symbol": "ExpectedKind"
+  },
+  {
+    "rule": "no-unreachable-code",
+    "file": "src/knowledge/kinds.ts",
+    "symbol": "GroupDecl"
+  },
+  {
+    "rule": "no-unreachable-code",
+    "file": "src/knowledge/kinds.ts",
+    "symbol": "KindLabel"
+  },
+  {
+    "rule": "no-unreachable-code",
+    "file": "src/knowledge/kinds.ts",
+    "symbol": "MemberDecl"
+  },
+  {
+    "rule": "no-unreachable-code",
+    "file": "src/knowledge/kinds.ts",
+    "symbol": "ORIGINS"
+  },
+  {
+    "rule": "no-unreachable-code",
+    "file": "src/knowledge/kinds.ts",
+    "symbol": "PROPERTY_FORMATS"
+  },
+  {
+    "rule": "no-unreachable-code",
+    "file": "src/knowledge/kinds.ts",
+    "symbol": "RoleDecl"
+  },
+  {
+    "rule": "no-unreachable-code",
+    "file": "src/knowledge/kinds.ts",
+    "symbol": "RoleName"
+  },
+  {
+    "rule": "no-unreachable-code",
+    "file": "src/knowledge/liquid-engine.ts",
+    "symbol": "TEMPLATE_FILTERS"
+  },
+  {
+    "rule": "no-unreachable-code",
+    "file": "src/knowledge/liquid-engine.ts",
+    "symbol": "TEMPLATE_TAGS"
+  },
+  {
+    "rule": "no-unreachable-code",
+    "file": "src/knowledge/liquid-engine.ts",
+    "symbol": "TemplateError"
+  },
+  {
+    "rule": "no-unreachable-code",
+    "file": "src/knowledge/liquid-engine.ts",
+    "symbol": "TemplateFailure"
+  },
+  {
+    "rule": "no-unreachable-code",
+    "file": "src/knowledge/liquid-engine.ts",
+    "symbol": "TemplateRender"
+  },
+  {
+    "rule": "no-unreachable-code",
+    "file": "src/knowledge/liquid.ts",
+    "symbol": "RENDER_BOUNDS"
+  },
+  {
+    "rule": "no-unreachable-code",
+    "file": "src/knowledge/liquid.ts",
+    "symbol": "RENDER_LIMITS"
+  },
+  {
+    "rule": "no-unreachable-code",
+    "file": "src/knowledge/liquid.ts",
+    "symbol": "closeRenderWorker"
+  },
+  {
+    "rule": "no-unreachable-code",
+    "file": "src/knowledge/liquid.ts",
+    "symbol": "spawnRenderWorker"
+  },
+  {
+    "rule": "no-unreachable-code",
+    "file": "src/knowledge/markdown.ts",
+    "symbol": "SCHEME"
+  },
+  {
+    "rule": "no-unreachable-code",
+    "file": "src/knowledge/markdown.ts",
+    "symbol": "Statement"
+  },
+  {
+    "rule": "no-unreachable-code",
+    "file": "src/knowledge/markdown.ts",
+    "symbol": "readMarkdownEntity"
+  },
+  {
+    "rule": "no-unreachable-code",
+    "file": "src/knowledge/model-roles.ts",
+    "symbol": "MODEL_ROLES"
+  },
+  {
+    "rule": "no-unreachable-code",
+    "file": "src/knowledge/model-roles.ts",
+    "symbol": "assignmentsOf"
+  },
+  {
+    "rule": "no-unreachable-code",
+    "file": "src/knowledge/model.ts",
+    "symbol": "HistoryMore"
+  },
+  {
+    "rule": "no-unreachable-code",
+    "file": "src/knowledge/model.ts",
+    "symbol": "MemberRow"
+  },
+  {
+    "rule": "no-unreachable-code",
+    "file": "src/knowledge/page-files.ts",
+    "symbol": "KIND_SCHEMA"
+  },
+  {
+    "rule": "no-unreachable-code",
+    "file": "src/knowledge/page-files.ts",
+    "symbol": "PAGE_SCHEMA"
+  },
+  {
+    "rule": "no-unreachable-code",
+    "file": "src/knowledge/page-files.ts",
+    "symbol": "PageFileDiagram"
+  },
+  {
+    "rule": "no-unreachable-code",
+    "file": "src/knowledge/page-files.ts",
+    "symbol": "PageFileEdge"
+  },
+  {
+    "rule": "no-unreachable-code",
+    "file": "src/knowledge/page-files.ts",
+    "symbol": "PageFileFormat"
+  },
+  {
+    "rule": "no-unreachable-code",
+    "file": "src/knowledge/page-files.ts",
+    "symbol": "PageFileGroup"
+  },
+  {
+    "rule": "no-unreachable-code",
+    "file": "src/knowledge/page-files.ts",
+    "symbol": "PageFileItem"
+  },
+  {
+    "rule": "no-unreachable-code",
+    "file": "src/knowledge/page-files.ts",
+    "symbol": "PageFileLink"
+  },
+  {
+    "rule": "no-unreachable-code",
+    "file": "src/knowledge/page-files.ts",
+    "symbol": "PageFileMember"
+  },
+  {
+    "rule": "no-unreachable-code",
+    "file": "src/knowledge/page-files.ts",
+    "symbol": "PageFilePlace"
+  },
+  {
+    "rule": "no-unreachable-code",
+    "file": "src/knowledge/page-files.ts",
+    "symbol": "PageFileSection"
+  },
+  {
+    "rule": "no-unreachable-code",
+    "file": "src/knowledge/page-files.ts",
+    "symbol": "PageFileSectionType"
+  },
+  {
+    "rule": "no-unreachable-code",
+    "file": "src/knowledge/product.ts",
+    "symbol": "FillWorkerFactory"
+  },
+  {
+    "rule": "no-unreachable-code",
+    "file": "src/knowledge/product.ts",
+    "symbol": "spawnFillWorker"
+  },
+  {
+    "rule": "no-unreachable-code",
+    "file": "src/knowledge/proto-document.ts",
+    "symbol": "ProtoField"
+  },
+  {
+    "rule": "no-unreachable-code",
+    "file": "src/knowledge/proto-document.ts",
+    "symbol": "ProtoMessage"
+  },
+  {
+    "rule": "no-unreachable-code",
+    "file": "src/knowledge/remote-owner.ts",
+    "symbol": "spawnReadWorker"
+  },
+  {
+    "rule": "no-unreachable-code",
+    "file": "src/knowledge/render-worker.ts",
+    "symbol": "BlockRequest"
+  },
+  {
+    "rule": "no-unreachable-code",
+    "file": "src/knowledge/render-worker.ts",
+    "symbol": "RenderLimits"
+  },
+  {
+    "rule": "no-unreachable-code",
+    "file": "src/knowledge/render-worker.ts",
+    "symbol": "RenderPart"
+  },
+  {
+    "rule": "no-unreachable-code",
+    "file": "src/knowledge/render-worker.ts",
+    "symbol": "TEMPLATE_FILTERS"
+  },
+  {
+    "rule": "no-unreachable-code",
+    "file": "src/knowledge/render-worker.ts",
+    "symbol": "TEMPLATE_TAGS"
+  },
+  {
+    "rule": "no-unreachable-code",
+    "file": "src/knowledge/reset.ts",
+    "symbol": "realInside"
+  },
+  {
+    "rule": "no-unreachable-code",
+    "file": "src/knowledge/resolve.ts",
+    "symbol": "BrokenWhy"
+  },
+  {
+    "rule": "no-unreachable-code",
+    "file": "src/knowledge/resolve.ts",
+    "symbol": "resolutionOfEntity"
+  },
+  {
+    "rule": "no-unreachable-code",
+    "file": "src/knowledge/resolve.ts",
+    "symbol": "slugOf"
+  },
+  {
+    "rule": "no-unreachable-code",
+    "file": "src/knowledge/seed.ts",
+    "symbol": "PROPERTY_LABELS"
+  },
+  {
+    "rule": "no-unreachable-code",
+    "file": "src/knowledge/seed.ts",
+    "symbol": "PropertyLabel"
+  },
+  {
+    "rule": "no-unreachable-code",
+    "file": "src/knowledge/seed.ts",
+    "symbol": "yamlText"
+  },
+  {
+    "rule": "no-unreachable-code",
+    "file": "src/knowledge/semantics.ts",
+    "symbol": "PassageBlock"
+  },
+  {
+    "rule": "no-unreachable-code",
+    "file": "src/knowledge/settings.ts",
+    "symbol": "SETTINGS_FILE"
+  },
+  {
+    "rule": "no-unreachable-code",
+    "file": "src/knowledge/starter-upgrade.ts",
+    "symbol": "MADARCH_COMMIT_SUBJECTS"
+  },
+  {
+    "rule": "no-unreachable-code",
+    "file": "src/knowledge/starter-upgrade.ts",
+    "symbol": "rememberMadarchStarterFile"
+  },
+  {
+    "rule": "no-unreachable-code",
+    "file": "src/knowledge/state-machines.ts",
+    "symbol": "MachineState"
+  },
+  {
+    "rule": "no-unreachable-code",
+    "file": "src/knowledge/state-machines.ts",
+    "symbol": "MachineTransition"
+  },
+  {
+    "rule": "no-unreachable-code",
+    "file": "src/knowledge/template.ts",
+    "symbol": "BlockName"
+  },
+  {
+    "rule": "no-unreachable-code",
+    "file": "src/knowledge/template.ts",
+    "symbol": "TEMPLATE_LANGUAGES"
+  },
+  {
+    "rule": "no-unreachable-code",
+    "file": "src/knowledge/template.ts",
+    "symbol": "placeholders"
+  },
+  {
+    "rule": "no-unreachable-code",
+    "file": "src/knowledge/term-fields.ts",
+    "symbol": "TermField"
+  },
+  {
+    "rule": "no-unreachable-code",
+    "file": "src/knowledge/views.ts",
+    "symbol": "DEFAULT_RENDERER"
+  },
+  {
+    "rule": "no-unreachable-code",
+    "file": "src/knowledge/views.ts",
+    "symbol": "NODE_BUDGET"
+  },
+  {
+    "rule": "no-unreachable-code",
+    "file": "src/knowledge/views.ts",
+    "symbol": "RENDERERS"
+  },
+  {
+    "rule": "no-unreachable-code",
+    "file": "src/knowledge/views.ts",
+    "symbol": "VIEW_TYPES"
+  },
+  {
+    "rule": "no-unreachable-code",
+    "file": "src/knowledge/views.ts",
+    "symbol": "ViewEdge"
+  },
+  {
+    "rule": "no-unreachable-code",
+    "file": "src/knowledge/views.ts",
+    "symbol": "ViewElement"
+  },
+  {
+    "rule": "no-unreachable-code",
+    "file": "src/knowledge/views.ts",
+    "symbol": "Words"
+  },
+  {
+    "rule": "no-unreachable-code",
+    "file": "src/knowledge/views.ts",
+    "symbol": "mermaidOfView"
+  },
+  {
+    "rule": "no-unreachable-code",
+    "file": "src/knowledge/views.ts",
+    "symbol": "specQuery"
+  },
+  {
+    "rule": "no-unreachable-code",
+    "file": "src/knowledge/views.ts",
+    "symbol": "stateViews"
+  },
+  {
+    "rule": "no-unreachable-code",
+    "file": "src/knowledge/views.ts",
+    "symbol": "wordsOf"
+  },
+  {
+    "rule": "no-unreachable-code",
+    "file": "src/loop/answer.ts",
+    "symbol": "findStatement"
+  },
+  {
+    "rule": "no-unreachable-code",
+    "file": "src/loop/closure.ts",
+    "symbol": "namesTask"
+  },
+  {
+    "rule": "no-unreachable-code",
+    "file": "src/loop/impact.ts",
+    "symbol": "ImpactReadError"
+  },
+  {
+    "rule": "no-unreachable-code",
+    "file": "src/loop/impact.ts",
+    "symbol": "ImpactedPage"
+  },
+  {
+    "rule": "no-unreachable-code",
+    "file": "src/loop/plan.ts",
+    "symbol": "PlanReason"
+  },
+  {
+    "rule": "no-unreachable-code",
+    "file": "src/loop/plan.ts",
+    "symbol": "PlannedPage"
+  },
+  {
+    "rule": "no-unreachable-code",
+    "file": "src/loop/plan.ts",
+    "symbol": "servicesSince"
+  },
+  {
+    "rule": "no-unreachable-code",
+    "file": "src/loop/planned.ts",
+    "symbol": "PlannedSection"
+  },
+  {
+    "rule": "no-unreachable-code",
+    "file": "src/loop/planned.ts",
+    "symbol": "PlannedStatement"
+  },
+  {
+    "rule": "no-unreachable-code",
+    "file": "src/loop/planned.ts",
+    "symbol": "pathsOf"
+  },
+  {
+    "rule": "no-unreachable-code",
+    "file": "src/loop/problem-files.ts",
+    "symbol": "DISMISSAL_KIND"
+  },
+  {
+    "rule": "no-unreachable-code",
+    "file": "src/loop/problem-files.ts",
+    "symbol": "PROBLEMS_FOLDER"
+  },
+  {
+    "rule": "no-unreachable-code",
+    "file": "src/loop/problem-files.ts",
+    "symbol": "problemSlug"
+  },
+  {
+    "rule": "no-unreachable-code",
+    "file": "src/loop/propose.ts",
+    "symbol": "scopeOfGround"
+  },
+  {
+    "rule": "no-unreachable-code",
+    "file": "src/loop/task-run.ts",
+    "symbol": "TaskRunRefusal"
+  },
+  {
+    "rule": "no-unreachable-code",
+    "file": "src/loop/views.ts",
+    "symbol": "Fixer"
+  },
+  {
+    "rule": "no-unreachable-code",
+    "file": "src/loop/views.ts",
+    "symbol": "ProblemKind"
+  },
+  {
+    "rule": "no-unreachable-code",
+    "file": "src/loop/views.ts",
+    "symbol": "QuestionState"
+  },
+  {
+    "rule": "no-unreachable-code",
+    "file": "src/loop/views.ts",
+    "symbol": "TaskClosureView"
+  },
+  {
+    "rule": "no-unreachable-code",
+    "file": "src/loop/views.ts",
+    "symbol": "TaskScopeRow"
+  },
+  {
+    "rule": "no-unreachable-code",
+    "file": "src/mcp/cli.ts",
+    "symbol": "MCP_USAGE"
+  },
+  {
+    "rule": "no-unreachable-code",
+    "file": "src/mcp/cli.ts",
+    "symbol": "McpArguments"
+  },
+  {
+    "rule": "no-unreachable-code",
+    "file": "src/mcp/cli.ts",
+    "symbol": "parseMcpArgs"
+  },
+  {
+    "rule": "no-unreachable-code",
+    "file": "src/mcp/git.ts",
+    "symbol": "DirtyFile"
+  },
+  {
+    "rule": "no-unreachable-code",
+    "file": "src/mcp/git.ts",
+    "symbol": "DirtyStatus"
+  },
+  {
+    "rule": "no-unreachable-code",
+    "file": "src/mcp/git.ts",
+    "symbol": "dirtyFiles"
+  },
+  {
+    "rule": "no-unreachable-code",
+    "file": "src/mcp/git.ts",
+    "symbol": "hasCommit"
+  },
+  {
+    "rule": "no-unreachable-code",
+    "file": "src/mcp/git.ts",
+    "symbol": "headBranch"
+  },
+  {
+    "rule": "no-unreachable-code",
+    "file": "src/mcp/graph.ts",
+    "symbol": "COLD_BUILD_CODE_FILES"
+  },
+  {
+    "rule": "no-unreachable-code",
+    "file": "src/mcp/journal.ts",
+    "symbol": "JournalToolSummary"
+  },
+  {
+    "rule": "no-unreachable-code",
+    "file": "src/mcp/journal.ts",
+    "symbol": "journalFile"
+  },
+  {
+    "rule": "no-unreachable-code",
+    "file": "src/mcp/server.ts",
+    "symbol": "REPO_MCP_INFO"
+  },
+  {
+    "rule": "no-unreachable-code",
+    "file": "src/mcp/session.ts",
+    "symbol": "markUncommitted"
+  },
+  {
+    "rule": "no-unreachable-code",
+    "file": "src/mcp/tools.ts",
+    "symbol": "RepoToolName"
+  },
+  {
+    "rule": "no-unreachable-code",
+    "file": "src/mcp/tools.ts",
+    "symbol": "coveredPaths"
+  },
+  {
+    "rule": "no-unreachable-code",
+    "file": "src/model/presence.ts",
+    "symbol": "computeStatesRange"
+  },
+  {
+    "rule": "no-unreachable-code",
+    "file": "src/model/validate.ts",
+    "symbol": "PositionedScenarioAlternative"
+  },
+  {
+    "rule": "no-unreachable-code",
+    "file": "src/model/validate.ts",
+    "symbol": "PositionedScenarioStep"
+  },
+  {
+    "rule": "no-unreachable-code",
+    "file": "src/model/zones.ts",
+    "symbol": "ZoneChangeLike"
+  },
+  {
+    "rule": "no-unreachable-code",
+    "file": "src/model/zones.ts",
+    "symbol": "ZonesResolution"
+  },
+  {
+    "rule": "no-unreachable-code",
+    "file": "src/model/zones.ts",
+    "symbol": "applyZonesChange"
+  },
+  {
+    "rule": "no-unreachable-code",
+    "file": "src/problems/code.ts",
+    "symbol": "ConfigPolicy"
+  },
+  {
+    "rule": "no-unreachable-code",
+    "file": "src/problems/code.ts",
+    "symbol": "deadExports"
+  },
+  {
+    "rule": "no-unreachable-code",
+    "file": "src/problems/code.ts",
+    "symbol": "debtMarkers"
+  },
+  {
+    "rule": "no-unreachable-code",
+    "file": "src/problems/code.ts",
+    "symbol": "declaredUnused"
+  },
+  {
+    "rule": "no-unreachable-code",
+    "file": "src/problems/code.ts",
+    "symbol": "dependencyCycles"
+  },
+  {
+    "rule": "no-unreachable-code",
+    "file": "src/problems/code.ts",
+    "symbol": "entityLink"
+  },
+  {
+    "rule": "no-unreachable-code",
+    "file": "src/problems/code.ts",
+    "symbol": "fileLink"
+  },
+  {
+    "rule": "no-unreachable-code",
+    "file": "src/problems/code.ts",
+    "symbol": "hotspots"
+  },
+  {
+    "rule": "no-unreachable-code",
+    "file": "src/problems/code.ts",
+    "symbol": "largeFiles"
+  },
+  {
+    "rule": "no-unreachable-code",
+    "file": "src/problems/code.ts",
+    "symbol": "operationsWithoutRoutes"
+  },
+  {
+    "rule": "no-unreachable-code",
+    "file": "src/problems/code.ts",
+    "symbol": "requiredDevValues"
+  },
+  {
+    "rule": "no-unreachable-code",
+    "file": "src/problems/code.ts",
+    "symbol": "routesOutsideAuth"
+  },
+  {
+    "rule": "no-unreachable-code",
+    "file": "src/problems/code.ts",
+    "symbol": "routesWithoutOperations"
+  },
+  {
+    "rule": "no-unreachable-code",
+    "file": "src/problems/code.ts",
+    "symbol": "sqlInputs"
+  },
+  {
+    "rule": "no-unreachable-code",
+    "file": "src/problems/code.ts",
+    "symbol": "usedUndeclared"
+  },
+  {
+    "rule": "no-unreachable-code",
+    "file": "src/problems/index.ts",
+    "symbol": "CODE_PREDICATES"
+  },
+  {
+    "rule": "no-unreachable-code",
+    "file": "src/problems/index.ts",
+    "symbol": "DOCUMENT_PREDICATES"
+  },
+  {
+    "rule": "no-unreachable-code",
+    "file": "src/problems/index.ts",
+    "symbol": "PREDICATES"
+  },
+  {
+    "rule": "no-unreachable-code",
+    "file": "src/problems/index.ts",
+    "symbol": "WIKI_PREDICATE"
+  },
+  {
+    "rule": "no-unreachable-code",
+    "file": "src/problems/index.ts",
+    "symbol": "problemOf"
+  },
+  {
+    "rule": "no-unreachable-code",
+    "file": "src/problems/index.ts",
+    "symbol": "ruleForKind"
+  },
+  {
+    "rule": "no-unreachable-code",
+    "file": "src/problems/index.ts",
+    "symbol": "ruleSpecs"
+  },
+  {
+    "rule": "no-unreachable-code",
+    "file": "src/problems/index.ts",
+    "symbol": "rulesOf"
+  },
+  {
+    "rule": "no-unreachable-code",
+    "file": "src/problems/rules.ts",
+    "symbol": "CODE_PREDICATES"
+  },
+  {
+    "rule": "no-unreachable-code",
+    "file": "src/problems/rules.ts",
+    "symbol": "DOCUMENT_PREDICATES"
+  },
+  {
+    "rule": "no-unreachable-code",
+    "file": "src/problems/rules.ts",
+    "symbol": "WIKI_PREDICATE"
+  },
+  {
+    "rule": "no-unreachable-code",
+    "file": "src/problems/types.ts",
+    "symbol": "RuleDefinition"
+  },
+  {
+    "rule": "no-unreachable-code",
+    "file": "src/product-wiki/architecture.ts",
+    "symbol": "ArchitectureElement"
+  },
+  {
+    "rule": "no-unreachable-code",
+    "file": "src/product-wiki/architecture.ts",
+    "symbol": "ArchitectureView"
+  },
+  {
+    "rule": "no-unreachable-code",
+    "file": "src/product-wiki/architecture.ts",
+    "symbol": "ElementRelation"
+  },
+  {
+    "rule": "no-unreachable-code",
+    "file": "src/product-wiki/architecture.ts",
+    "symbol": "elementTitle"
+  },
+  {
+    "rule": "no-unreachable-code",
+    "file": "src/product-wiki/checking.ts",
+    "symbol": "CHECK_TIMEOUT_MS"
+  },
+  {
+    "rule": "no-unreachable-code",
+    "file": "src/product-wiki/documents.ts",
+    "symbol": "DocumentSection"
+  },
+  {
+    "rule": "no-unreachable-code",
+    "file": "src/product-wiki/documents.ts",
+    "symbol": "GrownFromId"
+  },
+  {
+    "rule": "no-unreachable-code",
+    "file": "src/product-wiki/graph-diagrams.ts",
+    "symbol": "DIAGRAM_RENDERERS"
+  },
+  {
+    "rule": "no-unreachable-code",
+    "file": "src/product-wiki/graph-diagrams.ts",
+    "symbol": "GraphDiagramColumn"
+  },
+  {
+    "rule": "no-unreachable-code",
+    "file": "src/product-wiki/graph-diagrams.ts",
+    "symbol": "GraphDiagramEdge"
+  },
+  {
+    "rule": "no-unreachable-code",
+    "file": "src/product-wiki/graph-diagrams.ts",
+    "symbol": "GraphDiagramElement"
+  },
+  {
+    "rule": "no-unreachable-code",
+    "file": "src/product-wiki/graph-diagrams.ts",
+    "symbol": "GraphDiagramTab"
+  },
+  {
+    "rule": "no-unreachable-code",
+    "file": "src/product-wiki/graph-diagrams.ts",
+    "symbol": "GraphDiagramsAnswer"
+  },
+  {
+    "rule": "no-unreachable-code",
+    "file": "src/product-wiki/graph-diagrams.ts",
+    "symbol": "archifyAddress"
+  },
+  {
+    "rule": "no-unreachable-code",
+    "file": "src/product-wiki/graph-diagrams.ts",
+    "symbol": "graphDiagramsAnswer"
+  },
+  {
+    "rule": "no-unreachable-code",
+    "file": "src/product-wiki/graph-diagrams.ts",
+    "symbol": "likec4PageAddress"
+  },
+  {
+    "rule": "no-unreachable-code",
+    "file": "src/product-wiki/graph-mermaid.ts",
+    "symbol": "labelOf"
+  },
+  {
+    "rule": "no-unreachable-code",
+    "file": "src/product-wiki/graph-mermaid.ts",
+    "symbol": "participantLabelOf"
+  },
+  {
+    "rule": "no-unreachable-code",
+    "file": "src/product-wiki/graph-render.ts",
+    "symbol": "LIKEC4_WATCH_GRACE_TICKS"
+  },
+  {
+    "rule": "no-unreachable-code",
+    "file": "src/product-wiki/graph-render.ts",
+    "symbol": "LIKEC4_WATCH_TICKS"
+  },
+  {
+    "rule": "no-unreachable-code",
+    "file": "src/product-wiki/graph-render.ts",
+    "symbol": "LIKEC4_WATCH_TICK_MS"
+  },
+  {
+    "rule": "no-unreachable-code",
+    "file": "src/product-wiki/graph-render.ts",
+    "symbol": "graphLikeC4Bundle"
+  },
+  {
+    "rule": "no-unreachable-code",
+    "file": "src/product-wiki/graph-workspace.ts",
+    "symbol": "columnsText"
+  },
+  {
+    "rule": "no-unreachable-code",
+    "file": "src/product-wiki/graph-workspace.ts",
+    "symbol": "placeText"
+  },
+  {
+    "rule": "no-unreachable-code",
+    "file": "src/product-wiki/model.ts",
+    "symbol": "ModelProblem"
+  },
+  {
+    "rule": "no-unreachable-code",
+    "file": "src/product-wiki/model.ts",
+    "symbol": "NO_REPO_TIME"
+  },
+  {
+    "rule": "no-unreachable-code",
+    "file": "src/product-wiki/model.ts",
+    "symbol": "PRODUCT_MODEL_FOLDER"
+  },
+  {
+    "rule": "no-unreachable-code",
+    "file": "src/product-wiki/model.ts",
+    "symbol": "REPO_MODEL_FOLDER"
+  },
+  {
+    "rule": "no-unreachable-code",
+    "file": "src/product-wiki/pages.ts",
+    "symbol": "ProductWikiContract"
+  },
+  {
+    "rule": "no-unreachable-code",
+    "file": "src/product-wiki/pages.ts",
+    "symbol": "ProductWikiIdentity"
+  },
+  {
+    "rule": "no-unreachable-code",
+    "file": "src/product-wiki/pages.ts",
+    "symbol": "ProductWikiOverview"
+  },
+  {
+    "rule": "no-unreachable-code",
+    "file": "src/product-wiki/pages.ts",
+    "symbol": "ProductWikiQuestions"
+  },
+  {
+    "rule": "no-unreachable-code",
+    "file": "src/product-wiki/pages.ts",
+    "symbol": "ProductWikiTexts"
+  },
+  {
+    "rule": "no-unreachable-code",
+    "file": "src/product-wiki/pages.ts",
+    "symbol": "WikiPageDocument"
+  },
+  {
+    "rule": "no-unreachable-code",
+    "file": "src/product-wiki/pages.ts",
+    "symbol": "WikiPageListResult"
+  },
+  {
+    "rule": "no-unreachable-code",
+    "file": "src/product-wiki/pages.ts",
+    "symbol": "addressOf"
+  },
+  {
+    "rule": "no-unreachable-code",
+    "file": "src/product-wiki/questions.ts",
+    "symbol": "ReadQuestion"
+  },
+  {
+    "rule": "no-unreachable-code",
+    "file": "src/product-wiki/registry.ts",
+    "symbol": "REGISTRY_FILE"
+  },
+  {
+    "rule": "no-unreachable-code",
+    "file": "src/product-wiki/release-assets.ts",
+    "symbol": "releaseRoot"
+  },
+  {
+    "rule": "no-unreachable-code",
+    "file": "src/product-wiki/repos.ts",
+    "symbol": "GIT_TIMEOUT_MS"
+  },
+  {
+    "rule": "no-unreachable-code",
+    "file": "src/product-wiki/serve.ts",
+    "symbol": "browserCommand"
+  },
+  {
+    "rule": "no-unreachable-code",
+    "file": "src/product/cli.ts",
+    "symbol": "HELP"
+  },
+  {
+    "rule": "no-unreachable-code",
+    "file": "src/product/cli.ts",
+    "symbol": "SHORT_HELP"
+  },
+  {
+    "rule": "no-unreachable-code",
+    "file": "src/product/cli.ts",
+    "symbol": "USAGE"
+  },
+  {
+    "rule": "no-unreachable-code",
+    "file": "src/product/cli.ts",
+    "symbol": "repoVerb"
+  },
+  {
+    "rule": "no-unreachable-code",
+    "file": "src/product/completeness.ts",
+    "symbol": "COMPLETENESS_FILE"
+  },
+  {
+    "rule": "no-unreachable-code",
+    "file": "src/product/contract.ts",
+    "symbol": "DocumentFields"
+  },
+  {
+    "rule": "no-unreachable-code",
+    "file": "src/product/contract.ts",
+    "symbol": "KNOWN_CONTRACT_VERSIONS"
+  },
+  {
+    "rule": "no-unreachable-code",
+    "file": "src/product/daemon.ts",
+    "symbol": "landedFillOf"
+  },
+  {
+    "rule": "no-unreachable-code",
+    "file": "src/product/demo.ts",
+    "symbol": "DEMO_REPOSITORY"
+  },
+  {
+    "rule": "no-unreachable-code",
+    "file": "src/product/discussion-contract.ts",
+    "symbol": "DiscussionContractError"
+  },
+  {
+    "rule": "no-unreachable-code",
+    "file": "src/product/discussion-contract.ts",
+    "symbol": "discussionMessageSchemaId"
+  },
+  {
+    "rule": "no-unreachable-code",
+    "file": "src/product/discussion-schema.ts",
+    "symbol": "ISO_DATE_TIME_PATTERN"
+  },
+  {
+    "rule": "no-unreachable-code",
+    "file": "src/product/discussion-selection.ts",
+    "symbol": "SourceRange"
+  },
+  {
+    "rule": "no-unreachable-code",
+    "file": "src/product/discussion-selection.ts",
+    "symbol": "insertDiscussionMarkers"
+  },
+  {
+    "rule": "no-unreachable-code",
+    "file": "src/product/discussion-writer.ts",
+    "symbol": "DiscussionEntry"
+  },
+  {
+    "rule": "no-unreachable-code",
+    "file": "src/product/discussion-writer.ts",
+    "symbol": "DiscussionMessageEntry"
+  },
+  {
+    "rule": "no-unreachable-code",
+    "file": "src/product/discussion-writer.ts",
+    "symbol": "DiscussionRange"
+  },
+  {
+    "rule": "no-unreachable-code",
+    "file": "src/product/discussion-writer.ts",
+    "symbol": "newDiscussionUlid"
+  },
+  {
+    "rule": "no-unreachable-code",
+    "file": "src/product/draft.ts",
+    "symbol": "MAINTAINED_CLOSE"
+  },
+  {
+    "rule": "no-unreachable-code",
+    "file": "src/product/draft.ts",
+    "symbol": "MAINTAINED_OPEN"
+  },
+  {
+    "rule": "no-unreachable-code",
+    "file": "src/product/draft.ts",
+    "symbol": "homeFromEnv"
+  },
+  {
+    "rule": "no-unreachable-code",
+    "file": "src/product/draft.ts",
+    "symbol": "madarchHome"
+  },
+  {
+    "rule": "no-unreachable-code",
+    "file": "src/product/draft.ts",
+    "symbol": "reserveDraftFolder"
+  },
+  {
+    "rule": "no-unreachable-code",
+    "file": "src/product/fill-agent-answers.ts",
+    "symbol": "AGENT_ANSWER_MAX_RETRIES"
+  },
+  {
+    "rule": "no-unreachable-code",
+    "file": "src/product/fill-agent-answers.ts",
+    "symbol": "CLAIM_LAYERS"
+  },
+  {
+    "rule": "no-unreachable-code",
+    "file": "src/product/fill-agent-answers.ts",
+    "symbol": "ParsedSynthesisSegment"
+  },
+  {
+    "rule": "no-unreachable-code",
+    "file": "src/product/fill-claims.ts",
+    "symbol": "scoreQuestionTypes"
+  },
+  {
+    "rule": "no-unreachable-code",
+    "file": "src/product/fill-index.ts",
+    "symbol": "hashFillInput"
+  },
+  {
+    "rule": "no-unreachable-code",
+    "file": "src/product/fill-synthesis.ts",
+    "symbol": "CodeMapFact"
+  },
+  {
+    "rule": "no-unreachable-code",
+    "file": "src/product/fill-synthesis.ts",
+    "symbol": "Critique"
+  },
+  {
+    "rule": "no-unreachable-code",
+    "file": "src/product/fill-updates.ts",
+    "symbol": "PendingUpdate"
+  },
+  {
+    "rule": "no-unreachable-code",
+    "file": "src/product/fill-updates.ts",
+    "symbol": "SeenHeads"
+  },
+  {
+    "rule": "no-unreachable-code",
+    "file": "src/product/fill-updates.ts",
+    "symbol": "UpdatePassReport"
+  },
+  {
+    "rule": "no-unreachable-code",
+    "file": "src/product/fill-updates.ts",
+    "symbol": "UpdateRunStarter"
+  },
+  {
+    "rule": "no-unreachable-code",
+    "file": "src/product/fill-updates.ts",
+    "symbol": "gitFolderOf"
+  },
+  {
+    "rule": "no-unreachable-code",
+    "file": "src/product/fill-updates.ts",
+    "symbol": "refValueOf"
+  },
+  {
+    "rule": "no-unreachable-code",
+    "file": "src/product/fill-updates.ts",
+    "symbol": "updateRunId"
+  },
+  {
+    "rule": "no-unreachable-code",
+    "file": "src/product/fill-updates.ts",
+    "symbol": "watchedPathsOf"
+  },
+  {
+    "rule": "no-unreachable-code",
+    "file": "src/product/fill.ts",
+    "symbol": "createAgentCallBudget"
+  },
+  {
+    "rule": "no-unreachable-code",
+    "file": "src/product/lifecycle.ts",
+    "symbol": "RepoReport"
+  },
+  {
+    "rule": "no-unreachable-code",
+    "file": "src/product/lifecycle.ts",
+    "symbol": "folderNameOf"
+  },
+  {
+    "rule": "no-unreachable-code",
+    "file": "src/product/lifecycle.ts",
+    "symbol": "productFolder"
+  },
+  {
+    "rule": "no-unreachable-code",
+    "file": "src/product/lifecycle.ts",
+    "symbol": "reportLines"
+  },
+  {
+    "rule": "no-unreachable-code",
+    "file": "src/product/lifecycle.ts",
+    "symbol": "withFailures"
+  },
+  {
+    "rule": "no-unreachable-code",
+    "file": "src/product/list.ts",
+    "symbol": "UnreadableProduct"
+  },
+  {
+    "rule": "no-unreachable-code",
+    "file": "src/product/manifest.ts",
+    "symbol": "PRODUCT_SCHEMA_VERSION"
+  },
+  {
+    "rule": "no-unreachable-code",
+    "file": "src/product/manifest.ts",
+    "symbol": "ProductSkills"
+  },
+  {
+    "rule": "no-unreachable-code",
+    "file": "src/product/manifest.ts",
+    "symbol": "isFolderName"
+  },
+  {
+    "rule": "no-unreachable-code",
+    "file": "src/product/manifest.ts",
+    "symbol": "parseScalar"
+  },
+  {
+    "rule": "no-unreachable-code",
+    "file": "src/product/manifest.ts",
+    "symbol": "repoItemLines"
+  },
+  {
+    "rule": "no-unreachable-code",
+    "file": "src/product/own-wiki.ts",
+    "symbol": "OWN_WIKI_BRANCH"
+  },
+  {
+    "rule": "no-unreachable-code",
+    "file": "src/product/own-wiki.ts",
+    "symbol": "OWN_WIKI_REPOSITORY"
+  },
+  {
+    "rule": "no-unreachable-code",
+    "file": "src/product/schema.ts",
+    "symbol": "DocumentFieldsSchema"
+  },
+  {
+    "rule": "no-unreachable-code",
+    "file": "src/product/schema.ts",
+    "symbol": "KindEntry"
+  },
+  {
+    "rule": "no-unreachable-code",
+    "file": "src/product/schema.ts",
+    "symbol": "KindLinkEntry"
+  },
+  {
+    "rule": "no-unreachable-code",
+    "file": "src/product/schema.ts",
+    "symbol": "StageEntry"
+  },
+  {
+    "rule": "no-unreachable-code",
+    "file": "src/product/self-command.ts",
+    "symbol": "runsFromBundle"
+  },
+  {
+    "rule": "no-unreachable-code",
+    "file": "src/render/view-set.ts",
+    "symbol": "RelationWords"
+  },
+  {
+    "rule": "no-unreachable-code",
+    "file": "src/server/knowledge.ts",
+    "symbol": "SOURCE_VIEW_BYTES"
+  },
+  {
+    "rule": "no-unreachable-code",
+    "file": "src/server/sources.ts",
+    "symbol": "MAX_ENCODED_STEM_BYTES"
+  },
+  {
+    "rule": "no-unreachable-code",
+    "file": "src/server/wiki-app.ts",
+    "symbol": "CHANGE_DEBOUNCE_MS"
+  },
+  {
+    "rule": "no-unreachable-code",
+    "file": "src/server/wiki-app.ts",
+    "symbol": "streamingEvents"
+  },
+  {
+    "rule": "no-unreachable-code",
+    "file": "src/wiki/archify-page.ts",
+    "symbol": "ARCHIFY_RENDERER"
+  },
+  {
+    "rule": "no-unreachable-code",
+    "file": "src/wiki/archify.ts",
+    "symbol": "ArchifyLayoutEdge"
+  },
+  {
+    "rule": "no-unreachable-code",
+    "file": "src/wiki/archify.ts",
+    "symbol": "ArchifyLayoutNode"
+  },
+  {
+    "rule": "no-unreachable-code",
+    "file": "src/wiki/documents.ts",
+    "symbol": "ScannedAutolink"
+  },
+  {
+    "rule": "no-unreachable-code",
+    "file": "src/wiki/documents.ts",
+    "symbol": "ScannedCode"
+  },
+  {
+    "rule": "no-unreachable-code",
+    "file": "src/wiki/documents.ts",
+    "symbol": "ScannedHeading"
+  },
+  {
+    "rule": "no-unreachable-code",
+    "file": "src/wiki/documents.ts",
+    "symbol": "ScannedLink"
+  },
+  {
+    "rule": "no-unreachable-code",
+    "file": "src/wiki/documents.ts",
+    "symbol": "ScannedMermaid"
+  },
+  {
+    "rule": "no-unreachable-code",
+    "file": "src/wiki/documents.ts",
+    "symbol": "ScannedWrappedLink"
+  },
+  {
+    "rule": "no-unreachable-code",
+    "file": "src/wiki/documents.ts",
+    "symbol": "isRefusedScheme"
+  },
+  {
+    "rule": "no-unreachable-code",
+    "file": "src/wiki/pages.ts",
+    "symbol": "WikiHeadingBlock"
+  },
+  {
+    "rule": "no-unreachable-code",
+    "file": "src/wiki/pages.ts",
+    "symbol": "WikiParagraphBlock"
+  },
+  {
+    "rule": "no-unreachable-code",
+    "file": "src/wiki/render.ts",
+    "symbol": "LinkContext"
+  },
+  {
+    "rule": "no-unreachable-code",
+    "file": "src/wiki/render.ts",
+    "symbol": "diagramHtml"
+  },
+  {
+    "rule": "no-unreachable-code",
+    "file": "src/wiki/stages.ts",
+    "symbol": "StageArtifact"
+  },
+  {
+    "rule": "no-unreachable-code",
+    "file": "src/wiki/stages.ts",
+    "symbol": "StageNote"
+  },
+  {
+    "rule": "no-unreachable-code",
+    "file": "src/wiki/stages.ts",
+    "symbol": "StageSection"
+  },
+  {
+    "rule": "no-unreachable-code",
+    "file": "src/wiki/stages.ts",
+    "symbol": "StageSectionLink"
+  },
+  {
+    "rule": "no-unreachable-code",
+    "file": "src/wiki/stages.ts",
+    "symbol": "TaskEntry"
+  },
+  {
+    "rule": "no-unreachable-code",
+    "file": "src/wiki/stages.ts",
+    "symbol": "TaskFeature"
+  },
+  {
+    "rule": "no-unreachable-code",
+    "file": "src/writer/acp-agent.ts",
+    "symbol": "entryOfCall"
+  },
+  {
+    "rule": "no-unreachable-code",
+    "file": "src/writer/acp-agent.ts",
+    "symbol": "reasonOf"
+  },
+  {
+    "rule": "no-unreachable-code",
+    "file": "src/writer/answers.ts",
+    "symbol": "CONTEXT_MAX_ROWS"
+  },
+  {
+    "rule": "no-unreachable-code",
+    "file": "src/writer/answers.ts",
+    "symbol": "CONTEXT_ROWS"
+  },
+  {
+    "rule": "no-unreachable-code",
+    "file": "src/writer/answers.ts",
+    "symbol": "DOCUMENT_SCAN"
+  },
+  {
+    "rule": "no-unreachable-code",
+    "file": "src/writer/answers.ts",
+    "symbol": "FLOW_STEP_LIMIT"
+  },
+  {
+    "rule": "no-unreachable-code",
+    "file": "src/writer/answers.ts",
+    "symbol": "PAGE_LINES"
+  },
+  {
+    "rule": "no-unreachable-code",
+    "file": "src/writer/answers.ts",
+    "symbol": "PAGE_MATCHES"
+  },
+  {
+    "rule": "no-unreachable-code",
+    "file": "src/writer/answers.ts",
+    "symbol": "PAGE_TEXT"
+  },
+  {
+    "rule": "no-unreachable-code",
+    "file": "src/writer/answers.ts",
+    "symbol": "SECTIONS_SHOWN"
+  },
+  {
+    "rule": "no-unreachable-code",
+    "file": "src/writer/answers.ts",
+    "symbol": "SECTION_EXCERPT"
+  },
+  {
+    "rule": "no-unreachable-code",
+    "file": "src/writer/answers.ts",
+    "symbol": "SECTION_NAME"
+  },
+  {
+    "rule": "no-unreachable-code",
+    "file": "src/writer/answers.ts",
+    "symbol": "SYMBOL_SIDE_LIMIT"
+  },
+  {
+    "rule": "no-unreachable-code",
+    "file": "src/writer/domain-page.ts",
+    "symbol": "BUSINESS_FIELDS"
+  },
+  {
+    "rule": "no-unreachable-code",
+    "file": "src/writer/domain-page.ts",
+    "symbol": "DEVELOPER_PLACE_FIELDS"
+  },
+  {
+    "rule": "no-unreachable-code",
+    "file": "src/writer/domain-page.ts",
+    "symbol": "DeveloperFields"
+  },
+  {
+    "rule": "no-unreachable-code",
+    "file": "src/writer/domain-page.ts",
+    "symbol": "DomainSectionId"
+  },
+  {
+    "rule": "no-unreachable-code",
+    "file": "src/writer/domain-page.ts",
+    "symbol": "businessDetail"
+  },
+  {
+    "rule": "no-unreachable-code",
+    "file": "src/writer/domain-page.ts",
+    "symbol": "domainRelates"
+  },
+  {
+    "rule": "no-unreachable-code",
+    "file": "src/writer/domain-page.ts",
+    "symbol": "domainSources"
+  },
+  {
+    "rule": "no-unreachable-code",
+    "file": "src/writer/domain-page.ts",
+    "symbol": "isBusinessGround"
+  },
+  {
+    "rule": "no-unreachable-code",
+    "file": "src/writer/editorial-read.ts",
+    "symbol": "MarkdownBlock"
+  },
+  {
+    "rule": "no-unreachable-code",
+    "file": "src/writer/editorial-read.ts",
+    "symbol": "MarkdownReading"
+  },
+  {
+    "rule": "no-unreachable-code",
+    "file": "src/writer/editorial-read.ts",
+    "symbol": "MarkdownSegment"
+  },
+  {
+    "rule": "no-unreachable-code",
+    "file": "src/writer/editorial-read.ts",
+    "symbol": "blocksOf"
+  },
+  {
+    "rule": "no-unreachable-code",
+    "file": "src/writer/editorial-read.ts",
+    "symbol": "collapseSpace"
+  },
+  {
+    "rule": "no-unreachable-code",
+    "file": "src/writer/editorial.ts",
+    "symbol": "EditorialFindingKind"
+  },
+  {
+    "rule": "no-unreachable-code",
+    "file": "src/writer/editorial.ts",
+    "symbol": "EditorialJudgePage"
+  },
+  {
+    "rule": "no-unreachable-code",
+    "file": "src/writer/editorial.ts",
+    "symbol": "EditorialJudgeRequest"
+  },
+  {
+    "rule": "no-unreachable-code",
+    "file": "src/writer/enrichment.ts",
+    "symbol": "ENRICHMENT_SCHEMA"
+  },
+  {
+    "rule": "no-unreachable-code",
+    "file": "src/writer/enrichment.ts",
+    "symbol": "EnrichmentRead"
+  },
+  {
+    "rule": "no-unreachable-code",
+    "file": "src/writer/enrichment.ts",
+    "symbol": "enrichmentKey"
+  },
+  {
+    "rule": "no-unreachable-code",
+    "file": "src/writer/enrichment.ts",
+    "symbol": "enrichmentSource"
+  },
+  {
+    "rule": "no-unreachable-code",
+    "file": "src/writer/enrichment.ts",
+    "symbol": "parseEnrichment"
+  },
+  {
+    "rule": "no-unreachable-code",
+    "file": "src/writer/format.ts",
+    "symbol": "CheckedPage"
+  },
+  {
+    "rule": "no-unreachable-code",
+    "file": "src/writer/format.ts",
+    "symbol": "FrontMatter"
+  },
+  {
+    "rule": "no-unreachable-code",
+    "file": "src/writer/format.ts",
+    "symbol": "PageKind"
+  },
+  {
+    "rule": "no-unreachable-code",
+    "file": "src/writer/graph-state.ts",
+    "symbol": "WriterAttempt"
+  },
+  {
+    "rule": "no-unreachable-code",
+    "file": "src/writer/graph-state.ts",
+    "symbol": "WriterClock"
+  },
+  {
+    "rule": "no-unreachable-code",
+    "file": "src/writer/graph-state.ts",
+    "symbol": "writerKindOfStage"
+  },
+  {
+    "rule": "no-unreachable-code",
+    "file": "src/writer/graph.ts",
+    "symbol": "WRITER_ARTIFACTS"
+  },
+  {
+    "rule": "no-unreachable-code",
+    "file": "src/writer/graph.ts",
+    "symbol": "WriterUnitRead"
+  },
+  {
+    "rule": "no-unreachable-code",
+    "file": "src/writer/graph.ts",
+    "symbol": "writerKindDeclaration"
+  },
+  {
+    "rule": "no-unreachable-code",
+    "file": "src/writer/graph.ts",
+    "symbol": "writerRunOrder"
+  },
+  {
+    "rule": "no-unreachable-code",
+    "file": "src/writer/graph.ts",
+    "symbol": "writerUnitId"
+  },
+  {
+    "rule": "no-unreachable-code",
+    "file": "src/writer/guides/digest.ts",
+    "symbol": "guideCanonical"
+  },
+  {
+    "rule": "no-unreachable-code",
+    "file": "src/writer/guides/host.ts",
+    "symbol": "GuideContextRequest"
+  },
+  {
+    "rule": "no-unreachable-code",
+    "file": "src/writer/guides/host.ts",
+    "symbol": "GuideHostRequest"
+  },
+  {
+    "rule": "no-unreachable-code",
+    "file": "src/writer/guides/host.ts",
+    "symbol": "unavailableGuideExecution"
+  },
+  {
+    "rule": "no-unreachable-code",
+    "file": "src/writer/guides/model.ts",
+    "symbol": "GuideInput"
+  },
+  {
+    "rule": "no-unreachable-code",
+    "file": "src/writer/guides/preparation-error.ts",
+    "symbol": "GUIDE_PREPARATION_FILES"
+  },
+  {
+    "rule": "no-unreachable-code",
+    "file": "src/writer/guides/preparation-error.ts",
+    "symbol": "GuidePreparationCode"
+  },
+  {
+    "rule": "no-unreachable-code",
+    "file": "src/writer/guides/preparation-error.ts",
+    "symbol": "GuidePreparationFile"
+  },
+  {
+    "rule": "no-unreachable-code",
+    "file": "src/writer/guides/read.ts",
+    "symbol": "GuidePageData"
+  },
+  {
+    "rule": "no-unreachable-code",
+    "file": "src/writer/guides/receipt-read.ts",
+    "symbol": "GuideReceiptLocation"
+  },
+  {
+    "rule": "no-unreachable-code",
+    "file": "src/writer/guides/receipts.ts",
+    "symbol": "GuideExecutionVerification"
+  },
+  {
+    "rule": "no-unreachable-code",
+    "file": "src/writer/guides/writer.ts",
+    "symbol": "GUIDE_UNIT_VERSION"
+  },
+  {
+    "rule": "no-unreachable-code",
+    "file": "src/writer/guides/writer.ts",
+    "symbol": "GuideEvidenceSpan"
+  },
+  {
+    "rule": "no-unreachable-code",
+    "file": "src/writer/guides/writer.ts",
+    "symbol": "guideProductDocument"
+  },
+  {
+    "rule": "no-unreachable-code",
+    "file": "src/writer/guides/writer.ts",
+    "symbol": "verifyGuideStep"
+  },
+  {
+    "rule": "no-unreachable-code",
+    "file": "src/writer/home-page.ts",
+    "symbol": "HomeField"
+  },
+  {
+    "rule": "no-unreachable-code",
+    "file": "src/writer/home-page.ts",
+    "symbol": "HomeShape"
+  },
+  {
+    "rule": "no-unreachable-code",
+    "file": "src/writer/index.ts",
+    "symbol": "AcpAgentOptions"
+  },
+  {
+    "rule": "no-unreachable-code",
+    "file": "src/writer/index.ts",
+    "symbol": "AlternativeFlow"
+  },
+  {
+    "rule": "no-unreachable-code",
+    "file": "src/writer/index.ts",
+    "symbol": "BUSINESS_FIELDS"
+  },
+  {
+    "rule": "no-unreachable-code",
+    "file": "src/writer/index.ts",
+    "symbol": "CONTENT_PRODUCER"
+  },
+  {
+    "rule": "no-unreachable-code",
+    "file": "src/writer/index.ts",
+    "symbol": "CheckedPage"
+  },
+  {
+    "rule": "no-unreachable-code",
+    "file": "src/writer/index.ts",
+    "symbol": "ContentReport"
+  },
+  {
+    "rule": "no-unreachable-code",
+    "file": "src/writer/index.ts",
+    "symbol": "DEFAULT_EDITORIAL_REQUESTS_PER_PAGE"
+  },
+  {
+    "rule": "no-unreachable-code",
+    "file": "src/writer/index.ts",
+    "symbol": "DEVELOPER_PLACE_FIELDS"
+  },
+  {
+    "rule": "no-unreachable-code",
+    "file": "src/writer/index.ts",
+    "symbol": "DOMAINS_FOLDER"
+  },
+  {
+    "rule": "no-unreachable-code",
+    "file": "src/writer/index.ts",
+    "symbol": "DecisionFields"
+  },
+  {
+    "rule": "no-unreachable-code",
+    "file": "src/writer/index.ts",
+    "symbol": "DeveloperFields"
+  },
+  {
+    "rule": "no-unreachable-code",
+    "file": "src/writer/index.ts",
+    "symbol": "DomainFieldProblem"
+  },
+  {
+    "rule": "no-unreachable-code",
+    "file": "src/writer/index.ts",
+    "symbol": "DomainFields"
+  },
+  {
+    "rule": "no-unreachable-code",
+    "file": "src/writer/index.ts",
+    "symbol": "DomainRenderContext"
+  },
+  {
+    "rule": "no-unreachable-code",
+    "file": "src/writer/index.ts",
+    "symbol": "DomainSectionId"
+  },
+  {
+    "rule": "no-unreachable-code",
+    "file": "src/writer/index.ts",
+    "symbol": "EDITORIAL_PATH"
+  },
+  {
+    "rule": "no-unreachable-code",
+    "file": "src/writer/index.ts",
+    "symbol": "ENRICHMENT_FRONT_KEYS"
+  },
+  {
+    "rule": "no-unreachable-code",
+    "file": "src/writer/index.ts",
+    "symbol": "ENRICHMENT_SCHEMA"
+  },
+  {
+    "rule": "no-unreachable-code",
+    "file": "src/writer/index.ts",
+    "symbol": "EditorialAcpJudgeOptions"
+  },
+  {
+    "rule": "no-unreachable-code",
+    "file": "src/writer/index.ts",
+    "symbol": "EditorialFinding"
+  },
+  {
+    "rule": "no-unreachable-code",
+    "file": "src/writer/index.ts",
+    "symbol": "EditorialFindingKind"
+  },
+  {
+    "rule": "no-unreachable-code",
+    "file": "src/writer/index.ts",
+    "symbol": "EditorialGraph"
+  },
+  {
+    "rule": "no-unreachable-code",
+    "file": "src/writer/index.ts",
+    "symbol": "EditorialJudgeAnswer"
+  },
+  {
+    "rule": "no-unreachable-code",
+    "file": "src/writer/index.ts",
+    "symbol": "EditorialJudgeError"
+  },
+  {
+    "rule": "no-unreachable-code",
+    "file": "src/writer/index.ts",
+    "symbol": "EditorialJudgePack"
+  },
+  {
+    "rule": "no-unreachable-code",
+    "file": "src/writer/index.ts",
+    "symbol": "EditorialJudgePage"
+  },
+  {
+    "rule": "no-unreachable-code",
+    "file": "src/writer/index.ts",
+    "symbol": "EditorialJudgeRequest"
+  },
+  {
+    "rule": "no-unreachable-code",
+    "file": "src/writer/index.ts",
+    "symbol": "EditorialPage"
+  },
+  {
+    "rule": "no-unreachable-code",
+    "file": "src/writer/index.ts",
+    "symbol": "EditorialPassOptions"
+  },
+  {
+    "rule": "no-unreachable-code",
+    "file": "src/writer/index.ts",
+    "symbol": "EditorialPassResult"
+  },
+  {
+    "rule": "no-unreachable-code",
+    "file": "src/writer/index.ts",
+    "symbol": "EnrichmentDraft"
+  },
+  {
+    "rule": "no-unreachable-code",
+    "file": "src/writer/index.ts",
+    "symbol": "EnrichmentRead"
+  },
+  {
+    "rule": "no-unreachable-code",
+    "file": "src/writer/index.ts",
+    "symbol": "FillWriterStateOptions"
+  },
+  {
+    "rule": "no-unreachable-code",
+    "file": "src/writer/index.ts",
+    "symbol": "FrontMatter"
+  },
+  {
+    "rule": "no-unreachable-code",
+    "file": "src/writer/index.ts",
+    "symbol": "GroundedStatement"
+  },
+  {
+    "rule": "no-unreachable-code",
+    "file": "src/writer/index.ts",
+    "symbol": "ImplementationFields"
+  },
+  {
+    "rule": "no-unreachable-code",
+    "file": "src/writer/index.ts",
+    "symbol": "JOURNAL_SCHEMA"
+  },
+  {
+    "rule": "no-unreachable-code",
+    "file": "src/writer/index.ts",
+    "symbol": "JournalRecord"
+  },
+  {
+    "rule": "no-unreachable-code",
+    "file": "src/writer/index.ts",
+    "symbol": "MAX_EDITORIAL_REQUESTS"
+  },
+  {
+    "rule": "no-unreachable-code",
+    "file": "src/writer/index.ts",
+    "symbol": "MemoryWriterState"
+  },
+  {
+    "rule": "no-unreachable-code",
+    "file": "src/writer/index.ts",
+    "symbol": "MentionContext"
+  },
+  {
+    "rule": "no-unreachable-code",
+    "file": "src/writer/index.ts",
+    "symbol": "MentionInsertion"
+  },
+  {
+    "rule": "no-unreachable-code",
+    "file": "src/writer/index.ts",
+    "symbol": "NO_WRITER_STATE"
+  },
+  {
+    "rule": "no-unreachable-code",
+    "file": "src/writer/index.ts",
+    "symbol": "NamedPlace"
+  },
+  {
+    "rule": "no-unreachable-code",
+    "file": "src/writer/index.ts",
+    "symbol": "OVERVIEW_PATH"
+  },
+  {
+    "rule": "no-unreachable-code",
+    "file": "src/writer/index.ts",
+    "symbol": "PLACE_FIELDS"
+  },
+  {
+    "rule": "no-unreachable-code",
+    "file": "src/writer/index.ts",
+    "symbol": "PageCheck"
+  },
+  {
+    "rule": "no-unreachable-code",
+    "file": "src/writer/index.ts",
+    "symbol": "PageJournal"
+  },
+  {
+    "rule": "no-unreachable-code",
+    "file": "src/writer/index.ts",
+    "symbol": "PageKind"
+  },
+  {
+    "rule": "no-unreachable-code",
+    "file": "src/writer/index.ts",
+    "symbol": "PlaceField"
+  },
+  {
+    "rule": "no-unreachable-code",
+    "file": "src/writer/index.ts",
+    "symbol": "ProducedArtifact"
+  },
+  {
+    "rule": "no-unreachable-code",
+    "file": "src/writer/index.ts",
+    "symbol": "Refusal"
+  },
+  {
+    "rule": "no-unreachable-code",
+    "file": "src/writer/index.ts",
+    "symbol": "RenderedDomainPage"
+  },
+  {
+    "rule": "no-unreachable-code",
+    "file": "src/writer/index.ts",
+    "symbol": "RevisionRequest"
+  },
+  {
+    "rule": "no-unreachable-code",
+    "file": "src/writer/index.ts",
+    "symbol": "RuleFields"
+  },
+  {
+    "rule": "no-unreachable-code",
+    "file": "src/writer/index.ts",
+    "symbol": "SLUG"
+  },
+  {
+    "rule": "no-unreachable-code",
+    "file": "src/writer/index.ts",
+    "symbol": "STRUCTURED_SECTIONS"
+  },
+  {
+    "rule": "no-unreachable-code",
+    "file": "src/writer/index.ts",
+    "symbol": "ScenarioFields"
+  },
+  {
+    "rule": "no-unreachable-code",
+    "file": "src/writer/index.ts",
+    "symbol": "SectionDecl"
+  },
+  {
+    "rule": "no-unreachable-code",
+    "file": "src/writer/index.ts",
+    "symbol": "SectionId"
+  },
+  {
+    "rule": "no-unreachable-code",
+    "file": "src/writer/index.ts",
+    "symbol": "StructuredBody"
+  },
+  {
+    "rule": "no-unreachable-code",
+    "file": "src/writer/index.ts",
+    "symbol": "StructuredFields"
+  },
+  {
+    "rule": "no-unreachable-code",
+    "file": "src/writer/index.ts",
+    "symbol": "StructuredKind"
+  },
+  {
+    "rule": "no-unreachable-code",
+    "file": "src/writer/index.ts",
+    "symbol": "StructuredLanguage"
+  },
+  {
+    "rule": "no-unreachable-code",
+    "file": "src/writer/index.ts",
+    "symbol": "UNREACHED_ROUTE"
+  },
+  {
+    "rule": "no-unreachable-code",
+    "file": "src/writer/index.ts",
+    "symbol": "UnitBounds"
+  },
+  {
+    "rule": "no-unreachable-code",
+    "file": "src/writer/index.ts",
+    "symbol": "VALIDATION_PATH"
+  },
+  {
+    "rule": "no-unreachable-code",
+    "file": "src/writer/index.ts",
+    "symbol": "WRITER_ARTIFACTS"
+  },
+  {
+    "rule": "no-unreachable-code",
+    "file": "src/writer/index.ts",
+    "symbol": "WRITE_ENRICHMENT_TOOL"
+  },
+  {
+    "rule": "no-unreachable-code",
+    "file": "src/writer/index.ts",
+    "symbol": "WriterArtifact"
+  },
+  {
+    "rule": "no-unreachable-code",
+    "file": "src/writer/index.ts",
+    "symbol": "WriterClock"
+  },
+  {
+    "rule": "no-unreachable-code",
+    "file": "src/writer/index.ts",
+    "symbol": "WriterKindRun"
+  },
+  {
+    "rule": "no-unreachable-code",
+    "file": "src/writer/index.ts",
+    "symbol": "WriterOptions"
+  },
+  {
+    "rule": "no-unreachable-code",
+    "file": "src/writer/index.ts",
+    "symbol": "WriterPageFamily"
+  },
+  {
+    "rule": "no-unreachable-code",
+    "file": "src/writer/index.ts",
+    "symbol": "WriterState"
+  },
+  {
+    "rule": "no-unreachable-code",
+    "file": "src/writer/index.ts",
+    "symbol": "WriterUnitKind"
+  },
+  {
+    "rule": "no-unreachable-code",
+    "file": "src/writer/index.ts",
+    "symbol": "WriterUnitKindName"
+  },
+  {
+    "rule": "no-unreachable-code",
+    "file": "src/writer/index.ts",
+    "symbol": "WriterUnitOrder"
+  },
+  {
+    "rule": "no-unreachable-code",
+    "file": "src/writer/index.ts",
+    "symbol": "WriterUnitRead"
+  },
+  {
+    "rule": "no-unreachable-code",
+    "file": "src/writer/index.ts",
+    "symbol": "WriterUnitRecord"
+  },
+  {
+    "rule": "no-unreachable-code",
+    "file": "src/writer/index.ts",
+    "symbol": "businessDetail"
+  },
+  {
+    "rule": "no-unreachable-code",
+    "file": "src/writer/index.ts",
+    "symbol": "developerPlaces"
+  },
+  {
+    "rule": "no-unreachable-code",
+    "file": "src/writer/index.ts",
+    "symbol": "documentAnchors"
+  },
+  {
+    "rule": "no-unreachable-code",
+    "file": "src/writer/index.ts",
+    "symbol": "documentMentionNames"
+  },
+  {
+    "rule": "no-unreachable-code",
+    "file": "src/writer/index.ts",
+    "symbol": "documentMentionTarget"
+  },
+  {
+    "rule": "no-unreachable-code",
+    "file": "src/writer/index.ts",
+    "symbol": "domainGrounds"
+  },
+  {
+    "rule": "no-unreachable-code",
+    "file": "src/writer/index.ts",
+    "symbol": "domainRelates"
+  },
+  {
+    "rule": "no-unreachable-code",
+    "file": "src/writer/index.ts",
+    "symbol": "domainSchema"
+  },
+  {
+    "rule": "no-unreachable-code",
+    "file": "src/writer/index.ts",
+    "symbol": "domainSources"
+  },
+  {
+    "rule": "no-unreachable-code",
+    "file": "src/writer/index.ts",
+    "symbol": "enrichmentFamilyOf"
+  },
+  {
+    "rule": "no-unreachable-code",
+    "file": "src/writer/index.ts",
+    "symbol": "enrichmentKey"
+  },
+  {
+    "rule": "no-unreachable-code",
+    "file": "src/writer/index.ts",
+    "symbol": "enrichmentSource"
+  },
+  {
+    "rule": "no-unreachable-code",
+    "file": "src/writer/index.ts",
+    "symbol": "graphMentionName"
+  },
+  {
+    "rule": "no-unreachable-code",
+    "file": "src/writer/index.ts",
+    "symbol": "implementationPlaces"
+  },
+  {
+    "rule": "no-unreachable-code",
+    "file": "src/writer/index.ts",
+    "symbol": "ingestContent"
+  },
+  {
+    "rule": "no-unreachable-code",
+    "file": "src/writer/index.ts",
+    "symbol": "isAgentPage"
+  },
+  {
+    "rule": "no-unreachable-code",
+    "file": "src/writer/index.ts",
+    "symbol": "isBusinessGround"
+  },
+  {
+    "rule": "no-unreachable-code",
+    "file": "src/writer/index.ts",
+    "symbol": "journalOfUnit"
+  },
+  {
+    "rule": "no-unreachable-code",
+    "file": "src/writer/index.ts",
+    "symbol": "parseDomainFields"
+  },
+  {
+    "rule": "no-unreachable-code",
+    "file": "src/writer/index.ts",
+    "symbol": "parseEnrichment"
+  },
+  {
+    "rule": "no-unreachable-code",
+    "file": "src/writer/index.ts",
+    "symbol": "parseTarget"
+  },
+  {
+    "rule": "no-unreachable-code",
+    "file": "src/writer/index.ts",
+    "symbol": "readJournalFile"
+  },
+  {
+    "rule": "no-unreachable-code",
+    "file": "src/writer/index.ts",
+    "symbol": "relatesOf"
+  },
+  {
+    "rule": "no-unreachable-code",
+    "file": "src/writer/index.ts",
+    "symbol": "renderEnrichment"
+  },
+  {
+    "rule": "no-unreachable-code",
+    "file": "src/writer/index.ts",
+    "symbol": "runEditorialPass"
+  },
+  {
+    "rule": "no-unreachable-code",
+    "file": "src/writer/index.ts",
+    "symbol": "runGraphUnit"
+  },
+  {
+    "rule": "no-unreachable-code",
+    "file": "src/writer/index.ts",
+    "symbol": "structuredLanguage"
+  },
+  {
+    "rule": "no-unreachable-code",
+    "file": "src/writer/index.ts",
+    "symbol": "structuredSchema"
+  },
+  {
+    "rule": "no-unreachable-code",
+    "file": "src/writer/index.ts",
+    "symbol": "unitEndedOn"
+  },
+  {
+    "rule": "no-unreachable-code",
+    "file": "src/writer/index.ts",
+    "symbol": "withReference"
+  },
+  {
+    "rule": "no-unreachable-code",
+    "file": "src/writer/index.ts",
+    "symbol": "withoutCredentials"
+  },
+  {
+    "rule": "no-unreachable-code",
+    "file": "src/writer/index.ts",
+    "symbol": "writeEnrichmentTool"
+  },
+  {
+    "rule": "no-unreachable-code",
+    "file": "src/writer/index.ts",
+    "symbol": "writerKindDeclaration"
+  },
+  {
+    "rule": "no-unreachable-code",
+    "file": "src/writer/index.ts",
+    "symbol": "writerKindOfStage"
+  },
+  {
+    "rule": "no-unreachable-code",
+    "file": "src/writer/index.ts",
+    "symbol": "writerRunOrder"
+  },
+  {
+    "rule": "no-unreachable-code",
+    "file": "src/writer/index.ts",
+    "symbol": "writerStageId"
+  },
+  {
+    "rule": "no-unreachable-code",
+    "file": "src/writer/index.ts",
+    "symbol": "writerUnitDigest"
+  },
+  {
+    "rule": "no-unreachable-code",
+    "file": "src/writer/index.ts",
+    "symbol": "writerUnitId"
+  },
+  {
+    "rule": "no-unreachable-code",
+    "file": "src/writer/index.ts",
+    "symbol": "writerUnitKind"
+  },
+  {
+    "rule": "no-unreachable-code",
+    "file": "src/writer/index.ts",
+    "symbol": "writtenAtOf"
+  },
+  {
+    "rule": "no-unreachable-code",
+    "file": "src/writer/journal.ts",
+    "symbol": "JOURNAL_SCHEMA"
+  },
+  {
+    "rule": "no-unreachable-code",
+    "file": "src/writer/journal.ts",
+    "symbol": "JournalOutcome"
+  },
+  {
+    "rule": "no-unreachable-code",
+    "file": "src/writer/journal.ts",
+    "symbol": "journalRuns"
+  },
+  {
+    "rule": "no-unreachable-code",
+    "file": "src/writer/localized-source.ts",
+    "symbol": "LOCALIZED_SOURCE_TOOL"
+  },
+  {
+    "rule": "no-unreachable-code",
+    "file": "src/writer/mentions.ts",
+    "symbol": "documentMentionTarget"
+  },
+  {
+    "rule": "no-unreachable-code",
+    "file": "src/writer/prompts.ts",
+    "symbol": "ARTIFACT_CHARACTERS"
+  },
+  {
+    "rule": "no-unreachable-code",
+    "file": "src/writer/prompts.ts",
+    "symbol": "ARTIFACT_LIMIT"
+  },
+  {
+    "rule": "no-unreachable-code",
+    "file": "src/writer/prompts.ts",
+    "symbol": "DOMAIN_PAGE_WORDS"
+  },
+  {
+    "rule": "no-unreachable-code",
+    "file": "src/writer/prompts.ts",
+    "symbol": "MAX_REVISION_REQUESTS"
+  },
+  {
+    "rule": "no-unreachable-code",
+    "file": "src/writer/prompts.ts",
+    "symbol": "OTHER_QUESTIONS_LIMIT"
+  },
+  {
+    "rule": "no-unreachable-code",
+    "file": "src/writer/prompts.ts",
+    "symbol": "PREPARED_LIMIT"
+  },
+  {
+    "rule": "no-unreachable-code",
+    "file": "src/writer/prompts.ts",
+    "symbol": "PRODUCT_EXCERPT_CHARACTERS"
+  },
+  {
+    "rule": "no-unreachable-code",
+    "file": "src/writer/prompts.ts",
+    "symbol": "PRODUCT_PAGE_WORDS"
+  },
+  {
+    "rule": "no-unreachable-code",
+    "file": "src/writer/prompts.ts",
+    "symbol": "PROMPT_VERSION"
+  },
+  {
+    "rule": "no-unreachable-code",
+    "file": "src/writer/prompts.ts",
+    "symbol": "earlierArtifactsPart"
+  },
+  {
+    "rule": "no-unreachable-code",
+    "file": "src/writer/prompts.ts",
+    "symbol": "languagePart"
+  },
+  {
+    "rule": "no-unreachable-code",
+    "file": "src/writer/prompts.ts",
+    "symbol": "questionsPart"
+  },
+  {
+    "rule": "no-unreachable-code",
+    "file": "src/writer/prompts.ts",
+    "symbol": "revisionPart"
+  },
+  {
+    "rule": "no-unreachable-code",
+    "file": "src/writer/run.ts",
+    "symbol": "EDITORIAL_PATH"
+  },
+  {
+    "rule": "no-unreachable-code",
+    "file": "src/writer/run.ts",
+    "symbol": "OVERVIEW_PATH"
+  },
+  {
+    "rule": "no-unreachable-code",
+    "file": "src/writer/run.ts",
+    "symbol": "ProducedArtifact"
+  },
+  {
+    "rule": "no-unreachable-code",
+    "file": "src/writer/run.ts",
+    "symbol": "ResolvedEntity"
+  },
+  {
+    "rule": "no-unreachable-code",
+    "file": "src/writer/run.ts",
+    "symbol": "VALIDATION_PATH"
+  },
+  {
+    "rule": "no-unreachable-code",
+    "file": "src/writer/run.ts",
+    "symbol": "WriterKindRun"
+  },
+  {
+    "rule": "no-unreachable-code",
+    "file": "src/writer/run.ts",
+    "symbol": "declarationOf"
+  },
+  {
+    "rule": "no-unreachable-code",
+    "file": "src/writer/run.ts",
+    "symbol": "enrichmentFamilyOf"
+  },
+  {
+    "rule": "no-unreachable-code",
+    "file": "src/writer/run.ts",
+    "symbol": "productUnitId"
+  },
+  {
+    "rule": "no-unreachable-code",
+    "file": "src/writer/run.ts",
+    "symbol": "runGraphUnit"
+  },
+  {
+    "rule": "no-unreachable-code",
+    "file": "src/writer/run.ts",
+    "symbol": "unitEndedOn"
+  },
+  {
+    "rule": "no-unreachable-code",
+    "file": "src/writer/sentences.ts",
+    "symbol": "SentenceRange"
+  },
+  {
+    "rule": "no-unreachable-code",
+    "file": "src/writer/sentences.ts",
+    "symbol": "codeSpan"
+  },
+  {
+    "rule": "no-unreachable-code",
+    "file": "src/writer/sentences.ts",
+    "symbol": "readUnits"
+  },
+  {
+    "rule": "no-unreachable-code",
+    "file": "src/writer/sentences.ts",
+    "symbol": "withoutQuestionLinks"
+  },
+  {
+    "rule": "no-unreachable-code",
+    "file": "src/writer/structured.ts",
+    "symbol": "AlternativeFlow"
+  },
+  {
+    "rule": "no-unreachable-code",
+    "file": "src/writer/structured.ts",
+    "symbol": "DecisionFields"
+  },
+  {
+    "rule": "no-unreachable-code",
+    "file": "src/writer/structured.ts",
+    "symbol": "ImplementationFields"
+  },
+  {
+    "rule": "no-unreachable-code",
+    "file": "src/writer/structured.ts",
+    "symbol": "PLACE_FIELDS"
+  },
+  {
+    "rule": "no-unreachable-code",
+    "file": "src/writer/structured.ts",
+    "symbol": "RuleFields"
+  },
+  {
+    "rule": "no-unreachable-code",
+    "file": "src/writer/structured.ts",
+    "symbol": "SectionId"
+  },
+  {
+    "rule": "no-unreachable-code",
+    "file": "src/writer/structured.ts",
+    "symbol": "UNREACHED_ROUTE"
+  },
+  {
+    "rule": "no-unreachable-code",
+    "file": "src/writer/structured.ts",
+    "symbol": "relatesOf"
+  },
+  {
+    "rule": "no-unreachable-code",
+    "file": "src/writer/structured.ts",
+    "symbol": "sectionOf"
+  },
+  {
+    "rule": "no-unreachable-code",
+    "file": "src/writer/structured.ts",
+    "symbol": "withReference"
+  },
+  {
+    "rule": "no-unreachable-code",
+    "file": "src/writer/tools.ts",
+    "symbol": "MAX_QUESTIONS_PER_UNIT"
+  },
+  {
+    "rule": "no-unreachable-code",
+    "file": "src/writer/tools.ts",
+    "symbol": "MAX_QUESTION_COMPARISON_CHARACTERS"
+  },
+  {
+    "rule": "no-unreachable-code",
+    "file": "src/writer/tools.ts",
+    "symbol": "NEIGHBOR_LIMIT"
+  },
+  {
+    "rule": "no-unreachable-code",
+    "file": "src/writer/tools.ts",
+    "symbol": "ProducedArtifactRead"
+  },
+  {
+    "rule": "no-unreachable-code",
+    "file": "src/writer/tools.ts",
+    "symbol": "SAME_SUBJECT"
+  },
+  {
+    "rule": "no-unreachable-code",
+    "file": "src/writer/tools.ts",
+    "symbol": "WRITE_DOMAIN_PAGE_TOOL"
+  },
+  {
+    "rule": "no-unreachable-code",
+    "file": "src/writer/tools.ts",
+    "symbol": "WRITE_ENRICHMENT_TOOL"
+  },
+  {
+    "rule": "no-unreachable-code",
+    "file": "src/writer/tools.ts",
+    "symbol": "writeEnrichmentTool"
+  },
+  {
+    "rule": "no-unreachable-code",
+    "file": "src/writer/tools.ts",
+    "symbol": "writeHomePageTool"
+  },
+  {
+    "rule": "no-unreachable-code",
+    "file": "src/writer/view.ts",
+    "symbol": "CONTENT_PRODUCER"
+  },
+  {
+    "rule": "no-unreachable-code",
+    "file": "src/writer/view.ts",
+    "symbol": "MAX_CONTENT_BYTES"
+  },
+  {
+    "rule": "no-unreachable-code",
+    "file": "test/extract-driver-suite.ts",
+    "symbol": "DriverEnv"
+  },
+  {
+    "rule": "no-unreachable-code",
+    "file": "test/fill-crash-driver.ts",
+    "symbol": "ClaimIdentity"
+  },
+  {
+    "rule": "no-unreachable-code",
+    "file": "test/fill-crash-driver.ts",
+    "symbol": "InterruptPoint"
+  },
+  {
+    "rule": "no-unreachable-code",
+    "file": "test/fill-crash-expectations.ts",
+    "symbol": "SEALED_UNITS"
+  },
+  {
+    "rule": "no-unreachable-code",
+    "file": "test/fill-crash-fixture.ts",
+    "symbol": "DRIVER_SOURCE"
+  },
+  {
+    "rule": "no-unreachable-code",
+    "file": "test/fill-crash-fixture.ts",
+    "symbol": "ReportedGeneration"
+  },
+  {
+    "rule": "no-unreachable-code",
+    "file": "test/fill-crash-fixture.ts",
+    "symbol": "ReportedProgress"
+  },
+  {
+    "rule": "no-unreachable-code",
+    "file": "test/fill-crash-fixture.ts",
+    "symbol": "ReportedSealed"
+  },
+  {
+    "rule": "no-unreachable-code",
+    "file": "test/fill-crash-fixture.ts",
+    "symbol": "ReportedTransition"
+  },
+  {
+    "rule": "no-unreachable-code",
+    "file": "test/fill-diagram-fixture.ts",
+    "symbol": "diagramFixture"
+  },
+  {
+    "rule": "no-unreachable-code",
+    "file": "test/graph-pages-fixture.ts",
+    "symbol": "COMMIT"
+  },
+  {
+    "rule": "no-unreachable-code",
+    "file": "test/graph-pages-fixture.ts",
+    "symbol": "graphStage"
+  },
+  {
+    "rule": "no-unreachable-code",
+    "file": "test/graph-pages-fixture.ts",
+    "symbol": "moduleFact"
+  },
+  {
+    "rule": "no-unreachable-code",
+    "file": "test/graph-pages-fixture.ts",
+    "symbol": "symbolFact"
+  },
+  {
+    "rule": "no-unreachable-code",
+    "file": "test/graph-store-suite.ts",
+    "symbol": "Env"
+  },
+  {
+    "rule": "no-unreachable-code",
+    "file": "test/graph-store-suite.ts",
+    "symbol": "day"
+  },
+  {
+    "rule": "no-unreachable-code",
+    "file": "test/knowledge-agent-script.ts",
+    "symbol": "LOCALIZED_STATEMENT"
+  },
+  {
+    "rule": "no-unreachable-code",
+    "file": "test/knowledge-agent-script.ts",
+    "symbol": "call"
+  },
+  {
+    "rule": "no-unreachable-code",
+    "file": "test/knowledge-agent-script.ts",
+    "symbol": "derivedStatement"
+  },
+  {
+    "rule": "no-unreachable-code",
+    "file": "test/knowledge-agent-script.ts",
+    "symbol": "localizedCall"
+  },
+  {
+    "rule": "no-unreachable-code",
+    "file": "test/knowledge-fixture.ts",
+    "symbol": "GENERATOR"
+  },
+  {
+    "rule": "no-unreachable-code",
+    "file": "test/knowledge-fixture.ts",
+    "symbol": "SAMPLE_PRODUCT"
+  },
+  {
+    "rule": "no-unreachable-code",
+    "file": "test/model-check-repo.ts",
+    "symbol": "ASSIGNMENT_COLUMNS"
+  },
+  {
+    "rule": "no-unreachable-code",
+    "file": "test/model-check-repo.ts",
+    "symbol": "CLAIMS_COLUMNS"
+  },
+  {
+    "rule": "no-unreachable-code",
+    "file": "test/model-check-repo.ts",
+    "symbol": "SCRIPT"
+  },
+  {
+    "rule": "no-unreachable-code",
+    "file": "test/own-wiki-fixture.ts",
+    "symbol": "PRODUCT_PAGE"
+  },
+  {
+    "rule": "no-unreachable-code",
+    "file": "test/own-wiki-fixture.ts",
+    "symbol": "REFERENCE"
+  },
+  {
+    "rule": "no-unreachable-code",
+    "file": "test/queue-scenario.ts",
+    "symbol": "ObservedJob"
+  },
+  {
+    "rule": "no-unreachable-code",
+    "file": "test/scratch-home.ts",
+    "symbol": "ACCOUNT_HOME"
+  },
+  {
+    "rule": "no-unreachable-code",
+    "file": "test/scratch-home.ts",
+    "symbol": "REAL_PRODUCTS_HOME"
+  },
+  {
+    "rule": "no-unreachable-code",
+    "file": "test/scratch-home.ts",
+    "symbol": "tmpdirIsolation"
+  },
+  {
+    "rule": "no-unreachable-code",
+    "file": "test/scripted-guide-agent.ts",
+    "symbol": "SCRIPTED_GUIDE_COMMAND"
+  },
+  {
+    "rule": "no-unreachable-code",
+    "file": "test/scripted-guide-agent.ts",
+    "symbol": "SCRIPTED_GUIDE_OBSERVATION"
+  },
+  {
+    "rule": "no-unreachable-code",
+    "file": "test/scripted-guide-agent.ts",
+    "symbol": "SCRIPTED_GUIDE_PARAGRAPH"
+  },
+  {
+    "rule": "no-unreachable-code",
+    "file": "wiki/app/src/components/ui/button.tsx",
+    "symbol": "ButtonSize"
+  },
+  {
+    "rule": "no-unreachable-code",
+    "file": "wiki/app/src/components/ui/button.tsx",
+    "symbol": "ButtonVariant"
+  },
+  {
+    "rule": "no-unreachable-code",
+    "file": "wiki/app/src/components/ui/card.tsx",
+    "symbol": "CardFooter"
+  },
+  {
+    "rule": "no-unreachable-code",
+    "file": "wiki/app/src/components/ui/dialog.tsx",
+    "symbol": null
+  },
+  {
+    "rule": "no-unreachable-code",
+    "file": "wiki/app/src/components/ui/dropdown-menu.tsx",
+    "symbol": "DropdownMenuCheckItem"
+  },
+  {
+    "rule": "no-unreachable-code",
+    "file": "wiki/app/src/components/ui/dropdown-menu.tsx",
+    "symbol": "DropdownMenuGroup"
+  },
+  {
+    "rule": "no-unreachable-code",
+    "file": "wiki/app/src/components/ui/sheet.tsx",
+    "symbol": "SheetClose"
+  },
+  {
+    "rule": "no-unreachable-code",
+    "file": "wiki/app/src/components/ui/sheet.tsx",
+    "symbol": "SheetTitle"
+  },
+  {
+    "rule": "no-unreachable-code",
+    "file": "wiki/app/src/components/ui/tooltip.tsx",
+    "symbol": "Tooltip"
+  },
+  {
+    "rule": "no-unreachable-code",
+    "file": "wiki/app/src/components/ui/tooltip.tsx",
+    "symbol": "TooltipContent"
+  },
+  {
+    "rule": "no-unreachable-code",
+    "file": "wiki/app/src/components/ui/tooltip.tsx",
+    "symbol": "TooltipTrigger"
+  },
+  {
+    "rule": "no-unreachable-code",
+    "file": "wiki/app/src/diagram.tsx",
+    "symbol": "LikeC4Diagram"
+  },
+  {
+    "rule": "no-unreachable-code",
+    "file": "wiki/app/src/diagram.tsx",
+    "symbol": "mermaidThemeOf"
+  },
+  {
+    "rule": "no-unreachable-code",
+    "file": "wiki/app/src/diagram.tsx",
+    "symbol": "noteLikec4ScriptReady"
+  },
+  {
+    "rule": "no-unreachable-code",
+    "file": "wiki/app/src/diagram.tsx",
+    "symbol": "useColorScheme"
+  },
+  {
+    "rule": "no-unreachable-code",
+    "file": "wiki/app/src/knowledge/api.ts",
+    "symbol": "getResetPlan"
+  },
+  {
+    "rule": "no-unreachable-code",
+    "file": "wiki/app/src/knowledge/api.ts",
+    "symbol": "resetProduct"
+  },
+  {
+    "rule": "no-unreachable-code",
+    "file": "wiki/app/src/knowledge/app.tsx",
+    "symbol": "NavSubgroup"
+  },
+  {
+    "rule": "no-unreachable-code",
+    "file": "wiki/app/src/knowledge/app.tsx",
+    "symbol": "SyncButton"
+  },
+  {
+    "rule": "no-unreachable-code",
+    "file": "wiki/app/src/knowledge/app.tsx",
+    "symbol": "routeOfAddress"
+  },
+  {
+    "rule": "no-unreachable-code",
+    "file": "wiki/app/src/knowledge/blocks.tsx",
+    "symbol": "NO_PLANNED"
+  },
+  {
+    "rule": "no-unreachable-code",
+    "file": "wiki/app/src/knowledge/blocks.tsx",
+    "symbol": "WebPlace"
+  },
+  {
+    "rule": "no-unreachable-code",
+    "file": "wiki/app/src/knowledge/contract-diagnostic.tsx",
+    "symbol": "ContractTechnicalDetails"
+  },
+  {
+    "rule": "no-unreachable-code",
+    "file": "wiki/app/src/knowledge/contract-diagnostic.tsx",
+    "symbol": "contractRendererFailure"
+  },
+  {
+    "rule": "no-unreachable-code",
+    "file": "wiki/app/src/knowledge/diagrams/first-view.ts",
+    "symbol": "RectBox"
+  },
+  {
+    "rule": "no-unreachable-code",
+    "file": "wiki/app/src/knowledge/diagrams/layout.ts",
+    "symbol": "PlacedEdge"
+  },
+  {
+    "rule": "no-unreachable-code",
+    "file": "wiki/app/src/knowledge/diagrams/layout.ts",
+    "symbol": "PlacedGroup"
+  },
+  {
+    "rule": "no-unreachable-code",
+    "file": "wiki/app/src/knowledge/glossary.tsx",
+    "symbol": "NO_TERMS"
+  },
+  {
+    "rule": "no-unreachable-code",
+    "file": "wiki/app/src/knowledge/glossary.tsx",
+    "symbol": "upperFirst"
+  },
+  {
+    "rule": "no-unreachable-code",
+    "file": "wiki/app/src/knowledge/highlight.ts",
+    "symbol": "TokenKind"
+  },
+  {
+    "rule": "no-unreachable-code",
+    "file": "wiki/app/src/knowledge/live.ts",
+    "symbol": "GATHER_MS"
+  },
+  {
+    "rule": "no-unreachable-code",
+    "file": "wiki/app/src/knowledge/loop.tsx",
+    "symbol": "PlaceName"
+  },
+  {
+    "rule": "no-unreachable-code",
+    "file": "wiki/app/src/knowledge/loop.tsx",
+    "symbol": "ProposeTaskForm"
+  },
+  {
+    "rule": "no-unreachable-code",
+    "file": "wiki/app/src/knowledge/loop.tsx",
+    "symbol": "StarterOffers"
+  },
+  {
+    "rule": "no-unreachable-code",
+    "file": "wiki/app/src/knowledge/loop.tsx",
+    "symbol": "TaskBody"
+  },
+  {
+    "rule": "no-unreachable-code",
+    "file": "wiki/app/src/knowledge/loop.tsx",
+    "symbol": "TaskCard"
+  },
+  {
+    "rule": "no-unreachable-code",
+    "file": "wiki/app/src/knowledge/loop.tsx",
+    "symbol": "scopeOfWords"
+  },
+  {
+    "rule": "no-unreachable-code",
+    "file": "wiki/app/src/knowledge/loop.tsx",
+    "symbol": "scopeWords"
+  },
+  {
+    "rule": "no-unreachable-code",
+    "file": "wiki/app/src/knowledge/run-controls.tsx",
+    "symbol": "runIsLive"
+  },
+  {
+    "rule": "no-unreachable-code",
+    "file": "wiki/app/src/knowledge/run-controls.tsx",
+    "symbol": "writtenPages"
+  },
+  {
+    "rule": "no-unreachable-code",
+    "file": "wiki/app/src/knowledge/shiki.ts",
+    "symbol": "COLOR_LIMIT_CHARACTERS"
+  },
+  {
+    "rule": "no-unreachable-code",
+    "file": "wiki/app/src/knowledge/shiki.ts",
+    "symbol": "canColor"
+  },
+  {
+    "rule": "no-unreachable-code",
+    "file": "wiki/app/src/knowledge/tabs.ts",
+    "symbol": "focusOpenTab"
+  },
+  {
+    "rule": "no-unreachable-code",
+    "file": "wiki/app/src/knowledge/tabs.ts",
+    "symbol": "wantsNewTab"
+  },
+  {
+    "rule": "no-unreachable-code",
+    "file": "wiki/app/src/knowledge/types.ts",
+    "symbol": "Chain"
+  },
+  {
+    "rule": "no-unreachable-code",
+    "file": "wiki/app/src/knowledge/types.ts",
+    "symbol": "ChainLane"
+  },
+  {
+    "rule": "no-unreachable-code",
+    "file": "wiki/app/src/knowledge/types.ts",
+    "symbol": "ChainStep"
+  },
+  {
+    "rule": "no-unreachable-code",
+    "file": "wiki/app/src/knowledge/types.ts",
+    "symbol": "ChangedPage"
+  },
+  {
+    "rule": "no-unreachable-code",
+    "file": "wiki/app/src/knowledge/types.ts",
+    "symbol": "ChoiceValue"
+  },
+  {
+    "rule": "no-unreachable-code",
+    "file": "wiki/app/src/knowledge/types.ts",
+    "symbol": "DangerPlan"
+  },
+  {
+    "rule": "no-unreachable-code",
+    "file": "wiki/app/src/knowledge/types.ts",
+    "symbol": "DefinitionMember"
+  },
+  {
+    "rule": "no-unreachable-code",
+    "file": "wiki/app/src/knowledge/types.ts",
+    "symbol": "DocumentRef"
+  },
+  {
+    "rule": "no-unreachable-code",
+    "file": "wiki/app/src/knowledge/types.ts",
+    "symbol": "Finding"
+  },
+  {
+    "rule": "no-unreachable-code",
+    "file": "wiki/app/src/knowledge/types.ts",
+    "symbol": "GraphVerdict"
+  },
+  {
+    "rule": "no-unreachable-code",
+    "file": "wiki/app/src/knowledge/types.ts",
+    "symbol": "GraphVerdictKindReport"
+  },
+  {
+    "rule": "no-unreachable-code",
+    "file": "wiki/app/src/knowledge/types.ts",
+    "symbol": "GraphVerdictRow"
+  },
+  {
+    "rule": "no-unreachable-code",
+    "file": "wiki/app/src/knowledge/types.ts",
+    "symbol": "GroupSummary"
+  },
+  {
+    "rule": "no-unreachable-code",
+    "file": "wiki/app/src/knowledge/types.ts",
+    "symbol": "HistoryMore"
+  },
+  {
+    "rule": "no-unreachable-code",
+    "file": "wiki/app/src/knowledge/types.ts",
+    "symbol": "HistoryRow"
+  },
+  {
+    "rule": "no-unreachable-code",
+    "file": "wiki/app/src/knowledge/types.ts",
+    "symbol": "HistorySection"
+  },
+  {
+    "rule": "no-unreachable-code",
+    "file": "wiki/app/src/knowledge/types.ts",
+    "symbol": "JournalOutcome"
+  },
+  {
+    "rule": "no-unreachable-code",
+    "file": "wiki/app/src/knowledge/types.ts",
+    "symbol": "MemberRow"
+  },
+  {
+    "rule": "no-unreachable-code",
+    "file": "wiki/app/src/knowledge/types.ts",
+    "symbol": "ModelPair"
+  },
+  {
+    "rule": "no-unreachable-code",
+    "file": "wiki/app/src/knowledge/types.ts",
+    "symbol": "ModuleEdge"
+  },
+  {
+    "rule": "no-unreachable-code",
+    "file": "wiki/app/src/knowledge/types.ts",
+    "symbol": "ModuleNode"
+  },
+  {
+    "rule": "no-unreachable-code",
+    "file": "wiki/app/src/knowledge/types.ts",
+    "symbol": "PlanReason"
+  },
+  {
+    "rule": "no-unreachable-code",
+    "file": "wiki/app/src/knowledge/types.ts",
+    "symbol": "PlannedPage"
+  },
+  {
+    "rule": "no-unreachable-code",
+    "file": "wiki/app/src/knowledge/types.ts",
+    "symbol": "PlannedSectionView"
+  },
+  {
+    "rule": "no-unreachable-code",
+    "file": "wiki/app/src/knowledge/types.ts",
+    "symbol": "ProblemKind"
+  },
+  {
+    "rule": "no-unreachable-code",
+    "file": "wiki/app/src/knowledge/types.ts",
+    "symbol": "ProblemLink"
+  },
+  {
+    "rule": "no-unreachable-code",
+    "file": "wiki/app/src/knowledge/types.ts",
+    "symbol": "ProblemSection"
+  },
+  {
+    "rule": "no-unreachable-code",
+    "file": "wiki/app/src/knowledge/types.ts",
+    "symbol": "ProblemSeverity"
+  },
+  {
+    "rule": "no-unreachable-code",
+    "file": "wiki/app/src/knowledge/types.ts",
+    "symbol": "ProtoDocumentation"
+  },
+  {
+    "rule": "no-unreachable-code",
+    "file": "wiki/app/src/knowledge/types.ts",
+    "symbol": "QuestionType"
+  },
+  {
+    "rule": "no-unreachable-code",
+    "file": "wiki/app/src/knowledge/types.ts",
+    "symbol": "RefRow"
+  },
+  {
+    "rule": "no-unreachable-code",
+    "file": "wiki/app/src/knowledge/types.ts",
+    "symbol": "RelyingRef"
+  },
+  {
+    "rule": "no-unreachable-code",
+    "file": "wiki/app/src/knowledge/types.ts",
+    "symbol": "ResolvedModelRole"
+  },
+  {
+    "rule": "no-unreachable-code",
+    "file": "wiki/app/src/knowledge/types.ts",
+    "symbol": "SonarKind"
+  },
+  {
+    "rule": "no-unreachable-code",
+    "file": "wiki/app/src/knowledge/types.ts",
+    "symbol": "StepKind"
+  },
+  {
+    "rule": "no-unreachable-code",
+    "file": "wiki/app/src/knowledge/types.ts",
+    "symbol": "SystemEdge"
+  },
+  {
+    "rule": "no-unreachable-code",
+    "file": "wiki/app/src/knowledge/types.ts",
+    "symbol": "SystemNode"
+  },
+  {
+    "rule": "no-unreachable-code",
+    "file": "wiki/app/src/knowledge/types.ts",
+    "symbol": "Unplaced"
+  },
+  {
+    "rule": "no-unreachable-code",
+    "file": "wiki/app/src/knowledge/types.ts",
+    "symbol": "ViewEdge"
+  },
+  {
+    "rule": "no-unreachable-code",
+    "file": "wiki/app/src/knowledge/types.ts",
+    "symbol": "ViewSpec"
+  },
+  {
+    "rule": "no-unreachable-code",
+    "file": "wiki/app/src/knowledge/types.ts",
+    "symbol": "ViewType"
+  },
+  {
+    "rule": "no-unreachable-code",
+    "file": "wiki/app/src/knowledge/writer.tsx",
+    "symbol": "Pick"
+  },
+  {
+    "rule": "one-fill-entry",
+    "file": "scripts/write-knowledge.ts",
+    "symbol": "src/extract/driver/index.ts:fillGraph"
+  },
+  {
+    "rule": "one-fill-entry",
+    "file": "src/index.ts",
+    "symbol": "src/product/fill.ts:startFill"
+  },
+  {
+    "rule": "one-fill-entry",
+    "file": "src/knowledge/fill-worker.ts",
+    "symbol": "src/extract/driver/index.ts:fillGraph"
+  },
+  {
+    "rule": "one-fill-entry",
+    "file": "src/mcp/graph.ts",
+    "symbol": "src/extract/driver/index.ts:fillGraph"
+  },
+  {
+    "rule": "one-fill-entry",
+    "file": "src/product/cli.ts",
+    "symbol": "src/knowledge/fill-worker.ts:*"
+  },
+  {
+    "rule": "one-fill-entry",
+    "file": "src/product/cli.ts",
+    "symbol": "src/product/fill.ts:startFill"
+  },
+  {
+    "rule": "sql-only-in-storage-layer",
+    "file": "scripts/index-knowledge.ts",
+    "symbol": "src/adapters/database-owner.ts"
+  },
+  {
+    "rule": "sql-only-in-storage-layer",
+    "file": "scripts/write-knowledge.ts",
+    "symbol": "src/adapters/database-owner.ts"
+  },
+  {
+    "rule": "sql-only-in-storage-layer",
+    "file": "src/extract/driver/index.ts",
+    "symbol": "src/adapters/database-owner.ts"
+  },
+  {
+    "rule": "sql-only-in-storage-layer",
+    "file": "src/fill/checked-writes.ts",
+    "symbol": "src/adapters/database-owner.ts"
+  },
+  {
+    "rule": "sql-only-in-storage-layer",
+    "file": "src/fill/checked-writes.ts",
+    "symbol": "src/query/sql-driver.ts"
+  },
+  {
+    "rule": "sql-only-in-storage-layer",
+    "file": "src/fill/declared.ts",
+    "symbol": "src/query/sql-driver.ts"
+  },
+  {
+    "rule": "sql-only-in-storage-layer",
+    "file": "src/fill/diagrams.ts",
+    "symbol": "src/query/sql-driver.ts"
+  },
+  {
+    "rule": "sql-only-in-storage-layer",
+    "file": "src/fill/fact-store.ts",
+    "symbol": "src/adapters/database-owner.ts"
+  },
+  {
+    "rule": "sql-only-in-storage-layer",
+    "file": "src/fill/fact-store.ts",
+    "symbol": "src/query/sql-driver.ts"
+  },
+  {
+    "rule": "sql-only-in-storage-layer",
+    "file": "src/fill/graph-pages.ts",
+    "symbol": "src/query/sql-driver.ts"
+  },
+  {
+    "rule": "sql-only-in-storage-layer",
+    "file": "src/fill/graph-reads.ts",
+    "symbol": "src/query/sql-driver.ts"
+  },
+  {
+    "rule": "sql-only-in-storage-layer",
+    "file": "src/fill/narrative-outbox.ts",
+    "symbol": "src/query/sql-driver.ts"
+  },
+  {
+    "rule": "sql-only-in-storage-layer",
+    "file": "src/fill/orchestrator-host.ts",
+    "symbol": "src/adapters/database-owner.ts"
+  },
+  {
+    "rule": "sql-only-in-storage-layer",
+    "file": "src/fill/orchestrator-host.ts",
+    "symbol": "src/query/sql-driver.ts"
+  },
+  {
+    "rule": "sql-only-in-storage-layer",
+    "file": "src/fill/orchestrator-store.ts",
+    "symbol": "src/adapters/database-owner.ts"
+  },
+  {
+    "rule": "sql-only-in-storage-layer",
+    "file": "src/fill/orchestrator-store.ts",
+    "symbol": "src/query/sql-driver.ts"
+  },
+  {
+    "rule": "sql-only-in-storage-layer",
+    "file": "src/fill/orchestrator.ts",
+    "symbol": "src/adapters/database-owner.ts"
+  },
+  {
+    "rule": "sql-only-in-storage-layer",
+    "file": "src/fill/orchestrator.ts",
+    "symbol": "src/query/sql-driver.ts"
+  },
+  {
+    "rule": "sql-only-in-storage-layer",
+    "file": "src/fill/stage-reads.ts",
+    "symbol": "src/query/sql-driver.ts"
+  },
+  {
+    "rule": "sql-only-in-storage-layer",
+    "file": "src/fill/state-store.ts",
+    "symbol": "src/adapters/database-owner.ts"
+  },
+  {
+    "rule": "sql-only-in-storage-layer",
+    "file": "src/fill/state-store.ts",
+    "symbol": "src/query/sql-driver.ts"
+  },
+  {
+    "rule": "sql-only-in-storage-layer",
+    "file": "src/index.ts",
+    "symbol": "src/adapters/database-owner.ts"
+  },
+  {
+    "rule": "sql-only-in-storage-layer",
+    "file": "src/knowledge/fill-worker.ts",
+    "symbol": "src/adapters/database-owner.ts"
+  },
+  {
+    "rule": "sql-only-in-storage-layer",
+    "file": "src/knowledge/graph-read.ts",
+    "symbol": "src/adapters/database-owner.ts"
+  },
+  {
+    "rule": "sql-only-in-storage-layer",
+    "file": "src/knowledge/graph-verdict-store.ts",
+    "symbol": "src/adapters/database-owner.ts"
+  },
+  {
+    "rule": "sql-only-in-storage-layer",
+    "file": "src/knowledge/index/index.ts",
+    "symbol": "src/adapters/database-owner.ts"
+  },
+  {
+    "rule": "sql-only-in-storage-layer",
+    "file": "src/knowledge/index/publish.ts",
+    "symbol": "src/adapters/database-owner.ts"
+  },
+  {
+    "rule": "sql-only-in-storage-layer",
+    "file": "src/knowledge/index/queries.ts",
+    "symbol": "src/adapters/database-owner.ts"
+  },
+  {
+    "rule": "sql-only-in-storage-layer",
+    "file": "src/knowledge/index/run.ts",
+    "symbol": "src/adapters/database-owner.ts"
+  },
+  {
+    "rule": "sql-only-in-storage-layer",
+    "file": "src/knowledge/product.ts",
+    "symbol": "src/adapters/database-owner.ts"
+  },
+  {
+    "rule": "sql-only-in-storage-layer",
+    "file": "src/knowledge/read-worker.ts",
+    "symbol": "src/adapters/database-owner.ts"
+  },
+  {
+    "rule": "sql-only-in-storage-layer",
+    "file": "src/knowledge/remote-owner.ts",
+    "symbol": "src/adapters/database-owner.ts"
+  },
+  {
+    "rule": "sql-only-in-storage-layer",
+    "file": "src/knowledge/remote-owner.ts",
+    "symbol": "src/query/sql-driver.ts"
+  },
+  {
+    "rule": "sql-only-in-storage-layer",
+    "file": "src/loop/impact.ts",
+    "symbol": "src/adapters/database-owner.ts"
+  },
+  {
+    "rule": "sql-only-in-storage-layer",
+    "file": "src/loop/plan.ts",
+    "symbol": "src/adapters/database-owner.ts"
+  },
+  {
+    "rule": "sql-only-in-storage-layer",
+    "file": "src/loop/planned.ts",
+    "symbol": "src/adapters/database-owner.ts"
+  },
+  {
+    "rule": "sql-only-in-storage-layer",
+    "file": "src/loop/propose.ts",
+    "symbol": "src/adapters/database-owner.ts"
+  },
+  {
+    "rule": "sql-only-in-storage-layer",
+    "file": "src/loop/task-run.ts",
+    "symbol": "src/adapters/database-owner.ts"
+  },
+  {
+    "rule": "sql-only-in-storage-layer",
+    "file": "src/loop/views.ts",
+    "symbol": "src/adapters/database-owner.ts"
+  },
+  {
+    "rule": "sql-only-in-storage-layer",
+    "file": "src/mcp/graph.ts",
+    "symbol": "src/adapters/database-owner.ts"
+  },
+  {
+    "rule": "sql-only-in-storage-layer",
+    "file": "src/problems/index.ts",
+    "symbol": "src/adapters/database-owner.ts"
+  },
+  {
+    "rule": "sql-only-in-storage-layer",
+    "file": "src/product/cli.ts",
+    "symbol": "src/adapters/database-owner.ts"
+  },
+  {
+    "rule": "sql-only-in-storage-layer",
+    "file": "src/writer/guides/writer.ts",
+    "symbol": "src/adapters/database-owner.ts"
+  },
+  {
+    "rule": "sql-only-in-storage-layer",
+    "file": "src/writer/run.ts",
+    "symbol": "src/adapters/database-owner.ts"
+  },
+  {
+    "rule": "sql-only-in-storage-layer",
+    "file": "src/writer/view.ts",
+    "symbol": "src/adapters/database-owner.ts"
+  }
+]

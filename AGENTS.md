@@ -10,7 +10,18 @@ Artifacts (documents, tasks, commit messages, code comments) are written in Engl
 ## Lessons
 
 - Checks: `bun run check`, `bun test`; `MADARCH_SKIP_PERF=1 bun test` skips the
-  performance tests (about 6 s instead of minutes). The `madarch` command
+  performance tests (about 6 s instead of minutes). `bun run check` is `tsc
+  --noEmit` and then the architecture check of decision 0033 (item 4,
+  `scripts/check-architecture.ts`): dependency-cruiser over the import graph
+  (one writer for the graph, one storage layer), a name-level rule for the one
+  fill entry point, and knip for code and exports no declared entry reaches. Its
+  findings are held against `.architecture/violations.json`, today's debt, and a
+  violation that is not listed fails the check, as does an entry no rule finds
+  any more — the list only shrinks. Fix a violation, or list it in a commit that
+  carries a line `Owner-decision: <the owner's words>`; CI compares the list with
+  the merge base and refuses a gained entry without one. `bun run
+  check:architecture` runs it alone, `--update` writes the list from what the
+  rules find now, `--rules <names>` runs some of them. The `madarch` command
   (`bun link` in a checkout, or `bun scripts/madarch.ts new|serve|list …`)
   creates a draft product repository with madarch's own lifecycle code,
   serves its wiki, and lists the products of the

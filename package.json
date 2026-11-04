@@ -4,7 +4,9 @@
   "type": "module",
   "packageManager": "bun@1.4.2",
   "scripts": {
-    "check": "tsc --noEmit && node scripts/check-static-stage-boundaries.ts",
+    "check": "tsc --noEmit && bun run check:architecture && bun scripts/check-static-stage-boundaries.ts",
+    "check:architecture": "bun scripts/check-architecture.ts",
+    "check:architecture-base": "bun scripts/check-architecture.ts --base-guard",
     "test": "bun test test/",
     "answer-key:check": "bun scripts/answer-key-check-training.ts",
     "schemas": "bun scripts/generate-schemas.ts",
@@ -40,9 +42,12 @@
   },
   "devDependencies": {
     "@happy-dom/global-registrator": "20.14.5",
+    "@swc/core": "1.16.21",
     "@types/bun": "1.4.2",
     "@types/pg": "^8.23.1",
     "debug": "^4.4.3",
+    "dependency-cruiser": "18.7.1",
+    "knip": "6.44.1",
     "likec4": "1.59.4",
     "mermaid": "12.0.0",
     "puppeteer": "24.43.1",

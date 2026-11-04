@@ -96,14 +96,27 @@ jobs:
           --health-timeout 5s
           --health-retries 5
     steps:
+      # The branch's whole history: the architecture check compares the list of
+      # accepted violations with the one the merge base holds (decision 0033,
+      # item 4), and a shallow clone has no merge base to compare with.
       - uses: actions/checkout@v7
+        with:
+          fetch-depth: 0
       - uses: oven-sh/setup-bun@v2
         with:
           bun-version: 1.4.2
       - run: bun install --frozen-lockfile
       - name: Note the home and the temporary folder before the checks
         run: node .shady2k/run-scratch-check.mjs snapshot "$RUNNER_TEMP/before-run.txt"
+      # The product's type check and its architecture check (decision 0033, item 4):
+      # one writer for the graph, one storage layer, one entry point per fill, and no
+      # code unreachable from the declared entry points, each held against
+      # .architecture/violations.json.
       - run: bun run check
+      # The list only shrinks: an entry a commit adds fails here unless that commit
+      # carries the owner's decision, which is how a rule changes.
+      - name: The list of architectural violations only shrinks
+        run: bun run check:architecture-base
       - run: bun test test/postgres-query-database.test.ts
         env:
           MADARCH_TEST_POSTGRES_URL: postgres://madarch_test:madarch_test@127.0.0.1:5432/madarch_test
