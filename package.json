@@ -4,7 +4,7 @@
   "type": "module",
   "packageManager": "bun@1.4.2",
   "scripts": {
-    "check": "tsc --noEmit && bun run check:architecture && bun scripts/check-static-stage-boundaries.ts",
+    "check": "tsc --noEmit && bun run check:architecture && node scripts/check-static-stage-boundaries.ts",
     "check:architecture": "bun scripts/check-architecture.ts",
     "check:architecture-base": "bun scripts/check-architecture.ts --base-guard",
     "test": "bun test test/",

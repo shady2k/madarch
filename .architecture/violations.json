@@ -797,11 +797,6 @@
   {
     "rule": "no-unreachable-code",
     "file": "src/fill/facts.ts",
-    "symbol": "DirectoryValue"
-  },
-  {
-    "rule": "no-unreachable-code",
-    "file": "src/fill/facts.ts",
     "symbol": "DocumentLinkEdgeValue"
   },
   {
@@ -968,11 +963,6 @@
     "rule": "no-unreachable-code",
     "file": "src/fill/facts.ts",
     "symbol": "RepositoryRef"
-  },
-  {
-    "rule": "no-unreachable-code",
-    "file": "src/fill/facts.ts",
-    "symbol": "RepositoryValue"
   },
   {
     "rule": "no-unreachable-code",

@@ -83,7 +83,7 @@ export interface StaticEdgeDraft {
 }
 
 /** One graph item a stage writes into its draft. */
-export type StaticGraphDraft =
+type StaticGraphDraft =
   | { readonly kind: 'node'; readonly node: StaticNodeDraft }
   | { readonly kind: 'edge'; readonly edge: StaticEdgeDraft };
 
@@ -137,7 +137,7 @@ function fileKeyOf(fact: Fact): string {
 }
 
 /** One fact's graph items: a node for a node kind, an edge for an edge kind, and the positioned occurrence for a mention. */
-export function codeGraphOfFact(fact: Fact): StaticGraphDraft[] {
+function codeGraphOfFact(fact: Fact): StaticGraphDraft[] {
   const nodeKind = NODE_KIND[fact.kind];
   if (nodeKind !== undefined) {
     return [{ kind: 'node', node: { key: fact.id, kind: nodeKind, label: labelOf(fact), properties: propertiesOf(fact) } }];
@@ -282,7 +282,7 @@ export async function ensureGraphSchema(store: GraphStore): Promise<void> {
 }
 
 /** The graph producer one static stage publishes under. */
-export function staticProducerOf(stageId: string): string {
+function staticProducerOf(stageId: string): string {
   return `fill.${stageId}`;
 }
 

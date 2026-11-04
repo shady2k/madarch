@@ -29,7 +29,7 @@ export const STATIC_FILE_BYTE_LIMIT = 1_048_576;
 export const STATIC_READ_ROW_LIMIT = 256;
 
 /** One entry of a pinned tree, as a static stage sees it: no mode, no machine path. */
-export interface StaticTreeEntry {
+interface StaticTreeEntry {
   readonly path: string;
   readonly form: 'blob' | 'link' | 'commit';
   /** The object git holds: a blob id or a submodule's commit. */
@@ -39,7 +39,7 @@ export interface StaticTreeEntry {
 }
 
 /** One file at the pinned commit, its bytes read only below the cap. */
-export interface StaticFile extends StaticTreeEntry {
+interface StaticFile extends StaticTreeEntry {
   readonly repository: string;
   readonly commit: string;
   /**
@@ -150,7 +150,7 @@ export async function staticStageSourceOf(sources: SnapshotSource, repository: s
 }
 
 /** One read's cap: a positive whole number no larger than the context's own. */
-export function staticReadLimit(limit: number | undefined): number {
+function staticReadLimit(limit: number | undefined): number {
   const held = limit ?? STATIC_READ_ROW_LIMIT;
   if (!Number.isInteger(held) || held < 1 || held > STATIC_READ_ROW_LIMIT) {
     throw new Error(`a static stage's graph read asked for ${String(held)} rows, and a static read answers 1 to ${String(STATIC_READ_ROW_LIMIT)} rows: a wider answer is no bounded read (decision 0033; src/fill/stages/static-context.ts)`);

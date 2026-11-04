@@ -62,7 +62,7 @@ export function publishedRepositoryRead(repository: string): string {
 }
 
 /** The read of one repository's published unfiled coverage. */
-export function publishedUnfiledRead(repository: string): string {
+function publishedUnfiledRead(repository: string): string {
   return JSON.stringify({ read: PUBLISHED_UNFILED_READ, repository });
 }
 
@@ -81,22 +81,22 @@ export interface PublishedUnfiledRow {
 }
 
 /** The unit id of one file. */
-export function fileUnitId(repository: string, path: string): string {
+function fileUnitId(repository: string, path: string): string {
   return `file:${repository}:${path}`;
 }
 
 /** The unit id of one directory. */
-export function directoryUnitId(repository: string, path: string): string {
+function directoryUnitId(repository: string, path: string): string {
   return `directory:${repository}:${path}`;
 }
 
 /** The unit id of one path no fact can name. */
-export function unfiledUnitId(repository: string, path: string): string {
+function unfiledUnitId(repository: string, path: string): string {
   return `unfiled:${repository}:${path}`;
 }
 
 /** The unit id of one repository's repository and commit nodes. */
-export function repositoryUnitId(repository: string): string {
+function repositoryUnitId(repository: string): string {
   return `repository:${repository}`;
 }
 
@@ -209,7 +209,7 @@ export function publishedRepositoryRows(rows: readonly unknown[], repository: st
 }
 
 /** The unfiled read's rows, read. */
-export function publishedUnfiledRows(rows: readonly unknown[], repository: string, read: string): readonly PublishedUnfiledRow[] {
+function publishedUnfiledRows(rows: readonly unknown[], repository: string, read: string): readonly PublishedUnfiledRow[] {
   return rows.map((row, index) => {
     const refuse = (detail: string): Error => new Error(`the read ${read} answered row ${index + 1} for the repository ${JSON.stringify(repository)}, and ${detail}`);
     if (row === null || typeof row !== 'object' || Array.isArray(row)) throw refuse(`${JSON.stringify(row)} is no row: a row is an object naming its kind, its repository and its path`);
@@ -332,7 +332,7 @@ function unfiledNode(repository: string, path: string, provenance: FactProvenanc
 }
 
 /** The unit id read back as this stage planned it; an id this stage never plans is refused. */
-export function plannedUnit(id: string): PlannedUnit {
+function plannedUnit(id: string): PlannedUnit {
   const first = id.indexOf(':');
   const kind = first < 0 ? '' : id.slice(0, first);
   const rest = first < 0 ? '' : id.slice(first + 1);

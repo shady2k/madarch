@@ -73,7 +73,7 @@ export interface SyntaxFactRequest {
  * from another file asks the graph for this name (decision 0033); nothing keeps
  * a table of the repository's symbols in memory.
  */
-export function globalSymbolName(repository: string, path: string, qualifiedName: string): string {
+function globalSymbolName(repository: string, path: string, qualifiedName: string): string {
   return `${repository}:${path}#${qualifiedName}`;
 }
 

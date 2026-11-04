@@ -116,7 +116,7 @@ export function importRowsOf(writes: readonly StageDraftWrite[]): readonly { rea
 }
 
 /** The file node key a path stands at in a draft set, refused where the draft holds none. */
-export function fileKeyOf(writes: readonly StageDraftWrite[], path: string): string {
+function fileKeyOf(writes: readonly StageDraftWrite[], path: string): string {
   const held = nodesOfKind(writes, 'code.file').filter((node) => node.properties['path'] === path);
   if (held.length !== 1) throw new Error(`the draft holds ${String(held.length)} code.file nodes for ${path}, and this test needs exactly one`);
   return held[0]!.key;

@@ -55,7 +55,7 @@ export const INVENTORY_STAGE_VERSION = 2;
 export const INVENTORY_STAGE_KINDS: readonly string[] = ['contains'];
 
 // The tree read lives in one module the three static stages share.
-export { PUBLISHED_TREE_READ, publishedTreeRead, publishedTreeRows, type PublishedTree, type PublishedTreeRow } from './tree-rows.js';
+export { PUBLISHED_TREE_READ, publishedTreeRead, publishedTreeRows, type PublishedTreeRow } from './tree-rows.js';
 
 /** The read the inventory's plan makes of its own containment edges. */
 export const PUBLISHED_CONTAINMENT_READ = 'stage-1-published-containment';
@@ -252,7 +252,7 @@ export function directoriesOf(paths: readonly string[]): readonly string[] {
 }
 
 /** The folder a path stands in; `undefined` at the repository root. */
-export function parentOf(path: string): string | undefined {
+function parentOf(path: string): string | undefined {
   const at = path.lastIndexOf('/');
   return at < 0 ? undefined : path.slice(0, at);
 }

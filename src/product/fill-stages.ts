@@ -71,7 +71,6 @@ import { isRepositoryPath } from '../fill/facts.js';
 import { ID_PATTERN } from '../model/schema.js';
 import type { FillStageConfigurationRead } from '../fill/config.js';
 import { readFillStageConfiguration } from '../fill/config.js';
-import type { DatabaseOwner } from '../adapters/database-owner.js';
 import { createGraphStore, type GraphStore } from '../graph/index.js';
 import type { FillProduct, ProductFillWiring } from '../fill/orchestrator-host.js';
 import type { UnitRef } from '../fill/orchestrator.js';
@@ -87,6 +86,15 @@ import { sameFolder } from './git.js';
 import { hashFillInput } from './fill-runtime.js';
 import { readProduct, type ProductIdentity } from './manifest.js';
 
+/**
+ * The process's one connection as this wiring names it: the type the graph store
+ * is built over. Naming the store's own parameter type keeps this module from
+ * importing the connection (decision 0033, item 3: only the graph store and the
+ * storage layer import it) while still reading and lending the owner the host
+ * created.
+ */
+type FillDatabase = Parameters<typeof createGraphStore>[0];
+
 /** What one product's stages fill is built from. */
 export interface StagesFillOptions {
   /** The product's folder: its manifest, the product repository, and its `repos/`. */
@@ -96,7 +104,7 @@ export interface StagesFillOptions {
    * the process's one owner (decision 0027). This module reads and writes it
    * through the host; it neither opens nor closes it.
    */
-  readonly database: DatabaseOwner;
+  readonly database: FillDatabase;
   /**
    * The agent the product's units are driven with (decision 0026, "Agents and
    * tools"): where it is named, the agent unit stage is registered beside the eight
