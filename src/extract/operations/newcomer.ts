@@ -5,6 +5,7 @@
  * the commands name.
  */
 import type { PropertyValue } from '../records.js';
+import { KIND_NEWCOMER_COMMAND, KIND_NEWCOMER_FAILURE, KIND_NEWCOMER_PREREQUISITES, REL_BACKED_BY, REL_REFERENCES } from './vocabulary.js';
 import { byCodePoint } from '../../model/order.js';
 import type { Records } from './accumulate.js';
 import type { TreeText } from './source.js';
@@ -30,12 +31,12 @@ export function extractNewcomer(t: TreeText, records: Records, targets: Readonly
       .sort(byCodePoint);
     records.add({
       key: `code.newcomer-prerequisites:${readmePath}`,
-      kind: 'code.newcomer-prerequisites',
+      kind: KIND_NEWCOMER_PREREQUISITES,
       label: 'prerequisites',
       properties: { tools } satisfies { [key: string]: PropertyValue },
       span: t.spanOfLine(readmePath, prerequisitesAt + 1),
     });
-    records.edge('code.references', `code.newcomer-prerequisites:${readmePath}`, records.file(readmePath), {}, t.spanOfLine(readmePath, prerequisitesAt + 1));
+    records.edge(REL_REFERENCES, `code.newcomer-prerequisites:${readmePath}`, records.file(readmePath), {}, t.spanOfLine(readmePath, prerequisitesAt + 1));
   }
 
   // The numbered steps of the run-it section: order, folder, command, purpose.
@@ -60,19 +61,19 @@ export function extractNewcomer(t: TreeText, records: Records, targets: Readonly
       const key = `code.newcomer-command:${readmePath}#step-${order}`;
       records.add({
         key,
-        kind: 'code.newcomer-command',
+        kind: KIND_NEWCOMER_COMMAND,
         label: command,
         properties: { order, folder: '.', command, purpose: text } satisfies { [key: string]: PropertyValue },
         span: t.spanOfLines(readmePath, startLine, index + 1),
       });
       for (const target of commandTargets(text)) {
         const made = makefile.get(target);
-        if (made !== undefined) records.edge('code.backed-by', key, made.key);
+        if (made !== undefined) records.edge(REL_BACKED_BY, key, made.key);
       }
       for (const token of new Set(command.split(/\s+/u))) {
         const candidate = token.replace(/["']/g, '');
         if (!t.has(candidate)) continue;
-        records.edge('code.references', key, records.file(candidate), {}, t.spanOfLines(readmePath, startLine, index + 1));
+        records.edge(REL_REFERENCES, key, records.file(candidate), {}, t.spanOfLines(readmePath, startLine, index + 1));
       }
     }
   }
@@ -95,7 +96,7 @@ export function extractNewcomer(t: TreeText, records: Records, targets: Readonly
     const key = `code.newcomer-failure:${readmePath}#${slug}`;
     records.add({
       key,
-      kind: 'code.newcomer-failure',
+      kind: KIND_NEWCOMER_FAILURE,
       label: symptom ?? 'first-run failure',
       properties: { symptom, port: Number.isFinite(port) ? port : null, fix, command } satisfies { [key: string]: PropertyValue },
       span: t.spanOfLines(readmePath, failureAt + 1, failureAt + paragraph.length),
@@ -103,7 +104,7 @@ export function extractNewcomer(t: TreeText, records: Records, targets: Readonly
     for (const token of new Set((fix ?? '').split(/\s+/u))) {
       const candidate = token.replace(/\.$/, '');
       if (!t.has(candidate)) continue;
-      records.edge('code.references', key, records.file(candidate), {}, t.spanOfLines(readmePath, failureAt + 1, failureAt + paragraph.length));
+      records.edge(REL_REFERENCES, key, records.file(candidate), {}, t.spanOfLines(readmePath, failureAt + 1, failureAt + paragraph.length));
     }
   }
 }

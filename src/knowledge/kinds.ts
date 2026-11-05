@@ -31,6 +31,7 @@ import { isAbsolute, join, relative, resolve } from 'node:path';
 import { LineCounter, parseDocument } from 'yaml';
 import { lineForPath } from '../model/yaml-position.js';
 import { catalogFindings, CATALOG_ONLY_FIELDS, readCatalogKind, readCatalogSchema, type CatalogEntry, type CatalogSchema } from './catalog.js';
+import { readMapping, type MappingRead } from './mapping.js';
 import { isSemanticKind, SEMANTIC_KINDS, type SemanticKind } from './semantics.js';
 import { BLOCK_NAMES } from './template.js';
 import { PREDICATES } from '../problems/rules.js';
@@ -247,6 +248,11 @@ export interface KindsManifest {
    * are read as the versions before the catalog read them.
    */
   catalog?: { readonly schema: CatalogSchema; readonly kinds: ReadonlyMap<string, CatalogEntry>; readonly findings: readonly Finding[] };
+  /**
+   * The mapping that ties the extractors' vocabulary to the catalog (`mapping:`), when the manifest declares one:
+   * its version, the row of every extractor kind and relation, and the findings of reading it.
+   */
+  mapping?: { readonly version: number; readonly kinds: MappingRead['kinds']; readonly relations: MappingRead['relations']; readonly findings: readonly Finding[] };
   /** The manifest could not be read as a whole (not YAML, not a mapping, no `kinds` mapping): no kind is known, which is not the same as every kind having a finding. */
   unreadable?: true;
 }
@@ -482,7 +488,7 @@ export function parseKinds(text: string, file: string, productFolder: string): K
       const value = top['diagram'];
       if (typeof value !== 'string' || !DIAGRAM_RENDERER_NAMES.includes(value)) findings.push({ file, line: at(['diagram']), message: `"diagram" is ${JSON.stringify(value)}: the diagrams open on ${DIAGRAM_RENDERER_NAMES.join(', ')}` });
       else diagram = value;
-    } else if (key !== 'kinds' && key !== 'groups' && key !== 'documents' && key !== 'roles' && key !== 'problems' && key !== 'properties' && key !== 'catalog') findings.push({ file, line: at([key]), message: `"${key}" is not a field of the manifest: the manifest holds "kinds", "groups", "documents", "roles", "problems", "properties", "catalog", "language" and "diagram"` });
+    } else if (key !== 'kinds' && key !== 'groups' && key !== 'documents' && key !== 'roles' && key !== 'problems' && key !== 'properties' && key !== 'catalog' && key !== 'mapping') findings.push({ file, line: at([key]), message: `"${key}" is not a field of the manifest: the manifest holds "kinds", "groups", "documents", "roles", "problems", "properties", "catalog", "mapping", "language" and "diagram"` });
   }
   const properties = new Map<string, PropertyDecl>();
   const rawProperties = top['properties'];
@@ -835,6 +841,13 @@ export function parseKinds(text: string, file: string, productFolder: string): K
       line,
     });
   }
+  // The mapping that ties the extractors' vocabulary to the catalog (decision 0033, item 7): every kind and
+  // relation an extractor declares it emits has a row, and every row names something the catalog holds.
+  let mapping: MappingRead | undefined;
+  if (top['mapping'] !== undefined) {
+    mapping = readMapping(top['mapping'], at, file, catalogSchema === undefined ? undefined : { schema: catalogSchema, kinds: catalogEntries });
+    findings.push(...mapping.findings);
+  }
   // The catalog as a whole: a subgroup above its bound or with no kind, an area with no subgroup, two kinds of one
   // concept id, and a value the catalog marks as an attribute declared as a kind.
   if (catalogSchema !== undefined) {
@@ -855,7 +868,7 @@ export function parseKinds(text: string, file: string, productFolder: string): K
     }
     return true;
   });
-  return { file, roles, properties, kinds, declaredTemplates: [...new Set(declaredTemplates)], groups, excludeDocuments, ignoreBlocks: ignoredBlocks, expect: wanted, ...(problems === undefined ? {} : { problems }), ...(catalogSchema === undefined ? {} : { catalog: { schema: catalogSchema, kinds: catalogEntries, findings: catalogFound } }), findings, ...(language === undefined ? {} : { language }), ...(diagram === undefined ? {} : { diagram }) };
+  return { file, roles, properties, kinds, declaredTemplates: [...new Set(declaredTemplates)], groups, excludeDocuments, ignoreBlocks: ignoredBlocks, expect: wanted, ...(problems === undefined ? {} : { problems }), ...(catalogSchema === undefined ? {} : { catalog: { schema: catalogSchema, kinds: catalogEntries, findings: catalogFound } }), ...(mapping === undefined ? {} : { mapping: { version: mapping.version, kinds: mapping.kinds, relations: mapping.relations, findings: mapping.findings } }), findings, ...(language === undefined ? {} : { language }), ...(diagram === undefined ? {} : { diagram }) };
 }
 
 /**

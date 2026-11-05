@@ -104,7 +104,8 @@ describe('the manifest fields of the entity pages', () => {
     // Every template the manifest names is one the starter set holds, and the manifest reads with no finding.
     expect(read.findings).toEqual([]);
     const manifestText = STARTER_FILES.find((file) => file.path === 'madarch/kinds.yaml')!.content;
-    const kindsText = manifestText.slice(manifestText.indexOf('\nkinds:\n') + '\nkinds:\n'.length);
+    const from = manifestText.indexOf('\nkinds:\n') + '\nkinds:\n'.length;
+    const kindsText = manifestText.slice(from, manifestText.indexOf('\nmapping:\n', from));
     // The catalog holds every kind the manifest declares; the wiki shows the kinds with a page (or a member's row).
     const declaredKinds = kindsText.split('\n').filter((line) => /^ {2}[a-z][\w.-]*:$/.test(line)).length;
     expect(read.catalog!.kinds.size).toBe(declaredKinds);

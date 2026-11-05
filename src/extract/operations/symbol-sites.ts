@@ -2,6 +2,7 @@
  * Only declarations present in the source become shared code.symbol nodes.
  */
 import type { CodeBindingFact, CodeCallFact, CodeExpressionFact, CodeImportFact, CodeSymbolFact } from '../code/facts.js';
+import { REL_CONTAINS } from './vocabulary.js';
 import { httpModels } from '../library-models/http-models.js';
 import type { SourceSpan } from '../records.js';
 import type { Records } from './accumulate.js';
@@ -249,7 +250,7 @@ export function functionAt(t: TreeText, path: string, at: number): FunctionSite 
 export function functionNode(records: Records, site: FunctionSite): string {
   records.add({ key: site.key, kind: 'code.symbol', label: site.name,
     properties: {name: site.name, qualifiedName: site.qualifiedName, path: site.path, symbolKind: site.symbolKind, language: site.language}, span: site.span });
-  records.edge('code.contains', records.file(site.path), site.key, {}, site.span);
+  records.edge(REL_CONTAINS, records.file(site.path), site.key, {}, site.span);
   return site.key;
 }
 

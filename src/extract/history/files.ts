@@ -7,6 +7,7 @@
  * holds, blob by blob, with the line counts of the default branch's tip.
  */
 import {byCodePoint} from '../../model/order.js';
+import { KIND_FILE, KIND_SNAPSHOT, REL_CHANGED_WITH, REL_HELD, REL_RENAMED_TO, REL_TOUCHED } from './vocabulary.js';
 import type {ExtractedEdge, ExtractedNode, ExtractionGap} from '../records.js';
 import type {LogEntry, TreeEntry} from './git.js';
 import {listTree, readBlob, readNumstat, resolveCommit} from './git.js';
@@ -196,7 +197,7 @@ export function fileRecords(repository: string, branch: string, all: readonly Lo
     const lines = linesOf.get(path);
     nodes.push({
       key: fileKey(path),
-      kind: 'code.file',
+      kind: KIND_FILE,
       label: path,
       properties: {...(lines === undefined ? {} : {lines}), commitCount, authors},
       // A path the tree no longer holds (a file a later commit renamed away) has no owner node at the tip: this node
@@ -208,10 +209,10 @@ export function fileRecords(repository: string, branch: string, all: readonly Lo
   // The snapshot nodes, each naming the commit it is pinned at, and what each
   // holds.
   for (const [name, snapshot] of snapshotTrees) {
-    nodes.push({key: snapshotKey(name), kind: 'code.snapshot', label: name, properties: {commit: snapshot.commit}});
+    nodes.push({key: snapshotKey(name), kind: KIND_SNAPSHOT, label: name, properties: {commit: snapshot.commit}});
     for (const entry of snapshot.entries) {
       if (entry.blob === undefined) continue;
-      edges.push({type: 'code.held', from: snapshotKey(name), to: fileKey(entry.path), discriminator: '', properties: {blob: entry.blob}});
+      edges.push({type: REL_HELD, from: snapshotKey(name), to: fileKey(entry.path), discriminator: '', properties: {blob: entry.blob}});
     }
   }
 
@@ -226,11 +227,11 @@ export function fileRecords(repository: string, branch: string, all: readonly Lo
     const ofCommit = counts.get(entry.commit);
     for (const path of new Set(touchedPaths(entry))) {
       const lines = ofCommit?.get(path);
-      edges.push({type: 'code.touched', from: commitKey(entry.commit), to: fileKey(path), discriminator: '', properties: lines === undefined ? {} : {additions: lines.additions, deletions: lines.deletions}});
+      edges.push({type: REL_TOUCHED, from: commitKey(entry.commit), to: fileKey(path), discriminator: '', properties: lines === undefined ? {} : {additions: lines.additions, deletions: lines.deletions}});
     }
   }
   for (const rename of renames) {
-    edges.push({type: 'code.renamed-to', from: fileKey(rename.from), to: fileKey(rename.to), discriminator: '', properties: {similarity: rename.similarity}});
+    edges.push({type: REL_RENAMED_TO, from: fileKey(rename.from), to: fileKey(rename.to), discriminator: '', properties: {similarity: rename.similarity}});
   }
 
   // The change coupling: every pair of identities one non-merge commit changed
@@ -253,7 +254,7 @@ export function fileRecords(repository: string, branch: string, all: readonly Lo
     if (count < 2) continue;
     const [from, to] = pair.split('\u0000');
     if (from === undefined || to === undefined) throw new Error(`${what}: the coupling pair ${JSON.stringify(pair)} does not name two files`);
-    edges.push({type: 'code.changed-with', from: fileKey(from), to: fileKey(to), discriminator: '', properties: {support: count}});
+    edges.push({type: REL_CHANGED_WITH, from: fileKey(from), to: fileKey(to), discriminator: '', properties: {support: count}});
   }
 
   nodes.sort((left, right) => byCodePoint(left.key, right.key));

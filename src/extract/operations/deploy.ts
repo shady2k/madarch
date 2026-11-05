@@ -5,6 +5,7 @@
  * as the files name each other (the image meets its Dockerfile by name only).
  */
 import { LineCounter, isMap, isScalar, isSeq, parseAllDocuments } from 'yaml';
+import { KIND_COMPOSE_SERVICE, KIND_DOCKERFILE, KIND_HEALTHCHECK, KIND_IMAGE, KIND_K8S_DEPLOYMENT, KIND_K8S_SERVICE, KIND_PROBE, KIND_PROCESS, REL_BUILDS, REL_BUILT_BY, REL_CONFIGURED_BY, REL_DEPENDS_ON, REL_EXPOSES, REL_LISTENS_ON, REL_PROBES, REL_PUBLISHES, REL_RUNS, REL_STARTS, REL_TARGETS } from './vocabulary.js';
 import type { PropertyValue, SourceSpan } from '../records.js';
 import { readDockerfile } from '../../fill/stages/manifest-format.js';
 import type { Records } from './accumulate.js';
@@ -69,7 +70,7 @@ function addDockerfileNodes(t: TreeText, records: Records, readings: readonly Do
   for (const reading of readings) {
     records.add({
       key: reading.key,
-      kind: 'code.dockerfile',
+      kind: KIND_DOCKERFILE,
       label: reading.path,
       properties: {
         baseImages: reading.baseImages,
@@ -79,7 +80,7 @@ function addDockerfileNodes(t: TreeText, records: Records, readings: readonly Do
       span: t.spanOfFile(reading.path),
     });
     for (const port of reading.exposes) {
-      records.edge('code.exposes', reading.key, records.port(reading.service, port, t.spanOfFile(reading.path)), {}, t.spanOfFile(reading.path));
+      records.edge(REL_EXPOSES, reading.key, records.port(reading.service, port, t.spanOfFile(reading.path)), {}, t.spanOfFile(reading.path));
     }
   }
 }
@@ -346,7 +347,7 @@ export function extractDeploy(t: TreeText, records: Records): void {
             : { context: service.build.context, dockerfile: service.build.dockerfile };
       records.add({
         key,
-        kind: 'code.compose-service',
+        kind: KIND_COMPOSE_SERVICE,
         label: service.name,
         properties: {
           image: service.image,
@@ -360,12 +361,12 @@ export function extractDeploy(t: TreeText, records: Records): void {
       if (service.healthcheck !== null) {
         const { span: healthSpan, ...healthProperties } = service.healthcheck;
         const healthKey = `code.healthcheck:${path}#${service.name}`;
-        records.add({ key: healthKey, kind: 'code.healthcheck', label: `${service.name} healthcheck`, properties: { ...healthProperties, service: service.name }, span: healthSpan });
-        records.edge('code.configured-by', key, healthKey, {role: 'healthcheck'}, healthSpan);
+        records.add({ key: healthKey, kind: KIND_HEALTHCHECK, label: `${service.name} healthcheck`, properties: { ...healthProperties, service: service.name }, span: healthSpan });
+        records.edge(REL_CONFIGURED_BY, key, healthKey, {role: 'healthcheck'}, healthSpan);
       }
       for (const mapping of service.portMappings) {
         records.edge(
-          'code.publishes',
+          REL_PUBLISHES,
           key,
           records.port(service.name, Number.parseInt(mapping.container, 10), t.spanOfLine(path, service.line)),
           { host: mapping.host, container: mapping.container },
@@ -373,11 +374,11 @@ export function extractDeploy(t: TreeText, records: Records): void {
         );
       }
       for (const target of service.dependsOn) {
-        records.edge('code.depends-on', key, `code.compose-service:${path}#${target}`);
+        records.edge(REL_DEPENDS_ON, key, `code.compose-service:${path}#${target}`);
       }
       const dockerfile = resolveBuild(t, path, service.build);
       if (dockerfile !== null) {
-        records.edge('code.builds', key, `code.dockerfile:${dockerfile}`, {}, t.spanOfLine(path, service.line));
+        records.edge(REL_BUILDS, key, `code.dockerfile:${dockerfile}`, {}, t.spanOfLine(path, service.line));
       } else if (service.build !== null) {
         records.gap(path, `the build of the service ${JSON.stringify(service.name)} names no Dockerfile this tree holds`);
       }
@@ -391,7 +392,7 @@ export function extractDeploy(t: TreeText, records: Records): void {
         const key = `code.k8s-deployment:${path}#${workload.name}`;
         records.add({
           key,
-          kind: 'code.k8s-deployment',
+          kind: KIND_K8S_DEPLOYMENT,
           label: workload.name,
           properties: {
             replicas: workload.replicas,
@@ -406,26 +407,26 @@ export function extractDeploy(t: TreeText, records: Records): void {
         });
         for (const probe of workload.probes) {
           const probeKey = `code.probe:${path}#${workload.name}/${probe.container}/${probe.probeType}`;
-          records.add({ key: probeKey, kind: 'code.probe', label: `${workload.name} ${probe.probeType}`, properties: probe.properties, span: probe.span });
-          records.edge('code.probes', probeKey, key, { role: 'workload' }, probe.span);
-          if (typeof probe.properties.port === 'number') records.edge('code.targets', probeKey, records.port(workload.name, probe.properties.port, probe.span), {}, probe.span);
+          records.add({ key: probeKey, kind: KIND_PROBE, label: `${workload.name} ${probe.probeType}`, properties: probe.properties, span: probe.span });
+          records.edge(REL_PROBES, probeKey, key, { role: 'workload' }, probe.span);
+          if (typeof probe.properties.port === 'number') records.edge(REL_TARGETS, probeKey, records.port(workload.name, probe.properties.port, probe.span), {}, probe.span);
         }
         if (workload.image !== null) {
           const imageKey = imageNode(records, workload.image, span);
-          records.edge('code.runs', key, imageKey, {}, span);
+          records.edge(REL_RUNS, key, imageKey, {}, span);
           const imageService = imageServiceName(workload.image) ?? workload.name;
           for (const port of workload.containerPorts) {
-            records.edge('code.exposes', key, records.port(imageService, port, span), {}, span);
+            records.edge(REL_EXPOSES, key, records.port(imageService, port, span), {}, span);
           }
           const built = builtBy(t, readings, workload.image);
-          if (built !== undefined) records.edge('code.built-by', imageKey, `code.dockerfile:${built}`, { matchedBy: 'name' }, span);
+          if (built !== undefined) records.edge(REL_BUILT_BY, imageKey, `code.dockerfile:${built}`, { matchedBy: 'name' }, span);
         }
       }
       if (workload.kind === 'Service') {
         const key = `code.k8s-service:${path}#${workload.name}`;
         records.add({
           key,
-          kind: 'code.k8s-service',
+          kind: KIND_K8S_SERVICE,
           label: workload.name,
           properties: {
             ports: workload.servicePorts.map((port) => ({ name: port.name, port: port.port, targetPort: port.targetPort })),
@@ -434,7 +435,7 @@ export function extractDeploy(t: TreeText, records: Records): void {
         });
         for (const port of workload.servicePorts) {
           if (port.targetPort === null) continue;
-          records.edge('code.targets', key, records.port(workload.name, port.targetPort, span), { port: port.port }, span);
+          records.edge(REL_TARGETS, key, records.port(workload.name, port.targetPort, span), { port: port.port }, span);
         }
       }
     }
@@ -449,17 +450,17 @@ export function extractDeploy(t: TreeText, records: Records): void {
     const commandWords = parseExecForm(reading.command ?? '').join(' ');
     records.add({
       key: started.key,
-      kind: 'code.process',
+      kind: KIND_PROCESS,
       label: commandWords === '' ? started.key.slice(started.key.indexOf(':') + 1) : commandWords,
       properties: { binary: started.binary, command: reading.command } satisfies { [key: string]: PropertyValue },
       span: mainFile !== null && t.has(mainFile) ? t.spanOfFile(mainFile) : t.spanOfFile(reading.path),
     });
-    records.edge('code.starts', reading.key, started.key, { command: reading.command }, t.spanOfFile(reading.path));
+    records.edge(REL_STARTS, reading.key, started.key, { command: reading.command }, t.spanOfFile(reading.path));
     if (mainFile === null || !t.has(mainFile)) continue;
     const listened = listenPort(t, mainFile);
     if (listened === undefined) continue;
     const portSpan = t.spanOfLine(mainFile, listened.line);
-    records.edge('code.listens-on', started.key, records.port(reading.service, listened.port, portSpan), { addr: listened.addr }, portSpan);
+    records.edge(REL_LISTENS_ON, started.key, records.port(reading.service, listened.port, portSpan), { addr: listened.addr }, portSpan);
   }
 }
 
@@ -487,7 +488,7 @@ function imageNode(records: Records, reference: string, span?: SourceSpan): stri
   const repository = tag === null ? reference : reference.slice(0, colon);
   records.add({
     key,
-    kind: 'code.image',
+    kind: KIND_IMAGE,
     label: reference,
     properties: { repository, tag },
     ...(span === undefined ? {} : { span }),

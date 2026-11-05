@@ -5,6 +5,7 @@
  * and which source files use which dependency.
  */
 import type { PropertyValue } from '../records.js';
+import { KIND_DEPENDENCY, KIND_LOCKFILE, KIND_MANIFEST, REL_DECLARES_DEPENDENCY, REL_RESOLVES, REL_USES_DEPENDENCY } from './vocabulary.js';
 import type { Records } from './accumulate.js';
 import { readGoMod, readJson } from '../../fill/stages/manifest-format.js';
 import { TreeText } from './source.js';
@@ -35,7 +36,7 @@ function npmManifests(t: TreeText, records: Records): void {
       );
     }
     const manifestKey = `code.manifest:${path}`;
-    records.add({ key: manifestKey, kind: 'code.manifest', label: path, properties, span: t.spanOfFile(path) });
+    records.add({ key: manifestKey, kind: KIND_MANIFEST, label: path, properties, span: t.spanOfFile(path) });
 
     const scopes: [string, unknown][] = [['direct', manifest.dependencies], ['dev', manifest.devDependencies]];
     const names: { name: string; scope: string }[] = [];
@@ -46,14 +47,14 @@ function npmManifests(t: TreeText, records: Records): void {
         const key = `code.dependency:${path}#${dependency}`;
         records.add({
           key,
-          kind: 'code.dependency',
+          kind: KIND_DEPENDENCY,
           // The same library is declared by several services (express by two, typescript by two): the label names the
           // manifest it stands in, so a list of dependencies shows each row once (madarch-m38l.16).
           label: dependency,
           properties: { name: dependency, version, scope, exact: EXACT_VERSION.test(version) } satisfies { [key: string]: PropertyValue },
           span: t.spanOfLine(path, read.value.lineAt([scope === 'direct' ? 'dependencies' : 'devDependencies', dependency])),
         });
-        records.edge('code.declares-dependency', manifestKey, key, { scope }, t.spanOfLine(path, read.value.lineAt([scope === 'direct' ? 'dependencies' : 'devDependencies', dependency])));
+        records.edge(REL_DECLARES_DEPENDENCY, manifestKey, key, { scope }, t.spanOfLine(path, read.value.lineAt([scope === 'direct' ? 'dependencies' : 'devDependencies', dependency])));
         names.push({ name: dependency, scope });
       }
     }
@@ -89,7 +90,7 @@ function readNpmLock(t: TreeText, records: Records, manifestPath: string, manife
   const key = `code.lockfile:${lockPath}`;
   records.add({
     key,
-    kind: 'code.lockfile',
+    kind: KIND_LOCKFILE,
     label: lockPath,
     properties: {
       format: 'npm',
@@ -99,7 +100,7 @@ function readNpmLock(t: TreeText, records: Records, manifestPath: string, manife
     } satisfies { [key: string]: PropertyValue },
     span: t.spanOfFile(lockPath),
   });
-  records.edge('code.resolves', manifestKey, key);
+  records.edge(REL_RESOLVES, manifestKey, key);
 }
 
 /** One go.mod: the module, its requirements with versions and the indirect marker. */
@@ -116,7 +117,7 @@ function goManifests(t: TreeText, records: Records): void {
     const manifestKey = `code.manifest:${path}`;
     records.add({
       key: manifestKey,
-      kind: 'code.manifest',
+      kind: KIND_MANIFEST,
       label: path,
       properties: { ecosystem: 'go', module: read.value.module, goVersion } satisfies { [key: string]: PropertyValue },
       span: t.spanOfFile(path),
@@ -130,13 +131,13 @@ function goManifests(t: TreeText, records: Records): void {
       const key = `code.dependency:${path}#${require.path}`;
       records.add({
         key,
-        kind: 'code.dependency',
+        kind: KIND_DEPENDENCY,
         label: require.path,
         properties: { name: require.path, version, scope: indirect ? 'indirect' : 'direct' } satisfies { [key: string]: PropertyValue },
         span: t.spanOfLine(path, require.line),
       });
       records.edge(
-        'code.declares-dependency',
+        REL_DECLARES_DEPENDENCY,
         manifestKey,
         key,
         { scope: indirect ? 'indirect' : 'direct' },
@@ -160,12 +161,12 @@ function readGoSum(t: TreeText, records: Records, manifestKey: string, sumPath: 
   const key = `code.lockfile:${sumPath}`;
   records.add({
     key,
-    kind: 'code.lockfile',
+    kind: KIND_LOCKFILE,
     label: sumPath,
     properties: { format: 'go-sum', modules: pairs.size } satisfies { [key: string]: PropertyValue },
     span: t.spanOfFile(sumPath),
   });
-  records.edge('code.resolves', manifestKey, key);
+  records.edge(REL_RESOLVES, manifestKey, key);
 }
 
 /** The source files of one service that import a dependency of its manifest. */
@@ -192,7 +193,7 @@ function markUses(t: TreeText, records: Records, manifestPath: string, names: re
       const match = pattern.exec(text);
       if (match === null || match.index === undefined) continue;
       const line = text.slice(0, match.index).split('\n').length;
-      records.edge('code.uses-dependency', records.file(path), `code.dependency:${manifestPath}#${name}`, {}, t.spanOfLine(path, line));
+      records.edge(REL_USES_DEPENDENCY, records.file(path), `code.dependency:${manifestPath}#${name}`, {}, t.spanOfLine(path, line));
     }
   }
 }

@@ -5,6 +5,7 @@
  * here once, so parallel areas never duplicate them.
  */
 import type { ExtractionGap, ExtractedEdge, ExtractedNode, PropertyValue, SchemaKey, SourceSpan } from '../records.js';
+import { KIND_PORT } from './vocabulary.js';
 import { byCodePoint } from '../../model/order.js';
 
 export class Records {
@@ -50,7 +51,7 @@ export class Records {
     const key = `code.port:${service}/${port}`;
     this.add({
       key,
-      kind: 'code.port',
+      kind: KIND_PORT,
       label: `${service}/${String(port)}`,
       properties: { port, service },
       ...(span === undefined ? {} : { span }),

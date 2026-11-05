@@ -152,16 +152,6 @@
   {
     "rule": "no-unreachable-code",
     "file": "src/extract/data-model/keys.ts",
-    "symbol": "DATA_MODEL_EDGE_TYPES"
-  },
-  {
-    "rule": "no-unreachable-code",
-    "file": "src/extract/data-model/keys.ts",
-    "symbol": "DATA_MODEL_NODE_KINDS"
-  },
-  {
-    "rule": "no-unreachable-code",
-    "file": "src/extract/data-model/keys.ts",
     "symbol": "DEFAULT_SCHEMA"
   },
   {

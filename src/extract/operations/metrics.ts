@@ -1,5 +1,6 @@
 /** Individual metrics from resolved library effects; no source scanning. */
 import { byCodePoint } from '../../model/order.js';
+import { KIND_METRIC, KIND_METRICS_ENDPOINT, REL_EXPOSES_METRIC, REL_SERVED_BY, REL_UPDATES_METRIC } from './vocabulary.js';
 import type { CodeExpressionFact, CodeFieldFact } from '../code/facts.js';
 import { metricSemanticModels, type MetricSemanticModel } from '../library-models/metric-semantic-models.js';
 import { structuralHttpRegistrations } from './route-facts.js';
@@ -48,7 +49,7 @@ export function extractMetrics(t: TreeText, records: Records): void {
     const binding = view.bindingForInitializer(effect.expression);
     const file = facts.files.find((file) => file.path === effect.span.path);
     const key = `code.metric:${effect.span.path}#${fullName}`;
-    records.add({ key, kind: 'code.metric', label: fullName,
+    records.add({ key, kind: KIND_METRIC, label: fullName,
       properties: { name: fullName, metricType, labels: labels === undefined ? [] : [...labels as string[]].sort(byCodePoint),
         service: file?.manifest?.name ?? '', binding: binding.length === 1 ? binding[0]!.name : '',
         definitionFormat: 'constructor', ...libraryEvidence(effect) } satisfies { [key: string]: PropertyValue }, span: binding.length === 1 ? binding[0]!.declarationSpan ?? effect.span : effect.span });
@@ -62,7 +63,7 @@ export function extractMetrics(t: TreeText, records: Records): void {
     }
     const owner = effectOwner(t, records, effect);
     if (owner === undefined) continue;
-    records.edge('code.updates-metric', owner, metric.key, libraryEvidence(effect), effectSpan(effect), String(effect.span.byteStart));
+    records.edge(REL_UPDATES_METRIC, owner, metric.key, libraryEvidence(effect), effectSpan(effect), String(effect.span.byteStart));
   }
   // Registry identities come from the role interpreter, not local receiver names.
   const registryRoles = new Map(evaluated.roles.filter((role) => role.role === 'metric-registry').map((role) => [role.expression, role]));
@@ -181,12 +182,12 @@ export function extractMetrics(t: TreeText, records: Records): void {
       const key = `code.metrics-endpoint:${route.span.path}#${identity}:${route.method}:${route.path}`;
       const names = exposed.map((metric) => records.nodes.find((node) => node.key === metric)?.properties.name).filter((name): name is string => typeof name === 'string').sort(byCodePoint);
       const service = facts.files.find((file) => file.path === route.span.path)?.manifest?.name ?? '';
-      records.add({ key, kind: 'code.metrics-endpoint', label: `${route.path} of ${service || route.span.path}`,
+      records.add({ key, kind: KIND_METRICS_ENDPOINT, label: `${route.path} of ${service || route.span.path}`,
         properties: { path: route.path, method: route.method, ports: [...route.ports], service, format: 'prometheus-text', counters: names,
           receiverExpression: route.receiverExpression, registryOrigin: registry, ...libraryEvidence(effect) }, span: route.span });
-      records.edge('code.served-by', key, records.file(route.span.path), { service }, route.span);
-      records.edge('code.served-by', key, owner, { role: 'handler' }, route.span);
-      for (const metric of exposed) records.edge('code.exposes-metric', key, metric, libraryEvidence(effect), effectSpan(effect));
+      records.edge(REL_SERVED_BY, key, records.file(route.span.path), { service }, route.span);
+      records.edge(REL_SERVED_BY, key, owner, { role: 'handler' }, route.span);
+      for (const metric of exposed) records.edge(REL_EXPOSES_METRIC, key, metric, libraryEvidence(effect), effectSpan(effect));
     }
   }
 }
@@ -373,7 +374,7 @@ function extractTextMetrics(t: TreeText, records: Records, view: CodeFactView, e
       const backingSymbol = backingKey === undefined ? undefined : fields.get(backingKey);
       const key = `code.metric:${evidence.effect.span.path}#${name}`;
       const observationModel = backingSymbol === undefined ? undefined : typeModel(backingSymbol.typeExpression);
-      records.add({ key, kind: 'code.metric', label: name, properties: {
+      records.add({ key, kind: KIND_METRIC, label: name, properties: {
         name, metricType: types[0]!.declaration.value, labels, definitionFormat: 'prometheus-text',
         help: helps[0]?.declaration.value ?? '', writerBinding: evidence.writer,
         ...(observationModel?.role === 'metric-cell' ? { observationModel: observationModel.id, observationTypeReference: observationModel.reference } : {}),
@@ -411,7 +412,7 @@ function extractTextMetrics(t: TreeText, records: Records, view: CodeFactView, e
       for (const site of writes) {
         const ownerEffect: LibraryEffect = { ...evidence.effect, holder: site.holder, span: site.span, invocationSpan: undefined };
         const owner = effectOwner(t, records, ownerEffect); if (owner === undefined) continue;
-        records.edge('code.updates-metric', owner, key, { backingDeclaration: backingSymbol.key,
+        records.edge(REL_UPDATES_METRIC, owner, key, { backingDeclaration: backingSymbol.key,
           backingDeclarationSpan: { ...backingSymbol.span }, backingOwnerDeclaration: backingSymbol.ownerDeclaration,
           backingTypeExpression: backingSymbol.typeExpression, writeRoles: [...site.roles], ...libraryEvidence(evidence.effect) }, site.span, String(site.span.byteStart));
       }
@@ -422,7 +423,7 @@ function extractTextMetrics(t: TreeText, records: Records, view: CodeFactView, e
       for (const access of cellWrites) {
         const ownerEffect: LibraryEffect = { ...evidence.effect, holder: access.call.holder, span: access.call.span, invocationSpan: access.call.invocationSpan };
         const owner = effectOwner(t, records, ownerEffect); if (owner === undefined) continue;
-        records.edge('code.updates-metric', owner, key, { backingDeclaration: backingSymbol.key,
+        records.edge(REL_UPDATES_METRIC, owner, key, { backingDeclaration: backingSymbol.key,
           backingDeclarationSpan: { ...backingSymbol.span }, backingOwnerDeclaration: backingSymbol.ownerDeclaration,
           backingTypeExpression: backingSymbol.typeExpression, receiverModel: access.model.id, receiverTypeReference: access.model.reference,
           receiverExpression: expression(access.call.callee)!.receiver!, ...libraryEvidence(evidence.effect) }, effectSpan(ownerEffect), String(access.call.span.byteStart));
@@ -451,13 +452,13 @@ function extractTextMetrics(t: TreeText, records: Records, view: CodeFactView, e
     const metrics = [...exposure.metrics].sort(byCodePoint);
     const names = metrics.map((metric) => records.nodes.find((node) => node.key === metric)?.properties.name)
       .filter((name): name is string => typeof name === 'string').sort(byCodePoint);
-    records.add({ key, kind: 'code.metrics-endpoint', label: `${route.path} of ${service || route.handler!.path}`,
+    records.add({ key, kind: KIND_METRICS_ENDPOINT, label: `${route.path} of ${service || route.handler!.path}`,
       properties: { path: route.path, method: route.method, ports: [...route.ports], service, format: 'prometheus-text', counters: names,
         receiverExpression: route.receiverExpression, writerBinding: writer, handler: route.handler!.key,
         ...(route.handlerExpression === undefined ? {} : { handlerExpression: route.handlerExpression }),
         ...libraryEvidence(effect) }, span: route.handler!.span });
-    records.edge('code.served-by', key, records.file(route.handler!.path), { service }, route.span);
-    records.edge('code.served-by', key, owner, { role: 'handler' }, route.span);
-    for (const metric of metrics) records.edge('code.exposes-metric', key, metric, { writerBinding: writer, ...libraryEvidence(effect) }, effectSpan(effect));
+    records.edge(REL_SERVED_BY, key, records.file(route.handler!.path), { service }, route.span);
+    records.edge(REL_SERVED_BY, key, owner, { role: 'handler' }, route.span);
+    for (const metric of metrics) records.edge(REL_EXPOSES_METRIC, key, metric, { writerBinding: writer, ...libraryEvidence(effect) }, effectSpan(effect));
   }
 }

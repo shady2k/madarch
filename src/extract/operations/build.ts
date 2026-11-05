@@ -5,6 +5,7 @@
  * SQL it feeds psql with.
  */
 import { LineCounter, isMap, isScalar, isSeq, parseDocument } from 'yaml';
+import { KIND_CI_JOB, KIND_CI_WORKFLOW, KIND_MAKE_TARGET, REL_CONTAINS, REL_CONTAINS_JOB, REL_REFERENCES } from './vocabulary.js';
 import type { PropertyValue } from '../records.js';
 import { byCodePoint } from '../../model/order.js';
 import type { Records } from './accumulate.js';
@@ -41,19 +42,19 @@ export function makeTargets(t: TreeText, records: Records, path: string): Map<st
     if (prerequisites !== '') properties.prerequisites = prerequisites.split(/\s+/u).sort(byCodePoint);
     records.add({
       key,
-      kind: 'code.make-target',
+      kind: KIND_MAKE_TARGET,
       label: name,
       properties,
       span: t.spanOfLines(path, index + 1, last + 1),
     });
     // The Makefile a target stands in is its place in the code, whatever its recipe calls (madarch-m38l.16).
-    records.edge('code.contains', records.file(path), key, {}, t.spanOfLines(path, index + 1, last + 1));
+    records.edge(REL_CONTAINS, records.file(path), key, {}, t.spanOfLines(path, index + 1, last + 1));
     for (const line1 of recipe) {
       for (const token of line1.split(/\s+/u)) {
         const candidate = token.replace(/^[^A-Za-z0-9_.]+|[^A-Za-z0-9_.]+$/g, '');
         if (!candidate.includes('/') || candidate.includes('*') || candidate.includes('$')) continue;
         if (!t.has(candidate)) continue;
-        records.edge('code.references', key, records.file(candidate), {}, t.spanOfLines(path, index + 1, last + 1));
+        records.edge(REL_REFERENCES, key, records.file(candidate), {}, t.spanOfLines(path, index + 1, last + 1));
       }
     }
     index = last;
@@ -90,7 +91,7 @@ export function ciWorkflows(t: TreeText, records: Records): void {
     const workflowKey = `code.ci-workflow:${path}`;
     records.add({
       key: workflowKey,
-      kind: 'code.ci-workflow',
+      kind: KIND_CI_WORKFLOW,
       label: isScalar(name) && name.value !== null ? String(name.value) : path,
       properties: { name: isScalar(name) && name.value !== null ? String(name.value) : null, on: triggers.sort(byCodePoint) },
       span: t.spanOfFile(path),
@@ -132,14 +133,14 @@ export function ciWorkflows(t: TreeText, records: Records): void {
       }
       records.add({
         key,
-        kind: 'code.ci-job',
+        kind: KIND_CI_JOB,
         label: job,
         properties: { workingDirectory, steps, uses: [...uses].sort(byCodePoint) } satisfies { [key: string]: PropertyValue },
         span: t.spanOfLines(path,
           lineCounter.linePos(pair.key.range?.[0] ?? 0).line,
           lineCounter.linePos(Math.max(pair.key.range?.[0] ?? 0, (isMap(pair.value) ? pair.value.range?.[1] : pair.key.range?.[1]) ?? 0) - 1).line),
       });
-      records.edge('code.contains-job', workflowKey, key, {}, records.nodes.find((node) => node.key === key)?.span);
+      records.edge(REL_CONTAINS_JOB, workflowKey, key, {}, records.nodes.find((node) => node.key === key)?.span);
     }
   }
 }

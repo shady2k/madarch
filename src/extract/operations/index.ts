@@ -5,6 +5,7 @@
  * a file that cannot be read is a gap, never a silence.
  */
 import type { Extraction, TreeReader } from '../records.js';
+import { REL_CONTAINS } from './vocabulary.js';
 import type { CodeFacts } from '../code/facts.js';
 import { extractBuild } from './build.js';
 import { Records, sortedEdges, sortedGaps, sortedNodes } from './accumulate.js';
@@ -18,7 +19,8 @@ import { extractStack } from './stack.js';
 import { TreeText } from './source.js';
 
 /** The producer key of every record this folder returns. */
-export const OPERATIONS_PRODUCER = 'code.extract.operations';
+export { OPERATIONS_PRODUCER } from './vocabulary.js';
+import { OPERATIONS_PRODUCER } from './vocabulary.js';
 
 /** Extracts the operations records of one tree. */
 export function extractOperations(tree: TreeReader, code?: Extraction, facts?: CodeFacts): Extraction {
@@ -38,7 +40,7 @@ export function extractOperations(tree: TreeReader, code?: Extraction, facts?: C
     extractNewcomer(t, records, targets);
     for (const node of [...records.nodes]) {
       if (node.kind === 'code.file' || node.span === undefined || !t.has(node.span.path)) continue;
-      records.edge('code.contains', records.file(node.span.path), node.key, {}, node.span);
+      records.edge(REL_CONTAINS, records.file(node.span.path), node.key, {}, node.span);
     }
   } catch (error) {
     records.gap('.', `the operations records cannot be extracted: ${error instanceof Error ? error.message : String(error)}`);

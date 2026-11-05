@@ -3,6 +3,7 @@ import { dirname, join, sep } from 'node:path';
 import { parseDocument } from 'yaml';
 import { KINDS_FILE } from './kinds.js';
 import { CATALOG_GROUPS, CATALOG_KINDS, CATALOG_RELATIONS, CATALOG_SCHEMA, type CatalogGroupData, type CatalogKindData } from './starter-catalog.js';
+import { MAPPING_KIND_ROWS, MAPPING_RELATION_ROWS, MAPPING_VERSION, type CatalogMappingRow } from './starter-mapping.js';
 import { DEFAULT_THRESHOLDS } from '../problems/types.js';
 import type { ProblemSettings, RuleSpec } from '../problems/types.js';
 
@@ -616,6 +617,31 @@ export function starterManifest(language?: string): string {
   return language === undefined ? text : `${text}language: ${language}\n`;
 }
 
+/** One row of the mapping as the manifest writes it: a tie to a catalog kind or relation, or an internal reason. */
+function mappingRowYaml(row: CatalogMappingRow): string {
+  if (row.kind !== undefined) return `{ kind: ${yamlText(row.kind)} }`;
+  if (row.relation !== undefined) return `{ relation: ${yamlText(row.relation)} }`;
+  return `{ internal: ${yamlText(row.internal ?? '')} }`;
+}
+
+/**
+ * The `mapping:` section of the starter manifest (decision 0033, item 7): the version, and every node kind and
+ * relation type the extractors declare they emit, in code point order, tied to the catalog or declared internal.
+ */
+function mappingLines(): string[] {
+  return [
+    "# The extractors' vocabulary mapped to the catalog (decision 0033, item 7): every node kind and relation type",
+    "# the extractors emit, tied to a catalog kind or relation, or declared internal with the reason. The keys are",
+    "# the extractors' own (`src/extract/vocabulary.ts` declares them); the targets are this manifest's.",
+    "mapping:",
+    `  version: ${MAPPING_VERSION}`,
+    "  kinds:",
+    ...MAPPING_KIND_ROWS.map((row) => `    ${row.key}: ${mappingRowYaml(row)}`),
+    "  relations:",
+    ...MAPPING_RELATION_ROWS.map((row) => `    ${row.key}: ${mappingRowYaml(row)}`),
+  ];
+}
+
 function kindsManifest(): string {
   const lines: string[] = [
     "# The kinds this product's wiki shows (decision 0029, docs/decisions/0029-knowledge-in-markdown-graph-as-index.md).",
@@ -687,6 +713,7 @@ function kindsManifest(): string {
     "kinds:",
   ];
   for (const kind of CATALOG_KINDS) lines.push(...kindLines(kind));
+  lines.push(...mappingLines());
   return `${lines.join('\n')}\n`;
 }
 

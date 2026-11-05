@@ -18,9 +18,15 @@ export const DATA_MODEL_NODE_KINDS = [
 
 /** The relation types this extractor emits, all under the engine's `code.` prefix. */
 export const DATA_MODEL_EDGE_TYPES = [
+  'code.alters',
+  'code.contains',
+  'code.covers',
+  'code.creates',
   'code.foreign-key',
+  'code.holds',
   'code.logical-reference',
   'code.reads-table',
+  'code.uses-database',
   'code.writes-table',
 ] as const;
 

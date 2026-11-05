@@ -61,12 +61,13 @@ import type { DatabaseOwner } from '../../adapters/database-owner.js';
 import type { GraphId, GraphStore } from '../../graph/index.js';
 import { sha256Hex } from '../../graph/index.js';
 import type { GraphRegistry } from '../../graph/vocabulary.js';
-import type { Extraction, SourceSpan, TreeReader } from '../records.js';
+import type { ExtractedEdge, Extraction, SourceSpan, TreeReader } from '../records.js';
 import type { CodeExtractionResult, CodeFacts } from '../code/facts.js';
 import { releaseCodeFacts } from '../code/index.js';
 import { linkExtractions, LINKS_PRODUCER } from './links.js';
 import { endpointRelations } from './relationships.js';
 import { commitTree, resolvePoint, walkDefaultBranch, type CommitFact, type FillPoint } from './git.js';
+import { KIND_FACET, KIND_REPOSITORY, REL_DESCRIBES_FILE, REL_FACET_OF, REL_OCCURRENCE } from './vocabulary.js';
 
 export type { CommitFact, FillPoint } from './git.js';
 
@@ -178,8 +179,8 @@ export interface FillReport {
   readonly gaps: readonly { readonly producer: string; readonly path: string; readonly reason: string }[];
 }
 
-const OCCURRENCE = 'code.occurrence';
-const REPOSITORY_KIND = 'code.repository';
+const OCCURRENCE = REL_OCCURRENCE;
+const REPOSITORY_KIND = KIND_REPOSITORY;
 
 /** The reading site of a record, as one small property value. */
 function spanProperty(span: SourceSpan): Record<string, unknown> {
@@ -503,7 +504,7 @@ export async function fillGraph(options: FillOptions): Promise<FillReport> {
       facets.push({
         node: {
           key: `code.facet:${extraction.producer}#${node.key}`,
-          kind: 'code.facet',
+          kind: KIND_FACET,
           label: pathOfOwner === undefined ? node.label : `${node.label} · ${pathOfOwner}`,
           properties: { ...extra, ownerKey: node.key },
           ...(described === undefined ? {} : { span: described }),
@@ -516,10 +517,9 @@ export async function fillGraph(options: FillOptions): Promise<FillReport> {
       edges: [...extraction.edges, ...facets.flatMap((facet) => {
         const ownerKey = String(facet.node.properties['ownerKey']);
         const path = facet.node.span?.path ?? (ownerKey.startsWith('code.file:') ? ownerKey.slice('code.file:'.length) : undefined);
-        return [
-          { type: 'code.facet-of' as const, from: facet.node.key, to: ownerKey, discriminator: '', properties: {} },
-          ...(path === undefined ? [] : [{type: 'code.describes-file' as const, from: facet.node.key, to: `code.file:${path}`, discriminator: '', properties: {}}]),
-        ];
+        const edges: ExtractedEdge[] = [{ type: REL_FACET_OF, from: facet.node.key, to: ownerKey, discriminator: '', properties: {} }];
+        if (path !== undefined) edges.push({ type: REL_DESCRIBES_FILE, from: facet.node.key, to: `code.file:${path}`, discriminator: '', properties: {} });
+        return edges;
       })],
     };
     const foreignKinds = [...new Set(effective.edges.flatMap((edge) => [edge.from, edge.to]).filter((key) => !effective.nodes.some((node) => node.key === key)).map((key) => key.slice(0, key.indexOf(':'))))].filter((kind) => kind.startsWith('code.'));

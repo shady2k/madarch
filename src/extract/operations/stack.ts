@@ -4,6 +4,7 @@
  * per service; its manifest is the edge that declares it.
  */
 import type { PropertyValue } from '../records.js';
+import { KIND_SERVICE, REL_MANIFEST_OF } from './vocabulary.js';
 import { byCodePoint } from '../../model/order.js';
 import type { Records } from './accumulate.js';
 import type { EnvRead } from './env.js';
@@ -59,7 +60,7 @@ export function extractStack(t: TreeText, records: Records, envReads: ReadonlyMa
     const manifestNode = `code.manifest:${manifestPath}`;
     records.add({
       key: `code.service:${service}`,
-      kind: 'code.service',
+      kind: KIND_SERVICE,
       label: service,
       properties: {
         language: go ? 'go' : 'typescript',
@@ -70,7 +71,7 @@ export function extractStack(t: TreeText, records: Records, envReads: ReadonlyMa
       span: t.spanOfFile(manifestPath),
     });
     if (records.nodes.some((entry) => entry.key === manifestNode)) {
-      records.edge('code.manifest-of', manifestNode, `code.service:${service}`, {}, t.spanOfFile(manifestPath));
+      records.edge(REL_MANIFEST_OF, manifestNode, `code.service:${service}`, {}, t.spanOfFile(manifestPath));
     }
   }
 }

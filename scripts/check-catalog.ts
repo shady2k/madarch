@@ -80,6 +80,29 @@ function main(): void {
     console.log(
       `catalog: ${areas.length} areas, ${subgroups.length} subgroups, ${kinds.length} kinds (${shown.length} with a page of their own or a member's row); ${manifest.file}`,
     );
+    // The mapping's own counts: what is tied to the catalog, and what the extractors keep as their own.
+    const mapping = manifest.mapping;
+    if (mapping === undefined) console.error(`${manifest.file}: the manifest declares no "mapping", and the starter set ties the extractors' vocabulary to the catalog`);
+    else {
+      const tied = (rows: Iterable<{ tie: string }>): [number, number] => {
+        let mapped = 0;
+        let internal = 0;
+        for (const row of rows) {
+          if (row.tie === 'internal') internal += 1;
+          else mapped += 1;
+        }
+        return [mapped, internal];
+      };
+      const [kindMapped, kindInternal] = tied(mapping.kinds.values());
+      const [relationMapped, relationInternal] = tied(mapping.relations.values());
+      console.log(
+        `mapping: version ${mapping.version}; ${mapping.kinds.size} extractor kinds (${kindMapped} tied to a catalog kind, ${kindInternal} internal); ${mapping.relations.size} extractor relations (${relationMapped} tied to a catalog relation, ${relationInternal} internal)`,
+      );
+      if (mapping.findings.length > 0) {
+        for (const finding of mapping.findings) console.error(`${finding.file}:${finding.line}: ${finding.message}`);
+        failed = true;
+      }
+    }
     if (failed) process.exit(1);
   } finally {
     if (temporary) rmSync(folder, { recursive: true, force: true });

@@ -59,10 +59,14 @@ function editField(manifest: string, kind: string, field: string, value: string 
   return [...lines.slice(0, start + 1), ...written, ...lines.slice(end)].join('\n');
 }
 
-/** One catalogue-only kind appended to the manifest. */
+/** One catalogue-only kind appended to the `kinds:` section of the manifest, after the kinds it holds. */
 function appended(manifest: string, kind: string, row: { id: string; group: string; acquisition: string }): string {
+  const lines = manifest.split('\n');
+  const start = lines.indexOf('kinds:');
+  let end = start + 1;
+  while (end < lines.length && (lines[end] === '' || lines[end]!.startsWith('  '))) end += 1;
   return [
-    manifest.trimEnd(),
+    ...lines.slice(0, end),
     `  ${kind}:`,
     `    id: ${row.id}`,
     `    group: ${row.group}`,
@@ -72,7 +76,7 @@ function appended(manifest: string, kind: string, row: { id: string; group: stri
     '    status: not-implemented',
     '    relation-constraints: { out: [], in: [] }',
     '    template-policy: none',
-    '',
+    ...lines.slice(end),
   ].join('\n');
 }
 
@@ -97,10 +101,9 @@ describe('the catalog check over the starter set', () => {
   test('the same row is refused by the wiki\'s own read of the manifest, which is the product-wiki check', () => {
     const manifest = editField(MANIFEST, 'code.service', 'status', null);
     const read = parseKinds(manifest, 'madarch/kinds.yaml', product());
-    expect(read.catalog!.findings.map((finding) => [finding.line, finding.message])).toEqual([
-      [read.catalog!.findings[0]!.line, 'kind "code.service": "status" is one of implemented, partial, not-implemented, got undefined'],
-    ]);
-    expect(read.findings).toEqual(read.catalog!.findings);
+    expect(read.catalog!.findings.map((finding) => finding.message)).toContain('kind "code.service": "status" is one of implemented, partial, not-implemented, got undefined');
+    // The kind is refused, so the catalog no longer holds it, and the mapping's row for it is refused in turn.
+    expect(read.findings.map((finding) => finding.message)).toContainEqual(expect.stringContaining('kind "code.service": the mapping ties it to the kind "code.service", and the catalog holds no such kind (its kinds are '));
     // The kind is left out of the catalog and of the wiki\'s kinds, and the rest of the catalog stands.
     expect(read.catalog!.kinds.has('code.service')).toBe(false);
     expect(read.kinds.has('code.service')).toBe(false);
