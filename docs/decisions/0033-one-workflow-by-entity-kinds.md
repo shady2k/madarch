@@ -11,6 +11,14 @@ write is Markdown in the product repository) and 0030 (the tip first, history fr
 point on 2026-11-01 (the record of the talk, with his words: docs/vision/architecture-talk-2026-11-01.md;
 reviewed by Codex the same day, docs/explorations/0033-codex-review-2026-11-01.md).
 
+Pending amendments, 2026-11-04: proposed
+[0034](0034-human-and-agent-work-interfaces.md) narrows point 28 for structured
+human work-item editing and decomposition through the shared checked commands;
+generated prose and raw graph facts remain agent-mediated. Proposed
+[0035](0035-work-reservations-and-operation-sync.md) separates exclusive product-work
+reservations from point 22's advisory verifier reservations and point 27's expiring
+worker leases. Neither proposal is accepted; the decisions below remain unchanged.
+
 ## Context and problem
 
 On 2026-11-01 the wiki's fill of madarch's own product (madarch-product with the madarch

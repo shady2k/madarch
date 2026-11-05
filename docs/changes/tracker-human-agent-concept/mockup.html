@@ -1,0 +1,224 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="color-scheme" content="light">
+  <title>Work planning and review — static tracker concept</title>
+  <style>
+    :root { --ink:#172c39; --muted:#506270; --line:#cfdbdf; --paper:#fff; --wash:#f2f6f6; --accent:#13675d; --soft:#e5f2ed; --amber:#775018; --amber-bg:#fff5df; --blue:#245e87; --blue-bg:#eaf2fa; }
+    * { box-sizing:border-box; }
+    body { margin:0; color:var(--ink); background:var(--wash); font:16px/1.5 system-ui,-apple-system,BlinkMacSystemFont,"Segoe UI",sans-serif; }
+    a { color:var(--accent); text-underline-offset:3px; }
+    a:focus-visible, summary:focus-visible { outline:3px solid #236dbe; outline-offset:4px; }
+    h1,h2,h3,p { margin:0; }
+    h1 { font-size:clamp(1.7rem,3vw,2.25rem); letter-spacing:-.035em; line-height:1.15; }
+    h2 { font-size:1.2rem; line-height:1.3; }
+    h3 { font-size:1rem; }
+    small,.small { font-size:.875rem; }
+    .muted { color:var(--muted); }
+    .eyebrow { font-size:.8rem; font-weight:750; letter-spacing:.08em; text-transform:uppercase; color:var(--muted); }
+    .concept { padding:12px 24px; background:#18343d; color:#f7ffff; display:flex; justify-content:space-between; gap:12px; flex-wrap:wrap; }
+    .concept a { color:#d7f5e8; }
+    .shell { max-width:1320px; padding:26px 24px 40px; margin:auto; }
+    .top { display:flex; align-items:center; justify-content:space-between; gap:18px; margin-bottom:22px; }
+    .top p { margin-top:7px; }
+    .section-nav { display:flex; flex-wrap:wrap; gap:8px 20px; }
+    .section-nav a { padding:10px 0; }
+    .toolbar { display:flex; flex-wrap:wrap; gap:10px; justify-content:space-between; align-items:center; padding:14px 16px; background:var(--paper); border:1px solid var(--line); border-radius:12px 12px 0 0; }
+    .view-options,.actions,.tags { display:flex; gap:8px; flex-wrap:wrap; align-items:center; }
+    button { font:inherit; font-weight:650; min-height:44px; padding:9px 13px; border-radius:7px; border:1px solid var(--line); background:#fff; color:var(--ink); }
+    button:disabled { opacity:1; cursor:not-allowed; }
+    button.selected { background:var(--ink); color:#fff; border-color:var(--ink); }
+    button.primary { color:#fff; background:var(--accent); border-color:var(--accent); }
+    button.quiet { background:var(--wash); }
+    .tag { display:inline-block; border:1px solid var(--line); padding:2px 8px; border-radius:5px; font-size:.8rem; font-weight:650; white-space:normal; }
+    .tag.green { color:#215643; background:var(--soft); border-color:#bedbcc; }
+    .tag.amber { color:var(--amber); background:var(--amber-bg); border-color:#e4cf9d; }
+    .tag.blue { color:var(--blue); background:var(--blue-bg); border-color:#c4d9e9; }
+    .workspace { display:grid; grid-template-columns:minmax(270px,.8fr) minmax(0,1.7fr); align-items:start; border:1px solid var(--line); border-top:0; background:#fff; border-radius:0 0 12px 12px; overflow:hidden; }
+    .tree-panel { padding:20px 16px; background:#f9fbfb; border-right:1px solid var(--line); align-self:stretch; }
+    .tree-panel h2 { margin-bottom:4px; }
+    .tree { list-style:none; padding:0; margin:18px 0; }
+    .tree ul { list-style:none; margin:6px 0 0 9px; padding:0 0 0 14px; border-left:2px solid #d9e2e4; }
+    .tree li { margin:5px 0; }
+    .tree-row { padding:10px; border:1px solid transparent; border-radius:8px; }
+    .tree-row strong { display:block; font-size:.94rem; }
+    .tree-row .tags { margin-top:5px; gap:5px; }
+    .tree-row.active { background:#e8f2ef; border-color:#a9cdc0; }
+    .tree-row.proposed { border:1px dashed #98b4b1; background:#fff; }
+    .id { color:var(--muted); font-size:.8rem; font-weight:600; }
+    .tree-note { border-top:1px solid var(--line); padding-top:16px; }
+    .tree-note p + p { margin-top:10px; }
+    .detail { padding:22px; min-width:0; }
+    .detail-title { display:flex; justify-content:space-between; align-items:flex-start; gap:12px; }
+    .detail h2 { font-size:1.5rem; margin:5px 0 7px; }
+    .notice { padding:12px 14px; border-radius:8px; border:1px solid #e4cf9d; background:var(--amber-bg); color:#604112; }
+    .notice p { margin-top:3px; }
+    .detail > .notice { margin:16px 0; }
+    .facts { display:grid; grid-template-columns:repeat(3,minmax(0,1fr)); gap:12px; margin:18px 0; }
+    .facts dt { color:var(--muted); font-size:.8rem; margin-bottom:3px; }
+    .facts dd { margin:0; font-size:.94rem; font-weight:600; }
+    .facts dd span { display:block; font-weight:400; }
+    .definition { display:grid; grid-template-columns:1fr 1fr; gap:14px; padding:16px 0; border-top:1px solid var(--line); border-bottom:1px solid var(--line); }
+    .definition p,.definition ul { margin:7px 0 0; font-size:.94rem; }
+    .definition ul { padding-left:20px; }
+    .preview { margin-top:22px; }
+    .preview-head { display:flex; justify-content:space-between; gap:10px; flex-wrap:wrap; margin-bottom:14px; }
+    .child-grid { display:grid; grid-template-columns:1fr 1fr; gap:12px; }
+    .child { border:1px solid var(--line); padding:14px; border-radius:8px; background:#fcfdfd; }
+    .child h3 { margin:4px 0 12px; }
+    .child dl { margin:0; }
+    .child dt { font-size:.8rem; color:var(--muted); margin-top:9px; }
+    .child dd { margin:2px 0 0; font-size:.9rem; }
+    code { font-size:.88em; overflow-wrap:anywhere; background:#edf2f3; padding:1px 3px; border-radius:3px; }
+    .impact { display:grid; grid-template-columns:1fr 1fr; gap:12px; margin:14px 0; }
+    .impact p { font-size:.9rem; }
+    .impact strong { display:block; margin-bottom:3px; }
+    .save-bar { border-top:1px solid var(--line); padding-top:14px; }
+    .save-bar .small { margin-top:9px; }
+    .review { margin-top:24px; padding:22px; border:1px solid var(--line); background:var(--paper); border-radius:12px; }
+    .review-head { display:flex; flex-wrap:wrap; justify-content:space-between; align-items:center; gap:12px; margin-bottom:16px; }
+    .review-head p { margin-top:4px; }
+    .review-grid { display:grid; grid-template-columns:minmax(0,1.35fr) minmax(240px,1fr); gap:22px; }
+    .evidence { display:grid; gap:10px; margin-top:13px; }
+    .evidence-row { display:grid; grid-template-columns:1fr 1fr; gap:12px; padding:12px; background:var(--wash); border-radius:7px; font-size:.94rem; }
+    .evidence-row strong { display:block; }
+    .review-decision { padding:16px; background:#f8faf9; border:1px solid var(--line); border-radius:8px; }
+    label { display:block; margin:12px 0 5px; font-size:.9rem; font-weight:650; }
+    textarea { display:block; width:100%; resize:none; font:inherit; font-size:.9rem; color:var(--ink); border:1px solid #bccbd0; border-radius:6px; padding:10px; background:#fff; }
+    textarea:disabled { opacity:1; -webkit-text-fill-color:var(--ink); }
+    .review-decision .actions { margin-top:12px; }
+    details { margin-top:18px; border:1px solid var(--line); border-radius:8px; background:#fff; }
+    summary { padding:14px 16px; cursor:pointer; font-weight:650; }
+    .states { padding:0 16px 16px; display:grid; grid-template-columns:repeat(3,minmax(0,1fr)); gap:16px; }
+    .states p { margin-top:5px; font-size:.9rem; }
+    footer { margin-top:20px; color:var(--muted); font-size:.875rem; }
+    section { scroll-margin-top:16px; }
+    @media (max-width:900px) {
+      .workspace { grid-template-columns:minmax(235px,.8fr) minmax(0,1.4fr); }
+      .child-grid,.definition,.impact { grid-template-columns:1fr; }
+      .facts { grid-template-columns:1fr 1fr; }
+      .review-grid { grid-template-columns:1fr; }
+    }
+    @media (max-width:650px) {
+      .concept { padding:12px 16px; font-size:.9rem; }
+      .shell { padding:20px 12px 30px; }
+      .top { display:block; }
+      .section-nav { margin-top:8px; }
+      .toolbar { padding:12px; }
+      .workspace { grid-template-columns:1fr; }
+      .tree-panel { border-right:0; border-bottom:1px solid var(--line); padding:16px; }
+      .detail,.review { padding:16px; }
+      .detail-title { flex-wrap:wrap; }
+      .facts,.states,.evidence-row { grid-template-columns:1fr; }
+      .save-bar .actions { align-items:stretch; }
+      .save-bar button { width:100%; }
+      .tree ul { padding-left:10px; margin-left:5px; }
+    }
+    @media (prefers-reduced-motion:reduce) { * { scroll-behavior:auto; } }
+  </style>
+</head>
+<body>
+  <div class="concept">
+    <span><strong>Static concept · not implemented.</strong> Fictional data. All work controls are disabled; only section links and the disclosure navigate.</span>
+    <a href="human-interface.md">Read the human-interface proposal</a>
+  </div>
+  <div class="shell">
+    <header class="top">
+      <div><p class="eyebrow">Madarch / Atlas product</p><h1>Work, shaped by people.</h1><p class="muted">Plan the outcome. Decompose the work. Review the evidence.</p></div>
+      <nav class="section-nav" aria-label="Navigate this static page"><a href="#planning">Planning example</a><a href="#review">Result review</a><a href="#states">Failure states</a></nav>
+    </header>
+    <main>
+      <section id="planning" aria-labelledby="planning-title">
+        <div class="toolbar">
+          <div class="view-options" aria-label="Illustrative view choices; disabled">
+            <button disabled>Backlog</button><button class="selected" disabled>Tree · shown</button><button disabled>Board</button>
+          </div>
+          <span class="small muted">One work set · Atlas / Reliable export</span>
+          <button class="primary" disabled>Create work</button>
+        </div>
+        <div class="workspace">
+          <aside class="tree-panel" aria-labelledby="planning-title">
+            <h2 id="planning-title">Work tree</h2>
+            <p class="small muted">4 existing items · 2 proposed children</p>
+            <ul class="tree" aria-label="Illustrative work hierarchy">
+              <li><div class="tree-row"><span class="id">AT-40 · Parent</span><strong>Reliable export</strong><div class="tags"><span class="tag">Open</span><span class="tag">Container</span></div></div>
+                <ul>
+                  <li><div class="tree-row"><span class="id">AT-41</span><strong>Export contract</strong><div class="tags"><span class="tag green">Accepted</span></div></div></li>
+                  <li><div class="tree-row"><span class="id">AT-42</span><strong>Export implementation</strong><div class="tags"><span class="tag blue">Submitted</span><span class="tag">Review needed</span></div></div></li>
+                  <li><div class="tree-row active"><span class="id">AT-43 · Selected</span><strong>Validate export</strong><div class="tags"><span class="tag">Draft</span><span class="tag amber">Decomposition preview</span></div></div>
+                    <ul>
+                      <li><div class="tree-row proposed"><span class="id">AT-44 · Proposed only</span><strong>Invalid-row coverage</strong><div class="tags"><span class="tag">Not active</span></div></div></li>
+                      <li><div class="tree-row proposed"><span class="id">AT-45 · Proposed only</span><strong>Large-export coverage</strong><div class="tags"><span class="tag">Not active</span></div></div></li>
+                    </ul>
+                  </li>
+                </ul>
+              </li>
+            </ul>
+            <div class="actions"><button disabled>Add child</button><button disabled>Move to parent…</button></div>
+            <div class="tree-note small muted" style="margin-top:16px">
+              <p><strong>Structure is not a dependency.</strong> Both proposed children explicitly wait for AT-42 to be accepted.</p>
+              <p>Backlog and board would show these same IDs. Neither is a separate task store.</p>
+            </div>
+          </aside>
+          <article class="detail" aria-labelledby="detail-title">
+            <div class="detail-title">
+              <div><p class="eyebrow">Task detail / AT-43</p><h2 id="detail-title">Validate export</h2><p class="muted small">Reliable export / Validation · Draft definition d7</p></div>
+              <div class="actions"><button disabled>Edit definition</button><button disabled>Split…</button></div>
+            </div>
+            <dl class="facts">
+              <div><dt>Responsible person</dt><dd>Mira Chen<span class="muted small">Accountable for the outcome</span></dd></div>
+              <div><dt>Current executor</dt><dd>None<span class="muted small">No reservation or attempt</span></dd></div>
+              <div><dt>Execution approval</dt><dd>Not granted<span class="muted small">Adoption will not start work</span></dd></div>
+            </dl>
+            <div class="definition">
+              <div><h3>Scope</h3><p>Export validation and test fixtures, pinned to example source revision <code>a13f9e2</code>.</p><p class="muted">Excluded: format changes and delivery infrastructure. Generated wiki text is read-only.</p></div>
+              <div><h3>Acceptance criteria</h3><ul><li>C1: Invalid rows identify the source row.</li><li>C2: Large exports retain every row.</li><li>C3: Review both cases together at parent level.</li></ul></div>
+            </div>
+            <div class="notice"><strong>Not ready for execution</strong><p class="small">Draft · no execution approval · AT-42 is submitted, not accepted. After decomposition this parent is a non-executable container.</p></div>
+            <section class="preview" aria-labelledby="preview-title">
+              <div class="preview-head"><div><p class="eyebrow">Structured decomposition / illustrative preview</p><h3 id="preview-title">Two children, one reviewed change</h3></div><span class="tag amber">Not published</span></div>
+              <div class="child-grid">
+                <article class="child"><span class="id">ADD AT-44</span><h3>Invalid-row coverage</h3><dl><dt>Criterion from parent</dt><dd>C1 → report the exact failing row</dd><dt>Included scope</dt><dd><code>tests/export/invalid-rows</code></dd><dt>Gating prerequisite</dt><dd>AT-42 · accepted required</dd><dt>Responsible person</dt><dd>Mira Chen</dd></dl></article>
+                <article class="child"><span class="id">ADD AT-45</span><h3>Large-export coverage</h3><dl><dt>Criterion from parent</dt><dd>C2 → verify every exported row</dd><dt>Included scope</dt><dd><code>tests/export/large-files</code></dd><dt>Gating prerequisite</dt><dd>AT-42 · accepted required</dd><dt>Responsible person</dt><dd>Mira Chen</dd></dl></article>
+              </div>
+              <div class="impact"><p><strong>Before → after</strong>AT-43: draft leaf → draft container. Existing identity and history remain. C3 stays a separate parent review.</p><p><strong>Ownership and readiness</strong>No reservations affected. Neither child is approved or claimed. Submitted AT-42 does not satisfy their prerequisite.</p></div>
+              <div class="save-bar"><div class="actions"><button class="primary" disabled>Adopt decomposition · 2 children</button><button disabled>Revise children</button><button class="quiet" disabled>Return proposal</button></div><p class="small muted">Illustrative actions only. Real adoption rechecks base d7 / state s3 and publishes all changes or none. A stale preview must be refreshed and reviewed again.</p></div>
+            </section>
+          </article>
+        </div>
+      </section>
+      <section id="review" class="review" aria-labelledby="review-title">
+        <div class="review-head"><div><p class="eyebrow">Review inbox / separate example item</p><h2 id="review-title">AT-42 · Export implementation</h2><p class="small muted">Submitted result, not a definition proposal. This example does not advance the preview above.</p></div><span class="tag blue">Submitted · awaiting human review</span></div>
+        <div class="review-grid">
+          <div>
+            <p><strong>Responsible:</strong> Mira Chen · <strong>Submitted by:</strong> agent / session 18</p>
+            <p class="small muted">Example submission R6 · attempt A2 · definition d4 · source a13f9e2. Reservation ended at submission; no current executor.</p>
+            <div class="evidence" aria-label="Fictional criterion and evidence mapping">
+              <div class="evidence-row"><div><strong>C1 · Contract preserved</strong>Export output follows the accepted format.</div><div><strong>Reported evidence</strong>Example contract comparison, artifact E11. Not exercised in this mockup.</div></div>
+              <div class="evidence-row"><div><strong>C2 · Failure is explicit</strong>Invalid input returns a useful failure.</div><div><strong>Reported evidence</strong>Example test report, artifact E12. Reviewer has not accepted it.</div></div>
+            </div>
+            <p class="small muted" style="margin-top:12px">A real review opens immutable artifacts and checks the pinned basis. A green check reported by an agent is not independent verification.</p>
+          </div>
+          <div class="review-decision">
+            <h3>Human decision</h3><p class="small muted">Accept this submission, or return it with a reason. No automatic acceptance when a worker finishes.</p>
+            <label for="reason">Review note / required for return</label><textarea id="reason" rows="3" disabled>Example: explain the unmet criterion and the evidence needed for another review.</textarea>
+            <div class="actions"><button class="primary" disabled>Accept result</button><button disabled>Return to open</button></div>
+            <p class="small muted" style="margin-top:10px">Disabled for this static concept. Implementation requires current review authority and expected revisions.</p>
+          </div>
+        </div>
+      </section>
+      <details id="states" open>
+        <summary>Conflict, offline and permission states · explanatory examples</summary>
+        <div class="states">
+          <div><h3>Preview became stale</h3><p>“AT-43 changed from d7 to d8. Nothing was adopted.” Preserve the proposal; compare base, current and proposed fields before confirming again.</p></div>
+          <div><h3>Offline, cached snapshot</h3><p>Show last synchronized time. Keep local proposals, but do not grant new claims, acceptances or transfers. Reconnect reports each operation's outcome.</p></div>
+          <div><h3>Authority changed</h3><p>“You can view this work but cannot adopt this proposal.” Preserve allowed local edits, explain the refused operation and never reveal restricted item details.</p></div>
+        </div>
+      </details>
+    </main>
+    <footer>Two first-class surfaces, one work-item authority. Structured human task editing is a proposed exception to ADR0033 §28; generated wiki prose and graph facts remain read-only. This page has no scripts, external assets, live data or functional work operations.</footer>
+  </div>
+</body>
+</html>

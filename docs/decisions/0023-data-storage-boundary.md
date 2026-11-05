@@ -3,6 +3,13 @@
 Status: accepted; partly amended by 0024
 Date: 2026-10-12
 
+Pending amendment, 2026-11-04: proposed
+[0035](0035-work-reservations-and-operation-sync.md) keeps authored work definitions
+in Git but makes lifecycle, reservations, attempts, review decisions and time
+transactional operational data, including in local-only mode. Their receipts in
+Git would be read-only exports, not a second authority. This exception is proposed;
+the accepted decision below is retained unchanged until review.
+
 Amends 0009: the server's fact log starts on PostgreSQL directly, with SQLite
 kept for the local mode. Refines 0017 (the product repository as the one
 source, synchronisation by git), 0007 (the server as the target and its
