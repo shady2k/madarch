@@ -2,10 +2,12 @@ import {expect, test} from 'bun:test';
 import {definitionBlock} from '../src/knowledge/definition.js';
 import type {RenderContext} from '../src/knowledge/blocks.js';
 import type {GraphEntity} from '../src/knowledge/graph-read.js';
+import {fixtureManifest} from './knowledge-manifest-fixture.js';
 const contract: GraphEntity = {key: 'code.contract:contracts/api.yaml', kind: 'code.contract', label: 'Catalogue', properties: {format: 'openapi'}, scope: 'scope', nodeIds: ['1']};
 const operation: GraphEntity = {key: 'code.operation:contracts/api.yaml#GET:/items', kind: 'code.operation', label: 'GET /items', properties: {method: 'GET', path: '/items'}, scope: 'scope', nodeIds: ['2']};
 function context(text: string, owners = 1): RenderContext {
-  return {productFolder: '/fixture', manifest: {kinds: new Map([['code.contract', {}], ['code.operation', {}]])}, repoOfScope: () => 'catalog', readSource: async () => text, graph: {neighbors: async (entity: GraphEntity) => entity.kind === 'code.operation' ? [{relation: 'code.declares', direction: 'in', total: owners, rows: owners === 0 ? [] : [{entity: contract}]}] : []}} as unknown as RenderContext;
+  const manifest = fixtureManifest({ 'code.contract': { definitionBlock: 'contract' }, 'code.operation': { definitionBlock: 'operation' } });
+  return {productFolder: '/fixture', manifest, repoOfScope: () => 'catalog', readSource: async () => text, graph: {neighbors: async (entity: GraphEntity) => entity.kind === 'code.operation' ? [{relation: 'code.declares', direction: 'in', total: owners, rows: owners === 0 ? [] : [{entity: contract}]}] : []}} as unknown as RenderContext;
 }
 test('an operation selects its method and path, not the first operation', async () => {
   const ctx = context('openapi: 3.0.3\ninfo: {title: Catalogue, version: 1.0.0}\npaths:\n  /other: {post: {operationId: other, responses: {}}}\n  /items: {get: {responses: {}}}');
@@ -68,7 +70,7 @@ test('unexpected read failures keep original evidence without parsing English', 
 test('an unsupported graph subject keeps its legacy problem and gains a structured reason', async () => {
   const subject = {...contract, kind: 'code.file'};
   const block = await definitionBlock(context(''), {source: 'graph', entity: subject}, {}, 'templates/detail.md', 7);
-  expect(block).toMatchObject({type: 'problem', block: 'definition', file: 'templates/detail.md', line: 7, message: 'templates/detail.md:7 (/fixture/templates/detail.md): definition requires a contract or operation'});
+  expect(block).toMatchObject({type: 'problem', block: 'definition', file: 'templates/detail.md', line: 7, message: expect.stringContaining('the manifest madarch/kinds.yaml declares no kind code.file')});
   if (block.type !== 'problem') throw new Error('expected problem');
   expect(block.diagnostic).toMatchObject({path: 'templates/detail.md', line: 7, fullPath: '/fixture/templates/detail.md', reason: {code: 'definitionSubjectUnsupported'}});
 });

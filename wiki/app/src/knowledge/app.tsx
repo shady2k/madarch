@@ -59,8 +59,8 @@ export function showsProgress(route: KRoute, status: WikiStatus): boolean {
   return route.name === 'entity';
 }
 
-/** The two kinds of the loop have their own places («Вопросы», «Проблемы»), not a kind page of their own. */
-const LOOP_KINDS: ReadonlySet<string> = new Set(['question', 'correction']);
+/** The loop's kinds have their own places («Вопросы», «Проблемы»), not a kind page of their own: the manifest says which (`nav: loop`). */
+const inLoop = (kind: KindSummary): boolean => kind.nav === 'loop';
 
 /** The choices the selector offers: each product's wiki address, and which one is open. */
 export function productChoices(products: readonly ProductChoice[], current: string | null): { name: string; folder: string; href: string; here: boolean }[] {
@@ -120,8 +120,8 @@ export function ProductSelector({ name, products, current }: { name: string; pro
   );
 }
 
-/** The kinds that have a top-level page of their own in the navigation (the glossary is the page of the glossary terms): "Pages by kind" does not list them again. Their pages stay reachable from that page and from links. */
-const KINDS_WITH_OWN_PAGE: ReadonlySet<string> = new Set(['doc.term', 'task']);
+/** The kinds whose entities stand at a top-level place of their own in the navigation (the glossary's terms, the tasks): "Pages by kind" does not list them again, and their pages stay reachable from that place and from links. The manifest says which (`nav: own-page`). */
+const hasOwnPlace = (kind: KindSummary): boolean => kind.nav === 'own-page';
 
 /** A sub-area of a group, as the navigation and the catalogue draw it. */
 export interface NavSubgroup {
@@ -153,8 +153,8 @@ export interface NavGroup {
 /** The kinds of the manifest as the navigation shows them: top-level groups, each with its sub-areas, in the manifest's order. */
 export function navGroups(status: WikiStatus, pending: (kind: string) => number): NavGroup[] {
   // A group counts every entity of its kinds, the home page included, so the navigation and the catalogue say the same number.
-  const counted = status.kinds.filter((kind) => !LOOP_KINDS.has(kind.kind));
-  const shown = status.kinds.filter((kind) => !LOOP_KINDS.has(kind.kind) && !KINDS_WITH_OWN_PAGE.has(kind.kind) && !kind.single && (kind.count > 0 || pending(kind.kind) > 0));
+  const counted = status.kinds.filter((kind) => !inLoop(kind));
+  const shown = status.kinds.filter((kind) => !inLoop(kind) && !hasOwnPlace(kind) && !kind.single && (kind.count > 0 || pending(kind.kind) > 0));
   const declared = status.groups.map((group) => ({ group: group.group as string | null, labels: group.labels as Record<string, string> | null, short: group.short as Record<string, string> | undefined, parent: group.parent, open: group.open === true }));
   const known = new Set(status.groups.map((group) => group.group));
   const top = declared.filter((group) => group.parent === undefined || !known.has(group.parent));
@@ -340,7 +340,7 @@ function LanguageMenu(): ReactElement {
 
 /** The pages the product holds, for the status line: the Markdown kinds' entities. */
 function pagesOf(status: WikiStatus): number {
-  return status.kinds.filter((kind) => kind.source === 'markdown' && !LOOP_KINDS.has(kind.kind)).reduce((sum, kind) => sum + kind.count, 0);
+  return status.kinds.filter((kind) => kind.source === 'markdown' && !inLoop(kind)).reduce((sum, kind) => sum + kind.count, 0);
 }
 
 /**

@@ -670,6 +670,18 @@ function kindsManifest(): string {
     "# `history` names the shape of the story the history block tells of the kind's entities: repositories (the",
     "# product's whole history), author, path, membership (the files a container holds), commit or task. A kind",
     "# without it gets no history page.",
+    "# The views, listings and places of a kind are its declaration's too, so no screen of the wiki holds a kind of its",
+    "# own. `views` lists the views a page of the kind may draw of its entities: c4-component (its modules) and state (the",
+    "# state machines in its code). `er` says how the ER view reads its entities: tables (the tables the entity holds) or",
+    "# links (the entity as one table and the tables its foreign keys reach). `sequence` says how the",
+    "# end-to-end chain a page draws starts at its entities: route (at the entity) or symbol (at the route that reaches",
+    "# it); a kind without it starts no chain. `system` says the part its entities play in the system view: container",
+    "# (drawn as a box, read as the implementation a domain names, and the folder a treemap covers), data-store or",
+    "# channel. `definition-block` says what the definition block finds in its entities: contract (the file it reads),",
+    "# operation or channel (a row of it). `listing` says the form of its listing page: operations (what declares,",
+    "# serves and calls each one), the plain table of names and places without it. `nav` says where the kind stands in",
+    "# the navigation: own-page (its entities stand at a place of their own) or loop (the loop keeps its place); a",
+    "# kind without it is a page among the pages by kind.",
     "# `documents.exclude` lists Markdown files that are not product documents (the files that steer a coding agent).",
     "# `roles` says, per role a reader can read as (product, analyst, architect, developer, operations, tester), which blocks of a",
     "# template stand open on a page and which groups lead the navigation. A block a role does not open stays on the page, collapsed:",
@@ -758,6 +770,13 @@ export function kindLines(kind: CatalogKindData, options: KindLineOptions = {}):
   for (const extra of kind.extra ?? []) lines.push(`    ${extra}`);
   if (kind.card === true) lines.push('    card: true');
   if (kind.history !== undefined) lines.push(`    history: ${kind.history}`);
+  if (kind.views !== undefined) lines.push(`    views: [${kind.views.join(', ')}]`);
+  if (kind.er !== undefined) lines.push(`    er: ${kind.er}`);
+  if (kind.sequence !== undefined) lines.push(`    sequence: ${kind.sequence}`);
+  if (kind.system !== undefined) lines.push(`    system: ${kind.system}`);
+  if (kind.definitionBlock !== undefined) lines.push(`    definition-block: ${kind.definitionBlock}`);
+  if (kind.listing !== undefined) lines.push(`    listing: ${kind.listing}`);
+  if (kind.nav !== undefined) lines.push(`    nav: ${kind.nav}`);
   const details = DETAILS[kind.name];
   if (details !== undefined && details.length > 0) lines.push(`    details: [${details.join(', ')}]`);
   lines.push('    labels:');

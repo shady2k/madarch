@@ -20,6 +20,7 @@ import type { GraphEntity, GraphReader, SourceSpan } from './graph-read.js';
 import { spanOf } from './graph-read.js';
 import type { RenderContext, Subject } from './blocks.js';
 import { idOf, locationOf, refOfGraph, refOfMarkdown, declaredNeighbors, relatesGroups } from './blocks.js';
+import { kindDraws, sequenceFormOf, systemKindOf, systemKindsOf, systemPartOf, type SystemPart } from './kinds.js';
 import type { Block, Chain, ChainLane, ChainStep, DiagramEdge, DiagramMore, DiagramNode, EntityRef, ModuleEdge, ModuleNode, Neighborhood, StepKind, SystemEdge, SystemNode, TreemapFile } from './model.js';
 
 const toInt = (value: string | undefined, fallback: number, min: number, max: number): number => {
@@ -143,11 +144,13 @@ export async function collectNeighbors(ctx: RenderContext, subject: Subject, opt
       if (group.total > group.rows.length) more.push({ relation: group.relation, direction: group.direction, hidden: group.total - group.rows.length });
     }
   }
-  if (subject.source === 'graph' && subject.entity.kind === 'code.route' && wanted('handled-by') && keep('out')) {
+  // A route's own row is the handler the shape of the chain reads (the operations extractor's `code.handled-by`).
+  if (subject.source === 'graph' && sequenceFormOf(ctx.manifest, subject.entity.kind) === 'route' && wanted('handled-by') && keep('out')) {
     for (const handler of await new ChainBuilder(ctx, { limit: 1, depth: 1 }).handlersOf(subject.entity)) rows.push({ direction: 'out', relation: 'handled-by', ref: refOfGraph(ctx, handler), count: 1 });
   }
-  if (subject.source === 'graph' && subject.entity.kind === 'code.service') {
-    for (const row of await serviceRows(ctx, subject.entity)) if (wanted(row.relation) && keep(row.direction)) rows.push(row);
+  // A container's rows are the system view's: what it calls, the stores it reads and writes, the topics it publishes.
+  if (subject.source === 'graph' && systemPartOf(ctx.manifest, subject.entity.kind) === 'container') {
+    for (const row of await containerRows(ctx, subject.entity)) if (wanted(row.relation) && keep(row.direction)) rows.push(row);
   }
   if (wanted('relates')) {
     if (keep('out') || keep('in')) {
@@ -161,13 +164,21 @@ export async function collectNeighbors(ctx: RenderContext, subject: Subject, opt
   return { rows, more };
 }
 
-/** What the system view says of one service: the services it calls and is called by, its databases, its topics. */
-async function serviceRows(ctx: RenderContext, service: GraphEntity): Promise<NeighborRow[]> {
+/**
+ * The part of the system view each element of the model plays: the engine's own reading of its model's four kinds,
+ * which says which kind the manifest must give the part to for an element the graph holds no entity for.
+ */
+const SYSTEM_PART_OF_NODE: Readonly<Record<SystemNode['kind'], SystemPart>> = { service: 'container', database: 'data-store', topic: 'channel', external: 'container' };
+
+/** What the system view says of one container: the containers it calls and is called by, its stores, its topics. */
+async function containerRows(ctx: RenderContext, service: GraphEntity): Promise<NeighborRow[]> {
   const model = await systemModel(ctx);
   const rows: NeighborRow[] = [];
   const refOf = async (node: SystemNode): Promise<EntityRef> => {
     const [entity] = await ctx.graph.find(node.id);
-    return entity === undefined ? { id: node.id, kind: node.kind === 'database' ? 'code.database' : node.kind === 'topic' ? 'code.channel' : 'code.service', label: node.label, href: null } : refOfGraph(ctx, entity);
+    // An element the graph holds no entity for is named by the kind the manifest gives the part it plays; a part no
+    // kind plays keeps the model's own word for it.
+    return entity === undefined ? { id: node.id, kind: systemKindOf(ctx.manifest, SYSTEM_PART_OF_NODE[node.kind]) ?? node.kind, label: node.label, href: null } : refOfGraph(ctx, entity);
   };
   const byId = new Map(model.nodes.map((node) => [node.id, node]));
   for (const edge of model.edges) {
@@ -300,15 +311,19 @@ export class ChainBuilder {
 
   private async roots(): Promise<{ key: string; label: string; root: string }[]> {
     if (this.serviceRoots === undefined) {
-      const found = await this.ctx.graph.list('code.service', { limit: 200 });
-      this.serviceRoots = found.rows
-        .flatMap((service) => (service.span === undefined ? [] : [{ key: service.key, label: service.label, root: dirname(service.span.path) }]))
-        .sort((a, b) => b.root.length - a.root.length || byCodePoint(a.root, b.root));
+      // The lanes of a chain are the containers the manifest declares (`system: container`), each with the folder its
+      // code stands in.
+      const roots: { key: string; label: string; root: string }[] = [];
+      for (const kind of systemKindsOf(this.ctx.manifest, 'container')) {
+        const found = await this.ctx.graph.list(kind, { limit: 200 });
+        roots.push(...found.rows.flatMap((service) => (service.span === undefined ? [] : [{ key: service.key, label: service.label, root: dirname(service.span.path) }])));
+      }
+      this.serviceRoots = roots.sort((a, b) => b.root.length - a.root.length || byCodePoint(a.root, b.root));
     }
     return this.serviceRoots;
   }
 
-  /** The service whose folder holds the path; the repository's top level when none does. */
+  /** The container whose folder holds the path; the repository's top level when none does. */
   async serviceOf(path: string): Promise<string> {
     const found = (await this.roots()).find((service) => service.root === '.' || path === service.root || path.startsWith(`${service.root}/`));
     return found?.label ?? 'repository';
@@ -682,8 +697,6 @@ export class ChainBuilder {
 
 export type Entry = { kind: 'route'; entity: GraphEntity } | { kind: 'symbol'; entity: GraphEntity; note?: string };
 
-const isEntrySymbolKind = (entity: GraphEntity): boolean => entity.kind === 'code.symbol';
-
 /** The routes of a file whose lines hold the site. */
 async function routesAt(graph: GraphReader, path: string, site: SourceSpan): Promise<GraphEntity[]> {
   const found = await graph.byPrefix('code.route', `code.route:${path}#`, 200);
@@ -725,8 +738,11 @@ export async function entryOfSymbol(ctx: RenderContext, symbol: GraphEntity, lan
 
 export async function entriesOf(ctx: RenderContext, subject: Subject, lang?: string): Promise<Entry[]> {
   if (subject.source === 'graph') {
-    if (subject.entity.kind === 'code.route') return [{ kind: 'route', entity: subject.entity }];
-    if (isEntrySymbolKind(subject.entity)) return [await entryOfSymbol(ctx, subject.entity, lang)];
+    // Whether an entity starts a chain, and how, is its kind's declaration (`sequence:` of the manifest); a Markdown
+    // page starts the chains of the entities it relates.
+    const form = sequenceFormOf(ctx.manifest, subject.entity.kind);
+    if (form === 'route') return [{ kind: 'route', entity: subject.entity }];
+    if (form === 'symbol') return [await entryOfSymbol(ctx, subject.entity, lang)];
     return [];
   }
   if (subject.source !== 'markdown') return [];
@@ -759,9 +775,24 @@ export async function chainFrom(ctx: RenderContext, entry: Entry, options: { lim
 
 // ---- the system view ----------------------------------------------------------------------------
 
-/** The service that holds a path: services sorted deepest folder first, so the nearest root wins. */
+/**
+ * The entities of the kinds the manifest gives the part of a system container (`system: container`), read whole: a
+ * product whose manifest declares none has an empty system view, and the page says so instead of the engine guessing.
+ */
+async function containersOf(ctx: RenderContext): Promise<{ rows: GraphEntity[]; total: number }> {
+  const rows: GraphEntity[] = [];
+  let total = 0;
+  for (const kind of systemKindsOf(ctx.manifest, 'container')) {
+    const read = await completeRead('system containers', 200, limit => ctx.graph.list(kind, { limit }));
+    rows.push(...read.rows);
+    total += read.total;
+  }
+  return { rows, total };
+}
+
+/** The container that holds a path: containers sorted deepest folder first, so the nearest root wins. */
 export async function serviceLocator(ctx: RenderContext): Promise<{ ownerOf: (path: string) => string | undefined; services: GraphEntity[] }> {
-  const read = await ctx.graph.list('code.service', { limit: 200 });
+  const read = await containersOf(ctx);
   const roots = read.rows
     .flatMap((service) => (service.span === undefined ? [] : [{ entity: service, root: dirname(service.span.path) }]))
     .sort((a, b) => b.root.length - a.root.length || byCodePoint(a.root, b.root));
@@ -782,7 +813,7 @@ async function completeRead<T>(what: string, firstLimit: number, read: (limit: n
 
 export async function systemModel(ctx: RenderContext, lang?: string): Promise<{ nodes: SystemNode[]; edges: SystemEdge[]; notes: string[] }> {
   const w = diagramWords(lang);
-  const servicesRead = await completeRead('system services', 200, limit => ctx.graph.list('code.service', { limit }));
+  const servicesRead = await containersOf(ctx);
   const services = servicesRead.rows
     .flatMap((service) => (service.span === undefined ? [] : [{ entity: service, root: dirname(service.span.path) }]))
     .sort((a, b) => b.root.length - a.root.length || byCodePoint(a.root, b.root));
@@ -865,10 +896,10 @@ export async function systemModel(ctx: RenderContext, lang?: string): Promise<{ 
 
 // ---- modules of a service -----------------------------------------------------------------------
 
-/** The module graph of a service: its modules, the dependencies between them and the cycles; undefined when the subject is no service. */
+/** The module graph of a container: its modules, the dependencies between them and the cycles; undefined when the subject's kind is no container or stands in no folder. */
 export async function modulesBlockModel(ctx: RenderContext, subject: Subject, lang?: string): Promise<{ service: string; nodes: ModuleNode[]; edges: ModuleEdge[]; cycles: string[][]; notes: string[] } | undefined> {
   const w = diagramWords(lang);
-  if (subject.source !== 'graph' || subject.entity.kind !== 'code.service' || subject.entity.span === undefined) return undefined;
+  if (subject.source !== 'graph' || !kindDraws(ctx.manifest, subject.entity.kind, 'c4-component') || subject.entity.span === undefined) return undefined;
   const root = dirname(subject.entity.span.path);
   const found = await completeRead('service modules', 400, limit => ctx.graph.byPrefix('code.module', root === '.' ? 'code.module:' : `code.module:${root}`, limit));
   const inside = found.rows.filter((module) => {
@@ -922,7 +953,8 @@ export async function treemapBlock(ctx: RenderContext, subject: Subject, params:
   const limit = toInt(params['limit'], 400, 10, 1500);
   let scope = '';
   if (params['scope'] !== undefined) scope = params['scope'].replace(/\/+$/, '');
-  else if (subject.source === 'graph' && subject.entity.kind === 'code.service' && subject.entity.span !== undefined) scope = dirname(subject.entity.span.path) === '.' ? '' : dirname(subject.entity.span.path);
+  // The treemap of a container covers the folder its code stands in; one opened on the product's page covers every file.
+  else if (subject.source === 'graph' && systemPartOf(ctx.manifest, subject.entity.kind) === 'container' && subject.entity.span !== undefined) scope = dirname(subject.entity.span.path) === '.' ? '' : dirname(subject.entity.span.path);
   const found = await ctx.graph.byPrefix('code.file', scope === '' ? 'code.file:' : `code.file:${scope}/`, limit);
   const notes: string[] = [];
     // A file is left out of the picture only where the graph proves it is not code anyone edits: the dependency

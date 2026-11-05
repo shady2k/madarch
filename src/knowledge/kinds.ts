@@ -17,6 +17,9 @@
  *     attributes: [language]       # optional: the attributes a template may name
  *     card: true                   # optional: a ground on one of these entities shows its card, not its code
  *     history: membership          # optional: the shape of the story the history block tells of its entities
+ *     views: [c4-component, state] # optional: the views a page of the kind may draw of its entities
+ *     er: tables                   # optional: how the ER view reads the kind's entities
+ *     system: container            # optional: the part its entities play in the system view
  *     labels:                      # optional: the kind's name per interface language
  *       en: { one: Service, many: Services }
  *       ru: { one: Сервис, many: Сервисы }
@@ -165,6 +168,20 @@ export interface KindDecl {
   card?: true;
   /** The shape of the story the history block tells of this kind's entities (`history:`); none when absent. */
   history?: HistoryShape;
+  /** The views a page of this kind may draw of its entities (`views:`); none when absent. */
+  views?: readonly KindView[];
+  /** How the chain a page draws starts at this kind's entities (`sequence:`); none when absent. */
+  sequence?: SequenceForm;
+  /** How the ER view reads this kind's entities (`er:`); none when the view is not drawn. */
+  er?: ErForm;
+  /** The part this kind's entities play in the system view (`system:`); none when absent. */
+  system?: SystemPart;
+  /** What the definition block finds in this kind's entities (`definition-block:`); none when absent. */
+  definitionBlock?: DefinitionForm;
+  /** The form this kind's listing page takes (`listing:`); the plain table of names and places when absent. */
+  listing?: ListingForm;
+  /** Where this kind stands in the navigation (`nav:`); a page by kind when absent. */
+  nav?: NavTrait;
   /** The kind is a member of another entity's page and has no catalogue page of its own. */
   member?: MemberDecl;
   line: number;
@@ -185,6 +202,80 @@ export interface KindDecl {
  */
 export const HISTORY_SHAPES = ['repositories', 'author', 'path', 'membership', 'commit', 'task'] as const;
 export type HistoryShape = (typeof HISTORY_SHAPES)[number];
+
+/**
+ * The views a page of a kind may draw of one of its entities (`views:` of a kind declaration). A view is engine
+ * vocabulary — a model the engine builds from the graph — and which kinds have one is the product's, so no module names
+ * a kind to choose a view (decision 0033, the owner's rule that the engine holds no product data).
+ *
+ * - `c4-component`: the modules of the entity and the dependencies between them (the modules block and the component
+ *   view). Whether the entity is a container of the system — a box of the system views, a domain's implementation, the
+ *   folder a treemap covers — is `system:`.
+ * - `state`: the transition tables found in the bytes of the entity's code.
+ *
+ * Two views are declared by how they read an entity, because each reads it in one of two ways: `er:` (the tables an
+ * entity holds, or the links of one table) and `sequence:` (the chain that starts at an entity, or at the route that
+ * reaches it). A kind without either starts none of them.
+ */
+const KIND_VIEWS = ['c4-component', 'state'] as const;
+export type KindView = (typeof KIND_VIEWS)[number];
+
+/**
+ * How the ER view reads a kind's entities (`er:` of a kind declaration): `tables` draws the tables the entity holds — the
+ * graph files them under its key, and it says the graph holds no table there when it holds none — and `links` draws the
+ * entity as one table with the tables its foreign keys reach.
+ */
+const ER_FORMS = ['tables', 'links'] as const;
+export type ErForm = (typeof ER_FORMS)[number];
+
+/**
+ * How the end-to-end chain a page draws starts at a kind's entities (`sequence:` of a kind declaration): `route` starts
+ * at the entity itself, and `symbol` at the route that reaches it, or at it when no route does. A kind without the field
+ * starts no chain.
+ */
+const SEQUENCE_FORMS = ['route', 'symbol'] as const;
+export type SequenceForm = (typeof SEQUENCE_FORMS)[number];
+
+/**
+ * The part a kind's entities play in the system view (`system:` of a kind declaration).
+ *
+ * - `container`: the boxes the context and container views draw and the entities a chain's lanes are grouped by; a
+ *   domain's implementation is the containers it relates, a container's neighbourhood carries the system view's rows, and
+ *   the treemap of a container covers the folder its code stands in.
+ * - `data-store`: a store a container reads and writes.
+ * - `channel`: a topic or queue a container publishes to and consumes.
+ *
+ * Each part also names the kind a system element of that part falls back to when the graph holds no entity for it. A
+ * kind without the field is no element of the system view.
+ */
+const SYSTEM_PARTS = ['container', 'data-store', 'channel'] as const;
+export type SystemPart = (typeof SYSTEM_PARTS)[number];
+
+/**
+ * What the definition block finds in a kind's entities (`definition-block:` of a kind declaration): the `contract` file it
+ * reads, an `operation` row of that contract, or a `channel` row of it with its messages. The block reads a contract
+ * through the format its own reader parses; which kind holds one is the product's.
+ */
+const DEFINITION_FORMS = ['contract', 'operation', 'channel'] as const;
+export type DefinitionForm = (typeof DEFINITION_FORMS)[number];
+
+/** The forms a definition is read as a row of: a contract's members, beside the contract itself. */
+const DEFINITION_MEMBER_FORMS: readonly DefinitionForm[] = ['operation', 'channel'];
+
+/**
+ * The form a kind's listing page takes (`listing:` of a kind declaration): the plain table of names and places when the
+ * field is absent, or the operations table, which names what declares, serves and calls each one (`operations`).
+ */
+const LISTING_FORMS = ['operations'] as const;
+export type ListingForm = (typeof LISTING_FORMS)[number];
+
+/**
+ * Where a kind stands in the navigation (`nav:` of a kind declaration): `own-page` for a kind whose entities stand at a
+ * place of their own (the glossary, the tasks), so the kind's rows are not listed among the pages by kind; `loop` for
+ * the kinds the loop keeps in its own places (the questions, the corrections).
+ */
+const NAV_TRAITS = ['own-page', 'loop'] as const;
+export type NavTrait = (typeof NAV_TRAITS)[number];
 
 /** A kind's name in one language, as a reader says it of one entity and of several. */
 export interface KindLabel {
@@ -306,6 +397,7 @@ export type KindsRead =
 const KIND_KEYS = new Set([
   'template', 'source', 'folder', 'file', 'title', 'attributes', 'relations', 'labels', 'group', 'origin', 'description',
   'identifier', 'terms', 'headings', 'semantics', 'structure', 'details', 'member', 'card', 'history',
+  'views', 'er', 'sequence', 'system', 'definition-block', 'listing', 'nav',
   // the catalog's row of the kind (decision 0033, items 8 to 10): read when the manifest declares a catalog
   'id', 'definition', 'sources', 'acquisition', 'status', 'relation-constraints', 'template-policy',
 ]);
@@ -313,6 +405,75 @@ const KIND_KEYS = new Set([
 /** Whether a value is one of the shapes a kind's history page can have. */
 function isHistoryShape(value: unknown): value is HistoryShape {
   return typeof value === 'string' && (HISTORY_SHAPES as readonly string[]).includes(value);
+}
+
+/**
+ * What the manifest says of one kind, for the modules that draw a page: each reader asks the declaration rather than a
+ * kind's name, so a product that renames or removes a kind keeps exactly the views, the listing and the navigation its
+ * manifest declares (decision 0033, the owner's rule that the engine holds no product data). A kind the manifest does not
+ * declare has none of them.
+ */
+function kindDeclOf(manifest: KindsManifest | undefined, kind: string): KindDecl | undefined {
+  return manifest?.kinds?.get(kind);
+}
+
+/**
+ * The sentence naming where a kind's declaration stands and what it does not declare: the modules that draw a page read
+ * it instead of choosing by a kind's name, so a reader is told what to declare in the product's own manifest (file and
+ * line), never that the engine lacks a kind (decision 0033).
+ */
+export function declarationMissing(manifest: KindsManifest | undefined, kind: string, declaration: string, what: string): string {
+  const decl = kindDeclOf(manifest, kind);
+  const at = decl === undefined
+    ? `the manifest ${manifest?.file ?? ''} declares no kind ${kind}`
+    : `the manifest ${manifest?.file ?? ''}:${decl.line} gives the kind ${kind} no ${declaration}`;
+  return `${what}: ${at}`;
+}
+
+/** Whether the manifest gives a kind one of the views a page may draw of its entities (`views:`). */
+export function kindDraws(manifest: KindsManifest | undefined, kind: string, view: KindView): boolean {
+  return kindDeclOf(manifest, kind)?.views?.includes(view) === true;
+}
+
+/** How the ER view reads a kind's entities (`er:`), when the manifest gives the kind one. */
+export function erFormOf(manifest: KindsManifest | undefined, kind: string): ErForm | undefined {
+  return kindDeclOf(manifest, kind)?.er;
+}
+
+/** How the chain a page draws starts at a kind's entities (`sequence:`), when the manifest gives the kind one. */
+export function sequenceFormOf(manifest: KindsManifest | undefined, kind: string): SequenceForm | undefined {
+  return kindDeclOf(manifest, kind)?.sequence;
+}
+
+/** The part a kind's entities play in the system view (`system:`), when the manifest gives the kind one. */
+export function systemPartOf(manifest: KindsManifest | undefined, kind: string): SystemPart | undefined {
+  return kindDeclOf(manifest, kind)?.system;
+}
+
+/** The kinds that play a part in the system view (`system: <part>`), in the manifest's order. */
+export function systemKindsOf(manifest: KindsManifest | undefined, part: SystemPart): string[] {
+  return [...(manifest?.kinds?.values() ?? [])].filter((decl) => decl.system === part).map((decl) => decl.name);
+}
+
+/** The first kind the manifest gives a part in the system view, when it declares one. */
+export function systemKindOf(manifest: KindsManifest | undefined, part: SystemPart): string | undefined {
+  return systemKindsOf(manifest, part)[0];
+}
+
+/** What the definition block finds in a kind's entities (`definition-block:`), when the manifest gives the kind one. */
+export function definitionBlockFormOf(manifest: KindsManifest | undefined, kind: string): DefinitionForm | undefined {
+  return kindDeclOf(manifest, kind)?.definitionBlock;
+}
+
+/** Whether the kind's entities are a row of a contract's definition (`definition-block: operation` or `definition-block: channel`). */
+export function definitionBlockMemberOf(manifest: KindsManifest | undefined, kind: string): boolean {
+  const form = definitionBlockFormOf(manifest, kind);
+  return form !== undefined && DEFINITION_MEMBER_FORMS.includes(form);
+}
+
+/** The form a kind's listing page takes (`listing:`), when the manifest gives the kind one. */
+export function listingFormOf(manifest: KindsManifest | undefined, kind: string): ListingForm | undefined {
+  return kindDeclOf(manifest, kind)?.listing;
 }
 
 /** Whether a repository-relative path stays inside the folder: no climbing, not absolute. */
@@ -804,7 +965,7 @@ export function parseKinds(text: string, file: string, productFolder: string): K
     }
     const policy = typeof decl['template-policy'] === 'string' ? decl['template-policy'] : 'page';
     if (policy === 'none') {
-      for (const field of ['template', 'source', 'folder', 'file', 'member', 'details', 'card', 'history'] as const) if (decl[field] !== undefined) catalogProblem([field], `"${field}" belongs to a kind that shows a page, and "template-policy" is "none"`);
+      for (const field of ['template', 'source', 'folder', 'file', 'member', 'details', 'card', 'history', 'views', 'er', 'sequence', 'system', 'definition-block', 'listing', 'nav'] as const) if (decl[field] !== undefined) catalogProblem([field], `"${field}" belongs to a kind that shows a page, and "template-policy" is "none"`);
       continue;
     }
     const source = decl['source'];
@@ -895,6 +1056,29 @@ export function parseKinds(text: string, file: string, productFolder: string): K
     if (card !== undefined && typeof card !== 'boolean') problem(['card'], `"card" is true or absent: a ground on one of the kind's entities shows its card, and the entity's code is shown when it is absent`);
     const history = decl['history'];
     if (history !== undefined && !isHistoryShape(history)) problem(['history'], `"history" is the shape of the story the history block tells of the kind: ${HISTORY_SHAPES.join(', ')}, got ${JSON.stringify(history)}`);
+    // The views a page of the kind may draw, and the traits the engine draws them by: each field names one thing of a
+    // small vocabulary the engine defines, and the manifest says which kind has it (decision 0033: the engine holds no
+    // kind of its own). A value the engine cannot read is a finding at the field's line, and the kind is left out.
+    const oneOf = <T extends string>(field: string, vocabulary: readonly T[]): T | undefined => {
+      const value = decl[field];
+      if (value === undefined) return undefined;
+      if (typeof value === 'string' && (vocabulary as readonly string[]).includes(value)) return value as T;
+      problem([field], `"${field}" is one of ${vocabulary.join(', ')}, got ${JSON.stringify(value)}`);
+      return undefined;
+    };
+    const declaredViews: KindView[] = [];
+    const rawViews = decl['views'];
+    if (rawViews !== undefined) {
+      if (!Array.isArray(rawViews) || rawViews.length === 0 || rawViews.some((entry) => typeof entry !== 'string' || !(KIND_VIEWS as readonly string[]).includes(entry))) problem(['views'], `"views" lists the views a page of the kind may draw of its entities: ${KIND_VIEWS.join(', ')}, got ${JSON.stringify(rawViews)}`);
+      else if (new Set(rawViews).size !== rawViews.length) problem(['views'], `"views" names each view once, and ${JSON.stringify(rawViews)} names one twice`);
+      else declaredViews.push(...(rawViews as KindView[]));
+    }
+    const er = oneOf('er', ER_FORMS);
+    const sequence = oneOf('sequence', SEQUENCE_FORMS);
+    const system = oneOf('system', SYSTEM_PARTS);
+    const definition = oneOf('definition-block', DEFINITION_FORMS);
+    const listing = oneOf('listing', LISTING_FORMS);
+    const nav = oneOf('nav', NAV_TRAITS);
     const details: string[] = [];
     const rawDetails = decl['details'];
     if (rawDetails !== undefined) {
@@ -962,6 +1146,13 @@ export function parseKinds(text: string, file: string, productFolder: string): K
       ...(details.length > 0 ? { details } : {}),
       ...(card === true ? { card: true as const } : {}),
       ...(isHistoryShape(history) ? { history } : {}),
+      ...(declaredViews.length === 0 ? {} : { views: declaredViews }),
+      ...(er === undefined ? {} : { er }),
+      ...(sequence === undefined ? {} : { sequence }),
+      ...(system === undefined ? {} : { system }),
+      ...(definition === undefined ? {} : { definitionBlock: definition }),
+      ...(listing === undefined ? {} : { listing }),
+      ...(nav === undefined ? {} : { nav }),
       ...(member === undefined ? {} : { member }),
       relations,
       ...(Object.keys(labels).length > 0 ? { labels } : {}),
