@@ -85,7 +85,7 @@ describe('a product made by an earlier madarch, opened by this one', () => {
     ]);
     expect(status.language).toBe('ru');
     expect(status.groups.map((group) => group.group)).toEqual(GROUPS.map((group) => group.name));
-    expect(Object.keys(status.roles).sort()).toEqual(['analyst', 'architect', 'developer', 'operations', 'product', 'tester']);
+    expect(Object.keys(status.roles).sort()).toEqual(['analyst', 'architect', 'designer', 'developer', 'operations', 'platform-devops', 'product', 'product-lead', 'security-engineer', 'tester']);
     const kinds = status.kinds.map((kind) => kind.kind);
     for (const kind of ['doc.use-case', 'doc.rule', 'doc.term', 'code.route', 'code.operation', 'code.contract', 'code.database', 'question', 'correction']) expect(kinds).toContain(kind);
     expect(status.kinds.find((kind) => kind.kind === 'code.route')?.group).toBe('contracts');

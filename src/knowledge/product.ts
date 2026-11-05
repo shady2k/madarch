@@ -578,6 +578,17 @@ export class KnowledgeProduct {
     return readKinds(folder);
   }
 
+  /**
+   * The roles this product's manifest declares, in its order (decision 0031, "the roles are the product's"): the
+   * reader's settings accept these and "everything" alone, and the engine keeps no role of its own.
+   */
+  declaredRoles(): string[] {
+    const product = this.product();
+    if ('message' in product) return [];
+    const read = this.kinds(product.folder);
+    return read.present ? [...read.manifest.roles.keys()] : [];
+  }
+
   /** Starts the reader in the background, so the first page a person opens does not wait for it to start. */
   warm(): void {
     if (this.closed || this.opening !== undefined) return;

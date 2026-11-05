@@ -2896,11 +2896,6 @@
   },
   {
     "rule": "no-unreachable-code",
-    "file": "src/knowledge/kinds.ts",
-    "symbol": "RoleName"
-  },
-  {
-    "rule": "no-unreachable-code",
     "file": "src/knowledge/liquid-engine.ts",
     "symbol": "TEMPLATE_FILTERS"
   },

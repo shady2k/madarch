@@ -10,7 +10,7 @@ import { tmpdir } from 'node:os';
 import { dirname, join } from 'node:path';
 import { afterEach, describe, expect, test } from 'bun:test';
 import { parseKinds, setKindsLanguage } from '../src/knowledge/kinds.js';
-import { DETAILS, GROUPS, STARTER_FILES, STARTER_KINDS, STARTER_PROBLEM_RULES, TEMPLATES, ensureLoopKinds, starterManifest } from '../src/knowledge/seed.js';
+import { DETAILS, GROUPS, ROLES, STARTER_FILES, STARTER_KINDS, STARTER_PROBLEM_RULES, TEMPLATES, ensureLoopKinds, starterManifest } from '../src/knowledge/seed.js';
 import { addStarterItems, currentOffers, filesAPersonEdited, provenanceOf, rememberChangedStarterFileIfOwned, replaceWithStarterSet, starterOffers, upgradeStarterSet } from '../src/knowledge/starter-upgrade.js';
 import { gitEnv } from './git-env.js';
 
@@ -63,7 +63,7 @@ describe('a manifest and templates only madarch wrote', () => {
     expect(after.findings).toEqual([]);
     expect(after.language).toBe('ru');
     expect([...after.groups.keys()]).toEqual(GROUPS.map((group) => group.name));
-    expect([...after.roles.keys()].sort()).toEqual(['analyst', 'architect', 'developer', 'operations', 'product', 'tester']);
+    expect([...after.roles.keys()].sort()).toEqual(['analyst', 'architect', 'designer', 'developer', 'operations', 'platform-devops', 'product', 'product-lead', 'security-engineer', 'tester']);
     for (const kind of STARTER_KINDS) expect(after.kinds.get(kind.name)?.group).toBe(kind.group);
     expect(after.kinds.get('doc.use-case')?.identifier).toEqual(['UC']);
     expect(after.kinds.get('code.snapshot')).toMatchObject({ source: 'graph', group: 'history.work', origin: 'history', template: 'templates/item-plain.liquid' });
@@ -355,7 +355,7 @@ describe('a manifest or a template a person edited is never rewritten', () => {
     expect(manifest.kinds.get('code.service')?.group).toBe('code.structure');
     expect(manifest.kinds.get('code.service')?.labels?.['ru']?.one).toBe('Сервис');
     expect(manifest.kinds.get('code.service')?.relations.length).toBe(1);
-    expect(manifest.roles.size).toBe(6);
+    expect(manifest.roles.size).toBe(ROLES.length);
     expect(manifest.excludeDocuments).toContain('AGENTS.md');
     expect(() => addStarterItems(product, ['kind:no-such'], record)).toThrow('no kind of the starter set');
     expect(() => addStarterItems(product, ['nonsense'], record)).toThrow('is not an item of the starter set');

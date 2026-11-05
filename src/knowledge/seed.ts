@@ -281,12 +281,16 @@ export const GROUPS: readonly CatalogGroupData[] = CATALOG_GROUPS;
 
 /** What each role opens on a page and puts first in the navigation (decision 0031); the product edits them. */
 export const ROLES: readonly { name: string; lead: string[]; open: string[] }[] = [
-  { name: 'product', lead: ['strategy', 'requirements', 'discovery'], open: ['stated', 'implementedby', 'linkedfrom', 'related', 'properties'] },
-  { name: 'analyst', lead: ['strategy', 'requirements', 'data', 'contracts'], open: ['stated', 'implementedby', 'linkedfrom', 'related', 'properties', 'er', 'sequence', 'children'] },
-  { name: 'architect', lead: ['architecture', 'code', 'contracts', 'data', 'infrastructure'], open: ['graph', 'related', 'sequence', 'er', 'stated', 'implementedby', 'linkedfrom', 'properties', 'children'] },
-  { name: 'developer', lead: ['code', 'contracts', 'data', 'testing', 'delivery'], open: ['source', 'callers', 'callees', 'sequence', 'graph', 'related', 'history', 'properties', 'children', 'er', 'stated'] },
+  { name: 'product', lead: ['strategy', 'discovery', 'requirements', 'rd'], open: ['stated', 'implementedby', 'linkedfrom', 'related', 'properties'] },
+  { name: 'analyst', lead: ['strategy', 'requirements', 'data', 'contracts', 'information'], open: ['stated', 'implementedby', 'linkedfrom', 'related', 'properties', 'er', 'sequence', 'children'] },
+  { name: 'architect', lead: ['architecture', 'code', 'contracts', 'data', 'infrastructure', 'security'], open: ['graph', 'related', 'sequence', 'er', 'stated', 'implementedby', 'linkedfrom', 'properties', 'children'] },
+  { name: 'developer', lead: ['code', 'contracts', 'data', 'testing', 'delivery', 'review', 'history'], open: ['source', 'callers', 'callees', 'sequence', 'graph', 'related', 'history', 'properties', 'children', 'er', 'stated'] },
   { name: 'operations', lead: ['operations', 'infrastructure', 'messaging', 'resilience'], open: ['properties', 'related', 'history', 'children', 'source', 'er', 'stated'] },
   { name: 'tester', lead: ['testing', 'requirements', 'strategy'], open: ['stated', 'implementedby', 'linkedfrom', 'related', 'properties', 'callers', 'children'] },
+  { name: 'designer', lead: ['design', 'requirements', 'discovery'], open: ['stated', 'implementedby', 'linkedfrom', 'related', 'properties', 'children'] },
+  { name: 'security-engineer', lead: ['security', 'privacy', 'architecture', 'delivery'], open: ['properties', 'related', 'graph', 'children', 'source', 'stated'] },
+  { name: 'platform-devops', lead: ['infrastructure', 'delivery', 'operations', 'messaging', 'automation', 'decommissioning'], open: ['properties', 'related', 'history', 'children', 'source', 'er', 'stated'] },
+  { name: 'product-lead', lead: ['strategy', 'costs', 'suppliers', 'documentation', 'organisation', 'ml'], open: ['stated', 'implementedby', 'linkedfrom', 'related', 'properties'] },
 ];
 
 /**

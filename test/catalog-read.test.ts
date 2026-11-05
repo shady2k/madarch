@@ -144,6 +144,12 @@ function refusals(manifest: string): string[] {
   return (read.catalog?.findings ?? read.findings).filter((finding) => !finding.message.startsWith('"documents.expect"')).map((finding) => `${finding.line}: ${finding.message}`);
 }
 
+/** The whole-manifest findings of a small manifest: the line and the words of each. */
+function read1(manifest: string): string[] {
+  const read = parseKinds(manifest, 'madarch/kinds.yaml', TEMPLATES);
+  return read.findings.map((finding) => `${finding.line}: ${finding.message}`);
+}
+
 /** The catalog findings held to the one finding the manifest is expected to make. */
 function expectRefused(manifest: string, message: string): void {
   const findings = refusals(manifest);

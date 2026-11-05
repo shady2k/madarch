@@ -409,7 +409,11 @@
         "developer": "Developer",
         "operations": "Operations",
         "tester": "Tester",
-        "everything": "Everything"
+        "everything": "Everything",
+        "designer": "Designer",
+        "security-engineer": "Security engineer",
+        "platform-devops": "Platform / DevOps",
+        "product-lead": "Product lead"
       },
       "about": {
         "product": "What the product is, for whom, and what it does.",
@@ -418,7 +422,11 @@
         "developer": "Code: files, functions, callers and tests.",
         "operations": "How it runs: configuration, images, deployment and pipelines.",
         "tester": "What to check: use cases, rules, tests and known failures.",
-        "everything": "Every part of every page open, in the product's own order."
+        "everything": "Every part of every page open, in the product's own order.",
+        "designer": "Design tokens, screens, accessibility and the product's language.",
+        "security-engineer": "Threats, findings, access, controls and how they are assessed.",
+        "platform-devops": "Infrastructure, delivery, operations and the processes that run them.",
+        "product-lead": "Strategy, costs, suppliers, documentation and the organisation."
       }
     },
     "help": {

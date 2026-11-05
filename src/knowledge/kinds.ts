@@ -186,13 +186,16 @@ export const DIAGRAM_RENDERER_NAMES: readonly string[] = ['likec4', 'mermaid', '
 /** The languages the wiki's interface speaks; a label in another language is a finding. */
 export const LABEL_LANGUAGES: readonly string[] = ['en', 'ru'];
 
-/** The roles a reader can read as (decision 0031); "everything" is every role at once and needs no declaration. */
-export const ROLE_NAMES = ['product', 'analyst', 'architect', 'developer', 'operations', 'tester'] as const;
-export type RoleName = (typeof ROLE_NAMES)[number];
+/**
+ * The word that stands for every role at once (decision 0031): it is never declared, because it is every declared
+ * role and no role of its own.
+ */
+export const EVERY_ROLE = 'everything';
 
 /** What a role changes on a page and in the navigation, as the manifest declares it (`roles:`). */
 export interface RoleDecl {
-  name: RoleName;
+  /** The role's id, as the product's manifest names it (product, analyst, designer, security-engineer ...). */
+  name: string;
   /** The blocks of a template that stand open for the role (block names); the others stay on the page, collapsed. Absent: every block is open. */
   open?: readonly string[];
   /** The groups the navigation lists first for the role, in this order. */
@@ -209,7 +212,7 @@ export interface ExpectedKind {
 export interface KindsManifest {
   file: string;
   /** What each role changes; a role the manifest does not declare reads everything open in the manifest's order. */
-  roles: ReadonlyMap<RoleName, RoleDecl>;
+  roles: ReadonlyMap<string, RoleDecl>;
   /** The language the product's pages are written in (`language:` at the top of the manifest); absent means English. */
   language?: string;
   /** The renderer the diagrams open on (`diagram:` at the top of the manifest: likec4, mermaid or archify); absent means the environment's, else LikeC4. */
@@ -590,14 +593,16 @@ export function parseKinds(text: string, file: string, productFolder: string): K
     findings.push(...catalogRead.findings);
     catalogFound.push(...catalogRead.findings);
   }
-  const roles = new Map<RoleName, RoleDecl>();
+  const roles = new Map<string, RoleDecl>();
   const rawRoles = top['roles'];
   if (rawRoles !== undefined) {
-    if (rawRoles === null || typeof rawRoles !== 'object' || Array.isArray(rawRoles)) findings.push({ file, line: at(['roles']), message: `"roles" maps a role (${ROLE_NAMES.join(', ')}) to { open: [<block>, ...], lead: [<group>, ...] }` });
+    if (rawRoles === null || typeof rawRoles !== 'object' || Array.isArray(rawRoles)) findings.push({ file, line: at(['roles']), message: '"roles" maps each role the product declares to { open: [<block>, ...], lead: [<area or subgroup>, ...] }' });
     else {
       for (const [name, entry] of Object.entries(rawRoles as Record<string, unknown>)) {
         const line = at(['roles', name]);
-        if (!(ROLE_NAMES as readonly string[]).includes(name)) { findings.push({ file, line, message: `role "${name}": the roles are ${ROLE_NAMES.join(', ')}; "everything" is every role at once and is not declared` }); continue; }
+        // A role's name is the product's: the engine keeps no list of them. "everything" is every role at once.
+        if (name.trim() === '' || name.trim() !== name || /\s/.test(name)) { findings.push({ file, line, message: `role ${JSON.stringify(name)}: a role's name is one word without whitespace` }); continue; }
+        if (name === EVERY_ROLE) { findings.push({ file, line, message: `role "${name}": "everything" is every role at once and is not declared` }); continue; }
         const body = entry as Record<string, unknown> | null;
         if (body === null || typeof body !== 'object' || Array.isArray(body)) { findings.push({ file, line, message: `role "${name}": the declaration is { open: [<block>, ...], lead: [<group>, ...] }` }); continue; }
         const before = findings.length;
@@ -612,7 +617,18 @@ export function parseKinds(text: string, file: string, productFolder: string): K
         const lead = list('lead');
         for (const block of open ?? []) if (!(BLOCK_NAMES as readonly string[]).includes(block)) findings.push({ file, line: at(['roles', name, 'open']), message: `role "${name}": "${block}" is not a block of the library (${BLOCK_NAMES.join(', ')})` });
         for (const group of lead ?? []) if (!groups.has(group)) findings.push({ file, line: at(['roles', name, 'lead']), message: `role "${name}": "${group}" is not a group of "groups" (${[...groups.keys()].join(', ') || 'none is declared'})` });
-        if (findings.length === before) roles.set(name as RoleName, { name: name as RoleName, ...(open === undefined ? {} : { open }), lead: lead ?? [], line });
+        if (findings.length === before) roles.set(name, { name, ...(open === undefined ? {} : { open }), lead: lead ?? [], line });
+      }
+      // The POV covers the catalog (decision 0033, item 12): every area is led by at least one role, whether the role
+      // names the area or a subgroup of it. A catalog with no role declared has no POV to check; a manifest without a
+      // catalog is read as before the catalog.
+      if (catalogSchema !== undefined && roles.size > 0) {
+        const led = new Set([...roles.values()].flatMap((role) => role.lead));
+        const all = [...groups.values()];
+        for (const area of all.filter((group) => group.parent === undefined)) {
+          if (led.has(area.name) || all.some((subgroup) => subgroup.parent === area.name && led.has(subgroup.name))) continue;
+          findings.push({ file, line: at(['groups', area.name]), message: `area "${area.name}": no role leads it, and every area is led by a role or by one of its subgroups (the roles are ${[...roles.keys()].join(', ')})` });
+        }
       }
     }
   }

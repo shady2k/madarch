@@ -13,7 +13,7 @@ import { parseKinds } from '../src/knowledge/kinds.js';
 import { glossaryTerms, madarchLinks, parseTermText } from '../src/knowledge/glossary.js';
 import { readDocEntities } from '../src/knowledge/doc-entities.js';
 import { readKinds } from '../src/knowledge/kinds.js';
-import { readSettings, settingsPath, writeRole } from '../src/knowledge/settings.js';
+import { choosableRoles, readSettings, settingsPath, writeRole } from '../src/knowledge/settings.js';
 import { startServer, type StartedServer } from '../src/server/http.js';
 import { installOwnWiki } from '../src/product/own-wiki.js';
 import { GLOSSARY, makeWikiRepository, ownGit } from './own-wiki-fixture.js';
@@ -35,13 +35,22 @@ describe('the manifest\'s roles', () => {
     expect(manifest.roles.get('product')?.open).toBeUndefined();
   });
 
-  test('an unknown role, a block outside the library and a group not declared are findings with the file and line, and the role is left out', () => {
-    const manifest = parseKinds(MANIFEST('roles:\n  janitor: { lead: [code] }\n  tester: { open: [nothing] }\n  analyst: { lead: [elsewhere] }\n  architect: { lead: [code] }\n'), 'kinds.yaml', folder);
-    expect(manifest.findings.map((finding) => [finding.line, finding.message.split(':')[0]])).toEqual([[10, 'role "janitor"'], [11, 'role "tester"'], [12, 'role "analyst"']]);
-    expect(manifest.findings[0]!.message).toContain('everything');
-    expect(manifest.findings[1]!.message).toContain('"nothing" is not a block of the library');
-    expect(manifest.findings[2]!.message).toContain('"elsewhere" is not a group');
-    expect([...manifest.roles.keys()]).toEqual(['architect']);
+  test('a role the engine never heard of is the product\'s own, while a block outside the library and a group not declared are findings with the file and line', () => {
+    // A role's name is data (decision 0033, item 12): a product declares the roles it reads as, and the engine holds none.
+    const manifest = parseKinds(MANIFEST('roles:\n  janitor: { lead: [code] }\n  tester: { open: [nothing] }\n  analyst: { lead: [elsewhere] }\n  architect: { lead: [code, product] }\n'), 'kinds.yaml', folder);
+    expect(manifest.findings.map((finding) => [finding.line, finding.message.split(':')[0]])).toEqual([[11, 'role "tester"'], [12, 'role "analyst"']]);
+    expect(manifest.findings[0]!.message).toContain('"nothing" is not a block of the library');
+    expect(manifest.findings[1]!.message).toContain('"elsewhere" is not a group');
+    expect([...manifest.roles.keys()]).toEqual(['janitor', 'architect']);
+  });
+
+  test('"everything" is every role at once and is not declared, and a role\'s name is one word', () => {
+    const manifest = parseKinds(MANIFEST('roles:\n  everything: { lead: [code] }\n  "security engineer": { lead: [code] }\n  security-engineer: { lead: [code, product] }\n'), 'kinds.yaml', folder);
+    expect(manifest.findings.map((finding) => [finding.line, finding.message])).toEqual([
+      [10, 'role "everything": "everything" is every role at once and is not declared'],
+      [11, 'role "security engineer": a role\'s name is one word without whitespace'],
+    ]);
+    expect([...manifest.roles.keys()]).toEqual(['security-engineer']);
   });
 
   test('the starter manifest declares sensible roles of its own', () => {
@@ -50,7 +59,7 @@ describe('the manifest\'s roles', () => {
       const read = readKinds(starter);
       expect(read.present && read.manifest.findings).toEqual([]);
       if (!read.present) return;
-      expect([...read.manifest.roles.keys()]).toEqual(['product', 'analyst', 'architect', 'developer', 'operations', 'tester']);
+      expect([...read.manifest.roles.keys()]).toEqual(['product', 'analyst', 'architect', 'developer', 'operations', 'tester', 'designer', 'security-engineer', 'platform-devops', 'product-lead']);
       expect(read.manifest.roles.get('developer')!.open).toContain('source');
       expect(read.manifest.roles.get('product')!.open).not.toContain('source');
     } finally {
@@ -120,17 +129,22 @@ describe('glossary terms', () => {
   });
 });
 
+/** The roles the fixture product declares, as a product's manifest declares them; "everything" is every role at once. */
+const ROLES = choosableRoles(['product', 'analyst', 'architect', 'developer', 'operations', 'tester']);
+
 describe('the user\'s settings on the machine', () => {
   test('nobody asked is "everything" and not yet asked; a chosen role is kept in the madarch home and read back, other keys kept', () => {
     const home = mkdtempSync(join(tmpdir(), 'madarch-settings-'));
     try {
       const env = { MADARCH_HOME: home };
-      expect(readSettings(env)).toEqual({ role: 'everything', asked: false });
+      expect(readSettings(env, ROLES)).toEqual({ role: 'everything', asked: false });
       writeFileSync(settingsPath(env), '{"other":1}\n');
-      expect(writeRole(env, 'developer')).toEqual({ role: 'developer', asked: true });
-      expect(readSettings(env)).toEqual({ role: 'developer', asked: true });
+      expect(writeRole(env, 'developer', ROLES)).toEqual({ role: 'developer', asked: true });
+      expect(readSettings(env, ROLES)).toEqual({ role: 'developer', asked: true });
       expect(JSON.parse(readFileSync(settingsPath(env), 'utf8'))).toEqual({ other: 1, role: 'developer', roleAsked: true });
-      expect(() => writeRole(env, 'janitor')).toThrow('the roles are product, analyst, architect, developer, operations, tester, everything');
+      expect(() => writeRole(env, 'janitor', ROLES)).toThrow('the roles are product, analyst, architect, developer, operations, tester, everything');
+      // A role the product does not declare is not a role of it, however well it reads.
+      expect(() => writeRole(env, 'designer', ROLES)).toThrow('"designer" is not a role');
     } finally {
       rmSync(home, { recursive: true, force: true });
     }
@@ -143,10 +157,10 @@ describe('the user\'s settings on the machine', () => {
       const outside = join(home, 'outside.txt');
       writeFileSync(outside, 'untouched\n');
       for (const name of [`settings.json.${process.pid}.tmp`, 'settings.json.tmp']) symlinkSync(outside, join(home, name));
-      writeRole(env, 'architect');
+      writeRole(env, 'architect', ROLES);
       expect(readFileSync(outside, 'utf8')).toBe('untouched\n');
       expect(readdirSync(home).filter((name) => name.endsWith('.tmp') && !lstatSync(join(home, name)).isSymbolicLink())).toEqual([]);
-      expect(readSettings(env).role).toBe('architect');
+      expect(readSettings(env, ROLES).role).toBe('architect');
     } finally {
       rmSync(home, { recursive: true, force: true });
     }
@@ -157,8 +171,8 @@ describe('the user\'s settings on the machine', () => {
     try {
       const env = { MADARCH_HOME: home };
       writeFileSync(settingsPath(env), '{broken');
-      expect(() => readSettings(env)).toThrow(settingsPath(env));
-      expect(() => writeRole(env, 'tester')).toThrow(settingsPath(env));
+      expect(() => readSettings(env, ROLES)).toThrow(settingsPath(env));
+      expect(() => writeRole(env, 'tester', ROLES)).toThrow(settingsPath(env));
     } finally {
       rmSync(home, { recursive: true, force: true });
     }
@@ -231,7 +245,7 @@ describe('the products-home server with madarch\'s own wiki', () => {
     const own = await get(busy, '/products/madarch-wiki/api/k/status');
     expect(own.body.own).toBe(true);
     expect(own.body.home).toBe('product:docs');
-    expect(Object.keys(own.body.roles)).toEqual(['product', 'analyst', 'architect', 'developer', 'operations', 'tester']);
+    expect(Object.keys(own.body.roles)).toEqual(['product', 'analyst', 'architect', 'developer', 'operations', 'tester', 'designer', 'security-engineer', 'platform-devops', 'product-lead']);
     expect((await get(busy, '/products/my-product/api/k/status')).body.own).toBeUndefined();
     // Serving the wiki writes nothing into it, so the refresh can fast-forward it.
     expect(ownGit(join(madarchHome, 'madarch-wiki'), ['status', '--porcelain', '--untracked-files=all'])).toBe('');
