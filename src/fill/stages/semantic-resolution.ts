@@ -324,18 +324,24 @@ async function executeResolutionUnit(unit: StageUnit, context: StageContext): Pr
   for (const page of mentionPages) mentions.push(...mentionRowsIn(page.rows, page.read));
   const keyOfId = new Map<string, string>(held.map((symbol) => [symbol.row.id, symbol.key]));
 
-  /** One cross-file answer, asked once per global name in a unit and kept for the unit's own scope. */
-  const asked = new Map<string, FileSymbol | undefined>();
-  const byGlobalName = async (name: string): Promise<FileSymbol | undefined> => {
-    if (asked.has(name)) return asked.get(name);
+  /**
+   * One cross-file answer, asked once per global name in a unit and kept for the
+   * unit's own scope. A name two declarations of one file carry (a merged type
+   * and value of one name, which the training repository's `payment.ts` writes)
+   * is an ambiguity of that file, never a corrupt graph: the mention stays
+   * unresolved and its gap says how many declarations the name answers.
+   */
+  const asked = new Map<string, { readonly symbol?: FileSymbol; readonly ambiguity?: number }>();
+  const byGlobalName = async (name: string): Promise<{ readonly symbol?: FileSymbol; readonly ambiguity?: number }> => {
+    const kept = asked.get(name);
+    if (kept !== undefined) return kept;
     const read = staticGraphRead({ kind: 'globalName', value: name, limit: 2 });
     const answered = await source.byGlobalName(name, { limit: 2 });
-    if (answered.length > 1) {
-      throw new Error(`the read ${read} answered ${String(answered.length)} current nodes under the global name ${JSON.stringify(name)}, and one global name names one symbol of one file (decision 0033, item 14; src/fill/stages/semantic-resolution.ts)`);
-    }
-    const found = answered[0] === undefined ? undefined : symbolOf(answered[0], undefined, read);
-    asked.set(name, found);
-    return found;
+    const answer = answered.length > 1
+      ? { ambiguity: answered.length }
+      : answered[0] === undefined ? {} : { symbol: symbolOf(answered[0], undefined, read) };
+    asked.set(name, answer);
+    return answer;
   };
 
   const sites: Site[] = [];
@@ -363,12 +369,16 @@ async function executeResolutionUnit(unit: StageUnit, context: StageContext): Pr
     sites.push({ mention, from, to: target.symbol.key, relation: RELATION_OF_EDGE[EDGE_OF_USE[mention.use]!] });
   }
 
+  // A coverage's gaps are one per place, in code point order of what they say: the fact
+  // schema fixes that order, and a file whose mentions are read in source order is not in
+  // it (the training repository's `index.ts` and `token.mjs` show both).
+  const unread = [...new Map(gaps.map((gap) => [gap.what, gap])).values()].sort((left, right) => byCodePoint(left.what, right.what));
   const coverage: CoverageValue = {
     repository,
     scope: path,
-    complete: gaps.length === 0,
+    complete: unread.length === 0,
     read: [...readFiles].sort(byCodePoint),
-    unread: gaps,
+    unread,
   };
   const commit = source.repository.commit;
   const evidence = evidenceAtPlace({ repository, commit }, path);
@@ -407,7 +417,7 @@ async function targetOfMention(
   mention: MentionRow,
   repository: string,
   rows: readonly ResolutionSymbolRow[],
-  byGlobalName: (name: string) => Promise<FileSymbol | undefined>,
+  byGlobalName: (name: string) => Promise<{ readonly symbol?: FileSymbol; readonly ambiguity?: number }>,
   readFiles: Set<string>,
 ): Promise<MentionAnswer> {
   if (mention.through === undefined) {
@@ -423,7 +433,11 @@ async function targetOfMention(
   const bound = boundTargetOf(mention);
   if (bound.kind !== 'target') return bound;
   readFiles.add(bound.target);
-  const found = await byGlobalName(`${repository}:${bound.target}#${bound.name}`);
+  const answer = await byGlobalName(`${repository}:${bound.target}#${bound.name}`);
+  if (answer.ambiguity !== undefined) {
+    return { kind: 'unresolved', why: `${bound.what} ${JSON.stringify(bound.name)}, and the file ${JSON.stringify(bound.target)} declares ${String(answer.ambiguity)} symbols of that name` };
+  }
+  const found = answer.symbol;
   if (found === undefined) {
     return { kind: 'unresolved', why: `${bound.what} ${JSON.stringify(bound.name)}, and the file ${JSON.stringify(bound.target)} declares no symbol of that name` };
   }
