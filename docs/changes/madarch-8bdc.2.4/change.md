@@ -231,7 +231,15 @@ Seven families are left: `code.health-endpoint`, `code.metrics-endpoint`,
 `code.symbol`, `code.logger` and `code.uses-logger` — are held out of the
 comparison by one fact the reading's records carry.
 
-- **The evidence a logger record carries names another pass's private ids.**
+- **The evidence a logger record carries names another pass's private ids — now
+  named by one function in the comparison.** The port's origin names
+  `code.binding:<repository>:<path>@<start>:<end>:binding` where the driver names
+  `<path>:<start>:<end>:import`; `graphIdentityOfFact` in the comparison maps the
+  driver's id to the graph's (`code.expression:…` for an expression,
+  `code.binding:…` for a binding or an import, `code.export:…#<name>` for an
+  export), and an id it cannot read stays a named difference. With that mapping a
+  draft of the logger family compared its chains exactly. What still stands
+  between the draft and the comparison is not the line above:
   A ported logger record (node or edge) carries `libraryEvidence(effect)`: the
   model, the library, the invocation span and an `origin` whose `importId` and
   `chain` are the *code extraction's* fact ids
