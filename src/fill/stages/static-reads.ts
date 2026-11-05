@@ -21,6 +21,7 @@ import { PUBLISHED_RESOLVED_READ, type PublishedResolvedRow } from './semantic-r
 import { CODE_FACTS_PUBLISHED_READ } from './code-facts.js';
 import { CONTRACTS_SOURCE_SYSTEM, PUBLISHED_CONTRACTS_READ } from './contracts.js';
 import { CONTRACTS_CODE_SOURCE_SYSTEM, PUBLISHED_CONTRACTS_CODE_READ } from './contracts-code.js';
+import { CONTRACTS_ROUTES_SOURCE_SYSTEM, PUBLISHED_CONTRACTS_ROUTES_READ } from './contracts-routes.js';
 import { PUBLISHED_MACHINES_READ } from './state-machines.js';
 import { PUBLISHED_GAPS_READ } from './syntax-specifiers.js';
 import { PUBLISHED_IMPORTS_READ, type PublishedGapRow, type PublishedImportRow } from './syntax-specifiers.js';
@@ -296,6 +297,13 @@ export function createStaticStageReadReader(store: GraphStore, executor?: QueryE
           return coverageScopes(await all((page) => store.byProperty('code.coverage', 'repository', repository, { ...page, limit: page.limit ?? PLAN_PAGE }, transaction)), 'coverage', CONTRACTS_CODE_SOURCE_SYSTEM, repository)
             .map((row) => ({ kind: 'coverage', path: row.path, ...(row.blob === undefined ? {} : { blob: row.blob }) }));
         }
+        case PUBLISHED_CONTRACTS_ROUTES_READ: {
+          // The source files the contracts-routes stage read, each with the blob its bytes stood
+          // under. The reader is named, so another stage's coverage of the same file is never taken
+          // for this one's.
+          return coverageScopes(await all((page) => store.byProperty('code.coverage', 'repository', repository, { ...page, limit: page.limit ?? PLAN_PAGE }, transaction)), 'coverage', CONTRACTS_ROUTES_SOURCE_SYSTEM, repository)
+            .map((row) => ({ kind: 'coverage', path: row.path, ...(row.blob === undefined ? {} : { blob: row.blob }) }));
+        }
         case PUBLISHED_MACHINES_READ: {
           // One repository's state machine coverage: the files the state-machines stage read,
           // each with the blob its bytes stood under. The reader is named, so a coverage of
@@ -387,7 +395,7 @@ export function createStaticStageReadReader(store: GraphStore, executor?: QueryE
           return node === undefined ? [] : [{ kind: 'coverage', value: coverageValueOf(propertiesOf(node)) }];
         }
         default:
-          throw new Error(`the static stage asked the read ${JSON.stringify(document.read)} for ${JSON.stringify(repository)}, and this reader answers ${PUBLISHED_TREE_READ}, ${PUBLISHED_REPOSITORY_READ}, ${PUBLISHED_UNFILED_READ}, ${PUBLISHED_CONTAINMENT_READ}, ${PUBLISHED_COVERAGE_READ}, ${PUBLISHED_RESOLVED_READ}, ${PUBLISHED_GAPS_READ}, ${PUBLISHED_IMPORTS_READ}, ${PUBLISHED_MACHINES_READ}, ${CODE_FACTS_PUBLISHED_READ}, ${PUBLISHED_CONTRACTS_READ}, ${PUBLISHED_CONTRACTS_CODE_READ}, ${PUBLISHED_MANIFESTS_READ}, ${PUBLISHED_DOCUMENTS_READ}, ${COMMITS_HELD_READ}, ${HISTORY_COVERAGE_READ}: a static stage has one reading of the graph (src/fill/stages/static-reads.ts)`);
+          throw new Error(`the static stage asked the read ${JSON.stringify(document.read)} for ${JSON.stringify(repository)}, and this reader answers ${PUBLISHED_TREE_READ}, ${PUBLISHED_REPOSITORY_READ}, ${PUBLISHED_UNFILED_READ}, ${PUBLISHED_CONTAINMENT_READ}, ${PUBLISHED_COVERAGE_READ}, ${PUBLISHED_RESOLVED_READ}, ${PUBLISHED_GAPS_READ}, ${PUBLISHED_IMPORTS_READ}, ${PUBLISHED_MACHINES_READ}, ${CODE_FACTS_PUBLISHED_READ}, ${PUBLISHED_CONTRACTS_READ}, ${PUBLISHED_CONTRACTS_CODE_READ}, ${PUBLISHED_CONTRACTS_ROUTES_READ}, ${PUBLISHED_MANIFESTS_READ}, ${PUBLISHED_DOCUMENTS_READ}, ${COMMITS_HELD_READ}, ${HISTORY_COVERAGE_READ}: a static stage has one reading of the graph (src/fill/stages/static-reads.ts)`);
       }
     },
   };

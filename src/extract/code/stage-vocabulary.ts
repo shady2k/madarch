@@ -15,6 +15,10 @@
 export const STAGE_NODE_KINDS: readonly string[] = [
   'code.binding',
   'code.call',
+  // The inline callbacks one file writes, the middleware names it registers, and the router mounts
+  // it declares (the contracts-code stage; madarch-8bdc.2.4): per-file facts the routes stage reads,
+  // internal to the fill's readings of a repository.
+  'code.callback',
   'code.comment',
   'code.commit',
   'code.compose-service',
@@ -39,8 +43,10 @@ export const STAGE_NODE_KINDS: readonly string[] = [
   'code.file',
   'code.input',
   'code.message',
+  'code.middleware-chain',
   'code.operation',
   'code.route',
+  'code.router-mount',
   'code.sql-build',
   'code.sql-sink',
   'code.link-target',

@@ -39,12 +39,14 @@ import {
   type StageGraphReader, type StagePlan, type StageUnit,
 } from '../stage.js';
 import { readTsFile, type TsFileFacts } from '../../extract/contracts/ts-code.js';
+import { readGoFile, type GoFileFacts } from '../../extract/contracts/go-code.js';
+import { callbacksOfFile } from './callbacks.js';
 import {
   EDGE_CONTAINS, inputKey, KIND_INPUT, KIND_SQL_BUILD, KIND_SQL_SINK, REL_FLOWS_INTO, sqlBuildKey, sqlSinkKey,
 } from '../../extract/contracts/schema.js';
 import type { ExtractedNode, SourceSpan } from '../../extract/records.js';
 import { evidenceAtPlace } from './draft.js';
-import { readSyntaxTree } from './syntax-extract.js';
+import { readFileFindings, readSyntaxTree } from './syntax-extract.js';
 import type { StaticStageContext, StaticStageSource } from './static-context.js';
 import { checkStaticGraphDraft, graphWritesOf } from './static-graph.js';
 import { fileFactIdOf } from './syntax-facts.js';
@@ -58,7 +60,12 @@ export const CONTRACTS_CODE_STAGE_ID = 'contracts-code';
 const CONTRACTS_CODE_STAGE_VERSION = 1;
 
 /** The fact kinds the stage produces, in code point order. */
-const CONTRACTS_CODE_STAGE_KINDS: readonly string[] = ['contains', 'coverage', 'flows-into', 'input', 'sql-build', 'sql-sink'];
+const CONTRACTS_CODE_STAGE_KINDS: readonly string[] = ['callback', 'contains', 'coverage', 'declares', 'flows-into', 'input', 'middleware-chain', 'router-mount', 'sql-build', 'sql-sink'];
+
+/** The kinds the stage writes beside the extractor's own: the per-file facts the later stages read. */
+const CALLBACK_KIND = 'code.callback';
+const MIDDLEWARE_CHAIN_KIND = 'code.middleware-chain';
+const ROUTER_MOUNT_KIND = 'code.router-mount';
 
 /** The reader every fact of this stage cites as its source: this fill's own reading of one file's code. */
 export const CONTRACTS_CODE_SOURCE_SYSTEM = 'madarch-contracts-code';
@@ -92,10 +99,13 @@ export function createContractsCodeStage(sources: SnapshotSource): FillStage {
     staticReading: true,
     consumes: { required: [{ capability: 'file', scope: 'repository', freshness: 'current' }], optional: [] },
     produces: [
+      { kind: 'callback', schemaVersion: 1, scope: 'file' },
       { kind: 'contains', schemaVersion: FACT_KINDS['contains'].version, scope: 'file' },
       { kind: 'coverage', schemaVersion: FACT_KINDS['coverage'].version, scope: 'file' },
       { kind: 'flows-into', schemaVersion: 1, scope: 'file' },
       { kind: 'input', schemaVersion: 1, scope: 'file' },
+      { kind: 'middleware-chain', schemaVersion: 1, scope: 'file' },
+      { kind: 'router-mount', schemaVersion: 1, scope: 'file' },
       { kind: 'sql-build', schemaVersion: 1, scope: 'file' },
       { kind: 'sql-sink', schemaVersion: 1, scope: 'file' },
     ],
@@ -114,10 +124,11 @@ export function createContractsCodeStage(sources: SnapshotSource): FillStage {
  * and a file that is neither is no site of this reading.
  */
 function isContractsCodePath(path: string): boolean {
-  return path.endsWith('.ts')
+  return (path.endsWith('.ts') || path.endsWith('.go'))
     && !path.endsWith('.d.ts')
     && !/(^|\/)(test|tests|__tests__)\//.test(path)
-    && !/\.(test|spec)\.[tj]s$/.test(path);
+    && !/\.(test|spec)\.[tj]s$/.test(path)
+    && !path.endsWith('_test.go');
 }
 
 // ---- planning ------------------------------------------------------------
@@ -207,105 +218,223 @@ async function executeContractsCodeUnit(unit: StageUnit, context: StageContext):
     context.progress(`${planned.path} of ${planned.repository} is ${reason === 'too-large' ? 'above the static reading cap' : 'not a source file this stage reads'}: the file is published as a ${reason} coverage gap`, 1);
     return { outcome: 'draft' };
   }
-  const read = await readSyntaxTree(planned.path, file.content!, (tree) => readTsFile(planned.path, tree.root));
+  const isGo = planned.path.endsWith('.go');
+  const read = await readSyntaxTree(planned.path, file.content!, (tree) => ({
+    findings: readFileFindings(tree),
+    ts: isGo ? undefined : readTsFile(planned.path, tree.root),
+    go: isGo ? readGoFile(planned.path, tree.root) : undefined,
+  }));
   if (!read.read) {
     const gaps: CoverageGap[] = read.unread.map((gap) => ({ what: `${planned.path}:1: ${gap.what}`, reason: gap.reason }));
     writeCoverage(context, source, planned.path, { repository: planned.repository, scope: planned.path, complete: false, read: [], unread: gaps }, entry.id);
-    context.progress(`${planned.path} of ${planned.repository} could not be read as TypeScript: the file is published as a coverage gap`, 1);
+    context.progress(`${planned.path} of ${planned.repository} could not be read as ${isGo ? 'Go' : 'TypeScript'}: the file is published as a coverage gap`, 1);
     return { outcome: 'draft' };
   }
-  const facts = read.value as TsFileFacts;
+  const { findings, ts, go } = read.value;
+  // The callbacks are read with the driver's own rule, from the shared reader, so the callback
+  // names a route resolves to are the names the driver gives them.
+  const callbacks = callbacksOfFile(planned.path, findings);
+  const service = await serviceOf(stage, planned.path);
   const evidence = evidenceAtPlace(source, planned.path);
   const fileKey = fileFactIdOf(planned.repository, planned.path);
-  for (const write of codeSiteWrites({ repository: planned.repository, path: planned.path, fileKey, facts, evidence })) context.draft.write(write);
+  const fileSpan = wholeFileSpan(planned.path, file.content!);
+  for (const write of codeSiteWrites({ repository: planned.repository, path: planned.path, fileKey, evidence, fileSpan, ts, go, callbacks, service })) context.draft.write(write);
   writeCoverage(context, source, planned.path, { repository: planned.repository, scope: planned.path, complete: true, read: [planned.path], unread: [] }, entry.id);
+  const inputs = ts?.inputs.length ?? 0;
+  const sinks = ts?.sqlSinks.length ?? 0;
   context.progress(
-    `read ${planned.path} of ${planned.repository} at ${source.commit}: ${String(facts.inputs.length)} ${facts.inputs.length === 1 ? 'input' : 'inputs'}, ${String(facts.sqlSinks.length)} ${facts.sqlSinks.length === 1 ? 'SQL sink' : 'SQL sinks'}`,
+    `read ${planned.path} of ${planned.repository} at ${source.commit}: ${String(inputs)} ${inputs === 1 ? 'input' : 'inputs'}, ${String(sinks)} SQL ${sinks === 1 ? 'sink' : 'sinks'}, ${String(callbacks.length)} ${callbacks.length === 1 ? 'callback' : 'callbacks'}`,
     1,
   );
   return { outcome: 'draft' };
 }
 
+/** Every page of one bounded read, in the order the pages answered. */
+async function allPages<T>(fetch: (page: { readonly limit: number; readonly after?: string }) => Promise<{ readonly rows: readonly T[]; readonly next: string | null }>): Promise<readonly T[]> {
+  const rows: T[] = [];
+  let after: string | undefined;
+  for (;;) {
+    const page = await fetch(after === undefined ? { limit: 256 } : { limit: 256, after });
+    rows.push(...page.rows);
+    if (page.next === null) return rows;
+    after = page.next;
+  }
+}
+
+/** The unit one file belongs to, read from the code-facts stage's own fact; no file belongs to two. */
+async function serviceOf(stage: StaticStageContext, path: string): Promise<string | undefined> {
+  const nodes = await allPages((page) => stage.byProperty('code.service-unit', 'file', path, page));
+  const names = new Set(nodes.flatMap((node) => typeof node.properties['name'] === 'string' ? [node.properties['name'] as string] : []));
+  if (names.size > 1) {
+    throw new Error(`${path}:1: the code-facts stage published ${String(names.size)} service units for one file (${[...names].sort(byCodePoint).join(', ')}), and one file belongs to one unit (src/fill/stages/contracts-code.ts)`);
+  }
+  return [...names][0];
+}
+
+/** The span of a whole file: its first line to its last, its first byte to its length. */
+function wholeFileSpan(path: string, bytes: Uint8Array): SourceSpan {
+  const text = new TextDecoder('utf-8').decode(bytes);
+  const lines = text === '' ? 1 : text.split('\n').length;
+  return { path, byteStart: 0, byteEnd: bytes.byteLength, lineStart: 1, lineEnd: lines };
+}
+
+/** A syntax span of one file, as the graph holds a record's place. */
+function spanOf(path: string, span: { readonly startByte: number; readonly endByte: number; readonly startLine: number; readonly endLine: number }): SourceSpan {
+  return { path, byteStart: span.startByte, byteEnd: span.endByte, lineStart: span.startLine, lineEnd: span.endLine };
+}
+
 // ---- what one unit's draft writes ----------------------------------------
 
-/** The relation a file contains a record by. */
+/** The relation a file contains a record by, and the one a fact of its own hangs from it by. */
 const CONTAINS_RELATION = EDGE_CONTAINS;
+const DECLARES_RELATION = 'code.declares';
 
-/** What one unit's draft writes: the file's inputs, its SQL path and its containment. */
+/** What one unit's draft writes: the file's code sites and the per-file facts a later stage reads. */
 function codeSiteWrites(input: {
   readonly repository: string;
   readonly path: string;
   readonly fileKey: string;
-  readonly facts: TsFileFacts;
   readonly evidence: string;
+  readonly fileSpan: SourceSpan;
+  readonly ts: TsFileFacts | undefined;
+  readonly go: GoFileFacts | undefined;
+  readonly callbacks: readonly { readonly qualifiedName: string; readonly span: { readonly startByte: number; readonly endByte: number; readonly startLine: number; readonly endLine: number } }[];
+  readonly service: string | undefined;
 }): readonly StageDraftWrite[] {
   const writes: StageDraftWrite[] = [];
   const commit = commitOf(input.evidence);
   const nodes: { node: ExtractedNode; contains: boolean }[] = [];
   const edges: { relation: string; from: string; to: string }[] = [];
-  const { path, facts } = input;
-  for (const held of facts.inputs) {
-    const key = inputKey(path, 'query', held.name);
-    nodes.push({
-      contains: true,
-      node: {
-        key,
-        kind: KIND_INPUT,
-        label: `query ${held.name}`,
-        properties: { source: 'query', name: held.name, ...(held.fn !== undefined ? { readBy: held.fn } : {}) },
-        span: held.span,
-      },
-    });
-  }
-  const pathBuilds = facts.stringSplicers.filter((splicer) => facts.buildersOnPath.includes(splicer.fn));
-  for (const build of pathBuilds) {
-    nodes.push({
-      contains: build.span !== undefined,
-      node: {
-        key: sqlBuildKey(path, build.fn),
-        kind: KIND_SQL_BUILD,
-        label: build.fn,
-        properties: { function: build.fn, spliced: build.spliced },
-        ...(build.span === undefined ? {} : { span: build.span }),
-      },
-    });
-  }
-  for (const sink of facts.sqlSinks) {
-    nodes.push({
-      contains: true,
-      node: {
-        key: sqlSinkKey(path, sink.callee),
-        kind: KIND_SQL_SINK,
-        label: sink.callee,
-        properties: { callee: sink.callee, ...(sink.fn !== undefined ? { function: sink.fn } : {}) },
-        span: sink.span,
-      },
-    });
-  }
-  if (facts.inputs.length > 0 && pathBuilds.length > 0) {
-    for (const held of facts.inputs) {
-      if (held.fn === undefined) continue;
-      if (!(facts.returnedQueryProps.get(held.fn) ?? []).includes(held.name)) continue;
-      for (const build of pathBuilds) {
-        if (!build.spliced.includes(held.name)) continue;
-        const feeds = (facts.callSiteArgs.get(build.fn) ?? []).some((arguments_) =>
-          arguments_.some((variable) => facts.bindings.get(variable)?.calls.includes(held.fn!) ?? false));
-        if (feeds) edges.push({ relation: REL_FLOWS_INTO, from: inputKey(path, 'query', held.name), to: sqlBuildKey(path, build.fn) });
+  const declared: { readonly node: WrittenNode; readonly span: SourceSpan }[] = [];
+  const { path, ts } = input;
+  if (ts !== undefined) {
+    for (const held of ts.inputs) {
+      const key = inputKey(path, 'query', held.name);
+      nodes.push({
+        contains: true,
+        node: {
+          key,
+          kind: KIND_INPUT,
+          label: `query ${held.name}`,
+          properties: { source: 'query', name: held.name, ...(held.fn !== undefined ? { readBy: held.fn } : {}) },
+          span: held.span,
+        },
+      });
+    }
+    const pathBuilds = ts.stringSplicers.filter((splicer) => ts.buildersOnPath.includes(splicer.fn));
+    for (const build of pathBuilds) {
+      nodes.push({
+        contains: build.span !== undefined,
+        node: {
+          key: sqlBuildKey(path, build.fn),
+          kind: KIND_SQL_BUILD,
+          label: build.fn,
+          properties: { function: build.fn, spliced: build.spliced },
+          ...(build.span === undefined ? {} : { span: build.span }),
+        },
+      });
+    }
+    for (const sink of ts.sqlSinks) {
+      nodes.push({
+        contains: true,
+        node: {
+          key: sqlSinkKey(path, sink.callee),
+          kind: KIND_SQL_SINK,
+          label: sink.callee,
+          properties: { callee: sink.callee, ...(sink.fn !== undefined ? { function: sink.fn } : {}) },
+          span: sink.span,
+        },
+      });
+    }
+    if (ts.inputs.length > 0 && pathBuilds.length > 0) {
+      for (const held of ts.inputs) {
+        if (held.fn === undefined) continue;
+        if (!(ts.returnedQueryProps.get(held.fn) ?? []).includes(held.name)) continue;
+        for (const build of pathBuilds) {
+          if (!build.spliced.includes(held.name)) continue;
+          const feeds = (ts.callSiteArgs.get(build.fn) ?? []).some((arguments_) =>
+            arguments_.some((variable) => ts.bindings.get(variable)?.calls.includes(held.fn!) ?? false));
+          if (feeds) edges.push({ relation: REL_FLOWS_INTO, from: inputKey(path, 'query', held.name), to: sqlBuildKey(path, build.fn) });
+        }
+      }
+      for (const sink of ts.sqlSinks) {
+        if (sink.fn === undefined) continue;
+        const sinkArgVars = (ts.callSiteArgs.get(sink.fn) ?? []).flat();
+        for (const build of pathBuilds) {
+          const reaches = sinkArgVars.some((variable) => {
+            const binding = ts.bindings.get(variable);
+            if (binding === undefined) return false;
+            if (binding.calls.includes(build.fn)) return true;
+            return binding.vars.some((inner) => ts.bindings.get(inner)?.calls.includes(build.fn) ?? false);
+          });
+          if (reaches) edges.push({ relation: REL_FLOWS_INTO, from: sqlBuildKey(path, build.fn), to: sqlSinkKey(path, sink.callee) });
+        }
       }
     }
-    for (const sink of facts.sqlSinks) {
-      if (sink.fn === undefined) continue;
-      const sinkArgVars = (facts.callSiteArgs.get(sink.fn) ?? []).flat();
-      for (const build of pathBuilds) {
-        const reaches = sinkArgVars.some((variable) => {
-          const binding = facts.bindings.get(variable);
-          if (binding === undefined) return false;
-          if (binding.calls.includes(build.fn)) return true;
-          return binding.vars.some((inner) => facts.bindings.get(inner)?.calls.includes(build.fn) ?? false);
-        });
-        if (reaches) edges.push({ relation: REL_FLOWS_INTO, from: sqlBuildKey(path, build.fn), to: sqlSinkKey(path, sink.callee) });
-      }
-    }
+    // The mounts this file registers: the prefix, the middlewares and the app's own chain, which a
+    // later stage joins to the routes of the router it mounts (decision 0033, item 5; madarch-8bdc.2.4).
+    ts.mounts.forEach((mount, index) => {
+      declared.push({
+        span: input.fileSpan,
+        node: {
+          key: `${ROUTER_MOUNT_KIND}:${input.repository}:${path}#${String(index)}`,
+          kind: ROUTER_MOUNT_KIND,
+          label: `${mount.prefix} ${mount.factory ?? 'router'}`,
+          properties: {
+            file: path,
+            path,
+            ...(input.service === undefined ? {} : { service: input.service }),
+            ...(mount.factory === undefined ? {} : { factory: mount.factory }),
+            prefix: mount.prefix,
+            middlewares: [...mount.middlewares],
+            appMiddlewares: [...ts.appMiddlewares],
+          },
+        },
+      });
+    });
+  }
+  // The middleware names one file registers, in the driver's own order, and the functions that
+  // verify a token: a later stage reads them by service to name the chain and the auth group.
+  const names = new Set<string>();
+  const hs256 = new Set<string>();
+  if (ts !== undefined) {
+    for (const route of ts.routes) for (const name of route.middleware) names.add(name);
+    for (const mount of ts.mounts) for (const name of mount.middlewares) names.add(name);
+    for (const name of ts.appMiddlewares) names.add(name);
+    for (const name of ts.hs256Functions) hs256.add(name);
+  }
+  if (input.go !== undefined) {
+    for (const route of input.go.routes) for (const name of route.middleware) names.add(name.replace(/\(.*/, ''));
+    for (const name of input.go.hs256Functions) hs256.add(name);
+  }
+  declared.push({
+    span: input.fileSpan,
+    node: {
+      key: `${MIDDLEWARE_CHAIN_KIND}:${input.repository}:${path}`,
+      kind: MIDDLEWARE_CHAIN_KIND,
+      label: path,
+      properties: {
+        file: path,
+        path,
+        language: input.go === undefined ? 'typescript' : 'go',
+        ...(input.service === undefined ? {} : { service: input.service }),
+        names: [...names],
+        hs256: [...hs256],
+      },
+    },
+  });
+  // The inline callbacks the file writes: a boundary with no declaration is a symbol of its own, and
+  // a route's handler resolves to it (the driver's own names, from the shared reader).
+  for (const callback of input.callbacks) {
+    declared.push({
+      span: spanOf(path, callback.span),
+      node: {
+        key: `${CALLBACK_KIND}:${input.repository}:${path}#${callback.qualifiedName}`,
+        kind: CALLBACK_KIND,
+        label: callback.qualifiedName,
+        properties: { file: path, path, qualifiedName: callback.qualifiedName, symbolKind: 'function' },
+      },
+    });
   }
   for (const held of [...nodes].sort((left, right) => byCodePoint(left.node.key, right.node.key))) {
     const span = held.node.span;
@@ -316,11 +445,23 @@ function codeSiteWrites(input: {
     if (held.contains) writes.push(edgeWrite(CONTAINS_RELATION, input.fileKey, held.node.key, { span, discriminator: '' }, input.repository, input.evidence, commit));
   }
   for (const edge of edges) writes.push(edgeWrite(edge.relation, edge.from, edge.to, { discriminator: '' }, input.repository, input.evidence, commit));
+  for (const held of [...declared].sort((left, right) => byCodePoint(left.node.key, right.node.key))) {
+    writes.push(nodeWrite(held.node, held.span, input.repository, commit, input.evidence));
+    writes.push(edgeWrite(DECLARES_RELATION, input.fileKey, held.node.key, { discriminator: '' }, input.repository, input.evidence, commit));
+  }
   return writes;
 }
 
+/** One record this stage writes: the extractor's node, or a per-file fact of the stage's own kind. */
+interface WrittenNode {
+  readonly key: string;
+  readonly kind: string;
+  readonly label: string;
+  readonly properties: Readonly<Record<string, unknown>>;
+}
+
 /** One node write of this stage: the record, its span and the envelope the graph holds it with. */
-function nodeWrite(node: ExtractedNode, span: SourceSpan, repository: string, commit: string, evidence: string): StageDraftWrite {
+function nodeWrite(node: WrittenNode, span: SourceSpan, repository: string, commit: string, evidence: string): StageDraftWrite {
   return {
     kind: 'node',
     evidence,
@@ -335,7 +476,7 @@ function nodeWrite(node: ExtractedNode, span: SourceSpan, repository: string, co
         factKind: factKindOf(node.kind),
         layer: 'extracted',
         repository,
-        provenance: { source: CONTRACTS_CODE_SOURCE, repository: { id: repository, commit }, place: { file: span.path, range: { startLine: span.lineStart, startColumn: 0, endLine: span.lineEnd, endColumn: 0 } } },
+        provenance: { source: CONTRACTS_CODE_SOURCE, repository: { id: repository, commit }, place: { file: span.path, range: { startLine: span.lineStart, startColumn: 0, endLine: span.lineEnd, endColumn: 0, startByte: span.byteStart, endByte: span.byteEnd } } },
       },
     },
   };
@@ -345,7 +486,11 @@ function nodeWrite(node: ExtractedNode, span: SourceSpan, repository: string, co
 function factKindOf(kind: string): string {
   if (kind === KIND_INPUT) return 'input';
   if (kind === KIND_SQL_BUILD) return 'sql-build';
-  return 'sql-sink';
+  if (kind === KIND_SQL_SINK) return 'sql-sink';
+  if (kind === CALLBACK_KIND) return 'callback';
+  if (kind === MIDDLEWARE_CHAIN_KIND) return 'middleware-chain';
+  if (kind === ROUTER_MOUNT_KIND) return 'router-mount';
+  throw new Error(`the contracts-code stage writes a ${JSON.stringify(kind)} node and names no fact kind for it (src/fill/stages/contracts-code.ts)`);
 }
 
 /** One edge write of this stage: its record's properties, its span and the discriminator the driver gives it. */
@@ -363,7 +508,7 @@ function edgeWrite(relation: string, from: string, to: string, record: { readonl
         repository,
         discriminator: record.discriminator,
         ...(record.span === undefined ? {} : { span: { ...record.span } }),
-        provenance: { source: CONTRACTS_CODE_SOURCE, repository: { id: repository, commit }, ...(record.span === undefined ? {} : { place: { file: record.span.path, range: { startLine: record.span.lineStart, startColumn: 0, endLine: record.span.lineEnd, endColumn: 0 } } }) },
+        provenance: { source: CONTRACTS_CODE_SOURCE, repository: { id: repository, commit }, ...(record.span === undefined ? {} : { place: { file: record.span.path, range: { startLine: record.span.lineStart, startColumn: 0, endLine: record.span.lineEnd, endColumn: 0, startByte: record.span.byteStart, endByte: record.span.byteEnd } } }) },
       },
     },
   };

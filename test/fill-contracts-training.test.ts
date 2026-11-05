@@ -113,6 +113,12 @@ let driver: Extraction | undefined;
 let stageNodes: readonly NodeVersionRow[] = [];
 let stageEdges: readonly EdgeEntry[] = [];
 let refill: readonly { readonly unitId: string; readonly stageId: string }[] = [];
+/** The graph's key for each symbol the graph holds, by the driver's own name for it (`<file>#<qualified name>`). */
+let symbolKeys: ReadonlyMap<string, string> = new Map();
+/** Every reference link the graph holds, by its two ends: one link is one edge, whichever stage published it. */
+let referenceLinks: ReadonlySet<string> = new Set();
+/** The driver records a stage of another reading satisfies as one shared link (ends only). */
+const aliased: string[] = [];
 
 /** The paths of the generated repository, in code point order, and their bytes. */
 function folderReader(dir: string): TreeReader {
@@ -210,7 +216,42 @@ beforeAll(async () => {
   driver = await extractContracts(reader, shared.extraction, shared.facts);
   stageNodes = (await Promise.all(ALL_KINDS.map(async (kind) => await allPages((page) => store!.byProperty(kind, 'repository', REPOSITORY, page))))).flat();
   stageEdges = (await Promise.all(ALL_RELATIONS.map(async (relation) => await allPages((page) => store!.edgesByProperty(relation, 'repository', REPOSITORY, page))))).flat();
+  // The one named function that reads the driver's symbol reference as the graph's key (decision 4 of
+  // the coordinator's note): the driver names a declaration `code.symbol:<path>#<qualified name>`, the
+  // graph names the syntax stage's node for it by its record key, and the inline callbacks the
+  // contracts-code stage publishes by their own key. One declaration has two names, and this is where
+  // the two readings are compared.
+  const symbols = await allPages((page) => store!.byProperty('code.symbol', 'repository', REPOSITORY, page));
+  const callbacks = await allPages((page) => store!.byProperty('code.callback', 'repository', REPOSITORY, page));
+  const keys = new Map<string, string>();
+  for (const node of [...symbols, ...callbacks]) {
+    const held = propertiesOf(node);
+    const file = held['file'];
+    const qualifiedName = held['qualifiedName'];
+    const key = held['recordKey'];
+    if (typeof file !== 'string' || typeof qualifiedName !== 'string' || typeof key !== 'string') continue;
+    keys.set(`${file}#${qualifiedName}`, key);
+  }
+  symbolKeys = keys;
+  const references = await allPages((page) => store!.edgesByProperty('code.references', 'repository', REPOSITORY, page));
+  referenceLinks = new Set(references.map((entry) => `${propertiesOf(entry.src)['recordKey']}\u0000${propertiesOf(entry.dst)['recordKey']}`));
 }, 900_000);
+
+/**
+ * The graph's key for a driver symbol reference (`code.symbol:<path>#<qualified name>`), through the
+ * one function the comparison names: the syntax stage's node for that declaration, or the inline
+ * callback the contracts-code stage published at it. A reference the graph cannot answer is refused
+ * by name, so a missing symbol is a named difference and never a silently smaller comparison.
+ */
+function canonicalSymbol(reference: string): string {
+  if (!reference.startsWith('code.symbol:')) return reference;
+  const rest = reference.slice('code.symbol:'.length);
+  const at = rest.lastIndexOf('#');
+  if (at < 0) return reference;
+  const found = symbolKeys.get(`${rest.slice(0, at)}#${rest.slice(at + 1)}`);
+  if (found === undefined) throw new Error(`the driver names the symbol ${reference}, and the graph holds no symbol or callback of that name: the comparison cannot map it (test/fill-contracts-training.test.ts)`);
+  return found;
+}
 
 afterAll(async () => {
   await service?.stop();
@@ -223,10 +264,16 @@ function driverRecords(): Reading[] {
   if (driver === undefined) throw new Error('the driver did not read the repository');
   const records: Reading[] = [];
   for (const node of driver.nodes as readonly ExtractedNode[]) {
-    records.push({ kind: node.kind, key: node.key, label: node.label, properties: { ...node.properties }, ...(node.span === undefined ? {} : { span: node.span }) });
+    const properties = { ...node.properties } as Record<string, unknown>;
+    // A route names its handler by the driver's symbol key; the graph names the same declaration by
+    // its own key, and the one function maps it.
+    if (typeof properties['handlerKey'] === 'string') properties['handlerKey'] = canonicalSymbol(properties['handlerKey']);
+    records.push({ kind: node.kind, key: node.key, label: node.label, properties, ...(node.span === undefined ? {} : { span: node.span }) });
   }
   for (const edge of driver.edges as readonly ExtractedEdge[]) {
-    records.push({ kind: edge.type, key: `${edge.type}\u0000${edge.from}\u0000${edge.to}`, from: edge.from, to: edge.to, properties: { ...edge.properties }, ...(edge.span === undefined ? {} : { span: edge.span }), discriminator: edge.discriminator });
+    const from = canonicalSymbol(edge.from);
+    const to = canonicalSymbol(edge.to);
+    records.push({ kind: edge.type, key: `${edge.type}\u0000${from}\u0000${to}`, from, to, properties: { ...edge.properties }, ...(edge.span === undefined ? {} : { span: edge.span }), discriminator: edge.discriminator });
   }
   return records;
 }
@@ -269,7 +316,7 @@ function ours(row: { readonly properties: unknown }): boolean {
   const source = (provenance as Record<string, unknown>)['source'];
   if (source === null || typeof source !== 'object') return false;
   const system = (source as Record<string, unknown>)['system'];
-  return system === 'madarch-contracts' || system === 'madarch-contracts-code';
+  return system === 'madarch-contracts' || system === 'madarch-contracts-code' || system === 'madarch-contracts-routes';
 }
 
 /** The families one record belongs to: a node by its kind, an edge by its relation. */
@@ -303,6 +350,15 @@ function differences(): Difference[] {
     for (const family of familiesOf(record.kind)) {
       const held = actualByKey.get(`${record.kind}\u0000${record.key}`);
       if (held === undefined) {
+        // One link is one edge (decision 0028): where the resolution stage already tied a mention,
+        // the graph holds its `code.references` edge for the same two ends, and this reading's
+        // registration is that link. The comparison accepts the shared link by its ends and names
+        // it, never as a silent match of properties.
+        if (record.kind === 'code.references' && record.from !== undefined && record.to !== undefined && referenceLinks.has(`${record.from}\u0000${record.to}`)) {
+          const note = `${record.from} -> ${record.to}`;
+          if (!aliased.includes(note)) aliased.push(note);
+          continue;
+        }
         found.push({ family, side: 'missing', kind: record.kind, key: record.key, detail: `the stage publishes no ${record.kind} ${record.key}` });
         continue;
       }
@@ -339,6 +395,16 @@ describe('the contracts stage against the extract driver (training repository)',
     const empty = REMAINING.filter((family) => !found.some((difference) => difference.family === family));
     expect(empty).toEqual([]);
   }, 600_000);
+
+  test('a reference link two readings share is one edge, matched by its two ends', () => {
+    // The graph holds one edge per relation and two ends, so a registration the resolution stage
+    // already tied is that edge. Every shared record is named here, and both of its ends are symbols
+    // the graph holds — the link is real, and only its properties are the resolution's reading.
+    const keys = new Set(symbolKeys.values());
+    const unresolved = aliased.filter((note) => note.split(' -> ').some((end) => !keys.has(end)));
+    expect(unresolved).toEqual([]);
+    expect(aliased.length).toBeGreaterThan(0);
+  }, 60_000);
 
   test('the refill of one commit plans no unit of this reading', () => {
     expect(refill).toEqual([]);

@@ -487,7 +487,7 @@ function documentWrites(input: {
           factKind: factKindOf(node.kind),
           layer: 'extracted',
           repository: input.repository,
-          provenance: { source: CONTRACTS_SOURCE, repository: { id: input.repository, commit }, place: { file: span.path, range: { startLine: span.lineStart, startColumn: 0, endLine: span.lineEnd, endColumn: 0 } } },
+          provenance: { source: CONTRACTS_SOURCE, repository: { id: input.repository, commit }, place: { file: span.path, range: { startLine: span.lineStart, startColumn: 0, endLine: span.lineEnd, endColumn: 0, startByte: span.byteStart, endByte: span.byteEnd } } },
         },
       },
     });
@@ -522,7 +522,7 @@ function edgeWrite(relation: string, from: string, to: string, record: { readonl
         discriminator: record.discriminator,
         ...(record.span === undefined ? {} : { span: { ...record.span } }),
         ...(record.channel === undefined ? {} : { channel: record.channel }),
-        provenance: { source: CONTRACTS_SOURCE, repository: { id: repository, commit: commitOf(evidence) }, ...(record.span === undefined ? {} : { place: { file: record.span.path, range: { startLine: record.span.lineStart, startColumn: 0, endLine: record.span.lineEnd, endColumn: 0 } } }) },
+        provenance: { source: CONTRACTS_SOURCE, repository: { id: repository, commit: commitOf(evidence) }, ...(record.span === undefined ? {} : { place: { file: record.span.path, range: { startLine: record.span.lineStart, startColumn: 0, endLine: record.span.lineEnd, endColumn: 0, startByte: record.span.byteStart, endByte: record.span.byteEnd } } }) },
       },
     },
   };

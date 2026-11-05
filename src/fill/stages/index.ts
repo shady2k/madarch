@@ -16,6 +16,7 @@ import { createBoundariesStage } from './boundaries.js';
 import { createBuildConfigurationStage } from './build-configuration.js';
 import { createCodeFactsStage } from './code-facts.js';
 import { createContractsCodeStage } from './contracts-code.js';
+import { createContractsRoutesStage } from './contracts-routes.js';
 import { createContractsStage } from './contracts.js';
 import { createDocIntentStage } from './doc-intent.js';
 import { createDocumentIndexStage } from './document-index.js';
@@ -102,6 +103,9 @@ export function createStageRegistry(wiring: FillStageWiring): StageRegistry {
     // The code sites of the same reading (madarch-8bdc.2.4): the untrusted inputs a file reads
     // and the SQL path it carries, one unit per source file.
     .register(createContractsCodeStage(wiring.snapshots))
+    // The routes of the same reading (madarch-8bdc.2.4): a route's path, chain and handler are facts
+    // of another file's mount and of the syntax stage's symbols, so they are read in a stage after both.
+    .register(createContractsRoutesStage(wiring.snapshots))
     .register(createModulesStage(wiring.snapshots))
     .register(createDocumentIndexStage(wiring.snapshots))
     .register(createHistoryStage(createGitHistoryReader(wiring.checkoutOf ?? noCheckout), wiring.snapshots));

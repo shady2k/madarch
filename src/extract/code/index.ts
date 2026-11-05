@@ -61,8 +61,8 @@ import { goImportFolder, Program, type Binding, type FileCtx } from './program.j
 import { resolveFile } from './resolve.js';
 import { codeLanguageOf, folderOf, roleOf, type SourceFile } from './source.js';
 import { holderAt, indexSymbols, type FileSymbol } from './symbols.js';
+import { indexCallbacks } from '../../fill/stages/callbacks.js';
 import { readTestDetails } from './tests.js';
-import {callbackName} from './keys.js';
 import { codeFactId, freezeCodeFacts, type CodeBindingFact, type CodeCallFact, type CodeExpressionFact, type CodeFacts, type CodeExtractionResult, type CodeImportFact, type CodeExportFact } from './facts.js';
 export type { CodeFacts, CodeExtractionResult } from './facts.js';
 
@@ -245,34 +245,16 @@ export async function extractCodeWithFacts(reader: TreeReader, options: CodeExtr
     const { decls } = declarations;
     if (!declarations.read) gap(source.path, `line 1: declarations could not be read from repository path ${source.path}`);
     const topNames = syntax.parsed && source.language === 'typescript' ? new Set(decls.tops.map((top) => top.name)) : undefined;
-    const symbols = indexSymbols(source.path, syntax.symbols, topNames);
-    const callbackValues: SourceSpan[] = [];
-    if (syntax.parsed) {
-      // The syntax pass proves direct initializer ownership. One callable has
-      // one canonical owner, even when its declaration and expression differ.
-      // Raw evidence keeps async; callback keys retain their parameter position.
-      for (const boundary of [...(syntax.callables ?? [])].sort((left, right) =>
-        (right.span.endByte - right.span.startByte) - (left.span.endByte - left.span.startByte) || left.span.startByte - right.span.startByte)) {
-        const span = boundary.span;
-        const declaration = boundary.declarationSpan;
-        const declared = declaration === undefined ? [] : symbols.filter((symbol) => symbol.functionLike &&
-          symbol.span.startByte === declaration.startByte && symbol.span.endByte === declaration.endByte);
-        const raw = symbols.filter((symbol) => symbol.functionLike && symbol.span.startByte === span.startByte && symbol.span.endByte === span.endByte);
-        const canonical = declared.length === 1 ? declared[0] : raw.length === 1 ? raw[0] : undefined;
-        if (canonical !== undefined) {
-          for (const [index, symbol] of symbols.entries()) {
-            if (symbol === canonical) symbols[index] = {...symbol, local: false, keptKey: symbol.key};
-            else if (declared.length === 1 && raw.includes(symbol)) symbols[index] = {...symbol, local: true, keptKey: canonical.key};
-          }
-        } else if (declared.length === 0 && raw.length === 0) {
-          const enclosing = holderAt(symbols, span.startByte);
-          const name = callbackName(enclosing?.qualifiedName, 'anonymous', boundary.identity.startLine, boundary.identity.startByte);
-          const key = symbolKey(source.path, name);
-          symbols.push({key, qualifiedName: name, name, symbolKind: 'function', span, definitionSpan: span, local: false, keptKey: key, functionLike: true});
-        }
-        if (boundary.argument) callbackValues.push(toSpan(source.path, span));
-      }
-    }
+    // The syntax pass proves direct initializer ownership. One callable has one
+    // canonical owner, even when its declaration and expression differ. Raw
+    // evidence keeps async; callback keys retain their parameter position. The
+    // contracts stage reads the same rule from the same module, so a route's
+    // handler is one name in the two readings (madarch-8bdc.2.4).
+    const indexed = syntax.parsed
+      ? indexCallbacks(source.path, indexSymbols(source.path, syntax.symbols, topNames), syntax.callables)
+      : { symbols: indexSymbols(source.path, syntax.symbols, topNames), callbacks: [], argumentSpans: [] };
+    const symbols = [...indexed.symbols];
+    const callbackValues: SourceSpan[] = indexed.argumentSpans.map((span) => toSpan(source.path, span));
     for (const [index, symbol] of symbols.entries()) {
       if (!symbol.local || symbol.functionLike) continue;
       const holder = holderAt(symbols, symbol.span.startByte);

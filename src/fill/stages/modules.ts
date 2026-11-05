@@ -499,6 +499,9 @@ async function edgeRowsOf(source: StaticGraphReader, repository: string): Promis
     for (;;) {
       const page = await source.edgesByProperty(relation, 'repository', repository, { limit: STATIC_READ_ROW_LIMIT, ...(after === undefined ? {} : { after }) });
       for (const edge of page.rows) {
+        // A callable is a fact of its file, not a node the rank walks: the links a route's handler
+        // and a registration make end at one, and the file they stand in is already a node.
+        if (edge.from.kind === 'code.callable' || edge.to.kind === 'code.callable') continue;
         const from = edge.from.properties['recordKey'];
         const to = edge.to.properties['recordKey'];
         if (typeof from !== 'string' || typeof to !== 'string') {

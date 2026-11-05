@@ -46,6 +46,7 @@ const FILL_STAGES: readonly string[] = [
   // code sites that serve or call them, and the links between the two.
   'contracts',
   'contracts-code',
+  'contracts-routes',
   'semantic-resolution',
   'modules',
   'boundaries',
