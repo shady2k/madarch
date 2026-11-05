@@ -178,6 +178,17 @@ describe('a view follows the kind declaration', () => {
     }
   });
 
+  test('a refusal names the manifest\'s file and the kind\'s line, and a declaration with no line is named by its file alone', async () => {
+    const { manifest, folder } = readFixture('refusal-named');
+    const answer = await viewOrRefusal(manifest, folder, { type: 'c4-component', subject: SERVICE.key });
+    expect(answer).toContain(`${join(folder, 'madarch', 'kinds.yaml')}:2 gives the kind code.service no "views: [c4-component]"`);
+    // A fixture may hand in a declaration without the line the reader always sets: the sentence names the file, and
+    // never says ":undefined".
+    const unlined = { ...manifest, kinds: new Map([...manifest.kinds].map(([name, decl]) => [name, { ...decl, line: undefined }])) } as unknown as KindsManifest;
+    const unnamed = await viewOrRefusal(unlined, folder, { type: 'c4-component', subject: SERVICE.key });
+    expect(unnamed).toBe(`a component view is the modules of a container of this product: the manifest ${join(folder, 'madarch', 'kinds.yaml')} gives the kind code.service no "views: [c4-component]"`);
+  });
+
   test('an entity whose kind the manifest does not declare at all is refused by name, never by a kind the engine knew', async () => {
     const { manifest, folder } = readFixture('component-undeclared');
     const answer = await viewOrRefusal(manifest, folder, { type: 'c4-component', subject: 'code.workflow:nightly' });

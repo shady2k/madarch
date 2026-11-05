@@ -424,10 +424,13 @@ function kindDeclOf(manifest: KindsManifest | undefined, kind: string): KindDecl
  */
 export function declarationMissing(manifest: KindsManifest | undefined, kind: string, declaration: string, what: string): string {
   const decl = kindDeclOf(manifest, kind);
-  const at = decl === undefined
-    ? `the manifest ${manifest?.file ?? ''} declares no kind ${kind}`
-    : `the manifest ${manifest?.file ?? ''}:${decl.line} gives the kind ${kind} no ${declaration}`;
-  return `${what}: ${at}`;
+  const file = manifest?.file ?? '';
+  const named = file === '' ? 'the manifest' : `the manifest ${file}`;
+  if (decl === undefined) return `${what}: ${named} declares no kind ${kind}`;
+  // A declaration the reader holds always names its line; one a fixture hands in without a line is named by the file
+  // alone, so a refusal never says ":undefined".
+  const at = Number.isFinite(decl.line) ? `${named}${file === '' ? ' line' : ':'}${decl.line}` : named;
+  return `${what}: ${at} gives the kind ${kind} no ${declaration}`;
 }
 
 /** Whether the manifest gives a kind one of the views a page may draw of its entities (`views:`). */

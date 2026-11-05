@@ -1060,6 +1060,11 @@ describe('a kind\'s listing follows its declaration', () => {
       // The operations catalogue is the operations table, and the plain table of names and places is what a kind without
       // `listing: operations` draws instead.
       expect(container.querySelectorAll('[data-testid=operations-catalogue]').length).toBe(drawn ? 1 : 0);
+      // The page is let go before the next form is drawn: a root left mounted asks for its map again when the interface
+      // language changes, and its answer would be the stub of the test running then.
+      rendered?.unmount();
+      rendered = undefined;
+      document.body.innerHTML = '';
     }
   });
 });
