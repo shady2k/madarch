@@ -7,12 +7,22 @@
  * The keys stay the engine's own (`code.`); a product's kinds are the catalog's, and the product's mapping
  * ties one to the other.
  */
-import { CODE_EDGE_TYPES, CODE_NODE_KINDS, CODE_PRODUCER } from './code/keys.js';
-import { CONTRACTS_EDGE_TYPES, CONTRACTS_NODE_KINDS, CONTRACTS_PRODUCER } from './contracts/schema.js';
-import { DATA_MODEL_EDGE_TYPES, DATA_MODEL_NODE_KINDS, DATA_MODEL_PRODUCER } from './data-model/keys.js';
-import { DRIVER_EDGE_TYPES, DRIVER_NODE_KINDS, DRIVER_PRODUCER } from './driver/vocabulary.js';
-import { HISTORY_EDGE_TYPES, HISTORY_NODE_KINDS, HISTORY_PRODUCER } from './history/vocabulary.js';
-import { OPERATIONS_EDGE_TYPES, OPERATIONS_NODE_KINDS, OPERATIONS_PRODUCER } from './operations/vocabulary.js';
+import { CODE_EDGE_TYPES, CODE_NODE_KINDS, CODE_PRODUCER, type CodeKind, type CodeRelation } from './code/keys.js';
+import { CONTRACTS_EDGE_TYPES, CONTRACTS_NODE_KINDS, CONTRACTS_PRODUCER, type ContractsKind, type ContractsRelation } from './contracts/schema.js';
+import { DATA_MODEL_EDGE_TYPES, DATA_MODEL_NODE_KINDS, DATA_MODEL_PRODUCER, type DataModelKind, type DataModelRelation } from './data-model/keys.js';
+import { DRIVER_EDGE_TYPES, DRIVER_NODE_KINDS, DRIVER_PRODUCER, type DriverKind, type DriverRelation } from './driver/vocabulary.js';
+import { HISTORY_EDGE_TYPES, HISTORY_NODE_KINDS, HISTORY_PRODUCER, type HistoryKind, type HistoryRelation } from './history/vocabulary.js';
+import { OPERATIONS_EDGE_TYPES, OPERATIONS_NODE_KINDS, OPERATIONS_PRODUCER, type OperationsKind, type OperationsRelation } from './operations/vocabulary.js';
+
+/**
+ * Every node kind the extractors can emit: the union of the six declarations. A node record's kind is one of
+ * these, so an extractor that emits a key its declaration does not hold fails the type check at the emission
+ * site — the vocabulary cannot fall behind the code it describes.
+ */
+export type EmittedKind = CodeKind | ContractsKind | DataModelKind | DriverKind | HistoryKind | OperationsKind;
+
+/** Every relation type the extractors can emit: the union of the six declarations, enforced the same way. */
+export type EmittedRelation = CodeRelation | ContractsRelation | DataModelRelation | DriverRelation | HistoryRelation | OperationsRelation;
 
 /** What one extractor declares it emits: its producer id, its node kinds and its relation types. */
 interface ExtractorVocabulary {

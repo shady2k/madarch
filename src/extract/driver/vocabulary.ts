@@ -23,3 +23,9 @@ export const DRIVER_NODE_KINDS = [KIND_REPOSITORY, 'code.directory', 'code.file'
 
 /** Every relation type the driver itself emits, declared as data the code names and the mapping ties (0033, item 7). */
 export const DRIVER_EDGE_TYPES = [REL_CONTAINS, REL_OCCURRENCE, REL_FACET_OF, REL_DESCRIBES_FILE, REL_PROBES, REL_SERVED_BY] as const;
+
+/** The union of the node kinds this extractor declares: an emitted kind is one of them, and tsc refuses any other. */
+export type DriverKind = (typeof DRIVER_NODE_KINDS)[number];
+
+/** The union of the relation types this extractor declares: an emitted relation is one of them. */
+export type DriverRelation = (typeof DRIVER_EDGE_TYPES)[number];

@@ -272,7 +272,8 @@ describe('small repositories (review findings of decision 0030)', () => {
       { message: 'First', writes: { 'a.txt': 'one\n' }, author: AUTHORS[0]! },
       { message: 'Second', writes: { 'a.txt': 'two\n' }, author: AUTHORS[0]! },
     ]);
-    const extra = (): Extraction => ({ producer: 'code.extract.extra', nodes: [{ key: 'code.thing:extra', kind: 'code.thing', label: 'extra', properties: {} }], edges: [], gaps: [] });
+    // A declared kind no other extractor here emits: the fill publishes it under its own producer.
+    const extra = (): Extraction => ({ producer: 'code.extract.extra', nodes: [{ key: 'code.field:extra', kind: 'code.field', label: 'extra', properties: {} }], edges: [], gaps: [] });
     const base = { owner, store, repository: folder, owners: OWNERS };
     const first = await fillGraph({ ...base, extractors: [extractFiles] });
     expect(first.commits[0]!.publications).toBe(1);

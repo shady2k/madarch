@@ -82,7 +82,10 @@ function main(): void {
     );
     // The mapping's own counts: what is tied to the catalog, and what the extractors keep as their own.
     const mapping = manifest.mapping;
-    if (mapping === undefined) console.error(`${manifest.file}: the manifest declares no "mapping", and the starter set ties the extractors' vocabulary to the catalog`);
+    if (mapping === undefined) {
+      console.error(`${manifest.file}:1: the manifest declares no "mapping", and the starter set ties the extractors' vocabulary to the catalog`);
+      failed = true;
+    }
     else {
       const tied = (rows: Iterable<{ tie: string }>): [number, number] => {
         let mapped = 0;

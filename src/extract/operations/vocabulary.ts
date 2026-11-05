@@ -84,3 +84,9 @@ export const OPERATIONS_EDGE_TYPES = [
   REL_HOSTS_CHANNEL, REL_UPDATES_METRIC, REL_SERVED_BY, REL_EXPOSES_METRIC, REL_USES_LOGGER, REL_BACKED_BY,
   REL_MANIFEST_OF,
 ] as const;
+
+/** The union of the node kinds this extractor declares: an emitted kind is one of them, and tsc refuses any other. */
+export type OperationsKind = (typeof OPERATIONS_NODE_KINDS)[number];
+
+/** The union of the relation types this extractor declares: an emitted relation is one of them. */
+export type OperationsRelation = (typeof OPERATIONS_EDGE_TYPES)[number];

@@ -26,3 +26,9 @@ export const HISTORY_NODE_KINDS = [KIND_COMMIT, KIND_AUTHOR, KIND_TASK, KIND_SNA
 
 /** Every relation type this extractor emits, declared as data the code names and the mapping ties (0033, item 7). */
 export const HISTORY_EDGE_TYPES = [REL_PARENT, REL_AUTHORED, REL_TASKS, REL_HELD, REL_TOUCHED, REL_RENAMED_TO, REL_CHANGED_WITH] as const;
+
+/** The union of the node kinds this extractor declares: an emitted kind is one of them, and tsc refuses any other. */
+export type HistoryKind = (typeof HISTORY_NODE_KINDS)[number];
+
+/** The union of the relation types this extractor declares: an emitted relation is one of them. */
+export type HistoryRelation = (typeof HISTORY_EDGE_TYPES)[number];

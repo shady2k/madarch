@@ -25,6 +25,7 @@ import {routeListenerPorts, structuralHttpRegistrations} from '../operations/rou
 import {codeFactsOf, extractCodeWithFacts} from '../code/index.js';
 import type {CodeExpressionFact, CodeFacts} from '../code/facts.js';
 import {decodeStringToken} from '../code/literals.js';
+import type {EmittedRelation} from '../vocabulary.js';
 import {asyncApiNodes, readAsyncApi} from './asyncapi.js';
 import {inferOutboxPublications} from './outbox.js';
 import {contractSymbols} from './symbol-links.js';
@@ -60,6 +61,7 @@ import {
   REL_PUBLISHES,
   REL_SERVES,
   routeKey,
+  type ContractsRelation,
   sqlBuildKey,
   sqlSinkKey,
 } from './schema.js';
@@ -120,7 +122,7 @@ export async function extractContracts(reader: TreeReader, code?: Extraction, fa
   const openApiOperations: {method: string; routePath: string; key: string; servers: readonly string[]; contractPath: string; span: SourceSpan}[] = [];
   const channels: string[] = [];
   const protoRpcs: {protoPath: string; service: string; rpc: string; key: string}[] = [];
-  const declarations: {contract: string; member: string; relation: `code.${string}`}[] = [];
+  const declarations: {contract: string; member: string; relation: EmittedRelation}[] = [];
   const contractSpans = new Map<string, SourceSpan>();
 
   for (const p of reader.paths) {
@@ -314,7 +316,7 @@ export async function extractContracts(reader: TreeReader, code?: Extraction, fa
   };
 
   const addEdge = (
-    type: `code.${string}`,
+    type: EmittedRelation,
     from: string,
     to: string,
     properties: {[key: string]: PropertyValue} = {},
@@ -323,7 +325,7 @@ export async function extractContracts(reader: TreeReader, code?: Extraction, fa
     edges.push({type, from, to, discriminator: '', properties, ...(span !== undefined ? {span} : {})});
   };
 
-  const interaction = (type: `code.${string}`, path: string, target: string, properties: {[key: string]: PropertyValue}, span: SourceSpan): void => {
+  const interaction = (type: ContractsRelation, path: string, target: string, properties: {[key: string]: PropertyValue}, span: SourceSpan): void => {
     const source = symbols.enclosing(span);
     // Preserve the file-level overview as explicitly aggregated evidence. The
     // canonical interaction starts at a real function, including inline handlers.
@@ -882,7 +884,7 @@ function httpCallUrl(facts: CodeFacts | undefined, span: SourceSpan): readonly s
 function extractSqlFlow(
   file: TsFacts,
   nodes: ExtractedNode[],
-  addEdge: (type: `code.${string}`, from: string, to: string, properties?: {[key: string]: PropertyValue}, span?: SourceSpan) => void,
+  addEdge: (type: EmittedRelation, from: string, to: string, properties?: {[key: string]: PropertyValue}, span?: SourceSpan) => void,
 ): void {
   const {path, ts} = file;
   for (const input of ts.inputs) {

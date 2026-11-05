@@ -91,6 +91,25 @@ None.
 - `scripts/check-catalog.ts` prints the mapping's counts beside the catalog's, so a run says what is tied and
   what extraction keeps as its own.
 
+
+
+What the review of the first round changed:
+
+- **The vocabulary is closed by the type system.** A record's `kind` and an edge's `type` are now the union of the
+  six extractor vocabularies (`EmittedKind`, `EmittedRelation` in `src/extract/vocabulary.ts`), derived from the
+  const arrays, so an extractor that emits a key its declaration does not hold fails `tsc` at the emission site —
+  not only the mapping check at the end. `test/type-checks/extract-vocabulary-is-closed.ts` holds the proof: an
+  undeclared kind and an undeclared relation are `@ts-expect-error` lines, so `bun run check` fails if the union
+  ever widens to accept them.
+- **A relation tie says its direction.** Each of the 36 tied relations carries `direction: same` or `inverse`;
+  the check refuses a tie without one or with a word outside the vocabulary, and refuses a direction on a kind's
+  row or on an internal row. Reviewing all 36, six ran against the catalog's relation (`code.built-by` →
+  `generates`, `code.configured-by` → `configures`, `code.handled-by` → `handles`, `code.manifest-of` →
+  `hasDependencyManifest`, `code.served-by` → `handles`, `code.tests` → `hasTest`), and three relations that are
+  extraction facts rather than catalog relations became internal (`code.touched`, `code.updates-metric`,
+  `code.exposes-metric`).
+- **`bun run check` fails a manifest with no `mapping:`** instead of printing a line and exiting 0.
+
 ## Acceptance evidence
 Measured in the worker VM (4 vCPU, 8 GB, arm64), 2026-11-05:
 
@@ -117,3 +136,16 @@ or relation, or declaring it internal with a reason, read from the extractors' d
 list in the check; the check refuses an emitted key with no row and a row naming a kind or relation the catalog
 does not hold, naming both, the file and the line; the starter set passes; and a test plants each refusal and
 the pass.
+
+The review round of 2026-11-05 added:
+
+- `bun run check` exit 0; the catalog check's line:
+  `mapping: version 1; 56 extractor kinds (55 tied to a catalog kind, 1 internal); 64 extractor relations
+  (36 tied to a catalog relation, 28 internal)`.
+- `MADARCH_SKIP_PERF=1 bun test test/mapping-check.test.ts`: 15 pass, 0 fail, including the direction cases and
+  the check against an emitted vocabulary that holds a kind the mapping lacks.
+- The type fixture `test/type-checks/extract-vocabulary-is-closed.ts` compiles, its two `@ts-expect-error` lines
+  proving that an undeclared kind or relation is refused at the emission site.
+- A manifest with its `mapping:` section removed exits 1, printing the manifest's path with the refusal.
+- StrykerJS 9 on the direction block of `src/knowledge/mapping.ts` (lines 127-146) against
+  `bun test test/mapping-check.test.ts`: 80 mutants, 70 killed, 10 survived — 87.50%.

@@ -28,6 +28,13 @@ import type { CatalogEntry, CatalogSchema } from './catalog.js';
 /** The versions of the mapping's shape this engine reads. */
 const MAPPING_VERSIONS: readonly number[] = [1];
 
+/**
+ * The directions a tied relation can take: `same` when the extractor's edge runs the way the catalog's relation
+ * runs, `inverse` when the extractor reads the edge the other way round (a route is handled by a symbol, where
+ * `handles` runs from the symbol to the route).
+ */
+const MAPPING_DIRECTIONS = ['same', 'inverse'] as const;
+
 /** How one extractor key is tied to the catalog. */
 interface MappingRow {
   readonly key: string;
@@ -35,6 +42,8 @@ interface MappingRow {
   readonly tie: 'kind' | 'relation' | 'internal';
   /** The catalog kind or relation name, for a tie. */
   readonly target?: string;
+  /** For a relation tie, whether the extractor's edge runs the way the catalog's relation does or the other way. */
+  readonly direction?: 'same' | 'inverse';
   /** The reason an internal key is not a catalog kind or relation. */
   readonly reason?: string;
   readonly line: number;
@@ -50,6 +59,9 @@ export interface MappingRead {
 
 /** The fields a row of the mapping holds. */
 const ROW_FIELDS = ['kind', 'relation', 'internal'] as const;
+
+/** The field a tied relation carries besides its name. */
+const DIRECTION_FIELD = 'direction';
 
 /** The keys whose list a message names, in code point order, cut to a sentence a person can read. */
 function names(keys: Iterable<string>): string {
@@ -103,7 +115,7 @@ export function readMapping(
       const fail = (message: string): void => { findings.push({ file, line, message: `${section === 'kinds' ? 'kind' : 'relation'} "${key}": ${message}` }); };
       if (entry === null || typeof entry !== 'object' || Array.isArray(entry)) { fail(`the row is { ${section === 'kinds' ? 'kind' : 'relation'} } or { internal }`); continue; }
       const row = entry as Record<string, unknown>;
-      for (const field of Object.keys(row)) if (!(ROW_FIELDS as readonly string[]).includes(field)) fail(`"${field}" is not a field of a mapping row: the fields are ${ROW_FIELDS.join(', ')}`);
+      for (const field of Object.keys(row)) if (!(ROW_FIELDS as readonly string[]).includes(field) && field !== DIRECTION_FIELD) fail(`"${field}" is not a field of a mapping row: the fields are ${ROW_FIELDS.join(', ')}, and a tied relation's ${DIRECTION_FIELD}`);
       const present = ROW_FIELDS.filter((field) => row[field] !== undefined);
       if (present.length !== 1) { fail(`the row names exactly one of ${ROW_FIELDS.join(', ')}, and it names ${present.length === 0 ? 'none' : present.join(' and ')}`); continue; }
       const field = present[0]!;
@@ -111,6 +123,16 @@ export function readMapping(
       const wanted = section === 'kinds' ? 'kind' : 'relation';
       if (field !== 'internal' && field !== wanted) { fail(`"${field}" is not a field of a ${wanted}'s row: a ${section === 'kinds' ? 'kind' : 'relation type'} is tied to the catalog's ${wanted}, or declared internal`); continue; }
       const target = row[field];
+      // A tied relation says which way it runs; a kind's row and an internal row carry no direction.
+      const rawDirection = row[DIRECTION_FIELD];
+      let direction: 'same' | 'inverse' | undefined;
+      if (field === 'relation') {
+        if (typeof rawDirection !== 'string' || !(MAPPING_DIRECTIONS as readonly string[]).includes(rawDirection)) { fail(`"direction" is ${MAPPING_DIRECTIONS.join(' or ')}: whether the extractor's edge runs with the catalog's "${String(target)}" or against it, got ${JSON.stringify(rawDirection)}`); continue; }
+        direction = rawDirection as 'same' | 'inverse';
+      } else if (rawDirection !== undefined) {
+        fail(field === 'internal' ? '"direction" belongs to a relation tie: an internal key names no catalog relation to run with or against' : '"direction" belongs to a relation tie: a kind is tied to a kind, which has no direction');
+        continue;
+      }
       if (field === 'internal') {
         if (typeof target !== 'string' || target.trim() === '') { fail('"internal" is the reason the key is extraction\'s own and not a catalog kind or relation'); continue; }
         held.set(key, { key, tie: 'internal', reason: target, line });
@@ -125,7 +147,7 @@ export function readMapping(
         fail(`the mapping ties it to the relation "${target}", and the catalog holds no such relation ("catalog.relations": ${names(catalogRelations)})`);
         continue;
       }
-      held.set(key, { key, tie: field, target, line });
+      held.set(key, { key, tie: field, target, ...(direction === undefined ? {} : { direction }), line });
     }
     return held;
   };

@@ -88,3 +88,9 @@ export const sqlSinkKey = (file: string, callee: string): string => `${KIND_SQL_
 
 /** `code.file:<path>` -- the file node another extractor owns; edges of this extractor reference it. */
 export const fileKey = (path: string): string => `code.file:${path}`;
+
+/** The union of the node kinds this extractor declares: an emitted kind is one of them, and tsc refuses any other. */
+export type ContractsKind = (typeof CONTRACTS_NODE_KINDS)[number];
+
+/** The union of the relation types this extractor declares: an emitted relation is one of them. */
+export type ContractsRelation = (typeof CONTRACTS_EDGE_TYPES)[number];

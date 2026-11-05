@@ -743,19 +743,24 @@ implementation status, the relation constraints it may carry and its template
 policy. The manifest declares the catalog's schema — the bound of a subgroup,
 the origin marks, the statuses, the template policies, the values that are
 attributes and the relation names — and the engine holds no area, kind or id
-of its own.
+of its own. Every area and subgroup also declares a short label for the
+navigation in both interface languages, one or two words that fit the sidebar's
+column, beside its full name, which a page and the catalogue keep.
 
 One concept has one kind: a concept two areas share stands in one subgroup and
 the other refers to it, and distinct senses stay distinct. A value such as a
-version, a coverage, an RTO or a token count is an attribute of a kind, not a
-kind. Relation names are the standards' own where they exist.
+version, a coverage, an RTO, a sunset date or an error budget is an attribute of
+a kind, not a kind. Relation names are the standards' own where they exist,
+and a relation reads in the standard's direction; the mapping that ties the
+extractors' vocabulary to the catalog says which way each extractor's edge runs.
 
 A mechanical check, run by `bun run check` over the starter set and by the
 wiki's own read of a product's manifest, shall refuse a kind that leaves a
 field out, a subgroup above its bound, two kinds for one concept id, a value
-the catalog marks as an attribute declared as a kind, and an area, a subgroup
-or an origin mark the manifest does not declare. Every refusal shall name the
-file, the line and the kind.
+the catalog marks as an attribute declared as a kind, an area, a subgroup or an
+origin mark the manifest does not declare, and a group without a short label or
+one longer than the sidebar holds. Every refusal shall name the file, the line
+and the kind (or the group).
 
 A kind whose template policy is `none` is catalogue data only: the wiki shows
 no page and no template for it, and the kinds the wiki shows today are shown
@@ -764,12 +769,12 @@ as they were.
 ### Scenario: starter-set-catalog
 - Given: a product made by `madarch new`
 - When: its `madarch/kinds.yaml` is read
-- Then: every area and subgroup of the catalog is declared, and every kind holds its id, definition, sources, acquisition, status, relation constraints and template policy
+- Then: every area and subgroup of the catalog is declared with its full name and its short navigation label, and every kind holds its id, definition, sources, acquisition, status, relation constraints and template policy
 
 ### Scenario: catalog-refusals
-- Given: a starter manifest with a kind that leaves its status out, a subgroup holding thirteen kinds, two kinds of one concept id, a kind whose id is an attribute, and a kind whose group, area or origin mark the manifest does not declare
+- Given: a starter manifest with a kind that leaves its status out, a subgroup holding thirteen kinds, two kinds of one concept id, a kind whose id is an attribute, a kind whose group, area or origin mark the manifest does not declare, and a group whose short label is missing or too long
 - When: the catalog is checked
-- Then: each is refused with the file, the line and the kind, and the check exits 1
+- Then: each is refused with the file, the line and the kind (or the group), and the check exits 1
 
 ### Scenario: catalogue-only-kind
 - Given: a kind the catalog declares with the template policy `none`
@@ -780,33 +785,37 @@ as they were.
 The starter set `madarch new` writes shall hold a versioned mapping of the
 extractors' vocabulary to the catalog: every node kind and relation type the
 extractors emit, tied to a catalog kind or to one of the catalog's relation
-names, or declared internal to extraction with the reason. The emitted keys are
-read from the extractors' own declarations — each extractor declares the kinds
-and relations its code emits as data — and never from a list in the check, so a
-key an extractor starts emitting is seen by the check without another list
-being edited.
+names, or declared internal to extraction with the reason. A tied relation also
+says which way it runs — `same` as the catalog's relation, or `inverse` when the
+extractor reads the edge the other way round. The emitted keys are read from the
+extractors' own declarations, and a record's kind and an edge's type are the
+union of those declarations, so an extractor that emits a key its declaration
+does not hold fails the type check at the emission site; no list in the check
+names a kind.
 
 A mechanical check, run by `bun run check` over the starter set and by the
 wiki's own read of a product's manifest, shall refuse an emitted key with no
 row, a row that ties a key to a kind or a relation the catalog does not hold, a
-row for a key no extractor emits, and a row that is neither a tie nor an
+row for a key no extractor emits, a tied relation without a direction or with
+one the vocabulary does not know, and a row that is neither a tie nor an
 internal declaration with its reason. Every refusal shall name both the
 extractor's key and the catalog name it was tied to, with the file and the
-line. The starter set passes it. A product that removes a kind changes what it
-shows and walks, never what extraction keeps: the mapping keeps the extractor's
-key tied to what the product declares.
+line. The starter set passes it, and `bun run check` fails when the manifest has
+no `mapping:` at all. A product that removes a kind changes what it shows and
+walks, never what extraction keeps: the mapping keeps the extractor's key tied
+to what the product declares.
 
 ### Scenario: mapping-ties-extractors
 - Given: a product made by `madarch new`
 - When: its `madarch/kinds.yaml` is read
-- Then: its `mapping:` names a version and holds a row for every kind and relation the extractors declare, each tied to the catalog or internal with a reason
+- Then: its `mapping:` names a version and holds a row for every kind and relation the extractors declare, each tied to the catalog (a relation with its direction) or internal with a reason
 
 ### Scenario: mapping-refusals
-- Given: a starter manifest with a row removed, a row tied to a kind the catalog does not hold, a row tied to a relation the catalog does not hold, and a row for a key no extractor emits
+- Given: a starter manifest with a row removed, a row tied to a kind the catalog does not hold, a row tied to a relation the catalog does not hold, a tied relation without a direction, and a row for a key no extractor emits
 - When: the mapping is checked
-- Then: each is refused with both names, the file and the line, and the check exits 1
+- Then: each is refused with both names, the file and the line, and the check exits 1; a manifest with no `mapping:` fails as well
 
 ### Scenario: mapping-notices-new-keys
-- Given: an extractor's vocabulary that declares a kind the mapping does not tie
-- When: the mapping is checked
-- Then: the key is refused as emitted and unmapped, naming the extractor, and no list in the check was edited
+- Given: an extractor whose code emits a kind its vocabulary declaration does not hold
+- When: the code is type-checked, or the mapping is checked against an emitted vocabulary holding it
+- Then: the emission site fails the type check, and the key is refused as emitted and unmapped — no list in the check was edited

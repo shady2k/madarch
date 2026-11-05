@@ -68,3 +68,9 @@ export function functionKey(path: string, qualifiedName: string): string {
 export function fileKey(path: string): string {
   return `code.file:${path}`;
 }
+
+/** The union of the node kinds this extractor declares: an emitted kind is one of them, and tsc refuses any other. */
+export type DataModelKind = (typeof DATA_MODEL_NODE_KINDS)[number];
+
+/** The union of the relation types this extractor declares: an emitted relation is one of them. */
+export type DataModelRelation = (typeof DATA_MODEL_EDGE_TYPES)[number];

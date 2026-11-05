@@ -103,3 +103,9 @@ export const cycleKey = (level: 'module' | 'file', members: readonly string[]): 
 
 /** An actual inline registration callback, named from its enclosing declaration and byte position. */
 export const callbackName = (enclosing: string | undefined, route: string, line: number, byte: number): string => `${enclosing ?? route}.callback@${line}:${byte}`;
+
+/** The union of the node kinds this extractor declares: an emitted kind is one of them, and tsc refuses any other. */
+export type CodeKind = (typeof CODE_NODE_KINDS)[number];
+
+/** The union of the relation types this extractor declares: an emitted relation is one of them. */
+export type CodeRelation = (typeof CODE_EDGE_TYPES)[number];

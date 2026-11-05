@@ -31,8 +31,8 @@ const SMALL = [
   '    uses:',
   '    internal-thing: "https://example.test/relation"',
   'groups:',
-  '  area: { en: Area, ru: Область, open: true }',
-  '  area.one: { en: One, ru: Один, parent: area }',
+  '  area: { en: Area, ru: Область, short: { en: Area, ru: Область }, open: true }',
+  '  area.one: { en: One, ru: Один, short: { en: One, ru: Один }, parent: area }',
   'kinds:',
   '  code.symbol:',
   '    id: "practice.code-symbol"',
@@ -48,7 +48,7 @@ const SMALL = [
   '  kinds:',
   '    code.symbol: { kind: code.symbol }',
   '  relations:',
-  '    code.contains: { relation: contains }',
+  '    code.contains: { relation: contains, direction: same }',
   '',
 ].join('\n');
 
@@ -59,7 +59,7 @@ const EMITTED = {
 };
 
 /** The mapping of one manifest, read against the small catalog and the emitted vocabulary the test names. */
-function read(text: string, emitted: { kinds: ReadonlyMap<string, readonly string[]>; relations: ReadonlyMap<string, readonly string[]> } = EMITTED): { findings: string[]; mapped: number; internal: number } {
+function read(text: string, emitted: { kinds: ReadonlyMap<string, readonly string[]>; relations: ReadonlyMap<string, readonly string[]> } = EMITTED): { findings: string[]; mapped: number; internal: number; rows: [string, string, string | undefined][] } {
   const lines = new LineCounter();
   const document = parseDocument(text, { lineCounter: lines, uniqueKeys: true });
   const at = (path: (string | number)[]): number => lineForPath(document, lines, path);
@@ -78,7 +78,12 @@ function read(text: string, emitted: { kinds: ReadonlyMap<string, readonly strin
   const mapping = readMapping((document.toJS() as Record<string, unknown>)['mapping'], at, 'madarch/kinds.yaml', schema.schema === undefined ? undefined : { schema: schema.schema, kinds }, emitted);
   findings.push(...mapping.findings);
   const rows = [...mapping.kinds.values(), ...mapping.relations.values()];
-  return { findings: findings.map((finding) => `${finding.line}: ${finding.message}`), mapped: rows.filter((row) => row.tie !== 'internal').length, internal: rows.filter((row) => row.tie === 'internal').length };
+  return {
+    findings: findings.map((finding) => `${finding.line}: ${finding.message}`),
+    mapped: rows.filter((row) => row.tie !== 'internal').length,
+    internal: rows.filter((row) => row.tie === 'internal').length,
+    rows: rows.map((row) => [row.key, row.tie, row.direction] as [string, string, string | undefined]),
+  };
 }
 
 /** The small manifest with one line replaced or dropped. */
@@ -133,13 +138,13 @@ describe('the mapping ties the extractors\' vocabulary to the catalog', () => {
   });
 
   test('a row that ties an extractor kind to a kind the catalog does not hold is refused, naming both', () => {
-    const text = rowIn(rowIn(SMALL, 'kinds', '    code.new-thing: { kind: code.nowhere }'), 'relations', '    code.fresh-link: { relation: contains }');
+    const text = rowIn(rowIn(SMALL, 'kinds', '    code.new-thing: { kind: code.nowhere }'), 'relations', '    code.fresh-link: { relation: contains, direction: same }');
     // The refused row leaves the key untied, so the missing row is named too.
     expect(read(text).findings).toContainEqual(expect.stringContaining('kind "code.new-thing": the mapping ties it to the kind "code.nowhere", and the catalog holds no such kind (its kinds are code.symbol)'));
   });
 
   test('a row that ties an extractor relation to a relation the catalog does not hold is refused, naming both', () => {
-    const text = rowIn(rowIn(SMALL, 'kinds', '    code.new-thing: { relation: contains }'), 'relations', '    code.fresh-link: { relation: flies }');
+    const text = rowIn(rowIn(SMALL, 'kinds', '    code.new-thing: { relation: contains }'), 'relations', '    code.fresh-link: { relation: flies, direction: same }');
     expect(read(text).findings).toContainEqual(expect.stringContaining('kind "code.new-thing": "relation" is not a field of a kind\'s row: a kind is tied to the catalog\'s kind, or declared internal'));
     expect(read(text).findings).toContainEqual(expect.stringContaining('relation "code.fresh-link": the mapping ties it to the relation "flies", and the catalog holds no such relation ("catalog.relations": contains, internal-thing, uses)'));
   });
@@ -204,6 +209,22 @@ describe('the mapping ties the extractors\' vocabulary to the catalog', () => {
     expect(Number(refused.slice(0, refused.indexOf(':')))).toBe(bad.split('\n').indexOf('    code.new-thing: { kind: code.nowhere }') + 1);
   });
 
+  test('a tied relation says which way it runs, and a row that does not is refused', () => {
+    const noDirection = rowIn(complete(SMALL), 'relations', '    code.fresh-link: { relation: contains }');
+    expect(read(noDirection).findings).toContainEqual(expect.stringContaining('relation "code.fresh-link": "direction" is same or inverse: whether the extractor\'s edge runs with the catalog\'s "contains" or against it, got undefined'));
+    const wrong = rowIn(complete(SMALL), 'relations', '    code.fresh-link: { relation: contains, direction: sideways }');
+    expect(read(wrong).findings).toContainEqual(expect.stringContaining('relation "code.fresh-link": "direction" is same or inverse'));
+    const backwards = rowIn(rowIn(SMALL, 'relations', '    code.fresh-link: { relation: contains, direction: inverse }'), 'kinds', '    code.new-thing: { internal: "a reading" }');
+    expect(read(backwards).findings).toEqual([]);
+    expect(read(backwards).rows.filter((row) => row[0].startsWith('code.fresh') || row[0] === 'code.contains')).toEqual([['code.contains', 'relation', 'same'], ['code.fresh-link', 'relation', 'inverse']]);
+  });
+
+  test('a direction on a kind\'s row or on an internal row is refused', () => {
+    expect(read(rowIn(complete(SMALL), 'kinds', '    code.new-thing: { kind: code.symbol, direction: same }')).findings).toContainEqual(expect.stringContaining('kind "code.new-thing": "direction" belongs to a relation tie: a kind is tied to a kind, which has no direction'));
+    const internal = rowIn(rowIn(SMALL, 'relations', '    code.fresh-link: { internal: "a reading", direction: inverse }'), 'kinds', '    code.new-thing: { internal: "a reading" }');
+    expect(read(internal).findings).toContainEqual(expect.stringContaining('relation "code.fresh-link": "direction" belongs to a relation tie: an internal key names no catalog relation to run with or against'));
+  });
+
   test('the starter set ties every kind and relation the extractors declare', () => {
     const folder = mkdtempSync(join(tmpdir(), 'madarch-mapping-'));
     try {
@@ -221,7 +242,10 @@ describe('the mapping ties the extractors\' vocabulary to the catalog', () => {
       expect([...read1.mapping!.kinds.keys()]).toEqual([...EXTRACTOR_KINDS.keys()]);
       expect([...read1.mapping!.relations.keys()]).toEqual([...EXTRACTOR_RELATIONS.keys()]);
       const rows = [...read1.mapping!.kinds.values(), ...read1.mapping!.relations.values()];
-      expect(rows.filter((row) => row.tie === 'internal').map((row) => row.key)).toEqual(['code.facet', 'code.alters', 'code.authored', 'code.backed-by', 'code.changed-with', 'code.covers', 'code.cycle-member', 'code.defined-in', 'code.describes-file', 'code.exposes', 'code.facet-of', 'code.flows-into', 'code.listens-on', 'code.logical-reference', 'code.occurrence', 'code.parent', 'code.reads', 'code.reads-env', 'code.references', 'code.renamed-to', 'code.resolves', 'code.runs', 'code.starts', 'code.targets', 'code.tasks', 'code.writes']);
+      expect(rows.filter((row) => row.tie === 'internal').map((row) => row.key)).toEqual(['code.facet', 'code.alters', 'code.authored', 'code.backed-by', 'code.changed-with', 'code.covers', 'code.cycle-member', 'code.defined-in', 'code.describes-file', 'code.exposes', 'code.exposes-metric', 'code.facet-of', 'code.flows-into', 'code.listens-on', 'code.logical-reference', 'code.occurrence', 'code.parent', 'code.reads', 'code.reads-env', 'code.references', 'code.renamed-to', 'code.resolves', 'code.runs', 'code.starts', 'code.targets', 'code.tasks', 'code.touched', 'code.updates-metric', 'code.writes']);
+      // Every tied relation says which way it runs, and the ones the extractors read backwards are marked.
+      expect([...read1.mapping!.relations.values()].filter((row) => row.tie === 'relation').every((row) => row.direction === 'same' || row.direction === 'inverse')).toBe(true);
+      expect([...read1.mapping!.relations.values()].filter((row) => row.direction === 'inverse').map((row) => row.key)).toEqual(['code.built-by', 'code.configured-by', 'code.handled-by', 'code.manifest-of', 'code.served-by', 'code.tests']);
     } finally {
       rmSync(folder, { recursive: true, force: true });
     }

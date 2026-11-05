@@ -624,7 +624,7 @@ export function starterManifest(language?: string): string {
 /** One row of the mapping as the manifest writes it: a tie to a catalog kind or relation, or an internal reason. */
 function mappingRowYaml(row: CatalogMappingRow): string {
   if (row.kind !== undefined) return `{ kind: ${yamlText(row.kind)} }`;
-  if (row.relation !== undefined) return `{ relation: ${yamlText(row.relation)} }`;
+  if (row.relation !== undefined) return `{ relation: ${yamlText(row.relation)}, direction: ${yamlText(row.direction ?? 'same')} }`;
   return `{ internal: ${yamlText(row.internal ?? '')} }`;
 }
 
