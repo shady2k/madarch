@@ -53,6 +53,28 @@ export interface FillStageWiring {
 const noCheckout: CheckoutFolderOf = () => '';
 
 /**
+ * Every stage this madarch knows, over a wiring that reads no repository: the ids a
+ * product's workflow may name, and the declarations the workflow check derives their
+ * producers from (decision 0033, items 1 and 2). A run registers the stages its own
+ * wiring can read — the agent stages only where the run names an agent — and this
+ * registry is read, never driven: no run takes its stages from here, and the source
+ * it stands over answers no repository.
+ */
+export function createEngineStageRegistry(): StageRegistry {
+  return createStageRegistry({
+    snapshots: {
+      pins: async () => [],
+      open: async (repository: string) => {
+        throw new Error(`the engine's stage registry reads no repository: it names the stages a workflow may name, and no run takes its stages from it (asked for ${JSON.stringify(repository)})`);
+      },
+    },
+    // The engine's agent stages are registered only over a named agent. The check names one
+    // nothing runs, so the registry it reads holds every stage this madarch knows.
+    agent: { agent: { id: 'engine-stage-registry', command: 'engine-stage-registry' } },
+  });
+}
+
+/**
  * Every stage of this madarch, registered over the run's wiring: stage 0 the
  * snapshot, stage 1 the inventory, stage 2 the build and configuration, stage 3
  * the syntax, stage 4 the semantic resolution, stage 5 the modules, stage 6 the

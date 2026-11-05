@@ -285,6 +285,27 @@ export function deriveStageGraph(registry: StageRegistry, configuration?: FillSt
 }
 
 /**
+ * Derives the stage graph over a set of the registry's stages — a workflow's own
+ * stages (decision 0033, item 2) — with every stage outside the set disabled and
+ * the same derivation a run makes. A consumer whose required capability no stage
+ * of the set produces starves exactly as it would in a run that disabled the
+ * producers, named by the derivation's own path; a cycle of the set is named by
+ * its own path. The set is a workflow's, so every id is one the registry holds:
+ * an id it does not hold is the caller's to refuse, and the derivation judges the
+ * stages the registry holds.
+ */
+export function deriveStageGraphOver(registry: StageRegistry, stages: Iterable<string>): StageGraphRead {
+  const named = new Set(stages);
+  const configuration: FillStageConfigurationRead = {
+    ok: true,
+    file: '',
+    stages: Object.fromEntries(registry.all().map((stage) => [stage.id, { enabled: named.has(stage.id) }])),
+    lines: {},
+  };
+  return deriveStageGraph(registry, configuration);
+}
+
+/**
  * The stage's resolved configuration: the stage's own defaults with the
  * product's `fill.stages.<id>` spoken over them. The stage's own configuration
  * is the product's whole where it wrote one — a written `null` included, which

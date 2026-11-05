@@ -37,6 +37,7 @@ import { LineCounter, parseDocument } from 'yaml';
 import { lineForPath } from '../model/yaml-position.js';
 import { catalogFindings, CATALOG_ONLY_FIELDS, readCatalogKind, readCatalogSchema, type CatalogEntry, type CatalogSchema } from './catalog.js';
 import { readMapping, type MappingRead } from './mapping.js';
+import { readWorkflows, type WorkflowEntry, type WorkflowFinding } from './workflows.js';
 import { isSemanticKind, SEMANTIC_KINDS, type SemanticKind } from './semantics.js';
 import { BLOCK_NAMES } from './template.js';
 import { PREDICATES } from '../problems/rules.js';
@@ -386,6 +387,13 @@ export interface KindsManifest {
    * its version, the row of every extractor kind and relation, and the findings of reading it.
    */
   mapping?: { readonly version: number; readonly kinds: MappingRead['kinds']; readonly relations: MappingRead['relations']; readonly findings: readonly Finding[] };
+  /**
+   * The product's workflows (`madarch/workflows.yaml`), when the product holds one: the workflows it reads and the
+   * findings of the workflow check — a stage the engine's registry does not hold, a stage whose required input no
+   * stage of the workflow produces, a cycle. Its findings also stand with the manifest's own, so the Problems page
+   * shows them once (decision 0033, items 1 and 2).
+   */
+  workflows?: { readonly file: string; readonly workflows: ReadonlyMap<string, WorkflowEntry>; readonly findings: readonly WorkflowFinding[] };
   /** The manifest could not be read as a whole (not YAML, not a mapping, no `kinds` mapping): no kind is known, which is not the same as every kind having a finding. */
   unreadable?: true;
 }
@@ -662,6 +670,20 @@ function nothing(file: string, findings: Finding[]): KindsManifest {
   return { file, roles: new Map(), properties: new Map(), kinds: new Map(), declaredTemplates: [], groups: new Map(), excludeDocuments: [], ignoreBlocks: [], expect: [], findings, unreadable: true };
 }
 
+/**
+ * The manifest with the product's workflows beside it: a product that holds `madarch/workflows.yaml` reads its
+ * workflows here, and their findings stand with the manifest's own, each naming its own file and line.
+ */
+function withWorkflows(manifest: KindsManifest, productFolder: string): KindsManifest {
+  const read = readWorkflows(productFolder);
+  if (!read.present) return manifest;
+  return {
+    ...manifest,
+    workflows: { file: read.file, workflows: read.workflows, findings: read.findings },
+    findings: [...manifest.findings, ...read.findings],
+  };
+}
+
 /** Reads `madarch/kinds.yaml` of a product folder; absent when the product holds none. */
 export function readKinds(productFolder: string): KindsRead {
   const file = join(productFolder, KINDS_FILE);
@@ -672,7 +694,7 @@ export function readKinds(productFolder: string): KindsRead {
     if ((error as { code?: string }).code === 'ENOENT') return { present: false, file };
     return { present: true, manifest: nothing(file, [{ file, line: 1, message: `the file cannot be read: ${(error as Error).message}` }]) };
   }
-  return { present: true, manifest: parseKinds(text, file, productFolder) };
+  return { present: true, manifest: withWorkflows(parseKinds(text, file, productFolder), productFolder) };
 }
 
 /** Parses the manifest's text; `productFolder` lets a template's existence be judged. */
