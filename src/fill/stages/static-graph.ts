@@ -63,7 +63,7 @@ export const CODE_GRAPH_VOCABULARY: { readonly kinds: readonly string[]; readonl
     'code.state', 'code.state-machine',
     // The facts one file's code holds (the code-facts stage): its expressions with their
     // literal values, the bindings it declares, its call sites and its Go struct fields.
-    'code.binding', 'code.call', 'code.expression', 'code.field',
+    'code.binding', 'code.call', 'code.export', 'code.expression', 'code.field',
   ],
   relations: [
     { key: 'code.contains' },

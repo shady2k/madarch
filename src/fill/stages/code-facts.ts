@@ -72,7 +72,7 @@ import { rolesFor } from './inventory.js';
 import { readSyntaxTree, spanFactory, type SyntaxLanguage } from './syntax-extract.js';
 import type { StaticStageContext, StaticStageSource } from './static-context.js';
 import { checkStaticGraphDraft, graphWritesOf } from './static-graph.js';
-import { fileFactIdOf } from './syntax-facts.js';
+import { fileFactIdOf, importCandidates } from './syntax-facts.js';
 import { fileUnitId, plannedUnit } from './syntax.js';
 import { publishedTreeRead, publishedTreeRows } from './tree-rows.js';
 
@@ -83,13 +83,14 @@ export const CODE_FACTS_STAGE_ID = 'code-facts';
 const CODE_FACTS_STAGE_VERSION = 1;
 
 /** The fact kinds the stage produces, in code point order. */
-const CODE_FACTS_STAGE_KINDS: readonly string[] = ['binding', 'callsite', 'coverage', 'declares', 'expression', 'field'];
+const CODE_FACTS_STAGE_KINDS: readonly string[] = ['binding', 'callsite', 'coverage', 'declares', 'export', 'expression', 'field'];
 
 /** The node kinds the stage writes, in the extractors' vocabulary (decision 0033, item 7). */
 const EXPRESSION_KIND = 'code.expression';
 const BINDING_KIND = 'code.binding';
 const CALL_KIND = 'code.call';
 const FIELD_KIND = 'code.field';
+const EXPORT_KIND = 'code.export';
 
 /** The relation a file's bindings and calls hang from it by; the resolution stage reads `code.contains` as symbols. */
 const DECLARES_RELATION = 'code.declares';
@@ -141,6 +142,7 @@ export function createCodeFactsStage(sources: SnapshotSource): FillStage {
       { kind: 'callsite', schemaVersion: 1, scope: 'file' },
       { kind: 'declares', schemaVersion: 1, scope: 'file' },
       { kind: 'coverage', schemaVersion: FACT_KINDS['coverage'].version, scope: 'file' },
+      { kind: 'export', schemaVersion: 1, scope: 'file' },
       { kind: 'expression', schemaVersion: 1, scope: 'file' },
       { kind: 'field', schemaVersion: 1, scope: 'file' },
     ],
@@ -224,7 +226,7 @@ interface ExpressionFact {
   readonly literal?: LiteralFact;
 }
 
-/** One binding a declaration makes. */
+/** One binding a declaration makes, and — for an import — the name it binds to which file. */
 interface BindingFact {
   readonly id: string;
   readonly name: string;
@@ -232,6 +234,15 @@ interface BindingFact {
   readonly span: SourceSpan;
   readonly scope: SourceSpan;
   readonly initializer?: string;
+  /** The import fact an import binding names, which is the binding it stands at. */
+  readonly importId?: string;
+  /** An import's specifier as written (`./logging/logger.js`, `pino`). */
+  readonly specifier?: string;
+  /** The form the import binds by, and the name it imports under that form. */
+  readonly form?: 'default' | 'namespace' | 'named';
+  readonly importedName?: string;
+  /** The file of this repository the specifier answers, where one does. */
+  readonly targetPath?: string;
 }
 
 /** One call site: the invocation and the callee and arguments it names. */
@@ -253,12 +264,21 @@ interface FieldFact {
   readonly typeExpression?: string;
 }
 
+/** One name a file exports, and the binding the file declares it under. */
+interface ExportFact {
+  readonly id: string;
+  readonly name: string;
+  readonly span: SourceSpan;
+  readonly localBinding?: string;
+}
+
 /** Everything one file's walk read. */
 interface FileFacts {
   readonly expressions: readonly ExpressionFact[];
   readonly bindings: readonly BindingFact[];
   readonly calls: readonly CallFact[];
   readonly fields: readonly FieldFact[];
+  readonly exports: readonly ExportFact[];
 }
 
 /** The node types whose text is the name a reader sees, by the grammar's own spelling. */
@@ -309,7 +329,7 @@ async function executeCodeFactsUnit(unit: StageUnit, context: StageContext): Pro
   refuseWhenCancelled(unit, context);
   const bytes = file.content!;
   const gaps: CoverageGap[] = [];
-  let facts: FileFacts = { expressions: [], bindings: [], calls: [], fields: [] };
+  let facts: FileFacts = { expressions: [], bindings: [], calls: [], fields: [], exports: [] };
   let parsed = false;
   try {
     const read = await readSyntaxTree(planned.path, bytes, (tree) => collectFileFacts(planned.repository, planned.path, tree.text, tree.root, tree.language));
@@ -322,6 +342,26 @@ async function executeCodeFactsUnit(unit: StageUnit, context: StageContext): Pro
     }
   } catch (error) {
     gaps.push({ what: gapWhatOf(error, planned.path), reason: 'error' });
+  }
+  // An import's specifier is tied to the file it answers through a path-scoped lookup of the
+  // pinned tree, one candidate at a time: no list of the repository's files is read for it.
+  if (facts.bindings.some((binding) => binding.kind === 'import' && binding.targetPath === undefined)) {
+    const resolved: BindingFact[] = [];
+    for (const binding of facts.bindings) {
+      if (binding.kind !== 'import' || binding.specifier === undefined || binding.targetPath !== undefined) {
+        resolved.push(binding);
+        continue;
+      }
+      let targetPath: string | undefined;
+      for (const candidate of importCandidates(planned.path, binding.specifier)) {
+        if ((await source.entry(candidate)) !== undefined) {
+          targetPath = candidate;
+          break;
+        }
+      }
+      resolved.push(targetPath === undefined ? binding : { ...binding, targetPath });
+    }
+    facts = { ...facts, bindings: resolved.sort((left, right) => byCodePoint(left.id, right.id)) };
   }
   const evidence = evidenceAtPlace(source, planned.path);
   const fileKey = fileFactIdOf(planned.repository, planned.path);
@@ -367,7 +407,17 @@ export function collectFileFacts(repository: string, path: string, text: string,
   const bindings: BindingFact[] = [];
   const calls: CallFact[] = [];
   const fields: FieldFact[] = [];
+  const exports: ExportFact[] = [];
   const scopeSpans: SourceSpan[] = [toSpan(path, spanOf(root as never))];
+  /** The names each scope binds, innermost last: what an identifier expression resolves to. */
+  const scopeBindings: Map<string, string>[] = [new Map()];
+  const resolveBinding = (name: string): string | undefined => {
+    for (let index = scopeBindings.length - 1; index >= 0; index -= 1) {
+      const held = scopeBindings[index]!.get(name);
+      if (held !== undefined) return held;
+    }
+    return undefined;
+  };
 
   const idOf = (syntaxKind: string, span: SourceSpan): string => `${EXPRESSION_KIND}:${repository}:${path}@${String(span.byteStart)}:${String(span.byteEnd)}:${syntaxKind}`;
   const spanOfNode = (node: SyntaxNodeLike): SourceSpan => toSpan(path, spanOf(node as never));
@@ -377,6 +427,15 @@ export function collectFileFacts(repository: string, path: string, text: string,
 
   /** The text a name node holds, without its quotes: a name is written as written. */
   const nameOf = (node: SyntaxNodeLike): string => node.text;
+
+  /** The binding an identifier's name resolves to, in the scopes the walk has entered. */
+  const bindingOfName = (name: string): string | undefined => resolveBinding(name);
+
+  /** The id a declaration's name node binds under: the place it stands at, as every binding id is. */
+  const bindingIdOfName = (nameNode: SyntaxNodeLike): string => {
+    const span = spanOfNode(nameNode);
+    return `${BINDING_KIND}:${repository}:${path}@${String(span.byteStart)}:${String(span.byteEnd)}:binding`;
+  };
 
   /** The literal a node holds, decoded where the decoder proves one and raw where it does not. */
   const literalOf = (node: SyntaxNodeLike, kind: LiteralFact['kind']): LiteralFact => {
@@ -481,6 +540,7 @@ export function collectFileFacts(repository: string, path: string, text: string,
       ...(member === null || member === undefined ? {} : { member: member.text }),
       ...(callee === null || callee === undefined ? {} : { callee: idOfNode(callee) }),
       ...(argumentNodes.length === 0 ? {} : { arguments: [...new Set(argumentNodes.map((entry) => idOfNode(entry)))] }),
+      ...(node.type !== 'identifier' ? {} : bindingOfName(node.text) === undefined ? {} : { bindingId: bindingOfName(node.text)! }),
       ...(literal === undefined ? {} : { literal }),
     } as ExpressionFact);
 
@@ -499,7 +559,33 @@ export function collectFileFacts(repository: string, path: string, text: string,
           scope: scopeSpans[scopeSpans.length - 1]!,
           ...(entry.initializer === undefined ? {} : { initializer: idOfNode(entry.initializer) }),
         });
+        scopeBindings[scopeBindings.length - 1]!.set(entry.name, bindingId);
       }
+    }
+    for (const exported of exportNamesOf(node, bindingIdOfName)) {
+      exports.push({
+        id: `${EXPORT_KIND}:${repository}:${path}#${exported.name}`,
+        name: exported.name,
+        span: spanOfNode(exported.nameNode),
+        ...(exported.localBinding === undefined ? {} : { localBinding: exported.localBinding }),
+      });
+    }
+    for (const imported of importDeclarationsOf(node)) {
+      const nameId = `${BINDING_KIND}:${repository}:${path}@${String(spanOfNode(imported.nameNode).byteStart)}:${String(spanOfNode(imported.nameNode).byteEnd)}:binding`;
+      bindings.push({
+        id: nameId,
+        name: imported.local,
+        kind: 'import',
+        span: spanOfNode(imported.nameNode),
+        scope: scopeSpans[0]!,
+        specifier: imported.specifier,
+        form: imported.form,
+        // The import fact and the binding are one record here: its id is the import the
+        // evaluator chains, and `importId` names it the way the code pass's binding does.
+        importId: nameId,
+        ...(imported.importedName === undefined ? {} : { importedName: imported.importedName }),
+      });
+      scopeBindings[0]!.set(imported.local, nameId);
     }
     if (node.type === 'call_expression' || node.type === 'new_expression') {
       calls.push({
@@ -527,9 +613,15 @@ export function collectFileFacts(repository: string, path: string, text: string,
     // A node that opens a scope binds its own names for its body: the block, the
     // function, the class and the loop each stand as one scope here.
     const opensScope = ['block', 'statement_block', 'function_declaration', 'method_definition', 'arrow_function', 'class_declaration', 'for_statement', 'function', 'func_literal', 'method_declaration'].includes(node.type);
-    if (opensScope) scopeSpans.push(span);
+    if (opensScope) {
+      scopeSpans.push(span);
+      scopeBindings.push(new Map());
+    }
     for (const child of node.namedChildren) if (child !== null) visit(child, id);
-    if (opensScope) scopeSpans.pop();
+    if (opensScope) {
+      scopeSpans.pop();
+      scopeBindings.pop();
+    }
   };
 
   visit(root, undefined);
@@ -539,7 +631,13 @@ export function collectFileFacts(repository: string, path: string, text: string,
   bindings.sort((left, right) => byCodePoint(left.id, right.id));
   calls.sort((left, right) => byCodePoint(left.id, right.id));
   fields.sort((left, right) => byCodePoint(left.id, right.id));
-  return { expressions, bindings, calls, fields };
+  return {
+    expressions,
+    bindings,
+    calls,
+    fields,
+    exports: [...new Map(exports.map((entry) => [`${entry.name}\u0000${String(entry.span.byteStart)}`, entry])).values()].sort((left, right) => byCodePoint(left.id, right.id)),
+  };
 }
 
 /** The syntax node shape the walk reads: the web-tree-sitter node's own members, named once for this module. */
@@ -553,6 +651,86 @@ interface SyntaxNodeLike {
   child(index: number): SyntaxNodeLike | null;
   childForFieldName(name: string): SyntaxNodeLike | null;
   fieldNameForChild(index: number): string | null;
+}
+
+/**
+ * The names an export declaration exports, with the binding the file declares
+ * each under: `export const x`, `export function f`, `export class C`, and the
+ * names an `export { a, b as c }` clause lists. A binding's id is the place its
+ * name stands at, so the export and the binding are one record seen twice.
+ */
+function exportNamesOf(node: SyntaxNodeLike, bindingAt: (nameNode: SyntaxNodeLike) => string): readonly { readonly name: string; readonly nameNode: SyntaxNodeLike; readonly localBinding?: string }[] {
+  if (node.type !== 'export_statement') return [];
+  const found: { name: string; nameNode: SyntaxNodeLike; localBinding?: string }[] = [];
+  const declaration = node.childForFieldName('declaration');
+  if (declaration !== null) {
+    if (declaration.type === 'lexical_declaration' || declaration.type === 'variable_declaration') {
+      for (const declarator of declaration.namedChildren) {
+        if (declarator === null || declarator.type !== 'variable_declarator') continue;
+        const name = declarator.childForFieldName('name');
+        if (name !== null && NAME_KINDS.has(name.type)) found.push({ name: name.text, nameNode: name, localBinding: bindingAt(name) });
+      }
+    } else {
+      const name = declaration.childForFieldName('name');
+      if (name !== null && NAME_KINDS.has(name.type)) found.push({ name: name.text, nameNode: name, localBinding: bindingAt(name) });
+    }
+  }
+  for (const child of node.namedChildren) {
+    if (child === null || child.type !== 'export_clause') continue;
+    for (const specifier of child.namedChildren) {
+      if (specifier === null || specifier.type !== 'export_specifier') continue;
+      const name = specifier.childForFieldName('name');
+      const alias = specifier.childForFieldName('alias');
+      if (name === null) continue;
+      found.push({ name: (alias ?? name).text, nameNode: alias ?? name });
+    }
+  }
+  return found;
+}
+
+/**
+ * The names an import declaration binds, by the form it binds them in: a
+ * TypeScript `import`'s default, namespace and named specifiers, and a Go
+ * `import_spec`'s name (the package's own last segment where it writes none).
+ * The specifier is the text the file wrote, and a file it answers is another
+ * file's business: the unit fills `targetPath` from the pinned tree.
+ */
+function importDeclarationsOf(node: SyntaxNodeLike): readonly { readonly local: string; readonly nameNode: SyntaxNodeLike; readonly specifier: string; readonly form: 'default' | 'namespace' | 'named'; readonly importedName?: string }[] {
+  if (node.type !== 'import_statement' && node.type !== 'import_spec') return [];
+  const source = node.childForFieldName('source') ?? node.childForFieldName('path');
+  if (source === null) return [];
+  const specifier = source.text.replace(/^["'`]|["'`]$/g, '');
+  if (node.type === 'import_spec') {
+    const name = node.childForFieldName('name');
+    const local = name === null ? (specifier.slice(specifier.lastIndexOf('/') + 1)) : name.text;
+    return [{ local, nameNode: name ?? source, specifier, form: 'named' }];
+  }
+  const found: { local: string; nameNode: SyntaxNodeLike; specifier: string; form: 'default' | 'namespace' | 'named'; importedName?: string }[] = [];
+  const visitClause = (clause: SyntaxNodeLike | null): void => {
+    if (clause === null) return;
+    if (clause.type === 'import_specifier') {
+      const name = clause.childForFieldName('name');
+      const alias = clause.childForFieldName('alias');
+      if (name === null) return;
+      found.push({ local: (alias ?? name).text, nameNode: alias ?? name, specifier, form: 'named', importedName: name.text });
+      return;
+    }
+    if (clause.type === 'namespace_import') {
+      const name = clause.namedChildren.find((child): child is SyntaxNodeLike => child !== null && child.isNamed) ?? null;
+      if (name !== null) found.push({ local: name.text, nameNode: name, specifier, form: 'namespace' });
+      return;
+    }
+    if (clause.type === 'identifier') {
+      found.push({ local: clause.text, nameNode: clause, specifier, form: 'default', importedName: 'default' });
+      return;
+    }
+    for (const child of clause.namedChildren) if (child !== null) visitClause(child);
+  };
+  for (const child of node.namedChildren) {
+    if (child === null || child.type === 'string') continue;
+    visitClause(child);
+  }
+  return found;
 }
 
 /** The operator a binary, unary or update expression holds, from the field the grammar names it by. */
@@ -662,6 +840,7 @@ function factWrites(input: {
           factKind: 'expression',
           repository: input.repository,
           file: input.path,
+          path: input.path,
           provenance: { ...provenance, place: { file: input.path, range: rangeOf(expression.span) } },
         },
       },
@@ -681,6 +860,7 @@ function factWrites(input: {
           factKind: 'binding',
           repository: input.repository,
           file: input.path,
+          path: input.path,
           globalName: `${input.repository}:${input.path}#${binding.name}`,
           provenance: { ...provenance, place: { file: input.path, range: rangeOf(binding.span) } },
         },
@@ -702,11 +882,32 @@ function factWrites(input: {
           factKind: 'callsite',
           repository: input.repository,
           file: input.path,
+          path: input.path,
           provenance: { ...provenance, place: { file: input.path, range: rangeOf(call.span) } },
         },
       },
     });
     writes.push({ kind: 'edge', evidence: input.evidence, value: { relation: DECLARES_RELATION, from: { key: input.fileKey }, to: { key: call.id }, properties: { factKind: 'declares', repository: input.repository } } });
+  }
+  for (const exported of input.facts.exports) {
+    writes.push({
+      kind: 'node',
+      evidence: input.evidence,
+      value: {
+        key: exported.id,
+        kind: EXPORT_KIND,
+        label: exported.name,
+        properties: {
+          ...exported,
+          recordKey: exported.id,
+          factKind: 'export',
+          repository: input.repository,
+          file: input.path,
+          path: input.path,
+          provenance: { ...provenance, place: { file: input.path, range: rangeOf(exported.span) } },
+        },
+      },
+    });
   }
   for (const field of input.facts.fields) {
     writes.push({
@@ -722,6 +923,7 @@ function factWrites(input: {
           factKind: 'field',
           repository: input.repository,
           file: input.path,
+          path: input.path,
           provenance: { ...provenance, place: { file: input.path, range: rangeOf(field.span) } },
         },
       },

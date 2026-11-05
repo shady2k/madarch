@@ -49,6 +49,12 @@ export const TS_FILE = 'services/orders/src/state.ts';
 /** The TypeScript file whose code facts the acceptance reads: a value from the environment, and a call. */
 export const CONFIG_FILE = 'services/orders/src/config.ts';
 
+/** The logger module: the library model's own declaration, `pino(...)`. */
+export const LOGGER_FILE = 'services/orders/src/logging/logger.ts';
+
+/** The file that uses the logger: the import chain a library effect is proved through. */
+export const APP_FILE = 'services/orders/src/app.ts';
+
 /** The Go file's bytes, as the fixture writes them. */
 export function goText(): string {
   return [
@@ -105,6 +111,28 @@ export function configText(): string {
     '',
     'function prefix(name: string): string {',
     '  return `svc-${name}`;',
+    '}',
+    '',
+  ].join('\n');
+}
+
+/** The logger module's bytes: pino's own default export, held by a named constant. */
+export function loggerText(): string {
+  return [
+    'import pino from "pino";',
+    '',
+    'export const logger = pino({ level: "info" });',
+    '',
+  ].join('\n');
+}
+
+/** The using file's bytes: a named import of the logger, and one call of it. */
+export function appText(): string {
+  return [
+    'import { logger } from "./logging/logger.js";',
+    '',
+    'export function record(order: string): void {',
+    '  logger.info({ order }, "created");',
     '}',
     '',
   ].join('\n');
@@ -179,6 +207,8 @@ export function writeRepository(folder: string): string {
     { path: GO_FILE, text: goText() },
     { path: TS_FILE, text: tsText() },
     { path: CONFIG_FILE, text: configText() },
+    { path: LOGGER_FILE, text: loggerText() },
+    { path: APP_FILE, text: appText() },
     { path: 'README.md', text: '# Orders\n\nA shop that sells things.\n' },
     { path: 'data/orders.csv', text: 'id,total\n1,10\n' },
   ];

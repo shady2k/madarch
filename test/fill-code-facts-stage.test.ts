@@ -18,7 +18,7 @@ import { readRunPlans } from '../src/fill/orchestrator-store.js';
 import { createGraphStore, type GraphStore, type NodeVersionRow } from '../src/graph/index.js';
 import { createStagesFill, type StagesFill } from '../src/product/fill-stages.js';
 import { CODE_FACTS_STAGE_ID } from '../src/fill/stages/code-facts.js';
-import { CONFIG_FILE, GO_FILE, TS_FILE, writeProduct } from './fixtures/code-stages/repository.js';
+import { APP_FILE, CONFIG_FILE, GO_FILE, LOGGER_FILE, TS_FILE, writeProduct } from './fixtures/code-stages/repository.js';
 
 /** One product open for a run: its wiring, its service, and the graph store over the process's one owner. */
 interface Open {
@@ -122,7 +122,7 @@ describe('the code-facts stage', () => {
     const o = opened;
     const plans = await readRunPlans(o.owner, 'run-code-facts-1');
     const units = plans.filter((row) => row.stageId === CODE_FACTS_STAGE_ID).map((row) => row.stageUnitId).sort();
-    expect(units).toEqual([CONFIG_FILE, GO_FILE, TS_FILE].map((file) => `file:shop:${file}`).sort());
+    expect(units).toEqual([APP_FILE, CONFIG_FILE, GO_FILE, LOGGER_FILE, TS_FILE].map((file) => `file:shop:${file}`).sort());
     const second = await run(o, 'run-code-facts-2');
     expect(second.ok).toBe(true);
     const again = await readRunPlans(o.owner, 'run-code-facts-2');
