@@ -117,6 +117,7 @@ describe('createDraft', () => {
       'CLAUDE.md',
       'docs/.gitkeep',
       'madarch/kinds.yaml',
+      'madarch/workflows.yaml',
       'model/.gitkeep',
       'prototypes/.gitkeep',
       'skills/.gitkeep',

@@ -32,7 +32,9 @@ import { byCodePoint } from '../model/order.js';
 import { MANIFEST_FILE, readProduct, type ProductIdentity } from '../product/manifest.js';
 import { canonicalJsonDigest } from '../model/canonical.js';
 import { selfCommand } from '../product/self-command.js';
+import { headCommitOf } from '../product/fill-updates.js';
 import { insideFolder, homeKind, KINDS_FILE, readKinds, setKindsLanguage, type Finding, type KindsManifest } from './kinds.js';
+import { WORKFLOWS_FILE } from './workflows.js';
 import { linesOf } from './lines.js';
 import { applyReset, planReset, type ResetPlan } from './reset.js';
 import { parseMessage, type FromWorker, type RepositoryPin, type ToWorker, type WorkerStart } from './fill-protocol.js';
@@ -576,6 +578,17 @@ export class KnowledgeProduct {
       return read;
     }
     return readKinds(folder);
+  }
+
+  /**
+   * The roles this product's manifest declares, in its order (decision 0031, "the roles are the product's"): the
+   * reader's settings accept these and "everything" alone, and the engine keeps no role of its own.
+   */
+  declaredRoles(): string[] {
+    const product = this.product();
+    if ('message' in product) return [];
+    const read = this.kinds(product.folder);
+    return read.present ? [...read.manifest.roles.keys()] : [];
   }
 
   /** Starts the reader in the background, so the first page a person opens does not wait for it to start. */
@@ -2256,8 +2269,13 @@ export class KnowledgeProduct {
   private marksKey(): string {
     const parts: string[] = [String(this.revision)];
     try { parts.push(String(statSync(join(this.options.productFolder, TASKS_FOLDER)).mtimeMs)); } catch { parts.push('-'); }
+    // A head is a ref, and a ref is a file: the key reads it from the checkout's own Git folder (`headCommitOf`), never
+    // by starting git. Every page asks for this key before it is drawn, and `git rev-parse HEAD` here started two
+    // subprocesses and waited for them on the serving thread: while a fill ran, every other answer queued behind them
+    // (measured: `marks key` p50 2 ms, p99 8 ms of blocked thread per answer; the page's own p50 fell from 3 ms to 1 ms
+    // once the key read the files).
     for (const repository of [{ path: this.options.productFolder }, ...this.repositories().filter((repo) => repo.present)]) {
-      try { parts.push(execFileSync('git', ['-C', repository.path, 'rev-parse', 'HEAD'], { encoding: 'utf8', env: { ...process.env, LC_ALL: 'C' } }).trim()); } catch { parts.push('-'); }
+      parts.push(headCommitOf(repository.path)?.commit ?? '-');
     }
     return parts.join('|');
   }
@@ -2537,7 +2555,7 @@ export class KnowledgeProduct {
       seeded: this.seeded,
       findings: context.findings,
       kinds,
-      groups: [...context.manifest.groups.values()].map((group) => ({ group: group.name, labels: { ...group.labels }, ...(group.parent === undefined ? {} : { parent: group.parent }), ...(group.open === undefined ? {} : { open: group.open }) })),
+      groups: [...context.manifest.groups.values()].map((group) => ({ group: group.name, labels: { ...group.labels }, ...(group.short === undefined ? {} : { short: { ...group.short } }), ...(group.parent === undefined ? {} : { parent: group.parent }), ...(group.open === undefined ? {} : { open: group.open }) })),
       repositories: declared.map((repo) => ({ name: repo.name, filled: (this.pins.get(repo.name)?.filledCommits ?? 0) > 0 })),
       filled: this.pins.size > 0,
       incomplete,
@@ -2599,7 +2617,9 @@ export class KnowledgeProduct {
 
   private kindsForStamp(folder: string, seed = true): ReturnType<typeof readKinds> {
     // The manifest's declarations are stamped by content too: an edit that keeps its size and mtime is still an edit.
-    const manifest = this.contentStamp(join(folder, KINDS_FILE));
+    // The workflows manifest is read beside it, so its own edit moves the same key: a saved workflow's finding
+    // appears, or goes, at the next read.
+    const manifest = `${this.contentStamp(join(folder, KINDS_FILE))}\n${this.contentStamp(join(folder, WORKFLOWS_FILE))}`;
     const held = this.stampKinds;
     // Which declarations the manifest accepts also depends on the files it names: a template written after the answer
     // was warmed accepts a kind the read refused, and the files of that kind must be stamped from then on

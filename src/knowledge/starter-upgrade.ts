@@ -117,9 +117,12 @@ function remember(recordFile: string, entries: Readonly<Record<string, string>>)
   writeRecord(recordFile, record);
 }
 
-/** The declaration of a starter kind as the data the manifest holds, with or without its group. */
-function starterDeclaration(kind: StarterKind, group: boolean): unknown {
-  return (parseDocument(`kinds:\n${kindLines(kind, { group }).join('\n')}\n`).getIn(['kinds', kind.name]) as { toJSON(): unknown }).toJSON();
+/**
+ * The declaration of a starter kind as the data the manifest holds, with or without its group, and with the catalog's
+ * row when the manifest declares a catalog (a product made before the catalog keeps its kinds as it wrote them).
+ */
+function starterDeclaration(kind: StarterKind, group: boolean, catalog: boolean): unknown {
+  return (parseDocument(`kinds:\n${kindLines(kind, { group, catalog }).join('\n')}\n`).getIn(['kinds', kind.name]) as { toJSON(): unknown }).toJSON();
 }
 
 /**
@@ -138,11 +141,24 @@ function onlyMadarchAdditions(working: string, committed: string): boolean {
     const decl = data.kinds?.[kind.name];
     if (decl === undefined || c.hasIn(['kinds', kind.name])) continue;
     // The kind madarch added is the starter's declaration whole, with or without its group; any edit inside it is a person's.
-    // Madarch's own rename of a template is not an edit: a declaration naming `templates/<kind>.md` is the one 0.2 wrote
-    // before decision 0032 made the templates Liquid (`templates/<kind>.liquid`), and nothing else of it differs.
-    const asWritten = [starterDeclaration(kind, true), starterDeclaration(kind, false)];
+    // Madarch's own renames are not edits: a declaration naming `templates/<kind>.md` is the one 0.2 wrote before decision
+    // 0032 made the templates Liquid (`templates/<kind>.liquid`), and the group is madarch's own data too, so a kind a
+    // later set moved to another subgroup is still the kind madarch wrote. Anything else that differs is the person's.
+    const asWritten = [starterDeclaration(kind, true, false), starterDeclaration(kind, false, false)];
     const beforeLiquid = asWritten.map((declaration) => ({ ...(declaration as Record<string, unknown>), template: String((declaration as { template: string }).template).replace(/\.liquid$/, '.md') }));
-    if (![...asWritten, ...beforeLiquid].some((declaration) => isDeepStrictEqual(decl, declaration))) return false;
+    // A field a later starter set gave a kind — its details, its member row, its card, its history, its views, its
+    // traits — is one the manifest a person's product holds does not have yet; madarch adds it, and its absence is not
+    // an edit. Everything else that differs from what the set writes is a person's.
+    const later = new Set(['origin', 'details', 'member', 'card', 'history', 'views', 'er', 'sequence', 'system', 'definition-block', 'listing', 'nav']);
+    const same = (written: Record<string, unknown>, declaration: unknown): boolean => {
+      if (isDeepStrictEqual(written, declaration)) return true;
+      const { group, ...rest } = written as Record<string, unknown> & { group?: unknown };
+      if (group !== undefined && !GROUPS.some((candidate) => candidate.name === group)) return false;
+      const { group: _group, ...without } = declaration as Record<string, unknown> & { group?: unknown };
+      const asThisFileWroteIt = Object.fromEntries(Object.entries(without).filter(([field]) => !(later.has(field) && written[field] === undefined)));
+      return isDeepStrictEqual(rest, asThisFileWroteIt);
+    };
+    if (![...asWritten, ...beforeLiquid].some((declaration) => same(decl, declaration))) return false;
     c.setIn(['kinds', kind.name], c.createNode(decl));
   }
   if (typeof data.language === 'string') c.set('language', data.language);
@@ -207,13 +223,18 @@ const LABELS = (kind: StarterKind): { en: string; ru: string } => ({ en: kind.en
  * madarch-m38l.21 — the details a page shows and the member line that makes a field a row of its type's table. What
  * the manifest already says is never replaced; the declaration is the one source both the offer and the addition read.
  */
-function upgradeFields(kind: StarterKind): string[] {
-  const declaration = starterDeclaration(kind, true) as Record<string, unknown>;
+function upgradeFields(kind: StarterKind, catalog: boolean): string[] {
+  const declaration = starterDeclaration(kind, true, catalog) as Record<string, unknown>;
   return [
     'group', 'labels', 'description',
+    ...(catalog ? Object.keys(declaration).filter((field) => ['id', 'definition', 'sources', 'acquisition', 'status', 'relation-constraints', 'template-policy'].includes(field)) : []),
     ...(kind.origin === undefined ? [] : ['origin']),
     ...(declaration['details'] === undefined ? [] : ['details']),
     ...(declaration['member'] === undefined ? [] : ['member']),
+    // The presentation and the places a kind declares (decision 0033): a card, a history page, the views, the chain,
+    // the part in the system view, the definition, the listing and the navigation. A manifest made before them shows
+    // less, and the offer names each field this product's manifest lacks.
+    ...['card', 'history', 'views', 'er', 'sequence', 'system', 'definition-block', 'listing', 'nav'].filter((field) => declaration[field] !== undefined),
   ];
 }
 
@@ -241,6 +262,9 @@ export function starterOffers(manifestText: string): StarterOffer[] {
     for (const role of ROLES) if ((roles as Record<string, unknown>)[role.name] === undefined) offers.push({ id: `role:${role.name}`, type: 'role', name: role.name });
   }
   if (data['documents'] === undefined) offers.push({ id: 'documents', type: 'documents', name: 'documents' });
+  // A manifest that declares the catalog is offered the catalog's row of each kind it holds; one written before the
+  // catalog gets its kinds as that version wrote them (the catalog is a later addition to a product's manifest).
+  const hasCatalog = data['catalog'] !== undefined && data['catalog'] !== null;
   for (const kind of STARTER_KINDS) {
     const present = kinds[kind.name];
     if (present === undefined) {
@@ -248,7 +272,7 @@ export function starterOffers(manifestText: string): StarterOffer[] {
       continue;
     }
     if (present === null || typeof present !== 'object') continue;
-    const fields = upgradeFields(kind).filter((field) => (present as Record<string, unknown>)[field] === undefined);
+    const fields = upgradeFields(kind, hasCatalog).filter((field) => (present as Record<string, unknown>)[field] === undefined);
     if (fields.length > 0) offers.push({ id: `fields:${kind.name}`, type: 'fields', name: kind.name, labels: LABELS(kind), group: kind.group, fields });
   }
   // A rule the manifest does not declare, or declares without the fields the engine needs, is offered whole or in
@@ -329,12 +353,13 @@ export function addStarterItems(productFolder: string, ids: readonly string[], r
         const declaration = propertyDeclaration(detail);
         if (declaration !== undefined) document.setIn(['properties', detail], document.createNode(declaration));
       }
-      const declaration = starterDeclaration(kind, true) as Record<string, unknown>;
+      const catalog = document.hasIn(['catalog']);
+      const declaration = starterDeclaration(kind, true, catalog) as Record<string, unknown>;
       if (id.startsWith('kind:')) {
         if (!document.hasIn(['kinds', name])) document.setIn(['kinds', name], document.createNode(declaration));
         addTemplate(kind);
       } else {
-        for (const field of upgradeFields(kind)) {
+        for (const field of upgradeFields(kind, catalog)) {
           if (declaration[field] !== undefined && !document.hasIn(['kinds', name, field])) document.setIn(['kinds', name, field], document.createNode(declaration[field]));
         }
       }

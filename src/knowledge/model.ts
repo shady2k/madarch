@@ -346,6 +346,10 @@ export interface KindSummary {
   kind: string;
   source: 'graph' | 'markdown' | 'document';
   count: number;
+  /** The form the kind's listing page takes, from the manifest (`listing:`); absent for the plain table of names and places. */
+  listing?: 'operations';
+  /** Where the kind stands in the navigation, from the manifest (`nav:`); absent for a kind page among the pages by kind. */
+  nav?: 'own-page' | 'loop';
   /** The statements the pages of this kind make, from the index of the Markdown; absent when the index holds none. */
   statements?: number;
   /** The group the navigation and the catalogue put the kind in, when the manifest names one. */

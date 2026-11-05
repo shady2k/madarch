@@ -152,16 +152,6 @@
   {
     "rule": "no-unreachable-code",
     "file": "src/extract/data-model/keys.ts",
-    "symbol": "DATA_MODEL_EDGE_TYPES"
-  },
-  {
-    "rule": "no-unreachable-code",
-    "file": "src/extract/data-model/keys.ts",
-    "symbol": "DATA_MODEL_NODE_KINDS"
-  },
-  {
-    "rule": "no-unreachable-code",
-    "file": "src/extract/data-model/keys.ts",
     "symbol": "DEFAULT_SCHEMA"
   },
   {
@@ -2426,18 +2416,8 @@
   },
   {
     "rule": "no-unreachable-code",
-    "file": "src/knowledge/definition.ts",
-    "symbol": "DEFINITION_KINDS"
-  },
-  {
-    "rule": "no-unreachable-code",
     "file": "src/knowledge/diagrams.ts",
     "symbol": "QUIET_RELATIONS"
-  },
-  {
-    "rule": "no-unreachable-code",
-    "file": "src/knowledge/diagrams.ts",
-    "symbol": "collectNeighbors"
   },
   {
     "rule": "no-unreachable-code",
@@ -2628,11 +2608,6 @@
     "rule": "no-unreachable-code",
     "file": "src/knowledge/history-landmarks.ts",
     "symbol": "MAX_HISTORY_LANDMARK_TREES"
-  },
-  {
-    "rule": "no-unreachable-code",
-    "file": "src/knowledge/history.ts",
-    "symbol": "HISTORY_KINDS"
   },
   {
     "rule": "no-unreachable-code",
@@ -2878,11 +2853,6 @@
     "rule": "no-unreachable-code",
     "file": "src/knowledge/kinds.ts",
     "symbol": "RoleDecl"
-  },
-  {
-    "rule": "no-unreachable-code",
-    "file": "src/knowledge/kinds.ts",
-    "symbol": "RoleName"
   },
   {
     "rule": "no-unreachable-code",

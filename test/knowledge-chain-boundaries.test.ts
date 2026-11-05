@@ -8,6 +8,7 @@ import {parseKinds} from '../src/knowledge/kinds.js';
 import {Resolver} from '../src/knowledge/resolve.js';
 import {byCodePoint} from '../src/model/order.js';
 import {buildViews,type GraphView} from '../src/knowledge/views.js';
+import {fixtureManifest} from './knowledge-manifest-fixture.js';
 import type {Chain} from '../src/knowledge/model.js';
 
 test('final 1: route entry uses actual handled-by; callback references stay unordered with a range',async()=>{
@@ -166,7 +167,7 @@ function flatFixture(leaves: number) {
 /** The context a chain view is built in: the page's, with nothing but the graph behind it. */
 function chainContext(graph: GraphReader): RenderContext {
   return {
-    graph, productFolder: '', manifest: { file: '', roles: new Map(), properties: new Map(), kinds: new Map(), groups: new Map(), excludeDocuments: [], ignoreBlocks: [], findings: [] },
+    graph, productFolder: '', manifest: fixtureManifest({ 'code.route': { sequence: 'route' }, 'code.symbol': {}, 'code.service': { system: 'container' } }),
     markdown: new Map(), docEntities: new Map(), localizedSources: new Map(), language: 'en', documents: [], repositories: [],
     commitOf: () => null, repoOfScope: () => undefined, readSource: async () => undefined,
     resolver: new Resolver({ graph, markdown: new Map(), declared: () => false, readDocument: async () => undefined, repositories: () => [], locate: () => undefined }),

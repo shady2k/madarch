@@ -14,7 +14,8 @@ import {fileRecords} from './files.js';
 import {defaultBranch, readLog} from './git.js';
 
 /** The producer the extraction names. */
-export const HISTORY_PRODUCER = 'code.extract.history';
+export { HISTORY_PRODUCER } from './vocabulary.js';
+import { HISTORY_PRODUCER } from './vocabulary.js';
 
 /** What the history extractor is asked to read. */
 export interface HistoryExtractionRequest {

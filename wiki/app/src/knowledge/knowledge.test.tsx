@@ -18,11 +18,13 @@ import { FillCard } from './pages.js';
 import { WriterLine } from './writer.js';
 import { FillPage } from './fill-page.js';
 import { FillMenu, ProductSelector, Toolbar, productChoices } from './app.js';
+import { KindLabels } from './kind-names.js';
+import { KindPage } from './pages.js';
 import { addressOfDocument, kRouteOf, kindPlural, kindWord } from './routes.js';
 import { kindNameOf } from './kind-names.js';
 import { PageSkeleton } from './skeleton.js';
 import { relativeDocument } from './blocks.js';
-import type { Block, Resolution, WikiStatus } from './types.js';
+import type { Block, KindSummary, Resolution, WikiStatus } from './types.js';
 
 beforeAll(async () => {
   GlobalRegistrator.register({ url: 'http://localhost/' });
@@ -1039,5 +1041,30 @@ describe('a run a person pauses or stops', () => {
     await until(() => container.querySelector('[data-testid=fill-run-words]')?.getAttribute('data-state') === 'stopped', 'the stopped run');
     expect(container.querySelector('[data-testid=fill-run-words]')!.textContent).toBe('Stopped: 2 of 4 written; those pages stay');
     expect(container.querySelector('[data-testid=run-controls]')).toBeNull();
+  });
+});
+
+describe('a kind\'s listing follows its declaration', () => {
+  const summary = (over: Partial<KindSummary>): KindSummary => ({ kind: 'code.operation', source: 'graph', count: 1, single: false, origins: ['code'], ...over });
+
+  test('the operations table is drawn for a kind whose declaration gives it, and the plain table for one that does not', async () => {
+    for (const drawn of [true, false]) {
+      (globalThis as { fetch?: unknown }).fetch = async (url: string) => (url.startsWith('/api/k/entities')
+        ? new Response(JSON.stringify({ kind: 'code.operation', total: 1, rows: [{ id: 'code.operation:api.yaml#GET:/items', kind: 'code.operation', label: 'GET /items', href: null }], next: null, ...(drawn ? { operations: {} } : {}) }))
+        : new Response(JSON.stringify({ renderer: 'mermaid', views: [] })));
+      const container = into(createElement(KindLabels.Provider, { value: [summary(drawn ? { listing: 'operations' } : {})] }, createElement(KindPage, { kind: 'code.operation', version: 1 })));
+      await until(() => container.querySelector('[data-testid=kind-total]') !== null, 'the kind listing');
+      await until(() => container.querySelector(drawn ? '[data-testid=operations-catalogue]' : '[data-entity]') !== null, 'the kind\'s rows');
+      // The app holds no kind: the kind summary it receives says which table the kind's page draws, and the plain table
+      // of names and places is the other form.
+      // The operations catalogue is the operations table, and the plain table of names and places is what a kind without
+      // `listing: operations` draws instead.
+      expect(container.querySelectorAll('[data-testid=operations-catalogue]').length).toBe(drawn ? 1 : 0);
+      // The page is let go before the next form is drawn: a root left mounted asks for its map again when the interface
+      // language changes, and its answer would be the stub of the test running then.
+      rendered?.unmount();
+      rendered = undefined;
+      document.body.innerHTML = '';
+    }
   });
 });

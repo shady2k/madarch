@@ -20,7 +20,7 @@ import { definitionBlock } from './definition.js';
 import { historyBlock } from './history.js';
 import type { GraphEntity } from './graph-read.js';
 import { implementedByBlock, linkedFromBlock, statedBlock, termBlock } from './doc-blocks.js';
-import { homeKind, type Finding, type KindDecl, type Origin } from './kinds.js';
+import { homeKind, listingFormOf, type Finding, type KindDecl, type Origin } from './kinds.js';
 import { readBody } from './markdown.js';
 import { entityAtAddress, type DocEntity } from './doc-entities.js';
 import type { MarkdownEntity } from './markdown.js';
@@ -326,6 +326,10 @@ export async function kindSummaries(ctx: RenderContext): Promise<KindSummary[]> 
     kind: decl.name,
     source: decl.source,
     single: decl.file !== undefined,
+    // The listing and the navigation the manifest gives the kind travel to the app, which holds no kind of its own: an
+    // app screen asks the kind summary which table the kind's page draws and where the kind stands in the navigation.
+    ...(decl.listing === undefined ? {} : { listing: decl.listing }),
+    ...(decl.nav === undefined ? {} : { nav: decl.nav }),
     ...(decl.group === undefined ? {} : { group: decl.group }),
     origins: originsOf(ctx, decl),
     ...(decl.descriptions === undefined ? {} : { descriptions: { ...decl.descriptions } }),
@@ -352,7 +356,10 @@ export async function listEntities(ctx: RenderContext, kind: string, options: { 
     const more = from >= 0 && from + options.limit < all.length;
     return { kind, total: all.length, rows: rows.map((entity) => refOfMarkdown(ctx, entity)), next: more && last !== undefined ? last.id : null };
   }
-  const found = await (kind === 'code.operation' ? ctx.graph.listOperations.bind(ctx.graph) : ctx.graph.list.bind(ctx.graph, kind))({ ...(options.q === undefined ? {} : { q: options.q }), ...(options.after === undefined ? {} : { after: options.after }), limit: options.limit });
-  const operations = kind === 'code.operation' ? Object.fromEntries(await Promise.all(found.rows.map(async (entity) => [entity.key, await operationMetadata(ctx, entity)] as const))) : undefined;
+  // The form of the listing is the kind's own (decision 0033: `listing:` of its declaration): the operations table asks
+  // the graph for the operations and the channels its contracts declare, and reads what declares, serves and calls each.
+  const operationsListed = listingFormOf(ctx.manifest, kind) === 'operations';
+  const found = await (operationsListed ? ctx.graph.listOperations.bind(ctx.graph) : ctx.graph.list.bind(ctx.graph, kind))({ ...(options.q === undefined ? {} : { q: options.q }), ...(options.after === undefined ? {} : { after: options.after }), limit: options.limit });
+  const operations = operationsListed ? Object.fromEntries(await Promise.all(found.rows.map(async (entity) => [entity.key, await operationMetadata(ctx, entity)] as const))) : undefined;
   return { kind, total: found.total, rows: found.rows.map((entity: GraphEntity) => refOfGraph(ctx, entity)), next: found.next, ...(operations === undefined ? {} : {operations}) };
 }

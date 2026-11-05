@@ -558,9 +558,10 @@ export function extractDriverTests(label: string, make: () => { owner: DatabaseO
         nodes: [
           { key: fileKey, kind: 'code.file', label: 'a.txt', properties: { path: 'other-path.txt', role: 'notes' } },
           { key: FILE + 'ghost.txt', kind: 'code.file', label: 'ghost.txt', properties: { churn: 3 } },
-          { key: 'code.thing:t', kind: 'code.thing', label: 't', properties: {} },
+          // A declared kind no extractor of this fill owns: the node stays the other producer's own.
+          { key: 'code.field:t', kind: 'code.field', label: 't', properties: {} },
         ],
-        edges: [{ type: 'code.refers', from: 'code.thing:t', to: fileKey, discriminator: '', properties: {} }],
+        edges: [{ type: 'code.references', from: 'code.field:t', to: fileKey, discriminator: '', properties: {} }],
         gaps: [],
       });
       // The other producer is listed first: the owner still publishes first.
@@ -575,8 +576,13 @@ export function extractDriverTests(label: string, make: () => { owner: DatabaseO
       );
       expect(facets.map((row) => row.properties['role'])).toEqual(['notes']);
       expect(facets.map((row) => 'path' in row.properties)).toEqual([false]);
+      // `code.references` is a shared relation: the training fill writes it too, so the query reads only the edge of
+      // this fixture's fill (its scope) that starts at the other producer's own `code.field:t` node.
       const edge = await env.query<{ dst: string }>(
-        `SELECT e.dst_id::text AS dst FROM edge_version e JOIN relation_type r ON r.id = e.relation_type_id WHERE r.key = 'code.refers' AND e.recorded_to = 'infinity'`,
+        `SELECT e.dst_id::text AS dst FROM edge_version e JOIN relation_type r ON r.id = e.relation_type_id
+         WHERE r.key = 'code.references' AND e.recorded_to = 'infinity' AND e.scope_id = $1::bigint
+           AND e.src_id IN (SELECT v.node_id FROM node_version v WHERE v.properties->>'recordKey' = $2 AND v.recorded_to = 'infinity')`,
+        [tinyReport.repositoryNode, 'code.field:t'],
       );
       expect(edge.map((row) => row.dst)).toEqual([versions[0]!.id]);
       // A key the owner lacks stays the other producer's own node, said as a gap; a value the owner disagrees with is said too.

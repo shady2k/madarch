@@ -126,6 +126,8 @@ function KindMap({ kind, version }: { kind: string; version: number }): ReactEle
 export function KindPage({ kind, version }: { kind: string; version: number }): ReactElement {
   const { t } = useTranslation();
   const kindName = useKindName();
+  // The form of the listing is the kind's declaration (`listing:` of the manifest), not a kind the app knows.
+  const operations = useContext(KindLabels).find((entry) => entry.kind === kind)?.listing === 'operations';
   const [query, setQuery] = useState('');
   const [asked, setAsked] = useState('');
   const [more, setMore] = useState<EntityRef[]>([]);
@@ -176,8 +178,8 @@ export function KindPage({ kind, version }: { kind: string; version: number }): 
       {(error ?? read.error) !== null && <Alert variant="problem" className="mb-4"><AlertDescription><p>{error ?? read.error}</p></AlertDescription></Alert>}
       {listing === null && read.error === null && <PageSkeleton testId="kind-loading" rows />}
       {listing !== null && rows.length === 0 && <p className="text-muted" data-testid="kind-empty">{t('knowledge.nothingOfKind')}</p>}
-      {rows.length > 0 && kind === 'code.operation' && <Operations rows={rows} metadata={{...listing?.operations, ...operationMore}} />}
-      {rows.length > 0 && kind !== 'code.operation' && (
+      {rows.length > 0 && operations && <Operations rows={rows} metadata={{...listing?.operations, ...operationMore}} />}
+      {rows.length > 0 && !operations && (
         <Table>
           <TableHeader>
             <TableRow><TableHead>{t('knowledge.colName')}</TableHead><TableHead>{t('knowledge.colPlace')}</TableHead></TableRow>

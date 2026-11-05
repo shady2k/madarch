@@ -21,6 +21,7 @@ import { join } from 'node:path';
 import { runGit } from '../src/product/git.js';
 import {
   createUpdateWatch,
+  headCommitOf,
   headOf,
   readSeenHeads,
   repositoriesOf,
@@ -139,6 +140,27 @@ function watcherOf(world: Fixture, start: (request: UpdateRunRequest) => Promise
     watchPath: () => () => undefined,
   });
 }
+
+/**
+ * The head a cache key asks for: a ref is a file, so a caller that only needs the commit a checkout stands at reads it
+ * with no subprocess — while a fill runs, `git rev-parse HEAD` on the serving thread holds every concurrent answer.
+ */
+test('a checkout\'s HEAD commit is read from the refs files, on a branch or detached, loose or packed', () => {
+  const world = fixture();
+  try {
+    const head = git(world.codeRepo, 'rev-parse', 'HEAD');
+    expect(headCommitOf(world.codeRepo)).toEqual({ commit: head, file: join(world.codeRepo, '.git', 'refs', 'heads', 'main') });
+    git(world.codeRepo, 'pack-refs', '--all');
+    expect(headCommitOf(world.codeRepo)?.commit).toBe(head);
+    git(world.codeRepo, 'checkout', '--quiet', '--detach');
+    expect(headCommitOf(world.codeRepo)).toEqual({ commit: head, file: join(world.codeRepo, '.git', 'HEAD') });
+    const plain = join(world.home, 'plain');
+    mkdirSync(plain);
+    expect(headCommitOf(plain)).toBeUndefined();
+  } finally {
+    world.remove();
+  }
+});
 
 describe('the update after commits to a default branch', () => {
   test('two quick commits give one run, and the run is named after the newest of them', async () => {

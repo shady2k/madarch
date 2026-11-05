@@ -18,7 +18,7 @@ import { ProposalRefusal } from '../loop/propose.js';
 import { readScope } from '../loop/tasks.js';
 import { WikiReadError, type KnowledgeProduct } from '../knowledge/product.js';
 import type { Handled, ReplyMaker } from './http.js';
-import { CHOOSABLE_ROLES, readSettings, writeRole } from '../knowledge/settings.js';
+import { choosableRoles, readSettings, writeRole } from '../knowledge/settings.js';
 import { guidePageMarkdown } from '../writer/guides/read.js';
 import { MAX_EDITORIAL_REQUESTS } from '../writer/editorial.js';
 import { kindFileAt, kindFileDocument, kindFileMarkdown, llmsText, pageFileAt, pageFileDocument, pageFileMarkdown } from '../knowledge/page-files.js';
@@ -311,14 +311,16 @@ export function createKnowledgePart(
     settings: guarded('read the settings', async (request) => {
       // The settings file is the user's, outside any product: a failure on it is told whole, with its path.
       const settled = <T>(work: () => T): T => { try { return work(); } catch (error) { throw new WikiReadError((error as Error).message); } };
-      if (request.method === 'GET') return { response: json(200, { ...settled(() => readSettings(env)), roles: CHOOSABLE_ROLES }) };
+      // The roles are the product's own: the manifest declares them, the engine keeps none.
+      const roles = choosableRoles(product.declaredRoles());
+      if (request.method === 'GET') return { response: json(200, { ...settled(() => readSettings(env, roles)), roles }) };
       const crossSite = foreign(request);
       if (crossSite !== undefined) return refused(403, { message: crossSite });
       let body: unknown;
       try { body = await request.json(); } catch (error) { return refused(400, { message: `the request body is not JSON: ${(error as Error).message}` }); }
       const role = (body as { role?: unknown } | null)?.role;
-      if (typeof role !== 'string' || !CHOOSABLE_ROLES.includes(role)) return refused(400, { field: 'role', accepted: CHOOSABLE_ROLES.join(', '), message: `"role" is ${JSON.stringify(role)}: the roles are ${CHOOSABLE_ROLES.join(', ')}` });
-      return { response: json(200, { ...settled(() => writeRole(env, role)), roles: CHOOSABLE_ROLES }) };
+      if (typeof role !== 'string' || !roles.includes(role)) return refused(400, { field: 'role', accepted: roles.join(', '), message: `"role" is ${JSON.stringify(role)}: the roles are ${roles.join(', ')}` });
+      return { response: json(200, { ...settled(() => writeRole(env, role, roles)), roles }) };
     }),
     reset: guarded('start over', async (request) => {
       const crossSite = foreign(request);

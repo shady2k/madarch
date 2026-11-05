@@ -15,6 +15,11 @@
  *     source: graph
  *     title: label                 # the attribute that names a page; `label` by default
  *     attributes: [language]       # optional: the attributes a template may name
+ *     card: true                   # optional: a ground on one of these entities shows its card, not its code
+ *     history: membership          # optional: the shape of the story the history block tells of its entities
+ *     views: [c4-component, state] # optional: the views a page of the kind may draw of its entities
+ *     er: tables                   # optional: how the ER view reads the kind's entities
+ *     system: container            # optional: the part its entities play in the system view
  *     labels:                      # optional: the kind's name per interface language
  *       en: { one: Service, many: Services }
  *       ru: { one: Сервис, many: Сервисы }
@@ -30,6 +35,9 @@ import { existsSync, lstatSync, readFileSync, realpathSync, statSync, writeFileS
 import { isAbsolute, join, relative, resolve } from 'node:path';
 import { LineCounter, parseDocument } from 'yaml';
 import { lineForPath } from '../model/yaml-position.js';
+import { catalogFindings, CATALOG_ONLY_FIELDS, readCatalogKind, readCatalogSchema, type CatalogEntry, type CatalogSchema } from './catalog.js';
+import { readMapping, type MappingRead } from './mapping.js';
+import { readWorkflows, type WorkflowEntry, type WorkflowFinding } from './workflows.js';
 import { isSemanticKind, SEMANTIC_KINDS, type SemanticKind } from './semantics.js';
 import { BLOCK_NAMES } from './template.js';
 import { PREDICATES } from '../problems/rules.js';
@@ -92,8 +100,22 @@ export interface GroupDecl {
    * it (`open: true`). A group without the field is closed until opened.
    */
   open?: boolean;
+  /**
+   * The navigation's short label per interface language (`short: { en, ru }`): one or two words that fit the
+   * sidebar's column, where `labels` holds the group's full name for a page and the catalogue. A catalogued
+   * manifest names one for every group.
+   */
+  short?: Readonly<Record<string, string>>;
   line: number;
 }
+
+/**
+ * The most code points a group's short label holds: the sidebar is a 240 px column (260 px wide), its group
+ * labels are set at 12 px uppercase with 0.08em tracking beside the chevron and the count, and a label longer
+ * than this is cut off ("Requirements and …"). The wiki app's navigation draws the short label; the catalogue
+ * keeps the full one.
+ */
+export const GROUP_SHORT_LABEL_LIMIT = 18;
 
 export interface KindDecl {
   name: string;
@@ -140,10 +162,121 @@ export interface KindDecl {
   labels?: Readonly<Record<string, KindLabel>>;
   /** The properties a page of this kind shows, in this order: keys of the manifest's `properties` map. */
   details?: readonly string[];
+  /**
+   * A ground on one of this kind's entities shows a card of the entity — its facts, what it is related to and the way
+   * to its page — rather than the code it was read from (`card: true`).
+   */
+  card?: true;
+  /** The shape of the story the history block tells of this kind's entities (`history:`); none when absent. */
+  history?: HistoryShape;
+  /** The views a page of this kind may draw of its entities (`views:`); none when absent. */
+  views?: readonly KindView[];
+  /** How the chain a page draws starts at this kind's entities (`sequence:`); none when absent. */
+  sequence?: SequenceForm;
+  /** How the ER view reads this kind's entities (`er:`); none when the view is not drawn. */
+  er?: ErForm;
+  /** The part this kind's entities play in the system view (`system:`); none when absent. */
+  system?: SystemPart;
+  /** What the definition block finds in this kind's entities (`definition-block:`); none when absent. */
+  definitionBlock?: DefinitionForm;
+  /** The form this kind's listing page takes (`listing:`); the plain table of names and places when absent. */
+  listing?: ListingForm;
+  /** Where this kind stands in the navigation (`nav:`); a page by kind when absent. */
+  nav?: NavTrait;
   /** The kind is a member of another entity's page and has no catalogue page of its own. */
   member?: MemberDecl;
   line: number;
 }
+
+/**
+ * How the history block tells the story of a kind's entities (`history:` of a kind declaration): one of the shapes
+ * the block can project from the graph's history facts. The shape is engine vocabulary, like a block name or a
+ * property format; which kind has which shape is the product's, so no module names a kind to choose one.
+ *
+ * - `repositories`: the whole history of the product's repositories — totals, the files that change most, the authors
+ *   and the snapshots (a product's home page reads it across every repository).
+ * - `author`: the commits one author made, and the files they touched most.
+ * - `path`: the commits of one path, the files that change with it, and the renames it went through.
+ * - `membership`: the commits of the files a container holds, and the authors of those commits.
+ * - `commit`: one commit's parents, its own times, and the branch work only it brought in.
+ * - `task`: the commits whose messages name the task.
+ */
+export const HISTORY_SHAPES = ['repositories', 'author', 'path', 'membership', 'commit', 'task'] as const;
+export type HistoryShape = (typeof HISTORY_SHAPES)[number];
+
+/**
+ * The views a page of a kind may draw of one of its entities (`views:` of a kind declaration). A view is engine
+ * vocabulary — a model the engine builds from the graph — and which kinds have one is the product's, so no module names
+ * a kind to choose a view (decision 0033, the owner's rule that the engine holds no product data).
+ *
+ * - `c4-component`: the modules of the entity and the dependencies between them (the modules block and the component
+ *   view). Whether the entity is a container of the system — a box of the system views, a domain's implementation, the
+ *   folder a treemap covers — is `system:`.
+ * - `state`: the transition tables found in the bytes of the entity's code.
+ *
+ * Two views are declared by how they read an entity, because each reads it in one of two ways: `er:` (the tables an
+ * entity holds, or the links of one table) and `sequence:` (the chain that starts at an entity, or at the route that
+ * reaches it). A kind without either starts none of them.
+ */
+const KIND_VIEWS = ['c4-component', 'state'] as const;
+export type KindView = (typeof KIND_VIEWS)[number];
+
+/**
+ * How the ER view reads a kind's entities (`er:` of a kind declaration): `tables` draws the tables the entity holds — the
+ * graph files them under its key, and it says the graph holds no table there when it holds none — and `links` draws the
+ * entity as one table with the tables its foreign keys reach.
+ */
+const ER_FORMS = ['tables', 'links'] as const;
+export type ErForm = (typeof ER_FORMS)[number];
+
+/**
+ * How the end-to-end chain a page draws starts at a kind's entities (`sequence:` of a kind declaration): `route` starts
+ * at the entity itself, and `symbol` at the route that reaches it, or at it when no route does. A kind without the field
+ * starts no chain.
+ */
+const SEQUENCE_FORMS = ['route', 'symbol'] as const;
+export type SequenceForm = (typeof SEQUENCE_FORMS)[number];
+
+/**
+ * The part a kind's entities play in the system view (`system:` of a kind declaration).
+ *
+ * - `container`: the boxes the context and container views draw and the entities a chain's lanes are grouped by; a
+ *   domain's implementation is the containers it relates, a container's neighbourhood carries the system view's rows, and
+ *   the treemap of a container covers the folder its code stands in.
+ * - `data-store`: a store a container reads and writes.
+ * - `channel`: a topic or queue a container publishes to and consumes.
+ *
+ * Each part also names the kind a system element of that part falls back to when the graph holds no entity for it. A
+ * kind without the field is no element of the system view.
+ */
+const SYSTEM_PARTS = ['container', 'data-store', 'channel'] as const;
+export type SystemPart = (typeof SYSTEM_PARTS)[number];
+
+/**
+ * What the definition block finds in a kind's entities (`definition-block:` of a kind declaration): the `contract` file it
+ * reads, an `operation` row of that contract, or a `channel` row of it with its messages. The block reads a contract
+ * through the format its own reader parses; which kind holds one is the product's.
+ */
+const DEFINITION_FORMS = ['contract', 'operation', 'channel'] as const;
+export type DefinitionForm = (typeof DEFINITION_FORMS)[number];
+
+/** The forms a definition is read as a row of: a contract's members, beside the contract itself. */
+const DEFINITION_MEMBER_FORMS: readonly DefinitionForm[] = ['operation', 'channel'];
+
+/**
+ * The form a kind's listing page takes (`listing:` of a kind declaration): the plain table of names and places when the
+ * field is absent, or the operations table, which names what declares, serves and calls each one (`operations`).
+ */
+const LISTING_FORMS = ['operations'] as const;
+export type ListingForm = (typeof LISTING_FORMS)[number];
+
+/**
+ * Where a kind stands in the navigation (`nav:` of a kind declaration): `own-page` for a kind whose entities stand at a
+ * place of their own (the glossary, the tasks), so the kind's rows are not listed among the pages by kind; `loop` for
+ * the kinds the loop keeps in its own places (the questions, the corrections).
+ */
+const NAV_TRAITS = ['own-page', 'loop'] as const;
+export type NavTrait = (typeof NAV_TRAITS)[number];
 
 /** A kind's name in one language, as a reader says it of one entity and of several. */
 export interface KindLabel {
@@ -184,13 +317,16 @@ export const DIAGRAM_RENDERER_NAMES: readonly string[] = ['likec4', 'mermaid', '
 /** The languages the wiki's interface speaks; a label in another language is a finding. */
 export const LABEL_LANGUAGES: readonly string[] = ['en', 'ru'];
 
-/** The roles a reader can read as (decision 0031); "everything" is every role at once and needs no declaration. */
-export const ROLE_NAMES = ['product', 'analyst', 'architect', 'developer', 'operations', 'tester'] as const;
-export type RoleName = (typeof ROLE_NAMES)[number];
+/**
+ * The word that stands for every role at once (decision 0031): it is never declared, because it is every declared
+ * role and no role of its own.
+ */
+export const EVERY_ROLE = 'everything';
 
 /** What a role changes on a page and in the navigation, as the manifest declares it (`roles:`). */
 export interface RoleDecl {
-  name: RoleName;
+  /** The role's id, as the product's manifest names it (product, analyst, designer, security-engineer ...). */
+  name: string;
   /** The blocks of a template that stand open for the role (block names); the others stay on the page, collapsed. Absent: every block is open. */
   open?: readonly string[];
   /** The groups the navigation lists first for the role, in this order. */
@@ -207,7 +343,7 @@ export interface ExpectedKind {
 export interface KindsManifest {
   file: string;
   /** What each role changes; a role the manifest does not declare reads everything open in the manifest's order. */
-  roles: ReadonlyMap<RoleName, RoleDecl>;
+  roles: ReadonlyMap<string, RoleDecl>;
   /** The language the product's pages are written in (`language:` at the top of the manifest); absent means English. */
   language?: string;
   /** The renderer the diagrams open on (`diagram:` at the top of the manifest: likec4, mermaid or archify); absent means the environment's, else LikeC4. */
@@ -240,6 +376,24 @@ export interface KindsManifest {
    */
   problems?: ProblemSettings;
   findings: readonly Finding[];
+  /**
+   * The entity catalog, when the manifest declares one (`catalog:`): its schema and the row of every kind the
+   * manifest holds, page kinds and catalogue-only kinds alike. A manifest without `catalog:` has none, and its kinds
+   * are read as the versions before the catalog read them.
+   */
+  catalog?: { readonly schema: CatalogSchema; readonly kinds: ReadonlyMap<string, CatalogEntry>; readonly findings: readonly Finding[] };
+  /**
+   * The mapping that ties the extractors' vocabulary to the catalog (`mapping:`), when the manifest declares one:
+   * its version, the row of every extractor kind and relation, and the findings of reading it.
+   */
+  mapping?: { readonly version: number; readonly kinds: MappingRead['kinds']; readonly relations: MappingRead['relations']; readonly findings: readonly Finding[] };
+  /**
+   * The product's workflows (`madarch/workflows.yaml`), when the product holds one: the workflows it reads and the
+   * findings of the workflow check — a stage the engine's registry does not hold, a stage whose required input no
+   * stage of the workflow produces, a cycle. Its findings also stand with the manifest's own, so the Problems page
+   * shows them once (decision 0033, items 1 and 2).
+   */
+  workflows?: { readonly file: string; readonly workflows: ReadonlyMap<string, WorkflowEntry>; readonly findings: readonly WorkflowFinding[] };
   /** The manifest could not be read as a whole (not YAML, not a mapping, no `kinds` mapping): no kind is known, which is not the same as every kind having a finding. */
   unreadable?: true;
 }
@@ -248,7 +402,90 @@ export type KindsRead =
   | { present: false; file: string }
   | { present: true; manifest: KindsManifest };
 
-const KIND_KEYS = new Set(['template', 'source', 'folder', 'file', 'title', 'attributes', 'relations', 'labels', 'group', 'origin', 'description', 'identifier', 'terms', 'headings', 'semantics', 'structure', 'details', 'member']);
+const KIND_KEYS = new Set([
+  'template', 'source', 'folder', 'file', 'title', 'attributes', 'relations', 'labels', 'group', 'origin', 'description',
+  'identifier', 'terms', 'headings', 'semantics', 'structure', 'details', 'member', 'card', 'history',
+  'views', 'er', 'sequence', 'system', 'definition-block', 'listing', 'nav',
+  // the catalog's row of the kind (decision 0033, items 8 to 10): read when the manifest declares a catalog
+  'id', 'definition', 'sources', 'acquisition', 'status', 'relation-constraints', 'template-policy',
+]);
+
+/** Whether a value is one of the shapes a kind's history page can have. */
+function isHistoryShape(value: unknown): value is HistoryShape {
+  return typeof value === 'string' && (HISTORY_SHAPES as readonly string[]).includes(value);
+}
+
+/**
+ * What the manifest says of one kind, for the modules that draw a page: each reader asks the declaration rather than a
+ * kind's name, so a product that renames or removes a kind keeps exactly the views, the listing and the navigation its
+ * manifest declares (decision 0033, the owner's rule that the engine holds no product data). A kind the manifest does not
+ * declare has none of them.
+ */
+function kindDeclOf(manifest: KindsManifest | undefined, kind: string): KindDecl | undefined {
+  return manifest?.kinds?.get(kind);
+}
+
+/**
+ * The sentence naming where a kind's declaration stands and what it does not declare: the modules that draw a page read
+ * it instead of choosing by a kind's name, so a reader is told what to declare in the product's own manifest (file and
+ * line), never that the engine lacks a kind (decision 0033).
+ */
+export function declarationMissing(manifest: KindsManifest | undefined, kind: string, declaration: string, what: string): string {
+  const decl = kindDeclOf(manifest, kind);
+  const file = manifest?.file ?? '';
+  const named = file === '' ? 'the manifest' : `the manifest ${file}`;
+  if (decl === undefined) return `${what}: ${named} declares no kind ${kind}`;
+  // A declaration the reader holds always names its line; one a fixture hands in without a line is named by the file
+  // alone, so a refusal never says ":undefined".
+  const at = Number.isFinite(decl.line) ? `${named}${file === '' ? ' line' : ':'}${decl.line}` : named;
+  return `${what}: ${at} gives the kind ${kind} no ${declaration}`;
+}
+
+/** Whether the manifest gives a kind one of the views a page may draw of its entities (`views:`). */
+export function kindDraws(manifest: KindsManifest | undefined, kind: string, view: KindView): boolean {
+  return kindDeclOf(manifest, kind)?.views?.includes(view) === true;
+}
+
+/** How the ER view reads a kind's entities (`er:`), when the manifest gives the kind one. */
+export function erFormOf(manifest: KindsManifest | undefined, kind: string): ErForm | undefined {
+  return kindDeclOf(manifest, kind)?.er;
+}
+
+/** How the chain a page draws starts at a kind's entities (`sequence:`), when the manifest gives the kind one. */
+export function sequenceFormOf(manifest: KindsManifest | undefined, kind: string): SequenceForm | undefined {
+  return kindDeclOf(manifest, kind)?.sequence;
+}
+
+/** The part a kind's entities play in the system view (`system:`), when the manifest gives the kind one. */
+export function systemPartOf(manifest: KindsManifest | undefined, kind: string): SystemPart | undefined {
+  return kindDeclOf(manifest, kind)?.system;
+}
+
+/** The kinds that play a part in the system view (`system: <part>`), in the manifest's order. */
+export function systemKindsOf(manifest: KindsManifest | undefined, part: SystemPart): string[] {
+  return [...(manifest?.kinds?.values() ?? [])].filter((decl) => decl.system === part).map((decl) => decl.name);
+}
+
+/** The first kind the manifest gives a part in the system view, when it declares one. */
+export function systemKindOf(manifest: KindsManifest | undefined, part: SystemPart): string | undefined {
+  return systemKindsOf(manifest, part)[0];
+}
+
+/** What the definition block finds in a kind's entities (`definition-block:`), when the manifest gives the kind one. */
+export function definitionBlockFormOf(manifest: KindsManifest | undefined, kind: string): DefinitionForm | undefined {
+  return kindDeclOf(manifest, kind)?.definitionBlock;
+}
+
+/** Whether the kind's entities are a row of a contract's definition (`definition-block: operation` or `definition-block: channel`). */
+export function definitionBlockMemberOf(manifest: KindsManifest | undefined, kind: string): boolean {
+  const form = definitionBlockFormOf(manifest, kind);
+  return form !== undefined && DEFINITION_MEMBER_FORMS.includes(form);
+}
+
+/** The form a kind's listing page takes (`listing:`), when the manifest gives the kind one. */
+export function listingFormOf(manifest: KindsManifest | undefined, kind: string): ListingForm | undefined {
+  return kindDeclOf(manifest, kind)?.listing;
+}
 
 /** Whether a repository-relative path stays inside the folder: no climbing, not absolute. */
 export function insideFolder(folder: string, path: string): boolean {
@@ -433,6 +670,20 @@ function nothing(file: string, findings: Finding[]): KindsManifest {
   return { file, roles: new Map(), properties: new Map(), kinds: new Map(), declaredTemplates: [], groups: new Map(), excludeDocuments: [], ignoreBlocks: [], expect: [], findings, unreadable: true };
 }
 
+/**
+ * The manifest with the product's workflows beside it: a product that holds `madarch/workflows.yaml` reads its
+ * workflows here, and their findings stand with the manifest's own, each naming its own file and line.
+ */
+function withWorkflows(manifest: KindsManifest, productFolder: string): KindsManifest {
+  const read = readWorkflows(productFolder);
+  if (!read.present) return manifest;
+  return {
+    ...manifest,
+    workflows: { file: read.file, workflows: read.workflows, findings: read.findings },
+    findings: [...manifest.findings, ...read.findings],
+  };
+}
+
 /** Reads `madarch/kinds.yaml` of a product folder; absent when the product holds none. */
 export function readKinds(productFolder: string): KindsRead {
   const file = join(productFolder, KINDS_FILE);
@@ -443,7 +694,7 @@ export function readKinds(productFolder: string): KindsRead {
     if ((error as { code?: string }).code === 'ENOENT') return { present: false, file };
     return { present: true, manifest: nothing(file, [{ file, line: 1, message: `the file cannot be read: ${(error as Error).message}` }]) };
   }
-  return { present: true, manifest: parseKinds(text, file, productFolder) };
+  return { present: true, manifest: withWorkflows(parseKinds(text, file, productFolder), productFolder) };
 }
 
 /** Parses the manifest's text; `productFolder` lets a template's existence be judged. */
@@ -470,7 +721,7 @@ export function parseKinds(text: string, file: string, productFolder: string): K
       const value = top['diagram'];
       if (typeof value !== 'string' || !DIAGRAM_RENDERER_NAMES.includes(value)) findings.push({ file, line: at(['diagram']), message: `"diagram" is ${JSON.stringify(value)}: the diagrams open on ${DIAGRAM_RENDERER_NAMES.join(', ')}` });
       else diagram = value;
-    } else if (key !== 'kinds' && key !== 'groups' && key !== 'documents' && key !== 'roles' && key !== 'problems' && key !== 'properties') findings.push({ file, line: at([key]), message: `"${key}" is not a field of the manifest: the manifest holds "kinds", "groups", "documents", "roles", "problems", "properties", "language" and "diagram"` });
+    } else if (key !== 'kinds' && key !== 'groups' && key !== 'documents' && key !== 'roles' && key !== 'problems' && key !== 'properties' && key !== 'catalog' && key !== 'mapping') findings.push({ file, line: at([key]), message: `"${key}" is not a field of the manifest: the manifest holds "kinds", "groups", "documents", "roles", "problems", "properties", "catalog", "mapping", "language" and "diagram"` });
   }
   const properties = new Map<string, PropertyDecl>();
   const rawProperties = top['properties'];
@@ -501,6 +752,10 @@ export function parseKinds(text: string, file: string, productFolder: string): K
   }
   const problems = parseProblems(top['problems'], at, findings, file);
   const groups = new Map<string, GroupDecl>();
+  /** The groups whose `parent` the reader refused: their own finding covers the defect, and no other rule repeats it. */
+  const refusedGroupParents = new Set<string>();
+  /** The groups whose `short` label was refused: their own finding covers it, and the group itself still stands. */
+  const refusedShortLabels = new Set<string>();
   const rawGroups = top['groups'];
   if (rawGroups !== undefined) {
     if (rawGroups === null || typeof rawGroups !== 'object' || Array.isArray(rawGroups)) findings.push({ file, line: at(['groups']), message: '"groups" maps a group name to its name in each language (en, ru)' });
@@ -513,21 +768,42 @@ export function parseKinds(text: string, file: string, productFolder: string): K
           continue;
         }
         const labels: Record<string, string> = {};
+        const short: Record<string, string> = {};
         let parent: string | undefined;
         let open: boolean | undefined;
         let bad = false;
+        const rawShort = body['short'];
+        if (rawShort !== undefined) {
+          // A short label that is not usable is a finding of its own, and the group still stands: the navigation falls
+          // back to the full name, and no other rule repeats the defect (one defect, one problem).
+          let shortProblem = false;
+          if (rawShort === null || typeof rawShort !== 'object' || Array.isArray(rawShort)) { findings.push({ file, line: at(['groups', name, 'short']), message: `group "${name}": "short" is { en: <its short label>, ru: <its short label> }` }); shortProblem = true; }
+          else {
+            for (const [language, label] of Object.entries(rawShort as Record<string, unknown>)) {
+              if (!LABEL_LANGUAGES.includes(language)) { findings.push({ file, line: at(['groups', name, 'short', language]), message: `group "${name}": "short" holds a label per language (${LABEL_LANGUAGES.join(', ')}), got "${language}"` }); shortProblem = true; continue; }
+              if (typeof label !== 'string' || label.trim() === '') { findings.push({ file, line: at(['groups', name, 'short', language]), message: `group "${name}": the short label in "${language}" is one or two words` }); shortProblem = true; continue; }
+              if (Array.from(label).length > GROUP_SHORT_LABEL_LIMIT) { findings.push({ file, line: at(['groups', name, 'short', language]), message: `group "${name}": the short label in "${language}" is ${Array.from(label).length} code points, and the navigation holds ${GROUP_SHORT_LABEL_LIMIT} without cutting it: give it one or two words` }); shortProblem = true; continue; }
+              short[language] = label;
+            }
+            if (!shortProblem && Object.keys(short).length !== LABEL_LANGUAGES.length) {
+              findings.push({ file, line: at(['groups', name, 'short']), message: `group "${name}": "short" names a label in each language (${LABEL_LANGUAGES.join(', ')}), and it names ${Object.keys(short).join(', ') || 'none'}` });
+              shortProblem = true;
+            }
+          }
+          if (shortProblem) refusedShortLabels.add(name);
+        }
         for (const [language, label] of Object.entries(body)) {
           if (language === 'open') {
             if (typeof label !== 'boolean') findings.push({ file, line: at(['groups', name, 'open']), message: `group "${name}": "open" is true or absent` });
             else open = label;
-          } else if (language === 'parent') {
+          } else if (language === 'short') { continue; } else if (language === 'parent') {
             if (typeof label !== 'string' || label.trim() === '') { findings.push({ file, line: at(['groups', name, 'parent']), message: `group "${name}": "parent" is the name of a group of "groups"` }); bad = true; }
             else parent = label;
           } else if (!LABEL_LANGUAGES.includes(language)) { findings.push({ file, line: at(['groups', name, language]), message: `group "${name}": "${language}" is not a language of the wiki: the languages are ${LABEL_LANGUAGES.join(', ')}` }); bad = true; }
           else if (typeof label !== 'string' || label.trim() === '') { findings.push({ file, line: at(['groups', name, language]), message: `group "${name}": the name in "${language}" is a text` }); bad = true; }
           else labels[language] = label;
         }
-        if (!bad) groups.set(name, { name, labels, line, ...(parent === undefined ? {} : { parent }), ...(open === undefined ? {} : { open }) });
+        if (!bad) groups.set(name, { name, labels, line, ...(Object.keys(short).length === LABEL_LANGUAGES.length ? { short } : {}), ...(parent === undefined ? {} : { parent }), ...(open === undefined ? {} : { open }) });
       }
       // A sub-area names a group that stands beside it. Two levels would hide the
       // catalogue's shape, so a group whose parent is itself a sub-area is a finding.
@@ -554,34 +830,92 @@ export function parseKinds(text: string, file: string, productFolder: string): K
       }
       for (const [name, invalid] of invalidParents) {
         findings.push({ file, line: invalid.line, message: invalid.message });
+        refusedGroupParents.add(name);
         delete groups.get(name)!.parent;
       }
     }
   }
-  const roles = new Map<RoleName, RoleDecl>();
+  // The entity catalog's schema (decision 0033, items 8 to 10): the bound of a subgroup, the origin marks, the
+  // statuses, the template policies, the attributes and the relation names. It is read before the kinds, whose rows
+  // it validates; a manifest without one keeps every kind it declares as the wiki read it before the catalog.
+  // A manifest that declares a catalog at all is read against it; one whose `catalog:` mapping cannot be read keeps its
+  // kinds and reports the schema's own findings rather than a field of the catalog on every kind.
+  const catalogDeclared = top['catalog'] !== undefined;
+  const catalogRead = catalogDeclared ? readCatalogSchema(top['catalog'], at, file) : undefined;
+  const catalogSchema = catalogRead?.schema;
+  const catalogEntries = new Map<string, CatalogEntry>();
+  const catalogFound: Finding[] = [];
+  if (catalogRead !== undefined) {
+    findings.push(...catalogRead.findings);
+    catalogFound.push(...catalogRead.findings);
+  }
+  const roles = new Map<string, RoleDecl>();
+  /** The groups the roles' `lead` lists name, sound or not: the POV rule reads the declarations, so one refused role
+   * declaration does not make its areas look unled (one defect, one problem). */
+  const declaredLeads = new Set<string>();
+  let rolesDeclared = false;
+  /** A role's declaration the reader could not open: its leads are unknown, so the POV's coverage is not judged. */
+  let roleDeclarationUnreadable = false;
   const rawRoles = top['roles'];
   if (rawRoles !== undefined) {
-    if (rawRoles === null || typeof rawRoles !== 'object' || Array.isArray(rawRoles)) findings.push({ file, line: at(['roles']), message: `"roles" maps a role (${ROLE_NAMES.join(', ')}) to { open: [<block>, ...], lead: [<group>, ...] }` });
+    rolesDeclared = true;
+    if (rawRoles === null || typeof rawRoles !== 'object' || Array.isArray(rawRoles)) findings.push({ file, line: at(['roles']), message: '"roles" maps each role the product declares to { open: [<block>, ...], lead: [<area or subgroup>, ...] }' });
     else {
       for (const [name, entry] of Object.entries(rawRoles as Record<string, unknown>)) {
         const line = at(['roles', name]);
-        if (!(ROLE_NAMES as readonly string[]).includes(name)) { findings.push({ file, line, message: `role "${name}": the roles are ${ROLE_NAMES.join(', ')}; "everything" is every role at once and is not declared` }); continue; }
+        // The leads a role declares are read before its declaration is judged: a role with a defect still tells the
+        // POV which areas it leads, so one defect is one problem (the unled-area rule does not echo it).
+        {
+          const leads = entry !== null && typeof entry === 'object' && !Array.isArray(entry) ? (entry as Record<string, unknown>)['lead'] : undefined;
+          if (Array.isArray(leads)) for (const group of leads) if (typeof group === 'string' && groups.has(group)) declaredLeads.add(group);
+        }
+        // A role's name is the product's: the engine keeps no list of them. "everything" is every role at once.
+        if (name.trim() === '' || name.trim() !== name || /\s/.test(name)) { findings.push({ file, line, message: `role ${JSON.stringify(name)}: a role's name is one word without whitespace` }); continue; }
+        if (name === EVERY_ROLE) { findings.push({ file, line, message: `role "${name}": "everything" is every role at once and is not declared` }); continue; }
         const body = entry as Record<string, unknown> | null;
-        if (body === null || typeof body !== 'object' || Array.isArray(body)) { findings.push({ file, line, message: `role "${name}": the declaration is { open: [<block>, ...], lead: [<group>, ...] }` }); continue; }
+        if (body === null || typeof body !== 'object' || Array.isArray(body)) { roleDeclarationUnreadable = true; findings.push({ file, line, message: `role "${name}": the declaration is { open: [<block>, ...], lead: [<group>, ...] }` }); continue; }
         const before = findings.length;
         for (const key of Object.keys(body)) if (key !== 'open' && key !== 'lead') findings.push({ file, line: at(['roles', name, key]), message: `role "${name}": "${key}" is not a field of a role: the fields are "open" and "lead"` });
         const list = (field: 'open' | 'lead'): string[] | undefined => {
           const value = body[field];
           if (value === undefined) return undefined;
-          if (!Array.isArray(value) || value.some((item) => typeof item !== 'string' || item.trim() === '')) { findings.push({ file, line: at(['roles', name, field]), message: `role "${name}": "${field}" is a list of ${field === 'open' ? 'blocks of the library' : 'groups of "groups"'}` }); return undefined; }
+          if (!Array.isArray(value) || value.some((item) => typeof item !== 'string' || item.trim() === '')) {
+            if (field === 'lead') roleDeclarationUnreadable = true; // the role's leads are unknown: the POV is not judged
+            findings.push({ file, line: at(['roles', name, field]), message: `role "${name}": "${field}" is a list of ${field === 'open' ? 'blocks of the library' : 'groups of "groups"'}` });
+            return undefined;
+          }
           return value as string[];
         };
         const open = list('open');
         const lead = list('lead');
         for (const block of open ?? []) if (!(BLOCK_NAMES as readonly string[]).includes(block)) findings.push({ file, line: at(['roles', name, 'open']), message: `role "${name}": "${block}" is not a block of the library (${BLOCK_NAMES.join(', ')})` });
-        for (const group of lead ?? []) if (!groups.has(group)) findings.push({ file, line: at(['roles', name, 'lead']), message: `role "${name}": "${group}" is not a group of "groups" (${[...groups.keys()].join(', ') || 'none is declared'})` });
-        if (findings.length === before) roles.set(name as RoleName, { name: name as RoleName, ...(open === undefined ? {} : { open }), lead: lead ?? [], line });
+        for (const group of lead ?? []) {
+          if (!groups.has(group)) findings.push({ file, line: at(['roles', name, 'lead']), message: `role "${name}": "${group}" is not a group of "groups" (${[...groups.keys()].join(', ') || 'none is declared'})` });
+          else declaredLeads.add(group);
+        }
+        if (findings.length === before) roles.set(name, { name, ...(open === undefined ? {} : { open }), lead: lead ?? [], line });
       }
+      // The POV covers the catalog (decision 0033, item 12): every area is led by at least one role, whether the role
+      // names the area or a subgroup of it. A catalog with no role declared has no POV to check; a manifest without a
+      // catalog is read as before the catalog.
+      if (catalogSchema !== undefined && rolesDeclared && !roleDeclarationUnreadable) {
+        const led = declaredLeads;
+        const all = [...groups.values()];
+        for (const area of all.filter((group) => group.parent === undefined)) {
+          if (refusedGroupParents.has(area.name)) continue; // its own finding names the parent nobody declares
+          if (led.has(area.name) || all.some((subgroup) => subgroup.parent === area.name && led.has(subgroup.name))) continue;
+          findings.push({ file, line: at(['groups', area.name]), message: `area "${area.name}": no role leads it, and every area is led by a role or by one of its subgroups (the roles are ${[...roles.keys()].join(', ')})` });
+        }
+      }
+    }
+  }
+  // The navigation names every group by a short label (decision 0033's two levels, shown in a 240 px column):
+  // with a catalog declared, a group without one would be cut off at the sidebar's width.
+  if (catalogSchema !== undefined) {
+    for (const group of groups.values()) {
+      // A group whose `parent` was refused already carries that finding: no second rule repeats it.
+      if (group.short !== undefined || refusedGroupParents.has(group.name) || refusedShortLabels.has(group.name)) continue;
+      findings.push({ file, line: at(['groups', group.name]), message: `group "${group.name}": no "short" label, and the navigation names every group by one or two words ("short: { en, ru }")` });
     }
   }
   const excludeDocuments: string[] = [];
@@ -620,12 +954,22 @@ export function parseKinds(text: string, file: string, productFolder: string): K
   }
   const kinds = new Map<string, KindDecl>();
   const declaredTemplates: string[] = [];
+  // Every name the manifest declares, sound or not: the mapping resolves a kind against the declaration, and the
+  // catalog's own finding is the one a refused kind carries (one defect, one problem on the Problems page).
+  const declaredKindNames = new Set(Object.keys(declared as Record<string, unknown>));
   for (const [name, value] of Object.entries(declared as Record<string, unknown>)) {
     const line = at(['kinds', name]);
     const problem = (path: (string | number)[], message: string): void => {
       // A field that is absent has no line of its own: the problem stands at the kind.
       const written = path.length === 0 || (value !== null && typeof value === 'object' && String(path[0]) in (value as object));
       findings.push({ file, line: written ? at(['kinds', name, ...path]) : line, message: `kind "${name}": ${message}` });
+    };
+    // The catalog's own findings, kept apart from the manifest's others: `bun run check:catalog` reads them over the
+    // starter set, where the product has no documents yet and the document expectations are the product's own matter.
+    const catalogProblem = (path: (string | number)[], message: string): void => {
+      const before = findings.length;
+      problem(path, message);
+      catalogFound.push(...findings.slice(before));
     };
     if (value === null || typeof value !== 'object' || Array.isArray(value)) {
       findings.push({ file, line, message: `kind "${name}": the declaration is a mapping with a template and a source` });
@@ -634,6 +978,21 @@ export function parseKinds(text: string, file: string, productFolder: string): K
     const decl = value as Record<string, unknown>;
     const before = findings.length;
     for (const key of Object.keys(decl)) if (!KIND_KEYS.has(key)) problem([key], `"${key}" is not a field of a kind: the fields are ${[...KIND_KEYS].join(', ')}`);
+    // The catalog's row of the kind: its place, its meaning, its sources, its acquisition, its status, the relations
+    // it may carry and its template policy. A row with a problem leaves the kind out, like every other problem does;
+    // a kind the catalog declares with the policy "none" is catalogue data only and shows no page.
+    if (!catalogDeclared) {
+      const stray = Object.keys(decl).filter((key) => CATALOG_ONLY_FIELDS.has(key));
+      if (stray.length > 0) catalogProblem([stray[0]!], `"${stray[0]}" is a field of the entity catalog, and the manifest declares no "catalog"`);
+    } else if (catalogSchema !== undefined) {
+      const entry = readCatalogKind(name, decl, catalogSchema, groups, line, catalogProblem, refusedGroupParents);
+      if (entry !== undefined) catalogEntries.set(name, entry);
+    }
+    const policy = typeof decl['template-policy'] === 'string' ? decl['template-policy'] : 'page';
+    if (policy === 'none') {
+      for (const field of ['template', 'source', 'folder', 'file', 'member', 'details', 'card', 'history', 'views', 'er', 'sequence', 'system', 'definition-block', 'listing', 'nav'] as const) if (decl[field] !== undefined) catalogProblem([field], `"${field}" belongs to a kind that shows a page, and "template-policy" is "none"`);
+      continue;
+    }
     const source = decl['source'];
     if (source !== 'graph' && source !== 'markdown' && source !== 'document') problem(['source'], `"source" is "graph", "markdown" or "document", got ${JSON.stringify(source)}`);
     const named = decl['template'];
@@ -680,7 +1039,9 @@ export function parseKinds(text: string, file: string, productFolder: string): K
       problem([field], `"${field}" belongs to a document kind`);
     }
     const group = decl['group'];
-    if (group !== undefined && (typeof group !== 'string' || !groups.has(group))) problem(['group'], `"group" names a group of "groups" (${[...groups.keys()].join(', ') || 'none is declared'}), got ${JSON.stringify(group)}`);
+    // With a catalog declared, the catalog's own row names an unknown subgroup, so the manifest reader stays silent there:
+    // one defect is one problem (the Problems page counts them).
+    if (catalogSchema === undefined && group !== undefined && (typeof group !== 'string' || !groups.has(group))) problem(['group'], `"group" names a group of "groups" (${[...groups.keys()].join(', ') || 'none is declared'}), got ${JSON.stringify(group)}`);
     const origin = decl['origin'];
     if (origin !== undefined && !ORIGINS.includes(origin as Origin)) problem(['origin'], `"origin" is ${ORIGINS.join(', ')}; got ${JSON.stringify(origin)}`);
     const descriptions: Record<string, string> = {};
@@ -716,6 +1077,33 @@ export function parseKinds(text: string, file: string, productFolder: string): K
         });
       }
     }
+    const card = decl['card'];
+    if (card !== undefined && typeof card !== 'boolean') problem(['card'], `"card" is true or absent: a ground on one of the kind's entities shows its card, and the entity's code is shown when it is absent`);
+    const history = decl['history'];
+    if (history !== undefined && !isHistoryShape(history)) problem(['history'], `"history" is the shape of the story the history block tells of the kind: ${HISTORY_SHAPES.join(', ')}, got ${JSON.stringify(history)}`);
+    // The views a page of the kind may draw, and the traits the engine draws them by: each field names one thing of a
+    // small vocabulary the engine defines, and the manifest says which kind has it (decision 0033: the engine holds no
+    // kind of its own). A value the engine cannot read is a finding at the field's line, and the kind is left out.
+    const oneOf = <T extends string>(field: string, vocabulary: readonly T[]): T | undefined => {
+      const value = decl[field];
+      if (value === undefined) return undefined;
+      if (typeof value === 'string' && (vocabulary as readonly string[]).includes(value)) return value as T;
+      problem([field], `"${field}" is one of ${vocabulary.join(', ')}, got ${JSON.stringify(value)}`);
+      return undefined;
+    };
+    const declaredViews: KindView[] = [];
+    const rawViews = decl['views'];
+    if (rawViews !== undefined) {
+      if (!Array.isArray(rawViews) || rawViews.length === 0 || rawViews.some((entry) => typeof entry !== 'string' || !(KIND_VIEWS as readonly string[]).includes(entry))) problem(['views'], `"views" lists the views a page of the kind may draw of its entities: ${KIND_VIEWS.join(', ')}, got ${JSON.stringify(rawViews)}`);
+      else if (new Set(rawViews).size !== rawViews.length) problem(['views'], `"views" names each view once, and ${JSON.stringify(rawViews)} names one twice`);
+      else declaredViews.push(...(rawViews as KindView[]));
+    }
+    const er = oneOf('er', ER_FORMS);
+    const sequence = oneOf('sequence', SEQUENCE_FORMS);
+    const system = oneOf('system', SYSTEM_PARTS);
+    const definition = oneOf('definition-block', DEFINITION_FORMS);
+    const listing = oneOf('listing', LISTING_FORMS);
+    const nav = oneOf('nav', NAV_TRAITS);
     const details: string[] = [];
     const rawDetails = decl['details'];
     if (rawDetails !== undefined) {
@@ -757,6 +1145,12 @@ export function parseKinds(text: string, file: string, productFolder: string): K
         }
       }
     }
+    // The template policy says what the kind shows: a page of its own, a member's row, or nothing yet. A policy that
+    // says one thing and a declaration that says another is a finding (a catalogue-only kind was let go above).
+    if (catalogDeclared) {
+      if (policy === 'page' && decl['member'] !== undefined) catalogProblem(['member'], '\'template-policy\' is "page", and the kind declares "member": a member\'s row is the policy "member"');
+      if (policy === 'member' && decl['member'] === undefined) catalogProblem(['template-policy'], '"template-policy" is "member", and the kind declares no "member": a member\'s row names the relation to the parent whose page it stands on');
+    }
     if (findings.length > before) continue;
     kinds.set(name, {
       name,
@@ -775,11 +1169,34 @@ export function parseKinds(text: string, file: string, productFolder: string): K
       title: typeof title === 'string' ? title : 'label',
       ...(Array.isArray(attributes) ? { attributes: attributes as string[] } : {}),
       ...(details.length > 0 ? { details } : {}),
+      ...(card === true ? { card: true as const } : {}),
+      ...(isHistoryShape(history) ? { history } : {}),
+      ...(declaredViews.length === 0 ? {} : { views: declaredViews }),
+      ...(er === undefined ? {} : { er }),
+      ...(sequence === undefined ? {} : { sequence }),
+      ...(system === undefined ? {} : { system }),
+      ...(definition === undefined ? {} : { definitionBlock: definition }),
+      ...(listing === undefined ? {} : { listing }),
+      ...(nav === undefined ? {} : { nav }),
       ...(member === undefined ? {} : { member }),
       relations,
       ...(Object.keys(labels).length > 0 ? { labels } : {}),
       line,
     });
+  }
+  // The mapping that ties the extractors' vocabulary to the catalog (decision 0033, item 7): every kind and
+  // relation an extractor declares it emits has a row, and every row names something the catalog holds.
+  let mapping: MappingRead | undefined;
+  if (top['mapping'] !== undefined) {
+    mapping = readMapping(top['mapping'], at, file, catalogSchema === undefined ? undefined : { schema: catalogSchema, kinds: catalogEntries }, undefined, declaredKindNames);
+    findings.push(...mapping.findings);
+  }
+  // The catalog as a whole: a subgroup above its bound or with no kind, an area with no subgroup, two kinds of one
+  // concept id, and a value the catalog marks as an attribute declared as a kind.
+  if (catalogSchema !== undefined) {
+    const shape = catalogFindings(catalogSchema, groups, catalogEntries, file);
+    findings.push(...shape);
+    catalogFound.push(...shape);
   }
   // A kind named in "expect" that the manifest does not declare is a finding at its own line.
   const wanted = expected.filter((entry) => {
@@ -794,7 +1211,7 @@ export function parseKinds(text: string, file: string, productFolder: string): K
     }
     return true;
   });
-  return { file, roles, properties, kinds, declaredTemplates: [...new Set(declaredTemplates)], groups, excludeDocuments, ignoreBlocks: ignoredBlocks, expect: wanted, ...(problems === undefined ? {} : { problems }), findings, ...(language === undefined ? {} : { language }), ...(diagram === undefined ? {} : { diagram }) };
+  return { file, roles, properties, kinds, declaredTemplates: [...new Set(declaredTemplates)], groups, excludeDocuments, ignoreBlocks: ignoredBlocks, expect: wanted, ...(problems === undefined ? {} : { problems }), ...(catalogSchema === undefined ? {} : { catalog: { schema: catalogSchema, kinds: catalogEntries, findings: catalogFound } }), ...(mapping === undefined ? {} : { mapping: { version: mapping.version, kinds: mapping.kinds, relations: mapping.relations, findings: mapping.findings } }), findings, ...(language === undefined ? {} : { language }), ...(diagram === undefined ? {} : { diagram }) };
 }
 
 /**

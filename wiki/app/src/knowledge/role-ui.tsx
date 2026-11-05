@@ -9,13 +9,14 @@ import * as DropdownMenuPrimitive from '@radix-ui/react-dropdown-menu';
 import { CheckIcon, CircleHelpIcon, UserRoundIcon } from 'lucide-react';
 import { Button } from '@/components/ui/button.js';
 import { K_HOME } from './routes.js';
-import { ROLES, chooseRole, useSettings } from './roles.js';
+import { chooseRole, rolesOf, useSettings } from './roles.js';
 import type { ProductChoice } from './types.js';
 
 /** The first open asks which role the reader reads as; closing the card or skipping it means everything. */
 export function RoleCard(): ReactElement | null {
   const { t } = useTranslation();
   const settings = useSettings();
+  const roles = rolesOf(settings.roles);
   const [picked, setPicked] = useState<string>('everything');
   const [error, setError] = useState<string | null>(null);
   const [working, setWorking] = useState(false);
@@ -38,7 +39,7 @@ export function RoleCard(): ReactElement | null {
         <div className="grid min-h-0 flex-1 gap-3 overflow-y-auto px-5 pb-3 text-small text-secondary" data-testid="role-card-body">
           <p className="m-0">{t('knowledge.roles.cardLead')}</p>
           <div role="radiogroup" aria-labelledby="role-card-title" className="grid gap-1.5">
-            {ROLES.map((role) => (
+            {roles.map((role) => (
               <label key={role} className="flex cursor-pointer items-start gap-2.5 rounded-[var(--radius-card)] border border-line px-3 py-2 has-[:checked]:border-ink" data-testid="role-option" data-role={role}>
                 <input type="radio" name="role" className="mt-1" checked={picked === role} onChange={() => setPicked(role)} autoFocus={role === 'everything'} />
                 <span><b className="text-ink">{t(`knowledge.roles.names.${role}`)}</b><br />{t(`knowledge.roles.about.${role}`)}</span>
@@ -61,6 +62,7 @@ export function RoleCard(): ReactElement | null {
 export function RoleMenu(): ReactElement {
   const { t } = useTranslation();
   const settings = useSettings();
+  const roles = rolesOf(settings.roles);
   return (
     <DropdownMenuPrimitive.Root>
       <DropdownMenuPrimitive.Trigger asChild>
@@ -74,7 +76,7 @@ export function RoleMenu(): ReactElement {
           <DropdownMenuPrimitive.Label className="language-menu-label">{t('knowledge.roles.menu')}</DropdownMenuPrimitive.Label>
           <DropdownMenuPrimitive.Separator className="language-menu-separator" />
           <DropdownMenuPrimitive.RadioGroup value={settings.role} onValueChange={(role: string) => { chooseRole(role).catch(() => undefined); }}>
-            {ROLES.map((role) => (
+            {roles.map((role) => (
               <DropdownMenuPrimitive.RadioItem key={role} className="language-menu-item" value={role} data-testid="role-choice">
                 <span className="language-menu-check"><DropdownMenuPrimitive.ItemIndicator><CheckIcon aria-hidden="true" className="size-4" /></DropdownMenuPrimitive.ItemIndicator></span>
                 {t(`knowledge.roles.names.${role}`)}

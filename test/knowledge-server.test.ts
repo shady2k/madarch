@@ -89,7 +89,7 @@ describe('an empty product', () => {
   test('a product without a manifest is given the starter set and then reads as any empty product; one with a manifest and no graph says what to do: connect a repository, or start the fill', async () => {
     const bare = await get('/products/bare/api/k/status');
     expect(bare.body).toMatchObject({ manifest: 'ok', filled: false, home: null });
-    expect(bare.body.seeded).toEqual(['madarch/kinds.yaml']);
+    expect(bare.body.seeded).toEqual(['madarch/kinds.yaml', 'madarch/workflows.yaml']);
     expect(bare.body.kinds.map((kind: { kind: string }) => kind.kind)).toEqual(expect.arrayContaining(['product', 'domain', 'doc.use-case', 'code.service', 'code.file', 'code.symbol', 'code.route', 'code.table']));
     // The kinds carry their names in both languages, from the manifest.
     expect(bare.body.kinds.find((kind: { kind: string }) => kind.kind === 'code.file').labels).toEqual({ en: { one: 'File', many: 'Files' }, ru: { one: 'Файл', many: 'Файлы' } });
@@ -277,7 +277,7 @@ describe('the fill the reader watches', () => {
     expect(listed.body.total).toBe(names.length);
     expect(listed.body.rows.map((row: { id: string }) => row.id).sort()).toEqual(names.map((name) => recordKey('code.snapshot', name)).sort());
     const status = await get('/products/tiny/api/k/status');
-    expect(status.body.kinds.find((kind: { kind: string }) => kind.kind === 'code.snapshot')).toMatchObject({ group: 'history', count: names.length, origins: ['history'], labels: { en: { one: 'Repository landmark', many: 'Repository landmarks' }, ru: { one: 'Ориентир репозитория', many: 'Ориентиры репозитория' } } });
+    expect(status.body.kinds.find((kind: { kind: string }) => kind.kind === 'code.snapshot')).toMatchObject({ group: 'history.work', count: names.length, origins: ['history'], labels: { en: { one: 'Repository landmark', many: 'Repository landmarks' }, ru: { one: 'Ориентир репозитория', many: 'Ориентиры репозитория' } } });
     const declaration = status.body.kinds.find((kind: { kind: string }) => kind.kind === 'code.snapshot');
     expect(declaration.descriptions.en).toBe('A repository landmark read from Git, with its commit and the files held by that tree.');
     expect(declaration.descriptions.ru).toBe('Ориентир из Git с его коммитом и файлами этого дерева репозитория.');

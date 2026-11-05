@@ -9,9 +9,16 @@
  * the `code.` prefix (0028, "two namespaces"); a product's kinds come from its
  * registry and are never named by an extractor.
  */
+import type { EmittedKind, EmittedRelation } from './vocabulary.js';
 
 /** A kind or relation type of the extractor schema: always under `code.`. */
 export type SchemaKey = `code.${string}`;
+
+/**
+ * The union of every kind and relation the extractors declare they emit (src/extract/vocabulary.ts). A record's
+ * kind and an edge's type are one of these, so an extractor that emits an undeclared key is refused by tsc at the
+ * site that emits it, never discovered later by the mapping check.
+ */
 
 /**
  * A node's logical key: the same thing gives the same key in every run, and the
@@ -37,7 +44,7 @@ export type PropertyValue = string | number | boolean | null | readonly Property
 
 export interface ExtractedNode {
   readonly key: NodeKey;
-  readonly kind: SchemaKey;
+  readonly kind: EmittedKind;
   /** What a reader sees as the node's name. */
   readonly label: string;
   readonly properties: { readonly [key: string]: PropertyValue };
@@ -46,7 +53,7 @@ export interface ExtractedNode {
 }
 
 export interface ExtractedEdge {
-  readonly type: SchemaKey;
+  readonly type: EmittedRelation;
   readonly from: NodeKey;
   readonly to: NodeKey;
   /**

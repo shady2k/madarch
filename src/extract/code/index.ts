@@ -56,6 +56,7 @@ import {
   symbolKey,
   testCaseKey,
 } from './keys.js';
+import type {CodeRelation} from './keys.js';
 import { goImportFolder, Program, type Binding, type FileCtx } from './program.js';
 import { resolveFile } from './resolve.js';
 import { codeLanguageOf, folderOf, roleOf, type SourceFile } from './source.js';
@@ -701,7 +702,7 @@ function normalizedCommentText(text: string): string {
 
   // ---- the sites as edges ----------------------------------------------------------------
   interface Fold {
-    type: SchemaKey;
+    type: CodeRelation;
     from: string;
     to: string;
     count: number;
@@ -711,7 +712,7 @@ function normalizedCommentText(text: string): string {
     fan: number;
   }
   const folds = new Map<string, Fold>();
-  const fold = (type: SchemaKey, from: string, to: string, span: SyntaxSpan, path: string, fanOut: boolean): void => {
+  const fold = (type: CodeRelation, from: string, to: string, span: SyntaxSpan, path: string, fanOut: boolean): void => {
     const id = `${type}\u0000${from}\u0000${to}`;
     const held = folds.get(id);
     if (held === undefined) {

@@ -169,7 +169,8 @@ beforeAll(async () => {
   // The passage pages are a kind of the wiki too: a product shows them only when its manifest declares the kind.
   const kindsFile = join(productFolder, 'madarch', 'kinds.yaml');
   const kinds = parseDocument(readFileSync(kindsFile, 'utf8'));
-  kinds.setIn(['kinds', 'enrichment'], { template: 'templates/product.md', source: 'markdown', folder: 'docs/enrichment', origin: 'agent', labels: { en: { one: 'Enrichment', many: 'Enrichments' } } });
+  // The product's own kind carries its row of the entity catalog, as every kind of a catalogued manifest does.
+  kinds.setIn(['kinds', 'enrichment'], { id: 'practice.enrichment-page', group: 'documentation.feedback', definition: 'A passage page of this test\'s product.', sources: ['https://example.test/passage'], acquisition: ['agent-from-graph'], status: 'implemented', 'relation-constraints': { out: [], in: [] }, 'template-policy': 'page', template: 'templates/product.md', source: 'markdown', folder: 'docs/enrichment', origin: 'agent', labels: { en: { one: 'Enrichment', many: 'Enrichments' } } });
   writeFileSync(kindsFile, kinds.toString());
   mkdirSync(join(productFolder, 'docs'), { recursive: true });
   const app = join(work, 'app');
