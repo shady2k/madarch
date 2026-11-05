@@ -87,7 +87,7 @@ const EDGE_RELATION: Partial<Record<FactKind, string>> = {
  */
 export const CODE_GRAPH_VOCABULARY: { readonly kinds: readonly string[]; readonly relations: readonly { readonly key: string; readonly positioned?: boolean }[] } = {
   kinds: [
-    'code.comment', 'code.commit', 'code.compose-service', 'code.coverage', 'code.dependency', 'code.directory',
+    'code.comment', 'code.commit', 'code.compose-service', 'code.coverage', 'code.dependency', 'code.deploy-unit', 'code.directory',
     'code.dockerfile', 'code.document', 'code.document-section', 'code.entry-point', 'code.env-var', 'code.file',
     // The names a file mentions, as the file pass writes them (decision 0033, item 14;
     // `mention-graph.ts`), beside the symbols they may name.
@@ -104,6 +104,9 @@ export const CODE_GRAPH_VOCABULARY: { readonly kinds: readonly string[]; readonl
     // What the resolution stage folds a mention into (decision 0026's stage 4).
     { key: 'code.references' },
     { key: 'code.tasks' },
+    // What a manifest declares: one edge from the manifest's file to the dependency it names
+    // (`src/extract/operations/dependencies.ts`).
+    { key: 'code.uses-dependency' },
   ],
 };
 

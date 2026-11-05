@@ -329,11 +329,13 @@ async function executeResolutionUnit(unit: StageUnit, context: StageContext): Pr
   const byGlobalName = async (name: string): Promise<FileSymbol | undefined> => {
     if (asked.has(name)) return asked.get(name);
     const read = staticGraphRead({ kind: 'globalName', value: name, limit: 2 });
-    const answered = await source.byGlobalName(name, { limit: 2 });
-    if (answered.length > 1) {
-      throw new Error(`the read ${read} answered ${String(answered.length)} current nodes under the global name ${JSON.stringify(name)}, and one global name names one symbol of one file (decision 0033, item 14; src/fill/stages/semantic-resolution.ts)`);
-    }
-    const found = answered[0] === undefined ? undefined : symbolOf(answered[0], undefined, read);
+    const answered = await source.byGlobalName(name, { limit: PAGE });
+    // A file may declare one name twice (an enum and a type of one name, two overloads): the
+    // graph holds one symbol per declaration, and the name names the first of them in code
+    // point order of the keys — the rule `topLevelSymbol` applies to a file's own symbols, so
+    // the same file answers the same symbol here as it does there.
+    const held = answered.map((node) => symbolOf(node, undefined, read)).sort((left, right) => byCodePoint(left.key, right.key));
+    const found = held[0];
     asked.set(name, found);
     return found;
   };
@@ -368,7 +370,8 @@ async function executeResolutionUnit(unit: StageUnit, context: StageContext): Pr
     scope: path,
     complete: gaps.length === 0,
     read: [...readFiles].sort(byCodePoint),
-    unread: gaps,
+    // The schema keeps a coverage's gaps in code point order of what they name.
+    unread: [...gaps].sort((left, right) => byCodePoint(left.what, right.what)),
   };
   const commit = source.repository.commit;
   const evidence = evidenceAtPlace({ repository, commit }, path);
