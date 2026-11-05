@@ -11,6 +11,7 @@
  * or a line that mentions `process.env.NAME` is no read (madarch-mwhd.3).
  */
 import { LineCounter, isMap, isScalar, isSeq, parseAllDocuments } from 'yaml';
+import { KIND_ENV_DEFINITION, KIND_ENV_VAR, REL_DEFINED_IN, REL_DEFINES, REL_READS_ENV } from './vocabulary.js';
 import type { PropertyValue, SourceSpan } from '../records.js';
 import { byCodePoint } from '../../model/order.js';
 import type {
@@ -24,10 +25,10 @@ import { TreeText } from './source.js';
 
 /** Value-bearing graph declarations shared with readers of the emitted records. */
 export const ENVIRONMENT_VALUE_RECORDS = {
-  variable: { record: 'node', key: 'code.env-var', field: 'default' },
-  definition: { record: 'node', key: 'code.env-definition', field: 'value' },
-  read: { record: 'edge', key: 'code.reads-env', field: 'default' },
-  defines: { record: 'edge', key: 'code.defines', field: 'value' },
+  variable: { record: 'node', key: KIND_ENV_VAR, field: 'default' },
+  definition: { record: 'node', key: KIND_ENV_DEFINITION, field: 'value' },
+  read: { record: 'edge', key: REL_READS_ENV, field: 'default' },
+  defines: { record: 'edge', key: REL_DEFINES, field: 'value' },
 } as const;
 
 /** One read of one variable, as the source names it. */
@@ -708,7 +709,7 @@ export function extractEnv(t: TreeText, records: Records): Map<string, EnvRead[]
     });
     // The file that gives the variable its value is the definition's own place in the code, whether or not the code
     // reads the variable: `.env.example` and a compose file connect through it (madarch-m38l.16).
-    if (where !== undefined) records.edge('code.defined-in', definition.key, records.file(where), {}, definition.span);
+    if (where !== undefined) records.edge(REL_DEFINED_IN, definition.key, records.file(where), {}, definition.span);
     if (definition.scope === null) continue;
     const variable = `${definition.scope}/${definition.name}`;
     if (!byVariable.has(variable)) continue;

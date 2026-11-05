@@ -1,5 +1,6 @@
 /** Joins facts emitted by different readers, using only their declared identities. */
 import type {ExtractedEdge, Extraction} from '../records.js';
+import { REL_PROBES, REL_SERVED_BY } from './vocabulary.js';
 import {resolveEndpointTarget, matchesEndpoint} from '../endpoint-target.js';
 
 export function endpointRelations(extractions: readonly Extraction[]): Extraction[] {
@@ -19,7 +20,7 @@ export function endpointRelations(extractions: readonly Extraction[]): Extractio
       const candidates = routes.filter((route) => matchesEndpoint(resolved.target, route));
       if (candidates.length !== 1) continue;
       const route = candidates[0]!;
-      edges.push({type: node.kind === 'code.probe' || node.kind === 'code.healthcheck' ? 'code.probes' : 'code.served-by', from: node.key, to: route.key, discriminator: 'route', properties: {role: 'route'}, ...(node.span === undefined ? {} : {span: node.span})});
+      edges.push({type: node.kind === 'code.probe' || node.kind === 'code.healthcheck' ? REL_PROBES : REL_SERVED_BY, from: node.key, to: route.key, discriminator: 'route', properties: {role: 'route'}, ...(node.span === undefined ? {} : {span: node.span})});
     }
     return {...extraction, edges, gaps};
   });

@@ -2,6 +2,17 @@
 import { buildViews, payloadOf, type ViewPayload } from '../src/knowledge/views.js';
 import type { RenderContext } from '../src/knowledge/blocks.js';
 import type { GraphEntity, GraphReader } from '../src/knowledge/graph-read.js';
+import type { KindsManifest } from '../src/knowledge/kinds.js';
+
+/**
+ * The kinds the fixture's views are read by, as the starter set declares them (`code.table`'s `er: links`): a page
+ * draws a view only for a kind its manifest gives it, so the fixture carries the declaration its ER view reads. It
+ * stands as a manifest of that kind alone, with the file and line a refusal names.
+ */
+const MANIFEST: KindsManifest = {
+  file: 'madarch/kinds.yaml', roles: new Map(), properties: new Map(), groups: new Map(), excludeDocuments: [], ignoreBlocks: [], findings: [],
+  kinds: new Map([['code.table', { name: 'code.table', template: 'templates/table.liquid', source: 'graph', title: 'label', relations: [], line: 2, er: 'links' }]]),
+};
 
 export async function diagramAcceptanceCases(lang: string): Promise<{ name: string; views: ViewPayload[] }[]> {
   const table: GraphEntity = { key: 'code.table:orders/public.orders', kind: 'code.table', label: 'orders', properties: {}, nodeIds: [], scope: 'repo' };
@@ -12,7 +23,7 @@ export async function diagramAcceptanceCases(lang: string): Promise<{ name: stri
     neighbors: async () => [{ relation: 'code.foreign-key', direction: 'out', total: 1, edges: 2, rows: [{ entity: table, edges: 2 }] }],
     relationEdges: async () => ({ rows: [0, 63].map(index => ({ from: table, to: table, discriminator: `fk_${index}`, properties: { column: `column_${index}` } })), total: 2 }),
   } as unknown as GraphReader;
-  const context = (graph: GraphReader) => ({ ctx: { graph, manifest: { kinds: new Map([['code.table', {}]]) }, repoOfScope: () => undefined } as unknown as RenderContext, lang, productTitle: 'Fixture shop' });
+  const context = (graph: GraphReader) => ({ ctx: { graph, manifest: MANIFEST, repoOfScope: () => undefined } as unknown as RenderContext, lang, productTitle: 'Fixture shop' });
   const er = await buildViews(context(erGraph), { type: 'er', subject: table.key });
   const cases = [{ name: 'case-er64', views: er.map(view => payloadOf(view, 'mermaid')) }];
   for (const mode of ['roots', 'one-group'] as const) {

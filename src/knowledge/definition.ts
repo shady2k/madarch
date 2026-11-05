@@ -15,9 +15,7 @@ import { byCodePoint } from '../model/order.js';
 import type { GraphEntity } from './graph-read.js';
 import type { Block, DefinitionMember } from './model.js';
 import { refOfGraph, type RenderContext, type Subject } from './blocks.js';
-
-/** The kinds the definition block reads. */
-export const DEFINITION_KINDS: ReadonlySet<string> = new Set(['code.contract', 'code.operation']);
+import { declarationMissing, definitionBlockFormOf, definitionBlockMemberOf } from './kinds.js';
 
 const textOf = (value: unknown): string | undefined => (typeof value === 'string' && value !== '' ? value : undefined);
 
@@ -33,7 +31,7 @@ async function membersOf(ctx: RenderContext, contract: GraphEntity): Promise<{ m
   // Only the members the table draws are read: a message is a channel's own row, and it would count against the cut
   // without ever being shown (codex review, madarch-m38l.16).
   const declared = await ctx.graph.neighbors(contract, { relations: ['code.declares'], direction: 'out', limit: 500 });
-  const renderable = declared.map((group) => ({...group, rows: group.rows.filter((row) => row.entity.kind === 'code.operation' || row.entity.kind === 'code.channel')}));
+  const renderable = declared.map((group) => ({...group, rows: group.rows.filter((row) => definitionBlockMemberOf(ctx.manifest, row.entity.kind))}));
   const members: DefinitionMember[] = [];
   const omitted = declared.reduce((sum, group) => sum + Math.max(0, group.total - group.rows.length), 0);
   const shown = renderable.reduce((sum, group) => sum + group.rows.length, 0);
@@ -43,7 +41,7 @@ async function membersOf(ctx: RenderContext, contract: GraphEntity): Promise<{ m
   for (const group of renderable) for (const row of group.rows) {
     const entity = row.entity;
     const ref = refOfGraph(ctx, entity);
-    if (entity.kind === 'code.operation') {
+    if (definitionBlockFormOf(ctx.manifest, entity.kind) === 'operation') {
       const method = textOf(entity.properties['method']);
       const rpc = textOf(entity.properties['rpc']);
       const service = textOf(entity.properties['service']);
@@ -66,7 +64,7 @@ async function membersOf(ctx: RenderContext, contract: GraphEntity): Promise<{ m
       });
       continue;
     }
-    if (entity.kind === 'code.channel') {
+    if (definitionBlockFormOf(ctx.manifest, entity.kind) === 'channel') {
       const messages = await ctx.graph.neighbors(entity, {relations: ['code.carries'], direction: 'out', limit: 100});
       const messageGroup = messages.find((held) => held.relation === 'code.carries');
       const carried = messageGroup?.rows.map((message) => message.entity.label).sort(byCodePoint) ?? [];
@@ -87,17 +85,21 @@ async function membersOf(ctx: RenderContext, contract: GraphEntity): Promise<{ m
 /** The deferred definition supplies complete source bytes, never a truncated substitute for a standard renderer. */
 export async function definitionBlock(ctx: RenderContext, subject: Subject, params: Readonly<Record<string, string>>, file: string, line: number): Promise<Block> {
   const title = params['title'] ?? 'Definition';
-  if (subject.source !== 'graph' || !DEFINITION_KINDS.has(subject.entity.kind)) {
-    const detail = 'definition requires a contract or operation';
+  // The block reads what the manifest says it finds in a kind's entities (decision 0033: `definition-block:` of the
+  // declaration), never a kind name of the engine: a contract file, a row of an operation, a row of a channel.
+  const entity = subject.source === 'graph' ? subject.entity : undefined;
+  const form = definitionBlockFormOf(ctx.manifest, entity?.kind ?? '');
+  if (entity === undefined || form === undefined) {
+    const detail = declarationMissing(ctx.manifest, entity?.kind ?? '', '"definition-block: contract", "definition-block: operation" or "definition-block: channel"', 'the definition block reads a contract, a row of one operation or a row of one channel');
     const fullPath = resolve(ctx.productFolder, file);
     return {type: 'problem', block: 'definition', file, line, message: `${file}:${line} (${fullPath}): ${detail}`, diagnostic: {path: file, line, fullPath, code: 'shape', detail, reason: {code: 'definitionSubjectUnsupported'}}};
   }
-  let contract = subject.entity;
-  const operation = contract.kind === 'code.operation' ? contract : undefined;
+  let contract = entity;
+  const operation = form === 'operation' ? contract : undefined;
   if (operation !== undefined) {
     const groups = await ctx.graph.neighbors(operation, {relations: ['code.declares'], direction: 'in', limit: 2});
     const group = groups.find((held) => held.relation === 'code.declares');
-    const owners = group?.rows.filter((held) => held.entity.kind === 'code.contract') ?? [];
+    const owners = group?.rows.filter((held) => definitionBlockFormOf(ctx.manifest, held.entity.kind) === 'contract') ?? [];
     if (owners.length !== 1 || group?.total !== 1) {
       const count = group?.total ?? 0;
       const detail = `operation must have exactly one declaring contract; found ${count}`;

@@ -216,6 +216,25 @@ export function gitFolderOf(folder: string): { gitDir: string; commonDir: string
   return { gitDir, commonDir };
 }
 
+/** One checkout's Git folders and the text of its HEAD, read from the files. Nothing here runs git. */
+function checkoutHead(folder: string): { folders: { gitDir: string; commonDir: string }; headPath: string; text: string | undefined } | undefined {
+  const folders = gitFolderOf(folder);
+  if (folders === undefined) return undefined;
+  const headPath = join(folders.gitDir, 'HEAD');
+  try {
+    return { folders, headPath, text: readFileSync(headPath, 'utf8').trim() };
+  } catch (error) {
+    if ((error as NodeJS.ErrnoException).code === 'ENOENT') return { folders, headPath, text: undefined };
+    throw error;
+  }
+}
+
+/** The branch a HEAD text stands on, when it names one (`ref: refs/heads/<branch>`). */
+function branchOfHead(text: string): string | undefined {
+  if (!text.startsWith('ref:')) return undefined;
+  return text.slice('ref:'.length).trim().replace(/^refs\/heads\//u, '');
+}
+
 /**
  * One checkout's default branch and its head, read from the refs' files. The
  * branch is the one the product declares for the repository, else the one the
@@ -223,20 +242,13 @@ export function gitFolderOf(folder: string): { gitDir: string; commonDir: string
  * default branch, and that is the `reason` a caller reports rather than a run.
  */
 export function headOf(folder: string, declaredBranch?: string): { ok: true; head: RepositoryHead } | { ok: false; reason: string } {
-  const folders = gitFolderOf(folder);
-  if (folders === undefined) {
+  const read = checkoutHead(folder);
+  if (read === undefined) {
     return { ok: false, reason: `the checkout at ${folder} is no Git repository this watcher can read: ${join(folder, '.git')} is no folder and no "gitdir:" file` };
   }
-  const headPath = join(folders.gitDir, 'HEAD');
-  let headText: string;
-  try {
-    headText = readFileSync(headPath, 'utf8').trim();
-  } catch (error) {
-    if ((error as NodeJS.ErrnoException).code === 'ENOENT') return { ok: false, reason: `the checkout at ${folder} holds no ${headPath}, so it names no HEAD` };
-    throw error;
-  }
-  const symbolic = headText.startsWith('ref:') ? headText.slice('ref:'.length).trim() : undefined;
-  const branch = declaredBranch ?? (symbolic === undefined ? undefined : symbolic.replace(/^refs\/heads\//u, ''));
+  const { folders, headPath, text: headText } = read;
+  if (headText === undefined) return { ok: false, reason: `the checkout at ${folder} holds no ${headPath}, so it names no HEAD` };
+  const branch = declaredBranch ?? branchOfHead(headText);
   if (branch === undefined) {
     return { ok: false, reason: `the checkout at ${folder} stands on a detached HEAD (${headPath} reads ${JSON.stringify(headText)}) and the product declares no branch for it, so it has no default branch to watch` };
   }
@@ -245,6 +257,20 @@ export function headOf(folder: string, declaredBranch?: string): { ok: true; hea
     return { ok: false, reason: `the checkout at ${folder} stands on the branch ${JSON.stringify(branch)}, which names no commit: neither ${join(folders.commonDir, 'refs', 'heads', ...branch.split('/'))} nor ${join(folders.commonDir, 'packed-refs')} holds it` };
   }
   return { ok: true, head: { branch, commit: value.commit, file: value.file } };
+}
+
+/**
+ * One checkout's HEAD commit, read from the refs' files: the commit the branch HEAD stands on names, or the commit a
+ * detached HEAD names itself. A caller that only asks which commit a repository is at — a cache key, say — pays a few
+ * small file reads and starts no subprocess. `undefined` where the folder is no checkout this reader can read, or its
+ * HEAD names no commit.
+ */
+export function headCommitOf(folder: string): { commit: string; file: string } | undefined {
+  const read = checkoutHead(folder);
+  if (read === undefined || read.text === undefined) return undefined;
+  const branch = branchOfHead(read.text);
+  if (branch !== undefined) return refValueOf(read.folders.commonDir, `refs/heads/${branch}`);
+  return read.text === '' ? undefined : { commit: read.text, file: read.headPath };
 }
 
 /** The paths a watcher of one checkout listens to: its branch's ref, `packed-refs`, `HEAD`, and the branch folder it stands in. */

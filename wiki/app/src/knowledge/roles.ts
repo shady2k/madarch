@@ -14,8 +14,13 @@ import type { Block, WikiStatus } from './types.js';
 
 export type RoleDecls = NonNullable<WikiStatus['roles']>;
 
-/** The roles a reader can read as; "everything" is every role at once. */
-export const ROLES = ['product', 'analyst', 'architect', 'developer', 'operations', 'tester', 'everything'] as const;
+/** The word that stands for every role at once: it is every role the product declares, and the last choice offered. */
+const EVERY_ROLE = 'everything';
+
+/** The roles the reader can read as: the product's own, as the server answers them, with "everything" last. */
+export function rolesOf(roles: readonly string[]): readonly string[] {
+  return roles.length === 0 ? [EVERY_ROLE] : roles;
+}
 
 /** Blocks that are the page's text itself: no role collapses them. */
 const ALWAYS_OPEN = new Set<Block['type']>(['markdown', 'body', 'problem', 'term']);
@@ -46,12 +51,14 @@ export interface SettingsState {
   /** Read from the server yet. */
   loaded: boolean;
   role: string;
+  /** The roles the product declares, with "everything" last, as the server answered them. */
+  roles: readonly string[];
   /** The reader was asked (chose or skipped). Until loaded it is true, so no card flashes before the answer. */
   asked: boolean;
   error: string | null;
 }
 
-let state: SettingsState = { loaded: false, role: 'everything', asked: true, error: null };
+let state: SettingsState = { loaded: false, role: 'everything', roles: [], asked: true, error: null };
 const listeners = new Set<() => void>();
 const publish = (next: SettingsState): void => {
   state = next;
@@ -62,10 +69,10 @@ const publish = (next: SettingsState): void => {
 export async function loadSettings(signal?: AbortSignal): Promise<void> {
   try {
     const settings = await getSettings(signal);
-    publish({ loaded: true, role: settings.role, asked: settings.asked, error: null });
+    publish({ loaded: true, role: settings.role, roles: rolesOf(settings.roles), asked: settings.asked, error: null });
   } catch (failure) {
     if (signal?.aborted) return;
-    publish({ loaded: true, role: 'everything', asked: true, error: failure instanceof Error ? failure.message : String(failure) });
+    publish({ loaded: true, role: 'everything', roles: [], asked: true, error: failure instanceof Error ? failure.message : String(failure) });
   }
 }
 
@@ -73,7 +80,7 @@ export async function loadSettings(signal?: AbortSignal): Promise<void> {
 export async function chooseRole(role: string): Promise<void> {
   try {
     const settings = await setRole(role);
-    publish({ loaded: true, role: settings.role, asked: settings.asked, error: null });
+    publish({ loaded: true, role: settings.role, roles: rolesOf(settings.roles), asked: settings.asked, error: null });
   } catch (failure) {
     publish({ ...state, error: failure instanceof Error ? failure.message : String(failure) });
     throw failure;
@@ -82,7 +89,7 @@ export async function chooseRole(role: string): Promise<void> {
 
 /** Forgets what was read (a test starts over). */
 export function resetSettings(): void {
-  publish({ loaded: false, role: 'everything', asked: true, error: null });
+  publish({ loaded: false, role: 'everything', roles: [], asked: true, error: null });
 }
 
 export function useSettings(): SettingsState {

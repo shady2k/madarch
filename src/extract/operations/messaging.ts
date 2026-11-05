@@ -1,5 +1,6 @@
 /** Broker instances require an image, address setting or AsyncAPI server. */
 import { LineCounter, isMap, isSeq, isScalar, parseDocument } from 'yaml';
+import { KIND_BROKER, KIND_ENV_DEFINITION, KIND_K8S_DEPLOYMENT, REL_CONFIGURED_BY, REL_CONNECTS_TO, REL_DEFINES, REL_HOSTS_CHANNEL, REL_RUNS } from './vocabulary.js';
 import type { SourceSpan } from '../records.js';
 import type { Records } from './accumulate.js';
 import { readComposeFile } from './compose.js';
@@ -15,7 +16,7 @@ export function extractMessaging(t: TreeText, records: Records): void {
   const brokers: Broker[] = [];
   const add = (key: string, name: string, span: SourceSpan, aliases: readonly string[], values: readonly string[], source: string): Broker => {
     const broker = { key, aliases: new Set(aliases), addresses: new Set(values), span };
-    records.add({ key, kind: 'code.broker', label: name, properties: { technology: 'kafka', source, addresses: values }, span });
+    records.add({ key, kind: KIND_BROKER, label: name, properties: { technology: 'kafka', source, addresses: values }, span });
     brokers.push(broker);
     return broker;
   };
@@ -24,14 +25,14 @@ export function extractMessaging(t: TreeText, records: Records): void {
       if (service.image === null || !kafkaImage.test(service.image)) continue;
       const values = service.environment.filter((variable) => /ADVERTISED_LISTENERS|ADVERTISED_KAFKA_ADDR/.test(variable.name)).flatMap((variable) => addresses(variable.value ?? ''));
       const broker = add(`code.broker:${path}#${service.name}`, service.name, t.spanOfLine(path, service.line), [service.name], values, 'compose');
-      records.edge('code.runs', `code.compose-service:${path}#${service.name}`, broker.key, {}, broker.span);
+      records.edge(REL_RUNS, `code.compose-service:${path}#${service.name}`, broker.key, {}, broker.span);
     }
   }
-  for (const node of records.nodes.filter((held) => held.kind === 'code.k8s-deployment')) {
+  for (const node of records.nodes.filter((held) => held.kind === KIND_K8S_DEPLOYMENT)) {
     const image = node.properties.image;
     if (typeof image !== 'string' || !kafkaImage.test(image) || node.span === undefined) continue;
     const broker = add(`code.broker:${node.key.slice(node.key.indexOf(':') + 1)}`, node.label, node.span, [node.label], [], 'kubernetes');
-    records.edge('code.runs', node.key, broker.key, {}, node.span);
+    records.edge(REL_RUNS, node.key, broker.key, {}, node.span);
   }
   const matching = (address: string): Broker[] => {
     const host = address.split(':')[0] ?? '';
@@ -39,18 +40,18 @@ export function extractMessaging(t: TreeText, records: Records): void {
   };
   // Address settings keep their actual definition identities. An unresolved
   // variable substitution is not an address and creates no broker.
-  for (const definition of [...records.nodes].filter((node) => node.kind === 'code.env-definition' && /(?:KAFKA_BROKERS|KAFKA_BOOTSTRAP_SERVERS)/.test(node.key))) {
+  for (const definition of [...records.nodes].filter((node) => node.kind === KIND_ENV_DEFINITION && /(?:KAFKA_BROKERS|KAFKA_BOOTSTRAP_SERVERS)/.test(node.key))) {
     if (typeof definition.properties.value !== 'string' || definition.span === undefined) continue;
     for (const address of addresses(definition.properties.value)) {
       const candidates = matching(address);
       const broker = candidates.length === 1 ? candidates[0] : candidates.length === 0 ? add(`code.broker:address/${address}`, address, definition.span, [address.split(':')[0] ?? ''], [address], 'configuration') : undefined;
       if (broker === undefined) continue;
-      records.edge('code.configured-by', broker.key, definition.key, { address }, definition.span, address);
+      records.edge(REL_CONFIGURED_BY, broker.key, definition.key, { address }, definition.span, address);
       const scope = definition.properties.scope;
-      if (typeof scope === 'string' && records.nodes.some((node) => node.key === `code.service:${scope}`)) records.edge('code.connects-to', `code.service:${scope}`, broker.key, { address }, definition.span, address);
-      for (const edge of records.edges.filter((edge) => edge.type === 'code.defines' && edge.from === definition.key)) {
+      if (typeof scope === 'string' && records.nodes.some((node) => node.key === `code.service:${scope}`)) records.edge(REL_CONNECTS_TO, `code.service:${scope}`, broker.key, { address }, definition.span, address);
+      for (const edge of records.edges.filter((edge) => edge.type === REL_DEFINES && edge.from === definition.key)) {
         const variableService = edge.to.slice('code.env-var:'.length).split('/')[0];
-        if (variableService !== undefined && records.nodes.some((node) => node.key === `code.service:${variableService}`)) records.edge('code.connects-to', `code.service:${variableService}`, broker.key, { address }, definition.span, address);
+        if (variableService !== undefined && records.nodes.some((node) => node.key === `code.service:${variableService}`)) records.edge(REL_CONNECTS_TO, `code.service:${variableService}`, broker.key, { address }, definition.span, address);
       }
     }
   }
@@ -104,7 +105,7 @@ export function extractMessaging(t: TreeText, records: Records): void {
         selected = restriction.items.flatMap((item) => isScalar(item) && typeof item.value === 'string' ? [item.value] : []);
         for (const server of selected) if (!connected.has(server)) records.gap(path, `line ${line}: channel ${name} names unresolved server ${server}`);
       }
-      for (const broker of new Set(selected.flatMap((server) => [...(connected.get(server) ?? [])]))) records.edge('code.hosts-channel', broker, key, {}, span);
+      for (const broker of new Set(selected.flatMap((server) => [...(connected.get(server) ?? [])]))) records.edge(REL_HOSTS_CHANNEL, broker, key, {}, span);
     }
   }
 }

@@ -21,6 +21,21 @@ export const KIND_INPUT = 'code.input';
 export const KIND_SQL_BUILD = 'code.sql-build';
 export const KIND_SQL_SINK = 'code.sql-sink';
 
+/** A contract contains the operations, channels and messages it declares. */
+export const EDGE_DECLARES = 'code.declares';
+/** A channel carries a message. */
+export const EDGE_CARRIES = 'code.carries';
+/** A route is handled by the symbol that serves it. */
+export const EDGE_HANDLED_BY = 'code.handled-by';
+/** A process entry point belongs to the service of its file. */
+export const EDGE_BELONGS_TO = 'code.belongs-to';
+/** A declaration mentions another symbol (a callback registration, say). */
+export const EDGE_REFERENCES = 'code.references';
+/** A file contains a node the extractor read from it. */
+export const EDGE_CONTAINS = 'code.contains';
+/** An endpoint is served by a route, a file or a handler. */
+export const EDGE_SERVED_BY = 'code.served-by';
+
 // ---- relation types -------------------------------------------------------
 
 /** A route or a server handler implements a contract operation. */
@@ -33,6 +48,14 @@ export const REL_PUBLISHES = 'code.publishes';
 export const REL_CONSUMES = 'code.consumes';
 /** An untrusted input reaches a SQL string builder or a SQL execution sink. */
 export const REL_FLOWS_INTO = 'code.flows-into';
+
+// ---- the vocabulary, as data ---------------------------------------------
+
+/** Every node kind this extractor emits, declared as data the code names and the catalog's mapping ties (0033, item 7). */
+export const CONTRACTS_NODE_KINDS = [KIND_CONTRACT, KIND_OPERATION, KIND_CHANNEL, KIND_MESSAGE, KIND_ROUTE, KIND_ENTRY_POINT, KIND_INPUT, KIND_SQL_BUILD, KIND_SQL_SINK] as const;
+
+/** Every relation type this extractor emits, declared as data the code names and the mapping ties (0033, item 7). */
+export const CONTRACTS_EDGE_TYPES = [REL_SERVES, REL_CALLS_REMOTE, REL_PUBLISHES, REL_CONSUMES, REL_FLOWS_INTO, EDGE_DECLARES, EDGE_CARRIES, EDGE_HANDLED_BY, EDGE_BELONGS_TO, EDGE_REFERENCES, EDGE_CONTAINS, EDGE_SERVED_BY] as const;
 
 // ---- key builders ---------------------------------------------------------
 
@@ -65,3 +88,9 @@ export const sqlSinkKey = (file: string, callee: string): string => `${KIND_SQL_
 
 /** `code.file:<path>` -- the file node another extractor owns; edges of this extractor reference it. */
 export const fileKey = (path: string): string => `code.file:${path}`;
+
+/** The union of the node kinds this extractor declares: an emitted kind is one of them, and tsc refuses any other. */
+export type ContractsKind = (typeof CONTRACTS_NODE_KINDS)[number];
+
+/** The union of the relation types this extractor declares: an emitted relation is one of them. */
+export type ContractsRelation = (typeof CONTRACTS_EDGE_TYPES)[number];

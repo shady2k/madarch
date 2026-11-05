@@ -5,6 +5,7 @@
  * authors, the parent edges and the task keys the subjects carry.
  */
 import {byCodePoint} from '../../model/order.js';
+import { KIND_AUTHOR, KIND_COMMIT, KIND_TASK, REL_AUTHORED, REL_PARENT, REL_TASKS } from './vocabulary.js';
 import type {ExtractedEdge, ExtractedNode} from '../records.js';
 import type {LogEntry} from './git.js';
 import {isoMicros, isoSeconds} from './time.js';
@@ -175,7 +176,7 @@ export function commitRecords(line: readonly LogEntry[], all: readonly LogEntry[
 
     nodes.push({
       key: commitKey(entry.commit),
-      kind: 'code.commit',
+      kind: KIND_COMMIT,
       label: subjectWithoutTaskKey(entry.subject),
       properties: {
         subject: subjectWithoutTaskKey(entry.subject),
@@ -191,20 +192,20 @@ export function commitRecords(line: readonly LogEntry[], all: readonly LogEntry[
       if (!ofAll.has(parent)) {
         throw new Error(`${where}: the parent ${parent} of ${entry.commit} is not one of the commits the walk of the whole branch reached`);
       }
-      edges.push({type: 'code.parent', from: commitKey(entry.commit), to: commitKey(parent), discriminator: '', properties: {position: position + 1}});
+      edges.push({type: REL_PARENT, from: commitKey(entry.commit), to: commitKey(parent), discriminator: '', properties: {position: position + 1}});
     }
-    edges.push({type: 'code.authored', from: authorKey(entry.author), to: commitKey(entry.commit), discriminator: '', properties: {}});
+    edges.push({type: REL_AUTHORED, from: authorKey(entry.author), to: commitKey(entry.commit), discriminator: '', properties: {}});
     for (const task of taskKeysOf(entry.subject)) {
-      edges.push({type: 'code.tasks', from: commitKey(entry.commit), to: taskKeyNode(task), discriminator: '', properties: {}});
+      edges.push({type: REL_TASKS, from: commitKey(entry.commit), to: taskKeyNode(task), discriminator: '', properties: {}});
     }
   }
 
   // The authors and the task keys, each once.
   for (const name of new Set(all.map((entry) => entry.author))) {
-    nodes.push({key: authorKey(name), kind: 'code.author', label: name, properties: {}});
+    nodes.push({key: authorKey(name), kind: KIND_AUTHOR, label: name, properties: {}});
   }
   for (const key of new Set(all.flatMap((entry) => taskKeysOf(entry.subject)))) {
-    nodes.push({key: taskKeyNode(key), kind: 'code.task', label: key, properties: {}});
+    nodes.push({key: taskKeyNode(key), kind: KIND_TASK, label: key, properties: {}});
   }
 
   nodes.sort((left, right) => byCodePoint(left.key, right.key));

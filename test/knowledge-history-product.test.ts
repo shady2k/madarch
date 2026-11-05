@@ -41,7 +41,9 @@ describe('the product page history block keeps its link to the full history', ()
     const evidences = Array.from({ length: 20 }, (_, index) => repository(index));
     const ctx = {
       productFolder: '/product', language: 'en',
-      manifest: { file: 'madarch/kinds.yaml', kinds: new Map([['code.file', { labels: { en: { one: 'File', many: 'Files' } } }]]) },
+      // The starter set's declarations: a product's home page declares the repositories story, and a file's kind is
+      // named for the link to the whole history.
+      manifest: { file: 'madarch/kinds.yaml', kinds: new Map([['product', { history: 'repositories' }], ['code.file', { labels: { en: { one: 'File', many: 'Files' } } }]]) },
       graph: { repositories: async () => evidences.map((_, index) => ({ nodeId: `repo:${index}`, path: `r${index}` })), historyEvidence: async (nodeId: string) => evidences[Number(nodeId.split(':')[1])]! },
       repoOfScope: (scope: string) => `repo-${scope}`,
     } as unknown as RenderContext;

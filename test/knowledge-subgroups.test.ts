@@ -10,6 +10,7 @@ import { dirname, join } from 'node:path';
 import { tmpdir } from 'node:os';
 import { parseKinds } from '../src/knowledge/kinds.js';
 import { STARTER_FILES, STARTER_KINDS, GROUPS, starterManifest } from '../src/knowledge/seed.js';
+import { CATALOG_KINDS } from '../src/knowledge/starter-catalog.js';
 
 const folder = mkdtempSync(join(tmpdir(), 'madarch-subgroups-'));
 for (const starter of STARTER_FILES) {
@@ -87,7 +88,7 @@ describe('sub-areas read from the manifest', () => {
     // The manifest's own comment block says what the group field means, beside `parent`, and its product group says it.
     const starter = parse(starterManifest());
     expect(starter.findings).toEqual([]);
-    expect(starter.groups.get('product')!.open).toBe(true);
+    expect(starter.groups.get('strategy')!.open).toBe(true);
     expect(starterManifest()).toContain('`open: true`');
     const broken = parse([
       'groups:',
@@ -99,23 +100,27 @@ describe('sub-areas read from the manifest', () => {
     expect(broken.groups.get('product')!.open).toBeUndefined();
   });
 
-  test('the starter set puts code in structure and analysis, and operations in its six sub-areas', () => {
-    expect(GROUPS.filter((group) => group.parent === 'code').map((group) => group.name)).toEqual(['code.structure', 'code.analysis']);
+  test('the starter set puts every kind in a subgroup of an area, and neither is in the engine', () => {
+    // The catalog's two levels: every kind names a subgroup, and every subgroup names an area the manifest declares.
+    expect(GROUPS.filter((group) => group.parent === undefined).map((group) => group.name)).toContain('strategy');
+    expect(GROUPS.filter((group) => group.parent === 'code').map((group) => group.name)).toEqual(['code.structure', 'code.analysis', 'contracts', 'code.schema']);
     expect(GROUPS.filter((group) => group.parent === 'operations').map((group) => group.name)).toEqual([
-      'operations.configuration', 'operations.dependencies', 'operations.build-deploy', 'operations.ci-cd', 'operations.runtime', 'operations.newcomer',
+      'operations.slo', 'operations.observability', 'operations.runtime', 'operations.configuration',
+      'operations.dependencies', 'operations.alerting', 'operations.incident', 'operations.jobs', 'operations.change',
     ]);
-    const byName = new Map(STARTER_KINDS.map((kind) => [kind.name, kind.group]));
+    const byName = new Map(CATALOG_KINDS.map((kind) => [kind.name, kind.group]));
     expect(byName.get('code.file')).toBe('code.structure');
     expect(byName.get('code.cycle')).toBe('code.analysis');
     expect(byName.get('code.env-var')).toBe('operations.configuration');
     expect(byName.get('code.dependency')).toBe('operations.dependencies');
-    expect(byName.get('code.dockerfile')).toBe('operations.build-deploy');
-    expect(byName.get('code.ci-workflow')).toBe('operations.ci-cd');
-    expect(byName.get('code.process')).toBe('operations.runtime');
-    expect(byName.get('code.newcomer-command')).toBe('operations.newcomer');
+    expect(byName.get('code.dockerfile')).toBe('delivery.build');
+    expect(byName.get('code.ci-workflow')).toBe('delivery.pipeline');
+    expect(byName.get('code.process')).toBe('infrastructure.compute');
+    expect(byName.get('code.newcomer-command')).toBe('documentation.newcomer');
     const read = parse(starterManifest('ru'));
     expect(read.findings).toEqual([]);
     for (const group of GROUPS.filter((entry) => entry.parent !== undefined)) expect(read.groups.get(group.name)!.parent).toBe(group.parent);
     for (const kind of STARTER_KINDS) expect(read.kinds.get(kind.name)!.group).toBe(kind.group);
+    for (const kind of read.catalog!.kinds.values()) expect(read.groups.get(kind.subgroup)!.parent).toBe(kind.area);
   });
 });

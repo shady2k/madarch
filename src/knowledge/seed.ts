@@ -2,6 +2,8 @@ import { existsSync, lstatSync, mkdirSync, readFileSync, realpathSync, writeFile
 import { dirname, join, sep } from 'node:path';
 import { parseDocument } from 'yaml';
 import { KINDS_FILE } from './kinds.js';
+import { CATALOG_GROUPS, CATALOG_KINDS, CATALOG_RELATIONS, CATALOG_SCHEMA, type CatalogGroupData, type CatalogKindData } from './starter-catalog.js';
+import { MAPPING_KIND_ROWS, MAPPING_RELATION_ROWS, MAPPING_VERSION, type CatalogMappingRow } from './starter-mapping.js';
 import { DEFAULT_THRESHOLDS } from '../problems/types.js';
 import type { ProblemSettings, RuleSpec } from '../problems/types.js';
 
@@ -253,46 +255,42 @@ them, as label.
 `,
 };
 
-export interface StarterKind {
-  name: string;
-  template: keyof typeof TEMPLATES;
-  source: 'markdown' | 'graph' | 'document';
-  group: string;
-  origin?: 'agent' | 'person' | 'code' | 'history';
+/** One kind of the starter catalog whose entities the wiki shows: a page of its own, or a member's row. */
+export type StarterKind = CatalogKindData & {
+  readonly template: keyof typeof TEMPLATES;
+  readonly source: 'markdown' | 'graph' | 'document';
   /** `one` and `many` per language. */
-  en: [string, string];
-  ru: [string, string];
-  describe: [string, string];
-  /** Further lines of the kind's declaration, indented by the generator. */
-  extra?: string[];
-}
+  readonly en: readonly [string, string];
+  readonly ru: readonly [string, string];
+  readonly describe: readonly [string, string];
+};
 
-export const GROUPS: readonly { name: string; en: string; ru: string; parent?: string; open?: boolean }[] = [
-  { name: 'product', en: 'Product knowledge', ru: 'Знания о продукте', open: true },
-  { name: 'code', en: 'Code', ru: 'Код' },
-  { name: 'code.structure', en: 'Structure', ru: 'Устройство', parent: 'code' },
-  { name: 'code.analysis', en: 'Analysis', ru: 'Анализ', parent: 'code' },
-  { name: 'contracts', en: 'Contracts', ru: 'Контракты' },
-  { name: 'data', en: 'Data', ru: 'Данные' },
-  { name: 'operations', en: 'Operations', ru: 'Эксплуатация' },
-  { name: 'operations.configuration', en: 'Configuration', ru: 'Настройка', parent: 'operations' },
-  { name: 'operations.dependencies', en: 'Dependencies', ru: 'Зависимости', parent: 'operations' },
-  { name: 'operations.build-deploy', en: 'Build and deploy', ru: 'Сборка и развёртывание', parent: 'operations' },
-  { name: 'operations.ci-cd', en: 'CI/CD', ru: 'CI/CD', parent: 'operations' },
-  { name: 'operations.runtime', en: 'Runtime', ru: 'Работа системы', parent: 'operations' },
-  { name: 'operations.newcomer', en: 'Newcomer', ru: 'Новичку', parent: 'operations' },
-  { name: 'tests', en: 'Tests', ru: 'Тесты' },
-  { name: 'history', en: 'History', ru: 'История' },
-];
+/**
+ * The kinds of the starter set the wiki shows, in the manifest's order: the catalog hods every kind of the product's
+ * life cycle, and a kind the engine cannot make yet (the template policy `none`) shows no page, so it is no kind here.
+ */
+export const STARTER_KINDS: readonly StarterKind[] = CATALOG_KINDS.filter(
+  (kind): kind is StarterKind => kind.policy !== 'none' && kind.template !== undefined && kind.source !== undefined && kind.en !== undefined && kind.ru !== undefined && kind.describe !== undefined,
+);
+
+/**
+ * The groups of the navigation and the catalogue, as the catalog declares them: an area, then its subgroups. The
+ * engine holds none of them; the product's manifest names every one.
+ */
+export const GROUPS: readonly CatalogGroupData[] = CATALOG_GROUPS;
 
 /** What each role opens on a page and puts first in the navigation (decision 0031); the product edits them. */
 export const ROLES: readonly { name: string; lead: string[]; open: string[] }[] = [
-  { name: 'product', lead: ['product', 'tests'], open: ['stated', 'implementedby', 'linkedfrom', 'related', 'properties'] },
-  { name: 'analyst', lead: ['product', 'data', 'contracts'], open: ['stated', 'implementedby', 'linkedfrom', 'related', 'properties', 'er', 'sequence', 'children'] },
-  { name: 'architect', lead: ['product', 'code', 'contracts', 'data'], open: ['graph', 'related', 'sequence', 'er', 'stated', 'implementedby', 'linkedfrom', 'properties', 'children'] },
-  { name: 'developer', lead: ['code', 'contracts', 'data', 'tests'], open: ['source', 'callers', 'callees', 'sequence', 'graph', 'related', 'history', 'properties', 'children', 'er', 'stated'] },
-  { name: 'operations', lead: ['operations', 'data', 'contracts'], open: ['properties', 'related', 'history', 'children', 'source', 'er', 'stated'] },
-  { name: 'tester', lead: ['tests', 'product'], open: ['stated', 'implementedby', 'linkedfrom', 'related', 'properties', 'callers', 'children'] },
+  { name: 'product', lead: ['strategy', 'discovery', 'requirements', 'rd'], open: ['stated', 'implementedby', 'linkedfrom', 'related', 'properties'] },
+  { name: 'analyst', lead: ['strategy', 'requirements', 'data', 'contracts', 'information'], open: ['stated', 'implementedby', 'linkedfrom', 'related', 'properties', 'er', 'sequence', 'children'] },
+  { name: 'architect', lead: ['architecture', 'code', 'contracts', 'data', 'infrastructure', 'security'], open: ['graph', 'related', 'sequence', 'er', 'stated', 'implementedby', 'linkedfrom', 'properties', 'children'] },
+  { name: 'developer', lead: ['code', 'contracts', 'data', 'testing', 'delivery', 'review', 'history'], open: ['source', 'callers', 'callees', 'sequence', 'graph', 'related', 'history', 'properties', 'children', 'er', 'stated'] },
+  { name: 'operations', lead: ['operations', 'infrastructure', 'messaging', 'resilience'], open: ['properties', 'related', 'history', 'children', 'source', 'er', 'stated'] },
+  { name: 'tester', lead: ['testing', 'requirements', 'strategy'], open: ['stated', 'implementedby', 'linkedfrom', 'related', 'properties', 'callers', 'children'] },
+  { name: 'designer', lead: ['design', 'requirements', 'discovery'], open: ['stated', 'implementedby', 'linkedfrom', 'related', 'properties', 'children'] },
+  { name: 'security-engineer', lead: ['security', 'privacy', 'architecture', 'delivery'], open: ['properties', 'related', 'graph', 'children', 'source', 'stated'] },
+  { name: 'platform-devops', lead: ['infrastructure', 'delivery', 'operations', 'messaging', 'automation', 'decommissioning'], open: ['properties', 'related', 'history', 'children', 'source', 'er', 'stated'] },
+  { name: 'product-lead', lead: ['strategy', 'costs', 'suppliers', 'documentation', 'organisation', 'ml'], open: ['stated', 'implementedby', 'linkedfrom', 'related', 'properties'] },
 ];
 
 /**
@@ -535,76 +533,6 @@ export const DETAILS: Readonly<Record<string, readonly string[]>> = {
   "code.snapshot": ["commit"],
 };
 
-export const STARTER_KINDS: readonly StarterKind[] = [
-  { name: 'product', template: 'product.liquid', source: 'markdown', group: 'product', en: ['Product', 'Products'], ru: ['Продукт', 'Продукты'], describe: ['What the product is, for whom, and its architecture: the home page the agent writes.', 'Что это за продукт, для кого и как устроен: главная страница, которую пишет агент.'], extra: ['file: docs/product.md'] },
-  { name: 'domain', template: 'domain.liquid', source: 'markdown', group: 'product', en: ['Domain', 'Domains'], ru: ['Домен', 'Домены'], describe: ['A part of the business the product serves, such as payment or ordering: how it works and what implements it.', 'Часть бизнеса, которую обслуживает продукт, например оплата или заказы: как она работает и что её реализует.'], extra: ['folder: docs/domains'] },
-  { name: 'administrator-guide', template: 'guide.liquid', source: 'markdown', group: 'product', origin: 'agent', en: ['Administrator guide', 'Administrator guide'], ru: ['Руководство администратора', 'Руководство администратора'], describe: ['Grounded setup and operations, with independent walkthrough status.', 'Запуск и эксплуатация с основаниями в исходниках и независимым статусом прохождения.'], extra: ['file: docs/guides/administrator.md'] },
-  { name: 'user-guide', template: 'guide.liquid', source: 'markdown', group: 'product', origin: 'agent', en: ['User guide', 'User guide'], ru: ['Руководство пользователя', 'Руководство пользователя'], describe: ['Supported tasks and API procedures, with known gaps.', 'Поддерживаемые задачи и API-процедуры с известными пробелами.'], extra: ['file: docs/guides/user.md'] },
-  { name: 'question', template: 'question.liquid', source: 'markdown', group: 'product', origin: 'agent', en: ['Question', 'Questions'], ru: ['Вопрос', 'Вопросы'], describe: ['Something the agent could not settle from the code and the documents; a person answers it.', 'То, что агент не смог решить по коду и документам; отвечает человек.'], extra: ['folder: docs/questions'] },
-  { name: 'correction', template: 'correction.liquid', source: 'markdown', group: 'product', origin: 'person', en: ['Correction', 'Corrections'], ru: ['Поправка', 'Поправки'], describe: ['A person\'s note that a statement is wrong, and why; the agent takes it into account at the next refresh.', 'Заметка человека о том, что утверждение неверно, и почему; агент учтёт её при следующем обновлении.'], extra: ['folder: docs/corrections'] },
-  { name: 'task', template: 'task.liquid', source: 'markdown', group: 'product', origin: 'person', en: ['Task', 'Tasks'], ru: ['Задача', 'Задачи'], describe: ['A scoped change the person plans, with the pages and statements it affects.', 'Запланированное изменение с указанной областью и затронутыми страницами и утверждениями.'], extra: ['folder: docs/tasks'] },
-  { name: 'doc.use-case', template: 'entity-text.liquid', source: 'document', group: 'product', origin: 'person', en: ['Use case', 'Use cases'], ru: ['Сценарий', 'Сценарии'], describe: ['A way a person uses the product (UC-1, UC-2 ...), as the documents state it.', 'Способ, которым человек пользуется продуктом (UC-1, UC-2 ...), как его описывают документы.'], extra: ['identifier: UC', 'semantics: scenario', 'headings: [Use cases]'] },
-  { name: 'doc.rule', template: 'entity-text.liquid', source: 'document', group: 'product', origin: 'person', en: ['Business rule', 'Business rules'], ru: ['Бизнес-правило', 'Бизнес-правила'], describe: ['A rule the product keeps (BR-1, BR-2 ...), with the code that implements it.', 'Правило, которое соблюдает продукт (BR-1, BR-2 ...), и код, который его реализует.'], extra: ['identifier: BR', 'semantics: rule', 'headings: [Business rules]'] },
-  { name: 'doc.decision', template: 'entity-text.liquid', source: 'document', group: 'product', origin: 'person', en: ['Decision', 'Decisions'], ru: ['Решение', 'Решения'], describe: ['An architecture decision record (ADR-0001 ...): what was decided and why.', 'Запись об архитектурном решении (ADR-0001 ...): что решили и почему.'], extra: ['identifier: ADR', 'semantics: decision', 'structure: [Status, Context, Decision, Consequences]'] },
-  { name: 'doc.requirement', template: 'entity-text.liquid', source: 'document', group: 'product', origin: 'person', en: ['Requirement', 'Requirements'], ru: ['Требование', 'Требования'], describe: ['Another item of the documents: a requirement, a story, a feature, numbered (FR-1, NFR-2, REQ-3, US-4 ...) or not, as in an unnumbered Qualities section.', 'Другой пункт документов: требование, история, возможность; пронумерованный (FR-1, NFR-2, REQ-3, US-4 ...) или нет, как в разделе Qualities без номеров.'], extra: ['identifier: [FR, NFR, REQ, PR, US]', 'semantics: quality', 'headings: [Qualities, Non-functional requirements]'] },
-  { name: 'enrichment', template: 'enrichment.liquid', source: 'markdown', group: 'product', origin: 'agent', en: ['Enrichment', 'Enrichments'], ru: ['Обогащение', 'Обогащения'], describe: ['What the agent established about a use case, a rule or a decision of the documents: its parts in their own order, the code that carries it out, and the chain from its route — written beside the person\'s text, never over it.', 'То, что агент установил о сценарии, правиле или решении из документов: их части в своём порядке, код, который их выполняет, и цепочка от маршрута — записано рядом с текстом человека, а не поверх него.'], extra: ['folder: docs/enrichment'] },
-  { name: 'doc.term', template: 'term.liquid', source: 'document', group: 'product', origin: 'person', en: ['Glossary term', 'Glossary terms'], ru: ['Термин', 'Термины'], describe: ['A term of the product\'s language, defined in a glossary.', 'Слово из языка продукта с определением из глоссария.'], extra: ['terms: ["**/glossary*.md"]', 'semantics: term'] },
-  { name: 'code.service', template: 'service.liquid', source: 'graph', group: 'code.structure', en: ['Service', 'Services'], ru: ['Сервис', 'Сервисы'], describe: ['A deployable part of the system, read from its manifest.', 'Развёртываемая часть системы, прочитанная из её манифеста.'], extra: ['relations:', '  - { type: code.contains, to: "code.package:{span.path|dirname}" }'] },
-  { name: 'code.package', template: 'package.liquid', source: 'graph', group: 'code.structure', en: ['Package', 'Packages'], ru: ['Пакет', 'Пакеты'], describe: ['The folder a service\'s manifest sits in, with its tests and frameworks.', 'Папка с манифестом сервиса, его тесты и фреймворки.'] },
-  { name: 'code.module', template: 'module.liquid', source: 'graph', group: 'code.structure', en: ['Module', 'Modules'], ru: ['Модуль', 'Модули'], describe: ['A folder of code with a purpose of its own, with the modules it depends on.', 'Папка кода со своим назначением и модули, от которых она зависит.'] },
-  { name: 'code.file', template: 'file.liquid', source: 'graph', group: 'code.structure', en: ['File', 'Files'], ru: ['Файл', 'Файлы'], describe: ['A file of a code repository.', 'Файл репозитория кода.'] },
-  { name: 'code.symbol', template: 'symbol.liquid', source: 'graph', group: 'code.structure', en: ['Symbol', 'Symbols'], ru: ['Символ', 'Символы'], describe: ['A function, class or constant, with its callers and callees.', 'Функция, класс или константа, кто её вызывает и что она вызывает.'] },
-  { name: 'code.field', template: 'item-plain.liquid', source: 'graph', group: 'code.structure', en: ['Field', 'Fields'], ru: ['Поле', 'Поля'], describe: ['A field or property of a class, struct or interface; it is read on the page of the type that declares it.', 'Поле или свойство класса, структуры или интерфейса; о нём читают на странице объявившего его типа.'], extra: ['member: { relation: code.contains, direction: in, parentKind: code.symbol }'] },
-  { name: 'code.entry-point', template: 'item.liquid', source: 'graph', group: 'code.structure', en: ['Entry point', 'Entry points'], ru: ['Точка входа', 'Точки входа'], describe: ['Where a process of the system starts running.', 'Место, где начинает работать процесс системы.'] },
-  { name: 'code.cycle', template: 'item-plain.liquid', source: 'graph', group: 'code.analysis', en: ['Dependency cycle', 'Dependency cycles'], ru: ['Цикл зависимостей', 'Циклы зависимостей'], describe: ['Files or modules that import one another in a ring.', 'Файлы или модули, которые импортируют друг друга по кругу.'] },
-  { name: 'code.debt', template: 'item-plain.liquid', source: 'graph', group: 'code.analysis', en: ['Debt marker', 'Debt markers'], ru: ['Маркер долга', 'Маркеры долга'], describe: ['A TODO or FIXME a comment left in the code.', 'TODO или FIXME, оставленный комментарием в коде.'] },
-  { name: 'code.facet', template: 'item-plain.liquid', source: 'graph', group: 'code.analysis', en: ['File facet', 'File facets'], ru: ['Срез файла', 'Срезы файлов'], describe: ['What the code reader found out about a file: its role and language.', 'Что читатель кода выяснил о файле: его роль и язык.'], extra: ['member: { relation: code.facet-of, direction: out, parentKind: code.file }'] },
-  { name: 'code.input', template: 'item.liquid', source: 'graph', group: 'code.analysis', en: ['Input', 'Inputs'], ru: ['Входные данные', 'Входные данные'], describe: ['A value that enters the code from outside, such as a query parameter.', 'Значение, которое попадает в код снаружи, например параметр запроса.'] },
-  { name: 'code.sql-build', template: 'item-plain.liquid', source: 'graph', group: 'code.analysis', en: ['SQL build', 'SQL builds'], ru: ['Сборка SQL', 'Сборки SQL'], describe: ['A function that builds SQL text by joining strings.', 'Функция, которая собирает текст SQL склейкой строк.'] },
-  { name: 'code.sql-sink', template: 'item.liquid', source: 'graph', group: 'code.analysis', en: ['SQL sink', 'SQL sinks'], ru: ['Выполнение SQL', 'Места выполнения SQL'], describe: ['A call that runs SQL text as it is.', 'Вызов, который выполняет текст SQL как есть.'] },
-  { name: 'code.route', template: 'route.liquid', source: 'graph', group: 'contracts', en: ['HTTP route', 'HTTP routes'], ru: ['HTTP-маршрут', 'HTTP-маршруты'], describe: ['An HTTP route a service serves, read from its code.', 'HTTP-маршрут, который обслуживает сервис, прочитанный из кода.'] },
-  { name: 'code.operation', template: 'operation.liquid', source: 'graph', group: 'contracts', en: ['API operation', 'API operations'], ru: ['Операция API', 'Операции API'], describe: ['An operation an OpenAPI or gRPC contract declares.', 'Операция, которую объявляет контракт OpenAPI или gRPC.'] },
-  { name: 'code.contract', template: 'contract.liquid', source: 'graph', group: 'contracts', en: ['Contract', 'Contracts'], ru: ['Контракт', 'Контракты'], describe: ['An OpenAPI, gRPC or AsyncAPI file that fixes an interface.', 'Файл OpenAPI, gRPC или AsyncAPI, который фиксирует интерфейс.'] },
-  { name: 'code.channel', template: 'item-plain.liquid', source: 'graph', group: 'contracts', en: ['Event channel', 'Event channels'], ru: ['Канал событий', 'Каналы событий'], describe: ['A topic or queue that services publish to and read from.', 'Топик или очередь, в которую сервисы пишут и из которой читают.'] },
-  { name: 'code.message', template: 'item-plain.liquid', source: 'graph', group: 'contracts', en: ['Event', 'Events'], ru: ['Событие', 'События'], describe: ['A kind of message sent over a channel.', 'Вид сообщения, которое передают по каналу.'] },
-  { name: 'code.database', template: 'database.liquid', source: 'graph', group: 'data', en: ['Database', 'Databases'], ru: ['База данных', 'Базы данных'], describe: ['A database a service owns, with its tables and migrations.', 'База данных сервиса, её таблицы и миграции.'] },
-  { name: 'code.table', template: 'table.liquid', source: 'graph', group: 'data', en: ['Table', 'Tables'], ru: ['Таблица', 'Таблицы'], describe: ['A table, its columns and indexes, and the code that reads and writes it.', 'Таблица, её столбцы и индексы, и код, который её читает и пишет.'] },
-  { name: 'code.column', template: 'item-plain.liquid', source: 'graph', group: 'data', en: ['Column', 'Columns'], ru: ['Столбец', 'Столбцы'], describe: ['A column of a table with its type.', 'Столбец таблицы с его типом.'] },
-  { name: 'code.index', template: 'item.liquid', source: 'graph', group: 'data', en: ['Index', 'Indexes'], ru: ['Индекс', 'Индексы'], describe: ['A database index.', 'Индекс базы данных.'] },
-  { name: 'code.migration', template: 'item.liquid', source: 'graph', group: 'data', en: ['Migration', 'Migrations'], ru: ['Миграция', 'Миграции'], describe: ['A step that changes a database\'s schema, in the order they run.', 'Шаг, который меняет схему базы данных, в порядке выполнения.'] },
-  { name: 'code.env-var', template: 'item.liquid', source: 'graph', group: 'operations.configuration', en: ['Environment variable', 'Environment variables'], ru: ['Переменная окружения', 'Переменные окружения'], describe: ['A setting the code reads from its environment, with where it is defined.', 'Настройка, которую код читает из окружения, и где она задана.'] },
-  { name: 'code.env-definition', template: 'item.liquid', source: 'graph', group: 'operations.configuration', en: ['Variable definition', 'Variable definitions'], ru: ['Определение переменной', 'Определения переменных'], describe: ['A place that gives an environment variable a value.', 'Место, где переменной окружения задано значение.'] },
-  { name: 'code.dependency', template: 'item.liquid', source: 'graph', group: 'operations.dependencies', en: ['Dependency', 'Dependencies'], ru: ['Зависимость', 'Зависимости'], describe: ['A library a service declares, with its version and where it is used.', 'Библиотека, которую объявляет сервис, её версия и где она используется.'] },
-  { name: 'code.manifest', template: 'item.liquid', source: 'graph', group: 'operations.dependencies', en: ['Manifest', 'Manifests'], ru: ['Манифест', 'Манифесты'], describe: ['A package.json or go.mod file that declares dependencies.', 'Файл package.json или go.mod, который объявляет зависимости.'] },
-  { name: 'code.lockfile', template: 'item.liquid', source: 'graph', group: 'operations.dependencies', en: ['Lock file', 'Lock files'], ru: ['Файл блокировки', 'Файлы блокировки'], describe: ['A file that pins the exact versions of the dependencies.', 'Файл, который закрепляет точные версии зависимостей.'] },
-  { name: 'code.dockerfile', template: 'item.liquid', source: 'graph', group: 'operations.build-deploy', en: ['Dockerfile', 'Dockerfiles'], ru: ['Dockerfile', 'Dockerfile'], describe: ['A recipe that builds a container image.', 'Рецепт сборки образа контейнера.'] },
-  { name: 'code.image', template: 'item-plain.liquid', source: 'graph', group: 'operations.build-deploy', en: ['Image', 'Images'], ru: ['Образ', 'Образы'], describe: ['A container image a deployment runs.', 'Образ контейнера, который запускает развёртывание.'] },
-  { name: 'code.compose-service', template: 'item.liquid', source: 'graph', group: 'operations.build-deploy', en: ['Compose service', 'Compose services'], ru: ['Сервис compose', 'Сервисы compose'], describe: ['A service of a docker-compose file, with its ports and dependencies.', 'Сервис файла docker-compose, его порты и зависимости.'] },
-  { name: 'code.k8s-deployment', template: 'item.liquid', source: 'graph', group: 'operations.build-deploy', en: ['Kubernetes deployment', 'Kubernetes deployments'], ru: ['Развёртывание Kubernetes', 'Развёртывания Kubernetes'], describe: ['A Kubernetes Deployment: image, replicas and probes.', 'Развёртывание Kubernetes: образ, число реплик и проверки.'] },
-  { name: 'code.k8s-service', template: 'item.liquid', source: 'graph', group: 'operations.build-deploy', en: ['Kubernetes service', 'Kubernetes services'], ru: ['Сервис Kubernetes', 'Сервисы Kubernetes'], describe: ['A Kubernetes Service that routes traffic to pods.', 'Сервис Kubernetes, который направляет трафик на поды.'] },
-  { name: 'code.ci-workflow', template: 'item.liquid', source: 'graph', group: 'operations.ci-cd', en: ['CI workflow', 'CI workflows'], ru: ['Процесс CI', 'Процессы CI'], describe: ['A continuous-integration workflow file.', 'Файл процесса непрерывной интеграции.'] },
-  { name: 'code.ci-job', template: 'item.liquid', source: 'graph', group: 'operations.ci-cd', en: ['CI job', 'CI jobs'], ru: ['Задача CI', 'Задачи CI'], describe: ['A job of a CI workflow and the steps it runs.', 'Задача процесса CI и шаги, которые она выполняет.'] },
-  { name: 'code.make-target', template: 'item.liquid', source: 'graph', group: 'operations.build-deploy', en: ['Make target', 'Make targets'], ru: ['Цель make', 'Цели make'], describe: ['A target of a Makefile and the commands it runs.', 'Цель Makefile и команды, которые она выполняет.'] },
-  { name: 'code.process', template: 'item-plain.liquid', source: 'graph', group: 'operations.runtime', en: ['Process', 'Processes'], ru: ['Процесс', 'Процессы'], describe: ['A program the system starts, and the port it listens on.', 'Программа, которую запускает система, и порт, который она слушает.'] },
-  { name: 'code.port', template: 'item-plain.liquid', source: 'graph', group: 'operations.runtime', en: ['Port', 'Ports'], ru: ['Порт', 'Порты'], describe: ['A network port a service listens on or publishes.', 'Сетевой порт, который сервис слушает или публикует.'] },
-  { name: 'code.health-endpoint', template: 'item.liquid', source: 'graph', group: 'operations.runtime', en: ['Health endpoint', 'Health endpoints'], ru: ['Проверка здоровья', 'Проверки здоровья'], describe: ['The route that tells whether a service is alive.', 'Маршрут, по которому видно, жив ли сервис.'] },
-  { name: 'code.metric', template: 'item.liquid', source: 'graph', group: 'operations.runtime', en: ['Metric', 'Metrics'], ru: ['Метрика', 'Метрики'], describe: ['A declared counter, gauge or histogram and the code that updates it.', 'Объявленный счётчик, шкала или гистограмма и код, который меняет её.'] },
-  { name: 'code.broker', template: 'item.liquid', source: 'graph', group: 'operations.runtime', en: ['Message broker', 'Message brokers'], ru: ['Брокер сообщений', 'Брокеры сообщений'], describe: ['A broker declared by deployment or connection settings.', 'Брокер, объявленный в развёртывании или настройках подключения.'] },
-  { name: 'code.probe', template: 'item.liquid', source: 'graph', group: 'operations.runtime', en: ['Probe', 'Probes'], ru: ['Проба', 'Пробы'], describe: ['One configured readiness, liveness or startup probe.', 'Настроенная проба готовности, работоспособности или запуска.'] },
-  { name: 'code.healthcheck', template: 'item.liquid', source: 'graph', group: 'operations.runtime', en: ['Healthcheck', 'Healthchecks'], ru: ['Проверка состояния', 'Проверки состояния'], describe: ['A configured compose healthcheck command and its timing.', 'Команда проверки состояния compose и её интервалы.'] },
-  { name: 'code.document-section', template: 'item.liquid', source: 'graph', group: 'code.structure', en: ['Document section', 'Document sections'], ru: ['Раздел документа', 'Разделы документов'], describe: ['A heading and its section declared in a repository document.', 'Заголовок и его раздел в документе репозитория.'] },
-  { name: 'code.metrics-endpoint', template: 'item.liquid', source: 'graph', group: 'operations.runtime', en: ['Metrics endpoint', 'Metrics endpoints'], ru: ['Выдача метрик', 'Выдачи метрик'], describe: ['The route that serves a service\'s metrics.', 'Маршрут, по которому сервис отдаёт метрики.'] },
-  { name: 'code.logger', template: 'item.liquid', source: 'graph', group: 'operations.runtime', en: ['Logger', 'Loggers'], ru: ['Логгер', 'Логгеры'], describe: ['Where a service sets up its logging.', 'Место, где сервис настраивает журнал.'] },
-  { name: 'code.newcomer-command', template: 'item.liquid', source: 'graph', group: 'operations.newcomer', en: ['Setup command', 'Setup commands'], ru: ['Команда запуска', 'Команды запуска'], describe: ['A command the README tells a newcomer to run.', 'Команда, которую README велит выполнить новичку.'] },
-  { name: 'code.newcomer-prerequisites', template: 'item.liquid', source: 'graph', group: 'operations.newcomer', en: ['Prerequisites', 'Prerequisites'], ru: ['Что нужно установить', 'Что нужно установить'], describe: ['The tools the README says a newcomer needs.', 'Инструменты, которые по README нужны новичку.'] },
-  { name: 'code.newcomer-failure', template: 'item.liquid', source: 'graph', group: 'operations.newcomer', en: ['Known failure', 'Known failures'], ru: ['Известная ошибка', 'Известные ошибки'], describe: ['A failure the README names, with its fix.', 'Ошибка, которую называет README, и как её исправить.'] },
-  { name: 'code.test-case', template: 'item.liquid', source: 'graph', group: 'tests', en: ['Test case', 'Test cases'], ru: ['Тест', 'Тесты'], describe: ['A test, and the code it exercises.', 'Тест и код, который он проверяет.'] },
-  { name: 'code.commit', template: 'commit.liquid', source: 'graph', group: 'history', origin: 'history', en: ['Commit', 'Commits'], ru: ['Коммит', 'Коммиты'], describe: ['A change in the repository\'s history, with its author and the files it touched.', 'Изменение в истории репозитория, его автор и затронутые файлы.'] },
-  { name: 'code.author', template: 'author.liquid', source: 'graph', group: 'history', origin: 'history', en: ['Author', 'Authors'], ru: ['Автор', 'Авторы'], describe: ['A person who made commits.', 'Человек, который делал коммиты.'] },
-  { name: 'code.snapshot', template: 'item-plain.liquid', source: 'graph', group: 'history', origin: 'history', en: ['Repository landmark', 'Repository landmarks'], ru: ['Ориентир репозитория', 'Ориентиры репозитория'], describe: ['A repository landmark read from Git, with its commit and the files held by that tree.', 'Ориентир из Git с его коммитом и файлами этого дерева репозитория.'] },
-  { name: 'code.task', template: 'history-task.liquid', source: 'graph', group: 'history', origin: 'history', en: ['Task', 'Tasks'], ru: ['Задача', 'Задачи'], describe: ['A tracker task that commit messages name.', 'Задача трекера, которую называют сообщения коммитов.'] },
-];
-
 export const yamlText = (text: string): string => JSON.stringify(text);
 
 /** One property of `PROPERTY_LABELS` as the manifest's flow mapping, its value's keys included. */
@@ -693,6 +621,31 @@ export function starterManifest(language?: string): string {
   return language === undefined ? text : `${text}language: ${language}\n`;
 }
 
+/** One row of the mapping as the manifest writes it: a tie to a catalog kind or relation, or an internal reason. */
+function mappingRowYaml(row: CatalogMappingRow): string {
+  if (row.kind !== undefined) return `{ kind: ${yamlText(row.kind)} }`;
+  if (row.relation !== undefined) return `{ relation: ${yamlText(row.relation)}, direction: ${yamlText(row.direction ?? 'same')} }`;
+  return `{ internal: ${yamlText(row.internal ?? '')} }`;
+}
+
+/**
+ * The `mapping:` section of the starter manifest (decision 0033, item 7): the version, and every node kind and
+ * relation type the extractors declare they emit, in code point order, tied to the catalog or declared internal.
+ */
+function mappingLines(): string[] {
+  return [
+    "# The extractors' vocabulary mapped to the catalog (decision 0033, item 7): every node kind and relation type",
+    "# the extractors emit, tied to a catalog kind or relation, or declared internal with the reason. The keys are",
+    "# the extractors' own (`src/extract/vocabulary.ts` declares them); the targets are this manifest's.",
+    "mapping:",
+    `  version: ${MAPPING_VERSION}`,
+    "  kinds:",
+    ...MAPPING_KIND_ROWS.map((row) => `    ${row.key}: ${mappingRowYaml(row)}`),
+    "  relations:",
+    ...MAPPING_RELATION_ROWS.map((row) => `    ${row.key}: ${mappingRowYaml(row)}`),
+  ];
+}
+
 function kindsManifest(): string {
   const lines: string[] = [
     "# The kinds this product's wiki shows (decision 0029, docs/decisions/0029-knowledge-in-markdown-graph-as-index.md).",
@@ -712,6 +665,23 @@ function kindsManifest(): string {
     "# `group` puts the kind in a group of the navigation and the catalogue; `labels` and `description` name and explain",
     "# the kind in each interface language (en, ru); `origin` says how its entities came to be (agent, person, code, history).",
     "# `relations` declares an edge between kinds: {attribute|dirname} puts a part of the entity into the other end's key.",
+    "# `card: true` says a ground on one of the kind's entities shows a card of it — its facts, what it is related to",
+    "# and the way to its page — instead of the code it was read from; a kind without it keeps the code excerpt.",
+    "# `history` names the shape of the story the history block tells of the kind's entities: repositories (the",
+    "# product's whole history), author, path, membership (the files a container holds), commit or task. A kind",
+    "# without it gets no history page.",
+    "# The views, listings and places of a kind are its declaration's too, so no screen of the wiki holds a kind of its",
+    "# own. `views` lists the views a page of the kind may draw of its entities: c4-component (its modules) and state (the",
+    "# state machines in its code). `er` says how the ER view reads its entities: tables (the tables the entity holds) or",
+    "# links (the entity as one table and the tables its foreign keys reach). `sequence` says how the",
+    "# end-to-end chain a page draws starts at its entities: route (at the entity) or symbol (at the route that reaches",
+    "# it); a kind without it starts no chain. `system` says the part its entities play in the system view: container",
+    "# (drawn as a box, read as the implementation a domain names, and the folder a treemap covers), data-store or",
+    "# channel. `definition-block` says what the definition block finds in its entities: contract (the file it reads),",
+    "# operation or channel (a row of it). `listing` says the form of its listing page: operations (what declares,",
+    "# serves and calls each one), the plain table of names and places without it. `nav` says where the kind stands in",
+    "# the navigation: own-page (its entities stand at a place of their own) or loop (the loop keeps its place); a",
+    "# kind without it is a page among the pages by kind.",
     "# `documents.exclude` lists Markdown files that are not product documents (the files that steer a coding agent).",
     "# `roles` says, per role a reader can read as (product, analyst, architect, developer, operations, tester), which blocks of a",
     "# template stand open on a page and which groups lead the navigation. A block a role does not open stays on the page, collapsed:",
@@ -725,9 +695,15 @@ function kindsManifest(): string {
     "# is run because this manifest declares it, and switching it off here is what stops it. The thresholds say when a",
     "# file is large or a hotspot.",
     "# A group is { en: <its name>, ru: <its name> }, and may name the group it is a sub-area of (`parent`) and say it",
-    "# opens on the menu by itself (`open: true`); a group without a parent is a top-level group.",
+    "# opens on the menu by itself (`open: true`); a group without a parent is an area and a group with one is a subgroup.",
+    "# `catalog` declares the schema of the entity catalog (decision 0033, items 8 to 10) and every kind below declares",
+    "# its row: its concept `id` (one concept has one kind), its subgroup (`group`), its `definition`, the `sources` it was",
+    "# taken from as addresses a person can read, the ways it is `acquisition` (an extractor's mark, or document,",
+    "# conversation, agent-from-graph, live-system, not-implemented), its implementation `status`, the",
+    "# `relation-constraints` it may carry (out and in, from `catalog.relations`), and its `template-policy` (page, member",
+    "# or none). A kind whose policy is `none` is catalogue data only: it shows no page yet.",
     "groups:",
-    ...GROUPS.map((group) => `  ${group.name}: { en: ${yamlText(group.en)}, ru: ${yamlText(group.ru)}${group.parent === undefined ? '' : `, parent: ${group.parent}`}${group.open === undefined ? '' : ', open: true'} }`),
+    ...GROUPS.map((group) => `  ${group.name}: { en: ${yamlText(group.en)}, ru: ${yamlText(group.ru)}, short: { en: ${yamlText(group.shortEn)}, ru: ${yamlText(group.shortRu)} }${group.parent === undefined ? '' : `, parent: ${group.parent}`}${group.open === undefined ? '' : ', open: true'} }`),
     "properties:",
     ...Object.entries(PROPERTY_LABELS).map(([name, label]) => `  ${name}: ${propertyYaml(label)}`),
     "documents:",
@@ -746,34 +722,71 @@ function kindsManifest(): string {
     ...Object.entries(DEFAULT_THRESHOLDS).map(([name, value]) => `    ${name}: ${value}`),
     "  rules:",
     ...STARTER_PROBLEM_RULES.map((rule) => `    ${rule.id}: ${ruleYaml(rule)}`),
+    "catalog:",
+    `  subgroup-kind-bound: ${CATALOG_SCHEMA['subgroup-kind-bound']}`,
+    `  attributes: [${CATALOG_SCHEMA.attributes.join(', ')}]`,
+    `  origin-marks: [${CATALOG_SCHEMA['origin-marks'].join(', ')}]`,
+    `  extractor-mark: ${CATALOG_SCHEMA['extractor-mark']}`,
+    `  statuses: [${CATALOG_SCHEMA.statuses.join(', ')}]`,
+    `  template-policies: [${CATALOG_SCHEMA['template-policies'].join(', ')}]`,
+    "  relations:",
+    ...Object.entries(CATALOG_RELATIONS).map(([name, source]) => (source === null ? `    ${name}:` : `    ${name}: ${yamlText(source)}`)),
     "kinds:",
   ];
-  for (const kind of STARTER_KINDS) lines.push(...kindLines(kind));
+  for (const kind of CATALOG_KINDS) lines.push(...kindLines(kind));
+  lines.push(...mappingLines());
   return `${lines.join('\n')}\n`;
 }
 
 /** The declaration of one starter kind, as lines of the manifest; `group: false` leaves the group out (a manifest that declares none). */
-export function kindLines(kind: StarterKind, options: { group?: boolean } = {}): string[] {
-  const lines: string[] = [];
-  {
-    lines.push(`  ${kind.name}:`);
-    lines.push(`    template: templates/${kind.template}`);
-    lines.push(`    source: ${kind.source}`);
-    if (options.group !== false) lines.push(`    group: ${kind.group}`);
-    if (kind.origin !== undefined) lines.push(`    origin: ${kind.origin}`);
-    for (const extra of kind.extra ?? []) lines.push(`    ${extra}`);
-    const details = DETAILS[kind.name];
-    if (details !== undefined && details.length > 0) lines.push(`    details: [${details.join(', ')}]`);
-    lines.push('    labels:');
-    lines.push(`      en: { one: ${yamlText(kind.en[0])}, many: ${yamlText(kind.en[1])} }`);
-    lines.push(`      ru: { one: ${yamlText(kind.ru[0])}, many: ${yamlText(kind.ru[1])} }`);
-    lines.push('    description:');
-    lines.push(`      en: ${yamlText(kind.describe[0])}`);
-    lines.push(`      ru: ${yamlText(kind.describe[1])}`);
-  }
-  return lines;
+/** What a kind's declaration writes besides its row: a manifest without groups, or one without a catalog, leaves them out. */
+export interface KindLineOptions {
+  readonly group?: boolean;
+  readonly catalog?: boolean;
 }
 
+/**
+ * The declaration of one starter kind, as lines of the manifest. `group: false` leaves the group out (a manifest
+ * that declares none) and `catalog: false` leaves the catalog's row out (a manifest written before the catalog).
+ */
+export function kindLines(kind: CatalogKindData, options: KindLineOptions = {}): string[] {
+  const lines: string[] = [`  ${kind.name}:`];
+  const row = options.catalog !== false;
+  if (row) {
+    lines.push(`    id: ${yamlText(kind.id)}`);
+    if (options.group !== false) lines.push(`    group: ${kind.group}`);
+    lines.push(`    definition: ${yamlText(kind.definition)}`);
+    lines.push(`    sources: [${kind.sources.map(yamlText).join(', ')}]`);
+    lines.push(`    acquisition: [${kind.acquisition.map(yamlText).join(', ')}]`);
+    lines.push(`    status: ${kind.status}`);
+    lines.push(`    relation-constraints: { out: [${kind.out.join(', ')}], in: [${kind.into.join(', ')}] }`);
+    lines.push(`    template-policy: ${kind.policy}`);
+  } else if (options.group !== false) lines.push(`    group: ${kind.group}`);
+  // A kind the engine cannot make yet shows no page: its row is its whole declaration.
+  if (kind.policy === 'none' || kind.template === undefined || kind.source === undefined || kind.en === undefined || kind.ru === undefined || kind.describe === undefined) return lines;
+  lines.push(`    template: templates/${kind.template}`);
+  lines.push(`    source: ${kind.source}`);
+  if (kind.origin !== undefined) lines.push(`    origin: ${kind.origin}`);
+  for (const extra of kind.extra ?? []) lines.push(`    ${extra}`);
+  if (kind.card === true) lines.push('    card: true');
+  if (kind.history !== undefined) lines.push(`    history: ${kind.history}`);
+  if (kind.views !== undefined) lines.push(`    views: [${kind.views.join(', ')}]`);
+  if (kind.er !== undefined) lines.push(`    er: ${kind.er}`);
+  if (kind.sequence !== undefined) lines.push(`    sequence: ${kind.sequence}`);
+  if (kind.system !== undefined) lines.push(`    system: ${kind.system}`);
+  if (kind.definitionBlock !== undefined) lines.push(`    definition-block: ${kind.definitionBlock}`);
+  if (kind.listing !== undefined) lines.push(`    listing: ${kind.listing}`);
+  if (kind.nav !== undefined) lines.push(`    nav: ${kind.nav}`);
+  const details = DETAILS[kind.name];
+  if (details !== undefined && details.length > 0) lines.push(`    details: [${details.join(', ')}]`);
+  lines.push('    labels:');
+  lines.push(`      en: { one: ${yamlText(kind.en[0])}, many: ${yamlText(kind.en[1])} }`);
+  lines.push(`      ru: { one: ${yamlText(kind.ru[0])}, many: ${yamlText(kind.ru[1])} }`);
+  lines.push('    description:');
+  lines.push(`      en: ${yamlText(kind.describe[0])}`);
+  lines.push(`      ru: ${yamlText(kind.describe[1])}`);
+  return lines;
+}
 const KINDS = kindsManifest();
 
 export const STARTER_FILES: readonly StarterFile[] = [
@@ -835,7 +848,7 @@ export function ensureLoopKinds(productFolder: string): string[] {
       const declaration = propertyDeclaration(detail);
       if (declaration !== undefined) document.setIn(['properties', detail], document.createNode(declaration));
     }
-    const parsed = parseDocument(`kinds:\n${kindLines(kind, { group: document.hasIn(['groups', kind.group]) }).join('\n')}\n`).getIn(['kinds', kind.name]) as { toJSON(): unknown };
+    const parsed = parseDocument(`kinds:\n${kindLines(kind, { group: document.hasIn(['groups', kind.group]), catalog: document.hasIn(['catalog']) }).join('\n')}\n`).getIn(['kinds', kind.name]) as { toJSON(): unknown };
     document.setIn(['kinds', kind.name], document.createNode(parsed.toJSON()));
     changed = true;
   }

@@ -456,8 +456,27 @@ describe('the navigation by group', () => {
     ]);
   });
 
+  test('the navigation draws a group\'s short label when it holds one, and its full name when it does not', () => {
+    const shorted = {
+      ...status,
+      groups: [{ group: 'product', labels: { en: 'Product knowledge', ru: 'Знания о продукте' }, short: { en: 'Product', ru: 'Продукт' } }, { group: 'code', labels: { en: 'Code', ru: 'Код' } }],
+    } as unknown as WikiStatus;
+    const groups = navGroups(shorted, () => 0);
+    expect(groups.map((entry) => entry.short?.en ?? entry.labels?.en)).toEqual(['Product', 'Code']);
+    // A group with subgroups carries its area's short label and each subgroup's, and the catalogue keeps the full names.
+    const nested = {
+      ...status,
+      groups: [
+        { group: 'strategy', labels: { en: 'Strategy and business motivation', ru: 'Стратегия и мотивация бизнеса' }, short: { en: 'Strategy', ru: 'Стратегия' } },
+        { group: 'product', parent: 'strategy', labels: { en: 'Product and its actors', ru: 'Продукт и его действующие лица' }, short: { en: 'Product', ru: 'Продукт' } },
+      ],
+    } as unknown as WikiStatus;
+    const [area] = navGroups({ ...nested, kinds: [kind({ kind: 'domain', source: 'markdown', group: 'product', count: 2 })] } as unknown as WikiStatus, () => 0);
+    expect([area!.short?.ru, area!.subgroups[0]!.short?.ru, area!.labels?.ru]).toEqual(['Стратегия', 'Продукт', 'Стратегия и мотивация бизнеса']);
+  });
+
   test('a kind with a top-level page of its own (the glossary terms) is not listed again under the kinds', () => {
-    const groups = navGroups({ ...status, kinds: [kind({ kind: 'domain', source: 'markdown', group: 'product', count: 1 }), kind({ kind: 'doc.term', source: 'document', group: 'product', count: 7 })] } as unknown as WikiStatus, () => 0);
+    const groups = navGroups({ ...status, kinds: [kind({ kind: 'domain', source: 'markdown', group: 'product', count: 1 }), kind({ kind: 'doc.term', source: 'document', group: 'product', count: 7, nav: 'own-page' })] } as unknown as WikiStatus, () => 0);
     expect(groups.map((entry) => entry.kinds.map((one) => one.kind))).toEqual([['domain']]);
   });
 

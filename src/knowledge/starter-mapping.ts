@@ -1,0 +1,154 @@
+/**
+ * The extractors' vocabulary mapped to the catalog (decision 0033, item 7): the versioned mapping `madarch new`
+ * writes into `madarch/kinds.yaml`, tying every node kind and relation type the extractors emit to a catalog kind or
+ * relation, or declaring it internal to extraction with the reason. The extractors declare their own vocabulary as
+ * data (`src/extract/vocabulary.ts`); this is the product's side of the tie, in code point order of the keys.
+ *
+ * The keys on this side are the extractors' (`code.symbol`, `code.contains`); the targets are the catalog's
+ * (`code.symbol` names the catalog's kind of that name, `contains` the catalog's relation). A key an extractor
+ * starts emitting and this mapping does not tie is refused by the catalog's check.
+ */
+
+/** The version of this mapping's shape: a product's manifest declares the version it was written for. */
+export const MAPPING_VERSION = 1;
+
+/** One row of the mapping: the extractor's key, and the catalog kind or relation it is shown as, or why it is internal. */
+export interface CatalogMappingRow {
+  readonly key: string;
+  /** The catalog kind the extractor's kind is shown as. */
+  readonly kind?: string;
+  /** The catalog's relation the extractor's relation is shown as. */
+  readonly relation?: string;
+  /** Whether the extractor's edge runs the way that relation runs (`same`) or the other way (`inverse`). */
+  readonly direction?: 'same' | 'inverse';
+  /** Why the key is internal to extraction: a reading the catalog holds no kind or relation for. */
+  readonly internal?: string;
+}
+
+/** Every node kind the extractors emit, tied to its catalog kind or declared internal. */
+export const MAPPING_KIND_ROWS: readonly CatalogMappingRow[] = [
+  { key: 'code.author', kind: 'code.author' },
+  { key: 'code.broker', kind: 'code.broker' },
+  { key: 'code.channel', kind: 'code.channel' },
+  { key: 'code.ci-job', kind: 'code.ci-job' },
+  { key: 'code.ci-workflow', kind: 'code.ci-workflow' },
+  { key: 'code.column', kind: 'code.column' },
+  { key: 'code.commit', kind: 'code.commit' },
+  { key: 'code.compose-service', kind: 'code.compose-service' },
+  { key: 'code.contract', kind: 'code.contract' },
+  { key: 'code.cycle', kind: 'code.cycle' },
+  { key: 'code.database', kind: 'code.database' },
+  { key: 'code.debt', kind: 'code.debt' },
+  { key: 'code.dependency', kind: 'code.dependency' },
+  { key: 'code.directory', kind: 'code.directory' },
+  { key: 'code.dockerfile', kind: 'code.dockerfile' },
+  { key: 'code.document-section', kind: 'code.document-section' },
+  { key: 'code.entry-point', kind: 'code.entry-point' },
+  { key: 'code.env-definition', kind: 'code.env-definition' },
+  { key: 'code.env-var', kind: 'code.env-var' },
+  { key: 'code.facet', internal: 'a reading of one file the wiki shows on the file\'s page, not a kind of the catalog' },
+  { key: 'code.field', kind: 'code.field' },
+  { key: 'code.file', kind: 'code.file' },
+  { key: 'code.health-endpoint', kind: 'code.health-endpoint' },
+  { key: 'code.healthcheck', kind: 'code.healthcheck' },
+  { key: 'code.image', kind: 'code.image' },
+  { key: 'code.index', kind: 'code.index' },
+  { key: 'code.input', kind: 'code.input' },
+  { key: 'code.k8s-deployment', kind: 'code.k8s-deployment' },
+  { key: 'code.k8s-service', kind: 'code.k8s-service' },
+  { key: 'code.lockfile', kind: 'code.lockfile' },
+  { key: 'code.logger', kind: 'code.logger' },
+  { key: 'code.make-target', kind: 'code.make-target' },
+  { key: 'code.manifest', kind: 'code.manifest' },
+  { key: 'code.message', kind: 'code.message' },
+  { key: 'code.metric', kind: 'code.metric' },
+  { key: 'code.metrics-endpoint', kind: 'code.metrics-endpoint' },
+  { key: 'code.migration', kind: 'code.migration' },
+  { key: 'code.module', kind: 'code.module' },
+  { key: 'code.newcomer-command', kind: 'code.newcomer-command' },
+  { key: 'code.newcomer-failure', kind: 'code.newcomer-failure' },
+  { key: 'code.newcomer-prerequisites', kind: 'code.newcomer-prerequisites' },
+  { key: 'code.operation', kind: 'code.operation' },
+  { key: 'code.package', kind: 'code.package' },
+  { key: 'code.port', kind: 'code.port' },
+  { key: 'code.probe', kind: 'code.probe' },
+  { key: 'code.process', kind: 'code.process' },
+  { key: 'code.repository', kind: 'code.repository' },
+  { key: 'code.route', kind: 'code.route' },
+  { key: 'code.service', kind: 'code.service' },
+  { key: 'code.snapshot', kind: 'code.snapshot' },
+  { key: 'code.sql-build', kind: 'code.sql-build' },
+  { key: 'code.sql-sink', kind: 'code.sql-sink' },
+  { key: 'code.symbol', kind: 'code.symbol' },
+  { key: 'code.table', kind: 'code.table' },
+  { key: 'code.task', kind: 'code.task' },
+  { key: 'code.test-case', kind: 'code.test-case' },
+];
+
+/** Every relation type the extractors emit, tied to the catalog's relation or declared internal. */
+export const MAPPING_RELATION_ROWS: readonly CatalogMappingRow[] = [
+  { key: 'code.alters', internal: 'a migration\'s change to a table or a column: schema history, not an intent the catalog names' },
+  { key: 'code.authored', internal: 'the author of a commit, a fact of the history the wiki shows on the commit\'s page' },
+  { key: 'code.backed-by', internal: 'a README instruction backed by the script it names' },
+  { key: 'code.belongs-to', relation: 'partOf', direction: 'same' },
+  { key: 'code.builds', relation: 'usesTool', direction: 'same' },
+  { key: 'code.built-by', relation: 'generates', direction: 'inverse' },
+  { key: 'code.calls', relation: 'uses', direction: 'same' },
+  { key: 'code.calls-remote', relation: 'consumesApi', direction: 'same' },
+  { key: 'code.carries', relation: 'hasPart', direction: 'same' },
+  { key: 'code.changed-with', internal: 'files that change in the same commits, a history measure the agent reads' },
+  { key: 'code.configured-by', relation: 'configures', direction: 'inverse' },
+  { key: 'code.connects-to', relation: 'dependsOn', direction: 'same' },
+  { key: 'code.consumes', relation: 'subscribes', direction: 'same' },
+  { key: 'code.contains', relation: 'contains', direction: 'same' },
+  { key: 'code.contains-job', relation: 'hasPart', direction: 'same' },
+  { key: 'code.covers', internal: 'the columns an index covers, a schema fact' },
+  { key: 'code.creates', relation: 'generates', direction: 'same' },
+  { key: 'code.cycle-member', internal: 'a module or file that takes part in an import cycle, a reading of the analysis' },
+  { key: 'code.declares', relation: 'hasPart', direction: 'same' },
+  { key: 'code.declares-dependency', relation: 'dependsOn', direction: 'same' },
+  { key: 'code.defined-in', internal: 'where an environment variable is given a value' },
+  { key: 'code.defines', relation: 'configures', direction: 'same' },
+  { key: 'code.depends-on', relation: 'dependsOn', direction: 'same' },
+  { key: 'code.describes-file', internal: 'a facet describes the file it was read from; the file page shows it' },
+  { key: 'code.exposes', internal: 'a workload or an image exposes a port' },
+  { key: 'code.exposes-metric', internal: 'an endpoint that exposes a metric the code declares' },
+  { key: 'code.facet-of', internal: 'a facet is a reading of one node, shown on that node\'s page' },
+  { key: 'code.flows-into', internal: 'an untrusted input reaches a SQL sink: a security path the Problems page reads' },
+  { key: 'code.foreign-key', relation: 'dependsOn', direction: 'same' },
+  { key: 'code.handled-by', relation: 'handles', direction: 'inverse' },
+  { key: 'code.held', relation: 'contains', direction: 'same' },
+  { key: 'code.holds', relation: 'contains', direction: 'same' },
+  { key: 'code.hosts-channel', relation: 'hasPart', direction: 'same' },
+  { key: 'code.implements', relation: 'implements', direction: 'same' },
+  { key: 'code.imports', relation: 'dependsOn', direction: 'same' },
+  { key: 'code.inherits', relation: 'refines', direction: 'same' },
+  { key: 'code.listens-on', internal: 'the port a process listens on' },
+  { key: 'code.logical-reference', internal: 'a column the code names without a declared foreign key' },
+  { key: 'code.manifest-of', relation: 'hasDependencyManifest', direction: 'inverse' },
+  { key: 'code.occurrence', internal: 'one positioned site where a name is read or written' },
+  { key: 'code.parent', internal: 'a commit\'s parent in the first-parent history' },
+  { key: 'code.probes', relation: 'monitors', direction: 'same' },
+  { key: 'code.publishes', relation: 'publishes', direction: 'same' },
+  { key: 'code.reads', internal: 'a field is read at a use site, an occurrence-level fact' },
+  { key: 'code.reads-env', internal: 'the code reads an environment variable' },
+  { key: 'code.reads-table', relation: 'uses', direction: 'same' },
+  { key: 'code.references', internal: 'a name mention the code graph reads, not a call or a use' },
+  { key: 'code.renamed-to', internal: 'a file renamed in the history, with the similarity Git found' },
+  { key: 'code.resolves', internal: 'a lock file resolves a manifest dependency to an exact version' },
+  { key: 'code.runs', internal: 'a workload runs a process or a container image' },
+  { key: 'code.served-by', relation: 'handles', direction: 'inverse' },
+  { key: 'code.serves', relation: 'implements', direction: 'same' },
+  { key: 'code.starts', internal: 'a workload starts a process it declares' },
+  { key: 'code.targets', internal: 'a probe targets a port' },
+  { key: 'code.tasks', internal: 'a commit message names a tracker task' },
+  { key: 'code.tests', relation: 'hasTest', direction: 'inverse' },
+  { key: 'code.touched', internal: 'a commit\'s change to a file, a fact of the history the wiki shows on the commit\'s page' },
+  { key: 'code.updates-metric', internal: 'the code that updates a metric, an instrumentation fact' },
+  { key: 'code.uses-database', relation: 'uses', direction: 'same' },
+  { key: 'code.uses-dependency', relation: 'uses', direction: 'same' },
+  { key: 'code.uses-logger', relation: 'usesTool', direction: 'same' },
+  { key: 'code.uses-type', relation: 'uses', direction: 'same' },
+  { key: 'code.writes', internal: 'a field is written at a use site, an occurrence-level fact' },
+  { key: 'code.writes-table', relation: 'uses', direction: 'same' },
+];

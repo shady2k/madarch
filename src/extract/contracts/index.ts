@@ -25,6 +25,7 @@ import {routeListenerPorts, structuralHttpRegistrations} from '../operations/rou
 import {codeFactsOf, extractCodeWithFacts} from '../code/index.js';
 import type {CodeExpressionFact, CodeFacts} from '../code/facts.js';
 import {decodeStringToken} from '../code/literals.js';
+import type {EmittedRelation} from '../vocabulary.js';
 import {asyncApiNodes, readAsyncApi} from './asyncapi.js';
 import {inferOutboxPublications} from './outbox.js';
 import {contractSymbols} from './symbol-links.js';
@@ -47,12 +48,20 @@ import {
   KIND_ROUTE,
   KIND_SQL_BUILD,
   KIND_SQL_SINK,
+  EDGE_BELONGS_TO,
+  EDGE_CARRIES,
+  EDGE_CONTAINS,
+  EDGE_DECLARES,
+  EDGE_HANDLED_BY,
+  EDGE_REFERENCES,
+  EDGE_SERVED_BY,
   REL_CALLS_REMOTE,
   REL_CONSUMES,
   REL_FLOWS_INTO,
   REL_PUBLISHES,
   REL_SERVES,
   routeKey,
+  type ContractsRelation,
   sqlBuildKey,
   sqlSinkKey,
 } from './schema.js';
@@ -113,7 +122,7 @@ export async function extractContracts(reader: TreeReader, code?: Extraction, fa
   const openApiOperations: {method: string; routePath: string; key: string; servers: readonly string[]; contractPath: string; span: SourceSpan}[] = [];
   const channels: string[] = [];
   const protoRpcs: {protoPath: string; service: string; rpc: string; key: string}[] = [];
-  const declarations: {contract: string; member: string; relation: `code.${string}`}[] = [];
+  const declarations: {contract: string; member: string; relation: EmittedRelation}[] = [];
   const contractSpans = new Map<string, SourceSpan>();
 
   for (const p of reader.paths) {
@@ -141,7 +150,7 @@ export async function extractContracts(reader: TreeReader, code?: Extraction, fa
       const {contract, gaps: fileGaps} = readOpenApi(p, text);
       gaps.push(...fileGaps);
       nodes.push(...openApiNodes(contract));
-      for (const op of contract.operations) declarations.push({contract: `code.contract:${p}`, member: operationKey(p, `${op.method}:${op.path}`), relation: 'code.declares'});
+      for (const op of contract.operations) declarations.push({contract: `code.contract:${p}`, member: operationKey(p, `${op.method}:${op.path}`), relation: EDGE_DECLARES});
       for (const op of contract.operations) {
         openApiOperations.push({method: op.method, routePath: op.path, key: `code.operation:${p}#${op.method}:${op.path}`, servers: op.servers, contractPath: p, span: op.span});
       }
@@ -151,18 +160,18 @@ export async function extractContracts(reader: TreeReader, code?: Extraction, fa
       nodes.push(...asyncApiNodes(contract));
       for (const channel of contract.channels) {
         channels.push(channel.name);
-        declarations.push({contract: `code.contract:${p}`, member: channelKey(channel.name), relation: 'code.declares'});
+        declarations.push({contract: `code.contract:${p}`, member: channelKey(channel.name), relation: EDGE_DECLARES});
         for (const message of channel.messages) {
           const messageId = messageKey(p, message.name);
-          declarations.push({contract: `code.contract:${p}`, member: messageId, relation: 'code.declares'});
-          edges.push({type: 'code.carries', from: channelKey(channel.name), to: messageId, discriminator: '', properties: {channel: channel.name}});
+          declarations.push({contract: `code.contract:${p}`, member: messageId, relation: EDGE_DECLARES});
+          edges.push({type: EDGE_CARRIES, from: channelKey(channel.name), to: messageId, discriminator: '', properties: {channel: channel.name}});
         }
       }
     } else {
       const {contract, gaps: fileGaps} = readProto(p, text);
       gaps.push(...fileGaps);
       nodes.push(...protoNodes(contract));
-      for (const service of contract.services) for (const rpc of service.rpcs) declarations.push({contract: `code.contract:${p}`, member: operationKey(p, `${contract.package ?? ''}.${service.name}/${rpc.rpc}`), relation: 'code.declares'});
+      for (const service of contract.services) for (const rpc of service.rpcs) declarations.push({contract: `code.contract:${p}`, member: operationKey(p, `${contract.package ?? ''}.${service.name}/${rpc.rpc}`), relation: EDGE_DECLARES});
       for (const service of contract.services) {
         for (const rpc of service.rpcs) {
           protoRpcs.push({protoPath: p, service: service.name, rpc: rpc.rpc, key: `code.operation:${p}#${contract.package ?? ''}.${service.name}/${rpc.rpc}`});
@@ -307,7 +316,7 @@ export async function extractContracts(reader: TreeReader, code?: Extraction, fa
   };
 
   const addEdge = (
-    type: `code.${string}`,
+    type: EmittedRelation,
     from: string,
     to: string,
     properties: {[key: string]: PropertyValue} = {},
@@ -316,7 +325,7 @@ export async function extractContracts(reader: TreeReader, code?: Extraction, fa
     edges.push({type, from, to, discriminator: '', properties, ...(span !== undefined ? {span} : {})});
   };
 
-  const interaction = (type: `code.${string}`, path: string, target: string, properties: {[key: string]: PropertyValue}, span: SourceSpan): void => {
+  const interaction = (type: ContractsRelation, path: string, target: string, properties: {[key: string]: PropertyValue}, span: SourceSpan): void => {
     const source = symbols.enclosing(span);
     // Preserve the file-level overview as explicitly aggregated evidence. The
     // canonical interaction starts at a real function, including inline handlers.
@@ -372,8 +381,8 @@ export async function extractContracts(reader: TreeReader, code?: Extraction, fa
       if (handler !== undefined) {
         properties['handlerPath'] = registration?.handler?.path ?? handler.slice('code.symbol:'.length, handler.indexOf('#'));
         properties['handlerKey'] = handler;
-        addEdge('code.handled-by', routeKey(file.path, route.method, route.path), handler, {}, handlerSpan);
-        edges.push({type: 'code.references', from: symbols.enclosing(route.span) ?? fileKey(file.path), to: handler, discriminator: String(handlerSpan.byteStart), properties: {role: 'callback-registration'}, span: handlerSpan});
+        addEdge(EDGE_HANDLED_BY, routeKey(file.path, route.method, route.path), handler, {}, handlerSpan);
+        edges.push({type: EDGE_REFERENCES, from: symbols.enclosing(route.span) ?? fileKey(file.path), to: handler, discriminator: String(handlerSpan.byteStart), properties: {role: 'callback-registration'}, span: handlerSpan});
       } else gaps.push({path: file.path, reason: `contracts: line ${route.handlerSpan.lineStart}: handler ${route.handler} is not resolved to a function symbol (${file.path})`});
       nodes.push({
         key: routeKey(file.path, route.method, route.path),
@@ -382,7 +391,7 @@ export async function extractContracts(reader: TreeReader, code?: Extraction, fa
         properties,
         span: route.span,
       });
-      edges.push({type: 'code.contains', from: fileKey(file.path), to: routeKey(file.path, route.method, route.path), discriminator: '', properties: {}, span: route.span});
+      edges.push({type: EDGE_CONTAINS, from: fileKey(file.path), to: routeKey(file.path, route.method, route.path), discriminator: '', properties: {}, span: route.span});
     }
 
     if (file.go.entryPoint) {
@@ -398,7 +407,7 @@ export async function extractContracts(reader: TreeReader, code?: Extraction, fa
         span: entrySpan,
       });
       edges.push({type: 'code.starts', from: entryKey, to: fileKey(file.path), discriminator: '', properties: {kind: 'entry-file'}, span: entrySpan});
-      if (service !== undefined) edges.push({type: 'code.belongs-to' as const, from: entryKey, to: `code.service:${service}`, discriminator: '', properties: {}, span: entrySpan});
+      if (service !== undefined) edges.push({type: EDGE_BELONGS_TO, from: entryKey, to: `code.service:${service}`, discriminator: '', properties: {}, span: entrySpan});
       const goProcess = service === undefined ? undefined : processKeyOf(file.path);
       if (goProcess !== undefined) edges.push({type: 'code.starts', from: entryKey, to: goProcess, discriminator: 'process', properties: {kind: 'process'}, span: entrySpan});
       for (const unit of started) {
@@ -456,8 +465,8 @@ export async function extractContracts(reader: TreeReader, code?: Extraction, fa
       const authName = auth !== undefined ? chain.find((name) => name === auth) : undefined;
       const handler = route.handler === undefined ? undefined : symbols.handler(route.handler.span, route.handler.inline, `${route.method}:${path}`);
       if (handler !== undefined) {
-        addEdge('code.handled-by', routeKey(file.path, route.method, path), handler, {}, route.handler!.span);
-        edges.push({type: 'code.references', from: symbols.enclosing(route.span) ?? fileKey(file.path), to: handler, discriminator: String(route.handler!.span.byteStart), properties: {role: 'callback-registration'}, span: route.handler!.span});
+        addEdge(EDGE_HANDLED_BY, routeKey(file.path, route.method, path), handler, {}, route.handler!.span);
+        edges.push({type: EDGE_REFERENCES, from: symbols.enclosing(route.span) ?? fileKey(file.path), to: handler, discriminator: String(route.handler!.span.byteStart), properties: {role: 'callback-registration'}, span: route.handler!.span});
       } else gaps.push({path: file.path, reason: `contracts: line ${route.span.lineStart}: route ${route.method} ${path} has no resolved handler function (${file.path})`});
       nodes.push({
         key: routeKey(file.path, route.method, path),
@@ -475,7 +484,7 @@ export async function extractContracts(reader: TreeReader, code?: Extraction, fa
         },
         span: route.span,
       });
-      edges.push({type: 'code.contains', from: fileKey(file.path), to: routeKey(file.path, route.method, path), discriminator: '', properties: {}, span: route.span});
+      edges.push({type: EDGE_CONTAINS, from: fileKey(file.path), to: routeKey(file.path, route.method, path), discriminator: '', properties: {}, span: route.span});
     }
 
     if (ts.entry !== undefined) {
@@ -493,7 +502,7 @@ export async function extractContracts(reader: TreeReader, code?: Extraction, fa
         span: entrySpan,
       });
       edges.push({type: 'code.starts', from: entryKey, to: fileKey(file.path), discriminator: '', properties: {kind: 'entry-file'}, span: entrySpan});
-      if (service !== undefined) edges.push({type: 'code.belongs-to' as const, from: entryKey, to: `code.service:${service}`, discriminator: '', properties: {}, span: entrySpan});
+      if (service !== undefined) edges.push({type: EDGE_BELONGS_TO, from: entryKey, to: `code.service:${service}`, discriminator: '', properties: {}, span: entrySpan});
       const tsProcess = service === undefined ? undefined : processKeyOf(file.path);
       if (tsProcess !== undefined) edges.push({type: 'code.starts', from: entryKey, to: tsProcess, discriminator: 'process', properties: {kind: 'process'}, span: entrySpan});
       for (const unit of ts.started) {
@@ -647,8 +656,8 @@ export async function extractContracts(reader: TreeReader, code?: Extraction, fa
     if (route.ports.length === 0) gaps.push({path: route.span.path, reason: `contracts: line ${route.span.lineStart}: route receiver/listener association is unresolved (${route.span.path})`});
     if (route.handler !== undefined) {
       const handlerSpan = route.handlerExpression === undefined ? route.span : facts?.expressions.find(expression => expression.id === route.handlerExpression)?.span ?? route.span;
-      addEdge('code.handled-by', key, route.handler.key, {}, handlerSpan);
-      edges.push({type: 'code.references', from: symbols.enclosing(route.span) ?? fileKey(route.span.path), to: route.handler.key, discriminator: String(handlerSpan.byteStart), properties: {role: 'callback-registration'}, span: handlerSpan});
+      addEdge(EDGE_HANDLED_BY, key, route.handler.key, {}, handlerSpan);
+      edges.push({type: EDGE_REFERENCES, from: symbols.enclosing(route.span) ?? fileKey(route.span.path), to: route.handler.key, discriminator: String(handlerSpan.byteStart), properties: {role: 'callback-registration'}, span: handlerSpan});
     } else gaps.push({path: route.span.path, reason: `contracts: line ${route.span.lineStart}: route has no resolved handler function (${route.span.path})`});
   }
 
@@ -658,11 +667,11 @@ export async function extractContracts(reader: TreeReader, code?: Extraction, fa
   // say), the link is not claimed: ambiguity is said, not resolved.
   for (const endpoint of nodes.filter((node) => node.kind === 'code.health-endpoint' || node.kind === 'code.metrics-endpoint')) {
     const service = String(endpoint.properties['service'] ?? '');
-    if (service !== '') edges.push({type: 'code.served-by', from: endpoint.key, to: `code.service:${service}`, discriminator: 'service', properties: {}});
+    if (service !== '') edges.push({type: EDGE_SERVED_BY, from: endpoint.key, to: `code.service:${service}`, discriminator: 'service', properties: {}});
     const endpointPath = String(endpoint.properties['path'] ?? '');
     const endpointFile = endpoint.span?.path;
     const routes = nodes.filter((node) => node.kind === KIND_ROUTE && node.properties['path'] === endpointPath && node.span?.path === endpointFile);
-    for (const route of routes) edges.push({type: 'code.served-by', from: endpoint.key, to: route.key, discriminator: '', properties: {}, ...(endpoint.span === undefined ? {} : {span: endpoint.span})});
+    for (const route of routes) edges.push({type: EDGE_SERVED_BY, from: endpoint.key, to: route.key, discriminator: '', properties: {}, ...(endpoint.span === undefined ? {} : {span: endpoint.span})});
   }
   for (const operation of openApiOperations) {
     const scope = servicesOfServers(operation.servers);
@@ -708,7 +717,7 @@ export async function extractContracts(reader: TreeReader, code?: Extraction, fa
   // These edges reference the file owner's identity; no file stub is invented here.
   for (const node of nodes) {
     const path = node.span?.path;
-    if (path !== undefined && !edges.some((edge) => edge.type === 'code.contains' && edge.from === fileKey(path) && edge.to === node.key)) addEdge('code.contains', fileKey(path), node.key, {}, node.span);
+    if (path !== undefined && !edges.some((edge) => edge.type === 'code.contains' && edge.from === fileKey(path) && edge.to === node.key)) addEdge(EDGE_CONTAINS, fileKey(path), node.key, {}, node.span);
   }
   for (const [index, node] of nodes.entries()) {
     if (node.kind !== KIND_CHANNEL) continue;
@@ -875,7 +884,7 @@ function httpCallUrl(facts: CodeFacts | undefined, span: SourceSpan): readonly s
 function extractSqlFlow(
   file: TsFacts,
   nodes: ExtractedNode[],
-  addEdge: (type: `code.${string}`, from: string, to: string, properties?: {[key: string]: PropertyValue}, span?: SourceSpan) => void,
+  addEdge: (type: EmittedRelation, from: string, to: string, properties?: {[key: string]: PropertyValue}, span?: SourceSpan) => void,
 ): void {
   const {path, ts} = file;
   for (const input of ts.inputs) {
@@ -887,7 +896,7 @@ function extractSqlFlow(
       span: input.span,
     });
     // The input is read in this file, whether or not it reaches a builder or a sink (madarch-m38l.16).
-    addEdge('code.contains', fileKey(path), inputKey(path, 'query', input.name), {}, input.span);
+    addEdge(EDGE_CONTAINS, fileKey(path), inputKey(path, 'query', input.name), {}, input.span);
   }
   const pathBuilds = ts.stringSplicers.filter((splicer) => ts.buildersOnPath.includes(splicer.fn));
   for (const build of pathBuilds) {

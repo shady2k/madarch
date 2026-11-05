@@ -4,6 +4,7 @@
  * producer's `code.file` node is dropped by the driver and its edges end here.
  */
 import { createHash } from 'node:crypto';
+import { KIND_DOCUMENT_SECTION, REL_CONTAINS } from './vocabulary.js';
 import type { ExtractedNode, ExtractedEdge, Extraction, TreeReader } from '../records.js';
 import { byCodePoint } from '../../model/order.js';
 import { gitAttributesFacts } from './gitattributes.js';
@@ -54,8 +55,8 @@ export function extractFiles(tree: TreeReader): Extraction {
       const next = headings.slice(index + 1).find((entry) => entry.level <= heading.level);
       const key = `code.document-section:${path}#${heading.line}`;
       const span = {path, byteStart: heading.start, byteEnd: next?.start ?? Buffer.byteLength(text), lineStart: heading.line, lineEnd: next === undefined ? lines.length : next.line - 1};
-      sections.push({key, kind: 'code.document-section', label: `${heading.name} · ${path}:${heading.line}`, properties: {path, heading: heading.name, level: heading.level}, span});
-      edges.push({type: 'code.contains', from: `code.file:${path}`, to: key, discriminator: '', properties: {}, span});
+      sections.push({key, kind: KIND_DOCUMENT_SECTION, label: `${heading.name} · ${path}:${heading.line}`, properties: {path, heading: heading.name, level: heading.level}, span});
+      edges.push({type: REL_CONTAINS, from: `code.file:${path}`, to: key, discriminator: '', properties: {}, span});
     }
   }
   return {

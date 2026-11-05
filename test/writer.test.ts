@@ -236,7 +236,8 @@ function declareOverview(folder: string): void {
   seedStarterSet(folder);
   const file = join(folder, KINDS_FILE);
   const manifest = parseDocument(readFileSync(file, 'utf8'));
-  manifest.setIn(['kinds', 'overview'], { template: 'templates/product.md', source: 'markdown', file: 'docs/overview.md', origin: 'agent', labels: { en: { one: 'Overview', many: 'Overviews' } } });
+  // The product's own kind carries its row of the entity catalog, as every kind of a catalogued manifest does.
+  manifest.setIn(['kinds', 'overview'], { id: 'practice.overview-page', group: 'history.work', definition: 'An overview page of this test\'s product.', sources: ['https://example.test/overview'], acquisition: ['conversation'], status: 'implemented', 'relation-constraints': { out: [], in: [] }, 'template-policy': 'page', template: 'templates/product.md', source: 'markdown', file: 'docs/overview.md', origin: 'agent', labels: { en: { one: 'Overview', many: 'Overviews' } } });
   writeFileSync(file, manifest.toString());
 }
 

@@ -56,6 +56,20 @@ export const REL_TESTS = 'code.tests';
 /** A module or file takes part in an import cycle. */
 export const REL_CYCLE_MEMBER = 'code.cycle-member';
 
+// ---- the vocabulary, as data ---------------------------------------------
+
+/**
+ * Every node kind this extractor emits, and every relation type, declared once as data: this extractor's
+ * vocabulary that the code names and that the catalog's mapping ties to the product's kinds (decision 0033,
+ * item 7). A kind or relation the extractor starts emitting is declared here, or the mapping check refuses it.
+ */
+export const CODE_NODE_KINDS = [KIND_SYMBOL, KIND_FIELD, KIND_FILE, KIND_MODULE, KIND_PACKAGE, KIND_TEST_CASE, KIND_CYCLE, KIND_DEBT] as const;
+
+export const CODE_EDGE_TYPES = [
+  REL_CONTAINS, REL_IMPORTS, REL_DEPENDS_ON, REL_CALLS, REL_REFERENCES, REL_READS, REL_WRITES, REL_USES_TYPE,
+  REL_INHERITS, REL_IMPLEMENTS, REL_OCCURRENCE, REL_TESTS, REL_CYCLE_MEMBER,
+] as const;
+
 // ---- key builders ---------------------------------------------------------
 
 /** `code.symbol:<path>#<qualified name>` -- one declaration of a file. */
@@ -89,3 +103,9 @@ export const cycleKey = (level: 'module' | 'file', members: readonly string[]): 
 
 /** An actual inline registration callback, named from its enclosing declaration and byte position. */
 export const callbackName = (enclosing: string | undefined, route: string, line: number, byte: number): string => `${enclosing ?? route}.callback@${line}:${byte}`;
+
+/** The union of the node kinds this extractor declares: an emitted kind is one of them, and tsc refuses any other. */
+export type CodeKind = (typeof CODE_NODE_KINDS)[number];
+
+/** The union of the relation types this extractor declares: an emitted relation is one of them. */
+export type CodeRelation = (typeof CODE_EDGE_TYPES)[number];

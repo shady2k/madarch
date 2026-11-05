@@ -5,6 +5,7 @@
  * so the contracts extractor may find the same routes without a collision.
  */
 import {resolveEndpointTarget, matchesEndpoint} from '../endpoint-target.js';
+import { KIND_HEALTHCHECK, KIND_HEALTH_ENDPOINT, KIND_LOGGER, KIND_METRICS_ENDPOINT, KIND_PROBE, REL_PROBES, REL_SERVED_BY, REL_USES_LOGGER } from './vocabulary.js';
 import { extractMetrics } from './metrics.js';
 import { effectOwner, effectSpan, libraryEvidence } from './code-facts.js';
 import type { Records } from './accumulate.js';
@@ -40,7 +41,7 @@ function loggers(t: TreeText, records: Records): void {
     const key = `code.logger:${effect.span.path}#${identity}`;
     const manifest = t.filesByPath.all(effect.span.path)[0]?.manifest;
     const service = t.serviceOf(effect.span.path) ?? manifest?.name ?? '';
-    records.add({ key, kind: 'code.logger', label: `logger ${identity} of ${service || effect.span.path}`,
+    records.add({ key, kind: KIND_LOGGER, label: `logger ${identity} of ${service || effect.span.path}`,
       properties: { service, ...libraryEvidence(effect),
         ...(effect.presentation === undefined ? {} : {library: effect.presentation.library,
           ...(effect.presentation.json === undefined ? {} : {json: effect.presentation.json})}) },
@@ -53,8 +54,8 @@ function loggers(t: TreeText, records: Records): void {
     const owner = effectOwner(t, records, effect);
     if (owner === undefined) continue;
     const discriminator = String(effect.span.byteStart);
-    records.edge('code.uses-logger', logger, records.file(effect.span.path), libraryEvidence(effect), effectSpan(effect), discriminator);
-    if (owner !== `code.file:${effect.span.path}`) records.edge('code.uses-logger', logger, owner, libraryEvidence(effect), effectSpan(effect), discriminator);
+    records.edge(REL_USES_LOGGER, logger, records.file(effect.span.path), libraryEvidence(effect), effectSpan(effect), discriminator);
+    if (owner !== `code.file:${effect.span.path}`) records.edge(REL_USES_LOGGER, logger, owner, libraryEvidence(effect), effectSpan(effect), discriminator);
     else records.gap(effect.span.path, `line ${effect.span.lineStart}: logger use is outside a callable [${effect.modelId}]`);
   }
 }
@@ -71,10 +72,10 @@ function healthEndpoints(t: TreeText, records: Records): void {
     if (ports.length === 0) records.gap(path, `line ${endpoint.span.lineStart}: health receiver/listener association is unresolved (${path})`);
     const statusOk = endpoint.handler !== undefined && t.expressionsByPath.all(path).some((expression) =>
       endpoint.handler!.span.byteStart <= expression.span.byteStart && expression.span.byteEnd <= endpoint.handler!.span.byteEnd && expression.literal?.value === 'ok');
-    records.add({key: endpointKey, kind: 'code.health-endpoint', label: `${endpoint.path} of ${t.serviceOf(path) ?? path}`,
+    records.add({key: endpointKey, kind: KIND_HEALTH_ENDPOINT, label: `${endpoint.path} of ${t.serviceOf(path) ?? path}`,
       properties: {path:endpoint.path, method:endpoint.method, ports, statusOk, service:t.serviceOf(path) ?? ''}, span:endpoint.span});
-    records.edge('code.served-by', endpointKey, records.file(path), {service:t.serviceOf(path) ?? ''}, endpoint.span);
-    if (endpoint.handler !== undefined) records.edge('code.served-by', endpointKey, functionNode(records,endpoint.handler), {role:'handler'},endpoint.span);
+    records.edge(REL_SERVED_BY, endpointKey, records.file(path), {service:t.serviceOf(path) ?? ''}, endpoint.span);
+    if (endpoint.handler !== undefined) records.edge(REL_SERVED_BY, endpointKey, functionNode(records,endpoint.handler), {role:'handler'},endpoint.span);
     else records.gap(path,`line ${endpoint.span.lineStart}: health registration handler is unresolved (${path})`);
   }
 }
@@ -86,23 +87,23 @@ function healthEndpoints(t: TreeText, records: Records): void {
  * gets no service link, because a link to a service nothing declares would be a node of its own.
  */
 export function linkEndpoints(t: TreeText, records: Records): void {
-  for (const probe of records.nodes.filter((node) => node.kind === 'code.probe' || node.kind === 'code.healthcheck')) {
+  for (const probe of records.nodes.filter((node) => node.kind === KIND_PROBE || node.kind === KIND_HEALTHCHECK)) {
     // A TCP/exec/database readiness command does not claim an HTTP endpoint.
-    if (probe.kind === 'code.probe' && probe.properties.transport !== 'http') continue;
+    if (probe.kind === KIND_PROBE && probe.properties.transport !== 'http') continue;
     const resolved = resolveEndpointTarget(probe);
     if (resolved.kind === 'non-http') continue;
     if (resolved.kind === 'unresolved') {records.gap(probe.span?.path ?? '.', `line ${probe.span?.lineStart ?? 1}: probe target authority or method is unresolved (${probe.key})`); continue;}
-    const endpoints = records.nodes.filter((node) => node.kind === 'code.health-endpoint' && matchesEndpoint(resolved.target, node));
-    if (endpoints.length === 1 && endpoints[0] !== undefined) records.edge('code.probes', probe.key, endpoints[0].key, { role: 'endpoint' }, probe.span);
+    const endpoints = records.nodes.filter((node) => node.kind === KIND_HEALTH_ENDPOINT && matchesEndpoint(resolved.target, node));
+    if (endpoints.length === 1 && endpoints[0] !== undefined) records.edge(REL_PROBES, probe.key, endpoints[0].key, { role: 'endpoint' }, probe.span);
   }
   for (const node of [...records.nodes]) {
-    if (node.kind !== 'code.health-endpoint' && node.kind !== 'code.metrics-endpoint') continue;
+    if (node.kind !== KIND_HEALTH_ENDPOINT && node.kind !== KIND_METRICS_ENDPOINT) continue;
     const path = node.key.slice(node.key.indexOf(':') + 1, node.key.lastIndexOf('#'));
     const service = t.serviceOf(path);
     if (service === undefined) continue;
     const key = `code.service:${service}`;
     if (!records.nodes.some((held) => held.key === key)) continue;
-    records.edge('code.served-by', node.key, key, {role: 'service'}, node.span ?? t.spanOfFile(path));
+    records.edge(REL_SERVED_BY, node.key, key, {role: 'service'}, node.span ?? t.spanOfFile(path));
   }
 }
 

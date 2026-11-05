@@ -16,6 +16,7 @@ import { validateEnvironmentModels } from '../src/extract/library-models/environ
 import { validateOutboxModels } from '../src/extract/library-models/outbox-models.js';
 import { validateGrpcDeadlineModel } from '../src/extract/library-models/grpc-deadline-models.js';
 import { validateRepositoryConventions } from '../src/extract/library-models/repository-conventions.js';
+import { CATALOG_STANDARDS } from '../src/knowledge/starter-catalog.js';
 
 const ROOT = resolve(dirname(fileURLToPath(import.meta.url)), '..');
 const SCAN_ROOTS = ['src', 'test', 'scripts', 'wiki/app/src', 'examples', 'docs/system'];
@@ -395,6 +396,43 @@ function provenanceRanges(root: string, file: string, text: string, errors: stri
   return ranges;
 }
 
+/**
+ * The addresses the entity catalog cites stand in a `sources` field of a row — the standard or document a kind, or a
+ * relation's name, was taken from. That is provenance, not a repository the product depends on: a string literal in
+ * such a field is licensed, and only there, and only in the catalog's own module. The same address in a message, or
+ * in any other position, is still scanned as a repository source.
+ */
+const CATALOG_SOURCES_MODULE = 'src/knowledge/starter-catalog.ts';
+
+/**
+ * The ranges of the string literals a `sources` field holds in the module at `path`, read from its syntax tree: the
+ * elements of the value of the property assignment named `sources`. A property is a field of any object the module
+ * writes — a kind's row, a standard's row — and a literal outside one is no citation.
+ */
+async function catalogSources(path: string, text: string): Promise<readonly SourceRange[]> {
+  const read = await readSyntaxTree(path, new TextEncoder().encode(text), (parsed) => {
+    const ranges: SourceRange[] = [];
+    if (!parsed.complete || parsed.root.type !== 'program') return ranges;
+    const visit = (node: SyntaxNode): void => {
+      if (node.type === 'pair') {
+        const key = node.childForFieldName('key');
+        const value = node.childForFieldName('value');
+        const name = key === null ? undefined : key.type === 'string' ? decodeStringToken(key.type, key.text) : key.text;
+        if (value !== null && name === 'sources') {
+          for (const item of value.type === 'array' ? value.namedChildren : [value]) {
+            if (item !== null && (item.type === 'string' || item.type === 'template_string')) ranges.push({ start: item.startIndex, end: item.endIndex });
+          }
+        }
+      }
+      for (const child of node.namedChildren) if (child !== null) visit(child);
+    };
+    visit(parsed.root);
+    return ranges;
+  });
+  if (!read.read) throw new Error(`${path}: syntax parser could not read source: ${JSON.stringify(read.unread)}`);
+  return read.value;
+}
+
 async function findings(root = ROOT): Promise<string[]> {
   const errors: string[] = [];
   const goModules = declaredGoModules(root);
@@ -404,6 +442,8 @@ async function findings(root = ROOT): Promise<string[]> {
     .sort(compareCodePoints);
   for (const file of files) {
     const text = readFileSync(file, 'utf8');
+    const path = relative(root, file);
+    const cited = path === CATALOG_SOURCES_MODULE ? await catalogSources(path, text) : [];
     const provenance = provenanceRanges(root, file, text, errors);
     const sources = [...text.matchAll(SOURCE_PATTERN)];
     const imports = sources.length === 0 ? [] : await testImportRanges(root, file, text, packages);
@@ -415,6 +455,7 @@ async function findings(root = ROOT): Promise<string[]> {
       const urlOrSsh = /(?:[A-Za-z][A-Za-z0-9+.-]*:\/\/|[^\s'"`]+@)$/.test(prefix);
       if (typedKey && !urlOrSsh) continue;
       if (!(typedKey && urlOrSsh) && provenance.some((range) => range.start <= match.index && match.index + source.length <= range.end)) continue;
+      if (!(typedKey && urlOrSsh) && cited.some((range) => range.start <= match.index && match.index + source.length <= range.end)) continue;
       if (!(typedKey && urlOrSsh) && (sourceIsAllowed(source, goModules) || isDeclaredFixtureManifest(root, file, text, match.index, source) ||
         imports.some((range) => range.start <= match.index && match.index + source.length <= range.end))) continue;
       const line = text.slice(0, match.index).split('\n').length;
@@ -647,6 +688,40 @@ describe('neutral repository names', () => {
         rmSync(file);
       }
     } finally { rmSync(fixtureRoot, {recursive: true, force: true}); }
+  });
+
+  test('the catalog exemption covers the value a sources field holds, never the same address quoted in a message', async () => {
+    const fixtureRoot = mkdtempSync(join(tmpdir(), 'madarch-neutral-catalog-sources-'));
+    try {
+      for (const path of SCAN_ROOTS) mkdirSync(join(fixtureRoot, path), { recursive: true });
+      for (const path of ROOT_DOCUMENTS) {
+        const document = join(fixtureRoot, path);
+        mkdirSync(dirname(document), { recursive: true });
+        writeFileSync(document, '');
+      }
+      const module = join(fixtureRoot, 'src/knowledge/starter-catalog.ts');
+      mkdirSync(dirname(module), { recursive: true });
+      // An address the starter catalog itself cites, with two path segments: the one shape the scan reads as a source.
+      const source = CATALOG_STANDARDS.spdx.sources[0];
+      const written = source.replace(/^https?:\/\//, '');
+      const matched = new RegExp(SOURCE_PATTERN.source).exec(source)![0];
+      writeFileSync(module, [
+        'export const CATALOG_KINDS = [',
+        `  { name: 'widget', sources: ['${source}'] },`,
+        '];',
+        `export const mentioned = '${source}';`,
+        `export const telling = 'see ${source} for the standard';`,
+        '',
+      ].join('\n'));
+      // The literal a row's `sources` field holds is a citation; the same address standing anywhere else is not.
+      expect(await findings(fixtureRoot)).toEqual([
+        `src/knowledge/starter-catalog.ts:4 (${module}): repository source is not an example or madarch repository: ${matched}`,
+        `src/knowledge/starter-catalog.ts:5 (${module}): repository source is not an example or madarch repository: ${matched}`,
+      ]);
+      expect(written).not.toBe('');
+    } finally {
+      rmSync(fixtureRoot, { recursive: true, force: true });
+    }
   });
 
   test('package documentation uses the whole exact URL and the current ecosystem only', async () => {

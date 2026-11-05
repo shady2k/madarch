@@ -1,7 +1,9 @@
 import {describe, expect, test} from 'bun:test';
 import {linkExtractions, LINKS_PRODUCER} from '../src/extract/driver/links.js';
 import type {Extraction} from '../src/extract/records.js';
-const make = (producer: `code.${string}`, key: string, to: string): Extraction => ({producer, nodes: [{key, kind: key.slice(0, key.indexOf(':')) as `code.${string}`, label: key, properties: {}, span: {path: 'src/main.ts', lineStart: 1, lineEnd: 1, byteStart: 0, byteEnd: 1}}], edges: [{type: 'code.references', from: key, to, discriminator: '', properties: {}}], gaps: []});
+import type {EmittedKind} from '../src/extract/vocabulary.js';
+const make = (producer: `code.${string}`, key: string, to: string): Extraction => ({producer, // The key's prefix is a declared kind by construction of this fixture (code.symbol, code.dependency).
+  nodes: [{key, kind: key.slice(0, key.indexOf(':')) as EmittedKind, label: key, properties: {}, span: {path: 'src/main.ts', lineStart: 1, lineEnd: 1, byteStart: 0, byteEnd: 1}}], edges: [{type: 'code.references', from: key, to, discriminator: '', properties: {}}], gaps: []});
 describe('madarch-m38l.20 shared declaration links', () => {
   test('cyclic-producers: each end uses a real declaration, both directions publish after the owning nodes', () => {
     const a = make('code.extract.a', 'code.symbol:a#run', 'code.dependency:b#library');

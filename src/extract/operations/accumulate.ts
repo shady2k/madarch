@@ -5,6 +5,8 @@
  * here once, so parallel areas never duplicate them.
  */
 import type { ExtractionGap, ExtractedEdge, ExtractedNode, PropertyValue, SchemaKey, SourceSpan } from '../records.js';
+import { KIND_PORT } from './vocabulary.js';
+import type {OperationsRelation} from './vocabulary.js';
 import { byCodePoint } from '../../model/order.js';
 
 export class Records {
@@ -27,7 +29,7 @@ export class Records {
   }
 
   /** Adds one edge keyed by its type, ends and discriminator; the first declaration stands. */
-  edge(type: SchemaKey, from: string, to: string, properties: { readonly [key: string]: PropertyValue } = {}, span?: SourceSpan, discriminator = ''): void {
+  edge(type: OperationsRelation, from: string, to: string, properties: { readonly [key: string]: PropertyValue } = {}, span?: SourceSpan, discriminator = ''): void {
     const key = `${type}\u0000${from}\u0000${to}\u0000${discriminator}`;
     if (this.held.has(key)) return;
     this.held.add(key);
@@ -50,7 +52,7 @@ export class Records {
     const key = `code.port:${service}/${port}`;
     this.add({
       key,
-      kind: 'code.port',
+      kind: KIND_PORT,
       label: `${service}/${String(port)}`,
       properties: { port, service },
       ...(span === undefined ? {} : { span }),
