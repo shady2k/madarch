@@ -40,7 +40,6 @@ import {
 } from '../stage.js';
 import { readTsFile, type TsFileFacts } from '../../extract/contracts/ts-code.js';
 import { readGoFile, type GoFileFacts } from '../../extract/contracts/go-code.js';
-import { callbacksOfFile } from './callbacks.js';
 import {
   EDGE_CONTAINS, inputKey, KIND_INPUT, KIND_SQL_BUILD, KIND_SQL_SINK, REL_FLOWS_INTO, sqlBuildKey, sqlSinkKey,
 } from '../../extract/contracts/schema.js';
@@ -60,10 +59,9 @@ export const CONTRACTS_CODE_STAGE_ID = 'contracts-code';
 const CONTRACTS_CODE_STAGE_VERSION = 1;
 
 /** The fact kinds the stage produces, in code point order. */
-const CONTRACTS_CODE_STAGE_KINDS: readonly string[] = ['callback', 'contains', 'coverage', 'declares', 'flows-into', 'input', 'middleware-chain', 'router-mount', 'sql-build', 'sql-sink'];
+const CONTRACTS_CODE_STAGE_KINDS: readonly string[] = ['contains', 'coverage', 'declares', 'flows-into', 'input', 'middleware-chain', 'router-mount', 'sql-build', 'sql-sink'];
 
 /** The kinds the stage writes beside the extractor's own: the per-file facts the later stages read. */
-const CALLBACK_KIND = 'code.callback';
 const MIDDLEWARE_CHAIN_KIND = 'code.middleware-chain';
 const ROUTER_MOUNT_KIND = 'code.router-mount';
 
@@ -231,19 +229,16 @@ async function executeContractsCodeUnit(unit: StageUnit, context: StageContext):
     return { outcome: 'draft' };
   }
   const { findings, ts, go } = read.value;
-  // The callbacks are read with the driver's own rule, from the shared reader, so the callback
-  // names a route resolves to are the names the driver gives them.
-  const callbacks = callbacksOfFile(planned.path, findings);
   const service = await serviceOf(stage, planned.path);
   const evidence = evidenceAtPlace(source, planned.path);
   const fileKey = fileFactIdOf(planned.repository, planned.path);
   const fileSpan = wholeFileSpan(planned.path, file.content!);
-  for (const write of codeSiteWrites({ repository: planned.repository, path: planned.path, fileKey, evidence, fileSpan, ts, go, callbacks, service })) context.draft.write(write);
+  for (const write of codeSiteWrites({ repository: planned.repository, path: planned.path, fileKey, evidence, fileSpan, ts, go, service })) context.draft.write(write);
   writeCoverage(context, source, planned.path, { repository: planned.repository, scope: planned.path, complete: true, read: [planned.path], unread: [] }, entry.id);
   const inputs = ts?.inputs.length ?? 0;
   const sinks = ts?.sqlSinks.length ?? 0;
   context.progress(
-    `read ${planned.path} of ${planned.repository} at ${source.commit}: ${String(inputs)} ${inputs === 1 ? 'input' : 'inputs'}, ${String(sinks)} SQL ${sinks === 1 ? 'sink' : 'sinks'}, ${String(callbacks.length)} ${callbacks.length === 1 ? 'callback' : 'callbacks'}`,
+    `read ${planned.path} of ${planned.repository} at ${source.commit}: ${String(inputs)} ${inputs === 1 ? 'input' : 'inputs'}, ${String(sinks)} SQL ${sinks === 1 ? 'sink' : 'sinks'}, ${String(ts?.mounts.length ?? 0)} ${(ts?.mounts.length ?? 0) === 1 ? 'mount' : 'mounts'}`,
     1,
   );
   return { outcome: 'draft' };
@@ -298,7 +293,6 @@ function codeSiteWrites(input: {
   readonly fileSpan: SourceSpan;
   readonly ts: TsFileFacts | undefined;
   readonly go: GoFileFacts | undefined;
-  readonly callbacks: readonly { readonly qualifiedName: string; readonly span: { readonly startByte: number; readonly endByte: number; readonly startLine: number; readonly endLine: number } }[];
   readonly service: string | undefined;
 }): readonly StageDraftWrite[] {
   const writes: StageDraftWrite[] = [];
@@ -423,19 +417,6 @@ function codeSiteWrites(input: {
       },
     },
   });
-  // The inline callbacks the file writes: a boundary with no declaration is a symbol of its own, and
-  // a route's handler resolves to it (the driver's own names, from the shared reader).
-  for (const callback of input.callbacks) {
-    declared.push({
-      span: spanOf(path, callback.span),
-      node: {
-        key: `${CALLBACK_KIND}:${input.repository}:${path}#${callback.qualifiedName}`,
-        kind: CALLBACK_KIND,
-        label: callback.qualifiedName,
-        properties: { file: path, path, qualifiedName: callback.qualifiedName, symbolKind: 'function' },
-      },
-    });
-  }
   for (const held of [...nodes].sort((left, right) => byCodePoint(left.node.key, right.node.key))) {
     const span = held.node.span;
     if (span === undefined) {
@@ -487,7 +468,6 @@ function factKindOf(kind: string): string {
   if (kind === KIND_INPUT) return 'input';
   if (kind === KIND_SQL_BUILD) return 'sql-build';
   if (kind === KIND_SQL_SINK) return 'sql-sink';
-  if (kind === CALLBACK_KIND) return 'callback';
   if (kind === MIDDLEWARE_CHAIN_KIND) return 'middleware-chain';
   if (kind === ROUTER_MOUNT_KIND) return 'router-mount';
   throw new Error(`the contracts-code stage writes a ${JSON.stringify(kind)} node and names no fact kind for it (src/fill/stages/contracts-code.ts)`);

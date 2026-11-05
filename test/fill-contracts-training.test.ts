@@ -222,14 +222,17 @@ beforeAll(async () => {
   // contracts-code stage publishes by their own key. One declaration has two names, and this is where
   // the two readings are compared.
   const symbols = await allPages((page) => store!.byProperty('code.symbol', 'repository', REPOSITORY, page));
-  const callbacks = await allPages((page) => store!.byProperty('code.callback', 'repository', REPOSITORY, page));
+  const callables = await allPages((page) => store!.byProperty('code.callable', 'repository', REPOSITORY, page));
   const keys = new Map<string, string>();
-  for (const node of [...symbols, ...callbacks]) {
+  // The syntax stage's node for a declaration answers first; the code-facts stage's callable fact is
+  // the node for a callable the syntax pass keeps none of (an inline handler).
+  for (const node of [...symbols, ...callables]) {
     const held = propertiesOf(node);
     const file = held['file'];
     const qualifiedName = held['qualifiedName'];
     const key = held['recordKey'];
     if (typeof file !== 'string' || typeof qualifiedName !== 'string' || typeof key !== 'string') continue;
+    if (keys.has(`${file}#${qualifiedName}`)) continue;
     keys.set(`${file}#${qualifiedName}`, key);
   }
   symbolKeys = keys;
@@ -283,7 +286,7 @@ function stageRecords(): Reading[] {
   if (store === undefined) throw new Error('the graph was not opened');
   const records: Reading[] = [];
   for (const row of stageNodes) {
-    if (!ours(row)) continue;
+    if (!ours(row) || internal(row)) continue;
     const held = propertiesOf(row);
     const properties: Record<string, unknown> = {};
     for (const [key, value] of Object.entries(held)) if (!ENVELOPE.has(key) && key !== 'span') properties[key] = value;
@@ -292,6 +295,7 @@ function stageRecords(): Reading[] {
   for (const entry of stageEdges) {
     const properties = propertiesOf(entry.edge);
     if (!ours(entry.edge)) continue;
+    if (internal(entry.src) || internal(entry.dst)) continue;
     const held: Record<string, unknown> = {};
     for (const [key, value] of Object.entries(properties)) if (!ENVELOPE.has(key) && key !== 'span' && key !== 'discriminator') held[key] = value;
     const from = canonicalKeyOf(entry.src);
@@ -307,6 +311,16 @@ function stageRecords(): Reading[] {
     });
   }
   return records;
+}
+
+/** The per-file facts this reading publishes for later stages, which the extract driver never reads. */
+const INTERNAL_PREFIXES: readonly string[] = ['code.middleware-chain:', 'code.router-mount:'];
+
+/** Whether a row is one of the reading's own per-file facts rather than a record of the extractor's. */
+function internal(row: { readonly kind: string; readonly properties: unknown }): boolean {
+  if (INTERNAL_PREFIXES.some((prefix) => row.kind.startsWith(prefix))) return true;
+  const key = propertiesOf(row)['recordKey'];
+  return typeof key === 'string' && INTERNAL_PREFIXES.some((prefix) => key.startsWith(prefix));
 }
 
 /** Whether a row is one of this reading's records: only its own stages' rows are compared. */

@@ -60,9 +60,9 @@ import type {CodeRelation} from './keys.js';
 import { goImportFolder, Program, type Binding, type FileCtx } from './program.js';
 import { resolveFile } from './resolve.js';
 import { codeLanguageOf, folderOf, roleOf, type SourceFile } from './source.js';
-import { holderAt, indexSymbols, type FileSymbol } from './symbols.js';
-import { indexCallbacks } from '../../fill/stages/callbacks.js';
+import { fileSymbolsOf, holderAt, withFieldSymbols, type FileSymbol } from '../../fill/stages/code-symbols.js';
 import { readTestDetails } from './tests.js';
+import {callbackName} from './keys.js';
 import { codeFactId, freezeCodeFacts, type CodeBindingFact, type CodeCallFact, type CodeExpressionFact, type CodeFacts, type CodeExtractionResult, type CodeImportFact, type CodeExportFact } from './facts.js';
 export type { CodeFacts, CodeExtractionResult } from './facts.js';
 
@@ -245,35 +245,15 @@ export async function extractCodeWithFacts(reader: TreeReader, options: CodeExtr
     const { decls } = declarations;
     if (!declarations.read) gap(source.path, `line 1: declarations could not be read from repository path ${source.path}`);
     const topNames = syntax.parsed && source.language === 'typescript' ? new Set(decls.tops.map((top) => top.name)) : undefined;
-    // The syntax pass proves direct initializer ownership. One callable has one
-    // canonical owner, even when its declaration and expression differ. Raw
-    // evidence keeps async; callback keys retain their parameter position. The
-    // contracts stage reads the same rule from the same module, so a route's
-    // handler is one name in the two readings (madarch-8bdc.2.4).
-    const indexed = syntax.parsed
-      ? indexCallbacks(source.path, indexSymbols(source.path, syntax.symbols, topNames), syntax.callables)
-      : { symbols: indexSymbols(source.path, syntax.symbols, topNames), callbacks: [], argumentSpans: [] };
-    const symbols = [...indexed.symbols];
-    const callbackValues: SourceSpan[] = indexed.argumentSpans.map((span) => toSpan(source.path, span));
-    for (const [index, symbol] of symbols.entries()) {
-      if (!symbol.local || symbol.functionLike) continue;
-      const holder = holderAt(symbols, symbol.span.startByte);
-      if (holder !== undefined) symbols[index] = {...symbol, keptKey: holder.key};
-    }
-    files.push({ source, syntax, imports: resolution.imports, decls, symbols, callbackValues });
+    const held = fileSymbolsOf(source, syntax, topNames);
+    files.push({ source, syntax, imports: resolution.imports, decls, symbols: held.symbols as FileSymbol[], callbackValues: held.callbackValues as SourceSpan[] });
   }
   // Fields and properties are member entities: they have names, types and readers, and no page of their own.
   // The declaration reader knows them even where the syntax pass keeps no symbol; adding them here lets the
   // resolver tie `this.field` to the member and lets the type own it by `code.contains` (madarch-m38l.21).
   for (const file of files) {
-    for (const type of file.decls.types) {
-      for (const member of type.members) {
-        if (member.kind !== 'field' || member.span === undefined) continue;
-        const key = symbolKey(file.source.path, member.qualifiedName);
-        if (file.symbols.some((symbol) => symbol.key === key)) continue;
-        file.symbols.push({ key, qualifiedName: member.qualifiedName, name: member.name, symbolKind: 'field', span: member.span, definitionSpan: member.span, local: false, keptKey: key, functionLike: false });
-      }
-    }
+    withFieldSymbols(file.source.path, file.symbols as FileSymbol[], file.decls.types.flatMap((type) => type.members.flatMap((member) =>
+      member.kind === 'field' && member.span !== undefined ? [{ qualifiedName: member.qualifiedName, name: member.name, span: member.span }] : [])));
   }
   const parsedFiles = files.filter((file) => file.syntax.parsed);
   const fileFacts = new Map(files.map((file) => [file.source.path, file]));

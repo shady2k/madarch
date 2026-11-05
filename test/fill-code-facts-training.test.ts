@@ -24,7 +24,10 @@ import { createGitSnapshotSource } from '../src/fill/snapshot.js';
 import { listeningPortsOfTree } from '../src/fill/stages/listening-ports.js';
 import { serviceMembershipOf, type ManifestEntry } from '../src/fill/stages/service-membership.js';
 import { staticStageSourceOf, STATIC_FILE_BYTE_LIMIT, type StaticStageSource } from '../src/fill/stages/static-context.js';
-import { readSyntaxTree } from '../src/fill/stages/syntax-extract.js';
+import { readFileFindings, readSyntaxTree } from '../src/fill/stages/syntax-extract.js';
+import { callablesOfFile } from '../src/fill/stages/code-facts.js';
+import { collectFileFacts } from '../src/fill/stages/code-facts.js';
+import { extractCodeWithFacts } from '../src/extract/code/index.js';
 import { readGoFile, type GoFileFacts } from '../src/extract/contracts/go-code.js';
 import { goListeningPorts, portsByServiceOf, tsListeningPorts, type CodeFilePortFacts } from '../src/extract/contracts/listening-ports.js';
 import { readTsFile, type TsFileFacts } from '../src/extract/contracts/ts-code.js';
@@ -117,6 +120,37 @@ describe('the one port rule the driver and the fill share', () => {
     } as unknown as TsFileFacts;
     expect(tsListeningPorts(ts)).toStrictEqual(['8082', '8084', '9000']);
   }, 300_000);
+});
+
+
+describe('the callables a file declares against the extract driver (training repository)', () => {
+  test('every callable the driver names is one callable fact, with the driver\'s own name, span and body', async () => {
+    if (tree === undefined) throw new Error('the repository was not read');
+    const code = await extractCodeWithFacts(tree);
+    const driverSymbols = code.facts.symbols.filter((symbol) => symbol.callable);
+    expect(driverSymbols.length).toBeGreaterThan(20);
+    const differences: Difference[] = [];
+    for (const path of paths.filter(isCodePath)) {
+      const facts = await readSyntaxTree(path, tree.read(path), (file) => {
+        const collected = collectFileFacts('training', path, file.text, file.root, file.language);
+        return { bodies: collected.bodies, findings: readFileFindings(file) };
+      });
+      if (!facts.read) throw new Error(`${repository}/${path}:1: the generated repository's source could not be read: the comparison has no smaller answer to give`);
+      const callables = await callablesOfFile(path, tree.read(path), facts.value.findings, facts.value.bodies);
+      const held = new Map(callables.map((callable) => [callable.key, callable]));
+      for (const symbol of driverSymbols.filter((entry) => entry.path === path)) {
+        const actual = held.get(symbol.key);
+        const span = (value: { readonly path: string; readonly byteStart: number; readonly byteEnd: number; readonly lineStart: number; readonly lineEnd: number } | undefined): string =>
+          value === undefined ? 'none' : `${value.path}@${String(value.byteStart)}-${String(value.byteEnd)}:${String(value.lineStart)}-${String(value.lineEnd)}`;
+        const expectedText = `${symbol.name}|${symbol.qualifiedName}|${symbol.symbolKind}|${span(symbol.span)}|${span(symbol.bodySpan)}|${symbol.bodySyntaxKind ?? ''}`;
+        const actualText = actual === undefined ? 'none' : `${actual.name}|${actual.qualifiedName}|${actual.symbolKind}|${span(actual.span)}|${span(actual.bodySpan)}|${actual.bodySyntaxKind ?? ''}`;
+        if (expectedText !== actualText) differences.push({ path, expected: `${symbol.key} ${expectedText}`, actual: `${actual?.key ?? 'none'} ${actualText}` });
+        held.delete(symbol.key);
+      }
+      for (const [key, extra] of held) differences.push({ path, expected: '(no callable)', actual: `${key} ${extra.qualifiedName}` });
+    }
+    expect(differences).toEqual([]);
+  }, 900_000);
 });
 
 describe('the per-file facts against the extract driver (training repository)', () => {

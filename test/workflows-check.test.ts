@@ -66,7 +66,7 @@ describe('the workflow check over the starter set', () => {
     const folder = product(text);
     const done = run('--folder', folder);
     expect(done.code).toBe(1);
-    const expected = 'workflow "first-fill" stage "teleport": the engine\'s stage registry holds no stage "teleport" (its stages are boundaries, build-configuration, code-facts, doc-intent, document-index, history, intent-history, inventory, modules, narrative, overview, recovery, semantic-resolution, snapshot, state-machines, syntax, understanding)';
+    const expected = 'workflow "first-fill" stage "teleport": the engine\'s stage registry holds no stage "teleport" (its stages are boundaries, build-configuration, code-facts, doc-intent, document-index, history, intent-history, inventory, modules, narrative, operations, operations-links, overview, recovery, semantic-resolution, snapshot, state-machines, syntax, understanding)';
     expect(done.err.trim()).toBe(`${join(folder, WORKFLOWS_FILE)}:${lineOf(text, '- teleport')}: ${expected}`);
   }, 30_000);
 

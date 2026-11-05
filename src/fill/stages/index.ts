@@ -25,6 +25,8 @@ import { createIntentHistoryStage } from './intent-history.js';
 import { createInventoryStage } from './inventory.js';
 import { createModulesStage } from './modules.js';
 import { createNarrativeStage } from './narrative.js';
+import { createOperationsStage } from './operations.js';
+import { createOperationsLinksStage } from './operations-links.js';
 import { createOverviewStage } from './overview.js';
 import { createRecoveryStage } from './recovery.js';
 import { createSemanticResolutionStage } from './semantic-resolution.js';
@@ -96,16 +98,16 @@ export function createStageRegistry(wiring: FillStageWiring): StageRegistry {
     .register(createSemanticResolutionStage(wiring.snapshots))
     .register(createCodeFactsStage(wiring.snapshots))
     .register(createStateMachinesStage(wiring.snapshots))
-    // The contracts reading of a repository (madarch-8bdc.2.4): the contract documents, then
-    // the code sites and the links between them. Three stages because a record's ends must
-    // stand before the unit that publishes it links to them, and a stage's units run at once.
+    // The contracts reading of a repository (madarch-8bdc.2.4): the contract documents, the code
+    // sites a file states (its inputs, its SQL path and the per-file facts a route is read through),
+    // and the routes those facts and the syntax stage's symbols name. Later stages are the order's
+    // answer where a record needs another file's: a route's path and chain are another file's mount,
+    // and a route's handler is another file's symbol.
     .register(createContractsStage(wiring.snapshots))
-    // The code sites of the same reading (madarch-8bdc.2.4): the untrusted inputs a file reads
-    // and the SQL path it carries, one unit per source file.
     .register(createContractsCodeStage(wiring.snapshots))
-    // The routes of the same reading (madarch-8bdc.2.4): a route's path, chain and handler are facts
-    // of another file's mount and of the syntax stage's symbols, so they are read in a stage after both.
     .register(createContractsRoutesStage(wiring.snapshots))
+    .register(createOperationsStage(wiring.snapshots))
+    .register(createOperationsLinksStage(wiring.snapshots))
     .register(createModulesStage(wiring.snapshots))
     .register(createDocumentIndexStage(wiring.snapshots))
     .register(createHistoryStage(createGitHistoryReader(wiring.checkoutOf ?? noCheckout), wiring.snapshots));

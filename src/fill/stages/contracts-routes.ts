@@ -111,7 +111,7 @@ export function createContractsRoutesStage(sources: SnapshotSource): FillStage {
         // and the inline callbacks a route is read through.
         { capability: 'router-mount', scope: 'repository', freshness: 'current' },
         { capability: 'middleware-chain', scope: 'repository', freshness: 'current' },
-        { capability: 'callback', scope: 'repository', freshness: 'current' },
+        { capability: 'callable', scope: 'repository', freshness: 'current' },
         // The unit a file belongs to and the ports it listens on, and the symbols a handler names.
         { capability: 'service-unit', scope: 'repository', freshness: 'current' },
         { capability: 'listener-port', scope: 'repository', freshness: 'current' },
@@ -250,15 +250,15 @@ async function executeContractsRoutesUnit(unit: StageUnit, context: StageContext
   const ports = service === undefined ? [] : await servicePorts(stage, service);
   const auth = service === undefined ? undefined : await authMiddlewareOf(stage, service);
   const mounts = service === undefined ? [] : await nodesOf(stage, 'code.router-mount', 'service', service);
-  const callbacks = await nodesOf(stage, 'code.callback', 'file', planned.path);
+  const callables = await nodesOf(stage, 'code.callable', 'file', planned.path);
   const symbols = await nodesOf(stage, 'code.symbol', 'file', planned.path);
   // The reference links the resolution stage published for this file: a registration it tied is one
   // edge the graph already holds, and this stage publishes only the ones it left untied.
   const existing = await allPages((page) => stage.edgesByProperty('code.references', 'file', planned.path, page));
   const existingLinks = new Set(existing.map((entry) => `${recordKeyOf(entry.from)}\u0000${recordKeyOf(entry.to)}`));
   const routes = isGo
-    ? await goRoutes(stage, planned.path, read.value as GoFileFacts, { service, ports, auth, mounts, callbacks, symbols, repository: planned.repository })
-    : tsRoutes(planned.path, read.value as TsFileFacts, { service, ports, auth, mounts, callbacks, symbols, repository: planned.repository });
+    ? await goRoutes(stage, planned.path, read.value as GoFileFacts, { service, ports, auth, mounts, callables, symbols, repository: planned.repository })
+    : tsRoutes(planned.path, read.value as TsFileFacts, { service, ports, auth, mounts, callables, symbols, repository: planned.repository });
   const evidence = evidenceAtPlace(source, planned.path);
   const fileKey = fileFactIdOf(planned.repository, planned.path);
   for (const route of routes) {
@@ -342,26 +342,31 @@ interface RouteRead {
   readonly ports: readonly string[];
   readonly auth: string | undefined;
   readonly mounts: readonly StaticGraphNode[];
-  readonly callbacks: readonly StaticGraphNode[];
+  readonly callables: readonly StaticGraphNode[];
   readonly symbols: readonly StaticGraphNode[];
   readonly repository: string;
 }
 
-/** The handler a route's registration names: the inline callback at its span, or the file's own declaration of the name it writes. */
+/** The handler a route's registration names: the inline callable at its span, or the file's own declaration of the name it writes. */
 function resolveHandler(path: string, handler: { readonly text: string; readonly inline: boolean; readonly span: SourceSpan }, read: RouteRead): { readonly key: string; readonly path: string } | undefined {
   if (handler.inline) {
-    const callbacks = read.callbacks.filter((node) => {
+    // The code-facts stage's callable fact names every callable the extract readings name, an inline
+    // handler among them, at the span it stands over (madarch-8bdc.2.4; decision 4 of the port).
+    const callables = read.callables.filter((node) => {
       const at = spanOfNode(node);
       return at !== undefined && at.byteStart === handler.span.byteStart && at.byteEnd === handler.span.byteEnd;
     });
-    if (callbacks.length !== 1) return undefined;
-    return { key: recordKeyOf(callbacks[0]!), path };
+    if (callables.length !== 1) return undefined;
+    return { key: recordKeyOf(callables[0]!), path };
   }
-  // A named handler this file declares: the symbol its own name answers. A handler reached through an
-  // import or a field is no proof this file holds, and the route is published without one (a gap).
+  // A named handler this file declares: the syntax stage's symbol for it, and the callable fact where
+  // the syntax pass keeps no node of the name. A handler reached through an import or a field is no
+  // proof this file holds, and the route is published without one (a gap).
   const symbols = read.symbols.filter((node) => node.properties['qualifiedName'] === handler.text);
-  if (symbols.length !== 1) return undefined;
-  return { key: recordKeyOf(symbols[0]!), path: String(symbols[0]!.properties['file'] ?? path) };
+  if (symbols.length === 1) return { key: recordKeyOf(symbols[0]!), path: String(symbols[0]!.properties['file'] ?? path) };
+  const callables = read.callables.filter((node) => node.properties['qualifiedName'] === handler.text);
+  if (callables.length === 1) return { key: recordKeyOf(callables[0]!), path };
+  return undefined;
 }
 
 /** The handler a Go registration names, by the file's own field proof and the symbols of the service. */
@@ -406,19 +411,39 @@ async function symbolByName(stage: StaticStageContext, repository: string, quali
   return nodes.length === 1 ? nodes[0] : undefined;
 }
 
-/** The innermost callable of the file whose place holds a registration: what a callback registration stands in. */
+/** The innermost callable of the file whose body holds a registration: what a callback registration stands in. */
 function enclosingOf(read: RouteRead, span: SourceSpan): { readonly enclosing?: string } {
-  const callable = read.symbols.filter((node) => {
-    const kind = node.properties['symbolKind'];
-    if (kind !== 'function' && kind !== 'method' && kind !== 'constructor') return false;
+  const held = read.callables.filter((node) => {
     const at = spanOfNode(node);
-    return at !== undefined && at.byteStart <= span.byteStart && span.byteEnd <= at.byteEnd;
+    const body = spanOfProperty(node, 'bodySpan');
+    return at !== undefined && body !== undefined && at.byteStart <= span.byteStart && body.byteStart <= span.byteStart && span.byteEnd <= body.byteEnd;
   }).sort((left, right) => {
     const a = spanOfNode(left)!;
     const b = spanOfNode(right)!;
     return (a.byteEnd - a.byteStart) - (b.byteEnd - b.byteStart);
   });
-  return callable.length === 0 ? {} : { enclosing: recordKeyOf(callable[0]!) };
+  if (held.length === 0) return {};
+  const chosen = held[0]!;
+  // The record names the syntax stage's node for the declaration; the callable fact is the node where
+  // the syntax pass keeps none (an inline callback).
+  const qualified = chosen.properties['qualifiedName'];
+  const symbol = read.symbols.filter((node) => node.properties['qualifiedName'] === qualified);
+  return { enclosing: symbol.length === 1 ? recordKeyOf(symbol[0]!) : recordKeyOf(chosen) };
+}
+
+/** One span property of a node (a callable's body, say), where it carries one. */
+function spanOfProperty(node: StaticGraphNode, name: string): SourceSpan | undefined {
+  const value = node.properties[name];
+  if (value === null || typeof value !== 'object') return undefined;
+  const held = value as Record<string, unknown>;
+  if (typeof held['path'] !== 'string' || typeof held['byteStart'] !== 'number' || typeof held['byteEnd'] !== 'number') return undefined;
+  return {
+    path: held['path'],
+    byteStart: held['byteStart'],
+    byteEnd: held['byteEnd'],
+    lineStart: typeof held['lineStart'] === 'number' ? held['lineStart'] : 1,
+    lineEnd: typeof held['lineEnd'] === 'number' ? held['lineEnd'] : 1,
+  };
 }
 
 /** The type name one field's type expression stands for: the identifier it names, through a pointer's own child. */

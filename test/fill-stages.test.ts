@@ -165,7 +165,7 @@ describe('the wiring of one product', () => {
       expect(snapshot.repository).toBe(product);
       expect(snapshot.commit).toBe(git(product, 'rev-parse', 'HEAD'));
       expect(opened.fill.registry.all().map((stage) => stage.id)).toEqual([
-        'build-configuration', 'code-facts', 'document-index', 'history', 'inventory', 'modules', 'semantic-resolution', 'snapshot', 'state-machines', 'syntax',
+        'build-configuration', 'code-facts', 'document-index', 'history', 'inventory', 'modules', 'operations', 'operations-links', 'semantic-resolution', 'snapshot', 'state-machines', 'syntax',
       ]);
       expect(snapshot.registryHash).toBe(declaredStagesDigest(opened.fill.registry));
       expect(snapshot.registryHash).toMatch(/^[0-9a-f]{64}$/);

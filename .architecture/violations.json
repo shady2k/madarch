@@ -2112,6 +2112,11 @@
   {
     "rule": "no-unreachable-code",
     "file": "src/fill/stages/syntax-extract.ts",
+    "symbol": "ExtractedCallableBoundary"
+  },
+  {
+    "rule": "no-unreachable-code",
+    "file": "src/fill/stages/syntax-extract.ts",
     "symbol": "ExtractedComment"
   },
   {

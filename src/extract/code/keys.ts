@@ -11,8 +11,6 @@
  * of is one node.
  */
 
-import { symbolKey } from '../../fill/stages/code-symbols.js';
-
 /** The producer id every record of this extractor carries. */
 export const CODE_PRODUCER = 'code.extract.code' as const;
 
@@ -74,14 +72,14 @@ export const CODE_EDGE_TYPES = [
 
 // ---- key builders ---------------------------------------------------------
 
-/** `code.symbol:<path>#<qualified name>` -- one declaration of a file, read where a static stage may read it. */
+/** `code.symbol:<path>#<qualified name>` -- one declaration of a file; the reader names it in one place. */
 export { symbolKey } from '../../fill/stages/code-symbols.js';
 
 /** The key the contracts extractor gives the handler of a route: the symbol's key. */
-export const handlerKey = symbolKey;
+export { symbolKey as handlerKey } from '../../fill/stages/code-symbols.js';
 
-/** `code.file:<path>` -- the data-model extractor's file key, shared. */
-export const fileKey = (path: string): string => `${KIND_FILE}:${path}`;
+/** `code.file:<path>` -- the data-model extractor's file key, shared; the symbol reader names it in one place. */
+export { fileKey } from '../../fill/stages/code-symbols.js';
 
 /** `code.module:<folder>` -- a Go package or a TypeScript folder. */
 export const moduleKey = (folder: string): string => `${KIND_MODULE}:${folder === '' ? '.' : folder}`;
@@ -102,6 +100,9 @@ export const debtKey = (path: string, fingerprint: string): string => `${KIND_DE
 
 /** `code.cycle:<level>/<member>+<member>...` -- one import cycle, its members in code point order. */
 export const cycleKey = (level: 'module' | 'file', members: readonly string[]): string => `${KIND_CYCLE}:${level}/${members.join('+')}`;
+
+/** An actual inline registration callback, named from its enclosing declaration and byte position. */
+export { callbackName } from '../../fill/stages/code-symbols.js';
 
 /** The union of the node kinds this extractor declares: an emitted kind is one of them, and tsc refuses any other. */
 export type CodeKind = (typeof CODE_NODE_KINDS)[number];

@@ -175,6 +175,9 @@ const RANK_DECIMALS = 12;
 /** The kinds of edge the rank walks, and the only ones this stage reads. */
 const RESOLVED_EDGE_KINDS: readonly string[] = ['call', 'import', 'inherits', 'reference'];
 
+/** The node kinds the rank's nodes are: a file and a symbol, and no reading's own record. */
+const RANKED_ENDS: ReadonlySet<string> = new Set(['code.file', 'code.symbol']);
+
 /** The symbol kinds the schema names, so a symbol row's kind is one of them. */
 const SYMBOL_KINDS: readonly string[] = ['class', 'constant', 'constructor', 'enum', 'enum-member', 'event', 'field', 'function', 'interface', 'macro', 'method', 'module', 'namespace', 'object', 'operator', 'other', 'package', 'parameter', 'property', 'struct', 'trait', 'type', 'type-alias', 'type-parameter', 'variable'];
 
@@ -499,9 +502,10 @@ async function edgeRowsOf(source: StaticGraphReader, repository: string): Promis
     for (;;) {
       const page = await source.edgesByProperty(relation, 'repository', repository, { limit: STATIC_READ_ROW_LIMIT, ...(after === undefined ? {} : { after }) });
       for (const edge of page.rows) {
-        // A callable is a fact of its file, not a node the rank walks: the links a route's handler
-        // and a registration make end at one, and the file they stand in is already a node.
-        if (edge.from.kind === 'code.callable' || edge.to.kind === 'code.callable') continue;
+        // The rank walks the graph of files and symbols: a link another reading publishes to one of
+        // its own records (a callable, a Makefile target) is not an edge of that graph, and the record
+        // it names stands in the file the reading already holds.
+        if (!RANKED_ENDS.has(edge.from.kind) || !RANKED_ENDS.has(edge.to.kind)) continue;
         const from = edge.from.properties['recordKey'];
         const to = edge.to.properties['recordKey'];
         if (typeof from !== 'string' || typeof to !== 'string') {
