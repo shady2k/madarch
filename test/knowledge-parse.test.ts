@@ -229,7 +229,7 @@ describe('the starter set madarch new seeds', () => {
     // The starter set of both changes: the document task page and the history task page are two templates of one name
     // (`task.liquid` for the document, `history-task.liquid` for the graph's task), so both stand in the list
     // (madarch-m38l.16). The base page and the partials come first: every kind extends the base (decision 0032).
-    expect(STARTER_FILES.map((file) => file.path)).toEqual(['madarch/kinds.yaml',
+    expect(STARTER_FILES.map((file) => file.path)).toEqual(['madarch/kinds.yaml', 'madarch/workflows.yaml',
       'templates/entity.liquid',
       'templates/partials/around.liquid', 'templates/partials/pages-about.liquid', 'templates/partials/source.liquid',
       'templates/partials/relations.liquid', 'templates/partials/history.liquid',

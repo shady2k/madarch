@@ -4,6 +4,8 @@ import { parseDocument } from 'yaml';
 import { KINDS_FILE } from './kinds.js';
 import { CATALOG_GROUPS, CATALOG_KINDS, CATALOG_RELATIONS, CATALOG_SCHEMA, type CatalogGroupData, type CatalogKindData } from './starter-catalog.js';
 import { MAPPING_KIND_ROWS, MAPPING_RELATION_ROWS, MAPPING_VERSION, type CatalogMappingRow } from './starter-mapping.js';
+import { STARTER_WORKFLOWS } from './starter-workflows.js';
+import { WORKFLOWS_FILE } from './workflows.js';
 import { DEFAULT_THRESHOLDS } from '../problems/types.js';
 import type { ProblemSettings, RuleSpec } from '../problems/types.js';
 
@@ -615,6 +617,35 @@ function ruleYaml(rule: RuleSpec): string {
   return `{ ${fields.join(', ')} }`;
 }
 
+/**
+ * The `madarch/workflows.yaml` the starter set writes (decision 0033, items 1 and 2):
+ * the four workflows over the engine's stage ids, in code point order of their names,
+ * with the comment block that explains the file to a person editing it.
+ */
+function workflowsManifest(): string {
+  const lines: string[] = [
+    "# The workflows this product runs (decision 0033, items 1 and 2). A workflow is a named set of the engine's stage",
+    "# ids; the stages' capabilities give the order, so no edge is declared here. A workflow's status says what the",
+    "# engine can do with it today:",
+    "#   implemented  every stage it names is one the engine's stage registry holds, and every required input of those",
+    "#                stages is produced by another stage of the workflow",
+    "#   planned      the engine has no stage for it yet: it may name no stages, and a stage it names must still be one",
+    "#                the registry holds",
+    "# The stages a run enables from its workflow are the orchestrator's (madarch-8bdc.2.5 and later); this file is the",
+    "# product's own from the first commit, so a product edits it to run the stages it needs.",
+    "workflows:",
+  ];
+  const stageList = (stages: readonly string[]): string[] => (stages.length === 0 ? ['    stages: []'] : ['    stages:', ...stages.map((stage) => `      - ${stage}`)]);
+  for (const workflow of STARTER_WORKFLOWS) {
+    if (workflow.name === 'branch-worktree') lines.push('  # Planned: a branch or a worktree\'s own base, overlay and publication namespace (0033, item 26) has no stage yet.');
+    if (workflow.name === 'history-point') lines.push('  # Planned: materialising a merge-base the graph does not hold as a chosen point (0030) has no stage yet.');
+    if (workflow.name === 'first-fill') lines.push('  # The whole walk: every stage the fill registers today, the deterministic stages and the agent stages.');
+    if (workflow.name === 'update-by-commit') lines.push('  # The same stages at each new pinned commit; which of them run for a change is the orchestrator\'s.');
+    lines.push(`  ${workflow.name}:`, `    status: ${workflow.status}`, ...stageList(workflow.stages));
+  }
+  return `${lines.join('\n')}\n`;
+}
+
 /** The starter manifest's text, with the product's page language when it has one. */
 export function starterManifest(language?: string): string {
   const text = kindsManifest();
@@ -788,9 +819,11 @@ export function kindLines(kind: CatalogKindData, options: KindLineOptions = {}):
   return lines;
 }
 const KINDS = kindsManifest();
+const WORKFLOWS = workflowsManifest();
 
 export const STARTER_FILES: readonly StarterFile[] = [
   { path: 'madarch/kinds.yaml', content: KINDS },
+  { path: WORKFLOWS_FILE, content: WORKFLOWS },
   ...Object.entries(TEMPLATES).map(([name, content]) => ({ path: `templates/${name}`, content })),
 ];
 

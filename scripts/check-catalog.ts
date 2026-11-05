@@ -58,8 +58,12 @@ function main(): void {
     // Every finding of the manifest is the catalog check's, except the ones that say what a product's documents
     // lack: a product made a minute ago holds no documents, and those findings are the wiki's answer to its reader.
     const documentExpectation = '"documents.expect" names the kind';
+    // The workflows manifest has a check of its own (`bun run check:workflows`), and its findings stand with the
+    // manifest's for the Problems page: this command reports the catalog's, and the workflow's are not its matter.
+    const workflowsFile = manifest.workflows?.file;
     for (const finding of manifest.findings) {
       if (finding.message.startsWith(documentExpectation)) continue;
+      if (workflowsFile !== undefined && finding.file === workflowsFile) continue;
       console.error(`${finding.file}:${finding.line}: ${finding.message}`);
       failed = true;
     }
