@@ -225,6 +225,127 @@ settings that name a broker address.
 
 **Kept in the remaining list, with what stands in the way.**
 
+Seven families are left: `code.health-endpoint`, `code.metrics-endpoint`,
+`code.metric`, `code.exposes-metric`, `code.updates-metric`, `code.probes` and
+`code.served-by`; and, ported on this branch and shown below, three more —
+`code.symbol`, `code.logger` and `code.uses-logger` — are held out of the
+comparison by one fact the reading's records carry.
+
+- **The evidence a logger record carries names another pass's private ids.**
+  A ported logger record (node or edge) carries `libraryEvidence(effect)`: the
+  model, the library, the invocation span and an `origin` whose `importId` and
+  `chain` are the *code extraction's* fact ids
+  (`services/checkout/src/logging/logger.ts:7:11:import`,
+  `src/extract/operations/code-facts.ts`, `libraryEvidence`). The library reader
+  a static stage runs builds those same origins from the code-facts stage's
+  facts, whose ids are the fill's own
+  (`code.binding:training:services/checkout/src/logging/logger.ts@7:11:binding`).
+  A draft was run and the comparison named the difference exactly:
+  `different edge code.uses-logger code.logger:… -> code.file:services/checkout/
+  src/app.ts`, driver `origin.chain[0] =
+  "services/checkout/src/logging/logger.ts:7:11:import"`, stage
+  `origin.chain[0] = "code.binding:training:services/checkout/src/logging/
+  logger.ts@7:11:binding"`. No per-file reading of the graph can invent the
+  extraction's ids; the family waits until the evidence is named by the graph's
+  own identities, which is a change in what `LibraryEffect` carries (one shared
+  reader, two stages), not a change a stage can make alone.
+- **The Go logger declarations the driver names are not proven per file.** The
+  same draft published two of the driver's five `code.logger` nodes; the three
+  the driver reads in `…/logging/logger.go` (`New`, `FromContext`, the
+  promotions `New`) were missing, because the fill's library reader proves no Go
+  declaration — its models need a package identity the per-file facts do not
+  carry (the same gap the methods for `os.Getenv` were read from the facts to
+  close, `src/fill/stages/env-reads.ts`). A Go model reader over the per-file
+  facts is the step.
+- `code.symbol`. The operations reading stands one node per callable it cites,
+  keyed `code.symbol:<path>#<qualified name>` (`src/extract/operations/
+  symbol-sites.ts`, `functionNode`), while the fill's syntax stage publishes one
+  `code.symbol` node per declaration whose `recordKey` is the fact id. The draft
+  sent an edge to the syntax stage's declaration node where it exists — found by
+  `byGlobalName`, exactly as the coordinator's decision asks — and published its
+  own node for an anonymous callable, which no declaration names. The comparison
+  maps the driver's key to that node through one function. It is held out of the
+  comparison with `code.uses-logger`, which names it.
+- `code.health-endpoint`, `code.metrics-endpoint`, `code.metric`,
+  `code.exposes-metric`, `code.updates-metric`, `code.probes` and
+  `code.served-by`. The endpoints come from the whole-tree HTTP registry and
+  metric reader (`structuralHttpRegistrations(t)`, `extractMetrics`), and the
+  probe-to-endpoint links are made by `linkEndpoints` after every file of the
+  tree is read; the endpoint's handler edge ends at the symbol node above. The
+  per-file form of the registry and the metric reader is the next step: a
+  `code.health-endpoint`/`code.metrics-endpoint`/`code.metric` fact per file in
+  the first stage, the endpoint links (`probes`, `served-by`) in the second.
+
+**Assumptions.**
+- The declaration is read from the manifest's own bytes through the static
+  context's path-scoped `file`, not from the graph: on this branch the
+  build-configuration stage writes `package` facts to the fill's fact store, and
+  the 0028 graph holds no manifest declaration for a static unit to read. The
+  read is one path at a time and below the cap; no listing of the tree is made.
+- The fact covers the units `go.mod` and `package.json` declare, which is what
+  the task names. A unit a compose build context or a Dockerfile declares is not
+  part of it; on the generated training repository every file's unit comes from
+  a manifest (the comparison asserts it), so the two answers agree there.
+- The facts are published for the files this stage reads — a repository's source
+  code. A manifest's own unit is the unit its reader already has.
+
+**Comparison on the generated training repository.**
+`test/fill-code-facts-training.test.ts` generates the repository
+(`examples/training-repository/generate.mjs`) and compares, for every file, the
+membership with `serviceUnits(tree)` and, for every source file, the ports with
+`portsByServiceOf` (the driver's own map): zero differences, the four services
+and their ports (orders 8080, payments 8081, promotions 8082, checkout 8083 and
+the test file's 0) included.
+
+
+## The operations reading as a static stage (this branch)
+
+`src/fill/stages/operations.ts` is the stage and
+`src/fill/stages/operations-records.ts` its per-file half. The stage plans one
+unit per file the reading covers — lock files, manifests, Dockerfiles, compose
+files, Kubernetes files, Makefiles, workflows, `.env.example`, the root README,
+AsyncAPI documents and code — reads that file's bytes from the static context,
+builds the records whose span stands in it with the driver's own keys, kinds,
+labels, properties and spans, and publishes them through the store's one
+publication.
+
+**The rule.** A record is owned by the file its `span` stands in and a unit
+publishes exactly the records it owns, plus the `code.contains` edges from its
+file's node. A node another file declared first (a port, an image, a broker) is
+named by a later unit and not published again: `byKey` answers whether the node
+already stands under another file's `file` property.
+
+**The plan's order is the publication order.** The orchestrator admits one
+stage's units in the plan's own order (concurrency one), so a unit's edge ends
+exist when it publishes. The rank of a family is lock files, manifests,
+Dockerfiles, code, compose, Kubernetes, Makefile, workflow, `.env.example`,
+README, AsyncAPI. The code files come before the files that name what they
+declare: a compose `env:` entry's `configured-by` edge ends at a broker the
+compose file publishes, and a Kubernetes probe's endpoint is served by a code
+file.
+
+**What is compared.** `test/fill-operations-training.test.ts` generates the
+training repository, fills the product with the stages this reading stands on
+(it disables the others so the case times what it compares), reads the same tree
+with `extractOperations`, and compares both record sets as
+`<kind> <key> <canonical record>` lines in code point order. Every difference
+names the kind (or relation) and the key it stands at. The families not ported
+stand in the test's `REMAINING` list, and a record of a listed kind must not
+stand in the graph, so the list only shrinks.
+
+**Ported and equal on the training repository** (the list of families off
+`REMAINING`): manifests and their dependencies, lock files and `resolves`,
+Dockerfiles and their `exposes` ports, compose services, health checks, ports,
+`depends-on` and `builds`, Makefile targets and their references, CI workflows
+and jobs, code processes (`starts`, `listens-on`) and `uses-dependency`, the
+Kubernetes deployment, service, probes, image, `runs`, `exposes`, `targets` and
+`built-by`, environment definitions and `defined-in`, the newcomer's
+prerequisites, steps and failure with `backed-by` and `references`, brokers and
+`runs`, AsyncAPI channels and `hosts-channel`, and `configured-by` from the
+settings that name a broker address.
+
+**Kept in the remaining list, with what stands in the way.**
+
 - `code.symbol`. The operations reading stands one node per callable it cites,
   keyed `code.symbol:<path>#<qualified name>` (`src/extract/operations/
   symbol-sites.ts`, `functionNode`), while the fill's syntax stage publishes one
