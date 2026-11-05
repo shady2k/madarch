@@ -15,7 +15,7 @@ import { outerTransactionOf, type EdgeEntry, type GraphStore, type NodeVersionRo
 import type { StageGraphReader } from '../stage.js';
 import { PUBLISHED_REPOSITORY_READ, PUBLISHED_UNFILED_READ, type PublishedRepositoryRow, type PublishedUnfiledRow } from './snapshot.js';
 import { PUBLISHED_CONTAINMENT_READ, type PublishedContainmentRow } from './inventory.js';
-import { STATIC_GRAPH_READ, staticNodeOf } from './static-context.js';
+import { STATIC_GRAPH_READ, staticEdgeOf, staticNodeOf } from './static-context.js';
 import { PUBLISHED_COVERAGE_READ, type PublishedCoverageRow } from './syntax.js';
 import { PUBLISHED_RESOLVED_READ, type PublishedResolvedRow } from './semantic-resolution.js';
 import { CODE_FACTS_PUBLISHED_READ } from './code-facts.js';
@@ -80,7 +80,7 @@ export function createStaticStageReadReader(store: GraphStore, executor?: QueryE
           // A bounded read a static unit made through its own context, recorded as the generation's dependency
           // and replayed here inside the publication's transaction. The rows are the context's own shape.
           const read = document as { readonly kind?: unknown; readonly value?: unknown; readonly limit?: unknown; readonly relations?: unknown; readonly direction?: unknown; readonly after?: unknown };
-          if ((read.kind !== 'key' && read.kind !== 'globalName' && read.kind !== 'property' && read.kind !== 'neighbourhood') || typeof read.value !== 'string' || typeof read.limit !== 'number') {
+          if ((read.kind !== 'key' && read.kind !== 'globalName' && read.kind !== 'property' && read.kind !== 'edgesByProperty' && read.kind !== 'neighbourhood') || typeof read.value !== 'string' || typeof read.limit !== 'number') {
             throw new Error(`the static stage's recorded read ${JSON.stringify(text)} names no bounded read this reader answers: a read is by key, by global name or by one neighbourhood, with its value and cap (src/fill/stages/static-reads.ts)`);
           }
           if (read.after !== undefined && typeof read.after !== 'string') {
@@ -88,6 +88,16 @@ export function createStaticStageReadReader(store: GraphStore, executor?: QueryE
           }
           const page = { limit: read.limit, ...(read.after === undefined ? {} : { after: read.after }) };
           if (read.kind === 'key') return (await store.byKey(read.value, page, transaction)).rows.map(staticNodeOf);
+          if (read.kind === 'edgesByProperty') {
+            // A read of the edges another unit published, by a value they carry: a replay answers
+            // the same page the unit read, inside the publication's transaction.
+            const relation = (document as { readonly relation?: unknown }).relation;
+            const field = (document as { readonly field?: unknown }).field;
+            if (typeof relation !== 'string' || typeof field !== 'string') {
+              throw new Error(`the static stage's recorded read ${JSON.stringify(text)} names no relation or field of a read of edges (src/fill/stages/static-reads.ts)`);
+            }
+            return (await store.edgesByProperty(relation, field, read.value, page, transaction)).rows.map(staticEdgeOf);
+          }
           if (read.kind === 'property') {
             // A read by a value: the recorded text names the kind, the field and the value, and a
             // replay answers the same page the unit read (decision 0033, item 5).

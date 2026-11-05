@@ -1565,6 +1565,13 @@ async function attemptUnit(
     const trackedStatic: StaticGraphReader | undefined = staticGraph === undefined ? undefined : {
       byKey: async (key, options) => await recordStatic(staticGraphRead({ kind: 'key', value: key, limit: options?.limit ?? 256 }), await staticGraph.byKey(key, options)),
       byGlobalName: async (name, options) => await recordStatic(staticGraphRead({ kind: 'globalName', value: name, limit: options?.limit ?? 256 }), await staticGraph.byGlobalName(name, options)),
+      edgesByProperty: async (relation, field, value, options) => {
+        // A read of the edges another unit published, by the value they carry: the recorded text
+        // names the relation, the field and the value, so the recheck replays the same question.
+        const text = staticGraphRead({ kind: 'edgesByProperty', value, relation, field, limit: options?.limit ?? 256, ...(options?.after === undefined ? {} : { after: options.after }) });
+        const answered = await staticGraph.edgesByProperty(relation, field, value, options);
+        return { rows: await recordStatic(text, answered.rows as never) as never, next: answered.next };
+      },
       byProperty: async (kind, field, value, options) => {
         // A read by a value: the recorded text names the kind, the field and the value, so the
         // publication's recheck replays the same question and refuses an answer that moved.

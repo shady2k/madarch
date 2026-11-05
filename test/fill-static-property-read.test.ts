@@ -45,12 +45,44 @@ beforeAll(async () => {
     digest: 'd'.repeat(64),
     writes: nodes.map((node) => ({ kind: 'node' as const, evidence: `${REPOSITORY}@${'a'.repeat(40)}:${FILE}`, value: node })),
   }));
+  // Two units publish edges a later unit reads by a value they carry: a consumer edge into a
+  // channel, and an access edge into a table — the fold the contracts stage makes.
+  await store.publishUnit(staticUnitPublicationOf({
+    unitId: `file:${REPOSITORY}:src/consumer.ts`,
+    stageId: 'contracts',
+    digest: 'e'.repeat(64),
+    writes: [
+      { kind: 'node' as const, evidence: 'x', value: { key: `code.expression:${REPOSITORY}:src/consumer.ts@0:1:identifier`, kind: 'code.expression', label: 'consume', properties: { recordKey: `code.expression:${REPOSITORY}:src/consumer.ts@0:1:identifier`, factKind: 'expression', repository: REPOSITORY, file: 'src/consumer.ts' } } },
+      { kind: 'node' as const, evidence: 'x', value: { key: `code.expression:${REPOSITORY}:src/consumer.ts@10:11:identifier`, kind: 'code.expression', label: 'orders.events', properties: { recordKey: `code.expression:${REPOSITORY}:src/consumer.ts@10:11:identifier`, factKind: 'expression', repository: REPOSITORY, file: 'src/consumer.ts' } } },
+      { kind: 'edge' as const, evidence: 'x', value: { relation: 'code.references', from: { key: `code.expression:${REPOSITORY}:src/consumer.ts@0:1:identifier` }, to: { key: `code.expression:${REPOSITORY}:src/consumer.ts@10:11:identifier` }, properties: { factKind: 'consumes', repository: REPOSITORY, topic: 'orders.events' } } },
+    ],
+  }));
 }, 900_000);
 
 afterAll(async () => {
   await owner?.close();
   if (root !== '') rmSync(root, { recursive: true, force: true });
 }, 300_000);
+
+describe('the bounded read of edges by a value', () => {
+  test('answers the edges one unit published by the value they carry, and replays the recorded read', async () => {
+    if (store === undefined) throw new Error('the store was not opened');
+    const reader = createStaticStageReadReader(store);
+    const text = staticGraphRead({ kind: 'edgesByProperty', value: 'orders.events', relation: 'code.references', field: 'topic', limit: STATIC_READ_ROW_LIMIT });
+    const page = await reader.query(text) as readonly { readonly relation: string; readonly properties: Record<string, unknown> }[];
+    expect(page.length).toBe(1);
+    expect(page[0]!.relation).toBe('code.references');
+    expect(page[0]!.properties['topic']).toBe('orders.events');
+    const { staticGraphReaderOf } = await import('../src/fill/stages/static-context.js');
+    const graph = staticGraphReaderOf(store);
+    const direct = await graph.edgesByProperty('code.references', 'topic', 'orders.events');
+    expect(direct.rows.length).toBe(1);
+    expect(direct.next).toBeNull();
+    await expect(graph.edgesByProperty('', 'topic', 'orders.events')).rejects.toThrow(/names the relation/);
+    await expect(graph.edgesByProperty('code.references', '', 'orders.events')).rejects.toThrow(/names the field/);
+    await expect(graph.edgesByProperty('code.references', 'topic', '')).rejects.toThrow(/names an empty value/);
+  }, 300_000);
+});
 
 describe('the bounded read by property', () => {
   test('answers one page at a time, no wider than the cap, and replays the recorded read', async () => {

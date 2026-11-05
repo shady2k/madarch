@@ -116,7 +116,7 @@ async function contextFor(unit: StageUnit, answer: (read: string) => readonly un
       unit,
       config: { id: 'test', version: 1, enabled: true, concurrency: 1, limits: DEFAULT_STAGE_LIMITS, config: {} },
       graph,
-      ...(repository === undefined ? {} : { static: staticStageContext(repository, { byKey: async () => [], byGlobalName: async () => [], byProperty: async () => ({ rows: [], next: null }), neighbourhood: async () => ({ rows: [], next: null }) }) }),
+      ...(repository === undefined ? {} : { static: staticStageContext(repository, { byKey: async () => [], byGlobalName: async () => [], byProperty: async () => ({ rows: [], next: null }), edgesByProperty: async () => ({ rows: [], next: null }), neighbourhood: async () => ({ rows: [], next: null }) }) }),
       draft: {
         write: (entry: StageDraftWrite) => { recorder.writes.push(entry); },
         writes: () => ({ writes: recorder.writes }),
