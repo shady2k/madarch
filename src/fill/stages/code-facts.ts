@@ -37,16 +37,28 @@
  * occurrences — the syntax and resolution stages publish those, and this stage
  * reads none of them.
  *
- * **The unit reads one file and no other.** The bytes come from the static
- * context (one file below the size cap), the tree is walked inside the unit and
- * deleted with it, and every id is derived from the place the fact stands at
+ * **Two facts the operations and contracts readings link by.** The same unit
+ * publishes the unit the file belongs to (`code.service-unit`, from the nearest
+ * `go.mod` or `package.json` above its folder, read one path at a time) and the
+ * ports its code listens on (`code.listener-port`, by the one rule
+ * `portsByService` is built with). An operation's `service` is then a read by
+ * property of the file it stands in, and a contract server's service a read by
+ * property of the port it names (madarch-8bdc.2.4's step 1). The manifest chain
+ * the membership stands on is pinned in the file's coverage, and the product's
+ * wiring names it among the unit's inputs: a manifest that moved re-reads every
+ * file whose unit it declares, although the files' own blobs did not move.
+ *
+ * **The unit reads one file's code and no other's.** The bytes come from the
+ * static context (one file below the size cap), the tree is walked inside the
+ * unit and deleted with it, and every id is derived from the place the fact
+ * stands at
  * (repository, path, byte span, syntax kind), so two runs of one commit write
  * the same ids. The facts are nodes whose `file` property names the file; a
- * binding and a call also hang from the file's node with `code.declares`, so a
- * reader can walk them. An expression is linked to its children by their ids in
- * its own `children` and `fields`, not by edges: a file of a few hundred
- * expressions would otherwise cost thousands of edges for a tree one node
- * already describes.
+ * binding, a call, the unit and its ports also hang from the file's node with
+ * `code.declares`, so a reader can walk them. An expression is linked to its
+ * children by their ids in its own `children` and `fields`, not by edges: a file
+ * of a few hundred expressions would otherwise cost thousands of edges for a
+ * tree one node already describes.
  *
  * **What a unit publishes when it cannot read.** A path the commit no longer
  * holds publishes nothing, and the publication retracts what the unit wrote. A
@@ -70,6 +82,8 @@ import {
 import { evidenceAtPlace, refuseRow, rowRecord, unknownKeys } from './draft.js';
 import { rolesFor } from './inventory.js';
 import { readSyntaxTree, spanFactory, type SyntaxLanguage } from './syntax-extract.js';
+import { listeningPortsOfTree } from './listening-ports.js';
+import { folderOf, manifestChainOf, serviceMembershipOf, type ManifestEntry, type ManifestLookup, type ServiceMembership, type ServiceMembershipRead } from './service-membership.js';
 import type { StaticStageContext, StaticStageSource } from './static-context.js';
 import { checkStaticGraphDraft, graphWritesOf } from './static-graph.js';
 import { fileFactIdOf, importCandidates } from './syntax-facts.js';
@@ -80,10 +94,10 @@ import { publishedTreeRead, publishedTreeRows } from './tree-rows.js';
 export const CODE_FACTS_STAGE_ID = 'code-facts';
 
 /** The stage's own version, bumped when what it writes or plans changes. */
-const CODE_FACTS_STAGE_VERSION = 1;
+const CODE_FACTS_STAGE_VERSION = 2;
 
 /** The fact kinds the stage produces, in code point order. */
-const CODE_FACTS_STAGE_KINDS: readonly string[] = ['binding', 'callsite', 'coverage', 'declares', 'export', 'expression', 'field'];
+const CODE_FACTS_STAGE_KINDS: readonly string[] = ['binding', 'callsite', 'coverage', 'declares', 'export', 'expression', 'field', 'listener-port', 'service-unit'];
 
 /** The node kinds the stage writes, in the extractors' vocabulary (decision 0033, item 7). */
 const EXPRESSION_KIND = 'code.expression';
@@ -91,6 +105,9 @@ const BINDING_KIND = 'code.binding';
 const CALL_KIND = 'code.call';
 const FIELD_KIND = 'code.field';
 const EXPORT_KIND = 'code.export';
+/** The unit the file belongs to, and the ports its code listens on (madarch-8bdc.2.4's two facts). */
+const SERVICE_UNIT_KIND = 'code.service-unit';
+const LISTENER_PORT_KIND = 'code.listener-port';
 
 /** The relation a file's bindings and calls hang from it by; the resolution stage reads `code.contains` as symbols. */
 const DECLARES_RELATION = 'code.declares';
@@ -123,10 +140,12 @@ export interface PublishedCodeFactsRow {
   readonly kind: 'coverage';
   readonly file: string;
   readonly blob: string;
+  /** The manifests the reading stood on, nearest first; absent where an earlier version wrote the row. */
+  readonly unitChain?: readonly string[];
 }
 
 /** The keys a row of that read holds, and no others. */
-const FACTS_ROW_FIELDS: readonly string[] = ['blob', 'file', 'kind'];
+const FACTS_ROW_FIELDS: readonly string[] = ['blob', 'file', 'kind', 'unitChain'];
 
 /** The stage, built over the source that holds the run's pins. */
 export function createCodeFactsStage(sources: SnapshotSource): FillStage {
@@ -145,6 +164,8 @@ export function createCodeFactsStage(sources: SnapshotSource): FillStage {
       { kind: 'export', schemaVersion: 1, scope: 'file' },
       { kind: 'expression', schemaVersion: 1, scope: 'file' },
       { kind: 'field', schemaVersion: 1, scope: 'file' },
+      { kind: 'listener-port', schemaVersion: 1, scope: 'file' },
+      { kind: 'service-unit', schemaVersion: 1, scope: 'file' },
     ],
     configSchema: Type.Object({}),
     defaults: { ...DEFAULT_STAGE_DEFAULTS, config: {} },
@@ -173,12 +194,29 @@ async function planCodeFacts(sources: SnapshotSource, graph: StageGraphReader): 
     const tree = publishedTreeRows(await graph.query(treeRead), pin.id, treeRead);
     const factsRead = publishedFactsRead(pin.id);
     const own = publishedFactsRows(await graph.query(factsRead), pin.id, factsRead);
-    const readBlobs = new Map<string, string>(own.map((row) => [row.file, row.blob]));
+    const readState = new Map(own.map((row) => [row.file, row]));
     const mine = reader.files().filter((entry) => isFactPath(entry.path));
     anySource = anySource || mine.length > 0;
     const present = new Set<string>(mine.map((entry) => entry.path));
+    // The manifest chain above a folder, read once per folder: the plan is the run's own reading
+    // of the tree, and a manifest that moved moves every file under it (the unit's own walk is
+    // path-scoped; this one answers the same chain from the same pinned tree).
+    const chains = new Map<string, Promise<readonly string[]>>();
+    const lookup = async (path: string): Promise<ManifestEntry | undefined> => {
+      const entry = reader.entry(path);
+      return entry === undefined || entry.form === 'commit' ? undefined : { path, blob: entry.id };
+    };
+    const chainAt = (folder: string): Promise<readonly string[]> => {
+      const held = chains.get(folder);
+      if (held !== undefined) return held;
+      const made = manifestChainOf(folder, lookup);
+      chains.set(folder, made);
+      return made;
+    };
     for (const entry of mine) {
-      if (readBlobs.get(entry.path) === entry.id) continue;
+      const held = readState.get(entry.path);
+      const chain = await chainAt(folderOf(entry.path));
+      if (held !== undefined && held.blob === entry.id && sameChain(held.unitChain, chain)) continue;
       if (!tree.files.has(entry.path)) {
         blocked = true;
         continue;
@@ -198,6 +236,11 @@ async function planCodeFacts(sources: SnapshotSource, graph: StageGraphReader): 
 /** Whether a path is a file this stage reads: source the inventory read as code, in a grammar the syntax stage loads. */
 function isFactPath(path: string): boolean {
   return rolesFor(path).includes('source') && (path.endsWith('.go') || /\.(?:ts|tsx|js|jsx|mjs|cjs|mts|cts)$/.test(path));
+}
+
+/** Whether two manifest chains are one reading: the same manifests at the same blobs, in the same order. */
+function sameChain(left: readonly string[] | undefined, right: readonly string[]): boolean {
+  return left !== undefined && left.length === right.length && left.every((entry, index) => entry === right[index]);
 }
 
 // ---- the facts of one file ------------------------------------------------
@@ -322,7 +365,7 @@ async function executeCodeFactsUnit(unit: StageUnit, context: StageContext): Pro
       read: [],
       unread: [{ what: `${planned.path} at ${String(CODE_FACTS_SOURCE.system)} ${CODE_FACTS_SOURCE.version}`, reason }],
     };
-    writeCoverage(context, source, planned.path, coverage, entry.id);
+    writeCoverage(context, source, planned.path, coverage, entry.id, await manifestChainAt(source, planned.path));
     context.progress(`${planned.path} of ${planned.repository} is ${reason === 'too-large' ? `above the static reading cap of ${String(FILE_BYTE_LIMIT)} bytes` : 'not a source text this stage reads'}: the file is published as a ${reason} coverage gap`, 1);
     return { outcome: 'draft' };
   }
@@ -330,19 +373,39 @@ async function executeCodeFactsUnit(unit: StageUnit, context: StageContext): Pro
   const bytes = file.content!;
   const gaps: CoverageGap[] = [];
   let facts: FileFacts = { expressions: [], bindings: [], calls: [], fields: [], exports: [] };
+  let ports: readonly string[] = [];
   let parsed = false;
   try {
-    const read = await readSyntaxTree(planned.path, bytes, (tree) => collectFileFacts(planned.repository, planned.path, tree.text, tree.root, tree.language));
+    const read = await readSyntaxTree(planned.path, bytes, (tree) => {
+      const held = collectFileFacts(planned.repository, planned.path, tree.text, tree.root, tree.language);
+      try {
+        return { facts: held, ports: listeningPortsOfTree(planned.path, tree.root, tree.language) };
+      } catch (error) {
+        // A ports reading that fails costs the file's ports and not its facts: the gap names the file.
+        return { facts: held, ports: [] as readonly string[], portsGap: gapWhatOf(error, planned.path) };
+      }
+    });
     if (!read.read) {
       gaps.push({ what: `${planned.path} at ${String(CODE_FACTS_SOURCE.system)} ${CODE_FACTS_SOURCE.version}`, reason: read.unread[0]?.reason ?? 'error' });
     } else {
-      facts = read.value;
+      facts = read.value.facts;
+      ports = read.value.ports;
       parsed = true;
+      if ('portsGap' in read.value && read.value.portsGap !== undefined) gaps.push({ what: read.value.portsGap, reason: 'error' });
       if (read.complete === false) gaps.push({ what: `${planned.path} is read with syntax errors`, reason: 'error' });
     }
   } catch (error) {
     gaps.push({ what: gapWhatOf(error, planned.path), reason: 'error' });
   }
+  // The unit the file belongs to, read from the manifests above its folder one path at a time:
+  // the walk names a gap where a manifest's declaration could not be read.
+  let membership: ServiceMembershipRead = { chain: [], gaps: [] };
+  try {
+    membership = await serviceMembershipOf(planned.path, manifestLookup(source));
+  } catch (error) {
+    gaps.push({ what: gapWhatOf(error, planned.path), reason: 'error' });
+  }
+  for (const gap of membership.gaps) gaps.push({ what: gap, reason: 'unsupported' });
   // An import's specifier is tied to the file it answers through a path-scoped lookup of the
   // pinned tree, one candidate at a time: no list of the repository's files is read for it.
   if (facts.bindings.some((binding) => binding.kind === 'import' && binding.targetPath === undefined)) {
@@ -365,7 +428,10 @@ async function executeCodeFactsUnit(unit: StageUnit, context: StageContext): Pro
   }
   const evidence = evidenceAtPlace(source, planned.path);
   const fileKey = fileFactIdOf(planned.repository, planned.path);
-  for (const write of factWrites({ repository: planned.repository, path: planned.path, commit: source.commit, fileKey, facts, evidence })) {
+  for (const write of factWrites({
+    repository: planned.repository, path: planned.path, commit: source.commit, fileKey, facts, evidence,
+    ports, ...(membership.unit === undefined ? {} : { membership: membership.unit }),
+  })) {
     context.draft.write(write);
   }
   const coverage: CoverageValue = {
@@ -375,9 +441,9 @@ async function executeCodeFactsUnit(unit: StageUnit, context: StageContext): Pro
     read: parsed ? [planned.path] : [],
     unread: gaps,
   };
-  writeCoverage(context, source, planned.path, coverage, entry.id);
+  writeCoverage(context, source, planned.path, coverage, entry.id, membership.chain);
   context.progress(
-    `read ${planned.path} of ${planned.repository} at ${source.commit}: ${String(facts.expressions.length)} ${facts.expressions.length === 1 ? 'expression' : 'expressions'}, ${String(facts.bindings.length)} ${facts.bindings.length === 1 ? 'binding' : 'bindings'}, ${String(facts.calls.length)} ${facts.calls.length === 1 ? 'call' : 'calls'}, ${String(facts.fields.length)} ${facts.fields.length === 1 ? 'field' : 'fields'}, ${String(gaps.length)} ${gaps.length === 1 ? 'gap' : 'gaps'}`,
+    `read ${planned.path} of ${planned.repository} at ${source.commit}: ${String(facts.expressions.length)} ${facts.expressions.length === 1 ? 'expression' : 'expressions'}, ${String(facts.bindings.length)} ${facts.bindings.length === 1 ? 'binding' : 'bindings'}, ${String(facts.calls.length)} ${facts.calls.length === 1 ? 'call' : 'calls'}, ${String(facts.fields.length)} ${facts.fields.length === 1 ? 'field' : 'fields'}, ${String(ports.length)} ${ports.length === 1 ? 'port' : 'ports'}, ${membership.unit === undefined ? 'no service unit' : `the service unit ${membership.unit.name}`}, ${String(gaps.length)} ${gaps.length === 1 ? 'gap' : 'gaps'}`,
     1,
   );
   return { outcome: 'draft' };
@@ -505,7 +571,10 @@ export function collectFileFacts(repository: string, path: string, text: string,
     const span = spanOfNode(node);
     const id = idOf(node.type, span);
     const children: string[] = [];
-    const fieldLinks: Record<string, string[]> = {};
+    // A grammar's field names are words a file writes (`constructor` is the field of a
+    // `new_expression`), and a plain object inherits `constructor` from Object.prototype: the
+    // record is built without a prototype, so a field name can never reach an inherited member.
+    const fieldLinks: Record<string, string[]> = Object.create(null) as Record<string, string[]>;
     const argumentNodes: SyntaxNodeLike[] = [];
     for (let index = 0; index < node.childCount; index += 1) {
       const child = node.child(index);
@@ -825,6 +894,10 @@ function factWrites(input: {
   readonly fileKey: string;
   readonly facts: FileFacts;
   readonly evidence: string;
+  /** The unit the file belongs to, where one declares it. */
+  readonly membership?: ServiceMembership;
+  /** The ports the file's code listens on, in code point order. */
+  readonly ports: readonly string[];
 }): readonly StageDraftWrite[] {
   const writes: StageDraftWrite[] = [];
   const provenance = { source: CODE_FACTS_SOURCE, repository: { id: input.repository, commit: input.commit } };
@@ -931,7 +1004,70 @@ function factWrites(input: {
       },
     });
   }
+  // The unit the file belongs to: one node per file, so a later stage reads an operation's
+  // service by the file it stands in (`byProperty('code.service-unit', 'file', path)`).
+  if (input.membership !== undefined) {
+    const unitKey = serviceUnitKeyOf(input.repository, input.path);
+    writes.push({
+      kind: 'node',
+      evidence: input.evidence,
+      value: {
+        key: unitKey,
+        kind: SERVICE_UNIT_KIND,
+        label: input.membership.name,
+        properties: {
+          recordKey: unitKey,
+          factKind: 'service-unit',
+          repository: input.repository,
+          file: input.path,
+          path: input.path,
+          name: input.membership.name,
+          root: input.membership.root,
+          manifestPath: input.membership.manifestPath,
+          ecosystem: input.membership.ecosystem,
+          declared: input.membership.declared,
+          provenance,
+        },
+      },
+    });
+    writes.push({ kind: 'edge', evidence: input.evidence, value: { relation: DECLARES_RELATION, from: { key: input.fileKey }, to: { key: unitKey }, properties: { factKind: 'declares', repository: input.repository } } });
+  }
+  // The ports the file's code listens on: one node per port, carrying the unit it serves where one
+  // declares it, so a contract's server is matched to its service by a read by property.
+  for (const port of input.ports) {
+    const portKey = listenerPortKeyOf(input.repository, input.path, port);
+    writes.push({
+      kind: 'node',
+      evidence: input.evidence,
+      value: {
+        key: portKey,
+        kind: LISTENER_PORT_KIND,
+        label: port,
+        properties: {
+          recordKey: portKey,
+          factKind: 'listener-port',
+          repository: input.repository,
+          file: input.path,
+          path: input.path,
+          port,
+          ...(input.membership === undefined ? {} : { service: input.membership.name }),
+          provenance,
+        },
+      },
+    });
+    writes.push({ kind: 'edge', evidence: input.evidence, value: { relation: DECLARES_RELATION, from: { key: input.fileKey }, to: { key: portKey }, properties: { factKind: 'declares', repository: input.repository } } });
+  }
   return writes;
+}
+
+/** The key of one file's service-unit node: the vocabulary's kind, the repository and the file. */
+function serviceUnitKeyOf(repository: string, path: string): string {
+  return `${SERVICE_UNIT_KIND}:${repository}:${path}`;
+}
+
+/** The key of one file's port node: the unit's own key shape, with the port it listens on. */
+function listenerPortKeyOf(repository: string, path: string, port: string): string {
+  return `${LISTENER_PORT_KIND}:${repository}:${path}#${port}`;
 }
 
 /** The line range a fact's place carries: the syntax stage's own shape for a node's provenance. */
@@ -939,8 +1075,8 @@ function rangeOf(span: SourceSpan): { readonly startLine: number; readonly start
   return { startLine: span.lineStart, startColumn: 0, endLine: span.lineEnd, endColumn: 0 };
 }
 
-/** One file's coverage: what was read, every place this stage could not read, and the blob the bytes stood under. */
-function writeCoverage(context: StageContext, source: StaticStageSource, path: string, coverage: CoverageValue, blob: string): void {
+/** One file's coverage: what was read, every place this stage could not read, the blob the bytes stood under, and the manifests the membership stood on. */
+function writeCoverage(context: StageContext, source: StaticStageSource, path: string, coverage: CoverageValue, blob: string, unitChain: readonly string[]): void {
   const fact = makeNodeFact({
     kind: 'coverage',
     layer: 'extracted',
@@ -950,9 +1086,28 @@ function writeCoverage(context: StageContext, source: StaticStageSource, path: s
   const evidence = evidenceAtPlace(source, path);
   for (const write of graphWritesOf(fact, evidence)) {
     context.draft.write(write.kind === 'node'
-      ? { ...write, value: { ...write.value, properties: { ...write.value.properties, blob } } }
+      ? { ...write, value: { ...write.value, properties: { ...write.value.properties, blob, unitChain: [...unitChain] } } }
       : write);
   }
+}
+
+/** How one unit reads a manifest above its file: one path at a time, its blob and, below the cap, its bytes. */
+function manifestLookup(source: StaticStageSource): ManifestLookup {
+  return async (path: string): Promise<ManifestEntry | undefined> => {
+    const entry = await source.entry(path);
+    if (entry === undefined || entry.form === 'commit') return undefined;
+    if (entry.bytes !== undefined && entry.bytes > FILE_BYTE_LIMIT) return { path, blob: entry.id };
+    const file = await source.file(path);
+    return { path, blob: entry.id, ...(file?.content === undefined ? {} : { bytes: file.content }) };
+  };
+}
+
+/** The manifest chain above one file, read from the pinned tree without reading a manifest's bytes. */
+async function manifestChainAt(source: StaticStageSource, path: string): Promise<readonly string[]> {
+  return await manifestChainOf(folderOf(path), async (candidate: string) => {
+    const entry = await source.entry(candidate);
+    return entry === undefined || entry.form === 'commit' ? undefined : { path: candidate, blob: entry.id };
+  });
 }
 
 /** The unit's static repository, refused by name where the run handed none. */
@@ -992,6 +1147,10 @@ function publishedFactsRows(rows: readonly unknown[], repository: string, read: 
     if (typeof blob !== 'string' || !/^[0-9a-f]{40}$/.test(blob)) {
       throw refuseRow(read, index, repository, `its blob ${JSON.stringify(blob)} is no blob id: 40 lower-case hexadecimal digits`);
     }
-    return { kind: 'coverage', file, blob };
+    const unitChain = held['unitChain'];
+    if (unitChain !== undefined && (!Array.isArray(unitChain) || unitChain.some((entry) => typeof entry !== 'string' || entry === ''))) {
+      throw refuseRow(read, index, repository, `its unitChain ${JSON.stringify(unitChain)} is no list of manifest places: a place is a path and the blob it stood under`);
+    }
+    return { kind: 'coverage', file, blob, ...(unitChain === undefined ? {} : { unitChain: unitChain as readonly string[] }) };
   });
 }

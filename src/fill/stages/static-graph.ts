@@ -64,6 +64,9 @@ export const CODE_GRAPH_VOCABULARY: { readonly kinds: readonly string[]; readonl
     // The facts one file's code holds (the code-facts stage): its expressions with their
     // literal values, the bindings it declares, its call sites and its Go struct fields.
     'code.binding', 'code.call', 'code.export', 'code.expression', 'code.field',
+    // The unit a file belongs to and the ports its code listens on (the code-facts stage;
+    // madarch-8bdc.2.4), read by the operations and contracts stages as properties.
+    'code.listener-port', 'code.service-unit',
   ],
   relations: [
     { key: 'code.contains' },

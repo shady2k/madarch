@@ -79,6 +79,8 @@ import type { StageRegistry } from '../fill/registry.js';
 import { createGitSnapshotSource, type RepositoryPin, type SnapshotSource } from '../fill/snapshot.js';
 import { createStageReadReader, createStageReadSchema } from '../fill/stage-reads.js';
 import { createStaticStageReadReader } from '../fill/stages/static-reads.js';
+import { CODE_FACTS_STAGE_ID } from '../fill/stages/code-facts.js';
+import { folderOf, manifestChainOf } from '../fill/stages/service-membership.js';
 import { ensureGraphSchema } from '../fill/stages/static-graph.js';
 import type { AgentStageWiring } from '../fill/stages/agent-stage.js';
 import { createStageRegistry } from '../fill/stages/index.js';
@@ -271,7 +273,7 @@ function rootOf(identity: ProductIdentity, repository: string): string {
  * holds, so a resolution unit's input is the run's pins: a run on another commit
  * re-resolves the files its plan names.
  */
-function inputsOf(_identity: ProductIdentity, registry: StageRegistry, pins: readonly RepositoryPin[], ref: UnitRef): Readonly<Record<string, string>> {
+async function inputsOf(_identity: ProductIdentity, registry: StageRegistry, pins: readonly RepositoryPin[], ref: UnitRef): Promise<Readonly<Record<string, string>>> {
   const inputs: Record<string, string> = { stages: declaredStagesDigest(registry) };
   // An agent unit's facts stand on what it read, and nothing on its scope's own pin (decision 0026,
   // "Updates"): its reads with their membership are rechecked by the orchestrator, the spans it read are
@@ -284,7 +286,18 @@ function inputsOf(_identity: ProductIdentity, registry: StageRegistry, pins: rea
   const path = pathOfScope(pins, ref.scope);
   const readsFacts = RESOLUTION_STAGE_ID === ref.stageId;
   if (path !== undefined && !readsFacts) {
-    inputs['entry'] = blobOf(pins, repositoryOfScope(pins, ref.scope) ?? '', path);
+    const repository = repositoryOfScope(pins, ref.scope) ?? '';
+    inputs['entry'] = blobOf(pins, repository, path);
+    // The code-facts stage's membership fact stands on the manifests above the file, and its ports
+    // on the file's own bytes (the entry above): a manifest that moves re-reads every file whose
+    // unit it declares, although the files' own blobs did not move (madarch-8bdc.2.4).
+    if (ref.stageId === CODE_FACTS_STAGE_ID) {
+      const chain = await manifestChainOf(folderOf(path), async (candidate: string) => {
+        const blob = blobOf(pins, repository, candidate);
+        return blob === 'no-entry' ? undefined : { path: candidate, blob };
+      });
+      inputs['manifests'] = chain.join('\n');
+    }
   } else {
     // A unit whose scope names no path reads one repository whole: the digest of
     // *that* repository's pin, so a commit in one repository of a product with

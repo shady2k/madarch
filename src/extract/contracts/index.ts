@@ -29,6 +29,7 @@ import {asyncApiNodes, readAsyncApi} from './asyncapi.js';
 import {inferOutboxPublications} from './outbox.js';
 import {contractSymbols} from './symbol-links.js';
 import {readGoFile, resolveGoStarts, duplicatesByStatusComparison, type GoFileFacts} from './go-code.js';
+import {portsByServiceOf} from './listening-ports.js';
 import {openApiNodes, readOpenApi} from './openapi.js';
 import {protoNodes, readProto} from './proto.js';
 import {
@@ -228,24 +229,9 @@ export async function extractContracts(reader: TreeReader, code?: Extraction, fa
   const units = unitIndex(serviceUnits(reader));
   const serviceOf = (path: string): string | undefined => serviceOfPath(units, path);
   const folderOf = (path: string): string => path.slice(0, Math.max(0, path.lastIndexOf('/')));
-  // Listening ports are evidence for a contract server's service, not a global path guess.
-  const portsByService = new Map<string, Set<string>>();
-  for (const file of [...goFiles, ...tsFiles]) {
-    const service = serviceOf(file.path);
-    if (service === undefined) continue;
-    const ports = portsByService.get(service) ?? new Set<string>();
-    if ('go' in file) {
-      for (const addr of file.go.serverAddrs.values()) {
-        const literal = file.go.consts.get(addr) ?? addr;
-        const port = /:(\d+)\b/.exec(literal)?.[1];
-        if (port !== undefined) ports.add(port);
-      }
-    } else {
-      for (const port of file.ts.listenerPorts) ports.add(port);
-      for (const start of file.ts.started) if (start.kind === 'http-server' && start.port !== undefined && /^\d+$/.test(start.port)) ports.add(start.port);
-    }
-    portsByService.set(service, ports);
-  }
+  // Listening ports are evidence for a contract server's service, not a global path guess. The rule
+  // that reads a file's ports stands in one module, which the fill's per-file port fact shares.
+  const portsByService = portsByServiceOf([...goFiles, ...tsFiles], serviceOf);
   const servicesOfServers = (servers: readonly string[]): Set<string> => {
     const services = new Set<string>();
     for (const server of servers) {

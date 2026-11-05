@@ -77,7 +77,7 @@ again. The proposed capability file is `capabilities/fill-stages.md`.
 - fill-stages/graph: test, fill-state-machines
 - fill-orchestrator/publish: test, fill-state-machines
 - fill-orchestrator/plan: test, fill-state-machines, fill-static-property-read
-- fill-stages/static: test, fill-code-facts, fill-library-effects
+- fill-stages/static: test, fill-code-facts, fill-library-effects, fill-service-membership, fill-listener-ports, fill-code-facts-training
 - fill-stages/starvation: test, fill-state-machines
 - fill-orchestrator/completion: test, fill-state-machines
 
@@ -89,6 +89,9 @@ Place: `MADARCH_SKIP_PERF=1 bun test test/fill-state-machines-stage.test.ts` in 
    holds one `code.state-machine` node for each table the fixture's two source
    files write, its `code.state` nodes and its `code.transitions` edges, each
    naming the state it leaves and the state it enters.
+   `MADARCH_SKIP_PERF=1 bun test test/fill-service-membership.test.ts
+   test/fill-listener-ports.test.ts test/fill-code-facts-training.test.ts` runs
+   the two per-file facts' acceptance and the training repository's comparison.
 2. The same run plans one unit per source file and none for the document or the
    data file, and each machine is declared by its file's node and holds its own states by `code.contains`, and no machine stands among a file's `code.contains` children.
 3. A second run of the same commit plans no unit of the stage.
@@ -112,6 +115,66 @@ A file's `code.contains` children are its symbols to the resolution stage, and a
 no other read changed, and the case names the reader it answers
 (`madarch-state-machines`) so no other stage's coverage of the same file is
 taken for this one's.
+
+## The two per-file facts the port reads by property
+The port's step 1 (madarch-8bdc.2.4's design, "The three graph reads the port
+needs beyond what exists", items 2 and 3) lands in the code-facts stage:
+
+- **The unit a file belongs to.** `src/fill/stages/service-membership.ts` walks
+  a file's folder up to the repository root and reads the `go.mod` and
+  `package.json` it finds there, one path at a time and never by listing the
+  tree. It applies `serviceUnits`' own rules: a `go.mod` declares the last
+  segment of its module path, a `package.json` its `name` and a nameless one its
+  folder, a manifest that declares nothing is passed over, a folder the
+  repository conventions call another project's is passed over, and the smaller
+  declared name answers where one folder holds both manifests. The unit is
+  published as a `code.service-unit` node carrying the file, the name, the root,
+  the manifest path, the ecosystem and the whole declared identity.
+- **The ports a file's code listens on.** `src/extract/contracts/listening-ports.ts`
+  now holds the one rule the contracts extractor's `portsByService` map and the
+  fill share — a Go `http.Server`'s Addr through its constants, a TypeScript
+  app's `listen` port and the ports a top-level listen starts with — and
+  `portsByService` calls it. The code-facts unit parses its own file's tree once
+  and publishes one `code.listener-port` node per port, carrying the unit it
+  serves where one declares it, so an operation's service and a route's ports
+  are reads by property.
+
+The membership's manifest chain (each `<path>@<blob>` above the file, nearest
+first) is pinned in the file's coverage, and the product's wiring names it among
+the unit's inputs (`src/product/fill-stages.ts`, `inputsOf`): a manifest that
+moved re-reads every file whose unit it declares, although the files' own blobs
+did not move. The plan compares the chain as well as the file's blob, so a file
+the commit did not touch is still planned when its unit's declaration moved.
+
+**A defect this exposed and fixed.** `collectFileFacts` recorded an expression's
+field links in a plain object; a grammar names a `new_expression`'s field
+`constructor`, which reached `Object.prototype.constructor`, and the walk threw
+`(fieldLinks[fieldName] ??= []).push is not a function` for every TypeScript file
+holding a `new` expression (measured on the training repository's
+`services/checkout/src/index.ts` before the fix: no facts and a gap). The record
+is built without a prototype now, and `test/fill-listener-ports.test.ts` pins a
+file with a `new` expression keeping both its port and its expression.
+
+**Assumptions.**
+- The declaration is read from the manifest's own bytes through the static
+  context's path-scoped `file`, not from the graph: on this branch the
+  build-configuration stage writes `package` facts to the fill's fact store, and
+  the 0028 graph holds no manifest declaration for a static unit to read. The
+  read is one path at a time and below the cap; no listing of the tree is made.
+- The fact covers the units `go.mod` and `package.json` declare, which is what
+  the task names. A unit a compose build context or a Dockerfile declares is not
+  part of it; on the generated training repository every file's unit comes from
+  a manifest (the comparison asserts it), so the two answers agree there.
+- The facts are published for the files this stage reads — a repository's source
+  code. A manifest's own unit is the unit its reader already has.
+
+**Comparison on the generated training repository.**
+`test/fill-code-facts-training.test.ts` generates the repository
+(`examples/training-repository/generate.mjs`) and compares, for every file, the
+membership with `serviceUnits(tree)` and, for every source file, the ports with
+`portsByServiceOf` (the driver's own map): zero differences, the four services
+and their ports (orders 8080, payments 8081, promotions 8082, checkout 8083 and
+the test file's 0) included.
 
 ## Acceptance evidence
 Recorded beside the branch's report (`/work/out/report-8bdc24.md`): the focused

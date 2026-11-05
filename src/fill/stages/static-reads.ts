@@ -204,7 +204,10 @@ export function createStaticStageReadReader(store: GraphStore, executor?: QueryE
             if (typeof file !== 'string' || typeof blob !== 'string') {
               throw new Error(`the graph answered the coverage node ${node.nodeId} of ${JSON.stringify(repository)} with no scope or blob: the code-facts stage's coverage names the file it read and the blob its bytes stood under (src/fill/stages/static-reads.ts)`);
             }
-            rows.push({ kind: 'coverage', file, blob });
+            const unitChain = held['unitChain'];
+            // The row is handed on as the node wrote it: the plan's own reader refuses a chain that
+            // is not a list of manifest places, rather than dropping it and reading the row as older.
+            rows.push({ kind: 'coverage', file, blob, ...(unitChain === undefined ? {} : { unitChain: unitChain as readonly string[] }) });
           }
           return rows.sort((left, right) => (left.file < right.file ? -1 : left.file > right.file ? 1 : 0));
         }

@@ -92,5 +92,12 @@ The per-file readers are already pure and reusable:
 5. the comparison test the task asks for, per stage, against the extract driver
    on the generated training repository.
 
+Step 1's items 2 and 3 landed with the code-facts stage
+(`src/fill/stages/service-membership.ts`, `src/extract/contracts/listening-ports.ts`):
+the unit a file belongs to is a `code.service-unit` node and the ports it listens
+on a `code.listener-port` node, and `test/fill-code-facts-training.test.ts`
+compares both with `serviceUnits` and `portsByService` on the generated training
+repository with zero differences. Item 1 (`edgesByProperty`) landed before them.
+
 Each stage's comparison is expected to name differences only where the driver
 itself is wrong; the evidence for each such claim belongs in the change record.
