@@ -16,7 +16,7 @@ import { validateEnvironmentModels } from '../src/extract/library-models/environ
 import { validateOutboxModels } from '../src/extract/library-models/outbox-models.js';
 import { validateGrpcDeadlineModel } from '../src/extract/library-models/grpc-deadline-models.js';
 import { validateRepositoryConventions } from '../src/extract/library-models/repository-conventions.js';
-import { CATALOG_KINDS, CATALOG_RELATIONS } from '../src/knowledge/starter-catalog.js';
+import { CATALOG_STANDARDS } from '../src/knowledge/starter-catalog.js';
 
 const ROOT = resolve(dirname(fileURLToPath(import.meta.url)), '..');
 const SCAN_ROOTS = ['src', 'test', 'scripts', 'wiki/app/src', 'examples', 'docs/system'];
@@ -397,27 +397,40 @@ function provenanceRanges(root: string, file: string, text: string, errors: stri
 }
 
 /**
- * The standards and documents the entity catalog cites, as the exact values its own rows hold: the `sources` of a
- * kind and the source of a relation name. A citation is provenance — the standard or the document a kind was taken
- * from — not a repository the product depends on. Only a whole string literal that is exactly one of these values is
- * licensed, and only in the catalog's own module: the same address inside a message or anywhere else is still
- * scanned as a repository source.
+ * The addresses the entity catalog cites stand in a `sources` field of a row — the standard or document a kind, or a
+ * relation's name, was taken from. That is provenance, not a repository the product depends on: a string literal in
+ * such a field is licensed, and only there, and only in the catalog's own module. The same address in a message, or
+ * in any other position, is still scanned as a repository source.
  */
-const CATALOG_SOURCES: ReadonlySet<string> = new Set([
-  ...CATALOG_KINDS.flatMap((kind) => kind.sources),
-  ...Object.values(CATALOG_RELATIONS).filter((source): source is string => typeof source === 'string'),
-]);
-const CATALOG_SOURCES_MODULE = '/src/knowledge/starter-catalog.ts';
+const CATALOG_SOURCES_MODULE = 'src/knowledge/starter-catalog.ts';
 
-/** Whether a match is a whole string literal the catalog holds as a source, written in the catalog's own module. */
-function citedByCatalog(file: string, text: string, index: number): boolean {
-  if (!file.endsWith(CATALOG_SOURCES_MODULE)) return false;
-  const start = Math.max(text.lastIndexOf('"', index), text.lastIndexOf("'", index));
-  const ends = [text.indexOf('"', index + 1), text.indexOf("'", index + 1)].filter((at) => at >= 0);
-  if (start < 0 || ends.length === 0) return false;
-  const end = Math.min(...ends);
-  if (end <= start + 1) return false;
-  return CATALOG_SOURCES.has(text.slice(start + 1, end));
+/**
+ * The ranges of the string literals a `sources` field holds in the module at `path`, read from its syntax tree: the
+ * elements of the value of the property assignment named `sources`. A property is a field of any object the module
+ * writes — a kind's row, a standard's row — and a literal outside one is no citation.
+ */
+async function catalogSources(path: string, text: string): Promise<readonly SourceRange[]> {
+  const read = await readSyntaxTree(path, new TextEncoder().encode(text), (parsed) => {
+    const ranges: SourceRange[] = [];
+    if (!parsed.complete || parsed.root.type !== 'program') return ranges;
+    const visit = (node: SyntaxNode): void => {
+      if (node.type === 'pair') {
+        const key = node.childForFieldName('key');
+        const value = node.childForFieldName('value');
+        const name = key === null ? undefined : key.type === 'string' ? decodeStringToken(key.type, key.text) : key.text;
+        if (value !== null && name === 'sources') {
+          for (const item of value.type === 'array' ? value.namedChildren : [value]) {
+            if (item !== null && (item.type === 'string' || item.type === 'template_string')) ranges.push({ start: item.startIndex, end: item.endIndex });
+          }
+        }
+      }
+      for (const child of node.namedChildren) if (child !== null) visit(child);
+    };
+    visit(parsed.root);
+    return ranges;
+  });
+  if (!read.read) throw new Error(`${path}: syntax parser could not read source: ${JSON.stringify(read.unread)}`);
+  return read.value;
 }
 
 async function findings(root = ROOT): Promise<string[]> {
@@ -429,6 +442,8 @@ async function findings(root = ROOT): Promise<string[]> {
     .sort(compareCodePoints);
   for (const file of files) {
     const text = readFileSync(file, 'utf8');
+    const path = relative(root, file);
+    const cited = path === CATALOG_SOURCES_MODULE ? await catalogSources(path, text) : [];
     const provenance = provenanceRanges(root, file, text, errors);
     const sources = [...text.matchAll(SOURCE_PATTERN)];
     const imports = sources.length === 0 ? [] : await testImportRanges(root, file, text, packages);
@@ -440,7 +455,7 @@ async function findings(root = ROOT): Promise<string[]> {
       const urlOrSsh = /(?:[A-Za-z][A-Za-z0-9+.-]*:\/\/|[^\s'"`]+@)$/.test(prefix);
       if (typedKey && !urlOrSsh) continue;
       if (!(typedKey && urlOrSsh) && provenance.some((range) => range.start <= match.index && match.index + source.length <= range.end)) continue;
-      if (!(typedKey && urlOrSsh) && citedByCatalog(file, text, match.index)) continue;
+      if (!(typedKey && urlOrSsh) && cited.some((range) => range.start <= match.index && match.index + source.length <= range.end)) continue;
       if (!(typedKey && urlOrSsh) && (sourceIsAllowed(source, goModules) || isDeclaredFixtureManifest(root, file, text, match.index, source) ||
         imports.some((range) => range.start <= match.index && match.index + source.length <= range.end))) continue;
       const line = text.slice(0, match.index).split('\n').length;
@@ -686,18 +701,24 @@ describe('neutral repository names', () => {
       }
       const module = join(fixtureRoot, 'src/knowledge/starter-catalog.ts');
       mkdirSync(dirname(module), { recursive: true });
-      // A source whose address has two path segments: the one shape the scan reads as a repository source.
-      const source = [...CATALOG_SOURCES].find((entry) => { const path = entry.replace(/^https?:\/\//, '').split('/'); return path.length >= 3; })!;
+      // An address the starter catalog itself cites, with two path segments: the one shape the scan reads as a source.
+      const source = CATALOG_STANDARDS.spdx.sources[0];
+      const written = source.replace(/^https?:\/\//, '');
+      const matched = new RegExp(SOURCE_PATTERN.source).exec(source)![0];
       writeFileSync(module, [
-        `export const cited = '${source}';`,
-        `export const mentioned = 'see ${source} for the standard';`,
+        'export const CATALOG_KINDS = [',
+        `  { name: 'widget', sources: ['${source}'] },`,
+        '];',
+        `export const mentioned = '${source}';`,
+        `export const telling = 'see ${source} for the standard';`,
         '',
       ].join('\n'));
-      const errors = (await findings(fixtureRoot)).filter((error) => error.includes('repository source is not an example'));
-      // The scanner reports the address it reads (the host and two segments); the whole source is its prefix.
-      expect(errors).toHaveLength(1);
-      const bare = source.replace(/^https?:\/\//, '');
-      expect(bare.startsWith(errors[0]!.split(': ').at(-1)!)).toBe(true);
+      // The literal a row's `sources` field holds is a citation; the same address standing anywhere else is not.
+      expect(await findings(fixtureRoot)).toEqual([
+        `src/knowledge/starter-catalog.ts:4 (${module}): repository source is not an example or madarch repository: ${matched}`,
+        `src/knowledge/starter-catalog.ts:5 (${module}): repository source is not an example or madarch repository: ${matched}`,
+      ]);
+      expect(written).not.toBe('');
     } finally {
       rmSync(fixtureRoot, { recursive: true, force: true });
     }

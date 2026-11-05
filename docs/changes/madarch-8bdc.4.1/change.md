@@ -241,3 +241,31 @@ The second review round of 2026-11-05 added:
   `src/knowledge/kinds.ts`, lines 535-710) against `bun test test/catalog-read.test.ts`: 974 mutants, 634 killed, 0 timed out, 340 survived — 65.09% overall (src/knowledge/catalog.ts 81.74%,
 the groups/roles block of src/knowledge/kinds.ts 48.02%). The survivors are the words of the refusal messages, the
 redundant `||` guards of the declaration type checks, and finding paths whose line is the group's own..
+
+The third review round of 2026-11-05 added:
+
+- **The relation constraints the rename touched.** SPDX 2.3's `generatedFrom` reads an edge from the target's end, so
+  the rows that named it reversed with the name: `code.lockfile` permits `generates` in and no longer out, `build`
+  permits it out, and `build-artifact` and `byproduct` permit it in. `sbom` already read that way, and the rows that
+  permit `generates` both ways (an image made by a Dockerfile and making a container, the PROV-O and SLSA rows that
+  name an activity, a release or a model) keep both. `test/catalog-read.test.ts`, "a catalog relation reads in the
+  direction its standard gives it", names each end of the starter set's `generates` edges — the build and its
+  artifact, its byproduct and the SBOM, the Dockerfile and the image, the lock file — and asserts the side each kind
+  permits the relation on; with the reversed rows put back, the test fails.
+- **The catalog's citation exemption in the neutral-names scan.** `test/neutral-repository-names.test.ts` exempted
+  any string literal equal to an address the catalog cites, wherever it stood in the module, so an address quoted in
+  a message passed. The exemption is positional now: it is read from the module's TypeScript syntax tree, and it
+  covers only the literal elements of the value of the property assignment named `sources` — a kind's cited
+  standards, or the standard a relation's name comes from. To keep the relation standards inside such a field,
+  `src/knowledge/starter-catalog.ts` declares them once in `CATALOG_STANDARDS` (Backstage, C4, SPDX 3), each with
+  its `sources`, and `CATALOG_RELATIONS` names that address instead of repeating the URL. The fixture writes the
+  SPDX address in a `sources` field and in a message: the field is exempt, the message is a finding. With the
+  previous value-based exemption, the fixture's message passes — the defect this round fixes.
+- `bun run check` exit 0; `catalog: 26 areas, 100 subgroups, 490 kinds (67 with a page of their own or a member's
+  row)` and `mapping: version 1; 56 extractor kinds (55 tied to a catalog kind, 1 internal); 64 extractor relations
+  (36 tied to a catalog relation, 28 internal)`, unchanged by this round.
+- `MADARCH_SKIP_PERF=1 bun test` over the catalog, mapping, roles, loop-menu-counts, neutral-names, knowledge
+  subgroups and knowledge settings files: 140 pass, 0 fail. Over the manifest, starter-upgrade, writer, writer-graph,
+  knowledge-enrichment-units and wiki-reader files: 144 pass, 0 fail.
+- `wiki/app`: `bun install --frozen-lockfile` no changes, `bun run check` exit 0, `bun test` 311 pass and 1 fail in
+  `src/knowledge/knowledge.test.tsx` (the shiki keyword-token flake, 57 pass alone), `bun run build` exit 0.

@@ -15,6 +15,7 @@ import { dirname, join } from 'node:path';
 import { afterAll, describe, expect, test } from 'bun:test';
 import { GROUP_SHORT_LABEL_LIMIT, parseKinds } from '../src/knowledge/kinds.js';
 import { STARTER_FILES } from '../src/knowledge/seed.js';
+import { CATALOG_KINDS, type CatalogKindData } from '../src/knowledge/starter-catalog.js';
 
 const made: string[] = [];
 afterAll(() => {
@@ -337,6 +338,39 @@ describe('the areas a person sees open at once', () => {
     for (const kind of ['product', 'domain', 'doc.use-case', 'doc.rule', 'doc.requirement', 'doc.term', 'doc.decision', 'enrichment', 'question', 'correction']) {
       const entry = read.catalog!.kinds.get(kind);
       expect([kind, entry !== undefined && opened.has(entry.area)]).toEqual([kind, true]);
+    }
+  });
+});
+
+describe('a catalog relation reads in the direction its standard gives it', () => {
+  /** The starter set's own rows, by the name the manifest declares them under. */
+  const rows = new Map(CATALOG_KINDS.map((kind) => [kind.name, kind]));
+  /** One kind's catalog row, which the starter set declares. */
+  function row(name: string): CatalogKindData {
+    const held = rows.get(name);
+    if (held === undefined) throw new Error(`the starter set declares no kind ${name}`);
+    return held;
+  }
+  /**
+   * The kinds the `generates` relation joins in the starter set, each with the side SPDX 3 reads the edge on: the
+   * source generates the target, so the source permits the relation out and the target permits it in. SPDX 2.3's
+   * `generatedFrom` named the same edge from the target's end, so a row that named it must stand on the other side
+   * now; a kind may also permit the other side when an edge runs both ways through it (an image is made by a
+   * Dockerfile and makes a container).
+   */
+  const generates: readonly (readonly [string, 'out' | 'in'])[] = [
+    ['build', 'out'],            // the build generates its artifact, its byproduct and the SBOM
+    ['code.dockerfile', 'out'],  // the Dockerfile generates the image
+    ['build-artifact', 'in'],
+    ['byproduct', 'in'],
+    ['sbom', 'in'],
+    ['code.image', 'in'],
+    ['code.lockfile', 'in'],     // a package manager generates the lock file, and no kind of the catalog is one
+  ];
+  test('each kind permits the relation on the side the standard reads it, on both ends of the edge', () => {
+    for (const [name, side] of generates) {
+      const held = row(name);
+      expect([name, (side === 'out' ? held.out : held.into).includes('generates')]).toEqual([name, true]);
     }
   });
 });
