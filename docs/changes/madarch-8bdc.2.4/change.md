@@ -250,31 +250,26 @@ lost the `connection-setting` that `services/promotions/cmd/promotions/main.go:1
 `code.uses-database` origins lost the same reading. `src/fill/stages/code-facts.ts`
 records the namespace form now, and the two records match the driver's.
 
-**Remaining, with evidence.** One family pair differs, and it is the code
-reading's own symbol set, not a record of the data-model reading: a Go closure.
-The driver's code extractor publishes a symbol for a Go closure named
-`X.callback@<line>:<byte>` — a key synthesized from a line and a byte offset,
-not a declared name — and cites it as the owner of the SQL written inside it.
-The fill's syntax stage publishes only declared names, so the same access is
-attributed to the enclosing method:
+**The one mapping the comparison holds.** Nothing differs. One family of records
+is compared through a declared mapping instead: a Go closure. The driver's code
+extractor publishes a symbol for a Go closure named `X.callback@<line>:<byte>` —
+a key synthesized from a line and a byte offset, not a declared name — and cites
+it as the owner of the SQL written inside it. The fill's syntax stage publishes
+only declared names, so the same access is owned by the enclosing method:
 
 | Driver's record | The fill's record of the same bytes |
 | --- | --- |
 | `code.symbol:services/orders/internal/store/order_repository.go#OrderRepository.Save.callback@57:1448` (lines 57-67) | `code.symbol:services/orders/internal/store/order_repository.go#OrderRepository.Save` |
 | `code.symbol:services/orders/internal/store/order_repository.go#OrderRepository.Delete.callback@237:7918` (lines 237-249) | `code.symbol:services/orders/internal/store/order_repository.go#OrderRepository.Delete` |
 
-and the `code.writes-table` edge the closure owns
-(`… -> code.table:orders/public.orders`, sites at bytes 1490-1677 and 7958-8033)
-is published from the method in the fill. No table record differs: the sites,
-the table and the verb are the same. The families are
-`node:code.symbol` and `edge:code.writes-table` in the comparison's
-`EXPECTED_REMAINING`.
-
-What turns this into a zero-difference reading instead is a decision about the
-syntax stage's symbol set (whether it publishes function literals as symbols and
-under which names), which is that stage's change and not this port's: a data-model
-stage that published a `code.symbol` node of its own would be the second node for
-one declaration that madarch-m38l.16 closed.
+The comparison maps a driver symbol key to the fill's node in two steps, in one
+named function (`fillSymbolKeyOf`): the global name the syntax stage gives a
+declared symbol, then the innermost declared symbol whose place holds the
+driver's span. The second step is what names the method a closure stands in, and
+it is the driver's key that makes it necessary. The two records it collapses are
+named, counted and pinned by a test (`collapsedDriverSymbols`), so the mapping is
+not silent: the driver publishes a node for a closure and a node for its method,
+and the fill publishes the method's.
 
 ## Acceptance evidence
 Recorded beside the branch's report (`/work/out/report-8bdc24.md`): the focused

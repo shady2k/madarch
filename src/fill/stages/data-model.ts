@@ -48,7 +48,7 @@
 import { Type } from 'typebox';
 import { canonicalJsonDigest } from '../../model/canonical.js';
 import { byCodePoint } from '../../model/order.js';
-import { serviceMembershipOf, folderOf, type ManifestEntry, type ManifestLookup } from './service-membership.js';
+import { manifestChainOf, serviceMembershipOf, folderOf, type ManifestEntry, type ManifestLookup } from './service-membership.js';
 import { repositoryConventions } from '../../extract/library-models/repository-conventions.js';
 import { environmentModels } from '../../extract/library-models/environment-models.js';
 import {
@@ -169,6 +169,9 @@ interface Sink {
   readonly source: FactSource;
   readonly path: string;
   readonly writes: StageDraftWrite[];
+  /** The node keys and edge identities this unit already wrote: one draft names one node and one edge once (the driver's own rule). */
+  readonly seenNodes: Set<string>;
+  readonly seenEdges: Set<string>;
 }
 
 /** A database's own name for a folder: the unit's name, or the folder's own name where no unit holds it. */
@@ -195,6 +198,8 @@ function wholeFilePlace(path: string, text: string, bytes: number): Place {
 
 /** One node write: the reading's properties, the graph's bookkeeping and the place it stands at. */
 function writeNode(sink: Sink, kind: string, factKind: string, key: string, label: string, properties: Readonly<Record<string, unknown>>, place: Place | undefined): void {
+  if (sink.seenNodes.has(key)) return;
+  sink.seenNodes.add(key);
   sink.writes.push({
     kind: 'node',
     evidence: evidenceAtPlace({ repository: sink.repository, commit: sink.commit }, sink.path),
@@ -220,6 +225,11 @@ function writeNode(sink: Sink, kind: string, factKind: string, key: string, labe
 
 /** One edge write: its two ends by key, its discriminator, its properties and the repository it belongs to. */
 function writeEdge(sink: Sink, relation: string, factKind: string, from: string, to: string, properties: Readonly<Record<string, unknown>>, discriminator = ''): void {
+  // The driver publishes a structural relation once between two records, however many statements
+  // say it (two `ALTER`s of one table are one `code.alters` edge): the draft keeps that rule.
+  const identity = [relation, from, to, discriminator].join('\u0000');
+  if (sink.seenEdges.has(identity)) return;
+  sink.seenEdges.add(identity);
   sink.writes.push({
     kind: 'edge',
     evidence: evidenceAtPlace({ repository: sink.repository, commit: sink.commit }, sink.path),
@@ -339,14 +349,45 @@ function unitRootOf(path: string, manifestFolders: readonly string[]): string {
   return best;
 }
 
-/** The groups one path's reading stands on: its unit, its database and (for Go) its package. */
+/**
+ * The groups one path's reading stands on, by what it reads: the database's merge
+ * (the migrations and the schema that decide every table, column and index it
+ * writes), the tables another unit declared (a seed's owner lookup, a code file's
+ * resolution of a table), the Go package it rolls calls up through, and the
+ * manifests that declare its unit. A file that contributes to a group dirties it
+ * for every file that reads it, and no file re-reads because a sibling in its
+ * folder moved for no reason of its own.
+ */
 function groupsOf(path: string, manifestFolders: readonly string[]): readonly string[] {
   const root = unitRootOf(path, manifestFolders);
-  const groups: string[] = [`unit:${root}`];
-  const database = databaseFolderOf(path);
-  if (database !== undefined) groups.push(`db:${root}`);
+  const groups: string[] = [];
+  if (isMergeContributor(path) || driverLanguageOf(path) !== null || path.endsWith('.sql')) groups.push(`merge:${root}`);
   if (path.endsWith('.go')) groups.push(`package:${folderOf(path)}`);
+  if (driverLanguageOf(path) !== null || path.endsWith('.sql')) groups.push('tables:*');
   return groups;
+}
+
+/** Whether a path contributes to a database's merge: a migration of a series, a schema script, or a Prisma schema. */
+function isMergeContributor(path: string): boolean {
+  return migrationPlaceOf(path) !== undefined || prismaSchemaPlaceOf(path) !== undefined;
+}
+
+/** What one dirty path dirties: the groups its own reading feeds. */
+function dirtiedBy(path: string, manifestFolders: readonly string[]): readonly string[] {
+  const root = unitRootOf(path, manifestFolders);
+  const groups: string[] = [];
+  // A manifest that moved declares the unit every file under it belongs to again.
+  if (isManifest(path)) groups.push(`manifest:${path}`);
+  if (isMergeContributor(path)) groups.push(`merge:${root}`);
+  if (path.endsWith('.go')) groups.push(`package:${folderOf(path)}`);
+  if (driverLanguageOf(path) !== null || path.endsWith('.sql') || isMergeContributor(path)) groups.push('tables:*');
+  return groups;
+}
+
+/** Whether a path is one of the manifests a unit is declared by. */
+function isManifest(path: string): boolean {
+  const name = fileName(path);
+  return name === 'go.mod' || name === 'package.json';
 }
 
 /** The class a unit's records must be published in: a schema's tables before a migration's keys, a migration's tables before a seed's writes. */
@@ -402,22 +443,38 @@ async function planDataModel(sources: SnapshotSource, graph: StageGraphReader): 
     anySource = anySource || relevant.length > 0;
     const manifestFolders = manifestFoldersOf(paths);
     const present = new Set(paths);
+    // The manifests above a folder, as groups: a manifest whose blob moved re-reads every file whose
+    // unit it declares, although the files' own bytes did not move.
+    const chains = new Map<string, readonly string[]>();
+    const chainOf = async (folder: string): Promise<readonly string[]> => {
+      const held = chains.get(folder);
+      if (held !== undefined) return held;
+      const lookup: ManifestLookup = async (candidate: string) => {
+        const blob = tree.files.get(candidate);
+        return blob === undefined ? undefined : { path: candidate, blob };
+      };
+      const chain = (await manifestChainOf(folder, lookup)).map((entry) => `manifest:${entry.slice(0, entry.lastIndexOf('@'))}`);
+      chains.set(folder, chain);
+      return chain;
+    };
     // What moved, by group: a file that is new, whose blob moved, or that the commit no longer
     // holds makes every unit that reads its group again.
     const dirty = new Set<string>();
     for (const path of relevant) {
-      if (covered.get(path) !== tree.files.get(path)) for (const group of groupsOf(path, manifestFolders)) dirty.add(group);
+      if (covered.get(path) === tree.files.get(path)) continue;
+      for (const group of dirtiedBy(path, manifestFolders)) dirty.add(group);
     }
     for (const row of own) {
       if (present.has(row.file)) continue;
-      for (const group of groupsOf(row.file, manifestFolders)) dirty.add(group);
+      for (const group of dirtiedBy(row.file, manifestFolders)) dirty.add(group);
     }
     for (const path of relevant) {
       if (!tree.files.has(path)) {
         blocked = true;
         continue;
       }
-      if (covered.get(path) === tree.files.get(path) && !groupsOf(path, manifestFolders).some((group) => dirty.has(group))) continue;
+      const groups = [...await chainOf(folderOf(path)), ...groupsOf(path, manifestFolders)];
+      if (covered.get(path) === tree.files.get(path) && !groups.some((group) => dirty.has(group))) continue;
       units.push({ id: unitOfFile(pin.id, path), scope: scopeOf(pin.id, path) });
     }
     for (const row of own) {
@@ -630,7 +687,7 @@ async function executeDataModelUnit(unit: StageUnit, context: StageContext): Pro
   }
   const read = await readTextOf(stage, planned.path);
   const gaps: CoverageGap[] = [];
-  const sink: Sink = { repository: planned.repository, commit: source.commit, source: DATA_MODEL_SOURCE, path: planned.path, writes: [] };
+  const sink: Sink = { repository: planned.repository, commit: source.commit, source: DATA_MODEL_SOURCE, path: planned.path, writes: [], seenNodes: new Set(), seenEdges: new Set() };
   const contributions: Contribution[] = [];
   if (!read.ok) {
     gaps.push({ what: `${planned.path}: the file could not be read (${read.reason})`, reason: read.reason as CoverageGap['reason'] });
@@ -1628,7 +1685,7 @@ async function executeDatabaseUnit(unit: StageUnit, context: StageContext): Prom
   // evidence that named it (the driver's own rule). The schema is the file a Prisma reading
   // stands in, so no read of another stage's coverage is needed to find it.
   const declaredIn = migrations[0]?.properties['path'] ?? readings.find((entry) => entry.kind === 'prisma')?.span.path;
-  const sink: Sink = { repository: planned.repository, commit: source.commit, source: AGGREGATE_SOURCE, path: typeof declaredIn === 'string' ? declaredIn : evidence[0]?.span.path ?? '.', writes: [] };
+  const sink: Sink = { repository: planned.repository, commit: source.commit, source: AGGREGATE_SOURCE, path: typeof declaredIn === 'string' ? declaredIn : evidence[0]?.span.path ?? '.', writes: [], seenNodes: new Set(), seenEdges: new Set() };
   let place: Place | undefined;
   if (typeof declaredIn === 'string') {
     const read = await readTextOf(stage, declaredIn);

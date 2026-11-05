@@ -43,16 +43,7 @@ const PRODUCT = 'training-shop';
 const PRODUCERS = [`fill.${DATA_MODEL_STAGE_ID}`, `fill.${DATA_MODEL_AGGREGATE_STAGE_ID}`];
 
 /** The families the port has not reached yet, by the record's own kind or relation: it may only shrink. */
-const EXPECTED_REMAINING: readonly string[] = [
-  // A Go closure: the driver's code extractor publishes a symbol for one under a key synthesized
-  // from a line and a byte offset (`X.callback@57:1448`) and cites it as the owner of the SQL the
-  // closure writes; the fill's syntax stage publishes the declared names only, so the same access
-  // is owned by the enclosing method. The two keys stand, side by side, in
-  // docs/changes/madarch-8bdc.2.4/change.md; no table, column, index, migration or database record
-  // differs, and neither does any other edge.
-  'node:code.symbol',
-  'edge:code.writes-table',
-];
+const EXPECTED_REMAINING: readonly string[] = [];
 
 /** The node kinds the comparison compares: the reading's own, and the two it links to another stage's nodes. */
 const COMPARED_KINDS: readonly string[] = [...DATA_MODEL_NODE_KINDS, 'code.symbol', 'code.file'];
@@ -104,6 +95,10 @@ let fillEdges: readonly ComparedRecord[] = [];
 let symbolKeys = new Map<string, string>();
 let fileKeys = new Map<string, string>();
 let serviceKeys = new Map<string, string>();
+/** The fill's symbol nodes by the file they stand in, with the byte span each one's place gives. */
+let fillSymbolSpans = new Map<string, { readonly startByte: number; readonly endByte: number; readonly key: string }[]>();
+/** The span the driver's own record of a symbol stands at, by the driver's key. */
+let driverSymbolSpans = new Map<string, { readonly path: string; readonly startByte: number; readonly endByte: number }>();
 
 /** A path's files, the repository's own walk: no `.git`, sorted by code point. */
 function walk(folder: string, prefix = ''): string[] {
@@ -143,6 +138,17 @@ function driverProperties(family: string, properties: unknown): string {
   return canonical(kept);
 }
 
+/** A node's place, with the bytes the syntax stage counts, or `undefined` where it names none. */
+function nodePlaceOf(properties: unknown): { readonly file: string; readonly startByte: number; readonly endByte: number } | undefined {
+  const held = properties !== null && typeof properties === 'object' ? properties as Record<string, unknown> : {};
+  const provenance = held['provenance'] !== null && typeof held['provenance'] === 'object' ? held['provenance'] as Record<string, unknown> : undefined;
+  const place = provenance?.['place'] !== null && typeof provenance?.['place'] === 'object' ? provenance['place'] as Record<string, unknown> : undefined;
+  const range = place?.['range'] !== null && typeof place?.['range'] === 'object' ? place['range'] as Record<string, unknown> : undefined;
+  if (place === undefined || range === undefined) return undefined;
+  if (typeof place['file'] !== 'string' || typeof range['startByte'] !== 'number' || typeof range['endByte'] !== 'number') return undefined;
+  return { file: place['file'], startByte: range['startByte'], endByte: range['endByte'] };
+}
+
 /** A node's place as the comparison holds it: the path and the lines, never a column the driver does not name. */
 function nodePlace(properties: unknown): string | undefined {
   const held = properties !== null && typeof properties === 'object' ? properties as Record<string, unknown> : {};
@@ -175,13 +181,36 @@ function fillServiceOf(name: string): string {
   return serviceKeys.get(name) ?? `code.service:${name}`;
 }
 
+/**
+ * The fill's record of one of the driver's symbols: the syntax stage's node the declaration stands
+ * in. Two lookups, in this order — the global name the syntax stage gives a declared symbol, then
+ * the innermost declared symbol whose place holds the driver's span. The second is what maps the
+ * driver's synthesized closure name (`X.callback@<line>:<byte>`, a key built from a line and a byte
+ * offset, not a declared name) onto the method that declares the closure: the same declaration, one
+ * record in the fill. `collapsedDriverSymbols` counts exactly these.
+ */
+function fillSymbolKeyOf(key: string): string {
+  const rest = key.slice('code.symbol:'.length);
+  const named = symbolKeys.get(`${REPOSITORY}:${rest}`);
+  if (named !== undefined) return named;
+  const span = driverSymbolSpans.get(key);
+  if (span === undefined) return key;
+  const enclosing = (fillSymbolSpans.get(span.path) ?? [])
+    .filter((held) => held.startByte <= span.startByte && span.endByte <= held.endByte)
+    .sort((left, right) => (left.endByte - left.startByte) - (right.endByte - right.startByte) || (left.key < right.key ? -1 : left.key > right.key ? 1 : 0));
+  return enclosing[0]?.key ?? key;
+}
+
+/** The driver's symbol keys the fill names by another declaration's key: the closures the fill names by their method. */
+function collapsedDriverSymbols(): readonly string[] {
+  return [...driverSymbolSpans.keys()]
+    .filter((key) => symbolKeys.get(`${REPOSITORY}:${key.slice('code.symbol:'.length)}`) === undefined)
+    .sort();
+}
+
 /** The fill node a driver end names, by the global name a symbol carries or the path a file carries. */
 function fillEndOf(key: string): string {
-  if (key.startsWith('code.symbol:')) {
-    const rest = key.slice('code.symbol:'.length);
-    const found = symbolKeys.get(`${REPOSITORY}:${rest}`);
-    return found === undefined ? key : found;
-  }
+  if (key.startsWith('code.symbol:')) return fillSymbolKeyOf(key);
   if (key.startsWith('code.file:')) {
     const found = fileKeys.get(key.slice('code.file:'.length));
     return found === undefined ? key : found;
@@ -254,7 +283,14 @@ beforeAll(async () => {
   // The fill's own records: what the two stages published, read back by the repository they read.
   for (const node of await nodesOfKind('code.symbol')) {
     const held = node.properties as Record<string, unknown>;
-    if (typeof held['globalName'] === 'string') symbolKeys.set(held['globalName'], recordKeyOf(node));
+    const key = recordKeyOf(node);
+    if (typeof held['globalName'] === 'string') symbolKeys.set(held['globalName'], key);
+    const place = nodePlaceOf(node.properties);
+    if (place !== undefined) {
+      const list = fillSymbolSpans.get(place.file) ?? [];
+      list.push({ startByte: place.startByte, endByte: place.endByte, key });
+      fillSymbolSpans.set(place.file, list);
+    }
   }
   for (const node of await nodesOfKind('code.file')) {
     const held = node.properties as Record<string, unknown>;
@@ -270,6 +306,10 @@ beforeAll(async () => {
     if (heldKey === undefined || key < heldKey) serviceKeys.set(name, key);
   }
   const extraction = await extractDataModel(tree);
+  for (const node of extraction.nodes) {
+    if (node.kind !== 'code.symbol' || node.span === undefined) continue;
+    driverSymbolSpans.set(node.key, { path: node.span.path, startByte: node.span.byteStart, endByte: node.span.byteEnd });
+  }
   driverNodes = extraction.nodes
     .filter((node) => COMPARED_KINDS.includes(node.kind))
     .map((node) => {
@@ -415,6 +455,16 @@ describe('the data model on the training repository', () => {
     if (found.length > 0) console.error(found.map((difference) => `${difference.family} ${difference.id}: ${difference.detail}`).join('\n'));
     expect([...new Set(found.map((difference) => difference.family))].sort()).toEqual([...EXPECTED_REMAINING].filter((family) => family.startsWith('edge:')).sort());
   }, 300_000);
+
+  test('the driver\'s closure symbols stand in the method the fill names', () => {
+    // The only driver symbol records that stand inside another driver symbol: a Go closure, whose
+    // key the driver synthesizes from a line and a byte offset. The mapping names the method the
+    // closure is declared in, and this pins exactly which records it collapses (change.md).
+    expect(collapsedDriverSymbols()).toEqual([
+      'code.symbol:services/orders/internal/store/order_repository.go#OrderRepository.Delete.callback@237:7918',
+      'code.symbol:services/orders/internal/store/order_repository.go#OrderRepository.Save.callback@57:1448',
+    ]);
+  }, 60_000);
 
   test('the driver\'s gaps are the fill\'s gaps', () => {
     expect(fillGaps).toEqual(driverGaps);
