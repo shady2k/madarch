@@ -25,10 +25,9 @@ export interface StarterWorkflow {
 
 /**
  * The stages of a fill as the engine's registry holds them today (0026's stage 0
- * to 13 and the page stage): the eight deterministic stages, then the agent stages
+ * to 13 and the page stage): the ten deterministic stages, then the agent stages
  * a run registers when it names an agent, then the narrative stage that cites them.
- * The order is the one the capabilities derive, and a test holds it to the
- * registry's own derivation.
+ * A test holds the list to the registry's own stages.
  */
 const FILL_STAGES: readonly string[] = [
   'snapshot',
@@ -37,6 +36,12 @@ const FILL_STAGES: readonly string[] = [
   'build-configuration',
   'document-index',
   'syntax',
+  // The per-file readings of a file's own code (madarch-8bdc.2.4): the facts the
+  // operations, contracts and data-model readings ask of it, and the state machines its
+  // transition tables write down. Both read one file's bytes and hang their facts from
+  // the file's node, before the resolution reads across files.
+  'code-facts',
+  'state-machines',
   'semantic-resolution',
   'modules',
   'boundaries',

@@ -90,11 +90,12 @@ describe('the workflows the starter set declares', () => {
     for (const workflow of read.workflows.values()) for (const id of workflow.stages) expect(held.has(id)).toBe(true);
     const firstFill = read.workflows.get('first-fill')!;
     expect(firstFill.status).toBe('implemented');
-    // The first fill names the stages of the fill as the registry holds them today: the eight deterministic
+    // The first fill names the stages of the fill as the registry holds them today: the ten deterministic
     // stages, the seven agent stages a run registers when it names an agent, and the narrative stage.
     expect(firstFill.stages).toEqual([
-      'snapshot', 'history', 'inventory', 'build-configuration', 'document-index', 'syntax', 'semantic-resolution',
-      'modules', 'boundaries', 'intent-history', 'overview', 'understanding', 'recovery', 'doc-intent', 'narrative',
+      'snapshot', 'history', 'inventory', 'build-configuration', 'document-index', 'syntax', 'code-facts',
+      'state-machines', 'semantic-resolution', 'modules', 'boundaries', 'intent-history', 'overview',
+      'understanding', 'recovery', 'doc-intent', 'narrative',
     ]);
     // No engine stage waits for a commit, picks one up in the background or narrows a fill to the files a commit
     // changed (0033, item 25): update by commit is planned, and running the fill at a new commit is a first fill again.
@@ -156,7 +157,7 @@ describe('the refusals of the workflow check', () => {
     expect(read.findings).toEqual([{
       file: FILE,
       line: lineOf(text, '- teleport'),
-      message: 'workflow "first-fill" stage "teleport": the engine\'s stage registry holds no stage "teleport" (its stages are boundaries, build-configuration, doc-intent, document-index, history, intent-history, inventory, modules, narrative, overview, recovery, semantic-resolution, snapshot, syntax, understanding)',
+      message: 'workflow "first-fill" stage "teleport": the engine\'s stage registry holds no stage "teleport" (its stages are boundaries, build-configuration, code-facts, doc-intent, document-index, history, intent-history, inventory, modules, narrative, overview, recovery, semantic-resolution, snapshot, state-machines, syntax, understanding)',
     }]);
     // The refused workflow is left out, and the others stand.
     expect(read.workflows.has('first-fill')).toBe(false);
@@ -188,7 +189,7 @@ describe('the refusals of the workflow check', () => {
   test('an implemented workflow is checked, and a planned one keeps a starved input: the engine cannot run it yet', () => {
     const workflow = (status: string): string => ['workflows:', '  branch-worktree:', `    status: ${status}`, '    stages:', '      - modules', ''].join('\n');
     expect(readText(workflow('implemented')).findings.map((finding) => finding.message)).toEqual([
-      'workflow "branch-worktree" stage "modules": modules → file → inventory (disabled): the workflow names no stage that produces the input "file"',
+      'workflow "branch-worktree" stage "modules": modules → file → snapshot (disabled): the workflow names no stage that produces the input "file"',
       'workflow "branch-worktree" stage "modules": modules → symbol → syntax (disabled): the workflow names no stage that produces the input "symbol"',
     ]);
     expect(readText(workflow('planned')).findings).toEqual([]);
@@ -286,7 +287,7 @@ describe('the product-wiki check reads the workflows with the manifest', () => {
     const read = readKinds(folder);
     if (!read.present) throw new Error('the product holds no kinds manifest');
     expect(read.manifest.workflows?.workflows.has('update-by-commit')).toBe(false);
-    const expected = 'workflow "update-by-commit" stage "teleport": the engine\'s stage registry holds no stage "teleport" (its stages are boundaries, build-configuration, doc-intent, document-index, history, intent-history, inventory, modules, narrative, overview, recovery, semantic-resolution, snapshot, syntax, understanding)';
+    const expected = 'workflow "update-by-commit" stage "teleport": the engine\'s stage registry holds no stage "teleport" (its stages are boundaries, build-configuration, code-facts, doc-intent, document-index, history, intent-history, inventory, modules, narrative, overview, recovery, semantic-resolution, snapshot, state-machines, syntax, understanding)';
     expect(read.manifest.workflows?.findings.map((finding) => [finding.file, finding.line, finding.message])).toEqual([[join(folder, WORKFLOWS_FILE), lineOf(text, '- teleport'), expected]]);
     // The Problems page reads the manifest's findings: the workflow's stands beside the kinds' own (of which this starter set has none).
     expect(read.manifest.findings.map((finding) => [finding.file.endsWith(WORKFLOWS_FILE), finding.message])).toEqual([[true, expected]]);
