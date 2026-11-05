@@ -163,8 +163,9 @@ describe('the pages outbox', () => {
     expect(git(repo!, 'show', `HEAD:${path}`)).toBe(renderNarrativePage(PAGE).trimEnd());
     // The commit names the fill as its author, at the clock the caller gave.
     expect(git(repo!, 'log', '-1', '--format=%an|%ae')).toBe('madarch fill|madarch@localhost.invalid');
-    // Git records whole seconds; the clock's own moment is what the commit carries.
-    expect(git(repo!, 'log', '-1', '--format=%cI')).toBe(new Date(NOW).toISOString().replace(/\.\d{3}Z$/, 'Z'));
+    // Git records whole seconds; the clock's own moment is what the commit carries. The moment is compared,
+    // not git's spelling of a zero offset: `%cI` writes `+00:00` where the same instant is written `Z`.
+    expect(new Date(git(repo!, 'log', '-1', '--format=%cI')).toISOString()).toBe(new Date(NOW).toISOString());
     // Only the page was committed: the person's own work in the checkout is not.
     const head = git(repo!, 'rev-parse', 'HEAD');
     const second = await commitNarrativePages({ database: owner!, folder: repo!, product: PRODUCT, clock: () => NOW + 1_000 });
