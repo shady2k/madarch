@@ -34,6 +34,7 @@ import { canonicalJsonDigest } from '../model/canonical.js';
 import { selfCommand } from '../product/self-command.js';
 import { headCommitOf } from '../product/fill-updates.js';
 import { insideFolder, homeKind, KINDS_FILE, readKinds, setKindsLanguage, type Finding, type KindsManifest } from './kinds.js';
+import { WORKFLOWS_FILE } from './workflows.js';
 import { linesOf } from './lines.js';
 import { applyReset, planReset, type ResetPlan } from './reset.js';
 import { parseMessage, type FromWorker, type RepositoryPin, type ToWorker, type WorkerStart } from './fill-protocol.js';
@@ -2616,7 +2617,9 @@ export class KnowledgeProduct {
 
   private kindsForStamp(folder: string, seed = true): ReturnType<typeof readKinds> {
     // The manifest's declarations are stamped by content too: an edit that keeps its size and mtime is still an edit.
-    const manifest = this.contentStamp(join(folder, KINDS_FILE));
+    // The workflows manifest is read beside it, so its own edit moves the same key: a saved workflow's finding
+    // appears, or goes, at the next read.
+    const manifest = `${this.contentStamp(join(folder, KINDS_FILE))}\n${this.contentStamp(join(folder, WORKFLOWS_FILE))}`;
     const held = this.stampKinds;
     // Which declarations the manifest accepts also depends on the files it names: a template written after the answer
     // was warmed accepts a kind the read refused, and the files of that kind must be stamped from then on

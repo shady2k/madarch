@@ -69,9 +69,9 @@ findings a reader sees on the Problems page. One check and one reader, the same 
   engine knows, since the workflow is the product's data and the run's wiring is the orchestrator's. A
   product whose run names no agent registers six agent stages fewer; which stages a workflow's run
   enables is the orchestrator's decision, later.
-- A starter upgrade offer for a product made before this change: the change writes the file for a new
-  product, and an existing product is given it when the starter upgrade learns to offer it, a later
-  change of that mechanism.
+- An offer in the starter upgrade for a product made before this change: the upgrade's existing "writes
+  the starter files that are absent" gives such a product `madarch/workflows.yaml` at its next run
+  (`upgradeStarterSet` walks `STARTER_FILES`), and no new offer, prompt or template entry is added here.
 - The kinds manifest: workflows live in their own file, beside the kinds and the POV, and are not a
   section of `madarch/kinds.yaml`.
 
@@ -131,6 +131,9 @@ None.
 - `src/knowledge/kinds.ts` reads the workflows beside the kinds manifest: `KindsManifest.workflows`
   holds the workflows and their findings, and the findings stand with the manifest's own, so the
   Problems page shows them once. A product without the file reads as before.
+- `src/knowledge/product.ts`: the stamp that decides whether the Problems page is read again includes
+  the workflows file's content beside the kinds manifest's, so a saved workflow's finding appears, or
+  goes, at the next read like every other manifest finding.
 - `scripts/check-workflows.ts` is the command (`bun run check:workflows`), wired into `bun run check`
   after the catalog check: the starter set in a temporary product, or `--folder`, prints
   `workflows: 4 workflows (2 implemented, 2 planned)` and the manifest it read, prints every finding as
@@ -159,20 +162,41 @@ Measured in the worker VM (4 vCPU, 8 GB, arm64), 2026-11-05, on the change:
   a page of their own or a member's row)` with `mapping: version 1; 56 extractor kinds (55 tied, 1
   internal); 64 extractor relations (36 tied, 28 internal)`, and `workflows: 4 workflows (2 implemented,
   2 planned)` naming the temporary product's `madarch/workflows.yaml`.
-- `MADARCH_SKIP_PERF=1 bun test test/workflows-read.test.ts`: 16 pass, 0 fail.
-- `MADARCH_SKIP_PERF=1 bun test test/workflows-check.test.ts`: 5 pass, 0 fail.
+- `MADARCH_SKIP_PERF=1 bun test test/workflows-read.test.ts`: 22 pass, 0 fail.
+- `MADARCH_SKIP_PERF=1 bun test test/workflows-check.test.ts`: 6 pass, 0 fail.
 - `MADARCH_SKIP_PERF=1 bun test test/knowledge-parse.test.ts test/wiki-readers.test.ts
   test/starter-set-upgrade.test.ts test/catalog-check.test.ts test/mapping-check.test.ts
   test/roles-check.test.ts test/knowledge-manifest-views.test.ts test/knowledge-manifest-presentation.test.ts`:
   129 pass, 0 fail.
-- `MADARCH_SKIP_PERF=1 bun test test/product-draft.test.ts`: 50 pass with `knowledge-parse` above.
+- `MADARCH_SKIP_PERF=1 bun test test/product-draft.test.ts test/knowledge-parse.test.ts`: 50 pass, 0 fail;
+  `test/workflows-read.test.ts test/workflows-check.test.ts test/catalog-read.test.ts
+  test/mapping-check.test.ts` together: 107 pass, 0 fail.
+- `MADARCH_SKIP_PERF=1 bun test test/knowledge-server.test.ts`: 18 pass, 0 fail.
+- `MADARCH_SKIP_PERF=1 bun test test/knowledge-*.test.ts test/product-wiki-pages.test.ts
+  test/product-wiki-serve.test.ts test/product-manifest.test.ts test/starter-set-upgrade.test.ts`: 730 pass,
+  1 skip, 6 fail — the five `chmod 000` cases of `product-wiki-pages` and `product-wiki-serve`, which this
+  root run reads, and the writer's second press; all six fail identically at the base in a clean worktree of
+  `8bd7a297` (`/work/w46base`, its own run).
 - StrykerJS 9 (command runner, `coverageAnalysis: off`, `inPlace`, `typescript@5` beside it, from
   `/work/scratch46/stryker` outside the repository) on the changed line ranges of
   `src/knowledge/workflows.ts`, `src/knowledge/starter-workflows.ts`, `src/knowledge/seed.ts`,
   `src/knowledge/kinds.ts`, `src/fill/registry.ts` and `src/fill/stages/index.ts` against
-  `bun test test/workflows-read.test.ts`: <numbers>.
-- The catalog and mapping checks' refusal branches, mutated as the stage's own run against
-  `test/catalog-check.test.ts` and `test/mapping-check.test.ts`: <numbers>.
+  `bun test test/workflows-read.test.ts`: 334 mutants, 289 killed, 0 timed out, 45 survived — 86.53%
+  (workflows.ts 97.40%, starter-workflows.ts 100%, kinds.ts 100%, registry.ts 85.71%, seed.ts 38.30%,
+  stages/index.ts 18.18%). The survivors are: 29 of the starter file's comment sentences and the four
+  per-workflow comment conditions (comments only, the YAML reads the same); 10 of the engine registry's
+  read-nothing snapshot source and named agent, which no read calls; the synthetic configuration's empty
+  file name, which no problem names; and six guards of the reader that no reading distinguishes (an
+  optional chain YAML always fills, the map's own start line, an `||` path-length guard true only when the
+  path is empty, and the `typeof status !== 'string'` guard of a status list no non-string matches).
+- The catalog and mapping checks' refusal branches, mutated as the stage's own run:
+  `src/knowledge/catalog.ts:102-313` against `bun test test/catalog-read.test.ts`: 493 mutants, 403
+  killed, 0 timed out, 90 survived — 81.74%, the score madarch-8bdc.4.1 recorded on the same file and the
+  same test, reproduced here; and `src/knowledge/mapping.ts:67-190` against
+  `bun test test/mapping-check.test.ts`: 345 mutants, 261 killed, 0 timed out, 84 survived — 75.65%.
+  Their survivors are the refusal messages' own words, finding paths whose line is the same field's, and
+  the redundant `||` guards of the declaration type checks, the character 4.1 recorded; no test in the
+  fast file observes an outcome they change.
 
 ## Where it is seen
 Kind: command

@@ -12,7 +12,6 @@ import { STARTER_FILES } from '../src/knowledge/seed.js';
 import { WORKFLOWS_FILE } from '../src/knowledge/workflows.js';
 
 const SCRIPT = join(import.meta.dir, '..', 'scripts', 'check-workflows.ts');
-const MANIFEST = STARTER_FILES.find((file) => file.path === WORKFLOWS_FILE)!.content;
 
 const made: string[] = [];
 afterAll(() => {

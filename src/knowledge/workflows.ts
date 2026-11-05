@@ -137,7 +137,9 @@ export function parseWorkflows(text: string, file: string, registry: StageRegist
     let sound = true;
     const fail = (path: (string | number)[], message: string): void => {
       sound = false;
-      findings.push({ file, line: path.length === 0 ? line : at(['workflows', name, ...path]), message: `workflow "${name}": ${message}` });
+      // A field that is absent has no line of its own: the fault stands at the workflow.
+      const written = path.length === 0 || String(path[0]) in decl;
+      findings.push({ file, line: written ? at(['workflows', name, ...path]) : line, message: `workflow "${name}": ${message}` });
     };
     for (const key of Object.keys(decl)) {
       if (key !== 'status' && key !== 'stages') fail([key], `"${key}" is not a field of a workflow: the fields are status and stages`);
