@@ -305,6 +305,8 @@ describe('one defect in the manifest is one problem', () => {
     ['a short label the sidebar cannot hold', withPlant('short: { en: "Strategy", ru: "Стратегия" }', 'short: { en: "Strategy and business motivation", ru: "Стратегия" }'), 'group "strategy": the short label in "en" is 32 code points'],
     ['a role leading a group nobody declares', withPlant('lead: [strategy, discovery, requirements, rd]', 'lead: [nowhere, discovery, requirements, rd]'), 'role "product": "nowhere" is not a group of "groups"'],
     ['a role opening a block outside the library', withPlant('open: [stated, implementedby, linkedfrom, related, properties] }\n  analyst', 'open: [nothing] }\n  analyst'), 'role "product": "nothing" is not a block of the library'],
+    ['a tied relation with no direction', withPlant('    code.contains: { relation: "contains", direction: "same" }', '    code.contains: { relation: "contains" }'), 'relation "code.contains": "direction" is same or inverse'],
+    ['a tied relation with a direction the mapping does not know', withPlant('    code.contains: { relation: "contains", direction: "same" }', '    code.contains: { relation: "contains", direction: "sideways" }'), 'relation "code.contains": "direction" is same or inverse'],
   ];
   for (const [what, manifest, names] of cases) {
     test(`${what} is one problem, naming it`, () => {

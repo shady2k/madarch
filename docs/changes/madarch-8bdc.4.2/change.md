@@ -149,3 +149,14 @@ The review round of 2026-11-05 added:
 - A manifest with its `mapping:` section removed exits 1, printing the manifest's path with the refusal.
 - StrykerJS 9 on the direction block of `src/knowledge/mapping.ts` (lines 127-146) against
   `bun test test/mapping-check.test.ts`: 80 mutants, 70 killed, 10 survived — 87.50%.
+
+The third review round of 2026-11-05 added:
+
+- **One rejected row, one problem.** A tied relation whose `direction` was missing or not `same`/`inverse` reported
+  the direction as its finding, was left out of the mapping, and the completeness pass then reported the same key as
+  one no row ties — two problems for one defect. `readMapping` now keeps the keys the manifest writes a row for
+  (`declared`) apart from the rows it accepts, and the completeness pass skips a declared key, so the row's own
+  finding is the only one. `test/catalog-read.test.ts`, "one defect in the manifest is one problem", plants the
+  missing direction and the unknown one, each asserting one finding; without the fix each plant makes two.
+- `bun run check` exit 0; the catalog check's line is unchanged at 56 extractor kinds (55 tied, 1 internal) and 64
+  extractor relations (36 tied, 28 internal).

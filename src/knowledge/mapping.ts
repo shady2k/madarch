@@ -104,18 +104,22 @@ export function readMapping(
   }
   const catalogKinds = catalog === undefined ? undefined : (declaredKinds ?? new Set(catalog.kinds.keys()));
   const catalogRelations = catalog === undefined ? undefined : new Set(catalog.schema.relations.keys());
-  const read = (section: 'kinds' | 'relations'): Map<string, MappingRow> => {
+  // The rows read, and every key the manifest writes a row for: a refused row is a finding of its own, and its
+  // presence is what keeps the completeness pass from reporting the same key a second time as untied.
+  const read = (section: 'kinds' | 'relations'): { rows: Map<string, MappingRow>; declared: ReadonlySet<string> } => {
     const held = new Map<string, MappingRow>();
+    const declared = new Set<string>();
     const raw = body[section];
     if (raw === undefined) {
       problem([section], `"${section}" maps every ${section === 'kinds' ? 'node kind' : 'relation type'} the extractors emit to the catalog, or declares it internal`);
-      return held;
+      return { rows: held, declared };
     }
     if (raw === null || typeof raw !== 'object' || Array.isArray(raw)) {
       problem([section], `"${section}" maps each key the extractors emit to { ${section === 'kinds' ? 'kind' : 'relation'} } or { internal }`);
-      return held;
+      return { rows: held, declared };
     }
     for (const [key, entry] of Object.entries(raw as Record<string, unknown>)) {
+      declared.add(key);
       const line = at(['mapping', section, key]);
       const fail = (message: string): void => { findings.push({ file, line, message: `${section === 'kinds' ? 'kind' : 'relation'} "${key}": ${message}` }); };
       if (entry === null || typeof entry !== 'object' || Array.isArray(entry)) { fail(`the row is { ${section === 'kinds' ? 'kind' : 'relation'} } or { internal }`); continue; }
@@ -154,16 +158,19 @@ export function readMapping(
       }
       held.set(key, { key, tie: field, target, ...(direction === undefined ? {} : { direction }), line });
     }
-    return held;
+    return { rows: held, declared };
   };
   const kinds = read('kinds');
   const relations = read('relations');
   if (catalog === undefined) return nothing(typeof version === 'number' ? version : 0);
   // Every key the extractors declare must be tied: an extractor that starts emitting one is refused until its
   // row is written, which is what makes the mapping complete rather than a list of what somebody remembered.
-  const missing = (section: 'kinds' | 'relations', emitted: ReadonlyMap<string, readonly string[]>, held: ReadonlyMap<string, MappingRow>): void => {
+  const missing = (section: 'kinds' | 'relations', emitted: ReadonlyMap<string, readonly string[]>, parsed: { rows: ReadonlyMap<string, MappingRow>; declared: ReadonlySet<string> }): void => {
+    const held = parsed.rows;
     for (const [key, extractors] of emitted) {
-      if (held.has(key)) continue;
+      // A row the manifest writes and the reader refused is one problem, the row's own: its presence is not
+      // "ties no row to it" as well.
+      if (held.has(key) || parsed.declared.has(key)) continue;
       findings.push({
         file,
         line: at(['mapping', section]),
@@ -179,5 +186,5 @@ export function readMapping(
   };
   missing('kinds', emitted.kinds, kinds);
   missing('relations', emitted.relations, relations);
-  return { version: typeof version === 'number' ? version : 0, kinds, relations, findings };
+  return { version: typeof version === 'number' ? version : 0, kinds: kinds.rows, relations: relations.rows, findings };
 }
