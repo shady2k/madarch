@@ -760,7 +760,8 @@ field out, a subgroup above its bound, two kinds for one concept id, a value
 the catalog marks as an attribute declared as a kind, an area, a subgroup or an
 origin mark the manifest does not declare, and a group without a short label or
 one longer than the sidebar holds. Every refusal shall name the file, the line
-and the kind (or the group).
+and the kind (or the group), and one defect shall be one finding: the reader
+that owns a defect reports it, and the others do not repeat it.
 
 A kind whose template policy is `none` is catalogue data only: the wiki shows
 no page and no template for it, and the kinds the wiki shows today are shown
@@ -831,6 +832,11 @@ reader changes accept the roles the product declares (with "everything" for all
 of them at once), and the role card and the menu offer those roles. The six
 roles a product had keep their meaning: the blocks they open and the groups
 they lead are unchanged.
+
+The starter set opens, by default, the areas that hold the product's own
+knowledge — strategy, requirements, research and development and documentation —
+and places the product's areas before the code's, so a person opening the wiki
+reads that knowledge at once.
 
 A mechanical check, run by `bun run check` over the starter set and by the
 wiki's own read of a product's manifest, shall refuse a role that names an area

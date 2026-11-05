@@ -319,6 +319,26 @@ describe('one defect in the manifest is one problem', () => {
   });
 });
 
+describe('the areas a person sees open at once', () => {
+  test('the product\'s own knowledge opens before code, and every kind the old product group held is in an open area', () => {
+    const read = parseKinds(STARTER_FILES.find((file) => file.path === 'madarch/kinds.yaml')!.content, 'madarch/kinds.yaml', TEMPLATES);
+    expect(read.findings).toEqual([]);
+    const areas = [...read.groups.values()].filter((group) => group.parent === undefined);
+    // The areas the wiki opens by itself: strategy, requirements, research and documentation — the product's knowledge.
+    expect(areas.filter((area) => area.open === true).map((area) => area.name)).toEqual(['strategy', 'requirements', 'rd', 'documentation']);
+    const order = areas.map((area) => area.name);
+    // A person reads the product's own knowledge before the code: every open area stands before code.
+    for (const open of ['strategy', 'requirements', 'rd', 'documentation']) expect([open, order.indexOf(open) < order.indexOf('code')]).toEqual([open, true]);
+    // The kinds the old "Product knowledge" group held are all in an area that opens: domains and the product page,
+    // use cases, rules, requirements and terms, decisions, and the agent's enrichments, questions and corrections.
+    const opened = new Set(areas.filter((area) => area.open === true).map((area) => area.name));
+    for (const kind of ['product', 'domain', 'doc.use-case', 'doc.rule', 'doc.requirement', 'doc.term', 'doc.decision', 'enrichment', 'question', 'correction']) {
+      const entry = read.catalog!.kinds.get(kind);
+      expect([kind, entry !== undefined && opened.has(entry.area)]).toEqual([kind, true]);
+    }
+  });
+});
+
 describe('the catalog as a whole is refused where its rows do not agree', () => {
   test('a subgroup above the bound its manifest declares is refused, naming the kinds it holds', () => {
     expectRefused(withKind(SMALL, 'third', { group: 'area.one' }), 'subgroup "area.one": 3 kinds (gadget, third, widget), above the bound of 2 a subgroup holds ("catalog: subgroup-kind-bound")');

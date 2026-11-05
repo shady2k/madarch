@@ -85,6 +85,12 @@ None.
   card and the menu read them, and the four new roles have their names and one-line descriptions in en and ru.
 - `src/knowledge/seed.ts` declares the ten roles with their lead lists; `src/extract` is untouched.
 
+
+- **The first look.** The areas that hold the product's own knowledge open by default — strategy (domains and the
+  product page), requirements (use cases, rules, requirements, terms), research and development (decisions) and
+  documentation (enrichments, questions, corrections) — and the documentation area stands after research and
+  development, so a person opening the wiki reads that knowledge before the design, architecture and code areas.
+  `test/catalog-read.test.ts` reads the starter set and asserts which areas open and that each stands before code.
 ## Acceptance evidence
 Measured in the worker VM (4 vCPU, 8 GB, arm64), 2026-11-05:
 
@@ -114,3 +120,8 @@ The starter set names the ten roles and the areas or subgroups each leads, every
 role, today's six roles keep their meaning, and the check refuses an unknown area or subgroup in a role and an
 area no role leads, naming the file, the line and the role; the starter set passes; and a test plants each
 refusal and its pass.
+
+The second review round of 2026-11-05 added:
+
+- `bun run check` exit 0; `test/catalog-read.test.ts` 61 pass, 0 fail, including "the areas a person sees open at
+  once" (the four open areas, each before code, and every kind the old product group held in an open area).
