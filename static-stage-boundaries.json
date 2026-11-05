@@ -3,7 +3,8 @@
     "src/fill/stages/snapshot.ts": {},
     "src/fill/stages/inventory.ts": {},
     "src/fill/stages/syntax.ts": {},
-    "src/fill/stages/semantic-resolution.ts": {}
+    "src/fill/stages/semantic-resolution.ts": {},
+    "src/fill/stages/build-configuration.ts": {}
   },
   "forbiddenTypes": [
     "SnapshotSource",

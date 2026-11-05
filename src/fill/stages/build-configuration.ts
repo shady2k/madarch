@@ -40,20 +40,24 @@
  * with an invented end.
  */
 import { Type } from 'typebox';
+import { canonicalJsonDigest } from '../../model/canonical.js';
 import { byCodePoint } from '../../model/order.js';
 import { ID_PATTERN } from '../../model/schema.js';
 import {
   FACT_KINDS, factId, isRepositoryPath, makeEdgeFact, makeNodeFact, repositoryPath,
-  type CoverageGapReason, type DeployForm, type EntryPointForm, type Fact, type FactProvenance, type FactRange, type PackageForm,
+  type CoverageGapReason, type DeployForm, type EntryPointForm, type Fact, type FactProvenance, type FactRange, type FactSource, type PackageForm,
 } from '../facts.js';
-import type { SnapshotEntry, SnapshotReader, SnapshotSource } from '../snapshot.js';
+import type { SnapshotSource } from '../snapshot.js';
 import {
   DEFAULT_STAGE_DEFAULTS,
-  type FillStage, type StageContext, type StageDraftSet, type StageExecutionResult,
+  type FillStage, type StageContext, type StageDraftSet, type StageDraftWrite, type StageExecutionResult,
   type StageGraphReader, type StagePlan, type StageUnit,
 } from '../stage.js';
-import { checkFactDraft, evidenceAt, provenanceOf } from './draft.js';
+import { evidenceAtPlace, provenanceOfPlace } from './draft.js';
 import { rolesFor } from './inventory.js';
+import type { StaticStageSource } from './static-context.js';
+import { checkStaticGraphDraft, graphWritesOf } from './static-graph.js';
+import { publishedTreeRead, publishedTreeRows } from './tree-rows.js';
 import {
   readCompose, readDockerfile, readGoMod, readJson, readToml,
   type ComposeReading, type DockerfileReading, type GoModReading, type TextGap, type TomlReading,
@@ -63,15 +67,38 @@ import {
 export const BUILD_CONFIGURATION_STAGE_ID = 'build-configuration';
 
 /** The stage's own version, bumped when what it reads, plans or writes changes. */
-export const BUILD_CONFIGURATION_STAGE_VERSION = 1;
+export const BUILD_CONFIGURATION_STAGE_VERSION = 2;
 
 /** The fact kinds the stage produces, in code point order. */
 export const BUILD_CONFIGURATION_STAGE_KINDS: readonly string[] = [
   'consumes', 'coverage', 'dependency', 'deploy-unit', 'entry-point', 'environment-variable', 'package',
 ];
 
+/**
+ * One pinned repository as this stage's units read it: the repository the
+ * product names, the commit the run pinned, and the reader the graph's own
+ * facts cite. A unit holds this and one file's bytes, and never a snapshot
+ * reader (decision 0033, item 5).
+ */
+interface ManifestPlace {
+  readonly repository: string;
+  readonly commit: string;
+  readonly source: FactSource;
+}
+
 /** The read the plan makes; the wiring answers it from the product graph. */
 export const PUBLISHED_MANIFESTS_READ = 'stage-2-published-manifests';
+
+/**
+ * The reader every fact of this stage cites: its own reading of a manifest's
+ * bytes. The coverage's identity carries the reader, so this stage's coverage
+ * of a path is its own and no other stage's, and the plan's read of what it
+ * published is scoped by this name.
+ */
+export const MANIFEST_SOURCE_SYSTEM = 'madarch-build-configuration';
+
+/** The reader this stage's facts cite, at the stage's own version. */
+const MANIFEST_SOURCE: FactSource = { system: MANIFEST_SOURCE_SYSTEM, version: '2' };
 
 /**
  * The one tracked read the plan makes: the manifest paths stage 2 has already
@@ -84,7 +111,7 @@ export function publishedManifestsRead(repository: string): string {
 }
 
 /** One row of that read: one manifest path stage 2 published facts for. */
-export interface PublishedManifestRow {
+interface PublishedManifestRow {
   readonly kind: 'manifest';
   readonly repository: string;
   readonly path: string;
@@ -138,6 +165,8 @@ export function createBuildConfigurationStage(sources: SnapshotSource): FillStag
   return {
     id: BUILD_CONFIGURATION_STAGE_ID,
     version: BUILD_CONFIGURATION_STAGE_VERSION,
+    // One manifest's bytes and no reader of the tree (decision 0033, item 5).
+    staticReading: true,
     // A `consumes` edge is drawn from the file node stage 1 publishes, and the
     // bytes of every manifest come from the pinned tree: a manifest read
     // against no tree, or before the file it names stands in the graph, is a
@@ -168,8 +197,8 @@ export function createBuildConfigurationStage(sources: SnapshotSource): FillStag
     configSchema: Type.Object({}),
     defaults: { ...DEFAULT_STAGE_DEFAULTS, config: {} },
     plan: async (graph: StageGraphReader): Promise<StagePlan> => planManifests(sources, graph),
-    execute: async (unit: StageUnit, context: StageContext): Promise<StageExecutionResult> => executeManifestUnit(sources, unit, context),
-    validate: (draft: StageDraftSet) => checkFactDraft(BUILD_CONFIGURATION_STAGE_ID, BUILD_CONFIGURATION_STAGE_KINDS, draft),
+    execute: async (unit: StageUnit, context: StageContext): Promise<StageExecutionResult> => executeManifestUnit(unit, context),
+    validate: (draft: StageDraftSet) => checkStaticGraphDraft(BUILD_CONFIGURATION_STAGE_ID, BUILD_CONFIGURATION_STAGE_KINDS, draft),
   };
 }
 
@@ -191,15 +220,20 @@ async function planManifests(sources: SnapshotSource, graph: StageGraphReader): 
   const units: { id: string; scope: string }[] = [];
   let anyManifest = false;
   for (const pin of pins) {
-    const reader = await sources.open(pin.id);
     const read = publishedManifestsRead(pin.id);
     const published = publishedManifests(await graph.query(read), pin.id, read);
+    // The manifests the pinned commit holds, read from the graph the snapshot and
+    // inventory stages published: no tree listing is read here, and a manifest whose
+    // file node does not stand yet plans no unit (the run's re-plan wave plans it once
+    // the snapshot has, as stage 3's own plan does).
+    const treeRead = publishedTreeRead(pin.id);
+    const tree = publishedTreeRows(await graph.query(treeRead), pin.id, treeRead);
     const standing = new Set<string>();
-    for (const entry of reader.files()) {
-      if (manifestKindOf(entry.path) === undefined) continue;
-      standing.add(entry.path);
+    for (const path of tree.files.keys()) {
+      if (manifestKindOf(path) === undefined) continue;
+      standing.add(path);
       anyManifest = true;
-      units.push({ id: manifestUnitId(pin.id, entry.path), scope: scopeOf(pin.id, entry.path) });
+      units.push({ id: manifestUnitId(pin.id, path), scope: scopeOf(pin.id, path) });
     }
     for (const path of published) {
       if (standing.has(path)) continue;
@@ -260,57 +294,91 @@ function publishedManifests(rows: readonly unknown[], repository: string, read: 
  * stage reads write nothing, and a unit that writes nothing is how this stage
  * asks for its earlier facts to be retracted.
  */
-async function executeManifestUnit(sources: SnapshotSource, unit: StageUnit, context: StageContext): Promise<StageExecutionResult> {
+async function executeManifestUnit(unit: StageUnit, context: StageContext): Promise<StageExecutionResult> {
   refuseWhenCancelled(unit, context);
   const planned = plannedUnit(unit.id);
-  const reader = await sources.open(planned.repository);
+  const source = staticSourceOf(unit, context);
+  const place: ManifestPlace = { repository: source.repository, commit: source.commit, source: MANIFEST_SOURCE };
   refuseWhenCancelled(unit, context);
   const kind = manifestKindOf(planned.path);
   if (kind === undefined) {
     context.progress(`the path ${planned.path} declares no manifest this stage reads: this unit publishes nothing, and what an earlier run wrote there is retracted`, 1);
     return { outcome: 'draft' };
   }
-  const entry: SnapshotEntry | undefined = reader.entry(planned.path);
+  const entry = await source.entry(planned.path);
   if (entry === undefined || entry.form === 'commit') {
-    context.progress(`the path ${planned.path} stands in no file of ${planned.repository} at ${reader.commit}: this unit publishes nothing, and what an earlier run wrote there is retracted`, 1);
+    context.progress(`the path ${planned.path} stands in no file of ${place.repository} at ${place.commit}: this unit publishes nothing, and what an earlier run wrote there is retracted`, 1);
     return { outcome: 'draft' };
   }
+  const evidence = evidenceAtPlace(place, planned.path);
   if (entry.form === 'link') {
     // A link's own bytes are the path it points at, and a manifest a link
     // stands for is read by whoever follows it. This stage reads a manifest's
     // own bytes, so the link is a named gap rather than the text of a path
     // read as a manifest.
-    const linked = linkedGap(reader, entry.path, provenanceOf(reader));
-    context.draft.write({ kind: 'fact', evidence: evidenceAt(reader, entry.path), value: linked });
-    context.progress(`the path ${entry.path} of ${reader.repository} is a symbolic link, and this stage reads a manifest's own bytes: it publishes the gap and no facts`, 1);
+    writeFact(context, linkedGap(place, planned.path, provenanceOfPlace(place)), evidence);
+    context.progress(`the path ${planned.path} of ${place.repository} is a symbolic link, and this stage reads a manifest's own bytes: it publishes the gap and no facts`, 1);
     return { outcome: 'draft' };
   }
-  const text = new TextDecoder('utf-8', { ignoreBOM: true }).decode(await reader.read(entry.path));
+  const file = await source.file(planned.path);
+  if (file === undefined) {
+    context.progress(`the path ${planned.path} stands in no file of ${place.repository} at ${place.commit}: this unit publishes nothing, and what an earlier run wrote there is retracted`, 1);
+    return { outcome: 'draft' };
+  }
+  if (file.unread !== undefined) {
+    // A file above the static reading cap is a named gap, never a manifest parsed from
+    // bytes the stage did not hold (decision 0033, "Capability boundaries").
+    const held = makeNodeFact({
+      kind: 'coverage',
+      value: { repository: place.repository, scope: planned.path, complete: false, read: [], unread: [{ what: `${planned.path}:1 the file is above the static reading cap, and this stage reads no part of it`, reason: 'unsupported' }] },
+      provenance: provenanceOfPlace(place),
+      layer: 'extracted',
+    });
+    writeFact(context, held, evidence);
+    context.progress(`${planned.path} of ${place.repository} is above the static reading cap: the file is published as a too-large coverage gap and not read`, 1);
+    return { outcome: 'draft' };
+  }
+  const text = new TextDecoder('utf-8', { ignoreBOM: true }).decode(file.content!);
   refuseWhenCancelled(unit, context);
   const lines = text.split('\n');
-  const provenance = provenanceOf(reader);
-  const drafted = await draftOf(kind, reader, entry.path, text, lines, provenance);
+  const provenance = provenanceOfPlace(place);
+  const drafted = draftOf(kind, place, planned.path, text, lines, provenance);
   // Two declarations of one fact are one fact: a compose file naming one
   // service twice, or a Cargo manifest naming one dependency twice, writes the
   // node once, and the repeat is named in the unit's coverage.
-  for (const fact of dedupeFacts(drafted.facts)) {
-    context.draft.write({ kind: 'fact', evidence: evidenceAt(reader, entry.path), value: fact });
-  }
-  const coverage = coverageOf(reader, entry.path, provenance, lines, drafted);
-  context.draft.write({ kind: 'fact', evidence: evidenceAt(reader, entry.path), value: coverage });
+  for (const fact of dedupeFacts(drafted.facts)) writeFact(context, fact, evidence);
+  // The dependency names the manifest declares: each a `code.dependency` node and one
+  // `code.uses-dependency` edge from the manifest's file (madarch-8bdc.2.3).
+  for (const write of dependencyDrafts(place, planned.path, fileNodeId(place, planned.path, provenance), drafted.dependencies ?? [])) context.draft.write(write);
+  writeFact(context, coverageOf(place, planned.path, provenance, lines, drafted), evidence);
+  const dependencies = drafted.dependencies ?? [];
   context.progress(
-    `read ${entry.path} of ${reader.repository} at ${reader.commit}: ${drafted.facts.length} ${drafted.facts.length === 1 ? 'fact' : 'facts'}, ${drafted.unread.length} ${drafted.unread.length === 1 ? 'gap' : 'gaps'}`,
+    `read ${planned.path} of ${place.repository} at ${place.commit}: ${drafted.facts.length} ${drafted.facts.length === 1 ? 'fact' : 'facts'}, ${dependencies.length} ${dependencies.length === 1 ? 'dependency' : 'dependencies'}, ${drafted.unread.length} ${drafted.unread.length === 1 ? 'gap' : 'gaps'}`,
     1,
   );
   return { outcome: 'draft' };
 }
 
+/** One fact's graph items, written into the unit's draft with the bytes they stand on. */
+function writeFact(context: StageContext, fact: Fact, evidence: string): void {
+  for (const write of graphWritesOf(fact, evidence)) context.draft.write(write);
+}
+
+/** The unit's static repository, refused by name where the run handed none. */
+function staticSourceOf(unit: StageUnit, context: StageContext): StaticStageSource {
+  const held = context.static?.repository;
+  if (held === undefined) {
+    throw new Error(`the unit "${unit.id}" runs the build and configuration stage's static reading, and its context holds no pinned repository: a run hands a static stage its repository's path-scoped answers (src/fill/stages/build-configuration.ts, decision 0033)`);
+  }
+  return held;
+}
+
 /** The coverage one symbolic link publishes: the link's path, and why nothing stands there. */
-function linkedGap(reader: SnapshotReader, path: string, provenance: FactProvenance): Fact {
+function linkedGap(place: ManifestPlace, path: string, provenance: FactProvenance): Fact {
   const what = `${path}:1 a symbolic link stands here, and this stage reads a manifest's own bytes and does not follow a link`;
   return makeNodeFact({
     kind: 'coverage',
-    value: { repository: reader.repository, scope: path, complete: false, read: [], unread: [{ what, reason: 'unsupported' }] },
+    value: { repository: place.repository, scope: path, complete: false, read: [], unread: [{ what, reason: 'unsupported' }] },
     provenance,
     layer: 'extracted',
   });
@@ -349,9 +417,11 @@ interface Unread {
   readonly reason: CoverageGapReason;
 }
 
-/** What one manifest's reading found: its facts, the declarations it read, and the gaps it named. */
+/** What one manifest's reading found: its facts, its declared dependencies, the declarations it read, and the gaps it named. */
 interface ManifestDrafting {
   readonly facts: readonly Fact[];
+  /** The dependency names the manifest declares, each once, in code point order of the name. */
+  readonly dependencies?: readonly DeclaredDependency[];
   readonly read: readonly string[];
   readonly unread: readonly Unread[];
 }
@@ -371,7 +441,7 @@ const NOTHING: ManifestDrafting = { facts: [], read: [], unread: [] };
  * declares is nobody's to guess; and every gap names the path, the line and
  * what stood there.
  */
-async function draftOf(kind: ManifestKind, reader: SnapshotReader, path: string, text: string, lines: readonly string[], provenance: FactProvenance): Promise<DraftingResult> {
+function draftOf(kind: ManifestKind, place: ManifestPlace, path: string, text: string, lines: readonly string[], provenance: FactProvenance): DraftingResult {
   const at = (line: number): FactProvenance => ({ ...provenance, place: { file: repositoryPath(path), range: lineRange(lines, line) } });
   const gap = (line: number, detail: string): Unread => ({ what: `${path}:${line} ${detail}`, reason: 'unsupported' });
   const stopped = (read: TextGap): DraftingResult => ({
@@ -387,16 +457,16 @@ async function draftOf(kind: ManifestKind, reader: SnapshotReader, path: string,
       // the file is named as a gap rather than left unmentioned.
       return { ...NOTHING, unread: [gap(1, 'a lock file declares resolved versions, and no fact of this stage carries one')] };
     case 'npm':
-      return npmDrafting(await packageIndexOf(reader), reader, path, text, lines, at, gap, stopped);
+      return npmDrafting(place, path, text, lines, at, gap, stopped);
     case 'go': {
       const read = readGoMod(text);
       if (!read.ok) return stopped(read.gap);
-      return goDrafting(read.value, reader, path, at, gap, await packageIndexOf(reader));
+      return goDrafting(read.value, place, path, at, gap);
     }
     case 'cargo': {
       const read = readToml(text);
       if (!read.ok) return stopped(read.gap);
-      const drafted = cargoDrafting(read.value, reader, path, at, gap, await packageIndexOf(reader));
+      const drafted = cargoDrafting(read.value, place, path, at, gap);
       // What the reader noted while it read (a key or a table declared twice)
       // is this unit's coverage, as it is for a package.json.
       return { ...drafted, unread: [...drafted.unread, ...read.gaps.map((note) => gap(note.line, note.detail))] };
@@ -404,12 +474,12 @@ async function draftOf(kind: ManifestKind, reader: SnapshotReader, path: string,
     case 'dockerfile': {
       const read = readDockerfile(text);
       if (!read.ok) return stopped(read.gap);
-      return dockerfileDrafting(read.value, reader, path, at, gap);
+      return dockerfileDrafting(read.value, place, path, at, gap);
     }
     case 'compose': {
       const read = readCompose(text);
       if (!read.ok) return stopped(read.gap);
-      const drafted = composeDrafting(read.value, reader, path, at, gap);
+      const drafted = composeDrafting(read.value, place, path, at, gap);
       return { ...drafted, unread: [...drafted.unread, ...read.gaps.map((note) => gap(note.line, note.detail))] };
     }
   }
@@ -428,11 +498,11 @@ function wholeFileRange(lines: readonly string[]): FactRange {
 }
 
 /** The id of the file node stage 1 published for a path: a file's identity is its repository and its path. */
-function fileNodeId(reader: SnapshotReader, path: string, provenance: FactProvenance): string {
+function fileNodeId(place: ManifestPlace, path: string, provenance: FactProvenance): string {
   // The roles are stage 1's own declaration of what a path is, and a file's
   // identity does not read them: the id computed here is the node the inventory
   // stage published, whatever roles it wrote beside it.
-  return factId({ kind: 'file', value: { repository: reader.repository, path: repositoryPath(path), roles: rolesFor(path) }, provenance });
+  return factId({ kind: 'file', value: { repository: place.repository, path: repositoryPath(path), roles: rolesFor(path) }, provenance });
 }
 
 /** One variable a manifest declares, and the line the configuration declares it at. */
@@ -449,7 +519,7 @@ interface DeclaredVariable {
  * is a gap naming its line rather than a node with a name the schema refuses.
  */
 function variableFacts(
-  reader: SnapshotReader,
+  place: ManifestPlace,
   path: string,
   provenance: FactProvenance,
   at: (line: number) => FactProvenance,
@@ -458,7 +528,7 @@ function variableFacts(
 ): ManifestDrafting {
   const facts: Fact[] = [];
   const unread: Unread[] = [];
-  const file = fileNodeId(reader, path, provenance);
+  const file = fileNodeId(place, path, provenance);
   const seen = new Set<string>();
   for (const variable of [...declared].sort((left, right) => byCodePoint(left.name, right.name) || left.line - right.line)) {
     if (!ENVIRONMENT_VARIABLE_NAME.test(variable.name)) {
@@ -489,8 +559,7 @@ const NPM_DEPENDENCY_GROUPS: readonly string[] = ['dependencies', 'devDependenci
  * binaries and its `scripts`.
  */
 function npmDrafting(
-  index: PackageIndex,
-  reader: SnapshotReader,
+  place: ManifestPlace,
   path: string,
   text: string,
   lines: readonly string[],
@@ -509,7 +578,7 @@ function npmDrafting(
   const readNames: string[] = [];
   const unread: Unread[] = read.gaps.map((note) => gap(note.line, note.detail));
   const facts: Fact[] = [];
-  const repository = reader.repository;
+  const repository = place.repository;
 
   const nameValue = fields['name'];
   const name = typeof nameValue === 'string' && nameValue.trim() !== '' ? nameValue.trim() : undefined;
@@ -533,38 +602,30 @@ function npmDrafting(
     facts.push(held);
   }
 
-  // The dependency edges: a declaration becomes an edge where it names a
-  // package another manifest of this repository declares. Everything else is a
-  // gap naming its line — 0026 keeps an edge's ends to nodes that stand.
-  const edges: Fact[] = [];
+  // The dependency names the manifest declares. Each is a declaration of its
+  // own (the extractors' `code.dependency` node): what the manifest asks for,
+  // never a guess about which package of the tree provides it.
+  const dependencies: DeclaredDependency[] = [];
   for (const group of NPM_DEPENDENCY_GROUPS) {
-    const declared = fields[group];
-    if (declared === undefined) continue;
+    const declaredGroup = fields[group];
+    if (declaredGroup === undefined) continue;
     readNames.push(group);
-    if (declared === null || typeof declared !== 'object' || Array.isArray(declared)) {
+    if (declaredGroup === null || typeof declaredGroup !== 'object' || Array.isArray(declaredGroup)) {
       unread.push(gap(lineAt([group]), `${group} is no mapping of dependency names to what the package wants`));
       continue;
     }
-    const dependencies = declared as Record<string, unknown>;
-    for (const dependency of Object.keys(dependencies).sort(byCodePoint)) {
-      const line = lineAt([group, dependency]);
-      if (held === undefined) {
-        unread.push(gap(line, `the dependency ${JSON.stringify(dependency)} stands in a manifest that declares no package for the edge to stand on`));
-        continue;
-      }
-      const resolved = resolveNpmDependency(index, repository, path, dependency, dependencies[dependency], at(line));
-      if (!resolved.ok) {
-        unread.push(gap(line, `the dependency ${JSON.stringify(dependency)} ${resolved.why}`));
-        continue;
-      }
-      if (resolved.id === held.id) {
-        unread.push(gap(line, `the dependency ${JSON.stringify(dependency)} is the package of this manifest: a package does not depend on itself`));
-        continue;
-      }
-      edges.push(makeEdgeFact({ kind: 'dependency', value: { from: held.id, to: resolved.id, basis: 'manifest' }, provenance: at(line), layer: 'extracted' }));
+    const names = declaredGroup as Record<string, unknown>;
+    for (const dependency of Object.keys(names).sort(byCodePoint)) {
+      const wanted = names[dependency];
+      dependencies.push({
+        name: dependency,
+        group,
+        line: lineAt([group, dependency]),
+        ...(typeof wanted === 'string' && wanted.trim() !== '' ? { version: wanted.trim() } : {}),
+      });
     }
   }
-  facts.push(...dedupeFacts(edges));
+  dependencies.sort((left, right) => byCodePoint(left.name, right.name) || left.line - right.line);
 
   // The declared entry points: a binary a package ships, and a script a caller
   // runs. A `bin` written as one string names the command after the package.
@@ -594,7 +655,7 @@ function npmDrafting(
     }
   }
   facts.push(...dedupeFacts(entryPoints));
-  return { facts, read: readNames, unread };
+  return { facts, dependencies, read: readNames, unread };
 }
 
 // ---- a go.mod -------------------------------------------------------------
@@ -602,34 +663,28 @@ function npmDrafting(
 /** What one `go.mod` declares: the module it is, and a dependency edge per requirement of another module of this repository. */
 function goDrafting(
   read: GoModReading,
-  reader: SnapshotReader,
+  place: ManifestPlace,
   path: string,
   at: (line: number) => FactProvenance,
   gap: (line: number, detail: string) => Unread,
-  index: PackageIndex,
 ): DraftingResult {
   const held = makeNodeFact({
     kind: 'package',
-    value: { repository: reader.repository, name: read.module, form: 'package', ecosystem: 'go', manifest: repositoryPath(path) },
+    value: { repository: place.repository, name: read.module, form: 'package', ecosystem: 'go', manifest: repositoryPath(path) },
     provenance: at(1),
     layer: 'extracted',
   });
-  const edges: Fact[] = [];
   const unread: Unread[] = [];
+  const dependencies: DeclaredDependency[] = [];
   for (const requirement of read.requires) {
-    const resolved = resolveByName(index, reader.repository, requirement.path, 'go', at(requirement.line));
-    if (!resolved.ok) {
-      unread.push(gap(requirement.line, `the requirement ${JSON.stringify(requirement.path)} ${resolved.why}`));
+    if (requirement.path.trim() === '') {
+      unread.push(gap(requirement.line, 'a requirement names no module: a go.mod requirement is a module path'));
       continue;
     }
-    if (resolved.id === held.id) {
-      // A module that requires itself names the node the edge would stand in.
-      unread.push(gap(requirement.line, `the requirement ${JSON.stringify(requirement.path)} is the module of this file: a package does not depend on itself`));
-      continue;
-    }
-    edges.push(makeEdgeFact({ kind: 'dependency', value: { from: held.id, to: resolved.id, basis: 'manifest' }, provenance: at(requirement.line), layer: 'extracted' }));
+    dependencies.push({ name: requirement.path, group: 'require', line: requirement.line, ...(requirement.version === undefined ? {} : { version: requirement.version }) });
   }
-  return { facts: [held, ...dedupeFacts(edges)], read: read.read, unread };
+  dependencies.sort((left, right) => byCodePoint(left.name, right.name) || left.line - right.line);
+  return { facts: [held], dependencies, read: read.read, unread };
 }
 
 // ---- a Cargo.toml ---------------------------------------------------------
@@ -645,17 +700,16 @@ const CARGO_DEPENDENCY_TABLES: readonly string[] = ['build-dependencies', 'depen
  */
 function cargoDrafting(
   read: TomlReading,
-  reader: SnapshotReader,
+  place: ManifestPlace,
   path: string,
   at: (line: number) => FactProvenance,
   gap: (line: number, detail: string) => Unread,
-  index: PackageIndex,
 ): DraftingResult {
   const tables = read.value;
   const readNames: string[] = [];
   const unread: Unread[] = [];
   const facts: Fact[] = [];
-  const repository = reader.repository;
+  const repository = place.repository;
   const manifest = repositoryPath(path);
   const packageTable = tableOf(tables['package']);
   const packageName = typeof packageTable?.['name'] === 'string' ? (packageTable['name'] as string).trim() : undefined;
@@ -695,6 +749,7 @@ function cargoDrafting(
       for (const name of CARGO_DEPENDENCY_TABLES) if (held2[name] !== undefined) dependencyTables.push({ where: ['target', target, name], name });
     }
   }
+  const dependencies: DeclaredDependency[] = [];
   for (const group of dependencyTables.sort((left, right) => byCodePoint(left.where.join('.'), right.where.join('.')))) {
     readNames.push(group.name);
     const declared = tableOf(valueAt(tables, group.where));
@@ -703,24 +758,18 @@ function cargoDrafting(
       continue;
     }
     for (const dependency of Object.keys(declared).sort(byCodePoint)) {
-      const line = read.lineAt([...group.where, dependency]);
-      if (held === undefined) {
-        unread.push(gap(line, `the dependency ${JSON.stringify(dependency)} stands in a manifest that declares no package for the edge to stand on`));
-        continue;
-      }
-      const resolved = resolveCargoDependency(index, repository, path, dependency, declared[dependency], at(line));
-      if (!resolved.ok) {
-        unread.push(gap(line, `the dependency ${JSON.stringify(dependency)} ${resolved.why}`));
-        continue;
-      }
-      if (resolved.id === held.id) {
-        unread.push(gap(line, `the dependency ${JSON.stringify(dependency)} is the package of this manifest: a package does not depend on itself`));
-        continue;
-      }
-      edges.push(makeEdgeFact({ kind: 'dependency', value: { from: held.id, to: resolved.id, basis: 'manifest' }, provenance: at(line), layer: 'extracted' }));
+      const spec = declared[dependency];
+      const specTable = tableOf(spec);
+      const version = typeof spec === 'string' ? spec.trim() : typeof specTable?.['version'] === 'string' ? (specTable['version'] as string).trim() : undefined;
+      dependencies.push({
+        name: dependency,
+        group: group.where.join('.'),
+        line: read.lineAt([...group.where, dependency]),
+        ...(version === undefined || version === '' ? {} : { version }),
+      });
     }
   }
-  facts.push(...dedupeFacts(edges));
+  dependencies.sort((left, right) => byCodePoint(left.name, right.name) || left.line - right.line);
 
   // The declared entry points: every `[[bin]]` is a command, and the `[lib]`
   // is a library. Cargo names a target after its package where it declares no
@@ -751,7 +800,7 @@ function cargoDrafting(
     else entryPoints.push(makeNodeFact({ kind: 'entry-point', value: { repository, file: manifest, name: named, form: 'library-export' }, provenance: at(line), layer: 'extracted' }));
   }
   facts.push(...dedupeFacts(entryPoints));
-  return { facts, read: readNames, unread };
+  return { facts, dependencies, read: readNames, unread };
 }
 
 /** One value of a parsed table as a table, where it is one. */
@@ -834,12 +883,12 @@ function splitDockerWords(argument: string): readonly string[] {
  */
 function dockerfileDrafting(
   read: DockerfileReading,
-  reader: SnapshotReader,
+  place: ManifestPlace,
   path: string,
   at: (line: number) => FactProvenance,
   gap: (line: number, detail: string) => Unread,
 ): DraftingResult {
-  const repository = reader.repository;
+  const repository = place.repository;
   const facts: Fact[] = [];
   const unread: Unread[] = [];
   const readNames = new Set<string>();
@@ -887,7 +936,7 @@ function dockerfileDrafting(
       }));
     }
   }
-  const declared = variableFacts(reader, path, at(1), at, gap, variables);
+  const declared = variableFacts(place, path, at(1), at, gap, variables);
   if (variables.length > 0) readNames.add('environment');
   facts.push(...declared.facts);
   facts.push(...dedupeFacts(entryPoints));
@@ -926,12 +975,12 @@ function declaredVariableNames(argument: string): { readonly names: readonly str
  */
 function composeDrafting(
   read: ComposeReading,
-  reader: SnapshotReader,
+  place: ManifestPlace,
   path: string,
   at: (line: number) => FactProvenance,
   gap: (line: number, detail: string) => Unread,
 ): DraftingResult {
-  const repository = reader.repository;
+  const repository = place.repository;
   const facts: Fact[] = [];
   const unread: Unread[] = [];
   const variables: DeclaredVariable[] = [];
@@ -955,174 +1004,81 @@ function composeDrafting(
     }
   }
   if (read.services.length === 0) unread.push(gap(1, 'the file declares no services: a compose file serves at least one'));
-  const declared = variableFacts(reader, path, at(1), at, gap, variables);
+  const declared = variableFacts(place, path, at(1), at, gap, variables);
   facts.push(...declared.facts);
   return { facts, read: [...readNames].sort(byCodePoint), unread: [...unread, ...declared.unread] };
 }
 
-// ---- the packages a repository declares ----------------------------------
+// ---- the dependencies a manifest declares ---------------------------------
 
-/** One package a manifest declares, as the graph's node names it. */
-interface IndexedPackage {
+/**
+ * One dependency a manifest declares, as the graph's `code.dependency` node
+ * carries it: the name the manifest wrote, which group of declarations it stood
+ * in, and the ecosystem whose name it is. The name is the declaration's own —
+ * whether another package of the pinned tree provides it is a question this
+ * stage does not answer here (madarch-8bdc.2.4's and the resolution's), and a
+ * manifest that names a package outside the tree still declares it.
+ */
+interface DeclaredDependency {
+  /** The name the manifest wrote (`express`, `github.com/segmentio/kafka-go`). */
   readonly name: string;
-  readonly form: PackageForm;
-  readonly ecosystem: string;
+  /** The group of declarations the name stood in, as the ecosystem names it (`dependencies`, `require`). */
+  readonly group: string;
+  /** The line the declaration stands on, 1-based. */
+  readonly line: number;
+  /** What the manifest asks for (`^4.21.2`, `v1.7.0`), where it states one. */
+  readonly version?: string;
 }
 
-/** What one repository's manifests declare: the package at each manifest path, and the paths that declare each name. */
-interface PackageIndex {
-  readonly byPath: ReadonlyMap<string, IndexedPackage>;
-  readonly byName: ReadonlyMap<string, readonly string[]>;
-}
-
-/** One index per reader, built once while a run fills: the tree of a commit never changes. */
-const PACKAGE_INDEXES = new WeakMap<SnapshotReader, Promise<PackageIndex>>();
-
-/**
- * The packages one repository's manifests declare, by manifest path and by
- * name, read once per reader. A dependency's end is a node (0026), so a
- * resolution answers which manifest declares the package and what that
- * manifest calls it; a manifest this index cannot read declares nothing here,
- * and the unit whose dependency named it reports the miss in its coverage.
- */
-async function packageIndexOf(reader: SnapshotReader): Promise<PackageIndex> {
-  const held = PACKAGE_INDEXES.get(reader);
-  if (held !== undefined) return await held;
-  const built = buildPackageIndex(reader);
-  PACKAGE_INDEXES.set(reader, built);
-  return await built;
-}
-
-/** The index itself: one read of every manifest of a kind that declares a package. */
-async function buildPackageIndex(reader: SnapshotReader): Promise<PackageIndex> {
-  const byPath = new Map<string, IndexedPackage>();
-  const byName = new Map<string, string[]>();
-  for (const entry of reader.files()) {
-    const kind = manifestKindOf(entry.path);
-    if (kind !== 'npm' && kind !== 'go' && kind !== 'cargo') continue;
-    const text = new TextDecoder('utf-8', { ignoreBOM: true }).decode(await reader.read(entry.path));
-    const declared = declaredPackageOf(kind, text);
-    if (declared === undefined) continue;
-    byPath.set(entry.path, declared);
-    const held = byName.get(declared.name) ?? [];
-    held.push(entry.path);
-    byName.set(declared.name, held);
-  }
-  for (const held of byName.values()) held.sort(byCodePoint);
-  return { byPath, byName };
-}
-
-/** The package one manifest declares, read for the index alone: what a dependency's name resolves against. */
-function declaredPackageOf(kind: ManifestKind, text: string): IndexedPackage | undefined {
-  if (kind === 'npm') {
-    const read = readJson(text);
-    if (!read.ok) return undefined;
-    const fields = tableOf(read.value.value);
-    const name = fields === undefined ? undefined : fields['name'];
-    if (typeof name !== 'string' || name.trim() === '') return undefined;
-    return { name: name.trim(), form: fields?.['workspaces'] === undefined ? 'package' : 'workspace', ecosystem: 'npm' };
-  }
-  if (kind === 'go') {
-    const read = readGoMod(text);
-    return read.ok ? { name: read.value.module, form: 'package', ecosystem: 'go' } : undefined;
-  }
-  const read = readToml(text);
-  if (!read.ok) return undefined;
-  const packageTable = tableOf(read.value.value['package']);
-  const name = packageTable?.['name'];
-  return typeof name === 'string' && name.trim() !== '' ? { name: name.trim(), form: 'package', ecosystem: 'cargo' } : undefined;
-}
-
-/** What a dependency's declaration resolved to: the package's node, or why none stands. */
-type Resolution = { readonly ok: true; readonly id: string } | { readonly ok: false; readonly why: string };
-
-/** The node id of one package, as the graph's identity reads it: the repository, the form and the name. */
-function packageNodeId(repository: string, held: IndexedPackage, provenance: FactProvenance): string {
-  return factId({ kind: 'package', value: { repository, name: held.name, form: held.form }, provenance });
+/** The key one declared dependency's node carries: the repository, the manifest and the name, and nothing of a run. */
+function dependencyKeyOf(repository: string, path: string, name: string): string {
+  return `dependency:${canonicalJsonDigest({ repository, file: path, name })}`;
 }
 
 /**
- * The package a manifest path declares, or the reason no package stands there.
- * The path names the manifest's own format, so a package of another ecosystem
- * standing there is refused rather than joined: a dependency's end is the
- * package the declaring manifest's own ecosystem resolves.
+ * The graph items a manifest's declarations make: one `code.dependency` node per
+ * declared name (the extractors' own kind, `src/extract/operations/dependencies.ts`),
+ * and one `code.uses-dependency` edge from the manifest's file node to it que
+ * the declaration. The edge's start is the file's node, which the snapshot
+ * stage published for the path, and never a package's: a dependency is a thing
+ * a file declares.
  */
-function resolveAtPath(index: PackageIndex, repository: string, ecosystem: string, path: string, provenance: FactProvenance): Resolution {
-  const held = index.byPath.get(path);
-  if (held === undefined) return { ok: false, why: `names ${JSON.stringify(path)}, which declares no package this repository's manifests do` };
-  if (held.ecosystem !== ecosystem) {
-    return { ok: false, why: `names ${JSON.stringify(path)}, which declares a ${held.ecosystem} package, and this manifest depends on a ${ecosystem} one` };
+function dependencyDrafts(place: ManifestPlace, path: string, fileKey: string, declared: readonly DeclaredDependency[]): readonly StageDraftWrite[] {
+  const writes: StageDraftWrite[] = [];
+  const seen = new Set<string>();
+  for (const dependency of declared) {
+    const key = dependencyKeyOf(place.repository, path, dependency.name);
+    if (seen.has(key)) continue;
+    seen.add(key);
+    writes.push({
+      kind: 'node',
+      evidence: `${place.repository}@${place.commit}:${path}`,
+      value: {
+        key,
+        kind: 'code.dependency',
+        label: dependency.name,
+        properties: {
+          factKind: 'dependency',
+          repository: place.repository,
+          file: path,
+          name: dependency.name,
+          group: dependency.group,
+          ...(dependency.version === undefined ? {} : { version: dependency.version }),
+        },
+      },
+    });
+    writes.push({
+      kind: 'edge',
+      evidence: `${place.repository}@${place.commit}:${path}`,
+      value: {
+        relation: 'code.uses-dependency',
+        from: { key: fileKey },
+        to: { key },
+        properties: { factKind: 'dependency', repository: place.repository, file: path, line: dependency.line },
+      },
+    });
   }
-  return { ok: true, id: packageNodeId(repository, held, provenance) };
-}
-
-/**
- * The package one name declares in this repository, in the ecosystem of the
- * manifest that declares the dependency, or the reason no single one stands: a
- * `yaml` a `Cargo.toml` depends on is the crate, never a same-named npm
- * package another manifest of the repository ships.
- */
-function resolveByName(index: PackageIndex, repository: string, name: string, ecosystem: string, provenance: FactProvenance): Resolution {
-  const named = index.byName.get(name) ?? [];
-  const paths = named.filter((path) => index.byPath.get(path)?.ecosystem === ecosystem);
-  if (paths.length === 0) {
-    return { ok: false, why: named.length === 0 ? 'names no package this repository\'s manifests declare' : `names no ${ecosystem} package this repository's manifests declare` };
-  }
-  if (paths.length > 1) return { ok: false, why: `names ${paths.length} ${ecosystem} packages this repository's manifests declare (${paths.join(', ')}), and no one of them is the dependency's end` };
-  const first = paths[0];
-  const held = first === undefined ? undefined : index.byPath.get(first);
-  if (held === undefined) return { ok: false, why: `names no ${ecosystem} package this repository's manifests declare` };
-  return { ok: true, id: packageNodeId(repository, held, provenance) };
-}
-
-/** How one `package.json` dependency's specifier resolves: a `file:`/`link:` path, else the package's own name. */
-function resolveNpmDependency(index: PackageIndex, repository: string, fromPath: string, name: string, spec: unknown, provenance: FactProvenance): Resolution {
-  if (typeof spec === 'string') {
-    const prefixed = /^(file|link):(.*)$/u.exec(spec);
-    if (prefixed !== null) {
-      const target = resolveRelative(parentOf(fromPath), prefixed[2] ?? '');
-      if (target === undefined) return { ok: false, why: `names the path ${JSON.stringify(spec)}, which leaves the repository` };
-      return resolveAtPath(index, repository, 'npm', target === '' ? 'package.json' : `${target}/package.json`, provenance);
-    }
-  }
-  return resolveByName(index, repository, name, 'npm', provenance);
-}
-
-/** How one Cargo dependency's specifier resolves: a `path` table with a manifest, else the package's own name. */
-function resolveCargoDependency(index: PackageIndex, repository: string, fromPath: string, name: string, spec: unknown, provenance: FactProvenance): Resolution {
-  const table = tableOf(spec);
-  const declared = table?.['path'];
-  if (typeof declared === 'string') {
-    const target = resolveRelative(parentOf(fromPath), declared);
-    if (target === undefined) return { ok: false, why: `names the path ${JSON.stringify(declared)}, which leaves the repository` };
-    return resolveAtPath(index, repository, 'cargo', target === '' ? 'Cargo.toml' : `${target}/Cargo.toml`, provenance);
-  }
-  return resolveByName(index, repository, name, 'cargo', provenance);
-}
-
-/** The folder a path stands in; `undefined` at the repository root. */
-function parentOf(path: string): string | undefined {
-  const at = path.lastIndexOf('/');
-  return at < 0 ? undefined : path.slice(0, at);
-}
-
-/**
- * The repository path a relative specifier names, from the folder the manifest
- * stands in: `.` and empty legs are dropped, `..` takes a leg back, and a path
- * that climbs above the repository's root is no path of it at all.
- */
-function resolveRelative(folder: string | undefined, spec: string): string | undefined {
-  const parts = folder === undefined || folder === '' ? [] : folder.split('/');
-  for (const leg of spec.replace(/\\/gu, '/').split('/')) {
-    if (leg === '' || leg === '.') continue;
-    if (leg === '..') {
-      if (parts.length === 0) return undefined;
-      parts.pop();
-      continue;
-    }
-    parts.push(leg);
-  }
-  return parts.join('/');
+  return writes;
 }
 
 // ---- the coverage one unit publishes -------------------------------------
@@ -1134,7 +1090,7 @@ function resolveRelative(folder: string | undefined, spec: string): string | und
  * line stands there, so the fact's own place names the line a reader opens.
  */
 function coverageOf(
-  reader: SnapshotReader,
+  place: ManifestPlace,
   path: string,
   provenance: FactProvenance,
   lines: readonly string[],
@@ -1143,11 +1099,11 @@ function coverageOf(
   const unread = [...new Map(drafted.unread.map((gap) => [gap.what, gap])).values()]
     .sort((left, right) => byCodePoint(left.what, right.what));
   const read = [...new Set(drafted.read)].sort(byCodePoint);
-  const place: FactRange = drafted.stoppedAt === undefined ? wholeFileRange(lines) : lineRange(lines, drafted.stoppedAt);
+  const range: FactRange = drafted.stoppedAt === undefined ? wholeFileRange(lines) : lineRange(lines, drafted.stoppedAt);
   return makeNodeFact({
     kind: 'coverage',
-    value: { repository: reader.repository, scope: path, complete: unread.length === 0, read, unread },
-    provenance: { ...provenance, place: { file: repositoryPath(path), range: place } },
+    value: { repository: place.repository, scope: path, complete: unread.length === 0, read, unread },
+    provenance: { ...provenance, place: { file: repositoryPath(path), range } },
     layer: 'extracted',
   });
 }

@@ -21,9 +21,38 @@ import { PUBLISHED_RESOLVED_READ, type PublishedResolvedRow } from './semantic-r
 import { PUBLISHED_GAPS_READ } from './syntax-specifiers.js';
 import { PUBLISHED_IMPORTS_READ, type PublishedGapRow, type PublishedImportRow } from './syntax-specifiers.js';
 import { PUBLISHED_TREE_READ, type PublishedTreeRow } from './tree-rows.js';
+import { MANIFEST_SOURCE_SYSTEM, PUBLISHED_MANIFESTS_READ } from './build-configuration.js';
 
 /** How many rows one plan read may answer: the plan is the orchestrator's, and its answer is one repository. */
 const PLAN_PAGE = 5_000;
+
+/** The reader a node's provenance names: the system that wrote the reading, or `''` where it names none. */
+function sourceSystemOf(properties: Record<string, unknown>): string {
+  const provenance = properties['provenance'];
+  const source = provenance !== null && typeof provenance === 'object' ? (provenance as Record<string, unknown>)['source'] : undefined;
+  const system = source !== null && typeof source === 'object' ? (source as Record<string, unknown>)['system'] : undefined;
+  return typeof system === 'string' ? system : '';
+}
+
+/**
+ * The scopes one stage's own coverage nodes name: its record of the files it
+ * read, one row per scope, in code point order. A stage's coverage carries its
+ * reader in its identity, so this is what tells one stage's reading of a path
+ * from another's.
+ */
+function coverageScopes(nodes: readonly NodeVersionRow[], kind: string, system: string, repository: string): readonly { readonly kind: string; readonly repository: string; readonly path: string }[] {
+  const rows: { kind: string; repository: string; path: string }[] = [];
+  const seen = new Set<string>();
+  for (const node of nodes) {
+    const properties = propertiesOf(node);
+    if (properties['factKind'] !== 'coverage' || sourceSystemOf(properties) !== system) continue;
+    const scope = properties['scope'];
+    if (typeof scope !== 'string' || scope === '' || seen.has(scope)) continue;
+    seen.add(scope);
+    rows.push({ kind, repository, path: scope });
+  }
+  return rows.sort((left, right) => (left.path < right.path ? -1 : left.path > right.path ? 1 : 0));
+}
 
 /** A node's properties, as the graph answered them. */
 function propertiesOf(row: NodeVersionRow): Record<string, unknown> {
@@ -194,8 +223,15 @@ export function createStaticStageReadReader(store: GraphStore, executor?: QueryE
           }
           return rows.sort((left, right) => (`${left.from}\u0000${left.to}\u0000${left.specifier}` < `${right.from}\u0000${right.to}\u0000${right.specifier}` ? -1 : `${left.from}\u0000${left.to}\u0000${left.specifier}` > `${right.from}\u0000${right.to}\u0000${right.specifier}` ? 1 : 0));
         }
+        // The build and configuration stage of madarch-8bdc.2.3 reads its own earlier
+        // publication back through this name: a coverage node of its own is its record of
+        // what it read (the coverage's identity carries its reader), so a plan names the
+        // manifests whose reading stands and no other stage's coverage.
+        case PUBLISHED_MANIFESTS_READ: {
+          return coverageScopes(await all((page) => store.byProperty('code.coverage', 'repository', repository, { ...page, limit: page.limit ?? PLAN_PAGE }, transaction)), 'manifest', MANIFEST_SOURCE_SYSTEM, repository);
+        }
         default:
-          throw new Error(`the static stage asked the read ${JSON.stringify(document.read)} for ${JSON.stringify(repository)}, and this reader answers ${PUBLISHED_TREE_READ}, ${PUBLISHED_REPOSITORY_READ}, ${PUBLISHED_UNFILED_READ}, ${PUBLISHED_CONTAINMENT_READ}, ${PUBLISHED_COVERAGE_READ}, ${PUBLISHED_RESOLVED_READ}, ${PUBLISHED_GAPS_READ} and ${PUBLISHED_IMPORTS_READ}: a static stage has one reading of the graph (src/fill/stages/static-reads.ts)`);
+          throw new Error(`the static stage asked the read ${JSON.stringify(document.read)} for ${JSON.stringify(repository)}, and this reader answers ${PUBLISHED_TREE_READ}, ${PUBLISHED_REPOSITORY_READ}, ${PUBLISHED_UNFILED_READ}, ${PUBLISHED_CONTAINMENT_READ}, ${PUBLISHED_COVERAGE_READ}, ${PUBLISHED_RESOLVED_READ}, ${PUBLISHED_GAPS_READ}, ${PUBLISHED_MANIFESTS_READ}: a static stage has one reading of the graph (src/fill/stages/static-reads.ts)`);
       }
     },
   };
