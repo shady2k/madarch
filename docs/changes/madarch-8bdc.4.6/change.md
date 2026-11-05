@@ -93,20 +93,19 @@ verbatim from Base; `catalog` (madarch-8bdc.4.1), `extractor-mapping` (madarch-8
 changes' additions and stand before the new requirement, which is at the file's end.
 
 ## Preserved contracts
-- product-wiki/pages: the product's documents are still the wiki's pages; a product without
-  `madarch/workflows.yaml` reads exactly as it did, and the starter set's pages are unchanged.
-- product-wiki/live: a saved workflows file changes the findings at the next read; no page gains or
-  loses a block.
-- product-wiki/serve: serving a product is still one read of its working tree; the workflows file adds
-  no route.
-- product-repository/draft: `madarch new` still writes the starter set as the product's own files; what
-  it writes now includes `madarch/workflows.yaml`, committed with the draft.
-- fill-stages/registry: a stage is still registered once by its module, and a plan is still derived from
-  the declarations; the workflow check adds one derivation over a set of the registry's stages and
-  changes no stage.
+- product-wiki/pages: the product's documents are still the wiki's pages; a product without `madarch/workflows.yaml` reads exactly as it did, and the starter set's pages are unchanged.
+- product-wiki/live: a saved workflows file changes the findings at the next read; no page gains or loses a block.
+- product-wiki/serve: serving a product is still one read of its working tree; the workflows file adds no route.
+- product-repository/draft: `madarch new` still writes the starter set as the product's own files; what it writes now includes `madarch/workflows.yaml`, committed with the draft.
+- fill-stages/registry: a stage is still registered once by its module, and a plan is still derived from the declarations; the workflow check adds one derivation over a set of the registry's stages and changes no stage.
 
 ## Coverage
 - product-wiki/workflows: test, static
+- product-wiki/views: test, static
+- product-wiki/catalog: test
+- product-wiki/extractor-mapping: test
+- product-wiki/pov: test, static
+- product-wiki/presentation: test
 - product-wiki/pages: test
 - product-wiki/live: test
 - product-wiki/serve: test
