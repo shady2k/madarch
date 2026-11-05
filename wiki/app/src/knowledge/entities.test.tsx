@@ -476,7 +476,7 @@ describe('the navigation by group', () => {
   });
 
   test('a kind with a top-level page of its own (the glossary terms) is not listed again under the kinds', () => {
-    const groups = navGroups({ ...status, kinds: [kind({ kind: 'domain', source: 'markdown', group: 'product', count: 1 }), kind({ kind: 'doc.term', source: 'document', group: 'product', count: 7 })] } as unknown as WikiStatus, () => 0);
+    const groups = navGroups({ ...status, kinds: [kind({ kind: 'domain', source: 'markdown', group: 'product', count: 1 }), kind({ kind: 'doc.term', source: 'document', group: 'product', count: 7, nav: 'own-page' })] } as unknown as WikiStatus, () => 0);
     expect(groups.map((entry) => entry.kinds.map((one) => one.kind))).toEqual([['domain']]);
   });
 

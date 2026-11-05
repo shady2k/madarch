@@ -168,6 +168,11 @@ export type PageModel = {
 
 export type Origin = 'agent' | 'person' | 'code' | 'history';
 
+/** The form a kind's listing page takes (`listing:` of the manifest); no screen of the app holds a kind of its own. */
+type KindListing = 'operations';
+/** Where a kind stands in the navigation (`nav:` of the manifest). */
+type KindNav = 'own-page' | 'loop';
+
 export type KindSummary = {
   kind: string;
   source: 'graph' | 'markdown' | 'document';
@@ -178,6 +183,10 @@ export type KindSummary = {
   origins: Origin[];
   descriptions?: Record<string, string>;
   labels?: Record<string, { one: string; many: string }>;
+  /** The form the kind's listing page takes; absent for the plain table of names and places. */
+  listing?: KindListing;
+  /** Where the kind stands in the navigation; absent for a kind page among the pages by kind. */
+  nav?: KindNav;
 };
 
 export type GroupSummary = { group: string; labels: Record<string, string>; /** The navigation's one-or-two-word label per language; the full name when it is absent. */ short?: Record<string, string>; /** The group this is a sub-area of; absent for a top-level group. */ parent?: string; /** The group the menu opens by itself; absent when it stays closed until opened. */ open?: boolean };

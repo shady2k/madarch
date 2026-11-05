@@ -6,6 +6,10 @@ import { createKnowledgePart } from '../src/server/knowledge.js';
 import type { KnowledgeProduct } from '../src/knowledge/product.js';
 import type { RenderContext } from '../src/knowledge/blocks.js';
 import type { GraphEntity, GraphReader } from '../src/knowledge/graph-read.js';
+import { fixtureManifest } from './knowledge-manifest-fixture.js';
+
+/** The kinds these projections are drawn by, as a product's manifest declares them (decision 0033). */
+const MANIFEST = fixtureManifest({ 'code.table': { views: ['er'] }, 'code.database': { views: ['er'] }, 'code.service': { views: ['c4-component'], system: 'container' } });
 
 const domainMap: GraphView = {spec:{type:'domain-map',subject:''},title:'Domains',label:'Domains',elements:[
   {id:'domain:orders',label:'Ordering',kind:'domain',href:'/k/e/orders',dashed:false},
@@ -63,7 +67,7 @@ test('21 incoming foreign-key tables cannot disappear behind a false total',asyn
     const rows=entity.key===subject.key?(options.direction==='in'?others:[]):[subject];
     return [{relation:'code.foreign-key',direction:options.direction,total:rows.length,edges:rows.length,rows:rows.slice(0,options.limit).map(entity=>({entity,edges:1}))}];
   }} as unknown as GraphReader;
-  const ctx={graph,manifest:{kinds:new Map()},repoOfScope:()=>undefined} as unknown as RenderContext;
+  const ctx={graph,manifest:MANIFEST,repoOfScope:()=>undefined} as unknown as RenderContext;
   const [view]=await buildViews({ctx,lang:'en',productTitle:'Shop'},{type:'er',subject:subject.key});
   expect(view!.elements).toHaveLength(12);
   expect(view!.marker).toBe('Showing 12 of 22.');
@@ -79,11 +83,14 @@ test('parallel foreign keys retain each relationship and mark both owning column
   const foreignKeys = ['billing_customer_id', 'shipping_customer_id'].map(column => ({ from: orders, to: customers, discriminator: column, properties: { column } }));
   const graph = {
     find: async (key: string) => [orders, customers].filter(table => table.key === key),
-    byPrefix: async (_kind: string, prefix: string) => ({ rows: prefix.startsWith(orders.key + '/') ? foreignKeys.map(({ properties: { column } }) => ({ ...entity(column), label: column, properties: { type: 'uuid' } })) : [], total: prefix.startsWith(orders.key + '/') ? 2 : 0 }),
+    // A table holds no tables under its key; its columns are what the graph files there.
+    byPrefix: async (kind: string, prefix: string) => (kind === 'code.column' && prefix.startsWith(`${orders.key}/`)
+      ? { rows: foreignKeys.map(({ properties: { column } }) => ({ ...entity(column), label: column, properties: { type: 'uuid' } })), total: 2 }
+      : { rows: [], total: 0 }),
     relationEdges: async () => ({ rows: foreignKeys, total: 2 }),
     neighbors: async (table: GraphEntity, options: { direction: string }) => [{ relation: 'code.foreign-key', direction: options.direction, total: table.key === orders.key && options.direction === 'out' ? 1 : 0, edges: 2, rows: table.key === orders.key && options.direction === 'out' ? [{ entity: customers, edges: 2 }] : [] }],
   } as unknown as GraphReader;
-  const ctx = { graph, manifest: { kinds: new Map() }, repoOfScope: () => undefined } as unknown as RenderContext;
+  const ctx = { graph, manifest: MANIFEST, repoOfScope: () => undefined } as unknown as RenderContext;
   const [view] = await buildViews({ ctx, lang: 'en', productTitle: 'Shop' }, { type: 'er', subject: orders.key });
   expect(view!.edges.map(edge => edge.label)).toEqual(['billing_customer_id', 'shipping_customer_id']);
   expect(view!.edges.map(edge => edge.discriminator)).toEqual(['billing_customer_id', 'shipping_customer_id']);
@@ -112,7 +119,7 @@ test('deployment ownership survives the actual LikeC4 layout and archify validat
 test('forty-two deployment elements fold into their twenty-one real files and drill back to all members', async () => {
   const services: GraphEntity[] = Array.from({ length: 21 }, (_, index) => ({ key: `code.compose-service:deploy/${String(index).padStart(2, '0')}/compose.yaml#api`, kind: 'code.compose-service', label: `api-${index}`, properties: {}, nodeIds: [], scope: 'repo' }));
   const graph = { list: async (kind: string) => ({ rows: kind === 'code.compose-service' ? services : [], total: kind === 'code.compose-service' ? services.length : 0 }), relationEdges: async () => ({ rows: [], total: 0 }) } as unknown as GraphReader;
-  const ctx = { graph, manifest: { kinds: new Map() }, repoOfScope: () => undefined } as unknown as RenderContext;
+  const ctx = { graph, manifest: MANIFEST, repoOfScope: () => undefined } as unknown as RenderContext;
   const context = { ctx, lang: 'en', productTitle: 'Shop' };
   const [overview] = await buildViews(context, { type: 'deployment', subject: '' });
   expect(overview!.elements).toHaveLength(21);
@@ -133,11 +140,14 @@ test('ER retains all 64 columns including combined PK/FK and parallel column lab
   const columns = Array.from({ length: 64 }, (_, index) => ({ ...table, key: `${table.key}/column_${index}`, kind: 'code.column', label: `column_${index}`, properties: { type: 'uuid', primaryKey: index === 0 } }));
   const graph = {
     find: async () => [table],
-    byPrefix: async (_kind: string, _prefix: string, limit: number) => ({ rows: columns.slice(0, limit), total: columns.length }),
+    // A table holds no tables under its key: the columns are what the graph holds there (the data model extractor's facts).
+    byPrefix: async (kind: string, prefix: string, limit: number) => (kind === 'code.column' && prefix.startsWith(`${table.key}/`)
+      ? { rows: columns.slice(0, limit), total: columns.length }
+      : { rows: [], total: 0 }),
     neighbors: async () => [{ relation: 'code.foreign-key', direction: 'out', total: 1, edges: 2, rows: [{ entity: table, edges: 2 }] }],
     relationEdges: async () => ({ rows: [0, 63].map(index => ({ from: table, to: table, discriminator: `fk_${index}`, properties: { column: `column_${index}` } })), total: 2 }),
   } as unknown as GraphReader;
-  const ctx = { graph, manifest: { kinds: new Map() }, repoOfScope: () => undefined } as unknown as RenderContext;
+  const ctx = { graph, manifest: MANIFEST, repoOfScope: () => undefined } as unknown as RenderContext;
   const [view] = await buildViews({ ctx, lang: 'en', productTitle: 'Shop' }, { type: 'er', subject: table.key });
   expect(view!.elements[0]!.columns).toHaveLength(64);
   expect(view!.mermaid).toContain('uuid column_0 PK,FK');
@@ -149,7 +159,7 @@ for (const mode of ['roots', 'one-group'] as const) test(`oversized deployment $
   const rows: GraphEntity[] = Array.from({ length: 45 }, (_, index) => ({ key: mode === 'roots' ? `code.dockerfile:deploy/${String(index).padStart(2, '0')}/Dockerfile` : `code.compose-service:compose.yaml#api-${String(index).padStart(2, '0')}`, kind: mode === 'roots' ? 'code.dockerfile' : 'code.compose-service', label: `api-${index}`, properties: {}, nodeIds: [], scope: 'repo' }));
   const facts = rows.slice(1).map((to, index) => ({ from: rows[index]!, to, properties: {} }));
   const graph = { list: async (kind: string) => ({ rows: kind === rows[0]!.kind ? rows : [], total: kind === rows[0]!.kind ? rows.length : 0 }), relationEdges: async (relation: string) => ({ rows: relation === 'code.depends-on' ? facts : [], total: relation === 'code.depends-on' ? facts.length : 0 }) } as unknown as GraphReader;
-  const ctx = { graph, manifest: { kinds: new Map() }, repoOfScope: () => undefined } as unknown as RenderContext;
+  const ctx = { graph, manifest: MANIFEST, repoOfScope: () => undefined } as unknown as RenderContext;
   const [view] = await buildViews({ ctx, lang: 'en', productTitle: 'Shop' }, { type: 'deployment', subject: '' });
   expect(view!.elements).toHaveLength(40);
   expect(view!.fullElements).toHaveLength(mode === 'roots' ? 45 : 46);

@@ -2441,18 +2441,8 @@
   },
   {
     "rule": "no-unreachable-code",
-    "file": "src/knowledge/definition.ts",
-    "symbol": "DEFINITION_KINDS"
-  },
-  {
-    "rule": "no-unreachable-code",
     "file": "src/knowledge/diagrams.ts",
     "symbol": "QUIET_RELATIONS"
-  },
-  {
-    "rule": "no-unreachable-code",
-    "file": "src/knowledge/diagrams.ts",
-    "symbol": "collectNeighbors"
   },
   {
     "rule": "no-unreachable-code",

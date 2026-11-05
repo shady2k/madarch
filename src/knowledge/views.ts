@@ -27,6 +27,7 @@ import type { RenderContext, Subject } from './blocks.js';
 import { locationOf, refOfGraph, refOfMarkdown } from './blocks.js';
 import { chainFrom, entriesOf, modulesBlockModel, pathOfKey, serviceLocator, systemModel, type Entry } from './diagrams.js';
 import type { GraphEntity } from './graph-read.js';
+import { declarationMissing, kindDraws, systemPartOf, type KindView } from './kinds.js';
 import type { Chain, ChainStep, CodeLocation } from './model.js';
 import { sourceAddress } from './resolve.js';
 import { stateMachinesOf } from './state-machines.js';
@@ -93,6 +94,15 @@ export class ViewRefusal extends Error {
   constructor(readonly status: 400 | 404, message: string) {
     super(message);
   }
+}
+
+/**
+ * The refusal of a view the manifest does not give a kind: it names the manifest's file and the kind's line, so a
+ * product that expects the view reads what to declare rather than a kind the engine should have known (decision 0033:
+ * the engine holds no kind of its own).
+ */
+function notDeclared(ctx: RenderContext, kind: string, declaration: string, what: string, status: 400 | 404 = 404): ViewRefusal {
+  return new ViewRefusal(status, declarationMissing(ctx.manifest, kind, declaration, what));
 }
 
 /** The specification a request carries (`type`, `subject`, `scope`, `entry`), or the refusal naming the field. */
@@ -473,7 +483,8 @@ async function contextView(ctx: RenderContext, spec: ViewSpec, w: Words, product
 
 async function componentView(ctx: RenderContext, spec: ViewSpec, w: Words): Promise<GraphView> {
   const service = await entityAt(ctx, spec.subject);
-  if (service === undefined || service.kind !== 'code.service') throw new ViewRefusal(404, `"${spec.subject}" is no service of the graph: a component view is the modules of a service`);
+  if (service === undefined) throw new ViewRefusal(404, `"${spec.subject}" is no entity of the graph: a component view is the modules of an entity`);
+  if (!kindDraws(ctx.manifest, service.kind, 'c4-component')) throw notDeclared(ctx, service.kind, '"views: [c4-component]"', 'a component view is the modules of a container of this product');
   const up = { spec: { type: 'c4-container' as const, subject: '' }, title: w.containers };
   const title = `${w.components}: ${service.label}`;
   const model = await modulesBlockModel(ctx, { source: 'graph', entity: service }, w.lang);
@@ -535,16 +546,20 @@ const erType = (type: unknown): string => {
 
 async function erView(ctx: RenderContext, spec: ViewSpec, w: Words, limit: number): Promise<GraphView> {
   const subject = await entityAt(ctx, spec.subject);
-  if (subject === undefined || (subject.kind !== 'code.database' && subject.kind !== 'code.table')) throw new ViewRefusal(404, `"${spec.subject}" is no database or table of the graph: an ER view draws the tables of a database`);
+  if (subject === undefined) throw new ViewRefusal(404, `"${spec.subject}" is no entity of the graph: an ER view draws the tables an entity holds, or the links of one table`);
+  if (!kindDraws(ctx.manifest, subject.kind, 'er')) throw notDeclared(ctx, subject.kind, '"views: [er]"', 'an ER view draws the tables an entity holds, or the links of one table');
   const up = { spec: { type: 'c4-container' as const, subject: '' }, title: w.containers };
   let tables: GraphEntity[];
   let total: number;
-  if (subject.kind === 'code.database') {
-    let found = await ctx.graph.byPrefix('code.table', `code.table:${keyTail(subject.key)}/`, limit);
-    if (found.total > found.rows.length) found = await ctx.graph.byPrefix('code.table', `code.table:${keyTail(subject.key)}/`, found.total);
-    if (found.total !== found.rows.length) throw new ViewRefusal(400, `ER database "${subject.key}": expected ${found.total} tables, read ${found.rows.length}`);
-    tables = found.rows;
-    total = found.total;
+  // The entities the graph holds tables under are drawn with them — the data model extractor files a table under the
+  // database whose key it opens (`code.table:<database>/<table>`, the facts this view reads, decision 0033 item 7).
+  // An entity that holds none is one table: drawn with the tables it points to by foreign key and those that point to it.
+  let held = await ctx.graph.byPrefix('code.table', `code.table:${keyTail(subject.key)}/`, limit);
+  if (held.total > held.rows.length) held = await ctx.graph.byPrefix('code.table', `code.table:${keyTail(subject.key)}/`, held.total);
+  if (held.total !== held.rows.length) throw new ViewRefusal(400, `ER "${subject.key}": expected ${held.total} tables, read ${held.rows.length}`);
+  if (held.total > 0) {
+    tables = held.rows;
+    total = held.total;
   } else {
     // A table is drawn with the tables it points to by foreign key and the tables that point to it.
     tables = [subject];
@@ -878,7 +893,8 @@ async function domainsOf(ctx: RenderContext, kind: string): Promise<{ id: string
     for (const key of page.relates) {
       const [entity] = await ctx.graph.find(key);
       if (entity === undefined) continue;
-      if (entity.kind === 'code.service') services.add(entity.key);
+      // The implementation a domain names is an entity of a kind the manifest gives the part of a system container.
+      if (systemPartOf(ctx.manifest, entity.kind) === 'container') services.add(entity.key);
       else {
         const owner = locator.ownerOf(entity.span?.path ?? pathOfKey(entity.key));
         if (owner !== undefined) services.add(owner);
@@ -1026,6 +1042,7 @@ export async function buildViews(view: ViewContext, spec: ViewSpec, subject?: Su
     case 'state': {
       const entity = await entityAt(view.ctx, spec.subject);
       if (entity === undefined) throw new ViewRefusal(404, `"${spec.subject}" is no entity of the graph: a state view reads the transition tables of its code`);
+      if (!kindDraws(view.ctx.manifest, entity.kind, 'state')) throw notDeclared(view.ctx, entity.kind, '"views: [state]"', 'a state view reads the transition tables in the bytes of an entity\'s code');
       const all = await stateViews(view.ctx, entity, w);
       const wanted = spec.entry === undefined ? all : all.filter((candidate) => candidate.spec.entry === spec.entry);
       if (wanted.length === 0) return [empty(spec, w.state, w.state, w.noMachines)];
@@ -1086,14 +1103,14 @@ export async function diagramsBlock(
       const deployment = (await buildViews(view, { type: 'deployment', subject: '' }, subject))[0]!;
       if (deployment.empty === null) built.push(deployment);
     } else if (name === 'modules') {
-      if (graphSubject?.kind === 'code.service') built.push(...(await buildViews(view, { type: 'c4-component', subject: graphSubject.key }, subject)));
-      if (graphSubject !== undefined) {
-        const machines = await stateViews(view.ctx, graphSubject, wordsOf(view.lang));
-        built.push(...machines);
-      } else return problem('the modules block draws the components and state machines of a graph entity (a service, module, package, file or function)');
+      if (graphSubject === undefined) return problem('the modules block draws the components and state machines of a graph entity (a service, module, package, file or function)');
+      // Each part of the block is the kind's own declaration: the components a container draws, the state machines the
+      // bytes of a kind the manifest gives the state view.
+      if (kindDraws(view.ctx.manifest, graphSubject.kind, 'c4-component')) built.push(...(await buildViews(view, { type: 'c4-component', subject: graphSubject.key }, subject)));
+      if (kindDraws(view.ctx.manifest, graphSubject.kind, 'state')) built.push(...(await stateViews(view.ctx, graphSubject, wordsOf(view.lang))));
     } else if (name === 'er') {
       if (graphSubject === undefined) return problem('the er block draws the tables of the graph; the entities of this kind are Markdown pages');
-      if (graphSubject.kind !== 'code.database' && graphSubject.kind !== 'code.table') return problem(`the er block draws a database or a table, and this is a ${graphSubject.kind}`);
+      if (!kindDraws(view.ctx.manifest, graphSubject.kind, 'er')) return problem(declarationMissing(view.ctx.manifest, graphSubject.kind, '"views: [er]"', `the er block draws an entity whose kind declares the ER view, and this is a ${graphSubject.kind}`));
       built.push(...(await buildViews(view, { type: 'er', subject: graphSubject.key }, subject)));
     } else {
       built.push(...(await buildViews(view, { type: 'sequence', subject: graphSubject?.key ?? (subject.source === 'markdown' ? subject.entity.id : '') }, subject)));

@@ -4,6 +4,7 @@ import { GraphReader, type GraphEntity, type RelationEdge } from '../src/knowled
 import type { RenderContext } from '../src/knowledge/blocks.js';
 import { Resolver } from '../src/knowledge/resolve.js';
 import { buildViews } from '../src/knowledge/views.js';
+import { fixtureManifest } from './knowledge-manifest-fixture.js';
 
 // Only the graph-read boundary is doubled. Every projection comes from the real view builders.
 const unusedOwner: DatabaseOwner = {
@@ -36,8 +37,20 @@ class FixtureReader extends GraphReader {
     });
   }
 }
+/** The kinds these projections are drawn by, as a product's manifest declares them (decision 0033). */
+const MANIFEST = fixtureManifest({
+  'code.service': { views: ['c4-component'], system: 'container' },
+  'code.module': { views: ['c4-component'] },
+  'code.database': { views: ['er'] },
+  'code.table': { views: ['er'] },
+  'code.route': { sequence: 'route' },
+  'code.symbol': {},
+  'code.cycle': {},
+  'code.column': {},
+});
+
 function context(graph: GraphReader): RenderContext {
-  return { graph, productFolder: '', manifest: { file: '', roles: new Map(), properties: new Map(), kinds: new Map(), groups: new Map(), excludeDocuments: [], ignoreBlocks: [], findings: [] },
+  return { graph, productFolder: '', manifest: MANIFEST,
     markdown: new Map(), docEntities: new Map(), localizedSources: new Map(), language: 'en', documents: [], repositories: [],
     commitOf: () => null, repoOfScope: () => undefined, readSource: async () => undefined,
     resolver: new Resolver({ graph, markdown: new Map(), declared: () => false, readDocument: async () => undefined, repositories: () => [], locate: () => undefined }),
@@ -131,7 +144,7 @@ class IncompleteReader extends FixtureReader {
 }
 test('a counted service read that remains incomplete refuses instead of claiming a full raw list', async () => {
   const service = entity('code.service', 'api', 'services/api/main.ts');
-  await expect(buildViews({ ctx: context(new IncompleteReader([service])), lang: 'en', productTitle: 'Fixture' }, { type: 'c4-container', subject: '' })).rejects.toThrow('system services]: expected 2 graph rows, read 1');
+  await expect(buildViews({ ctx: context(new IncompleteReader([service])), lang: 'en', productTitle: 'Fixture' }, { type: 'c4-container', subject: '' })).rejects.toThrow('system containers]: expected 2 graph rows, read 1');
 });
 
 test('system relationships beyond five thousand survive the raw projection', async () => {
