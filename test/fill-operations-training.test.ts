@@ -62,12 +62,10 @@ const REMAINING: readonly string[] = [
   'code.exposes-metric',
   'code.health-endpoint',
   'code.logger',
-  'code.manifest-of',
   'code.metric',
   'code.metrics-endpoint',
   'code.probes',
   'code.served-by',
-  'code.service',
   'code.symbol',
   'code.updates-metric',
   'code.uses-logger',
@@ -297,6 +295,9 @@ beforeAll(async () => {
   first = run;
   // A unit the stage could not publish is said here, with the reader's own words: the comparison
   // below is worth nothing while a file of the stage stands failed (decision 0005).
+  if (run.state !== 'succeeded') {
+    throw new Error(`the first fill did not succeed: state ${run.state}, settled ${String(run.settled)}, stopped ${String(run.stoppedBecause)}, work ${String(run.work)}, passes ${String(run.passes)}`);
+  }
   const failed = run.units.filter((unit) => unit.state === 'failed');
   if (failed.length > 0) {
     const { readProgress } = await import('../src/fill/orchestrator-store.js');

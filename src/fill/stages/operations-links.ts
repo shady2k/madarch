@@ -39,6 +39,7 @@ import { checkStaticGraphDraft, graphWritesOf } from './static-graph.js';
 import { fileFactIdOf } from './syntax-facts.js';
 import { fileUnitId, plannedUnit } from './syntax.js';
 import { publishedTreeRead, publishedTreeRows } from './tree-rows.js';
+import { readGoMod, readJson } from './manifest-format.js';
 import { publishedOperationsRows } from './operations.js';
 
 /** The stage's id, as it is registered and as its units are named. */
@@ -48,7 +49,7 @@ const OPERATIONS_LINKS_STAGE_ID = 'operations-links';
 const OPERATIONS_LINKS_STAGE_VERSION = 1;
 
 /** The fact kinds the stage produces, in code point order. */
-const OPERATIONS_LINKS_STAGE_KINDS: readonly string[] = ['contains', 'coverage', 'defines', 'env-var', 'reads-env'];
+const OPERATIONS_LINKS_STAGE_KINDS: readonly string[] = ['contains', 'coverage', 'defines', 'env-var', 'manifest-of', 'reads-env', 'service'];
 
 /** The reader every fact of this stage cites: this fill's own linking of one file's records. */
 const LINKS_SOURCE: FactSource = { system: 'madarch-operations-links', version: '1' };
@@ -67,6 +68,8 @@ const FAMILY_RANK: Readonly<Record<string, number>> = {
   // and describe its service follow: the order is the plan's, and the stage graph is what
   // makes every one of these files wait for the declarations the operations stage published.
   code: 1,
+  // A service's passport reads the variables its code reads, and those are the code files'
+  // variables: the manifest that declares the service is linked after them.
   manifest: 2,
   compose: 3,
   kubernetes: 3,
@@ -169,7 +172,9 @@ async function executeLinksUnit(unit: StageUnit, context: StageContext): Promise
   try {
     writes = family === 'code'
       ? await variableWrites(stage, planned.repository, planned.path, source.commit)
-      : await definitionWrites(stage, planned.repository, planned.path);
+      : family === 'manifest'
+        ? await serviceWrites(stage, planned.repository, planned.path, source.commit)
+        : await definitionWrites(stage, planned.repository, planned.path);
   } catch (error) {
     gaps.push({ what: `${planned.path}:1: ${error instanceof Error ? error.message : String(error)}`, reason: 'error' });
   }
@@ -286,6 +291,87 @@ async function variableWrites(stage: StaticStageContext, repository: string, pat
     writes.push(edgeWrite('code.reads-env', `code.file:${path}`, key, { symbol: read.symbol, required: read.required, default: read.default }, read.span, repository));
   }
   return writes;
+}
+
+
+/** The Go standard-library packages a service's passport names as what it runs on. */
+const GO_STDLIB_FRAMEWORKS: readonly string[] = ['database/sql', 'net/http'];
+
+/**
+ * One manifest's service passport: the unit it declares, its language, the
+ * frameworks its files and its manifest name, the infrastructure its variables
+ * name, and whether the unit runs tests — the driver's stack passport
+ * (`src/extract/operations/stack.ts`), read from the unit's per-file facts and
+ * the variables the code files read, which the earlier units published.
+ */
+async function serviceWrites(stage: StaticStageContext, repository: string, path: string, commit: string): Promise<readonly StageDraftWrite[]> {
+  const file = await stage.repository.file(path);
+  if (file === undefined || file.content === undefined) return [];
+  const text = new TextDecoder().decode(file.content);
+  const name = path.slice(path.lastIndexOf('/') + 1);
+  const ecosystem = name === 'go.mod' ? 'go' : 'npm';
+  // The unit the manifest declares, by the code-facts stage's own membership fact: the folder
+  // the manifest stands in, its name and its root.
+  const units = (await pagesOf(stage, 'code.service-unit', 'manifestPath', path)).filter((node) => node.properties['repository'] === repository);
+  const declared = units.map((node) => ({ name: String(node.properties['name']), root: String(node.properties['root']), file: String(node.properties['file']) }));
+  const service = declared[0]?.name;
+  if (service === undefined) return [];
+  const readPaths = declared.map((entry) => entry.file).sort(byCodePoint);
+  const frameworks = new Set<string>();
+  let testFramework: string | null = null;
+  if (ecosystem === 'go') {
+    // What the unit's files import of the standard library, and what the module requires: the
+    // driver's own two answers, and neither is a picture of the other.
+    for (const held of readPaths) {
+      if (!held.endsWith('.go')) continue;
+      for (const node of await pagesOf(stage, 'code.binding', 'file', held)) {
+        if (node.properties['kind'] !== 'import') continue;
+        const specifier = node.properties['specifier'];
+        if (typeof specifier === 'string' && GO_STDLIB_FRAMEWORKS.includes(specifier)) frameworks.add(specifier);
+      }
+    }
+    const manifest = readGoMod(text);
+    if (manifest.ok) for (const required of manifest.value.requires) frameworks.add(required.path);
+    frameworks.delete('');
+    testFramework = readPaths.some((held) => held.endsWith('_test.go')) ? 'go test' : null;
+  } else {
+    const manifest = readJson(text);
+    if (!manifest.ok) return [];
+    const parsed = manifest.value.value as { dependencies?: Record<string, unknown>; devDependencies?: Record<string, unknown> };
+    for (const dependency of Object.keys(parsed.dependencies ?? {})) frameworks.add(dependency);
+    testFramework = parsed.devDependencies?.['jest'] !== undefined ? 'jest' : null;
+  }
+  const variables = new Set((await readsInRepository(stage, repository)).map((read) => read.variable));
+  const infrastructure: string[] = [];
+  if (variables.has(`${service}/DATABASE_URL`)) infrastructure.push('Postgres');
+  if (variables.has(`${service}/KAFKA_BROKERS`)) infrastructure.push('Kafka');
+  infrastructure.sort(byCodePoint);
+  const node: LinkNode = {
+    key: `code.service:${service}`,
+    kind: 'code.service',
+    label: service,
+    properties: {
+      language: ecosystem === 'go' ? 'go' : 'typescript',
+      frameworks: [...frameworks].sort(byCodePoint),
+      infrastructure,
+      testFramework,
+    },
+    span: fileSpanOf(path, text),
+  };
+  const writes: StageDraftWrite[] = [nodeWrite(node, repository, commit), containsWrite(node, repository)];
+  writes.push(edgeWrite('code.manifest-of', `code.manifest:${path}`, node.key, {}, node.span, repository));
+  return writes;
+}
+
+/** The span of one whole file: its bytes, and the lines its text holds. */
+function fileSpanOf(path: string, text: string): Span {
+  return {
+    path,
+    byteStart: 0,
+    byteEnd: new TextEncoder().encode(text).length,
+    lineStart: 1,
+    lineEnd: text === '' ? 1 : text.split('\n').length,
+  };
 }
 
 /**
