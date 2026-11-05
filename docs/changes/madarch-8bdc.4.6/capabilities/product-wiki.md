@@ -975,9 +975,10 @@ wiki's own read of a product's manifest, shall refuse a workflow naming a stage
 the engine's stage registry does not hold, and, for an implemented workflow, a
 stage whose required input no other stage of the workflow produces, named by the
 path the stage graph derives (`modules → symbol → syntax`), and a cycle of the
-workflow's stages. Every refusal shall name the file, the line, the workflow and
-the stage, one defect shall be one finding, and a workflow the reader refuses
-shall be left out while the others stand. The starter set passes it, and a
+workflow's stages. Every refusal of a stage shall name the file, the line, the
+workflow and the stage, and a refusal of the file or of a workflow's own fields
+shall name the file, the line and the workflow; one defect shall be one finding,
+and a workflow the reader refuses shall be left out while the others stand. The starter set passes it, and a
 valid workflow is read without a finding.
 
 Declaring, reading and checking a workflow shall change no run: which stages a

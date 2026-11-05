@@ -80,8 +80,9 @@ findings a reader sees on the Problems page. One check and one reader, the same 
   `madarch/workflows.yaml`; a workflow is a named set of the engine's stage ids and the capabilities give
   the order; a check run by `bun run check` over the starter set and by the wiki's own read of a
   product's manifest refuses a stage the registry does not hold and a stage whose required input no
-  stage of the workflow produces, naming the file, the line, the workflow and the stage; a planned
-  workflow may name no stages; the starter set passes and a valid workflow reads without a finding.
+  stage of the workflow produces, naming the file, the line, the workflow and the stage (a refusal of the
+  file or of a workflow's own fields names the file, the line and the workflow); a planned workflow may
+  name no stages; the starter set passes and a valid workflow reads without a finding.
   Scenarios: `starter-set-workflows`, `workflow-refusals`, `workflow-reads`.
 
 Complete proposed capability: `capabilities/product-wiki.md`. Every accepted requirement is retained
