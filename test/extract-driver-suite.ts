@@ -20,6 +20,7 @@ import { fileURLToPath } from 'node:url';
 import { beforeAll, describe, expect, test } from 'bun:test';
 import type { DatabaseOwner } from '../src/adapters/database-owner.js';
 import type { GraphId, GraphStore } from '../src/graph/index.js';
+import { GRAPH_TABLES } from '../src/graph/schema.js';
 import { fillGraph, remapKey } from '../src/extract/driver/index.js';
 import { HISTORY_EXTRACTOR, OWNERS, TREE_EXTRACTORS } from '../src/extract/driver/extractors.js';
 import type { FillOptions, FillReport } from '../src/extract/driver/index.js';
@@ -113,8 +114,6 @@ export interface DriverEnv {
   query<Row extends object = Record<string, unknown>>(sql: string, values?: readonly unknown[]): Promise<Row[]>;
 }
 
-const GRAPH_TABLES = ['node_identity', 'node_version', 'edge_identity', 'edge_version', 'node_kind', 'relation_type', 'work_item'];
-
 /** Every row of every graph table, as one digest: what a refill must not change. */
 async function digestAll(env: DriverEnv): Promise<{ digest: string; counts: Record<string, number> }> {
   const counts: Record<string, number> = {};
@@ -143,16 +142,22 @@ async function nodesOfKind(env: DriverEnv, kind: string, at: string, producer?: 
   return rows.map((r) => ({ id: r.id, label: r.label, producer: r.producer, sha256: r.digest, validFrom: r.valid_from, validTo: r.valid_to, properties: r.properties }));
 }
 
+/**
+ * The parts of an ISO-8601 UTC instant: git writes a zero offset `+00:00` where the same
+ * instant is written `Z`, and the suite reads both. A non-zero offset is refused.
+ */
+const UTC_INSTANT = /^(\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2})(?:\.(\d{1,6}))?(?:Z|\+00:00)$/;
+
 /** Canonical instant text: ISO-8601 UTC with six fractional digits, as the store writes them. */
 function canonical(iso: string): string {
-  const match = /^(\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2})(?:\.(\d{1,6}))?Z$/.exec(iso);
+  const match = UTC_INSTANT.exec(iso);
   if (match === null) throw new Error(`canonical: ${iso} is not a UTC instant`);
   return `${match[1]}.${(match[2] ?? '').padEnd(6, '0')}Z`;
 }
 
 /** The instant text one microsecond after an ISO instant, for 0028's tie rule. */
 function plusMicrosecond(iso: string): string {
-  const match = /^(\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2})(?:\.(\d{1,6}))?Z$/.exec(iso);
+  const match = UTC_INSTANT.exec(iso);
   if (match === null) throw new Error(`plusMicrosecond: ${iso} is not a UTC instant`);
   const micros = Number((match[2] ?? '').padEnd(6, '0')) + 1;
   const date = new Date(`${match[1]}Z`);
@@ -388,7 +393,9 @@ export function extractDriverTests(label: string, make: () => { owner: DatabaseO
         [`code.commit:${anomaly.hash}`],
       ))[0]!;
       expect(commit.label).toBe(anomaly.subject.replace(/^[A-Z][A-Z0-9]*-[0-9]+\s+/u, '')); // the record carries the words behind the task key
-      expect(commit.raw).toBe(anomaly.committer); // the raw time as git prints it
+      // The raw time is the commit's committer date: the same instant, whatever spelling git and the
+      // record give its zero offset.
+      expect(new Date(String(commit.raw)).getTime()).toBe(new Date(anomaly.committer).getTime());
       expect(commit.effective).toBe(expected);
     }, 60_000);
 
