@@ -61,11 +61,13 @@ import { fileFactIdOf } from './syntax-facts.js';
 import { fileUnitId, plannedUnit } from './syntax.js';
 import { publishedTreeRead, publishedTreeRows } from './tree-rows.js';
 import { serviceMembershipOf, type ManifestEntry } from './service-membership.js';
+import { libraryEffectsOf } from './library-effects.js';
+import { envReadsOf, type EnvBinding, type EnvCall, type EnvExpression, type EnvRead, type EnvSpan } from './env-reads.js';
 import {
   FileText, RecordSet, asyncapiRecords, brokerOf, composeRecords, dockerfileRead, dockerfileRecords, environmentRecords, goModReading, goSumRecords,
   imageServiceName, k8sRecords, makefileRecords, newcomerRecords, npmLockRecords, npmManifestReading, processRecords,
   recordsOf, startedProcessOf, usesDependencyRecords, workflowRecords, type BrokerRow,
-  type FileRecords, type RecordSpan,
+  type FileRecords, type NodeRecord, type RecordSpan,
 } from './operations-records.js';
 
 /** The stage's id, as it is registered and as its units are named. */
@@ -78,7 +80,7 @@ const OPERATIONS_STAGE_VERSION = 1;
 const OPERATIONS_STAGE_KINDS: readonly string[] = [
   'backed-by', 'broker', 'builds', 'built-by', 'channel', 'ci-job', 'ci-workflow', 'compose-service', 'configured-by',
   'contains', 'contains-job', 'coverage', 'declares-dependency', 'defined-in', 'dependency', 'depends-on',
-  'dockerfile', 'env-definition', 'exposes', 'healthcheck', 'hosts-channel', 'image', 'k8s-deployment', 'k8s-service',
+  'dockerfile', 'env-definition', 'env-read', 'exposes', 'healthcheck', 'hosts-channel', 'image', 'k8s-deployment', 'k8s-service',
   'listens-on', 'lockfile', 'make-target', 'manifest', 'newcomer-command', 'newcomer-failure',
   'newcomer-prerequisites', 'port', 'probe', 'process', 'publishes', 'references', 'resolves', 'runs', 'starts',
   'targets', 'uses-dependency',
@@ -545,6 +547,10 @@ async function codeRecords(stage: StaticStageContext, repository: string, file: 
       usesDependencyRecords(file, manifestPath, declared, imports, set);
     }
   }
+  // What the file reads from the environment, as the extract driver's environment area reads
+  // it: the later links stage aggregates these per-file reads into the variables and the
+  // definitions that set them (madarch-8bdc.2.4's second stage).
+  for (const read of await envReadFactsOf(stage, repository, file, membership.unit?.name ?? '')) set.add(read);
   const root = membership.unit?.root;
   if (root !== undefined) {
     const dockerfilePath = root === '' ? 'Dockerfile' : `${root}/Dockerfile`;
@@ -563,6 +569,62 @@ async function codeRecords(stage: StaticStageContext, repository: string, file: 
     }
   }
   return recordsOf(set);
+}
+
+
+/** One environment read as the file's own record: the variable, the callable, the default and the place. */
+async function envReadFactsOf(stage: StaticStageContext, repository: string, file: FileText, service: string): Promise<readonly NodeRecord[]> {
+  const held = await envReadsInFile(stage, repository, file.path, service);
+  return held.map((read) => ({
+    key: `code.env-read:${repository}:${file.path}#${read.name}@${String(read.line)}`,
+    kind: 'code.env-read',
+    label: read.name,
+    properties: {
+      variable: `${read.service}/${read.name}`,
+      service: read.service,
+      name: read.name,
+      path: read.path,
+      line: read.line,
+      symbol: read.symbol,
+      required: read.required,
+      default: read.default,
+    },
+    span: file.spanOfLine(read.line),
+  }));
+}
+
+/**
+ * The environment reads of one code file, read from the facts the code-facts stage
+ * published and the library effects the library reader proves for it: the file's
+ * expressions, bindings, calls and callables by property, and no other file's
+ * answer. A file whose language the reader does not follow reads nothing.
+ */
+async function envReadsInFile(stage: StaticStageContext, repository: string, path: string, service: string): Promise<readonly EnvRead[]> {
+  if (service === '') return [];
+  const language = path.endsWith('.go') ? 'go' as const : 'typescript' as const;
+  const [expressions, bindings, calls, callables, effects] = await Promise.all([
+    factsOf(stage, 'code.expression', path),
+    factsOf(stage, 'code.binding', path),
+    factsOf(stage, 'code.call', path),
+    factsOf(stage, 'code.callable', path),
+    libraryEffectsOf(stage, repository, path),
+  ]);
+  return envReadsOf({
+    path,
+    language,
+    service,
+    expressions: expressions as unknown as readonly EnvExpression[],
+    bindings: bindings as unknown as readonly EnvBinding[],
+    calls: calls as unknown as readonly EnvCall[],
+    callables: callables.filter((held) => held['callable'] === true).map((held) => ({
+      key: String(held['symbolKey']),
+      name: String(held['name']),
+      qualifiedName: String(held['qualifiedName']),
+      span: held['span'] as EnvSpan,
+      ...(held['bodySpan'] === undefined ? {} : { bodySpan: held['bodySpan'] as EnvSpan }),
+    })),
+    effects: effects.effects,
+  });
 }
 
 /** One file of the pinned tree, as text. */
@@ -773,6 +835,9 @@ function draftWrites(records: FileRecords, repository: string, path: string, sou
   // What a file holds, hung from the file's node, for every record whose span stands in it: the
   // driver's own closing pass over the records it made (madarch-m38l.16).
   for (const node of records.nodes) {
+    // The environment reads are this stage's own bookkeeping, read by the links stage and never
+    // a record of the reading: no file holds them (madarch-8bdc.2.4's second stage).
+    if (node.kind === 'code.env-read') continue;
     if (node.span === undefined || node.span.path !== path) continue;
     writes.push({
       kind: 'edge',

@@ -45,8 +45,12 @@ const GENERATOR = fileURLToPath(new URL('../examples/training-repository/generat
 const REPOSITORY = 'training';
 const PRODUCT = 'training-shop';
 
-/** The producer the operations stage publishes under (`staticProducerOf`, `src/fill/stages/static-graph.ts`). */
-const STAGE_PRODUCER = 'fill.operations';
+/**
+ * The producers this comparison reads (`staticProducerOf`, `src/fill/stages/static-graph.ts`):
+ * the per-file declarations of the operations stage, and the links its second stage makes
+ * across files. A record either stage publishes is a record of the port.
+ */
+const STAGE_PRODUCERS: readonly string[] = ['fill.operations', 'fill.operations-links'];
 
 /**
  * The families the stage does not publish yet, by the kind or relation the
@@ -55,8 +59,6 @@ const STAGE_PRODUCER = 'fill.operations';
  */
 const REMAINING: readonly string[] = [
   'code.connects-to',
-  'code.defines',
-  'code.env-var',
   'code.exposes-metric',
   'code.health-endpoint',
   'code.logger',
@@ -64,7 +66,6 @@ const REMAINING: readonly string[] = [
   'code.metric',
   'code.metrics-endpoint',
   'code.probes',
-  'code.reads-env',
   'code.served-by',
   'code.service',
   'code.symbol',
@@ -189,7 +190,7 @@ async function comparePublished(): Promise<Compared> {
   for (const node of driver?.edges ?? []) kinds.add(node.kind);
   for (const kind of [...kinds].sort()) {
     if (REMAINING.includes(kind)) continue;
-    for (const row of await nodesOfKind(kind)) if (row.producer === STAGE_PRODUCER) rows.push(row);
+    for (const row of await nodesOfKind(kind)) if (STAGE_PRODUCERS.includes(row.producer)) rows.push(row);
   }
   const nodes = rows.map((row) => {
     const held = propertiesOf(row);
@@ -357,7 +358,7 @@ describe('the operations stage against the extract driver (training repository)'
   test('every file the driver names stands as a file node of the graph, by its path', async () => {
     if (driver === undefined) throw new Error('the driver did not read the tree');
     const files = await nodesOfKind('code.file');
-    const paths = new Set(files.filter((row) => row.producer !== STAGE_PRODUCER).map((row) => String(propertiesOf(row)['path'])));
+    const paths = new Set(files.filter((row) => !STAGE_PRODUCERS.includes(row.producer)).map((row) => String(propertiesOf(row)['path'])));
     expect(driverFiles.length).toBeGreaterThan(0);
     const missing = driverFiles.filter((path) => !paths.has(path));
     expect(missing).toEqual([]);

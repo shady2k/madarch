@@ -89,6 +89,7 @@ export const MAPPING_KIND_ROWS: readonly CatalogMappingRow[] = [
   { key: 'code.repository', kind: 'code.repository' },
   { key: 'code.route', kind: 'code.route' },
   { key: 'code.service', kind: 'code.service' },
+  { key: 'code.env-read', internal: 'one place a file reads one environment variable, read by the links stage to name the variable' },
   { key: 'code.callable', internal: 'the callables a file declares, with the body span and the name the extract readings give one' },
   { key: 'code.service-unit', internal: 'the unit a file belongs to, read by the operations and contracts readings as the file\'s service' },
   { key: 'code.snapshot', kind: 'code.snapshot' },
