@@ -51,7 +51,6 @@ const PRODUCT = 'training-shop';
  */
 const REMAINING: readonly string[] = [
   'channels',
-  'routes',
   'entry-points',
   'containment',
   'calls-remote',
@@ -157,11 +156,12 @@ async function allPages<T>(fetch: (page: { readonly limit: number; readonly afte
   }
 }
 
-/** The driver's key of one node of the graph: a file by its path, a symbol by its path and qualified name, and every other kind by the record key it carries. */
+/** The graph's key of one node of the graph: a file by its path (the driver's own name for it), and every other kind by the record key it carries. */
 function canonicalKeyOf(row: { readonly kind: string; readonly properties: unknown }): string {
   const held = propertiesOf(row);
   if (row.kind === 'code.file' && typeof held['path'] === 'string') return `code.file:${held['path']}`;
-  if (row.kind === 'code.symbol' && typeof held['file'] === 'string' && typeof held['qualifiedName'] === 'string') return `code.symbol:${held['file']}#${held['qualifiedName']}`;
+  // A symbol is named by the graph's own key, and the driver's `code.symbol:<path>#<name>` is read
+  // through `canonicalSymbol`, the one function that maps the two names of one declaration.
   const key = held['recordKey'];
   if (typeof key !== 'string') throw new Error(`the graph answered a ${row.kind} node with no recordKey: every static node carries the fact id it was read as`);
   return key;

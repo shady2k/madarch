@@ -252,13 +252,16 @@ async function executeContractsRoutesUnit(unit: StageUnit, context: StageContext
   const mounts = service === undefined ? [] : await nodesOf(stage, 'code.router-mount', 'service', service);
   const callables = await nodesOf(stage, 'code.callable', 'file', planned.path);
   const symbols = await nodesOf(stage, 'code.symbol', 'file', planned.path);
+  // The file's own expressions: a registration call's handler argument is the expression the driver
+  // positions the handler edge at, and the reader that names the route gives the handler's own span.
+  const expressions = await nodesOf(stage, 'code.expression', 'file', planned.path);
   // The reference links the resolution stage published for this file: a registration it tied is one
   // edge the graph already holds, and this stage publishes only the ones it left untied.
   const existing = await allPages((page) => stage.edgesByProperty('code.references', 'file', planned.path, page));
   const existingLinks = new Set(existing.map((entry) => `${recordKeyOf(entry.from)}\u0000${recordKeyOf(entry.to)}`));
   const routes = isGo
-    ? await goRoutes(stage, planned.path, read.value as GoFileFacts, { service, ports, auth, mounts, callables, symbols, repository: planned.repository })
-    : tsRoutes(planned.path, read.value as TsFileFacts, { service, ports, auth, mounts, callables, symbols, repository: planned.repository });
+    ? await goRoutes(stage, planned.path, read.value as GoFileFacts, { service, ports, auth, mounts, callables, symbols, expressions, repository: planned.repository })
+    : tsRoutes(planned.path, read.value as TsFileFacts, { service, ports, auth, mounts, callables, symbols, expressions, repository: planned.repository });
   const evidence = evidenceAtPlace(source, planned.path);
   const fileKey = fileFactIdOf(planned.repository, planned.path);
   for (const route of routes) {
@@ -296,11 +299,38 @@ function tsRoutes(path: string, facts: TsFileFacts, read: RouteRead): readonly R
       },
       span: route.span,
       ...(handler === undefined ? {} : { handler }),
-      ...(route.handler === undefined ? {} : { handlerSpan: route.handler.span }),
+      ...(route.handler === undefined ? {} : { handlerSpan: registrationHandlerSpan(read, route.span, route.handler.span) }),
       ...enclosingOf(read, route.span),
     });
   }
   return records;
+}
+
+/**
+ * The span the driver positions a route's handler edge at. The reader that names
+ * the registration gives the handler expression it sees; the driver reads the
+ * registration's own handler argument, which is that expression and every
+ * middleware wrapper the registration passes it through (`authed(http.HandlerFunc(
+ * deps.Orders.List))` at the registration's call). The argument of the call the
+ * route's span is, holding the reader's handler span, is that expression; where
+ * the file proves none, the reader's span stands (src/extract/contracts/index.ts,
+ * `httpRegistrationAt`).
+ */
+function registrationHandlerSpan(read: RouteRead, routeSpan: SourceSpan, handlerSpan: SourceSpan): SourceSpan {
+  const atCall = read.expressions.filter((node) => {
+    const span = spanOfNode(node);
+    return span !== undefined && span.path === routeSpan.path && span.byteStart === routeSpan.byteStart && span.byteEnd === routeSpan.byteEnd;
+  });
+  if (atCall.length !== 1) return handlerSpan;
+  const held = atCall[0]!.properties['arguments'];
+  if (!Array.isArray(held)) return handlerSpan;
+  const byId = new Map(read.expressions.map((node) => [String(node.properties['recordKey']), node]));
+  const wrappers = held.flatMap((id) => {
+    const node = typeof id === 'string' ? byId.get(id) : undefined;
+    const span = node === undefined ? undefined : spanOfNode(node);
+    return span !== undefined && span.path === handlerSpan.path && span.byteStart <= handlerSpan.byteStart && handlerSpan.byteEnd <= span.byteEnd ? [span] : [];
+  }).sort((left, right) => (right.byteEnd - right.byteStart) - (left.byteEnd - left.byteStart));
+  return wrappers[0] ?? handlerSpan;
 }
 
 /** The routes one Go file states, with the service's chain, the ports and the handler each resolves to. */
@@ -329,7 +359,7 @@ async function goRoutes(stage: StaticStageContext, path: string, facts: GoFileFa
       },
       span: route.span,
       ...(handler === undefined ? {} : { handler }),
-      handlerSpan: route.handlerSpan,
+      handlerSpan: registrationHandlerSpan(read, route.span, route.handlerSpan),
       ...enclosingOf(read, route.span),
     });
   }
@@ -344,6 +374,8 @@ interface RouteRead {
   readonly mounts: readonly StaticGraphNode[];
   readonly callables: readonly StaticGraphNode[];
   readonly symbols: readonly StaticGraphNode[];
+  /** The file's own expression facts, by id: a registration call and the handler argument it passes. */
+  readonly expressions: readonly StaticGraphNode[];
   readonly repository: string;
 }
 
