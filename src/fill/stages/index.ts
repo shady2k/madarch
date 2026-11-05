@@ -25,6 +25,7 @@ import { createOverviewStage } from './overview.js';
 import { createRecoveryStage } from './recovery.js';
 import { createSemanticResolutionStage } from './semantic-resolution.js';
 import { createSnapshotStage } from './snapshot.js';
+import { createStateMachinesStage } from './state-machines.js';
 import { createSyntaxStage } from './syntax.js';
 import { createUnderstandingStage } from './understanding.js';
 
@@ -67,6 +68,7 @@ export function createStageRegistry(wiring: FillStageWiring): StageRegistry {
     .register(createBuildConfigurationStage(wiring.snapshots))
     .register(createSyntaxStage(wiring.snapshots))
     .register(createSemanticResolutionStage(wiring.snapshots))
+    .register(createStateMachinesStage(wiring.snapshots))
     .register(createModulesStage(wiring.snapshots))
     .register(createDocumentIndexStage(wiring.snapshots))
     .register(createHistoryStage(createGitHistoryReader(wiring.checkoutOf ?? noCheckout), wiring.snapshots));

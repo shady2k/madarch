@@ -58,6 +58,9 @@ export const CODE_GRAPH_VOCABULARY: { readonly kinds: readonly string[]; readonl
     // The names a file mentions, as the file pass writes them (decision 0033, item 14;
     // `mention-graph.ts`), beside the symbols they may name.
     'code.mention', 'code.repository', 'code.symbol', 'code.test',
+    // The state machines a file writes down (the state-machines stage): the table, its states and
+    // the moves between them (decision 0026's diagrams; decision 0033, item 14).
+    'code.state', 'code.state-machine',
   ],
   relations: [
     { key: 'code.contains' },
@@ -66,6 +69,9 @@ export const CODE_GRAPH_VOCABULARY: { readonly kinds: readonly string[]; readonl
     { key: 'code.occurrence', positioned: true },
     // What the resolution stage folds a mention into (decision 0026's stage 4).
     { key: 'code.references' },
+    // What a file declares beside its symbols, and what a state enters (the state-machines stage).
+    { key: 'code.declares' },
+    { key: 'code.transitions' },
   ],
 };
 
