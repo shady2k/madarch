@@ -262,12 +262,19 @@ settings that name a broker address.
   probe-to-endpoint links are made by `linkEndpoints` after every file of the
   tree is read; the endpoint's handler edge ends at the symbol node above.
 - `code.env-var`, `code.reads-env`, `code.defines` and `code.connects-to`. The
-  reads are answered by `EnvironmentReads`, a tree-wide interpreter over
-  `CodeFacts` with indexes over every file's expressions, bindings, call sites,
-  parameter declarations and library effects. Its per-file port needs those
-  facts read from the graph, which the code-facts stage publishes per file; that
-  port is not written here. `configured-by`'s edges from settings are ported,
-  and `connects-to` stays with the service nodes above.
+  reads are answered by `EnvironmentReads` (`src/extract/operations/env.ts`), a
+  tree-wide interpreter over `CodeFacts`. Its expressions, bindings and call
+  sites are published per file by the code-facts stage and could be read back,
+  but two facts it asks for are not: `innermost` selects the enclosing callable
+  by `CodeSymbolFact.callable`, and the Go read's `required` is proved by the
+  enclosing function's `bodySpan` (`goGuardFails`, `stopCallsOf`). The syntax
+  stage's `code.symbol` facts carry the qualified name and the symbol kind, and
+  no callable flag and no body span (`src/fill/stages/syntax-facts.ts`), and the
+  code-facts stage publishes no symbols. A per-file port therefore needs a
+  symbol fact with its body, which the code-facts stage would publish; the
+  smallest honest step is to add that fact there, not to guess the enclosing
+  function from a name. `configured-by`'s edges from settings are ported, and
+  `connects-to` stays with the service nodes above.
 
 **Assumptions.**
 - The plan's family order is fixed in the stage (`FAMILY_RANK`); a repository
