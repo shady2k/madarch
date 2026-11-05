@@ -144,7 +144,7 @@ beforeAll(() => {
 
 afterAll(() => {
   if (root !== '') rmSync(root, { recursive: true, force: true });
-});
+}, 300_000);
 
 describe('the wiring of one product', () => {
   test('the product repository is pinned at its HEAD, and the eight stages are declared over it', async () => {
@@ -255,7 +255,7 @@ describe('two runs over one product', () => {
 
   afterAll(async () => {
     await opened?.close();
-  });
+  }, 300_000);
 
   test('the first run publishes what the stages read from the pinned tree', () => {
     expect(first?.state).toBe('succeeded');

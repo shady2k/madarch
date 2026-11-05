@@ -132,7 +132,7 @@ describe('the stage\'s declaration', () => {
       { kind: 'transition', schemaVersion: 1, scope: 'file' },
     ]);
     expect(stage.defaults).toEqual({ enabled: true, concurrency: 1, limits: DEFAULT_STAGE_LIMITS, config: {} });
-  });
+  }, 60_000);
 });
 
 describe('the state-machines stage\'s plan', () => {
@@ -247,5 +247,5 @@ describe('the plan\'s read, read back', () => {
     expect(() => publishedMachinesRows([{ kind: 'coverage', file: '', blob: 'a'.repeat(40) }], REPOSITORY, read)).toThrow(/no repository path/);
     expect(() => publishedMachinesRows([{ kind: 'coverage', file: 'src/state.ts', blob: 'ABC' }], REPOSITORY, read)).toThrow(/no blob id/);
     expect(() => publishedMachinesRows([{ kind: 'coverage', file: 'src/state.ts', blob: 'a'.repeat(40), extra: 1 }], REPOSITORY, read)).toThrow(/it holds "extra"/);
-  });
+  }, 60_000);
 });

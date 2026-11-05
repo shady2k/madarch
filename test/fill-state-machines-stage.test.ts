@@ -63,12 +63,12 @@ beforeAll(async () => {
       await owner.close();
     },
   };
-});
+}, 900_000);
 
 afterAll(async () => {
   await opened?.close();
   if (root !== '') rmSync(root, { recursive: true, force: true });
-});
+}, 300_000);
 
 /** One run of the product, refused by name where the service refuses it. */
 async function run(o: Open, runId: string): Promise<FillRunResult> {

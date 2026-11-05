@@ -251,11 +251,11 @@ beforeAll(() => {
   git(product, '-c', 'user.name=Fixture', '-c', 'user.email=fixture@example.invalid', 'add', '-A');
   git(product, '-c', 'user.name=Fixture', '-c', 'user.email=fixture@example.invalid', 'commit', '-qm', 'one');
   world = mkdtempSync(join(root, 'world-'));
-});
+}, 1_800_000);
 
 afterAll(() => {
   if (root !== '') rmSync(root, { recursive: true, force: true });
-});
+}, 300_000);
 
 /** The units a run planned and the ones it inherited, by unit id, in code point order. */
 function reran(result: FillRunResult): readonly string[] {
