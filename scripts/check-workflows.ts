@@ -8,8 +8,8 @@
  *   bun run check:workflows --folder <folder>  the workflows of a product folder that already exists
  *
  * The command reads `madarch/workflows.yaml` through the workflow reader
- * (`src/knowledge/workflows.ts`), which derives each implemented workflow's stage
- * graph the way a run does, and reports its findings only: the product's documents
+ * (`src/knowledge/workflows.ts`), which derives each workflow's stage graph the
+ * way a run does, and reports its findings only: the product's documents
  * and their expectations are the product's matter, not the workflows'. A finding
  * is printed as `<full path>:<line>: <the words>`, naming the workflow and the
  * stage it is about, and the command exits 1; a run that finds nothing names the

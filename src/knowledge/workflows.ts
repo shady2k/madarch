@@ -13,8 +13,8 @@
  * stages is refused by its own path too. A workflow's status says what the engine
  * can do with it today: an implemented one names stages whose every required
  * input the workflow produces, and a planned one says the engine has no stage
- * for it yet, so it may name no stages, and a stage it names must still be one
- * the registry holds.
+ * for it yet, so it may name no stages; the stages it does name are checked as
+ * an implemented workflow's are, since decision 0033, item 2 exempts neither.
  *
  * ```yaml
  * workflows:
@@ -181,9 +181,11 @@ export function parseWorkflows(text: string, file: string, registry: StageRegist
         message: `workflow "${name}" stage "${id}": the engine's stage registry holds no stage "${id}" (its stages are ${held.join(', ')})`,
       });
     }
-    // An implemented workflow's stages must feed each other: the derivation the run makes says which consumer starves and
-    // by which path, and a cycle says the stages cannot be ordered at all.
-    if (sound && status === 'implemented') {
+    // A workflow's stages must feed each other, whatever its status says: decision 0033, item 2 refuses a workflow that
+    // names a missing stage or leaves a stage's input without a producer, and it exempts no planned workflow. The
+    // derivation the run makes says which consumer starves and by which path, and a cycle says the stages cannot be
+    // ordered at all.
+    if (sound) {
       const graph = deriveStageGraphOver(registry, stages);
       if (!graph.ok) {
         for (const cycle of graph.cycles) {
