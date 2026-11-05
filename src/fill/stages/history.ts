@@ -709,12 +709,15 @@ function coverageFact(repository: string, scope: string, ancestry: HistoryAncest
  * with the query that answered it; two rows for one commit are refused too,
  * since a fact's identity names one commit of one repository once.
  */
-async function readCommitsHeld(graph: StaticGraphReader, repository: string): Promise<Map<string, unknown>> {
+async function readCommitsHeld(graph: StaticGraphReader, repository: string, range: string): Promise<Map<string, unknown>> {
   const query = commitsHeldRead(repository);
   const rows: unknown[] = [];
   let after: string | undefined;
   for (;;) {
-    const page = await graph.byProperty('code.commit', 'repository', repository, { limit: STATIC_READ_ROW_LIMIT, ...(after === undefined ? {} : { after }) });
+    // The read asks for this range's nodes and no wider answer: a read whose answer is every
+    // commit of the repository moves whenever any other unit publishes, and this unit's own
+    // generation would never stand still (madarch-8bdc.2.3).
+    const page = await graph.byProperty('code.commit', 'range', range, { limit: STATIC_READ_ROW_LIMIT, ...(after === undefined ? {} : { after }) });
     // The graph holds the snapshot stage's `code.commit` node of the same commit as well: a
     // commit the history stage read is one that cites this stage's reader, and that is the one
     // this read compares against.
@@ -723,7 +726,10 @@ async function readCommitsHeld(graph: StaticGraphReader, repository: string): Pr
         const provenance = node.properties['provenance'];
         const source = provenance !== null && typeof provenance === 'object' ? (provenance as Record<string, unknown>)['source'] : undefined;
         const system = source !== null && typeof source === 'object' ? (source as Record<string, unknown>)['system'] : undefined;
-        return system === HISTORY_SOURCE_SYSTEM_NAME;
+        // What this unit's earlier generation published for its own range, and nothing another range
+        // read: a read over every range's copies would move whenever any range's unit published or
+        // was retracted, and the range's own reading would never stand still (madarch-8bdc.2.3).
+        return system === HISTORY_SOURCE_SYSTEM_NAME && node.properties['range'] === range;
       })
       .map((node) => ({ commit: String(node.properties['commit']), value: valueFieldsOf(node.properties) })));
     if (page.next === null) break;
@@ -752,7 +758,7 @@ async function readCoverageHeld(graph: StaticGraphReader, repository: string, sc
   const rows: unknown[] = [];
   let after: string | undefined;
   for (;;) {
-    const page = await graph.byProperty('code.coverage', 'repository', repository, { limit: STATIC_READ_ROW_LIMIT, ...(after === undefined ? {} : { after }) });
+    const page = await graph.byProperty('code.coverage', 'scope', scope, { limit: STATIC_READ_ROW_LIMIT, ...(after === undefined ? {} : { after }) });
     for (const node of page.rows) {
       if (node.properties['scope'] !== scope) continue;
       const provenance = node.properties['provenance'];
@@ -805,10 +811,13 @@ function commitNodeKeyOf(repository: string, range: string, commit: string): str
   return `commit:${canonicalJsonDigest({ repository, range, commit })}`;
 }
 
-/** The value a fact holds, as the graph's node carries it: the fact's own fields and none of its bookkeeping. */
+/**
+ * The value a fact holds, as the graph's node carries it: the fact's own fields and none of what
+ * this stage's node carries beside them — the graph's bookkeeping and the `range` the node names.
+ */
 function valueFieldsOf(value: object): Record<string, unknown> {
   const held = { ...(value as Record<string, unknown>) };
-  for (const key of ['recordKey', 'factKind', 'layer', 'status', 'provenance']) delete held[key];
+  for (const key of ['recordKey', 'factKind', 'layer', 'status', 'provenance', 'range']) delete held[key];
   return held;
 }
 
@@ -872,7 +881,7 @@ async function executeUnit(reader: HistoryReader, unit: StageUnit, context: Stag
   const what = `history: unit ${unit.id}`;
   if (context.signal.aborted) throw new Error(`${what} was cancelled before it read ${repository} at ${commit}`);
   const graph = staticGraphOf(unit, context);
-  const held = await readCommitsHeld(graph, repository);
+  const held = await readCommitsHeld(graph, repository, commit);
   const heldCoverage = await readCoverageHeld(graph, repository, unit.scope);
   const ancestry = await reader.read({ repository, commit, depth, signal: context.signal });
   context.progress(`read the ancestry of ${repository} at ${commit}: ${ancestry.commits.length} ${ancestry.commits.length === 1 ? 'commit' : 'commits'}`, 0.5);
@@ -893,7 +902,9 @@ async function executeUnit(reader: HistoryReader, unit: StageUnit, context: Stag
     const evidence = `${repository}@${one.commit}`;
     const commitKey = commitNodeKeyOf(repository, ancestry.commit, one.commit);
     for (const write of graphWritesOf(fact, evidence)) {
-      writes.push(write.kind === 'node' ? { ...write, value: { ...write.value, key: commitKey } } : write);
+      // The node carries the range its unit read: this stage's held-commits read answers its own range
+      // and no other (see `readCommitsHeld`).
+      writes.push(write.kind === 'node' ? { ...write, value: { ...write.value, key: commitKey, properties: { ...write.value.properties, range: ancestry.commit } } } : write);
     }
     commitsWritten += 1;
     for (const key of taskKeys(one.message)) {

@@ -235,11 +235,15 @@ function recorder(unit: StageUnit, options: { readonly config?: unknown; readonl
     }
     return held;
   };
+  // The unit's own range: the commit its scope names, which the commit nodes carry and the stage's
+  // held-commits read asks for (a read of the repository's every range would move with any other
+  // range's publication).
+  const range = unit.scope.startsWith('repository:') ? unit.scope.slice('repository:'.length).split('@')[1] ?? '' : '';
   const nodeOf = (kind: 'commit' | 'coverage', row: unknown): StaticGraphNode => {
     const held = row !== null && typeof row === 'object' && !Array.isArray(row) ? row as Record<string, unknown> : undefined;
     if (kind === 'commit') {
       const value = (held?.['value'] ?? {}) as Record<string, unknown>;
-      return { id: 'n', kind: 'code.commit', label: 'c', properties: { factKind: 'commit', ...value, commit: String(held?.['commit'] ?? ''), recordKey: `commit:${String(held?.['commit'] ?? '')}`, provenance: { source: { system: 'madarch-history', version: '2' } } }, producer: 'fill.test', scope: '0' };
+      return { id: 'n', kind: 'code.commit', label: 'c', properties: { factKind: 'commit', ...value, commit: String(held?.['commit'] ?? ''), range: typeof value['range'] === 'string' ? value['range'] : range, recordKey: `commit:${String(held?.['commit'] ?? '')}`, provenance: { source: { system: 'madarch-history', version: '2' } } }, producer: 'fill.test', scope: '0' };
     }
     const value = (held?.['value'] ?? {}) as Record<string, unknown>;
     return { id: 'n', kind: 'code.coverage', label: 'c', properties: { factKind: 'coverage', ...value, recordKey: 'coverage:x', provenance: { source: { system: 'madarch-history', version: '2' } } }, producer: 'fill.test', scope: '0' };
@@ -523,8 +527,11 @@ describe('the set one run writes, and what it does with what the graph holds', (
       const coverage = valuesOf(run.writes, 'coverage')[0] as unknown as CoverageValue;
       expect(coverage.scope).toBe(historyScope('orders-api', fourth));
       expect(coverage.unread).toEqual([]);
-      // What the graph held is reported, and nothing it held is left out.
-      expect(run.notes.at(-1)).toBe(`wrote 4 commits (3 the graph already held) and 4 task keys of orders-api at ${fourth}, with the coverage this read wrote`);
+      // What the graph held of *this* range is reported, and nothing it held is left out. A previous
+      // range's copies are another scope's: a node's version belongs to the producer and scope that
+      // published it (decision 0033, items 3 and 22), so a new range's first reading holds nothing
+      // of the graph yet, and a rerun of the same range holds all of it (the case below).
+      expect(run.notes.at(-1)).toBe(`wrote 4 commits (0 the graph already held) and 4 task keys of orders-api at ${fourth}, with the coverage this read wrote`);
     } finally {
       await fixture.dispose();
     }
