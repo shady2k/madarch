@@ -536,6 +536,10 @@ export function parseKinds(text: string, file: string, productFolder: string): K
   }
   const problems = parseProblems(top['problems'], at, findings, file);
   const groups = new Map<string, GroupDecl>();
+  /** The groups whose `parent` the reader refused: their own finding covers the defect, and no other rule repeats it. */
+  const refusedGroupParents = new Set<string>();
+  /** The groups whose `short` label was refused: their own finding covers it, and the group itself still stands. */
+  const refusedShortLabels = new Set<string>();
   const rawGroups = top['groups'];
   if (rawGroups !== undefined) {
     if (rawGroups === null || typeof rawGroups !== 'object' || Array.isArray(rawGroups)) findings.push({ file, line: at(['groups']), message: '"groups" maps a group name to its name in each language (en, ru)' });
@@ -554,19 +558,23 @@ export function parseKinds(text: string, file: string, productFolder: string): K
         let bad = false;
         const rawShort = body['short'];
         if (rawShort !== undefined) {
-          if (rawShort === null || typeof rawShort !== 'object' || Array.isArray(rawShort)) { findings.push({ file, line: at(['groups', name, 'short']), message: `group "${name}": "short" is { en: <its short label>, ru: <its short label> }` }); bad = true; }
+          // A short label that is not usable is a finding of its own, and the group still stands: the navigation falls
+          // back to the full name, and no other rule repeats the defect (one defect, one problem).
+          let shortProblem = false;
+          if (rawShort === null || typeof rawShort !== 'object' || Array.isArray(rawShort)) { findings.push({ file, line: at(['groups', name, 'short']), message: `group "${name}": "short" is { en: <its short label>, ru: <its short label> }` }); shortProblem = true; }
           else {
             for (const [language, label] of Object.entries(rawShort as Record<string, unknown>)) {
-              if (!LABEL_LANGUAGES.includes(language)) { findings.push({ file, line: at(['groups', name, 'short', language]), message: `group "${name}": "short" holds a label per language (${LABEL_LANGUAGES.join(', ')}), got "${language}"` }); bad = true; continue; }
-              if (typeof label !== 'string' || label.trim() === '') { findings.push({ file, line: at(['groups', name, 'short', language]), message: `group "${name}": the short label in "${language}" is one or two words` }); bad = true; continue; }
-              if (Array.from(label).length > GROUP_SHORT_LABEL_LIMIT) { findings.push({ file, line: at(['groups', name, 'short', language]), message: `group "${name}": the short label in "${language}" is ${Array.from(label).length} code points, and the navigation holds ${GROUP_SHORT_LABEL_LIMIT} without cutting it: give it one or two words` }); bad = true; continue; }
+              if (!LABEL_LANGUAGES.includes(language)) { findings.push({ file, line: at(['groups', name, 'short', language]), message: `group "${name}": "short" holds a label per language (${LABEL_LANGUAGES.join(', ')}), got "${language}"` }); shortProblem = true; continue; }
+              if (typeof label !== 'string' || label.trim() === '') { findings.push({ file, line: at(['groups', name, 'short', language]), message: `group "${name}": the short label in "${language}" is one or two words` }); shortProblem = true; continue; }
+              if (Array.from(label).length > GROUP_SHORT_LABEL_LIMIT) { findings.push({ file, line: at(['groups', name, 'short', language]), message: `group "${name}": the short label in "${language}" is ${Array.from(label).length} code points, and the navigation holds ${GROUP_SHORT_LABEL_LIMIT} without cutting it: give it one or two words` }); shortProblem = true; continue; }
               short[language] = label;
             }
-            if (Object.keys(short).length !== LABEL_LANGUAGES.length) {
+            if (!shortProblem && Object.keys(short).length !== LABEL_LANGUAGES.length) {
               findings.push({ file, line: at(['groups', name, 'short']), message: `group "${name}": "short" names a label in each language (${LABEL_LANGUAGES.join(', ')}), and it names ${Object.keys(short).join(', ') || 'none'}` });
-              bad = true;
+              shortProblem = true;
             }
           }
+          if (shortProblem) refusedShortLabels.add(name);
         }
         for (const [language, label] of Object.entries(body)) {
           if (language === 'open') {
@@ -606,6 +614,7 @@ export function parseKinds(text: string, file: string, productFolder: string): K
       }
       for (const [name, invalid] of invalidParents) {
         findings.push({ file, line: invalid.line, message: invalid.message });
+        refusedGroupParents.add(name);
         delete groups.get(name)!.parent;
       }
     }
@@ -625,38 +634,59 @@ export function parseKinds(text: string, file: string, productFolder: string): K
     catalogFound.push(...catalogRead.findings);
   }
   const roles = new Map<string, RoleDecl>();
+  /** The groups the roles' `lead` lists name, sound or not: the POV rule reads the declarations, so one refused role
+   * declaration does not make its areas look unled (one defect, one problem). */
+  const declaredLeads = new Set<string>();
+  let rolesDeclared = false;
+  /** A role's declaration the reader could not open: its leads are unknown, so the POV's coverage is not judged. */
+  let roleDeclarationUnreadable = false;
   const rawRoles = top['roles'];
   if (rawRoles !== undefined) {
+    rolesDeclared = true;
     if (rawRoles === null || typeof rawRoles !== 'object' || Array.isArray(rawRoles)) findings.push({ file, line: at(['roles']), message: '"roles" maps each role the product declares to { open: [<block>, ...], lead: [<area or subgroup>, ...] }' });
     else {
       for (const [name, entry] of Object.entries(rawRoles as Record<string, unknown>)) {
         const line = at(['roles', name]);
+        // The leads a role declares are read before its declaration is judged: a role with a defect still tells the
+        // POV which areas it leads, so one defect is one problem (the unled-area rule does not echo it).
+        {
+          const leads = entry !== null && typeof entry === 'object' && !Array.isArray(entry) ? (entry as Record<string, unknown>)['lead'] : undefined;
+          if (Array.isArray(leads)) for (const group of leads) if (typeof group === 'string' && groups.has(group)) declaredLeads.add(group);
+        }
         // A role's name is the product's: the engine keeps no list of them. "everything" is every role at once.
         if (name.trim() === '' || name.trim() !== name || /\s/.test(name)) { findings.push({ file, line, message: `role ${JSON.stringify(name)}: a role's name is one word without whitespace` }); continue; }
         if (name === EVERY_ROLE) { findings.push({ file, line, message: `role "${name}": "everything" is every role at once and is not declared` }); continue; }
         const body = entry as Record<string, unknown> | null;
-        if (body === null || typeof body !== 'object' || Array.isArray(body)) { findings.push({ file, line, message: `role "${name}": the declaration is { open: [<block>, ...], lead: [<group>, ...] }` }); continue; }
+        if (body === null || typeof body !== 'object' || Array.isArray(body)) { roleDeclarationUnreadable = true; findings.push({ file, line, message: `role "${name}": the declaration is { open: [<block>, ...], lead: [<group>, ...] }` }); continue; }
         const before = findings.length;
         for (const key of Object.keys(body)) if (key !== 'open' && key !== 'lead') findings.push({ file, line: at(['roles', name, key]), message: `role "${name}": "${key}" is not a field of a role: the fields are "open" and "lead"` });
         const list = (field: 'open' | 'lead'): string[] | undefined => {
           const value = body[field];
           if (value === undefined) return undefined;
-          if (!Array.isArray(value) || value.some((item) => typeof item !== 'string' || item.trim() === '')) { findings.push({ file, line: at(['roles', name, field]), message: `role "${name}": "${field}" is a list of ${field === 'open' ? 'blocks of the library' : 'groups of "groups"'}` }); return undefined; }
+          if (!Array.isArray(value) || value.some((item) => typeof item !== 'string' || item.trim() === '')) {
+            if (field === 'lead') roleDeclarationUnreadable = true; // the role's leads are unknown: the POV is not judged
+            findings.push({ file, line: at(['roles', name, field]), message: `role "${name}": "${field}" is a list of ${field === 'open' ? 'blocks of the library' : 'groups of "groups"'}` });
+            return undefined;
+          }
           return value as string[];
         };
         const open = list('open');
         const lead = list('lead');
         for (const block of open ?? []) if (!(BLOCK_NAMES as readonly string[]).includes(block)) findings.push({ file, line: at(['roles', name, 'open']), message: `role "${name}": "${block}" is not a block of the library (${BLOCK_NAMES.join(', ')})` });
-        for (const group of lead ?? []) if (!groups.has(group)) findings.push({ file, line: at(['roles', name, 'lead']), message: `role "${name}": "${group}" is not a group of "groups" (${[...groups.keys()].join(', ') || 'none is declared'})` });
+        for (const group of lead ?? []) {
+          if (!groups.has(group)) findings.push({ file, line: at(['roles', name, 'lead']), message: `role "${name}": "${group}" is not a group of "groups" (${[...groups.keys()].join(', ') || 'none is declared'})` });
+          else declaredLeads.add(group);
+        }
         if (findings.length === before) roles.set(name, { name, ...(open === undefined ? {} : { open }), lead: lead ?? [], line });
       }
       // The POV covers the catalog (decision 0033, item 12): every area is led by at least one role, whether the role
       // names the area or a subgroup of it. A catalog with no role declared has no POV to check; a manifest without a
       // catalog is read as before the catalog.
-      if (catalogSchema !== undefined && roles.size > 0) {
-        const led = new Set([...roles.values()].flatMap((role) => role.lead));
+      if (catalogSchema !== undefined && rolesDeclared && !roleDeclarationUnreadable) {
+        const led = declaredLeads;
         const all = [...groups.values()];
         for (const area of all.filter((group) => group.parent === undefined)) {
+          if (refusedGroupParents.has(area.name)) continue; // its own finding names the parent nobody declares
           if (led.has(area.name) || all.some((subgroup) => subgroup.parent === area.name && led.has(subgroup.name))) continue;
           findings.push({ file, line: at(['groups', area.name]), message: `area "${area.name}": no role leads it, and every area is led by a role or by one of its subgroups (the roles are ${[...roles.keys()].join(', ')})` });
         }
@@ -667,7 +697,8 @@ export function parseKinds(text: string, file: string, productFolder: string): K
   // with a catalog declared, a group without one would be cut off at the sidebar's width.
   if (catalogSchema !== undefined) {
     for (const group of groups.values()) {
-      if (group.short !== undefined) continue;
+      // A group whose `parent` was refused already carries that finding: no second rule repeats it.
+      if (group.short !== undefined || refusedGroupParents.has(group.name) || refusedShortLabels.has(group.name)) continue;
       findings.push({ file, line: at(['groups', group.name]), message: `group "${group.name}": no "short" label, and the navigation names every group by one or two words ("short: { en, ru }")` });
     }
   }
@@ -707,6 +738,9 @@ export function parseKinds(text: string, file: string, productFolder: string): K
   }
   const kinds = new Map<string, KindDecl>();
   const declaredTemplates: string[] = [];
+  // Every name the manifest declares, sound or not: the mapping resolves a kind against the declaration, and the
+  // catalog's own finding is the one a refused kind carries (one defect, one problem on the Problems page).
+  const declaredKindNames = new Set(Object.keys(declared as Record<string, unknown>));
   for (const [name, value] of Object.entries(declared as Record<string, unknown>)) {
     const line = at(['kinds', name]);
     const problem = (path: (string | number)[], message: string): void => {
@@ -735,7 +769,7 @@ export function parseKinds(text: string, file: string, productFolder: string): K
       const stray = Object.keys(decl).filter((key) => CATALOG_ONLY_FIELDS.has(key));
       if (stray.length > 0) catalogProblem([stray[0]!], `"${stray[0]}" is a field of the entity catalog, and the manifest declares no "catalog"`);
     } else if (catalogSchema !== undefined) {
-      const entry = readCatalogKind(name, decl, catalogSchema, groups, line, catalogProblem);
+      const entry = readCatalogKind(name, decl, catalogSchema, groups, line, catalogProblem, refusedGroupParents);
       if (entry !== undefined) catalogEntries.set(name, entry);
     }
     const policy = typeof decl['template-policy'] === 'string' ? decl['template-policy'] : 'page';
@@ -789,7 +823,9 @@ export function parseKinds(text: string, file: string, productFolder: string): K
       problem([field], `"${field}" belongs to a document kind`);
     }
     const group = decl['group'];
-    if (group !== undefined && (typeof group !== 'string' || !groups.has(group))) problem(['group'], `"group" names a group of "groups" (${[...groups.keys()].join(', ') || 'none is declared'}), got ${JSON.stringify(group)}`);
+    // With a catalog declared, the catalog's own row names an unknown subgroup, so the manifest reader stays silent there:
+    // one defect is one problem (the Problems page counts them).
+    if (catalogSchema === undefined && group !== undefined && (typeof group !== 'string' || !groups.has(group))) problem(['group'], `"group" names a group of "groups" (${[...groups.keys()].join(', ') || 'none is declared'}), got ${JSON.stringify(group)}`);
     const origin = decl['origin'];
     if (origin !== undefined && !ORIGINS.includes(origin as Origin)) problem(['origin'], `"origin" is ${ORIGINS.join(', ')}; got ${JSON.stringify(origin)}`);
     const descriptions: Record<string, string> = {};
@@ -900,7 +936,7 @@ export function parseKinds(text: string, file: string, productFolder: string): K
   // relation an extractor declares it emits has a row, and every row names something the catalog holds.
   let mapping: MappingRead | undefined;
   if (top['mapping'] !== undefined) {
-    mapping = readMapping(top['mapping'], at, file, catalogSchema === undefined ? undefined : { schema: catalogSchema, kinds: catalogEntries });
+    mapping = readMapping(top['mapping'], at, file, catalogSchema === undefined ? undefined : { schema: catalogSchema, kinds: catalogEntries }, undefined, declaredKindNames);
     findings.push(...mapping.findings);
   }
   // The catalog as a whole: a subgroup above its bound or with no kind, an area with no subgroup, two kinds of one

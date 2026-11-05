@@ -79,6 +79,11 @@ export function readMapping(
   file: string,
   catalog: { readonly schema: CatalogSchema; readonly kinds: ReadonlyMap<string, CatalogEntry> } | undefined,
   emitted: { readonly kinds: ReadonlyMap<string, readonly string[]>; readonly relations: ReadonlyMap<string, readonly string[]> } = { kinds: EXTRACTOR_KINDS, relations: EXTRACTOR_RELATIONS },
+  /**
+   * Every kind the manifest declares, the ones the catalog refused included: a mapping row names a kind the manifest
+   * declares, and whether that kind's own row is sound is the catalog's finding — one defect, one problem.
+   */
+  declaredKinds?: ReadonlySet<string>,
 ): MappingRead {
   const findings: CatalogFinding[] = [];
   const problem = (path: (string | number)[], message: string): void => {
@@ -97,7 +102,7 @@ export function readMapping(
   if (typeof version !== 'number' || !Number.isInteger(version) || !MAPPING_VERSIONS.includes(version)) {
     problem(['version'], `"version" is a version of the mapping this engine reads (${MAPPING_VERSIONS.join(', ')}), got ${JSON.stringify(version)}`);
   }
-  const catalogKinds = catalog === undefined ? undefined : new Set(catalog.kinds.keys());
+  const catalogKinds = catalog === undefined ? undefined : (declaredKinds ?? new Set(catalog.kinds.keys()));
   const catalogRelations = catalog === undefined ? undefined : new Set(catalog.schema.relations.keys());
   const read = (section: 'kinds' | 'relations'): Map<string, MappingRow> => {
     const held = new Map<string, MappingRow>();

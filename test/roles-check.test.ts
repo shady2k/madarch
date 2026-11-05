@@ -101,7 +101,7 @@ describe('the roles are the product\'s own, and the POV covers the catalog', () 
   test('a role\'s declaration, its open blocks and its lead list are checked, each at its own line', () => {
     expect(findings(withRoles(['  product: 7']))).toEqual([expect.stringContaining('role "product": the declaration is { open: [<block>, ...], lead: [<group>, ...] }')] as unknown as string[]);
     expect(findings(withRoles(['  product: { lead: area }']))).toEqual([expect.stringContaining('role "product": "lead" is a list of groups of "groups"')] as unknown as string[]);
-    expect(findings(withRoles(['  product: { open: stated }']))).toEqual([expect.stringContaining('role "product": "open" is a list of blocks of the library')] as unknown as string[]);
+    expect(findings(withRoles(['  product: { open: stated, lead: [area] }']))).toEqual([expect.stringContaining('role "product": "open" is a list of blocks of the library')] as unknown as string[]);
     expect(findings(withRoles(['  product: { open: [nothing], lead: [area] }']))).toEqual([expect.stringContaining('role "product": "nothing" is not a block of the library')] as unknown as string[]);
     expect(findings(withRoles(['  product: { lead: [area], mood: yes }']))).toEqual([expect.stringContaining('role "product": "mood" is not a field of a role: the fields are "open" and "lead"')] as unknown as string[]);
     // The finding stands at the line of the role, or of the field it is about, never at the block's top.

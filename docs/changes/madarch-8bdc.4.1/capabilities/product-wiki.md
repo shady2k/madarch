@@ -760,7 +760,8 @@ field out, a subgroup above its bound, two kinds for one concept id, a value
 the catalog marks as an attribute declared as a kind, an area, a subgroup or an
 origin mark the manifest does not declare, and a group without a short label or
 one longer than the sidebar holds. Every refusal shall name the file, the line
-and the kind (or the group).
+and the kind (or the group), and one defect shall be one finding: the reader
+that owns a defect reports it, and the others do not repeat it.
 
 A kind whose template policy is `none` is catalogue data only: the wiki shows
 no page and no template for it, and the kinds the wiki shows today are shown

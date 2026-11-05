@@ -101,9 +101,9 @@ describe('the catalog check over the starter set', () => {
   test('the same row is refused by the wiki\'s own read of the manifest, which is the product-wiki check', () => {
     const manifest = editField(MANIFEST, 'code.service', 'status', null);
     const read = parseKinds(manifest, 'madarch/kinds.yaml', product());
-    expect(read.catalog!.findings.map((finding) => finding.message)).toContain('kind "code.service": "status" is one of implemented, partial, not-implemented, got undefined');
-    // The kind is refused, so the catalog no longer holds it, and the mapping's row for it is refused in turn.
-    expect(read.findings.map((finding) => finding.message)).toContainEqual(expect.stringContaining('kind "code.service": the mapping ties it to the kind "code.service", and the catalog holds no such kind (its kinds are '));
+    expect(read.catalog!.findings.map((finding) => finding.message)).toEqual(['kind "code.service": "status" is one of implemented, partial, not-implemented, got undefined']);
+    // One defect is one problem: the kind's refused row is the finding, and the mapping's row for it is not echoed.
+    expect(read.findings.map((finding) => finding.message)).toEqual(['kind "code.service": "status" is one of implemented, partial, not-implemented, got undefined']);
     // The kind is left out of the catalog and of the wiki\'s kinds, and the rest of the catalog stands.
     expect(read.catalog!.kinds.has('code.service')).toBe(false);
     expect(read.kinds.has('code.service')).toBe(false);
@@ -151,7 +151,8 @@ describe('the catalog check over the starter set', () => {
     const done = run(product(manifest));
     expect(done.code).toBe(1);
     expect(done.err).toContain('group "infrastructure.network": "parent" names a group of "groups"');
-    expect(done.err).toContain('which no area holds: a catalog kind belongs to a subgroup, and a subgroup\'s "parent" names its area');
+    // One defect is one problem: the group's refused parent is the finding, and the kinds in it do not repeat it.
+    expect(done.err.trim().split('\n').filter((line) => line.includes('kind "'))).toEqual([]);
   }, 30_000);
 
   test('a kind the catalog marks with the template policy none is catalogue data only: the wiki shows no page for it', () => {

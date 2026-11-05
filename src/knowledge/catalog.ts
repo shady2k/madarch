@@ -205,6 +205,8 @@ export function readCatalogKind(
   groups: ReadonlyMap<string, CatalogGroup>,
   line: number,
   problem: (path: (string | number)[], message: string) => void,
+  /** The groups the manifest reader already refused (a `parent` nobody declares): the kind adds no second finding. */
+  refusedGroups: ReadonlySet<string> = new Set(),
 ): CatalogEntry | undefined {
   let sound = true;
   const fail = (path: (string | number)[], message: string): void => {
@@ -232,6 +234,7 @@ export function readCatalogKind(
   else {
     subgroup = groups.get(subgroupName);
     if (subgroup === undefined) fail(['group'], `"group" names the subgroup of the catalog the kind belongs to, and "groups" declares no ${JSON.stringify(subgroupName)}`);
+    else if (refusedGroups.has(subgroupName)) { /* the group's own finding names the refused parent; the kind repeats nothing */ }
     else if (subgroup.parent === undefined) fail(['group'], `"group" names ${JSON.stringify(subgroupName)}, which no area holds: a catalog kind belongs to a subgroup, and a subgroup's "parent" names its area`);
     else if (!groups.has(subgroup.parent)) fail(['group'], `"group" names ${JSON.stringify(subgroupName)}, whose area ${JSON.stringify(subgroup.parent)} "groups" does not declare`);
   }

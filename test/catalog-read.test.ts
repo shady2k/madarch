@@ -275,6 +275,50 @@ describe('the navigation names every group by a short label', () => {
     expect(read1(line(SMALL, '  area:', '  area: { en: 7, ru: Область, short: { en: Area, ru: Область } }'))).toContainEqual(expect.stringContaining('group "area": the name in "en" is a text'));
   });
 
+describe('one defect in the manifest is one problem', () => {
+  /** The findings of the starter manifest with one defect planted, the file and the words of each. */
+  function planted(text: string): string[] {
+    const read = parseKinds(text, 'madarch/kinds.yaml', TEMPLATES);
+    return read.findings.map((finding) => finding.message);
+  }
+  /** The starter manifest with one string replaced (the plant), so the plant is what the manifest differs by. */
+  function withPlant(old: string, written: string): string {
+    const base = STARTER_FILES.find((file) => file.path === 'madarch/kinds.yaml')!.content;
+    if (!base.includes(old)) throw new Error(`the starter manifest holds no ${JSON.stringify(old)}`);
+    return base.replace(old, written);
+  }
+  /** A catalogue-only kind appended to the `kinds:` section, for the plants that add one. */
+  function appendedKind(name: string, id: string, group: string, extra: string[] = []): string {
+    const base = STARTER_FILES.find((file) => file.path === 'madarch/kinds.yaml')!.content;
+    return base.replace('\nmapping:\n', `\n  ${name}:\n    id: "${id}"\n    group: ${group}\n    definition: "A kind the test plants."\n    sources: ["https://example.test/plant"]\n    acquisition: ["conversation"]\n    status: not-implemented\n    relation-constraints: { out: [], in: [] }\n    template-policy: none\n${extra.join('')}\nmapping:\n`);
+  }
+  const cases: [string, string, string][] = [
+    ['a group whose parent nobody declares', withPlant('groups:\n', 'groups:\n  broken: { en: Broken, ru: Сломано, short: { en: Broken, ru: Сломано }, parent: nowhere }\n'), 'group "broken": "parent" names a group of "groups"'],
+    ['a subgroup whose parent nobody declares, its kinds included', withPlant('  contracts: { en: "Interfaces", ru: "Интерфейсы", short: { en: "Interfaces", ru: "Интерфейсы" }, parent: code }', '  contracts: { en: "Interfaces", ru: "Интерфейсы", short: { en: "Interfaces", ru: "Интерфейсы" }, parent: nowhere }'), 'group "contracts": "parent" names a group of "groups"'],
+    ['a kind in a group nobody declares', withPlant('    group: code.structure\n', '    group: nowhere.at-all\n'), 'kind "code.service": "group" names the subgroup of the catalog the kind belongs to'],
+    ['a kind in an area rather than a subgroup', withPlant('    group: code.structure\n', '    group: code\n'), 'kind "code.service": "group" names "code", which no area holds'],
+    ['a subgroup over its bound', appendedKind('probe.overflow', 'practice.probe-overflow', 'infrastructure.orchestration'), 'subgroup "infrastructure.orchestration": 13 kinds'],
+    ['two kinds of one concept id', appendedKind('probe.duplicate', 'c4.container', 'code.schema'), 'kind "probe.duplicate": the concept id "c4.container" is the id of kind "code.service"'],
+    ['a value the catalog marks as an attribute declared as a kind', appendedKind('probe.attribute', 'version', 'code.schema'), 'kind "probe.attribute": "version" is a value the catalog marks as an attribute'],
+    ['an origin mark the catalog does not declare', withPlant('    acquisition: ["extractor operations"]\n', '    acquisition: ["telepathy"]\n'), 'kind "code.service": "acquisition" holds "telepathy"'],
+    ['a source that is not an address', withPlant('    sources: ["https://c4model.com/abstractions"]\n', '    sources: ["nowhere"]\n'), 'kind "code.service": "sources" holds "nowhere"'],
+    ['a short label the sidebar cannot hold', withPlant('short: { en: "Strategy", ru: "Стратегия" }', 'short: { en: "Strategy and business motivation", ru: "Стратегия" }'), 'group "strategy": the short label in "en" is 32 code points'],
+    ['a role leading a group nobody declares', withPlant('lead: [strategy, discovery, requirements, rd]', 'lead: [nowhere, discovery, requirements, rd]'), 'role "product": "nowhere" is not a group of "groups"'],
+    ['a role opening a block outside the library', withPlant('open: [stated, implementedby, linkedfrom, related, properties] }\n  analyst', 'open: [nothing] }\n  analyst'), 'role "product": "nothing" is not a block of the library'],
+  ];
+  for (const [what, manifest, names] of cases) {
+    test(`${what} is one problem, naming it`, () => {
+      const found = planted(manifest);
+      expect(found).toHaveLength(1);
+      expect(found[0]).toContain(names);
+    });
+  }
+
+  test('the starter set itself holds no problem at all', () => {
+    expect(planted(STARTER_FILES.find((file) => file.path === 'madarch/kinds.yaml')!.content)).toEqual([]);
+  });
+});
+
 describe('the catalog as a whole is refused where its rows do not agree', () => {
   test('a subgroup above the bound its manifest declares is refused, naming the kinds it holds', () => {
     expectRefused(withKind(SMALL, 'third', { group: 'area.one' }), 'subgroup "area.one": 3 kinds (gadget, third, widget), above the bound of 2 a subgroup holds ("catalog: subgroup-kind-bound")');

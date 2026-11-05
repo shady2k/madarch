@@ -168,6 +168,17 @@ What the review of the first round changed:
 - **The check's report.** A manifest whose `catalog:` schema cannot be read now prints its own findings with the
   manifest's file and line before the check stops, instead of a refusal at the script's path and line 1.
 
+
+- **One defect is one problem.** The Problems page counts the manifest's findings, so two readers reporting the same
+  defect counted twice: the groups reader and the catalog check both reported an unknown `parent` (with the
+  catalog's "area no role leads" and "no short label" rules echoing it), the manifest reader and the catalog both
+  reported a kind in an unknown group, and a refused kind made the mapping refuse its row. Now the reader that owns
+  a defect reports it and the others stay silent: a group whose `parent` is refused is skipped by the short-label
+  and POV rules and its kinds add no catalog finding; with a catalog declared, an unknown subgroup is the catalog's
+  finding only; a refused kind still counts as a declared kind for the mapping; a refused role's `lead` list still
+  counts for the POV's coverage; and a short label that is refused no longer drops the group (the navigation falls
+  back to the full name), so no cascade follows. `test/catalog-read.test.ts` plants twelve defects and asserts one
+  finding each; `test/loop-menu-counts.test.ts` (the CI failure) passes with its assertion untouched.
 ## Acceptance evidence
 Measured in the worker VM (4 vCPU, 8 GB, arm64), 2026-11-04:
 
@@ -218,3 +229,15 @@ The review round of 2026-11-05 added:
 - StrykerJS 9 on the groups' short-label block of `src/knowledge/kinds.ts` (lines 555-578) against
   `bun test test/catalog-read.test.ts`: 102 mutants, 72 killed, 30 survived — 70.59%; the survivors are the words
   of the refusal messages and the redundant `||` guards of the declaration's type checks.
+
+The second review round of 2026-11-05 added:
+
+- `bun run check` exit 0; `test/loop-menu-counts.test.ts` 2 pass, 0 fail (one manifest defect is one problem).
+- `MADARCH_SKIP_PERF=1 bun test test/catalog-read.test.ts test/catalog-check.test.ts test/mapping-check.test.ts
+  test/roles-check.test.ts test/loop-menu-counts.test.ts test/neutral-repository-names.test.ts
+  test/knowledge-settings.test.ts test/starter-set-upgrade.test.ts test/knowledge-subgroups.test.ts
+  test/knowledge-parse.test.ts test/knowledge-doc-entities.test.ts test/wiki-readers.test.ts`: 218 pass, 0 fail.
+- StrykerJS 9 on the changed check code (`src/knowledge/catalog.ts` whole and the groups/roles block of
+  `src/knowledge/kinds.ts`, lines 535-710) against `bun test test/catalog-read.test.ts`: 974 mutants, 634 killed, 0 timed out, 340 survived — 65.09% overall (src/knowledge/catalog.ts 81.74%,
+the groups/roles block of src/knowledge/kinds.ts 48.02%). The survivors are the words of the refusal messages, the
+redundant `||` guards of the declaration type checks, and finding paths whose line is the group's own..
