@@ -299,7 +299,9 @@ function reranByTheCommit(options: {
     ...folders.map((path) => `inventory/directory:${repository}:${path}`),
     `inventory/file:${repository}:${file}`,
     `syntax/file:${repository}:${file}`,
-    // The state machines of the changed file: the stage reads its own bytes, at the blob the plan compares.
+    // The code facts of the changed file, and its state machines: both read their own bytes, at the
+    // blob their plans compare.
+    `code-facts/file:${repository}:${file}`,
     `state-machines/file:${repository}:${file}`,
     // The later deterministic stages as main runs them: the modules unit stands on the pin, the resolution
     // units on the run's pins, and the history units on the commit it stands on and the one it left.
