@@ -11,6 +11,7 @@
     "src/fill/stages/state-machines.ts": {},
     "src/fill/stages/code-facts.ts": {},
     "src/fill/stages/contracts-code.ts": {},
+    "src/fill/stages/contracts-links.ts": {},
     "src/fill/stages/contracts-routes.ts": {},
     "src/fill/stages/contracts.ts": {},
     "src/fill/stages/operations.ts": {},

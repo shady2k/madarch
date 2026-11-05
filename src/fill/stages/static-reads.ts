@@ -22,6 +22,7 @@ import { CODE_FACTS_PUBLISHED_READ } from './code-facts.js';
 import { CONTRACTS_SOURCE_SYSTEM, PUBLISHED_CONTRACTS_READ } from './contracts.js';
 import { CONTRACTS_CODE_SOURCE_SYSTEM, PUBLISHED_CONTRACTS_CODE_READ } from './contracts-code.js';
 import { CONTRACTS_ROUTES_SOURCE_SYSTEM, PUBLISHED_CONTRACTS_ROUTES_READ } from './contracts-routes.js';
+import { CONTRACTS_LINKS_SOURCE_SYSTEM, PUBLISHED_CONTRACTS_LINKS_READ } from './contracts-links.js';
 import { PUBLISHED_MACHINES_READ } from './state-machines.js';
 import { PUBLISHED_OPERATIONS_READ, publishedOperationsRows } from './operations.js';
 import { PUBLISHED_LINKS_READ } from './operations-links.js';
@@ -298,6 +299,11 @@ export function createStaticStageReadReader(store: GraphStore, executor?: QueryE
         case PUBLISHED_CONTRACTS_ROUTES_READ: {
           // The source files the contracts-routes stage read, each with the blob its bytes stood under.
           return coverageScopes(await all((page) => store.byProperty('code.coverage', 'repository', repository, { ...page, limit: page.limit ?? PLAN_PAGE }, transaction)), 'coverage', CONTRACTS_ROUTES_SOURCE_SYSTEM, repository)
+            .map((row) => ({ kind: 'coverage', path: row.path, ...(row.blob === undefined ? {} : { blob: row.blob }) }));
+        }
+        case PUBLISHED_CONTRACTS_LINKS_READ: {
+          // The source files the contracts-links stage read, each with the blob its bytes stood under.
+          return coverageScopes(await all((page) => store.byProperty('code.coverage', 'repository', repository, { ...page, limit: page.limit ?? PLAN_PAGE }, transaction)), 'coverage', CONTRACTS_LINKS_SOURCE_SYSTEM, repository)
             .map((row) => ({ kind: 'coverage', path: row.path, ...(row.blob === undefined ? {} : { blob: row.blob }) }));
         }
         case PUBLISHED_MACHINES_READ: {

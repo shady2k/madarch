@@ -48,6 +48,7 @@ const FILL_STAGES: readonly string[] = [
   'contracts',
   'contracts-code',
   'contracts-routes',
+  'contracts-links',
   'operations',
   // The links the operations reading makes across files: the variables a repository
   // reads and sets, and the services their code reads them for (madarch-8bdc.2.4).

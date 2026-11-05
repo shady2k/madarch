@@ -54,7 +54,6 @@ const REMAINING: readonly string[] = [
   'routes',
   'entry-points',
   'containment',
-  'serves',
   'calls-remote',
   'consumes',
   'publishes',
@@ -330,7 +329,7 @@ function ours(row: { readonly properties: unknown }): boolean {
   const source = (provenance as Record<string, unknown>)['source'];
   if (source === null || typeof source !== 'object') return false;
   const system = (source as Record<string, unknown>)['system'];
-  return system === 'madarch-contracts' || system === 'madarch-contracts-code' || system === 'madarch-contracts-routes';
+  return system === 'madarch-contracts' || system === 'madarch-contracts-code' || system === 'madarch-contracts-routes' || system === 'madarch-contracts-links';
 }
 
 /** The families one record belongs to: a node by its kind, an edge by its relation. */

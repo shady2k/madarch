@@ -16,6 +16,7 @@ import { createBoundariesStage } from './boundaries.js';
 import { createBuildConfigurationStage } from './build-configuration.js';
 import { createCodeFactsStage } from './code-facts.js';
 import { createContractsCodeStage } from './contracts-code.js';
+import { createContractsLinksStage } from './contracts-links.js';
 import { createContractsRoutesStage } from './contracts-routes.js';
 import { createContractsStage } from './contracts.js';
 import { createDocIntentStage } from './doc-intent.js';
@@ -106,6 +107,10 @@ export function createStageRegistry(wiring: FillStageWiring): StageRegistry {
     .register(createContractsStage(wiring.snapshots))
     .register(createContractsCodeStage(wiring.snapshots))
     .register(createContractsRoutesStage(wiring.snapshots))
+    // The links a file's routes and gRPC servers make to the contracts it serves (madarch-8bdc.2.4):
+    // they join a route one file registers to an operation a contract document declares, so they are
+    // read in a stage after both.
+    .register(createContractsLinksStage(wiring.snapshots))
     .register(createOperationsStage(wiring.snapshots))
     .register(createOperationsLinksStage(wiring.snapshots))
     .register(createModulesStage(wiring.snapshots))

@@ -325,6 +325,27 @@ holds once: where the resolution stage already tied the mention, the routes
 stage publishes no second edge, and the comparison matches that record by its
 two ends (see "The contracts reading as static stages").
 
+
+## The serving links of a code file (madarch-8bdc.2.4)
+
+`contracts-links` is a stage after the contract documents and the routes: a
+serving link joins a route one file registers to an operation a contract
+document declares, and neither file can see the other while its own stage runs.
+One unit per source file publishes the `code.serves` edges its own routes and
+gRPC servers state.
+
+- A route serves an OpenAPI operation when the method is the same and the
+  route's path template matches one of the operation's server paths segment by
+  segment (a parameter segment matches a parameter). The route's service scopes
+  the match, and the driver's own rule is kept: an operation with no single
+  serving route in its service is named in no edge.
+- A gRPC server that serves a proto method publishes the file-level link
+  (`summary: true`) and the handler-level one, as the driver's `interaction`
+  rule emits them; the handler is the inline callable at the registration.
+
+The comparison reaches zero for `serves` (11 edges on the training repository:
+7 orders routes, the 2 gRPC file links and their 2 handler links).
+
 ## Acceptance evidence
 Recorded beside the branch's report (`/work/out/report-8bdc24.md`): the focused
 tests, `bun run check`, the StrykerJS run on the stage's lines, and the peak
