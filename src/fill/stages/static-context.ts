@@ -96,12 +96,17 @@ interface StaticGraphPage {
   readonly next: string | null;
 }
 
-/** One edge a bounded read answered: the relation, its two ends by node id, and the properties it carries. */
+/**
+ * One edge a bounded read answered: the relation, the two nodes it joins and
+ * its own properties. An end is a node and not only its id because a stage that
+ * folds a link another unit published names the node by the `recordKey` it
+ * carries (the modules stage ranks resolved edges by their ends' keys).
+ */
 export interface StaticGraphEdge {
   readonly id: string;
   readonly relation: string;
-  readonly from: string;
-  readonly to: string;
+  readonly from: StaticGraphNode;
+  readonly to: StaticGraphNode;
   readonly properties: Readonly<Record<string, unknown>>;
 }
 
@@ -123,7 +128,9 @@ export interface StaticGraphReader {
    * page after it — the question a static stage asks when it links across files
    * by a value it knows (a route path, a method, a topic) and cannot walk to the
    * node: one file of facts holds more rows than one page, so a list is read page
-   * by page and no page is wider than the cap (decision 0033, item 5).
+   * by page and no page is wider than the cap (decision 0033, item 5). It is also
+   * the query a stage that reads the graph a producer published (a repository's
+   * packages, its files, its symbols) asks.
    */
   byProperty(kind: string, field: string, value: string, options?: { readonly limit?: number; readonly after?: string }): Promise<StaticGraphPage>;
   /**
@@ -220,13 +227,13 @@ function requireEdgeQuestion(relation: string, field: string, value: string): vo
   if (value.trim() === '') throw new Error(`a read of ${relation} edges by ${field} names an empty value, and an empty value matches no edge on purpose (src/fill/stages/static-context.ts)`);
 }
 
-/** One edge row as a static stage sees it: its relation, its two ends by node id and its properties. */
+/** One edge row as a static stage sees it: its relation, the two nodes it joins and its properties. */
 export function staticEdgeOf(entry: EdgeEntry): StaticGraphEdge {
   return {
     id: entry.edge.edgeId,
     relation: entry.edge.relation ?? '',
-    from: entry.edge.src,
-    to: entry.edge.dst,
+    from: staticNodeOf(entry.src),
+    to: staticNodeOf(entry.dst),
     properties: (entry.edge.properties !== null && typeof entry.edge.properties === 'object' ? entry.edge.properties : {}) as Readonly<Record<string, unknown>>,
   };
 }
@@ -235,7 +242,7 @@ export function staticEdgeOf(entry: EdgeEntry): StaticGraphEdge {
 export const STATIC_GRAPH_READ = 'stage-static-graph';
 
 /** The text one bounded static graph read is recorded and rechecked under. */
-export function staticGraphRead(input: { readonly kind: 'key' | 'globalName' | 'property' | 'edgesByProperty' | 'neighbourhood'; readonly value: string; readonly limit: number; readonly nodeKind?: string; readonly relation?: string; readonly field?: string; readonly relations?: readonly string[]; readonly direction?: 'out' | 'in'; readonly after?: string }): string {
+export function staticGraphRead(input: { readonly kind: 'key' | 'globalName' | 'property' | 'edgesByProperty' | 'edges' | 'neighbourhood'; readonly value: string; readonly limit: number; readonly nodeKind?: string; readonly relation?: string; readonly field?: string; readonly kindOf?: string; readonly fieldOf?: string; readonly relations?: readonly string[]; readonly direction?: 'out' | 'in'; readonly after?: string }): string {
   return JSON.stringify({ read: STATIC_GRAPH_READ, ...input });
 }
 

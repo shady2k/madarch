@@ -23,6 +23,7 @@ import { factId, makeNodeFact, repositoryPath, type Fact, type FactProvenance, t
 import { deriveStageGraph } from '../src/fill/registry.js';
 import { createGitSnapshotSource, type SnapshotSource } from '../src/fill/snapshot.js';
 import { DEFAULT_STAGE_LIMITS, type StageContext, type StageDraftWrite, type StageUnit } from '../src/fill/stage.js';
+import { staticStageSourceOf, type StaticGraphNode, type StaticStageSource } from '../src/fill/stages/static-context.js';
 import { createStageRegistry } from '../src/fill/stages/index.js';
 import {
   createModulesStage, edgeRows, fileRows, MODULES_STAGE_ID, modulesUnitId, packageRows, publishedFilesRead, publishedPackagesRead,
@@ -81,21 +82,77 @@ interface Recorder {
 }
 
 /** One unit's context: the reads answered by the test, the draft collected here, and a signal the test holds. */
-function contextFor(unit: StageUnit, answer: (read: string) => readonly unknown[], config: unknown = {}): { context: StageContext; recorder: Recorder; controller: AbortController } {
+function contextFor(unit: StageUnit, answer: (read: string) => readonly unknown[], config: unknown = {}, pinned?: StaticStageSource): { context: StageContext; recorder: Recorder; controller: AbortController } {
   const recorder: Recorder = { writes: [], notes: [], queries: [] };
   const controller = new AbortController();
+  // The stage reads the repository's graph through its static context's bounded property
+  // reads; the test answers them from the same rows it names for the tracked reads.
+  const nodesOf = (kind: string): readonly StaticGraphNode[] => {
+    const read = kind === 'code.package' ? publishedPackagesRead(REPOSITORY) : kind === 'code.file' ? publishedFilesRead(REPOSITORY) : publishedSymbolsRead(REPOSITORY);
+    recorder.queries.push(read);
+    return answer(read).map((row, index) => {
+      const held = row as Record<string, unknown>;
+      // A package row carries its fields at its own top level; a file or a symbol row carries
+      // them under `value`.
+      const value = kind === 'code.package'
+        ? Object.fromEntries(Object.entries(held).filter(([key]) => key !== 'kind')) as Record<string, unknown>
+        : (held['value'] ?? {}) as Record<string, unknown>;
+      return {
+        id: String(index),
+        kind,
+        label: String(held['path'] ?? held['file'] ?? index),
+        properties: {
+          factKind: kind.slice('code.'.length),
+          repository: REPOSITORY,
+          ...value,
+          ...(kind === 'code.file' ? { path: String(held['path']) } : {}),
+          ...(kind === 'code.symbol' ? { file: String(held['file']) } : {}),
+          recordKey: String(held['id']),
+          provenance: { source: { system: 'tree-sitter', version: '1' }, repository: { id: REPOSITORY, commit: COMMIT }, place: { file: String(held['path'] ?? held['file'] ?? ''), range: held['place'] ?? {} } },
+        },
+        producer: 'fill.test',
+        scope: '0',
+      } satisfies StaticGraphNode;
+    });
+  };
+  const edgesOf = (relation: string): readonly { readonly id: string; readonly relation: string; readonly from: StaticGraphNode; readonly to: StaticGraphNode; readonly properties: Record<string, unknown> }[] => {
+    const read = resolvedEdgesRead(REPOSITORY);
+    recorder.queries.push(read);
+    const kind = relation === 'code.calls' ? 'call' : relation === 'code.inherits' ? 'inherits' : relation === 'code.references' ? 'reference' : 'import';
+    const node = (key: string): StaticGraphNode => ({ id: key, kind: 'code.symbol', label: key, properties: { recordKey: key }, producer: 'fill.test', scope: '0' });
+    return answer(read)
+      .filter((row) => (row as Record<string, unknown>)['kind'] === kind)
+      .map((row, index) => {
+        const held = row as Record<string, unknown>;
+        return { id: `${relation}:${String(index)}`, relation, from: node(String(held['from'])), to: node(String(held['to'])), properties: { count: held['count'] ?? held['weight'] } };
+      });
+  };
   return {
     recorder,
     controller,
     context: {
       unit,
-      config: { id: MODULES_STAGE_ID, version: 1, enabled: true, concurrency: 1, limits: DEFAULT_STAGE_LIMITS, config },
+      config: { id: MODULES_STAGE_ID, version: 2, enabled: true, concurrency: 1, limits: DEFAULT_STAGE_LIMITS, config },
       graph: {
         query: async (read: string) => {
           recorder.queries.push(read);
           return answer(read);
         },
       },
+      static: {
+        repository: pinned ?? { repository: REPOSITORY, commit: COMMIT, source: { system: 'git', version: '2' }, form: 'code' },
+        byKey: async () => [],
+        byGlobalName: async () => [],
+        neighbourhood: async () => ({ rows: [], next: null }),
+        byProperty: async (kind: string) => {
+          if (kind === 'code.repository') {
+            // The repository node the snapshot stage published: a key of the graph's own.
+            return { rows: [{ id: 'r', kind, label: REPOSITORY, properties: { factKind: 'repository', repository: REPOSITORY, form: 'code', recordKey: `repository:${'0'.repeat(64)}` }, producer: 'fill.snapshot', scope: '0' }], next: null };
+          }
+          return { rows: nodesOf(kind), next: null };
+        },
+        edgesByProperty: async (relation: string) => ({ rows: edgesOf(relation), next: null }),
+      } as never,
       draft: {
         write: (entry: StageDraftWrite) => { recorder.writes.push(entry); },
         writes: () => ({ writes: recorder.writes }),
@@ -174,10 +231,20 @@ interface DraftFact {
   };
 }
 
-/** The facts one draft set holds, in the order they were written; a write that is no fact is left out. */
+/** The draft's items, in the order they were written: a node by its key, an edge by its joins. */
 function factsOf(writes: readonly StageDraftWrite[]): readonly DraftFact[] {
   const facts: DraftFact[] = [];
-  for (const write of writes) if (write.kind === 'fact') facts.push(write.value as DraftFact);
+  const end = (one: { readonly key: string } | { readonly id: string }): string => ('key' in one ? one.key : one.id);
+  for (const write of writes) {
+    if (write.kind === 'node') {
+      const properties = write.value.properties as Record<string, unknown>;
+      facts.push({ kind: String(properties['factKind']), id: write.value.key, value: properties, provenance: properties['provenance'] as DraftFact['provenance'] });
+      continue;
+    }
+    if (write.kind !== 'edge') continue;
+    const properties = (write.value.properties ?? {}) as Record<string, unknown>;
+    facts.push({ kind: String(properties['factKind']), id: `${write.value.relation}:${end(write.value.from)}->${end(write.value.to)}`, value: { ...properties, from: end(write.value.from), to: end(write.value.to) }, provenance: properties['provenance'] as DraftFact['provenance'] });
+  }
   return facts;
 }
 
@@ -212,8 +279,10 @@ function contained(writes: readonly StageDraftWrite[]): readonly { readonly from
 
 /** The importance a draft wrote for one fact id. */
 function importanceOf(writes: readonly StageDraftWrite[], kind: string, id: string): number {
-  const held = factsOfKind(writes, kind).find((fact) => fact.id === id);
-  if (held === undefined) throw new Error(`the draft holds no ${kind} fact of the id ${id}: ${factsOfKind(writes, kind).map((fact) => fact.id).join(', ')}`);
+  // The rank of a file or a symbol is a `code.rank` node about that node, which this stage
+  // writes: the node itself belongs to the stage that published it (decision 0033).
+  const held = factsOfKind(writes, 'rank').find((fact) => fact.value['subject'] === id);
+  if (held === undefined) throw new Error(`the draft holds no rank of the ${kind} ${id}: ${factsOfKind(writes, 'rank').map((fact) => String(fact.value['subject'])).join(', ')}`);
   return Number(held.value['importance']);
 }
 
@@ -245,7 +314,7 @@ async function refusedBy(call: () => unknown): Promise<string> {
 async function executed(source: SnapshotSource, answer: (read: string) => readonly unknown[], config: unknown = {}): Promise<Recorder> {
   const stage = createModulesStage(source);
   const unit = { id: modulesUnitId(REPOSITORY), scope: REPOSITORY };
-  const { context, recorder } = contextFor(unit, answer, config);
+  const { context, recorder } = contextFor(unit, answer, config, await staticStageSourceOf(source, REPOSITORY));
   expect(await stage.execute(unit, context)).toEqual({ outcome: 'draft' });
   return recorder;
 }
@@ -261,7 +330,7 @@ describe('the modules stage is registered', () => {
       const registry = createStageRegistry({ snapshots: sourceAt(f.root, commit) });
       const read = deriveStageGraph(registry);
       if (!read.ok) throw new Error(`the graph did not derive: ${JSON.stringify(read)}`);
-      expect(registry.get(MODULES_STAGE_ID)?.version).toBe(1);
+      expect(registry.get(MODULES_STAGE_ID)?.version).toBe(2);
       // The clustering and the rank read stage 1's files, stage 3's symbols and
       // imports and stage 4's resolved edges, and stage 2's packages are its
       // seeds: every producer runs before it.
@@ -295,7 +364,9 @@ describe('the modules stage plans one unit per repository', () => {
         { id: 'catalog-api', form: 'code', root: f.root, commit },
       ]);
       const stage = createModulesStage(source);
-      const plan = await stage.plan({ query: async (read: string) => { throw new Error(`the plan makes no read and this test answers none: ${read}`); } });
+      // The plan reads the repository node each pin's snapshot published: the graph the snapshot
+      // stage would have written by the time this plan is asked again.
+      const plan = await stage.plan({ query: async (read: string) => { const held = JSON.parse(read) as { repository: string }; return [{ kind: 'repository', repository: held.repository }, { kind: 'snapshot', repository: held.repository, commit }]; } });
       expect(plan.units.map((unit) => unit.id)).toEqual(['modules:catalog-api', 'modules:web']);
       expect(plan.units.map((unit) => unit.scope)).toEqual(['catalog-api', 'web']);
       expect(plan.coverage).toBe('planned');
@@ -399,7 +470,9 @@ describe('the modules stage clusters the graph recursively', () => {
       const rootId = String(root.id);
       expect(contained(recorder.writes).filter((edge) => edge.from === rootId).map((edge) => edge.to).sort()).toEqual([file.id, symbol.id].sort());
       // The container of a top-level module is the repository node itself.
-      const repositoryId = factId({ kind: 'repository', value: { repository: REPOSITORY, form: 'code' }, provenance: placeAt('src/a.ts') });
+      // The repository node the snapshot stage published: this stage joins its top-level modules
+      // to that node's own key.
+      const repositoryId = `repository:${'0'.repeat(64)}`;
       expect(contained(recorder.writes)).toContainEqual({ from: repositoryId, to: rootId });
     } finally {
       await f.dispose();
@@ -946,11 +1019,12 @@ describe('one unit refuses what it cannot take', () => {
       await stage.execute(unit, context);
       expect(await stage.validate({ writes: recorder.writes }, { query: async () => [] })).toEqual({ ok: true });
       // A write of a kind this stage does not write is refused, naming the stage and the kind.
-      const foreign = { kind: 'fact' as const, evidence: 'orders-api@x', value: { ...factsOf(recorder.writes)[0]!, kind: 'document' } };
+      const first = factsOf(recorder.writes)[0]!;
+      const foreign = { kind: 'node' as const, evidence: 'orders-api@x', value: { key: first.id, kind: 'code.document', label: 'x', properties: { ...first.value, factKind: 'document' } } };
       const verdict = await stage.validate({ writes: [foreign] }, { query: async () => [] });
       expect(verdict.ok).toBe(false);
       if (verdict.ok) return;
-      expect(verdict.errors.join('\n')).toContain('the modules stage does not produce a "document" fact');
+      expect(verdict.errors.join('\n')).toContain('does not produce a "document" fact');
     } finally {
       await f.dispose();
     }

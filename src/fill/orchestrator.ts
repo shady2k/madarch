@@ -1557,7 +1557,7 @@ async function attemptUnit(
     // Every bounded read through the static context is recorded as this generation's dependency, exactly as a
     // stage's own tracked read is: the publication's recheck replays it, and an answer that moved refuses the
     // publication rather than writing facts the graph no longer supports (decision 0027).
-    const recordStatic = async (text: string, rows: readonly StaticGraphNode[]): Promise<readonly StaticGraphNode[]> => {
+    const recordStatic = async <T>(text: string, rows: readonly T[]): Promise<readonly T[]> => {
       await recordUnitRead(orchestrator.database, { unitId: unit.unitId, generation: unit.generation, query: recordedReadText(text), rows, membership: answerMembership(text, rows), at: orchestrator.clock() });
       await emit(orchestrator, { runId: unit.runId, at: orchestrator.clock(), stage: unit.stageId, unitId: unit.unitId, generation: unit.generation, kind: 'unit-read', summary: `${unit.unitId} read "${text}" and answered ${rows.length} ${rows.length === 1 ? 'node' : 'nodes'}` });
       return rows;
@@ -1570,7 +1570,7 @@ async function attemptUnit(
         // names the relation, the field and the value, so the recheck replays the same question.
         const text = staticGraphRead({ kind: 'edgesByProperty', value, relation, field, limit: options?.limit ?? 256, ...(options?.after === undefined ? {} : { after: options.after }) });
         const answered = await staticGraph.edgesByProperty(relation, field, value, options);
-        return { rows: await recordStatic(text, answered.rows as never) as never, next: answered.next };
+        return { rows: await recordStatic(text, answered.rows), next: answered.next };
       },
       byProperty: async (kind, field, value, options) => {
         // A read by a value: the recorded text names the kind, the field and the value, so the

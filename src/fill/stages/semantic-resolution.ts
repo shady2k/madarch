@@ -324,24 +324,21 @@ async function executeResolutionUnit(unit: StageUnit, context: StageContext): Pr
   for (const page of mentionPages) mentions.push(...mentionRowsIn(page.rows, page.read));
   const keyOfId = new Map<string, string>(held.map((symbol) => [symbol.row.id, symbol.key]));
 
-  /**
-   * One cross-file answer, asked once per global name in a unit and kept for the
-   * unit's own scope. A name two declarations of one file carry (a merged type
-   * and value of one name, which the training repository's `payment.ts` writes)
-   * is an ambiguity of that file, never a corrupt graph: the mention stays
-   * unresolved and its gap says how many declarations the name answers.
-   */
-  const asked = new Map<string, { readonly symbol?: FileSymbol; readonly ambiguity?: number }>();
-  const byGlobalName = async (name: string): Promise<{ readonly symbol?: FileSymbol; readonly ambiguity?: number }> => {
+  /** One cross-file answer, asked once per global name in a unit and kept for the unit's own scope. */
+  const asked = new Map<string, FileSymbol | undefined>();
+  const byGlobalName = async (name: string): Promise<FileSymbol | undefined> => {
     const kept = asked.get(name);
     if (kept !== undefined) return kept;
-    const read = staticGraphRead({ kind: 'globalName', value: name, limit: 2 });
-    const answered = await source.byGlobalName(name, { limit: 2 });
-    const answer = answered.length > 1
-      ? { ambiguity: answered.length }
-      : answered[0] === undefined ? {} : { symbol: symbolOf(answered[0], undefined, read) };
-    asked.set(name, answer);
-    return answer;
+    const read = staticGraphRead({ kind: 'globalName', value: name, limit: PAGE });
+    const answered = await source.byGlobalName(name, { limit: PAGE });
+    // A file may declare one name twice (an enum and a type of one name, two overloads): the
+    // graph holds one symbol per declaration, and the name names the first of them in code
+    // point order of the keys — the rule `topLevelSymbol` applies to a file's own symbols, so
+    // the same file answers the same symbol here as it does there.
+    const held = answered.map((node) => symbolOf(node, undefined, read)).sort((left, right) => byCodePoint(left.key, right.key));
+    const found = held[0];
+    asked.set(name, found);
+    return found;
   };
 
   const sites: Site[] = [];
@@ -417,7 +414,7 @@ async function targetOfMention(
   mention: MentionRow,
   repository: string,
   rows: readonly ResolutionSymbolRow[],
-  byGlobalName: (name: string) => Promise<{ readonly symbol?: FileSymbol; readonly ambiguity?: number }>,
+  byGlobalName: (name: string) => Promise<FileSymbol | undefined>,
   readFiles: Set<string>,
 ): Promise<MentionAnswer> {
   if (mention.through === undefined) {
@@ -433,11 +430,7 @@ async function targetOfMention(
   const bound = boundTargetOf(mention);
   if (bound.kind !== 'target') return bound;
   readFiles.add(bound.target);
-  const answer = await byGlobalName(`${repository}:${bound.target}#${bound.name}`);
-  if (answer.ambiguity !== undefined) {
-    return { kind: 'unresolved', why: `${bound.what} ${JSON.stringify(bound.name)}, and the file ${JSON.stringify(bound.target)} declares ${String(answer.ambiguity)} symbols of that name` };
-  }
-  const found = answer.symbol;
+  const found = await byGlobalName(`${repository}:${bound.target}#${bound.name}`);
   if (found === undefined) {
     return { kind: 'unresolved', why: `${bound.what} ${JSON.stringify(bound.name)}, and the file ${JSON.stringify(bound.target)} declares no symbol of that name` };
   }

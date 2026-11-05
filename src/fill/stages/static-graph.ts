@@ -32,12 +32,38 @@ const NODE_KIND: Partial<Record<FactKind, string>> = {
   directory: 'code.directory',
   repository: 'code.repository',
   snapshot: 'code.commit',
+  // Stage 7's commit facts are the extractors' `code.commit` too (decision 0030's history).
+  commit: 'code.commit',
   symbol: 'code.symbol',
   comment: 'code.comment',
   'entry-point': 'code.entry-point',
   test: 'code.test',
   coverage: 'code.coverage',
+  // Stages 2, 5 and 6 of the fill (madarch-8bdc.2.3): a package a manifest
+  // declares, the environment a manifest or a compose service declares, the
+  // module the clustering finds, a document and its section. `package`,
+  // `module`, `env-var` and `document-section` are the extractors' own names
+  // (`src/extract/code/keys.ts`, `src/extract/driver/files.ts`); a document is
+  // the fill's own reading (no extractor reads one), so it is `code.document`.
+  package: 'code.package',
+  'environment-variable': 'code.env-var',
+  module: 'code.module',
+  document: 'code.document',
+  section: 'code.document-section',
 };
+
+/**
+ * The node kind a deploy unit is written as, by the form the manifest declares:
+ * the extractors read a Dockerfile and a compose service as two kinds
+ * (`code.dockerfile`, `code.compose-service`), and the fill's one fact kind
+ * carries both behind its `form`.
+ */
+function deployUnitKind(fact: Fact): string {
+  const form = String((fact.value as unknown as Record<string, unknown>)['form']);
+  if (form === 'dockerfile' || form === 'image') return 'code.dockerfile';
+  if (form === 'service' || form === 'compose-service') return 'code.compose-service';
+  return 'code.deploy-unit';
+}
 
 /** The relation types this mapping writes, by the fact kind that writes them. */
 const EDGE_RELATION: Partial<Record<FactKind, string>> = {
@@ -45,6 +71,15 @@ const EDGE_RELATION: Partial<Record<FactKind, string>> = {
   defines: 'code.contains',
   import: 'code.imports',
   occurrence: 'code.occurrence',
+  // Stages 2, 6 and 7 write these (madarch-8bdc.2.3): a manifest's dependency on
+  // another package of the pinned tree, the environment a file or a service
+  // consumes, the link a document writes to another, and the task keys a commit
+  // or a document names. Each is the extractors' own name for the same relation
+  // (`src/extract/operations/dependencies.ts`, `src/extract/history/commits.ts`).
+  dependency: 'code.dependency',
+  consumes: 'code.consumes',
+  'document-link': 'code.document-link',
+  'task-key': 'code.tasks',
 };
 
 /**
@@ -54,10 +89,11 @@ const EDGE_RELATION: Partial<Record<FactKind, string>> = {
  */
 export const CODE_GRAPH_VOCABULARY: { readonly kinds: readonly string[]; readonly relations: readonly { readonly key: string; readonly positioned?: boolean }[] } = {
   kinds: [
-    'code.comment', 'code.commit', 'code.coverage', 'code.directory', 'code.entry-point', 'code.file',
+    'code.comment', 'code.commit', 'code.compose-service', 'code.coverage', 'code.dependency', 'code.deploy-unit', 'code.directory',
+    'code.dockerfile', 'code.document', 'code.document-section', 'code.entry-point', 'code.env-var', 'code.file', 'code.link-target',
     // The names a file mentions, as the file pass writes them (decision 0033, item 14;
     // `mention-graph.ts`), beside the symbols they may name.
-    'code.mention', 'code.repository', 'code.symbol', 'code.test',
+    'code.mention', 'code.module', 'code.package', 'code.rank', 'code.repository', 'code.symbol', 'code.task', 'code.test',
     // The state machines a file writes down (the state-machines stage): the table, its states and
     // the moves between them (decision 0026's diagrams; decision 0033, item 14).
     'code.state', 'code.state-machine',
@@ -69,15 +105,24 @@ export const CODE_GRAPH_VOCABULARY: { readonly kinds: readonly string[]; readonl
     'code.listener-port', 'code.service-unit',
   ],
   relations: [
+    { key: 'code.consumes' },
     { key: 'code.contains' },
+    { key: 'code.dependency' },
+    { key: 'code.document-link' },
     { key: 'code.imports' },
     { key: 'code.mentions' },
     { key: 'code.occurrence', positioned: true },
     // What the resolution stage folds a mention into (decision 0026's stage 4).
     { key: 'code.references' },
-    // What a file declares beside its symbols, and what a state enters (the state-machines stage).
+    // What a file declares beside its symbols (the state-machines stage).
     { key: 'code.declares' },
+    // The task keys a commit or a document names (stages 6 and 7; madarch-8bdc.2.3).
+    { key: 'code.tasks' },
+    // What a state enters (the state-machines stage).
     { key: 'code.transitions' },
+    // What a manifest declares: one edge from the manifest's file to the dependency it names
+    // (`src/extract/operations/dependencies.ts`).
+    { key: 'code.uses-dependency' },
   ],
 };
 
@@ -158,7 +203,7 @@ function fileKeyOf(fact: Fact): string {
 
 /** One fact's graph items: a node for a node kind, an edge for an edge kind, and the positioned occurrence for a mention. */
 function codeGraphOfFact(fact: Fact): StaticGraphDraft[] {
-  const nodeKind = NODE_KIND[fact.kind];
+  const nodeKind = fact.kind === 'deploy-unit' ? deployUnitKind(fact) : NODE_KIND[fact.kind];
   if (nodeKind !== undefined) {
     return [{ kind: 'node', node: { key: fact.id, kind: nodeKind, label: labelOf(fact), properties: propertiesOf(fact) } }];
   }
@@ -183,13 +228,20 @@ function codeGraphOfFact(fact: Fact): StaticGraphDraft[] {
       },
     }];
   }
-  const value = fact.value as { readonly from: string; readonly to: string };
+  // A `consumes` fact names the file that declares an environment variable by its `from`
+  // and the variable by its `variable`, where an edge between two facts names them by
+  // `from` and `to`: one mapping, two shapes of value (decision 0033, item 7).
+  const value = fact.value as { readonly from: string; readonly to?: string; readonly variable?: string };
+  const to = value.to ?? value.variable;
+  if (to === undefined) {
+    throw new Error(`fill-static-graph: the ${fact.kind} fact ${fact.id} names no end: an edge fact holds "to", or "variable" for the variable it consumes (src/fill/stages/static-graph.ts)`);
+  }
   return [{
     kind: 'edge',
     edge: {
       relation,
       from: { key: value.from },
-      to: { key: value.to },
+      to: { key: to },
       properties: { ...propertiesOf(fact), repository: fact.provenance.repository.id },
     },
   }];
@@ -285,6 +337,8 @@ export function checkStaticGraphDraft(stageId: string, kinds: readonly string[],
 /** What one static unit's publication is made of: the unit, the stage, its publication digest and its draft writes. */
 export interface StaticUnitPublication {
   readonly unitId: string;
+  /** The scope the unit publishes under, where it is not the unit's id: a stage whose unit id names what it read and whose scope is the one thing it replaces (the history stage's commit range under its repository). */
+  readonly scopeKey?: string;
   readonly stageId: string;
   /** The publication digest the orchestrator computed; the graph's work item carries it too, so a repeat writes nothing. */
   readonly digest: string;
@@ -340,7 +394,7 @@ export function staticUnitPublicationOf(input: StaticUnitPublication): PublishUn
   }
   return {
     producer: staticProducerOf(input.stageId),
-    scopeKey: input.unitId,
+    scopeKey: input.scopeKey ?? input.unitId,
     inputDigest: input.digest,
     leaseToken: `fill-static:${input.digest}`,
     leaseUntil: new Date(Date.now() + 60 * 60 * 1000).toISOString(),

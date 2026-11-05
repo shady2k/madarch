@@ -4,6 +4,10 @@
     "src/fill/stages/inventory.ts": {},
     "src/fill/stages/syntax.ts": {},
     "src/fill/stages/semantic-resolution.ts": {},
+    "src/fill/stages/build-configuration.ts": {},
+    "src/fill/stages/document-index.ts": {},
+    "src/fill/stages/modules.ts": {},
+    "src/fill/stages/history.ts": {},
     "src/fill/stages/state-machines.ts": {},
     "src/fill/stages/code-facts.ts": {}
   },

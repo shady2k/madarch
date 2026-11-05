@@ -1822,11 +1822,6 @@
   {
     "rule": "no-unreachable-code",
     "file": "src/fill/stages/document-index.ts",
-    "symbol": "markdownEntriesOf"
-  },
-  {
-    "rule": "no-unreachable-code",
-    "file": "src/fill/stages/document-index.ts",
     "symbol": "parseDocumentScope"
   },
   {
@@ -1848,11 +1843,6 @@
     "rule": "no-unreachable-code",
     "file": "src/fill/stages/document-index.ts",
     "symbol": "textOf"
-  },
-  {
-    "rule": "no-unreachable-code",
-    "file": "src/fill/stages/document-index.ts",
-    "symbol": "treePathsOf"
   },
   {
     "rule": "no-unreachable-code",

@@ -178,7 +178,7 @@ function readerOf(graph: Graph): StaticGraphReader & { readonly asked: string[] 
       const more = rows.length > limit;
       return { rows: page, next: more ? page[page.length - 1]!.id : null };
     },
-  } as StaticGraphReader & { readonly asked: string[] };
+  } as unknown as StaticGraphReader & { readonly asked: string[] };
 }
 
 /** One unit's context: the draft collected here, the reads answered by the test's graph, and a signal the test holds. */
