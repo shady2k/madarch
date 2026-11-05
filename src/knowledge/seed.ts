@@ -665,6 +665,11 @@ function kindsManifest(): string {
     "# `group` puts the kind in a group of the navigation and the catalogue; `labels` and `description` name and explain",
     "# the kind in each interface language (en, ru); `origin` says how its entities came to be (agent, person, code, history).",
     "# `relations` declares an edge between kinds: {attribute|dirname} puts a part of the entity into the other end's key.",
+    "# `card: true` says a ground on one of the kind's entities shows a card of it — its facts, what it is related to",
+    "# and the way to its page — instead of the code it was read from; a kind without it keeps the code excerpt.",
+    "# `history` names the shape of the story the history block tells of the kind's entities: repositories (the",
+    "# product's whole history), author, path, membership (the files a container holds), commit or task. A kind",
+    "# without it gets no history page.",
     "# `documents.exclude` lists Markdown files that are not product documents (the files that steer a coding agent).",
     "# `roles` says, per role a reader can read as (product, analyst, architect, developer, operations, tester), which blocks of a",
     "# template stand open on a page and which groups lead the navigation. A block a role does not open stays on the page, collapsed:",
@@ -751,6 +756,8 @@ export function kindLines(kind: CatalogKindData, options: KindLineOptions = {}):
   lines.push(`    source: ${kind.source}`);
   if (kind.origin !== undefined) lines.push(`    origin: ${kind.origin}`);
   for (const extra of kind.extra ?? []) lines.push(`    ${extra}`);
+  if (kind.card === true) lines.push('    card: true');
+  if (kind.history !== undefined) lines.push(`    history: ${kind.history}`);
   const details = DETAILS[kind.name];
   if (details !== undefined && details.length > 0) lines.push(`    details: [${details.join(', ')}]`);
   lines.push('    labels:');
