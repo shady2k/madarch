@@ -103,12 +103,14 @@ export const STAGE_EDGE_TYPES: readonly { readonly key: string; readonly positio
   { key: 'code.uses-dependency' },
   // What the operations reading declares about how the software is built and run (the operations
   // stage; madarch-8bdc.2.4): the same relation types the extractors' operations reader emits.
+  { key: 'code.backed-by' },
   { key: 'code.builds' },
   { key: 'code.built-by' },
   { key: 'code.configured-by' },
   { key: 'code.connects-to' },
   { key: 'code.contains-job' },
   { key: 'code.declares-dependency' },
+  { key: 'code.defined-in' },
   { key: 'code.depends-on' },
   { key: 'code.exposes' },
   { key: 'code.hosts-channel' },

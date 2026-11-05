@@ -47,7 +47,7 @@
  */
 import { Type } from 'typebox';
 import { byCodePoint } from '../../model/order.js';
-import { makeNodeFact, type CoverageGap, type CoverageValue, type FactSource } from '../facts.js';
+import { isRepositoryPath, makeNodeFact, type CoverageGap, type CoverageValue, type FactSource } from '../facts.js';
 import type { SnapshotSource } from '../snapshot.js';
 import {
   DEFAULT_STAGE_DEFAULTS,
@@ -62,8 +62,9 @@ import { fileUnitId, plannedUnit } from './syntax.js';
 import { publishedTreeRead, publishedTreeRows } from './tree-rows.js';
 import { serviceMembershipOf, type ManifestEntry } from './service-membership.js';
 import {
-  FileText, RecordSet, composeRecords, dockerfileRead, dockerfileRecords, goModReading, goSumRecords, makefileRecords,
-  npmLockRecords, npmManifestReading, processRecords, recordsOf, startedProcessOf, usesDependencyRecords, workflowRecords,
+  FileText, RecordSet, asyncapiRecords, brokerOf, composeRecords, dockerfileRead, dockerfileRecords, environmentRecords, goModReading, goSumRecords,
+  imageServiceName, k8sRecords, makefileRecords, newcomerRecords, npmLockRecords, npmManifestReading, processRecords,
+  recordsOf, startedProcessOf, usesDependencyRecords, workflowRecords, type BrokerRow,
   type FileRecords, type RecordSpan,
 } from './operations-records.js';
 
@@ -75,9 +76,12 @@ const OPERATIONS_STAGE_VERSION = 1;
 
 /** The fact kinds the stage produces, in code point order: one per record kind it writes today. */
 const OPERATIONS_STAGE_KINDS: readonly string[] = [
-  'builds', 'ci-job', 'ci-workflow', 'compose-service', 'configured-by', 'contains', 'contains-job', 'coverage',
-  'declares-dependency', 'dependency', 'depends-on', 'dockerfile', 'exposes', 'healthcheck', 'listens-on', 'lockfile',
-  'make-target', 'manifest', 'port', 'process', 'publishes', 'references', 'resolves', 'starts', 'uses-dependency',
+  'backed-by', 'broker', 'builds', 'built-by', 'channel', 'ci-job', 'ci-workflow', 'compose-service', 'configured-by',
+  'contains', 'contains-job', 'coverage', 'declares-dependency', 'defined-in', 'dependency', 'depends-on',
+  'dockerfile', 'env-definition', 'exposes', 'healthcheck', 'hosts-channel', 'image', 'k8s-deployment', 'k8s-service',
+  'listens-on', 'lockfile', 'make-target', 'manifest', 'newcomer-command', 'newcomer-failure',
+  'newcomer-prerequisites', 'port', 'probe', 'process', 'publishes', 'references', 'resolves', 'runs', 'starts',
+  'targets', 'uses-dependency',
 ];
 
 /** The reader every fact of this stage cites: this fill's own reading of one file's operations records. */
@@ -110,18 +114,22 @@ const FAMILY_RANK: Readonly<Record<string, number>> = {
   lockfile: 1,
   manifest: 2,
   dockerfile: 3,
-  compose: 4,
-  kubernetes: 5,
-  makefile: 6,
-  workflow: 7,
-  'environment': 8,
-  document: 9,
-  asyncapi: 10,
-  code: 11,
+  // The code files come before the files that link to what they read: a compose service's
+  // environment definition names the variable a code file reads (`code.defines`), and a
+  // probe claims the health endpoint a code file serves (`code.probes`). Both nodes are
+  // published by the code file, whose unit is planned before the file that names it.
+  code: 4,
+  compose: 5,
+  kubernetes: 6,
+  makefile: 7,
+  workflow: 8,
+  'environment': 9,
+  document: 10,
+  asyncapi: 11,
 };
 
 /** The families this stage reads today: the ones whose records it publishes. */
-const FAMILIES_READ: readonly string[] = ['lockfile', 'manifest', 'dockerfile', 'compose', 'makefile', 'workflow', 'code'];
+const FAMILIES_READ: readonly string[] = ['lockfile', 'manifest', 'dockerfile', 'code', 'compose', 'kubernetes', 'makefile', 'workflow', 'environment', 'document', 'asyncapi'];
 
 /** The name a path's last leg carries, as a file name. */
 function baseNameOf(path: string): string {
@@ -367,6 +375,18 @@ async function recordsOfUnit(stage: StaticStageContext, repository: string, fami
       return await makefileRecords(file, (path) => existsInGraph(stage, path));
     case 'workflow':
       return workflowRecords(file);
+    case 'environment':
+      return environmentRecords(file, await brokersInGraph(stage, repository));
+    case 'asyncapi':
+      return asyncapiRecords(file, await brokersInGraph(stage, repository));
+    case 'document':
+      return await newcomerRecords(file, await makeTargetsOf(stage, 'Makefile'), (path) => existsInGraph(stage, path));
+    case 'kubernetes':
+      return await k8sRecords(
+        file,
+        (key) => publishedElsewhere(stage, file.path, key),
+        (image) => dockerfileOfService(stage, repository, image),
+      );
     case 'dockerfile': {
       const membership = await serviceMembershipOf(file.path, manifestLookup(stage.repository));
       const service = membership.unit?.name ?? (file.path.slice(0, file.path.lastIndexOf('/')) || '.');
@@ -382,6 +402,44 @@ async function recordsOfUnit(stage: StaticStageContext, repository: string, fami
       return await codeRecords(stage, repository, file);
     default:
       return { nodes: [], edges: [], gaps: [] };
+  }
+}
+
+/** The brokers the graph already holds for a repository, by the driver's own reading of each one. */
+async function brokersInGraph(stage: StaticStageContext, repository: string): Promise<readonly BrokerRow[]> {
+  const brokers: BrokerRow[] = [];
+  let after: string | undefined;
+  for (;;) {
+    const page = await stage.byProperty('code.broker', 'repository', repository, { limit: STATIC_READ_ROW_LIMIT, ...(after === undefined ? {} : { after }) });
+    for (const row of page.rows) {
+      const held = row.properties['record'];
+      const record = held !== null && typeof held === 'object' ? held as Record<string, unknown> : {};
+      const source = String(record['source'] ?? '');
+      const addresses = Array.isArray(record['addresses']) ? record['addresses'].map((value) => String(value)) : [];
+      const key = row.properties['recordKey'];
+      if (typeof key !== 'string') continue;
+      brokers.push(brokerOf(key, row.label, addresses, source));
+    }
+    if (page.next === null) break;
+    after = page.next;
+  }
+  return brokers.sort((left, right) => byCodePoint(left.key, right.key));
+}
+
+/** The make targets one Makefile declares, as the graph holds them: the target's name and its node's key. */
+async function makeTargetsOf(stage: StaticStageContext, path: string): Promise<ReadonlyMap<string, string>> {
+  const targets = new Map<string, string>();
+  let after: string | undefined;
+  for (;;) {
+    const page = await stage.byProperty('code.make-target', 'file', path, { limit: STATIC_READ_ROW_LIMIT, ...(after === undefined ? {} : { after }) });
+    for (const row of page.rows) {
+      const key = row.properties['recordKey'];
+      if (typeof key !== 'string') continue;
+      const name = key.slice(key.lastIndexOf('#') + 1);
+      if (!targets.has(name)) targets.set(name, key);
+    }
+    if (page.next === null) return targets;
+    after = page.next;
   }
 }
 
@@ -417,8 +475,14 @@ async function siblingLock(stage: StaticStageContext, path: string): Promise<str
   return (await stage.repository.entry(candidate)) === undefined ? undefined : candidate;
 }
 
-/** Whether the pinned tree holds a file, one path at a time: a recipe's reference, never a listing. */
+/**
+ * Whether the pinned tree holds a file, one path at a time: a recipe's reference,
+ * never a listing. A text that is no repository path — a URL, an option, a JSON
+ * fragment a command names — is no file of the tree, and the source is not asked
+ * about it.
+ */
 async function existsInGraph(stage: StaticStageContext, path: string): Promise<boolean> {
+  if (!isRepositoryPath(path)) return false;
   return (await stage.repository.entry(path)) !== undefined;
 }
 
@@ -430,6 +494,38 @@ async function existsInGraph(stage: StaticStageContext, path: string): Promise<b
 async function publishedElsewhere(stage: StaticStageContext, path: string, key: string): Promise<boolean> {
   const rows = await stage.byKey(key, { limit: 2 });
   return rows.some((row: StaticGraphNode) => row.properties['file'] !== path);
+}
+
+/**
+ * The Dockerfile of the unit an image reference names, matched by name only —
+ * the driver's `builtBy` rule (`src/extract/operations/deploy.ts`): a
+ * Dockerfile belongs to the unit that declares its folder, and the image's
+ * last path segment must be that unit's name. The Dockerfiles are read from the
+ * graph by property, one page at a time, and each one's unit is read by the
+ * same path-scoped manifest chain the plan uses.
+ */
+async function dockerfileOfService(stage: StaticStageContext, repository: string, image: string): Promise<string | undefined> {
+  const service = imageServiceName(image);
+  const rows: StaticGraphNode[] = [];
+  let after: string | undefined;
+  for (;;) {
+    const page = await stage.byProperty('code.dockerfile', 'repository', repository, { limit: STATIC_READ_ROW_LIMIT, ...(after === undefined ? {} : { after }) });
+    rows.push(...page.rows);
+    if (page.next === null) break;
+    after = page.next;
+  }
+  const paths = rows
+    .map((row) => row.properties['file'])
+    .filter((held): held is string => typeof held === 'string')
+    .sort(byCodePoint);
+  for (const path of paths) {
+    const membership = await serviceMembershipOf(path, manifestLookup(stage.repository));
+    const owner = membership.unit?.name ?? (path.slice(0, path.lastIndexOf('/')) || '.');
+    if (owner !== service) continue;
+    if ((await stage.repository.entry(path)) === undefined) return undefined;
+    return path;
+  }
+  return undefined;
 }
 
 /**

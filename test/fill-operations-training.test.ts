@@ -54,36 +54,20 @@ const STAGE_PRODUCER = 'fill.operations';
  * only shrinks.
  */
 const REMAINING: readonly string[] = [
-  'code.backed-by',
-  'code.broker',
-  'code.built-by',
-  'code.channel',
   'code.connects-to',
-  'code.defined-in',
   'code.defines',
-  'code.env-definition',
   'code.env-var',
   'code.exposes-metric',
   'code.health-endpoint',
-  'code.hosts-channel',
-  'code.image',
-  'code.k8s-deployment',
-  'code.k8s-service',
   'code.logger',
   'code.manifest-of',
   'code.metric',
   'code.metrics-endpoint',
-  'code.newcomer-command',
-  'code.newcomer-failure',
-  'code.newcomer-prerequisites',
-  'code.probe',
   'code.probes',
   'code.reads-env',
-  'code.runs',
   'code.served-by',
   'code.service',
   'code.symbol',
-  'code.targets',
   'code.updates-metric',
   'code.uses-logger',
 ];
@@ -310,6 +294,15 @@ beforeAll(async () => {
   const run = await service.run({ product: fill.product, runId: 'training-one' });
   if (!run.ok) throw new Error(`the first fill was refused: ${run.code}: ${run.reason}`);
   first = run;
+  // A unit the stage could not publish is said here, with the reader's own words: the comparison
+  // below is worth nothing while a file of the stage stands failed (decision 0005).
+  const failed = run.units.filter((unit) => unit.state === 'failed');
+  if (failed.length > 0) {
+    const { readProgress } = await import('../src/fill/orchestrator-store.js');
+    const events = await readProgress(owner, 'training-one', {});
+    const said = events.filter((event) => event.kind === 'unit-failed' && failed.some((unit) => unit.unitId === event.unitId));
+    throw new Error(`the first fill left ${String(failed.length)} unit(s) failed: ${failed.map((unit) => unit.unitId).join(', ')}\n${said.map((event) => event.summary).join('\n')}`);
+  }
   // The driver's own reading of the same tree, at the same commit.
   const paths = committedFiles(repository);
   const bytes = new Map<string, Uint8Array>(paths.map((path) => [path, new Uint8Array(readFileSync(join(repository, path)))]));

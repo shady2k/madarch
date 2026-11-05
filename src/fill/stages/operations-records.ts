@@ -26,7 +26,7 @@
  * computed over the same decoded text, so a span made here is the span the
  * driver's bytes hold, and the comparison needs no tolerance.
  */
-import { isAlias, isMap, isScalar, isSeq, LineCounter, parseDocument } from 'yaml';
+import { isAlias, isMap, isScalar, isSeq, LineCounter, parseAllDocuments, parseDocument } from 'yaml';
 import { byCodePoint } from '../../model/order.js';
 import { readDockerfile, readGoMod, readJson } from './manifest-format.js';
 
@@ -898,6 +898,10 @@ function isAliasNode(node: unknown): boolean {
 export async function composeRecords(file: FileText, published: (service: string, port: number) => Promise<boolean>, exists: (path: string) => Promise<boolean>): Promise<FileRecords> {
   const set = new RecordSet();
   const path = file.path;
+  // The brokers this file runs, in the order its services declare them: an environment
+  // setting below resolves its address against them (`configured-by`).
+  const brokers: BrokerRow[] = [];
+  const definitions: EnvDefinitionRead[] = [];
   const state: { absent?: 'not-mapping' | 'no-services' } = {};
   const services = composeServicesOf(file, set, state);
   if (state.absent !== undefined) set.gap(path, state.absent === 'not-mapping' ? 'the file is no mapping: a compose file maps service names to their declarations' : 'the file declares no services mapping');
@@ -938,10 +942,27 @@ export async function composeRecords(file: FileText, published: (service: string
       set.edge('code.publishes', key, portKey, { host: mapping.host, container: mapping.container }, span);
     }
     for (const target of service.dependsOn) set.edge('code.depends-on', key, `code.compose-service:${path}#${target}`, {}, undefined);
+    if (service.image !== null && isKafkaImage(service.image)) {
+      const values = service.environment.filter((variable) => /ADVERTISED_LISTENERS|ADVERTISED_KAFKA_ADDR/.test(variable.name)).flatMap((variable) => brokerAddresses(variable.value ?? ''));
+      const broker = messagingBrokerOf(`code.broker:${path}#${service.name}`, service.name, 'compose', values);
+      brokers.push(broker.row);
+      set.add({ ...broker.node, span });
+      set.edge('code.runs', key, broker.row.key, {}, span);
+    }
+    const defined = service.environment.map((variable) => ({
+      key: `code.env-definition:${path}#${service.name}/${variable.name}`,
+      name: variable.name,
+      scope: service.name,
+      value: variable.value,
+      span: variable.span,
+    }));
+    definitions.push(...defined);
+    definitionRecords(set, file, defined);
     const dockerfile = await composeBuildOf(path, service.build, exists);
     if (dockerfile !== null) set.edge('code.builds', key, `code.dockerfile:${dockerfile}`, {}, span);
     else if (service.build !== null) set.gap(path, `the build of the service ${JSON.stringify(service.name)} names no Dockerfile this tree holds`);
   }
+  configureBrokers(set, brokers, definitions);
   return recordsOf(set);
 }
 
@@ -956,4 +977,637 @@ async function composeBuildOf(composePath: string, build: ComposeServiceRead['bu
   if (candidate === null) return null;
   const normalized = candidate.replace(/^\.\//, '');
   return (await exists(normalized)) ? normalized : null;
+}
+
+// ---- kubernetes: what a deploy file runs, probes and serves ----
+
+/** One probe of a workload's container, as the driver's k8s reader resolves it. */
+interface K8sProbeRead {
+  readonly container: string;
+  readonly probeType: string;
+  readonly properties: Readonly<Record<string, unknown>>;
+  readonly span: RecordSpan;
+}
+
+/** One workload or service of a Kubernetes file, as the driver reads it. */
+interface K8sWorkloadRead {
+  readonly kind: string;
+  readonly name: string;
+  image: string | null;
+  replicas: number | null;
+  readonly containerPorts: number[];
+  readonly probes: K8sProbeRead[];
+  readonly envFrom: string[];
+  readonly servicePorts: { readonly name: string | null; readonly port: number; readonly targetPort: number | null }[];
+  readonly lineStart: number;
+  readonly lineEnd: number;
+}
+
+/** One scalar's text, or null where it states none. */
+function k8sScalarText(node: unknown): string | null {
+  return isScalar(node) && node.value !== null ? String(node.value) : null;
+}
+
+/**
+ * The workloads and services one Kubernetes file declares, document by
+ * document: the driver's own reader (`src/extract/operations/deploy.ts`,
+ * `k8sWorkloads`), over one file's bytes. A YAML the parser refuses is a gap
+ * naming its line.
+ */
+function k8sWorkloadsOf(file: FileText, set: RecordSet): readonly K8sWorkloadRead[] {
+  const text = file.text;
+  const path = file.path;
+  const lineCounter = new LineCounter();
+  const documents = parseAllDocuments(text, { lineCounter, keepSourceTokens: true });
+  const workloads: K8sWorkloadRead[] = [];
+  for (const document of documents) {
+    for (const error of document.errors) {
+      set.gap(path, `line ${String(lineCounter.linePos(error.pos?.[0] ?? 0).line)}: ${error.message}`);
+    }
+    if (!isMap(document.contents)) continue;
+    const kind = k8sScalarText(document.contents.items.find((pair) => isScalar(pair.key) && pair.key.value === 'kind')?.value);
+    const metadata = document.contents.items.find((pair) => isScalar(pair.key) && pair.key.value === 'metadata')?.value;
+    const name = isMap(metadata) ? k8sScalarText(metadata.items.find((pair) => isScalar(pair.key) && pair.key.value === 'name')?.value) : null;
+    if (kind === null || name === null) continue;
+    const range = document.range ?? [0, 0, text.length - 1];
+    const firstLine = lineCounter.linePos(range[0] ?? 0).line;
+    const lastLine = lineCounter.linePos(Math.min(range[2] ?? text.length - 1, text.length - 1)).line;
+    const workload: K8sWorkloadRead = { kind, name, image: null, replicas: null, containerPorts: [], probes: [], envFrom: [], servicePorts: [], lineStart: firstLine, lineEnd: lastLine };
+    if (kind === 'Deployment') {
+      const spec = document.contents.items.find((pair) => isScalar(pair.key) && pair.key.value === 'spec')?.value;
+      if (isMap(spec)) {
+        const replicas = k8sScalarText(spec.items.find((pair) => isScalar(pair.key) && pair.key.value === 'replicas')?.value);
+        workload.replicas = replicas === null ? null : Number.parseInt(replicas, 10);
+        const template = spec.items.find((pair) => isScalar(pair.key) && pair.key.value === 'template')?.value;
+        const podSpec = isMap(template) ? template.items.find((pair) => isScalar(pair.key) && pair.key.value === 'spec')?.value : undefined;
+        const containers = isMap(podSpec) ? podSpec.items.find((pair) => isScalar(pair.key) && pair.key.value === 'containers')?.value : undefined;
+        if (isSeq(containers)) {
+          for (const container of containers.items) {
+            if (!isMap(container)) continue;
+            const image = k8sScalarText(container.items.find((pair) => isScalar(pair.key) && pair.key.value === 'image')?.value);
+            if (image !== null) workload.image = image;
+            const ports = container.items.find((pair) => isScalar(pair.key) && pair.key.value === 'ports')?.value;
+            if (isSeq(ports)) {
+              for (const port of ports.items) {
+                if (!isMap(port)) continue;
+                const containerPort = k8sScalarText(port.items.find((pair) => isScalar(pair.key) && pair.key.value === 'containerPort')?.value);
+                const number = containerPort === null ? Number.NaN : Number.parseInt(containerPort, 10);
+                if (Number.isFinite(number)) workload.containerPorts.push(number);
+              }
+            }
+            const envFrom = container.items.find((pair) => isScalar(pair.key) && pair.key.value === 'envFrom')?.value;
+            if (isSeq(envFrom)) {
+              for (const source of envFrom.items) {
+                if (!isMap(source)) continue;
+                for (const reference of source.items) {
+                  if (!isScalar(reference.key) || typeof reference.key.value !== 'string') continue;
+                  const inner = isMap(reference.value)
+                    ? k8sScalarText(reference.value.items.find((pair) => isScalar(pair.key) && pair.key.value === 'name')?.value)
+                    : null;
+                  if (inner !== null) workload.envFrom.push(`${reference.key.value}:${inner}`);
+                }
+              }
+            }
+            const containerName = k8sScalarText(container.items.find((pair) => isScalar(pair.key) && pair.key.value === 'name')?.value) ?? String(containers.items.indexOf(container));
+            for (const probeName of ['readinessProbe', 'livenessProbe', 'startupProbe']) {
+              const pair = container.items.find((item) => isScalar(item.key) && item.key.value === probeName);
+              const probe = pair?.value;
+              if (!isMap(probe)) continue;
+              const value = (key: string): unknown => probe.items.find((item) => isScalar(item.key) && item.key.value === key)?.value;
+              const httpGet = value('httpGet');
+              const tcp = value('tcpSocket');
+              const exec = value('exec');
+              const field = (node: unknown, key: string): unknown => isMap(node) ? node.items.find((item) => isScalar(item.key) && item.key.value === key)?.value : undefined;
+              const portText = k8sScalarText(field(httpGet, 'port') ?? field(tcp, 'port'));
+              const port = portText !== null && /^\d+$/.test(portText) ? Number(portText) : portText;
+              const command = field(exec, 'command');
+              const properties: Record<string, unknown> = {
+                service: name, container: containerName, probeType: probeName,
+                transport: isMap(httpGet) ? 'http' : isMap(tcp) ? 'tcp' : isMap(exec) ? 'exec' : null,
+                path: k8sScalarText(field(httpGet, 'path')), port,
+                host: k8sScalarText(field(httpGet, 'host')),
+                resolvedPort: typeof port === 'number' ? port : isSeq(ports) ? (() => {
+                  const candidates = ports.items.filter((entry) => isMap(entry) && k8sScalarText(field(entry, 'name')) === portText);
+                  const literal = candidates.length === 1 ? k8sScalarText(field(candidates[0], 'containerPort')) : null;
+                  return literal !== null && /^\d+$/.test(literal) ? Number(literal) : null;
+                })() : null,
+                scheme: k8sScalarText(field(httpGet, 'scheme')),
+                command: isSeq(command) ? command.items.map(k8sScalarText) : null,
+              };
+              for (const setting of ['initialDelaySeconds', 'periodSeconds', 'timeoutSeconds', 'successThreshold', 'failureThreshold', 'terminationGracePeriodSeconds']) {
+                const raw = k8sScalarText(value(setting));
+                properties[setting] = raw !== null && /^\d+$/.test(raw) ? Number(raw) : null;
+              }
+              const start = isScalar(pair?.key) ? pair.key.range?.[0] ?? 0 : probe.range?.[0] ?? 0;
+              workload.probes.push({
+                container: containerName, probeType: probeName, properties,
+                span: file.spanOfLines(lineCounter.linePos(start).line, lineCounter.linePos(Math.max(start, (probe.range?.[1] ?? start + 1) - 1)).line),
+              });
+            }
+          }
+        }
+      }
+    }
+    if (kind === 'Service') {
+      const spec = document.contents.items.find((pair) => isScalar(pair.key) && pair.key.value === 'spec')?.value;
+      const ports = isMap(spec) ? spec.items.find((pair) => isScalar(pair.key) && pair.key.value === 'ports')?.value : undefined;
+      if (isSeq(ports)) {
+        for (const port of ports.items) {
+          if (!isMap(port)) continue;
+          const portName = k8sScalarText(port.items.find((pair) => isScalar(pair.key) && pair.key.value === 'name')?.value);
+          const portNumber = Number.parseInt(k8sScalarText(port.items.find((pair) => isScalar(pair.key) && pair.key.value === 'port')?.value) ?? '', 10);
+          const targetPort = Number.parseInt(k8sScalarText(port.items.find((pair) => isScalar(pair.key) && pair.key.value === 'targetPort')?.value) ?? '', 10);
+          workload.servicePorts.push({ name: portName, port: Number.isFinite(portNumber) ? portNumber : 0, targetPort: Number.isFinite(targetPort) ? targetPort : null });
+        }
+      }
+    }
+    workloads.push(workload);
+  }
+  return workloads;
+}
+
+/** The service an image reference names: the last path segment of its repository. */
+export function imageServiceName(reference: string): string {
+  const colon = reference.lastIndexOf(':');
+  const slash = reference.lastIndexOf('/');
+  const repository = colon > slash ? reference.slice(0, colon) : reference;
+  return repository.split('/').pop() ?? reference;
+}
+
+/**
+ * One Kubernetes file's records: the deployments and services it declares, the
+ * probes of each workload's containers, the image a deployment runs, the ports
+ * it exposes and the Dockerfile that built the image. A port or an image another
+ * file of this reading declared first is that file's node, and this unit only
+ * names it (`published` answers which records this unit publishes at all; the
+ * `builtBy` question answers the Dockerfile of an image by name).
+ */
+export async function k8sRecords(
+  file: FileText,
+  published: (key: string) => Promise<boolean>,
+  builtBy: (image: string) => Promise<string | undefined>,
+): Promise<FileRecords> {
+  const set = new RecordSet();
+  const path = file.path;
+  const workloads = k8sWorkloadsOf(file, set);
+  definitionRecords(set, file, yamlEnvDefinitionsOf(file, set));
+  for (const workload of workloads) {
+    const span = file.spanOfLines(workload.lineStart, workload.lineEnd);
+    if (workload.kind === 'Deployment') {
+      const key = `code.k8s-deployment:${path}#${workload.name}`;
+      set.add({
+        key,
+        kind: 'code.k8s-deployment',
+        label: workload.name,
+        properties: {
+          replicas: workload.replicas,
+          image: workload.image,
+          containerPorts: [...workload.containerPorts].sort((left, right) => left - right),
+          probePath: [...new Set(workload.probes.map((probe) => probe.properties['path']).filter((held) => typeof held === 'string'))].length === 1 ? workload.probes.find((probe) => typeof probe.properties['path'] === 'string')?.properties['path'] ?? null : null,
+          probePaths: workload.probes.map((probe) => probe.properties['path'] ?? null),
+          envFrom: [...workload.envFrom].sort(byCodePoint),
+        },
+        span,
+      });
+      for (const probe of workload.probes) {
+        const probeKey = `code.probe:${path}#${workload.name}/${probe.container}/${probe.probeType}`;
+        set.add({ key: probeKey, kind: 'code.probe', label: `${workload.name} ${probe.probeType}`, properties: probe.properties, span: probe.span });
+        if (typeof probe.properties['port'] === 'number') {
+          const portKey = `code.port:${workload.name}/${String(probe.properties['port'])}`;
+          if (!(await published(portKey))) set.add({ key: portKey, kind: 'code.port', label: `${workload.name}/${String(probe.properties['port'])}`, properties: { port: probe.properties['port'], service: workload.name }, span: probe.span });
+          set.edge('code.targets', probeKey, portKey, {}, probe.span);
+        }
+      }
+      if (workload.image !== null && isKafkaImage(workload.image)) {
+        const broker = messagingBrokerOf(`code.broker:${path}#${workload.name}`, workload.name, 'kubernetes', []);
+        set.add({ ...broker.node, span });
+        set.edge('code.runs', key, broker.row.key, {}, span);
+      }
+      if (workload.image !== null) {
+        const imageKey = `code.image:${workload.image}`;
+        if (!(await published(imageKey))) {
+          const colon = workload.image.lastIndexOf(':');
+          const slash = workload.image.lastIndexOf('/');
+          const tag = colon > slash ? workload.image.slice(colon + 1) : null;
+          const repository = tag === null ? workload.image : workload.image.slice(0, colon);
+          set.add({ key: imageKey, kind: 'code.image', label: workload.image, properties: { repository, tag }, span });
+        }
+        set.edge('code.runs', key, imageKey, {}, span);
+        const imageService = imageServiceName(workload.image);
+        for (const port of workload.containerPorts) {
+          const portKey = `code.port:${imageService}/${String(port)}`;
+          if (!(await published(portKey))) set.add({ key: portKey, kind: 'code.port', label: `${imageService}/${String(port)}`, properties: { port, service: imageService }, span });
+          set.edge('code.exposes', key, portKey, {}, span);
+        }
+        const dockerfile = await builtBy(workload.image);
+        if (dockerfile !== undefined) set.edge('code.built-by', imageKey, `code.dockerfile:${dockerfile}`, { matchedBy: 'name' }, span);
+      }
+    }
+    if (workload.kind === 'Service') {
+      const key = `code.k8s-service:${path}#${workload.name}`;
+      set.add({
+        key,
+        kind: 'code.k8s-service',
+        label: workload.name,
+        properties: { ports: workload.servicePorts.map((port) => ({ name: port.name, port: port.port, targetPort: port.targetPort })) },
+        span,
+      });
+      for (const port of workload.servicePorts) {
+        if (port.targetPort === null) continue;
+        const portKey = `code.port:${workload.name}/${String(port.targetPort)}`;
+        if (!(await published(portKey))) set.add({ key: portKey, kind: 'code.port', label: `${workload.name}/${String(port.targetPort)}`, properties: { port: port.targetPort, service: workload.name }, span });
+        set.edge('code.targets', key, portKey, { port: port.port }, span);
+      }
+    }
+  }
+  return recordsOf(set);
+}
+
+// ---- environment definitions: the values a file sets for the variables the code reads ----
+
+/** One definition of one variable, with the value it sets and the service it scopes to. */
+interface EnvDefinitionRead {
+  /** The key the definition stands under: the file, the scope where it has one, and the name. */
+  readonly key: string;
+  readonly name: string;
+  readonly scope: string | null;
+  readonly value: string | null;
+  /** True when the definition is explicitly a secret, not a setting that happens to look like one. */
+  readonly secret?: boolean;
+  readonly span: RecordSpan;
+}
+
+/** Whether a dotenv name is a word: letters, digits and underscores, not starting with a digit. */
+function isDotenvName(name: string): boolean {
+  for (const [index, character] of [...name].entries()) {
+    const letter = (character >= 'a' && character <= 'z') || (character >= 'A' && character <= 'Z');
+    const digit = (character >= '0' && character <= '9');
+    if (!letter && !digit && character !== '_') return false;
+    if (index === 0 && digit) return false;
+  }
+  return name !== '';
+}
+
+/** The first place one character stands in a string: one comparison per character, never a search pattern. */
+function firstCharacter(text: string, character: string): number {
+  for (let at = 0; at < text.length; at += 1) if (text[at] === character) return at;
+  return -1;
+}
+
+/** The definitions in one `.env.example`, as `NAME=value` lines: the driver's own reader. */
+function dotenvDefinitionsOf(file: FileText): readonly EnvDefinitionRead[] {
+  const definitions: EnvDefinitionRead[] = [];
+  file.lines.forEach((line, index) => {
+    const at = firstCharacter(line, '=');
+    if (at < 0) return;
+    const name = line.slice(0, at).trim();
+    if (!isDotenvName(name)) return;
+    const value = line.slice(at + 1).trim();
+    definitions.push({
+      key: `code.env-definition:${file.path}#${name}`,
+      name,
+      scope: null,
+      value: value === '' ? null : value,
+      span: file.spanOfLine(index + 1),
+    });
+  });
+  return definitions;
+}
+
+/**
+ * The `env:` entries and Secrets one Kubernetes file sets, with the value each
+ * one states — the driver's `yamlEnvDefinitions`, over one file's bytes. A
+ * Secret's `stringData` and `data` are explicit secret facts: their values are
+ * secrets by what the file declares, not by how often a value repeats.
+ */
+function yamlEnvDefinitionsOf(file: FileText, set: RecordSet): readonly EnvDefinitionRead[] {
+  const definitions: EnvDefinitionRead[] = [];
+  const path = file.path;
+  const lineCounter = new LineCounter();
+  const documents = parseAllDocuments(file.text, { lineCounter, keepSourceTokens: true });
+  const visit = (node: unknown): void => {
+    if (!isMap(node)) return;
+    const kind = node.items.find((pair) => isScalar(pair.key) && pair.key.value === 'kind')?.value;
+    if (isScalar(kind) && kind.value === 'Secret') {
+      const metadata = node.items.find((pair) => isScalar(pair.key) && pair.key.value === 'metadata')?.value;
+      const secretName = isMap(metadata) ? metadata.items.find((pair) => isScalar(pair.key) && pair.key.value === 'name')?.value : undefined;
+      const scope = isScalar(secretName) && typeof secretName.value === 'string' ? secretName.value : 'secret';
+      for (const field of ['stringData', 'data']) {
+        const held = node.items.find((pair) => isScalar(pair.key) && pair.key.value === field)?.value;
+        if (!isMap(held)) continue;
+        for (const pair of held.items) {
+          if (!isScalar(pair.key) || typeof pair.key.value !== 'string' || !isScalar(pair.value) || pair.value.value === null) continue;
+          const line = lineCounter.linePos(pair.key.range?.[0] ?? 0).line;
+          definitions.push({
+            key: `code.env-definition:${path}#${scope}/${pair.key.value}`,
+            name: pair.key.value,
+            scope: null,
+            value: String(pair.value.value),
+            secret: true,
+            span: file.spanOfLine(line),
+          });
+        }
+      }
+    }
+    const env = node.items.find((pair) => isScalar(pair.key) && pair.key.value === 'env')?.value;
+    if (!isSeq(env)) {
+      for (const pair of node.items) {
+        visit(pair.key);
+        visit(pair.value);
+      }
+      return;
+    }
+    for (const entry of env.items) {
+      if (!isMap(entry)) continue;
+      const name = entry.items.find((pair) => isScalar(pair.key) && pair.key.value === 'name')?.value;
+      const value = entry.items.find((pair) => isScalar(pair.key) && pair.key.value === 'value')?.value;
+      if (!isScalar(name) || typeof name.value !== 'string') continue;
+      if (!isScalar(value) || typeof value.value !== 'string') continue;
+      const line = lineCounter.linePos(name.range?.[0] ?? 0).line;
+      definitions.push({ key: `code.env-definition:${path}#${name.value}`, name: name.value, scope: null, value: value.value, span: file.spanOfLine(line) });
+    }
+    for (const pair of node.items) visit(pair.value);
+  };
+  for (const document of documents) {
+    for (const error of document.errors) set.gap(path, `line ${String(lineCounter.linePos(error.pos?.[0] ?? 0).line)}: ${error.message}`);
+    visit(document.contents);
+  }
+  return definitions;
+}
+
+/**
+ * One definition's records: the node, labelled by the name, the service and the
+ * file it stands in, and the `defined-in` edge that names the file — the edge a
+ * reader follows from the variable a service is given to the place it is given.
+ */
+function definitionRecords(set: RecordSet, file: FileText, definitions: readonly EnvDefinitionRead[]): void {
+  for (const definition of [...definitions].sort((left, right) => byCodePoint(left.key, right.key))) {
+    const label = [definition.name, definition.scope, file.path].filter((part): part is string => typeof part === 'string' && part !== '').join(' · ');
+    set.add({
+      key: definition.key,
+      kind: 'code.env-definition',
+      label,
+      properties: { value: definition.value, ...(definition.scope === null ? {} : { scope: definition.scope }), ...(definition.secret === true ? { secret: true } : {}) },
+      span: definition.span,
+    });
+    set.edge('code.defined-in', definition.key, RecordSet.fileKey(file.path), {}, definition.span);
+  }
+}
+
+/**
+ * One `.env.example`'s records: a definition per `NAME=value` line, the edge to
+ * the file, and the broker a setting names where one is already published.
+ */
+export function environmentRecords(file: FileText, brokers: readonly BrokerRow[]): FileRecords {
+  const set = new RecordSet();
+  const definitions = dotenvDefinitionsOf(file);
+  definitionRecords(set, file, definitions);
+  configureBrokers(set, [...brokers], definitions);
+  return recordsOf(set);
+}
+
+// ---- the newcomer: what the README says to run ----
+
+/** The make targets a step's text asks for, in the order the text names them. */
+function commandTargetsOf(text: string): string[] {
+  const found: string[] = [];
+  for (const match of text.matchAll(/\bmake\s+(?:-s\s+)?([a-z][a-z0-9-]*)/g)) {
+    const target = match[1];
+    if (target !== undefined) found.push(target);
+  }
+  return found;
+}
+
+/**
+ * One repository README's records: the prerequisites line, the numbered steps
+ * of its run-it section and the failure a first run meets — the driver's
+ * `extractNewcomer` (`src/extract/operations/newcomer.ts`), over one file's
+ * lines. A step that names a make target is backed by that target's node, read
+ * from the graph by the target's own file; a step that names a file the pinned
+ * tree holds refers to it.
+ */
+export async function newcomerRecords(
+  file: FileText,
+  targets: ReadonlyMap<string, string>,
+  exists: (path: string) => Promise<boolean>,
+): Promise<FileRecords> {
+  const set = new RecordSet();
+  const readmePath = file.path;
+  const lines = file.lines;
+  // The prerequisites line.
+  const prerequisitesAt = lines.findIndex((line) => /^Prerequisites:\s*(.+)$/.test(line));
+  if (prerequisitesAt >= 0) {
+    const tail = /^Prerequisites:\s*(.+)$/.exec(lines[prerequisitesAt] ?? '')?.[1] ?? '';
+    const tools = tail
+      .split(/,\s*|\s+and\s+/)
+      .map((tool) => tool.trim().replace(/\.$/, ''))
+      .filter((tool) => tool !== '')
+      .sort(byCodePoint);
+    const key = `code.newcomer-prerequisites:${readmePath}`;
+    set.add({ key, kind: 'code.newcomer-prerequisites', label: 'prerequisites', properties: { tools }, span: file.spanOfLine(prerequisitesAt + 1) });
+    set.edge('code.references', key, RecordSet.fileKey(readmePath), {}, file.spanOfLine(prerequisitesAt + 1));
+  }
+  // The numbered steps of the run-it section: order, folder, command, purpose.
+  const runIt = lines.findIndex((line) => line.startsWith('## Run it'));
+  if (runIt >= 0) {
+    for (let index = runIt + 1; index < lines.length; index += 1) {
+      const line = lines[index] ?? '';
+      if (line.startsWith('## ')) break;
+      const step = /^(\d+)\.\s+(.*)$/.exec(line);
+      if (step === null) continue;
+      const order = Number.parseInt(step[1] ?? '', 10);
+      const startLine = index + 1;
+      const parts = [step[2] ?? ''];
+      for (let scan = index + 1; scan < lines.length; scan += 1) {
+        const continuation = lines[scan] ?? '';
+        if (continuation.trim() === '' || /^\d+\.\s/.test(continuation) || continuation.startsWith('## ')) break;
+        parts.push(continuation.trim());
+        index = scan;
+      }
+      const text = parts.join(' ').trim();
+      const command = /`([^`]+)`/.exec(text)?.[1]?.trim() ?? text;
+      const key = `code.newcomer-command:${readmePath}#step-${order}`;
+      const span = file.spanOfLines(startLine, index + 1);
+      set.add({ key, kind: 'code.newcomer-command', label: command, properties: { order, folder: '.', command, purpose: text }, span });
+      for (const target of commandTargetsOf(text)) {
+        const made = targets.get(target);
+        if (made !== undefined) set.edge('code.backed-by', key, made);
+      }
+      for (const token of new Set(command.split(/\s+/u))) {
+        const candidate = token.replace(/["']/g, '');
+        if (!(await exists(candidate))) continue;
+        set.edge('code.references', key, RecordSet.fileKey(candidate), {}, span);
+      }
+    }
+  }
+  // The common failure: symptom, port, fix.
+  const failureAt = lines.findIndex((line) => /^Common failure:/.test(line));
+  if (failureAt >= 0) {
+    const paragraph = [lines[failureAt] ?? ''];
+    for (let scan = failureAt + 1; scan < lines.length; scan += 1) {
+      const continuation = lines[scan] ?? '';
+      if (continuation.trim() === '' || continuation.startsWith('#')) break;
+      paragraph.push(continuation.trim());
+    }
+    const text = paragraph.join(' ');
+    const symptom = /"([^"]+)"/.exec(text)?.[1] ?? null;
+    const port = Number.parseInt(/\b(\d{4,5})\b/.exec(text)?.[1] ?? '', 10);
+    const command = /`([^`]+)`/.exec(text)?.[1] ?? null;
+    const fix = text.includes(';') ? text.slice(text.indexOf(';') + 1).trim().replace(/\.$/, '') : null;
+    const slug = (symptom ?? 'first-run-failure').toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/^-+|-+$/g, '');
+    const key = `code.newcomer-failure:${readmePath}#${slug}`;
+    const span = file.spanOfLines(failureAt + 1, failureAt + paragraph.length);
+    set.add({ key, kind: 'code.newcomer-failure', label: symptom ?? 'first-run failure', properties: { symptom, port: Number.isFinite(port) ? port : null, fix, command }, span });
+    for (const token of new Set((fix ?? '').split(/\s+/u))) {
+      const candidate = token.replace(/\.$/, '');
+      if (!(await exists(candidate))) continue;
+      set.edge('code.references', key, RecordSet.fileKey(candidate), {}, span);
+    }
+  }
+  return recordsOf(set);
+}
+
+// ---- messaging: the brokers a file runs or names, and the channels a contract declares ----
+
+/** The broker images this reading calls a Kafka broker, by their image reference. */
+const KAFKA_IMAGE = /(?:^|\/)(?:kafka|cp-kafka|redpanda)(?::|@|$)/i;
+
+/** The addresses a setting states: `a:1,b:2`, each without its scheme, when each is a host and a port. */
+function brokerAddresses(value: string): string[] {
+  return value.split(',').map((part) => part.trim().replace(/^[A-Za-z][\w+.-]*:\/\//, '')).filter((part) => /^[\w.-]+:\d+$/.test(part));
+}
+
+/** One broker the graph holds: its node key, the names it answers to and the addresses it serves. */
+export interface BrokerRow {
+  readonly key: string;
+  readonly label: string;
+  readonly addresses: readonly string[];
+  readonly aliases: readonly string[];
+}
+
+/** One broker as the graph holds it, read back from the node's own properties. */
+export function brokerOf(key: string, name: string, addresses: readonly string[], source: string): BrokerRow {
+  const aliases = source === 'compose' || source === 'kubernetes' ? [name] : [name.split(':')[0] ?? name];
+  return { key, label: name, addresses, aliases };
+}
+
+/** Whether an image reference names a Kafka broker this reading follows. */
+function isKafkaImage(image: string): boolean {
+  return KAFKA_IMAGE.test(image);
+}
+
+/** The broker row one compose service or deployment declares, with the addresses its own settings state. */
+function messagingBrokerOf(key: string, name: string, source: string, values: readonly string[]): { readonly row: BrokerRow; readonly node: NodeRecord } {
+  const row = brokerOf(key, name, values, source);
+  return {
+    row,
+    node: { key, kind: 'code.broker', label: name, properties: { technology: 'kafka', source, addresses: [...values] } },
+  };
+}
+
+
+/** The settings whose value names a broker's address: the driver's own two names. */
+const BROKER_SETTING = /(?:KAFKA_BROKERS|KAFKA_BOOTSTRAP_SERVERS)/;
+
+/**
+ * The `configured-by` edges one file's settings state: a setting whose value is
+ * a broker address points at the broker it names, and a broker no file runs yet
+ * is made from the address the setting names, at the setting's own line — the
+ * driver's own rule (`src/extract/operations/messaging.ts`). A setting whose
+ * address names more than one broker states no single configuration and adds
+ * no edge, as the driver's `candidates.length === 1` does.
+ */
+function configureBrokers(set: RecordSet, brokers: BrokerRow[], definitions: readonly EnvDefinitionRead[]): void {
+  for (const definition of definitions) {
+    if (!BROKER_SETTING.test(definition.key)) continue;
+    if (typeof definition.value !== 'string') continue;
+    for (const address of brokerAddresses(definition.value)) {
+      const candidates = brokersMatching(brokers, address);
+      let broker = candidates.length === 1 ? candidates[0] : undefined;
+      if (candidates.length === 0) {
+        const made = messagingBrokerOf(`code.broker:address/${address}`, address, 'configuration', [address]);
+        set.add({ ...made.node, span: definition.span });
+        brokers.push(made.row);
+        broker = made.row;
+      }
+      if (broker === undefined) continue;
+      set.edge('code.configured-by', broker.key, definition.key, { address }, definition.span, address);
+    }
+  }
+}
+
+/** The brokers matching one address, by the driver's rule: the address itself, or the host's own name. */
+function brokersMatching(brokers: readonly BrokerRow[], address: string): readonly BrokerRow[] {
+  const host = address.split(':')[0] ?? '';
+  return brokers.filter((broker) => broker.addresses.includes(address) || broker.aliases.includes(host));
+}
+
+// ---- the asyncapi document: the channels a contract declares and the broker that hosts them ----
+
+/** One AsyncAPI document's records: its channels, and the brokers its servers name host them. */
+export function asyncapiRecords(file: FileText, brokers: readonly BrokerRow[]): FileRecords {
+  const set = new RecordSet();
+  const path = file.path;
+  const counter = new LineCounter();
+  const document = parseDocument(file.text, { lineCounter: counter, keepSourceTokens: true });
+  for (const error of document.errors) set.gap(path, `line ${String(counter.linePos(error.pos[0]).line)}: ${error.message}`);
+  if (document.errors.length > 0 || !isMap(document.contents)) return recordsOf(set);
+  const root = document.contents;
+  const known = [...brokers];
+  const version = root.items.find((pair) => isScalar(pair.key) && pair.key.value === 'asyncapi')?.value;
+  if (!isScalar(version) || !/^2\./.test(String(version.value))) {
+    set.gap(path, `line 1: AsyncAPI ${isScalar(version) ? String(version.value) : 'version absent'} server membership is unsupported; no broker/channel hosting is inferred`);
+    return recordsOf(set);
+  }
+  const servers = root.items.find((pair) => isScalar(pair.key) && pair.key.value === 'servers')?.value;
+  const connected = new Map<string, Set<string>>();
+  if (isMap(servers)) {
+    for (const server of servers.items) {
+      if (!isMap(server.value)) continue;
+      const scalar = (name: string): string | undefined => {
+        const value = server.value !== null && isMap(server.value) ? server.value.items.find((pair) => isScalar(pair.key) && pair.key.value === name)?.value : undefined;
+        return isScalar(value) ? String(value.value) : undefined;
+      };
+      if (!/^kafka(?:-secure)?$/.test(scalar('protocol') ?? '')) continue;
+      for (const address of brokerAddresses(scalar('url') ?? '')) {
+        let candidates = brokersMatching(known, address);
+        if (candidates.length === 0) {
+          const line = counter.linePos(server.value.range?.[0] ?? 0).line;
+          const made = messagingBrokerOf(`code.broker:address/${address}`, address, 'asyncapi-server', [address]);
+          set.add({ ...made.node, span: file.spanOfLine(line) });
+          known.push(made.row);
+          candidates = [made.row];
+        }
+        const single = candidates.length === 1 ? candidates[0] : undefined;
+        if (single !== undefined && isScalar(server.key)) {
+          const name = String(server.key.value);
+          const held = connected.get(name) ?? new Set<string>();
+          held.add(single.key);
+          connected.set(name, held);
+        }
+      }
+    }
+  }
+  const channels = root.items.find((pair) => isScalar(pair.key) && pair.key.value === 'channels')?.value;
+  if (!isMap(channels)) return recordsOf(set);
+  for (const channel of channels.items) {
+    if (!isScalar(channel.key) || typeof channel.key.value !== 'string') continue;
+    const name = channel.key.value;
+    const line = counter.linePos(channel.key.range?.[0] ?? 0).line;
+    const span = file.spanOfLine(line);
+    const key = `code.channel:${name}`;
+    set.add({ key, kind: 'code.channel', label: name, properties: { contract: path, protocol: 'kafka' }, span });
+    const restriction = isMap(channel.value) ? channel.value.items.find((pair) => isScalar(pair.key) && pair.key.value === 'servers')?.value : undefined;
+    let selected = [...connected.keys()];
+    if (restriction !== undefined) {
+      if (!isSeq(restriction) || restriction.items.some((item) => !isScalar(item) || typeof item.value !== 'string')) {
+        set.gap(path, `line ${String(line)}: channel ${name} has an unsupported servers membership; no broker is inferred`);
+        continue;
+      }
+      selected = restriction.items.flatMap((item) => isScalar(item) && typeof item.value === 'string' ? [item.value] : []);
+      for (const server of selected) if (!connected.has(server)) set.gap(path, `line ${String(line)}: channel ${name} names unresolved server ${server}`);
+    }
+    for (const broker of new Set(selected.flatMap((server) => [...(connected.get(server) ?? [])]))) set.edge('code.hosts-channel', broker, key, {}, span);
+  }
+  return recordsOf(set);
 }
