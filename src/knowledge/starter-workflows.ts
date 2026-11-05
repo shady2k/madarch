@@ -37,11 +37,13 @@ const FILL_STAGES: readonly string[] = [
   'document-index',
   'syntax',
   // The per-file readings of a file's own code (madarch-8bdc.2.4): the facts the
-  // operations, contracts and data-model readings ask of it, and the state machines its
-  // transition tables write down. Both read one file's bytes and hang their facts from
-  // the file's node, before the resolution reads across files.
+  // operations, contracts and data-model readings ask of it, the state machines its
+  // transition tables write down, and the operations reading of its manifests,
+  // Dockerfiles, deploy files and code. Each reads one file's bytes and hangs its facts
+  // from the file's node, before the resolution reads across files.
   'code-facts',
   'state-machines',
+  'operations',
   'semantic-resolution',
   'modules',
   'boundaries',

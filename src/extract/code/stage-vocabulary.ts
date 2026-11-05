@@ -50,6 +50,32 @@ export const STAGE_NODE_KINDS: readonly string[] = [
   'code.symbol',
   'code.task',
   'code.test',
+  // The operations reading's records (the operations stage; madarch-8bdc.2.4): what a manifest,
+  // a Dockerfile, a compose file, a Kubernetes file, a Makefile, a workflow or a code file
+  // declares about how the software is built, deployed and run.
+  'code.broker',
+  'code.channel',
+  'code.ci-job',
+  'code.ci-workflow',
+  'code.env-definition',
+  'code.healthcheck',
+  'code.health-endpoint',
+  'code.image',
+  'code.k8s-deployment',
+  'code.k8s-service',
+  'code.lockfile',
+  'code.logger',
+  'code.make-target',
+  'code.manifest',
+  'code.metric',
+  'code.metrics-endpoint',
+  'code.newcomer-command',
+  'code.newcomer-failure',
+  'code.newcomer-prerequisites',
+  'code.port',
+  'code.probe',
+  'code.process',
+  'code.service',
 ];
 
 /**
@@ -75,4 +101,24 @@ export const STAGE_EDGE_TYPES: readonly { readonly key: string; readonly positio
   // What a manifest declares: one edge from the manifest's file to the dependency it names
   // (`src/extract/operations/dependencies.ts`).
   { key: 'code.uses-dependency' },
+  // What the operations reading declares about how the software is built and run (the operations
+  // stage; madarch-8bdc.2.4): the same relation types the extractors' operations reader emits.
+  { key: 'code.builds' },
+  { key: 'code.built-by' },
+  { key: 'code.configured-by' },
+  { key: 'code.connects-to' },
+  { key: 'code.contains-job' },
+  { key: 'code.declares-dependency' },
+  { key: 'code.depends-on' },
+  { key: 'code.exposes' },
+  { key: 'code.hosts-channel' },
+  { key: 'code.listens-on' },
+  { key: 'code.manifest-of' },
+  { key: 'code.probes' },
+  { key: 'code.publishes' },
+  { key: 'code.reads-env' },
+  { key: 'code.resolves' },
+  { key: 'code.runs' },
+  { key: 'code.starts' },
+  { key: 'code.targets' },
 ];

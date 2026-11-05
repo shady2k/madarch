@@ -22,6 +22,7 @@ import { createIntentHistoryStage } from './intent-history.js';
 import { createInventoryStage } from './inventory.js';
 import { createModulesStage } from './modules.js';
 import { createNarrativeStage } from './narrative.js';
+import { createOperationsStage } from './operations.js';
 import { createOverviewStage } from './overview.js';
 import { createRecoveryStage } from './recovery.js';
 import { createSemanticResolutionStage } from './semantic-resolution.js';
@@ -93,6 +94,7 @@ export function createStageRegistry(wiring: FillStageWiring): StageRegistry {
     .register(createSemanticResolutionStage(wiring.snapshots))
     .register(createCodeFactsStage(wiring.snapshots))
     .register(createStateMachinesStage(wiring.snapshots))
+    .register(createOperationsStage(wiring.snapshots))
     .register(createModulesStage(wiring.snapshots))
     .register(createDocumentIndexStage(wiring.snapshots))
     .register(createHistoryStage(createGitHistoryReader(wiring.checkoutOf ?? noCheckout), wiring.snapshots));

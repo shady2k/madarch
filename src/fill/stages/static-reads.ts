@@ -20,6 +20,7 @@ import { PUBLISHED_COVERAGE_READ, type PublishedCoverageRow } from './syntax.js'
 import { PUBLISHED_RESOLVED_READ, type PublishedResolvedRow } from './semantic-resolution.js';
 import { CODE_FACTS_PUBLISHED_READ } from './code-facts.js';
 import { PUBLISHED_MACHINES_READ } from './state-machines.js';
+import { PUBLISHED_OPERATIONS_READ, publishedOperationsRows } from './operations.js';
 import { PUBLISHED_GAPS_READ } from './syntax-specifiers.js';
 import { PUBLISHED_IMPORTS_READ, type PublishedGapRow, type PublishedImportRow } from './syntax-specifiers.js';
 import type { PublishedCodeFactsRow } from './code-facts.js';
@@ -301,6 +302,19 @@ export function createStaticStageReadReader(store: GraphStore, executor?: QueryE
             rows.push({ kind: 'coverage', file, blob });
           }
           return rows.sort((left, right) => (left.file < right.file ? -1 : left.file > right.file ? 1 : 0));
+        }
+        case PUBLISHED_OPERATIONS_READ: {
+          // One repository's operations coverage: the files the operations stage read, each with
+          // the blob its bytes stood under. The reader is named, so a coverage of another stage's
+          // reading of the same file is never taken for this one's.
+          const nodes = await all((page) => store.byProperty('code.coverage', 'repository', repository, { ...page, limit: page.limit ?? PLAN_PAGE }, transaction));
+          // The stage's own reader checks each row it wrote: a row of this read names its scope and
+          // the blob the bytes stood under, or the plan is told which row is not one it held.
+          const held = nodes.filter((node) => sourceSystemOf(propertiesOf(node)) === 'madarch-operations').map((node) => {
+            const wrote = propertiesOf(node);
+            return { kind: wrote['factKind'], file: wrote['scope'], blob: wrote['blob'] };
+          });
+          return [...publishedOperationsRows(held, repository, PUBLISHED_OPERATIONS_READ)].sort((left, right) => (left.file < right.file ? -1 : left.file > right.file ? 1 : 0));
         }
         case PUBLISHED_RESOLVED_READ: {
           const nodes = await all((page) => store.byProperty('code.coverage', 'repository', repository, { ...page, limit: page.limit ?? PLAN_PAGE }, transaction));
