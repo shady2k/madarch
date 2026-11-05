@@ -640,7 +640,7 @@ function workflowsManifest(): string {
     if (workflow.name === 'branch-worktree') lines.push('  # Planned: a branch or a worktree\'s own base, overlay and publication namespace (0033, item 26) has no stage yet.');
     if (workflow.name === 'history-point') lines.push('  # Planned: materialising a merge-base the graph does not hold as a chosen point (0030) has no stage yet.');
     if (workflow.name === 'first-fill') lines.push('  # The whole walk: every stage the fill registers today, the deterministic stages and the agent stages.');
-    if (workflow.name === 'update-by-commit') lines.push('  # The same stages at each new pinned commit; which of them run for a change is the orchestrator\'s.');
+    if (workflow.name === 'update-by-commit') lines.push('  # Planned: no commit hook, background pick-up or per-file change set exists yet (0033, item 25).');
     lines.push(`  ${workflow.name}:`, `    status: ${workflow.status}`, ...stageList(workflow.stages));
   }
   return `${lines.join('\n')}\n`;

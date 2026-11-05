@@ -52,9 +52,10 @@ const FILL_STAGES: readonly string[] = [
  * The four workflows, in code point order of their names.
  *
  * - first fill: the whole walk, every stage a run registers today.
- * - update by commit: the same stages at the new pinned commit; which of them
- *   run for a change, and how commits are batched, is the orchestrator's, not
- *   a stage's, so the stage set is the fill's.
+ * - update by commit: planned — the engine has no commit hook, no background
+ *   server that picks a commit up and no per-file change set (0033, item 25;
+ *   the stage is madarch-8bdc.6's), so running the fill at a new commit is a
+ *   first fill again, not an update by commit.
  * - branch/worktree: a branch context names its own base, overlay and
  *   publication namespace (0033, item 26), and the engine has no stage for it.
  * - history point: a merge-base the graph does not hold is materialised as a
@@ -64,5 +65,5 @@ export const STARTER_WORKFLOWS: readonly StarterWorkflow[] = [
   { name: 'branch-worktree', status: 'planned', stages: [] },
   { name: 'first-fill', status: 'implemented', stages: FILL_STAGES },
   { name: 'history-point', status: 'planned', stages: [] },
-  { name: 'update-by-commit', status: 'implemented', stages: FILL_STAGES },
+  { name: 'update-by-commit', status: 'planned', stages: [] },
 ];

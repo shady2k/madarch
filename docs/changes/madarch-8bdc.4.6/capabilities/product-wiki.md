@@ -988,7 +988,7 @@ starts a run, is the orchestrator's and lands with later stages.
 ### Scenario: starter-set-workflows
 - Given: a product made by `madarch new`
 - When: its `madarch/workflows.yaml` is read
-- Then: it holds the four workflows, first fill and update by commit name the stages the engine's stage registry holds today, and branch/worktree and history point are planned with no stages
+- Then: it holds the four workflows, first fill names the stages the engine's stage registry holds today, and update by commit, branch/worktree and history point are planned with no stages
 
 ### Scenario: workflow-refusals
 - Given: a workflows manifest with a stage id the registry does not hold, an implemented workflow whose stage reads an input no stage of the workflow produces, and a cycle of the workflow's stages

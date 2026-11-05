@@ -25,13 +25,15 @@ and the stage. A cycle of the workflow's stages is refused by its own path, and 
 refuses is left out while the others stand.
 
 A workflow's status says what the engine can do with it today, the way a kind's catalog row marks its
-implementation status. First fill and update by commit are `implemented`: every stage they name is one
-the engine's registry holds, and every required input has a producer among them. Branch/worktree and
-history point are `planned`: a branch's own base, overlay and publication namespace (0033, item 26) and
-a materialised history point (0030) have no stage yet, so they name no stages, and a stage they named
-would still have to be one the registry holds. The first fill names the stages of the fill as the
-registry holds them today — the eight deterministic stages, the seven agent stages a run registers when
-it names an agent, and the narrative stage that cites them.
+implementation status. First fill is `implemented`: every stage it names is one the engine's registry
+holds, and every required input has a producer among them. Update by commit, branch/worktree and history
+point are `planned`: the engine has no commit hook, no background server that picks a commit up and no
+per-file change set (0033, item 25, which stage madarch-8bdc.6 builds), so running the fill at a new
+commit is a first fill again; a branch's own base, overlay and publication namespace (0033, item 26) and
+a materialised history point (0030) have no stage either. A planned workflow names no stages, and a
+stage it named would still have to be one the registry holds. The first fill names the stages of the
+fill as the registry holds them today — the eight deterministic stages, the seven agent stages a run
+registers when it names an agent, and the narrative stage that cites them.
 
 ## Rationale
 The stages are engine code and the workflows are the product's, so the file holds ids and nothing else a
@@ -137,7 +139,7 @@ None.
   goes, at the next read like every other manifest finding.
 - `scripts/check-workflows.ts` is the command (`bun run check:workflows`), wired into `bun run check`
   after the catalog check: the starter set in a temporary product, or `--folder`, prints
-  `workflows: 4 workflows (2 implemented, 2 planned)` and the manifest it read, prints every finding as
+  `workflows: 4 workflows (1 implemented, 3 planned)` and the manifest it read, prints every finding as
   `<full path>:<line>: <the words>` and exits 1, and exits 2 on an argument it does not know.
 - The architecture list does not grow: no new entry was needed, and the list still holds 1 240.
 
@@ -146,10 +148,11 @@ None.
     `history-point`. The statuses are `implemented` and `planned`, the catalog's own idea of an
     implementation status; `partial` is not used, because a workflow either has the stages it names or
     is planned.
-  - The first fill and update by commit name the same fifteen stage ids: the engine has no stage that
-    filters a change set, so a fill at a new commit runs the same stages as a first fill, and the
-    difference between the two workflows is when the orchestrator starts them. When change-set and
-    stale-descent stages land, the two lists diverge in the product's own file.
+  - Only the first fill names stages. Update by commit is planned and names none: the engine has no
+    commit hook, no background server that picks a commit up and no per-file change set (0033, item 25;
+    madarch-8bdc.6 builds them), so running the fill at a new commit is a first fill again, and a reader
+    who saw `implemented` would be told the engine can do something it cannot. When those stages land,
+    update by commit names them in the product's own file.
   - A planned workflow is refused for a stage id the registry does not hold, and its inputs are not
     checked: it says the engine cannot run it yet, and requiring its stages to feed each other would
     refuse the placeholder the status exists for.
@@ -161,8 +164,8 @@ Measured in the worker VM (4 vCPU, 8 GB, arm64), 2026-11-05, on the change:
 - `bun run check` exit 0: `tsc --noEmit` clean (TypeScript 7.0.2), the architecture check at its 1 240
   listed violations, unchanged and grown by none, `catalog: 26 areas, 100 subgroups, 490 kinds (67 with
   a page of their own or a member's row)` with `mapping: version 1; 56 extractor kinds (55 tied, 1
-  internal); 64 extractor relations (36 tied, 28 internal)`, and `workflows: 4 workflows (2 implemented,
-  2 planned)` naming the temporary product's `madarch/workflows.yaml`.
+  internal); 64 extractor relations (36 tied, 28 internal)`, and `workflows: 4 workflows (1 implemented,
+  3 planned)` naming the temporary product's `madarch/workflows.yaml`.
 - `MADARCH_SKIP_PERF=1 bun test test/workflows-read.test.ts`: 22 pass, 0 fail.
 - `MADARCH_SKIP_PERF=1 bun test test/workflows-check.test.ts`: 6 pass, 0 fail.
 - `MADARCH_SKIP_PERF=1 bun test test/knowledge-parse.test.ts test/wiki-readers.test.ts
@@ -204,9 +207,9 @@ Kind: command
 Place: `madarch new`'s starter set, `bun run check` in a checkout, and a product's Problems page
 
 1. Make a product with `madarch new` and open `madarch/workflows.yaml`: four workflows stand under
-   `workflows:`, first fill and update by commit name the stages the registry holds, and
-   branch/worktree and history point are `planned` with `stages: []`.
-2. Run `bun run check`: the workflow check prints `workflows: 4 workflows (2 implemented, 2 planned)` and
+   `workflows:`, first fill names the stages the registry holds, and update by commit, branch/worktree
+   and history point are `planned` with `stages: []`.
+2. Run `bun run check`: the workflow check prints `workflows: 4 workflows (1 implemented, 3 planned)` and
    the file it read, and exits 0.
 3. Delete `- syntax` from the first fill's stages and run it again: it prints the file's full path, the
    line of `modules`, and `workflow "first-fill" stage "modules": modules → symbol → syntax (disabled):

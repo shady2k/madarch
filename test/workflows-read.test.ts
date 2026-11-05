@@ -96,14 +96,17 @@ describe('the workflows the starter set declares', () => {
       'snapshot', 'history', 'inventory', 'build-configuration', 'document-index', 'syntax', 'semantic-resolution',
       'modules', 'boundaries', 'intent-history', 'overview', 'understanding', 'recovery', 'doc-intent', 'narrative',
     ]);
-    expect(read.workflows.get('update-by-commit')!.stages).toEqual(firstFill.stages);
+    // No engine stage waits for a commit, picks one up in the background or narrows a fill to the files a commit
+    // changed (0033, item 25): update by commit is planned, and running the fill at a new commit is a first fill again.
+    expect(read.workflows.get('update-by-commit')!.status).toBe('planned');
+    expect(read.workflows.get('update-by-commit')!.stages).toEqual([]);
     expect(read.workflows.get('branch-worktree')!.status).toBe('planned');
     expect(read.workflows.get('branch-worktree')!.stages).toEqual([]);
     expect(read.workflows.get('history-point')!.status).toBe('planned');
     expect(read.workflows.get('history-point')!.stages).toEqual([]);
     // Every workflow writes its stages, an empty list included: a planned workflow says so in the file a person reads.
     expect(STARTER.match(/^    stages:/gm)?.length).toBe(STARTER_WORKFLOWS.length);
-    expect(STARTER.match(/^    stages: \[\]$/gm)?.length).toBe(2);
+    expect(STARTER.match(/^    stages: \[\]$/gm)?.length).toBe(STARTER_WORKFLOWS.filter((workflow) => workflow.status === 'planned').length);
   }, 30_000);
 
   test('a workflow of stages the registry holds reads without a finding, and keeps the order the file writes', () => {

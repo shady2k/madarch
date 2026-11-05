@@ -57,7 +57,7 @@ describe('the workflow check over the starter set', () => {
     const done = run();
     expect(done.err).toBe('');
     expect(done.code).toBe(0);
-    expect(done.out).toContain('workflows: 4 workflows (2 implemented, 2 planned)');
+    expect(done.out).toContain('workflows: 4 workflows (1 implemented, 3 planned)');
     expect(done.out).toContain(join('madarch', 'workflows.yaml'));
   }, 30_000);
 
