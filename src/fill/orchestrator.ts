@@ -1565,6 +1565,13 @@ async function attemptUnit(
     const trackedStatic: StaticGraphReader | undefined = staticGraph === undefined ? undefined : {
       byKey: async (key, options) => await recordStatic(staticGraphRead({ kind: 'key', value: key, limit: options?.limit ?? 256 }), await staticGraph.byKey(key, options)),
       byGlobalName: async (name, options) => await recordStatic(staticGraphRead({ kind: 'globalName', value: name, limit: options?.limit ?? 256 }), await staticGraph.byGlobalName(name, options)),
+      byProperty: async (kind, field, value, options) => {
+        // A read by a value: the recorded text names the kind, the field and the value, so the
+        // publication's recheck replays the same question and refuses an answer that moved.
+        const text = staticGraphRead({ kind: 'property', value, nodeKind: kind, field, limit: options?.limit ?? 256, ...(options?.after === undefined ? {} : { after: options.after }) });
+        const answered = await staticGraph.byProperty(kind, field, value, options);
+        return { rows: await recordStatic(text, answered.rows), next: answered.next };
+      },
       neighbourhood: async (nodeId, options) => {
         const text = staticGraphRead({ kind: 'neighbourhood', value: nodeId, limit: options.limit ?? 256, relations: options.relations, direction: options.direction, ...(options.after === undefined ? {} : { after: options.after }) });
         const answered = await staticGraph.neighbourhood(nodeId, options);

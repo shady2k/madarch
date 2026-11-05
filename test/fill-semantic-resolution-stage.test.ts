@@ -150,6 +150,10 @@ function readerOf(graph: Graph): StaticGraphReader & { readonly asked: string[] 
       asked.push(`global:${name}`);
       return graph.nodes.filter((node) => node.kind === 'code.symbol' && node.properties['globalName'] === name);
     },
+    async byProperty(kind: string, field: string, value: string): Promise<{ readonly rows: readonly StaticGraphNode[]; readonly next: string | null }> {
+      asked.push(`property:${kind}:${field}:${value}`);
+      return { rows: graph.nodes.filter((node) => node.kind === kind && node.properties[field] === value), next: null };
+    },
     async neighbourhood(nodeId: string, options: { readonly relations: readonly string[]; readonly direction: 'out' | 'in'; readonly limit?: number; readonly after?: string }) {
       asked.push(`near:${nodeId}:${options.relations.join(',')}:${options.direction}:${options.after ?? 'first'}`);
       const found = new Set<string>();

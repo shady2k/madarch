@@ -80,7 +80,7 @@ export function createStaticStageReadReader(store: GraphStore, executor?: QueryE
           // A bounded read a static unit made through its own context, recorded as the generation's dependency
           // and replayed here inside the publication's transaction. The rows are the context's own shape.
           const read = document as { readonly kind?: unknown; readonly value?: unknown; readonly limit?: unknown; readonly relations?: unknown; readonly direction?: unknown; readonly after?: unknown };
-          if ((read.kind !== 'key' && read.kind !== 'globalName' && read.kind !== 'neighbourhood') || typeof read.value !== 'string' || typeof read.limit !== 'number') {
+          if ((read.kind !== 'key' && read.kind !== 'globalName' && read.kind !== 'property' && read.kind !== 'neighbourhood') || typeof read.value !== 'string' || typeof read.limit !== 'number') {
             throw new Error(`the static stage's recorded read ${JSON.stringify(text)} names no bounded read this reader answers: a read is by key, by global name or by one neighbourhood, with its value and cap (src/fill/stages/static-reads.ts)`);
           }
           if (read.after !== undefined && typeof read.after !== 'string') {
@@ -88,6 +88,16 @@ export function createStaticStageReadReader(store: GraphStore, executor?: QueryE
           }
           const page = { limit: read.limit, ...(read.after === undefined ? {} : { after: read.after }) };
           if (read.kind === 'key') return (await store.byKey(read.value, page, transaction)).rows.map(staticNodeOf);
+          if (read.kind === 'property') {
+            // A read by a value: the recorded text names the kind, the field and the value, and a
+            // replay answers the same page the unit read (decision 0033, item 5).
+            const kind = (document as { readonly nodeKind?: unknown }).nodeKind;
+            const field = (document as { readonly field?: unknown }).field;
+            if (typeof kind !== 'string' || typeof field !== 'string') {
+              throw new Error(`the static stage's recorded read ${JSON.stringify(text)} names no kind or field of a read by property (src/fill/stages/static-reads.ts)`);
+            }
+            return (await store.byProperty(kind, field, read.value, page, transaction)).rows.map(staticNodeOf);
+          }
           if (read.kind === 'globalName') return (await store.byGlobalName(read.value, page, transaction)).rows.map(staticNodeOf);
           if (!Array.isArray(read.relations) || read.relations.some((relation) => typeof relation !== 'string') || (read.direction !== 'out' && read.direction !== 'in')) {
             throw new Error(`the static stage's recorded neighbourhood read ${JSON.stringify(text)} names no relations or direction (src/fill/stages/static-reads.ts)`);

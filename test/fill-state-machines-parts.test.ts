@@ -91,6 +91,7 @@ function planReader(answers: { readonly files: readonly { readonly path: string;
 const noGraph: StaticGraphReader = {
   async byKey() { throw new Error('the state-machines unit reads no key'); },
   async byGlobalName() { throw new Error('the state-machines unit reads no global name'); },
+  async byProperty() { throw new Error('the state-machines unit reads no property'); },
   async neighbourhood() { throw new Error('the state-machines unit reads no neighbourhood'); },
 };
 

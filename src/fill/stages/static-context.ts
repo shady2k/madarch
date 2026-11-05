@@ -103,6 +103,15 @@ export interface StaticGraphReader {
   /** The symbols whose global name is this name. */
   byGlobalName(name: string, options?: { readonly limit?: number }): Promise<readonly StaticGraphNode[]>;
   /**
+   * One bounded page of the nodes of one kind whose current version carries
+   * `value` in the property `field`, from `after` on, with the cursor of the
+   * page after it — the question a static stage asks when it links across files
+   * by a value it knows (a route path, a method, a topic) and cannot walk to the
+   * node: one file of facts holds more rows than one page, so a list is read page
+   * by page and no page is wider than the cap (decision 0033, item 5).
+   */
+  byProperty(kind: string, field: string, value: string, options?: { readonly limit?: number; readonly after?: string }): Promise<StaticGraphPage>;
+  /**
    * One bounded page of the nodes reachable from `nodeId` through `relations`,
    * from `after` on, with the cursor of the page after it. A list longer than
    * one page is read page by page, each page its own bounded query: a file
@@ -173,11 +182,18 @@ function staticReadLimit(limit: number | undefined): number {
   return held;
 }
 
+/** The three parts of a read by property, refused by name where one is empty: a question with no part names nothing. */
+function requirePropertyQuestion(kind: string, field: string, value: string): void {
+  if (kind.trim() === '') throw new Error('a read by property names the kind it reads: an empty kind names no node (src/fill/stages/static-context.ts)');
+  if (field.trim() === '') throw new Error(`a read of ${kind} by property names the field it matches: an empty field names no property (src/fill/stages/static-context.ts)`);
+  if (value.trim() === '') throw new Error(`a read of ${kind} by ${field} names an empty value, and an empty value matches no node on purpose (src/fill/stages/static-context.ts)`);
+}
+
 /** The name of the tracked read a static stage's bounded graph query is recorded as. */
 export const STATIC_GRAPH_READ = 'stage-static-graph';
 
 /** The text one bounded static graph read is recorded and rechecked under. */
-export function staticGraphRead(input: { readonly kind: 'key' | 'globalName' | 'neighbourhood'; readonly value: string; readonly limit: number; readonly relations?: readonly string[]; readonly direction?: 'out' | 'in'; readonly after?: string }): string {
+export function staticGraphRead(input: { readonly kind: 'key' | 'globalName' | 'property' | 'neighbourhood'; readonly value: string; readonly limit: number; readonly nodeKind?: string; readonly field?: string; readonly relations?: readonly string[]; readonly direction?: 'out' | 'in'; readonly after?: string }): string {
   return JSON.stringify({ read: STATIC_GRAPH_READ, ...input });
 }
 
@@ -194,7 +210,7 @@ export function staticNodeOf(row: NodeVersionRow): StaticGraphNode {
 }
 
 /** The graph store's own reads, bounded, as a static stage asks them. */
-export function staticGraphReaderOf(store: Pick<GraphStore, 'byKey' | 'byGlobalName' | 'neighbourhood'>): StaticGraphReader {
+export function staticGraphReaderOf(store: Pick<GraphStore, 'byKey' | 'byGlobalName' | 'byProperty' | 'neighbourhood'>): StaticGraphReader {
   const page = async (read: Promise<{ rows: readonly NodeVersionRow[]; next: string | null }>, limit: number, what: string): Promise<readonly StaticGraphNode[]> => {
     const answered = await read;
     if (answered.next !== null || answered.rows.length > limit) {
@@ -212,6 +228,16 @@ export function staticGraphReaderOf(store: Pick<GraphStore, 'byKey' | 'byGlobalN
       const limit = staticReadLimit(options?.limit);
       if (name.trim() === '') throw new Error('a global name is a non-empty name: the symbol a static stage resolves by an empty name names nothing (src/fill/stages/static-context.ts)');
       return await page(store.byGlobalName(name, { limit }), limit, `read by global name ${JSON.stringify(name)}`);
+    },
+    async byProperty(kind: string, field: string, value: string, options?: { readonly limit?: number; readonly after?: string }): Promise<StaticGraphPage> {
+      const limit = staticReadLimit(options?.limit);
+      requirePropertyQuestion(kind, field, value);
+      const asked = options?.after === undefined ? { limit } : { limit, after: options.after };
+      const answered = await store.byProperty(kind, field, value, asked);
+      if (answered.rows.length > limit) {
+        throw new Error(`the static stage's read of ${kind} by ${field} ${JSON.stringify(value)} answered more than ${String(limit)} nodes: a static stage reads a bounded answer, never a repository-wide one (decision 0033; src/fill/stages/static-context.ts)`);
+      }
+      return { rows: answered.rows.map(staticNodeOf), next: answered.next };
     },
     async neighbourhood(nodeId: string, options: { readonly relations: readonly string[]; readonly direction: 'out' | 'in'; readonly limit?: number; readonly after?: string }): Promise<StaticGraphPage> {
       const limit = staticReadLimit(options.limit);
@@ -251,6 +277,12 @@ export function staticStageContext(repository: StaticStageSource, graph: StaticG
       const limit = staticReadLimit(options?.limit);
       if (name.trim() === '') throw new Error('a global name is a non-empty name: the symbol a static stage resolves by an empty name names nothing (src/fill/stages/static-context.ts)');
       return await bounded(await graph.byGlobalName(name, { limit }), limit, `by global name ${JSON.stringify(name)}`);
+    },
+    async byProperty(kind: string, field: string, value: string, options?: { readonly limit?: number; readonly after?: string }): Promise<StaticGraphPage> {
+      const limit = staticReadLimit(options?.limit);
+      requirePropertyQuestion(kind, field, value);
+      const answered = await graph.byProperty(kind, field, value, { ...options, limit });
+      return await bounded(answered.rows, limit, `read of ${kind} by ${field} ${JSON.stringify(value)}`).then((rows) => ({ rows, next: answered.next }));
     },
     async neighbourhood(nodeId: string, options: { readonly relations: readonly string[]; readonly direction: 'out' | 'in'; readonly limit?: number; readonly after?: string }): Promise<StaticGraphPage> {
       const limit = staticReadLimit(options.limit);

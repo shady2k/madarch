@@ -60,6 +60,7 @@ function fakeGraph(answers: Partial<StaticGraphReader> = {}): StaticGraphReader 
   return {
     byKey: answers.byKey ?? (async () => []),
     byGlobalName: answers.byGlobalName ?? (async () => []),
+    byProperty: answers.byProperty ?? (async () => ({ rows: [], next: null })),
     neighbourhood: answers.neighbourhood ?? (async () => ({ rows: [], next: null })),
   };
 }
