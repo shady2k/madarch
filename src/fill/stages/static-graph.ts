@@ -32,6 +32,8 @@ const NODE_KIND: Partial<Record<FactKind, string>> = {
   directory: 'code.directory',
   repository: 'code.repository',
   snapshot: 'code.commit',
+  // Stage 7's commit facts are the extractors' `code.commit` too (decision 0030's history).
+  commit: 'code.commit',
   symbol: 'code.symbol',
   comment: 'code.comment',
   'entry-point': 'code.entry-point',
@@ -88,10 +90,10 @@ const EDGE_RELATION: Partial<Record<FactKind, string>> = {
 export const CODE_GRAPH_VOCABULARY: { readonly kinds: readonly string[]; readonly relations: readonly { readonly key: string; readonly positioned?: boolean }[] } = {
   kinds: [
     'code.comment', 'code.commit', 'code.compose-service', 'code.coverage', 'code.dependency', 'code.deploy-unit', 'code.directory',
-    'code.dockerfile', 'code.document', 'code.document-section', 'code.entry-point', 'code.env-var', 'code.file',
+    'code.dockerfile', 'code.document', 'code.document-section', 'code.entry-point', 'code.env-var', 'code.file', 'code.link-target',
     // The names a file mentions, as the file pass writes them (decision 0033, item 14;
     // `mention-graph.ts`), beside the symbols they may name.
-    'code.mention', 'code.module', 'code.package', 'code.repository', 'code.symbol', 'code.task', 'code.test',
+    'code.mention', 'code.module', 'code.package', 'code.rank', 'code.repository', 'code.symbol', 'code.task', 'code.test',
   ],
   relations: [
     { key: 'code.consumes' },
@@ -321,6 +323,8 @@ export function checkStaticGraphDraft(stageId: string, kinds: readonly string[],
 /** What one static unit's publication is made of: the unit, the stage, its publication digest and its draft writes. */
 export interface StaticUnitPublication {
   readonly unitId: string;
+  /** The scope the unit publishes under, where it is not the unit's id: a stage whose unit id names what it read and whose scope is the one thing it replaces (the history stage's commit range under its repository). */
+  readonly scopeKey?: string;
   readonly stageId: string;
   /** The publication digest the orchestrator computed; the graph's work item carries it too, so a repeat writes nothing. */
   readonly digest: string;
@@ -376,7 +380,7 @@ export function staticUnitPublicationOf(input: StaticUnitPublication): PublishUn
   }
   return {
     producer: staticProducerOf(input.stageId),
-    scopeKey: input.unitId,
+    scopeKey: input.scopeKey ?? input.unitId,
     inputDigest: input.digest,
     leaseToken: `fill-static:${input.digest}`,
     leaseUntil: new Date(Date.now() + 60 * 60 * 1000).toISOString(),

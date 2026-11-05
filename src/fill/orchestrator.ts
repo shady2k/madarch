@@ -1572,6 +1572,26 @@ async function attemptUnit(
         // and the page after the last one is the empty page a later mention would land on.
         return { rows: await recordStatic(text, answered.rows), next: answered.next };
       },
+      byProperty: async (kind, field, value, options) => {
+        const text = staticGraphRead({ kind: 'property', value, limit: options?.limit ?? 256, kindOf: kind, fieldOf: field, ...(options?.after === undefined ? {} : { after: options.after }) });
+        const answered = await staticGraph.byProperty(kind, field, value, options);
+        return { rows: await recordStatic(text, answered.rows), next: answered.next };
+      },
+      edgesByProperty: async (relation, field, value, options) => {
+        // An edge read's membership is the two nodes it joins and its properties, as its own rows.
+        const text = staticGraphRead({ kind: 'edges', value, limit: options?.limit ?? 256, kindOf: relation, fieldOf: field, ...(options?.after === undefined ? {} : { after: options.after }) });
+        const answered = await staticGraph.edgesByProperty(relation, field, value, options);
+        const rows = answered.rows.map((edge) => ({
+          id: edge.id,
+          kind: edge.relation,
+          label: `${edge.from.id}->${edge.to.id}`,
+          properties: { ...edge.properties, from: edge.from.properties['recordKey'], to: edge.to.properties['recordKey'] },
+          producer: edge.from.producer,
+          scope: edge.from.scope,
+        }));
+        const recorded = await recordStatic(text, rows);
+        return { rows: answered.rows, next: answered.next };
+      },
     };
     context = {
       unit: { id: plan.stageUnitId, scope: plan.scope },

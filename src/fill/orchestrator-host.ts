@@ -368,13 +368,17 @@ export interface FillOrchestratorServiceOptions {
 
 /**
  * The repository a static unit's scope names: `<repository>` for the snapshot
- * stage's units and `<repository>:<path>` for a file's or a folder's. A scope
- * that names no repository is refused here, naming the unit and the file, so a
- * static stage is never handed another repository's bytes.
+ * stage's units, `<repository>:<path>` for a file's or a folder's, and
+ * `repository:<repository>@<commit>` for the history stage's commit range
+ * (decision 0030). A scope that names no repository is refused here, naming the
+ * unit and the file, so a static stage is never handed another repository's
+ * bytes.
  */
 function repositoryOfScope(ref: UnitRef): string {
   const at = ref.scope.indexOf(':');
-  const repository = at < 0 ? ref.scope : ref.scope.slice(0, at);
+  const repository = ref.scope.startsWith('repository:')
+    ? ref.scope.slice('repository:'.length).split('@')[0] ?? ''
+    : at < 0 ? ref.scope : ref.scope.slice(0, at);
   if (repository.trim() === '') {
     throw new Error(`fill-orchestrator: the unit ${JSON.stringify(ref.unitId)} of stage ${JSON.stringify(ref.stageId)} has the scope ${JSON.stringify(ref.scope)}, which names no repository: a static unit's scope starts with the repository it reads (src/fill/orchestrator-host.ts)`);
   }
@@ -560,6 +564,9 @@ async function fileDecision(
           if (registry.get(input.unit.stageId)?.staticReading === true) {
             await graph.publishUnit(staticUnitPublicationOf({
               unitId: input.unit.unitId,
+              // A stage whose unit id names what it read and whose scope is what it replaces
+              // publishes under that scope (the history stage's range under its repository).
+              scopeKey: input.plan.scope,
               stageId: input.unit.stageId,
               digest: input.digest,
               writes: input.writes,

@@ -399,7 +399,9 @@ describe('a commit, and what it reruns', () => {
     ]);
     // The run-one pin's commit node: run-three later corrects the repository unit to the new commit.
     expect(firstTrainingCommit).toBe(previous);
-    const commits = await graphNodes(opened!, 'code.commit', 'repository', TRAINING);
+    // The snapshot stage's own commit node has no `subject`; the history stage's copies of the
+    // range it read carry one each (decision 0033's fenced publication).
+    const commits = (await graphNodes(opened!, 'code.commit', 'repository', TRAINING)).filter((node) => node.properties['subject'] === undefined);
     expect(commits.map((node) => String(node.properties['commit']))).toEqual([changed]);
     // The syntax stage's symbols and its positioned mentions stand in the same graph, one unit's reading each.
     const symbols = await graphNodes(opened!, 'code.symbol', 'repository', TRAINING);
@@ -438,6 +440,9 @@ describe('a commit, and what it reruns', () => {
       `history/${TRAINING}@${previous}`,
       `modules/modules:${PRODUCT}`,
       `modules/modules:${TRAINING}`,
+      'document-index/document:training:README.md',
+      'document-index/document:training:docs/architecture.md',
+      'document-index/document:training:services/orders/README.md',
     ].sort());
   }, 900_000);
 
@@ -448,9 +453,14 @@ describe('a commit, and what it reruns', () => {
     // two history units). The list is the branch's own walk; no agent unit stands on it because none planned.
     expect(reran(third!)).toEqual(reranByTheCommit({ repository: TRAINING, file: CHANGED, commit: changed, previousCommit: previous }));
     // The units run-three inherited: the product repository's modules and history, whose pin did not move.
+    // The document index names its documents again — its plan compares the blob its own coverage
+    // recorded with the tree's — and a document whose reading stands is inherited, not written.
     expect([...(third?.reused ?? [])].sort()).toEqual([
       `history/${PRODUCT}@${git(product, 'rev-parse', 'HEAD')}`,
       `modules/modules:${PRODUCT}`,
+      'document-index/document:training:README.md',
+      'document-index/document:training:docs/architecture.md',
+      'document-index/document:training:services/orders/README.md',
     ].sort());
   }, 900_000);
 

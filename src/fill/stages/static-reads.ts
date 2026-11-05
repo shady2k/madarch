@@ -22,6 +22,10 @@ import { PUBLISHED_GAPS_READ } from './syntax-specifiers.js';
 import { PUBLISHED_IMPORTS_READ, type PublishedGapRow, type PublishedImportRow } from './syntax-specifiers.js';
 import { PUBLISHED_TREE_READ, type PublishedTreeRow } from './tree-rows.js';
 import { MANIFEST_SOURCE_SYSTEM, PUBLISHED_MANIFESTS_READ } from './build-configuration.js';
+import { DOCUMENT_INDEX_SOURCE_SYSTEM, PUBLISHED_DOCUMENTS_READ } from './document-index.js';
+import {
+  COMMITS_HELD_READ, HISTORY_COVERAGE_READ, HISTORY_SOURCE_SYSTEM_NAME,
+} from './history.js';
 
 /** How many rows one plan read may answer: the plan is the orchestrator's, and its answer is one repository. */
 const PLAN_PAGE = 5_000;
@@ -40,8 +44,8 @@ function sourceSystemOf(properties: Record<string, unknown>): string {
  * reader in its identity, so this is what tells one stage's reading of a path
  * from another's.
  */
-function coverageScopes(nodes: readonly NodeVersionRow[], kind: string, system: string, repository: string): readonly { readonly kind: string; readonly repository: string; readonly path: string }[] {
-  const rows: { kind: string; repository: string; path: string }[] = [];
+function coverageScopes(nodes: readonly NodeVersionRow[], kind: string, system: string, repository: string): readonly { readonly kind: string; readonly repository: string; readonly path: string; readonly blob?: string }[] {
+  const rows: { kind: string; repository: string; path: string; blob?: string }[] = [];
   const seen = new Set<string>();
   for (const node of nodes) {
     const properties = propertiesOf(node);
@@ -49,9 +53,33 @@ function coverageScopes(nodes: readonly NodeVersionRow[], kind: string, system: 
     const scope = properties['scope'];
     if (typeof scope !== 'string' || scope === '' || seen.has(scope)) continue;
     seen.add(scope);
-    rows.push({ kind, repository, path: scope });
+    rows.push({ kind, repository, path: scope, ...(typeof properties['blob'] === 'string' ? { blob: properties['blob'] } : {}) });
   }
   return rows.sort((left, right) => (left.path < right.path ? -1 : left.path > right.path ? 1 : 0));
+}
+
+/** The value a node's fact holds: its properties without the graph's own bookkeeping. */
+function factValueOf(properties: Record<string, unknown>): Record<string, unknown> {
+  const value = { ...properties };
+  for (const key of ['recordKey', 'factKind', 'layer', 'status', 'provenance']) delete value[key];
+  return value;
+}
+
+/** The place a node's provenance names, as a row's `place`: the file and the range its fact stood at. */
+function placeOf(properties: Record<string, unknown>): { readonly file: string; readonly range: Record<string, unknown> } {
+  const provenance = properties['provenance'];
+  const place = provenance !== null && typeof provenance === 'object' ? (provenance as Record<string, unknown>)['place'] : undefined;
+  const held = place !== null && typeof place === 'object' ? place as Record<string, unknown> : {};
+  return { file: String(held['file'] ?? ''), range: (held['range'] ?? {}) as Record<string, unknown> };
+}
+
+/** The coverage value a coverage node carries: the fact's own fields and none of the graph's bookkeeping. */
+function coverageValueOf(properties: Record<string, unknown>): Record<string, unknown> {
+  const value: Record<string, unknown> = {};
+  for (const key of ['repository', 'scope', 'complete', 'read', 'unread']) {
+    if (properties[key] !== undefined) value[key] = properties[key];
+  }
+  return value;
 }
 
 /** A node's properties, as the graph answered them. */
@@ -92,7 +120,7 @@ export function createStaticStageReadReader(store: GraphStore, executor?: QueryE
   };
   return {
     async query(text: string): Promise<readonly unknown[]> {
-      const document = JSON.parse(text) as { readonly read?: unknown; readonly repository?: unknown };
+      const document = JSON.parse(text) as { readonly read?: unknown; readonly repository?: unknown; readonly scope?: unknown };
       // A unit's own bounded read names no repository: it asks by a key, a global name or a
       // node, and each of those is one answer of one file (decision 0033, item 5). Every
       // other read of a static stage's plan is one repository's.
@@ -104,8 +132,8 @@ export function createStaticStageReadReader(store: GraphStore, executor?: QueryE
         case STATIC_GRAPH_READ: {
           // A bounded read a static unit made through its own context, recorded as the generation's dependency
           // and replayed here inside the publication's transaction. The rows are the context's own shape.
-          const read = document as { readonly kind?: unknown; readonly value?: unknown; readonly limit?: unknown; readonly relations?: unknown; readonly direction?: unknown; readonly after?: unknown };
-          if ((read.kind !== 'key' && read.kind !== 'globalName' && read.kind !== 'neighbourhood') || typeof read.value !== 'string' || typeof read.limit !== 'number') {
+          const read = document as { readonly kind?: unknown; readonly value?: unknown; readonly limit?: unknown; readonly relations?: unknown; readonly direction?: unknown; readonly after?: unknown; readonly kindOf?: unknown; readonly fieldOf?: unknown };
+          if ((read.kind !== 'key' && read.kind !== 'globalName' && read.kind !== 'neighbourhood' && read.kind !== 'property' && read.kind !== 'edges') || typeof read.value !== 'string' || typeof read.limit !== 'number') {
             throw new Error(`the static stage's recorded read ${JSON.stringify(text)} names no bounded read this reader answers: a read is by key, by global name or by one neighbourhood, with its value and cap (src/fill/stages/static-reads.ts)`);
           }
           if (read.after !== undefined && typeof read.after !== 'string') {
@@ -113,6 +141,26 @@ export function createStaticStageReadReader(store: GraphStore, executor?: QueryE
           }
           const page = { limit: read.limit, ...(read.after === undefined ? {} : { after: read.after }) };
           if (read.kind === 'key') return (await store.byKey(read.value, page, transaction)).rows.map(staticNodeOf);
+          if (read.kind === 'property') {
+            if (typeof read.kindOf !== 'string' || typeof read.fieldOf !== 'string') {
+              throw new Error(`the static stage's recorded property read ${JSON.stringify(text)} names no kind or field (src/fill/stages/static-reads.ts)`);
+            }
+            return (await store.byProperty(read.kindOf, read.fieldOf, read.value, page, transaction)).rows.map(staticNodeOf);
+          }
+          if (read.kind === 'edges') {
+            if (typeof read.kindOf !== 'string' || typeof read.fieldOf !== 'string') {
+              throw new Error(`the static stage's recorded edge read ${JSON.stringify(text)} names no relation or field (src/fill/stages/static-reads.ts)`);
+            }
+            const answered = await store.edgesByProperty(read.kindOf, read.fieldOf, read.value, page, transaction);
+            return answered.rows.map((entry) => ({
+              id: entry.edge.edgeId,
+              kind: read.kindOf,
+              label: `${entry.src.nodeId}->${entry.dst.nodeId}`,
+              properties: { ...(entry.edge.properties ?? {}), from: propertiesOf(entry.src)['recordKey'], to: propertiesOf(entry.dst)['recordKey'] },
+              producer: entry.src.producer,
+              scope: entry.src.scope,
+            }));
+          }
           if (read.kind === 'globalName') return (await store.byGlobalName(read.value, page, transaction)).rows.map(staticNodeOf);
           if (!Array.isArray(read.relations) || read.relations.some((relation) => typeof relation !== 'string') || (read.direction !== 'out' && read.direction !== 'in')) {
             throw new Error(`the static stage's recorded neighbourhood read ${JSON.stringify(text)} names no relations or direction (src/fill/stages/static-reads.ts)`);
@@ -176,6 +224,10 @@ export function createStaticStageReadReader(store: GraphStore, executor?: QueryE
             for (const entry of edges as readonly EdgeEntry[]) {
               const properties = entry.edge.properties !== null && typeof entry.edge.properties === 'object' ? entry.edge.properties as Record<string, unknown> : {};
               if (properties['factKind'] !== 'contains') continue;
+              // The modules stage draws `code.contains` edges of its own (a module holds its
+              // members): the inventory's plan reads the containment of the tree, which starts at
+              // a node the snapshot stage published.
+              if (entry.src.producer !== 'fill.snapshot') continue;
               const child = entry.dst.kind === 'code.file' ? 'file' : entry.dst.kind === 'code.directory' ? 'directory' : undefined;
               if (child === undefined) continue;
               const from = entry.src.kind === 'code.repository' ? '' : String(propertiesOf(entry.src)['path']);
@@ -187,7 +239,10 @@ export function createStaticStageReadReader(store: GraphStore, executor?: QueryE
         case PUBLISHED_COVERAGE_READ: {
           const nodes = await all((page) => store.byProperty('code.coverage', 'repository', repository, { ...page, limit: page.limit ?? PLAN_PAGE }, transaction));
           return nodes
-            .filter((node) => typeof propertiesOf(node)['blob'] === 'string')
+            // The syntax stage's own coverage: the reader it cites, and the blob it recorded. A
+            // later stage's coverage of the same repository names a scope of its own, and the
+            // syntax plan must not read it as a file it read.
+            .filter((node) => sourceSystemOf(propertiesOf(node)) === 'tree-sitter' && typeof propertiesOf(node)['blob'] === 'string')
             .map((node): PublishedCoverageRow => ({ kind: 'coverage', file: String(propertiesOf(node)['scope']), blob: String(propertiesOf(node)['blob']) }))
             .sort((left, right) => (left.file < right.file ? -1 : left.file > right.file ? 1 : 0));
         }
@@ -230,8 +285,37 @@ export function createStaticStageReadReader(store: GraphStore, executor?: QueryE
         case PUBLISHED_MANIFESTS_READ: {
           return coverageScopes(await all((page) => store.byProperty('code.coverage', 'repository', repository, { ...page, limit: page.limit ?? PLAN_PAGE }, transaction)), 'manifest', MANIFEST_SOURCE_SYSTEM, repository);
         }
+        case PUBLISHED_DOCUMENTS_READ: {
+          // The document index's coverage names its scope as `<repository>:<path>`: the plan
+          // compares a document's path, so the scope's repository leg is dropped here.
+          return coverageScopes(await all((page) => store.byProperty('code.coverage', 'repository', repository, { ...page, limit: page.limit ?? PLAN_PAGE }, transaction)), 'document', DOCUMENT_INDEX_SOURCE_SYSTEM, repository)
+            .map((row) => ({ ...row, path: row.path.startsWith(`${repository}:`) ? row.path.slice(repository.length + 1) : row.path }));
+        }
+        case COMMITS_HELD_READ: {
+          // The commit nodes this repository's history already holds, each with the value it
+          // carries: the fact's own fields and none of the graph's bookkeeping.
+          const nodes = await all((page) => store.byProperty('code.commit', 'repository', repository, { ...page, limit: page.limit ?? PLAN_PAGE }, transaction));
+          return nodes.map((node) => {
+            const held = propertiesOf(node);
+            const value: Record<string, unknown> = {};
+            for (const key of ['repository', 'commit', 'committedAt', 'authoredAt', 'subject', 'author', 'parents', 'files']) {
+              if (held[key] !== undefined) value[key] = held[key];
+            }
+            return { kind: 'commit', commit: String(held['commit']), value };
+          }).sort((left, right) => (left.commit < right.commit ? -1 : left.commit > right.commit ? 1 : 0));
+        }
+        case HISTORY_COVERAGE_READ: {
+          const scope = typeof document.scope === 'string' ? document.scope : '';
+          const nodes = await all((page) => store.byProperty('code.coverage', 'repository', repository, { ...page, limit: page.limit ?? PLAN_PAGE }, transaction));
+          const held = nodes.filter((node) => propertiesOf(node)['scope'] === scope && sourceSystemOf(propertiesOf(node)) === HISTORY_SOURCE_SYSTEM_NAME);
+          if (held.length > 1) {
+            throw new Error(`the graph answered ${String(held.length)} coverage nodes of ${JSON.stringify(scope)} in ${JSON.stringify(repository)}, and one stage's coverage of one scope is one node (src/fill/stages/static-reads.ts)`);
+          }
+          const node = held[0];
+          return node === undefined ? [] : [{ kind: 'coverage', value: coverageValueOf(propertiesOf(node)) }];
+        }
         default:
-          throw new Error(`the static stage asked the read ${JSON.stringify(document.read)} for ${JSON.stringify(repository)}, and this reader answers ${PUBLISHED_TREE_READ}, ${PUBLISHED_REPOSITORY_READ}, ${PUBLISHED_UNFILED_READ}, ${PUBLISHED_CONTAINMENT_READ}, ${PUBLISHED_COVERAGE_READ}, ${PUBLISHED_RESOLVED_READ}, ${PUBLISHED_GAPS_READ}, ${PUBLISHED_MANIFESTS_READ}: a static stage has one reading of the graph (src/fill/stages/static-reads.ts)`);
+          throw new Error(`the static stage asked the read ${JSON.stringify(document.read)} for ${JSON.stringify(repository)}, and this reader answers ${PUBLISHED_TREE_READ}, ${PUBLISHED_REPOSITORY_READ}, ${PUBLISHED_UNFILED_READ}, ${PUBLISHED_CONTAINMENT_READ}, ${PUBLISHED_COVERAGE_READ}, ${PUBLISHED_RESOLVED_READ}, ${PUBLISHED_GAPS_READ}, ${PUBLISHED_MANIFESTS_READ}, ${PUBLISHED_DOCUMENTS_READ}, ${COMMITS_HELD_READ}, ${HISTORY_COVERAGE_READ}: a static stage has one reading of the graph (src/fill/stages/static-reads.ts)`);
       }
     },
   };

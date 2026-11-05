@@ -31,7 +31,6 @@ import {
   edgeRows, fileRows, packageRows, publishedFilesRead, publishedPackagesRead, publishedSymbolsRead as moduleSymbolsRead,
   resolvedEdgesRead, symbolRows as moduleSymbolRows,
 } from '../src/fill/stages/modules.js';
-import { commitsHeldQuery, coverageHeldQuery, historyScope } from '../src/fill/stages/history.js';
 
 const REPOSITORY = 'orders-api';
 const OTHER = 'other-api';
@@ -97,7 +96,7 @@ beforeAll(async () => {
   // The history stage's own coverage of one repository at one commit: its scope
   // is that stage's own form, which is what its read filters by.
   const historyCoverage = node('coverage', {
-    repository: REPOSITORY, scope: historyScope(REPOSITORY, COMMIT), complete: false,
+    repository: REPOSITORY, scope: `${REPOSITORY}@${COMMIT}`, complete: false,
     read: ['the pinned commit and its ancestry'], unread: [{ what: 'f'.repeat(40), reason: 'budget' }],
   }, 'src/cart.ts', 'extracted', 1, { system: 'git', version: '2.42.0' });
   const imported = edge('import', { from: fileId(REPOSITORY, 'src/cart.ts'), to: fileId(REPOSITORY, 'src/total.ts'), specifier: './total.js' }, 'src/cart.ts');
@@ -285,16 +284,6 @@ describe('the resolved edges the modules stage ranks', () => {
   });
 });
 
-describe('a stage\'s own SQL, through the view this module creates', () => {
-  test('the history stage\'s own queries answer the facts the store holds', async () => {
-    const commits = await query(commitsHeldQuery(REPOSITORY));
-    expect(commits.map((row) => row['commit'])).toEqual([COMMIT]);
-    expect((commits[0]?.['value'] as { subject: string }).subject).toBe('the cart');
-    const coverage = await query(coverageHeldQuery(REPOSITORY, historyScope(REPOSITORY, COMMIT)));
-    expect(coverage.length).toBe(1);
-    expect((coverage[0]?.['value'] as { complete: boolean }).complete).toBe(false);
-  });
-});
 
 describe('the reads this module hands on', () => {
   test('a read of the graph-read grammar is answered by that grammar\'s own reader', async () => {

@@ -55,6 +55,10 @@ let store: GraphStore | undefined;
 let first: FillRunResult | undefined;
 let second: FillRunResult | undefined;
 let dependencies: readonly ReadDependency[] = [];
+let documents: readonly { readonly path: string; readonly title: string; readonly anchors: readonly string[] }[] = [];
+let modules: readonly { readonly key: string; readonly name: string; readonly members: readonly string[] }[] = [];
+let commits: readonly { readonly commit: string; readonly subject: string; readonly parents: readonly string[] }[] = [];
+let tasks: readonly string[] = [];
 let deployUnits: readonly { readonly path: string; readonly name: string; readonly form: string; readonly kind: string }[] = [];
 let versions = { nodes: 0, edges: 0 };
 
@@ -129,6 +133,39 @@ beforeAll(async () => {
     const held = propertiesOf(node);
     return { path: String(held['manifest']), name: String(held['name']), form: String(held['form']), kind: String(held['factKind']) };
   });
+  // The document index's documents and sections, the modules stage's modules and their
+  // members, and the history stage's commits and task keys, as the graph holds them.
+  const documentNodes = await nodesOfKind('code.document');
+  const sectionNodes = await nodesOfKind('code.document-section');
+  documents = documentNodes.map((node) => {
+    const held = propertiesOf(node);
+    const path = String(held['path']);
+    const anchors = sectionNodes.map(propertiesOf).filter((section) => section['document'] === path).map((section) => String(section['anchor'])).sort();
+    return { path, title: String(held['title'] ?? ''), anchors };
+  });
+  const moduleNodes = await nodesOfKind('code.module');
+  const containsEdges = await store!.edgesByProperty('code.contains', 'repository', REPOSITORY, { limit: 10_000 });
+  const pathByKey = new Map<string, string>();
+  for (const node of await nodesOfKind('code.file')) pathByKey.set(String(propertiesOf(node)['recordKey']), String(propertiesOf(node)['path']));
+  modules = moduleNodes.map((node) => {
+    const held = propertiesOf(node);
+    const key = String(held['recordKey']);
+    const members = containsEdges.rows
+      .filter((edge) => edge.edge.src === node.nodeId)
+      .map((edge) => String((edge.dst.properties as Record<string, unknown>)['recordKey']))
+      .map((each) => pathByKey.get(each) ?? '')
+      .filter((path) => path !== '');
+    return { key, name: String(held['name']), members };
+  });
+  commits = (await nodesOfKind('code.commit'))
+    // The product repository is pinned too, and its own commit node is the snapshot's: the
+    // history items are about the code repository's ancestry.
+    .filter((node) => propertiesOf(node)['repository'] === REPOSITORY && propertiesOf(node)['subject'] !== undefined)
+    .map((node) => {
+      const held = propertiesOf(node);
+      return { commit: String(held['commit']), subject: String(held['subject'] ?? ''), parents: (held['parents'] ?? []) as readonly string[] };
+    });
+  tasks = (await nodesOfKind('code.task')).map((node) => String(propertiesOf(node)['key']));
   versions = await counts();
   const again = await service.run({ product: fill.product, runId: 'training-two' });
   if (!again.ok) throw new Error(`the second fill was refused: ${again.code}: ${again.reason}`);
@@ -192,6 +229,59 @@ describe('the answer key\'s manifest items, read from the graph', () => {
       expect(deployUnits.filter((unit) => unit.path === place.path).length).toBeGreaterThan(0);
     }
   }, 900_000);
+
+
+describe('the answer key\'s document, module and history items, read from the graph', () => {
+  test('every document the key names stands with its sections, and the anchors it names are section anchors', async () => {
+    const key = JSON.parse(readFileSync(KEY, 'utf8')) as { readonly items: readonly KeyItem[] };
+    const wanted = key.items.filter((item) => item.id.startsWith('doc.') || item.id.startsWith('docs.'));
+    expect(wanted.length).toBeGreaterThan(0);
+    const missing: string[] = [];
+    for (const item of wanted) {
+      for (const place of placesOf(item)) {
+        const path = place.path;
+        if (path === undefined || !path.endsWith('.md')) continue;
+        const document = documents.find((one) => one.path === path);
+        if (document === undefined) { missing.push(`${item.id}: no document at ${path}`); continue; }
+        if (document.title.trim() === '') missing.push(`${item.id}: the document at ${path} carries no title`);
+      }
+    }
+    expect(missing).toEqual([]);
+    // Every document the key names opens at least one section, and its title is a heading a
+    // reader of the page sees.
+    for (const path of ['docs/vision.md', 'docs/requirements.md', 'docs/glossary.md', 'docs/adr/0001-broker.md', 'docs/adr/0002-outbox.md']) {
+      const document = documents.find((one) => one.path === path)!;
+      expect(document.anchors.length).toBeGreaterThan(0);
+    }
+  }, 900_000);
+
+  test('every file the module items group stands in one module, and the modules cover the repository', async () => {
+    const key = JSON.parse(readFileSync(KEY, 'utf8')) as { readonly items: readonly KeyItem[] };
+    const wanted = key.items.filter((item) => item.id.startsWith('modules.'));
+    expect(wanted.length).toBeGreaterThan(0);
+    expect(modules.length).toBeGreaterThan(0);
+    const missing: string[] = [];
+    for (const item of wanted) {
+      for (const place of placesOf(item)) {
+        const path = place.path;
+        if (path === undefined) continue;
+        if (!modules.some((module) => module.members.includes(path))) missing.push(`${item.id}: ${path} stands in no module`);
+      }
+    }
+    expect(missing).toEqual([]);
+  }, 900_000);
+
+  test('the repository\'s commits stand with their parents and the task keys their messages name', async () => {
+    const key = JSON.parse(readFileSync(KEY, 'utf8')) as { readonly plantedCounts: { readonly commits: number; readonly mergeCommits: number } };
+    expect(commits).toHaveLength(key.plantedCounts.commits);
+    expect(commits.filter((commit) => commit.parents.length === 2)).toHaveLength(key.plantedCounts.mergeCommits);
+    // The training repository's messages name their tracker keys in their subjects (`ORD-12 add
+    // order lifecycle`) and carry no `Task:` line, so the history stage writes no `code.task`
+    // node for it — and the keys the messages do name are in the subjects it read.
+    expect(tasks).toEqual([]);
+    expect(commits.filter((commit) => /^[A-Z]+-\d+ /u.test(commit.subject)).length).toBeGreaterThan(0);
+  }, 900_000);
+});
 
   test('a second fill of the same commit writes nothing', async () => {
     expect({ state: second?.state, settled: second?.settled }).toEqual({ state: 'succeeded', settled: true });

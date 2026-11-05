@@ -110,6 +110,33 @@ export interface StaticGraphReader {
    * no page is wider than the cap whatever it points at.
    */
   neighbourhood(nodeId: string, options: { readonly relations: readonly string[]; readonly direction: 'out' | 'in'; readonly limit?: number; readonly after?: string }): Promise<StaticGraphPage>;
+  /**
+   * One bounded page of the nodes of one kind whose property `field` carries
+   * `value`, from `after` on: the query a stage that reads the graph a producer
+   * published (a repository's packages, its files, its symbols) asks.
+   */
+  byProperty(kind: string, field: string, value: string, options?: { readonly limit?: number; readonly after?: string }): Promise<StaticGraphPage>;
+  /**
+   * One bounded page of the edges of one relation whose property `field`
+   * carries `value`, with the two nodes each joins and the edge's own
+   * properties: a relation's graph read, never a single node's neighbourhood.
+   */
+  edgesByProperty(relation: string, field: string, value: string, options?: { readonly limit?: number; readonly after?: string }): Promise<StaticGraphEdgePage>;
+}
+
+/** One edge a bounded read answered: the relation, the two nodes it joins and its own properties. */
+interface StaticGraphEdge {
+  readonly id: string;
+  readonly relation: string;
+  readonly from: StaticGraphNode;
+  readonly to: StaticGraphNode;
+  readonly properties: Readonly<Record<string, unknown>>;
+}
+
+/** One page of an edge read: its rows, and the cursor that asks for the next page. */
+interface StaticGraphEdgePage {
+  readonly rows: readonly StaticGraphEdge[];
+  readonly next: string | null;
 }
 
 /** What one static unit's context holds: its repository, its graph reads, and nothing wider. */
@@ -177,7 +204,7 @@ function staticReadLimit(limit: number | undefined): number {
 export const STATIC_GRAPH_READ = 'stage-static-graph';
 
 /** The text one bounded static graph read is recorded and rechecked under. */
-export function staticGraphRead(input: { readonly kind: 'key' | 'globalName' | 'neighbourhood'; readonly value: string; readonly limit: number; readonly relations?: readonly string[]; readonly direction?: 'out' | 'in'; readonly after?: string }): string {
+export function staticGraphRead(input: { readonly kind: 'key' | 'globalName' | 'neighbourhood' | 'property' | 'edges'; readonly value: string; readonly limit: number; readonly kindOf?: string; readonly fieldOf?: string; readonly relations?: readonly string[]; readonly direction?: 'out' | 'in'; readonly after?: string }): string {
   return JSON.stringify({ read: STATIC_GRAPH_READ, ...input });
 }
 
@@ -194,7 +221,7 @@ export function staticNodeOf(row: NodeVersionRow): StaticGraphNode {
 }
 
 /** The graph store's own reads, bounded, as a static stage asks them. */
-export function staticGraphReaderOf(store: Pick<GraphStore, 'byKey' | 'byGlobalName' | 'neighbourhood'>): StaticGraphReader {
+export function staticGraphReaderOf(store: Pick<GraphStore, 'byKey' | 'byGlobalName' | 'neighbourhood' | 'byProperty' | 'edgesByProperty'>): StaticGraphReader {
   const page = async (read: Promise<{ rows: readonly NodeVersionRow[]; next: string | null }>, limit: number, what: string): Promise<readonly StaticGraphNode[]> => {
     const answered = await read;
     if (answered.next !== null || answered.rows.length > limit) {
@@ -223,6 +250,33 @@ export function staticGraphReaderOf(store: Pick<GraphStore, 'byKey' | 'byGlobalN
       }
       return { rows: answered.rows.map(staticNodeOf), next: answered.next };
     },
+    async byProperty(kind: string, field: string, value: string, options?: { readonly limit?: number; readonly after?: string }): Promise<StaticGraphPage> {
+      const limit = staticReadLimit(options?.limit);
+      const asked = options?.after === undefined ? { limit } : { limit, after: options.after };
+      const answered = await store.byProperty(kind, field, value, asked);
+      if (answered.rows.length > limit) {
+        throw new Error(`the static stage's read of ${kind} by ${field} answered more than ${String(limit)} nodes: a static stage reads a bounded answer, never a repository-wide one (decision 0033; src/fill/stages/static-context.ts)`);
+      }
+      return { rows: answered.rows.map(staticNodeOf), next: answered.next };
+    },
+    async edgesByProperty(relation: string, field: string, value: string, options?: { readonly limit?: number; readonly after?: string }): Promise<StaticGraphEdgePage> {
+      const limit = staticReadLimit(options?.limit);
+      const asked = options?.after === undefined ? { limit } : { limit, after: options.after };
+      const answered = await store.edgesByProperty(relation, field, value, asked);
+      if (answered.rows.length > limit) {
+        throw new Error(`the static stage's read of ${relation} edges by ${field} answered more than ${String(limit)} edges: a static stage reads a bounded answer, never a repository-wide one (decision 0033; src/fill/stages/static-context.ts)`);
+      }
+      return {
+        rows: answered.rows.map((entry: { edge: { edgeId: string; properties: unknown }; src: NodeVersionRow; dst: NodeVersionRow }) => ({
+          id: entry.edge.edgeId,
+          relation,
+          from: staticNodeOf(entry.src),
+          to: staticNodeOf(entry.dst),
+          properties: (entry.edge.properties !== null && typeof entry.edge.properties === 'object' ? entry.edge.properties : {}) as Readonly<Record<string, unknown>>,
+        })),
+        next: answered.next,
+      };
+    },
   };
 }
 
@@ -234,7 +288,7 @@ export function staticGraphReaderOf(store: Pick<GraphStore, 'byKey' | 'byGlobalN
  * whose edge it cannot see.
  */
 export function staticStageContext(repository: StaticStageSource, graph: StaticGraphReader): StaticStageContext {
-  const bounded = async (rows: readonly StaticGraphNode[], limit: number, what: string): Promise<readonly StaticGraphNode[]> => {
+  const bounded = async <T>(rows: readonly T[], limit: number, what: string): Promise<readonly T[]> => {
     if (rows.length > limit) {
       throw new Error(`the bounded read of the static stage answered ${String(rows.length)} rows where the cap is ${String(limit)} (${what}): a static stage reads a bounded answer, never a repository-wide one (decision 0033; src/fill/stages/static-context.ts)`);
     }
@@ -257,6 +311,16 @@ export function staticStageContext(repository: StaticStageSource, graph: StaticG
       if (options.relations.length === 0) throw new Error('a neighbourhood names the relations it follows: a traversal of no relation reaches nothing (src/fill/stages/static-context.ts)');
       const answered = await graph.neighbourhood(nodeId, { ...options, limit });
       return await bounded(answered.rows, limit, `neighbourhood of ${JSON.stringify(nodeId)}`).then((rows) => ({ rows, next: answered.next }));
+    },
+    async byProperty(kind: string, field: string, value: string, options?: { readonly limit?: number; readonly after?: string }): Promise<StaticGraphPage> {
+      const limit = staticReadLimit(options?.limit);
+      const answered = await graph.byProperty(kind, field, value, { ...options, limit });
+      return await bounded(answered.rows, limit, `read of ${kind} by ${field}`).then((rows) => ({ rows, next: answered.next }));
+    },
+    async edgesByProperty(relation: string, field: string, value: string, options?: { readonly limit?: number; readonly after?: string }): Promise<StaticGraphEdgePage> {
+      const limit = staticReadLimit(options?.limit);
+      const answered = await graph.edgesByProperty(relation, field, value, { ...options, limit });
+      return await bounded(answered.rows, limit, `read of ${relation} edges by ${field}`).then((rows) => ({ rows, next: answered.next }));
     },
   };
 }

@@ -36,8 +36,10 @@ import {
   HISTORY_LOG_RECORD,
   HISTORY_STAGE_ID,
   HISTORY_STAGE_VERSION,
-  commitsHeldQuery,
-  coverageHeldQuery,
+  COMMITS_HELD_READ,
+  HISTORY_COVERAGE_READ,
+  commitsHeldRead,
+  historyCoverageRead,
   createGitHistoryReader,
   createHistoryStage,
   historyDepth,
@@ -50,6 +52,7 @@ import {
 } from '../src/fill/stages/history.js';
 import { createStageRegistry } from '../src/fill/stages/index.js';
 import type { SnapshotSource } from '../src/fill/snapshot.js';
+import type { StaticGraphNode } from '../src/fill/stages/static-context.js';
 import { gitEnv } from './git-env.js';
 
 // ---- repositories the tests make ------------------------------------------
@@ -221,7 +224,39 @@ function recorder(unit: StageUnit, options: { readonly config?: unknown; readonl
   const writes: StageDraftWrite[] = [];
   const notes: string[] = [];
   const rows = options.rows ?? new Map<string, readonly unknown[]>();
+  // The rows a test put under a read name become the graph's nodes: the stage reads its held
+  // commits and its coverage through the static context's bounded property reads.
+  const nodesFor = (kind: 'commit' | 'coverage'): readonly unknown[] => {
+    const held: unknown[] = [];
+    for (const [key, value] of rows) {
+      if (kind === 'commit' && !key.includes(COMMITS_HELD_READ)) continue;
+      if (kind === 'coverage' && !key.includes(HISTORY_COVERAGE_READ)) continue;
+      held.push(...value);
+    }
+    return held;
+  };
+  const nodeOf = (kind: 'commit' | 'coverage', row: unknown): StaticGraphNode => {
+    const held = row !== null && typeof row === 'object' && !Array.isArray(row) ? row as Record<string, unknown> : undefined;
+    if (kind === 'commit') {
+      const value = (held?.['value'] ?? {}) as Record<string, unknown>;
+      return { id: 'n', kind: 'code.commit', label: 'c', properties: { factKind: 'commit', ...value, commit: String(held?.['commit'] ?? ''), recordKey: `commit:${String(held?.['commit'] ?? '')}`, provenance: { source: { system: 'madarch-history', version: '2' } } }, producer: 'fill.test', scope: '0' };
+    }
+    const value = (held?.['value'] ?? {}) as Record<string, unknown>;
+    return { id: 'n', kind: 'code.coverage', label: 'c', properties: { factKind: 'coverage', ...value, recordKey: 'coverage:x', provenance: { source: { system: 'madarch-history', version: '2' } } }, producer: 'fill.test', scope: '0' };
+  };
   const graph: StageGraphReader = { query: async (text: string) => { reads.push(text); return rows.get(text) ?? []; } };
+  const staticGraph = {
+    byKey: async (): Promise<readonly StaticGraphNode[]> => [],
+    byGlobalName: async (): Promise<readonly StaticGraphNode[]> => [],
+    neighbourhood: async (): Promise<{ readonly rows: readonly StaticGraphNode[]; readonly next: string | null }> => ({ rows: [], next: null }),
+    byProperty: async (kind: string, _field: string, _value: string): Promise<{ readonly rows: readonly StaticGraphNode[]; readonly next: string | null }> => {
+      const which = kind === 'code.commit' ? 'commit' : 'coverage';
+      const held = nodesFor(which);
+      if (which === 'coverage' && held.length > 1) return { rows: held.map((row) => nodeOf('coverage', row)), next: null };
+      return { rows: held.map((row) => nodeOf(which, row)), next: null };
+    },
+    edgesByProperty: async (): Promise<{ readonly rows: readonly never[]; readonly next: string | null }> => ({ rows: [], next: null }),
+  };
   const config: ResolvedStageConfiguration = {
     id: HISTORY_STAGE_ID,
     version: HISTORY_STAGE_VERSION,
@@ -238,6 +273,7 @@ function recorder(unit: StageUnit, options: { readonly config?: unknown; readonl
       unit,
       config,
       graph,
+      static: { repository: { repository: 'orders-api', commit: 'a'.repeat(40), source: { system: 'git', version: '2' } }, ...staticGraph } as never,
       draft: { write: (entry) => { writes.push(entry); }, writes: (): StageDraftSet => ({ writes }) },
       progress: (note) => { notes.push(note); },
       signal: options.signal ?? new AbortController().signal,
@@ -248,9 +284,12 @@ function recorder(unit: StageUnit, options: { readonly config?: unknown; readonl
 /** The value of every fact write of one kind, in the order they were written. */
 function valuesOf(writes: readonly StageDraftWrite[], kind: string): Record<string, unknown>[] {
   return writes.flatMap((write) => {
-    if (write.kind !== 'fact') return [];
-    const fact = write.value as { kind?: unknown; value?: unknown };
-    return fact.kind === kind ? [fact.value as Record<string, unknown>] : [];
+    if (write.kind !== 'node') return [];
+    const properties = { ...(write.value.properties as Record<string, unknown>) };
+    if (properties['factKind'] !== kind) return [];
+    // The value the fact holds: the node's properties without the graph's bookkeeping.
+    for (const key of ['recordKey', 'factKind', 'layer', 'status', 'provenance']) delete properties[key];
+    return [properties];
   });
 }
 
@@ -260,7 +299,7 @@ function rowsFor(entries: {
   readonly coverage?: readonly (readonly [string, unknown])[];
 }): Map<string, readonly unknown[]> {
   const rows = new Map<string, readonly unknown[]>();
-  for (const [repository, held] of entries.held ?? []) rows.set(commitsHeldQuery(repository), held);
+  for (const [repository, held] of entries.held ?? []) rows.set(commitsHeldRead(repository), held);
   for (const [key, value] of entries.coverage ?? []) rows.set(key, [{ value }]);
   return rows;
 }
@@ -334,18 +373,18 @@ describe('the ancestry one unit writes', () => {
       expect(commits[2]?.['authoredAt']).toBe(instant(at(3)));
       expect(commits[2]?.['committedAt']).toBe(instant(at(4)));
 
-      // Every fact is the schema's: its id is the id of its own value and
-      // provenance, and no id holds a machine path, a commit or a run.
-      const firstFact = run.writes[0];
-      if (firstFact === undefined || firstFact.kind !== 'fact') throw new Error('the first write is no fact write');
-      const written = firstFact.value as { id: string; kind: string; provenance: FactProvenance; layer: string; status: string };
-      expect(written.kind).toBe('commit');
-      expect(written.layer).toBe('extracted');
-      expect(written.status).toBe('proposed');
-      expect(written.provenance.repository).toEqual({ id: 'orders-api', commit: first });
-      expect(written.provenance.source.system).toBe('git');
-      expect(written.provenance.source.version).toMatch(/^\d+\.\d+/u);
-      expect(written.id).toBe(factId({ kind: 'commit', value: commits[0] as never, provenance: written.provenance }));
+      // Every item is the graph's: a commit is a `code.commit` node whose key is the fact id
+      // of its own value and provenance, and no key holds a machine path, a commit or a run.
+      const firstWrite = run.writes[0];
+      if (firstWrite === undefined || firstWrite.kind !== 'node') throw new Error('the first write is no node write');
+      expect(firstWrite.value.kind).toBe('code.commit');
+      const properties = firstWrite.value.properties as { recordKey: string; layer: string; status: string; provenance: FactProvenance };
+      expect(properties.recordKey.startsWith('commit:')).toBe(true);
+      expect(properties.layer).toBe('extracted');
+      expect(properties.status).toBe('proposed');
+      expect(properties.provenance.repository).toEqual({ id: 'orders-api', commit: first });
+      expect(properties.provenance.source.system).toBe('madarch-history');
+      expect(properties.provenance.source.version).toMatch(/^\d+/u);
       expect(JSON.stringify(run.writes)).not.toContain(fixture.root);
 
       // And one coverage fact, complete: everything the unit read, and nothing
@@ -358,7 +397,8 @@ describe('the ancestry one unit writes', () => {
         read: ['the pinned commit and its ancestry', 'the task keys the commit messages name'],
         unread: [],
       }]);
-      expect(run.reads).toEqual([commitsHeldQuery('orders-api'), coverageHeldQuery('orders-api', historyScope('orders-api', third))]);
+      // The unit reads the graph through its static context: no tracked read text is asked for.
+      expect(run.reads).toEqual([]);
       expect(run.notes).toEqual([
         `read the ancestry of orders-api at ${third}: 3 commits`,
         `wrote 3 commits (0 the graph already held) and 3 task keys of orders-api at ${third}, with the coverage this read wrote`,
@@ -381,13 +421,12 @@ describe('the ancestry one unit writes', () => {
 
       const edges = valuesOf(run.writes, 'task-key');
       expect(edges.map((value) => value['key'])).toEqual(['madarch-abc.1', 'madarch-xyz.7']);
-      const commits = valuesOf(run.writes, 'commit');
-      const commitId = factId({ kind: 'commit', value: commits[0] as never, provenance: { source: { system: 'git', version: '2' }, repository: { id: 'orders-api', commit: only } } });
-      expect(edges.map((value) => value['from'])).toEqual([commitId, commitId]);
-      const written = run.writes.filter((write) => write.kind === 'fact').map((write) => write.value as { kind: string; id: string; provenance: FactProvenance });
-      for (const fact of written.filter((one) => one.kind === 'task-key')) {
-        expect(fact.provenance.repository).toEqual({ id: 'orders-api', commit: only });
-      }
+      // One `code.task` node per key and one `code.tasks` edge from the commit's own node.
+      const commitNodes = run.writes.filter((write) => write.kind === 'node' && write.value.kind === 'code.commit');
+      expect(commitNodes).toHaveLength(1);
+      const tasks = run.writes.filter((write) => write.kind === 'edge' && write.value.relation === 'code.tasks');
+      expect(tasks.map((write) => (write.kind === 'edge' && 'key' in write.value.from ? write.value.from.key : ''))).toEqual([commitNodes[0]!.kind === 'node' ? commitNodes[0]!.value.key : '', commitNodes[0]!.kind === 'node' ? commitNodes[0]!.value.key : '']);
+      expect(run.writes.filter((write) => write.kind === 'node' && write.value.kind === 'code.task').map((write) => (write.kind === 'node' ? write.value.label : ''))).toEqual(['madarch-abc.1', 'madarch-xyz.7']);
       // The task keys are the tracker's own rule, read from the message.
       expect(taskKeys('Place an order\n\nTask: madarch-xyz.7, madarch-abc.1\nTask: madarch-abc.1\n')).toEqual(['madarch-abc.1', 'madarch-xyz.7']);
       expect(taskKeys('No task line here')).toEqual([]);
@@ -477,7 +516,9 @@ describe('the set one run writes, and what it does with what the graph holds', (
       const commits = valuesOf(run.writes, 'commit');
       expect(commits.map((value) => value['commit'])).toEqual([first, second, third, fourth]);
       expect(commits[3]?.['parents']).toEqual([third]);
-      expect(valuesOf(run.writes, 'task-key').map((value) => value['key'])).toEqual(['madarch-abc.1', 'madarch-abc.1', 'madarch-xyz.7', 'madarch-new.4']);
+      // One `code.task` node per key (measured above), and one `code.tasks` edge per commit that names it.
+      expect(valuesOf(run.writes, 'task-key').map((value) => value['key'])).toEqual(['madarch-abc.1', 'madarch-xyz.7', 'madarch-new.4']);
+      expect(run.writes.filter((write) => write.kind === 'edge' && write.value.relation === 'code.tasks')).toHaveLength(4);
       // The new pin's own coverage is new work: its scope names the new commit.
       const coverage = valuesOf(run.writes, 'coverage')[0] as unknown as CoverageValue;
       expect(coverage.scope).toBe(historyScope('orders-api', fourth));
@@ -502,7 +543,7 @@ describe('the set one run writes, and what it does with what the graph holds', (
       const held = valuesOf(firstRun.writes, 'commit').map((value) => ({ commit: String(value['commit']), value }));
       const coverage = valuesOf(firstRun.writes, 'coverage')[0] as unknown;
       const secondRun = recorder(unit, {
-        rows: rowsFor({ held: [['orders-api', held]], coverage: [[coverageHeldQuery('orders-api', scope), coverage]] }),
+        rows: rowsFor({ held: [['orders-api', held]], coverage: [[historyCoverageRead('orders-api', scope), coverage]] }),
       });
       await stage.execute(unit, secondRun.context);
       // The same facts, by id: writing them again keeps the unit's holdings and
@@ -674,9 +715,9 @@ describe('the units a plan names', () => {
     // asks every stage to plan before any unit executes, so a plan that read the
     // graph's snapshot facts would name an earlier run's commit (21.8's walk).
     expect(run.reads).toEqual([]);
-    // The unit names are written out here as the stage's own form states them:
-    // the unit id is the repository and the commit, and the scope is
-    // `repository:<name>@<commit>`, never a run's own id.
+    // The unit's id is the repository and the commit it reads, and its scope is the repository's
+    // own: two runs at two commits publish under one scope, so a later range replaces the earlier
+    // reading instead of colliding with it on the commits both ancestries hold.
     expect(plan).toEqual({
       units: [
         { id: `orders-api@${'a'.repeat(40)}`, scope: `repository:orders-api@${'a'.repeat(40)}` },
@@ -695,9 +736,9 @@ describe('the units a plan names', () => {
 
   test('a scope that names no repository at a commit is refused, saying the form', async () => {
     const stage = stageOver(new Map());
-    const unit = { id: 'orders-api', scope: 'orders-api' };
+    const unit = { id: 'orders-api', scope: 'repository:orders-api@' };
     await expect(stage.execute(unit, recorder(unit).context)).rejects.toThrow(/no repository at a commit/u);
-    expect(parseHistoryScope(historyScope('orders-api', 'a'.repeat(40)))).toEqual({ repository: 'orders-api', commit: 'a'.repeat(40) });
+    expect(parseHistoryScope(historyUnitId('orders-api', 'a'.repeat(40)))).toEqual({ repository: 'orders-api', commit: 'a'.repeat(40) });
   });
 });
 
@@ -764,26 +805,22 @@ describe('the stage declaration and the draft it judges', () => {
     }
   });
 
-  test('validate refuses a fact the schema does not read and a task-key edge no commit of the draft writes', () => {
-    const provenance: FactProvenance = { source: { system: 'git', version: '2' }, repository: { id: 'orders-api', commit: 'a'.repeat(40) } };
-    const broken = { kind: 'commit', schemaVersion: FACT_KINDS['commit'].version, id: 'commit:' + '0'.repeat(64), provenance, layer: 'extracted', status: 'proposed', value: { repository: 'orders-api', commit: 'a'.repeat(40), committedAt: '2026-10-01T00:00:00Z', authoredAt: '2026-10-01T00:00:00Z', subject: 'x', parents: [], files: ['/opt/madarch-checkout/a.txt'] } };
-    const judged = validateDraft({ writes: [{ kind: 'fact', evidence: 'orders-api@' + 'a'.repeat(40), value: broken }] });
-    expect(judged.ok).toBe(false);
-    if (judged.ok) throw new Error('expected the draft to be refused');
-    expect(judged.errors.join(' ')).toMatch(/value\.files\[0\]/u);
+  test('validate refuses a node of a kind the stage does not write and a task-key edge no commit of the draft writes', () => {
+    const provenance: FactProvenance = { source: { system: 'madarch-history', version: '2' }, repository: { id: 'orders-api', commit: 'a'.repeat(40) } };
+    const commitKey = factId({ kind: 'commit', value: { repository: 'orders-api', commit: 'a'.repeat(40), committedAt: '2026-10-01T00:00:00Z', authoredAt: '2026-10-01T00:00:00Z', subject: 'x', parents: [], files: ['a.txt'] } as never, provenance });
+    const commitNode = { kind: 'node' as const, evidence: 'orders-api@' + 'a'.repeat(40), value: { key: commitKey, kind: 'code.commit', label: 'x', properties: { factKind: 'commit', ...provenance, recordKey: commitKey } } };
+    expect(validateDraft({ writes: [commitNode] })).toEqual({ ok: true });
 
-    const edge = { kind: 'task-key', schemaVersion: 1, id: 'task-key:' + '0'.repeat(64), provenance, layer: 'extracted', status: 'proposed', value: { from: 'commit:' + '1'.repeat(64), key: 'madarch-abc.1' } };
-    const alone = validateDraft({ writes: [{ kind: 'fact', evidence: 'orders-api@' + 'a'.repeat(40), value: edge }] });
+    // A node of a kind this stage does not write is refused, naming the write.
+    const wrong = validateDraft({ writes: [{ ...commitNode, value: { ...commitNode.value, kind: 'code.symbol', properties: { ...commitNode.value.properties, factKind: 'symbol' } } }] });
+    expect(wrong.ok).toBe(false);
+    if (wrong.ok) throw new Error('expected the draft to be refused');
+
+    // A task-key edge that no commit node of the draft starts at is refused, naming its end.
+    const alone = validateDraft({ writes: [{ kind: 'edge', evidence: 'x', value: { relation: 'code.tasks', from: { key: 'commit:' + '1'.repeat(64) }, to: { key: 'task:' + '2'.repeat(64) }, properties: { factKind: 'task-key' } } }] });
     expect(alone.ok).toBe(false);
     if (alone.ok) throw new Error('expected the draft to be refused');
-    expect(alone.errors.join(' ')).toMatch(/writes no commit fact of that id/u);
-
-    // The draft write carries the fact it writes, so a link write carries its edge fact: the stage
-    // refuses it because it writes "fact" writes and nothing else, not because the write is empty.
-    const other = validateDraft({ writes: [{ kind: 'link', evidence: 'x', value: edge }] });
-    expect(other.ok).toBe(false);
-    if (other.ok) throw new Error('expected the draft to be refused');
-    expect(other.errors.join(' ')).toMatch(/the history stage writes facts and nothing else/u);
+    expect(alone.errors.join(' ')).toMatch(/writes no commit node of that key/u);
   });
 
   test('what a unit writes is what the schema reads, whole', async () => {
@@ -795,29 +832,43 @@ describe('the stage declaration and the draft it judges', () => {
       const run = recorder(unit);
       await stage.execute(unit, run.context);
       expect(validateDraft({ writes: run.writes })).toEqual({ ok: true });
-      // Every fact's id is the digest of its own value and provenance, whatever
-      // the read was: sorting the values another way never changes an id.
+      // Every node's key is the fact id of its own value and provenance, whatever the read
+      // was: sorting the values another way never changes a key.
       for (const write of run.writes) {
-        if (write.kind !== 'fact') continue;
-        const fact = write.value as { kind: string; id: string; value: unknown; provenance: FactProvenance };
-        expect(fact.id).toBe(factId({ kind: fact.kind, value: fact.value, provenance: fact.provenance } as never));
-        expect(canonicalJsonDigest(fact.value)).toMatch(/^[0-9a-f]{64}$/u);
+        if (write.kind !== 'node') continue;
+        // A task node's key names the key, not the edge's fact: its own identity is the
+        // repository and the key (one node however many commits name it).
+        if (write.value.kind === 'code.task') continue;
+        const value = valuesOf([write], String((write.value.properties as Record<string, unknown>)['factKind']))[0]!;
+        const properties = write.value.properties as { recordKey: string; provenance: FactProvenance };
+        expect(properties.recordKey).toBe(factId({ kind: String((write.value.properties as Record<string, unknown>)['factKind']) as 'commit', value: value as never, provenance: properties.provenance }));
+        expect(canonicalJsonDigest(value)).toMatch(/^[0-9a-f]{64}$/u);
       }
-      // The writes are in parent order of their commits, with each commit's
-      // task keys directly after it.
+      // The writes are in parent order of their commits, with each commit's task keys
+      // directly after it, and one task node per key however many commits name it.
       const order = run.writes.flatMap((write) => {
-        if (write.kind !== 'fact') return [];
-        const fact = write.value as { kind: string; value: Record<string, unknown> };
-        return [fact.kind === 'commit' ? `commit ${String(fact.value['commit'])}` : `${fact.kind} ${String(fact.value['key'])}`];
+        if (write.kind === 'node') {
+          const properties = write.value.properties as Record<string, unknown>;
+          if (properties['factKind'] === 'commit') return [`commit ${String(properties['commit'])}`];
+          if (properties['factKind'] === 'task-key') return [`task-key ${String(properties['key'])}`];
+          if (properties['factKind'] === 'coverage') return [`coverage ${String(properties['scope'])}`];
+          return [];
+        }
+        if (write.kind === 'edge') return [`edge ${write.value.relation}`];
+        return [];
       });
       expect(order).toEqual([
         `commit ${fixture.commits[0] as string}`,
         `commit ${fixture.commits[1] as string}`,
+        // The third commit names two keys: its node stands before its edges, and each key's
+        // node once in the whole draft.
         'task-key madarch-abc.1',
+        'edge code.tasks',
         `commit ${fixture.commits[2] as string}`,
-        'task-key madarch-abc.1',
+        'edge code.tasks',
         'task-key madarch-xyz.7',
-        'coverage undefined',
+        'edge code.tasks',
+        `coverage ${historyScope('orders-api', third)}`,
       ]);
       // The commit facts alone, in the fixture's own order: parents before
       // children, whatever the order git lists the ancestry in.
@@ -1046,22 +1097,18 @@ describe('what the wiring, the clock and the graph own rows can do to a read', (
     const commit = 'a'.repeat(40);
     const unit = { id: historyUnitId(repository, commit), scope: historyScope(repository, commit) };
     const stage = stageOver(new Map([[repository, '/nowhere']]));
-    const held = commitsHeldQuery(repository);
-    const coverage = coverageHeldQuery(repository, unit.scope);
+    const held = commitsHeldRead(repository);
+    const coverage = historyCoverageRead(repository, unit.scope);
     const refused = async (rows: ReadonlyMap<string, readonly unknown[]>, pattern: RegExp): Promise<void> => {
       const run = recorder(unit, { rows });
       await expect(stage.execute(unit, run.context)).rejects.toThrow(pattern);
       expect(run.writes).toEqual([]);
     };
-    // A row that is no record, a commit that is no commit, a row holding no
-    // value, one commit held twice, and two coverage facts for one scope: each
-    // is refused where it stands, naming the read that answered it.
-    await refused(new Map([[held, ['a row, not a record']]]), /row 0 of "SELECT commit, value FROM fact WHERE kind = 'commit'/u);
+    // A commit that is no commit, one commit held twice and two coverage facts for one
+    // scope: each is refused where it stands, naming the read that answered it.
+    await refused(new Map([[held, ['a row, not a record']]]), /row 0 of "\{"read":"stage-7-held-commits"/u);
     await refused(new Map([[held, [{ commit: 'HEAD', value: {} }]]]), /names the commit "HEAD"/u);
-    await refused(new Map([[held, [{ commit, value: undefined }]]]), /names .* with no value/u);
-    await refused(new Map([[held, [{ commit, value: {} }, { commit, value: {} }]]]), /answered .* twice/u);
-    await refused(new Map([[coverage, [{ value: {} }, { value: {} }]]]), /answered 2 coverage facts/u);
-    await refused(new Map([[coverage, ['not a record']]]), /row 0 of "SELECT value FROM fact WHERE kind = 'coverage'/u);
-    await refused(new Map([[coverage, [{}]]]), /holds no value/u);
+    const scopeValue = { repository: 'orders-api', scope: unit.scope, complete: true, read: [], unread: [] };
+    await refused(new Map([[coverage, [{ value: scopeValue }, { value: scopeValue }]]]), /answered 2 coverage facts/u);
   });
 });

@@ -73,12 +73,13 @@
  * The declaration below says why that kind is not named in `produces`.
  */
 import { Type } from 'typebox';
+import { canonicalJsonDigest } from '../../model/canonical.js';
 import { byCodePoint } from '../../model/order.js';
 import { ID_PATTERN } from '../../model/schema.js';
 import {
   FACT_ID_PATTERN, FACT_KINDS, factId, isRepositoryPath, makeEdgeFact, makeNodeFact, repositoryPath,
   type CoverageGap, type CoverageGapReason, type Fact, type FactProvenance, type FactRange, type FactSource, type FileValue,
-  type ModuleSeed, type PackageForm, type SnapshotValue, type SymbolKind, type SymbolValue,
+  type ModuleSeed, type PackageForm, type RepositoryForm, type SnapshotValue, type SymbolKind, type SymbolValue,
 } from '../facts.js';
 import type { SnapshotReader, SnapshotSource } from '../snapshot.js';
 import {
@@ -86,13 +87,17 @@ import {
   type FillStage, type StageContext, type StageDraftSet, type StageExecutionResult,
   type StageGraphReader, type StagePlan, type StageUnit,
 } from '../stage.js';
-import { checkFactDraft, evidenceAt, provenanceOf } from './draft.js';
+import { evidenceAt, provenanceOf } from './draft.js';
+import { evidenceAtPlace } from './draft.js';
+import { publishedRepositoryRead, publishedRepositoryRows } from './snapshot.js';
+import { STATIC_READ_ROW_LIMIT, type StaticGraphNode, type StaticGraphReader, type StaticStageSource } from './static-context.js';
+import { checkStaticGraphDraft, graphWritesOf } from './static-graph.js';
 
 /** The stage's id, as it is registered and as its units are named. */
 export const MODULES_STAGE_ID = 'modules';
 
 /** The stage's own version, bumped when what it reads, plans or writes changes. */
-export const MODULES_STAGE_VERSION = 1;
+export const MODULES_STAGE_VERSION = 2;
 
 /**
  * The fact kinds a unit of this stage writes, in code point order: the modules,
@@ -108,7 +113,7 @@ export const MODULES_STAGE_VERSION = 1;
  * another stage waits for: it is a field of a fact two stages already published,
  * and the only thing this stage says about it is its value.
  */
-export const MODULES_STAGE_KINDS: readonly string[] = ['contains', 'coverage', 'file', 'module', 'symbol'];
+export const MODULES_STAGE_KINDS: readonly string[] = ['contains', 'coverage', 'file', 'module', 'rank', 'symbol'];
 
 /**
  * The reader this stage's own facts name: the fill's modules stage. It reads the
@@ -277,6 +282,8 @@ export function createModulesStage(sources: SnapshotSource): FillStage {
   return {
     id: MODULES_STAGE_ID,
     version: MODULES_STAGE_VERSION,
+    // Its unit reads the graph in bounded pages and no tree (decision 0033, item 5).
+    staticReading: true,
     // What the clustering is made of is required: the repository's files and the
     // symbols they declare. What the ranking walks beside them is optional — a
     // run with no resolution stage ranks over the imports alone, and one with no
@@ -314,8 +321,8 @@ export function createModulesStage(sources: SnapshotSource): FillStage {
     }),
     defaults: { ...DEFAULT_STAGE_DEFAULTS, config: { sizeThreshold: DEFAULT_SIZE_THRESHOLD, maxFanIn: DEFAULT_MAX_FAN_IN } },
     plan: async (graph: StageGraphReader): Promise<StagePlan> => planModules(sources, graph),
-    execute: async (unit: StageUnit, context: StageContext): Promise<StageExecutionResult> => executeModulesUnit(sources, unit, context),
-    validate: (draft: StageDraftSet) => checkFactDraft(MODULES_STAGE_ID, MODULES_STAGE_KINDS, draft),
+    execute: async (unit: StageUnit, context: StageContext): Promise<StageExecutionResult> => executeModulesUnit(unit, context),
+    validate: (draft: StageDraftSet) => checkStaticGraphDraft(MODULES_STAGE_ID, MODULES_STAGE_KINDS, draft),
   };
 }
 
@@ -335,16 +342,27 @@ export function createModulesStage(sources: SnapshotSource): FillStage {
  * and here one unit covers the whole repository, so there is no second
  * granularity to plan instead.
  */
-async function planModules(sources: SnapshotSource, _graph: StageGraphReader): Promise<StagePlan> {
+async function planModules(sources: SnapshotSource, graph: StageGraphReader): Promise<StagePlan> {
   const pins = await sources.pins();
   const units: { id: string; scope: string }[] = [];
   let anyFile = false;
+  let blocked = false;
   for (const pin of pins) {
     const reader = await sources.open(pin.id);
     if (reader.files().length === 0) continue;
+    // The unit joins its top-level modules to the repository node the snapshot stage published
+    // and reads the repository's nodes: a plan names it only once that node stands, and the run's
+    // re-plan wave names it once the snapshot has published (decision 0033, item 15).
+    const read = publishedRepositoryRead(pin.id);
+    const repository = publishedRepositoryRows(await graph.query(read), pin.id, read);
+    if (repository.length === 0) {
+      blocked = true;
+      continue;
+    }
     anyFile = true;
     units.push({ id: modulesUnitId(pin.id), scope: pin.id });
   }
+  if (blocked && units.length === 0) return { units: [], coverage: 'nothing-found' };
   units.sort((left, right) => byCodePoint(left.id, right.id));
   return { units, coverage: anyFile ? 'planned' : 'nothing-found' };
 }
@@ -367,32 +385,150 @@ function plannedRepository(id: string): string {
  * the `contains` edges, the ranked file and symbol facts, and one coverage fact
  * saying what the unit read and what it could not read whole.
  */
-async function executeModulesUnit(sources: SnapshotSource, unit: StageUnit, context: StageContext): Promise<StageExecutionResult> {
+async function executeModulesUnit(unit: StageUnit, context: StageContext): Promise<StageExecutionResult> {
   refuseWhenCancelled(unit, context);
   const repository = plannedRepository(unit.id);
   const settings = settingsOf(context.config.config);
-  const reader = await sources.open(repository);
+  // The unit reads the graph, not the tree: the repository's pinned form and commit are the
+  // static context's, and its bytes are never read (decision 0033, item 5).
+  const source = staticSourceOf(unit, context);
   refuseWhenCancelled(unit, context);
-  const packagesRead = publishedPackagesRead(repository);
-  const packages = packageRows(await context.graph.query(packagesRead), repository, packagesRead);
-  const filesRead = publishedFilesRead(repository);
-  const files = fileRows(await context.graph.query(filesRead), repository, filesRead);
-  const symbolsRead = publishedSymbolsRead(repository);
-  const symbols = symbolRows(await context.graph.query(symbolsRead), repository, symbolsRead);
-  const edgesRead = resolvedEdgesRead(repository);
-  const edges = edgeRows(await context.graph.query(edgesRead), repository, edgesRead);
+  // The repository's graph, read from its nodes in bounded pages (decision 0033, item 5): the
+  // packages, the files, the symbols and the resolved edges, and no tree.
+  const graph = staticGraphOf(unit, context);
+  const packages = await graphRows(graph, 'code.package', repository, packageOfNode);
+  const files = await graphRows(graph, 'code.file', repository, fileOfNode);
+  const symbols = await graphRows(graph, 'code.symbol', repository, symbolOfNode);
+  const edges = await edgeRowsOf(graph, repository);
   refuseWhenCancelled(unit, context);
   // The stage's own reader, not the bytes' (see `MODULES_SOURCE`): what it read is the graph.
-  const provenance: FactProvenance = { ...provenanceOf(reader), source: MODULES_SOURCE };
+  const provenance: FactProvenance = { source: MODULES_SOURCE, repository: { id: source.repository, commit: source.commit } };
   const clustered = clusterRepository({ repository, packages, files, settings });
   const ranks = rankNodes({ repository, files, symbols, edges });
-  const written = writeClustering({ repository, reader, provenance, files, symbols, clustered, ranks });
-  for (const entry of written.facts) context.draft.write({ kind: 'fact', evidence: evidenceAt(reader, entry.path), value: entry.fact });
+  // The repository node the snapshot stage published: its key is the one this stage's top-level
+  // containment edges start at, and this stage does not compute it — a node another stage owns is
+  // joined by its own key (decision 0033's fenced publication).
+  const repositoryPage = await graph.byProperty('code.repository', 'repository', repository, { limit: 2 });
+  const repositoryKey = repositoryPage.rows[0]?.properties['recordKey'];
+  if (typeof repositoryKey !== 'string' || repositoryKey === '') {
+    throw new Error(`the graph holds no code.repository node of ${JSON.stringify(repository)}, and the modules stage joins its top-level modules to it: the snapshot stage publishes one per repository (src/fill/stages/modules.ts)`);
+  }
+  const written = writeClustering({ repository, repositoryKey, reader: source, provenance, files, symbols, clustered, ranks });
+  for (const entry of written.facts) for (const write of graphWritesOf(entry.fact, evidenceAtPlace(source, entry.path))) context.draft.write(write);
+  // The ranks the walk measured: one `code.rank` node about each file and symbol, written by this
+  // stage because a node another stage owns cannot carry a version of this one's (decision 0033).
+  for (const rank of written.ranks) {
+    context.draft.write({
+      kind: 'node',
+      evidence: evidenceAtPlace(source, rank.path),
+      value: {
+        key: rank.key,
+        kind: 'code.rank',
+        label: String(rank.importance),
+        properties: { factKind: 'rank', repository, subject: rank.subject, importance: rank.importance, file: rank.path },
+      },
+    });
+  }
   context.progress(
-    `clustered ${repository} at ${reader.commit}: ${written.modules} ${written.modules === 1 ? 'module' : 'modules'} over ${files.length} ${files.length === 1 ? 'file' : 'files'} and ${symbols.length} ${symbols.length === 1 ? 'symbol' : 'symbols'}, ranked over ${edges.length} ${edges.length === 1 ? 'edge' : 'edges'}, ${written.gaps} ${written.gaps === 1 ? 'gap' : 'gaps'}`,
+    `clustered ${repository} at ${source.commit}: ${written.modules} ${written.modules === 1 ? 'module' : 'modules'} over ${files.length} ${files.length === 1 ? 'file' : 'files'} and ${symbols.length} ${symbols.length === 1 ? 'symbol' : 'symbols'}, ranked over ${edges.length} ${edges.length === 1 ? 'edge' : 'edges'}, ${written.gaps} ${written.gaps === 1 ? 'gap' : 'gaps'}`,
     1,
   );
   return { outcome: 'draft' };
+}
+
+/** One node's properties, as the graph answered them. */
+function propertiesOfNode(node: StaticGraphNode): Record<string, unknown> {
+  return node.properties as Record<string, unknown>;
+}
+
+/** The value a node's fact holds: its properties without the graph's own bookkeeping. */
+function nodeValueOf(node: StaticGraphNode): Record<string, unknown> {
+  const value = { ...propertiesOfNode(node) };
+  for (const key of ['recordKey', 'factKind', 'layer', 'status', 'provenance']) delete value[key];
+  return value;
+}
+
+/** The place a node's provenance names, as a row's `place`. */
+function nodePlaceOf(node: StaticGraphNode): FactRange {
+  const provenance = propertiesOfNode(node)['provenance'];
+  const place = provenance !== null && typeof provenance === 'object' ? (provenance as Record<string, unknown>)['place'] : undefined;
+  const range = place !== null && typeof place === 'object' ? (place as Record<string, unknown>)['range'] : undefined;
+  return (range ?? {}) as FactRange;
+}
+
+/** The key a node's current version carries. */
+function nodeKeyOf(node: StaticGraphNode): string {
+  const key = propertiesOfNode(node)['recordKey'];
+  if (typeof key !== 'string' || key === '') throw new Error(`the graph answered the ${node.kind} node ${node.id} with no recordKey: every static node carries the fact id it was read as (src/fill/stages/modules.ts)`);
+  return key;
+}
+
+/** One package row, as stage 2's package node holds it. */
+function packageOfNode(node: StaticGraphNode): PublishedPackageRow {
+  const value = nodeValueOf(node);
+  return { kind: 'package', name: String(value['name']), form: value['form'] as PublishedPackageRow['form'], ...(typeof value['manifest'] === 'string' ? { manifest: value['manifest'] } : {}) };
+}
+
+/** One file row, as the snapshot stage's file node holds it. */
+function fileOfNode(node: StaticGraphNode): PublishedFileRow {
+  return { kind: 'file', path: String(propertiesOfNode(node)['path']), id: nodeKeyOf(node), value: nodeValueOf(node) as unknown as PublishedFileRow['value'], place: nodePlaceOf(node) };
+}
+
+/** One symbol row, as the syntax stage's symbol node holds it. */
+function symbolOfNode(node: StaticGraphNode): PublishedSymbolRow {
+  return { kind: 'symbol', file: String(propertiesOfNode(node)['file']), id: nodeKeyOf(node), value: nodeValueOf(node) as unknown as PublishedSymbolRow['value'], place: nodePlaceOf(node) };
+}
+
+/** Every page of one node read, in node id order. */
+async function graphRows<T>(source: StaticGraphReader, kind: string, repository: string, rowOf: (node: StaticGraphNode) => T): Promise<readonly T[]> {
+  const rows: T[] = [];
+  let after: string | undefined;
+  for (;;) {
+    const page = await source.byProperty(kind, 'repository', repository, { limit: STATIC_READ_ROW_LIMIT, ...(after === undefined ? {} : { after }) });
+    for (const node of page.rows) rows.push(rowOf(node));
+    if (page.next === null) return rows;
+    after = page.next;
+  }
+}
+
+/** Every resolved edge of one repository, in code point order of its kind, its start and its end. */
+async function edgeRowsOf(source: StaticGraphReader, repository: string): Promise<readonly ResolvedEdgeRow[]> {
+  const rows: ResolvedEdgeRow[] = [];
+  for (const [relation, kind] of [['code.calls', 'call'], ['code.inherits', 'inherits'], ['code.references', 'reference'], ['code.imports', 'import']] as const) {
+    let after: string | undefined;
+    for (;;) {
+      const page = await source.edgesByProperty(relation, 'repository', repository, { limit: STATIC_READ_ROW_LIMIT, ...(after === undefined ? {} : { after }) });
+      for (const edge of page.rows) {
+        const from = edge.from.properties['recordKey'];
+        const to = edge.to.properties['recordKey'];
+        if (typeof from !== 'string' || typeof to !== 'string') {
+          throw new Error(`the graph answered the ${relation} edge ${edge.id} with an end that carries no recordKey: an edge joins two nodes a reader names by their keys (src/fill/stages/modules.ts)`);
+        }
+        rows.push({ kind, from, to, weight: typeof edge.properties['count'] === 'number' ? edge.properties['count'] as number : 1 });
+      }
+      if (page.next === null) break;
+      after = page.next;
+    }
+  }
+  return rows.sort((left, right) => byCodePoint(`${left.kind} ${left.from} ${left.to}`, `${right.kind} ${right.from} ${right.to}`));
+}
+
+/** The unit's bounded graph reads, refused by name where the run handed none. */
+function staticGraphOf(unit: StageUnit, context: StageContext): StaticGraphReader {
+  const held = context.static;
+  if (held === undefined) {
+    throw new Error(`the unit "${unit.id}" runs the modules stage's static reading, and its context holds no bounded graph reads: a run hands a static stage its repository's path-scoped answers (src/fill/stages/modules.ts, decision 0033)`);
+  }
+  return held;
+}
+
+/** The unit's static repository, refused by name where the run handed none. */
+function staticSourceOf(unit: StageUnit, context: StageContext): StaticStageSource {
+  const held = context.static?.repository;
+  if (held === undefined) {
+    throw new Error(`the unit "${unit.id}" runs the modules stage's static reading, and its context holds no pinned repository: a run hands a static stage its repository's path-scoped answers (src/fill/stages/modules.ts, decision 0033)`);
+  }
+  return held;
 }
 
 /** A cancelled unit stops where it stands: the publication of an empty fact set retracts what an earlier run wrote, which a cancellation must never do in silence. */
@@ -1019,6 +1155,8 @@ export interface ClusteringFact {
 /** What the unit's writes are: every fact, how many modules stand, and how many gaps the coverage names. */
 interface ClusteringWrite {
   readonly facts: readonly ClusteringFact[];
+  /** The importance the walk measured for each file and symbol, as the stage's own rank nodes. */
+  readonly ranks: readonly { readonly key: string; readonly subject: string; readonly importance: number; readonly path: string }[];
   readonly modules: number;
   readonly gaps: number;
 }
@@ -1026,7 +1164,10 @@ interface ClusteringWrite {
 /** What the reads answered, and what the clustering and the ranking made of them. */
 interface ClusteringInput {
   readonly repository: string;
-  readonly reader: SnapshotReader;
+  /** The key the snapshot stage's repository node carries: what the top-level containment edges start at. */
+  readonly repositoryKey: string;
+  /** The unit's pinned repository: the form and commit its facts cite, and no reader of the tree. */
+  readonly reader: { readonly repository: string; readonly commit: string; readonly form: RepositoryForm };
   readonly provenance: FactProvenance;
   readonly files: readonly PublishedFileRow[];
   readonly symbols: readonly PublishedSymbolRow[];
@@ -1119,39 +1260,32 @@ function writeClustering(input: ClusteringInput): ClusteringWrite {
   // The repository holds its top-level modules: a page or an agent unit walks
   // from the repository node down, and a repository of two hundred packages is
   // grouped at the top like any other fan-in (`groupedChildren`).
-  const repositoryId = factId({ kind: 'repository', value: { repository: input.repository, form: input.reader.form }, provenance: input.provenance });
+  const repositoryId = input.repositoryKey;
   for (const tree of input.clustered.trees) {
     const top = visit(tree, undefined);
     facts.push({ fact: makeEdgeFact({ kind: 'contains', value: { from: repositoryId, to: top.id }, provenance: input.provenance, layer: 'extracted' }) });
   }
-  // The ranks the walk measured, written onto the facts they are about: the file
-  // and symbol facts stages 1, 3 and 4 published, one id each, with `importance`.
+  // The rank the walk measured, written onto nodes of this stage's own: a node's version
+  // belongs to the producer and scope that published it (decision 0033's fenced
+  // publication), so the modules stage cannot write the file's or the symbol's
+  // `importance`. It writes a `code.rank` node about each instead — the subject's key, its
+  // importance and the repository — and a reader joins the two by the key.
+  const ranks: { readonly key: string; readonly subject: string; readonly importance: number; readonly path: string }[] = [];
   for (const file of input.files) {
-    const importance = rankValue(input.ranks.rankOf.get(file.id) ?? 0);
-    facts.push({
-      fact: makeNodeFact({
-        kind: 'file',
-        value: { ...file.value, path: repositoryPath(file.path), importance },
-        provenance: { ...input.provenance, place: { file: repositoryPath(file.path), range: file.place } },
-        layer: 'extracted',
-      }),
-      path: file.path,
-    });
+    ranks.push({ key: rankKeyOf(input.repository, file.id), subject: file.id, importance: rankValue(input.ranks.rankOf.get(file.id) ?? 0), path: file.path });
   }
   for (const symbol of input.symbols) {
-    const importance = rankValue(input.ranks.rankOf.get(symbol.id) ?? 0);
-    facts.push({
-      fact: makeNodeFact({
-        kind: 'symbol',
-        value: { ...symbol.value, file: repositoryPath(symbol.file), importance },
-        provenance: { ...input.provenance, place: { file: repositoryPath(symbol.file), range: symbol.place } },
-        layer: 'extracted',
-      }),
-      path: symbol.file,
-    });
+    ranks.push({ key: rankKeyOf(input.repository, symbol.id), subject: symbol.id, importance: rankValue(input.ranks.rankOf.get(symbol.id) ?? 0), path: symbol.file });
   }
   facts.push({ fact: coverageOf(input) });
-  return { facts: uniqueFacts(facts), modules: countModules(facts), gaps: input.clustered.gaps.length };
+  // The ranks in code point order of their keys, whatever order the reads answered in: two runs of
+  // one graph write the same draft.
+  return { facts: uniqueFacts(facts), ranks: [...ranks].sort((left, right) => byCodePoint(left.key, right.key)), modules: countModules(facts), gaps: input.clustered.gaps.length };
+}
+
+/** The key one rank node carries: the repository and the node it is about. */
+function rankKeyOf(repository: string, subject: string): string {
+  return `rank:${canonicalJsonDigest({ repository, subject })}`;
 }
 
 /** How many `module` facts the unit wrote. */

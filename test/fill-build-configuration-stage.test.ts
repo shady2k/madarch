@@ -97,6 +97,8 @@ async function contextFor(
         byKey: async () => [],
         byGlobalName: async () => [],
         neighbourhood: async () => ({ rows: [], next: null }),
+        byProperty: async () => ({ rows: [], next: null }),
+        edgesByProperty: async () => ({ rows: [], next: null }),
       }),
       draft: { write: (entry: StageDraftWrite) => { recorder.writes.push(entry); }, writes: () => ({ writes: recorder.writes }) },
       progress: (note: string) => { recorder.notes.push(note); },

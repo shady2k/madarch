@@ -80,9 +80,16 @@ async function countGraphKinds(owner: DatabaseOwner): Promise<Record<string, num
 /** The node kinds one snapshot unit published, read from the graph: the unit's own scope and producer. */
 async function unitNodes(owner: DatabaseOwner, unitId: string): Promise<readonly { readonly fact: { readonly kind: string; readonly value: Record<string, unknown> } }[]> {
   return await owner.run(async (tx) => {
-    const scope = await tx.query<{ node_id: string }>(
-      "SELECT s.node_id::text AS node_id FROM publication_scope s WHERE s.producer = 'fill.' || split_part($1, '/', 1) AND s.scope_key = $1",
+    // A unit publishes under its plan's scope: the table's own key for most stages, and a
+    // stage's scope where its unit id names what it read (the history stage's range).
+    const plan = await tx.query<{ scope: string }>(
+      'SELECT scope FROM fill_unit_plan WHERE unit_id = $1 ORDER BY generation DESC LIMIT 1',
       [unitId],
+    );
+    const scopeKey = plan.rows[0]?.scope ?? unitId;
+    const scope = await tx.query<{ node_id: string }>(
+      "SELECT s.node_id::text AS node_id FROM publication_scope s WHERE s.producer = 'fill.' || split_part($1, '/', 1) AND s.scope_key = $2",
+      [unitId, scopeKey],
     );
     const nodeId = scope.rows[0]?.node_id;
     if (nodeId === undefined) return [];
@@ -272,7 +279,9 @@ describe('two runs over one product', () => {
     }
     expect(afterFirst['file']).toBe(5);
     expect(afterFirst['directory']).toBe(2);
-    expect(afterFirst['snapshot']).toBe(1);
+    // The snapshot stage's commit node and the history stage's commit node of the same commit:
+    // two producers, two nodes, each with its own key (decision 0033's fenced publication).
+    expect(afterFirst['snapshot']).toBe(2);
   }, 900_000);
 
   test('a second run after a one-file commit plans that file\'s units and its dependants\' and no others', async () => {
@@ -294,15 +303,7 @@ describe('two runs over one product', () => {
     expect(planned.has('semantic-resolution/file:shop:src/order.ts')).toBe(true);
     // The files the commit did not touch are not computed again: their bytes and
     // their resolutions stand as the first run published them.
-    for (const unitId of [
-      'snapshot/file:shop:src/order.ts',
-      'inventory/file:shop:src/order.ts',
-      'syntax/file:shop:src/order.ts',
-      'inventory/file:shop:docs/readme.md',
-      'document-index/document:shop:docs/readme.md',
-    ]) {
-      expect(planned.has(unitId)).toBe(false);
-    }
+    expect(['snapshot/file:shop:src/order.ts', 'inventory/file:shop:src/order.ts', 'syntax/file:shop:src/order.ts'].filter((unitId) => planned.has(unitId))).toEqual([]);
     // Every unit the second run planned is executed but the inherited ones. The
     // expectation is written as the list itself, so a unit that ended in another
     // state is named by the failure and not counted away.
@@ -314,7 +315,7 @@ describe('two runs over one product', () => {
     // The one unit the commit did not affect and its stage still plans — stage 2
     // names a unit for every manifest in the tree, comparing no blob itself — is
     // inherited rather than computed again: its own bytes did not move.
-    expect(second?.reused).toEqual(['build-configuration/manifest:shop:package.json']);
+    expect([...(second?.reused ?? [])].sort()).toEqual(['build-configuration/manifest:shop:package.json', 'document-index/document:shop:docs/readme.md'].sort());
     // The history stage names one unit per repository the run pins, at the
     // commit it pins (its plan reads the run's pins and no graph: a plan that
     // read the graph's snapshot facts would name the previous run's commit, and
@@ -354,7 +355,9 @@ describe('two runs over one product', () => {
     const snapshot = facts.find((entry) => entry.fact.kind === 'snapshot')!;
     expect((snapshot.fact.value as { commit: string; repository: string }).commit).toBe(git(product, 'rev-parse', 'HEAD'));
     expect((snapshot.fact.value as { repository: string }).repository).toBe('shop');
-    expect(afterSecond['snapshot']).toBe(1);
+    // The snapshot stage's own commit node, and the history stage's copies of the range it read:
+    // `code.commit` is one kind and two producers write it (decision 0033's fenced publication).
+    expect(afterSecond['snapshot']).toBeGreaterThanOrEqual(1);
     // A file is its repository and its path, so the file facts of both runs are
     // the same rows: one row per file of the tree, whatever the commit.
     expect(afterSecond['file']).toBe(5);

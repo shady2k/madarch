@@ -63,6 +63,8 @@ import { byCodePoint } from '../../model/order.js';
 import { ID_PATTERN } from '../../model/schema.js';
 import { GIT_LEAKS } from '../../product/git.js';
 import type { SnapshotSource } from '../snapshot.js';
+import { checkStaticGraphDraft, graphWritesOf } from './static-graph.js';
+import { STATIC_READ_ROW_LIMIT, type StaticGraphReader } from './static-context.js';
 import {
   FACT_KINDS,
   checkFact,
@@ -95,7 +97,7 @@ const execFile = promisify(execFileCallback);
 export const HISTORY_STAGE_ID = 'history';
 
 /** The stage module's own version (decision 0027): bumped when the behaviour it declares changes. */
-export const HISTORY_STAGE_VERSION = 1;
+export const HISTORY_STAGE_VERSION = 2;
 
 /** How many commits of the ancestry one unit reads where the product configures no depth. */
 export const DEFAULT_HISTORY_DEPTH = 1000;
@@ -122,14 +124,28 @@ const HISTORY_CONFIG_SCHEMA = Type.Object({ depth: Type.Integer({ minimum: 1 }) 
 
 // ---- the graph reads ------------------------------------------------------
 
+/** The read names an execute makes: the commits the graph already holds for a repository, and this stage's coverage of one scope. */
+export const COMMITS_HELD_READ = 'stage-7-held-commits';
+export const HISTORY_COVERAGE_READ = 'stage-7-held-coverage';
+
+/**
+ * The reader every fact of this stage cites: its own reading of Git at one
+ * commit. The coverage's identity carries the reader, so this stage's coverage
+ * of one scope is its own and no other stage's.
+ */
+export const HISTORY_SOURCE_SYSTEM_NAME = 'madarch-history';
+
+/** The reader this stage's facts cite, at the stage's own version. */
+const HISTORY_SOURCE: FactSource = { system: HISTORY_SOURCE_SYSTEM_NAME, version: '2' };
+
 /** The read an execute makes of the commit facts this repository's history already holds, with the value each holds. */
-export function commitsHeldQuery(repository: string): string {
-  return `SELECT commit, value FROM fact WHERE kind = 'commit' AND repository = '${repositoryName(repository)}'`;
+export function commitsHeldRead(repository: string): string {
+  return JSON.stringify({ read: COMMITS_HELD_READ, repository: repositoryName(repository) });
 }
 
 /** The read an execute makes of the coverage fact it wrote for one scope, so a coverage that still holds is not written again. */
-export function coverageHeldQuery(repository: string, scope: string): string {
-  return `SELECT value FROM fact WHERE kind = 'coverage' AND repository = '${repositoryName(repository)}' AND scope = '${scopeText(scope)}'`;
+export function historyCoverageRead(repository: string, scope: string): string {
+  return JSON.stringify({ read: HISTORY_COVERAGE_READ, repository: repositoryName(repository), scope: scopeText(scope) });
 }
 
 /** The repository a fact may name: the product's own name for it, which is also what a read may hold between quotes. */
@@ -557,7 +573,13 @@ function coverageGaps(gaps: readonly CoverageGap[], repository: string, scope: s
 const SCOPE_PATTERN = /^repository:([A-Za-z0-9][A-Za-z0-9._-]*)@([0-9a-f]{40})$/u;
 const SCOPE_FORM = 'a history scope is "repository:<name>@<commit>", naming the product\'s own name for the repository and the 40 lower-case hexadecimal digits of the commit the run pinned';
 
-/** The scope of the unit that reads one repository at one commit. */
+/**
+ * The scope of the unit that reads one repository's ancestry: the repository itself. The unit's
+ * own key is its range (`<repository>@<commit>`, `historyUnitId`), but the scope it publishes under
+ * is the repository's: two runs at two commits write the same producer and scope, so a later range
+ * replaces the earlier reading instead of colliding with it on the commits both ancestries hold
+ * (decision 0033's fenced publication, and decision 0030's commit range as what a unit reads).
+ */
 export function historyScope(repository: string, commit: string): string {
   return `repository:${repositoryName(repository)}@${pinnedCommit(commit, `the repository ${repository}`)}`;
 }
@@ -581,13 +603,13 @@ function pinnedCommit(commit: string, what: string): string {
   return commit;
 }
 
-/** The repository and the commit one unit's scope names, refused by name where it is not that form. */
-export function parseHistoryScope(scope: string): PinnedSnapshot {
-  const match = typeof scope === 'string' ? SCOPE_PATTERN.exec(scope) : null;
-  const repository = match?.[1];
-  const commit = match?.[2];
-  if (repository === undefined || commit === undefined) {
-    throw new Error(`history: the scope ${JSON.stringify(scope)} names no repository at a commit: ${SCOPE_FORM}`);
+/** The repository and the commit one unit's **id** names (`<repository>@<commit>`), refused by name where it is not that form. */
+export function parseHistoryScope(unitId: string): PinnedSnapshot {
+  const at = typeof unitId === 'string' ? unitId.lastIndexOf('@') : -1;
+  const repository = at < 0 ? '' : unitId.slice(0, at);
+  const commit = at < 0 ? '' : unitId.slice(at + 1);
+  if (repository === '' || !ID_PATTERN.test(repository) || !COMMIT_PATTERN.test(commit)) {
+    throw new Error(`history: the unit ${JSON.stringify(unitId)} names no repository at a commit: a history unit is "<repository>@<commit>", naming the product's own name for the repository and the 40 lower-case hexadecimal digits of the commit the run pinned`);
   }
   return { repository, commit };
 }
@@ -674,7 +696,7 @@ function coverageFact(repository: string, scope: string, ancestry: HistoryAncest
   return makeNodeFact({
     kind: 'coverage',
     value,
-    provenance: { source: ancestry.source, repository: { id: repository, commit: ancestry.commit } },
+    provenance: { source: HISTORY_SOURCE, repository: { id: repository, commit: ancestry.commit } },
     layer: 'extracted',
   });
 }
@@ -687,9 +709,26 @@ function coverageFact(repository: string, scope: string, ancestry: HistoryAncest
  * with the query that answered it; two rows for one commit are refused too,
  * since a fact's identity names one commit of one repository once.
  */
-async function readCommitsHeld(graph: StageGraphReader, repository: string): Promise<Map<string, unknown>> {
-  const query = commitsHeldQuery(repository);
-  const rows = await graph.query(query);
+async function readCommitsHeld(graph: StaticGraphReader, repository: string): Promise<Map<string, unknown>> {
+  const query = commitsHeldRead(repository);
+  const rows: unknown[] = [];
+  let after: string | undefined;
+  for (;;) {
+    const page = await graph.byProperty('code.commit', 'repository', repository, { limit: STATIC_READ_ROW_LIMIT, ...(after === undefined ? {} : { after }) });
+    // The graph holds the snapshot stage's `code.commit` node of the same commit as well: a
+    // commit the history stage read is one that cites this stage's reader, and that is the one
+    // this read compares against.
+    rows.push(...page.rows
+      .filter((node) => {
+        const provenance = node.properties['provenance'];
+        const source = provenance !== null && typeof provenance === 'object' ? (provenance as Record<string, unknown>)['source'] : undefined;
+        const system = source !== null && typeof source === 'object' ? (source as Record<string, unknown>)['system'] : undefined;
+        return system === HISTORY_SOURCE_SYSTEM_NAME;
+      })
+      .map((node) => ({ commit: String(node.properties['commit']), value: valueFieldsOf(node.properties) })));
+    if (page.next === null) break;
+    after = page.next;
+  }
   const held = new Map<string, unknown>();
   rows.forEach((row, index) => {
     if (typeof row !== 'object' || row === null || Array.isArray(row)) {
@@ -699,21 +738,32 @@ async function readCommitsHeld(graph: StageGraphReader, repository: string): Pro
     if (typeof commit !== 'string' || !COMMIT_PATTERN.test(commit)) {
       throw new Error(`history: row ${index} of "${query}" names the commit ${JSON.stringify(commit)}: a commit is 40 lower-case hexadecimal digits`);
     }
-    if (value === undefined) {
-      throw new Error(`history: row ${index} of "${query}" names ${commit} with no value: the read compares what the graph holds, so a row that holds nothing is refused`);
-    }
-    if (held.has(commit)) {
-      throw new Error(`history: "${query}" answered ${commit} twice: one fact names one commit of one repository once`);
-    }
-    held.set(commit, value);
+    // The graph holds one copy of a commit per range that read it (each range's unit publishes
+    // under its own scope): what this unit compares against is the commit, and the first copy's
+    // value is the one it already read.
+    if (!held.has(commit)) held.set(commit, value);
   });
   return held;
 }
 
 /** The coverage fact this unit already wrote for its scope, as the graph holds it, or `undefined` where it holds none. */
-async function readCoverageHeld(graph: StageGraphReader, repository: string, scope: string): Promise<unknown | undefined> {
-  const query = coverageHeldQuery(repository, scope);
-  const rows = await graph.query(query);
+async function readCoverageHeld(graph: StaticGraphReader, repository: string, scope: string): Promise<unknown | undefined> {
+  const query = historyCoverageRead(repository, scope);
+  const rows: unknown[] = [];
+  let after: string | undefined;
+  for (;;) {
+    const page = await graph.byProperty('code.coverage', 'repository', repository, { limit: STATIC_READ_ROW_LIMIT, ...(after === undefined ? {} : { after }) });
+    for (const node of page.rows) {
+      if (node.properties['scope'] !== scope) continue;
+      const provenance = node.properties['provenance'];
+      const source = provenance !== null && typeof provenance === 'object' ? (provenance as Record<string, unknown>)['source'] : undefined;
+      const system = source !== null && typeof source === 'object' ? (source as Record<string, unknown>)['system'] : undefined;
+      if (system !== HISTORY_SOURCE_SYSTEM_NAME) continue;
+      rows.push({ value: coverageValueOf(node.properties) });
+    }
+    if (page.next === null) break;
+    after = page.next;
+  }
   if (rows.length > 1) {
     throw new Error(`history: "${query}" answered ${rows.length} coverage facts: one stage's coverage of one scope is one fact`);
   }
@@ -727,6 +777,68 @@ async function readCoverageHeld(graph: StageGraphReader, repository: string, sco
     throw new Error(`history: row 0 of "${query}" holds no value: the read compares what the graph holds, so a coverage held with nothing in it is refused`);
   }
   return value;
+}
+
+/** The coverage value a node carries: its own fields and none of the graph's bookkeeping. */
+function coverageValueOf(properties: Record<string, unknown>): Record<string, unknown> {
+  const value: Record<string, unknown> = {};
+  for (const key of ['repository', 'scope', 'complete', 'read', 'unread']) if (properties[key] !== undefined) value[key] = properties[key];
+  return value;
+}
+
+/** The unit's bounded graph reads, refused by name where the run handed none. */
+function staticGraphOf(unit: StageUnit, context: StageContext): StaticGraphReader {
+  const held = context.static;
+  if (held === undefined) {
+    throw new Error(`the unit "${unit.id}" runs the history stage's static reading, and its context holds no bounded graph reads: a run hands a static stage its repository's path-scoped answers (src/fill/stages/history.ts, decision 0033)`);
+  }
+  return held;
+}
+
+/**
+ * The key one commit node carries: the repository, the range the unit read and the commit. Two
+ * runs at two commits write two ranges, and the ancestors both ancestries hold stand once under
+ * each: a node's version belongs to the producer and scope that published it (decision 0033's
+ * fenced publication), and a range's unit replaces its own copy.
+ */
+function commitNodeKeyOf(repository: string, range: string, commit: string): string {
+  return `commit:${canonicalJsonDigest({ repository, range, commit })}`;
+}
+
+/** The value a fact holds, as the graph's node carries it: the fact's own fields and none of its bookkeeping. */
+function valueFieldsOf(value: object): Record<string, unknown> {
+  const held = { ...(value as Record<string, unknown>) };
+  for (const key of ['recordKey', 'factKind', 'layer', 'status', 'provenance']) delete held[key];
+  return held;
+}
+
+/**
+ * The key one task key's node carries: the repository, the commit whose message named it and the
+ * key. A node's version belongs to the producer and scope that published it (decision 0033's
+ * fenced publication), and each commit's unit is its own scope: two commits that name one key are
+ * two nodes, joined to their own commits.
+ */
+function taskNodeKeyOf(repository: string, commit: string, key: string): string {
+  return `task:${canonicalJsonDigest({ repository, commit, key })}`;
+}
+
+/**
+ * The graph items one task key of a commit makes: a `code.task` node for the key
+ * (the extractors' own kind, `src/extract/history/commits.ts`) and one
+ * `code.tasks` edge from the commit's node to it.
+ */
+function taskNodeDrafts(repository: string, commit: string, commitKey: string, key: string, evidence: string, nodeWritten: boolean): readonly StageDraftWrite[] {
+  const to = taskNodeKeyOf(repository, commit, key);
+  const writes: StageDraftWrite[] = [];
+  if (!nodeWritten) {
+    writes.push({ kind: 'node', evidence, value: { key: to, kind: 'code.task', label: key, properties: { factKind: 'task-key', repository, key } } });
+  }
+  writes.push({
+    kind: 'edge',
+    evidence,
+    value: { relation: 'code.tasks', from: { key: commitKey }, to: { key: to }, properties: { factKind: 'task-key', repository, key, line: 1 } },
+  });
+  return writes;
 }
 
 /** The depth one unit reads to, from the stage's resolved configuration, refused by its own field where it is no depth. */
@@ -755,38 +867,48 @@ export function historyDepth(config: unknown): number {
  * its set the graph already agreed with; every fact of the set is written.
  */
 async function executeUnit(reader: HistoryReader, unit: StageUnit, context: StageContext): Promise<StageExecutionResult> {
-  const { repository, commit } = parseHistoryScope(unit.scope);
+  const { repository, commit } = parseHistoryScope(unit.id);
   const depth = historyDepth(context.config.config);
   const what = `history: unit ${unit.id}`;
   if (context.signal.aborted) throw new Error(`${what} was cancelled before it read ${repository} at ${commit}`);
-  const held = await readCommitsHeld(context.graph, repository);
-  const heldCoverage = await readCoverageHeld(context.graph, repository, unit.scope);
+  const graph = staticGraphOf(unit, context);
+  const held = await readCommitsHeld(graph, repository);
+  const heldCoverage = await readCoverageHeld(graph, repository, unit.scope);
   const ancestry = await reader.read({ repository, commit, depth, signal: context.signal });
   context.progress(`read the ancestry of ${repository} at ${commit}: ${ancestry.commits.length} ${ancestry.commits.length === 1 ? 'commit' : 'commits'}`, 0.5);
 
   const writes: StageDraftWrite[] = [];
+  // The task keys whose node this draft already writes: one node per key, one edge per commit.
+  const writtenTaskNodes = new Set<string>();
   let commitsWritten = 0;
   let keysWritten = 0;
   let commitsAgreed = 0;
   for (const one of ancestry.commits) {
-    const fact = commitFact(repository, one, ancestry.source);
+    const fact = commitFact(repository, one, HISTORY_SOURCE);
     // What the graph already holds is reported and not skipped: the unit's own
     // publication replaces its own facts, so the whole set is written every time
     // (see this function's own doc).
     const known = held.get(one.commit);
-    if (known !== undefined && canonicalJsonDigest(known) === canonicalJsonDigest(fact.value)) commitsAgreed += 1;
+    if (known !== undefined && canonicalJsonDigest(known) === canonicalJsonDigest(valueFieldsOf(fact.value))) commitsAgreed += 1;
     const evidence = `${repository}@${one.commit}`;
-    writes.push({ kind: 'fact', evidence, value: fact });
+    const commitKey = commitNodeKeyOf(repository, ancestry.commit, one.commit);
+    for (const write of graphWritesOf(fact, evidence)) {
+      writes.push(write.kind === 'node' ? { ...write, value: { ...write.value, key: commitKey } } : write);
+    }
     commitsWritten += 1;
     for (const key of taskKeys(one.message)) {
-      writes.push({ kind: 'fact', evidence, value: taskKeyFact(repository, one.commit, fact.id, key, ancestry.source) });
+      // One `code.task` node per key in the unit's draft, whatever commits name it: a node's
+      // key stands once in one publication, and each commit's own `code.tasks` edge names it.
+      const node = taskNodeDrafts(repository, one.commit, commitKey, key, evidence, writtenTaskNodes.has(key));
+      if (!writtenTaskNodes.has(key)) writtenTaskNodes.add(key);
+      writes.push(...node);
       keysWritten += 1;
     }
   }
 
   const coverage = coverageFact(repository, unit.scope, ancestry);
-  const coverageAgreed = heldCoverage !== undefined && canonicalJsonDigest(heldCoverage) === canonicalJsonDigest(coverage.value);
-  writes.push({ kind: 'fact', evidence: `${repository}@${ancestry.commit}`, value: coverage });
+  const coverageAgreed = heldCoverage !== undefined && canonicalJsonDigest(heldCoverage) === canonicalJsonDigest(valueFieldsOf(coverage.value));
+  for (const write of graphWritesOf(coverage, `${repository}@${ancestry.commit}`)) writes.push(write);
 
   for (const write of writes) context.draft.write(write);
   context.progress(`wrote ${commitsWritten} ${commitsWritten === 1 ? 'commit' : 'commits'} (${commitsAgreed} the graph already held) and ${keysWritten} task ${keysWritten === 1 ? 'key' : 'keys'} of ${repository} at ${commit}, with the coverage ${coverageAgreed ? 'the graph already held' : 'this read wrote'}`, 1);
@@ -810,31 +932,22 @@ function refusalOf(write: StageDraftWrite, index: number, problem: { readonly pa
  * is a draft whole: a rerun that changed nothing writes nothing.
  */
 export function validateDraft(draft: StageDraftSet): StageValidation {
-  const errors: string[] = [];
-  const commitIds = new Set<string>();
-  const edges: { readonly index: number; readonly value: unknown }[] = [];
-  draft.writes.forEach((write, index) => {
-    if (write.kind !== 'fact') {
-      errors.push(`write[${index}] is a ${write.kind} write: the history stage writes facts and nothing else`);
-      return;
-    }
-    for (const problem of checkFact(write.value)) errors.push(refusalOf(write, index, problem));
-    const fact = write.value;
-    if (typeof fact !== 'object' || fact === null || Array.isArray(fact)) return;
-    const { kind, id } = fact as { kind?: unknown; id?: unknown };
-    if (typeof kind !== 'string' || !(HISTORY_FACT_KINDS as readonly string[]).includes(kind)) {
-      errors.push(`write[${index}] is a ${JSON.stringify(kind)} fact: the history stage writes ${HISTORY_FACT_KINDS.join(', ')}`);
-      return;
-    }
-    if (kind === 'commit' && typeof id === 'string') commitIds.add(id);
-    if (kind === 'task-key') edges.push({ index, value: (fact as { value?: unknown }).value });
+  const checked = checkStaticGraphDraft(HISTORY_STAGE_ID, HISTORY_FACT_KINDS, draft);
+  const errors: string[] = checked.ok ? [] : [...checked.errors];
+  // The graph's validator reads each item's key, kind, ends and position; this is the
+  // stage's own rule over the same draft: a task key's edge starts at a commit node this
+  // draft writes.
+  const commitKeys = new Set<string>();
+  draft.writes.forEach((write: StageDraftWrite) => {
+    if (write.kind === 'node' && write.value.kind === 'code.commit') commitKeys.add(write.value.key);
   });
-  for (const { index, value } of edges) {
-    const from = typeof value === 'object' && value !== null && !Array.isArray(value) ? (value as { from?: unknown }).from : undefined;
-    if (typeof from !== 'string' || !commitIds.has(from)) {
-      errors.push(`write[${index}] is a task-key edge of ${JSON.stringify(from)}: an edge names a node that exists, and this draft writes no commit fact of that id`);
+  draft.writes.forEach((write: StageDraftWrite, index: number) => {
+    if (write.kind !== 'edge' || write.value.relation !== 'code.tasks') return;
+    const from = 'key' in write.value.from ? write.value.from.key : undefined;
+    if (from === undefined || !commitKeys.has(from)) {
+      errors.push(`write[${index}] is a task-key edge of ${JSON.stringify(from)}: an edge names a node that exists, and this draft writes no commit node of that key`);
     }
-  }
+  });
   return errors.length === 0 ? { ok: true } : { ok: false, errors };
 }
 
@@ -852,6 +965,8 @@ export function createHistoryStage(reader: HistoryReader, sources: SnapshotSourc
   return {
     id: HISTORY_STAGE_ID,
     version: HISTORY_STAGE_VERSION,
+    // Its unit reads Git (decision 0030's commit range) and the graph, never a tree (decision 0033, item 5).
+    staticReading: true,
     consumes: {
       required: [
         { capability: HISTORY_INPUT_CAPABILITY, scope: 'product', freshness: 'current' },
