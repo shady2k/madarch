@@ -13,7 +13,7 @@ import { mkdtempSync, mkdirSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { dirname, join } from 'node:path';
 import { afterAll, describe, expect, test } from 'bun:test';
-import { parseKinds } from '../src/knowledge/kinds.js';
+import { GROUP_SHORT_LABEL_LIMIT, parseKinds } from '../src/knowledge/kinds.js';
 import { STARTER_FILES } from '../src/knowledge/seed.js';
 
 const made: string[] = [];
@@ -49,9 +49,9 @@ const SMALL = [
   '    c4.uses: "https://c4model.com/abstractions"',
   '    refines:',
   'groups:',
-  '  area: { en: Area, ru: Область, open: true }',
-  '  area.one: { en: One, ru: Один, parent: area }',
-  '  area.two: { en: Two, ru: Два, parent: area }',
+  '  area: { en: Area, ru: Область, short: { en: Area, ru: Область }, open: true }',
+  '  area.one: { en: One, ru: Один, short: { en: One, ru: Один }, parent: area }',
+  '  area.two: { en: Two, ru: Два, short: { en: Two, ru: Два }, parent: area }',
   'kinds:',
   '  widget:',
   '    id: "x.widget"',
@@ -182,7 +182,7 @@ describe('a catalog is read as its manifest declares it', () => {
     const starter = product();
     const seeded = parseKinds(STARTER_FILES.find((file) => file.path === 'madarch/kinds.yaml')!.content, 'madarch/kinds.yaml', starter);
     expect(seeded.findings).toEqual([]);
-    expect(read.catalog!.kinds.size).toBe(489);
+    expect(read.catalog!.kinds.size).toBe(490);
     expect(read.findings.filter((finding) => !finding.message.startsWith('"documents.expect"'))).toEqual([]);
     const areas = [...read.groups.values()].filter((group) => group.parent === undefined);
     const subgroups = [...read.groups.values()].filter((group) => group.parent !== undefined);
@@ -244,6 +244,37 @@ describe('every field of a catalog row is required, and a wrong one is refused n
   });
 });
 
+describe('the navigation names every group by a short label', () => {
+  test('the starter set gives every area and subgroup a short label that fits the sidebar, in both languages', () => {
+    const read = parseKinds(STARTER_FILES.find((file) => file.path === 'madarch/kinds.yaml')!.content, 'madarch/kinds.yaml', TEMPLATES);
+    expect(read.findings).toEqual([]);
+    for (const group of read.groups.values()) {
+      expect([group.name, group.short?.en !== undefined && group.short?.ru !== undefined]).toEqual([group.name, true]);
+      for (const language of ['en', 'ru']) expect([group.name, language, Array.from(group.short![language]!).length <= GROUP_SHORT_LABEL_LIMIT]).toEqual([group.name, language, true]);
+    }
+  });
+
+  test('a short label the sidebar cannot hold is refused, naming the group, the language and the bound', () => {
+    const long = line(SMALL, '  area:', '  area: { en: Area, ru: Область, short: { en: "A name far too long to fit", ru: Область }, open: true }');
+    expect(read1(long)).toContainEqual(expect.stringContaining('group "area": the short label in "en" is 26 code points, and the navigation holds 18 without cutting it'));
+  });
+
+  test('a catalogued manifest gives every group a short label', () => {
+    const bare = line(SMALL, '  area:', '  area: { en: Area, ru: Область, open: true }');
+    expect(read1(bare)).toContainEqual(expect.stringContaining('group "area": no "short" label, and the navigation names every group by one or two words'));
+  });
+});
+
+  test('a short label is a mapping of both languages, one or two words each, and its guards say why', () => {
+    expect(read1(line(SMALL, '  area:', '  area: { en: Area, ru: Область, short: 7, open: true }'))).toContainEqual(expect.stringContaining('group "area": "short" is { en: <its short label>, ru: <its short label> }'));
+    expect(read1(line(SMALL, '  area:', '  area: { en: Area, ru: Область, short: { en: Area }, open: true }'))).toContainEqual(expect.stringContaining('group "area": "short" names a label in each language (en, ru), and it names en'));
+    expect(read1(line(SMALL, '  area:', '  area: { en: Area, ru: Область, short: { en: Area, ru: Область, de: Bereich }, open: true }'))).toContainEqual(expect.stringContaining('group "area": "short" holds a label per language (en, ru), got "de"'));
+    expect(read1(line(SMALL, '  area:', '  area: { en: Area, ru: Область, short: { en: "", ru: Область }, open: true }'))).toContainEqual(expect.stringContaining('group "area": the short label in "en" is one or two words'));
+    expect(read1(line(SMALL, '  area:', '  area: { en: Area, ru: Область, short: { en: Area, ru: Область }, open: yes }'))).toContainEqual(expect.stringContaining('group "area": "open" is true or absent'));
+    expect(read1(line(SMALL, '  area:', '  area: { en: Area, ru: Область, short: { en: Area, ru: Область }, parent: 7 }'))).toContainEqual(expect.stringContaining('group "area": "parent" is the name of a group of "groups"'));
+    expect(read1(line(SMALL, '  area:', '  area: { en: 7, ru: Область, short: { en: Area, ru: Область } }'))).toContainEqual(expect.stringContaining('group "area": the name in "en" is a text'));
+  });
+
 describe('the catalog as a whole is refused where its rows do not agree', () => {
   test('a subgroup above the bound its manifest declares is refused, naming the kinds it holds', () => {
     expectRefused(withKind(SMALL, 'third', { group: 'area.one' }), 'subgroup "area.one": 3 kinds (gadget, third, widget), above the bound of 2 a subgroup holds ("catalog: subgroup-kind-bound")');
@@ -258,7 +289,7 @@ describe('the catalog as a whole is refused where its rows do not agree', () => 
   });
 
   test('a subgroup no area holds is refused, naming the kind and the area it belongs to', () => {
-    const moved = line(SMALL, '  area.two:', '  area.two: { en: Two, ru: Два }');
+    const moved = line(SMALL, '  area.two:', '  area.two: { en: Two, ru: Два, short: { en: Two, ru: Два } }');
     const read = parseKinds(moved, 'madarch/kinds.yaml', TEMPLATES);
     expect(read.findings.map((finding) => finding.message)).toContain('kind "sprocket": "group" names "area.two", which no area holds: a catalog kind belongs to a subgroup, and a subgroup\'s "parent" names its area');
     // A group the catalog does not fill is the product's own business: no second finding is invented for it.
@@ -377,7 +408,7 @@ describe('the reader\'s own rules: an address, a list, an identifier and an extr
       expect([what, (read.catalog?.findings ?? read.findings).map((finding) => finding.line)]).toEqual([what, [at(manifest, text)]]);
     }
     // A kind whose subgroup no area holds is refused at the kind's own `group` line.
-    const moved = line(SMALL, '  area.two:', '  area.two: { en: Two, ru: Два }');
+    const moved = line(SMALL, '  area.two:', '  area.two: { en: Two, ru: Два, short: { en: Two, ru: Два } }');
     const read = parseKinds(moved, 'madarch/kinds.yaml', TEMPLATES);
     const finding = read.findings.find((one) => one.message.startsWith('kind "sprocket"'))!;
     expect(finding.line).toBe(at(moved, '    group: area.two'));

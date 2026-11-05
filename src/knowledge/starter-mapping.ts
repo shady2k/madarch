@@ -92,7 +92,7 @@ export const MAPPING_RELATION_ROWS: readonly CatalogMappingRow[] = [
   { key: 'code.backed-by', internal: 'a README instruction backed by the script it names' },
   { key: 'code.belongs-to', relation: 'partOf', direction: 'same' },
   { key: 'code.builds', relation: 'usesTool', direction: 'same' },
-  { key: 'code.built-by', relation: 'generatedFrom', direction: 'inverse' },
+  { key: 'code.built-by', relation: 'generates', direction: 'inverse' },
   { key: 'code.calls', relation: 'uses', direction: 'same' },
   { key: 'code.calls-remote', relation: 'consumesApi', direction: 'same' },
   { key: 'code.carries', relation: 'hasPart', direction: 'same' },

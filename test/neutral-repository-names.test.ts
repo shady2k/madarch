@@ -397,10 +397,11 @@ function provenanceRanges(root: string, file: string, text: string, errors: stri
 }
 
 /**
- * The standards and documents the entity catalog cites, as the exact addresses its own rows hold: the sources of a
- * kind and of a relation name. A citation is provenance — the standard or the document a kind was taken from — not a
- * repository the product depends on, and it is licensed only in the catalog's own module, so the same address written
- * anywhere else is still scanned as a repository source.
+ * The standards and documents the entity catalog cites, as the exact values its own rows hold: the `sources` of a
+ * kind and the source of a relation name. A citation is provenance — the standard or the document a kind was taken
+ * from — not a repository the product depends on. Only a whole string literal that is exactly one of these values is
+ * licensed, and only in the catalog's own module: the same address inside a message or anywhere else is still
+ * scanned as a repository source.
  */
 const CATALOG_SOURCES: ReadonlySet<string> = new Set([
   ...CATALOG_KINDS.flatMap((kind) => kind.sources),
@@ -408,14 +409,15 @@ const CATALOG_SOURCES: ReadonlySet<string> = new Set([
 ]);
 const CATALOG_SOURCES_MODULE = '/src/knowledge/starter-catalog.ts';
 
-/** Whether a match is a whole address the catalog cites, written in the catalog's own module. */
+/** Whether a match is a whole string literal the catalog holds as a source, written in the catalog's own module. */
 function citedByCatalog(file: string, text: string, index: number): boolean {
   if (!file.endsWith(CATALOG_SOURCES_MODULE)) return false;
-  for (const source of CATALOG_SOURCES) {
-    const scheme = source.startsWith('https://') ? 8 : source.startsWith('http://') ? 7 : undefined;
-    if (scheme !== undefined && index >= scheme && text.startsWith(source, index - scheme)) return true;
-  }
-  return false;
+  const start = Math.max(text.lastIndexOf('"', index), text.lastIndexOf("'", index));
+  const ends = [text.indexOf('"', index + 1), text.indexOf("'", index + 1)].filter((at) => at >= 0);
+  if (start < 0 || ends.length === 0) return false;
+  const end = Math.min(...ends);
+  if (end <= start + 1) return false;
+  return CATALOG_SOURCES.has(text.slice(start + 1, end));
 }
 
 async function findings(root = ROOT): Promise<string[]> {
@@ -671,6 +673,34 @@ describe('neutral repository names', () => {
         rmSync(file);
       }
     } finally { rmSync(fixtureRoot, {recursive: true, force: true}); }
+  });
+
+  test('the catalog exemption covers the value a sources field holds, never the same address quoted in a message', async () => {
+    const fixtureRoot = mkdtempSync(join(tmpdir(), 'madarch-neutral-catalog-sources-'));
+    try {
+      for (const path of SCAN_ROOTS) mkdirSync(join(fixtureRoot, path), { recursive: true });
+      for (const path of ROOT_DOCUMENTS) {
+        const document = join(fixtureRoot, path);
+        mkdirSync(dirname(document), { recursive: true });
+        writeFileSync(document, '');
+      }
+      const module = join(fixtureRoot, 'src/knowledge/starter-catalog.ts');
+      mkdirSync(dirname(module), { recursive: true });
+      // A source whose address has two path segments: the one shape the scan reads as a repository source.
+      const source = [...CATALOG_SOURCES].find((entry) => { const path = entry.replace(/^https?:\/\//, '').split('/'); return path.length >= 3; })!;
+      writeFileSync(module, [
+        `export const cited = '${source}';`,
+        `export const mentioned = 'see ${source} for the standard';`,
+        '',
+      ].join('\n'));
+      const errors = (await findings(fixtureRoot)).filter((error) => error.includes('repository source is not an example'));
+      // The scanner reports the address it reads (the host and two segments); the whole source is its prefix.
+      expect(errors).toHaveLength(1);
+      const bare = source.replace(/^https?:\/\//, '');
+      expect(bare.startsWith(errors[0]!.split(': ').at(-1)!)).toBe(true);
+    } finally {
+      rmSync(fixtureRoot, { recursive: true, force: true });
+    }
   });
 
   test('package documentation uses the whole exact URL and the current ecosystem only', async () => {

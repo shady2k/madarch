@@ -743,19 +743,24 @@ implementation status, the relation constraints it may carry and its template
 policy. The manifest declares the catalog's schema — the bound of a subgroup,
 the origin marks, the statuses, the template policies, the values that are
 attributes and the relation names — and the engine holds no area, kind or id
-of its own.
+of its own. Every area and subgroup also declares a short label for the
+navigation in both interface languages, one or two words that fit the sidebar's
+column, beside its full name, which a page and the catalogue keep.
 
 One concept has one kind: a concept two areas share stands in one subgroup and
 the other refers to it, and distinct senses stay distinct. A value such as a
-version, a coverage, an RTO or a token count is an attribute of a kind, not a
-kind. Relation names are the standards' own where they exist.
+version, a coverage, an RTO, a sunset date or an error budget is an attribute of
+a kind, not a kind. Relation names are the standards' own where they exist,
+and a relation reads in the standard's direction; the mapping that ties the
+extractors' vocabulary to the catalog says which way each extractor's edge runs.
 
 A mechanical check, run by `bun run check` over the starter set and by the
 wiki's own read of a product's manifest, shall refuse a kind that leaves a
 field out, a subgroup above its bound, two kinds for one concept id, a value
-the catalog marks as an attribute declared as a kind, and an area, a subgroup
-or an origin mark the manifest does not declare. Every refusal shall name the
-file, the line and the kind.
+the catalog marks as an attribute declared as a kind, an area, a subgroup or an
+origin mark the manifest does not declare, and a group without a short label or
+one longer than the sidebar holds. Every refusal shall name the file, the line
+and the kind (or the group).
 
 A kind whose template policy is `none` is catalogue data only: the wiki shows
 no page and no template for it, and the kinds the wiki shows today are shown
@@ -764,12 +769,12 @@ as they were.
 ### Scenario: starter-set-catalog
 - Given: a product made by `madarch new`
 - When: its `madarch/kinds.yaml` is read
-- Then: every area and subgroup of the catalog is declared, and every kind holds its id, definition, sources, acquisition, status, relation constraints and template policy
+- Then: every area and subgroup of the catalog is declared with its full name and its short navigation label, and every kind holds its id, definition, sources, acquisition, status, relation constraints and template policy
 
 ### Scenario: catalog-refusals
-- Given: a starter manifest with a kind that leaves its status out, a subgroup holding thirteen kinds, two kinds of one concept id, a kind whose id is an attribute, and a kind whose group, area or origin mark the manifest does not declare
+- Given: a starter manifest with a kind that leaves its status out, a subgroup holding thirteen kinds, two kinds of one concept id, a kind whose id is an attribute, a kind whose group, area or origin mark the manifest does not declare, and a group whose short label is missing or too long
 - When: the catalog is checked
-- Then: each is refused with the file, the line and the kind, and the check exits 1
+- Then: each is refused with the file, the line and the kind (or the group), and the check exits 1
 
 ### Scenario: catalogue-only-kind
 - Given: a kind the catalog declares with the template policy `none`

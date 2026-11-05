@@ -54,8 +54,6 @@ function main(): void {
     const read = readKinds(folder);
     if (!read.present) fail(`${join(folder, 'madarch', 'kinds.yaml')}: the product holds no kinds manifest, and the starter set writes one`);
     const manifest = read.manifest;
-    const catalog = manifest.catalog;
-    if (catalog === undefined) fail(`${manifest.file}: the manifest declares no "catalog", and the starter set holds the whole entity catalog`);
     let failed = false;
     // Every finding of the manifest is the catalog check's, except the ones that say what a product's documents
     // lack: a product made a minute ago holds no documents, and those findings are the wiki's answer to its reader.
@@ -64,6 +62,14 @@ function main(): void {
       if (finding.message.startsWith(documentExpectation)) continue;
       console.error(`${finding.file}:${finding.line}: ${finding.message}`);
       failed = true;
+    }
+    // A manifest with no catalog is a finding of its own, at the manifest's first line: its other findings are already
+    // printed above, so a reader sees what the manifest says as well as what it lacks.
+    const catalog = manifest.catalog;
+    if (catalog === undefined) {
+      console.error(`${manifest.file}:1: the manifest declares no "catalog", and the starter set holds the whole entity catalog`);
+      if (manifest.findings.length === 0) console.error(`${manifest.file}:1: and it holds no finding of its own to read`);
+      process.exit(1);
     }
     // A page kind the catalog holds and the wiki does not show is a kind whose own page fields were refused: the
     // manifest's finding names the field, and the catalog's check says the page is missing rather than passing quietly.

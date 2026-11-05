@@ -127,6 +127,8 @@ const KINDS_WITH_OWN_PAGE: ReadonlySet<string> = new Set(['doc.term', 'task']);
 export interface NavSubgroup {
   group: string;
   labels: Record<string, string>;
+  /** The navigation's short label per language; the full name when it is absent. */
+  short?: Record<string, string>;
   total: number;
   kinds: KindSummary[];
 }
@@ -139,6 +141,8 @@ export interface NavSubgroup {
 export interface NavGroup {
   group: string | null;
   labels: Record<string, string> | null;
+  /** The navigation's one-or-two-word label per language; the full name when it is absent. */
+  short?: Record<string, string>;
   /** The manifest's `open: true`: the menu opens this group by itself, before a reader touches it. */
   open: boolean;
   total: number;
@@ -151,7 +155,7 @@ export function navGroups(status: WikiStatus, pending: (kind: string) => number)
   // A group counts every entity of its kinds, the home page included, so the navigation and the catalogue say the same number.
   const counted = status.kinds.filter((kind) => !LOOP_KINDS.has(kind.kind));
   const shown = status.kinds.filter((kind) => !LOOP_KINDS.has(kind.kind) && !KINDS_WITH_OWN_PAGE.has(kind.kind) && !kind.single && (kind.count > 0 || pending(kind.kind) > 0));
-  const declared = status.groups.map((group) => ({ group: group.group as string | null, labels: group.labels as Record<string, string> | null, parent: group.parent, open: group.open === true }));
+  const declared = status.groups.map((group) => ({ group: group.group as string | null, labels: group.labels as Record<string, string> | null, short: group.short as Record<string, string> | undefined, parent: group.parent, open: group.open === true }));
   const known = new Set(status.groups.map((group) => group.group));
   const top = declared.filter((group) => group.parent === undefined || !known.has(group.parent));
   const children = declared.filter((group) => group.parent !== undefined && known.has(group.parent));
@@ -159,18 +163,18 @@ export function navGroups(status: WikiStatus, pending: (kind: string) => number)
   const countedOf = (group: string | null): number => counted.filter((kind) => belongs(kind, group)).reduce((sum, kind) => sum + kind.count, 0);
   const shownOf = (group: string | null): KindSummary[] => shown.filter((kind) => belongs(kind, group));
   const loose = shownOf(null);
-  const all = loose.length > 0 ? [...top, { group: null, labels: null, parent: undefined, open: false }] : top;
+  const all = loose.length > 0 ? [...top, { group: null, labels: null, short: undefined, parent: undefined, open: false }] : top;
   return all
     .map((entry): NavGroup => {
       const childrenOf = entry.group === null ? [] : children.filter((child) => child.parent === entry.group);
       // A sub-area counts every entity of its kinds, as the parent does; a kind with a page of its own is not drawn as a
       // row, but its entities are not lost from the parent's total (the review). Only rows the menu can draw stand open.
-      const allSubgroups = childrenOf.map((child): NavSubgroup => ({ group: child.group!, labels: child.labels!, total: countedOf(child.group), kinds: shownOf(child.group) }));
+      const allSubgroups = childrenOf.map((child): NavSubgroup => ({ group: child.group!, labels: child.labels!, ...(child.short === undefined ? {} : { short: child.short }), total: countedOf(child.group), kinds: shownOf(child.group) }));
       const subgroups = allSubgroups.filter((child) => child.kinds.length > 0);
       const childKindNames = new Set(allSubgroups.flatMap((child) => child.kinds.map((kind) => kind.kind)));
       const direct = shownOf(entry.group).filter((kind) => !childKindNames.has(kind.kind));
       const kinds = entry.group === null ? shownOf(null) : [...direct, ...subgroups.flatMap((child) => child.kinds)];
-      return { group: entry.group, labels: entry.labels, open: entry.open, total: countedOf(entry.group) + allSubgroups.reduce((sum, child) => sum + child.total, 0), kinds, subgroups };
+      return { group: entry.group, labels: entry.labels, ...(entry.short === undefined ? {} : { short: entry.short }), open: entry.open, total: countedOf(entry.group) + allSubgroups.reduce((sum, child) => sum + child.total, 0), kinds, subgroups };
     })
     .filter((entry) => entry.kinds.length > 0);
 }
@@ -269,7 +273,7 @@ function NavPanel({ status, products, route, onNavigate }: { status: WikiStatus;
                 data-testid="nav-group"
               >
                 <ChevronRightIcon aria-hidden="true" className={'size-4 shrink-0 text-muted transition-transform motion-reduce:transition-none ' + (open ? 'rotate-90' : '')} />
-                <span className="min-w-0 flex-1 truncate">{entry.labels === null ? t('knowledge.groupOther') : entry.labels[language] ?? entry.labels['en'] ?? entry.group}</span>
+                <span className="min-w-0 flex-1 truncate">{entry.labels === null ? t('knowledge.groupOther') : entry.short?.[language] ?? entry.labels[language] ?? entry.labels['en'] ?? entry.group}</span>
                 <span className="text-small font-normal text-muted" data-testid="nav-group-count">{entry.total}</span>
               </button>
               {open && (
@@ -278,7 +282,7 @@ function NavPanel({ status, products, route, onNavigate }: { status: WikiStatus;
                   {entry.subgroups.map((subgroup) => (
                     <div key={subgroup.group} data-nav-subgroup={subgroup.group} data-testid="nav-subgroup" className="mb-0.5">
                       <div className="flex items-center gap-2 py-[5px] pl-[30px] pr-[10px] text-[11px] uppercase tracking-[0.06em] text-muted">
-                        <span className="min-w-0 flex-1 truncate">{subgroup.labels[language] ?? subgroup.labels['en'] ?? subgroup.group}</span>
+                        <span className="min-w-0 flex-1 truncate">{subgroup.short?.[language] ?? subgroup.labels[language] ?? subgroup.labels['en'] ?? subgroup.group}</span>
                         <span className="font-normal" data-testid="nav-subgroup-count">{subgroup.total}</span>
                       </div>
                       {subgroup.kinds.map((kind) => kindLink(kind, '!pl-[42px]'))}

@@ -119,7 +119,7 @@ Kind: command
 Place: `madarch new`'s starter set, `bun run check` in a checkout, and a product's Problems page
 
 1. Make a product with `madarch new` and open `madarch/kinds.yaml`: the `catalog:` mapping declares the schema, the `groups:` mapping holds the 26 areas and their 100 subgroups, and every kind of `kinds:` holds its `id`, `group`, `definition`, `sources`, `acquisition`, `status`, `relation-constraints` and `template-policy`.
-2. Run `bun run check`: the catalog check prints `catalog: 26 areas, 100 subgroups, 489 kinds (67 with a page of their own or a member's row)` and the manifest it read, and exits 0.
+2. Run `bun run check`: the catalog check prints `catalog: 26 areas, 100 subgroups, 490 kinds (67 with a page of their own or a member's row)` and the manifest it read, and exits 0.
 3. Delete a `status:` line of one kind and run `bun run check` again: it prints the manifest's full path, the kind's line, and `kind "code.service": "status" is one of implemented, partial, not-implemented, got undefined`, and exits 1; open the product's wiki and the Problems page lists the same refusal with its file and line.
 
 ## Blocking questions
@@ -149,11 +149,30 @@ None.
   accepts a group the starter set declares, so a product made before this change
   is still recognised as madarch's and brought to the current set.
 
+
+
+What the review of the first round changed:
+
+- **The catalog data.** A data catalog is now four kinds of its own (a catalog, a distribution, a data service and
+  a catalog record) beside the OpenLineage dataset, and a catalog entry no longer claims the dataset's concept id;
+  the desired deployment state is a kind of its own beside the act of deploying and the observed state, whose
+  source is the controller's reconciliation rather than the environment-identity page; an actor is a person, and an
+  external system is the external system kind; the SLA is one kind, and a supplier's service agreement names it
+  rather than repeating it; a sunset date and an error budget are attributes of the API retirement policy and the
+  error-budget policy, declared in `catalog.attributes`; and the relation name `generatedFrom` (SPDX 2.3) is
+  SPDX 3's `generates`, with the direction the mapping declares.
+- **The navigation's labels.** Every area and subgroup declares a short label in both languages beside its full
+  name, and the check refuses a group without one or one longer than `GROUP_SHORT_LABEL_LIMIT` (18 code points, the
+  240 px sidebar at 12 px uppercase beside the chevron and the count). The wiki app's navigation draws the short
+  label and the catalogue keeps the full one; no template changed.
+- **The check's report.** A manifest whose `catalog:` schema cannot be read now prints its own findings with the
+  manifest's file and line before the check stops, instead of a refusal at the script's path and line 1.
+
 ## Acceptance evidence
 Measured in the worker VM (4 vCPU, 8 GB, arm64), 2026-11-04:
 
 - `bun run check` exit 0: `tsc --noEmit` clean (TypeScript 7.0.2), the architecture check at its 1 246 listed
-  violations, and `catalog: 26 areas, 100 subgroups, 489 kinds (67 with a page of their own or a member's row)`.
+  violations, and `catalog: 26 areas, 100 subgroups, 490 kinds (67 with a page of their own or a member's row)`.
 - `MADARCH_SKIP_PERF=1 bun test test/catalog-read.test.ts test/catalog-check.test.ts`: 54 pass, 0 fail.
 - `MADARCH_SKIP_PERF=1 bun test test/knowledge-parse.test.ts test/knowledge-doc-entities.test.ts
   test/knowledge-subgroups.test.ts test/knowledge-settings.test.ts test/starter-set-upgrade.test.ts`:
@@ -185,3 +204,17 @@ read of a product's manifest — refuses a kind missing a field, a subgroup abov
 its bound, two kinds for one concept id, an attribute declared as a kind, and an
 unknown area, subgroup or origin mark, naming the file, the line and the kind.
 The starter set passes it, and the wiki shows the kinds it showed before.
+
+The review round of 2026-11-05 added:
+
+- `bun run check` exit 0 with the catalog at `26 areas, 100 subgroups, 490 kinds (67 with a page of their own or a
+  member's row)`; the mapping's line unchanged at 56 kinds and 64 relations.
+- `MADARCH_SKIP_PERF=1 bun test test/catalog-read.test.ts test/catalog-check.test.ts test/mapping-check.test.ts
+  test/roles-check.test.ts test/neutral-repository-names.test.ts test/knowledge-parse.test.ts
+  test/knowledge-doc-entities.test.ts test/knowledge-subgroups.test.ts test/knowledge-settings.test.ts
+  test/starter-set-upgrade.test.ts test/wiki-readers.test.ts`: 201 pass, 0 fail.
+- `wiki/app`: `bun run check` exit 0; `bun test` 311 pass, 1 fail in `src/knowledge/knowledge.test.tsx` (the shiki
+  flake, green alone); `bun run build` exits 0.
+- StrykerJS 9 on the groups' short-label block of `src/knowledge/kinds.ts` (lines 555-578) against
+  `bun test test/catalog-read.test.ts`: 102 mutants, 72 killed, 30 survived — 70.59%; the survivors are the words
+  of the refusal messages and the redundant `||` guards of the declaration's type checks.

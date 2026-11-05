@@ -94,8 +94,22 @@ export interface GroupDecl {
    * it (`open: true`). A group without the field is closed until opened.
    */
   open?: boolean;
+  /**
+   * The navigation's short label per interface language (`short: { en, ru }`): one or two words that fit the
+   * sidebar's column, where `labels` holds the group's full name for a page and the catalogue. A catalogued
+   * manifest names one for every group.
+   */
+  short?: Readonly<Record<string, string>>;
   line: number;
 }
+
+/**
+ * The most code points a group's short label holds: the sidebar is a 240 px column (260 px wide), its group
+ * labels are set at 12 px uppercase with 0.08em tracking beside the chevron and the count, and a label longer
+ * than this is cut off ("Requirements and …"). The wiki app's navigation draws the short label; the catalogue
+ * keeps the full one.
+ */
+export const GROUP_SHORT_LABEL_LIMIT = 18;
 
 export interface KindDecl {
   name: string;
@@ -534,21 +548,38 @@ export function parseKinds(text: string, file: string, productFolder: string): K
           continue;
         }
         const labels: Record<string, string> = {};
+        const short: Record<string, string> = {};
         let parent: string | undefined;
         let open: boolean | undefined;
         let bad = false;
+        const rawShort = body['short'];
+        if (rawShort !== undefined) {
+          if (rawShort === null || typeof rawShort !== 'object' || Array.isArray(rawShort)) { findings.push({ file, line: at(['groups', name, 'short']), message: `group "${name}": "short" is { en: <its short label>, ru: <its short label> }` }); bad = true; }
+          else {
+            for (const [language, label] of Object.entries(rawShort as Record<string, unknown>)) {
+              if (!LABEL_LANGUAGES.includes(language)) { findings.push({ file, line: at(['groups', name, 'short', language]), message: `group "${name}": "short" holds a label per language (${LABEL_LANGUAGES.join(', ')}), got "${language}"` }); bad = true; continue; }
+              if (typeof label !== 'string' || label.trim() === '') { findings.push({ file, line: at(['groups', name, 'short', language]), message: `group "${name}": the short label in "${language}" is one or two words` }); bad = true; continue; }
+              if (Array.from(label).length > GROUP_SHORT_LABEL_LIMIT) { findings.push({ file, line: at(['groups', name, 'short', language]), message: `group "${name}": the short label in "${language}" is ${Array.from(label).length} code points, and the navigation holds ${GROUP_SHORT_LABEL_LIMIT} without cutting it: give it one or two words` }); bad = true; continue; }
+              short[language] = label;
+            }
+            if (Object.keys(short).length !== LABEL_LANGUAGES.length) {
+              findings.push({ file, line: at(['groups', name, 'short']), message: `group "${name}": "short" names a label in each language (${LABEL_LANGUAGES.join(', ')}), and it names ${Object.keys(short).join(', ') || 'none'}` });
+              bad = true;
+            }
+          }
+        }
         for (const [language, label] of Object.entries(body)) {
           if (language === 'open') {
             if (typeof label !== 'boolean') findings.push({ file, line: at(['groups', name, 'open']), message: `group "${name}": "open" is true or absent` });
             else open = label;
-          } else if (language === 'parent') {
+          } else if (language === 'short') { continue; } else if (language === 'parent') {
             if (typeof label !== 'string' || label.trim() === '') { findings.push({ file, line: at(['groups', name, 'parent']), message: `group "${name}": "parent" is the name of a group of "groups"` }); bad = true; }
             else parent = label;
           } else if (!LABEL_LANGUAGES.includes(language)) { findings.push({ file, line: at(['groups', name, language]), message: `group "${name}": "${language}" is not a language of the wiki: the languages are ${LABEL_LANGUAGES.join(', ')}` }); bad = true; }
           else if (typeof label !== 'string' || label.trim() === '') { findings.push({ file, line: at(['groups', name, language]), message: `group "${name}": the name in "${language}" is a text` }); bad = true; }
           else labels[language] = label;
         }
-        if (!bad) groups.set(name, { name, labels, line, ...(parent === undefined ? {} : { parent }), ...(open === undefined ? {} : { open }) });
+        if (!bad) groups.set(name, { name, labels, line, ...(Object.keys(short).length === LABEL_LANGUAGES.length ? { short } : {}), ...(parent === undefined ? {} : { parent }), ...(open === undefined ? {} : { open }) });
       }
       // A sub-area names a group that stands beside it. Two levels would hide the
       // catalogue's shape, so a group whose parent is itself a sub-area is a finding.
@@ -630,6 +661,14 @@ export function parseKinds(text: string, file: string, productFolder: string): K
           findings.push({ file, line: at(['groups', area.name]), message: `area "${area.name}": no role leads it, and every area is led by a role or by one of its subgroups (the roles are ${[...roles.keys()].join(', ')})` });
         }
       }
+    }
+  }
+  // The navigation names every group by a short label (decision 0033's two levels, shown in a 240 px column):
+  // with a catalog declared, a group without one would be cut off at the sidebar's width.
+  if (catalogSchema !== undefined) {
+    for (const group of groups.values()) {
+      if (group.short !== undefined) continue;
+      findings.push({ file, line: at(['groups', group.name]), message: `group "${group.name}": no "short" label, and the navigation names every group by one or two words ("short: { en, ru }")` });
     }
   }
   const excludeDocuments: string[] = [];
