@@ -28,6 +28,9 @@ export const STATIC_FILE_BYTE_LIMIT = 1_048_576;
 /** The most rows one bounded graph read answers. */
 export const STATIC_READ_ROW_LIMIT = 256;
 
+/** The most files one folder-scoped listing answers: a group a static unit reads together, never a repository. */
+const STATIC_FOLDER_FILE_LIMIT = 4096;
+
 /** One entry of a pinned tree, as a static stage sees it: no mode, no machine path. */
 interface StaticTreeEntry {
   readonly path: string;
@@ -75,6 +78,15 @@ export interface StaticStageSource {
   file(path: string): Promise<StaticFile | undefined>;
   /** Whether the pinned tree holds a file under the folder: a path-scoped answer. */
   holdsDirectory(path: string): Promise<boolean>;
+  /**
+   * The files under one folder, at any depth, as the pinned tree holds them: a
+   * path-scoped answer, capped at `STATIC_FOLDER_FILE_LIMIT` entries. A stage
+   * that reads a group of files together — the migrations of one database, the
+   * Go files of one package — asks which files the group holds without a
+   * tree listing; the answer is paths and blobs, never bytes, and each file is
+   * read through `file` below the cap (decision 0033, item 5; madarch-8bdc.2.4).
+   */
+  filesUnder(path: string): Promise<readonly StaticTreeEntry[]>;
 }
 
 /** One node a bounded graph read answered: its identity, kind, label and properties, never a whole table. */
@@ -200,6 +212,14 @@ export async function staticStageSourceOf(sources: SnapshotSource, repository: s
     async holdsDirectory(path: string): Promise<boolean> {
       const prefix = `${path}/`;
       return reader.files().some((entry) => String(entry.path).startsWith(prefix));
+    },
+    async filesUnder(path: string): Promise<readonly StaticTreeEntry[]> {
+      const prefix = path === '' ? '' : `${path}/`;
+      const held = reader.files().filter((entry) => String(entry.path).startsWith(prefix));
+      if (held.length > STATIC_FOLDER_FILE_LIMIT) {
+        throw new Error(`the static stage asked for the files under ${JSON.stringify(path)}, and the pinned tree holds ${String(held.length)} of them where a folder-scoped listing answers at most ${String(STATIC_FOLDER_FILE_LIMIT)}: a group a unit reads together is not the repository (decision 0033, item 5; src/fill/stages/static-context.ts)`);
+      }
+      return held.map((entry) => treeEntryOf(entry)).sort((left, right) => (left.path < right.path ? -1 : left.path > right.path ? 1 : 0));
     },
   };
 }

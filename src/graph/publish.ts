@@ -248,6 +248,12 @@ export interface UnitEdgeDraft {
   readonly relation: string;
   readonly from: UnitEnd;
   readonly to: UnitEnd;
+  /**
+   * What tells two edges of one relation and one pair of ends apart, where the relation declares a
+   * discriminator (decision 0028): one function reaches one table through two helpers, and a foreign
+   * key's constraint names the key it holds (madarch-8bdc.2.4).
+   */
+  readonly discriminator?: string;
   readonly properties?: Readonly<Record<string, unknown>>;
   readonly position?: ByteSpan;
 }
@@ -356,6 +362,7 @@ export async function publishUnit(ctx: WriteContext, input: PublishUnitInput): P
       relation: edge.relation,
       src: endpoint(edge.from, `edges(from ${JSON.stringify(edge.from)})`),
       dst: endpoint(edge.to, `edges(to ${JSON.stringify(edge.to)})`),
+      ...(edge.discriminator === undefined ? {} : { discriminator: edge.discriminator }),
       ...(edge.position === undefined ? {} : { position: { start: edge.position.start, end: edge.position.end } }),
       ...(edge.properties === undefined ? {} : { properties: { ...edge.properties } }),
       validFrom,

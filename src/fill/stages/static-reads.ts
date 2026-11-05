@@ -20,6 +20,9 @@ import { PUBLISHED_COVERAGE_READ, type PublishedCoverageRow } from './syntax.js'
 import { PUBLISHED_RESOLVED_READ, type PublishedResolvedRow } from './semantic-resolution.js';
 import { CODE_FACTS_PUBLISHED_READ } from './code-facts.js';
 import { PUBLISHED_MACHINES_READ } from './state-machines.js';
+import {
+  DATA_MODEL_AGGREGATE_PUBLISHED_READ, DATA_MODEL_DATABASE_INPUTS_READ, DATA_MODEL_PUBLISHED_READ,
+} from './data-model.js';
 import { PUBLISHED_GAPS_READ } from './syntax-specifiers.js';
 import { PUBLISHED_IMPORTS_READ, type PublishedGapRow, type PublishedImportRow } from './syntax-specifiers.js';
 import type { PublishedCodeFactsRow } from './code-facts.js';
@@ -280,6 +283,56 @@ export function createStaticStageReadReader(store: GraphStore, executor?: QueryE
           }
           return rows.sort((left, right) => (left.file < right.file ? -1 : left.file > right.file ? 1 : 0));
         }
+        case DATA_MODEL_PUBLISHED_READ: {
+          // One repository's data-model coverage: the files the per-file stage read, each with the blob
+          // its bytes stood under and the databases it contributed records to.
+          const nodes = await all((page) => store.byProperty('code.coverage', 'repository', repository, { ...page, limit: page.limit ?? PLAN_PAGE }, transaction));
+          const rows: { kind: 'coverage'; file: string; blob: string; databases?: readonly { readonly folder: string; readonly name: string }[] }[] = [];
+          for (const node of nodes) {
+            const held = propertiesOf(node);
+            if (held['factKind'] !== 'coverage' || sourceSystemOf(held) !== 'madarch-data-model') continue;
+            const file = held['scope'];
+            const blob = held['blob'];
+            if (typeof file !== 'string' || typeof blob !== 'string') {
+              throw new Error(`the graph answered the coverage node ${node.nodeId} of ${JSON.stringify(repository)} with no scope or blob: the data-model stage's coverage names the file it read and the blob its bytes stood under (src/fill/stages/static-reads.ts)`);
+            }
+            const databases = Array.isArray(held['databases']) ? (held['databases'] as readonly { readonly folder: string; readonly name: string }[]) : undefined;
+            rows.push({ kind: 'coverage', file, blob, ...(databases === undefined ? {} : { databases }) });
+          }
+          return rows.sort((left, right) => (left.file < right.file ? -1 : left.file > right.file ? 1 : 0));
+        }
+        case DATA_MODEL_AGGREGATE_PUBLISHED_READ: {
+          // One repository's database coverage: the databases the aggregate stage assembled, each with
+          // the digest of the inputs it stood on.
+          const nodes = await all((page) => store.byProperty('code.coverage', 'repository', repository, { ...page, limit: page.limit ?? PLAN_PAGE }, transaction));
+          const rows: { kind: 'coverage'; database: string; digest: string }[] = [];
+          for (const node of nodes) {
+            const held = propertiesOf(node);
+            if (held['factKind'] !== 'coverage' || sourceSystemOf(held) !== 'madarch-data-model-aggregate') continue;
+            const database = held['scope'];
+            const digest = held['digest'];
+            if (typeof database !== 'string' || typeof digest !== 'string') {
+              throw new Error(`the graph answered the coverage node ${node.nodeId} of ${JSON.stringify(repository)} with no scope or digest: the aggregate stage's coverage names the database it assembled and the digest of its inputs (src/fill/stages/static-reads.ts)`);
+            }
+            rows.push({ kind: 'coverage', database, digest });
+          }
+          return rows.sort((left, right) => (left.database < right.database ? -1 : left.database > right.database ? 1 : 0));
+        }
+        case DATA_MODEL_DATABASE_INPUTS_READ: {
+          // One database's inputs, one page after another, in the shape the static context's own read
+          // answers: the aggregate stage's plan computes the same digest its unit does.
+          const wanted = (document as { readonly database?: unknown }).database;
+          if (typeof wanted !== 'string') {
+            throw new Error(`the read ${JSON.stringify(document.read)} names no database: a database's inputs are the records the per-file stage published about it (src/fill/stages/static-reads.ts)`);
+          }
+          const rows: ReturnType<typeof staticNodeOf>[] = [];
+          for (const kind of ['code.column', 'code.migration', 'code.schema-reading', 'code.storage-evidence', 'code.table']) {
+            for (const node of await all((page) => store.byProperty(kind, 'database', wanted, { ...page, limit: page.limit ?? PLAN_PAGE }, transaction))) {
+              rows.push(staticNodeOf(node));
+            }
+          }
+          return rows.sort((left, right) => (`${left.kind} ${String(left.properties['recordKey'] ?? left.id)}` < `${right.kind} ${String(right.properties['recordKey'] ?? right.id)}` ? -1 : `${left.kind} ${String(left.properties['recordKey'] ?? left.id)}` > `${right.kind} ${String(right.properties['recordKey'] ?? right.id)}` ? 1 : 0));
+        }
         case PUBLISHED_MACHINES_READ: {
           // One repository's state machine coverage: the files the state-machines stage read,
           // each with the blob its bytes stood under. The reader is named, so a coverage of
@@ -371,7 +424,7 @@ export function createStaticStageReadReader(store: GraphStore, executor?: QueryE
           return node === undefined ? [] : [{ kind: 'coverage', value: coverageValueOf(propertiesOf(node)) }];
         }
         default:
-          throw new Error(`the static stage asked the read ${JSON.stringify(document.read)} for ${JSON.stringify(repository)}, and this reader answers ${PUBLISHED_TREE_READ}, ${PUBLISHED_REPOSITORY_READ}, ${PUBLISHED_UNFILED_READ}, ${PUBLISHED_CONTAINMENT_READ}, ${PUBLISHED_COVERAGE_READ}, ${PUBLISHED_RESOLVED_READ}, ${PUBLISHED_GAPS_READ}, ${PUBLISHED_IMPORTS_READ}, ${PUBLISHED_MACHINES_READ}, ${CODE_FACTS_PUBLISHED_READ}, ${PUBLISHED_MANIFESTS_READ}, ${PUBLISHED_DOCUMENTS_READ}, ${COMMITS_HELD_READ}, ${HISTORY_COVERAGE_READ}: a static stage has one reading of the graph (src/fill/stages/static-reads.ts)`);
+          throw new Error(`the static stage asked the read ${JSON.stringify(document.read)} for ${JSON.stringify(repository)}, and this reader answers ${PUBLISHED_TREE_READ}, ${PUBLISHED_REPOSITORY_READ}, ${PUBLISHED_UNFILED_READ}, ${PUBLISHED_CONTAINMENT_READ}, ${PUBLISHED_COVERAGE_READ}, ${PUBLISHED_RESOLVED_READ}, ${PUBLISHED_GAPS_READ}, ${PUBLISHED_IMPORTS_READ}, ${PUBLISHED_MACHINES_READ}, ${CODE_FACTS_PUBLISHED_READ}, ${DATA_MODEL_PUBLISHED_READ}, ${DATA_MODEL_AGGREGATE_PUBLISHED_READ}, ${DATA_MODEL_DATABASE_INPUTS_READ}, ${PUBLISHED_MANIFESTS_READ}, ${PUBLISHED_DOCUMENTS_READ}, ${COMMITS_HELD_READ}, ${HISTORY_COVERAGE_READ}: a static stage has one reading of the graph (src/fill/stages/static-reads.ts)`);
       }
     },
   };

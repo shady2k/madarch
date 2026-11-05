@@ -15,6 +15,7 @@ import type { AgentStageWiring } from './agent-stage.js';
 import { createBoundariesStage } from './boundaries.js';
 import { createBuildConfigurationStage } from './build-configuration.js';
 import { createCodeFactsStage } from './code-facts.js';
+import { createDataModelAggregateStage, createDataModelStage } from './data-model.js';
 import { createDocIntentStage } from './doc-intent.js';
 import { createDocumentIndexStage } from './document-index.js';
 import { createGitHistoryReader, createHistoryStage, type CheckoutFolderOf } from './history.js';
@@ -92,6 +93,8 @@ export function createStageRegistry(wiring: FillStageWiring): StageRegistry {
     .register(createSyntaxStage(wiring.snapshots))
     .register(createSemanticResolutionStage(wiring.snapshots))
     .register(createCodeFactsStage(wiring.snapshots))
+    .register(createDataModelStage(wiring.snapshots))
+    .register(createDataModelAggregateStage(wiring.snapshots))
     .register(createStateMachinesStage(wiring.snapshots))
     .register(createModulesStage(wiring.snapshots))
     .register(createDocumentIndexStage(wiring.snapshots))

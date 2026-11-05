@@ -176,6 +176,106 @@ membership with `serviceUnits(tree)` and, for every source file, the ports with
 and their ports (orders 8080, payments 8081, promotions 8082, checkout 8083 and
 the test file's 0) included.
 
+## The data model of the code, as two static stages
+`src/fill/stages/data-model.ts` ports the extract driver's data-model reading
+onto the code facts (madarch-8bdc.2.4; decision 0033, items 5, 14 and 15). Two
+stages publish it:
+
+- **`data-model`**, one unit per file, publishes the records whose span stands in
+  that file: a migration's node and the tables, indexes and columns its
+  statements declare; a Prisma schema's tables, columns, indexes, foreign keys
+  and schema readings; a code file's table accesses (its SQL literals' sites and
+  the Go package's call roll-up), the tables its own `CREATE TABLE` literals
+  declare where the database's migrations do not, and the storage evidence the
+  file gives (a storage driver's import, a manifest dependency, an environment
+  file's connection setting, a compose service's, a code file's environment
+  read). Each record is owned by the file its span stands in.
+- **`data-model-aggregate`**, one unit per database (the name the driver gives
+  it: the unit that declares it), publishes the records one file cannot own: the
+  database node with the evidence that declares it and the file its place stands
+  in, what it contains and holds, the logical references its `_id` columns make
+  into another database, and the service that uses it. It stands on the per-file
+  stage's published records through the bounded reads it declares, and on
+  nothing wider.
+
+**What a unit reads of its group.** A migration unit rebuilds its database's
+merge from the files of its own group — the migrations and the schema, read one
+at a time through the static context's `filesUnder` listing and `file` bytes —
+with the driver's own pure readers (`parseSqlScript`, `applyStatements`,
+`parsePrismaSchema`, `applyPrismaModel`). The records it writes are the ones the
+merge gives a span in its own file; `scanScriptWrites`, `extractFileAccess`,
+`indexGoPackage` and `resolveGoCalls` are the driver's own readers for seeds,
+accesses and the Go roll-up.
+
+**A second stage is a dependency, not an order.** The logical reference joins a
+table of one database to a table of another, so no single file can own it
+without reading another unit's publication: it is assembled by the aggregate
+stage from the published tables and columns of the repository, by
+`byProperty('code.table', 'name', …)` and `byProperty('code.column', 'table', …)`.
+The registry derives that order from `consumes`/`produces` (the aggregate
+requires `migration` and `storage-evidence`, which the per-file stage produces),
+and `starter-workflows.ts` names both stages of the first fill.
+
+**The service a database is used by is not this reading's node.** The driver's
+data-model reading opened a stub `code.service` node where the operations
+reading owns one; `src/extract/driver/extractors.ts` records that as
+madarch-m38l.16. The aggregate therefore publishes no service node: it reads the
+unit's own per-file record — the code-facts stage's `code.service-unit` node, by
+the unit's name — and names it as the edge's source. The comparison maps the
+driver's `code.service:<name>` to that node's key through one named function
+(`fillServiceOf`), and the two keys are the driver's defect.
+
+**A closure's owner is the enclosing method here.** The driver's code extractor
+publishes a symbol for a Go closure named `X.callback@<line>:<byte>` and cites
+it as the owner of the SQL inside it; the fill's syntax stage publishes the
+enclosing method as the innermost callable of the same bytes. The two node
+records and the two `code.writes-table` edges they would own are the differences
+that remain (below); the table each access names is the same.
+
+**Comparison on the generated training repository.**
+`test/fill-data-model-training.test.ts` generates the repository
+(`examples/training-repository/generate.mjs`), runs the whole fill, and compares
+the driver's `extractDataModel` records with the fill's, one record per kind,
+key, discriminator and property set, sorted by code point. It names every
+difference by family and key and holds the families it expects to differ in
+`EXPECTED_REMAINING`, a list that may only shrink.
+
+**A defect this exposed and fixed.** The code-facts stage's `importDeclarationsOf`
+recorded a Go `import_spec` as a *named* import of one symbol; a Go import binds
+the package's whole namespace (`os.Getenv`), and the library models match a Go
+package's exported function by the namespace form. With the wrong form no
+Go library effect was proved at all: the promotions database's `evidence` list
+lost the `connection-setting` that `services/promotions/cmd/promotions/main.go:19`
+(`url := os.Getenv("DATABASE_URL")`, bytes 337-362) gives, and its
+`code.uses-database` origins lost the same reading. `src/fill/stages/code-facts.ts`
+records the namespace form now, and the two records match the driver's.
+
+**Remaining, with evidence.** One family pair differs, and it is the code
+reading's own symbol set, not a record of the data-model reading: a Go closure.
+The driver's code extractor publishes a symbol for a Go closure named
+`X.callback@<line>:<byte>` — a key synthesized from a line and a byte offset,
+not a declared name — and cites it as the owner of the SQL written inside it.
+The fill's syntax stage publishes only declared names, so the same access is
+attributed to the enclosing method:
+
+| Driver's record | The fill's record of the same bytes |
+| --- | --- |
+| `code.symbol:services/orders/internal/store/order_repository.go#OrderRepository.Save.callback@57:1448` (lines 57-67) | `code.symbol:services/orders/internal/store/order_repository.go#OrderRepository.Save` |
+| `code.symbol:services/orders/internal/store/order_repository.go#OrderRepository.Delete.callback@237:7918` (lines 237-249) | `code.symbol:services/orders/internal/store/order_repository.go#OrderRepository.Delete` |
+
+and the `code.writes-table` edge the closure owns
+(`… -> code.table:orders/public.orders`, sites at bytes 1490-1677 and 7958-8033)
+is published from the method in the fill. No table record differs: the sites,
+the table and the verb are the same. The families are
+`node:code.symbol` and `edge:code.writes-table` in the comparison's
+`EXPECTED_REMAINING`.
+
+What turns this into a zero-difference reading instead is a decision about the
+syntax stage's symbol set (whether it publishes function literals as symbols and
+under which names), which is that stage's change and not this port's: a data-model
+stage that published a `code.symbol` node of its own would be the second node for
+one declaration that madarch-m38l.16 closed.
+
 ## Acceptance evidence
 Recorded beside the branch's report (`/work/out/report-8bdc24.md`): the focused
 tests, `bun run check`, the StrykerJS run on the stage's lines, and the peak

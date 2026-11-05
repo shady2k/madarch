@@ -774,7 +774,10 @@ function importDeclarationsOf(node: SyntaxNodeLike): readonly { readonly local: 
   if (node.type === 'import_spec') {
     const name = node.childForFieldName('name');
     const local = name === null ? (specifier.slice(specifier.lastIndexOf('/') + 1)) : name.text;
-    return [{ local, nameNode: name ?? source, specifier, form: 'named' }];
+    // A Go import binds the package's whole namespace (`os.Getenv`), never one named export: the
+    // resolution reader records it so (`src/fill/stages/resolution-extract.ts`), and the library
+    // models match a Go package's exported function by the namespace form (madarch-8bdc.2.4).
+    return [{ local, nameNode: name ?? source, specifier, form: 'namespace' }];
   }
   const found: { local: string; nameNode: SyntaxNodeLike; specifier: string; form: 'default' | 'namespace' | 'named'; importedName?: string }[] = [];
   const visitClause = (clause: SyntaxNodeLike | null): void => {

@@ -42,6 +42,9 @@ const FILL_STAGES: readonly string[] = [
   // the file's node, before the resolution reads across files.
   'code-facts',
   'state-machines',
+  // The data model of the code (madarch-8bdc.2.4): the per-file records, and the databases assembled from them.
+  'data-model',
+  'data-model-aggregate',
   'semantic-resolution',
   'modules',
   'boundaries',

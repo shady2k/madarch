@@ -90,7 +90,7 @@ const EDGE_RELATION: Partial<Record<FactKind, string>> = {
  * catalog's mapping read the same list (decision 0033, item 7). Registering a
  * key the store already knows changes nothing.
  */
-export const CODE_GRAPH_VOCABULARY: { readonly kinds: readonly string[]; readonly relations: readonly { readonly key: string; readonly positioned?: boolean }[] } = {
+export const CODE_GRAPH_VOCABULARY: { readonly kinds: readonly string[]; readonly relations: readonly { readonly key: string; readonly positioned?: boolean; readonly discriminated?: boolean }[] } = {
   kinds: STAGE_NODE_KINDS,
   relations: STAGE_EDGE_TYPES,
 };
@@ -112,6 +112,14 @@ export interface StaticEdgeDraft {
   readonly from: StaticEnd;
   readonly to: StaticEnd;
   readonly properties?: Readonly<Record<string, unknown>>;
+  /**
+   * What tells two edges of one relation and one pair of ends apart (decision
+   * 0028's discriminator): the data-model stage publishes two `code.reads-table`
+   * edges from one function to one table when two different helpers reach it,
+   * and the relation declares a discriminator for exactly that. Absent for a
+   * relation the store registers without one.
+   */
+  readonly discriminator?: string;
   /** The byte span of a positioned occurrence; absent for a relation type the store does not position. */
   readonly position?: { readonly start: number; readonly end: number };
 }
@@ -290,7 +298,10 @@ export function checkStaticGraphDraft(stageId: string, kinds: readonly string[],
           errors.push(`${at}: the byte span [${String(start)}, ${String(end)}) is no span: 0 <= start < end (decision 0028)`);
         }
       }
-      const identity = JSON.stringify([edge.relation, from, to, edge.position ?? null]);
+      // A relation that declares a discriminator holds two edges of one pair of ends apart by it
+      // (the data-model stage's two helpers reaching one table): the draft names that edge once
+      // with its discriminator, as the store does.
+      const identity = JSON.stringify([edge.relation, from, to, edge.position ?? null, edge.discriminator ?? null]);
       if (edgeKeys.has(identity)) errors.push(`${at}: the edge ${identity} stands in an earlier write of this draft: one draft names one edge once`);
       edgeKeys.add(identity);
       if (!kinds.includes(String((edge.properties as Record<string, unknown> | undefined)?.['factKind']))) {
@@ -355,6 +366,7 @@ export function staticUnitPublicationOf(input: StaticUnitPublication): PublishUn
         from: write.value.from,
         to: write.value.to,
         ...(write.value.properties === undefined ? {} : { properties: { ...write.value.properties } }),
+        ...(write.value.discriminator === undefined ? {} : { discriminator: write.value.discriminator }),
         ...(write.value.position === undefined ? {} : { position: write.value.position }),
       });
       continue;

@@ -318,7 +318,10 @@ async function executeResolutionUnit(unit: StageUnit, context: StageContext): Pr
   const symbolPages = await neighbourhoodPages(source, file.id, DEFINES_RELATION);
 
   const held: FileSymbol[] = [];
-  for (const page of symbolPages) for (const node of page.rows) held.push(symbolOf(node, path, page.read));
+  // The file pass's `defines` edges name its symbols, and another stage's `code.contains` edges
+  // from the same file name what it declares (the data-model stage's tables and migrations): only
+  // a symbol node is a symbol of the file this unit resolves (madarch-8bdc.2.4).
+  for (const page of symbolPages) for (const node of page.rows) if (node.kind === SYMBOL_NODE_KIND) held.push(symbolOf(node, path, page.read));
   const rows = held.map((symbol) => symbol.row);
   const mentions: MentionRow[] = [];
   for (const page of mentionPages) mentions.push(...mentionRowsIn(page.rows, page.read));

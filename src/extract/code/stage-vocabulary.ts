@@ -15,6 +15,15 @@
 export const STAGE_NODE_KINDS: readonly string[] = [
   'code.binding',
   'code.call',
+  // The data model's own records (madarch-8bdc.2.4): a database, its migrations, tables, columns and
+  // indexes, and the per-file readings the aggregate stage assembles them from.
+  'code.column',
+  'code.database',
+  'code.index',
+  'code.migration',
+  'code.schema-reading',
+  'code.storage-evidence',
+  'code.table',
   'code.comment',
   'code.commit',
   'code.compose-service',
@@ -39,6 +48,9 @@ export const STAGE_NODE_KINDS: readonly string[] = [
   'code.package',
   'code.rank',
   'code.repository',
+  // The service node the operations reading owns: the data-model aggregate stage joins it, and opens
+  // it with this key where the graph holds none yet (madarch-8bdc.2.4).
+  'code.service',
   // The unit a file belongs to and the ports its code listens on (the code-facts stage;
   // madarch-8bdc.2.4), read by the operations and contracts stages as properties.
   'code.service-unit',
@@ -56,7 +68,7 @@ export const STAGE_NODE_KINDS: readonly string[] = [
  * Every relation type the fill's static stages write, with `positioned` where the
  * edge carries the byte span it was read at.
  */
-export const STAGE_EDGE_TYPES: readonly { readonly key: string; readonly positioned?: boolean }[] = [
+export const STAGE_EDGE_TYPES: readonly { readonly key: string; readonly positioned?: boolean; readonly discriminated?: boolean }[] = [
   { key: 'code.consumes' },
   { key: 'code.contains' },
   // What a file declares beside its symbols (the code-facts and state-machines stages).
@@ -72,6 +84,17 @@ export const STAGE_EDGE_TYPES: readonly { readonly key: string; readonly positio
   { key: 'code.tasks' },
   // What a state enters (the state-machines stage).
   { key: 'code.transitions' },
+  // The data model's own relations (madarch-8bdc.2.4). Each carries a discriminator: one function can
+  // reach one table through two helpers, and a foreign key's constraint tells two keys of one table apart.
+  { key: 'code.alters', discriminated: true },
+  { key: 'code.covers', discriminated: true },
+  { key: 'code.creates', discriminated: true },
+  { key: 'code.foreign-key', discriminated: true },
+  { key: 'code.holds', discriminated: true },
+  { key: 'code.logical-reference', discriminated: true },
+  { key: 'code.reads-table', discriminated: true },
+  { key: 'code.uses-database', discriminated: true },
+  { key: 'code.writes-table', discriminated: true },
   // What a manifest declares: one edge from the manifest's file to the dependency it names
   // (`src/extract/operations/dependencies.ts`).
   { key: 'code.uses-dependency' },
