@@ -349,7 +349,9 @@ async function executeManifestUnit(unit: StageUnit, context: StageContext): Prom
   for (const fact of dedupeFacts(drafted.facts)) writeFact(context, fact, evidence);
   // The dependency names the manifest declares: each a `code.dependency` node and one
   // `code.uses-dependency` edge from the manifest's file (madarch-8bdc.2.3).
-  for (const write of dependencyDrafts(place, planned.path, fileNodeId(place, planned.path, provenance), drafted.dependencies ?? [])) context.draft.write(write);
+  const fileKey = fileNodeId(place, planned.path, provenance);
+  for (const write of dependencyDrafts(place, planned.path, fileKey, drafted.dependencies ?? [])) context.draft.write(write);
+  for (const write of variableDrafts(place, planned.path, fileKey, drafted.variables ?? [])) context.draft.write(write);
   writeFact(context, coverageOf(place, planned.path, provenance, lines, drafted), evidence);
   const dependencies = drafted.dependencies ?? [];
   context.progress(
@@ -422,6 +424,8 @@ interface ManifestDrafting {
   readonly facts: readonly Fact[];
   /** The dependency names the manifest declares, each once, in code point order of the name. */
   readonly dependencies?: readonly DeclaredDependency[];
+  /** The environment names the manifest declares, each once, in code point order of the name. */
+  readonly variables?: readonly DeclaredVariable[];
   readonly read: readonly string[];
   readonly unread: readonly Unread[];
 }
@@ -526,9 +530,13 @@ function variableFacts(
   gap: (line: number, detail: string) => Unread,
   declared: readonly DeclaredVariable[],
 ): ManifestDrafting {
-  const facts: Fact[] = [];
+  // A variable is published as its own node and one `consumes` edge from the file that
+  // declares it — the extractors' `code.env-var` (`src/extract/operations/deploy.ts`).
+  // The node's key names the declaring file as well as the name: two manifests that
+  // declare one variable are two units' nodes, and no unit writes a node another unit's
+  // publication owns (decision 0033's per-file units; the store's fenced publication).
   const unread: Unread[] = [];
-  const file = fileNodeId(place, path, provenance);
+  const variables: DeclaredVariable[] = [];
   const seen = new Set<string>();
   for (const variable of [...declared].sort((left, right) => byCodePoint(left.name, right.name) || left.line - right.line)) {
     if (!ENVIRONMENT_VARIABLE_NAME.test(variable.name)) {
@@ -537,11 +545,43 @@ function variableFacts(
     }
     if (seen.has(variable.name)) continue;
     seen.add(variable.name);
-    const node = makeNodeFact({ kind: 'environment-variable', value: { name: variable.name }, provenance: at(variable.line), layer: 'extracted' });
-    facts.push(node);
-    facts.push(makeEdgeFact({ kind: 'consumes', value: { from: file, variable: node.id }, provenance: at(variable.line), layer: 'extracted' }));
+    variables.push(variable);
   }
-  return { facts, read: declared.length === 0 ? [] : ['environment'], unread };
+  return { facts: [], variables, read: declared.length === 0 ? [] : ['environment'], unread };
+}
+
+/** The key one declared variable's node carries: the repository, the declaring file and the name. */
+function variableKeyOf(repository: string, path: string, name: string): string {
+  return `env:${canonicalJsonDigest({ repository, file: path, name })}`;
+}
+
+/**
+ * The graph items a manifest's environment makes: one `code.env-var` node per valid
+ * name, and one `code.consumes` edge from the manifest's file to it, at the line that
+ * declares the name. The draft write is the edge's, so a name's line is the edge's own
+ * place and the node carries the name alone.
+ */
+function variableDrafts(place: ManifestPlace, path: string, fileKey: string, variables: readonly DeclaredVariable[]): readonly StageDraftWrite[] {
+  const writes: StageDraftWrite[] = [];
+  for (const variable of variables) {
+    const key = variableKeyOf(place.repository, path, variable.name);
+    writes.push({
+      kind: 'node',
+      evidence: `${place.repository}@${place.commit}:${path}`,
+      value: {
+        key,
+        kind: 'code.env-var',
+        label: variable.name,
+        properties: { factKind: 'environment-variable', repository: place.repository, file: path, name: variable.name },
+      },
+    });
+    writes.push({
+      kind: 'edge',
+      evidence: `${place.repository}@${place.commit}:${path}`,
+      value: { relation: 'code.consumes', from: { key: fileKey }, to: { key }, properties: { factKind: 'consumes', repository: place.repository, file: path, line: variable.line } },
+    });
+  }
+  return writes;
 }
 
 /** The name of an environment variable: what a shell and a container accept. */
@@ -938,9 +978,8 @@ function dockerfileDrafting(
   }
   const declared = variableFacts(place, path, at(1), at, gap, variables);
   if (variables.length > 0) readNames.add('environment');
-  facts.push(...declared.facts);
   facts.push(...dedupeFacts(entryPoints));
-  return { facts, read: [...readNames].sort(byCodePoint), unread: [...unread, ...declared.unread] };
+  return { facts, variables: declared.variables, read: [...readNames].sort(byCodePoint), unread: [...unread, ...declared.unread] };
 }
 
 /**
@@ -1005,8 +1044,7 @@ function composeDrafting(
   }
   if (read.services.length === 0) unread.push(gap(1, 'the file declares no services: a compose file serves at least one'));
   const declared = variableFacts(place, path, at(1), at, gap, variables);
-  facts.push(...declared.facts);
-  return { facts, read: [...readNames].sort(byCodePoint), unread: [...unread, ...declared.unread] };
+  return { facts, variables: declared.variables, read: [...readNames].sort(byCodePoint), unread: [...unread, ...declared.unread] };
 }
 
 // ---- the dependencies a manifest declares ---------------------------------
