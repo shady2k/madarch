@@ -1,4 +1,4 @@
-# The state machines of the code, as a static stage of the fill
+# The code facts of one file, and the state machines, as stages of the fill
 
 Change: madarch-8bdc.2.4
 Base: ad6c2f9d97304b9f67598c085f19faee99385eb4
@@ -7,15 +7,33 @@ Kind: behavior
 
 ## Intent
 Decision 0033 makes the file the unit of static work (items 5 and 14) and makes
-every next step read what the earlier ones published (item 15). The state
-machines a file writes down were the last reading of the code outside that
-shape that a reader of a page still made: `src/knowledge/views.ts` called
-`src/knowledge/state-machines.ts` on the bytes at render time, so a diagram of
-an entity's states was neither a published record nor something the graph could
-hold a verification state for. This change lands those records as a stage of
-the fill: one unit per source file, the file's own bytes, the machines, states
-and moves published through the graph store's one unit publication in the
-extractors' `code.*` vocabulary, with a coverage node per file.
+every next step read what the earlier ones published (item 15). Two readings of
+the code stood outside that shape. The state machines a file writes down were
+read at render time by `src/knowledge/views.ts`, so a diagram of an entity's
+states was neither a published record nor something the graph could hold a
+verification state for. And the operations, contracts and data-model readings of
+the extract driver were built from one in-memory object (`CodeFacts`) that a
+static stage may not hold (item 5), so nothing could read their values — a port,
+a topic, an environment name, a SQL string, a library call's effect — from the
+graph.
+
+This change lands both directions of that gap. A **code-facts** stage publishes
+what one file's code holds — its expressions with their literal values, the
+bindings a declaration makes with their initializers and global names, its call
+sites, its Go struct fields and the names it exports — one unit per source file,
+through the graph store's one unit publication. The static stage context gains a
+**bounded read by property** (`byProperty(kind, field, value, {limit, after})`,
+one page of at most `STATIC_READ_ROW_LIMIT` rows, recorded and replayed like the
+other reads) so a stage can link across files by a value it knows. And a
+**library-effects** reader proves one file's library effects from those facts,
+chaining an import by global name through the graph instead of through a tree's
+symbol table. The **state-machines** stage publishes the machines, states and
+moves of every file that writes a table.
+
+The values the three extract readings publish today are read from the same facts
+by the same order of work; porting those three readings onto these facts is what
+the task's last step still owes, and the change record's "Out of scope" says
+where it stands.
 
 Stories:
 - As a reader of a product's wiki, I open an order's state diagram and it is
@@ -28,12 +46,11 @@ Stories:
   publication through `GraphStore.publishUnit`.
 
 ## Out of scope
-- The operations, contracts and data-model readings of task madarch-8bdc.2.4
-  stay with the extract driver on this branch. Their stages read expressions,
-  bindings, call sites and library effects that no published fact holds — the
-  static graph holds symbols, mentions and resolved occurrences — so a per-file
-  stage for them needs a per-file code-fact source this task does not hold.
-  madarch-8bdc.2.5 deletes the driver with them.
+- The port of the operations, contracts and data-model readings onto the
+  code-facts and library-effects readers is not part of this change: their
+  stages are not written, and the extract driver still owns those readings.
+  What the work needs is settled and measured (the facts, the bounded read, the
+  effect reader), and madarch-8bdc.2.5 deletes the driver with them.
 - The wiki's diagram rendering is not moved onto the published records here:
   `src/knowledge/views.ts` still reads the source through its render context,
   which the page capability's own change owns.
@@ -42,10 +59,10 @@ Stories:
   path to delete (decision 0033, item 6).
 
 ## Changes to requirements
-`fill-stages` gains one requirement, "static": what a static stage is handed,
-how its units are named and published, what it publishes for a file it could not
-read, and how its plan names a unit again. The proposed capability file is
-`capabilities/fill-stages.md`.
+`fill-stages` gains one requirement, "static": what a static stage is handed
+(including the bounded read by property), how its units are named and published,
+what it publishes for a file it could not read, and how its plan names a unit
+again. The proposed capability file is `capabilities/fill-stages.md`.
 
 ## Preserved contracts
 - fill-stages/registry: a stage is still one module plus one registration, its id, version, consumes, produces, schema and defaults unchanged in shape; the state-machines stage is registered once, beside the others.
@@ -56,11 +73,11 @@ read, and how its plan names a unit again. The proposed capability file is
 - fill-orchestrator/completion: a run still finishes with what it covered; a file this stage could not read is a named gap of its unit, never a missing unit.
 
 ## Coverage
-- fill-stages/static: test, fill-state-machines
 - fill-stages/registry: test, fill-state-machines
 - fill-stages/graph: test, fill-state-machines
 - fill-orchestrator/publish: test, fill-state-machines
-- fill-orchestrator/plan: test, fill-state-machines
+- fill-orchestrator/plan: test, fill-state-machines, fill-static-property-read
+- fill-stages/static: test, fill-code-facts, fill-library-effects
 - fill-stages/starvation: test, fill-state-machines
 - fill-orchestrator/completion: test, fill-state-machines
 

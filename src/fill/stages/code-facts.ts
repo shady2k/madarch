@@ -564,7 +564,9 @@ export function collectFileFacts(repository: string, path: string, text: string,
     }
     for (const exported of exportNamesOf(node, bindingIdOfName)) {
       exports.push({
-        id: `${EXPORT_KIND}:${repository}:${path}#${exported.name}`,
+        // One name can be exported twice in one file (a merged type and value), so the id names
+        // the place the export stands at as well as the name: one draft names one node by one key.
+        id: `${EXPORT_KIND}:${repository}:${path}#${exported.name}@${String(spanOfNode(exported.nameNode).byteStart)}`,
         name: exported.name,
         span: spanOfNode(exported.nameNode),
         ...(exported.localBinding === undefined ? {} : { localBinding: exported.localBinding }),

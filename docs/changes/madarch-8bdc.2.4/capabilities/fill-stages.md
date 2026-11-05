@@ -200,9 +200,10 @@ planned — so a product's configuration written for a later madarch still opens
 
 A stage that declares its reading static shall receive, for one unit, one
 pinned repository and one file's bytes below a size cap, path-scoped lookups of
-the pinned tree and bounded reads of the graph — by key, by global name and one
-neighbourhood page — and no tree reader, no repository-wide object and no
-database. Its units shall be one file each, and every node and edge a unit writes shall be published through the graph
+the pinned tree and bounded reads of the graph — by key, by global name, by a
+property's value (one page of at most `STATIC_READ_ROW_LIMIT` rows, with the
+cursor of the page after it) and one neighbourhood page — and no tree reader, no
+repository-wide object and no database. Its units shall be one file each, and every node and edge a unit writes shall be published through the graph
 store's one unit publication, in the extractors' `code.*` vocabulary, so a
 later run of the same unit corrects or retracts what it wrote and no other
 unit's records move. A file above the size cap, and a file whose bytes are not
@@ -226,6 +227,11 @@ whose publication retracts it — so a second run of one commit plans no unit.
 - Given: a run that published a unit's coverage at the blob the pinned commit holds
 - When: the stage plans again on the same commit
 - Then: it plans no unit
+
+### Scenario: static-page-by-value
+- Given: one file's facts are 519 nodes of one kind
+- When: a unit reads them by their `file` property
+- Then: it reads three pages of 256, 256 and 7 rows, a read asking for 257 rows is refused, and the recorded read replays the same pages
 
 ### Scenario: static-no-wide-read
 - Given: a static stage's `execute`, and every local function it calls
