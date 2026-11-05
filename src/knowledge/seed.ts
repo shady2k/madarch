@@ -671,8 +671,9 @@ function kindsManifest(): string {
     "# product's whole history), author, path, membership (the files a container holds), commit or task. A kind",
     "# without it gets no history page.",
     "# The views, listings and places of a kind are its declaration's too, so no screen of the wiki holds a kind of its",
-    "# own. `views` lists the views a page of the kind may draw of its entities: c4-component (its modules), er (the",
-    "# tables it holds, or the links of one table) and state (the state machines in its code). `sequence` says how the",
+    "# own. `views` lists the views a page of the kind may draw of its entities: c4-component (its modules) and state (the",
+    "# state machines in its code). `er` says how the ER view reads its entities: tables (the tables the entity holds) or",
+    "# links (the entity as one table and the tables its foreign keys reach). `sequence` says how the",
     "# end-to-end chain a page draws starts at its entities: route (at the entity) or symbol (at the route that reaches",
     "# it); a kind without it starts no chain. `system` says the part its entities play in the system view: container",
     "# (drawn as a box, read as the implementation a domain names, and the folder a treemap covers), data-store or",
@@ -770,6 +771,7 @@ export function kindLines(kind: CatalogKindData, options: KindLineOptions = {}):
   if (kind.card === true) lines.push('    card: true');
   if (kind.history !== undefined) lines.push(`    history: ${kind.history}`);
   if (kind.views !== undefined) lines.push(`    views: [${kind.views.join(', ')}]`);
+  if (kind.er !== undefined) lines.push(`    er: ${kind.er}`);
   if (kind.sequence !== undefined) lines.push(`    sequence: ${kind.sequence}`);
   if (kind.system !== undefined) lines.push(`    system: ${kind.system}`);
   if (kind.definitionBlock !== undefined) lines.push(`    definition-block: ${kind.definitionBlock}`);

@@ -137,8 +137,8 @@ class FixtureReader extends GraphReader {
 }
 
 /** The context a page is drawn in: the fixture manifest and the doubled graph, with the contract's bytes to read. */
-function context(manifest: KindsManifest, folder: string): RenderContext {
-  const graph = new FixtureReader(ENTITIES);
+function context(manifest: KindsManifest, folder: string, entities: readonly GraphEntity[] = ENTITIES): RenderContext {
+  const graph = new FixtureReader([...entities]);
   return {
     productFolder: folder, manifest, language: 'en', markdown: new Map(), docEntities: new Map(), localizedSources: new Map(),
     documents: [], repositories: [], commitOf: () => null, repoOfScope: () => 'repo', graph,
@@ -150,9 +150,9 @@ function context(manifest: KindsManifest, folder: string): RenderContext {
 }
 
 /** The one view a specification asks for, or the refusal's sentence; `subject` is the page the view is drawn on. */
-async function viewOrRefusal(manifest: KindsManifest, folder: string, spec: { type: string; subject: string }, subject?: Subject): Promise<GraphView | string> {
+async function viewOrRefusal(manifest: KindsManifest, folder: string, spec: { type: string; subject: string }, subject?: Subject, entities?: readonly GraphEntity[]): Promise<GraphView | string> {
   try {
-    const views = await buildViews({ ctx: context(manifest, folder), lang: 'en', productTitle: 'Fixture' }, spec as never, subject);
+    const views = await buildViews({ ctx: context(manifest, folder, entities), lang: 'en', productTitle: 'Fixture' }, spec as never, subject);
     return views[0]!;
   } catch (error) {
     return (error as Error).message;
@@ -184,8 +184,8 @@ describe('a view follows the kind declaration', () => {
     expect(answer).toContain('"code.workflow:nightly" is no entity of the graph');
   });
 
-  test('removing views: [er] takes the tables of a database away, and restoring it brings them back', async () => {
-    const drawn = readFixture('er-with', { 'code.database': ['    views: [er]'], 'code.table': ['    views: [er]'] });
+  test('removing er: tables takes the tables of a database away, and restoring it brings them back', async () => {
+    const drawn = readFixture('er-with', { 'code.database': ['    er: tables'], 'code.table': ['    er: links'] });
     const answer = await viewOrRefusal(drawn.manifest, drawn.folder, { type: 'er', subject: DATABASE.key });
     if (typeof answer === 'string') throw new Error(answer);
     expect(answer.elements.map((element) => element.id)).toEqual([ORDERS.key, USERS.key]);
@@ -194,16 +194,36 @@ describe('a view follows the kind declaration', () => {
 
     const refused = readFixture('er-without');
     const nothing = await viewOrRefusal(refused.manifest, refused.folder, { type: 'er', subject: DATABASE.key });
-    expect(nothing).toContain('gives the kind code.database no "views: [er]"');
+    expect(nothing).toContain('gives the kind code.database no "er: tables" or "er: links"');
 
-    const restored = readFixture('er-restored', { 'code.database': ['    views: [er]'], 'code.table': ['    views: [er]'] });
+    const restored = readFixture('er-restored', { 'code.database': ['    er: tables'], 'code.table': ['    er: links'] });
     const again = await viewOrRefusal(restored.manifest, restored.folder, { type: 'er', subject: DATABASE.key });
     if (typeof again === 'string') throw new Error(again);
     expect(again.elements).toHaveLength(2);
   });
 
+  test('a database the extractor found no tables for says so with the words and the block it always had', async () => {
+    const { manifest, folder } = readFixture('er-empty', { 'code.database': ['    er: tables'], 'code.table': ['    er: links'] });
+    const archive = entity('code.database', 'archive');
+    const answer = await viewOrRefusal(manifest, folder, { type: 'er', subject: archive.key }, undefined, [...ENTITIES, archive]);
+    if (typeof answer === 'string') throw new Error(answer);
+    // The same view at 02d3b00e: no element, no edge, no marker, the ER block's own sentence, and the way up to the
+    // containers — the block and the words, not only the emptiness.
+    expect(answer).toEqual({
+      spec: { type: 'er', subject: 'code.database:archive' },
+      title: 'Tables: archive',
+      label: 'Tables',
+      elements: [],
+      edges: [],
+      notes: [],
+      empty: 'The graph holds no table here.',
+      up: { spec: { type: 'c4-container', subject: '' }, title: 'Containers' },
+      marker: null,
+    });
+  });
+
   test('a table draws the tables it points to by foreign key under the same declaration, and no entity that holds tables is read as one', async () => {
-    const { manifest, folder } = readFixture('er-table', { 'code.database': ['    views: [er]'], 'code.table': ['    views: [er]'] });
+    const { manifest, folder } = readFixture('er-table', { 'code.database': ['    er: tables'], 'code.table': ['    er: links'] });
     const answer = await viewOrRefusal(manifest, folder, { type: 'er', subject: ORDERS.key });
     if (typeof answer === 'string') throw new Error(answer);
     expect(answer.elements.map((element) => element.id)).toEqual([ORDERS.key, USERS.key]);
@@ -346,9 +366,8 @@ describe('the navigation a kind gets travels in its summary', () => {
       'code.module: state',
       'code.file: state',
       'code.symbol: state',
-      'code.database: er',
-      'code.table: er',
     ]);
+    expect(of((kind) => (kind.er === undefined ? undefined : `${kind.name}: ${kind.er}`))).toEqual(['code.database: tables', 'code.table: links']);
     expect(of((kind) => (kind.sequence === undefined ? undefined : `${kind.name}: ${kind.sequence}`))).toEqual(['code.symbol: symbol', 'code.route: route']);
     expect(of((kind) => (kind.system === undefined ? undefined : `${kind.name}: ${kind.system}`))).toEqual(['code.service: container', 'code.channel: channel', 'code.database: data-store']);
     expect(of((kind) => (kind.definitionBlock === undefined ? undefined : `${kind.name}: ${kind.definitionBlock}`))).toEqual(['code.operation: operation', 'code.contract: contract', 'code.channel: channel']);
@@ -369,7 +388,7 @@ describe('the manifest reader refuses a trait it cannot read', () => {
     if (!read.present) throw new Error(`the fixture manifest of ${folder} was not read`);
     const messages = read.manifest.findings.map((one) => `${one.file}:${one.line}: ${one.message}`);
     expect(messages).toEqual([
-      `${join(folder, 'madarch', 'kinds.yaml')}:5: kind "code.service": "views" lists the views a page of the kind may draw of its entities: c4-component, er, state, got ["c4-component","c4-context"]`,
+      `${join(folder, 'madarch', 'kinds.yaml')}:5: kind "code.service": "views" lists the views a page of the kind may draw of its entities: c4-component, state, got ["c4-component","c4-context"]`,
       `${join(folder, 'madarch', 'kinds.yaml')}:6: kind "code.service": "system" is one of container, data-store, channel, got "service"`,
       `${join(folder, 'madarch', 'kinds.yaml')}:10: kind "code.file": "nav" is one of own-page, loop, got "sidebar"`,
       `${join(folder, 'madarch', 'kinds.yaml')}:26: kind "code.route": "sequence" is one of route, symbol, got "call"`,
@@ -502,14 +521,14 @@ describe('the manifest reader refuses a views list it cannot read', () => {
   };
 
   test('a view named twice, an empty list and a value that is no list are findings at the field\'s line', () => {
-    expect(messagesOf('twice', ['    views: [er, er]'])).toEqual([
-      `${join(work, 'broken-views-twice', 'madarch', 'kinds.yaml')}:5: kind "code.service": "views" names each view once, and ["er","er"] names one twice`,
+    expect(messagesOf('twice', ['    views: [state, state]'])).toEqual([
+      `${join(work, 'broken-views-twice', 'madarch', 'kinds.yaml')}:5: kind "code.service": "views" names each view once, and ["state","state"] names one twice`,
     ]);
     expect(messagesOf('empty', ['    views: []'])).toEqual([
-      `${join(work, 'broken-views-empty', 'madarch', 'kinds.yaml')}:5: kind "code.service": "views" lists the views a page of the kind may draw of its entities: c4-component, er, state, got []`,
+      `${join(work, 'broken-views-empty', 'madarch', 'kinds.yaml')}:5: kind "code.service": "views" lists the views a page of the kind may draw of its entities: c4-component, state, got []`,
     ]);
     expect(messagesOf('scalar', ['    views: er'])).toEqual([
-      `${join(work, 'broken-views-scalar', 'madarch', 'kinds.yaml')}:5: kind "code.service": "views" lists the views a page of the kind may draw of its entities: c4-component, er, state, got "er"`,
+      `${join(work, 'broken-views-scalar', 'madarch', 'kinds.yaml')}:5: kind "code.service": "views" lists the views a page of the kind may draw of its entities: c4-component, state, got "er"`,
     ]);
   });
 });

@@ -41,8 +41,8 @@ class FixtureReader extends GraphReader {
 const MANIFEST = fixtureManifest({
   'code.service': { views: ['c4-component'], system: 'container' },
   'code.module': { views: ['c4-component'] },
-  'code.database': { views: ['er'] },
-  'code.table': { views: ['er'] },
+  'code.database': { er: 'tables' },
+  'code.table': { er: 'links' },
   'code.route': { sequence: 'route' },
   'code.symbol': {},
   'code.cycle': {},

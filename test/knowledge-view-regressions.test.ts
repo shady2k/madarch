@@ -9,7 +9,7 @@ import type { GraphEntity, GraphReader } from '../src/knowledge/graph-read.js';
 import { fixtureManifest } from './knowledge-manifest-fixture.js';
 
 /** The kinds these projections are drawn by, as a product's manifest declares them (decision 0033). */
-const MANIFEST = fixtureManifest({ 'code.table': { views: ['er'] }, 'code.database': { views: ['er'] }, 'code.service': { views: ['c4-component'], system: 'container' } });
+const MANIFEST = fixtureManifest({ 'code.table': { er: 'links' }, 'code.database': { er: 'tables' }, 'code.service': { views: ['c4-component'], system: 'container' } });
 
 const domainMap: GraphView = {spec:{type:'domain-map',subject:''},title:'Domains',label:'Domains',elements:[
   {id:'domain:orders',label:'Ordering',kind:'domain',href:'/k/e/orders',dashed:false},

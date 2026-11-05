@@ -136,7 +136,7 @@ beforeAll(async () => {
     '  code.database:',
     '    template: templates/database.md',
     '    source: graph',
-    '    views: [er]',
+    '    er: tables',
     '  doc.use-case:',
     '    template: templates/use-case.md',
     '    source: document',
@@ -369,8 +369,8 @@ describe('the function page', () => {
   test('the er block says what it draws and what it is given instead', async () => {
     const problem = block(await page(CHARGE), 'problem');
     expect(problem).toMatchObject({ block: 'er', file: 'templates/symbol.md', line: 7 });
-    expect(problem.message).toContain('the er block draws an entity whose kind declares the ER view, and this is a code.symbol');
-    expect(problem.message).toContain(`${join(productFolder, 'madarch', 'kinds.yaml')}:21 gives the kind code.symbol no "views: [er]"`);
+    expect(problem.message).toContain('the er block draws an entity whose kind declares the ER view, and this is code.symbol');
+    expect(problem.message).toContain(`${join(productFolder, 'madarch', 'kinds.yaml')}:21 gives the kind code.symbol no "er: tables" or "er: links"`);
   });
 });
 

@@ -18,6 +18,7 @@
  *     card: true                   # optional: a ground on one of these entities shows its card, not its code
  *     history: membership          # optional: the shape of the story the history block tells of its entities
  *     views: [c4-component, state] # optional: the views a page of the kind may draw of its entities
+ *     er: tables                   # optional: how the ER view reads the kind's entities
  *     system: container            # optional: the part its entities play in the system view
  *     labels:                      # optional: the kind's name per interface language
  *       en: { one: Service, many: Services }
@@ -171,6 +172,8 @@ export interface KindDecl {
   views?: readonly KindView[];
   /** How the chain a page draws starts at this kind's entities (`sequence:`); none when absent. */
   sequence?: SequenceForm;
+  /** How the ER view reads this kind's entities (`er:`); none when the view is not drawn. */
+  er?: ErForm;
   /** The part this kind's entities play in the system view (`system:`); none when absent. */
   system?: SystemPart;
   /** What the definition block finds in this kind's entities (`definition-block:`); none when absent. */
@@ -208,13 +211,22 @@ export type HistoryShape = (typeof HISTORY_SHAPES)[number];
  * - `c4-component`: the modules of the entity and the dependencies between them (the modules block and the component
  *   view). Whether the entity is a container of the system — a box of the system views, a domain's implementation, the
  *   folder a treemap covers — is `system:`.
- * - `er`: the tables the entity holds, or the table itself and the tables it points to by foreign key.
  * - `state`: the transition tables found in the bytes of the entity's code.
  *
- * The sequence view is declared on its own (`sequence:`), because a chain starts at an entity in one of two ways.
+ * Two views are declared by how they read an entity, because each reads it in one of two ways: `er:` (the tables an
+ * entity holds, or the links of one table) and `sequence:` (the chain that starts at an entity, or at the route that
+ * reaches it). A kind without either starts none of them.
  */
-const KIND_VIEWS = ['c4-component', 'er', 'state'] as const;
+const KIND_VIEWS = ['c4-component', 'state'] as const;
 export type KindView = (typeof KIND_VIEWS)[number];
+
+/**
+ * How the ER view reads a kind's entities (`er:` of a kind declaration): `tables` draws the tables the entity holds — the
+ * graph files them under its key, and it says the graph holds no table there when it holds none — and `links` draws the
+ * entity as one table with the tables its foreign keys reach.
+ */
+const ER_FORMS = ['tables', 'links'] as const;
+export type ErForm = (typeof ER_FORMS)[number];
 
 /**
  * How the end-to-end chain a page draws starts at a kind's entities (`sequence:` of a kind declaration): `route` starts
@@ -385,7 +397,7 @@ export type KindsRead =
 const KIND_KEYS = new Set([
   'template', 'source', 'folder', 'file', 'title', 'attributes', 'relations', 'labels', 'group', 'origin', 'description',
   'identifier', 'terms', 'headings', 'semantics', 'structure', 'details', 'member', 'card', 'history',
-  'views', 'sequence', 'system', 'definition-block', 'listing', 'nav',
+  'views', 'er', 'sequence', 'system', 'definition-block', 'listing', 'nav',
   // the catalog's row of the kind (decision 0033, items 8 to 10): read when the manifest declares a catalog
   'id', 'definition', 'sources', 'acquisition', 'status', 'relation-constraints', 'template-policy',
 ]);
@@ -421,6 +433,11 @@ export function declarationMissing(manifest: KindsManifest | undefined, kind: st
 /** Whether the manifest gives a kind one of the views a page may draw of its entities (`views:`). */
 export function kindDraws(manifest: KindsManifest | undefined, kind: string, view: KindView): boolean {
   return kindDeclOf(manifest, kind)?.views?.includes(view) === true;
+}
+
+/** How the ER view reads a kind's entities (`er:`), when the manifest gives the kind one. */
+export function erFormOf(manifest: KindsManifest | undefined, kind: string): ErForm | undefined {
+  return kindDeclOf(manifest, kind)?.er;
 }
 
 /** How the chain a page draws starts at a kind's entities (`sequence:`), when the manifest gives the kind one. */
@@ -948,7 +965,7 @@ export function parseKinds(text: string, file: string, productFolder: string): K
     }
     const policy = typeof decl['template-policy'] === 'string' ? decl['template-policy'] : 'page';
     if (policy === 'none') {
-      for (const field of ['template', 'source', 'folder', 'file', 'member', 'details', 'card', 'history', 'views', 'sequence', 'system', 'definition-block', 'listing', 'nav'] as const) if (decl[field] !== undefined) catalogProblem([field], `"${field}" belongs to a kind that shows a page, and "template-policy" is "none"`);
+      for (const field of ['template', 'source', 'folder', 'file', 'member', 'details', 'card', 'history', 'views', 'er', 'sequence', 'system', 'definition-block', 'listing', 'nav'] as const) if (decl[field] !== undefined) catalogProblem([field], `"${field}" belongs to a kind that shows a page, and "template-policy" is "none"`);
       continue;
     }
     const source = decl['source'];
@@ -1056,6 +1073,7 @@ export function parseKinds(text: string, file: string, productFolder: string): K
       else if (new Set(rawViews).size !== rawViews.length) problem(['views'], `"views" names each view once, and ${JSON.stringify(rawViews)} names one twice`);
       else declaredViews.push(...(rawViews as KindView[]));
     }
+    const er = oneOf('er', ER_FORMS);
     const sequence = oneOf('sequence', SEQUENCE_FORMS);
     const system = oneOf('system', SYSTEM_PARTS);
     const definition = oneOf('definition-block', DEFINITION_FORMS);
@@ -1129,6 +1147,7 @@ export function parseKinds(text: string, file: string, productFolder: string): K
       ...(card === true ? { card: true as const } : {}),
       ...(isHistoryShape(history) ? { history } : {}),
       ...(declaredViews.length === 0 ? {} : { views: declaredViews }),
+      ...(er === undefined ? {} : { er }),
       ...(sequence === undefined ? {} : { sequence }),
       ...(system === undefined ? {} : { system }),
       ...(definition === undefined ? {} : { definitionBlock: definition }),

@@ -895,7 +895,9 @@ The starter set `madarch new` writes shall declare `card: true` on the eight kin
 
 When a page draws a view of an entity, lists a kind, or places a kind in the navigation, madarch shall choose what it draws from the entity's kind as the product's `madarch/kinds.yaml` declares it, and shall name no kind of its own to make that choice: the engine holds no product data (decision 0033, items 7 and 8).
 
-A kind's declaration shall name the views a page of it may draw — `views` with `c4-component` (the modules of a container and the dependencies between them), `er` (the tables the entity holds, or one table and the tables its foreign keys reach) and `state` (the transition tables in the bytes of its code) — how the end-to-end chain a page draws starts at its entities (`sequence: route` at the entity itself, `sequence: symbol` at the route that reaches it), the part its entities play in the system view (`system: container`, `data-store` or `channel`), what the definition block finds in them (`definition-block: contract`, `operation` or `channel`), the form of its listing page (`listing: operations`) and where it stands in the navigation (`nav: own-page` or `nav: loop`). A kind that declares none of them shall draw none: a view the manifest does not give the kind is a refusal naming the manifest's file and the kind's line, and a listing is the plain table of names and places.
+A kind's declaration shall name the views a page of it may draw — `views` with `c4-component` (the modules of a container and the dependencies between them) and `state` (the transition tables in the bytes of its code) — how the ER view reads its entities (`er: tables`, the tables the entity holds, or `er: links`, the entity as one table and the tables its foreign keys reach), how the end-to-end chain a page draws starts at its entities (`sequence: route` at the entity itself, `sequence: symbol` at the route that reaches it), the part its entities play in the system view (`system: container`, `data-store` or `channel`), what the definition block finds in them (`definition-block: contract`, `operation` or `channel`), the form of its listing page (`listing: operations`) and where it stands in the navigation (`nav: own-page` or `nav: loop`). A kind that declares none of them shall draw none: a view the manifest does not give the kind is a refusal naming the manifest's file and the kind's line, and a listing is the plain table of names and places.
+
+The containment a view reads shall stay the graph's: the tables an entity holds are the tables the data model extractor files under its key, and an entity that holds none shall draw the ER block's «The graph holds no table here.» exactly as it did before the kind's declaration chose the reading.
 
 The two traits the wiki app draws by — the listing's form and the kind's place in the navigation — shall travel in the kind summary the app already receives, so that no screen of the app holds a kind of its own.
 
@@ -903,7 +905,7 @@ Every value shall be refused with a finding naming the file, the line and the ki
 
 The extractors' own vocabulary shall stay the engine's (decision 0033, item 7): a view reads the facts the extractors publish — a database's tables, a table's columns and foreign keys, the files an entity's code stands in — and those names are never the product's kinds.
 
-The starter set `madarch new` writes shall declare `views: [c4-component, state]` on `code.service` and `views: [state]` on `code.package`, `code.module`, `code.file` and `code.symbol`; `views: [er]` on `code.database` and `code.table`; `sequence: symbol` on `code.symbol` and `sequence: route` on `code.route`; `system: container` on `code.service`, `system: data-store` on `code.database` and `system: channel` on `code.channel`; `definition-block: contract` on `code.contract`, `definition-block: operation` on `code.operation` and `definition-block: channel` on `code.channel`; `listing: operations` on `code.operation`; and `nav: own-page` on `task` and `doc.term`, `nav: loop` on `question` and `correction`. The wiki shall show the pages it showed before.
+The starter set `madarch new` writes shall declare `views: [c4-component, state]` on `code.service` and `views: [state]` on `code.package`, `code.module`, `code.file` and `code.symbol`; `er: tables` on `code.database` and `er: links` on `code.table`; `sequence: symbol` on `code.symbol` and `sequence: route` on `code.route`; `system: container` on `code.service`, `system: data-store` on `code.database` and `system: channel` on `code.channel`; `definition-block: contract` on `code.contract`, `definition-block: operation` on `code.operation` and `definition-block: channel` on `code.channel`; `listing: operations` on `code.operation`; and `nav: own-page` on `task` and `doc.term`, `nav: loop` on `question` and `correction`. The wiki shall show the pages it showed before.
 
 ### Scenario: views-follow-the-declaration
 - Given: a fixture product whose manifest declares `views: [c4-component]` on a graph kind, and a page of one of its entities
@@ -911,9 +913,14 @@ The starter set `madarch new` writes shall declare `views: [c4-component, state]
 - Then: the first drawing is the entity's modules, the second is refused with a sentence naming the manifest's file and the kind's line, and the modules are drawn again when the line is restored
 
 ### Scenario: er-follows-the-declaration
-- Given: a fixture product whose manifest declares `views: [er]` on a database kind and on a table kind, with one database, its tables, their columns and a foreign key between two of them
+- Given: a fixture product whose manifest declares `er: tables` on a database kind and `er: links` on a table kind, with one database, its tables, their columns and a foreign key between two of them
 - When: the ER view of the database is drawn, the `views` lines are removed, and the view is drawn again
 - Then: the database's view is its tables with their columns and the foreign key, the drawing without the declaration is refused, and the tables are drawn again when the lines are restored
+
+### Scenario: er-empty-holds-no-table
+- Given: a fixture product whose manifest declares `er: tables` on a database kind, and a database of the graph that the data model extractor filed no table under
+- When: the ER view of that database is drawn
+- Then: it is the block it was before the declaration chose the reading — no element, no edge, no marker, the sentence «The graph holds no table here.», and the way up to the containers — and a database the graph holds tables under is drawn with them
 
 ### Scenario: system-part-follows-the-declaration
 - Given: a fixture product whose manifest declares `system: container` on a graph kind
@@ -944,3 +951,8 @@ The starter set `madarch new` writes shall declare `views: [c4-component, state]
 - Given: the starter set `madarch new` writes
 - When: its manifest is read
 - Then: exactly the kinds that drew a component view, an ER view, a state view, a chain, a system part, a definition, an operations listing or a place of the navigation declare it, and every other kind declares none
+
+### Scenario: starter-set-shows-the-same-pages
+- Given: the generated training repository, and a product `madarch new` made from it and filled, at the revision this change starts from and at this one
+- When: every page of the product, every kind's listing, every diagram view each page asks for and every kind's map is rendered at both revisions
+- Then: the pages, the listings, the views, the maps, the findings and the home are the same, and the kind summaries differ only in the listing form and the navigation place this change moves into the manifest

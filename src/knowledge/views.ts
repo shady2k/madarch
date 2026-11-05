@@ -27,7 +27,7 @@ import type { RenderContext, Subject } from './blocks.js';
 import { locationOf, refOfGraph, refOfMarkdown } from './blocks.js';
 import { chainFrom, entriesOf, modulesBlockModel, pathOfKey, serviceLocator, systemModel, type Entry } from './diagrams.js';
 import type { GraphEntity } from './graph-read.js';
-import { declarationMissing, kindDraws, systemPartOf, type KindView } from './kinds.js';
+import { declarationMissing, erFormOf, kindDraws, systemPartOf, type KindView } from './kinds.js';
 import type { Chain, ChainStep, CodeLocation } from './model.js';
 import { sourceAddress } from './resolve.js';
 import { stateMachinesOf } from './state-machines.js';
@@ -546,20 +546,21 @@ const erType = (type: unknown): string => {
 
 async function erView(ctx: RenderContext, spec: ViewSpec, w: Words, limit: number): Promise<GraphView> {
   const subject = await entityAt(ctx, spec.subject);
-  if (subject === undefined) throw new ViewRefusal(404, `"${spec.subject}" is no entity of the graph: an ER view draws the tables an entity holds, or the links of one table`);
-  if (!kindDraws(ctx.manifest, subject.kind, 'er')) throw notDeclared(ctx, subject.kind, '"views: [er]"', 'an ER view draws the tables an entity holds, or the links of one table');
+  if (subject === undefined) throw new ViewRefusal(404, `"${spec.subject}" is no database or table of the graph: an ER view draws the tables of a database`);
+  const form = erFormOf(ctx.manifest, subject.kind);
+  if (form === undefined) throw notDeclared(ctx, subject.kind, '"er: tables" or "er: links"', 'an ER view draws the tables of a database or the links of a table');
   const up = { spec: { type: 'c4-container' as const, subject: '' }, title: w.containers };
   let tables: GraphEntity[];
   let total: number;
-  // The entities the graph holds tables under are drawn with them — the data model extractor files a table under the
-  // database whose key it opens (`code.table:<database>/<table>`, the facts this view reads, decision 0033 item 7).
-  // An entity that holds none is one table: drawn with the tables it points to by foreign key and those that point to it.
-  let held = await ctx.graph.byPrefix('code.table', `code.table:${keyTail(subject.key)}/`, limit);
-  if (held.total > held.rows.length) held = await ctx.graph.byPrefix('code.table', `code.table:${keyTail(subject.key)}/`, held.total);
-  if (held.total !== held.rows.length) throw new ViewRefusal(400, `ER "${subject.key}": expected ${held.total} tables, read ${held.rows.length}`);
-  if (held.total > 0) {
-    tables = held.rows;
-    total = held.total;
+  if (form === 'tables') {
+    // The tables the entity holds: the data model extractor files a table under the database whose key it opens
+    // (`code.table:<database>/<table>`, the facts this view reads, decision 0033 item 7). The graph holds none: the view
+    // says so, as it always has.
+    let found = await ctx.graph.byPrefix('code.table', `code.table:${keyTail(subject.key)}/`, limit);
+    if (found.total > found.rows.length) found = await ctx.graph.byPrefix('code.table', `code.table:${keyTail(subject.key)}/`, found.total);
+    if (found.total !== found.rows.length) throw new ViewRefusal(400, `ER database "${subject.key}": expected ${found.total} tables, read ${found.rows.length}`);
+    tables = found.rows;
+    total = found.total;
   } else {
     // A table is drawn with the tables it points to by foreign key and the tables that point to it.
     tables = [subject];
@@ -1110,7 +1111,7 @@ export async function diagramsBlock(
       if (kindDraws(view.ctx.manifest, graphSubject.kind, 'state')) built.push(...(await stateViews(view.ctx, graphSubject, wordsOf(view.lang))));
     } else if (name === 'er') {
       if (graphSubject === undefined) return problem('the er block draws the tables of the graph; the entities of this kind are Markdown pages');
-      if (!kindDraws(view.ctx.manifest, graphSubject.kind, 'er')) return problem(declarationMissing(view.ctx.manifest, graphSubject.kind, '"views: [er]"', `the er block draws an entity whose kind declares the ER view, and this is a ${graphSubject.kind}`));
+      if (erFormOf(view.ctx.manifest, graphSubject.kind) === undefined) return problem(declarationMissing(view.ctx.manifest, graphSubject.kind, '"er: tables" or "er: links"', `the er block draws an entity whose kind declares the ER view, and this is ${graphSubject.kind}`));
       built.push(...(await buildViews(view, { type: 'er', subject: graphSubject.key }, subject)));
     } else {
       built.push(...(await buildViews(view, { type: 'sequence', subject: graphSubject?.key ?? (subject.source === 'markdown' ? subject.entity.id : '') }, subject)));

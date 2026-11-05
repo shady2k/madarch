@@ -27,8 +27,10 @@ A product that renamed, removed or added a kind could not say which of them draw
 which form, or stands where in the navigation without editing the engine.
 
 This change moves every one of those decisions into the kind's own declaration. A kind may say `views` — the views a
-page of it may draw of its entities (`c4-component`, `er`, `state`); `sequence` — how the end-to-end chain a page draws
-starts at its entities (`route` at the entity itself, `symbol` at the route that reaches it); `system` — the part its
+page of it may draw of its entities (`c4-component`, `state`); `er` — how the ER view reads its entities (`tables`: the
+tables the entity holds, `links`: the entity as one table and the tables its foreign keys reach); `sequence` — how the
+end-to-end chain a page draws starts at its entities (`route` at the entity itself, `symbol` at the route that reaches
+it); `system` — the part its
 entities play in the system view (`container`, `data-store`, `channel`); `definition-block` — what the definition block
 finds in its entities (`contract`, `operation`, `channel`); `listing` — the form of its listing page (`operations`); and
 `nav` — where the kind stands in the navigation (`own-page`, `loop`). The starter set declares them for exactly the kinds
@@ -141,62 +143,82 @@ None.
   kinds with.
 
 - Assumptions and constants of the change:
-  - The field names are mine: `views`, `sequence`, `system`, `definition-block`, `listing`, `nav`, beside `card`, `history`,
-    `details` and `member` in a kind's declaration. The task fixed the behaviour, not the spelling; the manifest's comment
-    block, the reader's findings, the capability and this record name them, so a rename is one search away.
-  - The vocabularies are engine vocabulary: `['c4-component', 'er', 'state']`, `['route', 'symbol']`,
-    `['container', 'data-store', 'channel']`, `['contract', 'operation', 'channel']`, `['operations']`,
-    `['own-page', 'loop']`. No view, part, form or place was added or removed: they are the behaviours the engine had.
-  - The kind summary carries `definition` (the form) where the manifest's field is `definition-block`, because the catalog
-    row's `definition` is a sentence the summary does not carry.
-  - A database whose tables the graph holds none of is now drawn as one table (an empty box) where it was the ER block's
-    "no table here" before; with tables the view is the same. The branch is the data model extractor's containment, so a
-    product's own database kind gets the same view without naming it in the engine.
+  - The field names are mine: `views`, `er`, `sequence`, `system`, `definition-block`, `listing`, `nav`, beside `card`,
+    `history`, `details` and `member` in a kind's declaration. The task fixed the behaviour, not the spelling; the
+    manifest's comment block, the reader's findings, the capability and this record name them, so a rename is one search
+    away.
+  - The vocabularies are engine vocabulary: `views` (`c4-component`, `state`), `er` (`tables`, `links`), `sequence`
+    (`route`, `symbol`), `system` (`container`, `data-store`, `channel`), `definition-block` (`contract`, `operation`,
+    `channel`), `listing` (`operations`) and `nav` (`own-page`, `loop`). No view, part, form or place was added or
+    removed: they are the behaviours the engine had.
+  - The manifest's field is `definition-block` and the TypeScript property `definitionBlock`, because the catalog row's
+    `definition` is the sentence about the kind and both are read from the same declaration.
+  - The ER view's two readings are declared and its containment is read from the graph: `er: tables` reads the tables the
+    data model extractor files under the entity's key (decision 0033, item 7), and an entity it files none under draws the
+    block's own «The graph holds no table here.» — the answer the block gave before, word for word; `er: links` draws the
+    entity and the tables its foreign keys reach. The first draft chose the reading by whether the graph held tables under
+    the key, which turned an empty database's answer into an empty table box; the review of `2ecabd83` caught it, and the
+    declared form replaces the guess, so no graph a page is drawn from answers differently from `02d3b00e`.
+  - The pages of the starter set are compared, not assumed: a script renders every page of a product `madarch new` makes
+    from the generated training repository and fills — 1 326 pages, 65 kind listings, the 478 diagram views the pages ask
+    for, 65 kind maps, the findings and the home — at `02d3b00e` and at this revision. Every one is identical; the only
+    difference is the five kind summaries that gain `nav` or `listing`. The script is
+    `/work/out/compare-pages-8bdc45b.ts`, the dumps are `/work/scratch45/cmp/{base,head}/pages.json`, and the comparison of
+    the two is `/work/out/logs/cmp-diff-8bdc45b.log`.
   - The starter set declares `system: channel` on `code.channel` and `system: data-store` on `code.database`; today the
     part only names the kind a system element of that part falls back to when the graph holds no entity for it, which is
     what the three names in `diagrams.ts:170` did.
 
 ## Acceptance evidence
-Measured in the worker VM (4 vCPU, 8 GB, arm64), 2026-11-05:
+Measured in the worker VM (4 vCPU, 8 GB, arm64), 2026-11-05, on the reviewed change:
 
 - `bun run check` exit 0: `tsc --noEmit` clean (TypeScript 7.0.2), the architecture check at its 1 240 listed violations
-  (the `DEFINITION_KINDS` entry and the `collectNeighbors` entry are gone with the change), and
+  (the `DEFINITION_KINDS` and `collectNeighbors` entries are gone with the change), and
   `catalog: 26 areas, 100 subgroups, 490 kinds (67 with a page of their own or a member's row)` with
   `mapping: version 1; 56 extractor kinds (55 tied, 1 internal); 64 extractor relations (36 tied, 28 internal)`.
-- `MADARCH_SKIP_PERF=1 bun test test/knowledge-manifest-views.test.ts`: 22 pass, 0 fail — the six round trips (component,
-  ER, state, chain, system part, definition, listing, navigation), the system model rows and the treemap folder, the
-  chain's lane grouping, the fallback kind of a system element, the modules block and the domain map, the reader's six
-  refusals and the three views-list refusals, and the starter set's exact declarations.
-- `MADARCH_SKIP_PERF=1 bun test test/knowledge-*.test.ts`: 604 pass, 1 skip, 1 fail (606 cases over 49 files). The failure is
-  `knowledge-agent`'s «a second press with the pages in place runs no unit», which fails identically at the base
-  (madarch-8bdc.4.4 recorded 10 pass, 1 fail at 4730a814 and this machine reproduces it).
+- `MADARCH_SKIP_PERF=1 bun test test/knowledge-manifest-views.test.ts`: 23 pass, 0 fail — the round trips of every field
+  (component, ER with tables and with none, state, chain, system part, definition, listing, navigation), the system model
+  rows and the treemap folder, the chain's lane grouping, the fallback kind of a system element, the modules block and the
+  domain map, the reader's refusals and the starter set's exact declarations. The ER pair is the review's:
+  «a database the extractor found no tables for says so with the words and the block it always had» compares the whole
+  view object with `02d3b00e`'s, and «removing er: tables takes the tables of a database away, and restoring it brings
+  them back» draws a database that holds two tables with their columns and the foreign key between them.
+- `MADARCH_SKIP_PERF=1 bun test test/knowledge-*.test.ts`: 605 pass, 1 skip, 1 fail (607 cases over 49 files). The failure
+  is `knowledge-agent`'s «a second press with the pages in place runs no unit», which fails identically at the base
+  (madarch-8bdc.4.4 recorded 10 pass, 1 fail at 4730a814). Two `knowledge-pause-stop` cases failed once under a loaded
+  machine (one took 157 s) and pass alone (7 pass, 0 fail).
 - `MADARCH_SKIP_PERF=1 bun test test/product-wiki-pages.test.ts test/product-wiki-serve.test.ts
-  test/madarch-init-e2e.test.ts test/product-manifest.test.ts test/catalog-check.test.ts test/mapping-check.test.ts
-  test/roles-check.test.ts test/starter-set-upgrade.test.ts`: 159 pass, 6 fail; a seventh, `madarch-init-e2e`'s «the one
-  press …», failed on load in the batch run and passes alone (82 s, 2 pass 1 fail in that file, the offer case below) —
-  `product-wiki-pages`' five `chmod 000`
-  cases (the run is root, and root reads a mode-000 folder; 4.4 proved them failing at 4730a814) and
-  `madarch-init-e2e`'s agent offer, which reads `prime-agent` as installed because this machine has it on `PATH`.
+  test/product-manifest.test.ts test/catalog-check.test.ts test/mapping-check.test.ts test/roles-check.test.ts
+  test/starter-set-upgrade.test.ts`: 157 pass, 5 fail — `product-wiki-pages`' five `chmod 000` cases, which the run of a
+  root user reads (4.4 proved them failing at 4730a814 in a clean worktree). `test/madarch-init-e2e.test.ts` alone: 2
+  pass, 1 fail, its agent offer reading `prime-agent` as installed because this machine has it on `PATH`.
+- **The pages of the starter set, compared**: the generated training repository, a product `madarch new` makes from each
+  revision's own starter set and fills, then every page (`product.page`), every kind's listing, the 478 diagram views the
+  pages ask for (sequence 429, state 30, er 11, c4-component 4, c4-container 1, c4-context 1, deployment 1, domain 1), the
+  65 kind maps, the findings and the home, at `02d3b00e` and here: `same pages (1326)`, `same listings (65)`,
+  `same views (478)`, `same maps (65)`, `same findings (53)`, `same home`, `same operations`; the 65 kind summaries
+  differ in five, `nav` on `question`, `correction`, `task` and `doc.term` and `listing` on `code.operation`. Log:
+  `/work/out/logs/cmp-diff-8bdc45b.log`; the dumps: `/work/scratch45/cmp/{base,head}/pages.json`; the scripts:
+  `/work/out/compare-pages-8bdc45b.ts` and `/work/out/compare-dumps-8bdc45b.ts`.
 - `wiki/app`: `bun run check` exit 0; `bun test` 312 pass, 1 fail — shiki's `.tok-keyword` flake in
-  `knowledge.test.tsx`, which passes alone (57 pass at 4.4, 58 now); `bun run build` exit 0.
+  `knowledge.test.tsx`, which passes alone (58 pass); `bun run build` exit 0.
 - StrykerJS 9 (command runner, `coverageAnalysis: off`, `inPlace`, `typescript@5` beside it, from
   `/work/scratch45/stryker` outside the repository) on the changed line ranges of `kinds.ts`, `views.ts`, `diagrams.ts`,
   `definition.ts` and `render.ts` against `bun test test/knowledge-manifest-views.test.ts
-  test/knowledge-view-completeness.test.ts test/knowledge-contract-selection.test.ts`: 319 mutants, 235 killed, 0 timed
-  out, 84 survived — **73.67%** (kinds.ts 85.16%, views.ts 69.81%, definition.ts 69.57%, render.ts 68.18%,
-  diagrams.ts 62.37%). The survivors are of three kinds, each read off the report: a branch turned `true` where the
-  fixture's graph yields no row anyway (the route's handler row on a service, a container's rows on a table); a key
-  written as `{ field: undefined }` where the declaration omits it (`toStrictEqual` would tell them apart, and nothing a
-  page draws does); and the sentences of the refusals.
+  test/knowledge-view-completeness.test.ts test/knowledge-contract-selection.test.ts`: 313 mutants, 234 killed, 0 timed
+  out, 79 survived — **74.76%** (kinds.ts 85.19%, views.ts 75.00%, definition.ts 69.57%, render.ts 68.18%,
+  diagrams.ts 62.37%). The survivors are of three kinds, read off the report: a branch turned `true` where the fixture's
+  graph yields no row anyway; a field written as `{ field: undefined }` where the declaration omits the key; and the
+  sentences of the refusals.
 
 ## Where it is seen
 Kind: internal
 Place: A page's diagrams, a kind's listing page and the wiki's navigation
 Reason: the starter set shows the pages it showed before, and no screen is added or altered; what changes is which declaration a product writes to get a view, a listing form or a navigation place on a kind of its own.
 
-1. Open a product whose manifest declares `views: [er]` on a kind, open the page of one of its entities with an ER
-   block, and the block draws the tables; remove the line, save, and the block says the manifest gives the kind no such
-   view.
+1. Open a product whose manifest declares `er: tables` on a kind, open the page of one of its entities with an ER
+   block, and the block draws the tables (or says «The graph holds no table here.» when the graph holds none); remove the
+   line, save, and the block says the manifest gives the kind no such reading.
 2. Open a product whose manifest declares `listing: operations` on a kind and open that kind's page: the operation
    table is drawn with what declares, serves and calls each row; remove the line and the page draws the plain table.
 
