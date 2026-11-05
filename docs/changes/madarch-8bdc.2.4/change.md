@@ -229,6 +229,13 @@ reading hung there, which is what the relation means once two readings share a
 file. `test/fill-contracts-code-stage.test.ts` runs the whole fill on a fixture
 whose file holds an input and a sink, so the case is pinned.
 
+**What the wiring needed.** `src/fill/stages/index.ts` registers the two
+stages; `src/fill/stages/static-reads.ts` answers the contracts-code plan's own
+coverage read (recorded and replayed like every other static read);
+`src/extract/code/stage-vocabulary.ts` declares the kinds and relations the
+stages emit; `static-stage-boundaries.json` lists both files with no exception;
+`src/knowledge/starter-workflows.ts` names both stages in the first fill.
+
 **The comparison.** `test/fill-contracts-training.test.ts` generates the
 training repository, runs the fill twice (the second is the refill of one
 commit, which plans nothing) and compares the graph's records of this reading
