@@ -116,6 +116,10 @@ beforeAll(async () => {
   store = createGraphStore(owner);
   const run = await service.run({ product: fill.product, runId: 'links-one' });
   if (!run.ok) throw new Error(`the fill was refused: ${run.code}: ${run.reason}`);
+  if (run.state !== 'succeeded') {
+    const failed = run.units.filter((unit) => unit.state !== 'published');
+    throw new Error(`the fill did not succeed: state ${run.state}, settled ${String(run.settled)}, stopped ${String(run.stoppedBecause)}, units ${failed.map((unit) => `${unit.unitId}:${unit.state}`).join(', ')}`);
+  }
   first = run;
   const again = await service.run({ product: fill.product, runId: 'links-two' });
   if (!again.ok) throw new Error(`the second fill was refused: ${again.code}: ${again.reason}`);

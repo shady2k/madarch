@@ -1473,7 +1473,7 @@ export async function newcomerRecords(
 const KAFKA_IMAGE = /(?:^|\/)(?:kafka|cp-kafka|redpanda)(?::|@|$)/i;
 
 /** The addresses a setting states: `a:1,b:2`, each without its scheme, when each is a host and a port. */
-function brokerAddresses(value: string): string[] {
+export function brokerAddresses(value: string): string[] {
   return value.split(',').map((part) => part.trim().replace(/^[A-Za-z][\w+.-]*:\/\//, '')).filter((part) => /^[\w.-]+:\d+$/.test(part));
 }
 
@@ -1537,7 +1537,7 @@ function configureBrokers(set: RecordSet, brokers: BrokerRow[], definitions: rea
 }
 
 /** The brokers matching one address, by the driver's rule: the address itself, or the host's own name. */
-function brokersMatching(brokers: readonly BrokerRow[], address: string): readonly BrokerRow[] {
+export function brokersMatching(brokers: readonly BrokerRow[], address: string): readonly BrokerRow[] {
   const host = address.split(':')[0] ?? '';
   return brokers.filter((broker) => broker.addresses.includes(address) || broker.aliases.includes(host));
 }

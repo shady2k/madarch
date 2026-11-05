@@ -58,7 +58,6 @@ const STAGE_PRODUCERS: readonly string[] = ['fill.operations', 'fill.operations-
  * only shrinks.
  */
 const REMAINING: readonly string[] = [
-  'code.connects-to',
   'code.exposes-metric',
   'code.health-endpoint',
   'code.logger',

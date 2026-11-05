@@ -40,6 +40,7 @@ import { fileFactIdOf } from './syntax-facts.js';
 import { fileUnitId, plannedUnit } from './syntax.js';
 import { publishedTreeRead, publishedTreeRows } from './tree-rows.js';
 import { readGoMod, readJson } from './manifest-format.js';
+import { brokerAddresses, brokerOf, brokersMatching, type BrokerRow } from './operations-records.js';
 import { publishedOperationsRows } from './operations.js';
 
 /** The stage's id, as it is registered and as its units are named. */
@@ -49,7 +50,7 @@ const OPERATIONS_LINKS_STAGE_ID = 'operations-links';
 const OPERATIONS_LINKS_STAGE_VERSION = 1;
 
 /** The fact kinds the stage produces, in code point order. */
-const OPERATIONS_LINKS_STAGE_KINDS: readonly string[] = ['contains', 'coverage', 'defines', 'env-var', 'manifest-of', 'reads-env', 'service'];
+const OPERATIONS_LINKS_STAGE_KINDS: readonly string[] = ['connects-to', 'contains', 'coverage', 'defines', 'env-var', 'manifest-of', 'reads-env', 'service'];
 
 /** The reader every fact of this stage cites: this fill's own linking of one file's records. */
 const LINKS_SOURCE: FactSource = { system: 'madarch-operations-links', version: '1' };
@@ -383,6 +384,8 @@ function fileSpanOf(path: string, text: string): Span {
 async function definitionWrites(stage: StaticStageContext, repository: string, path: string): Promise<readonly StageDraftWrite[]> {
   const writes: StageDraftWrite[] = [];
   const reads = await readsInRepository(stage, repository);
+  const brokers = await brokersInRepository(stage, repository);
+  const services = new Set((await pagesOf(stage, 'code.service', 'repository', repository)).map((node) => node.label));
   for (const node of await pagesOf(stage, 'code.env-definition', 'file', path)) {
     const held = node.properties;
     const record = held['record'];
@@ -398,7 +401,50 @@ async function definitionWrites(stage: StaticStageContext, repository: string, p
     const fromKey = key;
     writes.push(edgeWrite('code.defines', fromKey, `code.env-var:${variable}`, { value: value ?? null }, span, String(held['repository'])));
   }
+  // The settings that name a broker's address also say which service talks to it
+  // (`src/extract/operations/messaging.ts`): the service the setting is scoped to, and the
+  // service whose code reads the variable the setting defines.
+  for (const node of await pagesOf(stage, 'code.env-definition', 'file', path)) {
+    const key = node.properties['recordKey'];
+    if (typeof key !== 'string' || !BROKER_SETTING.test(key)) continue;
+    const record = node.properties['record'];
+    const value = record !== null && typeof record === 'object' ? (record as Record<string, unknown>)['value'] : undefined;
+    const scope = record !== null && typeof record === 'object' ? (record as Record<string, unknown>)['scope'] : undefined;
+    const span = node.properties['span'] as Span | undefined;
+    if (typeof value !== 'string' || span === undefined) continue;
+    for (const address of brokerAddresses(value)) {
+      const candidates = brokersMatching(brokers, address);
+      const broker = candidates.length === 1 ? candidates[0] : undefined;
+      if (broker === undefined) continue;
+      const talking = new Set<string>();
+      if (typeof scope === 'string') talking.add(scope);
+      const variable = key.slice(key.indexOf('#') + 1);
+      const at = variable.indexOf('/');
+      if (at > 0) talking.add(variable.slice(0, at));
+      for (const service of talking) {
+        if (!services.has(service)) continue;
+        writes.push(edgeWrite('code.connects-to', `code.service:${service}`, broker.key, { address }, span, String(node.properties['repository']), address));
+      }
+    }
+  }
   return writes;
+}
+
+/** The settings whose value names a broker's address: the driver's own two names. */
+const BROKER_SETTING = /(?:KAFKA_BROKERS|KAFKA_BOOTSTRAP_SERVERS)/;
+
+/** The brokers the earlier stage published for a repository, as the matching rule reads them. */
+async function brokersInRepository(stage: StaticStageContext, repository: string): Promise<readonly BrokerRow[]> {
+  const rows: BrokerRow[] = [];
+  for (const node of await pagesOf(stage, 'code.broker', 'repository', repository)) {
+    const held = node.properties['record'];
+    const record = held !== null && typeof held === 'object' ? held as Record<string, unknown> : {};
+    const key = node.properties['recordKey'];
+    if (typeof key !== 'string') continue;
+    const addresses = Array.isArray(record['addresses']) ? record['addresses'].map((entry) => String(entry)) : [];
+    rows.push(brokerOf(key, node.label, addresses, String(record['source'] ?? '')));
+  }
+  return rows.sort((left, right) => byCodePoint(left.key, right.key));
 }
 
 // ---- the draft -----------------------------------------------------------
@@ -440,7 +486,7 @@ function containsWrite(node: LinkNode, repository: string): StageDraftWrite {
 }
 
 /** One edge write, as every static stage writes one. */
-function edgeWrite(relation: string, from: string, to: string, properties: Readonly<Record<string, unknown>>, span: Span, repository: string): StageDraftWrite {
+function edgeWrite(relation: string, from: string, to: string, properties: Readonly<Record<string, unknown>>, span: Span, repository: string, discriminator = ''): StageDraftWrite {
   return {
     kind: 'edge',
     evidence: `${span.path}:${String(span.lineStart)}`,
@@ -448,7 +494,7 @@ function edgeWrite(relation: string, from: string, to: string, properties: Reado
       relation,
       from: from.startsWith('code.file:') ? { key: fileFactIdOf(repository, from.slice('code.file:'.length)) } : { key: from },
       to: { key: to },
-      properties: { factKind: relation.slice('code.'.length), repository, file: span.path, span, record: properties },
+      properties: { factKind: relation.slice('code.'.length), repository, file: span.path, span, ...(discriminator === '' ? {} : { discriminator }), record: properties },
     },
   };
 }
