@@ -16,6 +16,7 @@ import { validateEnvironmentModels } from '../src/extract/library-models/environ
 import { validateOutboxModels } from '../src/extract/library-models/outbox-models.js';
 import { validateGrpcDeadlineModel } from '../src/extract/library-models/grpc-deadline-models.js';
 import { validateRepositoryConventions } from '../src/extract/library-models/repository-conventions.js';
+import { CATALOG_KINDS, CATALOG_RELATIONS } from '../src/knowledge/starter-catalog.js';
 
 const ROOT = resolve(dirname(fileURLToPath(import.meta.url)), '..');
 const SCAN_ROOTS = ['src', 'test', 'scripts', 'wiki/app/src', 'examples', 'docs/system'];
@@ -395,6 +396,28 @@ function provenanceRanges(root: string, file: string, text: string, errors: stri
   return ranges;
 }
 
+/**
+ * The standards and documents the entity catalog cites, as the exact addresses its own rows hold: the sources of a
+ * kind and of a relation name. A citation is provenance — the standard or the document a kind was taken from — not a
+ * repository the product depends on, and it is licensed only in the catalog's own module, so the same address written
+ * anywhere else is still scanned as a repository source.
+ */
+const CATALOG_SOURCES: ReadonlySet<string> = new Set([
+  ...CATALOG_KINDS.flatMap((kind) => kind.sources),
+  ...Object.values(CATALOG_RELATIONS).filter((source): source is string => typeof source === 'string'),
+]);
+const CATALOG_SOURCES_MODULE = '/src/knowledge/starter-catalog.ts';
+
+/** Whether a match is a whole address the catalog cites, written in the catalog's own module. */
+function citedByCatalog(file: string, text: string, index: number): boolean {
+  if (!file.endsWith(CATALOG_SOURCES_MODULE)) return false;
+  for (const source of CATALOG_SOURCES) {
+    const scheme = source.startsWith('https://') ? 8 : source.startsWith('http://') ? 7 : undefined;
+    if (scheme !== undefined && index >= scheme && text.startsWith(source, index - scheme)) return true;
+  }
+  return false;
+}
+
 async function findings(root = ROOT): Promise<string[]> {
   const errors: string[] = [];
   const goModules = declaredGoModules(root);
@@ -415,6 +438,7 @@ async function findings(root = ROOT): Promise<string[]> {
       const urlOrSsh = /(?:[A-Za-z][A-Za-z0-9+.-]*:\/\/|[^\s'"`]+@)$/.test(prefix);
       if (typedKey && !urlOrSsh) continue;
       if (!(typedKey && urlOrSsh) && provenance.some((range) => range.start <= match.index && match.index + source.length <= range.end)) continue;
+      if (!(typedKey && urlOrSsh) && citedByCatalog(file, text, match.index)) continue;
       if (!(typedKey && urlOrSsh) && (sourceIsAllowed(source, goModules) || isDeclaredFixtureManifest(root, file, text, match.index, source) ||
         imports.some((range) => range.start <= match.index && match.index + source.length <= range.end))) continue;
       const line = text.slice(0, match.index).split('\n').length;

@@ -10,7 +10,7 @@ import { tmpdir } from 'node:os';
 import { dirname, join } from 'node:path';
 import { afterEach, describe, expect, test } from 'bun:test';
 import { parseKinds, setKindsLanguage } from '../src/knowledge/kinds.js';
-import { DETAILS, STARTER_FILES, STARTER_KINDS, STARTER_PROBLEM_RULES, TEMPLATES, ensureLoopKinds, starterManifest } from '../src/knowledge/seed.js';
+import { DETAILS, GROUPS, STARTER_FILES, STARTER_KINDS, STARTER_PROBLEM_RULES, TEMPLATES, ensureLoopKinds, starterManifest } from '../src/knowledge/seed.js';
 import { addStarterItems, currentOffers, filesAPersonEdited, provenanceOf, rememberChangedStarterFileIfOwned, replaceWithStarterSet, starterOffers, upgradeStarterSet } from '../src/knowledge/starter-upgrade.js';
 import { gitEnv } from './git-env.js';
 
@@ -62,11 +62,11 @@ describe('a manifest and templates only madarch wrote', () => {
     const after = manifestOf(product);
     expect(after.findings).toEqual([]);
     expect(after.language).toBe('ru');
-    expect([...after.groups.keys()]).toEqual(['product', 'code', 'code.structure', 'code.analysis', 'contracts', 'data', 'operations', 'operations.configuration', 'operations.dependencies', 'operations.build-deploy', 'operations.ci-cd', 'operations.runtime', 'operations.newcomer', 'tests', 'history']);
+    expect([...after.groups.keys()]).toEqual(GROUPS.map((group) => group.name));
     expect([...after.roles.keys()].sort()).toEqual(['analyst', 'architect', 'developer', 'operations', 'product', 'tester']);
     for (const kind of STARTER_KINDS) expect(after.kinds.get(kind.name)?.group).toBe(kind.group);
     expect(after.kinds.get('doc.use-case')?.identifier).toEqual(['UC']);
-    expect(after.kinds.get('code.snapshot')).toMatchObject({ source: 'graph', group: 'history', origin: 'history', template: 'templates/item-plain.liquid' });
+    expect(after.kinds.get('code.snapshot')).toMatchObject({ source: 'graph', group: 'history.work', origin: 'history', template: 'templates/item-plain.liquid' });
     expect(read(product, 'templates/item-plain.liquid')).toContain('{% properties');
     expect(read(product, 'templates/item-plain.liquid')).toContain('{% render "./partials/around.liquid"');
     expect(read(product, 'templates/item-plain.liquid')).toContain('{% render "./partials/relations.liquid"');
@@ -256,7 +256,7 @@ describe('a manifest or a template a person edited is never rewritten', () => {
     const written = addStarterItems(product, ['kind:code.snapshot'], record);
     expect(written).toEqual(['templates/item-plain.liquid', 'madarch/kinds.yaml']);
     expect(read(product, 'madarch/kinds.yaml')).toContain('# keep our own manifest');
-    expect(manifestOf(product).kinds.get('code.snapshot')).toMatchObject({ source: 'graph', group: 'history', origin: 'history', template: 'templates/item-plain.liquid' });
+    expect(manifestOf(product).kinds.get('code.snapshot')).toMatchObject({ source: 'graph', group: 'history.work', origin: 'history', template: 'templates/item-plain.liquid' });
     expect(read(product, 'templates/item-plain.liquid')).toBe(STARTER_FILES.find((entry) => entry.path === 'templates/item-plain.liquid')!.content);
     expect(starterOffers(read(product, 'madarch/kinds.yaml')).map((offer) => offer.id)).not.toContain('kind:code.snapshot');
     expect(addStarterItems(product, ['kind:code.snapshot'], record)).toEqual([]);
@@ -291,8 +291,8 @@ describe('a manifest or a template a person edited is never rewritten', () => {
     writeFileSync(join(product, 'madarch', 'kinds.yaml'), `# ours\n${read(product, 'madarch/kinds.yaml')}`);
     git(product, 'commit', '-q', '-am', 'Keep our manifest');
     addStarterItems(product, ['group:product'], record);
-    // The starter set's product group opens by itself, and the declaration the upgrade writes carries that with it.
-    expect(manifestOf(product).groups.get('product')!.open).toBe(true);
+    // The starter set's strategy area opens by itself, and the declaration the upgrade writes carries that with it.
+    expect(manifestOf(product).groups.get('strategy')!.open).toBe(true);
   });
 
   test('a kind gains the details and the member the starter set names, keeping the words a person wrote', () => {
@@ -388,12 +388,13 @@ describe('ensureLoopKinds', () => {
     }
   });
 
-  test('a manifest that declares the product group gets the kinds in it', () => {
-    const product = bare('groups:\n  product: { en: "Product", ru: "Продукт" }\nkinds: {}\n');
+  test('a manifest that declares the kinds\' subgroups gets the kinds in them', () => {
+    const product = bare('groups:\n  documentation: { en: "Documentation", ru: "Документация" }\n  documentation.feedback: { en: "Feedback", ru: "Обратная связь", parent: documentation }\nkinds: {}\n');
     ensureLoopKinds(product);
     const manifest = manifestOf(product);
     expect(manifest.findings).toEqual([]);
-    expect(manifest.kinds.get('question')?.group).toBe('product');
+    expect(manifest.kinds.get('question')?.group).toBe('documentation.feedback');
+    expect(manifest.kinds.get('correction')?.group).toBe('documentation.feedback');
   });
 });
 

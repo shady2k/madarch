@@ -346,7 +346,7 @@ describe('a product made before the loop gets its two kinds', () => {
     const old = before
       .replace(/  question:[\s\S]*?  code\.service:/, '  code.service:')
       .replace(/^  expect: \[[^\]]*\]\n/m, '');
-    expect(old).not.toContain('question:');
+    expect(old).not.toContain('\n  question:\n');
     expect(old).not.toContain('expect: [');
     writeFileSync(manifest, old);
     rmSync(join(folder, 'templates/question.liquid'));

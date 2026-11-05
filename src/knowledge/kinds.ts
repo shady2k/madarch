@@ -30,6 +30,7 @@ import { existsSync, lstatSync, readFileSync, realpathSync, statSync, writeFileS
 import { isAbsolute, join, relative, resolve } from 'node:path';
 import { LineCounter, parseDocument } from 'yaml';
 import { lineForPath } from '../model/yaml-position.js';
+import { catalogFindings, CATALOG_ONLY_FIELDS, readCatalogKind, readCatalogSchema, type CatalogEntry, type CatalogSchema } from './catalog.js';
 import { isSemanticKind, SEMANTIC_KINDS, type SemanticKind } from './semantics.js';
 import { BLOCK_NAMES } from './template.js';
 import { PREDICATES } from '../problems/rules.js';
@@ -240,6 +241,12 @@ export interface KindsManifest {
    */
   problems?: ProblemSettings;
   findings: readonly Finding[];
+  /**
+   * The entity catalog, when the manifest declares one (`catalog:`): its schema and the row of every kind the
+   * manifest holds, page kinds and catalogue-only kinds alike. A manifest without `catalog:` has none, and its kinds
+   * are read as the versions before the catalog read them.
+   */
+  catalog?: { readonly schema: CatalogSchema; readonly kinds: ReadonlyMap<string, CatalogEntry>; readonly findings: readonly Finding[] };
   /** The manifest could not be read as a whole (not YAML, not a mapping, no `kinds` mapping): no kind is known, which is not the same as every kind having a finding. */
   unreadable?: true;
 }
@@ -248,7 +255,12 @@ export type KindsRead =
   | { present: false; file: string }
   | { present: true; manifest: KindsManifest };
 
-const KIND_KEYS = new Set(['template', 'source', 'folder', 'file', 'title', 'attributes', 'relations', 'labels', 'group', 'origin', 'description', 'identifier', 'terms', 'headings', 'semantics', 'structure', 'details', 'member']);
+const KIND_KEYS = new Set([
+  'template', 'source', 'folder', 'file', 'title', 'attributes', 'relations', 'labels', 'group', 'origin', 'description',
+  'identifier', 'terms', 'headings', 'semantics', 'structure', 'details', 'member',
+  // the catalog's row of the kind (decision 0033, items 8 to 10): read when the manifest declares a catalog
+  'id', 'definition', 'sources', 'acquisition', 'status', 'relation-constraints', 'template-policy',
+]);
 
 /** Whether a repository-relative path stays inside the folder: no climbing, not absolute. */
 export function insideFolder(folder: string, path: string): boolean {
@@ -470,7 +482,7 @@ export function parseKinds(text: string, file: string, productFolder: string): K
       const value = top['diagram'];
       if (typeof value !== 'string' || !DIAGRAM_RENDERER_NAMES.includes(value)) findings.push({ file, line: at(['diagram']), message: `"diagram" is ${JSON.stringify(value)}: the diagrams open on ${DIAGRAM_RENDERER_NAMES.join(', ')}` });
       else diagram = value;
-    } else if (key !== 'kinds' && key !== 'groups' && key !== 'documents' && key !== 'roles' && key !== 'problems' && key !== 'properties') findings.push({ file, line: at([key]), message: `"${key}" is not a field of the manifest: the manifest holds "kinds", "groups", "documents", "roles", "problems", "properties", "language" and "diagram"` });
+    } else if (key !== 'kinds' && key !== 'groups' && key !== 'documents' && key !== 'roles' && key !== 'problems' && key !== 'properties' && key !== 'catalog') findings.push({ file, line: at([key]), message: `"${key}" is not a field of the manifest: the manifest holds "kinds", "groups", "documents", "roles", "problems", "properties", "catalog", "language" and "diagram"` });
   }
   const properties = new Map<string, PropertyDecl>();
   const rawProperties = top['properties'];
@@ -558,6 +570,20 @@ export function parseKinds(text: string, file: string, productFolder: string): K
       }
     }
   }
+  // The entity catalog's schema (decision 0033, items 8 to 10): the bound of a subgroup, the origin marks, the
+  // statuses, the template policies, the attributes and the relation names. It is read before the kinds, whose rows
+  // it validates; a manifest without one keeps every kind it declares as the wiki read it before the catalog.
+  // A manifest that declares a catalog at all is read against it; one whose `catalog:` mapping cannot be read keeps its
+  // kinds and reports the schema's own findings rather than a field of the catalog on every kind.
+  const catalogDeclared = top['catalog'] !== undefined;
+  const catalogRead = catalogDeclared ? readCatalogSchema(top['catalog'], at, file) : undefined;
+  const catalogSchema = catalogRead?.schema;
+  const catalogEntries = new Map<string, CatalogEntry>();
+  const catalogFound: Finding[] = [];
+  if (catalogRead !== undefined) {
+    findings.push(...catalogRead.findings);
+    catalogFound.push(...catalogRead.findings);
+  }
   const roles = new Map<RoleName, RoleDecl>();
   const rawRoles = top['roles'];
   if (rawRoles !== undefined) {
@@ -627,6 +653,13 @@ export function parseKinds(text: string, file: string, productFolder: string): K
       const written = path.length === 0 || (value !== null && typeof value === 'object' && String(path[0]) in (value as object));
       findings.push({ file, line: written ? at(['kinds', name, ...path]) : line, message: `kind "${name}": ${message}` });
     };
+    // The catalog's own findings, kept apart from the manifest's others: `bun run check:catalog` reads them over the
+    // starter set, where the product has no documents yet and the document expectations are the product's own matter.
+    const catalogProblem = (path: (string | number)[], message: string): void => {
+      const before = findings.length;
+      problem(path, message);
+      catalogFound.push(...findings.slice(before));
+    };
     if (value === null || typeof value !== 'object' || Array.isArray(value)) {
       findings.push({ file, line, message: `kind "${name}": the declaration is a mapping with a template and a source` });
       continue;
@@ -634,6 +667,21 @@ export function parseKinds(text: string, file: string, productFolder: string): K
     const decl = value as Record<string, unknown>;
     const before = findings.length;
     for (const key of Object.keys(decl)) if (!KIND_KEYS.has(key)) problem([key], `"${key}" is not a field of a kind: the fields are ${[...KIND_KEYS].join(', ')}`);
+    // The catalog's row of the kind: its place, its meaning, its sources, its acquisition, its status, the relations
+    // it may carry and its template policy. A row with a problem leaves the kind out, like every other problem does;
+    // a kind the catalog declares with the policy "none" is catalogue data only and shows no page.
+    if (!catalogDeclared) {
+      const stray = Object.keys(decl).filter((key) => CATALOG_ONLY_FIELDS.has(key));
+      if (stray.length > 0) catalogProblem([stray[0]!], `"${stray[0]}" is a field of the entity catalog, and the manifest declares no "catalog"`);
+    } else if (catalogSchema !== undefined) {
+      const entry = readCatalogKind(name, decl, catalogSchema, groups, line, catalogProblem);
+      if (entry !== undefined) catalogEntries.set(name, entry);
+    }
+    const policy = typeof decl['template-policy'] === 'string' ? decl['template-policy'] : 'page';
+    if (policy === 'none') {
+      for (const field of ['template', 'source', 'folder', 'file', 'member', 'details'] as const) if (decl[field] !== undefined) catalogProblem([field], `"${field}" belongs to a kind that shows a page, and "template-policy" is "none"`);
+      continue;
+    }
     const source = decl['source'];
     if (source !== 'graph' && source !== 'markdown' && source !== 'document') problem(['source'], `"source" is "graph", "markdown" or "document", got ${JSON.stringify(source)}`);
     const named = decl['template'];
@@ -757,6 +805,12 @@ export function parseKinds(text: string, file: string, productFolder: string): K
         }
       }
     }
+    // The template policy says what the kind shows: a page of its own, a member's row, or nothing yet. A policy that
+    // says one thing and a declaration that says another is a finding (a catalogue-only kind was let go above).
+    if (catalogDeclared) {
+      if (policy === 'page' && decl['member'] !== undefined) catalogProblem(['member'], '\'template-policy\' is "page", and the kind declares "member": a member\'s row is the policy "member"');
+      if (policy === 'member' && decl['member'] === undefined) catalogProblem(['template-policy'], '"template-policy" is "member", and the kind declares no "member": a member\'s row names the relation to the parent whose page it stands on');
+    }
     if (findings.length > before) continue;
     kinds.set(name, {
       name,
@@ -781,6 +835,13 @@ export function parseKinds(text: string, file: string, productFolder: string): K
       line,
     });
   }
+  // The catalog as a whole: a subgroup above its bound or with no kind, an area with no subgroup, two kinds of one
+  // concept id, and a value the catalog marks as an attribute declared as a kind.
+  if (catalogSchema !== undefined) {
+    const shape = catalogFindings(catalogSchema, groups, catalogEntries, file);
+    findings.push(...shape);
+    catalogFound.push(...shape);
+  }
   // A kind named in "expect" that the manifest does not declare is a finding at its own line.
   const wanted = expected.filter((entry) => {
     const kind = kinds.get(entry.kind);
@@ -794,7 +855,7 @@ export function parseKinds(text: string, file: string, productFolder: string): K
     }
     return true;
   });
-  return { file, roles, properties, kinds, declaredTemplates: [...new Set(declaredTemplates)], groups, excludeDocuments, ignoreBlocks: ignoredBlocks, expect: wanted, ...(problems === undefined ? {} : { problems }), findings, ...(language === undefined ? {} : { language }), ...(diagram === undefined ? {} : { diagram }) };
+  return { file, roles, properties, kinds, declaredTemplates: [...new Set(declaredTemplates)], groups, excludeDocuments, ignoreBlocks: ignoredBlocks, expect: wanted, ...(problems === undefined ? {} : { problems }), ...(catalogSchema === undefined ? {} : { catalog: { schema: catalogSchema, kinds: catalogEntries, findings: catalogFound } }), findings, ...(language === undefined ? {} : { language }), ...(diagram === undefined ? {} : { diagram }) };
 }
 
 /**

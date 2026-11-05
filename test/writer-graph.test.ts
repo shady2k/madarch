@@ -88,16 +88,26 @@ const BR4 = 'doc:docs/requirements.md#br-4';
  * and domain pages: the manifest says which kinds the wiki shows (decision 0029), and a kind it does not declare is a
  * page no reader could open, so the writer writes none (`pageKindGate`, `src/writer/run.ts`).
  */
+/** The catalog's row of a kind the test adds, as a catalogued manifest declares it. */
+function row(kind: string, group: string): Record<string, unknown> {
+  return {
+    id: `practice.${kind}`, group, definition: `A ${kind} page of this test's product.`,
+    sources: ['https://example.test/report'], acquisition: ['conversation'], status: 'implemented',
+    'relation-constraints': { out: [], in: [] }, 'template-policy': 'page',
+  };
+}
+
 function declareWriterPages(folder: string): void {
   seedStarterSet(folder);
   const file = join(folder, KINDS_FILE);
   const manifest = parseDocument(readFileSync(file, 'utf8'));
-  for (const [kind, page] of [['validation', 'docs/validation.md'], ['overview', 'docs/overview.md'], ['editorial', 'docs/editorial.md']] as const) {
-    manifest.setIn(['kinds', kind], { template: 'templates/product.liquid', source: 'markdown', file: page, origin: 'agent', labels: { en: { one: 'Report', many: 'Reports' } } });
+  // The product's own kinds carry their row of the entity catalog, as every kind of a catalogued manifest does.
+  for (const [kind, page, group] of [['validation', 'docs/validation.md', 'documentation.document'], ['overview', 'docs/overview.md', 'history.work'], ['editorial', 'docs/editorial.md', 'documentation.support']] as const) {
+    manifest.setIn(['kinds', kind], { ...row(kind, group), template: 'templates/product.liquid', source: 'markdown', file: page, origin: 'agent', labels: { en: { one: 'Report', many: 'Reports' } } });
   }
   // The enrichment of a passage is a kind of the wiki too: its pages stand beside the documents, so a product shows them
   // only when its manifest declares the kind (decision 0029).
-  manifest.setIn(['kinds', 'enrichment'], { template: 'templates/product.liquid', source: 'markdown', folder: 'docs/enrichment', origin: 'agent', labels: { en: { one: 'Enrichment', many: 'Enrichments' } } });
+  manifest.setIn(['kinds', 'enrichment'], { ...row('enrichment', 'documentation.feedback'), template: 'templates/product.liquid', source: 'markdown', folder: 'docs/enrichment', origin: 'agent', labels: { en: { one: 'Enrichment', many: 'Enrichments' } } });
   writeFileSync(file, manifest.toString());
   const read = readKinds(folder);
   if (!read.present || !read.manifest.kinds.has('validation')) throw new Error(`the fixture manifest of ${folder} does not declare the validation kind: ${JSON.stringify(read.present ? read.manifest.findings : 'no manifest')}`);

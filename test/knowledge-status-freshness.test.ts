@@ -66,6 +66,12 @@ function heldFill(): { worker: () => FillWorkerHandle; release: () => void } {
   };
 }
 
+/**
+ * The starter manifest without the entity catalog's section: these tests add a kind of their own, which holds no
+ * row of the catalog, so the manifest is read as one written before the catalog.
+ */
+const withoutCatalog = (text: string): string => text.replace(/^catalog:\n(?: {2}.*\n)+/m, '');
+
 /** A page of a Markdown folder kind whose one ground names nothing: the Problems page counts it. */
 // A page of the kind whose template appeared later: it names no kind, so reading it is a finding — and the count of
 // open problems moves by one when the folder of that kind is stamped at all.
@@ -125,7 +131,7 @@ describe('the status answer reads what its inputs say now', () => {
     const manifest = join(fixtureSet.folder, 'madarch', 'kinds.yaml');
     const text = readFileSync(manifest, 'utf8');
     expect(text).toContain('kinds:\n');
-    writeFileSync(manifest, text.replace('kinds:\n', 'kinds:\n  ghost:\n    template: templates/ghost.md\n    source: markdown\n    folder: docs/ghost\n'));
+    writeFileSync(manifest, withoutCatalog(text).replace('kinds:\n', 'kinds:\n  ghost:\n    template: templates/ghost.md\n    source: markdown\n    folder: docs/ghost\n'));
 
     const held = productOf(fixtureSet);
     await held.status();
@@ -249,7 +255,7 @@ describe('a kind whose template appears after the answer was warmed', () => {
     const fixtureSet = fixture();
     const manifest = join(fixtureSet.folder, 'madarch', 'kinds.yaml');
     const text = readFileSync(manifest, 'utf8');
-    writeFileSync(manifest, text.replace('kinds:\n', 'kinds:\n  ghost:\n    template: templates/ghost.md\n    source: markdown\n    folder: pages/ghost\n'));
+    writeFileSync(manifest, withoutCatalog(text).replace('kinds:\n', 'kinds:\n  ghost:\n    template: templates/ghost.md\n    source: markdown\n    folder: pages/ghost\n'));
 
     const held = productOf(fixtureSet);
     await held.status();
@@ -274,7 +280,7 @@ describe('a kind whose template appears after the answer was warmed', () => {
     const fixtureSet = fixture();
     const manifest = join(fixtureSet.folder, 'madarch', 'kinds.yaml');
     const text = readFileSync(manifest, 'utf8');
-    writeFileSync(manifest, text.replace('kinds:\n', 'kinds:\n  ghost:\n    template: templates/ghost.md\n    source: markdown\n    folder: pages/ghost\n'));
+    writeFileSync(manifest, withoutCatalog(text).replace('kinds:\n', 'kinds:\n  ghost:\n    template: templates/ghost.md\n    source: markdown\n    folder: pages/ghost\n'));
 
     const held = productOf(fixtureSet);
     await held.status();

@@ -105,7 +105,11 @@ describe('the manifest fields of the entity pages', () => {
     expect(read.findings).toEqual([]);
     const manifestText = STARTER_FILES.find((file) => file.path === 'madarch/kinds.yaml')!.content;
     const kindsText = manifestText.slice(manifestText.indexOf('\nkinds:\n') + '\nkinds:\n'.length);
-    expect(read.kinds.size).toBe(kindsText.split('\n').filter((line) => /^ {2}[a-z][\w.-]*:$/.test(line)).length);
+    // The catalog holds every kind the manifest declares; the wiki shows the kinds with a page (or a member's row).
+    const declaredKinds = kindsText.split('\n').filter((line) => /^ {2}[a-z][\w.-]*:$/.test(line)).length;
+    expect(read.catalog!.kinds.size).toBe(declaredKinds);
+    expect(read.kinds.size).toBe([...read.catalog!.kinds.values()].filter((kind) => kind.templatePolicy !== 'none').length);
+    for (const kind of read.catalog!.kinds.values()) expect(kind.definition.length).toBeGreaterThan(0);
     for (const kind of read.kinds.values()) {
       expect(kind.group).toBeDefined();
       expect(kind.descriptions?.['en']).toBeDefined();

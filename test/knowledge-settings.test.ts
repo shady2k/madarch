@@ -11,7 +11,7 @@ import { cpSync, existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, write
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { KnowledgeProduct, type FillWorkerHandle } from '../src/knowledge/product.js';
-import { STARTER_FILES, starterManifest } from '../src/knowledge/seed.js';
+import { GROUPS, STARTER_FILES, starterManifest } from '../src/knowledge/seed.js';
 import { parseQuestion, renderQuestion } from '../src/loop/entities.js';
 import type { AgentChoices } from '../src/fill/acp-choices.js';
 import { createKnowledgePart } from '../src/server/knowledge.js';
@@ -84,7 +84,7 @@ describe('a product made by an earlier madarch, opened by this one', () => {
       { file: manifestFile, line: expectLine, message: expect.stringContaining('the documents hold no entity of kind "doc.decision" (a decision)') },
     ]);
     expect(status.language).toBe('ru');
-    expect(status.groups.map((group) => group.group)).toEqual(['product', 'code', 'code.structure', 'code.analysis', 'contracts', 'data', 'operations', 'operations.configuration', 'operations.dependencies', 'operations.build-deploy', 'operations.ci-cd', 'operations.runtime', 'operations.newcomer', 'tests', 'history']);
+    expect(status.groups.map((group) => group.group)).toEqual(GROUPS.map((group) => group.name));
     expect(Object.keys(status.roles).sort()).toEqual(['analyst', 'architect', 'developer', 'operations', 'product', 'tester']);
     const kinds = status.kinds.map((kind) => kind.kind);
     for (const kind of ['doc.use-case', 'doc.rule', 'doc.term', 'code.route', 'code.operation', 'code.contract', 'code.database', 'question', 'correction']) expect(kinds).toContain(kind);
