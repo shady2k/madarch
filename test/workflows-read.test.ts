@@ -194,6 +194,40 @@ describe('the refusals of the workflow check', () => {
     expect(readText(workflow('planned')).findings).toEqual([]);
   });
 
+  test('a stage list reached through a YAML alias is refused at the line that uses the alias', () => {
+    const text = [
+      'workflows:',
+      '  original:',
+      '    status: implemented',
+      '    stages: &stages',
+      '      - teleport',
+      '  copied:',
+      '    status: implemented',
+      '    stages: *stages',
+      '',
+    ].join('\n');
+    const teleport = (name: string): string => `workflow "${name}" stage "teleport": the engine's stage registry holds no stage "teleport" (its stages are boundaries, build-configuration, doc-intent, document-index, history, intent-history, inventory, modules, narrative, overview, recovery, semantic-resolution, snapshot, syntax, understanding)`;
+    // The alias is used on line 8: the fault of the copied workflow is the fault of that line, not the file's first.
+    expect(refusals(text)).toEqual([[5, teleport('original')], [8, teleport('copied')]]);
+    // The paired case: an alias of the stages the registry holds and feeds reads as those stages.
+    const sound = readText([
+      'workflows:',
+      '  original:',
+      '    status: implemented',
+      '    stages: &stages',
+      '      - snapshot',
+      '      - inventory',
+      '      - syntax',
+      '      - modules',
+      '  copied:',
+      '    status: planned',
+      '    stages: *stages',
+      '',
+    ].join('\n'));
+    expect(sound.findings).toEqual([]);
+    expect(sound.workflows.get('copied')!.stages).toEqual(['snapshot', 'inventory', 'syntax', 'modules']);
+  });
+
   test('a stage no stage of this madarch produces is refused by the derivation\'s no-producer path', () => {
     const registry = new StageRegistry().register(stage('wants', ['unicorn'], []));
     const read = parseWorkflows('workflows:\n  first-fill:\n    status: implemented\n    stages: [wants]\n', FILE, registry);

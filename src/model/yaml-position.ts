@@ -1,5 +1,5 @@
 import type { LineCounter } from 'yaml';
-import { isMap, isSeq } from 'yaml';
+import { isAlias, isMap, isSeq } from 'yaml';
 
 /** A path segment: an object key or an array index. */
 export type PathSegment = string | number;
@@ -38,6 +38,10 @@ export function segmentsToPath(segments: PathSegment[]): string {
 /**
  * Walks a parsed YAML document following `segments` and returns the
  * 1-based line of the node found there (the key, for an object member).
+ * A path that reaches an alias stops there and names the line the alias is
+ * used on: the anchored node stands where the anchor is written, so a reading
+ * of it would name a line of another part of the file, while a fault on the
+ * alias's value is a fault of the line that uses it.
  * Falls back to the document's first line when the path cannot be
  * resolved exactly (for example a whole-file problem with no path).
  */
@@ -46,6 +50,7 @@ export function lineForPath(doc: { contents: unknown }, lineCounter: LineCounter
   for (let i = 0; i < segments.length; i++) {
     const segment = segments[i];
     if (node === null || node === undefined) break;
+    if (isAlias(node)) return lineAtRangeStart(node, lineCounter);
     if (typeof segment === 'number') {
       if (!isSeq(node)) break;
       const item: unknown = node.items[segment];
