@@ -6,12 +6,27 @@
  * method's locals by the bare method name, so a local is told by where it
  * stands -- inside a function's span -- and not by its qualified name.
  */
-import type { ExtractedFileSyntax, ExtractedSymbol, SyntaxSpan } from '../../fill/stages/syntax-extract.js';
-import type { SymbolKind } from '../../fill/facts.js';
-import type { SourceSpan } from '../records.js';
-import { readDecls, type FileDecls } from './decls.js';
-import { callbackName, fileKey, symbolKey } from './keys.js';
-import type { SourceFile } from './source.js';
+import type { ExtractedFileSyntax, ExtractedSymbol, SyntaxSpan } from './syntax-extract.js';
+import type { SymbolKind } from '../facts.js';
+import type { SourceSpan } from '../../extract/records.js';
+
+// ---- the keys one declaration is named by ---------------------------------
+
+/** `code.symbol:<path>#<qualified name>` -- one declaration of a file. */
+export const symbolKey = (path: string, qualifiedName: string): string => `code.symbol:${path}#${qualifiedName}`;
+
+/** `code.file:<path>` -- the data-model extractor's file key, shared. */
+export const fileKey = (path: string): string => `code.file:${path}`;
+
+/** An actual inline registration callback, named from its enclosing declaration and byte position. */
+export const callbackName = (enclosing: string | undefined, route: string, line: number, byte: number): string => `${enclosing ?? route}.callback@${line}:${byte}`;
+
+/** The source one file's symbols are read from: its path, its bytes and the language of its grammar. */
+export interface SymbolSource {
+  readonly path: string;
+  readonly bytes: Uint8Array;
+  readonly language: 'go' | 'typescript';
+}
 
 const FUNCTION_LIKE: ReadonlySet<SymbolKind> = new Set(['constructor', 'function', 'method']);
 
@@ -37,7 +52,7 @@ function sizeOf(span: SyntaxSpan): number {
   return span.endByte - span.startByte;
 }
 
-export function indexSymbols(path: string, symbols: readonly ExtractedSymbol[], topNames: ReadonlySet<string> | undefined): FileSymbol[] {
+function indexSymbols(path: string, symbols: readonly ExtractedSymbol[], topNames: ReadonlySet<string> | undefined): FileSymbol[] {
   const functions = symbols.filter((symbol) => FUNCTION_LIKE.has(symbol.symbolKind));
   const indexed: FileSymbol[] = [];
   for (const symbol of symbols) {
@@ -77,14 +92,11 @@ export function holderAt(symbols: readonly FileSymbol[], byte: number): FileSymb
   return functionLike ?? any;
 }
 
-/** What one file's declarations make of its symbols: the kept symbols, the callbacks named, and the declarations read. */
+/** What one file's declarations make of its symbols: the kept symbols and the callbacks named. */
 export interface FileSymbolsRead {
   readonly symbols: readonly FileSymbol[];
   /** The spans of the callables written as an argument, which the values of a call may name. */
   readonly callbackValues: readonly SourceSpan[];
-  readonly decls: FileDecls;
-  /** Whether the file's declarations were read; a file whose declarations could not be read says so. */
-  readonly declarationsRead: boolean;
 }
 
 /** One syntax span as the extraction's own span: the path and the byte and line range. */
@@ -94,16 +106,18 @@ function spanOf(path: string, span: SyntaxSpan): SourceSpan {
 
 /**
  * The symbols one file declares, from the syntax pass's own findings: the
- * declarations the syntax reader names, the callables it proves by their
- * span and the callbacks no declaration names, which this reader names by the
+ * declarations the syntax reader names, the callables it proves by their span
+ * and the callbacks no declaration names, which this reader names by the
  * callable they stand in and the line and byte they start at — the extract
- * driver's own reading, one file at a time (`src/extract/code/index.ts`), so a
- * static stage and the driver name one declaration by one key.
+ * driver's own reading, one file at a time, so a static stage and the driver
+ * name one declaration by one key.
+ *
+ * `topNames` is the file's top-level declarations, which tell a name declared in
+ * a block from one the file declares: a caller that reads declarations passes
+ * them, and a caller that needs only the callables leaves them out, because a
+ * callable is never a block's local.
  */
-export async function fileSymbolsOf(source: SourceFile, syntax: ExtractedFileSyntax): Promise<FileSymbolsRead> {
-  const declarations = await readDecls(source);
-  const { decls } = declarations;
-  const topNames = syntax.parsed && source.language === 'typescript' ? new Set(decls.tops.map((top) => top.name)) : undefined;
+export function fileSymbolsOf(source: SymbolSource, syntax: ExtractedFileSyntax, topNames?: ReadonlySet<string>): FileSymbolsRead {
   const symbols = indexSymbols(source.path, syntax.symbols, topNames);
   const callbackValues: SourceSpan[] = [];
   if (syntax.parsed) {
@@ -137,16 +151,20 @@ export async function fileSymbolsOf(source: SourceFile, syntax: ExtractedFileSyn
     const holder = holderAt(symbols, symbol.span.startByte);
     if (holder !== undefined) symbols[index] = { ...symbol, keptKey: holder.key };
   }
-  // Fields and properties are member entities: they have names, types and readers, and no page of their own.
-  // The declaration reader knows them even where the syntax pass keeps no symbol; adding them here lets the
-  // resolver tie `this.field` to the member and lets the type own it by `code.contains` (madarch-m38l.21).
-  for (const type of decls.types) {
-    for (const member of type.members) {
-      if (member.kind !== 'field' || member.span === undefined) continue;
-      const key = symbolKey(source.path, member.qualifiedName);
-      if (symbols.some((symbol) => symbol.key === key)) continue;
-      symbols.push({ key, qualifiedName: member.qualifiedName, name: member.name, symbolKind: 'field', span: member.span, definitionSpan: member.span, local: false, keptKey: key, functionLike: false });
-    }
+  return { symbols, callbackValues };
+}
+
+/**
+ * The field symbols a file's declarations add to the symbols its syntax pass
+ * read: the declaration reader knows a member even where the syntax pass keeps
+ * no symbol, and the resolver ties `this.field` to it and the type owns it by
+ * `code.contains` (madarch-m38l.21).
+ */
+export function withFieldSymbols(path: string, symbols: FileSymbol[], fields: readonly { readonly qualifiedName: string; readonly name: string; readonly span: SyntaxSpan }[]): FileSymbol[] {
+  for (const member of fields) {
+    const key = symbolKey(path, member.qualifiedName);
+    if (symbols.some((symbol) => symbol.key === key)) continue;
+    symbols.push({ key, qualifiedName: member.qualifiedName, name: member.name, symbolKind: 'field', span: member.span, definitionSpan: member.span, local: false, keptKey: key, functionLike: false });
   }
-  return { symbols, callbackValues, decls, declarationsRead: declarations.read };
+  return symbols;
 }

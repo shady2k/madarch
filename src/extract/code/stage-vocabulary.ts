@@ -54,6 +54,7 @@ export const STAGE_NODE_KINDS: readonly string[] = [
   // a Dockerfile, a compose file, a Kubernetes file, a Makefile, a workflow or a code file
   // declares about how the software is built, deployed and run.
   'code.broker',
+  'code.callable',
   'code.channel',
   'code.ci-job',
   'code.ci-workflow',

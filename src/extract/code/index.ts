@@ -23,7 +23,7 @@ import { extractFileSyntax, type ExtractedFileSyntax, type SyntaxSpan } from '..
 import { resolveSpecifier } from '../../fill/stages/syntax-facts.js';
 import type { ExtractedEdge, ExtractedNode, Extraction, ExtractionGap, PropertyValue, SchemaKey, SourceSpan, TreeReader } from '../records.js';
 import { memberSites } from './bodies.js';
-import type { FileDecls } from './decls.js';
+import { readDecls, type FileDecls } from './decls.js';
 import { cycles } from './graph.js';
 import {
   CODE_PRODUCER,
@@ -60,7 +60,7 @@ import type {CodeRelation} from './keys.js';
 import { goImportFolder, Program, type Binding, type FileCtx } from './program.js';
 import { resolveFile } from './resolve.js';
 import { codeLanguageOf, folderOf, roleOf, type SourceFile } from './source.js';
-import { fileSymbolsOf, holderAt, type FileSymbol } from './symbols.js';
+import { fileSymbolsOf, holderAt, withFieldSymbols, type FileSymbol } from '../../fill/stages/code-symbols.js';
 import { readTestDetails } from './tests.js';
 import {callbackName} from './keys.js';
 import { codeFactId, freezeCodeFacts, type CodeBindingFact, type CodeCallFact, type CodeExpressionFact, type CodeFacts, type CodeExtractionResult, type CodeImportFact, type CodeExportFact } from './facts.js';
@@ -241,9 +241,19 @@ export async function extractCodeWithFacts(reader: TreeReader, options: CodeExtr
     } else if (syntax.unread.length > 0) {
       for (const unread of syntax.unread) gap(source.path, `the file is read as far as the parser went (${unread.reason}): ${unread.what}`);
     }
-    const held = await fileSymbolsOf(source, syntax);
-    if (!held.declarationsRead) gap(source.path, `line 1: declarations could not be read from repository path ${source.path}`);
-    files.push({ source, syntax, imports: resolution.imports, decls: held.decls, symbols: held.symbols as FileSymbol[], callbackValues: held.callbackValues as SourceSpan[] });
+    const declarations = await readDecls(source);
+    const { decls } = declarations;
+    if (!declarations.read) gap(source.path, `line 1: declarations could not be read from repository path ${source.path}`);
+    const topNames = syntax.parsed && source.language === 'typescript' ? new Set(decls.tops.map((top) => top.name)) : undefined;
+    const held = fileSymbolsOf(source, syntax, topNames);
+    files.push({ source, syntax, imports: resolution.imports, decls, symbols: held.symbols as FileSymbol[], callbackValues: held.callbackValues as SourceSpan[] });
+  }
+  // Fields and properties are member entities: they have names, types and readers, and no page of their own.
+  // The declaration reader knows them even where the syntax pass keeps no symbol; adding them here lets the
+  // resolver tie `this.field` to the member and lets the type own it by `code.contains` (madarch-m38l.21).
+  for (const file of files) {
+    withFieldSymbols(file.source.path, file.symbols as FileSymbol[], file.decls.types.flatMap((type) => type.members.flatMap((member) =>
+      member.kind === 'field' && member.span !== undefined ? [{ qualifiedName: member.qualifiedName, name: member.name, span: member.span }] : [])));
   }
   const parsedFiles = files.filter((file) => file.syntax.parsed);
   const fileFacts = new Map(files.map((file) => [file.source.path, file]));

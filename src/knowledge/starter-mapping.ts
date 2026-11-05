@@ -89,6 +89,7 @@ export const MAPPING_KIND_ROWS: readonly CatalogMappingRow[] = [
   { key: 'code.repository', kind: 'code.repository' },
   { key: 'code.route', kind: 'code.route' },
   { key: 'code.service', kind: 'code.service' },
+  { key: 'code.callable', internal: 'the callables a file declares, with the body span and the name the extract readings give one' },
   { key: 'code.service-unit', internal: 'the unit a file belongs to, read by the operations and contracts readings as the file\'s service' },
   { key: 'code.snapshot', kind: 'code.snapshot' },
   { key: 'code.sql-build', kind: 'code.sql-build' },
