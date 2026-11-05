@@ -23,7 +23,7 @@
 import type { LibraryEffect } from '../../extract/library-models/model.js';
 
 /** Where a fact stands: bytes and lines, as every fact of the fill carries them. */
-export interface EnvSpan {
+interface EnvSpan {
   readonly path: string;
   readonly byteStart: number;
   readonly byteEnd: number;

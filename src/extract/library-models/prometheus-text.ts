@@ -1,18 +1,18 @@
 /** Bounded Prometheus text 0.0.4 grammar over decoded literal values, never source bytes. */
-export interface PrometheusTextRange { readonly start: number; readonly end: number; readonly line: number }
-export interface PrometheusTextDeclaration extends PrometheusTextRange {
+interface PrometheusTextRange { readonly start: number; readonly end: number; readonly line: number }
+interface PrometheusTextDeclaration extends PrometheusTextRange {
   readonly name: string;
   readonly kind: 'help' | 'type';
   readonly value: string;
 }
-export interface PrometheusTextSample extends PrometheusTextRange {
+interface PrometheusTextSample extends PrometheusTextRange {
   readonly name: string;
   readonly labels: readonly string[];
   /** Zero-based printf argument, excluding the writer and format arguments. */
   readonly valueArgument?: number;
   readonly labelArguments: readonly number[];
 }
-export interface PrometheusTextError { readonly line: number; readonly column: number; readonly reason: string }
+interface PrometheusTextError { readonly line: number; readonly column: number; readonly reason: string }
 export interface PrometheusTextResult {
   readonly declarations: readonly PrometheusTextDeclaration[];
   readonly samples: readonly PrometheusTextSample[];

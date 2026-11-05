@@ -381,26 +381,6 @@
   },
   {
     "rule": "no-unreachable-code",
-    "file": "src/extract/operations/prometheus-text.ts",
-    "symbol": "PrometheusTextDeclaration"
-  },
-  {
-    "rule": "no-unreachable-code",
-    "file": "src/extract/operations/prometheus-text.ts",
-    "symbol": "PrometheusTextError"
-  },
-  {
-    "rule": "no-unreachable-code",
-    "file": "src/extract/operations/prometheus-text.ts",
-    "symbol": "PrometheusTextRange"
-  },
-  {
-    "rule": "no-unreachable-code",
-    "file": "src/extract/operations/prometheus-text.ts",
-    "symbol": "PrometheusTextSample"
-  },
-  {
-    "rule": "no-unreachable-code",
     "file": "src/extract/operations/source.ts",
     "symbol": "declaredUnits"
   },

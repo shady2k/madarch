@@ -75,6 +75,8 @@ interface BindingFact {
   readonly form?: 'default' | 'namespace' | 'named';
   readonly importedName?: string;
   readonly targetPath?: string;
+  /** The declaration a binding is made in, from its statement's first byte to its initializer's last. */
+  readonly declarationSpan?: Span;
 }
 
 /** One call site a file's facts hold. */
@@ -119,6 +121,25 @@ export interface FileLibraryEffects {
   readonly files: number;
   /** The imports the closure chained, each with the expression it leads to where one was found. */
   readonly imports: readonly ImportFact[];
+  /**
+   * Every effect the closure's evaluation proved, the unit's own file's included:
+   * an effect stands where its expression stands, and a reader that joins two
+   * files' records (a logger's declaration and the use that names it) reads the
+   * declaration from here, not from another run's answer.
+   */
+  readonly allEffects: readonly LibraryEffect[];
+  /** The facts the closure holds, so a reader can ask for the binding or the callable another file's effect stands at. */
+  readonly closure: LibraryClosure;
+}
+
+/** The facts one unit's import closure holds, one entry per file the closure read. */
+interface LibraryClosure {
+  readonly files: readonly string[];
+  readonly expressions: readonly ExpressionFact[];
+  readonly bindings: readonly BindingFact[];
+  readonly calls: readonly CallFact[];
+  readonly exports: readonly ExportFact[];
+  readonly symbols: readonly CodeSymbolFactShape[];
 }
 
 /** One page of a bounded read by property, followed to the cursor the graph answers. */
@@ -282,5 +303,8 @@ export async function libraryEffectsOf(context: StaticStageContext, repository: 
     gaps: [ ...evaluation.gaps.filter((gap) => gap.path === path), ...gaps ],
     files: read.size,
     imports,
+    allEffects: [...evaluation.effects].sort((left, right) =>
+      byCodePoint(left.span.path, right.span.path) || left.span.byteStart - right.span.byteStart || byCodePoint(left.modelId, right.modelId)),
+    closure: { files: [...read].sort(byCodePoint), expressions, bindings, calls, exports: exported, symbols },
   };
 }
