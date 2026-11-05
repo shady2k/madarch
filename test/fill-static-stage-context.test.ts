@@ -60,7 +60,7 @@ function fakeGraph(answers: Partial<StaticGraphReader> = {}): StaticGraphReader 
   return {
     byKey: answers.byKey ?? (async () => []),
     byGlobalName: answers.byGlobalName ?? (async () => []),
-    neighbourhood: answers.neighbourhood ?? (async () => []),
+    neighbourhood: answers.neighbourhood ?? (async () => ({ rows: [], next: null })),
   };
 }
 
@@ -124,18 +124,18 @@ describe('three bounded graph reads', () => {
           return [node('2', 'code.symbol', { globalName: name })];
         },
         neighbourhood: async (id: string, options) => {
-          asked.push(`near:${id}:${options.relations.join(',')}:${options.direction}`);
-          return [node('3', 'code.symbol')];
+          asked.push(`near:${id}:${options.relations.join(',')}:${options.direction}:${options.after ?? 'first'}`);
+          return { rows: [node('3', 'code.symbol')], next: null };
         },
       });
       const context = staticStageContext(source, graph);
       expect(await context.byKey('file:abc', { limit: 3 })).toHaveLength(1);
       expect(await context.byGlobalName('orders-api:src/a.ts#a')).toHaveLength(1);
-      expect(await context.neighbourhood('1', { relations: ['code.contains'], direction: 'out' })).toHaveLength(1);
+      expect((await context.neighbourhood('1', { relations: ['code.contains'], direction: 'out' })).rows).toHaveLength(1);
       expect(asked).toEqual([
         'key:file:abc:3',
         'global:orders-api:src/a.ts#a:256',
-        'near:1:code.contains:out',
+        'near:1:code.contains:out:first',
       ]);
       // More rows than the cap is a refusal, never a cut window.
       await expect(staticStageContext(source, fakeGraph({ byKey: async () => Array.from({ length: 4 }, (_, index) => node(String(index), 'code.file')) })).byKey('file:abc', { limit: 3 })).rejects.toThrow('answered 4 rows where the cap is 3');
@@ -156,6 +156,40 @@ describe('three bounded graph reads', () => {
       await expect(context.byKey('  ')).rejects.toThrow('non-empty');
       await expect(context.byKey('file:abc', { limit: 0 })).rejects.toThrow('1 to');
       await expect(context.neighbourhood('1', { relations: [], direction: 'out' })).rejects.toThrow('names the relations');
+    } finally {
+      await f.dispose();
+    }
+  }, 20_000);
+
+  test('a neighbourhood longer than one page answers its cursor, and the page after it is asked by that cursor', async () => {
+    const f = await fixture();
+    try {
+      await f.write('src/a.ts', 'export const a = 1;\n');
+      const commit = f.commit();
+      const source = await staticStageSourceOf(createGitSnapshotSource([{ id: 'orders-api', form: 'code', root: f.root, commit }]), 'orders-api');
+      const cursors: (string | undefined)[] = [];
+      const context = staticStageContext(source, fakeGraph({
+        neighbourhood: async (_id: string, options) => {
+          cursors.push(options.after);
+          // A page of two rows with a cursor, then the page the cursor names, then the last one.
+          if (options.after === undefined) return { rows: [node('1', 'code.mention'), node('2', 'code.mention')], next: '2' };
+          if (options.after === '2') return { rows: [node('3', 'code.mention')], next: '3' };
+          return { rows: [], next: null };
+        },
+      }));
+      const first = await context.neighbourhood('9', { relations: ['code.mentions'], direction: 'out', limit: 2 });
+      expect(first.rows.map((row) => row.id)).toEqual(['1', '2']);
+      expect(first.next).toBe('2');
+      const second = await context.neighbourhood('9', { relations: ['code.mentions'], direction: 'out', limit: 2, after: first.next! });
+      expect(second.rows.map((row) => row.id)).toEqual(['3']);
+      expect(second.next).toBe('3');
+      const last = await context.neighbourhood('9', { relations: ['code.mentions'], direction: 'out', limit: 2, after: second.next! });
+      expect(last).toEqual({ rows: [], next: null });
+      expect(cursors).toEqual([undefined, '2', '3']);
+      // A page wider than the cap is still refused, whatever cursor asked for it.
+      await expect(context.neighbourhood('9', { relations: ['code.mentions'], direction: 'out', limit: 2, after: '2' })).resolves.toBeDefined();
+      await expect(staticStageContext(source, fakeGraph({ neighbourhood: async () => ({ rows: Array.from({ length: 4 }, (_, index) => node(String(index), 'code.mention')), next: null }) }))
+        .neighbourhood('9', { relations: ['code.mentions'], direction: 'out', limit: 3 })).rejects.toThrow('answered 4 rows where the cap is 3');
     } finally {
       await f.dispose();
     }

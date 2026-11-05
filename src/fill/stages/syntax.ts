@@ -60,8 +60,10 @@ import { evidenceAtPlace } from './draft.js';
 import { rolesFor } from './inventory.js';
 import type { StaticStageSource } from './static-context.js';
 import { checkStaticGraphDraft, graphWritesOf } from './static-graph.js';
-import { extractFileSyntax, unreadFileSyntax, type ExtractedFileSyntax } from './syntax-extract.js';
-import { importCandidates, syntaxFacts, type SyntaxFactSet } from './syntax-facts.js';
+import { readFileFindings, readSyntaxTree, unreadFileSyntax, type ExtractedFileSyntax } from './syntax-extract.js';
+import { fileFactIdOf, importCandidates, resolveSpecifier, SYNTAX_SOURCE, syntaxFacts, type SyntaxFactSet } from './syntax-facts.js';
+import { bindingOfMention, mentionDraftsOf, MENTION_SCHEMA_VERSION, type MentionBinding } from './mention-graph.js';
+import { collectFileResolution, type ExtractedFileResolution } from './resolution-extract.js';
 import { movedBySpecifiers, publishedGapRows, publishedGapsRead, publishedImportRows, publishedImportsRead } from './syntax-specifiers.js';
 import { publishedTreeRead, publishedTreeRows } from './tree-rows.js';
 
@@ -69,12 +71,20 @@ import { publishedTreeRead, publishedTreeRows } from './tree-rows.js';
 export const SYNTAX_STAGE_ID = 'syntax';
 
 /** The stage's own version, bumped when what it writes or plans changes. */
-export const SYNTAX_STAGE_VERSION = 3;
+export const SYNTAX_STAGE_VERSION = 4;
 
 /** The fact kinds the stage produces, in code point order. */
 export const SYNTAX_STAGE_KINDS: readonly string[] = [
   'comment', 'coverage', 'defines', 'entry-point', 'import', 'occurrence', 'symbol', 'test',
 ];
+
+/**
+ * The kinds a write of this stage's draft may name: its fact kinds, and the
+ * mention it reads as a place rather than a fact (decision 0033, item 14, and
+ * `mention-graph.ts` for why the mention is a graph node and not a fact).
+ */
+const SYNTAX_DRAFT_KINDS: readonly string[] = [...SYNTAX_STAGE_KINDS, 'mention'];
+
 
 /** The unit id of one source file: what the unit is, the repository and the path, and nothing of a run. */
 export function fileUnitId(repository: string, path: string): string {
@@ -146,12 +156,15 @@ export function createSyntaxStage(sources: SnapshotSource): FillStage {
       { kind: 'occurrence', schemaVersion: FACT_KINDS['occurrence'].version, scope: 'file' },
       { kind: 'symbol', schemaVersion: FACT_KINDS['symbol'].version, scope: 'file' },
       { kind: 'test', schemaVersion: FACT_KINDS['test'].version, scope: 'file' },
+      // The mentions a file writes, which the resolution stage resolves: a graph node per
+      // place, not a fact of the fill's schema (decision 0033, item 14; mention-graph.ts).
+      { kind: 'mention', schemaVersion: MENTION_SCHEMA_VERSION, scope: 'file' },
     ],
     configSchema: Type.Object({}),
     defaults: { ...DEFAULT_STAGE_DEFAULTS, config: {} },
     plan: async (graph: StageGraphReader): Promise<StagePlan> => planSyntax(sources, graph),
     execute: async (unit: StageUnit, context: StageContext): Promise<StageExecutionResult> => executeSyntaxUnit(unit, context),
-    validate: (draft: StageDraftSet) => checkStaticGraphDraft(SYNTAX_STAGE_ID, SYNTAX_STAGE_KINDS, draft),
+    validate: (draft: StageDraftSet) => checkStaticGraphDraft(SYNTAX_STAGE_ID, SYNTAX_DRAFT_KINDS, draft),
   };
 }
 
@@ -328,8 +341,29 @@ async function executeSyntaxUnit(unit: StageUnit, context: StageContext): Promis
   const bytes = file.content!;
   refuseWhenCancelled(unit, context);
   let findings: ExtractedFileSyntax;
+  let names: ExtractedFileResolution | undefined;
   try {
-    findings = await extractFileSyntax(planned.path, bytes);
+    // One parse, two readers: this stage's findings and the names the file
+    // mentions, which the resolution stage reads back from the graph (decision
+    // 0033, item 14). The tree lives only inside this walk, so both readers
+    // answer what they read and neither keeps a node.
+    const read = await readSyntaxTree(planned.path, bytes, (tree) => ({
+      findings: readFileFindings(tree),
+      names: collectFileResolution(tree),
+    }));
+    if (!read.read) {
+      findings = unreadFileSyntax(planned.path, read.unread[0]?.reason ?? 'error');
+    } else {
+      findings = read.value.findings;
+      names = {
+        path: planned.path,
+        language: read.language,
+        parsed: true,
+        imports: read.value.names.imports,
+        mentions: read.value.names.mentions,
+        unread: read.value.names.unread,
+      };
+    }
   } catch (error) {
     // The walk is recursive, so a file nested past the call stack's depth is
     // read as far as the machine allows and named as unread: one such file is a
@@ -351,14 +385,22 @@ async function executeSyntaxUnit(unit: StageUnit, context: StageContext): Promis
       }
     }
   }
+  // What this stage could not read of the file's names is the file's coverage
+  // too: a `require` this reader does not follow is a gap of the file's reading,
+  // not a silence beside the syntax findings.
+  const gaps = [...findings.unread, ...(names?.unread ?? [])];
   const set = syntaxFacts({
     repository: planned.repository,
     commit: source.commit,
     path: repositoryPath(planned.path),
-    findings,
+    findings: { ...findings, unread: gaps },
     files: [...known],
   });
   writeDraft(context, source, planned.path, set, entry.id);
+  writeMentions(context, source, planned.path, names, (specifier: string) => {
+    const target = resolveSpecifier(planned.path, specifier, known);
+    return target === undefined ? undefined : { path: target, key: fileFactIdOf(planned.repository, target) };
+  });
   const read = findings.parsed ? `read ${planned.path}` : `${planned.path} was not read`;
   context.progress(
     `${read} of ${planned.repository} at ${source.commit}: ${findings.symbols.length} ${findings.symbols.length === 1 ? 'symbol' : 'symbols'}, ${findings.imports.length} ${findings.imports.length === 1 ? 'import' : 'imports'}, ${findings.comments.length} ${findings.comments.length === 1 ? 'comment' : 'comments'}`,
@@ -393,6 +435,40 @@ function writeDraft(context: StageContext, source: StaticStageSource, path: stri
       }
       context.draft.write(write);
     }
+  }
+}
+
+/**
+ * Writes each name the file mentions into the unit's draft: one `code.mention`
+ * node at the place the name stands, and one `code.mentions` edge from the
+ * file's node to it (decision 0033, item 14; `mention-graph.ts`). A mention of
+ * a name the file's imports bind carries the import as written and the file the
+ * specifier answers, so the resolution stage resolves it by global name without
+ * reading a byte of any file.
+ */
+function writeMentions(
+  context: StageContext,
+  source: StaticStageSource,
+  path: string,
+  names: ExtractedFileResolution | undefined,
+  targetOf: (specifier: string) => { readonly path: string; readonly key: string } | undefined,
+): void {
+  if (names === undefined || names.mentions.length === 0) return;
+  const evidence = evidenceAtPlace(source, path);
+  const fileKey = fileFactIdOf(source.repository, path);
+  for (const mention of names.mentions) {
+    const binding: MentionBinding | undefined = bindingOfMention(mention, names.imports, targetOf);
+    const drafts = mentionDraftsOf({
+      repository: source.repository,
+      commit: source.commit,
+      path,
+      source: SYNTAX_SOURCE,
+      mention,
+      ...(binding === undefined ? {} : { binding }),
+      fileKey,
+    });
+    context.draft.write({ kind: 'node', evidence, value: drafts.node });
+    context.draft.write({ kind: 'edge', evidence, value: drafts.edge });
   }
 }
 

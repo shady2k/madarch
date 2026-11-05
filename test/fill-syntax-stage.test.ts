@@ -93,7 +93,7 @@ async function contextFor(unit: StageUnit, answer: (read: string) => readonly un
       unit,
       config: { id: 'test', version: 1, enabled: true, concurrency: 1, limits: DEFAULT_STAGE_LIMITS, config: {} },
       graph,
-      ...(repository === undefined ? {} : { static: staticStageContext(repository, { byKey: async () => [], byGlobalName: async () => [], neighbourhood: async () => [] }) }),
+      ...(repository === undefined ? {} : { static: staticStageContext(repository, { byKey: async () => [], byGlobalName: async () => [], neighbourhood: async () => ({ rows: [], next: null }) }) }),
       draft: { write: (entry: StageDraftWrite) => { recorder.writes.push(entry); }, writes: () => ({ writes: recorder.writes }) },
       progress: (note: string) => { recorder.notes.push(note); },
       signal: controller.signal,
@@ -160,6 +160,8 @@ describe('the syntax stage is registered', () => {
       expect(read.graph.order.indexOf('snapshot')).toBeLessThan(read.graph.order.indexOf('inventory'));
       expect(registry.get('syntax')?.produces.map((produced) => produced.kind)).toEqual([
         'comment', 'coverage', 'defines', 'entry-point', 'import', 'occurrence', 'symbol', 'test',
+        // The names the file writes, which the resolution stage resolves (decision 0033, item 14).
+        'mention',
       ]);
     } finally {
       await f.dispose();
@@ -287,6 +289,38 @@ describe('the syntax stage reads one source file', () => {
       const coverage = coverageRowsOf(writes, 'orders-api');
       expect(coverage.map((row) => row.file).sort()).toEqual(['src/a.ts', 'src/b.ts']);
       for (const row of coverage) expect(row.blob).toMatch(/^[0-9a-f]{40}$/);
+    } finally {
+      await f.dispose();
+    }
+  });
+
+  test('one node per name the file writes, hung from its file, with the import each name is bound by', async () => {
+    const f = await fixture();
+    try {
+      await f.write('src/a.ts', 'export function first(): void {}\n');
+      await f.write('src/b.ts', "import { first as second } from './a.js';\nexport function run(): void { second(); }\n");
+      const commit = f.commit();
+      const { writes } = await publishedAt(f.root, commit, 'orders-api');
+      const mentions = nodesOfKind(writes, 'code.mention');
+      // `second` is one mention: the callee of the call. The declaration's own name is no
+      // mention, and neither is the import's.
+      expect(mentions.map((mention) => [mention.properties['file'], mention.properties['name'], mention.properties['use'], mention.properties['access']])).toEqual([
+        ['src/b.ts', 'second', 'call', 'read-access'],
+      ]);
+      const binding = mentions[0]!.properties['binding'] as Record<string, unknown>;
+      expect(binding).toMatchObject({ local: 'second', specifier: './a.js', form: 'named', name: 'first', target: 'src/a.ts' });
+      expect(String(binding['targetKey']).startsWith('file:')).toBe(true);
+      const range = mentions[0]!.properties['range'] as Record<string, number>;
+      expect(range['startByte']).toBeDefined();
+      expect(range['endByte']).toBeGreaterThan(range['startByte']!);
+      // The edge hangs the mention from the node of the file it stands in.
+      const hung = edgesOfRelation(writes, 'code.mentions');
+      expect(hung).toHaveLength(1);
+      expect(hung[0]!.to).toEqual({ key: mentions[0]!.key });
+      // The file's own node is the snapshot stage's, and its key is the file fact's id.
+      expect(hung[0]!.from).toEqual({ key: fileFactIdOf('orders-api', 'src/b.ts') });
+      // A mention of a package's name carries no binding: its symbols are not in the graph.
+      expect(nodesOfKind(writes, 'code.mention').every((mention) => mention.properties['parameterBound'] === false)).toBe(true);
     } finally {
       await f.dispose();
     }

@@ -252,7 +252,7 @@ interface Site {
 }
 
 /** One symbol a name resolved to: the fact id the edge's end and the occurrence name. */
-interface ResolvedSymbol {
+export interface ResolvedSymbol {
   readonly id: string;
 }
 
@@ -323,7 +323,7 @@ function symbolsOf(request: ResolutionRequest, path: string): readonly Resolutio
 }
 
 /** The top-level declaration of a set of symbols by its own name (`create`), never a member (`Order.create`). */
-function topLevelSymbol(symbols: readonly ResolutionSymbolRow[], name: string): ResolvedSymbol | undefined {
+export function topLevelSymbol(symbols: readonly ResolutionSymbolRow[], name: string): ResolvedSymbol | undefined {
   const held = symbols
     .filter((symbol) => symbol.qualifiedName === name)
     .sort((left, right) => byCodePoint(left.id, right.id));
@@ -345,7 +345,7 @@ function topLevelSymbol(symbols: readonly ResolutionSymbolRow[], name: string): 
  * temporal dead zone and not another binding — and there the nearest one wins, by
  * the same order.
  */
-function nearestDeclaration(symbols: readonly ResolutionSymbolRow[], mention: ExtractedResolutionMention): ResolvedSymbol | undefined {
+export function nearestDeclaration(symbols: readonly ResolutionSymbolRow[], mention: ExtractedResolutionMention): ResolvedSymbol | undefined {
   const chain = enclosingChain(symbols, mention.span.startLine, mention.span.startColumn);
   const inScope = symbols
     .filter((symbol) => namePartOf(symbol.qualifiedName) === mention.name)
@@ -433,7 +433,7 @@ function startsBefore(range: FactRange, line: number, column: number): boolean {
  * The innermost symbol of a file that holds a place: the smallest declaration
  * whose range contains it, which is the declaration a mention stands in.
  */
-function innermostSymbol(symbols: readonly ResolutionSymbolRow[], line: number, column: number): ResolvedSymbol | undefined {
+export function innermostSymbol(symbols: readonly ResolutionSymbolRow[], line: number, column: number): ResolvedSymbol | undefined {
   const held = symbols
     .filter((symbol) => holds(symbol.range, line, column))
     .sort((left, right) => sizeOf(left.range) - sizeOf(right.range) || byCodePoint(left.id, right.id));
@@ -455,7 +455,7 @@ function sizeOf(range: FactRange): number {
 }
 
 /** The edge kind one use folds into. */
-const EDGE_OF_USE: Readonly<Record<string, 'call' | 'inherits' | 'reference'>> = {
+export const EDGE_OF_USE: Readonly<Record<string, 'call' | 'inherits' | 'reference'>> = {
   call: 'call',
   extends: 'inherits',
   implements: 'inherits',

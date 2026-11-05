@@ -427,8 +427,9 @@ describe('a commit, and what it reruns', () => {
     const agentStages = new Set([OVERVIEW_STAGE_ID, BOUNDARIES_STAGE_ID, DOC_INTENT_STAGE_ID, INTENT_HISTORY_STAGE_ID, UNDERSTANDING_STAGE_ID, RECOVERY_STAGE_ID, NARRATIVE_STAGE_ID]);
     expect((first?.units ?? []).filter((unit) => agentStages.has(unit.stageId))).toEqual([]);
 
-    // A second run with no change plans no unit for the static three: the graph answers the same tree. The
-    // later stages whose pin did not move are inherited.
+    // A second run with no change plans no unit for the static four: the graph answers the same tree,
+    // and the resolution's own coverage says what it resolved at that blob. The later stages whose pin
+    // did not move are inherited.
     expect({ state: second?.state, settled: second?.settled }).toEqual({ state: 'succeeded', settled: true });
     expect(reran(second!)).toEqual([]);
     expect((second?.units ?? []).map((unit) => unit.unitId)).toEqual([]);
@@ -437,10 +438,6 @@ describe('a commit, and what it reruns', () => {
       `history/${TRAINING}@${previous}`,
       `modules/modules:${PRODUCT}`,
       `modules/modules:${TRAINING}`,
-      'semantic-resolution/file:training:services/checkout/src/checkout.ts',
-      'semantic-resolution/file:training:services/orders/src/order.go',
-      'semantic-resolution/file:training:services/payments/src/payment.ts',
-      'semantic-resolution/file:training:services/promotions/src/promotions.go',
     ].sort());
   }, 900_000);
 

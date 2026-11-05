@@ -1565,7 +1565,13 @@ async function attemptUnit(
     const trackedStatic: StaticGraphReader | undefined = staticGraph === undefined ? undefined : {
       byKey: async (key, options) => await recordStatic(staticGraphRead({ kind: 'key', value: key, limit: options?.limit ?? 256 }), await staticGraph.byKey(key, options)),
       byGlobalName: async (name, options) => await recordStatic(staticGraphRead({ kind: 'globalName', value: name, limit: options?.limit ?? 256 }), await staticGraph.byGlobalName(name, options)),
-      neighbourhood: async (nodeId, options) => await recordStatic(staticGraphRead({ kind: 'neighbourhood', value: nodeId, limit: options.limit ?? 256, relations: options.relations, direction: options.direction }), await staticGraph.neighbourhood(nodeId, options)),
+      neighbourhood: async (nodeId, options) => {
+        const text = staticGraphRead({ kind: 'neighbourhood', value: nodeId, limit: options.limit ?? 256, relations: options.relations, direction: options.direction, ...(options.after === undefined ? {} : { after: options.after }) });
+        const answered = await staticGraph.neighbourhood(nodeId, options);
+        // A page's rows are its membership: the cursor it answers is the query the next page names,
+        // and the page after the last one is the empty page a later mention would land on.
+        return { rows: await recordStatic(text, answered.rows), next: answered.next };
+      },
     };
     context = {
       unit: { id: plan.stageUnitId, scope: plan.scope },

@@ -17,6 +17,7 @@ import { PUBLISHED_REPOSITORY_READ, PUBLISHED_UNFILED_READ, type PublishedReposi
 import { PUBLISHED_CONTAINMENT_READ, type PublishedContainmentRow } from './inventory.js';
 import { STATIC_GRAPH_READ, staticNodeOf } from './static-context.js';
 import { PUBLISHED_COVERAGE_READ, type PublishedCoverageRow } from './syntax.js';
+import { PUBLISHED_RESOLVED_READ, type PublishedResolvedRow } from './semantic-resolution.js';
 import { PUBLISHED_GAPS_READ } from './syntax-specifiers.js';
 import { PUBLISHED_IMPORTS_READ, type PublishedGapRow, type PublishedImportRow } from './syntax-specifiers.js';
 import { PUBLISHED_TREE_READ, type PublishedTreeRow } from './tree-rows.js';
@@ -63,19 +64,25 @@ export function createStaticStageReadReader(store: GraphStore, executor?: QueryE
   return {
     async query(text: string): Promise<readonly unknown[]> {
       const document = JSON.parse(text) as { readonly read?: unknown; readonly repository?: unknown };
-      if (typeof document.read !== 'string' || typeof document.repository !== 'string' || document.repository.trim() === '') {
+      // A unit's own bounded read names no repository: it asks by a key, a global name or a
+      // node, and each of those is one answer of one file (decision 0033, item 5). Every
+      // other read of a static stage's plan is one repository's.
+      if (typeof document.read !== 'string' || (document.read !== STATIC_GRAPH_READ && (typeof document.repository !== 'string' || document.repository.trim() === ''))) {
         throw new Error(`the static stage asked the read ${JSON.stringify(text)}, and a static read is a JSON document naming its read and the repository it was made for (src/fill/stages/static-reads.ts)`);
       }
-      const repository = document.repository;
+      const repository = typeof document.repository === 'string' ? document.repository : '';
       switch (document.read) {
         case STATIC_GRAPH_READ: {
           // A bounded read a static unit made through its own context, recorded as the generation's dependency
           // and replayed here inside the publication's transaction. The rows are the context's own shape.
-          const read = document as { readonly kind?: unknown; readonly value?: unknown; readonly limit?: unknown; readonly relations?: unknown; readonly direction?: unknown };
+          const read = document as { readonly kind?: unknown; readonly value?: unknown; readonly limit?: unknown; readonly relations?: unknown; readonly direction?: unknown; readonly after?: unknown };
           if ((read.kind !== 'key' && read.kind !== 'globalName' && read.kind !== 'neighbourhood') || typeof read.value !== 'string' || typeof read.limit !== 'number') {
             throw new Error(`the static stage's recorded read ${JSON.stringify(text)} names no bounded read this reader answers: a read is by key, by global name or by one neighbourhood, with its value and cap (src/fill/stages/static-reads.ts)`);
           }
-          const page = { limit: read.limit };
+          if (read.after !== undefined && typeof read.after !== 'string') {
+            throw new Error(`the static stage's recorded neighbourhood read ${JSON.stringify(text)} names the page cursor ${JSON.stringify(read.after)}, and a cursor is a text (src/fill/stages/static-reads.ts)`);
+          }
+          const page = { limit: read.limit, ...(read.after === undefined ? {} : { after: read.after }) };
           if (read.kind === 'key') return (await store.byKey(read.value, page, transaction)).rows.map(staticNodeOf);
           if (read.kind === 'globalName') return (await store.byGlobalName(read.value, page, transaction)).rows.map(staticNodeOf);
           if (!Array.isArray(read.relations) || read.relations.some((relation) => typeof relation !== 'string') || (read.direction !== 'out' && read.direction !== 'in')) {
@@ -155,6 +162,26 @@ export function createStaticStageReadReader(store: GraphStore, executor?: QueryE
             .map((node): PublishedCoverageRow => ({ kind: 'coverage', file: String(propertiesOf(node)['scope']), blob: String(propertiesOf(node)['blob']) }))
             .sort((left, right) => (left.file < right.file ? -1 : left.file > right.file ? 1 : 0));
         }
+        case PUBLISHED_RESOLVED_READ: {
+          const nodes = await all((page) => store.byProperty('code.coverage', 'repository', repository, { ...page, limit: page.limit ?? PLAN_PAGE }, transaction));
+          const rows: PublishedResolvedRow[] = [];
+          for (const node of nodes) {
+            const held = propertiesOf(node);
+            if (held['factKind'] !== 'coverage') continue;
+            const provenance = held['provenance'];
+            const source = provenance !== null && typeof provenance === 'object' ? (provenance as Record<string, unknown>)['source'] : undefined;
+            const system = source !== null && typeof source === 'object' ? (source as Record<string, unknown>)['system'] : undefined;
+            if (system !== 'madarch-resolution') continue;
+            const file = held['scope'];
+            const blob = held['blob'];
+            const read = held['read'];
+            if (typeof file !== 'string' || typeof blob !== 'string' || !Array.isArray(read)) {
+              throw new Error(`the graph answered the coverage node ${node.nodeId} of ${JSON.stringify(repository)} with no scope, blob or read list: this stage's coverage names the file, the blob it resolved and the files it read (src/fill/stages/static-reads.ts)`);
+            }
+            rows.push({ kind: 'coverage', file, blob, read: read.map((entry) => String(entry)) });
+          }
+          return rows.sort((left, right) => (left.file < right.file ? -1 : left.file > right.file ? 1 : 0));
+        }
         case PUBLISHED_IMPORTS_READ: {
           const rows: PublishedImportRow[] = [];
           const edges = await all((page) => store.edgesByProperty('code.imports', 'repository', repository, { ...page, limit: page.limit ?? PLAN_PAGE }, transaction));
@@ -168,7 +195,7 @@ export function createStaticStageReadReader(store: GraphStore, executor?: QueryE
           return rows.sort((left, right) => (`${left.from}\u0000${left.to}\u0000${left.specifier}` < `${right.from}\u0000${right.to}\u0000${right.specifier}` ? -1 : `${left.from}\u0000${left.to}\u0000${left.specifier}` > `${right.from}\u0000${right.to}\u0000${right.specifier}` ? 1 : 0));
         }
         default:
-          throw new Error(`the static stage asked the read ${JSON.stringify(document.read)} for ${JSON.stringify(repository)}, and this reader answers ${PUBLISHED_TREE_READ}, ${PUBLISHED_REPOSITORY_READ}, ${PUBLISHED_UNFILED_READ}, ${PUBLISHED_CONTAINMENT_READ}, ${PUBLISHED_COVERAGE_READ}, ${PUBLISHED_GAPS_READ} and ${PUBLISHED_IMPORTS_READ}: a static stage has one reading of the graph (src/fill/stages/static-reads.ts)`);
+          throw new Error(`the static stage asked the read ${JSON.stringify(document.read)} for ${JSON.stringify(repository)}, and this reader answers ${PUBLISHED_TREE_READ}, ${PUBLISHED_REPOSITORY_READ}, ${PUBLISHED_UNFILED_READ}, ${PUBLISHED_CONTAINMENT_READ}, ${PUBLISHED_COVERAGE_READ}, ${PUBLISHED_RESOLVED_READ}, ${PUBLISHED_GAPS_READ} and ${PUBLISHED_IMPORTS_READ}: a static stage has one reading of the graph (src/fill/stages/static-reads.ts)`);
       }
     },
   };

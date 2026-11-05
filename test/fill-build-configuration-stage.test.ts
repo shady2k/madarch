@@ -116,7 +116,7 @@ async function contextFor(unit: StageUnit, answer: (read: string) => readonly un
       unit,
       config: { id: 'test', version: 1, enabled: true, concurrency: 1, limits: DEFAULT_STAGE_LIMITS, config: {} },
       graph,
-      ...(repository === undefined ? {} : { static: staticStageContext(repository, { byKey: async () => [], byGlobalName: async () => [], neighbourhood: async () => [] }) }),
+      ...(repository === undefined ? {} : { static: staticStageContext(repository, { byKey: async () => [], byGlobalName: async () => [], neighbourhood: async () => ({ rows: [], next: null }) }) }),
       draft: {
         write: (entry: StageDraftWrite) => { recorder.writes.push(entry); },
         writes: () => ({ writes: recorder.writes }),
@@ -244,6 +244,8 @@ describe('the stage is registered', () => {
         { from: 'syntax', to: 'modules', via: 'import' },
         { from: 'syntax', to: 'modules', via: 'symbol' },
         { from: 'syntax', to: 'semantic-resolution', via: 'import' },
+        // The names the file pass writes are what the resolution stage resolves (decision 0033, item 14).
+        { from: 'syntax', to: 'semantic-resolution', via: 'mention' },
         { from: 'syntax', to: 'semantic-resolution', via: 'symbol' },
       ]);
       expect(registry.get(BUILD_CONFIGURATION_STAGE_ID)?.produces.map((produced) => produced.kind)).toEqual([

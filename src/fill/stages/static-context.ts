@@ -87,14 +87,29 @@ export interface StaticGraphNode {
   readonly scope: string;
 }
 
+/**
+ * One page of a graph read: the rows it answered, in node id order, and the
+ * cursor that asks for the next page — `null` where this page is the last.
+ */
+interface StaticGraphPage {
+  readonly rows: readonly StaticGraphNode[];
+  readonly next: string | null;
+}
+
 /** How a static stage reads the graph: three bounded questions, each answered as one page or refused. */
 export interface StaticGraphReader {
   /** The nodes whose current version carries this `recordKey`. */
   byKey(key: string, options?: { readonly limit?: number }): Promise<readonly StaticGraphNode[]>;
   /** The symbols whose global name is this name. */
   byGlobalName(name: string, options?: { readonly limit?: number }): Promise<readonly StaticGraphNode[]>;
-  /** One bounded page of the nodes reachable from `nodeId` through `relations`. */
-  neighbourhood(nodeId: string, options: { readonly relations: readonly string[]; readonly direction: 'out' | 'in'; readonly limit?: number }): Promise<readonly StaticGraphNode[]>;
+  /**
+   * One bounded page of the nodes reachable from `nodeId` through `relations`,
+   * from `after` on, with the cursor of the page after it. A list longer than
+   * one page is read page by page, each page its own bounded query: a file
+   * mentions as many names as its bytes hold, the cap bounds one answer, and
+   * no page is wider than the cap whatever it points at.
+   */
+  neighbourhood(nodeId: string, options: { readonly relations: readonly string[]; readonly direction: 'out' | 'in'; readonly limit?: number; readonly after?: string }): Promise<StaticGraphPage>;
 }
 
 /** What one static unit's context holds: its repository, its graph reads, and nothing wider. */
@@ -162,7 +177,7 @@ function staticReadLimit(limit: number | undefined): number {
 export const STATIC_GRAPH_READ = 'stage-static-graph';
 
 /** The text one bounded static graph read is recorded and rechecked under. */
-export function staticGraphRead(input: { readonly kind: 'key' | 'globalName' | 'neighbourhood'; readonly value: string; readonly limit: number; readonly relations?: readonly string[]; readonly direction?: 'out' | 'in' }): string {
+export function staticGraphRead(input: { readonly kind: 'key' | 'globalName' | 'neighbourhood'; readonly value: string; readonly limit: number; readonly relations?: readonly string[]; readonly direction?: 'out' | 'in'; readonly after?: string }): string {
   return JSON.stringify({ read: STATIC_GRAPH_READ, ...input });
 }
 
@@ -198,10 +213,15 @@ export function staticGraphReaderOf(store: Pick<GraphStore, 'byKey' | 'byGlobalN
       if (name.trim() === '') throw new Error('a global name is a non-empty name: the symbol a static stage resolves by an empty name names nothing (src/fill/stages/static-context.ts)');
       return await page(store.byGlobalName(name, { limit }), limit, `read by global name ${JSON.stringify(name)}`);
     },
-    async neighbourhood(nodeId: string, options: { readonly relations: readonly string[]; readonly direction: 'out' | 'in'; readonly limit?: number }): Promise<readonly StaticGraphNode[]> {
+    async neighbourhood(nodeId: string, options: { readonly relations: readonly string[]; readonly direction: 'out' | 'in'; readonly limit?: number; readonly after?: string }): Promise<StaticGraphPage> {
       const limit = staticReadLimit(options.limit);
       if (options.relations.length === 0) throw new Error('a neighbourhood names the relations it follows: a traversal of no relation reaches nothing (src/fill/stages/static-context.ts)');
-      return await page(store.neighbourhood(nodeId, options.relations, options.direction, { limit }), limit, `neighbourhood of ${JSON.stringify(nodeId)}`);
+      const asked = options.after === undefined ? { limit } : { limit, after: options.after };
+      const answered = await store.neighbourhood(nodeId, options.relations, options.direction, asked);
+      if (answered.rows.length > limit) {
+        throw new Error(`the static stage's neighbourhood of ${JSON.stringify(nodeId)} answered more than ${String(limit)} nodes: a static stage reads a bounded answer, never a repository-wide one (decision 0033; src/fill/stages/static-context.ts)`);
+      }
+      return { rows: answered.rows.map(staticNodeOf), next: answered.next };
     },
   };
 }
@@ -232,10 +252,11 @@ export function staticStageContext(repository: StaticStageSource, graph: StaticG
       if (name.trim() === '') throw new Error('a global name is a non-empty name: the symbol a static stage resolves by an empty name names nothing (src/fill/stages/static-context.ts)');
       return await bounded(await graph.byGlobalName(name, { limit }), limit, `by global name ${JSON.stringify(name)}`);
     },
-    async neighbourhood(nodeId: string, options: { readonly relations: readonly string[]; readonly direction: 'out' | 'in'; readonly limit?: number }): Promise<readonly StaticGraphNode[]> {
+    async neighbourhood(nodeId: string, options: { readonly relations: readonly string[]; readonly direction: 'out' | 'in'; readonly limit?: number; readonly after?: string }): Promise<StaticGraphPage> {
       const limit = staticReadLimit(options.limit);
       if (options.relations.length === 0) throw new Error('a neighbourhood names the relations it follows: a traversal of no relation reaches nothing (src/fill/stages/static-context.ts)');
-      return await bounded(await graph.neighbourhood(nodeId, { ...options, limit }), limit, `neighbourhood of ${JSON.stringify(nodeId)}`);
+      const answered = await graph.neighbourhood(nodeId, { ...options, limit });
+      return await bounded(answered.rows, limit, `neighbourhood of ${JSON.stringify(nodeId)}`).then((rows) => ({ rows, next: answered.next }));
     },
   };
 }

@@ -118,17 +118,6 @@ export async function extractFileResolution(path: string, bytes: Uint8Array): Pr
 }
 
 /**
- * What a file this reader did not read has: nothing bound, nothing mentioned,
- * and the gap that says why. A caller that knows the file's bytes are not
- * source text — a symbolic link holds the path it points at, a submodule stands
- * in another repository — uses this to publish the file's coverage without
- * pretending it was read.
- */
-export function unreadFileResolution(path: string, reason: CoverageGap['reason']): ExtractedFileResolution {
-  return { path, language: null, parsed: false, imports: [], mentions: [], unread: [{ what: path, reason }] };
-}
-
-/**
  * What one parsed file binds and mentions. The two passes over the tree are
  * deliberate: the second has to know which names are namespace bindings before
  * it can read `ns.name` as one mention of `name`.

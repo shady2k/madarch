@@ -55,7 +55,7 @@ export const INVENTORY_STAGE_VERSION = 2;
 export const INVENTORY_STAGE_KINDS: readonly string[] = ['contains'];
 
 // The tree read lives in one module the three static stages share.
-export { PUBLISHED_TREE_READ, publishedTreeRead, publishedTreeRows, type PublishedTreeRow } from './tree-rows.js';
+export { PUBLISHED_TREE_READ, publishedTreeRead, publishedTreeRows } from './tree-rows.js';
 
 /** The read the inventory's plan makes of its own containment edges. */
 export const PUBLISHED_CONTAINMENT_READ = 'stage-1-published-containment';

@@ -53,11 +53,19 @@ const EDGE_RELATION: Partial<Record<FactKind, string>> = {
  * one that the store already knows changes nothing.
  */
 export const CODE_GRAPH_VOCABULARY: { readonly kinds: readonly string[]; readonly relations: readonly { readonly key: string; readonly positioned?: boolean }[] } = {
-  kinds: ['code.comment', 'code.commit', 'code.coverage', 'code.directory', 'code.entry-point', 'code.file', 'code.repository', 'code.symbol', 'code.test'],
+  kinds: [
+    'code.comment', 'code.commit', 'code.coverage', 'code.directory', 'code.entry-point', 'code.file',
+    // The names a file mentions, as the file pass writes them (decision 0033, item 14;
+    // `mention-graph.ts`), beside the symbols they may name.
+    'code.mention', 'code.repository', 'code.symbol', 'code.test',
+  ],
   relations: [
     { key: 'code.contains' },
     { key: 'code.imports' },
+    { key: 'code.mentions' },
     { key: 'code.occurrence', positioned: true },
+    // What the resolution stage folds a mention into (decision 0026's stage 4).
+    { key: 'code.references' },
   ],
 };
 
