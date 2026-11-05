@@ -11,12 +11,15 @@
  * page read runs Git.
  */
 import type { GraphEntity } from './graph-read.js';
+import { HISTORY_SHAPES, type HistoryShape } from './kinds.js';
 import type { Block, HistoryFigure, HistoryNote, HistoryRow, HistorySection } from './model.js';
 import { refOfGraph, type RenderContext, type Subject } from './blocks.js';
 import { projectHistory, projectHistoryAcross } from './history-evidence.js';
 
-/** The kinds the history block tells the story of. */
-export const HISTORY_KINDS: ReadonlySet<string> = new Set(['code.task', 'code.commit', 'code.author', 'code.repository', 'code.file', 'code.module', 'code.service', 'code.package']);
+/** The shape of the history page a kind declares (`history:` of its declaration), or none. */
+function historyShapeOf(ctx: RenderContext, kind: string): HistoryShape | undefined {
+  return ctx.manifest.kinds.get(kind)?.history;
+}
 
 /**
  * The kinds of list the block can build, in the order it builds them. A template asks for the ones it wants with
@@ -126,7 +129,8 @@ export async function historyBlock(ctx: RenderContext, subject: Subject, params:
   const more = moreOf(ctx, params, lang);
   if (typeof more === 'string') return { type: 'problem', block: 'history', file, line, message: more };
   if (subject.source !== 'graph') {
-    if (subject.source !== 'markdown' || subject.entity.kind !== 'product') return { type: 'problem', block: 'history', file, line, message: `${ctx.productFolder}/${file}:${line}: the history block reads indexed repository evidence, not this ${subject.entity.kind} page` };
+    // A Markdown page's story is every repository of the product, when its kind declares that shape.
+    if (subject.source !== 'markdown' || historyShapeOf(ctx, subject.entity.kind) !== 'repositories') return { type: 'problem', block: 'history', file, line, message: `${ctx.productFolder}/${file}:${line}: the history block reads indexed repository evidence, and the manifest ${ctx.manifest.file} declares no "history: repositories" for the kind ${subject.entity.kind} of this page` };
     const repositories = await ctx.graph.repositories();
     // The rest of a product's home page is bounded once, across all its repositories (madarch-ztyq.7): twenty
     // repositories cannot turn a five-row budget into twenty summaries and a hundred hotspots. One repository keeps
@@ -141,14 +145,15 @@ export async function historyBlock(ctx: RenderContext, subject: Subject, params:
     return { type: 'history', title, sections: kept, notes, ...(more === undefined ? {} : { more }) };
   }
   const entity = subject.entity;
-  let built = entity.kind === 'code.task' ? await taskRows(ctx, entity, limit) : entity.kind === 'code.commit' ? await commitRows(ctx, entity, limit) : undefined;
-  if (HISTORY_KINDS.has(entity.kind) && entity.kind !== 'code.task') {
-    const projected = projectHistory(await ctx.graph.historyEvidence(entity.scope), entity, limit, (one) => refOfGraph(ctx, one));
-    built = { sections: [...(built?.sections ?? []), ...projected.sections], notes: [...(built?.notes ?? []), ...projected.notes] };
+  const shape = historyShapeOf(ctx, entity.kind);
+  if (shape === undefined) {
+    return { type: 'problem', block: 'history', file, line, message: `the history block tells the story of a kind whose declaration names it ("history: ${HISTORY_SHAPES.join(' | ')}"), and the manifest ${ctx.manifest.file} declares none for the kind ${entity.kind}: use the related block for its relations` };
   }
-  if (built === undefined) {
-    return { type: 'problem', block: 'history', file, line, message: `the history block tells the story of a task, a commit or an author, and this page is a ${entity.kind}: use the related block for its relations` };
-  }
+  // A task's story is the commits that name it, and a commit's own rows (the files it changed) stand before its
+  // projection; every other shape is the projection alone.
+  const rows = shape === 'task' ? await taskRows(ctx, entity, limit) : shape === 'commit' ? await commitRows(ctx, entity, limit) : { sections: [], notes: [] };
+  const projected = shape === 'task' ? { sections: [], notes: [] } : projectHistory(await ctx.graph.historyEvidence(entity.scope), entity, shape, limit, (one) => refOfGraph(ctx, one));
+  const built: { sections: HistorySection[]; notes: HistoryNote[] } = { sections: [...rows.sections, ...projected.sections], notes: [...rows.notes, ...projected.notes] };
   const kept = keptSections(built.sections, params['sections']);
   if (typeof kept === 'string') return { type: 'problem', block: 'history', file, line, message: kept };
   return { type: 'history', title, sections: kept, notes: built.notes, ...(more === undefined ? {} : { more }) };

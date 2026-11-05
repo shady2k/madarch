@@ -75,14 +75,15 @@ test('real indexed root-package contributions and Go module imports survive the 
     });
     const reference = (one: GraphEntity) => ({ id: one.key, kind: one.kind, label: one.label, href: `/k/e?id=${encodeURIComponent(one.key)}` });
     for (const container of [rootPackage, module]) {
-      const history = projectHistory(evidence, container, 50, reference);
+      // A container's story is the membership shape the starter kind declares.
+      const history = projectHistory(evidence, container, 'membership', 50, reference);
       const contribution = history.sections.find((one) => one.role === 'commits');
       expect(contribution?.total).toBe(2);
       expect(contribution?.rows.map((one) => one.entity?.id).sort()).toEqual(commits.map((hash) => `code.commit:${hash}`).sort());
       expect(history.sections.find((one) => one.role === 'authors')?.rows[0]?.figures).toEqual([{ kind: 'commits', value: '2' }]);
       expect(history.notes.map((one) => one.key)).not.toContain('membershipCoverage');
     }
-    const sourceHistory = projectHistory(evidence, source, 50, reference);
+    const sourceHistory = projectHistory(evidence, source, 'path', 50, reference);
     expect(sourceHistory.sections.find((one) => one.role === 'commits')?.total).toBe(2);
     const coupling = sourceHistory.sections.find((one) => one.role === 'coupling')?.rows.find((one) => one.entity?.id === target.key);
     expect(coupling?.figures).toEqual([{ kind: 'both', value: '2' }, { kind: 'onlyThis', value: '0' }, { kind: 'onlyOther', value: '0' }]);

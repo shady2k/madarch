@@ -21,11 +21,14 @@ const CARD_GROUPS = 4;
 const CARD_ROWS = 5;
 
 /**
- * The graph kinds that are things of the system, not code: a ground on one of them is a card of the entity (its
- * name, kind, facts, what it is related to and its page), not the lines of the manifest it was read from. Functions,
- * classes, files and routes keep the code excerpt.
+ * Whether a ground on an entity of this kind is a card of the entity (its name, kind, facts, what it is related to and
+ * its page) rather than the lines it was read from. The product decides it: a kind whose declaration says `card: true`
+ * gets the card, and every other kind — a function, a class, a file, a route — keeps the code excerpt. The engine names
+ * no kind (decision 0033's owner rule: the engine holds no product data).
  */
-const CARD_KINDS: ReadonlySet<string> = new Set(['code.service', 'code.package', 'code.database', 'code.table', 'code.channel', 'code.contract', 'code.message', 'code.operation']);
+function cardKind(ctx: RenderContext, kind: string): boolean {
+  return ctx.manifest.kinds.get(kind)?.card === true;
+}
 
 async function entityCard(ctx: RenderContext, entity: GraphEntity): Promise<Excerpt> {
   const subject = { source: 'graph' as const, entity };
@@ -89,7 +92,7 @@ async function groundOf(ctx: RenderContext, url: string): Promise<GroundView> {
     }
     if (ctx.markdown.has(resolution.entity)) return { url, resolution, excerpt: null };
     const [entity] = await ctx.graph.find(resolution.entity);
-    if (entity !== undefined && CARD_KINDS.has(entity.kind)) return { url, resolution, excerpt: await entityCard(ctx, entity) };
+    if (entity !== undefined && cardKind(ctx, entity.kind)) return { url, resolution, excerpt: await entityCard(ctx, entity) };
     if (entity !== undefined && resolution.location !== undefined) return { url, resolution, excerpt: await codeExcerpt(ctx, entity, resolution.location) };
     if (entity !== undefined && typeof entity.properties['path'] === 'string') {
       const repo = ctx.repoOfScope(entity.scope) ?? null;

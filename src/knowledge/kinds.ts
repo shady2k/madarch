@@ -15,6 +15,8 @@
  *     source: graph
  *     title: label                 # the attribute that names a page; `label` by default
  *     attributes: [language]       # optional: the attributes a template may name
+ *     card: true                   # optional: a ground on one of these entities shows its card, not its code
+ *     history: membership          # optional: the shape of the story the history block tells of its entities
  *     labels:                      # optional: the kind's name per interface language
  *       en: { one: Service, many: Services }
  *       ru: { one: Сервис, many: Сервисы }
@@ -156,10 +158,33 @@ export interface KindDecl {
   labels?: Readonly<Record<string, KindLabel>>;
   /** The properties a page of this kind shows, in this order: keys of the manifest's `properties` map. */
   details?: readonly string[];
+  /**
+   * A ground on one of this kind's entities shows a card of the entity — its facts, what it is related to and the way
+   * to its page — rather than the code it was read from (`card: true`).
+   */
+  card?: true;
+  /** The shape of the story the history block tells of this kind's entities (`history:`); none when absent. */
+  history?: HistoryShape;
   /** The kind is a member of another entity's page and has no catalogue page of its own. */
   member?: MemberDecl;
   line: number;
 }
+
+/**
+ * How the history block tells the story of a kind's entities (`history:` of a kind declaration): one of the shapes
+ * the block can project from the graph's history facts. The shape is engine vocabulary, like a block name or a
+ * property format; which kind has which shape is the product's, so no module names a kind to choose one.
+ *
+ * - `repositories`: the whole history of the product's repositories — totals, the files that change most, the authors
+ *   and the snapshots (a product's home page reads it across every repository).
+ * - `author`: the commits one author made, and the files they touched most.
+ * - `path`: the commits of one path, the files that change with it, and the renames it went through.
+ * - `membership`: the commits of the files a container holds, and the authors of those commits.
+ * - `commit`: one commit's parents, its own times, and the branch work only it brought in.
+ * - `task`: the commits whose messages name the task.
+ */
+export const HISTORY_SHAPES = ['repositories', 'author', 'path', 'membership', 'commit', 'task'] as const;
+export type HistoryShape = (typeof HISTORY_SHAPES)[number];
 
 /** A kind's name in one language, as a reader says it of one entity and of several. */
 export interface KindLabel {
@@ -280,10 +305,15 @@ export type KindsRead =
 
 const KIND_KEYS = new Set([
   'template', 'source', 'folder', 'file', 'title', 'attributes', 'relations', 'labels', 'group', 'origin', 'description',
-  'identifier', 'terms', 'headings', 'semantics', 'structure', 'details', 'member',
+  'identifier', 'terms', 'headings', 'semantics', 'structure', 'details', 'member', 'card', 'history',
   // the catalog's row of the kind (decision 0033, items 8 to 10): read when the manifest declares a catalog
   'id', 'definition', 'sources', 'acquisition', 'status', 'relation-constraints', 'template-policy',
 ]);
+
+/** Whether a value is one of the shapes a kind's history page can have. */
+function isHistoryShape(value: unknown): value is HistoryShape {
+  return typeof value === 'string' && (HISTORY_SHAPES as readonly string[]).includes(value);
+}
 
 /** Whether a repository-relative path stays inside the folder: no climbing, not absolute. */
 export function insideFolder(folder: string, path: string): boolean {
@@ -774,7 +804,7 @@ export function parseKinds(text: string, file: string, productFolder: string): K
     }
     const policy = typeof decl['template-policy'] === 'string' ? decl['template-policy'] : 'page';
     if (policy === 'none') {
-      for (const field of ['template', 'source', 'folder', 'file', 'member', 'details'] as const) if (decl[field] !== undefined) catalogProblem([field], `"${field}" belongs to a kind that shows a page, and "template-policy" is "none"`);
+      for (const field of ['template', 'source', 'folder', 'file', 'member', 'details', 'card', 'history'] as const) if (decl[field] !== undefined) catalogProblem([field], `"${field}" belongs to a kind that shows a page, and "template-policy" is "none"`);
       continue;
     }
     const source = decl['source'];
@@ -861,6 +891,10 @@ export function parseKinds(text: string, file: string, productFolder: string): K
         });
       }
     }
+    const card = decl['card'];
+    if (card !== undefined && typeof card !== 'boolean') problem(['card'], `"card" is true or absent: a ground on one of the kind's entities shows its card, and the entity's code is shown when it is absent`);
+    const history = decl['history'];
+    if (history !== undefined && !isHistoryShape(history)) problem(['history'], `"history" is the shape of the story the history block tells of the kind: ${HISTORY_SHAPES.join(', ')}, got ${JSON.stringify(history)}`);
     const details: string[] = [];
     const rawDetails = decl['details'];
     if (rawDetails !== undefined) {
@@ -926,6 +960,8 @@ export function parseKinds(text: string, file: string, productFolder: string): K
       title: typeof title === 'string' ? title : 'label',
       ...(Array.isArray(attributes) ? { attributes: attributes as string[] } : {}),
       ...(details.length > 0 ? { details } : {}),
+      ...(card === true ? { card: true as const } : {}),
+      ...(isHistoryShape(history) ? { history } : {}),
       ...(member === undefined ? {} : { member }),
       relations,
       ...(Object.keys(labels).length > 0 ? { labels } : {}),

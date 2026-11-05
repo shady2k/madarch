@@ -1,6 +1,7 @@
 /** Repository-scoped history projections. Counts use complete indexed evidence before display limits. */
 import { byCodePoint } from '../model/order.js';
 import type { GraphEntity, HistoryEvidence } from './graph-read.js';
+import type { HistoryShape } from './kinds.js';
 import type { HistoryNote, HistoryRow, HistorySection } from './model.js';
 
 export interface HistoryProjection { sections: HistorySection[]; notes: HistoryNote[] }
@@ -23,11 +24,16 @@ export function projectHistoryAcross(evidences: readonly HistoryEvidence[], limi
       if (!edges.has(identity)) edges.set(identity, edge);
     }
   }
-  return projectHistory({ entities: [...entities.values()], edges: [...edges.values()] }, undefined, limit, ref);
+  return projectHistory({ entities: [...entities.values()], edges: [...edges.values()] }, undefined, 'repositories', limit, ref);
 }
 
-/** A projection never reads Git or guesses ownership, causality, or data absent from its evidence. */
-export function projectHistory(evidence: HistoryEvidence, subject: GraphEntity | undefined, limit: number, ref: Ref): HistoryProjection {
+/**
+ * A projection never reads Git or guesses ownership, causality, or data absent from its evidence. `shape` is the story
+ * the entity's kind declares (`history:` of its declaration): the entity's kind chooses no branch here, and the kinds
+ * the evidence holds — commits, files, authors, snapshots — are the history extractor's own vocabulary (decision 0033,
+ * item 7), read as facts.
+ */
+export function projectHistory(evidence: HistoryEvidence, subject: GraphEntity | undefined, shape: HistoryShape, limit: number, ref: Ref): HistoryProjection {
   const entities = new Map(evidence.entities.map((entity) => [entity.key, entity]));
   const commits = evidence.entities.filter((entity) => entity.kind === 'code.commit');
   const nonMerge = new Set(commits.filter((commit) => commit.properties['merge'] !== true).map((commit) => commit.key));
@@ -89,7 +95,7 @@ export function projectHistory(evidence: HistoryEvidence, subject: GraphEntity |
     .sort((a, b) => byCodePoint(instant(b.properties['effectiveAt']), instant(a.properties['effectiveAt'])) || byCodePoint(a.key, b.key))
     .map((commit) => ({ ...row(commit), when: day(commit.properties['effectiveAt']), ...(entities.get(authorOf.get(commit.key) ?? '') === undefined ? {} : { who: entities.get(authorOf.get(commit.key)!)!.label }) }));
 
-  if (subject === undefined || subject.kind === 'code.repository') {
+  if (shape === 'repositories') {
     const dates = commits.map((commit) => day(commit.properties['effectiveAt'])).filter(Boolean).sort(byCodePoint);
     sections.push({ role: 'summary', total: 1, rows: [{ text: '', figures: [
       { kind: 'reachable', value: String(commits.length) },
@@ -108,7 +114,10 @@ export function projectHistory(evidence: HistoryEvidence, subject: GraphEntity |
     return { sections, notes };
   }
 
-  if (subject.kind === 'code.author') {
+  // Every other story is told of one entity: the caller read the shape from that entity's kind.
+  if (subject === undefined) throw new Error(`src/knowledge/history-evidence.ts: the history story "${shape}" was asked for without the entity it tells about`);
+
+  if (shape === 'author') {
     const changes = new Set([...authorOf].filter(([, author]) => author === subject.key).map(([commit]) => commit));
     section('commits', commitRows(changes));
     section('files', [...touched].map(([key, all]) => ({ key, count: [...all].filter((commit) => changes.has(commit)).length }))
@@ -118,7 +127,7 @@ export function projectHistory(evidence: HistoryEvidence, subject: GraphEntity |
     return { sections, notes };
   }
 
-  if (subject.kind === 'code.file') {
+  if (shape === 'path') {
     const identity = root(subject.key);
     const own = touched.get(identity) ?? new Set<string>();
     section('commits', commitRows(own));
@@ -156,7 +165,7 @@ export function projectHistory(evidence: HistoryEvidence, subject: GraphEntity |
     return { sections, notes };
   }
 
-  if (subject.kind === 'code.module' || subject.kind === 'code.service' || subject.kind === 'code.package') {
+  if (shape === 'membership') {
     const changes = new Set<string>();
     const members = membership(subject.key);
     for (const file of members.files) for (const commit of touched.get(root(file)) ?? []) changes.add(commit);
@@ -169,7 +178,7 @@ export function projectHistory(evidence: HistoryEvidence, subject: GraphEntity |
     return { sections, notes };
   }
 
-  if (subject.kind === 'code.commit') {
+  if (shape === 'commit') {
     const parents = edges.filter((edge) => edge.from === subject.key && edge.relation === 'code.parent').sort((a, b) => Number(a.properties['position']) - Number(b.properties['position']));
     section('parents', parents.flatMap((edge) => { const parent = entities.get(edge.to); return parent === undefined ? [] : [row(parent)]; }));
     sections.push({ role: 'summary', total: 1, rows: [{ text: '', figures: (['authoredAt', 'committedAt', 'effectiveAt'] as const).flatMap((kind) => typeof subject.properties[kind] === 'string' ? [{ kind, value: String(subject.properties[kind]) }] : []) }] });
