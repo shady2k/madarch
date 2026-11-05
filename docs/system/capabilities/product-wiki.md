@@ -731,3 +731,271 @@ as one JSON object.
 - Given: a machine on which one agent's ACP adapter is installed and another's is not
 - When: the probe runs
 - Then: the installed adapter is reported connected with the protocol version and agent identity its `initialize` answer carried, the missing one is reported with the command that installs it and that command's unpacked size, and no prompt was sent to either
+
+## Requirement: catalog — The starter set holds the whole entity catalog, and a check validates it
+The starter set `madarch new` writes shall hold the product's whole entity
+catalog in `madarch/kinds.yaml`: two levels, an area and a subgroup of at most
+about twelve kinds, and for every kind of the product's life cycle its concept
+id, its definition, the sources it was taken from as addresses a person can
+read, the ways it can be acquired (an extractor's mark, a document, a
+conversation, an agent from the graph, a live system, or not implemented), its
+implementation status, the relation constraints it may carry and its template
+policy. The manifest declares the catalog's schema — the bound of a subgroup,
+the origin marks, the statuses, the template policies, the values that are
+attributes and the relation names — and the engine holds no area, kind or id
+of its own. Every area and subgroup also declares a short label for the
+navigation in both interface languages, one or two words that fit the sidebar's
+column, beside its full name, which a page and the catalogue keep.
+
+One concept has one kind: a concept two areas share stands in one subgroup and
+the other refers to it, and distinct senses stay distinct. A value such as a
+version, a coverage, an RTO, a sunset date or an error budget is an attribute of
+a kind, not a kind. Relation names are the standards' own where they exist,
+and a relation reads in the standard's direction; the mapping that ties the
+extractors' vocabulary to the catalog says which way each extractor's edge runs.
+
+A mechanical check, run by `bun run check` over the starter set and by the
+wiki's own read of a product's manifest, shall refuse a kind that leaves a
+field out, a subgroup above its bound, two kinds for one concept id, a value
+the catalog marks as an attribute declared as a kind, an area, a subgroup or an
+origin mark the manifest does not declare, and a group without a short label or
+one longer than the sidebar holds. Every refusal shall name the file, the line
+and the kind (or the group), and one defect shall be one finding: the reader
+that owns a defect reports it, and the others do not repeat it.
+
+A kind whose template policy is `none` is catalogue data only: the wiki shows
+no page and no template for it, and the kinds the wiki shows today are shown
+as they were.
+
+### Scenario: starter-set-catalog
+- Given: a product made by `madarch new`
+- When: its `madarch/kinds.yaml` is read
+- Then: every area and subgroup of the catalog is declared with its full name and its short navigation label, and every kind holds its id, definition, sources, acquisition, status, relation constraints and template policy
+
+### Scenario: catalog-refusals
+- Given: a starter manifest with a kind that leaves its status out, a subgroup holding thirteen kinds, two kinds of one concept id, a kind whose id is an attribute, a kind whose group, area or origin mark the manifest does not declare, and a group whose short label is missing or too long
+- When: the catalog is checked
+- Then: each is refused with the file, the line and the kind (or the group), and the check exits 1
+
+### Scenario: catalogue-only-kind
+- Given: a kind the catalog declares with the template policy `none`
+- When: the product's wiki is served
+- Then: the kind is in the catalog and shows no page, and no template is written for it
+
+## Requirement: extractor-mapping — The extractors' vocabulary is tied to the catalog, and an unmapped key is refused
+The starter set `madarch new` writes shall hold a versioned mapping of the
+extractors' vocabulary to the catalog: every node kind and relation type the
+extractors emit, tied to a catalog kind or to one of the catalog's relation
+names, or declared internal to extraction with the reason. A tied relation also
+says which way it runs — `same` as the catalog's relation, or `inverse` when the
+extractor reads the edge the other way round. The emitted keys are read from the
+extractors' own declarations, and a record's kind and an edge's type are the
+union of those declarations, so an extractor that emits a key its declaration
+does not hold fails the type check at the emission site; no list in the check
+names a kind.
+
+A mechanical check, run by `bun run check` over the starter set and by the
+wiki's own read of a product's manifest, shall refuse an emitted key with no
+row, a row that ties a key to a kind or a relation the catalog does not hold, a
+row for a key no extractor emits, a tied relation without a direction or with
+one the vocabulary does not know, and a row that is neither a tie nor an
+internal declaration with its reason. Every refusal shall name both the
+extractor's key and the catalog name it was tied to, with the file and the
+line. The starter set passes it, and `bun run check` fails when the manifest has
+no `mapping:` at all. A product that removes a kind changes what it shows and
+walks, never what extraction keeps: the mapping keeps the extractor's key tied
+to what the product declares.
+
+### Scenario: mapping-ties-extractors
+- Given: a product made by `madarch new`
+- When: its `madarch/kinds.yaml` is read
+- Then: its `mapping:` names a version and holds a row for every kind and relation the extractors declare, each tied to the catalog (a relation with its direction) or internal with a reason
+
+### Scenario: mapping-refusals
+- Given: a starter manifest with a row removed, a row tied to a kind the catalog does not hold, a row tied to a relation the catalog does not hold, a tied relation without a direction, and a row for a key no extractor emits
+- When: the mapping is checked
+- Then: each is refused with both names, the file and the line, and the check exits 1; a manifest with no `mapping:` fails as well
+
+### Scenario: mapping-notices-new-keys
+- Given: an extractor whose code emits a kind its vocabulary declaration does not hold
+- When: the code is type-checked, or the mapping is checked against an emitted vocabulary holding it
+- Then: the emission site fails the type check, and the key is refused as emitted and unmapped — no list in the check was edited
+
+## Requirement: pov — Ten roles lead the catalog's areas or subgroups, and an area no role leads is refused
+The starter set `madarch new` writes shall declare the ten reader roles — product,
+analyst, architect, developer, operations, tester, designer, security engineer,
+platform/DevOps and product lead — each with the areas or subgroups of the
+catalog it leads and the blocks of a page it opens. Every area shall be led by
+at least one role, whether the role names the area or one of its subgroups. A
+role is the product's data: the engine keeps no list of roles, the settings the
+reader changes accept the roles the product declares (with "everything" for all
+of them at once), and the role card and the menu offer those roles. The six
+roles a product had keep their meaning: the blocks they open and the groups
+they lead are unchanged.
+
+The starter set opens, by default, the areas that hold the product's own
+knowledge — strategy, requirements, research and development and documentation —
+and places the product's areas before the code's, so a person opening the wiki
+reads that knowledge at once.
+
+A mechanical check, run by `bun run check` over the starter set and by the
+wiki's own read of a product's manifest, shall refuse a role that names an area
+or a subgroup the manifest does not declare, and an area no role leads. Every
+refusal shall name the file, the line and the role (or, for an unled area, the
+area and the roles that exist). The starter set passes it.
+
+### Scenario: ten-roles-lead
+- Given: a product made by `madarch new`
+- When: its `madarch/kinds.yaml` is read
+- Then: its `roles:` declares the ten roles, each `lead` names declared areas or subgroups, and every area of the catalog is led by at least one role
+
+### Scenario: pov-refusals
+- Given: a starter manifest with a role that leads an area nobody declares, and a catalog area no role leads
+- When: the POV is checked
+- Then: each is refused with the file, the line and the role (or the area and the roles), and the check exits 1
+
+### Scenario: pov-is-data
+- Given: a product whose manifest declares a role the engine has no constant for
+- When: the reader opens the role card or asks the settings
+- Then: the role is offered and can be kept, and a role the product does not declare is refused
+
+## Requirement: presentation — A kind's declaration chooses its card and its history page
+
+When a page shows a ground on a graph entity, or a history block, madarch shall choose what it shows from the entity's kind as the product's `madarch/kinds.yaml` declares it, and shall name no kind of its own to make that choice: the engine holds no product data (decision 0033, items 7 and 8).
+
+A kind whose declaration says `card: true` shall show the entity's card where a statement is grounded on it — its name and kind, the facts its `details` name, what it is related to, and the way to its page — in place of the code it was read from. Any other kind, and a kind the manifest does not declare, shall keep the code excerpt.
+
+A kind whose declaration names a history shape — `repositories`, `author`, `path`, `membership`, `commit` or `task` — shall show the history block's story in that shape. A kind whose declaration names none shall show the block's problem, naming the manifest and the kind, instead of an empty page.
+
+A `card` that is not a boolean, and a `history` that is not one of the shapes, shall be refused with a finding naming the file, the line and the kind; the refused kind is left out and every other kind of the manifest stands. Both fields belong to a kind that shows a page: a kind whose template policy is `none` and writes one is a finding.
+
+The starter set `madarch new` writes shall declare `card: true` on the eight kinds that showed a card before — `code.service`, `code.package`, `code.operation`, `code.contract`, `code.channel`, `code.message`, `code.database`, `code.table` — and `history` on the kinds that showed a history page before: `repositories` on `product`, `membership` on `code.service`, `code.package` and `code.module`, `path` on `code.file`, `commit` on `code.commit`, `author` on `code.author`, and `task` on `code.task`. The wiki shall show the pages it showed before.
+
+### Scenario: card-follows-the-declaration
+- Given: a fixture product whose manifest declares `card: true` on a graph kind, and a page whose statement is grounded on an entity of that kind
+- When: the statement is read, the `card` line is removed from the kind, and the statement is read again
+- Then: the ground shows the entity card first, the code lines after the line is removed, and the entity card again when the line is restored
+
+### Scenario: history-follows-the-declaration
+- Given: a fixture product whose manifest declares `history: path` on a graph kind, and a page of that kind with indexed history evidence
+- When: the history block runs, the `history` line is removed from the kind, and the block runs again
+- Then: the block first tells the story in the path shape, then shows its problem naming the manifest and the kind, and tells the story again when the line is restored
+
+### Scenario: presentation-fields-refused
+- Given: a manifest whose kind declares `card: yes` and whose other kind declares `history: sideways`
+- When: the wiki reads the manifest
+- Then: each is one finding naming the file, the line and the kind, with the shapes or the form the field takes, and no other kind is refused
+
+### Scenario: starter-set-keeps-its-pages
+- Given: the starter set `madarch new` writes
+- When: its manifest is read
+- Then: exactly the eight kinds that showed a card before declare `card: true`, exactly the kinds that showed a history page before declare a shape, and every other kind declares neither
+
+## Requirement: views — The views, the listing and the places a kind gets follow its declaration
+
+When a page draws a view of an entity, lists a kind, or places a kind in the navigation, madarch shall choose what it draws from the entity's kind as the product's `madarch/kinds.yaml` declares it, and shall name no kind of its own to make that choice: the engine holds no product data (decision 0033, items 7 and 8).
+
+A kind's declaration shall name the views a page of it may draw — `views` with `c4-component` (the modules of a container and the dependencies between them) and `state` (the transition tables in the bytes of its code) — how the ER view reads its entities (`er: tables`, the tables the entity holds, or `er: links`, the entity as one table and the tables its foreign keys reach), how the end-to-end chain a page draws starts at its entities (`sequence: route` at the entity itself, `sequence: symbol` at the route that reaches it), the part its entities play in the system view (`system: container`, `data-store` or `channel`), what the definition block finds in them (`definition-block: contract`, `operation` or `channel`), the form of its listing page (`listing: operations`) and where it stands in the navigation (`nav: own-page` or `nav: loop`). A kind that declares none of them shall draw none: a view the manifest does not give the kind is a refusal naming the manifest's file and the kind's line, and a listing is the plain table of names and places.
+
+The containment a view reads shall stay the graph's: the tables an entity holds are the tables the data model extractor files under its key, and an entity that holds none shall draw the ER block's «The graph holds no table here.» exactly as it did before the kind's declaration chose the reading.
+
+The two traits the wiki app draws by — the listing's form and the kind's place in the navigation — shall travel in the kind summary the app already receives, so that no screen of the app holds a kind of its own.
+
+Every value shall be refused with a finding naming the file, the line and the kind when it is not one the engine can draw, and the refused kind is left out while every other kind of the manifest stands. Every field belongs to a kind that shows a page: a kind whose template policy is `none` and writes one is a finding.
+
+The extractors' own vocabulary shall stay the engine's (decision 0033, item 7): a view reads the facts the extractors publish — a database's tables, a table's columns and foreign keys, the files an entity's code stands in — and those names are never the product's kinds.
+
+The starter set `madarch new` writes shall declare `views: [c4-component, state]` on `code.service` and `views: [state]` on `code.package`, `code.module`, `code.file` and `code.symbol`; `er: tables` on `code.database` and `er: links` on `code.table`; `sequence: symbol` on `code.symbol` and `sequence: route` on `code.route`; `system: container` on `code.service`, `system: data-store` on `code.database` and `system: channel` on `code.channel`; `definition-block: contract` on `code.contract`, `definition-block: operation` on `code.operation` and `definition-block: channel` on `code.channel`; `listing: operations` on `code.operation`; and `nav: own-page` on `task` and `doc.term`, `nav: loop` on `question` and `correction`. The wiki shall show the pages it showed before.
+
+### Scenario: views-follow-the-declaration
+- Given: a fixture product whose manifest declares `views: [c4-component]` on a graph kind, and a page of one of its entities
+- When: the component view is drawn, the `views` line is removed from the kind, and the view is drawn again
+- Then: the first drawing is the entity's modules, the second is refused with a sentence naming the manifest's file and the kind's line, and the modules are drawn again when the line is restored
+
+### Scenario: er-follows-the-declaration
+- Given: a fixture product whose manifest declares `er: tables` on a database kind and `er: links` on a table kind, with one database, its tables, their columns and a foreign key between two of them
+- When: the ER view of the database is drawn, the `views` lines are removed, and the view is drawn again
+- Then: the database's view is its tables with their columns and the foreign key, the drawing without the declaration is refused, and the tables are drawn again when the lines are restored
+
+### Scenario: er-empty-holds-no-table
+- Given: a fixture product whose manifest declares `er: tables` on a database kind, and a database of the graph that the data model extractor filed no table under
+- When: the ER view of that database is drawn
+- Then: it is the block it was before the declaration chose the reading — no element, no edge, no marker, the sentence «The graph holds no table here.», and the way up to the containers — and a database the graph holds tables under is drawn with them
+
+### Scenario: system-part-follows-the-declaration
+- Given: a fixture product whose manifest declares `system: container` on a graph kind
+- When: the system view, the entity's neighbourhood and its treemap are drawn, and the `system` line is removed
+- Then: the container is drawn, its neighbourhood carries the system view's rows and its treemap covers the folder its code stands in; without the line no container is drawn, no system row is added and the treemap covers every file of the product; restored, all three return
+
+### Scenario: definition-follows-the-declaration
+- Given: a fixture product whose manifest declares `definition-block: contract` on a contract kind and `definition-block: operation` on an operation kind, with a contract that declares one operation
+- When: the definition block is drawn on the contract, the lines are removed, and the block is drawn again
+- Then: the block draws the contract's operation row, the drawing without the declaration is the block's problem naming the manifest's file and the kind's line, and the row is drawn again when the lines are restored
+
+### Scenario: listing-follows-the-declaration
+- Given: a fixture product whose manifest declares `listing: operations` on a graph kind
+- When: the kind's entities are listed, the line is removed, and they are listed again
+- Then: the first listing carries the operations the contracts declare and what serves and calls each one, the second is the plain table of names and places, and the first returns when the line is restored
+
+### Scenario: navigation-follows-the-declaration
+- Given: a fixture product whose manifest declares `nav: own-page` on one kind and `nav: loop` on another
+- When: the wiki's status is read
+- Then: each kind's summary carries the place its declaration names, and a kind whose declaration names none carries none
+
+### Scenario: view-traits-refused
+- Given: a manifest whose kinds declare a view the engine cannot draw, an unknown system part, an unknown sequence form, an unknown definition form, an unknown listing form and an unknown navigation trait
+- When: the wiki reads the manifest
+- Then: each is one finding naming the file, the line and the kind, with the vocabulary the field takes, and no other kind is refused
+
+### Scenario: starter-set-keeps-its-views
+- Given: the starter set `madarch new` writes
+- When: its manifest is read
+- Then: exactly the kinds that drew a component view, an ER view, a state view, a chain, a system part, a definition, an operations listing or a place of the navigation declare it, and every other kind declares none
+
+### Scenario: starter-set-shows-the-same-pages
+- Given: the generated training repository, and a product `madarch new` made from it and filled, at the revision this change starts from and at this one
+- When: every page of the product, every kind's listing, every diagram view each page asks for and every kind's map is rendered at both revisions
+- Then: the pages, the listings, the views, the maps, the findings and the home are the same, and the kind summaries differ only in the listing form and the navigation place this change moves into the manifest
+
+## Requirement: workflows — The starter set declares the four workflows, and a check refuses a missing stage or an input without a producer
+The starter set `madarch new` writes shall declare the product's workflows in
+`madarch/workflows.yaml`, beside the kinds and the POV: the four the engine
+ships — first fill, update by commit, branch/worktree and history point. A
+workflow is a named set of the engine's stage ids; the stages' capabilities give
+the order, so no edge is declared in the file, and a stage is engine code
+referenced by id. A workflow declares its status: an `implemented` workflow
+names stages the engine can run today, and a `planned` one says the engine has
+no stage for it yet, may name no stages, and a stage it names must still be one
+the engine's stage registry holds. The first fill names the stages of the fill
+as the registry holds them today, and every stage a plan reads an input of has a
+producer among the workflow's own stages.
+
+A mechanical check, run by `bun run check` over the starter set and by the
+wiki's own read of a product's manifest, shall refuse a workflow naming a stage
+the engine's stage registry does not hold, and, for an implemented workflow, a
+stage whose required input no other stage of the workflow produces, named by the
+path the stage graph derives (`modules → symbol → syntax`), and a cycle of the
+workflow's stages. Every refusal of a stage shall name the file, the line, the
+workflow and the stage, and a refusal of the file or of a workflow's own fields
+shall name the file, the line and the workflow; one defect shall be one finding,
+and a workflow the reader refuses shall be left out while the others stand. The starter set passes it, and a
+valid workflow is read without a finding.
+
+Declaring, reading and checking a workflow shall change no run: which stages a
+run enables from its workflow, and how a commit, a branch or a history point
+starts a run, is the orchestrator's and lands with later stages.
+
+### Scenario: starter-set-workflows
+- Given: a product made by `madarch new`
+- When: its `madarch/workflows.yaml` is read
+- Then: it holds the four workflows, first fill names the stages the engine's stage registry holds today, and update by commit, branch/worktree and history point are planned with no stages
+
+### Scenario: workflow-refusals
+- Given: a workflows manifest with a stage id the registry does not hold, an implemented workflow whose stage reads an input no stage of the workflow produces, and a cycle of the workflow's stages
+- When: the workflows are checked
+- Then: each is refused with the file, the line, the workflow and the stage, and the check exits 1
+
+### Scenario: workflow-reads
+- Given: a workflows manifest naming stages the registry holds whose required inputs each have a producer among them, and a planned workflow naming no stages
+- When: the workflows are read, by `bun run check` or by the wiki's own read of the product
+- Then: every workflow reads without a finding and the wiki's manifest findings hold none of its own

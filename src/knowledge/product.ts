@@ -2656,17 +2656,20 @@ export class KnowledgeProduct {
 
   /**
    * A stamp of every file the Problems page reads besides the pinned graph: the product's manifest, the kinds manifest,
-   * every template path a declaration names, the files of the Markdown kinds, the product's documents, the questions and
-   * the corrections, and the store's identities and classifications. Status is polled, so the page's count is kept; an
-   * edit of any of these — a manifest a person changed, a document, a question — must change this key, or the menu keeps
-   * a count the page no longer shows (madarch-m38l.24, the review; the template paths and the content hashes are
-   * madarch-u3vw.8).
+   * the workflows manifest, every template path a declaration names, the files of the Markdown kinds, the product's
+   * documents, the questions and the corrections, and the store's identities and classifications. Status is polled, so
+   * the page's count is kept; an edit of any of these — a manifest a person changed, a document, a question — must
+   * change this key, or the menu keeps a count the page no longer shows (madarch-m38l.24, the review; the template
+   * paths and the content hashes are madarch-u3vw.8).
    */
   private problemInputsStamp(): string {
     const folder = this.options.productFolder;
     const parts: string[] = [];
     parts.push(this.contentStamp(join(folder, MANIFEST_FILE)));
     parts.push(this.contentStamp(join(folder, KINDS_FILE)));
+    // The workflows manifest is read beside the kinds manifest, so its findings are the listing's too: an edit of it
+    // must move this key, or the page keeps the listing of the file it no longer holds.
+    parts.push(this.contentStamp(join(folder, WORKFLOWS_FILE)));
     const manifest = this.kindsForStamp(folder);
     if (manifest.present) {
       // Every path a declaration names is stamped, even one whose kind was refused, and the Liquid fallback of a named

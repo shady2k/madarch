@@ -6,6 +6,9 @@
  *
  * The counter wraps the one function that walks the graph, `collectProblems`, so the test counts the walks themselves,
  * not the seconds they took.
+ *
+ * Every file the listing reads is part of that revision, the workflows manifest beside the kinds manifest included: a
+ * workflow's finding appears at the read after the edit and goes at the read after the file is fixed.
  */
 import { afterAll, beforeAll, describe, expect, mock, test } from 'bun:test';
 import { execFileSync } from 'node:child_process';
@@ -30,6 +33,22 @@ mock.module('../src/problems/index.js', () => ({
 
 const env = gitEnv(SAMPLE_IDENTITY);
 const git = (cwd: string, args: string[]): string => execFileSync('git', args, { cwd, env, encoding: 'utf8' });
+
+/** The 1-based line the file writes `text` on. */
+const lineOf = (text: string, needle: string): number => text.split('\n').findIndex((line) => line.trim() === needle) + 1;
+
+/** A workflows manifest with one workflow's stages replaced whole, every other line kept. */
+function stagesOf(text: string, name: string, stages: readonly string[]): string {
+  const lines = text.split('\n');
+  const start = lines.indexOf(`  ${name}:`);
+  expect(start).toBeGreaterThan(-1);
+  const stagesAt = lines.findIndex((line, index) => index > start && line.startsWith('    stages:'));
+  expect(stagesAt).toBeGreaterThan(-1);
+  let end = stagesAt + 1;
+  while (end < lines.length && lines[end]!.startsWith('      ')) end += 1;
+  const written = stages.length === 0 ? ['    stages: []'] : ['    stages:', ...stages.map((stage) => `      - ${stage}`)];
+  return [...lines.slice(0, stagesAt), ...written, ...lines.slice(end)].join('\n');
+}
 
 const SHOP = 'orders-shop';
 const CODE = 'orders-code';
@@ -113,6 +132,29 @@ describe('the count of problems is collected once per revision', () => {
     await new Promise((rest) => setTimeout(rest, 250));
     expect(collections).toBe(1);
   });
+
+  test('an edit of the workflows manifest makes its finding appear at the next read, and fixing the file takes it away', async () => {
+    const file = join(folder, 'madarch', 'workflows.yaml');
+    const original = readFileSync(file, 'utf8');
+    const before = (await get('/api/k/problems')).body;
+    expect(before.problems.some((problem: { reason: string }) => problem.reason.includes('teleport'))).toBe(false);
+
+    // The first fill's stages, one of them a stage the engine's registry does not hold: the finding is the manifest's
+    // own, and the listing read again must be the listing of the file as it stands now.
+    const broken = stagesOf(original, 'first-fill', ['teleport']);
+    writeFileSync(file, broken);
+    const listed = (await get('/api/k/problems')).body;
+    const finding = listed.problems.find((problem: { reason: string }) => problem.reason.includes('teleport')) as { file: string; line: number; reason: string } | undefined;
+    expect(finding).toBeDefined();
+    expect(finding!.file).toBe(file);
+    expect(finding!.line).toBe(lineOf(broken, '- teleport'));
+    expect(finding!.reason.startsWith('workflow "first-fill" stage "teleport": the engine\'s stage registry holds no stage "teleport"')).toBe(true);
+
+    writeFileSync(file, original);
+    const fixed = (await get('/api/k/problems')).body;
+    expect(fixed.problems.some((problem: { reason: string }) => problem.reason.includes('teleport'))).toBe(false);
+    expect(fixed.open).toBe(before.open);
+  }, 60_000);
 
   test('the poll follows an edit of the inputs at once, with the count of the Problems page', async () => {
     const manifest = readFileSync(join(folder, 'madarch', 'kinds.yaml'), 'utf8');
