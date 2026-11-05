@@ -1,11 +1,12 @@
 /**
  * The extractors' vocabulary mapped to the catalog (decision 0033, item 7): the versioned mapping `madarch new`
- * writes into `madarch/kinds.yaml`, tying every node kind and relation type the extractors emit to a catalog kind or
- * relation, or declaring it internal to extraction with the reason. The extractors declare their own vocabulary as
- * data (`src/extract/vocabulary.ts`); this is the product's side of the tie, in code point order of the keys.
+ * writes into `madarch/kinds.yaml`, tying every node kind and relation type the extractors and the fill's static
+ * stages emit to a catalog kind or relation, or declaring it internal to extraction with the reason. The producers
+ * declare their own vocabulary as data (`src/extract/vocabulary.ts`); this is the product's side of the tie, in
+ * code point order of the keys.
  *
- * The keys on this side are the extractors' (`code.symbol`, `code.contains`); the targets are the catalog's
- * (`code.symbol` names the catalog's kind of that name, `contains` the catalog's relation). A key an extractor
+ * The keys on this side are the producers' (`code.symbol`, `code.contains`); the targets are the catalog's
+ * (`code.symbol` names the catalog's kind of that name, `contains` the catalog's relation). A key a producer
  * starts emitting and this mapping does not tie is refused by the catalog's check.
  */
 
@@ -25,27 +26,35 @@ export interface CatalogMappingRow {
   readonly internal?: string;
 }
 
-/** Every node kind the extractors emit, tied to its catalog kind or declared internal. */
+/** Every node kind the extractors and the fill's static stages emit, tied to its catalog kind or declared internal. */
 export const MAPPING_KIND_ROWS: readonly CatalogMappingRow[] = [
   { key: 'code.author', kind: 'code.author' },
+  { key: 'code.binding', internal: 'a name a declaration binds, a reading the operations and data-model readings ask of one file' },
   { key: 'code.broker', kind: 'code.broker' },
+  { key: 'code.call', internal: 'a call site a file writes, a reading the operations, contracts and data-model readings ask' },
   { key: 'code.channel', kind: 'code.channel' },
   { key: 'code.ci-job', kind: 'code.ci-job' },
   { key: 'code.ci-workflow', kind: 'code.ci-workflow' },
   { key: 'code.column', kind: 'code.column' },
+  { key: 'code.comment', internal: 'a comment a file writes, shown on the page of the file it stands in' },
   { key: 'code.commit', kind: 'code.commit' },
   { key: 'code.compose-service', kind: 'code.compose-service' },
   { key: 'code.contract', kind: 'code.contract' },
+  { key: 'code.coverage', internal: 'a stage\'s record of the bytes it read of one file and the gaps it left, shown on the file\'s page' },
   { key: 'code.cycle', kind: 'code.cycle' },
   { key: 'code.database', kind: 'code.database' },
   { key: 'code.debt', kind: 'code.debt' },
   { key: 'code.dependency', kind: 'code.dependency' },
+  { key: 'code.deploy-unit', internal: 'a deployment unit whose form is neither the catalog\'s Dockerfile nor its compose service' },
   { key: 'code.directory', kind: 'code.directory' },
   { key: 'code.dockerfile', kind: 'code.dockerfile' },
+  { key: 'code.document', kind: 'document' },
   { key: 'code.document-section', kind: 'code.document-section' },
   { key: 'code.entry-point', kind: 'code.entry-point' },
   { key: 'code.env-definition', kind: 'code.env-definition' },
   { key: 'code.env-var', kind: 'code.env-var' },
+  { key: 'code.export', internal: 'a name a file exports, which the library-effects reading joins to its imports' },
+  { key: 'code.expression', internal: 'one expression of a file with its literal value, a reading the operations, contracts and data-model readings ask' },
   { key: 'code.facet', internal: 'a reading of one file the wiki shows on the file\'s page, not a kind of the catalog' },
   { key: 'code.field', kind: 'code.field' },
   { key: 'code.file', kind: 'code.file' },
@@ -56,10 +65,13 @@ export const MAPPING_KIND_ROWS: readonly CatalogMappingRow[] = [
   { key: 'code.input', kind: 'code.input' },
   { key: 'code.k8s-deployment', kind: 'code.k8s-deployment' },
   { key: 'code.k8s-service', kind: 'code.k8s-service' },
+  { key: 'code.link-target', internal: 'the target a document\'s link names, kept when the commit holds no node for it' },
+  { key: 'code.listener-port', internal: 'a port a file\'s code listens on, read by the contracts reading as a server\'s port' },
   { key: 'code.lockfile', kind: 'code.lockfile' },
   { key: 'code.logger', kind: 'code.logger' },
   { key: 'code.make-target', kind: 'code.make-target' },
   { key: 'code.manifest', kind: 'code.manifest' },
+  { key: 'code.mention', internal: 'one place a file writes a name, before the resolution reads it against the graph' },
   { key: 'code.message', kind: 'code.message' },
   { key: 'code.metric', kind: 'code.metric' },
   { key: 'code.metrics-endpoint', kind: 'code.metrics-endpoint' },
@@ -73,19 +85,24 @@ export const MAPPING_KIND_ROWS: readonly CatalogMappingRow[] = [
   { key: 'code.port', kind: 'code.port' },
   { key: 'code.probe', kind: 'code.probe' },
   { key: 'code.process', kind: 'code.process' },
+  { key: 'code.rank', internal: 'the importance the modules stage\'s clustering measures about a file or a symbol' },
   { key: 'code.repository', kind: 'code.repository' },
   { key: 'code.route', kind: 'code.route' },
   { key: 'code.service', kind: 'code.service' },
+  { key: 'code.service-unit', internal: 'the unit a file belongs to, read by the operations and contracts readings as the file\'s service' },
   { key: 'code.snapshot', kind: 'code.snapshot' },
   { key: 'code.sql-build', kind: 'code.sql-build' },
   { key: 'code.sql-sink', kind: 'code.sql-sink' },
+  { key: 'code.state', kind: 'state' },
+  { key: 'code.state-machine', kind: 'state-machine' },
   { key: 'code.symbol', kind: 'code.symbol' },
   { key: 'code.table', kind: 'code.table' },
   { key: 'code.task', kind: 'code.task' },
+  { key: 'code.test', kind: 'code.test-case' },
   { key: 'code.test-case', kind: 'code.test-case' },
 ];
 
-/** Every relation type the extractors emit, tied to the catalog's relation or declared internal. */
+/** Every relation type the extractors and the fill's static stages emit, tied to the catalog's relation or declared internal. */
 export const MAPPING_RELATION_ROWS: readonly CatalogMappingRow[] = [
   { key: 'code.alters', internal: 'a migration\'s change to a table or a column: schema history, not an intent the catalog names' },
   { key: 'code.authored', internal: 'the author of a commit, a fact of the history the wiki shows on the commit\'s page' },
@@ -109,8 +126,10 @@ export const MAPPING_RELATION_ROWS: readonly CatalogMappingRow[] = [
   { key: 'code.declares-dependency', relation: 'dependsOn', direction: 'same' },
   { key: 'code.defined-in', internal: 'where an environment variable is given a value' },
   { key: 'code.defines', relation: 'configures', direction: 'same' },
+  { key: 'code.dependency', relation: 'dependsOn', direction: 'same' },
   { key: 'code.depends-on', relation: 'dependsOn', direction: 'same' },
   { key: 'code.describes-file', internal: 'a facet describes the file it was read from; the file page shows it' },
+  { key: 'code.document-link', internal: 'a link a document writes to another document or to an address, shown on the document\'s page' },
   { key: 'code.exposes', internal: 'a workload or an image exposes a port' },
   { key: 'code.exposes-metric', internal: 'an endpoint that exposes a metric the code declares' },
   { key: 'code.facet-of', internal: 'a facet is a reading of one node, shown on that node\'s page' },
@@ -126,6 +145,7 @@ export const MAPPING_RELATION_ROWS: readonly CatalogMappingRow[] = [
   { key: 'code.listens-on', internal: 'the port a process listens on' },
   { key: 'code.logical-reference', internal: 'a column the code names without a declared foreign key' },
   { key: 'code.manifest-of', relation: 'hasDependencyManifest', direction: 'inverse' },
+  { key: 'code.mentions', internal: 'a file writes a name at one place, the mention the resolution stage reads' },
   { key: 'code.occurrence', internal: 'one positioned site where a name is read or written' },
   { key: 'code.parent', internal: 'a commit\'s parent in the first-parent history' },
   { key: 'code.probes', relation: 'monitors', direction: 'same' },
@@ -144,6 +164,7 @@ export const MAPPING_RELATION_ROWS: readonly CatalogMappingRow[] = [
   { key: 'code.tasks', internal: 'a commit message names a tracker task' },
   { key: 'code.tests', relation: 'hasTest', direction: 'inverse' },
   { key: 'code.touched', internal: 'a commit\'s change to a file, a fact of the history the wiki shows on the commit\'s page' },
+  { key: 'code.transitions', internal: 'the state a state machine\'s move enters, drawn as the transition it is' },
   { key: 'code.updates-metric', internal: 'the code that updates a metric, an instrumentation fact' },
   { key: 'code.uses-database', relation: 'uses', direction: 'same' },
   { key: 'code.uses-dependency', relation: 'uses', direction: 'same' },

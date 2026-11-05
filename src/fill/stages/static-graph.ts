@@ -21,6 +21,7 @@
  * end, and no other file's facts move. The store allocates the generation and
  * takes the publication lock itself; this module maps a draft and no more.
  */
+import { STAGE_EDGE_TYPES, STAGE_NODE_KINDS } from '../../extract/code/stage-vocabulary.js';
 import type { GraphId, GraphStore, PublishUnitInput, UnitEdgeDraft, UnitNodeDraft } from '../../graph/index.js';
 import type { Fact, FactKind } from '../facts.js';
 import type { StageDraftSet, StageDraftWrite, StageValidation } from '../stage.js';
@@ -84,46 +85,14 @@ const EDGE_RELATION: Partial<Record<FactKind, string>> = {
 
 /**
  * The extractor vocabulary the mapping registers before its first publication:
- * the kinds and the relation types the three static stages emit. Registering
- * one that the store already knows changes nothing.
+ * the kinds and the relation types the static stages emit, declared once in
+ * `src/extract/code/stage-vocabulary.ts` so the closed vocabulary and the
+ * catalog's mapping read the same list (decision 0033, item 7). Registering a
+ * key the store already knows changes nothing.
  */
 export const CODE_GRAPH_VOCABULARY: { readonly kinds: readonly string[]; readonly relations: readonly { readonly key: string; readonly positioned?: boolean }[] } = {
-  kinds: [
-    'code.comment', 'code.commit', 'code.compose-service', 'code.coverage', 'code.dependency', 'code.deploy-unit', 'code.directory',
-    'code.dockerfile', 'code.document', 'code.document-section', 'code.entry-point', 'code.env-var', 'code.file', 'code.link-target',
-    // The names a file mentions, as the file pass writes them (decision 0033, item 14;
-    // `mention-graph.ts`), beside the symbols they may name.
-    'code.mention', 'code.module', 'code.package', 'code.rank', 'code.repository', 'code.symbol', 'code.task', 'code.test',
-    // The state machines a file writes down (the state-machines stage): the table, its states and
-    // the moves between them (decision 0026's diagrams; decision 0033, item 14).
-    'code.state', 'code.state-machine',
-    // The facts one file's code holds (the code-facts stage): its expressions with their
-    // literal values, the bindings it declares, its call sites and its Go struct fields.
-    'code.binding', 'code.call', 'code.export', 'code.expression', 'code.field',
-    // The unit a file belongs to and the ports its code listens on (the code-facts stage;
-    // madarch-8bdc.2.4), read by the operations and contracts stages as properties.
-    'code.listener-port', 'code.service-unit',
-  ],
-  relations: [
-    { key: 'code.consumes' },
-    { key: 'code.contains' },
-    { key: 'code.dependency' },
-    { key: 'code.document-link' },
-    { key: 'code.imports' },
-    { key: 'code.mentions' },
-    { key: 'code.occurrence', positioned: true },
-    // What the resolution stage folds a mention into (decision 0026's stage 4).
-    { key: 'code.references' },
-    // What a file declares beside its symbols (the state-machines stage).
-    { key: 'code.declares' },
-    // The task keys a commit or a document names (stages 6 and 7; madarch-8bdc.2.3).
-    { key: 'code.tasks' },
-    // What a state enters (the state-machines stage).
-    { key: 'code.transitions' },
-    // What a manifest declares: one edge from the manifest's file to the dependency it names
-    // (`src/extract/operations/dependencies.ts`).
-    { key: 'code.uses-dependency' },
-  ],
+  kinds: STAGE_NODE_KINDS,
+  relations: STAGE_EDGE_TYPES,
 };
 
 /** One end of a draft edge: a node of the same draft, by key, or a node already in the graph, by key. */
