@@ -46,11 +46,13 @@ Stories:
   publication through `GraphStore.publishUnit`.
 
 ## Out of scope
-- The port of the operations, contracts and data-model readings onto the
-  code-facts and library-effects readers is not part of this change: their
-  stages are not written, and the extract driver still owns those readings.
-  What the work needs is settled and measured (the facts, the bounded read, the
-  effect reader), and madarch-8bdc.2.5 deletes the driver with them.
+- The port of the operations and data-model readings onto the code-facts and
+  library-effects readers is not part of this change: their stages are not
+  written, and the extract driver still owns those readings. The contracts
+  reading's documents and per-file code sites are ported (see "The contracts
+  reading as static stages"); its cross-file links, its routes and entry
+  points, and the channel consumer fold remain, and the change record says what
+  each still needs. madarch-8bdc.2.5 deletes the driver with them.
 - The wiki's diagram rendering is not moved onto the published records here:
   `src/knowledge/views.ts` still reads the source through its render context,
   which the page capability's own change owns.

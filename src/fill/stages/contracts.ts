@@ -30,11 +30,10 @@
  *   `portsByService` map is built with;
  * - a channel's `consumerFound`/`consumerStatus`: whether a `code.consumes` edge
  *   another file published ends at the channel, read by the topic the edge
- *   carries (`edgesByProperty`). The consumes edges are the contracts-code
- *   stage's, which runs after this one; a channel read before they stand says
- *   `not-found-in-product`, and the plan re-reads the channel when the fold
- *   moves, so a second run of one commit corrects the properties the first run
- *   could not see.
+ *   carries (`edgesByProperty`). The consumes edges are a code site's, and no
+ *   stage on this branch publishes them yet: a channel read before they stand
+ *   says `not-found-in-product`, which is the `channels` family the comparison
+ *   still lists as remaining (the change record says what the fold needs).
  *
  * **What a unit publishes when it cannot read.** A path the pinned commit no
  * longer holds publishes nothing, so the publication retracts what an earlier
