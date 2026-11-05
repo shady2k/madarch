@@ -46,6 +46,9 @@ export const GO_FILE = 'services/orders/internal/domain/order.go';
 /** The TypeScript file of the fixture: two names a reader sees, and one table of adjacency lists. */
 export const TS_FILE = 'services/orders/src/state.ts';
 
+/** The TypeScript file whose code facts the acceptance reads: a value from the environment, and a call. */
+export const CONFIG_FILE = 'services/orders/src/config.ts';
+
 /** The Go file's bytes, as the fixture writes them. */
 export function goText(): string {
   return [
@@ -87,6 +90,22 @@ export function tsText(): string {
     '  new: ["paid"],',
     '  paid: ["sent"],',
     '};',
+    '',
+  ].join('\n');
+}
+
+/** The configuration file's bytes: an environment read with a default, a call, and a string argument. */
+export function configText(): string {
+  return [
+    'export const port = Number(process.env.PORT ?? "8080");',
+    '',
+    'export function label(): string {',
+    '  return prefix("orders");',
+    '}',
+    '',
+    'function prefix(name: string): string {',
+    '  return `svc-${name}`;',
+    '}',
     '',
   ].join('\n');
 }
@@ -159,6 +178,7 @@ export function writeRepository(folder: string): string {
   const files: readonly { readonly path: string; readonly text: string }[] = [
     { path: GO_FILE, text: goText() },
     { path: TS_FILE, text: tsText() },
+    { path: CONFIG_FILE, text: configText() },
     { path: 'README.md', text: '# Orders\n\nA shop that sells things.\n' },
     { path: 'data/orders.csv', text: 'id,total\n1,10\n' },
   ];

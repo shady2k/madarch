@@ -336,7 +336,19 @@ function machineWrites(input: {
         value: { relation: CONTAINS_RELATION, from: { key: machineKey }, to: { key: stateKey }, properties: { factKind: 'contains', repository: input.repository } },
       });
     }
+    // One edge per pair of states, with the events that move it: two events can leave one
+    // state for the same one (`PaymentFailed` and `CancelRequested` both cancel a pending
+    // order), and the graph's identity of an edge is its two ends, not the event.
+    const moves = new Map<string, { readonly from: string; readonly to: string; readonly events: string[]; lines: number[] }>();
     for (const move of machine.transitions) {
+      const identity = `${move.from}\u0000${move.to}`;
+      const held = moves.get(identity) ?? { from: move.from, to: move.to, events: [], lines: [] };
+      if (move.event !== null && !held.events.includes(move.event)) held.events.push(move.event);
+      held.lines.push(move.line);
+      moves.set(identity, held);
+    }
+    for (const move of [...moves.values()].sort((left, right) => byCodePoint(`${left.from}\u0000${left.to}`, `${right.from}\u0000${right.to}`))) {
+      const events = [...move.events].sort(byCodePoint);
       writes.push({
         kind: 'edge',
         evidence: input.evidence,
@@ -349,8 +361,10 @@ function machineWrites(input: {
             repository: input.repository,
             file: input.path,
             machine: machine.name,
-            ...(move.event === null ? {} : { event: move.event }),
-            line: move.line,
+            events,
+            ...(events.length === 1 ? { event: events[0]! } : {}),
+            line: Math.min(...move.lines),
+            lines: [...new Set(move.lines)].sort((left, right) => left - right),
           },
         },
       });

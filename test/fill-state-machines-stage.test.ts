@@ -23,7 +23,7 @@ import { createGraphStore, type EdgeEntry, type GraphStore, type NodeVersionRow 
 import { createStagesFill, type StagesFill } from '../src/product/fill-stages.js';
 import { STATE_MACHINES_STAGE_ID } from '../src/fill/stages/state-machines.js';
 import { fileFactIdOf } from '../src/fill/stages/syntax-facts.js';
-import { expectedMachinesOf, GO_FILE, TS_FILE, writeProduct } from './fixtures/code-stages/repository.js';
+import { CONFIG_FILE, expectedMachinesOf, GO_FILE, TS_FILE, writeProduct } from './fixtures/code-stages/repository.js';
 
 /** One product open for a run: its wiring, its service, and the graph store over the process's one owner. */
 interface Open {
@@ -222,6 +222,7 @@ describe('the state-machines stage', () => {
     expect(covered).toEqual([
       { complete: true, blob: true, unread: [] },
       { complete: true, blob: true, unread: [] },
+      { complete: true, blob: true, unread: [] },
     ]);
     const second = await run(o, 'run-code-stages-2');
     expect(second.ok).toBe(true);
@@ -234,6 +235,6 @@ describe('the state-machines stage', () => {
     const o = opened;
     const plans = await readRunPlans(o.owner, 'run-code-stages-1');
     const mine = plans.filter((row) => row.stageId === STATE_MACHINES_STAGE_ID).map((row) => row.stageUnitId).sort();
-    expect(mine).toEqual([`file:shop:${GO_FILE}`, `file:shop:${TS_FILE}`].sort());
+    expect(mine).toEqual([`file:shop:${GO_FILE}`, `file:shop:${TS_FILE}`, `file:shop:${CONFIG_FILE}`].sort());
   }, 60_000);
 });
