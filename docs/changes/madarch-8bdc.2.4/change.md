@@ -188,3 +188,88 @@ the boundary check covers it with no exception; a second run of one commit plans
 no unit; and the focused tests and `bun run check` pass. The three extract
 stages the task also names are not ported: the report says what was measured and
 why, and what of the old path remains for madarch-8bdc.2.5.
+
+
+## The contracts reading as static stages (madarch-8bdc.2.4, the contracts worker)
+
+**What lands.** The extract driver's contracts reading is split where the file
+is the unit (decision 0033, items 5, 7 and 14): a `contracts` stage publishes
+what one contract document writes down, and a `contracts-code` stage publishes
+what one source file's code states. Both are static stages — one unit per file,
+the file's bytes from the static context, the publication through
+`GraphStore.publishUnit` — and both call the driver's own per-file readers
+(`readOpenApi`, `readAsyncApi`, `readProto`, `openApiNodes`, `asyncApiNodes`,
+`protoNodes`, `readTsFile`), so the two readings cannot disagree about a
+document or a file.
+
+- `contracts` (`src/fill/stages/contracts.ts`) publishes one `code.contract`,
+  one `code.operation` per declared operation, one `code.channel` per AsyncAPI
+  channel and one `code.message` per message, with the `code.declares` edges a
+  contract's members hang from it, the `code.carries` edges a channel carries
+  its messages by, and the `code.contains` edge that reaches each record from
+  the contract file. An OpenAPI operation's `service` is read from the
+  `code.listener-port` facts the code-facts stage publishes, by the driver's own
+  server rule (`servicesOfServers`), through bounded `byProperty` reads.
+- `contracts-code` (`src/fill/stages/contracts-code.ts`) publishes one
+  `code.input` per `req.query` read, one `code.sql-build` per builder on the
+  path to a sink, one `code.sql-sink` per SQL execution call, the
+  `code.flows-into` edges between them, and the `code.contains` edges that
+  reach them from the source file. Every record is a fact of the file's own
+  bytes; no read crosses files.
+
+**One shared change the port needed.** A file's `code.contains` children are its
+symbols to the semantic-resolution stage, which refused a file whose children
+were not all `code.symbol` nodes (measured: the training repository's
+`services/payments/src/api/legacy-report.ts` failed its resolution unit once the
+contracts reading hung a `code.input` from the file). The resolution stage now
+reads its own symbols out of that neighbourhood and passes over a record another
+reading hung there, which is what the relation means once two readings share a
+file. `test/fill-contracts-code-stage.test.ts` runs the whole fill on a fixture
+whose file holds an input and a sink, so the case is pinned.
+
+**The comparison.** `test/fill-contracts-training.test.ts` generates the
+training repository, runs the fill twice (the second is the refill of one
+commit, which plans nothing) and compares the graph's records of this reading
+with `extractContracts` over the same bytes, family by family, sorted by code
+point and named by kind and key: the record's label, every property, the span
+and the edge discriminator, in both directions. The stage's own envelope
+(`recordKey`, `factKind`, `layer`, `provenance`, `repository`) is read away, and
+only records whose provenance names one of the two stages are compared, so
+another stage's nodes of the same kind are not mistaken for this reading's.
+
+Zero differences for `contracts`, `operations`, `inputs` and `sql`. The
+families still listed as remaining are `channels`, `routes`, `entry-points`,
+`containment`, `serves`, `calls-remote`, `consumes` and `publishes`:
+
+- **`channels`.** The channel's `consumerFound`/`consumerStatus` fold is a fact
+  of the consumes edges a code file publishes. The driver emits a consumes edge
+  only for a topic a contract declares a channel for, so the code site's stage
+  must run after the contract documents' stage, while the channel's fold must
+  run after the consumes edges: the port needs a third stage (or a per-file
+  consumption fact) to close that order. On the training repository
+  `payments.events` reads `found-in-product` in the driver and
+  `not-found-in-product` in the graph.
+- **`routes`, `entry-points`.** The route's `handlerKey` is the driver's
+  resolved symbol (`code.symbol:<path>#<qualified name>`, including the
+  `callback@<line>:<byte>` names the code extractor gives inline handlers), and
+  its `middleware`/`authGroup` chain is the set of mounts another file of the
+  same service declares (`app.use('/checkout', checkoutRoutes(...))`). The fill
+  publishes neither the code extractor's symbol set nor a per-file mount fact
+  yet; the per-file readers exist, and the port is the next family.
+- **`serves`, `calls-remote`, `consumes`, `publishes`.** These are the links
+  between a code site and a record another file published; they need the routes
+  and entry points first.
+- **`belongs-to`, `starts` into `code.service`/`code.process`.** Those ends are
+  the operations reading's nodes (`code.service:<name>`, `code.process:<path>`),
+  which no stage on this branch publishes: an edge joins nodes that exist, so
+  the entry-points family cannot close before the operations stage lands.
+- **`containment`.** The driver's contains edges cover every node of its
+  reading; the ones for routes and entry points are missing until those
+  families are ported.
+
+The remaining list may only shrink: the test refuses a family that reaches zero
+differences while it is still named there.
+
+**Measured.** On this machine the training repository's first fill takes about
+470 s (664 units, every stage), the refill 3.4 s and plans nothing, and the
+driver's reading 1.8 s.

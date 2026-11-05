@@ -15,6 +15,8 @@ import type { AgentStageWiring } from './agent-stage.js';
 import { createBoundariesStage } from './boundaries.js';
 import { createBuildConfigurationStage } from './build-configuration.js';
 import { createCodeFactsStage } from './code-facts.js';
+import { createContractsCodeStage } from './contracts-code.js';
+import { createContractsStage } from './contracts.js';
 import { createDocIntentStage } from './doc-intent.js';
 import { createDocumentIndexStage } from './document-index.js';
 import { createGitHistoryReader, createHistoryStage, type CheckoutFolderOf } from './history.js';
@@ -93,6 +95,13 @@ export function createStageRegistry(wiring: FillStageWiring): StageRegistry {
     .register(createSemanticResolutionStage(wiring.snapshots))
     .register(createCodeFactsStage(wiring.snapshots))
     .register(createStateMachinesStage(wiring.snapshots))
+    // The contracts reading of a repository (madarch-8bdc.2.4): the contract documents, then
+    // the code sites and the links between them. Three stages because a record's ends must
+    // stand before the unit that publishes it links to them, and a stage's units run at once.
+    .register(createContractsStage(wiring.snapshots))
+    // The code sites of the same reading (madarch-8bdc.2.4): the untrusted inputs a file reads
+    // and the SQL path it carries, one unit per source file.
+    .register(createContractsCodeStage(wiring.snapshots))
     .register(createModulesStage(wiring.snapshots))
     .register(createDocumentIndexStage(wiring.snapshots))
     .register(createHistoryStage(createGitHistoryReader(wiring.checkoutOf ?? noCheckout), wiring.snapshots));

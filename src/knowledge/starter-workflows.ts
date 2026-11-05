@@ -42,6 +42,10 @@ const FILL_STAGES: readonly string[] = [
   // the file's node, before the resolution reads across files.
   'code-facts',
   'state-machines',
+  // The contracts reading of a repository (madarch-8bdc.2.4): the contract documents, the
+  // code sites that serve or call them, and the links between the two.
+  'contracts',
+  'contracts-code',
   'semantic-resolution',
   'modules',
   'boundaries',

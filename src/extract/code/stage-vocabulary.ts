@@ -18,6 +18,12 @@ export const STAGE_NODE_KINDS: readonly string[] = [
   'code.comment',
   'code.commit',
   'code.compose-service',
+  // The contract documents a repository's `contracts/` folder declares, the routes and
+  // entry points its code registers, and the untrusted input and SQL path a code file
+  // carries (the contracts stage; madarch-8bdc.2.4). They are the extractors' own names
+  // (`src/extract/contracts/schema.ts`), so the catalog's mapping ties them already.
+  'code.channel',
+  'code.contract',
   'code.coverage',
   'code.dependency',
   'code.deploy-unit',
@@ -31,6 +37,12 @@ export const STAGE_NODE_KINDS: readonly string[] = [
   'code.expression',
   'code.field',
   'code.file',
+  'code.input',
+  'code.message',
+  'code.operation',
+  'code.route',
+  'code.sql-build',
+  'code.sql-sink',
   'code.link-target',
   // The names a file mentions, as the file pass writes them (decision 0033, item 14;
   // `mention-graph.ts`), beside the symbols they may name.
@@ -75,4 +87,16 @@ export const STAGE_EDGE_TYPES: readonly { readonly key: string; readonly positio
   // What a manifest declares: one edge from the manifest's file to the dependency it names
   // (`src/extract/operations/dependencies.ts`).
   { key: 'code.uses-dependency' },
+  // What the contracts stage links across files (madarch-8bdc.2.4): a route that serves a
+  // contract operation, a client that calls one, a site that publishes or consumes a
+  // channel's topic, the handler a route is handled by, the service an entry point belongs
+  // to, what an entry point starts, and the untrusted input's way to a SQL sink.
+  { key: 'code.belongs-to' },
+  { key: 'code.calls-remote' },
+  { key: 'code.carries' },
+  { key: 'code.flows-into' },
+  { key: 'code.handled-by' },
+  { key: 'code.publishes' },
+  { key: 'code.serves' },
+  { key: 'code.starts' },
 ];

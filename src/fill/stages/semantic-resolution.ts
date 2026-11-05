@@ -317,8 +317,11 @@ async function executeResolutionUnit(unit: StageUnit, context: StageContext): Pr
   const mentionPages = await neighbourhoodPages(source, file.id, MENTION_RELATION);
   const symbolPages = await neighbourhoodPages(source, file.id, DEFINES_RELATION);
 
+  // The file's `code.contains` children are its symbols; another reading of the same file may
+  // hang a record of its own there too (the contracts stage's untrusted inputs, say), and a
+  // record that is no symbol is no symbol of this file — it is not read as one.
   const held: FileSymbol[] = [];
-  for (const page of symbolPages) for (const node of page.rows) held.push(symbolOf(node, path, page.read));
+  for (const page of symbolPages) for (const node of page.rows) if (node.kind === SYMBOL_NODE_KIND) held.push(symbolOf(node, path, page.read));
   const rows = held.map((symbol) => symbol.row);
   const mentions: MentionRow[] = [];
   for (const page of mentionPages) mentions.push(...mentionRowsIn(page.rows, page.read));
