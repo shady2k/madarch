@@ -389,8 +389,11 @@ function repositoryOfScope(ref: UnitRef): string {
 export const DEFAULT_FILL_QUEUE = 'fill-units';
 
 /** Where the process's fill database lives under a products home. */
+/** The unit states a run is finished with: nothing waits on them any longer. */
+const TERMINAL_UNIT_STATES: readonly string[] = ['published', 'superseded', 'failed', 'cancelled', 'stale'];
+
 /** How many of a run's own retry waits a host waits through before it reports the run as it stands. */
-const RETRY_WAITS_PER_RUN = 8;
+const RETRY_WAITS_PER_RUN = 24;
 
 /**
  * One run driven to its end, waiting for the moments the run itself schedules
@@ -407,7 +410,10 @@ async function driveFor(orchestrator: FillOrchestrator, request: { readonly runI
   let waits = 0;
   while (!driven.settled && driven.stoppedBecause === 'a pass and its claims together changed nothing' && waits < RETRY_WAITS_PER_RUN) {
     const status = await runStatus(orchestrator, request.runId);
-    if (status === null || !status.units.some((unit) => unit.state === 'retry_wait')) break;
+    // A unit with work left is one the run has not finished with: it waits for its retry, stands ready for a worker, or
+    // waits for the queue's own maintenance to lift a claim. A run none of those is a run whose pass is the end of it.
+    const live = status === null ? [] : status.units.filter((unit) => !TERMINAL_UNIT_STATES.includes(unit.state));
+    if (live.length === 0) break;
     waits += 1;
     await new Promise<void>((resolve) => setTimeout(resolve, orchestrator.limits.retryDelayMs));
     const again = await driveRun(orchestrator, request);
