@@ -37,7 +37,8 @@ import { insideFolder, homeKind, KINDS_FILE, readKinds, setKindsLanguage, type F
 import { WORKFLOWS_FILE } from './workflows.js';
 import { linesOf } from './lines.js';
 import { applyReset, planReset, type ResetPlan } from './reset.js';
-import { startKnowledgeFill, type KnowledgeFillRun } from './fill-run.js';
+import type { FillProgress } from './fill-run.js';
+import { lastFillState, spawnFillChild, writeFillControl, type FillChild } from '../product/fill-child.js';
 import { snapshotNumbers } from './fill-run.js';
 import { locationOf, type RenderContext } from './blocks.js';
 import { GraphReader } from './graph-read.js';
@@ -316,8 +317,10 @@ export class KnowledgeProduct {
   private opening: Promise<void> | undefined;
   private fill: FillState = { state: 'idle' };
   private running: Promise<void> | undefined;
-  /** The fill the store is running now, as its host controls it; undefined between runs. */
-  private fillRun: KnowledgeFillRun | undefined;
+  /** The fill's own process while one runs; undefined between runs. */
+  private fillChild: FillChild | undefined;
+  /** The run the fill's process is driving, so a person's pause or stop names it. */
+  private fillRunId: string | undefined;
   private stopping = false;
   /** A person asked for a pause: the worker finishes the page and the commit in progress and ends before the next one. */
   private pauseAsked = false;
@@ -410,7 +413,7 @@ export class KnowledgeProduct {
       mkdirSync(root, { recursive: true });
       let seq = snapshotNumbers(root).pop();
       let created = false;
-      if (seq === undefined && this.fillRun === undefined && existsSync(this.graphPath())) {
+      if (seq === undefined && this.fillChild === undefined && existsSync(this.graphPath())) {
         const temporary = join(root, '1.tmp');
         rmSync(temporary, { recursive: true, force: true });
         cpSync(this.graphPath(), temporary, { recursive: true });
@@ -676,10 +679,9 @@ export class KnowledgeProduct {
     // A run that is being stopped is on its way out: it stands at no page boundary to be taken up from.
     if (this.stopAsked) return { ok: false, status: 409, message: 'this run is being stopped: there is nothing to pause' };
     if (this.running === undefined) return { ok: false, status: 409, message: 'no fill of this product is running: there is nothing to pause' };
-    const paused = await this.fillRun?.control('pause');
-    if (paused === undefined || !paused.ok) return { ok: false, status: 409, message: paused?.message ?? 'no fill of this product is running: there is nothing to pause' };
-    this.fill = { ...this.fill, state: 'paused' };
-    this.notify();
+    // A person's pause is the run's own: the control file the orchestrator host already consumes, written for this
+    // run's id. The fill's process reads it, and its next look at the run's state shows the pause.
+    writeFillControl(this.folder, this.currentFillRunId() ?? '', 'pause');
     return { ok: true, fill: this.fill, writer: this.writer };
   }
 
@@ -717,8 +719,7 @@ export class KnowledgeProduct {
     // Stop overrides Pause everywhere: a pause pressed before this confirmation is not replayed and leaves nothing to resume.
     this.pauseAsked = false;
     this.pausedRun = undefined;
-    const stopped = await this.fillRun?.control('stop');
-    if (stopped === undefined || !stopped.ok) return { ok: false, status: 409, message: stopped?.message ?? 'no fill of this product is running: there is nothing to stop' };
+    writeFillControl(this.folder, this.currentFillRunId() ?? '', 'stop');
     this.notify();
     return { ok: true, fill: this.fill, writer: this.writer };
   }
@@ -903,58 +904,104 @@ export class KnowledgeProduct {
     };
     this.pausedRun = undefined;
     this.notify();
-    this.running = this.runOrchestratedFill(product, repositories).finally(() => {
+    this.running = this.runChildFill(product).finally(() => {
       // The mark goes only when the run is over, after its result is recorded: a restart before this point has no list.
       this.clearActiveFill();
       this.running = undefined;
-      this.fillRun = undefined;
+      this.fillChild = undefined;
     });
     return { started: true, fill: this.fill };
   }
 
   /**
-   * One fill of the product's knowledge store, through the one orchestrator (decision 0033, item 1): the static
-   * stages the product's workflow names are driven into `<store>/graph`, a snapshot is made for the reader, and the
-   * pages read the graph this path published. It runs no model and writes no page: a page is an agent's work and a
-   * later stage's, and nothing of the old loop is carried over.
+   * One fill of the product's knowledge store, in a process of its own (decision 0033, item 27; the owner: "Ну он и
+   * должен быть отдельным процессом"). The server starts `madarch knowledge-fill`, which runs the one orchestrator
+   * over the product's store through `startKnowledgeFill` — the same entry `madarch fill` uses — and writes the run's
+   * state to `<store>/fill-state.json`. This process never opens the fill's store and never runs a fill's statement:
+   * it reads that state, moves the reader to the snapshot the child made, and asks the run to pause or stop by
+   * writing the control file the orchestrator host already consumes.
    */
-  private async runOrchestratedFill(product: ProductIdentity, repositories: readonly { readonly name: string; readonly path: string }[]): Promise<void> {
-    void repositories;
+  /** The run the fill's process drives, when one runs. */
+  private currentFillRunId(): string | undefined {
+    return this.fillRunId;
+  }
+
+  private async runChildFill(product: ProductIdentity): Promise<void> {
     const startedAt = (this.options.now?.() ?? new Date()).toISOString();
     const runId = `fill-${startedAt.replace(/[-:.]/gu, '').replace(/Z$/u, 'Z')}`;
-    let run: KnowledgeFillRun;
+    let child: FillChild;
     try {
-      // The store's owner is opened here, where the process's connection already is (decision 0033, item 3): the fill
-      // module is handed it and closes it when the run ends.
-      const database = createPGliteDatabaseOwner({ path: join(this.storeFolder(), 'graph'), btreeGist: true });
-      run = await startKnowledgeFill({ productFolder: product.folder, storeFolder: this.storeFolder(), runId, database });
+      child = spawnFillChild({ productFolder: product.folder, storeFolder: this.storeFolder(), runId });
     } catch (error) {
-      this.fill = { state: 'failed', startedAt: this.fill.startedAt, finishedAt: (this.options.now?.() ?? new Date()).toISOString(), message: error instanceof Error ? error.message : String(error), code: 'store' };
+      this.fill = { state: 'failed', startedAt, finishedAt: (this.options.now?.() ?? new Date()).toISOString(), message: `the fill's process could not be started: ${error instanceof Error ? error.message : String(error)}`, code: 'worker-start' };
       this.notify();
       return;
     }
-    this.fillRun = run;
-    const result = await run.done;
-    if (!result.ok) {
-      this.fill = { state: 'failed', startedAt: this.fill.startedAt, finishedAt: (this.options.now?.() ?? new Date()).toISOString(), ...(result.message === undefined ? {} : { message: result.message }), code: 'fill' };
+    this.fillChild = child;
+    this.fillRunId = runId;
+    let lastState = this.fill;
+    let lastSnapshot = this.reader?.seq ?? 0;
+    const settle = (state: FillState): void => {
+      lastState = state;
+      this.fill = state;
       this.notify();
-      return;
+    };
+    /**
+     * One look at what the child wrote: its state moves the wiki, its snapshot moves the reader. A terminal state is
+     * applied only after the reader has moved to the snapshot it names, so a page read at "done" reads the graph the
+     * run published — the same order the in-process fill kept.
+     */
+    const look = async (final: { readonly exited: boolean; readonly code?: number | null }): Promise<boolean> => {
+      let written: FillProgress | undefined;
+      try {
+        written = lastFillState(this.storeFolder());
+      } catch (error) {
+        this.options.errorLog?.(`the knowledge wiki could not read the fill's state: ${error instanceof Error ? error.message : String(error)}`);
+      }
+      if (written !== undefined && written.runId === runId) {
+        if (written.snapshot !== undefined && written.snapshot > lastSnapshot) {
+          lastSnapshot = written.snapshot;
+          // The snapshot carries the store's own pins (the `knowledge_fill` rows the run wrote), so the reader reads
+          // the commits its graph was filled from beside the graph itself.
+          await this.swapReader(written.snapshot, undefined).catch((error: unknown) => {
+            this.options.errorLog?.(`the knowledge wiki could not read the snapshot ${written.snapshot} of ${this.readRoot()}: ${error instanceof Error ? error.message : String(error)}`);
+          });
+        }
+        settle(stateOfProgress(written, this.options.now?.() ?? new Date()));
+        if (written.state !== 'running') return true;
+      }
+      if (!final.exited) return false;
+      // A child that ended is over: a run it left standing is the run's own failure, and the press may start again.
+      if (lastState.state === 'running' || lastState.state === 'idle') {
+        settle({ state: 'failed', startedAt, finishedAt: (this.options.now?.() ?? new Date()).toISOString(), message: final.code === undefined ? 'the fill\'s process ended before the run did' : `the fill\'s process ended before the run did, with the exit code ${final.code === null ? 'of a signal' : String(final.code)}`, code: 'worker-exit' });
+      }
+      return true;
+    };
+    // One look after another, never two at once: a look that moves the reader is waited for before the next one, so a
+    // page read at "done" reads the snapshot the run made.
+    let exitCode: number | null | undefined;
+    void child.exited.then((code) => { exitCode = code; });
+    try {
+      for (;;) {
+        const over = await look(exitCode === undefined ? { exited: false } : { exited: true, code: exitCode });
+        if (over) break;
+        await new Promise<void>((resolve) => setTimeout(resolve, 300));
+      }
+    } catch (error) {
+      // A look that fails ends the run as a failure the wiki says: a watching person is never left with a "running"
+      // fill whose process is gone.
+      settle({ state: 'failed', startedAt, finishedAt: (this.options.now?.() ?? new Date()).toISOString(), message: `the fill's state could not be read: ${error instanceof Error ? error.message : String(error)}`, code: 'worker-exit' });
     }
-    if (result.snapshot !== undefined) {
-      // The snapshot carries the store's own pins (the `knowledge_fill` rows the run wrote), so the reader reads the
-      // commits its graph was filled from beside the graph itself.
-      await this.swapReader(result.snapshot, undefined).catch((error: unknown) => {
-        this.options.errorLog?.(`the knowledge wiki could not read the snapshot ${result.snapshot} of ${this.readRoot()}: ${error instanceof Error ? error.message : String(error)}`);
+    this.fillChild = undefined;
+    this.fillRunId = undefined;
+    this.lastUse = Date.now();
+    if (lastState.state === 'done') {
+      // The rules and the judge read the snapshot as soon as the fill ends (madarch-mwhd.1 finding 6): a reader who
+      // opens the settings page afterwards sees what was decided, not a page that has to start the work itself.
+      void this.graphVerdicts({ force: true }).catch((error: unknown) => {
+        this.options.errorLog?.(`the knowledge wiki could not validate the graph after the fill: ${error instanceof Error ? error.message : String(error)}`);
       });
     }
-    this.fill = { state: 'done', startedAt: this.fill.startedAt, finishedAt: (this.options.now?.() ?? new Date()).toISOString(), gaps: 0 };
-    this.notify();
-    this.lastUse = Date.now();
-    // The rules and the judge read the snapshot as soon as the fill ends (madarch-mwhd.1 finding 6): a reader who
-    // opens the settings page afterwards sees what was decided, not a page that has to start the work itself.
-    void this.graphVerdicts({ force: true }).catch((error: unknown) => {
-      this.options.errorLog?.(`the knowledge wiki could not validate the graph after the fill: ${error instanceof Error ? error.message : String(error)}`);
-    });
   }
 
   // ---- what a run changed -------------------------------------------------------------------
@@ -3196,7 +3243,7 @@ export class KnowledgeProduct {
     this.stopping = true;
     if (this.idleTimer !== undefined) clearInterval(this.idleTimer);
     await this.writerAgent?.close().catch(() => undefined);
-    await this.fillRun?.control('stop').catch(() => undefined);
+    this.fillChild?.kill();
     await this.running?.catch(() => undefined);
     await this.opening?.catch(() => undefined);
     await this.swapping.catch(() => undefined);
@@ -3246,5 +3293,25 @@ export class KnowledgeHost {
   async close(): Promise<void> {
     for (const product of this.products.values()) await product.close();
     this.products.clear();
+  }
+}
+
+/**
+ * The wiki's own state of one fill, read from what the fill's process wrote: the run's state, its start and end, and
+ * the words a failure carries. The app reads this state and words it in the reader's language.
+ */
+function stateOfProgress(written: FillProgress, now: Date): FillState {
+  const finishedAt = now.toISOString();
+  switch (written.state) {
+    case 'running':
+      return { state: 'running', startedAt: written.startedAt, commit: written.published, commits: written.planned };
+    case 'done':
+      return { state: 'done', startedAt: written.startedAt, finishedAt, gaps: 0 };
+    case 'paused':
+      return { state: 'paused', startedAt: written.startedAt };
+    case 'stopped':
+      return { state: 'stopped', startedAt: written.startedAt, finishedAt };
+    default:
+      return { state: 'failed', startedAt: written.startedAt, finishedAt, ...(written.message === undefined ? {} : { message: written.message }), code: 'fill' };
   }
 }

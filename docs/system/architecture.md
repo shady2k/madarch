@@ -103,15 +103,18 @@ recorded in `fill_page_change` inside that publication's transaction
 No server route shows them since the documents app was removed
 (madarch-m38l.4): the knowledge wiki of decision 0029 is the one app.
 
-**The knowledge wiki's processes** (madarch-m38l.4). The wiki's one server
-(`src/server/http.ts`, `src/server/knowledge.ts`) never runs a fill and never
-opens a graph store itself, because PGlite runs a statement on the thread that
-owns it and a commit of the fill is seconds of statements. A fill is
-`madarch knowledge-fill-worker` (`src/knowledge/fill-worker.ts`, protocol in
-`fill-protocol.ts`): it owns the product's primary store, makes a snapshot of
-it between phases and runs the writer's non-agent work; the agent itself runs in
-the server, which answers the worker's request for each unit and relays the
-unit's tool calls. The server reads the newest snapshot through
+**The knowledge wiki's processes** (madarch-m38l.4; madarch-8bdc.2.9). The wiki's
+one server (`src/server/http.ts`, `src/server/knowledge.ts`) never runs a fill and
+never opens the fill's store, because PGlite runs a statement on the thread that
+owns it and a fill's commit is seconds of statements. A fill is a child process of
+madarch's own, `madarch knowledge-fill`: it runs the one orchestrator over the
+product's store through `src/knowledge/fill-run.ts` — the same entry `madarch fill`
+uses — takes the snapshot when the run ends, and writes the run's state to
+`<store>/fill-state.json`. The server reads that state, moves its reader to the
+snapshot the child made, and asks the run to pause or stop by writing the control
+file the orchestrator host already consumes; it answers a page while the fill runs.
+A child that dies is reported as the failed run it left, and the next press starts
+a run of its own. The server reads the newest snapshot through
 `madarch knowledge-read-worker` (`src/knowledge/read-worker.ts`, spoken to by
 `remote-owner.ts`), one process per snapshot, warmed with what its predecessor
 answered before the reads move to it, and closed when nobody reads.
