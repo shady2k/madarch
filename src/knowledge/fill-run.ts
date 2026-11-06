@@ -16,7 +16,7 @@
  * strong model writes and analyses, a weak model or jev classifies).
  */
 import { execFile } from 'node:child_process';
-import { cpSync, mkdirSync, readdirSync, renameSync, rmSync } from 'node:fs';
+import { cpSync, mkdirSync, readFileSync, readdirSync, renameSync, rmSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { promisify } from 'node:util';
 import { createFillOrchestratorService, type FillOrchestratorService } from '../fill/orchestrator-host.js';
@@ -51,6 +51,54 @@ export async function takeSnapshot(owner: StoreOwner, graphPath: string, readRoo
   return seq;
 }
 
+/**
+ * What a fill's child process tells its host: the run's own state, written to <store>/fill-state.json by
+ * `writeFillState` and read there by the server, which never opens the store (decision 0033, item 27: the server
+ * owns the queue and the pages' reads, a fill runs in a process of its own).
+ */
+export interface FillProgress {
+  readonly runId: string;
+  readonly state: 'running' | 'done' | 'failed' | 'paused' | 'stopped';
+  readonly startedAt: string;
+  readonly updatedAt: string;
+  /** The units the run planned and how many of them published. */
+  readonly planned: number;
+  readonly published: number;
+  /** The snapshot the reader opens for this fill, once the run ended and one was made. */
+  readonly snapshot?: number;
+  readonly message?: string;
+  /** The process that runs the fill. */
+  readonly pid: number;
+}
+
+/** The file a fill's child writes its state to, under the store's own folder. */
+function fillStateFile(storeFolder: string): string {
+  return join(storeFolder, 'fill-state.json');
+}
+
+/** Writes the state whole or not at all: a reader between two writes never sees half a state. */
+export function writeFillState(storeFolder: string, state: FillProgress): void {
+  mkdirSync(storeFolder, { recursive: true });
+  const file = fillStateFile(storeFolder);
+  const temporary = `${file}.tmp`;
+  writeFileSync(temporary, `${JSON.stringify(state)}\n`);
+  renameSync(temporary, file);
+}
+
+/** Reads the state the child wrote, or undefined when it wrote none. A file that does not parse is refused by name. */
+export function readFillState(storeFolder: string): FillProgress | undefined {
+  let text: string;
+  try {
+    text = readFileSync(fillStateFile(storeFolder), 'utf8');
+  } catch (error) {
+    if ((error as NodeJS.ErrnoException).code === 'ENOENT') return undefined;
+    throw new Error(`${fillStateFile(storeFolder)}:1: the fill's state could not be read: ${(error as Error).message}`);
+  }
+  const value: unknown = JSON.parse(text);
+  if (value === null || typeof value !== 'object' || Array.isArray(value)) throw new Error(`${fillStateFile(storeFolder)}:1: the fill's state is ${JSON.stringify(value)}, not a record`);
+  return value as FillProgress;
+}
+
 /** What one fill of a knowledge store was asked for. */
 export interface KnowledgeFillOptions {
   /** The product's folder: its manifest and the repositories it pins. */
@@ -67,6 +115,8 @@ export interface KnowledgeFillOptions {
    * (decision 0033, item 3).
    */
   readonly database: StoreOwner;
+  /** Told the run's state whenever it moves (and at the end), so a child process can write it for its host. */
+  readonly report?: (state: FillProgress) => void;
 }
 
 /** What one fill of a knowledge store ended as. */
@@ -117,10 +167,12 @@ export async function startKnowledgeFill(options: KnowledgeFillOptions): Promise
   const owner = options.database;
   await owner.ready;
   let service: FillOrchestratorService | undefined;
+  let watcher: ReturnType<typeof setInterval> | undefined;
   let closed = false;
   const close = async (): Promise<void> => {
     if (closed) return;
     closed = true;
+    if (watcher !== undefined) { clearInterval(watcher); watcher = undefined; }
     try { await service?.stop(); } catch { /* the service's queue or database was already shut: the run's own answer said so */ }
     await owner.close().catch(() => undefined);
   };
@@ -135,12 +187,34 @@ export async function startKnowledgeFill(options: KnowledgeFillOptions): Promise
       maxPasses: 100_000,
     });
     const repositories = fill.wiring.source === undefined ? [] : (await (await fill.wiring.source()).pins());
+    const startedAt = new Date().toISOString();
+    let planned = 0;
+    let published = 0;
+    const report = (state: Omit<FillProgress, 'runId' | 'startedAt' | 'updatedAt' | 'planned' | 'published' | 'pid'>): void => {
+      options.report?.({
+        runId: options.runId, startedAt, updatedAt: new Date().toISOString(), planned, published, pid: process.pid, ...state,
+      });
+    };
+    // What the run holds, told every half second while it runs: the host reads it, never the store.
+    watcher = options.report === undefined ? undefined : setInterval(() => {
+      void service!.progress(options.productFolder).then((answer) => {
+        if (answer === null) return;
+        planned = answer.units.length;
+        published = answer.units.filter((unit) => unit.status === 'published').length;
+        report({ state: 'running' });
+      }).catch(() => undefined);
+    }, 500);
+    report({ state: 'running' });
     const done = (async (): Promise<KnowledgeFillResult> => {
       try {
         const result = await service!.run({ product: fill.product, runId: options.runId });
         if (!result.ok) return { ok: false, state: 'failed', message: `${result.code}: ${result.reason}`, units: 0 };
         if (!result.settled || result.state !== 'succeeded') {
-          return { ok: false, state: result.state, message: `the fill ended ${result.settled ? result.state : 'without settling'}${result.stoppedBecause === undefined ? '' : `: ${result.stoppedBecause}`}`, units: result.units.length };
+          const message = `the fill ended ${result.settled ? result.state : 'without settling'}${result.stoppedBecause === undefined ? '' : `: ${result.stoppedBecause}`}`;
+          planned = result.units.length;
+          published = result.units.filter((unit) => unit.state === 'published').length;
+          report({ state: result.state === 'paused' ? 'paused' : result.state === 'cancelled' ? 'stopped' : 'failed', message });
+          return { ok: false, state: result.state, message, units: result.units.length };
         }
         await owner.run((tx) => tx.query(`CREATE TABLE IF NOT EXISTS knowledge_fill (
           repo text PRIMARY KEY, scope text NOT NULL, head text NOT NULL, commit_hash text NOT NULL, effective_time text NOT NULL,
@@ -153,9 +227,12 @@ export async function startKnowledgeFill(options: KnowledgeFillOptions): Promise
           ));
         }
         const snapshot = await takeSnapshot(owner, graphPath, readRoot);
+        report({ state: 'done', snapshot });
         return { ok: true, state: result.state, units: result.units.length, snapshot };
       } catch (error) {
-        return { ok: false, state: 'failed', message: error instanceof Error ? error.message : String(error), units: 0 };
+        const message = error instanceof Error ? error.message : String(error);
+        report({ state: 'failed', message });
+        return { ok: false, state: 'failed', message, units: 0 };
       } finally {
         await close();
       }

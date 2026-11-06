@@ -246,7 +246,7 @@ interface CommandSpec {
   /** The positional words it takes, in order, by their label for the refusals. */
   positionals: readonly string[];
   /** The flags it takes, beside the ones they both share. */
-  flags: { home: boolean; product: boolean; port: boolean; open: boolean; branch: boolean; yes: boolean; source?: boolean; mode?: boolean; host?: boolean; run?: boolean; workers?: boolean };
+  flags: { home: boolean; product: boolean; port: boolean; open: boolean; branch: boolean; yes: boolean; source?: boolean; mode?: boolean; host?: boolean; run?: boolean; workers?: boolean; store?: boolean };
 }
 
 /** The specs the subcommands answer to, whole. */
@@ -261,6 +261,10 @@ export const COMMANDS: Record<string, CommandSpec> = {
   'mcp-unit': { positionals: [], flags: { home: false, product: false, port: false, open: false, branch: false, yes: false } },
   'knowledge-read-worker': { positionals: [], flags: { home: false, product: false, port: false, open: false, branch: false, yes: false } },
   'knowledge-render-worker': { positionals: [], flags: { home: false, product: false, port: false, open: false, branch: false, yes: false } },
+  // The fill's own process (madarch-8bdc.2.9): `madarch knowledge-fill` runs the one orchestrator over one product's
+  // store and writes the state its host reads. It serves nothing and is started by the wiki and by `madarch fill`,
+  // never by a person.
+  'knowledge-fill': { positionals: [], flags: { home: false, product: true, port: false, open: false, branch: false, yes: false, run: true, workers: true, store: true } },
   // The deterministic fill (decision 0026's stages 0 to 7, started by madarch-tzte.21.8): it runs
   // the eight stages over one product and prints what the graph holds afterwards. It serves nothing
   // and takes no agent, so it carries no port and no open.
@@ -298,6 +302,7 @@ interface Parsed {
   host: string | undefined;
   run: string | undefined;
   workers: number | undefined;
+  store: string | undefined;
   json: boolean;
 }
 
@@ -314,6 +319,7 @@ function flagNamesFor(flags: CommandSpec['flags']): readonly string[] {
     ...(flags.mode ? ['--mode'] : []),
     ...(flags.run ? ['--run'] : []),
     ...(flags.workers ? ['--workers'] : []),
+    ...(flags.store ? ['--store'] : []),
     ...(flags.yes ? ['--yes'] : []),
   ];
 }
@@ -326,7 +332,7 @@ function flagNamesFor(flags: CommandSpec['flags']): readonly string[] {
  * Returns the parse, or the number of the exit a refusal needs.
  */
 function parse(spec: CommandSpec, given: readonly string[]): Parsed | number {
-  const parsed: Parsed = { words: [], home: undefined, product: undefined, port: undefined, open: true, branch: undefined, yes: false, source: undefined, mode: undefined, host: undefined, run: undefined, workers: undefined, json: false };
+  const parsed: Parsed = { words: [], home: undefined, product: undefined, port: undefined, open: true, branch: undefined, yes: false, source: undefined, mode: undefined, host: undefined, run: undefined, workers: undefined, store: undefined, json: false };
   const seen = new Set<string>();
   const flags = flagNamesFor(spec.flags).map((name) => `${name}${name === '--no-open' ? '' : ' <value>'}`).join(', ');
   for (let i = 0; i < given.length; i++) {
@@ -415,6 +421,14 @@ function parse(spec: CommandSpec, given: readonly string[]): Parsed | number {
         return 2;
       }
       parsed.workers = n;
+      continue;
+    }
+    if (name === '--store') {
+      if (!spec.flags.store) return unknownOption(arg, flags);
+      const value = flagValue();
+      const problem = valueProblem('--store', value);
+      if (problem !== undefined) { console.error(problem); console.error('run madarch --help for help'); return 2; }
+      parsed.store = value!.trim();
       continue;
     }
     if (name === '--run') {
@@ -620,6 +634,28 @@ export async function main(args: readonly string[], deps: CliDeps = {}): Promise
   if (command === 'mcp-unit') {
     const { serveUnitMcpServer } = await import('../fill/unit-mcp-server.js');
     return await serveUnitMcpServer();
+  }
+  if (command === 'knowledge-fill') {
+    // The fill's own process (madarch-8bdc.2.9): the one orchestrator over one product's store, through the entry
+    // `madarch fill` and the wiki both use. It writes its state for its host and leaves when the run ends.
+    const { startKnowledgeFill, writeFillState } = await import('../knowledge/fill-run.js');
+    if (product === undefined || parsed.run === undefined || parsed.store === undefined) {
+      console.error('madarch knowledge-fill needs --product, --store and --run: it is the fill\'s own process, started by the wiki and by `madarch fill`');
+      return 2;
+    }
+    const { createPGliteDatabaseOwner } = await import('../adapters/database-owner.js');
+    const store = resolve(parsed.store);
+    const run = await startKnowledgeFill({
+      productFolder: resolve(product),
+      storeFolder: store,
+      runId: parsed.run,
+      database: createPGliteDatabaseOwner({ path: join(store, 'graph'), btreeGist: true }),
+      ...(parsed.workers === undefined ? {} : { workers: parsed.workers }),
+      report: (state) => writeFillState(store, state),
+    });
+    const result = await run.done;
+    // A child a signal ends leaves the state it last wrote for its host to judge; one that ends here says so.
+    process.exit(result.ok ? 0 : 1);
   }
   if (command === 'knowledge-read-worker') {
     const { runReadWorker } = await import('../knowledge/read-worker.js');
