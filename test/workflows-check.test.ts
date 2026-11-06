@@ -79,6 +79,26 @@ describe('the workflow check over the starter set', () => {
     expect(done.err.trim()).toBe(`${join(folder, WORKFLOWS_FILE)}:${lineOf(text, '- modules')}: ${expected}`);
   }, 30_000);
 
+  test('a planned workflow that names stages is checked as an implemented one is, and one of the stages the registry holds passes', () => {
+    const declared = (status: string, stages: readonly string[]): string =>
+      ['workflows:', '  branch-worktree:', `    status: ${status}`, '    stages:', ...stages.map((stage) => `      - ${stage}`), ''].join('\n');
+    // Decision 0033, item 2 exempts no planned workflow: modules reads `symbol`, and this workflow produces none.
+    const starved = declared('planned', ['modules']);
+    const refused = run('--folder', product(starved));
+    expect(refused.code).toBe(1);
+    expect(refused.err.trim().split('\n')).toEqual([
+      expect.stringContaining(`:${lineOf(starved, '- modules')}: workflow "branch-worktree" stage "modules": modules → file → inventory (disabled)`),
+      expect.stringContaining(`:${lineOf(starved, '- modules')}: workflow "branch-worktree" stage "modules": modules → symbol → syntax (disabled)`),
+    ]);
+    // The paired case: the same planned workflow of the stages the registry holds and feeds exits 0.
+    const sound = product(declared('planned', ['snapshot', 'inventory', 'syntax', 'modules']));
+    const done = run('--folder', sound);
+    expect(done.err).toBe('');
+    expect(done.code).toBe(0);
+    expect(done.out).toContain('workflows: 1 workflows (0 implemented, 1 planned)');
+    expect(done.out).toContain(join(sound, WORKFLOWS_FILE));
+  }, 30_000);
+
   test('the catalog check reports the catalog\'s findings only, and the workflows keep their own check', () => {
     const folder = product(manifest(['snapshot', 'teleport']));
     const catalog = Bun.spawnSync(['bun', join(import.meta.dir, '..', 'scripts', 'check-catalog.ts'), '--folder', folder], { cwd: join(import.meta.dir, '..'), stdout: 'pipe', stderr: 'pipe' });

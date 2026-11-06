@@ -30,10 +30,11 @@ holds, and every required input has a producer among them. Update by commit, bra
 point are `planned`: the engine has no commit hook, no background server that picks a commit up and no
 per-file change set (0033, item 25, which stage madarch-8bdc.6 builds), so running the fill at a new
 commit is a first fill again; a branch's own base, overlay and publication namespace (0033, item 26) and
-a materialised history point (0030) have no stage either. A planned workflow names no stages, and a
-stage it named would still have to be one the registry holds. The first fill names the stages of the
-fill as the registry holds them today — the eight deterministic stages, the seven agent stages a run
-registers when it names an agent, and the narrative stage that cites them.
+a materialised history point (0030) have no stage either. A planned workflow names no stages, and the
+stages it names when it names any are checked as an implemented workflow's are: decision 0033, item 2
+exempts no planned workflow. The first fill names the stages of the fill as the registry holds them
+today — the eight deterministic stages, the seven agent stages a run registers when it names an agent,
+and the narrative stage that cites them.
 
 ## Rationale
 The stages are engine code and the workflows are the product's, so the file holds ids and nothing else a
@@ -53,8 +54,9 @@ The status is the catalog's own idea of implementation status applied to a workf
 starter workflows differ in what the engine can do: a branch's overlay and a materialised history point
 have no stage at all yet, and a workflow that named stages for them would either invent ids or claim a
 run the engine cannot make. A `planned` workflow may name no stages, so the starter file says what the
-engine cannot do yet instead of saying nothing. Its stage ids, when it names any, are still checked:
-a stage a product's workflow names must exist, whatever the status says.
+engine cannot do yet instead of saying nothing. Its stages, when it names any, are checked as an
+implemented workflow's are: every stage it names must exist, and every required input of those stages
+must have a producer among them, since decision 0033, item 2 exempts no planned workflow.
 
 The check runs where the catalog's runs: over the starter set in `bun run check` (a temporary product
 written exactly as `madarch new` writes it), and in the wiki's own read of a product's manifest, whose
@@ -152,9 +154,12 @@ None.
     madarch-8bdc.6 builds them), so running the fill at a new commit is a first fill again, and a reader
     who saw `implemented` would be told the engine can do something it cannot. When those stages land,
     update by commit names them in the product's own file.
-  - A planned workflow is refused for a stage id the registry does not hold, and its inputs are not
-    checked: it says the engine cannot run it yet, and requiring its stages to feed each other would
-    refuse the placeholder the status exists for.
+  - A planned workflow is refused for the stages it names exactly as an implemented one is: a stage id
+    the registry does not hold, a stage whose required input no stage of the workflow produces, and a
+    cycle. Decision 0033, item 2 names no exception for a planned workflow, and the check is the place
+    to refuse stages that could not feed each other at a run; the status still lets a workflow name no
+    stages at all, which is how the starter set's three planned workflows say the engine cannot run
+    them yet.
   - A stage named twice in one workflow is refused as one defect: a workflow's stages are a set.
 
 ## Acceptance evidence
@@ -200,6 +205,15 @@ Measured in the worker VM (4 vCPU, 8 GB, arm64), 2026-11-05, on the change:
   Their survivors are the refusal messages' own words, finding paths whose line is the same field's, and
   the redundant `||` guards of the declaration type checks, the character 4.1 recorded; no test in the
   fast file observes an outcome they change.
+- The review's three fixes (2026-11-05). A planned workflow's stages are checked as an implemented
+  workflow's are, since 0033, item 2 exempts none; the Problems key names the workflows manifest, so an
+  edit of the file moves the listing; and a stage list reached through a YAML alias is refused at the
+  line that uses the alias, not the document's first. After them `bun run check` is exit 0 with the
+  architecture list still at 1 240, `MADARCH_SKIP_PERF=1 bun test test/workflows-read.test.ts` is 24
+  pass, `test/workflows-check.test.ts` 7 pass, the two files together 31 pass, and
+  `test/problems-listing-cache.test.ts` 4 pass. StrykerJS on the changed lines only (the alias line of
+  `src/model/yaml-position.ts` and the status gate of `src/knowledge/workflows.ts`; the stamp's added
+  statement has no mutable operator) killed 4 of 4 mutants, 100.00%.
 
 ## Where it is seen
 Kind: command
