@@ -75,6 +75,8 @@ interface BindingFact {
   readonly form?: 'default' | 'namespace' | 'named';
   readonly importedName?: string;
   readonly targetPath?: string;
+  /** The declaration a binding is made in, from its statement's first byte to its initializer's last. */
+  readonly declarationSpan?: Span;
 }
 
 /** One call site a file's facts hold. */
@@ -119,6 +121,25 @@ export interface FileLibraryEffects {
   readonly files: number;
   /** The imports the closure chained, each with the expression it leads to where one was found. */
   readonly imports: readonly ImportFact[];
+  /**
+   * Every effect the closure's evaluation proved, the unit's own file's included:
+   * an effect stands where its expression stands, and a reader that joins two
+   * files' records (a logger's declaration and the use that names it) reads the
+   * declaration from here, not from another run's answer.
+   */
+  readonly allEffects: readonly LibraryEffect[];
+  /** The facts the closure holds, so a reader can ask for the binding or the callable another file's effect stands at. */
+  readonly closure: LibraryClosure;
+}
+
+/** The facts one unit's import closure holds, one entry per file the closure read. */
+interface LibraryClosure {
+  readonly files: readonly string[];
+  readonly expressions: readonly ExpressionFact[];
+  readonly bindings: readonly BindingFact[];
+  readonly calls: readonly CallFact[];
+  readonly exports: readonly ExportFact[];
+  readonly symbols: readonly CodeSymbolFactShape[];
 }
 
 /** One page of a bounded read by property, followed to the cursor the graph answers. */
@@ -134,12 +155,20 @@ async function pagesOf(context: StaticStageContext, kind: string, field: string,
 }
 
 /** One file's own facts, read from the graph by the file they stand in. */
-async function factsOf(context: StaticStageContext, repository: string, path: string): Promise<{ readonly expressions: readonly ExpressionFact[]; readonly bindings: readonly BindingFact[]; readonly calls: readonly CallFact[]; readonly exports: readonly ExportFact[] }> {
-  const [expressions, bindings, calls, exports] = await Promise.all([
+async function factsOf(context: StaticStageContext, repository: string, path: string): Promise<{
+  readonly expressions: readonly ExpressionFact[];
+  readonly bindings: readonly BindingFact[];
+  readonly calls: readonly CallFact[];
+  readonly exports: readonly ExportFact[];
+  /** The file's callables, so an effect is owned by the callable it stands in and not by the file. */
+  readonly symbols: readonly CallableFact[];
+}> {
+  const [expressions, bindings, calls, exports, callables] = await Promise.all([
     pagesOf(context, 'code.expression', 'file', path),
     pagesOf(context, 'code.binding', 'file', path),
     pagesOf(context, 'code.call', 'file', path),
     pagesOf(context, 'code.export', 'file', path),
+    pagesOf(context, 'code.callable', 'file', path),
   ]);
   const held = (node: StaticGraphNode): boolean => node.properties['repository'] === repository;
   return {
@@ -147,7 +176,33 @@ async function factsOf(context: StaticStageContext, repository: string, path: st
     bindings: bindings.filter(held).map((node) => node.properties as unknown as BindingFact),
     calls: calls.filter(held).map((node) => node.properties as unknown as CallFact),
     exports: exports.filter(held).map((node) => node.properties as unknown as ExportFact),
+    symbols: callables.filter(held).filter((node) => node.properties['callable'] === true).map((node) => node.properties as unknown as CallableFact),
   };
+}
+
+/** One symbol as the library evaluator reads it: the declaration a callable's effects are owned by. */
+interface CodeSymbolFactShape {
+  readonly key: string;
+  readonly path: string;
+  readonly name: string;
+  readonly qualifiedName: string;
+  readonly symbolKind: string;
+  readonly callable: boolean;
+  readonly span: Span;
+  readonly bodySpan?: Span;
+  readonly bodySyntaxKind?: string;
+}
+
+/** One callable a file declares, as the library evaluator names the owner of an effect. */
+interface CallableFact {
+  readonly symbolKey: string;
+  readonly name: string;
+  readonly qualifiedName: string;
+  readonly symbolKind: string;
+  readonly language?: string;
+  readonly span: Span;
+  readonly bodySpan?: Span;
+  readonly bodySyntaxKind?: string;
 }
 
 /**
@@ -164,6 +219,7 @@ export async function libraryEffectsOf(context: StaticStageContext, repository: 
   const calls: CallFact[] = [];
   const imports: ImportFact[] = [];
   const exported: ExportFact[] = [];
+  const symbols: CodeSymbolFactShape[] = [];
   const gaps: ExtractionGap[] = [];
   const read = new Set<string>();
   /**
@@ -196,6 +252,14 @@ export async function libraryEffectsOf(context: StaticStageContext, repository: 
     bindings.push(...own.bindings);
     calls.push(...own.calls);
     exported.push(...own.exports);
+    for (const callable of own.symbols) {
+      symbols.push({
+        key: callable.symbolKey, path: file, name: callable.name, qualifiedName: callable.qualifiedName,
+        symbolKind: callable.symbolKind, callable: true, span: callable.span,
+        ...(callable.bodySpan === undefined ? {} : { bodySpan: callable.bodySpan }),
+        ...(callable.bodySyntaxKind === undefined ? {} : { bodySyntaxKind: callable.bodySyntaxKind }),
+      });
+    }
     if (depth >= LIBRARY_CLOSURE_DEPTH_LIMIT) return;
     for (const binding of own.bindings) {
       if (binding.kind !== 'import' || binding.specifier === undefined || binding.form === undefined) continue;
@@ -221,7 +285,7 @@ export async function libraryEffectsOf(context: StaticStageContext, repository: 
   // imports reach, and nothing of a repository-wide object.
   const evaluation = evaluateLibraryModels({
     files,
-    symbols: [],
+    symbols,
     imports,
     exports: exported,
     bindings,
@@ -239,5 +303,8 @@ export async function libraryEffectsOf(context: StaticStageContext, repository: 
     gaps: [ ...evaluation.gaps.filter((gap) => gap.path === path), ...gaps ],
     files: read.size,
     imports,
+    allEffects: [...evaluation.effects].sort((left, right) =>
+      byCodePoint(left.span.path, right.span.path) || left.span.byteStart - right.span.byteStart || byCodePoint(left.modelId, right.modelId)),
+    closure: { files: [...read].sort(byCodePoint), expressions, bindings, calls, exports: exported, symbols },
   };
 }

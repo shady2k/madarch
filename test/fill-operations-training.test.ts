@@ -57,21 +57,8 @@ const STAGE_PRODUCERS: readonly string[] = ['fill.operations', 'fill.operations-
  * driver emits: the port takes them off this list as each lands, and the list
  * only shrinks.
  */
-const REMAINING: readonly string[] = [
-  'code.connects-to',
-  'code.exposes-metric',
-  'code.health-endpoint',
-  'code.logger',
-  'code.manifest-of',
-  'code.metric',
-  'code.metrics-endpoint',
-  'code.probes',
-  'code.served-by',
-  'code.service',
-  'code.symbol',
-  'code.updates-metric',
-  'code.uses-logger',
-];
+/** The families the stage does not publish yet: none. The list stays so a family that has to wait is named here. */
+const REMAINING: readonly string[] = [];
 
 /** One record, reduced to the shape both readings are compared in. */
 interface ComparedRecord {
@@ -155,26 +142,88 @@ function edgeText(type: string, from: string, to: string, discriminator: string,
   return `${type} ${from} -> ${to} ${JSON.stringify(canonical({ discriminator, properties, span }))}`;
 }
 
-/** The driver's own answer, as the comparison reads it. */
-function comparedDriver(extraction: ReturnType<typeof extractOperations>): Compared {
+/**
+ * The graph's own identity of a fact the extract driver cites (decision 0033, item 7). The
+ * driver names a fact by the place it was read at — `<path>:<start>:<end>:<what>` — and the fill
+ * names the same fact `code.binding:<repository>:<path>@<start>:<end>:binding` or
+ * `code.expression:<repository>:<path>@<start>:<end>:<what>`. A declaration and an export are
+ * nodes of their own, so their identity is the graph's answer: the syntax stage's declaration
+ * where one stands, and the code-facts stage's callable where no declaration names it (the two
+ * keys one declaration carries are the driver's defect, recorded in the change). An id this
+ * function cannot read is returned unchanged, and the comparison then names it as a difference.
+ */
+async function graphIdentityOfFact(id: string): Promise<string> {
+  const symbol = /^code\.symbol:(.+)#([^#]+)$/.exec(id);
+  if (symbol !== null) {
+    const path = symbol[1]!;
+    const name = symbol[2]!;
+    const declared = await store!.byGlobalName(`${REPOSITORY}:${path}#${name}`, { limit: 8 });
+    if (declared.rows.length === 1) return String(propertiesOf(declared.rows[0]!)['recordKey']);
+    const callable = await store!.byProperty('code.callable', 'symbolKey', id, { limit: 8 });
+    const mine = callable.rows.filter((row) => propertiesOf(row)['repository'] === REPOSITORY);
+    return mine.length === 1 ? String(propertiesOf(mine[0]!)['recordKey']) : id;
+  }
+  if (id.startsWith('code.')) return id;
+  const exported = /^(.+):(\d+):(\d+):export:(.+)$/.exec(id);
+  if (exported !== null) {
+    const path = exported[1]!;
+    const name = exported[4]!;
+    const rows = (await store!.byProperty('code.export', 'file', path, { limit: 512 })).rows.filter((row) => propertiesOf(row)['name'] === name);
+    return rows.length === 1 ? String(propertiesOf(rows[0]!)['recordKey']) : id;
+  }
+  const fact = /^(.+):(\d+):(\d+):(import|binding|[A-Za-z_][A-Za-z0-9_]*)$/.exec(id);
+  if (fact === null) return id;
+  const path = fact[1]!;
+  const start = fact[2]!;
+  const end = fact[3]!;
+  const what = fact[4]!;
+  return what === 'import' || what === 'binding'
+    ? `code.binding:${REPOSITORY}:${path}@${start}:${end}:binding`
+    : `code.expression:${REPOSITORY}:${path}@${start}:${end}:${what}`;
+}
+
+/** One value with every fact id in it named the graph's way. */
+async function graphIdentityOf(value: unknown): Promise<unknown> {
+  if (typeof value === 'string') return await graphIdentityOfFact(value);
+  if (Array.isArray(value)) return await Promise.all(value.map((item) => graphIdentityOf(item)));
+  if (value !== null && typeof value === 'object') {
+    const held: Record<string, unknown> = {};
+    for (const [key, item] of Object.entries(value as Record<string, unknown>)) held[key] = await graphIdentityOf(item);
+    return held;
+  }
+  return value;
+}
+
+/**
+ * The driver's own answer, as the comparison reads it. A `code.symbol` node is the driver's second
+ * node for a declaration the syntax stage publishes, so it is not compared (the change records the
+ * two keys); its key is still mapped wherever a record ends at it. The containment edge into such a
+ * node is the syntax stage's own record, not this reading's, so it is not compared either.
+ */
+async function comparedDriver(extraction: ReturnType<typeof extractOperations>): Promise<Compared> {
   const kindOf = new Map<string, string>(extraction.nodes.map((node: ExtractedNode) => [node.key, node.kind]));
-  const nodes = extraction.nodes
-    .filter((node) => node.kind !== 'code.file' && !REMAINING.includes(node.kind))
-    .map((node) => ({ kind: node.kind, key: node.key, text: nodeText(node.kind, node.key, node.label, node.properties, spanText(node.span)) }));
+  const nodes: ComparedRecord[] = [];
+  for (const node of extraction.nodes) {
+    if (node.kind === 'code.file' || node.kind === 'code.symbol' || REMAINING.includes(node.kind)) continue;
+    const key = await graphIdentityOfFact(node.key);
+    nodes.push({ kind: node.kind, key, text: nodeText(node.kind, key, node.label, await graphIdentityOf(node.properties), spanText(node.span)) });
+  }
   // An edge of which one end is a record of a family the stage does not publish yet is not
   // compared: its end does not stand in the graph, and the edge cannot.
   const ported = (key: string): boolean => {
     const kind = kindOf.get(key);
     return kind === undefined || !REMAINING.includes(kind);
   };
-  const edges = extraction.edges
-    .filter((edge: ExtractedEdge) => !REMAINING.includes(edge.type) && ported(edge.from) && ported(edge.to))
-    .map((edge: ExtractedEdge) => ({ kind: edge.type, key: `${edge.from} -> ${edge.to}`, text: edgeText(edge.type, edge.from, edge.to, edge.discriminator, edge.properties, spanText(edge.span)) }));
-  return {
-    nodes: nodes.sort((left, right) => (leftText(left) < leftText(right) ? -1 : leftText(left) > leftText(right) ? 1 : 0)),
-    edges: edges.sort((left, right) => (leftText(left) < leftText(right) ? -1 : leftText(left) > leftText(right) ? 1 : 0)),
-    gaps: extraction.gaps,
-  };
+  const edges: ComparedRecord[] = [];
+  for (const edge of extraction.edges) {
+    if (REMAINING.includes(edge.type) || !ported(edge.from) || !ported(edge.to)) continue;
+    if (edge.type === 'code.contains' && kindOf.get(edge.to) === 'code.symbol') continue;
+    const from = await graphIdentityOfFact(edge.from);
+    const to = await graphIdentityOfFact(edge.to);
+    edges.push({ kind: edge.type, key: `${from} -> ${to}`, text: edgeText(edge.type, from, to, edge.discriminator, await graphIdentityOf(edge.properties), spanText(edge.span)) });
+  }
+  const byText = (left: ComparedRecord, right: ComparedRecord): number => (leftText(left) < leftText(right) ? -1 : leftText(left) > leftText(right) ? 1 : 0);
+  return { nodes: nodes.sort(byText), edges: edges.sort(byText), gaps: extraction.gaps };
 }
 
 /** What one compared record sorts and prints by: its kind and its key. */
@@ -295,14 +344,21 @@ beforeAll(async () => {
   const run = await service.run({ product: fill.product, runId: 'training-one' });
   if (!run.ok) throw new Error(`the first fill was refused: ${run.code}: ${run.reason}`);
   first = run;
-  // A unit the stage could not publish is said here, with the reader's own words: the comparison
-  // below is worth nothing while a file of the stage stands failed (decision 0005).
+  // A unit the stage could not publish is said first, with the reader's own words — the unit,
+  // its stage and the file: the comparison below is worth nothing while a file of the stage
+  // stands failed (decision 0005), and a state alone hides which unit it stands over.
   const failed = run.units.filter((unit) => unit.state === 'failed');
   if (failed.length > 0) {
     const { readProgress } = await import('../src/fill/orchestrator-store.js');
     const events = await readProgress(owner, 'training-one', {});
-    const said = events.filter((event) => event.kind === 'unit-failed' && failed.some((unit) => unit.unitId === event.unitId));
-    throw new Error(`the first fill left ${String(failed.length)} unit(s) failed: ${failed.map((unit) => unit.unitId).join(', ')}\n${said.map((event) => event.summary).join('\n')}`);
+    const said = failed.map((unit) => {
+      const refused = events.filter((event) => event.kind === 'unit-failed' && event.unitId === unit.unitId).at(-1);
+      return `${unit.unitId} (stage ${unit.stageId}, ${String(unit.attempts)} attempt${unit.attempts === 1 ? '' : 's'}): ${refused?.summary ?? 'the run recorded no reason'}`;
+    });
+    throw new Error(`the first fill left ${String(failed.length)} unit(s) failed, in state ${run.state}:\n${said.join('\n')}`);
+  }
+  if (run.state !== 'succeeded') {
+    throw new Error(`the first fill did not succeed: state ${run.state}, settled ${String(run.settled)}, stopped ${String(run.stoppedBecause)}, work ${String(run.work)}, passes ${String(run.passes)}`);
   }
   // The driver's own reading of the same tree, at the same commit.
   const paths = committedFiles(repository);
@@ -317,7 +373,7 @@ beforeAll(async () => {
   };
   const code = await extractCodeWithFacts(tree);
   const extraction = extractOperations(tree, code.extraction, code.facts);
-  driver = comparedDriver(extraction);
+  driver = await comparedDriver(extraction);
   driverFiles = [...new Set(extraction.nodes.filter((node) => node.kind === 'code.file').map((node) => String(node.properties['path'])))].sort();
   published = await comparePublished();
   const again = await service.run({ product: fill.product, runId: 'training-two' });

@@ -182,8 +182,10 @@ the test file's 0) included.
 ## The operations reading as a static stage (this branch)
 
 `src/fill/stages/operations.ts` is the stage and
-`src/fill/stages/operations-records.ts` its per-file half. The stage plans one
-unit per file the reading covers — lock files, manifests, Dockerfiles, compose
+`src/fill/stages/operations-records.ts` its per-file half; the records that end
+at another file's record are made by `src/fill/stages/operations-links.ts`, a
+second stage the stage graph orders after the first. The stage plans one unit
+per file the reading covers — lock files, manifests, Dockerfiles, compose
 files, Kubernetes files, Makefiles, workflows, `.env.example`, the root README,
 AsyncAPI documents and code — reads that file's bytes from the static context,
 builds the records whose span stands in it with the driver's own keys, kinds,
@@ -201,99 +203,134 @@ stage's units in the plan's own order (concurrency one), so a unit's edge ends
 exist when it publishes. The rank of a family is lock files, manifests,
 Dockerfiles, code, compose, Kubernetes, Makefile, workflow, `.env.example`,
 README, AsyncAPI. The code files come before the files that name what they
-declare: a compose `env:` entry's `configured-by` edge ends at a broker the
-compose file publishes, and a Kubernetes probe's endpoint is served by a code
-file.
+read: a compose `env:` entry's variable is the one a code file reads, and a
+Kubernetes probe claims an endpoint a code file serves. The links stage then
+runs after every unit of both, one unit per file, and answers the records that
+name another file's record: `code.env-var`, `code.reads-env`, `code.defines`
+and `code.connects-to` from the settings that name a broker address, the
+`code.service` passport and its `code.manifest-of`, `code.served-by`, the
+probes' `code.probes`, the metric links and the `code.uses-logger` edges.
 
 **What is compared.** `test/fill-operations-training.test.ts` generates the
 training repository, fills the product with the stages this reading stands on
 (it disables the others so the case times what it compares), reads the same tree
 with `extractOperations`, and compares both record sets as
 `<kind> <key> <canonical record>` lines in code point order. Every difference
-names the kind (or relation) and the key it stands at. The families not ported
-stand in the test's `REMAINING` list, and a record of a listed kind must not
-stand in the graph, so the list only shrinks.
+names the kind (or relation) and the key it stands at, a missing record, a
+record the stage publishes that the driver does not, and a record both carry
+with a different answer. `REMAINING` holds the families not ported, and a record
+of a listed kind must not stand in the graph, so the list only shrinks.
 
-**Ported and equal on the training repository** (the list of families off
-`REMAINING`): manifests and their dependencies, lock files and `resolves`,
-Dockerfiles and their `exposes` ports, compose services, health checks, ports,
-`depends-on` and `builds`, Makefile targets and their references, CI workflows
-and jobs, code processes (`starts`, `listens-on`) and `uses-dependency`, the
-Kubernetes deployment, service, probes, image, `runs`, `exposes`, `targets` and
-`built-by`, environment definitions and `defined-in`, the newcomer's
-prerequisites, steps and failure with `backed-by` and `references`, brokers and
-`runs`, AsyncAPI channels and `hosts-channel`, and `configured-by` from the
-settings that name a broker address.
+**Ported and equal on the training repository.** Every family the driver's
+operations reading makes now stands in the graph: manifests, their dependencies
+and lock files; Dockerfiles and the ports they expose; compose services,
+health checks, ports, `depends-on`, `builds` and the environment definitions
+they set; Makefile targets and their references; CI workflows and jobs; the
+Kubernetes deployment, service, image, probes, ports and their links; code
+processes with their `starts`, `listens-on` and `uses-dependency`; the
+environment definitions and `defined-in`; the newcomer's prerequisites, steps
+and failure with `backed-by` and `references`; brokers, channels and
+`hosts-channel`; `configured-by` and `connects-to` from the settings that name
+a broker address; the service passports and their `manifest-of`; the loggers
+and their uses; the health and metrics endpoints, the metrics, the expositions
+and updates, the probes and `served-by`; and the symbols those records cite.
+The driver's reading is 151 node records and 406 edge records after the
+`code.file` and `code.symbol` nodes are held out, and the comparison finds zero
+differences: `REMAINING` is empty.
 
-**Kept in the remaining list, with what stands in the way.**
+**The symbol-identity defect: one declaration, two keys.** The operations
+reading cites a callable by the driver's own symbol key,
+`code.symbol:<path>#<qualified name>` (`src/extract/operations/symbol-sites.ts`,
+`functionNode`), while the graph names the same declaration by what the fill
+published: the syntax stage's `code.symbol` node, whose `recordKey` is the
+syntax fact's digest, or — where no declaration node stands, which is this
+repository with the syntax stage disabled — the code-facts stage's
+`code.callable` node. Two keys from the training repository's own reading:
 
-- `code.symbol`. The operations reading stands one node per callable it cites,
-  keyed `code.symbol:<path>#<qualified name>` (`src/extract/operations/
-  symbol-sites.ts`, `functionNode`), while the fill's syntax stage publishes one
-  `code.symbol` node per declaration whose `recordKey` is the fact id and whose
-  properties carry the qualified name (`src/fill/stages/syntax-facts.ts`).
-  Publishing the driver's node would stand a second node for every function the
-  reading cites: the same declaration under two identities. `code.served-by`'s
-  handler edge ends at that node, so it stays with the kind.
-- `code.service` and `code.manifest-of`. The service passport aggregates the
-  unit's files: the Go standard-library imports of every file under the unit, a
-  direct requirement of its `go.mod`, whether any `_test.go` exists, whether
-  `jest` is a dev dependency, and, as `infrastructure`, whether the code reads
-  `<service>/DATABASE_URL` or `<service>/KAFKA_BROKERS`
-  (`src/extract/operations/stack.ts`, over `t.units()` and `envReads`). The
-  record's span stands in the manifest, so the manifest's unit owns it, and that
-  unit cannot see the unit's files without listing the tree; the env variables
-  are published by the code units, which must be planned after the manifest
-  because their `uses-dependency` edges end at the manifest's dependency nodes.
-  One ordered pass cannot satisfy both directions. The driver reads the stack
-  after the whole tree's environment pass, which is the whole-tree aggregate
-  decision 0033, item 5 keeps out of a static stage.
-- `code.logger` and `code.uses-logger`. The driver publishes every logger
-  declaration of the tree before any use (`loggers()`, `declared` first), and a
-  use's edge stands at the using file while its end's span stands in the
-  declaring file. On the training repository `services/checkout/src/app.ts`
-  sorts before `services/checkout/src/logging/logger.ts`, so a unit-per-file
-  pass in path order reaches the use first. The alternative is a use publishing
-  a node whose span stands in another file — the ownership rule this stage
-  keeps — so the family waits for a declaration fact the code-facts stage can
-  name by import chain.
-- `code.health-endpoint`, `code.metrics-endpoint`, `code.metric`,
-  `code.exposes-metric`, `code.updates-metric`, `code.probes` and
-  `code.served-by`. The endpoints come from the whole-tree HTTP registry and
-  metric reader (`structuralHttpRegistrations(t)`, `extractMetrics`), and the
-  probe-to-endpoint links are made by `linkEndpoints` after every file of the
-  tree is read; the endpoint's handler edge ends at the symbol node above.
-- `code.env-var`, `code.reads-env`, `code.defines` and `code.connects-to`. The
-  reads are answered by `EnvironmentReads` (`src/extract/operations/env.ts`), a
-  tree-wide interpreter over `CodeFacts`. Its expressions, bindings and call
-  sites are published per file by the code-facts stage and could be read back,
-  but two facts it asks for are not: `innermost` selects the enclosing callable
-  by `CodeSymbolFact.callable`, and the Go read's `required` is proved by the
-  enclosing function's `bodySpan` (`goGuardFails`, `stopCallsOf`). The syntax
-  stage's `code.symbol` facts carry the qualified name and the symbol kind, and
-  no callable flag and no body span (`src/fill/stages/syntax-facts.ts`), and the
-  code-facts stage publishes no symbols. A per-file port therefore needs a
-  symbol fact with its body, which the code-facts stage would publish; the
-  smallest honest step is to add that fact there, not to guess the enclosing
-  function from a name. `configured-by`'s edges from settings are ported, and
-  `connects-to` stays with the service nodes above.
+| the driver's key | the graph's key |
+| --- | --- |
+| `code.symbol:services/payments/src/domain/payment-service.ts#PaymentService.pay` | `code.callable:training:services/payments/src/domain/payment-service.ts#PaymentService.pay` |
+| `code.symbol:services/orders/internal/logging/logger.go#New` | `code.callable:training:services/orders/internal/logging/logger.go#New` |
+
+The second identity is the driver's alone: publishing it would stand two
+`code.symbol` nodes for one declaration, which the syntax stage already names.
+The operations stage therefore does not publish it: `withSymbolEnds`
+(`src/fill/stages/operations.ts`) ends an edge at the graph's answer and leaves
+a named gap where the graph holds neither identity. The comparison maps the
+driver's key to the same answer — `graphIdentityOfFact` in the test: the
+declaration by `byGlobalName(<repository>:<path>#<name>)` where exactly one
+stands, else the `code.callable` by `symbolKey`, else the key unchanged, which
+then stands as a named difference.
+
+**The evidence-naming mapping.** A ported logger record keeps the driver's
+`libraryEvidence`: the model, the library, the invocation span, and an `origin`
+whose `importId` and `chain` are the *code extraction's* private fact ids
+(`<path>:<start>:<end>:import`, `…:binding`, `…:identifier`,
+`…:call_expression`, a bare `pino.default`). The fill's library reader builds
+the same origin from the code-facts stage, whose ids are the graph's own. The
+comparison rewrites every string of a compared record before it compares:
+
+- `<path>:<start>:<end>:import` and `…:binding` →
+  `code.binding:<repository>:<path>@<start>:<end>:binding`;
+- any other `<path>:<start>:<end>:<what>` →
+  `code.expression:<repository>:<path>@<start>:<end>:<what>`;
+- `<path>:<start>:<end>:export:<name>` → the `code.export` node's `recordKey`,
+  found by its file and name;
+- `code.symbol:<path>#<name>` → the declaration or the callable above;
+- every other string stays as it stands, so `pino.default` and the spans agree.
+
+A sample from the training repository, the reading's first use: the driver's
+`origin.importId` is
+`services/checkout/src/logging/logger.ts:7:11:import`, and the mapped record
+names `code.binding:training:services/checkout/src/logging/logger.ts@7:11:binding`;
+the chain's `services/checkout/src/logging/logger.ts:96:100:identifier` becomes
+`code.expression:training:services/checkout/src/logging/logger.ts@96:100:identifier`.
+With that mapping the logger and symbol families compare text for text, which
+is why they are off `REMAINING`.
+
+**The fixtures the last assumptions rest on.**
+`test/fill-operations-fixture.test.ts` writes a repository and reads it twice,
+with the fill and with `extractOperations`, comparing the records the two
+shapes make:
+
+- a Dockerfile that exposes no port while the service's code listens on 3000.
+  The port record stands at the code's listen in both readings, and the
+  process the Dockerfile's command starts stands at the code file its command
+  names. A second Dockerfile whose command names a source file the tree does
+  not hold (`CMD ["/app/worker"]`) starts a process the Dockerfile's own unit
+  publishes, at the Dockerfile's bytes, exactly as the driver gives it.
+- a compose setting `KAFKA_BROKERS: kafka:9092` with no broker service in the
+  tree. The broker stands as `code.broker:address/kafka:9092` with source
+  `configuration`, `code.configured-by` joins it to the definition, and
+  `code.connects-to` joins it to the service the variable is scoped to.
 
 **Assumptions.**
-- The plan's family order is fixed in the stage (`FAMILY_RANK`); a repository
-  whose Dockerfile does not `EXPOSE` the port its code listens on publishes that
-  port from the code file's unit, which is planned before the Dockerfile's, so
-  the port's span would be the code file's where the driver gives the
-  Dockerfile's. The training repository exposes every listened port, and the
-  comparison shows the two agree there.
+- The port's span is the first naming in the plan's order: Dockerfile, code,
+  compose. The driver's own order is Dockerfile, compose, code, so a compose
+  port mapping whose port no Dockerfile exposes would stand at the compose
+  service line in the driver and at the code's listen in the fill. The training
+  repository exposes every port a compose file maps through its Dockerfile, and
+  the fixture above has no compose port mapping, so no comparison covers that
+  shape.
+- A command a Dockerfile runs is mapped to a source file only through the
+  driver's own two shapes: a Go binary built with `-o` for a package, or
+  `node dist/<name>.js` beside a `src/<name>.ts`. A command outside those shapes
+  starts a process the Dockerfile declares, never a guessed file.
 - A setting that names a broker address resolves against the brokers published
   before its unit: on the training repository the compose file's own broker and
-  the `.env.example`'s address, which the comparison covers.
+  the `.env.example`'s address; in the fixture, the address broker the same
+  compose file's definition creates.
 - The Kubernetes workload's span is its YAML document's own lines, as the driver
   computes it from the document range.
+- The syntax stage's declaration answers the symbol's key where it stands; this
+  comparison disables it, so every cited callable is answered by the code-facts
+  stage's `code.callable` node.
 
-**Comparison result.** Zero differences for every ported family on the
-generated training repository (75 node records and 180 edge records on both
-sides), and the remaining list above names what is not ported.
+**Comparison result.** Zero differences for every family on the generated
+training repository (151 node records and 406 edge records on both sides), and
+`REMAINING` is empty. The test fails first, with the run's own words, when a
+unit stands failed: it names each unit, its stage, its attempts and the
+reader's refusal.
 
 
 ## The merge with the operations reading (madarch-8bdc.2.4)
@@ -347,9 +384,12 @@ The comparison reaches zero for `serves` (11 edges on the training repository:
 7 orders routes, the 2 gRPC file links and their 2 handler links).
 
 ## Acceptance evidence
-Recorded beside the branch's report (`/work/out/report-8bdc24.md`): the focused
-tests, `bun run check`, the StrykerJS run on the stage's lines, and the peak
-memory of the new test.
+Recorded in the branch's report (`/work/out/report-8bdc24-operations.md`): the
+training comparison (7 pass, 0 fail, 485 s), the focused tests together and
+alone, `bun run check`, the StrykerJS run on the stage's changed lines (71
+mutants, 40 killed, 56.34%; `operations-links` 100%), and the fill's peak
+memory (1 902 MB with 404 units: snapshot 174, code-facts 66, operations 85,
+operations-links 73).
 
 ## DONE WHEN
 The stage publishes the machines, states and moves of every source file that

@@ -4,7 +4,7 @@ import { KIND_METRIC, KIND_METRICS_ENDPOINT, REL_EXPOSES_METRIC, REL_SERVED_BY, 
 import type { CodeExpressionFact, CodeFieldFact } from '../code/facts.js';
 import { metricSemanticModels, type MetricSemanticModel } from '../library-models/metric-semantic-models.js';
 import { structuralHttpRegistrations } from './route-facts.js';
-import { parsePrometheusText, type PrometheusTextResult } from './prometheus-text.js';
+import { parsePrometheusText, type PrometheusTextResult } from '../library-models/prometheus-text.js';
 import type { PropertyValue } from '../records.js';
 import type { LibraryEffect } from '../library-models/model.js';
 import type { Records } from './accumulate.js';

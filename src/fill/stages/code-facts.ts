@@ -288,6 +288,8 @@ interface BindingFact {
   readonly importedName?: string;
   /** The file of this repository the specifier answers, where one does. */
   readonly targetPath?: string;
+  /** The declaration a binding is made in, from its statement's first byte to its initializer's last. */
+  readonly declarationSpan?: SourceSpan;
 }
 
 /** One call site: the invocation and the callee and arguments it names. */
@@ -295,6 +297,8 @@ interface CallFact {
   readonly id: string;
   readonly expression: string;
   readonly span: SourceSpan;
+  /** The invocation's own prefix: from the call's first byte to the argument list's opening bracket. */
+  readonly invocationSpan?: SourceSpan;
   readonly callee?: string;
   readonly arguments: readonly string[];
   readonly construct: boolean;
@@ -348,6 +352,11 @@ const LITERAL_KINDS: ReadonlyMap<string, LiteralFact['kind']> = new Map([
   ['nil', 'null'], ['null', 'null'], ['number', 'number'], ['raw_string_literal', 'string'],
   ['interpreted_string_literal', 'string'], ['rune_literal', 'string'], ['string', 'string'],
   ['template_string', 'string'], ['true', 'boolean'], ['undefined', 'null'],
+]);
+
+/** The statements that hold a declaration of a name: where a binding's declaration stands. */
+const DECLARATION_STATEMENTS: ReadonlySet<string> = new Set([
+  'const_declaration', 'lexical_declaration', 'var_declaration', 'variable_declaration',
 ]);
 
 /** The node types that declare a name in TypeScript and JavaScript. */
@@ -662,10 +671,14 @@ export function collectFileFacts(repository: string, path: string, text: string,
   };
 
   const bodies: BodyFact[] = [];
+  /** The declaration statements the walk stands inside, innermost last: where a binding's declaration starts. */
+  const declarationStarts: SourceSpan[] = [];
   const visit = (node: SyntaxNodeLike, parentId: string | undefined): void => {
     if (!node.isNamed) return;
     if (node.type === 'comment') return;
     const span = spanOfNode(node);
+    let invocationSpan: SourceSpan | undefined;
+    if (DECLARATION_STATEMENTS.has(node.type)) declarationStarts.push(span);
     const bodyNode = CALLABLE_NODES.has(node.type) ? node.childForFieldName('body') : null;
     if (bodyNode !== null) {
       const bodySpan = spanOfNode(bodyNode);
@@ -691,7 +704,17 @@ export function collectFileFacts(repository: string, path: string, text: string,
       if (fieldName !== null && fieldName !== '') (fieldLinks[fieldName] ??= []).push(childId);
       if (node.type === 'call_expression' || node.type === 'new_expression') {
         const args = node.childForFieldName('arguments') ?? node.childForFieldName('arguments_list');
-        if (args !== null && args.id === child.id) argumentNodes.push(...args.namedChildren.filter((entry): entry is SyntaxNodeLike => entry !== null));
+        if (args !== null && args.id === child.id) {
+          argumentNodes.push(...args.namedChildren.filter((entry): entry is SyntaxNodeLike => entry !== null));
+          // The invocation's prefix ends at the opening bracket, which the grammar names as a child.
+          for (let inner = 0; inner < args.childCount; inner += 1) {
+            const bracket = args.child(inner);
+            if (bracket === null || bracket.type !== '(') continue;
+            const bracketSpan = spanOfNode(bracket);
+            invocationSpan = { path, byteStart: span.byteStart, byteEnd: bracketSpan.byteEnd, lineStart: span.lineStart, lineEnd: bracketSpan.lineEnd };
+            break;
+          }
+        }
       }
     }
     const operatorNode = operatorOf(node);
@@ -725,6 +748,8 @@ export function collectFileFacts(repository: string, path: string, text: string,
         // `variable_declarator` whatever `const`/`let`/`var` its parent says.
         const kind: BindingFact['kind'] = PARAMETER_KINDS.has(node.type) ? 'parameter' : constantDeclaration(node) ? 'local' : 'local';
         const bindingId = `${BINDING_KIND}:${repository}:${path}@${String(spanOfNode(entry.node).byteStart)}:${String(spanOfNode(entry.node).byteEnd)}:binding`;
+        const initializer = entry.initializer === undefined ? undefined : spanOfNode(entry.initializer);
+        const start = declarationStarts[declarationStarts.length - 1] ?? spanOfNode(entry.node);
         bindings.push({
           id: bindingId,
           name: entry.name,
@@ -732,6 +757,9 @@ export function collectFileFacts(repository: string, path: string, text: string,
           span: spanOfNode(entry.node),
           scope: scopeSpans[scopeSpans.length - 1]!,
           ...(entry.initializer === undefined ? {} : { initializer: idOfNode(entry.initializer) }),
+          ...(initializer === undefined ? {} : {
+            declarationSpan: { path, byteStart: start.byteStart, byteEnd: initializer.byteEnd, lineStart: start.lineStart, lineEnd: initializer.lineEnd },
+          }),
         });
         scopeBindings[scopeBindings.length - 1]!.set(entry.name, bindingId);
       }
@@ -768,6 +796,7 @@ export function collectFileFacts(repository: string, path: string, text: string,
         id: `${CALL_KIND}:${repository}:${path}@${String(span.byteStart)}:${String(span.byteEnd)}`,
         expression: id,
         span,
+        ...(invocationSpan === undefined ? {} : { invocationSpan }),
         ...(callee === null || callee === undefined ? {} : { callee: idOfNode(callee) }),
         arguments: [...new Set(argumentNodes.map((entry) => idOfNode(entry)))],
         construct: node.type === 'new_expression',
@@ -794,6 +823,7 @@ export function collectFileFacts(repository: string, path: string, text: string,
       scopeBindings.push(new Map());
     }
     for (const child of node.namedChildren) if (child !== null) visit(child, id);
+    if (DECLARATION_STATEMENTS.has(node.type)) declarationStarts.pop();
     if (opensScope) {
       scopeSpans.pop();
       scopeBindings.pop();
@@ -878,9 +908,12 @@ function importDeclarationsOf(node: SyntaxNodeLike): readonly { readonly local: 
   if (source === null) return [];
   const specifier = source.text.replace(/^["'`]|["'`]$/g, '');
   if (node.type === 'import_spec') {
+    // A Go import binds the package as a whole, under its own last segment or the name the file
+    // writes: the library models name that binding form a namespace, and a Go package's member is
+    // its export (`slog.New`), never a named import.
     const name = node.childForFieldName('name');
     const local = name === null ? (specifier.slice(specifier.lastIndexOf('/') + 1)) : name.text;
-    return [{ local, nameNode: name ?? source, specifier, form: 'named' }];
+    return [{ local, nameNode: name ?? source, specifier, form: 'namespace' }];
   }
   const found: { local: string; nameNode: SyntaxNodeLike; specifier: string; form: 'default' | 'namespace' | 'named'; importedName?: string }[] = [];
   const visitClause = (clause: SyntaxNodeLike | null): void => {

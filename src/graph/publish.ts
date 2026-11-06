@@ -249,6 +249,8 @@ export interface UnitEdgeDraft {
   readonly from: UnitEnd;
   readonly to: UnitEnd;
   readonly properties?: Readonly<Record<string, unknown>>;
+  /** Tells apart parallel relations of one type and ends; the store keys the edge by it (`edgeKeyHash`). */
+  readonly discriminator?: string;
   readonly position?: ByteSpan;
 }
 
@@ -351,11 +353,12 @@ export async function publishUnit(ctx: WriteContext, input: PublishUnitInput): P
     return { id: found };
   };
   const edges: PublishEdge[] = [...input.edges]
-    .sort((left, right) => byCodePoint(JSON.stringify([left.relation, left.from, left.to, left.position ?? null]), JSON.stringify([right.relation, right.from, right.to, right.position ?? null])))
+    .sort((left, right) => byCodePoint(JSON.stringify([left.relation, left.from, left.to, left.position ?? null, left.discriminator ?? '']), JSON.stringify([right.relation, right.from, right.to, right.position ?? null, right.discriminator ?? ''])))
     .map((edge) => ({
       relation: edge.relation,
       src: endpoint(edge.from, `edges(from ${JSON.stringify(edge.from)})`),
       dst: endpoint(edge.to, `edges(to ${JSON.stringify(edge.to)})`),
+      ...(edge.discriminator === undefined || edge.discriminator === '' ? {} : { discriminator: edge.discriminator }),
       ...(edge.position === undefined ? {} : { position: { start: edge.position.start, end: edge.position.end } }),
       ...(edge.properties === undefined ? {} : { properties: { ...edge.properties } }),
       validFrom,

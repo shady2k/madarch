@@ -61,8 +61,10 @@ import { fileFactIdOf } from './syntax-facts.js';
 import { fileUnitId, plannedUnit } from './syntax.js';
 import { publishedTreeRead, publishedTreeRows } from './tree-rows.js';
 import { serviceMembershipOf, type ManifestEntry } from './service-membership.js';
-import { libraryEffectsOf } from './library-effects.js';
-import { envReadsOf, type EnvBinding, type EnvCall, type EnvExpression, type EnvRead, type EnvSpan } from './env-reads.js';
+import { libraryEffectsOf, type FileLibraryEffects } from './library-effects.js';
+import { envReadsOf, type EnvBinding, type EnvCall, type EnvExpression, type EnvRead } from './env-reads.js';
+import { pagesOfProperty, readCodeFacts, type CallableNode, type CodeFactIndex, type FactSpan } from './operations-code-facts.js';
+import { EXPOSITION_FACT_KIND, LOGGER_USE_FACT_KIND, ROUTE_FACT_KIND, observabilityRecordsOfFile, type FileUnit } from './operations-observability.js';
 import {
   FileText, RecordSet, asyncapiRecords, brokerOf, composeRecords, dockerfileRead, dockerfileRecords, environmentRecords, goModReading, goSumRecords,
   imageServiceName, k8sRecords, makefileRecords, newcomerRecords, npmLockRecords, npmManifestReading, processRecords,
@@ -80,10 +82,11 @@ const OPERATIONS_STAGE_VERSION = 1;
 const OPERATIONS_STAGE_KINDS: readonly string[] = [
   'backed-by', 'broker', 'builds', 'built-by', 'ci-job', 'ci-workflow', 'compose-service', 'configured-by',
   'contains', 'contains-job', 'coverage', 'declares-dependency', 'defined-in', 'dependency', 'depends-on',
-  'dockerfile', 'env-definition', 'env-read', 'exposes', 'healthcheck', 'hosts-channel', 'image', 'k8s-deployment', 'k8s-service',
-  'listens-on', 'lockfile', 'make-target', 'manifest', 'newcomer-command', 'newcomer-failure',
-  'newcomer-prerequisites', 'port', 'probe', 'process', 'publishes', 'references', 'resolves', 'runs', 'starts',
-  'targets', 'uses-dependency',
+  'dockerfile', 'env-definition', 'env-read', 'exposes', 'exposes-metric', 'health-endpoint', 'healthcheck', 'hosts-channel',
+  'http-route', 'image', 'k8s-deployment', 'k8s-service', 'listens-on', 'lockfile', 'logger', 'logger-use', 'make-target',
+  'manifest', 'manifest-of', 'metric', 'metric-exposition', 'metrics-endpoint', 'newcomer-command', 'newcomer-failure',
+  'newcomer-prerequisites', 'port', 'probe', 'probes', 'process', 'publishes', 'references', 'resolves', 'runs',
+  'served-by', 'starts', 'targets', 'updates-metric', 'uses-dependency',
 ];
 
 /** The reader every fact of this stage cites: this fill's own reading of one file's operations records. */
@@ -403,7 +406,16 @@ async function recordsOfUnit(stage: StaticStageContext, repository: string, fami
       for (const port of read.read.exposes) {
         if (await publishedElsewhere(stage, file.path, `code.port:${service}/${String(port)}`)) published.push(port);
       }
-      return dockerfileRecords(file, read.read, (port) => published.includes(port));
+      const records = dockerfileRecords(file, read.read, (port) => published.includes(port));
+      // The process the command starts stands at the code file it names, and that file's unit
+      // publishes it (`processRecords`, the code case below). A command that names no source
+      // file this tree holds starts a process the Dockerfile itself declares: the driver gives
+      // that process the Dockerfile's bytes and the `starts` edge, and this unit owns both.
+      const started = await startedProcessOf(read.read, (candidate) => existsInGraph(stage, candidate));
+      if (started === undefined) return records;
+      if (started.mainFile !== null && await existsInGraph(stage, started.mainFile)) return records;
+      const process = processRecords({ file, dockerfile: file, reading: read.read, started, listen: undefined, publishPort: false });
+      return { nodes: [...records.nodes, ...process.nodes], edges: [...records.edges, ...process.edges], gaps: [...records.gaps, ...process.gaps] };
     }
     case 'code':
       return await codeRecords(stage, repository, file);
@@ -448,6 +460,42 @@ async function makeTargetsOf(stage: StaticStageContext, path: string): Promise<R
     if (page.next === null) return targets;
     after = page.next;
   }
+}
+
+/** The unit a code file belongs to, with the ports its code listens on: the facts the code-facts stage published. */
+async function fileUnitOf(stage: StaticStageContext, repository: string, unit: { readonly name: string; readonly declared: string } | undefined): Promise<FileUnit | undefined> {
+  if (unit === undefined) return undefined;
+  const ports: string[] = [];
+  for (const row of await pagesOfProperty(stage, 'code.listener-port', 'service', unit.name)) {
+    if (row['repository'] !== repository) continue;
+    if (row['port'] === undefined) continue;
+    ports.push(String(row['port']));
+  }
+  return { name: unit.name, declared: unit.declared, ports };
+}
+
+/** One span as the record's own span. */
+function spanOfRecord(span: FactSpan): RecordSpan {
+  return { path: span.path, byteStart: span.byteStart, byteEnd: span.byteEnd, lineStart: span.lineStart, lineEnd: span.lineEnd };
+}
+
+/**
+ * The callable of one type's member in a folder, where the folder declares it: a route whose
+ * handler is a value of a declared type names the method the HTTP model names, and this is the
+ * bounded read that finds the file the method stands in (a handler is often declared beside the
+ * route, never in it).
+ */
+function methodLookup(stage: StaticStageContext): (folder: string, typeName: string, member: string) => Promise<CallableNode | undefined> {
+  return async (folder, typeName, member) => {
+    const rows = await pagesOfProperty(stage, 'code.callable', 'name', member);
+    const wanted = rows.filter((row) => {
+      const file = String(row['file'] ?? '');
+      const held = file.includes('/') ? file.slice(0, file.lastIndexOf('/')) : '';
+      return held === folder && row['qualifiedName'] === `${typeName}.${member}`;
+    }).sort((left, right) => byCodePoint(String(left['recordKey']), String(right['recordKey'])));
+    const first = wanted[0];
+    return first === undefined ? undefined : first as unknown as CallableNode;
+  };
 }
 
 /** The name of a path's last leg. */
@@ -552,10 +600,24 @@ async function codeRecords(stage: StaticStageContext, repository: string, file: 
       usesDependencyRecords(file, manifestPath, declared, imports, set);
     }
   }
+  // The file's facts and the library effects its imports prove, read once: the environment area
+  // and the observability area both read them, and one bounded read answers both.
+  const facts = await readCodeFacts(stage, repository, file.path);
+  const library = await libraryEffectsOf(stage, repository, file.path);
   // What the file reads from the environment, as the extract driver's environment area reads
   // it: the later links stage aggregates these per-file reads into the variables and the
   // definitions that set them (madarch-8bdc.2.4's second stage).
-  for (const read of await envReadFactsOf(stage, repository, file, membership.unit?.name ?? '')) set.add(read);
+  for (const read of envReadFactsOf(facts, library, file, membership.unit?.name ?? '')) set.add(read);
+  // The observability reading: the loggers, metrics and routes this file's own facts declare, and
+  // the health endpoints its registrations serve (madarch-8bdc.2.4's last families).
+  const unit = await fileUnitOf(stage, repository, membership.unit);
+  const reading = await observabilityRecordsOfFile(facts, library, unit, methodLookup(stage), {
+    add: (key, kind, label, properties, span) => set.add({ key, kind, label, properties, span: spanOfRecord(span) }),
+    edge: (type, from, to, properties, span, discriminator) => set.edge(type, from, to, properties, spanOfRecord(span), discriminator),
+    gap: (path, reason) => set.gap(path, reason),
+  });
+  for (const gap of library.gaps) set.gap(gap.path, gap.reason);
+  void reading;
   const root = membership.unit?.root;
   if (root !== undefined) {
     const dockerfilePath = root === '' ? 'Dockerfile' : `${root}/Dockerfile`;
@@ -573,15 +635,62 @@ async function codeRecords(stage: StaticStageContext, repository: string, file: 
       }
     }
   }
-  return recordsOf(set);
+  return await withSymbolEnds(stage, repository, recordsOf(set));
+}
+
+/**
+ * The edges whose end is a callable, ended at the node that declaration stands in: the syntax
+ * stage's own `code.symbol` node where the declaration is published (a bounded read by the global
+ * name the fill gives it), and the code-facts stage's `code.callable` node where no declaration
+ * names the callable (an anonymous callback). An end the graph holds under neither identity is a
+ * named gap, never an edge into nothing (decision 0033, item 15).
+ */
+async function withSymbolEnds(stage: StaticStageContext, repository: string, records: FileRecords): Promise<FileRecords> {
+  if (!records.edges.some((edge) => edge.from.startsWith('code.symbol:') || edge.to.startsWith('code.symbol:'))) return records;
+  const edges: typeof records.edges[number][] = [];
+  const gaps = [...records.gaps];
+  for (const edge of records.edges) {
+    const from = await symbolNodeKey(stage, repository, edge.from);
+    const to = await symbolNodeKey(stage, repository, edge.to);
+    if (from === undefined || to === undefined) {
+      gaps.push({ path: edge.span?.path ?? '.', reason: `the ${edge.type} edge names ${JSON.stringify(from === undefined ? edge.from : edge.to)}, and the graph holds no node under that declaration` });
+      continue;
+    }
+    edges.push({ ...edge, from, to });
+  }
+  return { nodes: records.nodes, edges, gaps };
+}
+
+/**
+ * The graph's key for one callable the reading cites: the syntax stage's declaration node where
+ * the graph holds one by the name the fill gives it, and the code-facts stage's callable node
+ * where none does. The links stage ends its edges the same way, through this one answer.
+ */
+export async function symbolNodeKeyOf(stage: StaticStageContext, repository: string, key: string): Promise<string | undefined> {
+  return await symbolNodeKey(stage, repository, key);
+}
+
+/** The graph's key for a callable, or the key itself where it names no callable. */
+async function symbolNodeKey(stage: StaticStageContext, repository: string, key: string): Promise<string | undefined> {
+  if (!key.startsWith('code.symbol:')) return key;
+  const rest = key.slice('code.symbol:'.length);
+  const at = rest.lastIndexOf('#');
+  if (at <= 0) return undefined;
+  const path = rest.slice(0, at);
+  const name = rest.slice(at + 1);
+  const declared = await stage.byGlobalName(`${repository}:${path}#${name}`, { limit: 8 });
+  if (declared.length === 1) return String(declared[0]!.properties['recordKey']);
+  const callables = (await pagesOfProperty(stage, 'code.callable', 'symbolKey', key)).filter((row) => row['repository'] === repository);
+  if (callables.length === 1) return String(callables[0]!['recordKey']);
+  return undefined;
 }
 
 
 /** One environment read as the file's own record: the variable, the callable, the default and the place. */
-async function envReadFactsOf(stage: StaticStageContext, repository: string, file: FileText, service: string): Promise<readonly NodeRecord[]> {
-  const held = await envReadsInFile(stage, repository, file.path, service);
+function envReadFactsOf(facts: CodeFactIndex, library: FileLibraryEffects, file: FileText, service: string): readonly NodeRecord[] {
+  const held = envReadsInFile(facts, library, file.path, service);
   return held.map((read) => ({
-    key: `code.env-read:${repository}:${file.path}#${read.name}@${String(read.line)}`,
+    key: `code.env-read:${file.path}#${read.name}@${String(read.line)}`,
     kind: 'code.env-read',
     label: read.name,
     properties: {
@@ -604,31 +713,24 @@ async function envReadFactsOf(stage: StaticStageContext, repository: string, fil
  * expressions, bindings, calls and callables by property, and no other file's
  * answer. A file whose language the reader does not follow reads nothing.
  */
-async function envReadsInFile(stage: StaticStageContext, repository: string, path: string, service: string): Promise<readonly EnvRead[]> {
+function envReadsInFile(facts: CodeFactIndex, library: FileLibraryEffects, path: string, service: string): readonly EnvRead[] {
   if (service === '') return [];
   const language = path.endsWith('.go') ? 'go' as const : 'typescript' as const;
-  const [expressions, bindings, calls, callables, effects] = await Promise.all([
-    factsOf(stage, 'code.expression', path),
-    factsOf(stage, 'code.binding', path),
-    factsOf(stage, 'code.call', path),
-    factsOf(stage, 'code.callable', path),
-    libraryEffectsOf(stage, repository, path),
-  ]);
   return envReadsOf({
     path,
     language,
     service,
-    expressions: expressions as unknown as readonly EnvExpression[],
-    bindings: bindings as unknown as readonly EnvBinding[],
-    calls: calls as unknown as readonly EnvCall[],
-    callables: callables.filter((held) => held['callable'] === true).map((held) => ({
-      key: String(held['symbolKey']),
-      name: String(held['name']),
-      qualifiedName: String(held['qualifiedName']),
-      span: held['span'] as EnvSpan,
-      ...(held['bodySpan'] === undefined ? {} : { bodySpan: held['bodySpan'] as EnvSpan }),
+    expressions: facts.ordered as unknown as readonly EnvExpression[],
+    bindings: [...facts.bindings.values()] as unknown as readonly EnvBinding[],
+    calls: [...facts.calls.values()] as unknown as readonly EnvCall[],
+    callables: facts.callables.map((held) => ({
+      key: held.key,
+      name: held.name,
+      qualifiedName: held.qualifiedName,
+      span: held.span,
+      ...(held.bodySpan === undefined ? {} : { bodySpan: held.bodySpan }),
     })),
-    effects: effects.effects,
+    effects: library.effects,
   });
 }
 
@@ -833,6 +935,9 @@ function draftWrites(records: FileRecords, repository: string, path: string, sou
         relation: edge.type,
         from: endOf(edge.from, repository),
         to: endOf(edge.to, repository),
+        // The discriminator stands twice on purpose: the store keys the edge by it, and the
+        // record's own properties keep it for the comparison with the driver's record.
+        ...(edge.discriminator === '' ? {} : { discriminator: edge.discriminator }),
         properties: edgePropertiesOf(edge, repository, path),
       },
     });
@@ -840,9 +945,10 @@ function draftWrites(records: FileRecords, repository: string, path: string, sou
   // What a file holds, hung from the file's node, for every record whose span stands in it: the
   // driver's own closing pass over the records it made (madarch-m38l.16).
   for (const node of records.nodes) {
-    // The environment reads are this stage's own bookkeeping, read by the links stage and never
-    // a record of the reading: no file holds them (madarch-8bdc.2.4's second stage).
-    if (node.kind === 'code.env-read') continue;
+    // The environment reads, the route registrations and the expositions are this stage's own
+    // bookkeeping, read by the links stage and never a record of the reading: no file holds them
+    // (madarch-8bdc.2.4's second stage).
+    if (node.kind === 'code.env-read' || node.kind === ROUTE_FACT_KIND || node.kind === EXPOSITION_FACT_KIND || node.kind === LOGGER_USE_FACT_KIND) continue;
     if (node.span === undefined || node.span.path !== path) continue;
     writes.push({
       kind: 'edge',

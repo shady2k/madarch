@@ -90,7 +90,7 @@ const EDGE_RELATION: Partial<Record<FactKind, string>> = {
  * catalog's mapping read the same list (decision 0033, item 7). Registering a
  * key the store already knows changes nothing.
  */
-export const CODE_GRAPH_VOCABULARY: { readonly kinds: readonly string[]; readonly relations: readonly { readonly key: string; readonly positioned?: boolean }[] } = {
+export const CODE_GRAPH_VOCABULARY: { readonly kinds: readonly string[]; readonly relations: readonly { readonly key: string; readonly positioned?: boolean; readonly discriminated?: boolean }[] } = {
   kinds: STAGE_NODE_KINDS,
   relations: STAGE_EDGE_TYPES,
 };
@@ -112,6 +112,14 @@ export interface StaticEdgeDraft {
   readonly from: StaticEnd;
   readonly to: StaticEnd;
   readonly properties?: Readonly<Record<string, unknown>>;
+  /**
+   * What tells this edge apart from a parallel relation of the same type and ends
+   * (decision 0028, `edgeKeyHash`): the reading site's starting byte for a record
+   * whose family lands once per use. The store keys an edge by its relation, its
+   * two ends and this text, so a draft that wrote one use site twice would name one
+   * edge and lose the other; the draft check reads the same key.
+   */
+  readonly discriminator?: string;
   /** The byte span of a positioned occurrence; absent for a relation type the store does not position. */
   readonly position?: { readonly start: number; readonly end: number };
 }
@@ -290,7 +298,12 @@ export function checkStaticGraphDraft(stageId: string, kinds: readonly string[],
           errors.push(`${at}: the byte span [${String(start)}, ${String(end)}) is no span: 0 <= start < end (decision 0028)`);
         }
       }
-      const identity = JSON.stringify([edge.relation, from, to, edge.position ?? null]);
+      if (edge.discriminator !== undefined && (typeof edge.discriminator !== 'string' || edge.discriminator === '')) {
+        errors.push(`${at}: the discriminator ${JSON.stringify(edge.discriminator)} is no text a relation is told apart by: a discriminator is a non-empty string where one stands (decision 0028)`);
+      }
+      // An edge's identity is the store's own (`edgeKeyHash`): a positioned occurrence by its
+      // starting byte, every other edge by its relation, its ends and its discriminator.
+      const identity = JSON.stringify([edge.relation, from, to, edge.position === undefined ? `discriminator:${edge.discriminator ?? ''}` : `byte:${String(edge.position.start)}`]);
       if (edgeKeys.has(identity)) errors.push(`${at}: the edge ${identity} stands in an earlier write of this draft: one draft names one edge once`);
       edgeKeys.add(identity);
       if (!kinds.includes(String((edge.properties as Record<string, unknown> | undefined)?.['factKind']))) {
@@ -355,6 +368,7 @@ export function staticUnitPublicationOf(input: StaticUnitPublication): PublishUn
         from: write.value.from,
         to: write.value.to,
         ...(write.value.properties === undefined ? {} : { properties: { ...write.value.properties } }),
+        ...(write.value.discriminator === undefined ? {} : { discriminator: write.value.discriminator }),
         ...(write.value.position === undefined ? {} : { position: write.value.position }),
       });
       continue;
