@@ -1,41 +1,50 @@
 #!/usr/bin/env bun
 /**
- * `bun scripts/score-reference-graph.ts <repository folder> <graph database>` —
- * the training score of a filled graph against the reference graph
- * (`examples/training-repository/reference-graph/`).
+ * `bun scripts/score-reference-graph.ts <reference folder> <repository folder> <graph database>`
+ * — the training score of a filled graph against the reference graph, matched by
+ * place.
  *
- *   bun scripts/score-reference-graph.ts /work/out/training /work/out/home/.madarch/fill/state.db
- *   … [--graph <reference folder>] [--json]
+ *   bun scripts/score-reference-graph.ts <reference folder> <repository folder> <graph database>
+ *   … [--json]
  *
- * The graph is read through its own reader (`src/knowledge/graph-read.ts`) at
- * the repository's scope. Every record is named by one function
- * (`scripts/reference-graph-natural-key.ts`), and the names are compared as
- * strings: a node is found when its kind and its natural id are the
- * reference's, an edge when its relation and both ends are.
+ * The reference says where a fact stands (the lines its evidence cites) and the
+ * graph says where a record stands (its span, or the place of its provenance).
+ * The match (`scripts/reference-graph-by-place.ts`) pairs them by kind, file and
+ * overlapping lines — never by spelling. Where several records of a kind
+ * overlap one entry, the one whose own name the entry states wins; otherwise the
+ * entry is matched once, to the nearest place, and the match is counted as
+ * ambiguous for its kind. A record that states no place is counted per kind as
+ * `no place`; a fact with no file at all (a commit, a task, an author, the
+ * repository) is matched by the identity it states — `IDENTITY_KINDS` lists them
+ * and why. An edge matches when its relation is equal and both ends are records
+ * matched to the entries the edge names.
  *
- * The tables are per node kind and per relation, and each row is split by the
- * reference entry's reading: `parsed` and `declared` are what a static fill can
- * reach, `judgement` is what a reader decides (scored separately, and the
- * graph's count beside it is the whole of the kind, because a graph record
- * does not carry a reading). `precision` is what share of the graph's records
- * of the kind the row explains, `recall` what share of the reference entries
- * the graph holds, and `F1` the harmonic mean; a share with no denominator is
- * printed as `—`.
+ * The name-only match the first scorer used is kept as a second set of columns,
+ * for comparison.
  *
- * Then the lists: every reference entry the graph does not hold, with its
- * evidence; every graph record the reference does not state, with the place the
- * graph gives; and every kind the graph holds that the reference leaves out by
- * design, by name.
+ * Three optional things of the reference are honoured: `scored: false` on an
+ * entry or an edge (out of every count, reported as a total), `scope` on an edge
+ * (`direct` is scored, any other value is reported apart), and a `SCORING.md` at
+ * the reference's root listing `recall: yes` or `recall: no` per kind and
+ * relation (a `no` prints `n/a` for recall).
+ *
+ * The scorer names no repository: the repository is the folder it is given, and
+ * the graph's records are the ones that say that name.
  */
 import { existsSync, readFileSync, readdirSync, statSync } from 'node:fs';
-import { basename } from 'node:path';
-import { join, relative, resolve } from 'node:path';
-import { parse as parseYaml } from 'yaml';
+import { basename, join, resolve } from 'node:path';
 import { pathToFileURL } from 'node:url';
+import { parse as parseYaml } from 'yaml';
 import { EXTRACTOR_RELATIONS } from '../src/extract/vocabulary.js';
 import { STAGE_EDGE_TYPES } from '../src/extract/code/stage-vocabulary.js';
 import { GraphReader, type GraphEntity, type RelationEdge } from '../src/knowledge/graph-read.js';
 import { NAMED_KINDS, naturalKeyOf } from './reference-graph-natural-key.js';
+import {
+  IDENTITY_KINDS, matchEdges, matchNodes, placeOfProperties, readScoring,
+  type GraphEdge, type NodeRecord, type ReferenceEdge, type ReferenceEntry,
+} from './reference-graph-by-place.js';
+
+const USAGE = 'usage: bun scripts/score-reference-graph.ts <reference folder> <repository folder> <graph database> [--json]';
 
 /**
  * The database owner and the graph's reader, loaded by a path the import graph
@@ -49,47 +58,29 @@ const load = async (path: string) => await import(pathToFileURL(join(engine, pat
 const { createPGliteDatabaseOwner } = await load('src/adapters/database-owner.ts') as typeof import('../src/adapters/database-owner.js');
 type DatabaseOwner = import('../src/adapters/database-owner.js').DatabaseOwner;
 
-const USAGE = 'usage: bun scripts/score-reference-graph.ts <repository folder> <graph database> [--graph <reference folder>] [--repository <name>] [--json]';
-
 class UsageError extends Error {}
 
 interface EvidenceItem {
   readonly path?: string;
   readonly startLine?: number;
   readonly endLine?: number;
-  readonly quote?: string;
   readonly command?: string;
 }
 
-interface ReferenceNode {
-  readonly id: string;
-  readonly kind: string;
+interface ReferenceNode extends ReferenceEntry {
   readonly label: string;
   readonly reading: string;
   readonly evidence: readonly EvidenceItem[];
 }
 
-interface ReferenceEdge {
-  readonly relation: string;
-  readonly from: string;
-  readonly to: string;
+interface ReferenceEdgeEntry extends ReferenceEdge {
   readonly reading: string;
   readonly evidence: readonly EvidenceItem[];
 }
-
-interface Classification {
-  readonly parsed: boolean;
-  readonly declared: boolean;
-  readonly judgement: boolean;
-}
-
-const STATIC = 'parsed+declared';
-const JUDGEMENT = 'judgement';
 
 interface Row {
   readonly name: string;
-  readonly kind: string;
-  readonly label: string;
+  readonly kind: 'node' | 'edge';
   readonly class: string;
   readonly reference: number;
   readonly graph: number;
@@ -97,31 +88,48 @@ interface Row {
   readonly precision: number | null;
   readonly recall: number | null;
   readonly f1: number | null;
+  readonly nameReference: number;
+  readonly nameGraph: number;
+  readonly nameTruePositives: number;
+  readonly namePrecision: number | null;
+  readonly nameRecall: number | null;
+  readonly noPlace: number;
+  readonly ambiguous: number;
+  readonly recallScored: boolean;
 }
 
 interface Missing {
   readonly kind: string;
   readonly id: string;
-  readonly label: string;
   readonly reading: string;
   readonly evidence: readonly EvidenceItem[];
 }
 
 interface Extra {
   readonly kind: string;
-  readonly id: string;
   readonly key: string;
   readonly label: string;
   readonly place: string;
 }
 
 interface Result {
+  readonly repository: string;
+  readonly scope: string;
   readonly table: readonly Row[];
   readonly missing: readonly Missing[];
   readonly extra: readonly Extra[];
   readonly excluded: readonly { readonly kind: string; readonly count: number; readonly reason: string }[];
-  readonly unmapped: readonly { readonly kind: string; readonly key: string; readonly reason: string }[];
-  readonly scope: string;
+  readonly excludedRelations: readonly { readonly relation: string; readonly count: number; readonly reason: string }[];
+  readonly edgesApart: readonly { readonly kind: string; readonly count: number }[];
+  readonly noPlace: readonly { readonly kind: string; readonly count: number }[];
+  readonly ambiguous: readonly { readonly kind: string; readonly entries: number; readonly records: number }[];
+  readonly identity: readonly { readonly kind: string; readonly property: string; readonly why: string; readonly matched: number }[];
+  readonly scopedApart: readonly { readonly scope: string; readonly count: number }[];
+  readonly unscored: { readonly nodes: number; readonly edges: number };
+  readonly totals: Readonly<Record<string, Readonly<Record<string, {
+    reference: number; graph: number; truePositives: number;
+    nameReference: number; nameGraph: number; nameTruePositives: number;
+  }>>>>;
 }
 
 async function main(): Promise<number> {
@@ -130,38 +138,22 @@ async function main(): Promise<number> {
     console.log(USAGE);
     return 0;
   }
-  let repository: string | undefined;
-  let database: string | undefined;
-  let graphFolder: string | undefined;
-  let repositoryName: string | undefined;
+  const words: string[] = [];
   let json = false;
-  for (let index = 0; index < argv.length; index += 1) {
-    const argument = argv[index]!;
+  for (const argument of argv) {
     if (argument === '--json') json = true;
-    else if (argument === '--repository') {
-      repositoryName = argv[index + 1];
-      if (repositoryName === undefined || repositoryName.startsWith('--')) throw new UsageError('--repository names the repository the graph reads, and none was given');
-      index += 1;
-    } else if (argument === '--graph') {
-      graphFolder = argv[index + 1];
-      if (graphFolder === undefined || graphFolder.startsWith('--')) throw new UsageError('--graph names the reference folder, and none was given');
-      index += 1;
-    } else if (argument.startsWith('--')) throw new UsageError(`the argument ${JSON.stringify(argument)} is not one this command knows; --help lists them`);
-    else if (repository === undefined) repository = argument;
-    else if (database === undefined) database = argument;
-    else throw new UsageError(`the argument ${JSON.stringify(argument)} is not one this command knows; --help lists them`);
+    else if (argument.startsWith('--')) throw new UsageError(`the argument ${JSON.stringify(argument)} is not one this command knows; --help lists them`);
+    else words.push(argument);
   }
-  if (repository === undefined || database === undefined) throw new UsageError(USAGE);
-  const folder = resolve(repository);
-  const graph = resolve(graphFolder ?? join(import.meta.dir, '..', 'examples', 'training-repository', 'reference-graph'));
-  const result = await score(folder, resolve(database), graph, repositoryName ?? basename(folder));
+  if (words.length !== 3) throw new UsageError(USAGE);
+  const [referenceFolder, repositoryFolder, database] = words as [string, string, string];
+  const result = await score(resolve(referenceFolder), resolve(repositoryFolder), resolve(database));
   if (json) console.log(JSON.stringify(result, null, 2));
   else report(result);
   return 0;
 }
 
-/** Reads the reference: every node and every edge, with the reading it was written in. */
-function readReference(graphRoot: string): { nodes: ReferenceNode[]; edges: ReferenceEdge[] } {
+function readReference(root: string): { nodes: ReferenceNode[]; edges: ReferenceEdgeEntry[]; scoring: Map<string, boolean> } {
   const files: string[] = [];
   const walk = (folder: string): void => {
     for (const name of readdirSync(folder).sort()) {
@@ -170,46 +162,21 @@ function readReference(graphRoot: string): { nodes: ReferenceNode[]; edges: Refe
       else if (name.endsWith('.yaml')) files.push(path);
     }
   };
-  walk(graphRoot);
+  walk(root);
   const nodes: ReferenceNode[] = [];
-  const edges: ReferenceEdge[] = [];
+  const edges: ReferenceEdgeEntry[] = [];
   for (const file of files) {
-    const held = parseYaml(readFileSync(file, 'utf8')) as { nodes?: ReferenceNode[]; edges?: ReferenceEdge[] } | null;
-    if (held === null) throw new Error(`${file}: the reference file holds no YAML mapping`);
+    const held = parseYaml(readFileSync(file, 'utf8')) as { nodes?: ReferenceNode[]; edges?: ReferenceEdgeEntry[] } | null;
+    if (held === null) continue;
     nodes.push(...(held.nodes ?? []));
     edges.push(...(held.edges ?? []));
   }
-  return { nodes, edges };
-}
-
-/** The name of the class a reading belongs to, or null for a reading this scorer does not know. */
-function classOf(reading: string): string | null {
-  if (reading === 'parsed' || reading === 'declared') return STATIC;
-  if (reading === 'judgement') return JUDGEMENT;
-  return null;
+  const scoringFile = join(root, 'SCORING.md');
+  return { nodes, edges, scoring: existsSync(scoringFile) ? readScoring(readFileSync(scoringFile, 'utf8')) : new Map() };
 }
 
 function places(evidence: readonly EvidenceItem[]): string {
-  return evidence.map((item) => item.command !== undefined ? `\`${item.command}\`` : `${item.path}:${String(item.startLine)}${item.endLine !== item.startLine ? `-${String(item.endLine)}` : ''}`).join(', ');
-}
-
-/** Where the graph says the record stands: its span, or the place of its provenance, or nothing. */
-function placeOf(entity: GraphEntity): string {
-  if (entity.span !== undefined) return `${entity.span.path}:${String(entity.span.lineStart)}`;
-  const provenance = entity.properties['provenance'];
-  if (provenance !== null && typeof provenance === 'object') {
-    const place = (provenance as Record<string, unknown>)['place'];
-    if (place !== null && typeof place === 'object') {
-      const file = (place as Record<string, unknown>)['file'];
-      const range = (place as Record<string, unknown>)['range'];
-      if (typeof file === 'string' && range !== null && typeof range === 'object') {
-        const line = (range as Record<string, unknown>)['startLine'];
-        if (typeof line === 'number') return `${file}:${String(line)}`;
-      }
-    }
-  }
-  const file = entity.properties['file'];
-  return typeof file === 'string' ? file : '—';
+  return evidence.map((item) => item.command !== undefined ? `\`${item.command}\`` : `${item.path ?? '?'}:${String(item.startLine ?? '?')}${item.endLine !== item.startLine ? `-${String(item.endLine ?? '?')}` : ''}`).join(', ');
 }
 
 function share(part: number, whole: number): number | null {
@@ -221,145 +188,49 @@ function f1Of(precision: number | null, recall: number | null): number | null {
   return (2 * precision * recall) / (precision + recall);
 }
 
-async function score(folder: string, database: string, graphRoot: string, repositoryName: string): Promise<Result> {
-  if (!existsSync(database)) throw new UsageError(`${database}: no such graph database`);
-  const reference = readReference(graphRoot);
-  const owner: DatabaseOwner = createPGliteDatabaseOwner({ path: database, btreeGist: true });
-  try {
-    const instant = new Date().toISOString();
-    const reader = new GraphReader(owner, () => instant);
-
-    // Every entity of every kind that belongs to the repository, named by the one function.
-    // The graph reads across its scopes; a record says which repository it was read from in
-    // `properties.repository` (and, under the extract driver, in its provenance).
-    const entities: GraphEntity[] = [];
-    const unmapped: { kind: string; key: string; reason: string }[] = [];
-    const byDesign = new Map<string, number>();
-    let repositoryNode = '';
-    for (const { kind } of await reader.kindCounts()) {
-      let after: string | undefined;
-      for (;;) {
-        const page = await reader.list(kind, { limit: 500, ...(after === undefined ? {} : { after }) });
-        for (const entity of page.rows) {
-          if (repositoryOf(entity) !== repositoryName) continue;
-          if (!NAMED_KINDS.has(kind)) {
-            byDesign.set(kind, (byDesign.get(kind) ?? 0) + 1);
-            continue;
-          }
-          if (kind === 'code.repository') repositoryNode = entity.nodeIds[0] ?? '';
-          entities.push(entity);
-        }
-        if (page.next === null) break;
-        after = page.next;
-      }
-    }
-    if (entities.length === 0) {
-      throw new UsageError(`the graph holds no record of a repository named ${JSON.stringify(repositoryName)}; the run that filled this database read nothing of it`);
-    }
-    const keyToName = new Map<string, string>();
-    const graphNodes = new Map<string, Map<string, GraphEntity>>();
-    for (const entity of entities) {
-      try {
-        const name = naturalKeyOf({ kind: entity.kind, key: entity.key, label: entity.label, properties: entity.properties });
-        keyToName.set(entity.key, name);
-        const held = graphNodes.get(entity.kind) ?? new Map<string, GraphEntity>();
-        held.set(name, entity);
-        graphNodes.set(entity.kind, held);
-      } catch (error) {
-        unmapped.push({ kind: entity.kind, key: entity.key, reason: (error as Error).message });
-      }
-    }
-
-    // Every edge of every relation the producers declare, and of every relation the reference uses.
-    const relations = new Set<string>([...EXTRACTOR_RELATIONS.keys(), ...STAGE_EDGE_TYPES.map((relation) => relation.key), ...reference.edges.map((edge) => edge.relation)]);
-    const graphEdges = new Map<string, Map<string, RelationEdge>>();
-    for (const relation of [...relations].sort()) {
-      const edges = await reader.relationEdges(relation, 100_000);
-      const held = new Map<string, RelationEdge>();
-      for (const edge of edges.rows) {
-        const own = edge.properties['repository'];
-        if (typeof own === 'string' && own !== repositoryName) continue;
-        const from = keyToName.get(edge.from.key);
-        const to = keyToName.get(edge.to.key);
-        if (from === undefined || to === undefined) continue;
-        held.set(`${from}\u0000${to}`, edge);
-      }
-      if (held.size > 0) graphEdges.set(relation, held);
-    }
-
-    const table: Row[] = [];
-    const missing: Missing[] = [];
-    const extra: Extra[] = [];
-
-    // Nodes, by kind and by class.
-    const referenceNodes = new Map<string, Map<string, ReferenceNode>>();
-    for (const node of reference.nodes) {
-      const held = referenceNodes.get(node.kind) ?? new Map<string, ReferenceNode>();
-      held.set(node.id, node);
-      referenceNodes.set(node.kind, held);
-    }
-    for (const kind of [...new Set([...referenceNodes.keys(), ...graphNodes.keys()])].sort()) {
-      const refs = referenceNodes.get(kind) ?? new Map<string, ReferenceNode>();
-      const held = graphNodes.get(kind) ?? new Map<string, GraphEntity>();
-      for (const className of [STATIC, JUDGEMENT]) {
-        const wanted = [...refs.values()].filter((node) => classOf(node.reading) === className);
-        const truePositives = wanted.filter((node) => held.has(node.id)).length;
-        const precision = share(truePositives, held.size);
-        const recall = share(truePositives, wanted.length);
-        table.push({ name: kind, kind: 'node', label: className, class: className, reference: wanted.length, graph: held.size, truePositives, precision, recall, f1: f1Of(precision, recall) });
-      }
-      for (const node of refs.values()) {
-        if (!held.has(node.id)) missing.push({ kind, id: node.id, label: node.label, reading: node.reading, evidence: node.evidence });
-      }
-      for (const [name, entity] of held) {
-        if (!refs.has(name)) extra.push({ kind, id: name, key: entity.key, label: entity.label, place: placeOf(entity) });
-      }
-    }
-
-    // Edges, by relation and by class; the identity of an edge is its relation and both ends.
-    const referenceEdges = new Map<string, Map<string, ReferenceEdge>>();
-    for (const edge of reference.edges) {
-      const held = referenceEdges.get(edge.relation) ?? new Map<string, ReferenceEdge>();
-      held.set(`${edge.from}\u0000${edge.to}`, edge);
-      referenceEdges.set(edge.relation, held);
-    }
-    for (const relation of [...new Set([...referenceEdges.keys(), ...graphEdges.keys()])].sort()) {
-      const refs = referenceEdges.get(relation) ?? new Map<string, ReferenceEdge>();
-      const held = graphEdges.get(relation) ?? new Map<string, RelationEdge>();
-      for (const className of [STATIC, JUDGEMENT]) {
-        const wanted = [...refs.values()].filter((edge) => classOf(edge.reading) === className);
-        const truePositives = wanted.filter((edge) => held.has(`${edge.from}\u0000${edge.to}`)).length;
-        const precision = share(truePositives, held.size);
-        const recall = share(truePositives, wanted.length);
-        table.push({ name: relation, kind: 'edge', label: className, class: className, reference: wanted.length, graph: held.size, truePositives, precision, recall, f1: f1Of(precision, recall) });
-      }
-      for (const edge of refs.values()) {
-        if (!held.has(`${edge.from}\u0000${edge.to}`)) missing.push({ kind: relation, id: `${edge.from} -> ${edge.to}`, label: '', reading: edge.reading, evidence: edge.evidence });
-      }
-      for (const [name, edge] of held) {
-        if (!refs.has(name)) {
-          const [from, to] = name.split('\u0000') as [string, string];
-          extra.push({ kind: relation, id: `${from} -> ${to}`, key: edge.properties['discriminator'] === undefined ? '' : String(edge.properties['discriminator']), label: '', place: edgePlace(edge) });
-        }
-      }
-    }
-
-    // Kinds the graph holds that the reference leaves out by design.
-    const excluded: { kind: string; count: number; reason: string }[] = [];
-    for (const [kind, count] of [...byDesign.entries()].sort(([left], [right]) => (left < right ? -1 : left > right ? 1 : 0))) {
-      excluded.push({ kind, count, reason: reasonFor(kind) });
-    }
-    for (const [kind, held] of [...graphNodes.entries()].sort(([left], [right]) => (left < right ? -1 : left > right ? 1 : 0))) {
-      if (referenceNodes.has(kind)) continue;
-      excluded.push({ kind, count: held.size, reason: reasonFor(kind) });
-    }
-    return { table, missing, extra, excluded, unmapped, scope: `${repositoryName} (${repositoryNode})` };
-  } finally {
-    await owner.close();
+/** The record's own name: from its record fields, its own properties, its global name's tail, or its label. */
+function nameOf(entity: GraphEntity): string | undefined {
+  const inner = entity.properties['record'];
+  if (inner !== null && typeof inner === 'object' && !Array.isArray(inner)) {
+    const name = (inner as Record<string, unknown>)['name'];
+    if (typeof name === 'string' && name.length > 0) return name;
   }
+  const own = entity.properties['name'];
+  if (typeof own === 'string' && own.length > 0) return own;
+  const global = entity.properties['globalName'];
+  if (typeof global === 'string') {
+    const hash = global.lastIndexOf('#');
+    if (hash >= 0) return global.slice(hash + 1);
+  }
+  return entity.label.length > 0 ? entity.label : undefined;
 }
 
-/** The repository a record says it was read from. */
+/** The identity a record of an identity kind states. */
+function identityOf(entity: GraphEntity): string | undefined {
+  const held = IDENTITY_KINDS[entity.kind];
+  if (held === undefined) return undefined;
+  const own = entity.properties[held.property];
+  if (typeof own === 'string' && own.length > 0) return own;
+  const inner = entity.properties['record'];
+  if (inner !== null && typeof inner === 'object' && !Array.isArray(inner)) {
+    const value = (inner as Record<string, unknown>)[held.property];
+    if (typeof value === 'string' && value.length > 0) return value;
+  }
+  return undefined;
+}
+
+/** The place a record states, by the module's one rule. */
+function placeOfEntity(entity: GraphEntity): { path: string; startLine: number; endLine: number } | undefined {
+  return placeOfProperties(entity.kind, entity.properties);
+}
+
+/** Where a record stands, as a report prints it. */
+function placeText(entity: GraphEntity): string {
+  const place = placeOfEntity(entity);
+  return place === undefined ? '—' : `${place.path}:${String(place.startLine)}`;
+}
+
+/** Which repository a record says it was read from. */
 function repositoryOf(entity: GraphEntity): string | undefined {
   const own = entity.properties['repository'];
   if (typeof own === 'string') return own;
@@ -385,7 +256,240 @@ function edgePlace(edge: RelationEdge): string {
   return typeof file === 'string' ? file : '—';
 }
 
-/** Why the reference does not state a kind the graph holds: the mapping's own reason, or the by-design list. */
+function classOf(reading: string): string {
+  return reading === 'judgement' ? 'judgement' : 'parsed+declared';
+}
+
+/** Whether an edge is scored at all: not `scored: false`, and its scope direct or absent. */
+function scoredEdge(edge: ReferenceEdge): boolean {
+  return edge.scored !== false && (edge.scope === undefined || edge.scope === 'direct');
+}
+
+async function score(referenceRoot: string, repositoryFolder: string, database: string): Promise<Result> {
+  if (!existsSync(database)) throw new UsageError(`${database}: no such graph database`);
+  if (!existsSync(referenceRoot)) throw new UsageError(`${referenceRoot}: no such reference folder`);
+  const reference = readReference(referenceRoot);
+  const repository = basename(repositoryFolder);
+  const owner: DatabaseOwner = createPGliteDatabaseOwner({ path: database, btreeGist: true });
+  try {
+    const instant = new Date().toISOString();
+    const reader = new GraphReader(owner, () => instant);
+    const entities: GraphEntity[] = [];
+    let scope = '';
+    for (const { kind } of await reader.kindCounts()) {
+      let after: string | undefined;
+      for (;;) {
+        const page = await reader.list(kind, { limit: 500, ...(after === undefined ? {} : { after }) });
+        for (const entity of page.rows) {
+          if (repositoryOf(entity) !== repository) continue;
+          if (kind === 'code.repository') scope = entity.nodeIds[0] ?? '';
+          entities.push(entity);
+        }
+        if (page.next === null) break;
+        after = page.next;
+      }
+    }
+    if (entities.length === 0) throw new UsageError(`the graph holds no record of a repository named ${JSON.stringify(repository)}: its records say which repository they were read from, and none says this one`);
+
+    const records: NodeRecord[] = entities.map((entity) => {
+      const name = nameOf(entity);
+      const identity = identityOf(entity);
+      const place = placeOfEntity(entity);
+      return {
+        key: entity.key,
+        kind: entity.kind,
+        ...(name === undefined ? {} : { name }),
+        ...(place === undefined ? {} : { place }),
+        ...(identity === undefined ? {} : { identity }),
+      };
+    });
+    const match = matchNodes(reference.nodes, records);
+
+    // The edges of every relation the producers declare and the reference uses.
+    const relations = [...new Set([...EXTRACTOR_RELATIONS.keys(), ...STAGE_EDGE_TYPES.map((relation) => relation.key), ...reference.edges.map((edge) => edge.relation)])].sort();
+    const graphEdges: GraphEdge[] = [];
+    const graphEdgeRows = new Map<string, RelationEdge>();
+    for (const relation of relations) {
+      const found = await reader.relationEdges(relation, 100_000);
+      for (const edge of found.rows) {
+        const own = edge.properties['repository'];
+        if (typeof own === 'string' && own !== repository) continue;
+        graphEdges.push({ relation, from: edge.from.key, to: edge.to.key });
+        graphEdgeRows.set(`${relation}\u0000${edge.from.key}\u0000${edge.to.key}`, edge);
+      }
+    }
+    // An edge is comparable only when both of its ends are records of kinds the
+    // reference states; an edge that touches a kind the reference leaves out by
+    // design is reported apart, like the record itself.
+    const referenceKindsForEdges = new Set(reference.nodes.map((node) => node.kind));
+    const kindOfKey = new Map<string, string>(entities.map((entity) => [entity.key, entity.kind]));
+    const inScope = graphEdges.filter((edge) => referenceKindsForEdges.has(kindOfKey.get(edge.from) ?? '') && referenceKindsForEdges.has(kindOfKey.get(edge.to) ?? ''));
+    const keepsApart = new Map<string, number>();
+    for (const edge of graphEdges) {
+      if (inScope.includes(edge)) continue;
+      const kind = !referenceKindsForEdges.has(kindOfKey.get(edge.from) ?? '') ? kindOfKey.get(edge.from) ?? '—' : kindOfKey.get(edge.to) ?? '—';
+      keepsApart.set(kind, (keepsApart.get(kind) ?? 0) + 1);
+    }
+    // An edge that touches an entry `scored: false` leaves every count too.
+    const unscoredNodes = new Set(reference.nodes.filter((node) => node.scored === false).map((node) => node.id));
+    const unscoredEdges = new Set(reference.edges.filter((edge) => edge.scored === false || unscoredNodes.has(edge.from) || unscoredNodes.has(edge.to)));
+    const scoredReferenceEdges = reference.edges.filter((edge) => !unscoredEdges.has(edge));
+    const edgeMatch = matchEdges(scoredReferenceEdges, inScope, match.recordToEntry);
+
+    // The name-only match, for comparison: the natural id of a record against the entry's id.
+    const nameKey = new Map<string, string>();
+    for (const entity of entities) {
+      if (!NAMED_KINDS.has(entity.kind)) continue;
+      try {
+        nameKey.set(entity.key, naturalKeyOf({ kind: entity.kind, key: entity.key, label: entity.label, properties: entity.properties }));
+      } catch { /* a record the naming function cannot name has no name column */ }
+    }
+    const namesByKind = new Map<string, Set<string>>();
+    for (const entity of entities) {
+      const name = nameKey.get(entity.key);
+      if (name === undefined) continue;
+      const held = namesByKind.get(entity.kind) ?? new Set<string>();
+      held.add(name);
+      namesByKind.set(entity.kind, held);
+    }
+    const nameFound = new Set<string>();
+    for (const node of reference.nodes) {
+      if (node.scored === false) continue;
+      if (namesByKind.get(node.kind)?.has(node.id) === true) nameFound.add(node.id);
+    }
+    const nameEdgesHeld = new Set<string>();
+    for (const edge of inScope) {
+      const from = nameKey.get(edge.from);
+      const to = nameKey.get(edge.to);
+      if (from === undefined || to === undefined) continue;
+      nameEdgesHeld.add(`${edge.relation}\u0000${from}\u0000${to}`);
+    }
+
+    const referenceKinds = new Set(reference.nodes.map((node) => node.kind));
+    const table: Row[] = [];
+    const missing: Missing[] = [];
+    const extra: Extra[] = [];
+    const ambiguous: { kind: string; entries: number; records: number }[] = [];
+    const noPlace: { kind: string; count: number }[] = [];
+
+    // Nodes, by kind and by class: a kind the reference never uses is reported
+    // apart (it is left out by design), never scored.
+    const kinds = [...referenceKinds].sort();
+    for (const kind of kinds) {
+      const entries = reference.nodes.filter((node) => node.kind === kind && node.scored !== false);
+      const held = entities.filter((entity) => entity.kind === kind);
+      const names = namesByKind.get(kind)?.size ?? 0;
+      const ambiguity = match.ambiguous.get(kind);
+      if (ambiguity !== undefined) ambiguous.push(ambiguity);
+      const unplaced = match.noPlace.get(kind);
+      if (unplaced !== undefined) noPlace.push({ kind, count: unplaced });
+      for (const className of ['parsed+declared', 'judgement']) {
+        const wanted = entries.filter((node) => classOf(node.reading) === className);
+        const tp = wanted.filter((node) => match.entryToRecord.has(node.id)).length;
+        const tpName = wanted.filter((node) => nameFound.has(node.id)).length;
+        const precision = share(tp, held.length);
+        const recall = share(tp, wanted.length);
+        table.push({
+          name: kind, kind: 'node', class: className,
+          reference: wanted.length, graph: held.length, truePositives: tp,
+          precision, recall, f1: f1Of(precision, recall),
+          nameReference: wanted.length, nameGraph: names, nameTruePositives: tpName,
+          namePrecision: share(tpName, names), nameRecall: share(tpName, wanted.length),
+          noPlace: unplaced ?? 0,
+          ambiguous: ambiguity?.entries ?? 0,
+          recallScored: reference.scoring.get(kind) !== false,
+        });
+      }
+      for (const node of entries) {
+        if (!match.entryToRecord.has(node.id)) missing.push({ kind, id: node.id, reading: node.reading, evidence: node.evidence });
+      }
+      for (const entity of held) {
+        if (match.recordToEntry.has(entity.key)) continue;
+        if (placeOfEntity(entity) === undefined) continue; // counted under `no place`
+        extra.push({ kind, key: entity.key, label: entity.label, place: placeText(entity) });
+      }
+    }
+
+    // Relations, by relation and by class.
+    const referenceRelations = new Set(reference.edges.map((edge) => edge.relation));
+    const relationsHeld = [...referenceRelations].sort();
+    for (const relation of relationsHeld) {
+      const held = inScope.filter((edge) => edge.relation === relation);
+      for (const className of ['parsed+declared', 'judgement']) {
+        const edges = scoredReferenceEdges.filter((edge) => edge.relation === relation && scoredEdge(edge) && classOf(edge.reading) === className);
+        const tp = edges.filter((edge) => edgeMatch.matched.has(`${edge.relation}\u0000${edge.from}\u0000${edge.to}`)).length;
+        const tpName = edges.filter((edge) => nameEdgesHeld.has(`${edge.relation}\u0000${edge.from}\u0000${edge.to}`)).length;
+        const precision = share(tp, held.length);
+        const recall = share(tp, edges.length);
+        table.push({
+          name: relation, kind: 'edge', class: className,
+          reference: edges.length, graph: held.length, truePositives: tp,
+          precision, recall, f1: f1Of(precision, recall),
+          nameReference: edges.length,
+          nameGraph: [...nameEdgesHeld].filter((key) => key.startsWith(`${relation}\u0000`)).length,
+          nameTruePositives: tpName,
+          namePrecision: share(tpName, [...nameEdgesHeld].filter((key) => key.startsWith(`${relation}\u0000`)).length),
+          nameRecall: share(tpName, edges.length),
+          noPlace: 0, ambiguous: 0,
+          recallScored: reference.scoring.get(relation) !== false,
+        });
+        for (const edge of edges) {
+          if (!edgeMatch.matched.has(`${edge.relation}\u0000${edge.from}\u0000${edge.to}`)) {
+            missing.push({ kind: relation, id: `${edge.from} -> ${edge.to}`, reading: edge.reading, evidence: edge.evidence });
+          }
+        }
+      }
+      for (const key of edgeMatch.extra) {
+        const [heldRelation, from, to] = key.split('\u0000') as [string, string, string];
+        if (heldRelation !== relation) continue;
+        const row = graphEdgeRows.get(`${relation}\u0000${from}\u0000${to}`);
+        extra.push({ kind: relation, key: `${from} -> ${to}`, label: '', place: row === undefined ? '—' : edgePlace(row) });
+      }
+    }
+
+    // Kinds the graph holds that the reference leaves out by design.
+    const excluded: { kind: string; count: number; reason: string }[] = [];
+    const byKind = new Map<string, number>();
+    for (const entity of entities) if (!referenceKinds.has(entity.kind)) byKind.set(entity.kind, (byKind.get(entity.kind) ?? 0) + 1);
+    for (const [kind, count] of [...byKind.entries()].sort(([left], [right]) => (left < right ? -1 : left > right ? 1 : 0))) {
+      excluded.push({ kind, count, reason: reasonFor(kind) });
+    }
+
+    const excludedRelations: { relation: string; count: number; reason: string }[] = [];
+    const edgesByRelation = new Map<string, number>();
+    for (const edge of inScope) if (!referenceRelations.has(edge.relation)) edgesByRelation.set(edge.relation, (edgesByRelation.get(edge.relation) ?? 0) + 1);
+    for (const [relation, count] of [...edgesByRelation.entries()].sort(([left], [right]) => (left < right ? -1 : left > right ? 1 : 0))) {
+      excludedRelations.push({ relation, count, reason: 'the reference states no edge of this relation' });
+    }
+    const identity = Object.entries(IDENTITY_KINDS).map(([kind, held]) => ({ kind, property: held.property, why: held.why, matched: match.identity.get(kind) ?? 0 }));
+    const scopedApart = [...edgeMatch.scopedApart.entries()].map(([heldScope, count]) => ({ scope: heldScope, count })).sort((left, right) => (left.scope < right.scope ? -1 : 1));
+    const unscored = { nodes: unscoredNodes.size, edges: unscoredEdges.size };
+    const edgesApart = [...keepsApart.entries()].map(([kind, count]) => ({ kind, count })).sort((left, right) => (left.kind < right.kind ? -1 : 1));
+    return { repository, scope, table, missing, extra, excluded, excludedRelations, edgesApart, noPlace, ambiguous, identity, scopedApart, unscored, totals: totalsOf(table) };
+  } finally {
+    await owner.close();
+  }
+}
+
+function totalsOf(table: readonly Row[]): Result['totals'] {
+  const out: Record<string, Record<string, { reference: number; graph: number; truePositives: number; nameReference: number; nameGraph: number; nameTruePositives: number }>> = {};
+  for (const kind of ['node', 'edge'] as const) {
+    out[kind] = {};
+    for (const className of ['parsed+declared', 'judgement']) {
+      const rows = table.filter((row) => row.kind === kind && row.class === className);
+      out[kind]![className] = {
+        reference: rows.reduce((sum, row) => sum + row.reference, 0),
+        graph: rows.reduce((sum, row) => sum + row.graph, 0),
+        truePositives: rows.reduce((sum, row) => sum + row.truePositives, 0),
+        nameReference: rows.reduce((sum, row) => sum + row.nameReference, 0),
+        nameGraph: rows.reduce((sum, row) => sum + row.nameGraph, 0),
+        nameTruePositives: rows.reduce((sum, row) => sum + row.nameTruePositives, 0),
+      };
+    }
+  }
+  return out;
+}
+
 const BY_DESIGN: Readonly<Record<string, string>> = {
   'code.binding': 'internal: a name a declaration binds',
   'code.call': 'internal: a call site',
@@ -407,7 +511,7 @@ const BY_DESIGN: Readonly<Record<string, string>> = {
   'code.schema-reading': 'internal: one place a table\'s use cites',
   'code.service-unit': 'internal: the unit a file belongs to',
   'code.storage-evidence': 'internal: one file\'s evidence of a database',
-  'code.test': 'internal: a test the operations reading names (the reference states code.test-case)',
+  'code.test': 'internal: a test the operations reading names',
 };
 
 function reasonFor(kind: string): string {
@@ -419,34 +523,53 @@ function number(value: number | null): string {
 }
 
 function report(result: Result): void {
-  console.log(`Reference graph against the filled graph, at the repository scope ${result.scope}.`);
-  console.log(`A row is a kind of node or a relation, split by the reference entry's reading: ${STATIC} is what a static fill can reach, ${JUDGEMENT} is what a reader decides.`);
+  console.log(`Reference against the filled graph of ${result.repository}, matched by place (scope ${result.scope}).`);
+  console.log('A row is a kind or a relation: `ref` counts the reference entries of the class, `graph` the graph\'s records of the kind, `tp` the entries the match found; precision is tp/graph and recall tp/ref. The name columns give the same counts under the name-only match.');
   console.log('');
-  console.log(['name', 'entry', 'reading', 'ref', 'graph', 'tp', 'precision', 'recall', 'f1'].join('\t'));
+  console.log(['name', 'entry', 'reading', 'ref', 'graph', 'tp', 'precision', 'recall', 'f1', 'name ref', 'name tp', 'name recall', 'no place', 'ambiguous'].join('\t'));
   for (const row of result.table) {
-    console.log([row.name, row.kind, row.label, String(row.reference), String(row.graph), String(row.truePositives), number(row.precision), number(row.recall), number(row.f1)].join('\t'));
+    console.log([row.name, row.kind, row.class, String(row.reference), String(row.graph), String(row.truePositives), number(row.precision), row.recallScored ? number(row.recall) : 'n/a', number(row.f1), String(row.nameReference), String(row.nameTruePositives), number(row.nameRecall), String(row.noPlace), String(row.ambiguous)].join('\t'));
   }
   console.log('');
-  console.log(`Missing: ${String(result.missing.length)} reference entries the graph does not hold.`);
+  for (const kind of ['node', 'edge'] as const) {
+    for (const className of ['parsed+declared', 'judgement']) {
+      const held = result.totals[kind]![className]!;
+      console.log(`TOTAL ${kind} ${className}: place ref ${String(held.reference)} graph ${String(held.graph)} tp ${String(held.truePositives)}; name ref ${String(held.nameReference)} tp ${String(held.nameTruePositives)}`);
+    }
+  }
+  console.log('');
+  console.log(`Missing: ${String(result.missing.length)} reference entries the graph does not hold at their place.`);
   for (const entry of result.missing) console.log(`MISSING\t${entry.kind}\t${entry.id}\t${entry.reading}\t${places(entry.evidence)}`);
   console.log('');
-  console.log(`Extra: ${String(result.extra.length)} graph records the reference does not state.`);
-  for (const entry of result.extra) console.log(`EXTRA\t${entry.kind}\t${entry.id}\t${entry.place}`);
+  console.log(`Extra: ${String(result.extra.length)} graph records no reference entry stands at.`);
+  for (const entry of result.extra) console.log(`EXTRA\t${entry.kind}\t${entry.key}\t${entry.place}`);
   console.log('');
-  console.log(`Excluded: ${String(result.excluded.length)} kinds the graph holds that the reference leaves out by design.`);
+  console.log(`Excluded: ${String(result.excluded.length)} kinds and ${String(result.excludedRelations.length)} relations the reference leaves out by design.`);
   for (const entry of result.excluded) console.log(`EXCLUDED\t${entry.kind}\t${String(entry.count)}\t${entry.reason}`);
+  for (const entry of result.excludedRelations) console.log(`EXCLUDED\t${entry.relation}\t${String(entry.count)}\t${entry.reason}`);
+  for (const entry of result.edgesApart) console.log(`EDGES-APART\t${entry.kind}\t${String(entry.count)}\tthe edges that touch a kind the reference leaves out`);
   console.log('');
-  if (result.unmapped.length > 0) {
-    console.log(`Unmapped: ${String(result.unmapped.length)} graph records the one mapping function cannot name.`);
-    for (const entry of result.unmapped.slice(0, 40)) console.log(`UNMAPPED\t${entry.kind}\t${entry.key}\t${entry.reason}`);
+  console.log(`No place: ${String(result.noPlace.length)} kinds hold records that state no place.`);
+  for (const entry of result.noPlace) console.log(`NO-PLACE\t${entry.kind}\t${String(entry.count)}`);
+  console.log('');
+  console.log(`Ambiguous: ${String(result.ambiguous.length)} kinds had an entry several records overlapped and no name singled one out.`);
+  for (const entry of result.ambiguous) console.log(`AMBIGUOUS\t${entry.kind}\t${String(entry.entries)} entries\t${String(entry.records)} records`);
+  console.log('');
+  console.log('Identity kinds: matched by the identity they state, not by a place.');
+  for (const entry of result.identity) console.log(`IDENTITY\t${entry.kind}\t${entry.property}\t${String(entry.matched)} matched\t${entry.why}`);
+  console.log('');
+  if (result.scopedApart.length > 0) {
+    console.log('Reported apart (an edge whose scope is not direct):');
+    for (const entry of result.scopedApart) console.log(`SCOPED\t${entry.scope}\t${String(entry.count)}`);
   }
+  console.log(`Unscored (scored: false): ${String(result.unscored.nodes)} entries, ${String(result.unscored.edges)} edges.`);
 }
 
 try {
   process.exit(await main());
 } catch (error) {
   if (error instanceof UsageError) {
-    console.error(`${resolve(process.argv[1] ?? 'scripts/score-reference-graph.ts')}:1: ${error.message}`);
+    console.error(`${resolve(process.argv[1] ?? 'scripts/score-reference-graph.ts')}: ${error.message}`);
     process.exit(2);
   }
   throw error;

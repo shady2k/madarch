@@ -121,6 +121,28 @@ inverse and is not written twice), a document holds a section
 authored by an author (`code.authored`), a commit follows its parent
 (`code.parent`).
 
+## Optional fields the scorer honours
+
+Three things a reference may state, none of them required:
+
+- `scored: false` on a node or an edge takes it, and every edge that touches
+  it, out of every count; the scorer reports their number as a total.
+- `scope` on an edge: `direct` (or no `scope`) is scored; any other value keeps
+  the edge out of the direct-call counts and is reported apart, under its
+  scope's name.
+- `SCORING.md` at this folder's root lists `recall: yes` or `recall: no` per
+  kind and relation, one row each:
+
+  ```markdown
+  | name | recall |
+  | --- | --- |
+  | code.symbol | yes |
+  | code.expression | no |
+  ```
+
+  A `no` prints `n/a` for that name's recall: the reference does not ask to be
+  recalled there.
+
 ## What is deliberately not here
 
 `GAPS.md` names it: standard-library imports (no kind holds a language's
