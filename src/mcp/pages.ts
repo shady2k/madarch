@@ -16,12 +16,12 @@ import { resolve } from 'node:path';
 import { parseQuestion, type Question } from '../loop/entities.js';
 import type { GraphView } from '../writer/view.js';
 import type { PageSink } from '../writer/tools.js';
-import { readWorkingFile } from './git.js';
+import { readCommitFile, readWorkingFile } from './git.js';
 import type { WorkingLayer } from './layer.js';
 
 /** The pages of one repository as the page tools read them. */
 export class RepositoryPages implements PageSink {
-  constructor(private readonly view: GraphView, readonly layer: WorkingLayer) {}
+  constructor(private readonly view: GraphView, readonly layer: WorkingLayer, private readonly commit: string) {}
 
   /** The repository's Markdown documents, the working tree's list when it changed. */
   async documents(): Promise<string[]> {
@@ -38,9 +38,9 @@ export class RepositoryPages implements PageSink {
       if (bytes === null) throw new Error(`${resolve(this.layer.repository, relativePath)}:1: the working tree holds no ${relativePath} (src/mcp/pages.ts)`);
       return new TextDecoder().decode(bytes);
     }
-    const text = await this.view.fileText(relativePath);
-    if (text === null) throw new Error(`${resolve(this.layer.repository, relativePath)}:1: the graph holds no text of ${relativePath} (src/mcp/pages.ts)`);
-    return text;
+    const bytes = readCommitFile(this.layer.repository, this.commit, relativePath);
+    if (bytes === null) throw new Error(`${resolve(this.layer.repository, relativePath)}:1: the commit ${this.commit} holds no ${relativePath} (src/mcp/pages.ts)`);
+    return new TextDecoder().decode(bytes);
   }
 
   async list(folder: string): Promise<string[]> {

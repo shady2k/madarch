@@ -563,24 +563,31 @@ async function databaseGroupOf(stage: StaticStageContext, path: string): Promise
   const fallback = place !== undefined ? segments.slice(0, place.at).join('/') : schema !== undefined ? segments.slice(0, segments.length - 2).join('/') : folderOf(path);
   const root = membership?.root ?? fallback;
   const name = membership?.name ?? folderName(root);
-  const under = (folder: string): string => (root === '' ? folder : `${root}/${folder}`);
+  // A database's files are the unit's own, wherever inside it they stand: the driver reads every path of the
+  // tree and files a migration under the unit that covers it (`databaseOfPath`, src/extract/data-model/extract.ts),
+  // so a series in `db/migrations` belongs to the unit that holds the folder and not only to `<root>/migrations`.
+  // The listing is the unit's subtree, a path-scoped answer of the static context, and every candidate is filed
+  // by the same rule the driver applies: the unit covering its path, else the folder before the series.
   const migrations: { path: string; name: string; prisma: boolean }[] = [];
-  for (const entry of await stage.repository.filesUnder(under('migrations'))) {
-    if (!entry.path.endsWith('.sql') || entry.form === 'commit') continue;
-    migrations.push({ path: entry.path, name: fileName(entry.path), prisma: false });
-  }
-  for (const entry of await stage.repository.filesUnder(under('prisma'))) {
-    if (fileName(entry.path) !== 'migration.sql') continue;
-    const parent = folderOf(entry.path);
-    if (folderName(folderOf(parent)) !== 'migrations') continue;
-    migrations.push({ path: entry.path, name: folderName(parent), prisma: true });
-  }
-  migrations.sort((left, right) => (left.prisma === right.prisma ? 0 : left.prisma ? 1 : -1) || byCodePoint(left.name, right.name) || byCodePoint(left.path, right.path));
   let schemaPath: string | undefined;
-  for (const entry of await stage.repository.filesUnder(under('prisma'))) {
-    if (prismaSchemaPlaceOf(entry.path) === undefined) continue;
+  for (const entry of await stage.repository.filesUnder(root)) {
+    if (entry.form === 'commit') continue;
+    const series = migrationPlaceOf(entry.path);
+    const schemaOf = prismaSchemaPlaceOf(entry.path);
+    const candidate = series !== undefined || schemaOf !== undefined;
+    if (!candidate) continue;
+    const owner = await membershipOf(stage, entry.path);
+    const database = series !== undefined
+      ? owner?.name ?? folderName(entry.path.split('/').slice(0, series.at).join('/'))
+      : owner?.name ?? folderName(entry.path.split('/').slice(0, entry.path.split('/').length - 2).join('/'));
+    if (database !== name) continue;
+    if (series !== undefined) {
+      migrations.push({ path: entry.path, name: series.name, prisma: series.series.nameFrom === 'parent' });
+      continue;
+    }
     schemaPath = entry.path;
   }
+  migrations.sort((left, right) => (left.prisma === right.prisma ? 0 : left.prisma ? 1 : -1) || byCodePoint(left.name, right.name) || byCodePoint(left.path, right.path));
   return { root, name, migrations, ...(schemaPath === undefined ? {} : { schemaPath }) };
 }
 

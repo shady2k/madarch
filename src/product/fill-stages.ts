@@ -65,7 +65,7 @@
  * anywhere yet.
  */
 import { execFileSync } from 'node:child_process';
-import { resolve } from 'node:path';
+import { basename, resolve } from 'node:path';
 import { byCodePoint } from '../model/order.js';
 import { isRepositoryPath } from '../fill/facts.js';
 import { ID_PATTERN } from '../model/schema.js';
@@ -87,6 +87,7 @@ import { createStageRegistry } from '../fill/stages/index.js';
 import { sameFolder } from './git.js';
 import { hashFillInput } from './fill-runtime.js';
 import { readProduct, type ProductIdentity } from './manifest.js';
+import { engineFirstFillStages, firstFillStagesOf, type FirstFillRead } from '../knowledge/workflows.js';
 
 /**
  * The process's one connection as this wiring names it: the type the graph store
@@ -115,6 +116,14 @@ export interface StagesFillOptions {
    * planned — a run with no agent never plans work it cannot run.
    */
   readonly agent?: Omit<AgentStageWiring, 'snapshots'>;
+}
+
+/** What one repository's stages fill is built from: the checkout a served graph reads, and the owner it publishes through. */
+export interface RepositoryFillOptions {
+  /** The repository's checkout, read at its HEAD. */
+  readonly repository: string;
+  /** The database the run's units, reads and publications stand in; the caller opens and closes it. */
+  readonly database: FillDatabase;
 }
 
 /** One product's stages fill: the registry the run derives its stage graph from, and the wiring the host drives it with. */
@@ -180,9 +189,98 @@ export async function createStagesFill(options: StagesFillOptions): Promise<Stag
         ...(transaction === undefined ? {} : { executor: transaction }),
       })),
     source: (): SnapshotSource => snapshots,
-    inputs: (ref) => inputsOf(identity, registry, pins(), ref),
+    inputs: (ref) => inputsOf(registry, pins(), ref),
   };
   return { product, registry, wiring };
+}
+
+/**
+ * What a run enables, as the orchestrator's configuration read (decision 0027):
+ * the product's `fill.stages` entries as it wrote them, and every stage the
+ * run's workflow does not name turned off (decision 0033, item 2: which stages a
+ * run enables is its workflow's). A stage the product wrote a broken entry for is
+ * passed on as written, so the registry names the fault instead of this reader
+ * dropping it; a stage the workflow does not name keeps the product's other
+ * fields and is disabled.
+ */
+function configurationOfWorkflow(workflow: FirstFillRead, written: FillStageConfigurationRead, registry: StageRegistry): FillStageConfigurationRead {
+  if (!workflow.ok) {
+    return { ok: false, errors: [{ file: workflow.refusal.file, line: workflow.refusal.line, path: '', message: workflow.refusal.message }] };
+  }
+  if (!written.ok) return written;
+  const named = new Set(workflow.stages);
+  const stages: Record<string, unknown> = Object.create(null);
+  for (const stage of registry.all()) {
+    const held = Object.prototype.hasOwnProperty.call(written.stages, stage.id) ? written.stages[stage.id] : undefined;
+    const object = held !== null && typeof held === 'object' && !Array.isArray(held) ? held as Record<string, unknown> : undefined;
+    if (object !== undefined) {
+      stages[stage.id] = { ...object, enabled: named.has(stage.id) ? object['enabled'] ?? true : false };
+      continue;
+    }
+    if (held !== undefined) {
+      stages[stage.id] = held;
+      continue;
+    }
+    if (!named.has(stage.id)) stages[stage.id] = { enabled: false };
+  }
+  return { ok: true, file: workflow.file, stages, lines: { ...written.lines } };
+}
+
+/**
+ * The wiring of one repository's static fill, for a repository that is no
+ * product: the graph the Model Context Protocol serves (madarch-ztyq.10) is the
+ * static stages' own reading of one commit, and it is built through the one
+ * orchestrator host like every other fill. The repository is pinned at the
+ * commit its HEAD names, as the run's snapshot, its graph, its inputs and its
+ * static stages read it; its name is the folder's own, since no manifest names
+ * one.
+ *
+ * **Its stage set** is the engine's `first-fill` workflow (`engineFirstFillStages`):
+ * a repository that holds no product manifest has no workflows manifest either,
+ * and the starter set the engine ships — the one `madarch new` writes into a
+ * product — is the workflow a repository without one runs. The stages the
+ * registry holds are the ones the run enables; the run's registry holds no agent
+ * stage, so this fill reads the code, the documents, the operations and the data
+ * model and runs no agent.
+ */
+export async function createRepositoryFill(options: RepositoryFillOptions): Promise<StagesFill> {
+  const folder = resolve(options.repository);
+  const name = basename(folder);
+  if (!ID_PATTERN.test(name)) {
+    throw new Error(`the repository served from ${folder} is named ${JSON.stringify(name)}, which is no repository name: a name a repository is read under starts with a letter or a digit and carries letters, digits, ".", "_" or "-" (serve a folder whose name is one, src/product/fill-stages.ts)`);
+  }
+  const pin: RepositoryPin = { id: name, form: 'code', root: folder, commit: git(folder, name, ['rev-parse', 'HEAD']), ...(branchOf(folder, name) === undefined ? {} : { defaultBranch: branchOf(folder, name)! }) };
+  const pins = (): readonly RepositoryPin[] => [pin];
+  const snapshots = createGitSnapshotSource(pins);
+  const registry = createStageRegistry({ snapshots, checkoutOf: () => folder });
+  await createStageReadSchema(options.database);
+  const store: GraphStore = createGraphStore(options.database);
+  await ensureGraphSchema(store);
+  const workflow = engineFirstFillStages();
+  const wiring: ProductFillWiring = {
+    snapshot: () => snapshotOfPins(folder, registry, pin),
+    configuration: () => configurationOfWorkflow(workflow, { ok: true, file: workflow.ok ? workflow.file : 'madarch/workflows.yaml', stages: {}, lines: {} }, registry),
+    graph: (ref, transaction) => (registry.get(ref.stageId)?.staticReading === true
+      ? createStaticStageReadReader(store, transaction)
+      : createStageReadReader({
+        database: options.database,
+        snapshot: snapshots,
+        ...(transaction === undefined ? {} : { executor: transaction }),
+      })),
+    source: (): SnapshotSource => snapshots,
+    inputs: (ref) => inputsOf(registry, pins(), ref),
+  };
+  return { product: { name, folder }, registry, wiring };
+}
+
+/** The run's snapshot record of one pinned repository, as fill-runtime's shape holds it. */
+function snapshotOfPins(folder: string, registry: StageRegistry, pin: RepositoryPin): RunSnapshot {
+  return {
+    repository: folder,
+    defaultBranch: pin.defaultBranch ?? 'HEAD',
+    commit: pin.commit,
+    registryHash: declaredStagesDigest(registry),
+  };
 }
 
 /** The product's identity, refused with the manifest's own file, line and words. */
@@ -273,7 +371,7 @@ function rootOf(identity: ProductIdentity, repository: string): string {
  * holds, so a resolution unit's input is the run's pins: a run on another commit
  * re-resolves the files its plan names.
  */
-async function inputsOf(_identity: ProductIdentity, registry: StageRegistry, pins: readonly RepositoryPin[], ref: UnitRef): Promise<Readonly<Record<string, string>>> {
+async function inputsOf(registry: StageRegistry, pins: readonly RepositoryPin[], ref: UnitRef): Promise<Readonly<Record<string, string>>> {
   const inputs: Record<string, string> = { stages: declaredStagesDigest(registry) };
   // An agent unit's facts stand on what it read, and nothing on its scope's own pin (decision 0026,
   // "Updates"): its reads with their membership are rechecked by the orchestrator, the spans it read are

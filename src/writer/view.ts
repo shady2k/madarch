@@ -15,7 +15,7 @@ import { FILES_PRODUCER } from '../extract/driver/files.js';
 import { DRIVER_PRODUCER } from '../extract/driver/index.js';
 import type { GraphId, GraphStore } from '../graph/index.js';
 import { sha256Hex } from '../graph/digest.js';
-import { GraphReader } from '../knowledge/graph-read.js';
+import { GraphReader, presentedKey, presentedKeySql } from '../knowledge/graph-read.js';
 import { byCodePoint } from '../model/order.js';
 import { anchorLines, documentAnchors, slugOf } from '../knowledge/anchors.js';
 import type { GroundResolver, MadarchTarget } from './format.js';
@@ -89,15 +89,14 @@ export class GraphView implements GroundResolver {
 
   /** Opens the view at the last commit the fill listed files for; refuses an empty graph with the way out. */
   static async open(owner: DatabaseOwner, store: GraphStore): Promise<GraphView> {
-    // The last commit's instant: the newest start of a file version, or the newest end a sweep set (a last commit that only deletes files).
+    // The last commit's instant: the newest start of any node version, or the newest end a sweep set (a last commit that only deletes files). The static stages publish the files early and the readings that hang from them later (decision 0033, item 15), so the instant is the graph's newest record and not one producer's file listing: a view pinned to the file lister's own instant would read the graph before the readings it opens on.
     const rows = (await owner.run((tx) => tx.query<Raw>(
       `SELECT ${TEXT_INSTANT.replace('%s', 'max(t)')} AS at FROM (
-         SELECT valid_from AS t FROM node_version WHERE producer = $1 AND recorded_to = 'infinity'
-         UNION ALL SELECT valid_to FROM node_version WHERE producer = $1 AND recorded_to = 'infinity' AND valid_to <> 'infinity') x`,
-      [FILES_PRODUCER],
+         SELECT valid_from AS t FROM node_version WHERE recorded_to = 'infinity'
+         UNION ALL SELECT valid_to FROM node_version WHERE recorded_to = 'infinity' AND valid_to <> 'infinity') x`,
     ))).rows;
     const at = rows[0]?.['at'];
-    if (typeof at !== 'string') throw new Error(`src/writer/view.ts: the graph holds no file listing of producer "${FILES_PRODUCER}": fill the graph with the extract driver before the writer runs`);
+    if (typeof at !== 'string') throw new Error(`src/writer/view.ts: the graph holds no node, so no commit was listed: fill the graph before the writer runs`);
     return new GraphView(owner, store, at);
   }
 
@@ -116,7 +115,7 @@ export class GraphView implements GroundResolver {
 
   private static info(row: Raw): NodeInfo {
     const properties = (row['properties'] ?? {}) as Record<string, unknown>;
-    return { id: String(row['node_id']), key: String(properties['recordKey'] ?? ''), kind: String(row['kind']), label: String(row['label']), properties };
+    return { id: String(row['node_id']), key: presentedKey(String(row['kind']), properties), kind: String(row['kind']), label: String(row['label']), properties };
   }
 
   private static readonly SEEN = `v.valid_from <= $1::timestamptz AND $1::timestamptz < v.valid_to AND v.recorded_to = 'infinity'`;
@@ -126,7 +125,7 @@ export class GraphView implements GroundResolver {
     if (this.keyCache.has(key)) return this.keyCache.get(key)!;
     const rows = await this.query(
       `SELECT v.node_id::text AS node_id, k.key AS kind, v.label, v.properties FROM node_version v JOIN node_kind k ON k.id = v.kind_id
-       WHERE v.properties->>'recordKey' = $2 AND ${GraphView.SEEN} ORDER BY v.node_id LIMIT 1`,
+       WHERE ${presentedKeySql('v', 'k')} = $2 AND ${GraphView.SEEN} ORDER BY v.node_id LIMIT 1`,
       [this.at, key],
     );
     const found = rows[0] === undefined ? null : GraphView.info(rows[0]);
@@ -209,7 +208,7 @@ export class GraphView implements GroundResolver {
   async mentionNames(): Promise<readonly MentionName[]> {
     if (this.mentionList !== undefined) return this.mentionList;
     const rows = await this.query<{ key: string; label: string }>(
-      `SELECT v.properties->>'recordKey' AS key, v.label AS label FROM node_version v JOIN node_kind k ON k.id = v.kind_id
+      `SELECT ${presentedKeySql('v', 'k')} AS key, v.label AS label FROM node_version v JOIN node_kind k ON k.id = v.kind_id
        WHERE v.properties->>'recordKey' IS NOT NULL AND v.label <> '' AND ${GraphView.SEEN}`,
       [this.at],
     );
@@ -277,13 +276,14 @@ export class GraphView implements GroundResolver {
 
   /** A page of keyed nodes in key order: of a kind, whose key or label contains `text`, after the key `after`. */
   async find(options: { kind?: string; text?: string; after?: string; limit: number }): Promise<{ nodes: NodeInfo[]; next: string | null }> {
+    const presented = presentedKeySql('v', 'k');
     const rows = await this.query(
-      `SELECT DISTINCT ON ((v.properties->>'recordKey') COLLATE "C") v.node_id::text AS node_id, k.key AS kind, v.label, v.properties
+      `SELECT DISTINCT ON ((${presented}) COLLATE "C") v.node_id::text AS node_id, k.key AS kind, v.label, v.properties
        FROM node_version v JOIN node_kind k ON k.id = v.kind_id
        WHERE ${GraphView.SEEN} AND v.properties ? 'recordKey'
-         AND ($2::text IS NULL OR k.key = $2) AND ($3::text IS NULL OR position(lower($3) in lower(v.properties->>'recordKey' || ' ' || v.label)) > 0)
-         AND ($4::text IS NULL OR (v.properties->>'recordKey') COLLATE "C" > $4)
-       ORDER BY (v.properties->>'recordKey') COLLATE "C", v.node_id LIMIT $5::bigint`,
+         AND ($2::text IS NULL OR k.key = $2) AND ($3::text IS NULL OR position(lower($3) in lower((${presented}) || ' ' || v.label)) > 0)
+         AND ($4::text IS NULL OR (${presented}) COLLATE "C" > $4)
+       ORDER BY (${presented}) COLLATE "C", v.node_id LIMIT $5::bigint`,
       [this.at, options.kind ?? null, options.text ?? null, options.after ?? null, String(options.limit + 1)],
     );
     const nodes = rows.map(GraphView.info).sort((a, b) => byCodePoint(a.key, b.key));
@@ -308,7 +308,7 @@ export class GraphView implements GroundResolver {
     const [self, other] = options.direction === 'out' ? ['src_id', 'dst_id'] : ['dst_id', 'src_id'];
     const rows = await this.query(
       `SELECT * FROM (
-         SELECT DISTINCT r.key AS relation, o.properties->>'recordKey' AS other_key, ok.key AS kind, o.label
+         SELECT DISTINCT r.key AS relation, ${presentedKeySql('o', 'ok')} AS other_key, ok.key AS kind, o.label
          FROM edge_version v JOIN relation_type r ON r.id = v.relation_type_id
          JOIN node_version o ON o.node_id = v.${other} AND o.valid_from <= $1::timestamptz AND $1::timestamptz < o.valid_to AND o.recorded_to = 'infinity'
          JOIN node_kind ok ON ok.id = o.kind_id

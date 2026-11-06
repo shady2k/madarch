@@ -16,14 +16,14 @@ import { closeSync, cpSync, existsSync, mkdirSync, openSync, readFileSync, readd
 import { basename, join, resolve } from 'node:path';
 import { homedir } from 'node:os';
 import { createPGliteDatabaseOwner, type DatabaseOwner } from '../adapters/database-owner.js';
-import { fillGraph } from '../extract/driver/index.js';
-import { TREE_EXTRACTORS } from '../extract/driver/extractors.js';
 import { codeLanguageOf } from '../extract/code/source.js';
+import { createFillOrchestratorService } from '../fill/orchestrator-host.js';
 import { createGraphStore, type GraphStore } from '../graph/index.js';
 import { sha256Hex } from '../graph/digest.js';
 import { defaultKnowledgeRoot } from '../knowledge/product.js';
+import { createRepositoryFill } from '../product/fill-stages.js';
 import { productsHome, type DraftEnv } from '../product/home.js';
-import { GraphView, ingestContent } from '../writer/view.js';
+import { GraphView } from '../writer/view.js';
 import { headCommit, workingTree } from './git.js';
 
 /** One opened base graph: what the session answers from, and where it lives. */
@@ -163,6 +163,32 @@ async function reusableStore(repository: string, commit: string, env: DraftEnv):
   return undefined;
 }
 
+
+/**
+ * Fills one repository's graph through the one fill entry (decision 0033, item 1): the wiring of the repository's
+ * static stages (`createRepositoryFill`) driven by the orchestrator host over the owner this server holds. The stages
+ * are the declared workflow's, the engine's `first-fill`; the contracts stages are not among the ones this build holds
+ * (madarch-8bdc.2.4), so the contract tools answer nothing for a served checkout until they land — the answers say
+ * they found nothing rather than reporting an empty graph as a graph without contracts.
+ *
+ * The service is stopped before it is dropped: it owns the queue it declared in this database, and the graph's own
+ * reader is opened after it, on the same owner.
+ */
+async function fillRepositoryGraph(owner: DatabaseOwner, repository: string, folder: string, log: (line: string) => void): Promise<void> {
+  const fill = await createRepositoryFill({ repository, database: owner });
+  const service = createFillOrchestratorService({ home: folder, owner, registry: fill.registry, wiring: () => fill.wiring, workers: 16, maxPasses: 100_000, log });
+  try {
+    const result = await service.run({ product: fill.product, runId: `mcp-${headCommit(repository).slice(0, 12)}` });
+    if (!result.ok) throw new Error(`${folder}:1: the fill of ${repository} was refused: ${result.code}: ${result.reason} (src/mcp/graph.ts)`);
+    if (!result.settled || result.state !== 'succeeded') {
+      const failed = result.units.filter((unit) => unit.state !== 'published' && unit.state !== 'superseded').map((unit) => `${unit.unitId} (${unit.state})`);
+      throw new Error(`${folder}:1: the fill of ${repository} ended ${result.settled ? result.state : 'without settling'}${result.stoppedBecause === undefined ? '' : ` (${result.stoppedBecause})`}: ${failed.length === 0 ? 'no unit names a failure' : failed.join(', ')} (src/mcp/graph.ts)`);
+    }
+  } finally {
+    await service.stop();
+  }
+}
+
 /**
  * Opens the graph of one repository at HEAD, building or moving it when the
  * folder holds no graph of this commit. `store` names the folder a caller keeps
@@ -211,8 +237,6 @@ export async function openRepositoryGraph(options: {
         await copied.createSchema();
         await again.exec(MARKER);
         const built = await GraphView.open(again, copied);
-        const content = await ingestContent(again, copied, built, repository);
-        if (content.skipped.length > 0) log(`madarch mcp: ${content.skipped.length} file(s) have no stored text: ${content.skipped.slice(0, 5).map((one) => `${one.path} (${one.reason})`).join('; ')}${content.skipped.length > 5 ? ' …' : ''}`);
         await again.run((tx) => tx.query('INSERT INTO mcp_base (repository, head, filled_at) VALUES ($1, $2, $3) ON CONFLICT (repository) DO UPDATE SET head = $2, filled_at = $3', [repository, commit, new Date().toISOString()]));
         filled = true;
         log(`madarch mcp: graph reused in ${((performance.now() - started) / 1000).toFixed(1)} s`);
@@ -228,14 +252,8 @@ export async function openRepositoryGraph(options: {
       }
       log(`madarch mcp: building the graph of ${repository} at ${commit.slice(0, 12)} in ${folder} (${codeFiles} code files)`);
       const before = performance.now();
-      // Every producer, not a subset: a graph without the contract's operations or the migration's tables is not a
-      // smaller answer, it is a wrong one (madarch-ztyq.10 recheck).
-      await fillGraph({ owner, store, repository, extractors: TREE_EXTRACTORS });
-      // The answers quote code and documents, and both are read from the graph's content nodes rather than from the
-      // repository (decision 0026); the fill lists the files, so the text is stored once, here, right after it.
+      await fillRepositoryGraph(owner, repository, folder, log);
       const built = await GraphView.open(owner, store);
-      const content = await ingestContent(owner, store, built, repository);
-      if (content.skipped.length > 0) log(`madarch mcp: ${content.skipped.length} file(s) have no stored text: ${content.skipped.slice(0, 5).map((one) => `${one.path} (${one.reason})`).join('; ')}${content.skipped.length > 5 ? ' …' : ''}`);
       const after = performance.now();
       await owner.run((tx) => tx.query('INSERT INTO mcp_base (repository, head, filled_at) VALUES ($1, $2, $3) ON CONFLICT (repository) DO UPDATE SET head = $2, filled_at = $3', [repository, commit, new Date().toISOString()]));
       view = built;

@@ -586,7 +586,7 @@ function resolutionWrites(input: {
   readonly evidence: string;
 }): readonly StageDraftWrite[] {
   const writes: StageDraftWrite[] = [];
-  const folded = new Map<string, { readonly relation: string; readonly from: string; readonly to: string; readonly use: string; count: number }>();
+  const folded = new Map<string, { readonly relation: string; readonly from: string; readonly to: string; readonly use: string; count: number; span: FactRange }>();
   for (const site of input.sites) {
     const range = site.mention.range;
     if (range.startByte === undefined || range.endByte === undefined) {
@@ -614,8 +614,13 @@ function resolutionWrites(input: {
     });
     const identity = `${site.relation}\u0000${site.from}\u0000${site.to}`;
     const held = folded.get(identity);
-    if (held === undefined) folded.set(identity, { relation: site.relation, from: site.from, to: site.to, use: site.mention.use, count: 1 });
-    else held.count += 1;
+    if (held === undefined) folded.set(identity, { relation: site.relation, from: site.from, to: site.to, use: site.mention.use, count: 1, span: range });
+    else {
+      held.count += 1;
+      // The edge names the first place it was read at, as the extract driver's own fold keeps it: a call site's
+      // place is what a reader follows back to the bytes (src/extract/code/index.ts, `fold`).
+      if ((range.startByte ?? 0) < (held.span.startByte ?? 0)) (held as { span: FactRange }).span = range;
+    }
   }
   for (const edge of folded.values()) {
     const factKind = FACT_OF_RELATION[edge.relation]!;
@@ -633,6 +638,7 @@ function resolutionWrites(input: {
           use: edge.use,
           count: edge.count,
           precision: 'syntactic',
+          span: { path: input.path, byteStart: edge.span.startByte, byteEnd: edge.span.endByte, lineStart: edge.span.startLine, lineEnd: edge.span.endLine },
         },
       },
     });

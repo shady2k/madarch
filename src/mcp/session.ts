@@ -50,7 +50,7 @@ export class RepositorySession {
   ) {
     this.graph = graph;
     this.revision = revision;
-    this.walkLayer = new WorkingLayer(absolute);
+    this.walkLayer = new WorkingLayer(absolute, () => this.graph.store);
   }
 
   static async open(options: SessionOptions): Promise<RepositorySession> {
@@ -116,8 +116,8 @@ export class RepositorySession {
       const caught = await this.catchUp();
       revision = caught.revision;
       reextracted = [...caught.reextracted];
-      const reads = new RepositoryReads(this.graph.view, this.walkLayer);
-      const pages = new RepositoryPages(this.graph.view, this.walkLayer);
+      const reads = new RepositoryReads(this.graph.view, this.walkLayer, this.graph.commit);
+      const pages = new RepositoryPages(this.graph.view, this.walkLayer, this.graph.commit);
       answered = await callRepoTool(tool, argumentsValue, {
         reads,
         pages,

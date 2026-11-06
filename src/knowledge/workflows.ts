@@ -34,9 +34,13 @@ import { lineForPath } from '../model/yaml-position.js';
 import { deriveStageGraphOver, type StageRegistry } from '../fill/registry.js';
 import { STAGE_ID_PATTERN } from '../fill/stage.js';
 import { createEngineStageRegistry } from '../fill/stages/index.js';
+import { STARTER_WORKFLOWS } from './starter-workflows.js';
 
 /** The manifest's place in the product repository. */
 export const WORKFLOWS_FILE = 'madarch/workflows.yaml';
+
+/** The workflow a fill runs: the starter set declares `first-fill` implemented, and every product is written with it. */
+const FIRST_FILL_WORKFLOW = 'first-fill';
 
 /** The statuses a workflow declares: `implemented` runs today, `planned` has no engine stage yet. */
 const WORKFLOW_STATUSES = ['implemented', 'planned'] as const;
@@ -215,4 +219,61 @@ export function parseWorkflows(text: string, file: string, registry: StageRegist
     });
   }
   return { file, workflows: new Map([...workflows].sort(([left], [right]) => byCodePoint(left, right))), findings };
+}
+
+
+// ---- the workflow a run enables its stages from ---------------------------
+
+/** The engine's starter set, as the file a refusal names for a repository that is no product. */
+const ENGINE_STARTER_SET = "the engine's starter set (src/knowledge/starter-workflows.ts)";
+
+/** What a run's stage set read gives: the stages its workflow names, or the refusal named where it stands. */
+export type FirstFillRead =
+  | { readonly ok: true; readonly file: string; readonly line: number; readonly stages: readonly string[] }
+  | { readonly ok: false; readonly refusal: WorkflowFinding };
+
+/**
+ * The stages a fill of one product runs (decision 0033, items 1 and 2): the
+ * stages the product's `madarch/workflows.yaml` names for its `first-fill`
+ * workflow, or the refusal named at the file and line that makes a run
+ * unreadable. A product that holds no manifest, a manifest the reader refuses,
+ * a manifest without `first-fill`, and one whose `first-fill` is `planned` are
+ * each a refusal here: a run never guesses the stages a product runs.
+ *
+ * The stages a run *holds* are the wiring's: a registry built for a run without
+ * an agent holds no agent stage, so a named stage the registry does not hold is
+ * not enabled by that run.
+ */
+export function firstFillStagesOf(folder: string, registry: StageRegistry = engineStageRegistry()): FirstFillRead {
+  const read = readWorkflows(folder, registry);
+  if (!read.present) {
+    return { ok: false, refusal: { file: read.file, line: 1, message: `the product holds no workflows manifest, and its fill reads the stages its \`${FIRST_FILL_WORKFLOW}\` workflow names: write ${WORKFLOWS_FILE} (\`madarch new\` writes the starter set, which names the engine's stages)` } };
+  }
+  const first = read.findings[0];
+  if (first !== undefined) return { ok: false, refusal: first };
+  const workflow = read.workflows.get(FIRST_FILL_WORKFLOW);
+  if (workflow === undefined) {
+    const held = [...read.workflows.keys()];
+    return { ok: false, refusal: { file: read.file, line: 1, message: `the manifest holds no "${FIRST_FILL_WORKFLOW}" workflow, and a fill runs the stages that workflow names: it holds ${held.length === 0 ? 'none' : held.map((name) => JSON.stringify(name)).join(', ')}` } };
+  }
+  if (workflow.status !== 'implemented') {
+    return { ok: false, refusal: { file: read.file, line: workflow.line, message: `the workflow "${FIRST_FILL_WORKFLOW}" stands ${JSON.stringify(workflow.status)}, and a fill runs an implemented workflow: its status says what this engine can do with it today` } };
+  }
+  return { ok: true, file: read.file, line: workflow.line, stages: workflow.stages };
+}
+
+/**
+ * The stages the engine's own `first-fill` workflow names, for a repository that
+ * is no product and so holds no manifest: the starter set `madarch new` writes
+ * into a product is the engine's declared workflow, and a repository served
+ * without one runs it. The list is the declared workflow's, never a second list
+ * written here; the check of decision 0033, item 2 (`scripts/check-workflows.ts`)
+ * holds it to the stages the engine's registry declares.
+ */
+export function engineFirstFillStages(): FirstFillRead {
+  const workflow = STARTER_WORKFLOWS.find((candidate) => candidate.name === FIRST_FILL_WORKFLOW);
+  if (workflow === undefined) {
+    return { ok: false, refusal: { file: ENGINE_STARTER_SET, line: 1, message: `the engine's starter set holds no "${FIRST_FILL_WORKFLOW}" workflow, and a fill runs the stages that workflow names` } };
+  }
+  return { ok: true, file: ENGINE_STARTER_SET, line: 1, stages: workflow.stages };
 }

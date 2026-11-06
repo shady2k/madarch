@@ -389,6 +389,40 @@ function repositoryOfScope(ref: UnitRef): string {
 export const DEFAULT_FILL_QUEUE = 'fill-units';
 
 /** Where the process's fill database lives under a products home. */
+/** How many of a run's own retry waits a host waits through before it reports the run as it stands. */
+const RETRY_WAITS_PER_RUN = 8;
+
+/**
+ * One run driven to its end, waiting for the moments the run itself schedules
+ * (decision 0027: "a retry that is not due yet waits for the caller's clock, and a
+ * host polls with its own interval"). A unit whose reads changed under a
+ * concurrent publication is retried by the run at `retryDelayMs`; the loop that
+ * drives it cannot pass that moment by itself, so a pass that changed nothing
+ * while a unit waits is the host's cue to wait and drive again, not the end of
+ * the run. The waits are the run's own limit and are bounded, so a unit that
+ * waits for ever is reported as the unsettled run it is.
+ */
+async function driveFor(orchestrator: FillOrchestrator, request: { readonly runId: string; readonly workers?: number; readonly maxPasses?: number }): Promise<Awaited<ReturnType<typeof driveRun>>> {
+  let driven = await driveRun(orchestrator, request);
+  let waits = 0;
+  while (!driven.settled && driven.stoppedBecause === 'a pass and its claims together changed nothing' && waits < RETRY_WAITS_PER_RUN) {
+    const status = await runStatus(orchestrator, request.runId);
+    if (status === null || !status.units.some((unit) => unit.state === 'retry_wait')) break;
+    waits += 1;
+    await new Promise<void>((resolve) => setTimeout(resolve, orchestrator.limits.retryDelayMs));
+    const again = await driveRun(orchestrator, request);
+    driven = {
+      ...again,
+      passes: driven.passes + again.passes,
+      work: driven.work + again.work,
+      reused: [...driven.reused, ...again.reused],
+      foundNothing: [...driven.foundNothing, ...again.foundNothing],
+      refused: [...driven.refused, ...again.refused],
+    };
+  }
+  return driven;
+}
+
 export function fillDatabasePath(home: string): string {
   return join(home, '.madarch', 'fill', 'state.db');
 }
@@ -964,7 +998,7 @@ async function fileDecision(
       if (!started.ok) return { ok: false, code: started.code, reason: started.reason };
       const planned = await planRun(orchestrator, { runId: request.runId });
       if (planned.outcome === 'refused') return { ok: false, code: planned.code, reason: planned.reason };
-      const driven = await driveRun(orchestrator, {
+      const driven = await driveFor(orchestrator, {
         runId: request.runId,
         workers: request.workers ?? options.workers ?? 1,
         ...(request.maxPasses === undefined && options.maxPasses === undefined ? {} : { maxPasses: request.maxPasses ?? options.maxPasses }),

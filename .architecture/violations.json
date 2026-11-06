@@ -1711,11 +1711,6 @@
   },
   {
     "rule": "no-unreachable-code",
-    "file": "src/fill/stages/build-configuration.ts",
-    "symbol": "manifestUnitId"
-  },
-  {
-    "rule": "no-unreachable-code",
     "file": "src/fill/stages/doc-intent.ts",
     "symbol": "DOC_INTENT_STAGE_VERSION"
   },
@@ -5912,11 +5907,6 @@
   {
     "rule": "one-fill-entry",
     "file": "src/knowledge/fill-worker.ts",
-    "symbol": "src/extract/driver/index.ts:fillGraph"
-  },
-  {
-    "rule": "one-fill-entry",
-    "file": "src/mcp/graph.ts",
     "symbol": "src/extract/driver/index.ts:fillGraph"
   },
   {

@@ -77,6 +77,26 @@ type Raw = Record<string, unknown>;
 const NODE_SELECT = `v.node_id::text AS node_id, k.key AS kind, v.label, v.properties, v.scope_id::text AS scope_id, v.producer`;
 const VISIBLE = (alias: string): string => `${alias}.valid_from <= $1::timestamptz AND $1::timestamptz < ${alias}.valid_to AND ${alias}.recorded_to = 'infinity'`;
 
+/**
+ * The place a record was read at, as a span: the driver states it as the node's or the edge's `span`
+ * property; the per-file static stages state it as the `place` of their fact's provenance, whose range a
+ * reader counts in lines and bytes like any other. Either shape names one place, so a reader asks for a
+ * span and is answered whichever producer wrote the record.
+ */
+export function spanFromProvenance(properties: Record<string, unknown>): SourceSpan | undefined {
+  const provenance = properties['provenance'];
+  if (provenance === null || typeof provenance !== 'object' || Array.isArray(provenance)) return undefined;
+  const place = (provenance as Record<string, unknown>)['place'];
+  if (place === null || typeof place !== 'object' || Array.isArray(place)) return undefined;
+  const held = place as Record<string, unknown>;
+  const range = held['range'];
+  if (typeof held['file'] !== 'string' || range === null || typeof range !== 'object' || Array.isArray(range)) return undefined;
+  const measured = range as Record<string, unknown>;
+  const { startLine, endLine, startByte, endByte } = measured;
+  if (typeof startLine !== 'number' || typeof endLine !== 'number' || typeof startByte !== 'number' || typeof endByte !== 'number') return undefined;
+  return { path: held['file'], lineStart: startLine, lineEnd: endLine, byteStart: startByte, byteEnd: endByte };
+}
+
 export function spanOf(value: unknown): SourceSpan | undefined {
   if (value === null || typeof value !== 'object') return undefined;
   const span = value as Record<string, unknown>;
@@ -85,15 +105,49 @@ export function spanOf(value: unknown): SourceSpan | undefined {
   return { path, lineStart, lineEnd, byteStart, byteEnd };
 }
 
+
+/**
+ * The key an entity is *presented* by (decision 0033, item 7): the graph keeps
+ * the fill's own record identity in `recordKey`, and two producers name one node
+ * two ways. The extract driver's files and symbols are `code.file:<path>` and
+ * `code.symbol:<path>#<name>`; the per-file static stages identify a file and a
+ * symbol by the digest of their facts and carry the extractors' names in `path`
+ * and `globalName`. The reader answers both shapes the same: a file is named by
+ * its path and a symbol by its global name without the repository's own prefix,
+ * which is the extractors' own key. Every other kind is named by its record key,
+ * unchanged.
+ */
+export function presentedKey(kind: string, properties: Record<string, unknown>): string {
+  const recordKey = properties['recordKey'];
+  if (kind === 'code.file' && typeof properties['path'] === 'string') return `code.file:${properties['path']}`;
+  const globalName = properties['globalName'];
+  if (kind === 'code.symbol' && typeof globalName === 'string') {
+    const colon = globalName.indexOf(':');
+    return `code.symbol:${colon < 0 ? globalName : globalName.slice(colon + 1)}`;
+  }
+  return typeof recordKey === 'string' ? recordKey : String(recordKey ?? '');
+}
+
+/**
+ * The same presentation, as SQL: the key a node version stands for, under the
+ * kind its join names. `kind` and `node` are the aliases of `node_kind` and
+ * `node_version` in the statement that uses it.
+ */
+export function presentedKeySql(node: string, kind: string): string {
+  return `(CASE WHEN ${kind}.key = 'code.file' AND ${node}.properties ? 'path' THEN 'code.file:' || (${node}.properties->>'path')
+    WHEN ${kind}.key = 'code.symbol' AND ${node}.properties ? 'globalName' THEN 'code.symbol:' || substr(${node}.properties->>'globalName', strpos(${node}.properties->>'globalName', ':') + 1)
+    ELSE ${node}.properties->>'recordKey' END)`;
+}
+
 /** Merges the nodes of one key into an entity; the node with most properties leads. */
 function entityOf(rows: Raw[]): GraphEntity {
   const sorted = [...rows].sort((a, b) => Object.keys(b['properties'] as object).length - Object.keys(a['properties'] as object).length || byCodePoint(String(a['producer']), String(b['producer'])));
   const lead = sorted[0]!;
   const properties: Record<string, unknown> = {};
   for (const row of sorted) for (const [name, value] of Object.entries(row['properties'] as Record<string, unknown>)) if (!(name in properties)) properties[name] = value;
-  const span = spanOf(properties['span']);
+  const span = spanOf(properties['span']) ?? spanFromProvenance(properties);
   return {
-    key: String(properties['recordKey']),
+    key: presentedKey(String(lead['kind']), properties),
     kind: String(lead['kind']),
     label: String(lead['label']),
     properties,
@@ -163,7 +217,7 @@ export class GraphReader {
     return await this.run(async (tx, at) => {
       const found = await tx.query<Raw>(
         `SELECT ${NODE_SELECT} FROM node_version v JOIN node_kind k ON k.id = v.kind_id
-         WHERE v.properties->>'recordKey' = $2 AND ${this.visible('v')} ORDER BY v.node_id`,
+         WHERE ${presentedKeySql('v', 'k')} = $2 AND ${this.visible('v')} ORDER BY v.node_id`,
         [at, key],
       );
       return groupByScope(found.rows);
@@ -174,7 +228,7 @@ export class GraphReader {
   async kindCounts(): Promise<{ kind: string; count: number }[]> {
     return await this.run(async (tx, at) => {
       const found = await tx.query<Raw>(
-        `SELECT k.key AS kind, count(DISTINCT v.properties->>'recordKey')::int AS n
+        `SELECT k.key AS kind, count(DISTINCT ${presentedKeySql('v', 'k')})::int AS n
          FROM node_version v JOIN node_kind k ON k.id = v.kind_id
          WHERE v.properties ? 'recordKey' AND ${this.visible('v')} GROUP BY k.key ORDER BY k.key`,
         [at],
@@ -206,11 +260,12 @@ export class GraphReader {
           AND r.key = 'code.declares' AND ok.key = 'code.contract' AND owner.properties->>'format' = 'asyncapi'
           AND ${this.visible('member')} AND ${this.visible('e')} AND ${this.visible('owner')}
       ))` : '';
-      const filter = `k.key = ANY($2::text[]) AND v.properties ? 'recordKey' AND ${this.visible('v')} AND ($3::text IS NULL OR v.label ILIKE $3 OR v.properties->>'recordKey' ILIKE $3)${eligibility}`;
+      const presented = presentedKeySql('v', 'k');
+      const filter = `k.key = ANY($2::text[]) AND v.properties ? 'recordKey' AND ${this.visible('v')} AND ($3::text IS NULL OR v.label ILIKE $3 OR ${presented} ILIKE $3)${eligibility}`;
       const kindsParameter = `{${kinds.map((kind) => `"${kind.replace(/(["\\])/g, '\\$1')}"`).join(',')}}`;
-      const total = await tx.query<Raw>(`SELECT count(DISTINCT v.properties->>'recordKey')::int AS n FROM node_version v JOIN node_kind k ON k.id = v.kind_id WHERE ${filter}`, [at, kindsParameter, text]);
+      const total = await tx.query<Raw>(`SELECT count(DISTINCT ${presented})::int AS n FROM node_version v JOIN node_kind k ON k.id = v.kind_id WHERE ${filter}`, [at, kindsParameter, text]);
       const keys = await tx.query<Raw>(
-        `SELECT key FROM (SELECT DISTINCT v.properties->>'recordKey' AS key FROM node_version v JOIN node_kind k ON k.id = v.kind_id WHERE ${filter}) t
+        `SELECT key FROM (SELECT DISTINCT ${presented} AS key FROM node_version v JOIN node_kind k ON k.id = v.kind_id WHERE ${filter}) t
          WHERE ($4::text IS NULL OR key COLLATE "C" > $4::text) ORDER BY key COLLATE "C" LIMIT $5::int`,
         [at, kindsParameter, text, options.after ?? null, String(options.limit + 1)],
       );
@@ -225,12 +280,12 @@ export class GraphReader {
     if (keys.length === 0) return [];
     const found = await tx.query<Raw>(
       `SELECT ${NODE_SELECT} FROM node_version v JOIN node_kind k ON k.id = v.kind_id
-       WHERE v.properties->>'recordKey' = ANY($2::text[]) AND ${this.visible('v')} ORDER BY v.node_id`,
+       WHERE ${presentedKeySql('v', 'k')} = ANY($2::text[]) AND ${this.visible('v')} ORDER BY v.node_id`,
       [at, `{${keys.map((key) => `"${key.replace(/(["\\])/g, '\\$1')}"`).join(',')}}`],
     );
     const byKey = new Map<string, Raw[]>();
     for (const row of found.rows) {
-      const key = String((row['properties'] as Record<string, unknown>)['recordKey']);
+      const key = presentedKey(String(row['kind']), row['properties'] as Record<string, unknown>);
       byKey.set(key, [...(byKey.get(key) ?? []), row]);
     }
     return keys.flatMap((key) => (byKey.has(key) ? [entityOf(byKey.get(key)!.filter((row) => row['scope_id'] === byKey.get(key)![0]!['scope_id']))] : []));
@@ -251,9 +306,10 @@ export class GraphReader {
         const [self, far] = direction === 'out' ? ['src_id', 'dst_id'] : ['dst_id', 'src_id'];
         const edges = await tx.query<Raw>(
           `SELECT relation, other_key, n FROM (
-             SELECT r.key AS relation, o.properties->>'recordKey' AS other_key, count(*)::int AS n
+             SELECT r.key AS relation, ${presentedKeySql('o', 'ko')} AS other_key, count(*)::int AS n
              FROM edge_version e JOIN relation_type r ON r.id = e.relation_type_id
              JOIN node_version o ON o.node_id = e.${far} AND ${this.visible('o')} AND o.properties ? 'recordKey'
+             JOIN node_kind ko ON ko.id = o.kind_id
              WHERE e.${self} = ANY($2::bigint[]) AND ${this.visible('e')} AND ($3::text[] IS NULL OR r.key = ANY($3::text[]))
              GROUP BY 1, 2) t ORDER BY relation, other_key COLLATE "C"`,
           [at, ids, relationFilter],
@@ -290,11 +346,12 @@ export class GraphReader {
       const ids = `{${entity.nodeIds.join(',')}}`;
       const [self, far] = direction === 'out' ? ['src_id', 'dst_id'] : ['dst_id', 'src_id'];
       const found = await tx.query<Raw>(
-        `SELECT o.properties->>'recordKey' AS other_key, e.properties AS properties, e.byte_start::int AS byte_start, e.byte_end::int AS byte_end
+        `SELECT ${presentedKeySql('o', 'ko')} AS other_key, e.properties AS properties, e.byte_start::int AS byte_start, e.byte_end::int AS byte_end
          FROM edge_version e JOIN relation_type r ON r.id = e.relation_type_id
          JOIN node_version o ON o.node_id = e.${far} AND ${this.visible('o')} AND o.properties ? 'recordKey'
+         JOIN node_kind ko ON ko.id = o.kind_id
          WHERE e.${self} = ANY($2::bigint[]) AND r.key = $3 AND ${this.visible('e')}
-         ORDER BY o.properties->>'recordKey' COLLATE "C", e.byte_start NULLS FIRST, e.id`,
+         ORDER BY ${presentedKeySql('o', 'ko')} COLLATE "C", e.byte_start NULLS FIRST, e.id`,
         [at, ids, relation],
       );
       const keys = [...new Set(found.rows.map((row) => String(row['other_key'])))];
@@ -308,7 +365,7 @@ export class GraphReader {
         const other = byKey.get(key);
         if (other === undefined) continue;
         const properties = (first['properties'] ?? {}) as Record<string, unknown>;
-        const span = spanOf(properties['span']);
+        const span = spanOf(properties['span']) ?? spanFromProvenance(properties);
         rows.push({
           relation,
           direction,
@@ -331,8 +388,9 @@ export class GraphReader {
       const seen = new Set<string>([entity.key]);
       for (let step = 0; step < limit; step += 1) {
         const parent = await tx.query<Raw>(
-          `SELECT DISTINCT o.properties->>'recordKey' AS other_key FROM edge_version e JOIN relation_type r ON r.id = e.relation_type_id
+          `SELECT DISTINCT ${presentedKeySql('o', 'ko')} AS other_key FROM edge_version e JOIN relation_type r ON r.id = e.relation_type_id
            JOIN node_version o ON o.node_id = e.src_id AND ${this.visible('o')} AND o.properties ? 'recordKey'
+           JOIN node_kind ko ON ko.id = o.kind_id
            WHERE e.dst_id = ANY($2::bigint[]) AND r.key = $3 AND ${this.visible('e')} ORDER BY 1 LIMIT 1`,
           [at, `{${current.nodeIds.join(',')}}`, relation],
         );
@@ -363,8 +421,9 @@ export class GraphReader {
            WHERE r.key = $3 AND ${this.visible('e')} AND p.hops < $4::int
          )
          SELECT key, hops FROM (
-           SELECT o.properties->>'recordKey' AS key, min(p.hops)::int AS hops FROM reach p
+           SELECT ${presentedKeySql('o', 'ko')} AS key, min(p.hops)::int AS hops FROM reach p
            JOIN node_version o ON o.node_id = p.node_id AND ${this.visible('o')} AND o.properties ? 'recordKey'
+           JOIN node_kind ko ON ko.id = o.kind_id
            GROUP BY 1) t ORDER BY hops, key COLLATE "C"`,
         [at, `{${entity.nodeIds.join(',')}}`, relation, String(depth)],
       );
@@ -387,8 +446,8 @@ export class GraphReader {
     return await this.run(async (tx, at) => {
       const like = `${prefix.replace(/[\\%_]/g, '\\$&')}%`;
       const keys = await tx.query<Raw>(
-        `SELECT key FROM (SELECT DISTINCT v.properties->>'recordKey' AS key FROM node_version v JOIN node_kind k ON k.id = v.kind_id
-           WHERE k.key = $2 AND v.properties->>'recordKey' LIKE $3 AND ${this.visible('v')}) t ORDER BY key COLLATE "C"`,
+        `SELECT key FROM (SELECT DISTINCT ${presentedKeySql('v', 'k')} AS key FROM node_version v JOIN node_kind k ON k.id = v.kind_id
+           WHERE k.key = $2 AND ${presentedKeySql('v', 'k')} LIKE $3 AND ${this.visible('v')}) t ORDER BY key COLLATE "C"`,
         [at, kind, like],
       );
       const all = keys.rows.map((row) => String(row['key']));
@@ -404,15 +463,15 @@ export class GraphReader {
   async relationEdges(relation: string, limit: number): Promise<{ total: number; rows: RelationEdge[] }> {
     return await this.run(async (tx, at) => {
       const found = await tx.query<Raw>(
-        `SELECT s.properties->>'recordKey' AS from_key, ks.key AS from_kind, s.label AS from_label,
-                d.properties->>'recordKey' AS to_key, kd.key AS to_kind, d.label AS to_label, e.discriminator, e.properties AS properties, count(*) OVER ()::int AS total
+        `SELECT ${presentedKeySql('s', 'ks')} AS from_key, ks.key AS from_kind, s.label AS from_label,
+                ${presentedKeySql('d', 'kd')} AS to_key, kd.key AS to_kind, d.label AS to_label, e.discriminator, e.properties AS properties, count(*) OVER ()::int AS total
          FROM edge_version e JOIN relation_type r ON r.id = e.relation_type_id
          JOIN node_version s ON s.node_id = e.src_id AND ${this.visible('s')} AND s.properties ? 'recordKey'
          JOIN node_kind ks ON ks.id = s.kind_id
          JOIN node_version d ON d.node_id = e.dst_id AND ${this.visible('d')} AND d.properties ? 'recordKey'
          JOIN node_kind kd ON kd.id = d.kind_id
          WHERE r.key = $2 AND ${this.visible('e')}
-         ORDER BY s.properties->>'recordKey' COLLATE "C", d.properties->>'recordKey' COLLATE "C", e.discriminator COLLATE "C", e.id
+         ORDER BY ${presentedKeySql('s', 'ks')} COLLATE "C", ${presentedKeySql('d', 'kd')} COLLATE "C", e.discriminator COLLATE "C", e.id
          LIMIT $3::int`,
         [at, relation, String(limit)],
       );
@@ -432,10 +491,11 @@ export class GraphReader {
     if (keys.length === 0) return counts;
     return await this.run(async (tx, at) => {
       const found = await tx.query<Raw>(
-        `SELECT d.properties->>'recordKey' AS key, count(DISTINCT e.id)::int AS n
+        `SELECT ${presentedKeySql('d', 'kd')} AS key, count(DISTINCT e.id)::int AS n
          FROM edge_version e JOIN relation_type r ON r.id = e.relation_type_id
          JOIN node_version d ON d.node_id = e.dst_id AND ${this.visible('d')} AND d.properties ? 'recordKey'
-         WHERE r.key = $2 AND ${this.visible('e')} AND d.properties->>'recordKey' = ANY($3::text[])
+         JOIN node_kind kd ON kd.id = d.kind_id
+         WHERE r.key = $2 AND ${this.visible('e')} AND ${presentedKeySql('d', 'kd')} = ANY($3::text[])
          GROUP BY 1`,
         [at, relation, `{${keys.map((key) => `"${key.replace(/(["\\])/g, '\\$1')}"`).join(',')}}`],
       );

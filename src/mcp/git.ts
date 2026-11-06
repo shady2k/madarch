@@ -55,6 +55,15 @@ export function readWorkingFile(repository: string, path: string): Uint8Array | 
   return existsSync(full) ? readFileSync(full) : null;
 }
 
+/** The bytes of a path at one commit, or null when the commit holds none: the text an answer quotes from an unchanged file. */
+export function readCommitFile(repository: string, commit: string, path: string): Uint8Array | null {
+  try {
+    return gitBytes(repository, ['show', `${commit}:${path}`]);
+  } catch {
+    return null;
+  }
+}
+
 /** Whether the checkout names a commit at all: an empty repository cannot be served. */
 export function hasCommit(repository: string): boolean {
   try {
