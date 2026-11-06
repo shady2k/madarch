@@ -58,7 +58,7 @@ import { publishedTreeRead, publishedTreeRows } from './tree-rows.js';
 const CONTRACTS_LINKS_STAGE_ID = 'contracts-links';
 
 /** The stage's own version, bumped when what it writes or plans changes. */
-const CONTRACTS_LINKS_STAGE_VERSION = 3;
+const CONTRACTS_LINKS_STAGE_VERSION = 4;
 
 /** The fact kinds the stage produces, in code point order. */
 const CONTRACTS_LINKS_STAGE_KINDS: readonly string[] = ['belongs-to', 'calls-remote', 'consumes', 'contains', 'coverage', 'entry-point', 'publishes', 'serves', 'starts'];
@@ -786,14 +786,41 @@ function linkWrites(relation: string, fileKey: string, enclosing: string | undef
  */
 function resolveImports(views: readonly FileCodeView[], files: readonly string[]): void {
   const present = new Set(files);
+  const symbols = [...new Map(views.flatMap((view) => view.facts.symbols).map((symbol) => [symbol.key, symbol] as const)).values()];
   for (const view of views) {
     for (const imported of view.facts.imports) {
-      if (imported.targetPath !== undefined || !imported.specifier.startsWith('.')) continue;
+      // A relative specifier names a file beside this one, and any other is tied to a file or a
+      // package folder of the repository by the code-facts stage's own path-scoped lookup.
+      if (imported.targetPath === undefined && imported.targetFolder === undefined && !imported.specifier.startsWith('.')) continue;
+      if (imported.imported.form === 'namespace' && imported.targetFolder !== undefined && imported.targetPath === undefined) {
+        // A Go package import binds the package as a whole: `store.NewOutboxWriter(…)` reaches the
+        // declaration the package's folder answers under that member's name. The driver's resolver
+        // names the same symbol, and a proof that an argument flows into that call reads the site.
+        const folder = imported.targetFolder;
+        for (const expression of view.facts.expressions) {
+          if (expression.syntaxKind !== 'selector_expression' || expression.member === undefined || expression.receiver === undefined) continue;
+          const member = expression.fields['field'] ?? expression.fields['property'] ?? [];
+          if (member.length !== 1) continue;
+          const receiver = view.facts.expressions.find((held) => held.id === expression.receiver);
+          if (receiver?.bindingId === undefined || receiver.bindingId !== imported.id) continue;
+          const named = symbols.filter((symbol) => symbol.path.startsWith(`${folder}/`) && symbol.qualifiedName === expression.member);
+          const callables = named.filter((symbol) => symbol.callable);
+          const reached = (callables.length > 0 ? callables : named).length === 1 ? (callables.length > 0 ? callables : named)[0] : undefined;
+          if (reached === undefined) continue;
+          const call = view.facts.calls.find((held) => held.callee === expression.id);
+          const use: 'call' | 'reference' = call === undefined ? 'reference' : 'call';
+          if (view.facts.sites.some((site) => site.use === use && site.span.byteStart === expression.span.byteStart && site.span.byteEnd === expression.span.byteEnd)) continue;
+          const span = view.facts.expressions.find((held) => held.id === member[0])?.span ?? expression.span;
+          (view.facts.sites as unknown as {path: string; span: unknown; to: string; use: string; roles: readonly string[]; fanOut: readonly string[]; holder: string}[]).push({path: view.facts.files[0]?.path ?? '', span, to: reached.key, use, roles: ['read-access'], fanOut: [], holder: call?.holder ?? `code.file:${view.facts.files[0]?.path ?? ''}`});
+          if (call !== undefined) (view.code.edges as unknown as {type: string; from: string; to: string}[]).push({type: 'code.calls', from: call.holder, to: reached.key});
+        }
+        continue;
+      }
       const folder = folderOf(view.facts.files[0]?.path ?? '');
       const base = normalizePath(folder === '' ? imported.specifier : `${folder}/${imported.specifier}`);
       const candidates = [base, `${base}.ts`, `${base}.tsx`, `${base}.js`, `${base}/index.ts`, `${base}/index.tsx`];
-      const target = candidates.find((candidate) => present.has(candidate));
-      if (target === undefined) continue;
+      const target = imported.targetPath ?? candidates.find((candidate) => present.has(candidate));
+      if (target === undefined || !present.has(target)) continue;
       const held = view.facts.imports as unknown as { targetPath?: string; targetExpression?: string }[];
       const mutable = held.find((entry) => entry === (imported as unknown));
       if (mutable === undefined) continue;
@@ -810,13 +837,20 @@ function resolveImports(views: readonly FileCodeView[], files: readonly string[]
       // A call to an imported declaration reaches that file's declaration: the site the publisher
       // and deadline proofs follow across files.
       if (name === undefined) continue;
-      const callTarget = `code.symbol:${target}#${name}`;
+      const declaration = `code.symbol:${target}#${name}`;
+      // A construction of an imported class names the constructor it runs, as the driver's own
+      // resolver names it: the class is the reference, and the deadline's wiring is proved on the
+      // constructor's arguments.
+      const constructed = exported !== undefined && (exported.syntaxKind === 'class_declaration' || exported.syntaxKind === 'abstract_class_declaration')
+        ? other?.facts.symbols.find((symbol) => symbol.callable && symbol.qualifiedName === `${name}.constructor`)?.key
+        : undefined;
       for (const call of view.facts.calls) {
         const callee = view.facts.expressions.find((expression) => expression.id === call.callee);
         if (callee?.syntaxKind !== 'identifier' || callee.bindingId === undefined) continue;
         const binding = view.facts.bindings.find((held) => held.id === callee.bindingId);
         if (binding?.importId === undefined || binding.importId !== imported.id) continue;
         if (view.facts.sites.some((site) => site.use === 'call' && site.span.byteStart === callee.span.byteStart && site.span.byteEnd === callee.span.byteEnd)) continue;
+        const callTarget = call.construct && constructed !== undefined ? constructed : declaration;
         (view.facts.sites as unknown as {path: string; span: unknown; to: string; use: string; roles: readonly string[]; fanOut: readonly string[]; holder: string}[]).push({path: view.facts.files[0]?.path ?? '', span: callee.span, to: callTarget, use: 'call', roles: ['read-access'], fanOut: [], holder: call.holder});
         (view.code.edges as unknown as {type: string; from: string; to: string}[]).push({type: 'code.calls', from: call.holder, to: callTarget});
       }
@@ -850,6 +884,27 @@ async function serviceSymbolsOf(stage: StaticStageContext, repository: string, f
         callable: node.properties['callable'] === true,
         span,
         ...(body === undefined ? {} : { bodySpan: body }),
+      });
+    }
+    // The declarations the syntax stage names (a Go constant, a type) are no callables of the
+    // code-facts stage, and a reader that asks the symbol a mention resolves to reads them: the
+    // driver's own facts hold every declaration of a file.
+    const named = (await allPages((page) => stage.byProperty('code.symbol', 'file', file, page))).filter((node) => node.properties['repository'] === repository);
+    for (const node of named) {
+      const span = spanOfNode(node);
+      const key = node.properties['recordKey'];
+      const qualifiedName = String(node.properties['qualifiedName'] ?? '');
+      // One declaration is one symbol: the code-facts stage's callable answers first, and the
+      // syntax stage's record for the same declaration is the same symbol read by another stage.
+      if (span === undefined || typeof key !== 'string' || symbols.some((symbol) => symbol.key === key || (symbol.path === file && symbol.qualifiedName === qualifiedName))) continue;
+      symbols.push({
+        key,
+        path: file,
+        name: String(node.properties['name'] ?? qualifiedName),
+        qualifiedName,
+        symbolKind: String(node.properties['symbolKind'] ?? ''),
+        callable: false,
+        span,
       });
     }
     const edges = await allPages((page) => stage.edgesByProperty('code.inherits', 'file', file, page));
@@ -919,7 +974,7 @@ async function outboxWrites(stage: StaticStageContext, source: StaticStageSource
     expressions: views.flatMap((view) => view.facts.expressions),
     bindings: views.flatMap((view) => view.facts.bindings),
     calls: views.flatMap((view) => view.facts.calls),
-    symbols: views.flatMap((view) => view.facts.symbols),
+    symbols: symbolsOfService(views),
     imports: views.flatMap((view) => view.facts.imports),
     sites: views.flatMap((view) => view.facts.sites),
     fields: views.flatMap((view) => view.facts.fields ?? []),
@@ -935,6 +990,18 @@ async function outboxWrites(stage: StaticStageContext, source: StaticStageSource
     writes.push(...linkWrites(REL_PUBLISHES, fileFactIdOf(repository, site.span.path), enclosing, channelKey(site.channel), properties, site.span, place));
   }
   return writes;
+}
+
+/**
+ * The declarations of one service's files, one per key: every view of the service carries the
+ * other files' callables (the cross-file fan-out), so the concatenation names one declaration as
+ * many times as the service has files, and a reader that indexes symbols as tombstones would drop
+ * every one of them. One declaration is one symbol.
+ */
+function symbolsOfService(views: readonly FileCodeView[]): ReadonlyArray<FileCodeView['facts']['symbols'][number]> {
+  const held = new Map<string, FileCodeView['facts']['symbols'][number]>();
+  for (const view of views) for (const symbol of view.facts.symbols) if (!held.has(symbol.key)) held.set(symbol.key, symbol);
+  return [...held.values()];
 }
 
 // ---- the remote calls a file makes ----------------------------------------
@@ -1104,7 +1171,7 @@ async function grpcDeadlineOf(stage: StaticStageContext, source: StaticStageSour
     expressions: views.flatMap((view) => view.facts.expressions),
     bindings: views.flatMap((view) => view.facts.bindings),
     calls: views.flatMap((view) => view.facts.calls),
-    symbols: views.flatMap((view) => view.facts.symbols),
+    symbols: symbolsOfService(views),
     imports: views.flatMap((view) => view.facts.imports),
     sites: views.flatMap((view) => view.facts.sites),
     fields: views.flatMap((view) => view.facts.fields ?? []),

@@ -84,10 +84,11 @@ import { rolesFor } from './inventory.js';
 import { readFileFindings, readSyntaxTree, spanFactory, syntaxLanguageOf, type ExtractedFileSyntax, type SyntaxLanguage } from './syntax-extract.js';
 import { fileSymbolsOf } from './code-symbols.js';
 import { listeningPortsOfTree } from './listening-ports.js';
+import { readGoMod } from './manifest-format.js';
 import { folderOf, manifestChainOf, serviceMembershipOf, type ManifestEntry, type ManifestLookup, type ServiceMembership, type ServiceMembershipRead } from './service-membership.js';
 import type { StaticStageContext, StaticStageSource } from './static-context.js';
 import { checkStaticGraphDraft, graphWritesOf } from './static-graph.js';
-import { fileFactIdOf, importCandidates } from './syntax-facts.js';
+import { fileFactIdOf, importCandidates, isRelativeSpecifier } from './syntax-facts.js';
 import { fileUnitId, plannedUnit } from './syntax.js';
 import { publishedTreeRead, publishedTreeRows } from './tree-rows.js';
 
@@ -95,7 +96,7 @@ import { publishedTreeRead, publishedTreeRows } from './tree-rows.js';
 export const CODE_FACTS_STAGE_ID = 'code-facts';
 
 /** The stage's own version, bumped when what it writes or plans changes. */
-const CODE_FACTS_STAGE_VERSION = 2;
+const CODE_FACTS_STAGE_VERSION = 3;
 
 /** The fact kinds the stage produces, in code point order. */
 const CODE_FACTS_STAGE_KINDS: readonly string[] = ['binding', 'callable', 'callsite', 'coverage', 'declares', 'export', 'expression', 'field', 'listener-port', 'service-unit'];
@@ -288,8 +289,16 @@ interface BindingFact {
   readonly importedName?: string;
   /** The file of this repository the specifier answers, where one does. */
   readonly targetPath?: string;
+  /** The package folder a Go import names, from the module path its `go.mod` declares. */
+  readonly targetFolder?: string;
   /** The declaration a binding is made in, from its statement's first byte to its initializer's last. */
   readonly declarationSpan?: SourceSpan;
+  /**
+   * A Go range clause's selection, never a value origin: ordinal zero is the key/index, and the
+   * role names which of the two the binding holds. The outbox proof reads a row value only through
+   * the exact clause and collection it came from.
+   */
+  readonly goRange?: { readonly clauseExpression: string; readonly collectionExpression: string; readonly ordinal: 0 | 1; readonly role: 'key' | 'value' };
 }
 
 /** One call site: the invocation and the callee and arguments it names. */
@@ -470,6 +479,30 @@ async function executeCodeFactsUnit(unit: StageUnit, context: StageContext): Pro
     }
     facts = { ...facts, bindings: resolved.sort((left, right) => byCodePoint(left.id, right.id)) };
   }
+  // A Go import names a package by the module path its own `go.mod` declares (the driver reads the
+  // same declaration through `goModules`): the folder holding the nearest `go.mod`, read one path at
+  // a time, and the specifier's rest below it. The binding names that folder; the declaration the
+  // package answers under a member's name is a later stage's join over the unit's files.
+  if (facts.bindings.some((binding) => binding.kind === 'import' && binding.targetFolder === undefined && binding.specifier !== undefined && !isRelativeSpecifier(binding.specifier))) {
+    let module: { readonly folder: string; readonly path: string } | undefined;
+    const lookup = manifestLookup(source);
+    for (let folder = folderOf(planned.path); ; folder = folderOf(folder)) {
+      const manifest = await lookup(folder === '' ? 'go.mod' : `${folder}/go.mod`);
+      if (manifest?.bytes !== undefined) {
+        const read = readGoMod(new TextDecoder('utf-8', { fatal: false }).decode(manifest.bytes));
+        if (read.ok && read.value.module.trim() !== '') { module = { folder, path: read.value.module.trim() }; break; }
+      }
+      if (folder === '') break;
+    }
+    facts = { ...facts, bindings: facts.bindings.map((binding) => {
+      if (module === undefined || binding.kind !== 'import' || binding.specifier === undefined || binding.targetFolder !== undefined) return binding;
+      const specifier = binding.specifier;
+      if (specifier !== module.path && !specifier.startsWith(`${module.path}/`)) return binding;
+      const rest = specifier.slice(module.path.length + 1);
+      const targetFolder = module.folder === '' ? rest : rest === '' ? module.folder : `${module.folder}/${rest}`;
+      return { ...binding, targetFolder };
+    }).sort((left, right) => byCodePoint(left.id, right.id)) };
+  }
   const evidence = evidenceAtPlace(source, planned.path);
   const fileKey = fileFactIdOf(planned.repository, planned.path);
   for (const write of factWrites({
@@ -580,6 +613,8 @@ export function collectFileFacts(repository: string, path: string, text: string,
   const fields: FieldFact[] = [];
   const exports: ExportFact[] = [];
   const scopeSpans: SourceSpan[] = [toSpan(path, spanOf(root as never))];
+  /** The grammar of each scope, innermost last: a range clause declares its names in a loop's scope. */
+  const scopeKinds: string[] = [root.type];
   /** The names each scope binds, innermost last: what an identifier expression resolves to. */
   const scopeBindings: Map<string, string>[] = [new Map()];
   const resolveBinding = (name: string): string | undefined => {
@@ -815,17 +850,67 @@ export function collectFileFacts(repository: string, path: string, text: string,
         });
       }
     }
+    // A Go range clause declares the names it walks into: `for _, p := range batch` binds `p` in the
+    // loop's scope for the body that follows. A reader that proves which collection a row came from
+    // asks the clause and the collection by their exact expressions, so both are recorded, and the
+    // collection is read before the names enter scope (`for _, item := range item` walks the outer
+    // item). Only an exact grammar is a range selection; a damaged clause still shadows, and claims
+    // nothing.
+    if (language === 'go' && node.type === 'range_clause') {
+      const left = node.childForFieldName('left');
+      const right = node.childForFieldName('right');
+      const targets = left === null || left.type !== 'expression_list' ? [] : left.namedChildren.filter((entry): entry is SyntaxNodeLike => entry !== null);
+      const identifiers = targets.filter((target) => target.type === 'identifier' && target.text !== '_');
+      const written = new Set<string>();
+      for (let index = 0; index < node.childCount; index += 1) {
+        const child = node.child(index);
+        if (child === null || (child.type !== ':=' && child.type !== '=')) continue;
+        written.add(child.type);
+      }
+      const operator = written.size === 1 ? [...written][0] : undefined;
+      const complete = scopeKinds[scopeKinds.length - 1] === 'for_statement'
+        && !node.hasError && !node.isMissing && right !== null && !right.isMissing && !right.hasError
+        && left?.type === 'expression_list' && targets.length >= 1 && targets.length <= 2
+        && targets.every((target) => target.type === 'identifier' && !target.isMissing)
+        && identifiers.length > 0 && new Set(identifiers.map((target) => target.text)).size === identifiers.length;
+      if (right !== null) visit(right, id);
+      if (operator === ':=') {
+        targets.forEach((target, ordinal) => {
+          if (target.type !== 'identifier' || target.text === '_') return;
+          const nameSpan = spanOfNode(target);
+          const bindingId = `${BINDING_KIND}:${repository}:${path}@${String(nameSpan.byteStart)}:${String(nameSpan.byteEnd)}:binding`;
+          const fresh = !scopeBindings[scopeBindings.length - 1]!.has(target.text);
+          bindings.push({
+            id: bindingId,
+            name: target.text,
+            kind: 'local',
+            span: nameSpan,
+            scope: scopeSpans[scopeSpans.length - 1]!,
+            ...(complete && fresh && (ordinal === 0 || ordinal === 1)
+              ? { goRange: { clauseExpression: id, collectionExpression: idOfNode(right!), ordinal: (ordinal === 0 ? 0 : 1) as 0 | 1, role: ordinal === 0 ? 'key' as const : 'value' as const } }
+              : {}),
+          });
+          scopeBindings[scopeBindings.length - 1]!.set(target.text, bindingId);
+        });
+      }
+      // The clause's own names stand after the walk has bound them, so each identifier the clause
+      // writes names its binding as the driver's own facts do.
+      if (left !== null) visit(left, id);
+      return;
+    }
     // A node that opens a scope binds its own names for its body: the block, the
     // function, the class and the loop each stand as one scope here.
     const opensScope = ['block', 'statement_block', 'function_declaration', 'method_definition', 'arrow_function', 'class_declaration', 'for_statement', 'function', 'func_literal', 'method_declaration'].includes(node.type);
     if (opensScope) {
       scopeSpans.push(span);
+      scopeKinds.push(node.type);
       scopeBindings.push(new Map());
     }
     for (const child of node.namedChildren) if (child !== null) visit(child, id);
     if (DECLARATION_STATEMENTS.has(node.type)) declarationStarts.pop();
     if (opensScope) {
       scopeSpans.pop();
+      scopeKinds.pop();
       scopeBindings.pop();
     }
   };
@@ -855,6 +940,9 @@ interface SyntaxNodeLike {
   readonly childCount: number;
   readonly namedChildren: readonly (SyntaxNodeLike | null)[];
   readonly id: number;
+  /** Whether the node's subtree holds a parse error, and whether the node itself is missing. */
+  readonly hasError: boolean;
+  readonly isMissing: boolean;
   child(index: number): SyntaxNodeLike | null;
   childForFieldName(name: string): SyntaxNodeLike | null;
   fieldNameForChild(index: number): string | null;

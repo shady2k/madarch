@@ -128,6 +128,15 @@ export async function fileCodeViewOf(
     const initial = typeof binding['initializer'] === 'string' ? expressions.get(binding['initializer']) : undefined;
     if (initial?.syntaxKind === 'expression_list' && initial.children.length === 1) binding['initializer'] = initial.children[0]!;
   }
+  // A call's argument list is a field of the driver's own expression fact even when it holds no
+  // argument, and the code-facts walk writes none for an empty list. A reader that compares an
+  // expression's arguments with its call fact's answers no call for `Date.now()`, so the view says
+  // the empty list where the walk left it out: the same fact, in the shape both readers ask for.
+  for (const expression of expressions.values()) {
+    if (expression.arguments !== undefined) continue;
+    if (expression.syntaxKind !== 'call_expression' && expression.syntaxKind !== 'new_expression') continue;
+    (expression as unknown as {arguments?: readonly string[]}).arguments = [];
+  }
   const classNames = new Map<string, PublisherExpression>();
   /** A child expression of one node, where the walk kept the id under the grammar's field. */
   const childIn = (node: PublisherExpression, field: string): PublisherExpression | undefined => {
@@ -262,7 +271,13 @@ export async function fileCodeViewOf(
   // The declarations of the other files of one service, and their inheritance, so a call through an
   // interface declared here and implemented there reaches its implementation: the outbox chain
   // crosses relay.go and kafka.go.
-  for (const symbol of extra.symbols ?? []) callables.push({...symbol});
+  // The extra declarations are the same files' callables read again for the cross-file fan-out: one
+  // declaration is one symbol, and a reader that indexes symbols as tombstones (the deadline proof
+  // does) would drop the whole declaration as a duplicate of itself.
+  for (const symbol of extra.symbols ?? []) {
+    if (callables.some((held) => held.key === symbol.key)) continue;
+    callables.push({...symbol});
+  }
   const callableAt = (span: SourceSpan): SymbolRow | undefined => {
     const held = callables.filter((callable) => callable.span.byteStart <= span.byteStart && span.byteStart < callable.span.byteEnd && callable.bodySpan !== undefined && contains(callable.bodySpan, span));
     return held.sort((left, right) => (left.span.byteEnd - left.span.byteStart) - (right.span.byteEnd - right.span.byteStart))[0];
@@ -324,6 +339,25 @@ export async function fileCodeViewOf(
       typeExpression: String(row['typeExpression'] ?? ''),
     };
   });
+  // A Go composite literal of a struct type this file declares: the driver's facts name the type
+  // declaration the literal builds and the binding it is read through, and the outbox proof asks
+  // the row's field for the declaration its initializer stands on. The walk publishes no composite
+  // proof, so the view joins the literal, its declared type and the type's fields.
+  for (const expression of expressions.values()) {
+    if (expression.syntaxKind !== 'composite_literal' || expression.compositeType !== undefined) continue;
+    const type = childIn(expression, 'type');
+    if (type?.syntaxKind !== 'type_identifier' || type.name === undefined) continue;
+    const declared = typeBindings.get(type.name);
+    const owner = fields.find((held) => held.ownerTypeName === type.name);
+    if (declared === undefined || owner === undefined || owner.ownerDeclaration === '' || declared.typeNode?.syntaxKind !== 'struct_type') continue;
+    (expression as unknown as { compositeType?: unknown }).compositeType = {
+      shape: 'struct',
+      typeExpression: type.id,
+      declarationSpan: declared.node.span,
+      bindingId: declared.id,
+      declarationExpression: declared.node.id,
+    };
+  }
   const implementsOf = new Map<string, string[]>();
   for (const edge of extra.implements ?? []) implementsOf.set(edge.from, [...(implementsOf.get(edge.from) ?? []), edge.to]);
   for (const edge of inheritEdges.rows) {
@@ -341,17 +375,21 @@ export async function fileCodeViewOf(
     if (siteSpan === undefined) continue;
     const targets: {to: string; fanOut: readonly string[]}[] = [];
     if (callee.syntaxKind === 'identifier' && callee.name !== undefined) {
-      const declared = callables.filter((symbol) => symbol.name === callee.name && symbol.bodySpan !== undefined);
-      if (declared.length === 1) targets.push({to: declared[0]!.key, fanOut: []});
-      // A construction names its class, which is no declaration of a callable but a record the
-      // publisher proof's wiring asks for.
       const constructed = classNames.get(callee.name);
       const classSymbol = constructed === undefined ? undefined : callables.find((symbol) => !symbol.callable && symbol.qualifiedName === callee.name);
-      if (classSymbol !== undefined) targets.push({to: classSymbol.key, fanOut: []});
-      // A construction is also the constructor declaration it runs; a deadline's wiring is proved
-      // by the construction's arguments, and the driver names that declaration.
+      // A construction names the constructor it runs, and only that one: the driver's own resolver
+      // answers `new PaymentsClient(…)` with one call site at the class name, to the constructor,
+      // and the class itself as a reference. Two call targets make the mention ambiguous and the
+      // deadline's wiring unprovable.
       const constructor = constructed === undefined ? undefined : callables.find((symbol) => symbol.callable && symbol.qualifiedName === `${callee.name}.constructor`);
-      if (constructor !== undefined) targets.push({to: constructor.key, fanOut: []});
+      if (call.construct && (constructor !== undefined || classSymbol !== undefined)) {
+        targets.push({to: (constructor ?? classSymbol)!.key, fanOut: []});
+      } else {
+        const declared = callables.filter((symbol) => symbol.name === callee.name && symbol.bodySpan !== undefined);
+        if (declared.length === 1) targets.push({to: declared[0]!.key, fanOut: []});
+        if (classSymbol !== undefined) targets.push({to: classSymbol.key, fanOut: []});
+        if (constructor !== undefined) targets.push({to: constructor.key, fanOut: []});
+      }
     } else if ((callee.syntaxKind === 'member_expression' || callee.syntaxKind === 'selector_expression') && callee.member !== undefined && callee.receiver !== undefined) {
       const receiver = expressions.get(callee.receiver);
       const owner = typeNameOfReceiver(receiver, callee.span);
@@ -394,6 +432,7 @@ export async function fileCodeViewOf(
       specifier: String(row['specifier']),
       imported: row['form'] === 'named' ? {form: 'named' as const, name: String(row['importedName'] ?? row['name'])} : row['form'] === 'default' ? {form: 'default' as const} : {form: 'namespace' as const},
       ...(typeof row['targetPath'] === 'string' ? {targetPath: row['targetPath']} : {}),
+      ...(typeof row['targetFolder'] === 'string' ? {targetFolder: row['targetFolder']} : {}),
     })),
     sites: [...callSites, ...referenceSites],
     fields,

@@ -803,6 +803,8 @@ interface PublisherImport {
     | {readonly form: 'default'}
     | {readonly form: 'namespace'};
   readonly targetPath?: string;
+  /** The package folder a Go import names, from the module path its `go.mod` declares. */
+  readonly targetFolder?: string;
   readonly targetExpression?: string;
   readonly targetChain?: readonly string[];
   readonly typeOnly?: boolean;
