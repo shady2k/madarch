@@ -118,12 +118,12 @@ async function nodesByProperty(tx: OuterTransaction, lens: ResolvedLens, where: 
  * own vocabulary gives the node). A bounded page, never a whole table.
  */
 export function readByKey(tx: OuterTransaction, key: string, lens: ResolvedLens, options?: PageOptions): Promise<Page<NodeVersionRow>> {
-  return nodesByProperty(tx, lens, "v.properties->>'recordKey' = $6", [key], options, 'read by key');
+  return nodesByProperty(tx, lens, "v.properties @> jsonb_build_object('recordKey', $6::text)", [key], options, 'read by key');
 }
 
 /** The nodes of one kind whose current version carries `value` in the property `field`: a bounded page. */
 export function readByProperty(tx: OuterTransaction, kind: string, field: string, value: string, lens: ResolvedLens, options?: PageOptions): Promise<Page<NodeVersionRow>> {
-  return nodesByProperty(tx, lens, 'k.key = $6 AND v.properties->>$7 = $8', [kind, field, value], options, 'read by property');
+  return nodesByProperty(tx, lens, 'k.key = $6 AND v.properties @> jsonb_build_object($7::text, $8::text)', [kind, field, value], options, 'read by property');
 }
 
 /**
@@ -213,7 +213,7 @@ export function readCallees(tx: OuterTransaction, node: GraphId, lens: ResolvedL
  * names, without walking the containment of a tree another stage draws.
  */
 export function readEdgesByProperty(tx: OuterTransaction, relation: string, field: string, value: string, lens: ResolvedLens, options?: PageOptions): Promise<Page<EdgeEntry>> {
-  return seenEdges(tx, lens, { where: 'r.key = $6 AND e.properties->>$7 = $8', params: [relation, field, value] }, options, 'read edges by property');
+  return seenEdges(tx, lens, { where: 'r.key = $6 AND e.properties @> jsonb_build_object($7::text, $8::text)', params: [relation, field, value] }, options, 'read edges by property');
 }
 
 /**

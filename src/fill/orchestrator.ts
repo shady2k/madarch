@@ -2631,9 +2631,6 @@ export async function driveRun(
     passes += 1;
     const pass = await schedulerPass(orchestrator, { runId: run.runId });
     run = pass.run;
-    // Every pass records what it cost and what the run held: a pass whose time grows with the run rather
-    // than with the work due in it is visible in the log beside the store and in the MCP's own progress.
-    await emit(orchestrator, { runId: run.runId, at: orchestrator.clock(), stage: '', unitId: '', generation: null, kind: 'pass-timing', summary: JSON.stringify({ pass: passes, units: pass.units, ms: Math.round(pass.ms), phases: pass.phases }) });
     reused.push(...pass.reused);
     foundNothing.push(...pass.foundNothing);
     // The re-planning's run-level refusals ride out to the caller (madarch-tzte.26.3):
@@ -2642,6 +2639,7 @@ export async function driveRun(
     for (const refusal of pass.refused) {
       if (refusal.unitId === '' && !refused.some((held) => held.code === refusal.code && held.reason === refusal.reason)) refused.push({ code: refusal.code, reason: refusal.reason });
     }
+    const workStarted = performance.now();
     let claimedThisPass = 0;
     for (let worker = 0; worker < workers; worker += 1) {
       const outcome = await workOnce(orchestrator, { worker: `worker-${worker + 1}` });
@@ -2649,8 +2647,15 @@ export async function driveRun(
       claimedThisPass += 1;
       work += 1;
     }
+    const workMs = performance.now() - workStarted;
+    // Every pass records what it cost and what the run held: a pass whose time grows with the run rather
+    // than with the work due in it is visible in the log beside the store and in the MCP's own progress.
+    await emit(orchestrator, { runId: run.runId, at: orchestrator.clock(), stage: '', unitId: '', generation: null, kind: 'pass-timing', summary: JSON.stringify({ pass: passes, units: pass.units, ms: Math.round(pass.ms), admitted: pass.admitted, claimed: claimedThisPass, workMs: Math.round(workMs), phases: pass.phases }) });
     if ((TERMINAL_RUN_STATES as readonly string[]).includes(run.state)) return { run, passes, work, settled: true, reused, foundNothing, refused };
     if (claimedThisPass === 0 && !pass.moved) {
+      // A pass that moved nothing while the run still owes work is a run held by a state its own claims cannot
+      // reach: name the counts the loop waited on, so the 5 s wait that follows is not a silence.
+      await emit(orchestrator, { runId: run.runId, at: orchestrator.clock(), stage: '', unitId: '', generation: null, kind: 'run-waiting', summary: JSON.stringify({ pass: passes, units: pass.units, admitted: pass.admitted, swept: pass.swept, stale: pass.stale, settlement: pass.settlement.outcome, evidence: pass.settlement.evidence }) });
       return { run, passes, work, settled: false, stoppedBecause: 'a pass and its claims together changed nothing', reused, foundNothing, refused };
     }
   }

@@ -152,9 +152,14 @@ const SCHEMA: readonly string[] = [
   `CREATE INDEX IF NOT EXISTS node_version_claim ON node_version (claim_digest) WHERE claim_digest IS NOT NULL`,
   // The wiki finds an entity by its logical key (the extract driver's \`recordKey\` property) on every page it draws.
   `CREATE INDEX IF NOT EXISTS node_version_record_key ON node_version ((properties->>'recordKey')) WHERE recorded_to = 'infinity'`,
+  // The static stages ask the graph by a property on every read, and every publication rechecks its reads:
+  // a text extraction over the whole table grows with the graph (measured 25 ms at 42 011 nodes, 0.16 ms with
+  // this index). The containment form reads the same values and the index answers it.
+  'CREATE INDEX IF NOT EXISTS node_version_properties ON node_version USING gin (properties jsonb_path_ops)',
   `CREATE INDEX IF NOT EXISTS edge_version_current_src ON edge_version (src_id, relation_type_id) WHERE recorded_to = 'infinity'`,
   `CREATE INDEX IF NOT EXISTS edge_version_current_dst ON edge_version (dst_id, relation_type_id) WHERE recorded_to = 'infinity'`,
   `CREATE INDEX IF NOT EXISTS edge_version_current_edge ON edge_version (edge_id) WHERE recorded_to = 'infinity'`,
+  'CREATE INDEX IF NOT EXISTS edge_version_properties ON edge_version USING gin (properties jsonb_path_ops)',
   // Historical reads: a GiST index over the two time ranges and the states.
   `CREATE INDEX IF NOT EXISTS node_version_history ON node_version USING gist (node_id, tstzrange(valid_from, valid_to), tstzrange(recorded_from, recorded_to), states)`,
   `CREATE INDEX IF NOT EXISTS edge_version_history_src ON edge_version USING gist (src_id, tstzrange(valid_from, valid_to), tstzrange(recorded_from, recorded_to), states)`,

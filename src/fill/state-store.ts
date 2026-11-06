@@ -143,6 +143,9 @@ const SCHEMA: readonly string[] = [
     at bigint NOT NULL
   )`,
   'CREATE INDEX IF NOT EXISTS fill_transition_subject ON fill_transition (subject_kind, subject_id)',
+  // Every pass reads a run's units several times, and admission counts them under the run's lock: without this
+  // index each read scans every generation the store holds, which grows with every run a product ever planned.
+  'CREATE INDEX IF NOT EXISTS fill_unit_generation_run ON fill_unit_generation (run_id)',
 ];
 
 /** Creates the store's tables and indexes; safe to run on every start of the process's owner. */
