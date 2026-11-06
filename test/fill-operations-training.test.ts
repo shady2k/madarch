@@ -52,21 +52,19 @@ const PRODUCT = 'training-shop';
  */
 const STAGE_PRODUCERS: readonly string[] = ['fill.operations', 'fill.operations-links'];
 
-/**
- * The one record two readings once both published: the AsyncAPI channel. The merge gives the
- * contracts reading its ownership (the driver's own `OWNERS` names it), so the operations
- * comparison reads the channel node and the `code.contains` edge that reaches it from the stage
- * that publishes it now, never from a second copy.
- */
-const CHANNEL_PRODUCER = 'fill.contracts';
 
 /**
  * The families the stage does not publish yet, by the kind or relation the
  * driver emits: the port takes them off this list as each lands, and the list
  * only shrinks.
  */
-/** The families the stage does not publish yet: none. The list stays so a family that has to wait is named here. */
-const REMAINING: readonly string[] = [];
+/**
+ * The families the stage does not publish yet. The AsyncAPI channel is no longer one of this
+ * reading's records: the merge gives the contracts reading its ownership (the driver's own
+ * `OWNERS` names it), so this comparison names the kind and the containment edges into it, and
+ * the contracts comparison covers them.
+ */
+const REMAINING: readonly string[] = ['code.channel'];
 
 /** One record, reduced to the shape both readings are compared in. */
 interface ComparedRecord {
@@ -247,7 +245,7 @@ async function comparePublished(): Promise<Compared> {
   for (const node of driver?.edges ?? []) kinds.add(node.kind);
   for (const kind of [...kinds].sort()) {
     if (REMAINING.includes(kind)) continue;
-    for (const row of await nodesOfKind(kind)) if (STAGE_PRODUCERS.includes(row.producer) || (row.kind === 'code.channel' && row.producer === CHANNEL_PRODUCER)) rows.push(row);
+    for (const row of await nodesOfKind(kind)) if (STAGE_PRODUCERS.includes(row.producer)) rows.push(row);
   }
   const nodes = rows.map((row) => {
     const held = propertiesOf(row);
@@ -259,8 +257,7 @@ async function comparePublished(): Promise<Compared> {
     for (const entry of await edgesOfRelation(relation)) {
       // Only this comparison's own producers: another reading's record of one relation (an entry
       // point's `code.starts`, say) is not the operations reading's answer.
-      const channelContainment = relation === 'code.contains' && entry.dst.kind === 'code.channel' && entry.edge.producer === CHANNEL_PRODUCER;
-      if (!STAGE_PRODUCERS.includes(entry.edge.producer) && !channelContainment) continue;
+      if (!STAGE_PRODUCERS.includes(entry.edge.producer)) continue;
       const held = propertiesOf(entry.edge);
       if (held['factKind'] !== relation.slice('code.'.length)) continue;
       const from = recordKeyOf(entry.src);
@@ -370,7 +367,14 @@ beforeAll(async () => {
     throw new Error(`the first fill left ${String(failed.length)} unit(s) failed, in state ${run.state}:\n${said.join('\n')}`);
   }
   if (run.state !== 'succeeded') {
-    throw new Error(`the first fill did not succeed: state ${run.state}, settled ${String(run.settled)}, stopped ${String(run.stoppedBecause)}, work ${String(run.work)}, passes ${String(run.passes)}`);
+    const { readProgress } = await import('../src/fill/orchestrator-store.js');
+    const events = await readProgress(owner, 'training-one', {});
+    const states = new Map<string, number>();
+    for (const unit of run.units) states.set(unit.state, (states.get(unit.state) ?? 0) + 1);
+    const busiest = [...run.units].sort((left, right) => right.attempts - left.attempts || right.generation - left.generation).slice(0, 8)
+      .map((unit) => `${unit.unitId} (${unit.stageId}, ${unit.state}, g${String(unit.generation)}, a${String(unit.attempts)})`);
+    const recent = events.slice(-12).map((event) => `${event.kind}:${event.unitId}:${event.summary.slice(0, 120)}`);
+    throw new Error(`the first fill did not succeed: state ${run.state}, settled ${String(run.settled)}, stopped ${String(run.stoppedBecause)}, work ${String(run.work)}, passes ${String(run.passes)}; units ${JSON.stringify([...states])}; busiest ${busiest.join(' | ')}; events ${recent.join(' | ')}`);
   }
   // The driver's own reading of the same tree, at the same commit.
   const paths = committedFiles(repository);
