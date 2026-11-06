@@ -701,7 +701,7 @@ async function executeDataModelUnit(unit: StageUnit, context: StageContext): Pro
     scope: planned.path,
     complete: gaps.length === 0,
     read: read.ok ? [planned.path] : [],
-    unread: gaps,
+    unread: orderedGaps(gaps),
   };
   writeCoverage(context, source, planned.path, coverage, entry.id, contributions);
   context.progress(
@@ -725,6 +725,15 @@ async function readFileRecords(sink: Sink, stage: StaticStageContext, path: stri
   if (driverLanguageOf(path) !== null) {
     await codeRecords(sink, stage, path, text, bytes, gaps, contributions);
   }
+}
+
+/**
+ * A coverage's gaps as the fact's own check reads them: code point order of what each names, and
+ * each `what` once. The stage collects a gap where it meets one, so two records can name the same
+ * place; the fact holds one record per place.
+ */
+function orderedGaps(gaps: readonly CoverageGap[]): readonly CoverageGap[] {
+  return [...new Map(gaps.map((gap) => [gap.what, gap])).values()].sort((left, right) => byCodePoint(left.what, right.what));
 }
 
 /** One file's coverage: what was read, every place it could not read, the blob its bytes stood under and the databases it contributed to. */
@@ -1490,6 +1499,9 @@ export function createDataModelAggregateStage(sources: SnapshotSource): FillStag
       required: [
         { capability: 'migration', scope: 'repository', freshness: 'current' },
         { capability: 'storage-evidence', scope: 'repository', freshness: 'current' },
+        // The service that uses a database is the one operations-links publishes, so this stage
+        // stands after it: a database names `code.service:<name>` as its use edge's source.
+        { capability: 'service', scope: 'repository', freshness: 'current' },
       ],
       optional: [
         { capability: 'column', scope: 'repository', freshness: 'current' },
@@ -1744,19 +1756,11 @@ async function executeDatabaseUnit(unit: StageUnit, context: StageContext): Prom
       }
     }
   }
-  // The service that uses the database: the unit's own per-file record, the code-facts stage's
-  // `code.service-unit` node, read by the name the unit carries (one bounded read, recorded). The
-  // data model publishes no service of its own: the operations reading owns `code.service`, and a
-  // second node for one declaration is what madarch-m38l.16 closed (a second node for one service).
-  const services = (await allByProperty(stage, 'code.service-unit', 'name', name))
-    .map((node) => String(node.properties['recordKey'] ?? node.id))
-    .filter((key) => key !== '')
-    .sort(byCodePoint);
-  const service = services[0];
-  if (service === undefined) {
-    gaps.push({ what: `${name}: the service that uses this database is not published, so no use of it is named`, reason: 'unsupported' });
-  }
-  if (service !== undefined) writeEdge(sink, 'code.uses-database', 'uses-database', service, database, {
+  // The service that uses the database: the operations-links stage publishes one node per unit,
+  // `code.service:<name>`, and this stage's dependency on the `service` kind makes it stand before
+  // this unit runs. The driver names the same key, so the edge's source is that key directly.
+  const service = `code.service:${name}`;
+  writeEdge(sink, 'code.uses-database', 'uses-database', service, database, {
     via: readings.length > 0 ? 'schema' : evidence[0]?.kind ?? 'schema',
     origins: [
       ...evidence.map((entry) => ({
@@ -1786,7 +1790,7 @@ async function executeDatabaseUnit(unit: StageUnit, context: StageContext): Prom
 
 /** One database's coverage: the digest of the inputs it was assembled from, so a plan reads whether they moved. */
 function writeDatabaseCoverage(context: StageContext, source: StaticStageSource, repository: string, name: string, path: string, digest: string, gaps: CoverageGap[]): void {
-  const coverage: CoverageValue = { repository, scope: name, complete: gaps.length === 0, read: [], unread: gaps };
+  const coverage: CoverageValue = { repository, scope: name, complete: gaps.length === 0, read: [], unread: orderedGaps(gaps) };
   const fact = makeNodeFact({ kind: 'coverage', layer: 'extracted', provenance: { source: AGGREGATE_SOURCE, repository: { id: repository, commit: source.commit } }, value: coverage });
   for (const write of graphWritesOf(fact, evidenceAtPlace({ repository, commit: source.commit }, path === '.' ? undefined : path))) {
     context.draft.write(write.kind === 'node' ? { ...write, value: { ...write.value, properties: { ...write.value.properties, digest } } } : write);

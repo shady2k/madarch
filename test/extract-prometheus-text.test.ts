@@ -1,5 +1,5 @@
 import { describe, expect, test } from 'bun:test';
-import { parsePrometheusText } from '../src/extract/operations/prometheus-text.js';
+import { parsePrometheusText } from '../src/extract/library-models/prometheus-text.js';
 
 describe('Prometheus exposition literal grammar', () => {
   test('metadata, escaped labels, timestamps and numeric grammar retain literal positions', () => {

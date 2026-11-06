@@ -81,7 +81,8 @@ import {
 } from '../stage.js';
 import { evidenceAtPlace, refuseRow, rowRecord, unknownKeys } from './draft.js';
 import { rolesFor } from './inventory.js';
-import { readSyntaxTree, spanFactory, type SyntaxLanguage } from './syntax-extract.js';
+import { readFileFindings, readSyntaxTree, spanFactory, syntaxLanguageOf, type ExtractedFileSyntax, type SyntaxLanguage } from './syntax-extract.js';
+import { fileSymbolsOf } from './code-symbols.js';
 import { listeningPortsOfTree } from './listening-ports.js';
 import { folderOf, manifestChainOf, serviceMembershipOf, type ManifestEntry, type ManifestLookup, type ServiceMembership, type ServiceMembershipRead } from './service-membership.js';
 import type { StaticStageContext, StaticStageSource } from './static-context.js';
@@ -97,7 +98,7 @@ export const CODE_FACTS_STAGE_ID = 'code-facts';
 const CODE_FACTS_STAGE_VERSION = 2;
 
 /** The fact kinds the stage produces, in code point order. */
-const CODE_FACTS_STAGE_KINDS: readonly string[] = ['binding', 'callsite', 'coverage', 'declares', 'export', 'expression', 'field', 'listener-port', 'service-unit'];
+const CODE_FACTS_STAGE_KINDS: readonly string[] = ['binding', 'callable', 'callsite', 'coverage', 'declares', 'export', 'expression', 'field', 'listener-port', 'service-unit'];
 
 /** The node kinds the stage writes, in the extractors' vocabulary (decision 0033, item 7). */
 const EXPRESSION_KIND = 'code.expression';
@@ -158,6 +159,7 @@ export function createCodeFactsStage(sources: SnapshotSource): FillStage {
     consumes: { required: [{ capability: 'file', scope: 'repository', freshness: 'current' }], optional: [] },
     produces: [
       { kind: 'binding', schemaVersion: 1, scope: 'file' },
+      { kind: 'callable', schemaVersion: 1, scope: 'file' },
       { kind: 'callsite', schemaVersion: 1, scope: 'file' },
       { kind: 'declares', schemaVersion: 1, scope: 'file' },
       { kind: 'coverage', schemaVersion: FACT_KINDS['coverage'].version, scope: 'file' },
@@ -286,6 +288,8 @@ interface BindingFact {
   readonly importedName?: string;
   /** The file of this repository the specifier answers, where one does. */
   readonly targetPath?: string;
+  /** The declaration a binding is made in, from its statement's first byte to its initializer's last. */
+  readonly declarationSpan?: SourceSpan;
 }
 
 /** One call site: the invocation and the callee and arguments it names. */
@@ -293,6 +297,8 @@ interface CallFact {
   readonly id: string;
   readonly expression: string;
   readonly span: SourceSpan;
+  /** The invocation's own prefix: from the call's first byte to the argument list's opening bracket. */
+  readonly invocationSpan?: SourceSpan;
   readonly callee?: string;
   readonly arguments: readonly string[];
   readonly construct: boolean;
@@ -315,6 +321,17 @@ interface ExportFact {
   readonly localBinding?: string;
 }
 
+/** The body one declaration node holds, by the node's own byte span: where the code of a callable begins and what it is. */
+interface BodyFact {
+  readonly startByte: number;
+  readonly endByte: number;
+  readonly bodyStartByte: number;
+  readonly bodyEndByte: number;
+  readonly bodyStartLine: number;
+  readonly bodyEndLine: number;
+  readonly bodySyntaxKind: string;
+}
+
 /** Everything one file's walk read. */
 interface FileFacts {
   readonly expressions: readonly ExpressionFact[];
@@ -322,6 +339,8 @@ interface FileFacts {
   readonly calls: readonly CallFact[];
   readonly fields: readonly FieldFact[];
   readonly exports: readonly ExportFact[];
+  /** The body of every node that holds one, by the node's own span: what a callable's body stands over. */
+  readonly bodies: readonly BodyFact[];
 }
 
 /** The node types whose text is the name a reader sees, by the grammar's own spelling. */
@@ -335,11 +354,22 @@ const LITERAL_KINDS: ReadonlyMap<string, LiteralFact['kind']> = new Map([
   ['template_string', 'string'], ['true', 'boolean'], ['undefined', 'null'],
 ]);
 
+/** The statements that hold a declaration of a name: where a binding's declaration stands. */
+const DECLARATION_STATEMENTS: ReadonlySet<string> = new Set([
+  'const_declaration', 'lexical_declaration', 'var_declaration', 'variable_declaration',
+]);
+
 /** The node types that declare a name in TypeScript and JavaScript. */
 const TS_BINDING_DECLARATIONS: ReadonlySet<string> = new Set(['variable_declarator']);
 
 /** The node types that declare a name in Go. */
 const GO_BINDING_DECLARATIONS: ReadonlySet<string> = new Set(['const_spec', 'short_var_declaration', 'var_spec']);
+
+/** The grammar's callable nodes, by both spellings: the nodes whose `body` field is a callable's body. */
+const CALLABLE_NODES: ReadonlySet<string> = new Set([
+  'arrow_function', 'func_literal', 'function', 'function_declaration', 'function_expression', 'generator_function',
+  'generator_function_declaration', 'method_declaration', 'method_definition',
+]);
 
 /** The node types that declare a parameter, by both grammars' spellings. */
 const PARAMETER_KINDS: ReadonlySet<string> = new Set(['optional_parameter', 'parameter_declaration', 'required_parameter', 'variadic_parameter_declaration']);
@@ -372,17 +402,23 @@ async function executeCodeFactsUnit(unit: StageUnit, context: StageContext): Pro
   refuseWhenCancelled(unit, context);
   const bytes = file.content!;
   const gaps: CoverageGap[] = [];
-  let facts: FileFacts = { expressions: [], bindings: [], calls: [], fields: [], exports: [] };
+  let facts: FileFacts = { expressions: [], bindings: [], calls: [], fields: [], bodies: [], exports: [] };
   let ports: readonly string[] = [];
+  let findings: ExtractedFileSyntax | undefined;
+  let callables: readonly CallableFact[] = [];
   let parsed = false;
   try {
     const read = await readSyntaxTree(planned.path, bytes, (tree) => {
       const held = collectFileFacts(planned.repository, planned.path, tree.text, tree.root, tree.language);
+      // The syntax pass's own findings give the file's declarations and the callables it proves
+      // by span; the symbols the extract readings name are made from them by the driver's own
+      // reader, so a static stage and the driver name one declaration by one key.
+      const findings = readFileFindings(tree);
       try {
-        return { facts: held, ports: listeningPortsOfTree(planned.path, tree.root, tree.language) };
+        return { facts: held, ports: listeningPortsOfTree(planned.path, tree.root, tree.language), findings };
       } catch (error) {
         // A ports reading that fails costs the file's ports and not its facts: the gap names the file.
-        return { facts: held, ports: [] as readonly string[], portsGap: gapWhatOf(error, planned.path) };
+        return { facts: held, ports: [] as readonly string[], portsGap: gapWhatOf(error, planned.path), findings };
       }
     });
     if (!read.read) {
@@ -390,6 +426,7 @@ async function executeCodeFactsUnit(unit: StageUnit, context: StageContext): Pro
     } else {
       facts = read.value.facts;
       ports = read.value.ports;
+      findings = read.value.findings;
       parsed = true;
       if ('portsGap' in read.value && read.value.portsGap !== undefined) gaps.push({ what: read.value.portsGap, reason: 'error' });
       if (read.complete === false) gaps.push({ what: `${planned.path} is read with syntax errors`, reason: 'error' });
@@ -406,6 +443,13 @@ async function executeCodeFactsUnit(unit: StageUnit, context: StageContext): Pro
     gaps.push({ what: gapWhatOf(error, planned.path), reason: 'error' });
   }
   for (const gap of membership.gaps) gaps.push({ what: gap, reason: 'unsupported' });
+  if (findings !== undefined) {
+    try {
+      callables = await callablesOfFile(planned.path, bytes, findings, facts.bodies);
+    } catch (error) {
+      gaps.push({ what: gapWhatOf(error, planned.path), reason: 'error' });
+    }
+  }
   // An import's specifier is tied to the file it answers through a path-scoped lookup of the
   // pinned tree, one candidate at a time: no list of the repository's files is read for it.
   if (facts.bindings.some((binding) => binding.kind === 'import' && binding.targetPath === undefined)) {
@@ -429,7 +473,7 @@ async function executeCodeFactsUnit(unit: StageUnit, context: StageContext): Pro
   const evidence = evidenceAtPlace(source, planned.path);
   const fileKey = fileFactIdOf(planned.repository, planned.path);
   for (const write of factWrites({
-    repository: planned.repository, path: planned.path, commit: source.commit, fileKey, facts, evidence,
+    repository: planned.repository, path: planned.path, commit: source.commit, fileKey, facts, evidence, callables,
     ports, ...(membership.unit === undefined ? {} : { membership: membership.unit }),
   })) {
     context.draft.write(write);
@@ -447,6 +491,67 @@ async function executeCodeFactsUnit(unit: StageUnit, context: StageContext): Pro
     1,
   );
   return { outcome: 'draft' };
+}
+
+
+/** The node kind of a callable site: one node per callable a file declares or writes as an argument. */
+const CALLABLE_KIND = 'code.callable';
+
+/** One callable a file declares: what the extract readings call it, where it stands and where its body is. */
+interface CallableFact {
+  /** The key the extract readings name this callable by (`code.symbol:<path>#<qualified name>`). */
+  readonly key: string;
+  readonly name: string;
+  readonly qualifiedName: string;
+  readonly symbolKind: string;
+  readonly callable: true;
+  readonly span: SourceSpan;
+  readonly bodySpan?: SourceSpan;
+  readonly bodySyntaxKind?: string;
+}
+
+/**
+ * The callables one file declares, named as the extract readings name them: the
+ * driver's own symbol reader (`fileSymbolsOf`) over the syntax pass's findings,
+ * with each callable's body matched from the walk by the node's own span. A
+ * callable written as an argument — a route handler, a store callback — is named
+ * by the callable it stands in and the place it starts at, which is the key the
+ * extract driver gives it.
+ */
+export async function callablesOfFile(path: string, bytes: Uint8Array, findings: ExtractedFileSyntax, bodies: readonly BodyFact[]): Promise<readonly CallableFact[]> {
+  const language = syntaxLanguageOf(path);
+  if (language === undefined) return [];
+  const held = fileSymbolsOf({ path, bytes, language: language === 'go' ? 'go' : 'typescript' }, findings);
+  // The driver matches a callable node to the symbol that owns it by the nearest start of a
+  // symbol that starts before the node and ends where it ends (`bodies.ts`): a symbol's body
+  // is the innermost callable node it owns.
+  const bodiesByEnd = new Map<number, readonly BodyFact[]>();
+  for (const body of bodies) bodiesByEnd.set(body.endByte, [...(bodiesByEnd.get(body.endByte) ?? []), body]);
+  const callables: CallableFact[] = [];
+  for (const symbol of held.symbols) {
+    if (!symbol.functionLike || symbol.local) continue;
+    const candidates = (bodiesByEnd.get(symbol.span.endByte) ?? []).filter((body) => body.startByte >= symbol.span.startByte);
+    const nearest = Math.min(...candidates.map((body) => body.startByte), Number.POSITIVE_INFINITY);
+    const body = candidates.filter((candidate) => candidate.startByte === nearest)[0];
+    callables.push({
+      key: `code.symbol:${path}#${symbol.qualifiedName}`,
+      name: symbol.name,
+      qualifiedName: symbol.qualifiedName,
+      symbolKind: symbol.symbolKind,
+      callable: true,
+      span: spanOf(path, symbol.span.startByte, symbol.span.endByte, symbol.span.startLine, symbol.span.endLine),
+      ...(body === undefined ? {} : {
+        bodySpan: spanOf(path, body.bodyStartByte, body.bodyEndByte, body.bodyStartLine, body.bodyEndLine),
+        bodySyntaxKind: body.bodySyntaxKind,
+      }),
+    });
+  }
+  return callables.sort((left, right) => byCodePoint(left.key, right.key));
+}
+
+/** One syntax span as the graph's own span. */
+function spanOf(path: string, byteStart: number, byteEnd: number, lineStart: number, lineEnd: number): SourceSpan {
+  return { path, byteStart, byteEnd, lineStart, lineEnd };
 }
 
 /** What one unreadable file says in its coverage: the reader's own words, or the path and the failure where it named none. */
@@ -565,10 +670,23 @@ export function collectFileFacts(repository: string, path: string, text: string,
     return found.map((entry) => ({ ...entry, ...(initializer === undefined ? {} : { initializer }) }));
   };
 
+  const bodies: BodyFact[] = [];
+  /** The declaration statements the walk stands inside, innermost last: where a binding's declaration starts. */
+  const declarationStarts: SourceSpan[] = [];
   const visit = (node: SyntaxNodeLike, parentId: string | undefined): void => {
     if (!node.isNamed) return;
     if (node.type === 'comment') return;
     const span = spanOfNode(node);
+    let invocationSpan: SourceSpan | undefined;
+    if (DECLARATION_STATEMENTS.has(node.type)) declarationStarts.push(span);
+    const bodyNode = CALLABLE_NODES.has(node.type) ? node.childForFieldName('body') : null;
+    if (bodyNode !== null) {
+      const bodySpan = spanOfNode(bodyNode);
+      bodies.push({
+        startByte: span.byteStart, endByte: span.byteEnd, bodyStartByte: bodySpan.byteStart, bodyEndByte: bodySpan.byteEnd,
+        bodyStartLine: bodySpan.lineStart, bodyEndLine: bodySpan.lineEnd, bodySyntaxKind: bodyNode.type,
+      });
+    }
     const id = idOf(node.type, span);
     const children: string[] = [];
     // A grammar's field names are words a file writes (`constructor` is the field of a
@@ -586,7 +704,17 @@ export function collectFileFacts(repository: string, path: string, text: string,
       if (fieldName !== null && fieldName !== '') (fieldLinks[fieldName] ??= []).push(childId);
       if (node.type === 'call_expression' || node.type === 'new_expression') {
         const args = node.childForFieldName('arguments') ?? node.childForFieldName('arguments_list');
-        if (args !== null && args.id === child.id) argumentNodes.push(...args.namedChildren.filter((entry): entry is SyntaxNodeLike => entry !== null));
+        if (args !== null && args.id === child.id) {
+          argumentNodes.push(...args.namedChildren.filter((entry): entry is SyntaxNodeLike => entry !== null));
+          // The invocation's prefix ends at the opening bracket, which the grammar names as a child.
+          for (let inner = 0; inner < args.childCount; inner += 1) {
+            const bracket = args.child(inner);
+            if (bracket === null || bracket.type !== '(') continue;
+            const bracketSpan = spanOfNode(bracket);
+            invocationSpan = { path, byteStart: span.byteStart, byteEnd: bracketSpan.byteEnd, lineStart: span.lineStart, lineEnd: bracketSpan.lineEnd };
+            break;
+          }
+        }
       }
     }
     const operatorNode = operatorOf(node);
@@ -620,6 +748,8 @@ export function collectFileFacts(repository: string, path: string, text: string,
         // `variable_declarator` whatever `const`/`let`/`var` its parent says.
         const kind: BindingFact['kind'] = PARAMETER_KINDS.has(node.type) ? 'parameter' : constantDeclaration(node) ? 'local' : 'local';
         const bindingId = `${BINDING_KIND}:${repository}:${path}@${String(spanOfNode(entry.node).byteStart)}:${String(spanOfNode(entry.node).byteEnd)}:binding`;
+        const initializer = entry.initializer === undefined ? undefined : spanOfNode(entry.initializer);
+        const start = declarationStarts[declarationStarts.length - 1] ?? spanOfNode(entry.node);
         bindings.push({
           id: bindingId,
           name: entry.name,
@@ -627,6 +757,9 @@ export function collectFileFacts(repository: string, path: string, text: string,
           span: spanOfNode(entry.node),
           scope: scopeSpans[scopeSpans.length - 1]!,
           ...(entry.initializer === undefined ? {} : { initializer: idOfNode(entry.initializer) }),
+          ...(initializer === undefined ? {} : {
+            declarationSpan: { path, byteStart: start.byteStart, byteEnd: initializer.byteEnd, lineStart: start.lineStart, lineEnd: initializer.lineEnd },
+          }),
         });
         scopeBindings[scopeBindings.length - 1]!.set(entry.name, bindingId);
       }
@@ -663,6 +796,7 @@ export function collectFileFacts(repository: string, path: string, text: string,
         id: `${CALL_KIND}:${repository}:${path}@${String(span.byteStart)}:${String(span.byteEnd)}`,
         expression: id,
         span,
+        ...(invocationSpan === undefined ? {} : { invocationSpan }),
         ...(callee === null || callee === undefined ? {} : { callee: idOfNode(callee) }),
         arguments: [...new Set(argumentNodes.map((entry) => idOfNode(entry)))],
         construct: node.type === 'new_expression',
@@ -689,6 +823,7 @@ export function collectFileFacts(repository: string, path: string, text: string,
       scopeBindings.push(new Map());
     }
     for (const child of node.namedChildren) if (child !== null) visit(child, id);
+    if (DECLARATION_STATEMENTS.has(node.type)) declarationStarts.pop();
     if (opensScope) {
       scopeSpans.pop();
       scopeBindings.pop();
@@ -707,6 +842,7 @@ export function collectFileFacts(repository: string, path: string, text: string,
     bindings,
     calls,
     fields,
+    bodies,
     exports: [...new Map(exports.map((entry) => [`${entry.name}\u0000${String(entry.span.byteStart)}`, entry])).values()].sort((left, right) => byCodePoint(left.id, right.id)),
   };
 }
@@ -772,11 +908,11 @@ function importDeclarationsOf(node: SyntaxNodeLike): readonly { readonly local: 
   if (source === null) return [];
   const specifier = source.text.replace(/^["'`]|["'`]$/g, '');
   if (node.type === 'import_spec') {
+    // A Go import binds the package as a whole, under its own last segment or the name the file
+    // writes: the library models name that binding form a namespace, and a Go package's member is
+    // its export (`slog.New`), never a named import.
     const name = node.childForFieldName('name');
     const local = name === null ? (specifier.slice(specifier.lastIndexOf('/') + 1)) : name.text;
-    // A Go import binds the package's whole namespace (`os.Getenv`), never one named export: the
-    // resolution reader records it so (`src/fill/stages/resolution-extract.ts`), and the library
-    // models match a Go package's exported function by the namespace form (madarch-8bdc.2.4).
     return [{ local, nameNode: name ?? source, specifier, form: 'namespace' }];
   }
   const found: { local: string; nameNode: SyntaxNodeLike; specifier: string; form: 'default' | 'namespace' | 'named'; importedName?: string }[] = [];
@@ -901,6 +1037,8 @@ function factWrites(input: {
   readonly membership?: ServiceMembership;
   /** The ports the file's code listens on, in code point order. */
   readonly ports: readonly string[];
+  /** The callables the file declares, named as the extract readings name them. */
+  readonly callables: readonly CallableFact[];
 }): readonly StageDraftWrite[] {
   const writes: StageDraftWrite[] = [];
   const provenance = { source: CODE_FACTS_SOURCE, repository: { id: input.repository, commit: input.commit } };
@@ -945,6 +1083,30 @@ function factWrites(input: {
       },
     });
     writes.push({ kind: 'edge', evidence: input.evidence, value: { relation: DECLARES_RELATION, from: { key: input.fileKey }, to: { key: binding.id }, properties: { factKind: 'declares', repository: input.repository } } });
+  }
+  for (const callable of input.callables) {
+    const id = `${CALLABLE_KIND}:${input.repository}:${input.path}#${callable.qualifiedName}`;
+    writes.push({
+      kind: 'node',
+      evidence: input.evidence,
+      value: {
+        key: id,
+        kind: CALLABLE_KIND,
+        label: callable.qualifiedName,
+        properties: {
+          ...callable,
+          recordKey: id,
+          factKind: 'callable',
+          repository: input.repository,
+          file: input.path,
+          path: input.path,
+          symbolKey: callable.key,
+          symbolGlobalName: `${input.repository}:${input.path}#${callable.qualifiedName}`,
+          provenance: { ...provenance, place: { file: input.path, range: rangeOf(callable.span) } },
+        },
+      },
+    });
+    writes.push({ kind: 'edge', evidence: input.evidence, value: { relation: DECLARES_RELATION, from: { key: input.fileKey }, to: { key: id }, properties: { factKind: 'declares', repository: input.repository } } });
   }
   for (const call of input.facts.calls) {
     writes.push({

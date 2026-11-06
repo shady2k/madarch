@@ -120,6 +120,8 @@ export interface StaticGraphEdge {
   readonly from: StaticGraphNode;
   readonly to: StaticGraphNode;
   readonly properties: Readonly<Record<string, unknown>>;
+  /** The stage that published the edge (`fill.<stage id>`): a relation two stages write is told apart by it. */
+  readonly producer: string;
 }
 
 /** One page of an edge read: the rows it answered, in edge id order, and the cursor of the next page. */
@@ -255,6 +257,7 @@ export function staticEdgeOf(entry: EdgeEntry): StaticGraphEdge {
     from: staticNodeOf(entry.src),
     to: staticNodeOf(entry.dst),
     properties: (entry.edge.properties !== null && typeof entry.edge.properties === 'object' ? entry.edge.properties : {}) as Readonly<Record<string, unknown>>,
+    producer: entry.edge.producer,
   };
 }
 

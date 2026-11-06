@@ -23,6 +23,8 @@ import { createIntentHistoryStage } from './intent-history.js';
 import { createInventoryStage } from './inventory.js';
 import { createModulesStage } from './modules.js';
 import { createNarrativeStage } from './narrative.js';
+import { createOperationsStage } from './operations.js';
+import { createOperationsLinksStage } from './operations-links.js';
 import { createOverviewStage } from './overview.js';
 import { createRecoveryStage } from './recovery.js';
 import { createSemanticResolutionStage } from './semantic-resolution.js';
@@ -96,6 +98,8 @@ export function createStageRegistry(wiring: FillStageWiring): StageRegistry {
     .register(createDataModelStage(wiring.snapshots))
     .register(createDataModelAggregateStage(wiring.snapshots))
     .register(createStateMachinesStage(wiring.snapshots))
+    .register(createOperationsStage(wiring.snapshots))
+    .register(createOperationsLinksStage(wiring.snapshots))
     .register(createModulesStage(wiring.snapshots))
     .register(createDocumentIndexStage(wiring.snapshots))
     .register(createHistoryStage(createGitHistoryReader(wiring.checkoutOf ?? noCheckout), wiring.snapshots));

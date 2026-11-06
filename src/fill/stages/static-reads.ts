@@ -23,6 +23,8 @@ import { PUBLISHED_MACHINES_READ } from './state-machines.js';
 import {
   DATA_MODEL_AGGREGATE_PUBLISHED_READ, DATA_MODEL_DATABASE_INPUTS_READ, DATA_MODEL_PUBLISHED_READ,
 } from './data-model.js';
+import { PUBLISHED_OPERATIONS_READ, publishedOperationsRows } from './operations.js';
+import { PUBLISHED_LINKS_READ } from './operations-links.js';
 import { PUBLISHED_GAPS_READ } from './syntax-specifiers.js';
 import { PUBLISHED_IMPORTS_READ, type PublishedGapRow, type PublishedImportRow } from './syntax-specifiers.js';
 import type { PublishedCodeFactsRow } from './code-facts.js';
@@ -355,6 +357,29 @@ export function createStaticStageReadReader(store: GraphStore, executor?: QueryE
           }
           return rows.sort((left, right) => (left.file < right.file ? -1 : left.file > right.file ? 1 : 0));
         }
+        case PUBLISHED_OPERATIONS_READ: {
+          // One repository's operations coverage: the files the operations stage read, each with
+          // the blob its bytes stood under. The reader is named, so a coverage of another stage's
+          // reading of the same file is never taken for this one's.
+          const nodes = await all((page) => store.byProperty('code.coverage', 'repository', repository, { ...page, limit: page.limit ?? PLAN_PAGE }, transaction));
+          // The stage's own reader checks each row it wrote: a row of this read names its scope and
+          // the blob the bytes stood under, or the plan is told which row is not one it held.
+          const held = nodes.filter((node) => sourceSystemOf(propertiesOf(node)) === 'madarch-operations').map((node) => {
+            const wrote = propertiesOf(node);
+            return { kind: wrote['factKind'], file: wrote['scope'], blob: wrote['blob'] };
+          });
+          return [...publishedOperationsRows(held, repository, PUBLISHED_OPERATIONS_READ)].sort((left, right) => (left.file < right.file ? -1 : left.file > right.file ? 1 : 0));
+        }
+        case PUBLISHED_LINKS_READ: {
+          // One repository's operations-links coverage: the files the links stage linked, each
+          // with the blob its bytes stood under, read by the same row reader as the stage before.
+          const nodes = await all((page) => store.byProperty('code.coverage', 'repository', repository, { ...page, limit: page.limit ?? PLAN_PAGE }, transaction));
+          const held = nodes.filter((node) => sourceSystemOf(propertiesOf(node)) === 'madarch-operations-links').map((node) => {
+            const wrote = propertiesOf(node);
+            return { kind: wrote['factKind'], file: wrote['scope'], blob: wrote['blob'] };
+          });
+          return [...publishedOperationsRows(held, repository, PUBLISHED_LINKS_READ)].sort((left, right) => (left.file < right.file ? -1 : left.file > right.file ? 1 : 0));
+        }
         case PUBLISHED_RESOLVED_READ: {
           const nodes = await all((page) => store.byProperty('code.coverage', 'repository', repository, { ...page, limit: page.limit ?? PLAN_PAGE }, transaction));
           const rows: PublishedResolvedRow[] = [];
@@ -424,7 +449,7 @@ export function createStaticStageReadReader(store: GraphStore, executor?: QueryE
           return node === undefined ? [] : [{ kind: 'coverage', value: coverageValueOf(propertiesOf(node)) }];
         }
         default:
-          throw new Error(`the static stage asked the read ${JSON.stringify(document.read)} for ${JSON.stringify(repository)}, and this reader answers ${PUBLISHED_TREE_READ}, ${PUBLISHED_REPOSITORY_READ}, ${PUBLISHED_UNFILED_READ}, ${PUBLISHED_CONTAINMENT_READ}, ${PUBLISHED_COVERAGE_READ}, ${PUBLISHED_RESOLVED_READ}, ${PUBLISHED_GAPS_READ}, ${PUBLISHED_IMPORTS_READ}, ${PUBLISHED_MACHINES_READ}, ${CODE_FACTS_PUBLISHED_READ}, ${DATA_MODEL_PUBLISHED_READ}, ${DATA_MODEL_AGGREGATE_PUBLISHED_READ}, ${DATA_MODEL_DATABASE_INPUTS_READ}, ${PUBLISHED_MANIFESTS_READ}, ${PUBLISHED_DOCUMENTS_READ}, ${COMMITS_HELD_READ}, ${HISTORY_COVERAGE_READ}: a static stage has one reading of the graph (src/fill/stages/static-reads.ts)`);
+          throw new Error(`the static stage asked the read ${JSON.stringify(document.read)} for ${JSON.stringify(repository)}, and this reader answers ${PUBLISHED_TREE_READ}, ${PUBLISHED_REPOSITORY_READ}, ${PUBLISHED_UNFILED_READ}, ${PUBLISHED_CONTAINMENT_READ}, ${PUBLISHED_COVERAGE_READ}, ${PUBLISHED_RESOLVED_READ}, ${PUBLISHED_GAPS_READ}, ${PUBLISHED_IMPORTS_READ}, ${PUBLISHED_MACHINES_READ}, ${CODE_FACTS_PUBLISHED_READ}, ${DATA_MODEL_PUBLISHED_READ}, ${DATA_MODEL_AGGREGATE_PUBLISHED_READ}, ${DATA_MODEL_DATABASE_INPUTS_READ}, ${PUBLISHED_OPERATIONS_READ}, ${PUBLISHED_LINKS_READ}, ${PUBLISHED_MANIFESTS_READ}, ${PUBLISHED_DOCUMENTS_READ}, ${COMMITS_HELD_READ}, ${HISTORY_COVERAGE_READ}: a static stage has one reading of the graph (src/fill/stages/static-reads.ts)`);
       }
     },
   };

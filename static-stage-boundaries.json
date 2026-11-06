@@ -10,7 +10,9 @@
     "src/fill/stages/history.ts": {},
     "src/fill/stages/state-machines.ts": {},
     "src/fill/stages/code-facts.ts": {},
-    "src/fill/stages/data-model.ts": {}
+    "src/fill/stages/data-model.ts": {},
+    "src/fill/stages/operations.ts": {},
+    "src/fill/stages/operations-links.ts": {}
   },
   "forbiddenTypes": [
     "SnapshotSource",

@@ -94,7 +94,6 @@ let fillNodes: readonly ComparedRecord[] = [];
 let fillEdges: readonly ComparedRecord[] = [];
 let symbolKeys = new Map<string, string>();
 let fileKeys = new Map<string, string>();
-let serviceKeys = new Map<string, string>();
 /** The fill's symbol nodes by the file they stand in, with the byte span each one's place gives. */
 let fillSymbolSpans = new Map<string, { readonly startByte: number; readonly endByte: number; readonly key: string }[]>();
 /** The span the driver's own record of a symbol stands at, by the driver's key. */
@@ -170,18 +169,6 @@ function driverNodeId(kind: string, key: string): string {
 }
 
 /**
- * The fill's own record of a service, as the comparison names it: the driver's `code.service:<name>`
- * is a node the operations reading owns, and this fill's record of one unit is the code-facts
- * stage's `code.service-unit` node — one node per file that belongs to the unit, so the first of
- * them in code point order of the keys names the unit. The data model publishes no service of its
- * own (a second node for one declaration is madarch-m38l.16's defect, named in
- * docs/changes/madarch-8bdc.2.4/change.md), so the comparison holds the two keys as one record.
- */
-function fillServiceOf(name: string): string {
-  return serviceKeys.get(name) ?? `code.service:${name}`;
-}
-
-/**
  * The fill's record of one of the driver's symbols: the syntax stage's node the declaration stands
  * in. Two lookups, in this order — the global name the syntax stage gives a declared symbol, then
  * the innermost declared symbol whose place holds the driver's span. The second is what maps the
@@ -215,7 +202,6 @@ function fillEndOf(key: string): string {
     const found = fileKeys.get(key.slice('code.file:'.length));
     return found === undefined ? key : found;
   }
-  if (key.startsWith('code.service:')) return fillServiceOf(key.slice('code.service:'.length));
   return key;
 }
 
@@ -295,15 +281,6 @@ beforeAll(async () => {
   for (const node of await nodesOfKind('code.file')) {
     const held = node.properties as Record<string, unknown>;
     if (typeof held['path'] === 'string') fileKeys.set(held['path'], recordKeyOf(node));
-  }
-  // The unit a file belongs to, by the unit's name: the first node in code point order names it.
-  for (const node of await nodesOfKind('code.service-unit')) {
-    const held = node.properties as Record<string, unknown>;
-    const name = held['name'];
-    if (typeof name !== 'string') continue;
-    const key = recordKeyOf(node);
-    const heldKey = serviceKeys.get(name);
-    if (heldKey === undefined || key < heldKey) serviceKeys.set(name, key);
   }
   const extraction = await extractDataModel(tree);
   for (const node of extraction.nodes) {

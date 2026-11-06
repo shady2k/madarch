@@ -91,6 +91,8 @@ import { evidenceAt, provenanceOf } from './draft.js';
 import { evidenceAtPlace } from './draft.js';
 import { publishedRepositoryRead, publishedRepositoryRows } from './snapshot.js';
 import { STATIC_READ_ROW_LIMIT, type StaticGraphNode, type StaticGraphReader, type StaticStageSource } from './static-context.js';
+import { SEMANTIC_RESOLUTION_STAGE_ID } from './semantic-resolution.js';
+import { SYNTAX_STAGE_ID } from './syntax.js';
 import { checkStaticGraphDraft, graphWritesOf } from './static-graph.js';
 
 /** The stage's id, as it is registered and as its units are named. */
@@ -494,11 +496,19 @@ async function graphRows<T>(source: StaticGraphReader, kind: string, repository:
 /** Every resolved edge of one repository, in code point order of its kind, its start and its end. */
 async function edgeRowsOf(source: StaticGraphReader, repository: string): Promise<readonly ResolvedEdgeRow[]> {
   const rows: ResolvedEdgeRow[] = [];
-  for (const [relation, kind] of [['code.calls', 'call'], ['code.inherits', 'inherits'], ['code.references', 'reference'], ['code.imports', 'import']] as const) {
+  // The walk's edges are the resolution's own: a `code.references` relation is also written by the
+  // operations reading, whose ends are a build record and a file, and the rank walks symbols.
+  for (const [relation, kind, producer] of [
+    ['code.calls', 'call', `fill.${SEMANTIC_RESOLUTION_STAGE_ID}`],
+    ['code.inherits', 'inherits', `fill.${SEMANTIC_RESOLUTION_STAGE_ID}`],
+    ['code.references', 'reference', `fill.${SEMANTIC_RESOLUTION_STAGE_ID}`],
+    ['code.imports', 'import', `fill.${SYNTAX_STAGE_ID}`],
+  ] as const) {
     let after: string | undefined;
     for (;;) {
       const page = await source.edgesByProperty(relation, 'repository', repository, { limit: STATIC_READ_ROW_LIMIT, ...(after === undefined ? {} : { after }) });
       for (const edge of page.rows) {
+        if (edge.producer !== producer) continue;
         const from = edge.from.properties['recordKey'];
         const to = edge.to.properties['recordKey'];
         if (typeof from !== 'string' || typeof to !== 'string') {

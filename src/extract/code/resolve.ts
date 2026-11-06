@@ -12,7 +12,7 @@ import { resolutionFacts, type ResolutionSymbolRow } from '../../fill/stages/res
 import type { ExtractedFileResolution } from '../../fill/stages/resolution-extract.js';
 import type { SyntaxSpan } from '../../fill/stages/syntax-extract.js';
 import { fileKey } from './keys.js';
-import type { FileSymbol } from './symbols.js';
+import type { FileSymbol } from '../../fill/stages/code-symbols.js';
 
 const COMMIT = '0'.repeat(40);
 

@@ -249,9 +249,9 @@ export interface UnitEdgeDraft {
   readonly from: UnitEnd;
   readonly to: UnitEnd;
   /**
-   * What tells two edges of one relation and one pair of ends apart, where the relation declares a
-   * discriminator (decision 0028): one function reaches one table through two helpers, and a foreign
-   * key's constraint names the key it holds (madarch-8bdc.2.4).
+   * What tells this edge apart from a parallel edge of one relation and one pair of ends (decision
+   * 0028, `edgeKeyHash`): one function reaches one table through two helpers, and a foreign key's
+   * constraint names the key it holds (madarch-8bdc.2.4). Absent where the relation carries none.
    */
   readonly discriminator?: string;
   readonly properties?: Readonly<Record<string, unknown>>;
@@ -357,12 +357,12 @@ export async function publishUnit(ctx: WriteContext, input: PublishUnitInput): P
     return { id: found };
   };
   const edges: PublishEdge[] = [...input.edges]
-    .sort((left, right) => byCodePoint(JSON.stringify([left.relation, left.from, left.to, left.position ?? null]), JSON.stringify([right.relation, right.from, right.to, right.position ?? null])))
+    .sort((left, right) => byCodePoint(JSON.stringify([left.relation, left.from, left.to, left.position ?? null, left.discriminator ?? '']), JSON.stringify([right.relation, right.from, right.to, right.position ?? null, right.discriminator ?? ''])))
     .map((edge) => ({
       relation: edge.relation,
       src: endpoint(edge.from, `edges(from ${JSON.stringify(edge.from)})`),
       dst: endpoint(edge.to, `edges(to ${JSON.stringify(edge.to)})`),
-      ...(edge.discriminator === undefined ? {} : { discriminator: edge.discriminator }),
+      ...(edge.discriminator === undefined || edge.discriminator === '' ? {} : { discriminator: edge.discriminator }),
       ...(edge.position === undefined ? {} : { position: { start: edge.position.start, end: edge.position.end } }),
       ...(edge.properties === undefined ? {} : { properties: { ...edge.properties } }),
       validFrom,

@@ -113,11 +113,11 @@ export interface StaticEdgeDraft {
   readonly to: StaticEnd;
   readonly properties?: Readonly<Record<string, unknown>>;
   /**
-   * What tells two edges of one relation and one pair of ends apart (decision
-   * 0028's discriminator): the data-model stage publishes two `code.reads-table`
-   * edges from one function to one table when two different helpers reach it,
-   * and the relation declares a discriminator for exactly that. Absent for a
-   * relation the store registers without one.
+   * What tells this edge apart from a parallel relation of the same type and ends
+   * (decision 0028, `edgeKeyHash`): the reading site's starting byte for a record
+   * whose family lands once per use. The store keys an edge by its relation, its
+   * two ends and this text, so a draft that wrote one use site twice would name one
+   * edge and lose the other; the draft check reads the same key.
    */
   readonly discriminator?: string;
   /** The byte span of a positioned occurrence; absent for a relation type the store does not position. */
@@ -298,10 +298,12 @@ export function checkStaticGraphDraft(stageId: string, kinds: readonly string[],
           errors.push(`${at}: the byte span [${String(start)}, ${String(end)}) is no span: 0 <= start < end (decision 0028)`);
         }
       }
-      // A relation that declares a discriminator holds two edges of one pair of ends apart by it
-      // (the data-model stage's two helpers reaching one table): the draft names that edge once
-      // with its discriminator, as the store does.
-      const identity = JSON.stringify([edge.relation, from, to, edge.position ?? null, edge.discriminator ?? null]);
+      if (edge.discriminator !== undefined && (typeof edge.discriminator !== 'string' || edge.discriminator === '')) {
+        errors.push(`${at}: the discriminator ${JSON.stringify(edge.discriminator)} is no text a relation is told apart by: a discriminator is a non-empty string where one stands (decision 0028)`);
+      }
+      // An edge's identity is the store's own (`edgeKeyHash`): a positioned occurrence by its
+      // starting byte, every other edge by its relation, its ends and its discriminator.
+      const identity = JSON.stringify([edge.relation, from, to, edge.position === undefined ? `discriminator:${edge.discriminator ?? ''}` : `byte:${String(edge.position.start)}`]);
       if (edgeKeys.has(identity)) errors.push(`${at}: the edge ${identity} stands in an earlier write of this draft: one draft names one edge once`);
       edgeKeys.add(identity);
       if (!kinds.includes(String((edge.properties as Record<string, unknown> | undefined)?.['factKind']))) {

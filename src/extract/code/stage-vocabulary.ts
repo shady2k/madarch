@@ -48,8 +48,8 @@ export const STAGE_NODE_KINDS: readonly string[] = [
   'code.package',
   'code.rank',
   'code.repository',
-  // The service node the operations reading owns: the data-model aggregate stage joins it, and opens
-  // it with this key where the graph holds none yet (madarch-8bdc.2.4).
+  // The service node the operations-links stage publishes; the data-model aggregate stage names it
+  // as the source of a database's use edge (madarch-8bdc.2.4).
   'code.service',
   // The unit a file belongs to and the ports its code listens on (the code-facts stage;
   // madarch-8bdc.2.4), read by the operations and contracts stages as properties.
@@ -62,28 +62,70 @@ export const STAGE_NODE_KINDS: readonly string[] = [
   'code.symbol',
   'code.task',
   'code.test',
+  // The operations reading's records (the operations stage; madarch-8bdc.2.4): what a manifest,
+  // a Dockerfile, a compose file, a Kubernetes file, a Makefile, a workflow or a code file
+  // declares about how the software is built, deployed and run.
+  'code.broker',
+  'code.callable',
+  'code.channel',
+  'code.ci-job',
+  'code.ci-workflow',
+  'code.env-definition',
+  'code.env-read',
+  'code.healthcheck',
+  'code.health-endpoint',
+  // The registration a code file makes and the exposition it writes: the reading's own facts,
+  // joined by the links stage into the endpoints and their edges (madarch-8bdc.2.4).
+  'code.http-route',
+  'code.image',
+  'code.k8s-deployment',
+  'code.k8s-service',
+  'code.lockfile',
+  'code.logger',
+  // The use of a logger, which the links stage joins to the declaration another file publishes.
+  'code.logger-use',
+  'code.make-target',
+  'code.manifest',
+  'code.metric',
+  'code.metric-exposition',
+  'code.metrics-endpoint',
+  'code.newcomer-command',
+  'code.newcomer-failure',
+  'code.newcomer-prerequisites',
+  'code.port',
+  'code.probe',
+  'code.process',
 ];
 
 /**
  * Every relation type the fill's static stages write, with `positioned` where the
  * edge carries the byte span it was read at.
+ *
+ * Every relation here is declared discriminated, as the extract driver declares
+ * the relations it emits (`src/extract/driver/index.ts`): a record that lands once
+ * per site — a logger use, a metric update, a broker setting — carries its site as
+ * the discriminator, and a store that held such a relation as one would lose every
+ * occurrence after the first. The three relations the graph's own schema already
+ * declares (`code.contains`, `code.imports`, `code.occurrence`) keep that
+ * declaration: an encoding is never redeclared (decision 0028).
  */
 export const STAGE_EDGE_TYPES: readonly { readonly key: string; readonly positioned?: boolean; readonly discriminated?: boolean }[] = [
-  { key: 'code.consumes' },
+  { key: 'code.consumes', discriminated: true },
+  // The engine's own declaration: containment is one edge between two records.
   { key: 'code.contains' },
   // What a file declares beside its symbols (the code-facts and state-machines stages).
-  { key: 'code.declares' },
-  { key: 'code.dependency' },
-  { key: 'code.document-link' },
+  { key: 'code.declares', discriminated: true },
+  { key: 'code.dependency', discriminated: true },
+  { key: 'code.document-link', discriminated: true },
   { key: 'code.imports' },
-  { key: 'code.mentions' },
+  { key: 'code.mentions', discriminated: true },
   { key: 'code.occurrence', positioned: true },
   // What the resolution stage folds a mention into (decision 0026's stage 4).
-  { key: 'code.references' },
+  { key: 'code.references', discriminated: true },
   // The task keys a commit or a document names (stages 6 and 7; madarch-8bdc.2.3).
-  { key: 'code.tasks' },
+  { key: 'code.tasks', discriminated: true },
   // What a state enters (the state-machines stage).
-  { key: 'code.transitions' },
+  { key: 'code.transitions', discriminated: true },
   // The data model's own relations (madarch-8bdc.2.4). Each carries a discriminator: one function can
   // reach one table through two helpers, and a foreign key's constraint tells two keys of one table apart.
   { key: 'code.alters', discriminated: true },
@@ -97,5 +139,32 @@ export const STAGE_EDGE_TYPES: readonly { readonly key: string; readonly positio
   { key: 'code.writes-table', discriminated: true },
   // What a manifest declares: one edge from the manifest's file to the dependency it names
   // (`src/extract/operations/dependencies.ts`).
-  { key: 'code.uses-dependency' },
+  { key: 'code.uses-dependency', discriminated: true },
+  // What the operations reading declares about how the software is built and run (the operations
+  // stage; madarch-8bdc.2.4): the same relation types the extractors' operations reader emits.
+  { key: 'code.backed-by', discriminated: true },
+  { key: 'code.builds', discriminated: true },
+  { key: 'code.built-by', discriminated: true },
+  { key: 'code.configured-by', discriminated: true },
+  { key: 'code.connects-to', discriminated: true },
+  { key: 'code.contains-job', discriminated: true },
+  { key: 'code.declares-dependency', discriminated: true },
+  { key: 'code.defined-in', discriminated: true },
+  { key: 'code.defines', discriminated: true },
+  { key: 'code.depends-on', discriminated: true },
+  { key: 'code.exposes', discriminated: true },
+  { key: 'code.exposes-metric', discriminated: true },
+  { key: 'code.hosts-channel', discriminated: true },
+  { key: 'code.listens-on', discriminated: true },
+  { key: 'code.manifest-of', discriminated: true },
+  { key: 'code.probes', discriminated: true },
+  { key: 'code.publishes', discriminated: true },
+  { key: 'code.reads-env', discriminated: true },
+  { key: 'code.resolves', discriminated: true },
+  { key: 'code.runs', discriminated: true },
+  { key: 'code.served-by', discriminated: true },
+  { key: 'code.starts', discriminated: true },
+  { key: 'code.targets', discriminated: true },
+  { key: 'code.updates-metric', discriminated: true },
+  { key: 'code.uses-logger', discriminated: true },
 ];
