@@ -56,16 +56,25 @@ let driverEdges: readonly ExtractedEdge[] = [];
 
 /** The repository the test writes: a manifest, a service listening on 3000 whose Dockerfile exposes nothing, and a compose file naming the broker. */
 function writeRepository(folder: string): void {
-  mkdirSync(join(folder, 'services/shop/src'), { recursive: true });
-  writeFileSync(join(folder, 'services/shop/package.json'), `${JSON.stringify({ name: 'shop', version: '1.0.0', dependencies: { express: '^4.21.2' } }, null, 2)}\n`);
+  mkdirSync(join(folder, 'services/shop/src/logging'), { recursive: true });
+  writeFileSync(join(folder, 'services/shop/package.json'), `${JSON.stringify({ name: 'shop', version: '1.0.0', dependencies: { express: '^4.21.2', pino: '^9.5.0' } }, null, 2)}\n`);
+  writeFileSync(join(folder, 'services/shop/src/logging/logger.ts'), [
+    'import pino from "pino";',
+    '',
+    'export const logger = pino({ level: "info" });',
+    '',
+  ].join('\n'));
   writeFileSync(join(folder, INDEX), [
     'import express from "express";',
     '',
+    'import { logger } from "./logging/logger";',
+    '',
     'const broker = process.env.KAFKA_BROKERS;',
     'const app = express();',
+    'logger.info({ broker }, "shop configured");',
     '',
     'app.listen(3000, () => {',
-    '  console.log(`shop listening, broker ${String(broker)}`);',
+    '  logger.info("shop listening");',
     '});',
     '',
   ].join('\n'));
@@ -248,7 +257,7 @@ describe('a Dockerfile that exposes nothing, and a setting that names a broker',
     const exposes = driverEdges.filter((edge) => edge.type === 'code.exposes' && edge.from === `code.dockerfile:${DOCKERFILE}`);
     expect(exposes).toEqual([]);
     const ports = driverNodes.filter((node) => node.kind === 'code.port');
-    expect(ports.map((node) => [node.key, node.span?.path, node.span?.lineStart])).toEqual([['code.port:shop/3000', INDEX, 6]]);
+    expect(ports.map((node) => [node.key, node.span?.path, node.span?.lineStart])).toEqual([['code.port:shop/3000', INDEX, 9]]);
     // Both processes the Dockerfiles start: the shop's stands at the code file its command names,
     // the worker's at the Dockerfile, because the tree holds no source file the command names.
     const processes = driverNodes.filter((node) => node.kind === 'code.process').map((node) => `${node.key} ${node.span?.path ?? 'none'}`).sort();
@@ -264,6 +273,17 @@ describe('a Dockerfile that exposes nothing, and a setting that names a broker',
       `code.configured-by ${broker?.key} -> code.env-definition:${COMPOSE}#shop/KAFKA_BROKERS`,
       `code.connects-to code.service:shop -> ${broker?.key}`,
     ]);
+  }, 300_000);
+
+  test('the two logger uses of one file stand as two edges, told apart by their site', async () => {
+    const uses = await store!.readAll(async (page) => await store!.edgesByProperty('code.uses-logger', 'repository', REPOSITORY, page));
+    const toFile = uses.filter((entry) => entry.dst.kind === 'code.file');
+    // The use the file makes in its own body and the use inside the listen callback end at the
+    // same logger and the same file: only the reading site's starting byte tells them apart.
+    expect(toFile).toHaveLength(2);
+    expect(new Set(toFile.map((entry) => String(propertiesOf(entry.src)['recordKey']))).size).toBe(1);
+    expect(new Set(toFile.map((entry) => String((entry.edge.properties as Record<string, unknown>)['discriminator']))).size).toBe(2);
+    expect(toFile.every((entry) => String((entry.edge.properties as Record<string, unknown>)['discriminator'] ?? '') !== '')).toBe(true);
   }, 300_000);
 
   test('every record of the two shapes the stage published answers the driver', async () => {
