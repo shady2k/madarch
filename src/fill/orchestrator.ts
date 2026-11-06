@@ -2622,7 +2622,15 @@ export async function driveRun(
 export interface RunStatus {
   readonly run: RunRecord;
   readonly evidence: RunEvidence;
-  readonly units: readonly { readonly unitId: string; readonly stageId: string; readonly state: UnitState; readonly generation: number; readonly attempts: number }[];
+  readonly units: readonly {
+    readonly unitId: string;
+    readonly stageId: string;
+    readonly state: UnitState;
+    readonly generation: number;
+    readonly attempts: number;
+    /** The moment a unit standing `retry_wait` is runnable again, in the run's own milliseconds; null for any other state. */
+    readonly retryAt: number | null;
+  }[];
   readonly chain: ChainRecord | null;
 }
 
@@ -2635,7 +2643,7 @@ export async function runStatus(orchestrator: FillOrchestrator, runId: string): 
   return {
     run,
     evidence,
-    units: units.map((unit) => ({ unitId: unit.unitId, stageId: unit.stageId, state: unit.state, generation: unit.generation, attempts: unit.context.attempt })),
+    units: units.map((unit) => ({ unitId: unit.unitId, stageId: unit.stageId, state: unit.state, generation: unit.generation, attempts: unit.context.attempt, retryAt: unit.state === 'retry_wait' ? unit.context.retryAt : null })),
     chain: await readChain(orchestrator.database, orchestrator.product),
   };
 }
