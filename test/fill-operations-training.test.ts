@@ -53,6 +53,14 @@ const PRODUCT = 'training-shop';
 const STAGE_PRODUCERS: readonly string[] = ['fill.operations', 'fill.operations-links'];
 
 /**
+ * The one record two readings once both published: the AsyncAPI channel. The merge gives the
+ * contracts reading its ownership (the driver's own `OWNERS` names it), so the operations
+ * comparison reads the channel node and the `code.contains` edge that reaches it from the stage
+ * that publishes it now, never from a second copy.
+ */
+const CHANNEL_PRODUCER = 'fill.contracts';
+
+/**
  * The families the stage does not publish yet, by the kind or relation the
  * driver emits: the port takes them off this list as each lands, and the list
  * only shrinks.
@@ -107,12 +115,12 @@ async function nodesOfKind(kind: string): Promise<readonly NodeVersionRow[]> {
 }
 
 /** Every edge of one relation the graph holds for the repository, one page after another. */
-async function edgesOfRelation(relation: string): Promise<readonly { readonly src: NodeVersionRow; readonly dst: NodeVersionRow; readonly edge: { readonly properties: unknown } }[]> {
-  const rows: { src: NodeVersionRow; dst: NodeVersionRow; edge: { properties: unknown } }[] = [];
+async function edgesOfRelation(relation: string): Promise<readonly { readonly src: NodeVersionRow; readonly dst: NodeVersionRow; readonly edge: { readonly properties: unknown; readonly producer: string } }[]> {
+  const rows: { src: NodeVersionRow; dst: NodeVersionRow; edge: { properties: unknown; producer: string } }[] = [];
   let after: string | undefined;
   for (;;) {
     const page = await store!.edgesByProperty(relation, 'repository', REPOSITORY, { limit: 1000, ...(after === undefined ? {} : { after }) });
-    rows.push(...page.rows as unknown as { src: NodeVersionRow; dst: NodeVersionRow; edge: { properties: unknown } }[]);
+    rows.push(...page.rows as unknown as { src: NodeVersionRow; dst: NodeVersionRow; edge: { properties: unknown; producer: string } }[]);
     if (page.next === null) return rows;
     after = page.next;
   }
@@ -239,7 +247,7 @@ async function comparePublished(): Promise<Compared> {
   for (const node of driver?.edges ?? []) kinds.add(node.kind);
   for (const kind of [...kinds].sort()) {
     if (REMAINING.includes(kind)) continue;
-    for (const row of await nodesOfKind(kind)) if (STAGE_PRODUCERS.includes(row.producer)) rows.push(row);
+    for (const row of await nodesOfKind(kind)) if (STAGE_PRODUCERS.includes(row.producer) || (row.kind === 'code.channel' && row.producer === CHANNEL_PRODUCER)) rows.push(row);
   }
   const nodes = rows.map((row) => {
     const held = propertiesOf(row);
@@ -249,6 +257,10 @@ async function comparePublished(): Promise<Compared> {
   for (const relation of [...new Set((driver?.edges ?? []).map((edge) => edge.kind))].sort()) {
     if (REMAINING.includes(relation)) continue;
     for (const entry of await edgesOfRelation(relation)) {
+      // Only this comparison's own producers: another reading's record of one relation (an entry
+      // point's `code.starts`, say) is not the operations reading's answer.
+      const channelContainment = relation === 'code.contains' && entry.dst.kind === 'code.channel' && entry.edge.producer === CHANNEL_PRODUCER;
+      if (!STAGE_PRODUCERS.includes(entry.edge.producer) && !channelContainment) continue;
       const held = propertiesOf(entry.edge);
       if (held['factKind'] !== relation.slice('code.'.length)) continue;
       const from = recordKeyOf(entry.src);

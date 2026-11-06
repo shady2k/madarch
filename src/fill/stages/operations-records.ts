@@ -587,6 +587,24 @@ function parseExecForm(argument: string): string[] {
   return trimmed.split(/\s+/u);
 }
 
+/**
+ * The words a command runs: a shell's `-c` argument is one string that runs several words, so its
+ * script is split into the words it names. Every other argument stands as one word.
+ */
+function commandWords(args: readonly string[]): readonly string[] {
+  const words: string[] = [];
+  for (let index = 0; index < args.length; index += 1) {
+    const arg = args[index]!;
+    if (/^-[A-Za-z]*c[A-Za-z]*$/.test(arg) && index + 1 < args.length) {
+      words.push(...args[index + 1]!.split(/\s+/u).filter((word) => word !== ''));
+      index += 1;
+      continue;
+    }
+    words.push(arg);
+  }
+  return words;
+}
+
 /** The process a Dockerfile's command starts, as far as the build names its source. */
 export interface StartedProcess {
   readonly key: string;
@@ -602,7 +620,9 @@ export async function startedProcessOf(reading: DockerfileRead, exists: (path: s
   const args = parseExecForm(reading.command);
   const first = args.find((arg) => arg !== 'sh' && arg !== '-c' && arg !== 'node') ?? args[0];
   if (first === undefined) return undefined;
-  const script = args.find((arg) => /dist\/[A-Za-z0-9_.-]+\.js$/.test(arg)) ?? null;
+  // A shell `-c` argument is one string that runs several words (`npx prisma migrate deploy &&
+  // node dist/index.js`): the script a word names is the last word the script test answers.
+  const script = commandWords(args).filter((word) => /dist\/[A-Za-z0-9_.-]+\.js$/.test(word)).pop() ?? null;
   const binary = first.includes('/') && !first.includes(' ') ? first : null;
   let source: string | null = null;
   if (reading.goBinary !== null && reading.goPackage !== null && first.split('/').pop() === reading.goBinary) {

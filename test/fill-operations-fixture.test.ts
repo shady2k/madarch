@@ -96,6 +96,18 @@ function writeRepository(folder: string): void {
     'CMD ["/app/worker"]',
     '',
   ].join('\n'));
+  // A third service whose command is a shell `-c` script: the script runs `node dist/index.js`, and
+  // that word, not the whole script, names the source file the process stands at.
+  mkdirSync(join(folder, 'services/gateway/src'), { recursive: true });
+  writeFileSync(join(folder, 'services/gateway/package.json'), `${JSON.stringify({ name: 'gateway', version: '1.0.0' }, null, 2)}\n`);
+  writeFileSync(join(folder, 'services/gateway/src/index.ts'), 'export const name = "gateway";\n');
+  writeFileSync(join(folder, 'services/gateway/Dockerfile'), [
+    'FROM node:22',
+    'WORKDIR /app',
+    'COPY . .',
+    'CMD ["sh", "-c", "npx prisma migrate deploy && node dist/index.js"]',
+    '',
+  ].join('\n'));
   writeFileSync(join(folder, COMPOSE), [
     'services:',
     '  shop:',
@@ -232,6 +244,9 @@ async function publishedEdges(): Promise<{ relation: string; from: string; to: s
     const page = await store!.readAll(async (next) => await store!.edgesByProperty(relation, 'repository', REPOSITORY, next));
     for (const entry of page) {
       const held = propertiesOf(entry.edge);
+      // Only this comparison's own producers: another reading's records of one relation (an entry
+      // point's `code.starts`, say) are not the operations reading's answer.
+      if (!STAGE_PRODUCERS.includes(entry.edge.producer)) continue;
       if (held['factKind'] !== relation.slice('code.'.length)) continue;
       rows.push({ relation, from: endKeyOf(entry.src), to: endKeyOf(entry.dst), discriminator: String(held['discriminator'] ?? ''), properties: held['record'], span: held['span'] });
     }
@@ -262,6 +277,7 @@ describe('a Dockerfile that exposes nothing, and a setting that names a broker',
     // the worker's at the Dockerfile, because the tree holds no source file the command names.
     const processes = driverNodes.filter((node) => node.kind === 'code.process').map((node) => `${node.key} ${node.span?.path ?? 'none'}`).sort();
     expect(processes).toEqual([
+      'code.process:services/gateway/src/index.ts services/gateway/src/index.ts',
       `code.process:services/shop/src/index.ts ${INDEX}`,
       'code.process:worker services/worker/Dockerfile',
     ]);
