@@ -95,7 +95,7 @@ import { publishedTreeRead, publishedTreeRows } from './tree-rows.js';
 export const CODE_FACTS_STAGE_ID = 'code-facts';
 
 /** The stage's own version, bumped when what it writes or plans changes. */
-const CODE_FACTS_STAGE_VERSION = 4;
+const CODE_FACTS_STAGE_VERSION = 5;
 
 /** The fact kinds the stage produces, in code point order. */
 const CODE_FACTS_STAGE_KINDS: readonly string[] = ['binding', 'callable', 'callsite', 'coverage', 'declares', 'export', 'expression', 'field', 'listener-port', 'service-unit'];
@@ -550,9 +550,9 @@ export async function callablesOfFile(path: string, bytes: Uint8Array, findings:
   // both `code.symbol:<path>#<name>`. A key that repeats takes its own place in the file, so one
   // draft names one node by one key; a name written once keeps the reading's key unchanged.
   const counts = new Map<string, number>();
-  for (const callable of callables) counts.set(callable.key, (counts.get(callable.key) ?? 0) + 1);
-  const keyed = callables.map((callable) => (counts.get(callable.key) ?? 0) > 1
-    ? { ...callable, key: `${callable.key}#${String(callable.span.byteStart)}` }
+  for (const callable of callables) counts.set(callable.qualifiedName, (counts.get(callable.qualifiedName) ?? 0) + 1);
+  const keyed = callables.map((callable) => (counts.get(callable.qualifiedName) ?? 0) > 1
+    ? { ...callable, key: `code.symbol:${path}#${callable.qualifiedName}#${String(callable.span.byteStart)}` }
     : callable);
   return keyed.sort((left, right) => byCodePoint(left.key, right.key));
 }
@@ -1117,7 +1117,11 @@ function factWrites(input: {
     writes.push({ kind: 'edge', evidence: input.evidence, value: { relation: DECLARES_RELATION, from: { key: input.fileKey }, to: { key: binding.id }, properties: { factKind: 'declares', repository: input.repository } } });
   }
   for (const callable of input.callables) {
-    const id = `${CALLABLE_KIND}:${input.repository}:${input.path}#${callable.qualifiedName}`;
+    // The callable's own key, with the reading's prefix replaced by this stage's: a name two scopes repeat
+    // carries its start byte, so the two callables are two nodes.
+    const id = callable.key.startsWith('code.symbol:')
+      ? `${CALLABLE_KIND}:${input.repository}:${callable.key.slice('code.symbol:'.length)}`
+      : `${CALLABLE_KIND}:${input.repository}:${input.path}#${callable.qualifiedName}`;
     writes.push({
       kind: 'node',
       evidence: input.evidence,

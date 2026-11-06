@@ -176,7 +176,7 @@ describe('two callables of one name in two scopes', () => {
     const owner = createPGliteDatabaseOwner({ btreeGist: true });
     try {
       const { product } = writeProduct(root, {
-        'services/orders/src/scopes.ts': 'export function row(): number {\n  return 1;\n}\n\nexport function outer(): number {\n  function row(): number {\n    return 2;\n  }\n  return row();\n}\n',
+        'services/orders/src/scopes.ts': 'export function row(): number {\n  return 1;\n}\n\n{\n  function row(): number {\n    return 2;\n  }\n}\n\nexport function useRow(): number {\n  return row();\n}\n',
       });
       const fill = await createStagesFill({ product, database: owner });
       const service = createFillOrchestratorService({ home: join(root, 'products'), owner, registry: fill.registry, wiring: () => fill.wiring, maxPasses: 100_000 });
