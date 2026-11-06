@@ -241,7 +241,6 @@ describe('the journal over the wiki\'s product', () => {
     writeFileSync(script, JSON.stringify({ steps: [{ call: { tool: 'overview', arguments: {} } }, { call: { tool: 'find_nodes', arguments: { kind: 'code.service' } } }, { refused: 'fs-read' }, { end: { stopReason: 'end_turn' } }] }));
     const product = new KnowledgeProduct({
       productFolder, storeRoot: store, env: { HOME: join(root, 'user'), PATH: join(root, 'none') },
-      workerFactory: () => worker as never,
       agentFactory: (_id, journal) => {
         const agent = acpUnitAgent({ spec: { id: 'fake', command: process.execPath, args: [FAKE_AGENT, '--scenario', 'script', '--script', script] }, limits: ONE_TURN, journal });
         closers.push(() => agent.close());

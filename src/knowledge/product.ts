@@ -37,8 +37,8 @@ import { insideFolder, homeKind, KINDS_FILE, readKinds, setKindsLanguage, type F
 import { WORKFLOWS_FILE } from './workflows.js';
 import { linesOf } from './lines.js';
 import { applyReset, planReset, type ResetPlan } from './reset.js';
-import { parseMessage, type FromWorker, type RepositoryPin, type ToWorker, type WorkerStart } from './fill-protocol.js';
-import { snapshotNumbers } from './fill-worker.js';
+import { startKnowledgeFill, type KnowledgeFillRun } from './fill-run.js';
+import { snapshotNumbers } from './fill-run.js';
 import { locationOf, type RenderContext } from './blocks.js';
 import { GraphReader } from './graph-read.js';
 import { treeReadProducer } from '../extract/driver/index.js';
@@ -132,46 +132,6 @@ export function storeFolderOf(storeRoot: string, id: string, manifest: string): 
   return join(storeRoot, id);
 }
 
-/** A fill worker as the server holds it: what it is told, what it says, and how it ends. */
-export interface FillWorkerHandle {
-  send(message: ToWorker): void;
-  readonly lines: AsyncIterable<string>;
-  /** Resolves with the exit code once the worker has ended and its output is read. */
-  readonly exited: Promise<number>;
-  /** The end of what the worker wrote on its standard error. */
-  stderr(): string;
-  kill(): void;
-}
-
-/** Starts the fill worker; the production one starts `madarch knowledge-fill-worker`, a process of its own. */
-export type FillWorkerFactory = () => FillWorkerHandle;
-
-/** The worker as a child process of this program (a checkout's script, or the release binary itself). */
-export function spawnFillWorker(): FillWorkerHandle {
-  const { command, args } = selfCommand(['knowledge-fill-worker']);
-  const child = Bun.spawn([command, ...args], { stdin: 'pipe', stdout: 'pipe', stderr: 'pipe', env: process.env });
-  let tail = '';
-  void (async () => {
-    for await (const chunk of child.stderr as unknown as AsyncIterable<Uint8Array>) tail = (tail + new TextDecoder().decode(chunk)).slice(-4000);
-  })();
-  return {
-    send: (message) => {
-      try {
-        child.stdin.write(`${JSON.stringify(message)}\n`);
-        void child.stdin.flush();
-      } catch {
-        // the worker is gone; its exit says so
-      }
-    },
-    lines: linesOf(child.stdout as unknown as AsyncIterable<Uint8Array>),
-    exited: child.exited,
-    stderr: () => tail,
-    kill: () => { try { child.kill(); } catch { /* already gone */ } },
-  };
-}
-
-/** How long a worker may take to end after it was told to stop, in milliseconds, before it is killed. */
-const STOP_GRACE_MS = 20_000;
 /** How long the server keeps the previous snapshot open after a newer one is read, so a request in flight on it ends. */
 const SNAPSHOT_KEEP_MS = 3_000;
 /** A reader nobody has asked for this long is closed, and its memory (a PGlite is about a gigabyte) given back; the next page opens it again. */
@@ -195,8 +155,6 @@ export interface KnowledgeProductOptions {
   guideHostFor?: GuideHostFor;
   /** Where the knowledge wiki says what it could not do; the host's error log. */
   errorLog?: (line: string) => void;
-  /** Starts the fill worker; tests inject one. */
-  workerFactory?: FillWorkerFactory;
   /** The least time between two snapshots of the store the fill writes, in milliseconds (default 8000). */
   snapshotMs?: number;
   /** Asks an agent which models it offers; the production one starts its ACP adapter. Tests inject. */
@@ -358,7 +316,8 @@ export class KnowledgeProduct {
   private opening: Promise<void> | undefined;
   private fill: FillState = { state: 'idle' };
   private running: Promise<void> | undefined;
-  private worker: FillWorkerHandle | undefined;
+  /** The fill the store is running now, as its host controls it; undefined between runs. */
+  private fillRun: KnowledgeFillRun | undefined;
   private stopping = false;
   /** A person asked for a pause: the worker finishes the page and the commit in progress and ends before the next one. */
   private pauseAsked = false;
@@ -451,7 +410,7 @@ export class KnowledgeProduct {
       mkdirSync(root, { recursive: true });
       let seq = snapshotNumbers(root).pop();
       let created = false;
-      if (seq === undefined && this.worker === undefined && existsSync(this.graphPath())) {
+      if (seq === undefined && this.fillRun === undefined && existsSync(this.graphPath())) {
         const temporary = join(root, '1.tmp');
         rmSync(temporary, { recursive: true, force: true });
         cpSync(this.graphPath(), temporary, { recursive: true });
@@ -632,7 +591,7 @@ export class KnowledgeProduct {
    * have ended, closes and removes the old one. A request is never held up by this: the open runs while the old
    * snapshot answers.
    */
-  private swapReader(seq: number, pins: readonly RepositoryPin[]): Promise<void> {
+  private swapReader(seq: number, pins: readonly RepositoryPin[] | undefined): Promise<void> {
     const work = this.swapping.then(async () => {
       if (this.closed) return;
       await this.open();
@@ -648,8 +607,10 @@ export class KnowledgeProduct {
       } catch(error) {await owner.close().catch(()=>undefined);throw error;}
       this.reader = { owner, seq, path };
       // What the repositories were filled to is applied with the snapshot it belongs to: a source is read at the commit
-      // the graph it is shown beside was filled from.
-      this.replacePins(pins);
+      // the graph it is shown beside was filled from. A caller that names no pins takes the snapshot's own
+      // (`knowledge_fill`, which the fill wrote before the snapshot was made).
+      if (pins === undefined) await this.loadPins(owner);
+      else this.replacePins(pins);
       setTimeout(() => {
         void held.owner.close().catch(() => undefined).finally(() => rmSync(held.path, { recursive: true, force: true }));
       }, SNAPSHOT_KEEP_MS).unref();
@@ -715,8 +676,9 @@ export class KnowledgeProduct {
     // A run that is being stopped is on its way out: it stands at no page boundary to be taken up from.
     if (this.stopAsked) return { ok: false, status: 409, message: 'this run is being stopped: there is nothing to pause' };
     if (this.running === undefined) return { ok: false, status: 409, message: 'no fill of this product is running: there is nothing to pause' };
-    this.pauseAsked = true;
-    this.worker?.send({ type: 'pause' });
+    const paused = await this.fillRun?.control('pause');
+    if (paused === undefined || !paused.ok) return { ok: false, status: 409, message: paused?.message ?? 'no fill of this product is running: there is nothing to pause' };
+    this.fill = { ...this.fill, state: 'paused' };
     this.notify();
     return { ok: true, fill: this.fill, writer: this.writer };
   }
@@ -755,14 +717,8 @@ export class KnowledgeProduct {
     // Stop overrides Pause everywhere: a pause pressed before this confirmation is not replayed and leaves nothing to resume.
     this.pauseAsked = false;
     this.pausedRun = undefined;
-    const worker = this.worker;
-    const running = this.running;
-    worker?.send({ type: 'stop' });
-    if (worker !== undefined) {
-      const killer = setTimeout(() => worker.kill(), STOP_GRACE_MS);
-      killer.unref?.();
-      void running?.then(() => clearTimeout(killer), () => clearTimeout(killer));
-    }
+    const stopped = await this.fillRun?.control('stop');
+    if (stopped === undefined || !stopped.ok) return { ok: false, status: 409, message: stopped?.message ?? 'no fill of this product is running: there is nothing to stop' };
     this.notify();
     return { ok: true, fill: this.fill, writer: this.writer };
   }
@@ -947,314 +903,55 @@ export class KnowledgeProduct {
     };
     this.pausedRun = undefined;
     this.notify();
-    this.running = this.runJob(product, repositories, { language: wanted, languageChanged, languageFrom: this.currentRun.languageFrom, editorialRequestsPerPage, ...(task === undefined ? {} : { task }), ...(taskPages === undefined ? {} : { taskPages }), ...(resume === undefined ? {} : { resume }) }).finally(() => {
-      // A fill that did not reach its end leaves the agent stage unstarted, not waiting for ever. A run a person
-      // stopped leaves it stopped, so the block says «Остановлено» and not «Ждёт» for a stage that never began.
-      if (this.writer.state === 'waiting') this.writer = { ...this.writer, state: this.stopAsked ? 'stopped' : 'idle' };
+    this.running = this.runOrchestratedFill(product, repositories).finally(() => {
       // The mark goes only when the run is over, after its result is recorded: a restart before this point has no list.
       this.clearActiveFill();
       this.running = undefined;
-      this.worker = undefined;
+      this.fillRun = undefined;
     });
     return { started: true, fill: this.fill };
   }
 
   /**
-   * One fill: a worker process reads the repositories into the primary store and, when an agent is chosen, runs the
-   * writer's work; this method hears the worker and keeps the fill's and the writer's state, the pins and the reader.
+   * One fill of the product's knowledge store, through the one orchestrator (decision 0033, item 1): the static
+   * stages the product's workflow names are driven into `<store>/graph`, a snapshot is made for the reader, and the
+   * pages read the graph this path published. It runs no model and writes no page: a page is an agent's work and a
+   * later stage's, and nothing of the old loop is carried over.
    */
-  private async runJob(product: ProductIdentity, repositories: readonly { name: string; path: string }[], run: { language: string; languageChanged: boolean; languageFrom: string; editorialRequestsPerPage: number; task?: string; taskPages?: readonly string[]; resume?: { plan: RefreshPlan; completedPages: readonly string[] } }): Promise<void> {
-    const failFill = (message: string, code: string): void => {
-      this.fill = { state: 'failed', startedAt: this.fill.startedAt, finishedAt: (this.options.now?.() ?? new Date()).toISOString(), message, code };
-      this.notify();
-    };
+  private async runOrchestratedFill(product: ProductIdentity, repositories: readonly { readonly name: string; readonly path: string }[]): Promise<void> {
+    void repositories;
+    const startedAt = (this.options.now?.() ?? new Date()).toISOString();
+    const runId = `fill-${startedAt.replace(/[-:.]/gu, '').replace(/Z$/u, 'Z')}`;
+    let run: KnowledgeFillRun;
     try {
-      await this.open();
+      run = await startKnowledgeFill({ productFolder: product.folder, storeFolder: this.storeFolder(), runId });
     } catch (error) {
-      failFill(`the product's graph store could not be opened: ${error instanceof Error ? error.message : String(error)}`, 'store');
-      return;
-    }
-    // The line this run's changes are counted from: the last publication the reader holds before the worker writes.
-    // A graph with none is a first fill, which writes every page the product has.
-    let publishedBefore: string | null | undefined;
-    try {
-      publishedBefore = await this.lastPublishedAt();
-    } catch (error) {
-      this.options.errorLog?.(`the knowledge wiki could not read when the graph of ${this.storeFolder()} last published, so this run's changed pages are not listed: ${error instanceof Error ? error.message : String(error)}`);
-    }
-    // A wiki that began shutting down while its store opened starts no worker.
-    if (this.closed) {
-      this.fill = { state: 'idle', message: 'the wiki shut down before the fill started' };
+      this.fill = { state: 'failed', startedAt: this.fill.startedAt, finishedAt: (this.options.now?.() ?? new Date()).toISOString(), message: error instanceof Error ? error.message : String(error), code: 'store' };
       this.notify();
       return;
     }
-    let worker: FillWorkerHandle;
-    try {
-      worker = (this.options.workerFactory ?? spawnFillWorker)();
-    } catch (error) {
-      failFill(`the fill worker could not be started: ${error instanceof Error ? error.message : String(error)}`, 'worker-start');
+    this.fillRun = run;
+    const result = await run.done;
+    if (!result.ok) {
+      this.fill = { state: 'failed', startedAt: this.fill.startedAt, finishedAt: (this.options.now?.() ?? new Date()).toISOString(), ...(result.message === undefined ? {} : { message: result.message }), code: 'fill' };
+      this.notify();
       return;
     }
-    this.worker = worker;
-    const start: WorkerStart = {
-      type: 'start',
-      productFolder: product.folder,
-      productName: product.name,
-      graphPath: this.graphPath(),
-      readRoot: this.readRoot(),
-      repositories: repositories.map((repo) => ({ name: repo.name, path: repo.path })),
-      writer: this.writer.agent !== null,
-      ...(this.writer.agent === null ? {} : { roles: this.modelRoles() }),
-      editorialRequestsPerPage: run.editorialRequestsPerPage,
-      language: run.language,
-      languageChanged: run.languageChanged,
-      languageFrom: run.languageFrom,
-      ...(run.task === undefined ? {} : { task: run.task }),
-      ...(run.taskPages === undefined ? {} : { taskPages: [...run.taskPages] }),
-      ...(run.resume === undefined ? {} : { resume: { plan: run.resume.plan, completedPages: [...run.resume.completedPages] } }),
-      snapshotMs: this.options.snapshotMs ?? 8_000,
-    };
-    worker.send(start);
-    // A person may have pressed before this worker existed (while the store was opening): the intent is replayed right
-    // after `start`, before the worker reads anything, and a stop suppresses the pause it overrode (madarch-m38l.17).
-    if (this.stopAsked) worker.send({ type: 'stop' });
-    else if (this.pauseAsked) worker.send({ type: 'pause' });
-    const calls = new Map<number, (value: { answer: ToolAnswer; finished: boolean }) => void>();
-    let callIds = 0;
-    const finishedUnits = new Map<string, boolean>();
-    let workerGone = false;
-    const unitsRunning: Promise<void>[] = [];
-    let agent: (UnitAgent & { close(): Promise<void> }) | undefined;
-    const setUnit = (unit: string, change: Partial<WriterUnit>): void => {
-      this.writer = { ...this.writer, units: this.writer.units.map((held) => (held.unit === unit ? { ...held, ...change } : held)) };
-    };
-    const now = (): string => (this.options.now?.() ?? new Date()).toISOString();
-    const heard = async (message: FromWorker): Promise<void> => {
-      switch (message.type) {
-        case 'rebuild':
-          this.fill = {...this.fill, rebuilt: message.reason}; this.notify(); return;
-        case 'progress':
-          this.fill = { ...this.fill, repository: message.repository, commit: message.commit, commits: message.commits };
-          this.notify();
-          return;
-        case 'phase':
-          this.fill = { ...this.fill, repository: message.repository, phase: message.phase, commits: message.commits, newCommits: message.newCommits };
-          this.notify();
-          return;
-        case 'snapshot':
-          // Not waited for: the worker's tool calls go on while the snapshot is opened beside the one in use.
-          this.swapReader(message.seq, message.pins).catch((error: unknown) => {
-            // The reads stay on the snapshot they had; the next snapshot tries again.
-            this.options.errorLog?.(`the knowledge wiki could not read the snapshot ${message.seq} of ${this.readRoot()}: ${error instanceof Error ? error.message : String(error)}`);
-          }).finally(() => this.notify());
-          return;
-        case 'fill':
-          // The end of the fill is shown once the last snapshot is being read: a page opened at "done" shows everything.
-          await this.swapping.catch(() => undefined);
-          if (message.state === 'done') {
-            this.fill = { state: 'done', startedAt: this.fill.startedAt, finishedAt: now(), gaps: message.gaps, ...(this.fill.rebuilt === undefined ? {} : {rebuilt:this.fill.rebuilt}) };
-            // The rules and the judge read the snapshot as soon as the fill ends (madarch-mwhd.1 finding 6): a reader who
-            // opens the settings page afterwards sees what was decided, not a page that has to start the work itself.
-            void this.graphVerdicts({ force: true }).catch((error: unknown) => {
-              this.options.errorLog?.(`the knowledge wiki could not validate the graph after the fill: ${error instanceof Error ? error.message : String(error)}`);
-            });
-          } else if (message.state === 'stopped' && this.stopAsked) {
-            // A person's stop: the run ended where the worker was, and the pages it rewrote stay. It wins over a pause
-            // that was pressed before it, even if the worker's message still calls the end a pause (madarch-m38l.17).
-            this.fill = { ...this.fill, state: 'stopped', finishedAt: now() };
-            this.pausedRun = undefined;
-            this.clearPause();
-          } else if (message.state === 'stopped' && message.paused === true) {
-            // A person's pause: the fill ended before the commit it stood at, and the next fill reads it. The agent stage,
-            // which never began, is paused with it, so the block says «На паузе» and «Продолжить» takes it up.
-            this.fill = { ...this.fill, state: 'paused', finishedAt: undefined, message: undefined };
-            if (this.writer.state === 'waiting') this.writer = { ...this.writer, state: 'paused' };
-            await this.recordPause();
-          } else if (message.state === 'stopped') this.fill = { state: 'idle', message: 'the fill was stopped; it resumes where it stopped' };
-          else this.fill = { state: 'failed', startedAt: this.fill.startedAt, finishedAt: now(), message: message.message, ...(message.code === undefined ? {} : { code: message.code }) };
-          this.notify();
-          return;
-        case 'agent-wanted': {
-          const chosen = this.writer.agent;
-          if (chosen === null) { worker.send({ type: 'agent-failed', message: 'no agent was chosen for this press' }); return; }
-          const preferences = this.chosenAgent();
-          const journal = fileJournal(journalFolder(this.storeFolder()), newRunId(this.options.now?.()));
-          const built = this.options.agentFactory === undefined
-            ? makeUnitAgent(chosen.id, this.env, (line) => this.options.errorLog?.(`the agent ${chosen.id}: ${line}`), preferences === null ? undefined : { ...(preferences.model === undefined ? {} : { model: preferences.model }), ...(preferences.reasoning === undefined ? {} : { reasoning: preferences.reasoning }) }, journal)
-            : this.options.agentFactory(chosen.id, journal);
-          if ('error' in built) { worker.send({ type: 'agent-failed', message: built.error }); return; }
-          // A unit never starts once the wiki is shutting down, even if the agent was closed before its connection opened.
-          const made: UnitAgent & { close(): Promise<void> } = {
-            run: async (request) => {
-              if (this.stopping) throw new Error('the wiki is shutting down; this unit did not start');
-              return await built.run(request);
-            },
-            ...(built.warnings === undefined ? {} : { warnings: () => built.warnings!() }),
-            close: () => built.close(),
-          };
-          this.writerAgent = made;
-          agent = made;
-          let slug: string;
-          try {
-            slug = productSlug(product.name);
-          } catch (error) {
-            await made.close();
-            this.writerAgent = undefined;
-            worker.send({ type: 'agent-failed', message: error instanceof Error ? error.message : String(error) });
-            return;
-          }
-          // A resumed run keeps the pages it had already published and its plan: the agent stage takes up the remaining
-          // work rather than showing a fresh product unit and forgetting what the pause held (madarch-m38l.17).
-          const resumed = this.currentRun?.resumed === true && this.writer.units.length > 0;
-          this.writer = resumed
-            ? { ...this.writer, state: 'running', agent: chosen, units: this.writer.units, startedAt: this.writer.startedAt ?? now() }
-            : { state: 'running', agent: chosen, units: [{ unit: `product:${slug}`, path: PRODUCT_PATH, state: 'waiting' }], startedAt: now(), ...(this.writer.plan === undefined ? {} : { plan: this.writer.plan }) };
-          this.notify();
-          worker.send({ type: 'agent-ready' });
-          return;
-        }
-        case 'plan':
-          // Which pages the refresh touches and why, shown before the agent starts.
-          this.writer = { ...this.writer, plan: message.plan };
-          this.notify();
-          return;
-        case 'writer-total':
-          // How many pages this run means to write in total, so the badge counts down from a real end (madarch-m38l.23).
-          // A total below the pages already announced would read «12 of 10» and draw a bar past its end: the pages that
-          // stand are written, so the total covers them even if a count arrives short.
-          this.writer = { ...this.writer, total: Math.max(message.total, this.writer.units.length) };
-          this.notify();
-          return;
-        case 'unit-start':
-          if (!this.writer.units.some((unit) => unit.unit === message.unit)) this.writer = { ...this.writer, units: [...this.writer.units, { unit: message.unit, path: message.path, state: 'writing' }] };
-          else setUnit(message.unit, { state: 'writing' });
-          this.writer = { ...this.writer, current: message.unit };
-          this.notify();
-          return;
-        case 'unit': {
-          // The agent runs here, in the server; each tool call of the unit is answered by the worker, which holds the graph.
-          const tools: ToolClient = {
-            definitions: message.definitions,
-            call: (name, args) => new Promise((resolve) => {
-              if (workerGone) { resolve({ isError: true, answer: { error: 'worker-gone', message: 'the fill worker has ended; nothing more is answered for this unit' } } as never); return; }
-              const callId = (callIds += 1);
-              calls.set(callId, (value) => { finishedUnits.set(message.id, value.finished); resolve(value.answer as never); });
-              worker.send({ type: 'tool', callId, unit: message.id, name, args });
-            }),
-            finished: () => finishedUnits.get(message.id) === true,
-          };
-          const running = (agent ?? (() => { throw new Error('src/knowledge/product.ts: a unit was asked before the agent was ready'); })()).run({ id: message.id, prompt: message.prompt, tools }).then(
-            () => worker.send({ type: 'unit-end', id: message.id }),
-            (error: unknown) => worker.send({ type: 'unit-end', id: message.id, error: error instanceof Error ? error.message : String(error) }),
-          );
-          unitsRunning.push(running);
-          return;
-        }
-        case 'tool-result':
-          calls.get(message.callId)?.({ answer: message.answer as ToolAnswer, finished: message.finished });
-          calls.delete(message.callId);
-          return;
-        case 'unit-outcome': {
-          const outcome = message.outcome;
-          setUnit(outcome.unit, { state: outcome.status === 'written' ? 'written' : outcome.status === 'failed' ? 'failed' : 'not-written', writeAttempts: outcome.writeAttempts, calls: outcome.calls, refusals: outcome.refusals });
-          if (outcome.status === 'written' && outcome.unit.startsWith('product:') && outcome.domains.length > 0) {
-            this.writer = { ...this.writer, units: [...this.writer.units, ...outcome.domains.map((domain): WriterUnit => ({ unit: `domain:${domain.slug}`, kind: 'domain', title: domain.title, page: `domain:${domain.slug}`, path: `docs/domains/${domain.slug}.md`, state: 'waiting' }))] };
-          }
-          this.notify();
-          return;
-        }
-        case 'page':
-          this.notify();
-          return;
-        case 'writer':
-          await this.swapping.catch(() => undefined);
-          switch (message.state) {
-            case 'paused':
-            case 'stopped': {
-              // A person's pause or stop: the page in progress was finished (a pause) or left as it was (a stop). No page
-              // is called unwritten here, because nothing failed: the run ended where the person asked it to end. Stop
-              // dominates: a pause that arrives after the confirmation is read as the stop it was pressed into.
-              const stopped = message.state === 'stopped' || this.stopAsked;
-              this.writer = { ...this.writer, state: stopped ? 'stopped' : 'paused', current: undefined, ...(message.message === undefined ? {} : { message: message.message }), ...(stopped ? { finishedAt: now() } : {}) };
-              if (stopped) {
-                this.pausedRun = undefined;
-                if (this.stopAsked || message.state === 'stopped') this.fill = { ...this.fill, state: 'stopped', ...(this.fill.finishedAt === undefined ? { finishedAt: now() } : {}) };
-                this.clearPause();
-              } else await this.recordPause();
-              this.notify();
-              return;
-            }
-            case 'done':
-              try {
-                await writeFile(join(this.storeFolder(), 'pages-language.json'), `${JSON.stringify({ language: run.language })}\n`, 'utf8');
-              } catch (error) {
-                this.options.errorLog?.(`the knowledge wiki could not record the language of the pages in ${this.storeFolder()}: ${error instanceof Error ? error.message : String(error)}`);
-              }
-              this.writer = { ...this.writer, state: 'done', current: undefined, finishedAt: now(), asked: message.asked, ...(message.message === undefined ? {} : { message: message.message }) };
-              this.notify();
-              return;
-            case 'failed': {
-              this.writer = { ...this.writer, state: 'failed', current: undefined, finishedAt: now(), asked: message.asked, message: message.message, ...(message.code === undefined ? {} : { code: message.code }) };
-              // A writer that ended without every page says which units it left unwritten, with the reason each ended on,
-              // on the process's error stream: the page a reader watches names the first problem, and this is the whole of it.
-              const unwritten = this.writer.units.filter((unit) => unit.state !== 'written')
-                .map((unit) => `${unit.unit}=${unit.state}${unit.refusals === undefined || unit.refusals.length === 0 ? '' : ` (${unit.refusals[0]!.rule} at line ${unit.refusals[0]!.line}: ${unit.refusals[0]!.message.slice(0, 400)})`}`);
-              process.stderr.write(`knowledge writer failed: ${message.code ?? 'units'}; unwritten: ${unwritten.join('; ') || 'no unit is unwritten, so the failure is the index or the questions'}; ${message.message}\n`);
-              this.notify();
-              return;
-            }
-          }
-        case 'log':
-          // A line the worker could not put on a page — a document it could not read, a kind the documents lack — goes to
-          // the host's log, where a person serving the product reads it.
-          this.options.errorLog?.(message.line);
-          return;
-      }
-    };
-    try {
-      for await (const line of worker.lines) {
-        let message: FromWorker;
-        try {
-          message = parseMessage<FromWorker>(line, 'the fill worker');
-        } catch (error) {
-          this.options.errorLog?.(error instanceof Error ? error.message : String(error));
-          continue;
-        }
-        await heard(message);
-      }
-    } catch (error) {
-      this.options.errorLog?.(`the knowledge wiki lost the fill worker's output: ${error instanceof Error ? error.message : String(error)}`);
+    if (result.snapshot !== undefined) {
+      // The snapshot carries the store's own pins (the `knowledge_fill` rows the run wrote), so the reader reads the
+      // commits its graph was filled from beside the graph itself.
+      await this.swapReader(result.snapshot, undefined).catch((error: unknown) => {
+        this.options.errorLog?.(`the knowledge wiki could not read the snapshot ${result.snapshot} of ${this.readRoot()}: ${error instanceof Error ? error.message : String(error)}`);
+      });
     }
-    // The worker's output has ended: a tool call still waiting for its answer never gets one, and the unit that made it
-    // is answered with an error so its agent can end.
-    workerGone = true;
-    for (const [callId, answer] of [...calls]) {
-      calls.delete(callId);
-      answer({ answer: { isError: true, answer: { error: 'worker-gone', message: 'the fill worker has ended; nothing more is answered for this unit' } } as unknown as ToolAnswer, finished: true });
-    }
-    const code = await worker.exited;
-    await Promise.allSettled(unitsRunning);
-    await this.writerAgent?.close().catch(() => undefined);
-    this.writerAgent = undefined;
-    if (this.fill.state === 'done') {
-      try {
-        await writeFile(join(this.storeFolder(), 'last-fill.json'), `${JSON.stringify({ startedAt: this.fill.startedAt ?? null, finishedAt: this.fill.finishedAt ?? now() })}\n`, 'utf8');
-      } catch (error) {
-        this.options.errorLog?.(`the knowledge wiki could not record when the fill ended in ${this.storeFolder()}: ${error instanceof Error ? error.message : String(error)}`);
-      }
-    }
-    if (this.fill.state === 'running') {
-      // A worker a person stopped ended where it was told to: that is the stop, not a failure of the fill.
-      if (this.stopAsked) this.fill = { ...this.fill, state: 'stopped', finishedAt: now() };
-      else failFill(`the fill worker ended with exit code ${code} before the fill was done: ${worker.stderr().trim().split('\n').slice(-6).join(' | ') || 'it said nothing on standard error'}`, 'worker-exit');
-    }
-    if (this.writer.state === 'running') {
-      this.writer = this.stopAsked
-        ? { ...this.writer, state: 'stopped', current: undefined, finishedAt: now() }
-        : { ...this.writer, state: 'failed', current: undefined, finishedAt: now(), code: 'worker-exit', message: `the fill worker ended with exit code ${code} while the agent was writing: ${worker.stderr().trim().split('\n').slice(-6).join(' | ') || 'it said nothing on standard error'}` };
-      this.notify();
-    }
-    await this.recordChangedPages(publishedBefore);
+    this.fill = { state: 'done', startedAt: this.fill.startedAt, finishedAt: (this.options.now?.() ?? new Date()).toISOString(), gaps: 0 };
+    this.notify();
+    this.lastUse = Date.now();
+    // The rules and the judge read the snapshot as soon as the fill ends (madarch-mwhd.1 finding 6): a reader who
+    // opens the settings page afterwards sees what was decided, not a page that has to start the work itself.
+    void this.graphVerdicts({ force: true }).catch((error: unknown) => {
+      this.options.errorLog?.(`the knowledge wiki could not validate the graph after the fill: ${error instanceof Error ? error.message : String(error)}`);
+    });
   }
 
   // ---- what a run changed -------------------------------------------------------------------
@@ -3496,20 +3193,8 @@ export class KnowledgeProduct {
     this.stopping = true;
     if (this.idleTimer !== undefined) clearInterval(this.idleTimer);
     await this.writerAgent?.close().catch(() => undefined);
-    const worker = this.worker;
-    if (worker !== undefined) {
-      worker.send({ type: 'stop' });
-      const killer = setTimeout(() => worker.kill(), STOP_GRACE_MS);
-      try {
-        await this.running;
-      } catch {
-        // a failed fill has already said so
-      } finally {
-        clearTimeout(killer);
-      }
-    } else {
-      await this.running?.catch(() => undefined);
-    }
+    await this.fillRun?.control('stop').catch(() => undefined);
+    await this.running?.catch(() => undefined);
     await this.opening?.catch(() => undefined);
     await this.swapping.catch(() => undefined);
     this.listeners.clear();
@@ -3522,6 +3207,18 @@ export class KnowledgeProduct {
   }
 }
 
+/** What a repository was filled to: kept in the primary store (`knowledge_fill`) and applied with the snapshot it belongs to. */
+export interface RepositoryPin {
+  name: string;
+  scope: string;
+  head: string;
+  /** The commit the graph holds for the repository, and the effective time it was read at. */
+  commit: string;
+  effectiveTime: string;
+  commits: number;
+  filledCommits: number;
+}
+
 /** The folder a products home keeps its knowledge stores in. */
 export function defaultKnowledgeRoot(home: string): string {
   return join(home, '.madarch', 'knowledge');
@@ -3531,7 +3228,7 @@ export function defaultKnowledgeRoot(home: string): string {
 export class KnowledgeHost {
   private readonly products = new Map<string, KnowledgeProduct>();
 
-  constructor(private readonly storeRoot: string, private readonly now?: () => Date, private readonly extra: Pick<KnowledgeProductOptions, 'env' | 'agentFactory' | 'errorLog' | 'workerFactory' | 'snapshotMs' | 'choicesQuery' | 'guideContextFor' | 'guideHostFor'> = {}) {}
+  constructor(private readonly storeRoot: string, private readonly now?: () => Date, private readonly extra: Pick<KnowledgeProductOptions, 'env' | 'agentFactory' | 'errorLog' | 'snapshotMs' | 'choicesQuery' | 'guideContextFor' | 'guideHostFor'> = {}) {}
 
   of(productFolder: string): KnowledgeProduct {
     const key = resolve(productFolder);

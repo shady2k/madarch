@@ -37,9 +37,10 @@ import {
 } from './lifecycle.js';
 import { readProduct } from './manifest.js';
 import { runGit } from './git.js';
-import { startFill, type StartFillOptions } from './fill.js';
 import { createStagesFill } from './fill-stages.js';
 import { productsHome, type DraftEnv } from './draft.js';
+import { MANIFEST_FILE } from './manifest.js';
+import { startKnowledgeFill } from '../knowledge/fill-run.js';
 import { createPGliteDatabaseOwner } from '../adapters/database-owner.js';
 import { countPublishedFactsByKind } from '../fill/fact-store.js';
 import { createFillOrchestratorService, fillDatabasePath, type FillOrchestratorService, type FillRunResult } from '../fill/orchestrator-host.js';
@@ -259,12 +260,14 @@ export const COMMANDS: Record<string, CommandSpec> = {
   // the environment the ACP session passed it — so it is listed here for the parser and in no help text.
   'mcp-unit': { positionals: [], flags: { home: false, product: false, port: false, open: false, branch: false, yes: false } },
   'knowledge-read-worker': { positionals: [], flags: { home: false, product: false, port: false, open: false, branch: false, yes: false } },
-  'knowledge-fill-worker': { positionals: [], flags: { home: false, product: false, port: false, open: false, branch: false, yes: false } },
   'knowledge-render-worker': { positionals: [], flags: { home: false, product: false, port: false, open: false, branch: false, yes: false } },
   // The deterministic fill (decision 0026's stages 0 to 7, started by madarch-tzte.21.8): it runs
   // the eight stages over one product and prints what the graph holds afterwards. It serves nothing
   // and takes no agent, so it carries no port and no open.
   'fill-stages': { positionals: [], flags: { home: true, product: true, port: false, open: false, branch: false, yes: false, run: true, workers: true } },
+  // One product's knowledge store, filled by the one orchestrator (decision 0033, item 1): the same fill the
+  // wiki's button starts, over the store the wiki reads. It serves nothing and takes no agent.
+  fill: { positionals: [], flags: { home: true, product: true, port: false, open: false, branch: false, yes: false, workers: true } },
   demo: { positionals: [], flags: { home: true, product: false, port: true, open: true, branch: false, yes: false, host: true } },
   init: { positionals: [], flags: { home: true, product: false, port: true, open: true, branch: false, yes: false } },
   new: { positionals: [], flags: { home: true, product: false, port: true, open: true, branch: false, yes: false } },
@@ -567,7 +570,6 @@ async function askRepoMode(): Promise<RepoConnectMode> {
 }
 
 export async function main(args: readonly string[], deps: CliDeps = {}): Promise<number> {
-  if (args[0] === 'fill') return fillCommand(args.slice(1));
   // The MCP server is a program of its own that happens to be reached through this command: it reads its own flags
   // (`--repo`, `--store`, `--journal`) and must start even in a folder that is no product, so it is dispatched before
   // the command table is consulted.
@@ -601,7 +603,7 @@ export async function main(args: readonly string[], deps: CliDeps = {}): Promise
   }
 
   const spec = COMMANDS[command]!;
-  if (args.slice(1).includes('--json') && !['new', 'init', 'list', 'fill-stages'].includes(command)) {
+  if (args.slice(1).includes('--json') && !['new', 'init', 'list', 'fill', 'fill-stages'].includes(command)) {
     console.error(`unknown option "--json" for ${command}: machine-readable output is not supported by this command`);
     console.error('run madarch --help for help');
     return 2;
@@ -636,15 +638,7 @@ export async function main(args: readonly string[], deps: CliDeps = {}): Promise
     await new Promise<void>((done) => { process.stdout.write('', () => done()); });
     process.exit(code);
   }
-  if (command === 'knowledge-fill-worker') {
-    // The knowledge wiki's fill, in a process of its own (madarch-m38l.4): messages are lines on standard input and output.
-    const { runFillWorker } = await import('../knowledge/fill-worker.js');
-    const { standardInputLines } = await import('../knowledge/lines.js');
-    const code = await runFillWorker({ lines: standardInputLines(), send: (message) => { process.stdout.write(`${JSON.stringify(message)}\n`); } });
-    // The pipe from the server is still open for reading; the worker is over.
-    await new Promise<void>((done) => { process.stdout.write('', () => done()); });
-    process.exit(code);
-  }
+  if (command === 'fill') return await fillCommand(parsed, home, args.slice(1));
   if (command === 'fill-stages') return await fillStagesCommand(parsed, home);
   if (command === 'init') {
     const result = initLife({ cwd: process.cwd(), home });
@@ -791,25 +785,59 @@ function reportFillStages(product: { readonly name: string; readonly folder: str
  * nothing: it stops at the initialize handshake, and names what a missing
  * adapter would be installed with.
  */
-async function fillCommand(args: readonly string[]): Promise<number> {
-  let agent: StartFillOptions['agent'] = 'claude'; let maxUnits = 60; let model=process.env.MADARCH_FILL_MODEL; let ompExtension=process.env.MADARCH_OMP_EXTENSION; let ompExecutable=process.env.MADARCH_OMP_EXECUTABLE; let json = false; let probe = false; const seen = new Set<string>();
-  for (let i=0;i<args.length;i++) { const arg=args[i]!; if (arg==='--json') { json=true; continue; } if (arg==='--probe-acp') { probe=true; continue; } if (arg==='--help'||arg==='-h') { console.log('usage: madarch fill [--agent claude|codex|omp] [--model NAME] [--omp-extension PATH] [--omp-executable PATH] [--max-units N] [--json] [--probe-acp]'); return 0; }
-    if (!['--agent','--max-units','--model','--omp-extension','--omp-executable'].includes(arg)) { console.error(`unknown fill option ${JSON.stringify(arg)}`); return 2; } if(seen.has(arg)){console.error(`repeated fill option ${arg}`);return 2;} seen.add(arg); const value=args[++i]; if(!value||value.startsWith('--')){console.error(`${arg} needs a value`);return 2;}
-    if(arg==='--agent'){if(value!=='claude'&&value!=='codex'&&value!=='omp'){console.error('--agent must be claude, codex, or omp');return 2;}agent=value;} else if(arg==='--model')model=value; else if(arg==='--omp-extension')ompExtension=value; else if(arg==='--omp-executable')ompExecutable=value; else {maxUnits=Number(value);if(!Number.isInteger(maxUnits)||maxUnits<1){console.error('--max-units must be a positive whole number');return 2;}}
+/**
+ * `madarch fill`: one product's knowledge store, filled by the one orchestrator (decision 0033, item 1). It is the
+ * same fill the wiki's button starts — the static stages the product's `madarch/workflows.yaml` names, over the store
+ * the wiki reads (`<home>/.madarch/knowledge/<product id>`) — and it writes no page: a page is an agent's work and a
+ * later stage's. `--probe-acp` reports the agents this machine speaks to, and fills nothing.
+ */
+async function fillCommand(parsed: Parsed, home: string | undefined, args: readonly string[]): Promise<number> {
+  let probe = false;
+  let json = parsed.json === true;
+  for (const arg of args) {
+    if (arg === '--probe-acp') { probe = true; continue; }
+    if (arg === '--json') { json = true; continue; }
+    if (arg === '--help' || arg === '-h') { console.log(FILL_USAGE); return 0; }
+    console.error(`${JSON.stringify(arg)} is no option of madarch fill: ${FILL_USAGE}`);
+    return 2;
   }
   if (probe) {
-    if (seen.size > 0) { console.error(`--probe-acp reports the agents on this machine and fills nothing: drop ${[...seen].join(', ')}`); return 2; }
     try {
-      // The ACP client and its protocol library are loaded only here: every
-      // other command starts without them.
+      // The ACP client and its protocol library are loaded only here: every other command starts without them.
       const acp = await import('../fill/acp-probe.js');
       const report = await acp.probeAcpAgents({ cwd: process.cwd() });
       console.log(json ? JSON.stringify(report) : acp.formatAcpProbe(report));
       return 0;
     } catch (error) { console.error((error as Error).message); return 1; }
   }
-  try { const result=await startFill(process.cwd(),{agent,maxUnits,model,ompExtension,ompExecutable}); if(json) console.log(JSON.stringify(result)); else { console.log(`Fill ${result.run.id}: ${result.run.status}`); console.log(`Units reused: ${result.counts.reused}; run: ${result.counts.run}; agent calls: ${result.agentCalls.used} of ${result.agentCalls.cap}`); console.log(`Branch: ${result.run.agentBranch}`); console.log(`Watch progress in the wiki with: madarch serve`); console.log('Next: review the proposed pages and their sources.'); } return 0; } catch(error) { console.error((error as Error).message); return 1; }
+  const folder = resolve(parsed.product ?? process.cwd());
+  const identity = readProduct(folder);
+  if (!identity.ok) { console.error(`${identity.file}:${identity.line}: ${identity.message}`); return 1; }
+  const resolvedHome = resolve(productsHome(process.env as DraftEnv, home));
+  const storeFolder = storeFolderOf(defaultKnowledgeRoot(resolvedHome), identity.product.id, join(folder, MANIFEST_FILE));
+  const runId = `fill-${new Date().toISOString().replace(/[-:.]/gu, '').replace(/Z$/u, 'Z')}`;
+  let run;
+  try {
+    run = await startKnowledgeFill({ productFolder: folder, storeFolder, runId, ...(parsed.workers === undefined ? {} : { workers: parsed.workers }) });
+  } catch (error) {
+    console.error((error as Error).message);
+    return 1;
+  }
+  const result = await run.done;
+  if (json) {
+    console.log(JSON.stringify({ product: { name: identity.product.name, folder }, runId, ...result }));
+    return result.ok ? 0 : 1;
+  }
+  console.log(`Fill ${runId}: ${result.state}`);
+  console.log(`Product: ${identity.product.name} in ${displayPath(folder)}`);
+  console.log(`Store: ${displayPath(storeFolder)}`);
+  console.log(`Units: ${String(result.units)}${result.snapshot === undefined ? '' : `, snapshot ${String(result.snapshot)}`}`);
+  if (!result.ok) { if (result.message !== undefined) console.error(result.message); return 1; }
+  console.log('Watch the pages with: madarch serve');
+  return 0;
 }
+
+const FILL_USAGE = 'usage: madarch fill [--product <folder>] [--home <folder>] [--workers <n>] [--json] [--probe-acp]';
 
 function displayPath(folder: string): string {
   const home = process.env.HOME;

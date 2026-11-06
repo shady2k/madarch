@@ -6,8 +6,8 @@ import {KnowledgeProduct} from '../src/knowledge/product.js';
 import {RemoteOwner} from '../src/knowledge/remote-owner.js';
 import {createPGliteDatabaseOwner,type DatabaseOwner} from '../src/adapters/database-owner.js';
 import {createGraphStore} from '../src/graph/index.js';
-import {takeSnapshot} from '../src/knowledge/fill-worker.js';
-import type {RepositoryPin} from '../src/knowledge/fill-protocol.js';
+import {takeSnapshot} from '../src/knowledge/fill-run.js';
+import type {RepositoryPin} from '../src/knowledge/product.js';
 /** Inspect the existing private activation boundary, without adding a product API just for a test. */
 type PinBoundary={reader:{owner:DatabaseOwner;seq:number;path:string};pins:Map<string,RepositoryPin>;open:()=>Promise<DatabaseOwner>;readRoot:()=>string;swapReader:(seq:number,pins:RepositoryPin[])=>Promise<void>;loadPins:(owner:DatabaseOwner)=>Promise<void>};
 const pin=(name:string,scope:string):RepositoryPin=>({name,scope,head:name,commit:name,effectiveTime:'2025-01-01T00:00:00Z',commits:1,filledCommits:1});
