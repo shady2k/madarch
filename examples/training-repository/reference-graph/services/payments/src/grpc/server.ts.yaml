@@ -137,6 +137,24 @@ nodes:
     reading: 'parsed'
 edges:
   - relation: 'code.calls'
+    from: 'code.symbol:services/payments/src/grpc/server.ts#paymentsHandlers'
+    to: 'code.symbol:services/payments/src/domain/payment-service.ts#PaymentService.pay'
+    evidence:
+      - path: 'services/payments/src/grpc/server.ts'
+        startLine: 41
+        endLine: 41
+        quote: '        const payment = await service.pay({'
+    reading: 'parsed'
+  - relation: 'code.calls'
+    from: 'code.symbol:services/payments/src/grpc/server.ts#paymentsHandlers'
+    to: 'code.symbol:services/payments/src/domain/payment-service.ts#PaymentService.refund'
+    evidence:
+      - path: 'services/payments/src/grpc/server.ts'
+        startLine: 57
+        endLine: 57
+        quote: '        const refund = await service.refund(request.paymentId, Number(request.amountCents), request.reason || undefined);'
+    reading: 'parsed'
+  - relation: 'code.calls'
     from: 'code.symbol:services/payments/src/grpc/server.ts#startGrpcServer'
     to: 'code.symbol:services/payments/src/grpc/server.ts#loadServiceDefinition'
     evidence:
@@ -355,4 +373,22 @@ edges:
         startLine: 4
         endLine: 4
         quote: 'import { logger } from ''../logging/logger'';'
+    reading: 'parsed'
+  - relation: 'code.uses-type'
+    from: 'code.symbol:services/payments/src/grpc/server.ts#paymentsHandlers'
+    to: 'code.symbol:services/payments/src/domain/payment-service.ts#PaymentService'
+    evidence:
+      - path: 'services/payments/src/grpc/server.ts'
+        startLine: 36
+        endLine: 36
+        quote: 'export function paymentsHandlers(service: PaymentService): grpc.UntypedServiceImplementation {'
+    reading: 'parsed'
+  - relation: 'code.uses-type'
+    from: 'code.symbol:services/payments/src/grpc/server.ts#startGrpcServer'
+    to: 'code.symbol:services/payments/src/domain/payment-service.ts#PaymentService'
+    evidence:
+      - path: 'services/payments/src/grpc/server.ts'
+        startLine: 74
+        endLine: 74
+        quote: 'export function startGrpcServer(service: PaymentService, port: number): Promise<grpc.Server> {'
     reading: 'parsed'

@@ -47,3 +47,12 @@ edges:
         endLine: 12
         quote: '  // orderId is a logical reference to the orders service. There is no relation'
     reading: 'judgement'
+  - relation: 'code.reads-env'
+    from: 'code.file:services/payments/prisma/schema.prisma'
+    to: 'code.env-var:DATABASE_URL'
+    evidence:
+      - path: 'services/payments/prisma/schema.prisma'
+        startLine: 7
+        endLine: 7
+        quote: '  url      = env("DATABASE_URL")'
+    reading: 'parsed'

@@ -273,6 +273,15 @@ edges:
         endLine: 72
         quote: '	strategy, err := discount.For(promotion.Kind, promotion.Value, promotion.MinCents)'
     reading: 'parsed'
+  - relation: 'code.calls'
+    from: 'code.symbol:services/promotions/internal/api/handler.go#Handler.apply'
+    to: 'code.symbol:services/promotions/internal/discount/strategy.go#Strategy.Discount'
+    evidence:
+      - path: 'services/promotions/internal/api/handler.go'
+        startLine: 78
+        endLine: 78
+        quote: '	cents := strategy.Discount(req.SubtotalCents)'
+    reading: 'parsed'
   - relation: 'code.contains'
     from: 'code.file:services/promotions/internal/api/handler.go'
     to: 'code.symbol:services/promotions/internal/api/handler.go#Handler'
@@ -317,6 +326,15 @@ edges:
         startLine: 17
         endLine: 17
         quote: 'type Promotions interface {'
+    reading: 'parsed'
+  - relation: 'code.contains'
+    from: 'code.file:services/promotions/internal/api/handler.go'
+    to: 'code.symbol:services/promotions/internal/api/handler.go#Promotions.FindActive'
+    evidence:
+      - path: 'services/promotions/internal/api/handler.go'
+        startLine: 18
+        endLine: 18
+        quote: '	FindActive(ctx context.Context, code string, now time.Time) (store.Promotion, error)'
     reading: 'parsed'
   - relation: 'code.contains'
     from: 'code.file:services/promotions/internal/api/handler.go'
@@ -488,4 +506,13 @@ edges:
         startLine: 29
         endLine: 29
         quote: 'func New(promotions Promotions, log *slog.Logger, now func() time.Time) *Handler {'
+    reading: 'parsed'
+  - relation: 'code.uses-type'
+    from: 'code.symbol:services/promotions/internal/api/handler.go#Promotions.FindActive'
+    to: 'code.symbol:services/promotions/internal/store/promotions.go#Promotion'
+    evidence:
+      - path: 'services/promotions/internal/api/handler.go'
+        startLine: 18
+        endLine: 18
+        quote: '	FindActive(ctx context.Context, code string, now time.Time) (store.Promotion, error)'
     reading: 'parsed'

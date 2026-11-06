@@ -238,3 +238,12 @@ edges:
         endLine: 1
         quote: 'import { Payment, PaymentStatus } from ''./payment'';'
     reading: 'parsed'
+  - relation: 'code.uses-type'
+    from: 'code.symbol:services/payments/src/domain/refund.ts#checkRefund'
+    to: 'code.symbol:services/payments/src/domain/payment.ts#Payment'
+    evidence:
+      - path: 'services/payments/src/domain/refund.ts'
+        startLine: 30
+        endLine: 30
+        quote: 'export function checkRefund(payment: Payment, amountCents: number, alreadyRefundedCents: number, now: Date): void {'
+    reading: 'parsed'

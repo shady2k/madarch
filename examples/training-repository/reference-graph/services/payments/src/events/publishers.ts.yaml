@@ -1,14 +1,5 @@
 path: 'services/payments/src/events/publishers.ts'
 nodes:
-  - id: 'code.field:services/payments/src/events/publishers.ts#EventSink.send'
-    kind: 'code.field'
-    label: 'EventSink.send'
-    evidence:
-      - path: 'services/payments/src/events/publishers.ts'
-        startLine: 11
-        endLine: 11
-        quote: '  send(topic: string, key: string, value: string): Promise<void>;'
-    reading: 'parsed'
   - id: 'code.field:services/payments/src/events/publishers.ts#KafkaEventSink.producer'
     kind: 'code.field'
     label: 'KafkaEventSink.producer'
@@ -35,6 +26,15 @@ nodes:
         startLine: 10
         endLine: 10
         quote: 'export interface EventSink {'
+    reading: 'parsed'
+  - id: 'code.symbol:services/payments/src/events/publishers.ts#EventSink.send'
+    kind: 'code.symbol'
+    label: 'EventSink.send'
+    evidence:
+      - path: 'services/payments/src/events/publishers.ts'
+        startLine: 11
+        endLine: 11
+        quote: '  send(topic: string, key: string, value: string): Promise<void>;'
     reading: 'parsed'
   - id: 'code.symbol:services/payments/src/events/publishers.ts#KafkaEventSink'
     kind: 'code.symbol'
@@ -118,6 +118,15 @@ edges:
         endLine: 21
         quote: '    return new KafkaEventSink(producer);'
     reading: 'parsed'
+  - relation: 'code.calls'
+    from: 'code.symbol:services/payments/src/events/publishers.ts#publishPaymentEvent'
+    to: 'code.symbol:services/payments/src/events/publishers.ts#EventSink.send'
+    evidence:
+      - path: 'services/payments/src/events/publishers.ts'
+        startLine: 46
+        endLine: 46
+        quote: '  await sink.send(PAYMENTS_TOPIC, payment.orderId, JSON.stringify(body));'
+    reading: 'parsed'
   - relation: 'code.contains'
     from: 'code.file:services/payments/src/events/publishers.ts'
     to: 'code.symbol:services/payments/src/events/publishers.ts#EventSink'
@@ -165,7 +174,7 @@ edges:
     reading: 'parsed'
   - relation: 'code.contains'
     from: 'code.symbol:services/payments/src/events/publishers.ts#EventSink'
-    to: 'code.field:services/payments/src/events/publishers.ts#EventSink.send'
+    to: 'code.symbol:services/payments/src/events/publishers.ts#EventSink.send'
     evidence:
       - path: 'services/payments/src/events/publishers.ts'
         startLine: 11
@@ -261,4 +270,22 @@ edges:
         startLine: 46
         endLine: 46
         quote: '  await sink.send(PAYMENTS_TOPIC, payment.orderId, JSON.stringify(body));'
+    reading: 'parsed'
+  - relation: 'code.uses-type'
+    from: 'code.symbol:services/payments/src/events/publishers.ts#publishPaymentEvent'
+    to: 'code.symbol:services/payments/src/domain/payment.ts#Payment'
+    evidence:
+      - path: 'services/payments/src/events/publishers.ts'
+        startLine: 38
+        endLine: 38
+        quote: 'export async function publishPaymentEvent(sink: EventSink, type: PaymentEventType, payment: Payment): Promise<void> {'
+    reading: 'parsed'
+  - relation: 'code.uses-type'
+    from: 'code.symbol:services/payments/src/events/publishers.ts#publishPaymentEvent'
+    to: 'code.symbol:services/payments/src/events/publishers.ts#EventSink'
+    evidence:
+      - path: 'services/payments/src/events/publishers.ts'
+        startLine: 38
+        endLine: 38
+        quote: 'export async function publishPaymentEvent(sink: EventSink, type: PaymentEventType, payment: Payment): Promise<void> {'
     reading: 'parsed'

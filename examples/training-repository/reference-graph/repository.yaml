@@ -2247,10 +2247,10 @@ edges:
     from: 'code.service:orders'
     to: 'code.channel:orders.events'
     evidence:
-      - path: 'services/orders/internal/store/outbox.go'
-        startLine: 15
-        endLine: 15
-        quote: 'const OrdersTopic = "orders.events"'
+      - path: 'services/orders/internal/relay/relay.go'
+        startLine: 94
+        endLine: 94
+        quote: '		if err := r.publisher.Publish(ctx, p.topic, p.key, p.payload); err != nil {'
     reading: 'parsed'
   - relation: 'code.publishes'
     from: 'code.service:payments'

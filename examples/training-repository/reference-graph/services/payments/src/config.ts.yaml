@@ -163,3 +163,48 @@ edges:
         endLine: 13
         quote: '  paymentTimeoutMs: number;'
     reading: 'parsed'
+  - relation: 'code.reads-env'
+    from: 'code.file:services/payments/src/config.ts'
+    to: 'code.env-var:DATABASE_URL'
+    evidence:
+      - path: 'services/payments/src/config.ts'
+        startLine: 30
+        endLine: 30
+        quote: '  const databaseUrl = required(''DATABASE_URL'');'
+    reading: 'parsed'
+  - relation: 'code.reads-env'
+    from: 'code.file:services/payments/src/config.ts'
+    to: 'code.env-var:JWT_SECRET'
+    evidence:
+      - path: 'services/payments/src/config.ts'
+        startLine: 32
+        endLine: 32
+        quote: '  const jwtSecret = required(''JWT_SECRET'');'
+    reading: 'parsed'
+  - relation: 'code.reads-env'
+    from: 'code.file:services/payments/src/config.ts'
+    to: 'code.env-var:KAFKA_BROKERS'
+    evidence:
+      - path: 'services/payments/src/config.ts'
+        startLine: 31
+        endLine: 31
+        quote: '  const kafkaBrokers = required(''KAFKA_BROKERS'');'
+    reading: 'parsed'
+  - relation: 'code.reads-env'
+    from: 'code.file:services/payments/src/config.ts'
+    to: 'code.env-var:PAYMENT_PROVIDER'
+    evidence:
+      - path: 'services/payments/src/config.ts'
+        startLine: 43
+        endLine: 43
+        quote: '    paymentProvider: env.PAYMENT_PROVIDER ?? ''cardnet'','
+    reading: 'parsed'
+  - relation: 'code.reads-env'
+    from: 'code.file:services/payments/src/config.ts'
+    to: 'code.env-var:PAYMENT_TIMEOUT_MS'
+    evidence:
+      - path: 'services/payments/src/config.ts'
+        startLine: 38
+        endLine: 38
+        quote: '  const timeout = Number(env.PAYMENT_TIMEOUT_MS ?? DEFAULT_PAYMENT_TIMEOUT_MS);'
+    reading: 'parsed'

@@ -199,6 +199,33 @@ edges:
         endLine: 16
         quote: '	KafkaBrokers string'
     reading: 'parsed'
+  - relation: 'code.reads-env'
+    from: 'code.file:services/orders/internal/config/config.go'
+    to: 'code.env-var:DATABASE_URL'
+    evidence:
+      - path: 'services/orders/internal/config/config.go'
+        startLine: 47
+        endLine: 47
+        quote: '	cfg.DatabaseURL = require("DATABASE_URL")'
+    reading: 'parsed'
+  - relation: 'code.reads-env'
+    from: 'code.file:services/orders/internal/config/config.go'
+    to: 'code.env-var:JWT_SECRET'
+    evidence:
+      - path: 'services/orders/internal/config/config.go'
+        startLine: 49
+        endLine: 49
+        quote: '	cfg.JWTSecret = require("JWT_SECRET")'
+    reading: 'parsed'
+  - relation: 'code.reads-env'
+    from: 'code.file:services/orders/internal/config/config.go'
+    to: 'code.env-var:KAFKA_BROKERS'
+    evidence:
+      - path: 'services/orders/internal/config/config.go'
+        startLine: 48
+        endLine: 48
+        quote: '	cfg.KafkaBrokers = require("KAFKA_BROKERS")'
+    reading: 'parsed'
   - relation: 'code.uses-type'
     from: 'code.symbol:services/orders/internal/config/config.go#Load'
     to: 'code.symbol:services/orders/internal/config/config.go#Config'

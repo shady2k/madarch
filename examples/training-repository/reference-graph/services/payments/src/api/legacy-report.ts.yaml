@@ -2088,3 +2088,75 @@ edges:
         endLine: 224
         quote: '    '' LEFT JOIN (SELECT payment_id, SUM(amount_cents) AS refunded_cents FROM refunds GROUP BY payment_id) r'' +'
     reading: 'judgement'
+  - relation: 'code.uses-type'
+    from: 'code.symbol:services/payments/src/api/legacy-report.ts#cell'
+    to: 'code.symbol:services/payments/src/api/legacy-report.ts#ReportColumn'
+    evidence:
+      - path: 'services/payments/src/api/legacy-report.ts'
+        startLine: 131
+        endLine: 131
+        quote: 'function cell(column: ReportColumn, row: Row): string {'
+    reading: 'parsed'
+  - relation: 'code.uses-type'
+    from: 'code.symbol:services/payments/src/api/legacy-report.ts#limitClause'
+    to: 'code.symbol:services/payments/src/api/legacy-report.ts#ReportFilters'
+    evidence:
+      - path: 'services/payments/src/api/legacy-report.ts'
+        startLine: 203
+        endLine: 203
+        quote: 'function limitClause(filters: ReportFilters): string {'
+    reading: 'parsed'
+  - relation: 'code.uses-type'
+    from: 'code.symbol:services/payments/src/api/legacy-report.ts#orderBy'
+    to: 'code.symbol:services/payments/src/api/legacy-report.ts#ReportFilters'
+    evidence:
+      - path: 'services/payments/src/api/legacy-report.ts'
+        startLine: 196
+        endLine: 196
+        quote: 'function orderBy(filters: ReportFilters, allowed: string[], fallback: string): string {'
+    reading: 'parsed'
+  - relation: 'code.uses-type'
+    from: 'code.symbol:services/payments/src/api/legacy-report.ts#renderCsv'
+    to: 'code.symbol:services/payments/src/api/legacy-report.ts#ReportResult'
+    evidence:
+      - path: 'services/payments/src/api/legacy-report.ts'
+        startLine: 664
+        endLine: 664
+        quote: 'function renderCsv(report: ReportResult): string {'
+    reading: 'parsed'
+  - relation: 'code.uses-type'
+    from: 'code.symbol:services/payments/src/api/legacy-report.ts#renderHtml'
+    to: 'code.symbol:services/payments/src/api/legacy-report.ts#ReportResult'
+    evidence:
+      - path: 'services/payments/src/api/legacy-report.ts'
+        startLine: 678
+        endLine: 678
+        quote: 'function renderHtml(report: ReportResult): string {'
+    reading: 'parsed'
+  - relation: 'code.uses-type'
+    from: 'code.symbol:services/payments/src/api/legacy-report.ts#renderJson'
+    to: 'code.symbol:services/payments/src/api/legacy-report.ts#ReportResult'
+    evidence:
+      - path: 'services/payments/src/api/legacy-report.ts'
+        startLine: 649
+        endLine: 649
+        quote: 'function renderJson(report: ReportResult): string {'
+    reading: 'parsed'
+  - relation: 'code.uses-type'
+    from: 'code.symbol:services/payments/src/api/legacy-report.ts#renderXml'
+    to: 'code.symbol:services/payments/src/api/legacy-report.ts#ReportResult'
+    evidence:
+      - path: 'services/payments/src/api/legacy-report.ts'
+        startLine: 718
+        endLine: 718
+        quote: 'function renderXml(report: ReportResult): string {'
+    reading: 'parsed'
+  - relation: 'code.uses-type'
+    from: 'code.symbol:services/payments/src/api/legacy-report.ts#whereClause'
+    to: 'code.symbol:services/payments/src/api/legacy-report.ts#ReportFilters'
+    evidence:
+      - path: 'services/payments/src/api/legacy-report.ts'
+        startLine: 170
+        endLine: 170
+        quote: 'function whereClause(filters: ReportFilters, alias = ''p''): string {'
+    reading: 'parsed'

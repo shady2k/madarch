@@ -237,6 +237,15 @@ edges:
     reading: 'parsed'
   - relation: 'code.contains'
     from: 'code.file:services/orders/internal/relay/relay.go'
+    to: 'code.symbol:services/orders/internal/relay/relay.go#Publisher.Publish'
+    evidence:
+      - path: 'services/orders/internal/relay/relay.go'
+        startLine: 16
+        endLine: 16
+        quote: '	Publish(ctx context.Context, topic, key string, payload []byte) error'
+    reading: 'parsed'
+  - relation: 'code.contains'
+    from: 'code.file:services/orders/internal/relay/relay.go'
     to: 'code.symbol:services/orders/internal/relay/relay.go#Relay'
     evidence:
       - path: 'services/orders/internal/relay/relay.go'
@@ -288,6 +297,15 @@ edges:
         startLine: 106
         endLine: 106
         quote: 'type execer interface {'
+    reading: 'parsed'
+  - relation: 'code.contains'
+    from: 'code.file:services/orders/internal/relay/relay.go'
+    to: 'code.symbol:services/orders/internal/relay/relay.go#execer.ExecContext'
+    evidence:
+      - path: 'services/orders/internal/relay/relay.go'
+        startLine: 107
+        endLine: 107
+        quote: '	ExecContext(ctx context.Context, query string, args ...any) (sql.Result, error)'
     reading: 'parsed'
   - relation: 'code.contains'
     from: 'code.file:services/orders/internal/relay/relay.go'

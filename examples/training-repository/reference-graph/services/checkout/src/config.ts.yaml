@@ -118,3 +118,39 @@ edges:
         endLine: 5
         quote: '  promotionsUrl: string;'
     reading: 'parsed'
+  - relation: 'code.reads-env'
+    from: 'code.file:services/checkout/src/config.ts'
+    to: 'code.env-var:ORDERS_URL'
+    evidence:
+      - path: 'services/checkout/src/config.ts'
+        startLine: 15
+        endLine: 15
+        quote: '    ordersUrl: env.ORDERS_URL ?? ''http://localhost:8080'','
+    reading: 'parsed'
+  - relation: 'code.reads-env'
+    from: 'code.file:services/checkout/src/config.ts'
+    to: 'code.env-var:PAYMENTS_ADDR'
+    evidence:
+      - path: 'services/checkout/src/config.ts'
+        startLine: 17
+        endLine: 17
+        quote: '    paymentsAddr: env.PAYMENTS_ADDR ?? ''localhost:50051'','
+    reading: 'parsed'
+  - relation: 'code.reads-env'
+    from: 'code.file:services/checkout/src/config.ts'
+    to: 'code.env-var:PAYMENTS_DEADLINE_MS'
+    evidence:
+      - path: 'services/checkout/src/config.ts'
+        startLine: 18
+        endLine: 18
+        quote: '    paymentsDeadlineMs: Number(env.PAYMENTS_DEADLINE_MS ?? 8000),'
+    reading: 'parsed'
+  - relation: 'code.reads-env'
+    from: 'code.file:services/checkout/src/config.ts'
+    to: 'code.env-var:PROMOTIONS_URL'
+    evidence:
+      - path: 'services/checkout/src/config.ts'
+        startLine: 16
+        endLine: 16
+        quote: '    promotionsUrl: env.PROMOTIONS_URL ?? ''http://localhost:8082'','
+    reading: 'parsed'

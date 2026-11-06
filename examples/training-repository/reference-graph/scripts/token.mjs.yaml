@@ -100,12 +100,3 @@ edges:
         endLine: 11
         quote: 'const signature = createHmac(''sha256'', secret).update(`${header}.${payload}`).digest(''base64url'');'
     reading: 'parsed'
-  - relation: 'code.reads-env'
-    from: 'code.file:scripts/token.mjs'
-    to: 'code.env-var:JWT_SECRET'
-    evidence:
-      - path: 'scripts/token.mjs'
-        startLine: 5
-        endLine: 5
-        quote: 'const secret = process.env.JWT_SECRET ?? ''local-development-secret'';'
-    reading: 'parsed'

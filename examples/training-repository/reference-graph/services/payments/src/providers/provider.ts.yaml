@@ -63,15 +63,6 @@ nodes:
         endLine: 16
         quote: '  providerReference: string;'
     reading: 'parsed'
-  - id: 'code.field:services/payments/src/providers/provider.ts#PaymentProvider.charge'
-    kind: 'code.field'
-    label: 'PaymentProvider.charge'
-    evidence:
-      - path: 'services/payments/src/providers/provider.ts'
-        startLine: 38
-        endLine: 38
-        quote: '  charge(request: ChargeRequest): Promise<ChargeResult>;'
-    reading: 'parsed'
   - id: 'code.field:services/payments/src/providers/provider.ts#PaymentProvider.name'
     kind: 'code.field'
     label: 'PaymentProvider.name'
@@ -80,15 +71,6 @@ nodes:
         startLine: 37
         endLine: 37
         quote: '  readonly name: string;'
-    reading: 'parsed'
-  - id: 'code.field:services/payments/src/providers/provider.ts#PaymentProvider.refund'
-    kind: 'code.field'
-    label: 'PaymentProvider.refund'
-    evidence:
-      - path: 'services/payments/src/providers/provider.ts'
-        startLine: 39
-        endLine: 39
-        quote: '  refund(providerReference: string, amountCents: number): Promise<void>;'
     reading: 'parsed'
   - id: 'code.field:services/payments/src/providers/provider.ts#ProviderDeclinedError.reason'
     kind: 'code.field'
@@ -179,6 +161,24 @@ nodes:
         startLine: 36
         endLine: 36
         quote: 'export interface PaymentProvider {'
+    reading: 'parsed'
+  - id: 'code.symbol:services/payments/src/providers/provider.ts#PaymentProvider.charge'
+    kind: 'code.symbol'
+    label: 'PaymentProvider.charge'
+    evidence:
+      - path: 'services/payments/src/providers/provider.ts'
+        startLine: 38
+        endLine: 38
+        quote: '  charge(request: ChargeRequest): Promise<ChargeResult>;'
+    reading: 'parsed'
+  - id: 'code.symbol:services/payments/src/providers/provider.ts#PaymentProvider.refund'
+    kind: 'code.symbol'
+    label: 'PaymentProvider.refund'
+    evidence:
+      - path: 'services/payments/src/providers/provider.ts'
+        startLine: 39
+        endLine: 39
+        quote: '  refund(providerReference: string, amountCents: number): Promise<void>;'
     reading: 'parsed'
   - id: 'code.symbol:services/payments/src/providers/provider.ts#ProviderDeclinedError'
     kind: 'code.symbol'
@@ -399,15 +399,6 @@ edges:
     reading: 'parsed'
   - relation: 'code.contains'
     from: 'code.symbol:services/payments/src/providers/provider.ts#PaymentProvider'
-    to: 'code.field:services/payments/src/providers/provider.ts#PaymentProvider.charge'
-    evidence:
-      - path: 'services/payments/src/providers/provider.ts'
-        startLine: 38
-        endLine: 38
-        quote: '  charge(request: ChargeRequest): Promise<ChargeResult>;'
-    reading: 'parsed'
-  - relation: 'code.contains'
-    from: 'code.symbol:services/payments/src/providers/provider.ts#PaymentProvider'
     to: 'code.field:services/payments/src/providers/provider.ts#PaymentProvider.name'
     evidence:
       - path: 'services/payments/src/providers/provider.ts'
@@ -417,7 +408,16 @@ edges:
     reading: 'parsed'
   - relation: 'code.contains'
     from: 'code.symbol:services/payments/src/providers/provider.ts#PaymentProvider'
-    to: 'code.field:services/payments/src/providers/provider.ts#PaymentProvider.refund'
+    to: 'code.symbol:services/payments/src/providers/provider.ts#PaymentProvider.charge'
+    evidence:
+      - path: 'services/payments/src/providers/provider.ts'
+        startLine: 38
+        endLine: 38
+        quote: '  charge(request: ChargeRequest): Promise<ChargeResult>;'
+    reading: 'parsed'
+  - relation: 'code.contains'
+    from: 'code.symbol:services/payments/src/providers/provider.ts#PaymentProvider'
+    to: 'code.symbol:services/payments/src/providers/provider.ts#PaymentProvider.refund'
     evidence:
       - path: 'services/payments/src/providers/provider.ts'
         startLine: 39
@@ -468,4 +468,13 @@ edges:
         startLine: 1
         endLine: 1
         quote: 'import { logger } from ''../logging/logger'';'
+    reading: 'parsed'
+  - relation: 'code.uses-type'
+    from: 'code.symbol:services/payments/src/providers/provider.ts#PaymentProvider.charge'
+    to: 'code.symbol:services/payments/src/providers/provider.ts#ChargeRequest'
+    evidence:
+      - path: 'services/payments/src/providers/provider.ts'
+        startLine: 38
+        endLine: 38
+        quote: '  charge(request: ChargeRequest): Promise<ChargeResult>;'
     reading: 'parsed'

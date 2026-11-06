@@ -839,6 +839,60 @@ edges:
     reading: 'parsed'
   - relation: 'code.contains'
     from: 'code.file:services/orders/internal/api/handlers.go'
+    to: 'code.symbol:services/orders/internal/api/handlers.go#OrderService.Cancel'
+    evidence:
+      - path: 'services/orders/internal/api/handlers.go'
+        startLine: 22
+        endLine: 22
+        quote: '	Cancel(ctx context.Context, id, reason string) (domain.Order, error)'
+    reading: 'parsed'
+  - relation: 'code.contains'
+    from: 'code.file:services/orders/internal/api/handlers.go'
+    to: 'code.symbol:services/orders/internal/api/handlers.go#OrderService.ForEach'
+    evidence:
+      - path: 'services/orders/internal/api/handlers.go'
+        startLine: 24
+        endLine: 24
+        quote: '	ForEach(ctx context.Context, filter application.ListFilter, fn func(domain.Order) error) error'
+    reading: 'parsed'
+  - relation: 'code.contains'
+    from: 'code.file:services/orders/internal/api/handlers.go'
+    to: 'code.symbol:services/orders/internal/api/handlers.go#OrderService.Get'
+    evidence:
+      - path: 'services/orders/internal/api/handlers.go'
+        startLine: 20
+        endLine: 20
+        quote: '	Get(ctx context.Context, id string) (domain.Order, error)'
+    reading: 'parsed'
+  - relation: 'code.contains'
+    from: 'code.file:services/orders/internal/api/handlers.go'
+    to: 'code.symbol:services/orders/internal/api/handlers.go#OrderService.List'
+    evidence:
+      - path: 'services/orders/internal/api/handlers.go'
+        startLine: 21
+        endLine: 21
+        quote: '	List(ctx context.Context, filter application.ListFilter) ([]domain.Order, error)'
+    reading: 'parsed'
+  - relation: 'code.contains'
+    from: 'code.file:services/orders/internal/api/handlers.go'
+    to: 'code.symbol:services/orders/internal/api/handlers.go#OrderService.Place'
+    evidence:
+      - path: 'services/orders/internal/api/handlers.go'
+        startLine: 19
+        endLine: 19
+        quote: '	Place(ctx context.Context, cmd application.PlaceOrder) (domain.Order, error)'
+    reading: 'parsed'
+  - relation: 'code.contains'
+    from: 'code.file:services/orders/internal/api/handlers.go'
+    to: 'code.symbol:services/orders/internal/api/handlers.go#OrderService.Ship'
+    evidence:
+      - path: 'services/orders/internal/api/handlers.go'
+        startLine: 23
+        endLine: 23
+        quote: '	Ship(ctx context.Context, id string) (domain.Order, error)'
+    reading: 'parsed'
+  - relation: 'code.contains'
+    from: 'code.file:services/orders/internal/api/handlers.go'
     to: 'code.symbol:services/orders/internal/api/handlers.go#badRequest'
     evidence:
       - path: 'services/orders/internal/api/handlers.go'
@@ -1259,6 +1313,69 @@ edges:
         startLine: 29
         endLine: 29
         quote: '	svc OrderService'
+    reading: 'parsed'
+  - relation: 'code.uses-type'
+    from: 'code.symbol:services/orders/internal/api/handlers.go#OrderService.Cancel'
+    to: 'code.symbol:services/orders/internal/domain/order.go#Order'
+    evidence:
+      - path: 'services/orders/internal/api/handlers.go'
+        startLine: 22
+        endLine: 22
+        quote: '	Cancel(ctx context.Context, id, reason string) (domain.Order, error)'
+    reading: 'parsed'
+  - relation: 'code.uses-type'
+    from: 'code.symbol:services/orders/internal/api/handlers.go#OrderService.ForEach'
+    to: 'code.symbol:services/orders/internal/application/order_service.go#ListFilter'
+    evidence:
+      - path: 'services/orders/internal/api/handlers.go'
+        startLine: 24
+        endLine: 24
+        quote: '	ForEach(ctx context.Context, filter application.ListFilter, fn func(domain.Order) error) error'
+    reading: 'parsed'
+  - relation: 'code.uses-type'
+    from: 'code.symbol:services/orders/internal/api/handlers.go#OrderService.Get'
+    to: 'code.symbol:services/orders/internal/domain/order.go#Order'
+    evidence:
+      - path: 'services/orders/internal/api/handlers.go'
+        startLine: 20
+        endLine: 20
+        quote: '	Get(ctx context.Context, id string) (domain.Order, error)'
+    reading: 'parsed'
+  - relation: 'code.uses-type'
+    from: 'code.symbol:services/orders/internal/api/handlers.go#OrderService.List'
+    to: 'code.symbol:services/orders/internal/application/order_service.go#ListFilter'
+    evidence:
+      - path: 'services/orders/internal/api/handlers.go'
+        startLine: 21
+        endLine: 21
+        quote: '	List(ctx context.Context, filter application.ListFilter) ([]domain.Order, error)'
+    reading: 'parsed'
+  - relation: 'code.uses-type'
+    from: 'code.symbol:services/orders/internal/api/handlers.go#OrderService.Place'
+    to: 'code.symbol:services/orders/internal/application/order_service.go#PlaceOrder'
+    evidence:
+      - path: 'services/orders/internal/api/handlers.go'
+        startLine: 19
+        endLine: 19
+        quote: '	Place(ctx context.Context, cmd application.PlaceOrder) (domain.Order, error)'
+    reading: 'parsed'
+  - relation: 'code.uses-type'
+    from: 'code.symbol:services/orders/internal/api/handlers.go#OrderService.Place'
+    to: 'code.symbol:services/orders/internal/domain/order.go#Order'
+    evidence:
+      - path: 'services/orders/internal/api/handlers.go'
+        startLine: 19
+        endLine: 19
+        quote: '	Place(ctx context.Context, cmd application.PlaceOrder) (domain.Order, error)'
+    reading: 'parsed'
+  - relation: 'code.uses-type'
+    from: 'code.symbol:services/orders/internal/api/handlers.go#OrderService.Ship'
+    to: 'code.symbol:services/orders/internal/domain/order.go#Order'
+    evidence:
+      - path: 'services/orders/internal/api/handlers.go'
+        startLine: 23
+        endLine: 23
+        quote: '	Ship(ctx context.Context, id string) (domain.Order, error)'
     reading: 'parsed'
   - relation: 'code.uses-type'
     from: 'code.symbol:services/orders/internal/api/handlers.go#canSee'

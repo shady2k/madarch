@@ -525,6 +525,15 @@ edges:
     reading: 'parsed'
   - relation: 'code.contains'
     from: 'code.file:services/orders/internal/store/order_repository.go'
+    to: 'code.symbol:services/orders/internal/store/order_repository.go#rowScanner.Scan'
+    evidence:
+      - path: 'services/orders/internal/store/order_repository.go'
+        startLine: 89
+        endLine: 89
+        quote: '	Scan(dest ...any) error'
+    reading: 'parsed'
+  - relation: 'code.contains'
+    from: 'code.file:services/orders/internal/store/order_repository.go'
     to: 'code.symbol:services/orders/internal/store/order_repository.go#scanOrder'
     evidence:
       - path: 'services/orders/internal/store/order_repository.go'

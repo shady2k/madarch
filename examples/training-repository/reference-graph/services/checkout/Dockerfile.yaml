@@ -28,7 +28,7 @@ edges:
         endLine: 1
         quote: '# Build context is the repository root, because the image also needs contracts/proto.'
     reading: 'declared'
-  - relation: 'code.built-by'
+  - relation: 'code.depends-on'
     from: 'code.dockerfile:services/checkout/Dockerfile'
     to: 'code.image:node:20-alpine'
     evidence:

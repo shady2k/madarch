@@ -92,7 +92,7 @@ edges:
         quote: '  name: orders'
     reading: 'declared'
   - relation: 'code.exposes'
-    from: 'code.image:registry.example.test/training/orders:1.4.0'
+    from: 'code.k8s-deployment:orders'
     to: 'code.port:orders:8080'
     evidence:
       - path: 'deploy/k8s/orders.yaml'
@@ -141,8 +141,8 @@ edges:
     to: 'code.health-endpoint:orders:/healthz'
     evidence:
       - path: 'deploy/k8s/orders.yaml'
-        startLine: 27
-        endLine: 27
+        startLine: 32
+        endLine: 32
         quote: '              path: /healthz'
     reading: 'declared'
   - relation: 'code.probes'
@@ -159,8 +159,8 @@ edges:
     to: 'code.health-endpoint:orders:/healthz'
     evidence:
       - path: 'deploy/k8s/orders.yaml'
-        startLine: 27
-        endLine: 27
+        startLine: 37
+        endLine: 37
         quote: '              path: /healthz'
     reading: 'declared'
   - relation: 'code.runs'
@@ -195,8 +195,8 @@ edges:
     to: 'code.port:orders:8080'
     evidence:
       - path: 'deploy/k8s/orders.yaml'
-        startLine: 28
-        endLine: 28
+        startLine: 33
+        endLine: 33
         quote: '              port: 8080'
     reading: 'declared'
   - relation: 'code.targets'
@@ -213,7 +213,7 @@ edges:
     to: 'code.port:orders:8080'
     evidence:
       - path: 'deploy/k8s/orders.yaml'
-        startLine: 28
-        endLine: 28
+        startLine: 38
+        endLine: 38
         quote: '              port: 8080'
     reading: 'declared'

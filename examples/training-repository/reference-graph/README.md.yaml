@@ -190,6 +190,24 @@ edges:
         endLine: 22
         quote: '## What it does'
     reading: 'parsed'
+  - relation: 'code.document-link'
+    from: 'code.document:README.md'
+    to: 'code.document:docs/architecture.md'
+    evidence:
+      - path: 'README.md'
+        startLine: 5
+        endLine: 5
+        quote: 'environment. Start with docs/vision.md and docs/architecture.md.'
+    reading: 'parsed'
+  - relation: 'code.document-link'
+    from: 'code.document:README.md'
+    to: 'code.document:docs/vision.md'
+    evidence:
+      - path: 'README.md'
+        startLine: 5
+        endLine: 5
+        quote: 'environment. Start with docs/vision.md and docs/architecture.md.'
+    reading: 'parsed'
   - relation: 'code.mentions'
     from: 'code.document-section:README.md#What it does'
     to: 'code.symbol:services/orders/internal/domain/order.go#Order.Expired'

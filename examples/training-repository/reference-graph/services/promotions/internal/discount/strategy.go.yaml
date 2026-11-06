@@ -214,6 +214,15 @@ edges:
     reading: 'parsed'
   - relation: 'code.contains'
     from: 'code.file:services/promotions/internal/discount/strategy.go'
+    to: 'code.symbol:services/promotions/internal/discount/strategy.go#Strategy.Discount'
+    evidence:
+      - path: 'services/promotions/internal/discount/strategy.go'
+        startLine: 12
+        endLine: 12
+        quote: '	Discount(subtotalCents int64) int64'
+    reading: 'parsed'
+  - relation: 'code.contains'
+    from: 'code.file:services/promotions/internal/discount/strategy.go'
     to: 'code.symbol:services/promotions/internal/discount/strategy.go#Threshold'
     evidence:
       - path: 'services/promotions/internal/discount/strategy.go'

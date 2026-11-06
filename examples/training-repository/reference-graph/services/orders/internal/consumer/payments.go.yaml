@@ -192,6 +192,15 @@ edges:
     reading: 'parsed'
   - relation: 'code.contains'
     from: 'code.file:services/orders/internal/consumer/payments.go'
+    to: 'code.symbol:services/orders/internal/consumer/payments.go#PaymentEventHandler.ApplyPaymentEvent'
+    evidence:
+      - path: 'services/orders/internal/consumer/payments.go'
+        startLine: 22
+        endLine: 22
+        quote: '	ApplyPaymentEvent(ctx context.Context, orderID, kind, note string) error'
+    reading: 'parsed'
+  - relation: 'code.contains'
+    from: 'code.file:services/orders/internal/consumer/payments.go'
     to: 'code.symbol:services/orders/internal/consumer/payments.go#PaymentEvents'
     evidence:
       - path: 'services/orders/internal/consumer/payments.go'

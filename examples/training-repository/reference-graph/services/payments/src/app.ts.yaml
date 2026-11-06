@@ -289,3 +289,12 @@ edges:
         endLine: 9
         quote: '  service: PaymentService;'
     reading: 'parsed'
+  - relation: 'code.uses-type'
+    from: 'code.symbol:services/payments/src/app.ts#createApp'
+    to: 'code.symbol:services/payments/src/app.ts#AppDeps'
+    evidence:
+      - path: 'services/payments/src/app.ts'
+        startLine: 15
+        endLine: 15
+        quote: 'export function createApp(deps: AppDeps): Express {'
+    reading: 'parsed'

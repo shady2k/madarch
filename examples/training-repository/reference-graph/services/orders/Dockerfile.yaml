@@ -41,7 +41,7 @@ edges:
         endLine: 1
         quote: '# Build the orders binary, then copy it with the migrations into a small image.'
     reading: 'declared'
-  - relation: 'code.built-by'
+  - relation: 'code.depends-on'
     from: 'code.dockerfile:services/orders/Dockerfile'
     to: 'code.image:golang:1.22.5-alpine'
     evidence:

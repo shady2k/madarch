@@ -352,15 +352,6 @@ edges:
         endLine: 10
         quote: '	"training.example/orders/internal/domain"'
     reading: 'parsed'
-  - relation: 'code.publishes'
-    from: 'code.symbol:services/orders/internal/store/outbox.go#OutboxWriter.Write'
-    to: 'code.channel:orders.events'
-    evidence:
-      - path: 'services/orders/internal/store/outbox.go'
-        startLine: 15
-        endLine: 15
-        quote: 'const OrdersTopic = "orders.events"'
-    reading: 'parsed'
   - relation: 'code.uses-type'
     from: 'code.symbol:services/orders/internal/store/outbox.go#NewOutboxWriter'
     to: 'code.symbol:services/orders/internal/store/outbox.go#OutboxWriter'

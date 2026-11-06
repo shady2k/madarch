@@ -136,3 +136,12 @@ edges:
         endLine: 4
         quote: 'import { logger } from ''./logging/logger'';'
     reading: 'parsed'
+  - relation: 'code.uses-type'
+    from: 'code.symbol:services/checkout/src/app.ts#createApp'
+    to: 'code.symbol:services/checkout/src/checkout-service.ts#CheckoutService'
+    evidence:
+      - path: 'services/checkout/src/app.ts'
+        startLine: 7
+        endLine: 7
+        quote: 'export function createApp(service: CheckoutService): Express {'
+    reading: 'parsed'

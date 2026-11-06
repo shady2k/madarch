@@ -263,6 +263,15 @@ edges:
         quote: '      throw new PaymentNotFound(paymentId);'
     reading: 'parsed'
   - relation: 'code.calls'
+    from: 'code.symbol:services/payments/src/domain/payment-service.ts#PaymentService.get'
+    to: 'code.symbol:services/payments/src/store/payment-repository.ts#PaymentRepository.findById'
+    evidence:
+      - path: 'services/payments/src/domain/payment-service.ts'
+        startLine: 111
+        endLine: 111
+        quote: '    const payment = await this.deps.repository.findById(paymentId);'
+    reading: 'parsed'
+  - relation: 'code.calls'
     from: 'code.symbol:services/payments/src/domain/payment-service.ts#PaymentService.pay'
     to: 'code.symbol:services/payments/src/domain/payment.ts#capture'
     evidence:
@@ -282,6 +291,15 @@ edges:
     reading: 'parsed'
   - relation: 'code.calls'
     from: 'code.symbol:services/payments/src/domain/payment-service.ts#PaymentService.pay'
+    to: 'code.symbol:services/payments/src/providers/provider.ts#PaymentProvider.charge'
+    evidence:
+      - path: 'services/payments/src/domain/payment-service.ts'
+        startLine: 70
+        endLine: 70
+        quote: '            this.deps.provider.charge({'
+    reading: 'parsed'
+  - relation: 'code.calls'
+    from: 'code.symbol:services/payments/src/domain/payment-service.ts#PaymentService.pay'
     to: 'code.symbol:services/payments/src/resilience.ts#withRetry'
     evidence:
       - path: 'services/payments/src/domain/payment-service.ts'
@@ -297,6 +315,33 @@ edges:
         startLine: 69
         endLine: 69
         quote: '          withTimeout('
+    reading: 'parsed'
+  - relation: 'code.calls'
+    from: 'code.symbol:services/payments/src/domain/payment-service.ts#PaymentService.pay'
+    to: 'code.symbol:services/payments/src/store/payment-repository.ts#PaymentRepository.create'
+    evidence:
+      - path: 'services/payments/src/domain/payment-service.ts'
+        startLine: 63
+        endLine: 63
+        quote: '    await this.deps.repository.create(pending);'
+    reading: 'parsed'
+  - relation: 'code.calls'
+    from: 'code.symbol:services/payments/src/domain/payment-service.ts#PaymentService.pay'
+    to: 'code.symbol:services/payments/src/store/payment-repository.ts#PaymentRepository.findByIdempotencyKey'
+    evidence:
+      - path: 'services/payments/src/domain/payment-service.ts'
+        startLine: 47
+        endLine: 47
+        quote: '    const existing = await this.deps.repository.findByIdempotencyKey(request.idempotencyKey);'
+    reading: 'parsed'
+  - relation: 'code.calls'
+    from: 'code.symbol:services/payments/src/domain/payment-service.ts#PaymentService.pay'
+    to: 'code.symbol:services/payments/src/store/payment-repository.ts#PaymentRepository.save'
+    evidence:
+      - path: 'services/payments/src/domain/payment-service.ts'
+        startLine: 87
+        endLine: 87
+        quote: '    await this.deps.repository.save(outcome);'
     reading: 'parsed'
   - relation: 'code.calls'
     from: 'code.symbol:services/payments/src/domain/payment-service.ts#PaymentService.refund'
@@ -324,6 +369,51 @@ edges:
         startLine: 105
         endLine: 105
         quote: '      await publishPaymentEvent(this.deps.sink, ''payment.refunded'', { ...payment, status: PaymentStatus.Refunded });'
+    reading: 'parsed'
+  - relation: 'code.calls'
+    from: 'code.symbol:services/payments/src/domain/payment-service.ts#PaymentService.refund'
+    to: 'code.symbol:services/payments/src/providers/provider.ts#PaymentProvider.refund'
+    evidence:
+      - path: 'services/payments/src/domain/payment-service.ts'
+        startLine: 100
+        endLine: 100
+        quote: '    await this.deps.provider.refund(payment.providerReference ?? '''', amountCents);'
+    reading: 'parsed'
+  - relation: 'code.calls'
+    from: 'code.symbol:services/payments/src/domain/payment-service.ts#PaymentService.refund'
+    to: 'code.symbol:services/payments/src/store/payment-repository.ts#PaymentRepository.addRefund'
+    evidence:
+      - path: 'services/payments/src/domain/payment-service.ts'
+        startLine: 102
+        endLine: 102
+        quote: '    await this.deps.repository.addRefund(refund);'
+    reading: 'parsed'
+  - relation: 'code.calls'
+    from: 'code.symbol:services/payments/src/domain/payment-service.ts#PaymentService.refund'
+    to: 'code.symbol:services/payments/src/store/payment-repository.ts#PaymentRepository.findById'
+    evidence:
+      - path: 'services/payments/src/domain/payment-service.ts'
+        startLine: 93
+        endLine: 93
+        quote: '    const payment = await this.deps.repository.findById(paymentId);'
+    reading: 'parsed'
+  - relation: 'code.calls'
+    from: 'code.symbol:services/payments/src/domain/payment-service.ts#PaymentService.refund'
+    to: 'code.symbol:services/payments/src/store/payment-repository.ts#PaymentRepository.refundedTotal'
+    evidence:
+      - path: 'services/payments/src/domain/payment-service.ts'
+        startLine: 97
+        endLine: 97
+        quote: '    const already = await this.deps.repository.refundedTotal(paymentId);'
+    reading: 'parsed'
+  - relation: 'code.calls'
+    from: 'code.symbol:services/payments/src/domain/payment-service.ts#PaymentService.refund'
+    to: 'code.symbol:services/payments/src/store/payment-repository.ts#PaymentRepository.save'
+    evidence:
+      - path: 'services/payments/src/domain/payment-service.ts'
+        startLine: 104
+        endLine: 104
+        quote: '      await this.deps.repository.save({ ...payment, status: PaymentStatus.Refunded });'
     reading: 'parsed'
   - relation: 'code.contains'
     from: 'code.file:services/payments/src/domain/payment-service.ts'

@@ -41,7 +41,34 @@ edges:
         endLine: 1
         quote: '# Build context is the repository root, because the image also needs contracts/proto.'
     reading: 'declared'
-  - relation: 'code.built-by'
+  - relation: 'code.depends-on'
+    from: 'code.dockerfile:services/payments/Dockerfile'
+    to: 'code.contract:contracts/asyncapi/order-events.yaml'
+    evidence:
+      - path: 'services/payments/Dockerfile'
+        startLine: 17
+        endLine: 17
+        quote: 'COPY contracts /app/contracts'
+    reading: 'judgement'
+  - relation: 'code.depends-on'
+    from: 'code.dockerfile:services/payments/Dockerfile'
+    to: 'code.contract:contracts/openapi/orders.yaml'
+    evidence:
+      - path: 'services/payments/Dockerfile'
+        startLine: 17
+        endLine: 17
+        quote: 'COPY contracts /app/contracts'
+    reading: 'judgement'
+  - relation: 'code.depends-on'
+    from: 'code.dockerfile:services/payments/Dockerfile'
+    to: 'code.contract:contracts/proto/payments.proto'
+    evidence:
+      - path: 'services/payments/Dockerfile'
+        startLine: 17
+        endLine: 17
+        quote: 'COPY contracts /app/contracts'
+    reading: 'judgement'
+  - relation: 'code.depends-on'
     from: 'code.dockerfile:services/payments/Dockerfile'
     to: 'code.image:node:20-alpine'
     evidence:

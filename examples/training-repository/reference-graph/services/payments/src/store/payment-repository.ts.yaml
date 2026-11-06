@@ -1,59 +1,5 @@
 path: 'services/payments/src/store/payment-repository.ts'
 nodes:
-  - id: 'code.field:services/payments/src/store/payment-repository.ts#PaymentRepository.addRefund'
-    kind: 'code.field'
-    label: 'PaymentRepository.addRefund'
-    evidence:
-      - path: 'services/payments/src/store/payment-repository.ts'
-        startLine: 11
-        endLine: 11
-        quote: '  addRefund(refund: Refund): Promise<void>;'
-    reading: 'parsed'
-  - id: 'code.field:services/payments/src/store/payment-repository.ts#PaymentRepository.create'
-    kind: 'code.field'
-    label: 'PaymentRepository.create'
-    evidence:
-      - path: 'services/payments/src/store/payment-repository.ts'
-        startLine: 7
-        endLine: 7
-        quote: '  create(payment: Payment): Promise<void>;'
-    reading: 'parsed'
-  - id: 'code.field:services/payments/src/store/payment-repository.ts#PaymentRepository.findById'
-    kind: 'code.field'
-    label: 'PaymentRepository.findById'
-    evidence:
-      - path: 'services/payments/src/store/payment-repository.ts'
-        startLine: 9
-        endLine: 9
-        quote: '  findById(id: string): Promise<Payment | undefined>;'
-    reading: 'parsed'
-  - id: 'code.field:services/payments/src/store/payment-repository.ts#PaymentRepository.findByIdempotencyKey'
-    kind: 'code.field'
-    label: 'PaymentRepository.findByIdempotencyKey'
-    evidence:
-      - path: 'services/payments/src/store/payment-repository.ts'
-        startLine: 10
-        endLine: 10
-        quote: '  findByIdempotencyKey(key: string): Promise<Payment | undefined>;'
-    reading: 'parsed'
-  - id: 'code.field:services/payments/src/store/payment-repository.ts#PaymentRepository.refundedTotal'
-    kind: 'code.field'
-    label: 'PaymentRepository.refundedTotal'
-    evidence:
-      - path: 'services/payments/src/store/payment-repository.ts'
-        startLine: 13
-        endLine: 13
-        quote: '  refundedTotal(paymentId: string): Promise<number>;'
-    reading: 'parsed'
-  - id: 'code.field:services/payments/src/store/payment-repository.ts#PaymentRepository.save'
-    kind: 'code.field'
-    label: 'PaymentRepository.save'
-    evidence:
-      - path: 'services/payments/src/store/payment-repository.ts'
-        startLine: 8
-        endLine: 8
-        quote: '  save(payment: Payment): Promise<void>;'
-    reading: 'parsed'
   - id: 'code.field:services/payments/src/store/payment-repository.ts#PrismaPaymentRepository.prisma'
     kind: 'code.field'
     label: 'PrismaPaymentRepository.prisma'
@@ -80,6 +26,60 @@ nodes:
         startLine: 6
         endLine: 6
         quote: 'export interface PaymentRepository {'
+    reading: 'parsed'
+  - id: 'code.symbol:services/payments/src/store/payment-repository.ts#PaymentRepository.addRefund'
+    kind: 'code.symbol'
+    label: 'PaymentRepository.addRefund'
+    evidence:
+      - path: 'services/payments/src/store/payment-repository.ts'
+        startLine: 11
+        endLine: 11
+        quote: '  addRefund(refund: Refund): Promise<void>;'
+    reading: 'parsed'
+  - id: 'code.symbol:services/payments/src/store/payment-repository.ts#PaymentRepository.create'
+    kind: 'code.symbol'
+    label: 'PaymentRepository.create'
+    evidence:
+      - path: 'services/payments/src/store/payment-repository.ts'
+        startLine: 7
+        endLine: 7
+        quote: '  create(payment: Payment): Promise<void>;'
+    reading: 'parsed'
+  - id: 'code.symbol:services/payments/src/store/payment-repository.ts#PaymentRepository.findById'
+    kind: 'code.symbol'
+    label: 'PaymentRepository.findById'
+    evidence:
+      - path: 'services/payments/src/store/payment-repository.ts'
+        startLine: 9
+        endLine: 9
+        quote: '  findById(id: string): Promise<Payment | undefined>;'
+    reading: 'parsed'
+  - id: 'code.symbol:services/payments/src/store/payment-repository.ts#PaymentRepository.findByIdempotencyKey'
+    kind: 'code.symbol'
+    label: 'PaymentRepository.findByIdempotencyKey'
+    evidence:
+      - path: 'services/payments/src/store/payment-repository.ts'
+        startLine: 10
+        endLine: 10
+        quote: '  findByIdempotencyKey(key: string): Promise<Payment | undefined>;'
+    reading: 'parsed'
+  - id: 'code.symbol:services/payments/src/store/payment-repository.ts#PaymentRepository.refundedTotal'
+    kind: 'code.symbol'
+    label: 'PaymentRepository.refundedTotal'
+    evidence:
+      - path: 'services/payments/src/store/payment-repository.ts'
+        startLine: 13
+        endLine: 13
+        quote: '  refundedTotal(paymentId: string): Promise<number>;'
+    reading: 'parsed'
+  - id: 'code.symbol:services/payments/src/store/payment-repository.ts#PaymentRepository.save'
+    kind: 'code.symbol'
+    label: 'PaymentRepository.save'
+    evidence:
+      - path: 'services/payments/src/store/payment-repository.ts'
+        startLine: 8
+        endLine: 8
+        quote: '  save(payment: Payment): Promise<void>;'
     reading: 'parsed'
   - id: 'code.symbol:services/payments/src/store/payment-repository.ts#PrismaPaymentRepository'
     kind: 'code.symbol'
@@ -210,7 +210,7 @@ edges:
     reading: 'parsed'
   - relation: 'code.contains'
     from: 'code.symbol:services/payments/src/store/payment-repository.ts#PaymentRepository'
-    to: 'code.field:services/payments/src/store/payment-repository.ts#PaymentRepository.addRefund'
+    to: 'code.symbol:services/payments/src/store/payment-repository.ts#PaymentRepository.addRefund'
     evidence:
       - path: 'services/payments/src/store/payment-repository.ts'
         startLine: 11
@@ -219,7 +219,7 @@ edges:
     reading: 'parsed'
   - relation: 'code.contains'
     from: 'code.symbol:services/payments/src/store/payment-repository.ts#PaymentRepository'
-    to: 'code.field:services/payments/src/store/payment-repository.ts#PaymentRepository.create'
+    to: 'code.symbol:services/payments/src/store/payment-repository.ts#PaymentRepository.create'
     evidence:
       - path: 'services/payments/src/store/payment-repository.ts'
         startLine: 7
@@ -228,7 +228,7 @@ edges:
     reading: 'parsed'
   - relation: 'code.contains'
     from: 'code.symbol:services/payments/src/store/payment-repository.ts#PaymentRepository'
-    to: 'code.field:services/payments/src/store/payment-repository.ts#PaymentRepository.findById'
+    to: 'code.symbol:services/payments/src/store/payment-repository.ts#PaymentRepository.findById'
     evidence:
       - path: 'services/payments/src/store/payment-repository.ts'
         startLine: 9
@@ -237,7 +237,7 @@ edges:
     reading: 'parsed'
   - relation: 'code.contains'
     from: 'code.symbol:services/payments/src/store/payment-repository.ts#PaymentRepository'
-    to: 'code.field:services/payments/src/store/payment-repository.ts#PaymentRepository.findByIdempotencyKey'
+    to: 'code.symbol:services/payments/src/store/payment-repository.ts#PaymentRepository.findByIdempotencyKey'
     evidence:
       - path: 'services/payments/src/store/payment-repository.ts'
         startLine: 10
@@ -246,7 +246,7 @@ edges:
     reading: 'parsed'
   - relation: 'code.contains'
     from: 'code.symbol:services/payments/src/store/payment-repository.ts#PaymentRepository'
-    to: 'code.field:services/payments/src/store/payment-repository.ts#PaymentRepository.refundedTotal'
+    to: 'code.symbol:services/payments/src/store/payment-repository.ts#PaymentRepository.refundedTotal'
     evidence:
       - path: 'services/payments/src/store/payment-repository.ts'
         startLine: 13
@@ -255,7 +255,7 @@ edges:
     reading: 'parsed'
   - relation: 'code.contains'
     from: 'code.symbol:services/payments/src/store/payment-repository.ts#PaymentRepository'
-    to: 'code.field:services/payments/src/store/payment-repository.ts#PaymentRepository.save'
+    to: 'code.symbol:services/payments/src/store/payment-repository.ts#PaymentRepository.save'
     evidence:
       - path: 'services/payments/src/store/payment-repository.ts'
         startLine: 8
@@ -388,6 +388,33 @@ edges:
         endLine: 69
         quote: '    const total = await this.prisma.refund.aggregate({ where: { paymentId }, _sum: { amountCents: true } });'
     reading: 'judgement'
+  - relation: 'code.uses-type'
+    from: 'code.symbol:services/payments/src/store/payment-repository.ts#PaymentRepository.addRefund'
+    to: 'code.symbol:services/payments/src/domain/refund.ts#Refund'
+    evidence:
+      - path: 'services/payments/src/store/payment-repository.ts'
+        startLine: 11
+        endLine: 11
+        quote: '  addRefund(refund: Refund): Promise<void>;'
+    reading: 'parsed'
+  - relation: 'code.uses-type'
+    from: 'code.symbol:services/payments/src/store/payment-repository.ts#PaymentRepository.create'
+    to: 'code.symbol:services/payments/src/domain/payment.ts#Payment'
+    evidence:
+      - path: 'services/payments/src/store/payment-repository.ts'
+        startLine: 7
+        endLine: 7
+        quote: '  create(payment: Payment): Promise<void>;'
+    reading: 'parsed'
+  - relation: 'code.uses-type'
+    from: 'code.symbol:services/payments/src/store/payment-repository.ts#PaymentRepository.save'
+    to: 'code.symbol:services/payments/src/domain/payment.ts#Payment'
+    evidence:
+      - path: 'services/payments/src/store/payment-repository.ts'
+        startLine: 8
+        endLine: 8
+        quote: '  save(payment: Payment): Promise<void>;'
+    reading: 'parsed'
   - relation: 'code.writes-table'
     from: 'code.file:services/payments/src/store/payment-repository.ts'
     to: 'code.table:payments.payments'

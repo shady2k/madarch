@@ -82,6 +82,7 @@ edges:
         endLine: 11
         quote: '  rpc Authorize(AuthorizeRequest) returns (AuthorizeReply);'
     reading: 'parsed'
+    scored: false
   - relation: 'code.carries'
     from: 'code.operation:contracts/proto/payments.proto#Authorize'
     to: 'code.message:AuthorizeRequest'
@@ -91,6 +92,7 @@ edges:
         endLine: 11
         quote: '  rpc Authorize(AuthorizeRequest) returns (AuthorizeReply);'
     reading: 'parsed'
+    scored: false
   - relation: 'code.carries'
     from: 'code.operation:contracts/proto/payments.proto#Refund'
     to: 'code.message:RefundReply'
@@ -100,6 +102,7 @@ edges:
         endLine: 14
         quote: '  rpc Refund(RefundRequest) returns (RefundReply);'
     reading: 'parsed'
+    scored: false
   - relation: 'code.carries'
     from: 'code.operation:contracts/proto/payments.proto#Refund'
     to: 'code.message:RefundRequest'
@@ -109,6 +112,7 @@ edges:
         endLine: 14
         quote: '  rpc Refund(RefundRequest) returns (RefundReply);'
     reading: 'parsed'
+    scored: false
   - relation: 'code.contains'
     from: 'code.contract:contracts/proto/payments.proto'
     to: 'code.message:AuthorizeReply'

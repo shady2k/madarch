@@ -199,3 +199,12 @@ edges:
         endLine: 3
         quote: '  constructor(readonly timeoutMs: number) {'
     reading: 'parsed'
+  - relation: 'code.uses-type'
+    from: 'code.symbol:services/payments/src/resilience.ts#withRetry'
+    to: 'code.symbol:services/payments/src/resilience.ts#RetryOptions'
+    evidence:
+      - path: 'services/payments/src/resilience.ts'
+        startLine: 33
+        endLine: 33
+        quote: 'export async function withRetry<T>(fn: () => Promise<T>, options: RetryOptions): Promise<T> {'
+    reading: 'parsed'

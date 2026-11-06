@@ -100,6 +100,15 @@ edges:
         endLine: 24
         quote: '	promotions, err := store.Open(context.Background(), url)'
     reading: 'parsed'
+  - relation: 'code.calls'
+    from: 'code.symbol:services/promotions/cmd/promotions/main.go#main'
+    to: 'code.symbol:services/promotions/internal/store/promotions.go#Repository.Close'
+    evidence:
+      - path: 'services/promotions/cmd/promotions/main.go'
+        startLine: 29
+        endLine: 29
+        quote: '	defer promotions.Close()'
+    reading: 'parsed'
   - relation: 'code.contains'
     from: 'code.file:services/promotions/cmd/promotions/main.go'
     to: 'code.symbol:services/promotions/cmd/promotions/main.go#listenAddr'

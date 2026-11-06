@@ -333,3 +333,39 @@ edges:
         endLine: 1
         quote: 'import { EventSink, publishPaymentEvent } from ''../events/publishers'';'
     reading: 'parsed'
+  - relation: 'code.uses-type'
+    from: 'code.symbol:services/payments/src/domain/payment.ts#capture'
+    to: 'code.symbol:services/payments/src/domain/payment.ts#Payment'
+    evidence:
+      - path: 'services/payments/src/domain/payment.ts'
+        startLine: 38
+        endLine: 38
+        quote: 'export async function capture(payment: Payment, token: PaymentToken, now: Date, sink: EventSink): Promise<Payment> {'
+    reading: 'parsed'
+  - relation: 'code.uses-type'
+    from: 'code.symbol:services/payments/src/domain/payment.ts#capture'
+    to: 'code.symbol:services/payments/src/events/publishers.ts#EventSink'
+    evidence:
+      - path: 'services/payments/src/domain/payment.ts'
+        startLine: 38
+        endLine: 38
+        quote: 'export async function capture(payment: Payment, token: PaymentToken, now: Date, sink: EventSink): Promise<Payment> {'
+    reading: 'parsed'
+  - relation: 'code.uses-type'
+    from: 'code.symbol:services/payments/src/domain/payment.ts#decline'
+    to: 'code.symbol:services/payments/src/domain/payment.ts#Payment'
+    evidence:
+      - path: 'services/payments/src/domain/payment.ts'
+        startLine: 51
+        endLine: 51
+        quote: 'export async function decline(payment: Payment, reason: string, sink: EventSink): Promise<Payment> {'
+    reading: 'parsed'
+  - relation: 'code.uses-type'
+    from: 'code.symbol:services/payments/src/domain/payment.ts#decline'
+    to: 'code.symbol:services/payments/src/events/publishers.ts#EventSink'
+    evidence:
+      - path: 'services/payments/src/domain/payment.ts'
+        startLine: 51
+        endLine: 51
+        quote: 'export async function decline(payment: Payment, reason: string, sink: EventSink): Promise<Payment> {'
+    reading: 'parsed'

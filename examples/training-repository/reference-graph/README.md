@@ -130,18 +130,21 @@ Three things a reference may state, none of them required:
 - `scope` on an edge: `direct` (or no `scope`) is scored; any other value keeps
   the edge out of the direct-call counts and is reported apart, under its
   scope's name.
-- `SCORING.md` at this folder's root lists `recall: yes` or `recall: no` per
-  kind and relation, one row each:
+- `SCORING.md` at this folder's root lists every kind and relation, one row
+  each, with `recall` (does the reference ask to be recalled there?) and
+  `scored` (is the name compared at all?), and a `why` where the answer is no:
 
   ```markdown
-  | name | recall |
-  | --- | --- |
-  | code.symbol | yes |
-  | code.expression | no |
+  | name | recall | scored | why |
+  | --- | --- | --- | --- |
+  | `code.symbol` | yes | yes | |
+  | `code.references` | no | no | the reference states calls, not name resolutions |
   ```
 
-  A `no` prints `n/a` for that name's recall: the reference does not ask to be
-  recalled there.
+  `recall: no` prints `n/a` for that name's recall. `scored: no` keeps both
+  sides of the name out of every count: the reference's entries and the graph's
+  records of it, and the edges that touch it, are reported apart instead. A name
+  the file does not mention is scored and recalled as usual.
 
 ## What is deliberately not here
 

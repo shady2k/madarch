@@ -28,7 +28,7 @@ edges:
         endLine: 1
         quote: 'FROM golang:1.22.5-alpine AS build'
     reading: 'declared'
-  - relation: 'code.built-by'
+  - relation: 'code.depends-on'
     from: 'code.dockerfile:services/promotions/Dockerfile'
     to: 'code.image:golang:1.22.5-alpine'
     evidence:

@@ -46,12 +46,3 @@ edges:
         endLine: 1
         quote: 'import pino from ''pino'';'
     reading: 'parsed'
-  - relation: 'code.reads-env'
-    from: 'code.file:services/payments/src/logging/logger.ts'
-    to: 'code.env-var:LOG_LEVEL'
-    evidence:
-      - path: 'services/payments/src/logging/logger.ts'
-        startLine: 5
-        endLine: 5
-        quote: '  level: process.env.LOG_LEVEL ?? ''info'','
-    reading: 'parsed'

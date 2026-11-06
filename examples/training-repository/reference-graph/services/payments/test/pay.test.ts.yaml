@@ -697,3 +697,12 @@ edges:
         endLine: 6
         quote: 'import { PaymentRepository } from ''../src/store/payment-repository'';'
     reading: 'parsed'
+  - relation: 'code.uses-type'
+    from: 'code.symbol:services/payments/test/pay.test.ts#build'
+    to: 'code.symbol:services/payments/src/providers/provider.ts#PaymentProvider'
+    evidence:
+      - path: 'services/payments/test/pay.test.ts'
+        startLine: 60
+        endLine: 60
+        quote: 'function build(provider: PaymentProvider, timeoutMs = 50) {'
+    reading: 'parsed'

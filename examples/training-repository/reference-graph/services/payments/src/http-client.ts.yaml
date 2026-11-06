@@ -1,23 +1,5 @@
 path: 'services/payments/src/http-client.ts'
 nodes:
-  - id: 'code.field:services/payments/src/http-client.ts#HttpClient.request'
-    kind: 'code.field'
-    label: 'HttpClient.request'
-    evidence:
-      - path: 'services/payments/src/http-client.ts'
-        startLine: 8
-        endLine: 8
-        quote: '  request(url: string, init: RequestInit): Promise<HttpResponse>;'
-    reading: 'parsed'
-  - id: 'code.field:services/payments/src/http-client.ts#HttpResponse.json'
-    kind: 'code.field'
-    label: 'HttpResponse.json'
-    evidence:
-      - path: 'services/payments/src/http-client.ts'
-        startLine: 4
-        endLine: 4
-        quote: '  json(): Promise<unknown>;'
-    reading: 'parsed'
   - id: 'code.field:services/payments/src/http-client.ts#HttpResponse.status'
     kind: 'code.field'
     label: 'HttpResponse.status'
@@ -45,6 +27,15 @@ nodes:
         endLine: 7
         quote: 'interface HttpClient {'
     reading: 'parsed'
+  - id: 'code.symbol:services/payments/src/http-client.ts#HttpClient.request'
+    kind: 'code.symbol'
+    label: 'HttpClient.request'
+    evidence:
+      - path: 'services/payments/src/http-client.ts'
+        startLine: 8
+        endLine: 8
+        quote: '  request(url: string, init: RequestInit): Promise<HttpResponse>;'
+    reading: 'parsed'
   - id: 'code.symbol:services/payments/src/http-client.ts#HttpResponse'
     kind: 'code.symbol'
     label: 'HttpResponse'
@@ -53,6 +44,15 @@ nodes:
         startLine: 2
         endLine: 2
         quote: 'export interface HttpResponse {'
+    reading: 'parsed'
+  - id: 'code.symbol:services/payments/src/http-client.ts#HttpResponse.json'
+    kind: 'code.symbol'
+    label: 'HttpResponse.json'
+    evidence:
+      - path: 'services/payments/src/http-client.ts'
+        startLine: 4
+        endLine: 4
+        quote: '  json(): Promise<unknown>;'
     reading: 'parsed'
   - id: 'code.symbol:services/payments/src/http-client.ts#client'
     kind: 'code.symbol'
@@ -138,21 +138,12 @@ edges:
     reading: 'parsed'
   - relation: 'code.contains'
     from: 'code.symbol:services/payments/src/http-client.ts#HttpClient'
-    to: 'code.field:services/payments/src/http-client.ts#HttpClient.request'
+    to: 'code.symbol:services/payments/src/http-client.ts#HttpClient.request'
     evidence:
       - path: 'services/payments/src/http-client.ts'
         startLine: 8
         endLine: 8
         quote: '  request(url: string, init: RequestInit): Promise<HttpResponse>;'
-    reading: 'parsed'
-  - relation: 'code.contains'
-    from: 'code.symbol:services/payments/src/http-client.ts#HttpResponse'
-    to: 'code.field:services/payments/src/http-client.ts#HttpResponse.json'
-    evidence:
-      - path: 'services/payments/src/http-client.ts'
-        startLine: 4
-        endLine: 4
-        quote: '  json(): Promise<unknown>;'
     reading: 'parsed'
   - relation: 'code.contains'
     from: 'code.symbol:services/payments/src/http-client.ts#HttpResponse'
@@ -162,4 +153,13 @@ edges:
         startLine: 3
         endLine: 3
         quote: '  status: number;'
+    reading: 'parsed'
+  - relation: 'code.contains'
+    from: 'code.symbol:services/payments/src/http-client.ts#HttpResponse'
+    to: 'code.symbol:services/payments/src/http-client.ts#HttpResponse.json'
+    evidence:
+      - path: 'services/payments/src/http-client.ts'
+        startLine: 4
+        endLine: 4
+        quote: '  json(): Promise<unknown>;'
     reading: 'parsed'

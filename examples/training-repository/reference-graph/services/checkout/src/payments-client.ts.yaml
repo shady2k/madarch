@@ -45,15 +45,6 @@ nodes:
         endLine: 24
         quote: '  private readonly stub: PaymentsStub;'
     reading: 'parsed'
-  - id: 'code.field:services/checkout/src/payments-client.ts#PaymentsStub.authorize'
-    kind: 'code.field'
-    label: 'PaymentsStub.authorize'
-    evidence:
-      - path: 'services/checkout/src/payments-client.ts'
-        startLine: 15
-        endLine: 15
-        quote: '  authorize('
-    reading: 'parsed'
   - id: 'code.file:services/checkout/src/payments-client.ts'
     kind: 'code.file'
     label: 'payments-client.ts'
@@ -126,7 +117,25 @@ nodes:
         endLine: 14
         quote: 'interface PaymentsStub extends grpc.Client {'
     reading: 'parsed'
+  - id: 'code.symbol:services/checkout/src/payments-client.ts#PaymentsStub.authorize'
+    kind: 'code.symbol'
+    label: 'PaymentsStub.authorize'
+    evidence:
+      - path: 'services/checkout/src/payments-client.ts'
+        startLine: 15
+        endLine: 15
+        quote: '  authorize('
+    reading: 'parsed'
 edges:
+  - relation: 'code.calls'
+    from: 'code.symbol:services/checkout/src/payments-client.ts#PaymentsClient.authorize'
+    to: 'code.symbol:services/checkout/src/payments-client.ts#PaymentsStub.authorize'
+    evidence:
+      - path: 'services/checkout/src/payments-client.ts'
+        startLine: 41
+        endLine: 41
+        quote: '      this.stub.authorize({ orderId, amountCents, currency, cardToken, idempotencyKey }, { deadline }, (error, reply) => {'
+    reading: 'parsed'
   - relation: 'code.calls-remote'
     from: 'code.symbol:services/checkout/src/payments-client.ts#PaymentsClient.authorize'
     to: 'code.operation:contracts/proto/payments.proto#Authorize'
@@ -250,7 +259,7 @@ edges:
     reading: 'parsed'
   - relation: 'code.contains'
     from: 'code.symbol:services/checkout/src/payments-client.ts#PaymentsStub'
-    to: 'code.field:services/checkout/src/payments-client.ts#PaymentsStub.authorize'
+    to: 'code.symbol:services/checkout/src/payments-client.ts#PaymentsStub.authorize'
     evidence:
       - path: 'services/checkout/src/payments-client.ts'
         startLine: 15

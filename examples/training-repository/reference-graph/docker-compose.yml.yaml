@@ -478,6 +478,33 @@ edges:
         quote: '      DATABASE_URL: postgres://training:training@postgres:5432/promotions?sslmode=disable'
     reading: 'declared'
   - relation: 'code.depends-on'
+    from: 'code.compose-service:checkout'
+    to: 'code.compose-service:orders'
+    evidence:
+      - path: 'docker-compose.yml'
+        startLine: 86
+        endLine: 86
+        quote: '      - orders'
+    reading: 'declared'
+  - relation: 'code.depends-on'
+    from: 'code.compose-service:checkout'
+    to: 'code.compose-service:payments'
+    evidence:
+      - path: 'docker-compose.yml'
+        startLine: 87
+        endLine: 87
+        quote: '      - payments'
+    reading: 'declared'
+  - relation: 'code.depends-on'
+    from: 'code.compose-service:checkout'
+    to: 'code.compose-service:promotions'
+    evidence:
+      - path: 'docker-compose.yml'
+        startLine: 88
+        endLine: 88
+        quote: '      - promotions'
+    reading: 'declared'
+  - relation: 'code.depends-on'
     from: 'code.compose-service:orders'
     to: 'code.compose-service:kafka'
     evidence:

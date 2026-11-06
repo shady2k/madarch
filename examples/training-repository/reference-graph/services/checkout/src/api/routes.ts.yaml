@@ -39,6 +39,15 @@ edges:
     reading: 'judgement'
   - relation: 'code.calls'
     from: 'code.symbol:services/checkout/src/api/routes.ts#checkoutRoutes'
+    to: 'code.symbol:services/checkout/src/checkout-service.ts#CheckoutService.checkout'
+    evidence:
+      - path: 'services/checkout/src/api/routes.ts'
+        startLine: 31
+        endLine: 31
+        quote: '      const result = await service.checkout({'
+    reading: 'parsed'
+  - relation: 'code.calls'
+    from: 'code.symbol:services/checkout/src/api/routes.ts#checkoutRoutes'
     to: 'code.symbol:services/checkout/src/pricing.ts#previewTotal'
     evidence:
       - path: 'services/checkout/src/api/routes.ts'
@@ -81,4 +90,13 @@ edges:
         startLine: 4
         endLine: 4
         quote: 'import { previewTotal } from ''../pricing'';'
+    reading: 'parsed'
+  - relation: 'code.uses-type'
+    from: 'code.symbol:services/checkout/src/api/routes.ts#checkoutRoutes'
+    to: 'code.symbol:services/checkout/src/checkout-service.ts#CheckoutService'
+    evidence:
+      - path: 'services/checkout/src/api/routes.ts'
+        startLine: 7
+        endLine: 7
+        quote: 'export function checkoutRoutes(service: CheckoutService): Router {'
     reading: 'parsed'
