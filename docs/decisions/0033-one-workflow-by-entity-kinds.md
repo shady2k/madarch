@@ -149,6 +149,47 @@ follow-up task, and from accepting the driver against its own brief instead of a
    implemented (extraction and verification), with independent mappings between them. Divergences
    are detected, recorded and shown on their pages automatically.
 
+### The code pass: a library reads one repository's tree (amendment, 2026-11-06)
+
+The owner decided, in his words: **"Да, берем."** He was asked to take
+`@colbymchenry/codegraph` (MIT) as the first pass for code, and was told that this changes items 5
+and 14, because the library reads the whole repository rather than one file. His rule for passes
+holds: the cheapest step first, even if imprecise, each next step refines and costs more, and an
+agent pass comes last; we do not write our own reader per language where a library exists. His
+other rules stand: no pattern of a repository is hardcoded (we have no idea what a repository looks
+like and must not guess), equality with the old reader is no criterion, and classification is jev's
+or a weak model's, never a rule's.
+
+The stage is one more static stage of the fill, through the one orchestrator and the one fill
+entry. Per run and repository it writes the commit's blobs from the snapshot reader into a
+throwaway folder outside the checkout, indexes that folder with the library **through its library
+API** (never its CLI or its MCP server, which are the two surfaces that report telemetry to the
+library's endpoint; the run sets `DO_NOT_TRACK=1` as well), reads the library's nodes and edges,
+and publishes them through the ordinary draft and publication. The folder is deleted afterwards.
+The library is pinned to one exact version in `package.json` and the lockfile.
+
+What this stage publishes, and what it does not, is decided by measurement, not by preference
+(`/work/out/report-codegraph.md` and the score of item 6): the per-file passes of ours state
+fields, files and test cases at least as well as the library does, so they keep those kinds; the
+library's calls are better on both precision and recall at the same repository, so calls,
+references, implementations and inheritances come from it. Each edge carries how it was obtained
+and how far it is trusted — the library's `resolvedBy` and confidence — and `provenance` names the
+pass; a low-confidence edge is kept, because a later pass refines it and does not re-read the tree.
+A record's place is the library's line and column. An interface-to-implementation link is an
+`implements` edge, not a call; a constructor call is a call, as the reference states it. The
+mapping from the library's vocabulary to ours is one table of data in the stage, printed in the
+report; a kind with no honest counterpart of ours stays out and is named there.
+
+The Go limit of the library (1.6.2 reads only the `go.mod` at the index root) is met without
+patching it: the stage finds the module roots by reading the tree — every folder that holds a
+`go.mod` — indexes each as its own root, and merges what the indexes hold, one source per file.
+The effect is measured and reported.
+
+For this stage, then, the unit of static work is one repository's tree at one pinned commit, and
+its memory is the library's index of that tree — measured and reported with the run (230 MiB and
+0.4 s on the training repository; 1.8 GiB and 28 s on madarch's own 1 263 files, as the
+measurement before this change found). Every other stage keeps the file as its unit.
+
 ### The walk
 
 14. **The file is the unit of static work.** A file's pass reads only its bytes and writes its own
@@ -251,6 +292,9 @@ follow-up task, and from accepting the driver against its own brief instead of a
 
 ## Consequences
 
+- Amended 2026-11-06: the code pass reads one repository's tree at the pinned commit with
+  `@colbymchenry/codegraph` (MIT, pinned) and supplies calls, references, implementations and
+  inheritances; items 5 and 14 hold for every other static stage unchanged.
 - 0026 amended: its stage list is replaced by stages per entity kind and the verification walk;
   its unit limits, agent tools (code only through MCP evidence spans, checked writes), per-file
   deterministic stages and separate vocabularies stand.
