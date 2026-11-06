@@ -199,9 +199,17 @@ beforeAll(async () => {
     const run = await service.run({ product: fill.product, runId });
     if (!run.ok) throw new Error(`the fill ${runId} was refused: ${run.code}: ${run.reason}`);
     if (run.state !== 'succeeded' || !run.settled) {
+      // Every unit the run did not publish is named with the last attempt's own reason, so a unit
+      // waiting for a retry is an attempt that failed and not a loop that ran dry in silence.
       const progress = await service.progress(fill.product.folder);
-      const failures = (progress?.events ?? []).filter((event) => event.type === 'unit-failed' || event.type === 'unit-refused');
-      throw new Error(`the fill ${runId} did not settle: ${run.state}, settled ${String(run.settled)}; failed units: ${(run.units ?? []).filter((unit) => unit.state === 'failed').map((unit) => unit.unitId).join('; ') || 'none'}; events: ${failures.map((event) => `${event.unitId}: ${event.summary}`).join(' | ') || 'none'}`);
+      const events = progress?.events ?? [];
+      const unpublished = (run.units ?? []).filter((unit) => unit.state !== 'published');
+      const said = unpublished.map((unit) => {
+        const own = events.filter((event) => event.unitId === unit.unitId);
+        const last = own.filter((event) => ['unit-retried', 'unit-failed', 'unit-refused', 'unit-blocked'].includes(event.type)).at(-1) ?? own.at(-1);
+        return `${unit.unitId} (stage ${unit.stageId}, state ${unit.state}, attempt ${String(unit.attempts)}): ${last?.summary ?? 'the run recorded no event for it'}`;
+      });
+      throw new Error(`the fill ${runId} did not settle: ${run.state}, settled ${String(run.settled)}, stopped ${String(run.stoppedBecause)}; ${String(unpublished.length)} not published:\n${said.join('\n')}`);
     }
     if (runId === 'contracts-training-2') refill = run.units;
   }

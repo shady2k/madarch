@@ -103,7 +103,14 @@ function contains(outer: SourceSpan, inner: SourceSpan): boolean {
  * One file's view: its facts, its calls with their holder, the mentions the publisher and consumer
  * proofs ask for, and the declared types the call resolution joins.
  */
-export async function fileCodeViewOf(stage: StaticStageContext, repository: string, path: string, bytes: Uint8Array, roles: FileCodeView['roles'] = []): Promise<FileCodeView> {
+export async function fileCodeViewOf(
+  stage: StaticStageContext,
+  repository: string,
+  path: string,
+  bytes: Uint8Array,
+  roles: FileCodeView['roles'] = [],
+  extra: { readonly symbols?: readonly {readonly key: string; readonly path: string; readonly name: string; readonly qualifiedName: string; readonly symbolKind: string; readonly callable: boolean; readonly span: SourceSpan; readonly bodySpan?: SourceSpan}[]; readonly implements?: readonly {readonly from: string; readonly to: string}[] } = {},
+): Promise<FileCodeView> {
   const [expressionRows, bindingRows, callRows, callableRows, fieldRows, inheritEdges] = await Promise.all([
     rowsOf(stage, 'code.expression', path, repository),
     rowsOf(stage, 'code.binding', path, repository),
@@ -115,6 +122,12 @@ export async function fileCodeViewOf(stage: StaticStageContext, repository: stri
   const expressions = new Map<string, PublisherExpression>();
   for (const row of expressionRows) expressions.set(String(row['id']), {...row} as unknown as PublisherExpression);
   const bindings = bindingRows.map((row) => ({...row}));
+  // A short declaration's right side is an expression list: the value a name holds is the one
+  // expression that list names, as the driver's own facts record it.
+  for (const binding of bindings) {
+    const initial = typeof binding['initializer'] === 'string' ? expressions.get(binding['initializer']) : undefined;
+    if (initial?.syntaxKind === 'expression_list' && initial.children.length === 1) binding['initializer'] = initial.children[0]!;
+  }
   const classNames = new Map<string, PublisherExpression>();
   /** A child expression of one node, where the walk kept the id under the grammar's field. */
   const childIn = (node: PublisherExpression, field: string): PublisherExpression | undefined => {
@@ -219,7 +232,7 @@ export async function fileCodeViewOf(stage: StaticStageContext, repository: stri
   /** The identifier a member access names, or the identifier itself: the place a mention stands. */
   const mentionSpanOf = (callee: PublisherExpression): SourceSpan | undefined => {
     if (callee.syntaxKind === 'identifier') return callee.span;
-    if (callee.syntaxKind !== 'member_expression') return undefined;
+    if (callee.syntaxKind !== 'member_expression' && callee.syntaxKind !== 'selector_expression') return undefined;
     const member = childIn(callee, 'field') ?? childIn(callee, 'property');
     return member?.span;
   };
@@ -246,6 +259,10 @@ export async function fileCodeViewOf(stage: StaticStageContext, repository: stri
     ...(spanOf(row['bodySpan']) === undefined ? {} : { bodySpan: spanOf(row['bodySpan'])! }),
   }));
   for (const [name, node] of classNames) callables.push({key: `code.symbol:${path}#${name}`, path, name, qualifiedName: name, symbolKind: 'class', callable: false, span: node.span});
+  // The declarations of the other files of one service, and their inheritance, so a call through an
+  // interface declared here and implemented there reaches its implementation: the outbox chain
+  // crosses relay.go and kafka.go.
+  for (const symbol of extra.symbols ?? []) callables.push({...symbol});
   const callableAt = (span: SourceSpan): SymbolRow | undefined => {
     const held = callables.filter((callable) => callable.span.byteStart <= span.byteStart && span.byteStart < callable.span.byteEnd && callable.bodySpan !== undefined && contains(callable.bodySpan, span));
     return held.sort((left, right) => (left.span.byteEnd - left.span.byteStart) - (right.span.byteEnd - right.span.byteStart))[0];
@@ -282,6 +299,15 @@ export async function fileCodeViewOf(stage: StaticStageContext, repository: stri
       const nearest = parameter.sort((left, right) => (left.span.byteEnd - left.span.byteStart) - (right.span.byteEnd - right.span.byteStart))[0];
       return typeNameOf(nearest === undefined ? undefined : childIn(nearest, 'type'));
     }
+    // A field's own type names the receiver of a method the field holds (`r.publisher.Publish`):
+    // the interface the field is declared with, and the implementation its fan-out reaches.
+    if ((receiver.syntaxKind === 'member_expression' || receiver.syntaxKind === 'selector_expression') && receiver.receiver !== undefined && receiver.member !== undefined) {
+      const base = expressions.get(receiver.receiver);
+      const owner = typeNameOfReceiver(base, receiver.span);
+      const declared = owner === undefined ? undefined : fieldNamed(owner, receiver.member);
+      const type = declared === undefined || declared.typeExpression === '' ? undefined : expressions.get(declared.typeExpression);
+      return typeNameOf(type);
+    }
     return undefined;
   };
   const fields = fieldRows.map((row) => {
@@ -299,6 +325,7 @@ export async function fileCodeViewOf(stage: StaticStageContext, repository: stri
     };
   });
   const implementsOf = new Map<string, string[]>();
+  for (const edge of extra.implements ?? []) implementsOf.set(edge.from, [...(implementsOf.get(edge.from) ?? []), edge.to]);
   for (const edge of inheritEdges.rows) {
     const from = String(edge.from.properties['qualifiedName'] ?? '');
     const to = String(edge.to.properties['qualifiedName'] ?? '');
@@ -325,7 +352,7 @@ export async function fileCodeViewOf(stage: StaticStageContext, repository: stri
       // by the construction's arguments, and the driver names that declaration.
       const constructor = constructed === undefined ? undefined : callables.find((symbol) => symbol.callable && symbol.qualifiedName === `${callee.name}.constructor`);
       if (constructor !== undefined) targets.push({to: constructor.key, fanOut: []});
-    } else if (callee.syntaxKind === 'member_expression' && callee.member !== undefined && callee.receiver !== undefined) {
+    } else if ((callee.syntaxKind === 'member_expression' || callee.syntaxKind === 'selector_expression') && callee.member !== undefined && callee.receiver !== undefined) {
       const receiver = expressions.get(callee.receiver);
       const owner = typeNameOfReceiver(receiver, callee.span);
       const declared = owner === undefined ? undefined : callables.find((symbol) => symbol.qualifiedName === `${owner}.${callee.member}`);

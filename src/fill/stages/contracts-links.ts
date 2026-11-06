@@ -779,6 +779,122 @@ function linkWrites(relation: string, fileKey: string, enclosing: string | undef
 }
 
 /**
+ * The imports of one service's files, resolved to the files and exported declarations they answer:
+ * the code-facts facts name an import's specifier and binding but not the file it reaches, and a
+ * reader that joins a client's wiring to the constructor it builds reads both. Only a relative
+ * specifier is resolved; a package is no file of this repository.
+ */
+function resolveImports(views: readonly FileCodeView[], files: readonly string[]): void {
+  const present = new Set(files);
+  for (const view of views) {
+    for (const imported of view.facts.imports) {
+      if (imported.targetPath !== undefined || !imported.specifier.startsWith('.')) continue;
+      const folder = folderOf(view.facts.files[0]?.path ?? '');
+      const base = normalizePath(folder === '' ? imported.specifier : `${folder}/${imported.specifier}`);
+      const candidates = [base, `${base}.ts`, `${base}.tsx`, `${base}.js`, `${base}/index.ts`, `${base}/index.tsx`];
+      const target = candidates.find((candidate) => present.has(candidate));
+      if (target === undefined) continue;
+      const held = view.facts.imports as unknown as { targetPath?: string; targetExpression?: string }[];
+      const mutable = held.find((entry) => entry === (imported as unknown));
+      if (mutable === undefined) continue;
+      mutable.targetPath = target;
+      const name = imported.imported.form === 'named' ? imported.imported.name : imported.imported.form === 'default' ? 'default' : undefined;
+      const other = views.find((candidate) => candidate.facts.files.some((file) => file.path === target));
+      const named = (expression: {readonly id: string; readonly syntaxKind: string; readonly fields: Readonly<Record<string, readonly string[]>>}): string | undefined => {
+        const ids = expression.fields['name'] ?? [];
+        if (ids.length !== 1 || other === undefined) return undefined;
+        return other.facts.expressions.find((held) => held.id === ids[0])?.name;
+      };
+      const exported = name === undefined || other === undefined ? undefined : other.facts.expressions.find((expression) => ['class_declaration', 'abstract_class_declaration', 'function_declaration', 'function_expression', 'arrow_function'].includes(expression.syntaxKind) && named(expression) === name);
+      if (exported !== undefined) mutable.targetExpression = exported.id;
+      // A call to an imported declaration reaches that file's declaration: the site the publisher
+      // and deadline proofs follow across files.
+      if (name === undefined) continue;
+      const callTarget = `code.symbol:${target}#${name}`;
+      for (const call of view.facts.calls) {
+        const callee = view.facts.expressions.find((expression) => expression.id === call.callee);
+        if (callee?.syntaxKind !== 'identifier' || callee.bindingId === undefined) continue;
+        const binding = view.facts.bindings.find((held) => held.id === callee.bindingId);
+        if (binding?.importId === undefined || binding.importId !== imported.id) continue;
+        if (view.facts.sites.some((site) => site.use === 'call' && site.span.byteStart === callee.span.byteStart && site.span.byteEnd === callee.span.byteEnd)) continue;
+        (view.facts.sites as unknown as {path: string; span: unknown; to: string; use: string; roles: readonly string[]; fanOut: readonly string[]; holder: string}[]).push({path: view.facts.files[0]?.path ?? '', span: callee.span, to: callTarget, use: 'call', roles: ['read-access'], fanOut: [], holder: call.holder});
+        (view.code.edges as unknown as {type: string; from: string; to: string}[]).push({type: 'code.calls', from: call.holder, to: callTarget});
+      }
+    }
+  }
+}
+
+/**
+ * The callables and the inheritance edges of every file of one service, as the per-file views of
+ * that service read them: a call through an interface declared in one file and implemented in
+ * another reaches its implementation, which a view of one file cannot see.
+ */
+async function serviceSymbolsOf(stage: StaticStageContext, repository: string, files: readonly string[]): Promise<{
+  readonly symbols: readonly {readonly key: string; readonly path: string; readonly name: string; readonly qualifiedName: string; readonly symbolKind: string; readonly callable: boolean; readonly span: SourceSpan; readonly bodySpan?: SourceSpan}[];
+  readonly implements: readonly {readonly from: string; readonly to: string}[];
+}> {
+  const symbols: {key: string; path: string; name: string; qualifiedName: string; symbolKind: string; callable: boolean; span: SourceSpan; bodySpan?: SourceSpan}[] = [];
+  const implementsEdges: {from: string; to: string}[] = [];
+  for (const file of files) {
+    const rows = (await allPages((page) => stage.byProperty('code.callable', 'file', file, page))).filter((node) => node.properties['repository'] === repository);
+    for (const node of rows) {
+      const span = spanIn(node.properties['span']);
+      if (span === undefined || typeof node.properties['symbolKey'] !== 'string') continue;
+      const body = spanIn(node.properties['bodySpan']);
+      symbols.push({
+        key: node.properties['symbolKey'] as string,
+        path: file,
+        name: String(node.properties['name'] ?? ''),
+        qualifiedName: String(node.properties['qualifiedName'] ?? ''),
+        symbolKind: String(node.properties['symbolKind'] ?? ''),
+        callable: node.properties['callable'] === true,
+        span,
+        ...(body === undefined ? {} : { bodySpan: body }),
+      });
+    }
+    const edges = await allPages((page) => stage.edgesByProperty('code.inherits', 'file', file, page));
+    for (const edge of edges) {
+      const from = String(edge.from.properties['qualifiedName'] ?? '');
+      const to = String(edge.to.properties['qualifiedName'] ?? '');
+      if (from !== '' && to !== '') implementsEdges.push({from, to});
+    }
+  }
+  // Go declares no `implements`: a struct implements an interface by holding all its methods in the
+  // same package, the driver's own structural rule (`program.implementorsOf`). The graph's
+  // `code.inherits` edges carry the TypeScript clauses; this adds the Go answer.
+  const byFolder = new Map<string, typeof symbols>();
+  for (const symbol of symbols) {
+    const folder = symbol.path.includes('/') ? symbol.path.slice(0, symbol.path.lastIndexOf('/')) : '';
+    byFolder.set(folder, [...(byFolder.get(folder) ?? []), symbol]);
+  }
+  for (const [folder, held] of byFolder) {
+    const interfaces = new Map<string, string[]>();
+    for (const symbol of held) {
+      if (symbol.bodySpan !== undefined || !symbol.callable) continue;
+      const dot = symbol.qualifiedName.lastIndexOf('.');
+      if (dot <= 0) continue;
+      const owner = symbol.qualifiedName.slice(0, dot);
+      interfaces.set(owner, [...(interfaces.get(owner) ?? []), symbol.qualifiedName.slice(dot + 1)]);
+    }
+    const methods = new Map<string, Set<string>>();
+    for (const symbol of held) {
+      if (symbol.bodySpan === undefined || !symbol.callable) continue;
+      const dot = symbol.qualifiedName.lastIndexOf('.');
+      if (dot <= 0) continue;
+      const owner = symbol.qualifiedName.slice(0, dot);
+      methods.set(owner, new Set([...(methods.get(owner) ?? []), symbol.qualifiedName.slice(dot + 1)]));
+    }
+    for (const [owner, names] of interfaces) {
+      for (const [candidate, declared] of methods) {
+        if (candidate === owner || !names.every((name) => declared.has(name))) continue;
+        implementsEdges.push({from: candidate, to: owner});
+      }
+    }
+  }
+  return {symbols, implements: implementsEdges};
+}
+
+/**
  * The publications the outbox inference proves for a file's unresolved sites: the driver's own
  * reading over the facts of the service the file belongs to, rebuilt from the graph one file at a
  * time. The service's files are the per-file unit facts it declares, never a folder's shape.
@@ -789,13 +905,15 @@ async function outboxWrites(stage: StaticStageContext, source: StaticStageSource
   const units = (await allPages((page) => stage.byProperty('code.service-unit', 'name', service, page)))
     .filter((node) => node.properties['repository'] === repository);
   const files = [...new Set(units.flatMap((node) => typeof node.properties['file'] === 'string' ? [node.properties['file'] as string] : []))].sort(byCodePoint);
+  const extra = await serviceSymbolsOf(stage, repository, files);
   const views = [];
   for (const file of files) {
     const held = await source.file(file);
     if (held?.content === undefined) continue;
-    views.push(await fileCodeViewOf(stage, repository, file, held.content));
+    views.push(await fileCodeViewOf(stage, repository, file, held.content, [], extra));
   }
   if (views.length === 0) return [];
+  resolveImports(views, files);
   const facts = {
     files: views.flatMap((view) => view.facts.files),
     expressions: views.flatMap((view) => view.facts.expressions),
@@ -972,13 +1090,15 @@ async function grpcDeadlineOf(stage: StaticStageContext, source: StaticStageSour
   const files = [...new Set((await allPages((page) => stage.byProperty('code.service-unit', 'name', service, page)))
     .filter((node) => node.properties['repository'] === repository)
     .flatMap((node) => typeof node.properties['file'] === 'string' ? [node.properties['file'] as string] : []))].sort(byCodePoint);
+  const extra = await serviceSymbolsOf(stage, repository, files);
   const views: FileCodeView[] = [];
   for (const file of files) {
     const held = await source.file(file);
     if (held?.content === undefined) continue;
-    views.push(await fileCodeViewOf(stage, repository, file, held.content));
+    views.push(await fileCodeViewOf(stage, repository, file, held.content, [], extra));
   }
   if (views.length === 0) return undefined;
+  resolveImports(views, files);
   const facts = {
     files: views.flatMap((view) => view.facts.files),
     expressions: views.flatMap((view) => view.facts.expressions),

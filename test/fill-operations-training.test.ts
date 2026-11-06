@@ -356,25 +356,20 @@ beforeAll(async () => {
   // A unit the stage could not publish is said first, with the reader's own words — the unit,
   // its stage and the file: the comparison below is worth nothing while a file of the stage
   // stands failed (decision 0005), and a state alone hides which unit it stands over.
-  const failed = run.units.filter((unit) => unit.state === 'failed');
-  if (failed.length > 0) {
-    const { readProgress } = await import('../src/fill/orchestrator-store.js');
-    const events = await readProgress(owner, 'training-one', {});
-    const said = failed.map((unit) => {
-      const refused = events.filter((event) => event.kind === 'unit-failed' && event.unitId === unit.unitId).at(-1);
-      return `${unit.unitId} (stage ${unit.stageId}, ${String(unit.attempts)} attempt${unit.attempts === 1 ? '' : 's'}): ${refused?.summary ?? 'the run recorded no reason'}`;
-    });
-    throw new Error(`the first fill left ${String(failed.length)} unit(s) failed, in state ${run.state}:\n${said.join('\n')}`);
-  }
   if (run.state !== 'succeeded') {
+    // Every unit the run did not publish is named with the last attempt's own reason: a unit left in
+    // `retry_wait` is an attempt that failed, never a scheduler that ran out of progress in silence.
     const { readProgress } = await import('../src/fill/orchestrator-store.js');
     const events = await readProgress(owner, 'training-one', {});
     const states = new Map<string, number>();
     for (const unit of run.units) states.set(unit.state, (states.get(unit.state) ?? 0) + 1);
-    const busiest = [...run.units].sort((left, right) => right.attempts - left.attempts || right.generation - left.generation).slice(0, 8)
-      .map((unit) => `${unit.unitId} (${unit.stageId}, ${unit.state}, g${String(unit.generation)}, a${String(unit.attempts)})`);
-    const recent = events.slice(-12).map((event) => `${event.kind}:${event.unitId}:${event.summary.slice(0, 120)}`);
-    throw new Error(`the first fill did not succeed: state ${run.state}, settled ${String(run.settled)}, stopped ${String(run.stoppedBecause)}, work ${String(run.work)}, passes ${String(run.passes)}; units ${JSON.stringify([...states])}; busiest ${busiest.join(' | ')}; events ${recent.join(' | ')}`);
+    const unpublished = run.units.filter((unit) => unit.state !== 'published');
+    const said = unpublished.map((unit) => {
+      const own = events.filter((event) => event.unitId === unit.unitId);
+      const last = own.filter((event) => ['unit-retried', 'unit-failed', 'unit-refused', 'unit-blocked'].includes(event.kind)).at(-1) ?? own.at(-1);
+      return `${unit.unitId} (stage ${unit.stageId}, state ${unit.state}, attempt ${String(unit.attempts)}): ${last?.summary ?? 'the run recorded no event for it'}`;
+    });
+    throw new Error(`the first fill did not succeed: state ${run.state}, settled ${String(run.settled)}, stopped ${String(run.stoppedBecause)}, work ${String(run.work)}, passes ${String(run.passes)}; units ${JSON.stringify([...states])}; ${String(unpublished.length)} not published:\n${said.join('\n')}`);
   }
   // The driver's own reading of the same tree, at the same commit.
   const paths = committedFiles(repository);
