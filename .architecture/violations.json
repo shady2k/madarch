@@ -3172,11 +3172,6 @@
   {
     "rule": "no-unreachable-code",
     "file": "src/loop/plan.ts",
-    "symbol": "neededFromPaths"
-  },
-  {
-    "rule": "no-unreachable-code",
-    "file": "src/loop/plan.ts",
     "symbol": "servicesSince"
   },
   {
@@ -3213,11 +3208,6 @@
     "rule": "no-unreachable-code",
     "file": "src/loop/propose.ts",
     "symbol": "scopeOfGround"
-  },
-  {
-    "rule": "no-unreachable-code",
-    "file": "src/loop/task-run.ts",
-    "symbol": null
   },
   {
     "rule": "no-unreachable-code",
@@ -4372,11 +4362,6 @@
   {
     "rule": "no-unreachable-code",
     "file": "src/writer/guides/writer.ts",
-    "symbol": "distinctiveGuideValue"
-  },
-  {
-    "rule": "no-unreachable-code",
-    "file": "src/writer/guides/writer.ts",
     "symbol": "guideProductDocument"
   },
   {
@@ -4487,11 +4472,6 @@
   {
     "rule": "no-unreachable-code",
     "file": "src/writer/index.ts",
-    "symbol": "EditorialAcpJudgeOptions"
-  },
-  {
-    "rule": "no-unreachable-code",
-    "file": "src/writer/index.ts",
     "symbol": "EditorialFinding"
   },
   {
@@ -4508,11 +4488,6 @@
     "rule": "no-unreachable-code",
     "file": "src/writer/index.ts",
     "symbol": "EditorialJudgeAnswer"
-  },
-  {
-    "rule": "no-unreachable-code",
-    "file": "src/writer/index.ts",
-    "symbol": "EditorialJudgeError"
   },
   {
     "rule": "no-unreachable-code",
@@ -4842,11 +4817,6 @@
   {
     "rule": "no-unreachable-code",
     "file": "src/writer/index.ts",
-    "symbol": "editorialAcpJudge"
-  },
-  {
-    "rule": "no-unreachable-code",
-    "file": "src/writer/index.ts",
     "symbol": "enrichmentFamilyOf"
   },
   {
@@ -4858,16 +4828,6 @@
     "rule": "no-unreachable-code",
     "file": "src/writer/index.ts",
     "symbol": "enrichmentSource"
-  },
-  {
-    "rule": "no-unreachable-code",
-    "file": "src/writer/index.ts",
-    "symbol": "fileJournal"
-  },
-  {
-    "rule": "no-unreachable-code",
-    "file": "src/writer/index.ts",
-    "symbol": "fillWriterState"
   },
   {
     "rule": "no-unreachable-code",
@@ -4897,17 +4857,7 @@
   {
     "rule": "no-unreachable-code",
     "file": "src/writer/index.ts",
-    "symbol": "journalFolder"
-  },
-  {
-    "rule": "no-unreachable-code",
-    "file": "src/writer/index.ts",
     "symbol": "journalOfUnit"
-  },
-  {
-    "rule": "no-unreachable-code",
-    "file": "src/writer/index.ts",
-    "symbol": "newRunId"
   },
   {
     "rule": "no-unreachable-code",
@@ -5133,11 +5083,6 @@
     "rule": "no-unreachable-code",
     "file": "src/writer/run.ts",
     "symbol": "VALIDATION_PATH"
-  },
-  {
-    "rule": "no-unreachable-code",
-    "file": "src/writer/run.ts",
-    "symbol": "WriterHalted"
   },
   {
     "rule": "no-unreachable-code",
@@ -6011,11 +5956,6 @@
   },
   {
     "rule": "sql-only-in-storage-layer",
-    "file": "src/knowledge/fill-run.ts",
-    "symbol": "src/adapters/database-owner.ts"
-  },
-  {
-    "rule": "sql-only-in-storage-layer",
     "file": "src/knowledge/graph-read.ts",
     "symbol": "src/adapters/database-owner.ts"
   },
@@ -6082,11 +6022,6 @@
   {
     "rule": "sql-only-in-storage-layer",
     "file": "src/loop/propose.ts",
-    "symbol": "src/adapters/database-owner.ts"
-  },
-  {
-    "rule": "sql-only-in-storage-layer",
-    "file": "src/loop/task-run.ts",
     "symbol": "src/adapters/database-owner.ts"
   },
   {

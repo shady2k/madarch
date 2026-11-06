@@ -19,11 +19,16 @@ import { execFile } from 'node:child_process';
 import { cpSync, mkdirSync, readdirSync, renameSync, rmSync } from 'node:fs';
 import { join } from 'node:path';
 import { promisify } from 'node:util';
-import { createPGliteDatabaseOwner, type DatabaseOwner } from '../adapters/database-owner.js';
 import { createFillOrchestratorService, type FillOrchestratorService } from '../fill/orchestrator-host.js';
 import { createStagesFill } from '../product/fill-stages.js';
 
 const execFileAsync = promisify(execFile);
+
+/**
+ * The store's owner, as the orchestrator host names it: the type is derived from the host's own options, so this module
+ * never imports a connection (decision 0033, item 3).
+ */
+type StoreOwner = NonNullable<Parameters<typeof createFillOrchestratorService>[0]['owner']>;
 
 /** The numbers of the snapshots already in `readRoot`, so a new one never reuses one. */
 export function snapshotNumbers(readRoot: string): number[] {
@@ -35,7 +40,7 @@ export function snapshotNumbers(readRoot: string): number[] {
 }
 
 /** Makes the folder of a snapshot of a store the owner holds: a checkpoint, then a copy that lands whole or not at all. */
-export async function takeSnapshot(owner: DatabaseOwner, graphPath: string, readRoot: string): Promise<number> {
+export async function takeSnapshot(owner: StoreOwner, graphPath: string, readRoot: string): Promise<number> {
   await owner.exec('CHECKPOINT');
   mkdirSync(readRoot, { recursive: true });
   const seq = (snapshotNumbers(readRoot).pop() ?? 0) + 1;
@@ -56,6 +61,12 @@ export interface KnowledgeFillOptions {
   readonly runId: string;
   /** The units the run holds in hand at once; 16 when it is left out. */
   readonly workers?: number;
+  /**
+   * The store's owner, opened by the caller: the process's own connection to `<store>/graph`. The caller hands it
+   * over — this module closes it when the run ends — so the module that starts a fill never imports a connection
+   * (decision 0033, item 3).
+   */
+  readonly database: StoreOwner;
 }
 
 /** What one fill of a knowledge store ended as. */
@@ -103,7 +114,7 @@ export async function startKnowledgeFill(options: KnowledgeFillOptions): Promise
   const graphPath = join(options.storeFolder, 'graph');
   const readRoot = join(options.storeFolder, 'read');
   mkdirSync(options.storeFolder, { recursive: true });
-  const owner = createPGliteDatabaseOwner({ path: graphPath, btreeGist: true });
+  const owner = options.database;
   await owner.ready;
   let service: FillOrchestratorService | undefined;
   let closed = false;

@@ -26,7 +26,7 @@ import { execFile, execFileSync } from 'node:child_process';
 import { mkdir, rename, rm, writeFile } from 'node:fs/promises';
 import { dirname, join, relative, resolve } from 'node:path';
 import { promisify } from 'node:util';
-import type { DatabaseOwner, OuterTransaction } from '../adapters/database-owner.js';
+import { createPGliteDatabaseOwner, type DatabaseOwner, type OuterTransaction } from '../adapters/database-owner.js';
 import { RemoteOwner } from './remote-owner.js';
 import { byCodePoint } from '../model/order.js';
 import { MANIFEST_FILE, readProduct, type ProductIdentity } from '../product/manifest.js';
@@ -924,7 +924,10 @@ export class KnowledgeProduct {
     const runId = `fill-${startedAt.replace(/[-:.]/gu, '').replace(/Z$/u, 'Z')}`;
     let run: KnowledgeFillRun;
     try {
-      run = await startKnowledgeFill({ productFolder: product.folder, storeFolder: this.storeFolder(), runId });
+      // The store's owner is opened here, where the process's connection already is (decision 0033, item 3): the fill
+      // module is handed it and closes it when the run ends.
+      const database = createPGliteDatabaseOwner({ path: join(this.storeFolder(), 'graph'), btreeGist: true });
+      run = await startKnowledgeFill({ productFolder: product.folder, storeFolder: this.storeFolder(), runId, database });
     } catch (error) {
       this.fill = { state: 'failed', startedAt: this.fill.startedAt, finishedAt: (this.options.now?.() ?? new Date()).toISOString(), message: error instanceof Error ? error.message : String(error), code: 'store' };
       this.notify();
@@ -2988,10 +2991,10 @@ export class KnowledgeProduct {
     if (impact.writable.length === 0) {
       return { ok: false, message: `the task ${task.slug} reaches no page of the product that the agent writes (${impact.pages.map((page) => page.file).join(', ') || 'no page at all'}): its grounds are ${impact.grounds.join(', ')}` };
     }
-    if (this.chosenAgent() === null) return { ok: false, message: 'no agent is chosen for this product: choose one before fixing the pages' };
-    const started = await this.startFill({ task: task.slug, taskPages: impact.writable });
-    if (!started.started) return { ok: false, message: started.message };
-    return { ok: true, task: (await listTasks({ productFolder: this.options.productFolder, owner, repositories: this.taskRepositories(), pageFiles: this.pageFiles(), placeOf: (scope) => this.placeOf(scope) })).tasks.find((row) => row.id === task.id)!, pages: impact.writable, fill: started.fill };
+    // The task press limited the *writer* to the pages the task reaches; this build runs no writer (the owner:
+    // "Старый код, старый цикл разбора мы удаляем" — the agent stage is a later task's, decision 0033 item 1), so the
+    // press is refused by name rather than reported as a run that wrote nothing.
+    return { ok: false, message: `the task ${task.slug} reaches the pages ${impact.writable.join(', ')}, and writing them needs the agent stage, which this build does not run: a later task builds it (decision 0033, item 1)` };
   }
 
   /** A person's correction of a statement: a new file, committed with the person as author. */

@@ -818,7 +818,7 @@ async function fillCommand(parsed: Parsed, home: string | undefined, args: reado
   const runId = `fill-${new Date().toISOString().replace(/[-:.]/gu, '').replace(/Z$/u, 'Z')}`;
   let run;
   try {
-    run = await startKnowledgeFill({ productFolder: folder, storeFolder, runId, ...(parsed.workers === undefined ? {} : { workers: parsed.workers }) });
+    run = await startKnowledgeFill({ productFolder: folder, storeFolder, runId, database: createPGliteDatabaseOwner({ path: join(storeFolder, 'graph'), btreeGist: true }), ...(parsed.workers === undefined ? {} : { workers: parsed.workers }) });
   } catch (error) {
     console.error((error as Error).message);
     return 1;
