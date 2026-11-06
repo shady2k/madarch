@@ -152,10 +152,24 @@ describe('matchEdges', () => {
 });
 
 describe('readScoring', () => {
-  test('a SCORING.md says which names are scored for recall', () => {
-    const scoring = readScoring(['| name | recall |', '| --- | --- |', '| `code.symbol` | yes |', '| code.expression | no |', '', 'prose is ignored'].join('\n'));
-    expect(scoring.get('code.symbol')).toBe(true);
-    expect(scoring.get('code.expression')).toBe(false);
-    expect(scoring.size).toBe(2);
+  test('a SCORING.md says which names are scored for recall and whether they are scored at all', () => {
+    const scoring = readScoring([
+      '# which names',
+      '| name | recall | scored | why |',
+      '| --- | --- | --- | --- |',
+      '| `code.symbol` | yes | yes | |',
+      '| code.expression | no | no | a mention is an extraction reading |',
+      '| code.carries | yes | yes | |',
+      '',
+      'prose is ignored',
+    ].join('\n'));
+    expect(scoring.get('code.symbol')).toEqual({ recall: true, scored: true });
+    expect(scoring.get('code.expression')).toEqual({ recall: false, scored: false, why: 'a mention is an extraction reading' });
+    expect(scoring.size).toBe(3);
+  });
+
+  test('a file without a table says nothing, and an unmentioned name is scored as usual', () => {
+    expect(readScoring('no table here').size).toBe(0);
+    expect(readScoring('| name | recall |\n| --- | --- |\n| code.symbol | yes |').get('code.file')).toBeUndefined();
   });
 });

@@ -126,6 +126,7 @@ interface Result {
   readonly identity: readonly { readonly kind: string; readonly property: string; readonly why: string; readonly matched: number }[];
   readonly scopedApart: readonly { readonly scope: string; readonly count: number }[];
   readonly unscored: { readonly nodes: number; readonly edges: number };
+  readonly outOfScope: readonly { readonly name: string; readonly reference: number; readonly graph: number; readonly why: string }[];
   readonly totals: Readonly<Record<string, Readonly<Record<string, {
     reference: number; graph: number; truePositives: number;
     nameReference: number; nameGraph: number; nameTruePositives: number;
@@ -305,6 +306,12 @@ async function score(referenceRoot: string, repositoryFolder: string, database: 
     });
     const match = matchNodes(reference.nodes, records);
 
+    // The names a reference's SCORING.md keeps out of every count (`scored: no`):
+    // the two sides mean different facts there, or the reference does not state it.
+    const scoredOut = new Set([...reference.scoring.entries()].filter(([, held]) => held.scored === false).map(([name]) => name));
+    const allKinds = new Set([...reference.nodes.map((node) => node.kind), ...entities.map((entity) => entity.kind)]);
+    const outOfScopeKinds = new Set([...scoredOut].filter((name) => allKinds.has(name)));
+
     // The edges of every relation the producers declare and the reference uses.
     const relations = [...new Set([...EXTRACTOR_RELATIONS.keys(), ...STAGE_EDGE_TYPES.map((relation) => relation.key), ...reference.edges.map((edge) => edge.relation)])].sort();
     const graphEdges: GraphEdge[] = [];
@@ -318,12 +325,14 @@ async function score(referenceRoot: string, repositoryFolder: string, database: 
         graphEdgeRows.set(`${relation}\u0000${edge.from.key}\u0000${edge.to.key}`, edge);
       }
     }
+    // A relation the reference keeps out of every count, as SCORING.md says.
+    const outOfScopeRelations = new Set([...scoredOut].filter((name) => [...reference.edges.map((edge) => edge.relation), ...graphEdges.map((edge) => edge.relation)].includes(name)));
     // An edge is comparable only when both of its ends are records of kinds the
     // reference states; an edge that touches a kind the reference leaves out by
     // design is reported apart, like the record itself.
-    const referenceKindsForEdges = new Set(reference.nodes.map((node) => node.kind));
+    const referenceKindsForEdges = new Set(reference.nodes.map((node) => node.kind).filter((kind) => !outOfScopeKinds.has(kind)));
     const kindOfKey = new Map<string, string>(entities.map((entity) => [entity.key, entity.kind]));
-    const inScope = graphEdges.filter((edge) => referenceKindsForEdges.has(kindOfKey.get(edge.from) ?? '') && referenceKindsForEdges.has(kindOfKey.get(edge.to) ?? ''));
+    const inScope = graphEdges.filter((edge) => !outOfScopeRelations.has(edge.relation) && referenceKindsForEdges.has(kindOfKey.get(edge.from) ?? '') && referenceKindsForEdges.has(kindOfKey.get(edge.to) ?? ''));
     const keepsApart = new Map<string, number>();
     for (const edge of graphEdges) {
       if (inScope.includes(edge)) continue;
@@ -365,7 +374,9 @@ async function score(referenceRoot: string, repositoryFolder: string, database: 
       nameEdgesHeld.add(`${edge.relation}\u0000${from}\u0000${to}`);
     }
 
-    const referenceKinds = new Set(reference.nodes.map((node) => node.kind));
+    // The names a reference's SCORING.md keeps out of every count (`scored: no`):
+    // the two sides mean different facts there, or the reference does not state it.
+    const referenceKinds = new Set(reference.nodes.map((node) => node.kind).filter((kind) => !outOfScopeKinds.has(kind)));
     const table: Row[] = [];
     const missing: Missing[] = [];
     const extra: Extra[] = [];
@@ -397,7 +408,7 @@ async function score(referenceRoot: string, repositoryFolder: string, database: 
           namePrecision: share(tpName, names), nameRecall: share(tpName, wanted.length),
           noPlace: unplaced ?? 0,
           ambiguous: ambiguity?.entries ?? 0,
-          recallScored: reference.scoring.get(kind) !== false,
+          recallScored: reference.scoring.get(kind)?.recall !== false,
         });
       }
       for (const node of entries) {
@@ -411,7 +422,7 @@ async function score(referenceRoot: string, repositoryFolder: string, database: 
     }
 
     // Relations, by relation and by class.
-    const referenceRelations = new Set(reference.edges.map((edge) => edge.relation));
+    const referenceRelations = new Set(reference.edges.map((edge) => edge.relation).filter((relation) => !outOfScopeRelations.has(relation)));
     const relationsHeld = [...referenceRelations].sort();
     for (const relation of relationsHeld) {
       const held = inScope.filter((edge) => edge.relation === relation);
@@ -431,7 +442,7 @@ async function score(referenceRoot: string, repositoryFolder: string, database: 
           namePrecision: share(tpName, [...nameEdgesHeld].filter((key) => key.startsWith(`${relation}\u0000`)).length),
           nameRecall: share(tpName, edges.length),
           noPlace: 0, ambiguous: 0,
-          recallScored: reference.scoring.get(relation) !== false,
+          recallScored: reference.scoring.get(relation)?.recall !== false,
         });
         for (const edge of edges) {
           if (!edgeMatch.matched.has(`${edge.relation}\u0000${edge.from}\u0000${edge.to}`)) {
@@ -461,11 +472,28 @@ async function score(referenceRoot: string, repositoryFolder: string, database: 
     for (const [relation, count] of [...edgesByRelation.entries()].sort(([left], [right]) => (left < right ? -1 : left > right ? 1 : 0))) {
       excludedRelations.push({ relation, count, reason: 'the reference states no edge of this relation' });
     }
+    const outOfScope: { name: string; reference: number; graph: number; why: string }[] = [];
+    for (const [name, held] of [...outOfScopeKinds].map((kind) => [kind, entities.filter((entity) => entity.kind === kind).length] as const).sort(([left], [right]) => (left < right ? -1 : 1))) {
+      outOfScope.push({
+        name,
+        reference: reference.nodes.filter((node) => node.kind === name).length,
+        graph: held,
+        why: reference.scoring.get(name)?.why ?? 'the reference keeps this kind out of every count',
+      });
+    }
+    for (const [name, held] of [...outOfScopeRelations].map((relation) => [relation, graphEdges.filter((edge) => edge.relation === relation).length] as const).sort(([left], [right]) => (left < right ? -1 : 1))) {
+      outOfScope.push({
+        name,
+        reference: reference.edges.filter((edge) => edge.relation === name).length,
+        graph: held,
+        why: reference.scoring.get(name)?.why ?? 'the reference keeps this relation out of every count',
+      });
+    }
     const identity = Object.entries(IDENTITY_KINDS).map(([kind, held]) => ({ kind, property: held.property, why: held.why, matched: match.identity.get(kind) ?? 0 }));
     const scopedApart = [...edgeMatch.scopedApart.entries()].map(([heldScope, count]) => ({ scope: heldScope, count })).sort((left, right) => (left.scope < right.scope ? -1 : 1));
     const unscored = { nodes: unscoredNodes.size, edges: unscoredEdges.size };
     const edgesApart = [...keepsApart.entries()].map(([kind, count]) => ({ kind, count })).sort((left, right) => (left.kind < right.kind ? -1 : 1));
-    return { repository, scope, table, missing, extra, excluded, excludedRelations, edgesApart, noPlace, ambiguous, identity, scopedApart, unscored, totals: totalsOf(table) };
+    return { repository, scope, table, missing, extra, excluded, excludedRelations, edgesApart, noPlace, ambiguous, identity, scopedApart, unscored, outOfScope, totals: totalsOf(table) };
   } finally {
     await owner.close();
   }
@@ -563,6 +591,10 @@ function report(result: Result): void {
     for (const entry of result.scopedApart) console.log(`SCOPED\t${entry.scope}\t${String(entry.count)}`);
   }
   console.log(`Unscored (scored: false): ${String(result.unscored.nodes)} entries, ${String(result.unscored.edges)} edges.`);
+  if (result.outOfScope.length > 0) {
+    console.log('Out of scope by SCORING.md (scored: no):');
+    for (const entry of result.outOfScope) console.log(`OUT-OF-SCOPE\t${entry.name}\t${String(entry.reference)} reference, ${String(entry.graph)} graph\t${entry.why}`);
+  }
 }
 
 try {

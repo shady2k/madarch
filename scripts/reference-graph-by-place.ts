@@ -338,18 +338,42 @@ export function matchEdges(
   return { matched: seen, extra, missing, scopedApart, unscored };
 }
 
-/** Reads a reference's `SCORING.md`: which names are scored for recall. */
-export function readScoring(text: string): Map<string, boolean> {
-  const out = new Map<string, boolean>();
-  for (const line of text.split('\n')) {
+/** One name's entry in a reference's `SCORING.md`. */
+export interface Scoring {
+  /** Whether the reference asks to be recalled on this name; `false` prints `n/a`. */
+  readonly recall?: boolean;
+  /** Whether the name is scored at all; `false` keeps both sides out of every count. */
+  readonly scored?: boolean;
+  readonly why?: string;
+}
+
+/**
+ * Reads a reference's `SCORING.md`: a table with a `name` column and, optionally,
+ * `recall`, `scored` and `why` columns, each row naming a kind or a relation.
+ * A name the file does not mention is scored and recalled as usual.
+ */
+export function readScoring(text: string): Map<string, Scoring> {
+  const out = new Map<string, Scoring>();
+  const lines = text.split('\n');
+  const header = lines.find((line) => line.trim().startsWith('|') && /\bname\b/u.test(line));
+  if (header === undefined) return out;
+  const columns = header.trim().replace(/^\|/u, '').replace(/\|$/u, '').split('|').map((cell) => cell.trim());
+  const at = (name: string): number => columns.indexOf(name);
+  for (const line of lines) {
+    if (line === header || !line.trim().startsWith('|')) continue;
     const cells = line.trim().replace(/^\|/u, '').replace(/\|$/u, '').split('|').map((cell) => cell.trim());
-    if (cells.length < 2) continue;
-    const [name, recall] = cells;
-    if (name === undefined || recall === undefined) continue;
-    const bare = name.replace(/^`|`$/gu, '');
-    if (!/^[\w.-]+$/u.test(bare)) continue;
-    if (recall === 'yes') out.set(bare, true);
-    else if (recall === 'no') out.set(bare, false);
+    if (cells.length < columns.length) continue;
+    const bare = (cells[at('name')] ?? '').replace(/^`|`$/gu, '');
+    // The separator row is dashes; a name holds a letter, a digit, and no space.
+    if (!/^[\w.-]*[A-Za-z0-9][\w.-]*$/u.test(bare)) continue;
+    const recallCell = at('recall') < 0 ? undefined : cells[at('recall')];
+    const scoredCell = at('scored') < 0 ? undefined : cells[at('scored')];
+    const whyCell = at('why') < 0 ? undefined : cells[at('why')];
+    out.set(bare, {
+      ...(recallCell === 'yes' ? { recall: true } : recallCell === 'no' ? { recall: false } : {}),
+      ...(scoredCell === 'yes' ? { scored: true } : scoredCell === 'no' ? { scored: false } : {}),
+      ...(whyCell === undefined || whyCell === '' ? {} : { why: whyCell }),
+    });
   }
   return out;
 }
