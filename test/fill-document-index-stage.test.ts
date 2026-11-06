@@ -89,7 +89,8 @@ async function contextFor(unit: StageUnit, source: SnapshotSource, answer: (read
       config: { id: 'document-index', version: 3, enabled: true, concurrency: 1, limits: DEFAULT_STAGE_LIMITS, config: { taskField: 'Ticket' } },
       graph: { query: async (read: string) => { recorder.queries.push(read); return answer(read); } },
       static: staticStageContext(pinned, {
-        byKey: async () => [],
+        // The target document's own unit published its node: a link to it resolves to that node.
+        byKey: async (key: string) => (key.startsWith('document:') ? [{ id: key, kind: 'code.document', label: 'document', properties: {} } as never] : []),
         byGlobalName: async () => [],
         neighbourhood: async () => ({ rows: [], next: null }),
         byProperty: async () => ({ rows: [], next: null }),

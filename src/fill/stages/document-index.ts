@@ -102,7 +102,7 @@ import { wholeFileRange } from './inventory.js';
 export const DOCUMENT_INDEX_STAGE_ID = 'document-index';
 
 /** The stage's own version, bumped when what it writes or plans changes. */
-export const DOCUMENT_INDEX_STAGE_VERSION = 3;
+export const DOCUMENT_INDEX_STAGE_VERSION = 4;
 
 /**
  * The fact kinds the stage produces, in code point order: what the read could
@@ -469,6 +469,64 @@ export function anchorOf(heading: string): string {
  * are in code point order of their ids, so two runs of one commit plan the same
  * units in the same order.
  */
+/**
+ * The links between the documents one plan will read: for each document its
+ * targets that are other documents of the same commit. The bytes are read one
+ * document at a time, through the run's own reader, and never held as a tree.
+ */
+async function documentDependencies(sources: SnapshotSource, repository: string, paths: readonly string[], present: ReadonlySet<string>): Promise<Map<string, ReadonlySet<string>>> {
+  const dependencies = new Map<string, ReadonlySet<string>>();
+  if (paths.length === 0) return dependencies;
+  const reader = await sources.open(repository);
+  const wanted = new Set(paths);
+  for (const path of paths) {
+    const entry = reader.entry(path);
+    if (entry === undefined || entry.form !== 'blob') continue;
+    let bytes: Uint8Array;
+    try {
+      bytes = await reader.read(path);
+    } catch {
+      continue;
+    }
+    const targets = new Set<string>();
+    for (const line of linesOfBytes(bytes)) {
+      for (const link of linksOf(line)) {
+        let resolved: string | undefined;
+        try {
+          resolved = resolveBodyLink(path, link.target, ANY_PATH);
+        } catch {
+          resolved = undefined;
+        }
+        if (resolved === undefined || resolved === path || !present.has(resolved)) continue;
+        if (markdownMediaType(resolved) === undefined) continue;
+        if (wanted.has(resolved)) targets.add(resolved);
+      }
+    }
+    if (targets.size > 0) dependencies.set(path, targets);
+  }
+  return dependencies;
+}
+
+/** The paths in an order where every document stands after the documents it links to; a cycle keeps code point order. */
+function orderDocuments(paths: readonly string[], dependencies: ReadonlyMap<string, ReadonlySet<string>>): readonly string[] {
+  const remaining = new Set(paths);
+  const ordered: string[] = [];
+  while (remaining.size > 0) {
+    const ready = [...remaining]
+      .filter((path) => ![...(dependencies.get(path) ?? [])].some((target) => remaining.has(target)))
+      .sort(byCodePoint);
+    if (ready.length === 0) {
+      ordered.push(...[...remaining].sort(byCodePoint));
+      break;
+    }
+    for (const path of ready) {
+      ordered.push(path);
+      remaining.delete(path);
+    }
+  }
+  return ordered;
+}
+
 async function planDocuments(sources: SnapshotSource, graph: StageGraphReader): Promise<StagePlan> {
   const pins = await sources.pins();
   const units: { id: string; scope: string }[] = [];
@@ -484,10 +542,14 @@ async function planDocuments(sources: SnapshotSource, graph: StageGraphReader): 
     const standing = [...tree.files.entries()].filter(([path]) => markdownMediaType(path) !== undefined);
     anyDocument = anyDocument || standing.length > 0;
     const held = new Set(standing.map(([path]) => path));
-    for (const [path, blob] of standing) {
-      if (published.get(path) === blob) continue;
-      units.push({ id: documentUnitId(pin.id, path), scope: documentScope(pin.id, path) });
-    }
+    // The documents this plan will read, in the order their own links allow: a unit that links to a
+    // document of the same commit waits for that document's unit, so the edge joins a node that exists.
+    // A cycle has no such order; the unit's own graph check writes the cycle's forward links as their
+    // own unresolved nodes, and the plan keeps a code point order within the cycle.
+    const planned = standing.filter(([path, blob]) => published.get(path) !== blob).map(([path]) => path);
+    const deps = await documentDependencies(sources, pin.id, planned, held);
+    const ordered = orderDocuments(planned, deps);
+    for (const path of ordered) units.push({ id: documentUnitId(pin.id, path), scope: documentScope(pin.id, path) });
     for (const path of published.keys()) {
       if (held.has(path)) continue;
       units.push({ id: documentUnitId(pin.id, path), scope: documentScope(pin.id, path) });
@@ -620,7 +682,7 @@ function placeAt(path: RepositoryPath, range: FactRange): FactPlace {
  * all), are not facts of a smaller reading: the heading is named in the gaps,
  * and the link is written unresolved with its place.
  */
-export async function readDocument(pinned: StaticStageSource, path: RepositoryPath, bytes: Uint8Array, options: { readonly taskField?: string } = {}): Promise<DocumentReading> {
+export async function readDocument(pinned: StaticStageSource, path: RepositoryPath, bytes: Uint8Array, options: { readonly taskField?: string; readonly published?: (key: string) => Promise<boolean> } = {}): Promise<DocumentReading> {
   const repository = pinned.repository;
   const provenance = provenanceOfPlace(pinned);
   const lines = markExamples(linesOfBytes(bytes));
@@ -706,7 +768,7 @@ export async function readDocument(pinned: StaticStageSource, path: RepositoryPa
   const links: ReadingLink[] = [];
   for (const line of lines) {
     for (const link of linksOf(line)) {
-      const end = await linkTerm(pinned, path, link.target, sections);
+      const end = await linkTerm(pinned, path, link.target, sections, options.published);
       const from = sectionAt(sections, line.line) ?? document.id;
       const key = `${from}\u0000${JSON.stringify(end)}`;
       if (linkEnds.has(key)) continue;
@@ -761,6 +823,7 @@ async function linkTerm(
   path: RepositoryPath,
   written: string,
   sections: readonly ReadingSection[],
+  published?: (key: string) => Promise<boolean>,
 ): Promise<FactTerm> {
   const literal = (): FactTerm => ({ form: 'literal', text: written });
   if (written === '') return literal();
@@ -779,7 +842,12 @@ async function linkTerm(
   if (resolved === undefined) return literal();
   const entry = await pinned.entry(resolved);
   if (entry === undefined || entry.form === 'commit') return literal();
-  return { form: 'node', id: pathNodeId(pinned, markdownMediaType(resolved) === undefined ? 'file' : 'document', repositoryPath(resolved)) };
+  const node = pathNodeId(pinned, markdownMediaType(resolved) === undefined ? 'file' : 'document', repositoryPath(resolved));
+  // A link to a document another unit publishes is resolved only when that node stands in the graph: a unit
+  // that links to a document the run has not published yet writes the target as its own unresolved node, so
+  // the edge joins a node that exists (decision 0028) and the link keeps its place.
+  if (markdownMediaType(resolved) !== undefined && published !== undefined && !(await published(node))) return literal();
+  return { form: 'node', id: node };
 }
 
 /**
@@ -911,7 +979,11 @@ async function executeUnit(unit: StageUnit, context: StageContext): Promise<Stag
   if (taskField !== undefined && typeof taskField !== 'string') {
     throw new Error(`document-index: config.taskField is ${JSON.stringify(taskField)}: a product that reads task keys declares the front-matter field's name, a non-empty text`);
   }
-  const reading = await readDocument(pinned, place.path, file.content!, taskField === undefined ? {} : { taskField });
+  const graph = context.static;
+  const reading = await readDocument(pinned, place.path, file.content!, {
+    ...(taskField === undefined ? {} : { taskField }),
+    published: async (key: string) => graph === undefined || (await graph.byKey(key, { limit: 1 })).length > 0,
+  });
   for (const fact of [...reading.facts, coverageFact(pinned, place.path, reading.range, reading.gaps)]) {
     for (const write of graphWritesOf(fact, evidence)) {
       // The blob the plan compares against the pinned commit stands on the coverage node:
