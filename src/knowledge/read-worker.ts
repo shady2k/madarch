@@ -1,6 +1,6 @@
 /**
  * The read worker (madarch-m38l.4, remark 3): `madarch knowledge-read-worker`.
- * It holds one snapshot of a product's graph store open (see `fill-protocol.ts`)
+ * It holds one snapshot of a product's graph store open (see `fill-run.ts`)
  * and answers the server's statements, so the statements run on this process's
  * thread and a page of the wiki never waits for the server's own thread, which
  * the opening of a database blocks for hundreds of milliseconds. The server

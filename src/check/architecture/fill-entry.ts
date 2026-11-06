@@ -2,11 +2,11 @@
  * One entry point per job (decision 0033, items 1 and 4): a fill is started by the
  * orchestrator host and by nothing else.
  *
- * Read from the code, the modules that start a fill are three surfaces beside the
- * orchestrator, and they are what decision 0033 deletes: the extract driver's
- * `fillGraph` (the whole-tree reader the wiki's fill called), the knowledge fill
- * worker's `runFillWorker` (its own loop), and the product CLI's `startFill` (its
- * own run, worktree and stages). The stage registry's runner is the orchestrator's
+ * Read from the code, the one surface beside the orchestrator is the extract
+ * driver's `fillGraph` (the whole-tree reader the contracts stages still fill
+ * through, and decision 0033 deletes once they are merged). The knowledge fill
+ * worker's own loop and the product CLI's `startFill` are deleted: the wiki's fill
+ * and `madarch fill` start the fill through the orchestrator host. The stage registry's runner is the orchestrator's
  * `driveRun`, which plans a registry's stages and drives them to their end; the host
  * that owns an orchestrator for a process is src/fill/orchestrator-host.ts, and
  * every other module that starts one of these is a second entry point for a job that
@@ -31,8 +31,6 @@ interface FillRunner {
 const FILL_RUNNERS: readonly FillRunner[] = [
   { module: 'src/extract/driver/index.ts', runners: ['fillGraph'] },
   { module: 'src/fill/orchestrator.ts', runners: ['driveRun'] },
-  { module: 'src/knowledge/fill-worker.ts', runners: ['runFillWorker'] },
-  { module: 'src/product/fill.ts', runners: ['startFill'] },
 ];
 
 /** The one module that starts a fill: the orchestrator host of a process. */

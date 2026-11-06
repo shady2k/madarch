@@ -42,7 +42,7 @@ const TREE_READERS = [
  {name:'extractDataModel',version:8,extractor:extractDataModel},
 ] as const;
 /** What a product adds to the tree extractors: its own words, never the engine's. */
-export interface TreeExtractorOptions {
+interface TreeExtractorOptions {
   /** The debt markers the product's manifest declares; empty reads none (madarch-m38l.19). */
   readonly debtMarkers?: readonly string[];
   /**
@@ -54,7 +54,7 @@ export interface TreeExtractorOptions {
 }
 
 /** The tree extractors with a product's declared words in place; the producer names do not change. */
-export function treeExtractors(options: TreeExtractorOptions = {}): readonly TreeExtractor[] {
+function treeExtractors(options: TreeExtractorOptions = {}): readonly TreeExtractor[] {
   const debtMarkers = options.debtMarkers ?? [];
   return TREE_READERS.map((entry) => entry.name === 'extractCode'
     ? (tree: TreeReader) => extractCodeWithFacts(tree, { debtMarkers, ...(options.facts === false ? { facts: false } : {}) })

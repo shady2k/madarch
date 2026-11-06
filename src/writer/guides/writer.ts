@@ -266,7 +266,7 @@ export async function configurationReferences(path: string, text: string, readPi
 const alpha = (character: string): boolean => character.toLowerCase() !== character.toUpperCase();
 const numeral = (character: string): boolean => character >= '0' && character <= '9';
 /** Final matching rule: short single-class words use Unicode word segmentation; all other values are substrings. */
-export function distinctiveGuideValue(value: string): boolean {
+function distinctiveGuideValue(value: string): boolean {
   return value.length >= 16 || [...value].some((character) => !alpha(character) && !numeral(character)) || [...value].some(alpha) && [...value].some(numeral);
 }
 const guideWords = new Intl.Segmenter(undefined, { granularity: 'word' });

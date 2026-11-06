@@ -69,7 +69,7 @@ import { ByteText } from '../../extract/data-model/text-scan.js';
 import { readGoMod } from './manifest-format.js';
 import { extractFileSyntax } from './syntax-extract.js';
 import { libraryEffectsOf } from './library-effects.js';
-import { FACT_KINDS, makeNodeFact, type CoverageGap, type CoverageValue, type FactSource } from '../facts.js';
+import { FACT_KINDS, isRepositoryPath, makeNodeFact, type CoverageGap, type CoverageValue, type FactSource } from '../facts.js';
 import type { SnapshotSource } from '../snapshot.js';
 import {
   DEFAULT_STAGE_DEFAULTS, type FillStage, type StageContext, type StageDraftSet, type StageDraftWrite,
@@ -126,6 +126,8 @@ interface PublishedDataModelRow {
   readonly blob: string;
   /** The databases the file contributed records to, as its coverage carries them. */
   readonly databases?: readonly { readonly folder: string; readonly name: string }[];
+  /** The files the unit's reading stood on: its own, and the files its library effects chained through. */
+  readonly reads?: readonly string[];
 }
 
 /** One row of the aggregate read. */
@@ -136,7 +138,7 @@ interface PublishedDatabaseRow {
 }
 
 /** The keys a per-file row holds, and no others. */
-const DATA_MODEL_ROW_FIELDS: readonly string[] = ['blob', 'databases', 'file', 'kind'];
+const DATA_MODEL_ROW_FIELDS: readonly string[] = ['blob', 'databases', 'file', 'kind', 'read'];
 /** The keys an aggregate row holds, and no others. */
 const DATABASE_ROW_FIELDS: readonly string[] = ['database', 'digest', 'kind'];
 
@@ -169,6 +171,12 @@ interface Sink {
   readonly source: FactSource;
   readonly path: string;
   readonly writes: StageDraftWrite[];
+  /**
+   * The files this unit's reading stood on: its own, and the files its library effects chained through
+   * (decision 0033, item 15). The unit's coverage records them, so the plan names the unit again when one
+   * of them moves — a fact read through another file is a fact this unit stands on.
+   */
+  readonly read: Set<string>;
   /** The node keys and edge identities this unit already wrote: one draft names one node and one edge once (the driver's own rule). */
   readonly seenNodes: Set<string>;
   readonly seenEdges: Set<string>;
@@ -460,6 +468,14 @@ async function planDataModel(sources: SnapshotSource, graph: StageGraphReader): 
     // What moved, by group: a file that is new, whose blob moved, or that the commit no longer
     // holds makes every unit that reads its group again.
     const dirty = new Set<string>();
+    // A unit stands on the files its own reading chained through, and a file among them whose bytes moved
+    // (or that the commit no longer holds) moves what the unit says: it is planned again although its own
+    // bytes did not move, which is the resolution stage's own rule (decision 0033, item 15).
+    const readsOf = new Map<string, readonly string[]>(own.map((row) => [row.file, row.reads ?? []]));
+    const readMoved = (path: string): boolean => (readsOf.get(path) ?? []).some((read) => {
+      if (read === path) return false;
+      return covered.get(read) !== tree.files.get(read);
+    });
     for (const path of relevant) {
       if (covered.get(path) === tree.files.get(path)) continue;
       for (const group of dirtiedBy(path, manifestFolders)) dirty.add(group);
@@ -474,7 +490,7 @@ async function planDataModel(sources: SnapshotSource, graph: StageGraphReader): 
         continue;
       }
       const groups = [...await chainOf(folderOf(path)), ...groupsOf(path, manifestFolders)];
-      if (covered.get(path) === tree.files.get(path) && !groups.some((group) => dirty.has(group))) continue;
+      if (covered.get(path) === tree.files.get(path) && !readMoved(path) && !groups.some((group) => dirty.has(group))) continue;
       units.push({ id: unitOfFile(pin.id, path), scope: scopeOf(pin.id, path) });
     }
     for (const row of own) {
@@ -503,7 +519,13 @@ function publishedDataModelRows(rows: readonly unknown[], repository: string, re
     const blob = held['blob'];
     if (typeof blob !== 'string' || !/^[0-9a-f]{40}$/.test(blob)) throw refuseRow(read, index, repository, `its blob ${JSON.stringify(blob)} is no blob id: 40 lower-case hexadecimal digits`);
     const databases = held['databases'];
-    return { kind: 'coverage', file, blob, ...(databases === undefined ? {} : { databases: databases as readonly { readonly folder: string; readonly name: string }[] }) };
+    const reads = held['read'];
+    if (reads !== undefined) {
+      if (!Array.isArray(reads) || reads.some((one) => typeof one !== 'string' || !isRepositoryPath(one))) {
+        throw refuseRow(read, index, repository, `its read ${JSON.stringify(reads)} is no list of repository paths: the files a unit's reading stood on are paths of this repository`);
+      }
+    }
+    return { kind: 'coverage', file, blob, ...(databases === undefined ? {} : { databases: databases as readonly { readonly folder: string; readonly name: string }[] }), ...(reads === undefined ? {} : { reads: reads as readonly string[] }) };
   });
 }
 
@@ -694,7 +716,7 @@ async function executeDataModelUnit(unit: StageUnit, context: StageContext): Pro
   }
   const read = await readTextOf(stage, planned.path);
   const gaps: CoverageGap[] = [];
-  const sink: Sink = { repository: planned.repository, commit: source.commit, source: DATA_MODEL_SOURCE, path: planned.path, writes: [], seenNodes: new Set(), seenEdges: new Set() };
+  const sink: Sink = { repository: planned.repository, commit: source.commit, source: DATA_MODEL_SOURCE, path: planned.path, writes: [], read: new Set([planned.path]), seenNodes: new Set(), seenEdges: new Set() };
   const contributions: Contribution[] = [];
   if (!read.ok) {
     gaps.push({ what: `${planned.path}: the file could not be read (${read.reason})`, reason: read.reason as CoverageGap['reason'] });
@@ -710,7 +732,7 @@ async function executeDataModelUnit(unit: StageUnit, context: StageContext): Pro
     read: read.ok ? [planned.path] : [],
     unread: orderedGaps(gaps),
   };
-  writeCoverage(context, source, planned.path, coverage, entry.id, contributions);
+  writeCoverage(context, source, planned.path, coverage, entry.id, contributions, [...sink.read]);
   context.progress(
     `read ${planned.path} of ${planned.repository} at ${source.commit}: ${String(sink.writes.length)} ${sink.writes.length === 1 ? 'record' : 'records'}, ${String(gaps.length)} ${gaps.length === 1 ? 'gap' : 'gaps'}`,
     1,
@@ -744,12 +766,12 @@ function orderedGaps(gaps: readonly CoverageGap[]): readonly CoverageGap[] {
 }
 
 /** One file's coverage: what was read, every place it could not read, the blob its bytes stood under and the databases it contributed to. */
-function writeCoverage(context: StageContext, source: StaticStageSource, path: string, coverage: CoverageValue, blob: string, contributions: readonly Contribution[]): void {
+function writeCoverage(context: StageContext, source: StaticStageSource, path: string, coverage: CoverageValue, blob: string, contributions: readonly Contribution[], read: readonly string[] = [path]): void {
   const fact = makeNodeFact({
     kind: 'coverage',
     layer: 'extracted',
     provenance: { source: DATA_MODEL_SOURCE, repository: { id: coverage.repository, commit: source.commit } },
-    value: coverage,
+    value: { ...coverage, read: [...new Set(read)].sort(byCodePoint) },
   });
   for (const write of graphWritesOf(fact, evidenceAtPlace({ repository: coverage.repository, commit: source.commit }, path))) {
     context.draft.write(write.kind === 'node'
@@ -1374,6 +1396,9 @@ function lineOf(text: string, character: number): number {
 /** The environment reads one code file's own facts prove, as the driver records them. */
 async function environmentReadEvidence(sink: Sink, stage: StaticStageContext, path: string, service: string, folder: string, start: number, gaps: CoverageGap[], contributions: Contribution[]): Promise<void> {
   const effects = await libraryEffectsOf(stage, sink.repository, path);
+  // The closure the effects chained through are files this unit read: one of them moving re-reads this unit
+  // (decision 0033, item 15), which the coverage below records (`Sink.read`).
+  for (const file of effects.closure.files) sink.read.add(file);
   const symbols = (await allByProperty(stage, 'code.symbol', 'file', path))
     .filter((node) => node.properties['repository'] === sink.repository && isCallable(node.properties))
     .map((node) => ({ key: String(node.properties['recordKey']), properties: node.properties }));
@@ -1704,7 +1729,7 @@ async function executeDatabaseUnit(unit: StageUnit, context: StageContext): Prom
   // evidence that named it (the driver's own rule). The schema is the file a Prisma reading
   // stands in, so no read of another stage's coverage is needed to find it.
   const declaredIn = migrations[0]?.properties['path'] ?? readings.find((entry) => entry.kind === 'prisma')?.span.path;
-  const sink: Sink = { repository: planned.repository, commit: source.commit, source: AGGREGATE_SOURCE, path: typeof declaredIn === 'string' ? declaredIn : evidence[0]?.span.path ?? '.', writes: [], seenNodes: new Set(), seenEdges: new Set() };
+  const sink: Sink = { repository: planned.repository, commit: source.commit, source: AGGREGATE_SOURCE, path: typeof declaredIn === 'string' ? declaredIn : evidence[0]?.span.path ?? '.', writes: [], read: new Set(), seenNodes: new Set(), seenEdges: new Set() };
   let place: Place | undefined;
   if (typeof declaredIn === 'string') {
     const read = await readTextOf(stage, declaredIn);

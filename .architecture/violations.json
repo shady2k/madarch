@@ -2506,16 +2506,6 @@
   },
   {
     "rule": "no-unreachable-code",
-    "file": "src/knowledge/fill-protocol.ts",
-    "symbol": "ToolDefinition"
-  },
-  {
-    "rule": "no-unreachable-code",
-    "file": "src/knowledge/fill-protocol.ts",
-    "symbol": "UnitSummary"
-  },
-  {
-    "rule": "no-unreachable-code",
     "file": "src/knowledge/glossary.ts",
     "symbol": "TermField"
   },
@@ -2971,16 +2961,6 @@
   },
   {
     "rule": "no-unreachable-code",
-    "file": "src/knowledge/product.ts",
-    "symbol": "FillWorkerFactory"
-  },
-  {
-    "rule": "no-unreachable-code",
-    "file": "src/knowledge/product.ts",
-    "symbol": "spawnFillWorker"
-  },
-  {
-    "rule": "no-unreachable-code",
     "file": "src/knowledge/proto-document.ts",
     "symbol": "ProtoField"
   },
@@ -3228,11 +3208,6 @@
     "rule": "no-unreachable-code",
     "file": "src/loop/propose.ts",
     "symbol": "scopeOfGround"
-  },
-  {
-    "rule": "no-unreachable-code",
-    "file": "src/loop/task-run.ts",
-    "symbol": "TaskRunRefusal"
   },
   {
     "rule": "no-unreachable-code",
@@ -3741,11 +3716,6 @@
   },
   {
     "rule": "no-unreachable-code",
-    "file": "src/product/daemon.ts",
-    "symbol": "landedFillOf"
-  },
-  {
-    "rule": "no-unreachable-code",
     "file": "src/product/demo.ts",
     "symbol": "DEMO_REPOSITORY"
   },
@@ -3821,21 +3791,6 @@
   },
   {
     "rule": "no-unreachable-code",
-    "file": "src/product/fill-agent-answers.ts",
-    "symbol": "AGENT_ANSWER_MAX_RETRIES"
-  },
-  {
-    "rule": "no-unreachable-code",
-    "file": "src/product/fill-agent-answers.ts",
-    "symbol": "CLAIM_LAYERS"
-  },
-  {
-    "rule": "no-unreachable-code",
-    "file": "src/product/fill-agent-answers.ts",
-    "symbol": "ParsedSynthesisSegment"
-  },
-  {
-    "rule": "no-unreachable-code",
     "file": "src/product/fill-claims.ts",
     "symbol": "scoreQuestionTypes"
   },
@@ -3893,11 +3848,6 @@
     "rule": "no-unreachable-code",
     "file": "src/product/fill-updates.ts",
     "symbol": "watchedPathsOf"
-  },
-  {
-    "rule": "no-unreachable-code",
-    "file": "src/product/fill.ts",
-    "symbol": "createAgentCallBudget"
   },
   {
     "rule": "no-unreachable-code",
@@ -4517,11 +4467,6 @@
   {
     "rule": "no-unreachable-code",
     "file": "src/writer/index.ts",
-    "symbol": "EditorialAcpJudgeOptions"
-  },
-  {
-    "rule": "no-unreachable-code",
-    "file": "src/writer/index.ts",
     "symbol": "EditorialFinding"
   },
   {
@@ -4538,11 +4483,6 @@
     "rule": "no-unreachable-code",
     "file": "src/writer/index.ts",
     "symbol": "EditorialJudgeAnswer"
-  },
-  {
-    "rule": "no-unreachable-code",
-    "file": "src/writer/index.ts",
-    "symbol": "EditorialJudgeError"
   },
   {
     "rule": "no-unreachable-code",
@@ -5900,26 +5840,6 @@
     "symbol": "src/extract/driver/index.ts:fillGraph"
   },
   {
-    "rule": "one-fill-entry",
-    "file": "src/index.ts",
-    "symbol": "src/product/fill.ts:startFill"
-  },
-  {
-    "rule": "one-fill-entry",
-    "file": "src/knowledge/fill-worker.ts",
-    "symbol": "src/extract/driver/index.ts:fillGraph"
-  },
-  {
-    "rule": "one-fill-entry",
-    "file": "src/product/cli.ts",
-    "symbol": "src/knowledge/fill-worker.ts:*"
-  },
-  {
-    "rule": "one-fill-entry",
-    "file": "src/product/cli.ts",
-    "symbol": "src/product/fill.ts:startFill"
-  },
-  {
     "rule": "sql-only-in-storage-layer",
     "file": "scripts/index-knowledge.ts",
     "symbol": "src/adapters/database-owner.ts"
@@ -6031,11 +5951,6 @@
   },
   {
     "rule": "sql-only-in-storage-layer",
-    "file": "src/knowledge/fill-worker.ts",
-    "symbol": "src/adapters/database-owner.ts"
-  },
-  {
-    "rule": "sql-only-in-storage-layer",
     "file": "src/knowledge/graph-read.ts",
     "symbol": "src/adapters/database-owner.ts"
   },
@@ -6102,11 +6017,6 @@
   {
     "rule": "sql-only-in-storage-layer",
     "file": "src/loop/propose.ts",
-    "symbol": "src/adapters/database-owner.ts"
-  },
-  {
-    "rule": "sql-only-in-storage-layer",
-    "file": "src/loop/task-run.ts",
     "symbol": "src/adapters/database-owner.ts"
   },
   {

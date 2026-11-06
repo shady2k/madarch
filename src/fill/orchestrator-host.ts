@@ -162,6 +162,11 @@ export interface FillRunResult {
   readonly units: readonly { readonly unitId: string; readonly stageId: string; readonly state: string; readonly generation: number; readonly attempts: number }[];
   /** The units the run inherited already published with their inputs unchanged: it planned nothing for them. */
   readonly reused: readonly string[];
+  /**
+   * The wall-clock milliseconds this host spent waiting for the run's own retry moments (`driveFor`), so how much
+   * of a fill's time was the waiting for a unit the run itself schedules is a measured number, not a guess.
+   */
+  readonly retryWaitMs: number;
   /** The enabled stages whose plan found a producer's inputs and nothing in them, so nobody reads it as a capability nothing produces. */
   readonly foundNothing: readonly string[];
   /**
@@ -392,30 +397,46 @@ export const DEFAULT_FILL_QUEUE = 'fill-units';
 /** The unit states a run is finished with: nothing waits on them any longer. */
 const TERMINAL_UNIT_STATES: readonly string[] = ['published', 'superseded', 'failed', 'cancelled', 'stale'];
 
-/** How many of a run's own retry waits a host waits through before it reports the run as it stands. */
-const RETRY_WAITS_PER_RUN = 24;
+/** The most wall-clock time a host spends waiting for a run's own retry moments before it reports the run as it stands. */
+const RETRY_WAIT_BUDGET_MS = 60_000;
+
+/** The shortest pause between two drives of a run whose units wait for the queue's own sweep, never a spin. */
+const RETRY_POLL_MS = 50;
 
 /**
  * One run driven to its end, waiting for the moments the run itself schedules
  * (decision 0027: "a retry that is not due yet waits for the caller's clock, and a
- * host polls with its own interval"). A unit whose reads changed under a
- * concurrent publication is retried by the run at `retryDelayMs`; the loop that
- * drives it cannot pass that moment by itself, so a pass that changed nothing
- * while a unit waits is the host's cue to wait and drive again, not the end of
- * the run. The waits are the run's own limit and are bounded, so a unit that
- * waits for ever is reported as the unsettled run it is.
+ * host polls with its own interval"). The loop that drives a run cannot pass a
+ * retry's moment by itself: `workOnce` completes a job that arrives early ("the
+ * wait has not ended") and the run's own sweep enqueues it again only once the
+ * moment has passed, so a pass that changed nothing while a unit waits is the
+ * host's cue to wait for that unit's own `retryAt` and drive again — not the end
+ * of the run.
+ *
+ * The wait is the unit's own moment, never a guess: the earliest `retryAt` the
+ * run reports, capped by the run's retry delay, and the whole waiting is bounded
+ * by `RETRY_WAIT_BUDGET_MS`, so a unit that waits for ever is reported as the
+ * unsettled run it is. What the waiting cost is answered with the run
+ * (`retryWaitMs`), so a host can say how much of a fill's wall clock it was.
  */
-async function driveFor(orchestrator: FillOrchestrator, request: { readonly runId: string; readonly workers?: number; readonly maxPasses?: number }): Promise<Awaited<ReturnType<typeof driveRun>>> {
+async function driveFor(orchestrator: FillOrchestrator, request: { readonly runId: string; readonly workers?: number; readonly maxPasses?: number }): Promise<Awaited<ReturnType<typeof driveRun>> & { readonly retryWaitMs: number }> {
   let driven = await driveRun(orchestrator, request);
-  let waits = 0;
-  while (!driven.settled && driven.stoppedBecause === 'a pass and its claims together changed nothing' && waits < RETRY_WAITS_PER_RUN) {
+  const startedWaiting = Date.now();
+  let waited = 0;
+  while (!driven.settled && driven.stoppedBecause === 'a pass and its claims together changed nothing' && Date.now() - startedWaiting < RETRY_WAIT_BUDGET_MS) {
     const status = await runStatus(orchestrator, request.runId);
     // A unit with work left is one the run has not finished with: it waits for its retry, stands ready for a worker, or
     // waits for the queue's own maintenance to lift a claim. A run none of those is a run whose pass is the end of it.
     const live = status === null ? [] : status.units.filter((unit) => !TERMINAL_UNIT_STATES.includes(unit.state));
     if (live.length === 0) break;
-    waits += 1;
-    await new Promise<void>((resolve) => setTimeout(resolve, orchestrator.limits.retryDelayMs));
+    const due = live.flatMap((unit) => (unit.retryAt === null ? [] : [unit.retryAt]));
+    const now = orchestrator.clock();
+    const pause = due.length === 0
+      ? RETRY_POLL_MS
+      : Math.min(orchestrator.limits.retryDelayMs, Math.max(RETRY_POLL_MS, Math.min(...due) - now));
+    const before = Date.now();
+    await new Promise<void>((resolve) => setTimeout(resolve, pause));
+    waited += Math.max(0, Date.now() - before);
     const again = await driveRun(orchestrator, request);
     driven = {
       ...again,
@@ -426,7 +447,7 @@ async function driveFor(orchestrator: FillOrchestrator, request: { readonly runI
       refused: [...driven.refused, ...again.refused],
     };
   }
-  return driven;
+  return { ...driven, retryWaitMs: waited };
 }
 
 export function fillDatabasePath(home: string): string {
@@ -1042,6 +1063,7 @@ async function fileDecision(
         settled: driven.settled,
         passes: driven.passes,
         work: driven.work,
+        retryWaitMs: driven.retryWaitMs,
         ...(driven.stoppedBecause === undefined ? {} : { stoppedBecause: driven.stoppedBecause }),
         units: (status?.units ?? []).map((unit) => ({ unitId: unit.unitId, stageId: unit.stageId, state: unit.state, generation: unit.generation, attempts: unit.attempts })),
         reused,

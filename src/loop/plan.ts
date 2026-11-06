@@ -316,14 +316,6 @@ export async function briefsFor(planned: Planned): Promise<Map<string, EditBrief
   return out;
 }
 
-/**
- * The writer's seam for a run limited to a set of pages (madarch-m38l.14): a page outside the set gets no unit, the
- * product page among them, and the brief of a page inside it is the one the run wrote for it.
- */
-export function neededFromPaths(paths: ReadonlySet<string>, briefs: ReadonlyMap<string, EditBrief>): (input: UnitsInput) => UnitsNeeded {
-  return (input) => ({ product: paths.has(PRODUCT_PATH), domain: (path) => paths.has(path), brief: (path) => briefs.get(path) });
-}
-
 /** The writer's seam: the plan as the writer reads it. */
 export function neededFrom(planned: Planned, briefs: ReadonlyMap<string, EditBrief>): (input: UnitsInput) => UnitsNeeded {
   return (input) => {

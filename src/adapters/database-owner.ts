@@ -59,7 +59,7 @@ async function extractedBtreeGist(): Promise<URL> {
 }
 
 /** Whether a module URL lies inside a compiled binary: `/$bunfs/` on Linux and macOS, `B:/~BUN/` on Windows, where a file URL spells the tilde `%7E`. */
-export function insideCompiledBinary(moduleUrl: string): boolean {
+function insideCompiledBinary(moduleUrl: string): boolean {
   return /[/\\](?:\$bunfs|%24bunfs|~BUN|%7EBUN)[/\\]/i.test(moduleUrl);
 }
 

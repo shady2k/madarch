@@ -11,7 +11,8 @@ export {
   WRITER_ARTIFACTS, WRITER_UNIT_KINDS, writerGraphProblems, writerKindDeclaration, writerRunOrder, writerStageId, writerUnitDigest, writerUnitId, writerUnitKind, writerUnitOrder,
   type WriterArtifact, type WriterUnitKind, type WriterUnitKindName, type WriterUnitOrder, type WriterUnitRead,
 } from './graph.js';
-export { NO_WRITER_STATE, fillWriterState, memoryWriterState, writerKindOfStage, type FillWriterStateOptions, type MemoryWriterState, type WriterClock, type WriterState, type WriterUnitRecord } from './graph-state.js';
+export { NO_WRITER_STATE, memoryWriterState, writerKindOfStage, type FillWriterStateOptions, type MemoryWriterState, type WriterClock, type WriterState, type WriterUnitRecord } from './graph-state.js';
+export { memoryJournal, journalOfUnit, readJournalFile, JOURNAL_SCHEMA, type Journal, type JournalRecord, type PageJournal } from './journal.js';
 export { ENRICHMENT_FRONT_KEYS, ENRICHMENT_SCHEMA, enrichmentKey, enrichmentPageId, enrichmentPath, enrichmentSource, isAgentPage, parseEnrichment, renderEnrichment, type EnrichmentDraft, type EnrichmentRead } from './enrichment.js';
 export { acpUnitAgent, type AcpAgentOptions } from './acp-agent.js';
 export {
@@ -20,9 +21,7 @@ export {
   type EditorialJudgePage, type EditorialJudgePack, type EditorialJudgeRequest, type EditorialPage, type EditorialPassOptions,
   type EditorialPassResult, type RevisionRequest,
 } from './editorial.js';
-export { editorialAcpJudge, EditorialJudgeError, type EditorialAcpJudgeOptions } from './editorial-acp-judge.js';
 export { writtenAtOf, withoutCredentials } from './basis.js';
-export { fileJournal, journalFolder, memoryJournal, journalOfUnit, newRunId, readJournalFile, JOURNAL_SCHEMA, type Journal, type JournalRecord, type PageJournal } from './journal.js';
 export {
   PLACE_FIELDS, STRUCTURED_SECTIONS, UNREACHED_ROUTE, implementationPlaces, parseFields, relatesOf, renderStructuredBody, structuredKindOf, structuredLanguage, structuredSchema, withReference,
   type AlternativeFlow, type DecisionFields, type GroundedStatement, type ImplementationFields, type NamedPlace, type PlaceField, type RuleFields, type ScenarioFields,
