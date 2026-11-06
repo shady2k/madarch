@@ -102,14 +102,20 @@ export class RepositorySession {
     const started = performance.now();
     let revision = this.revision;
     let reextracted: string[] = [];
-    const source = (): Record<string, unknown> => ({
-      repository: this.absolute,
-      commit: revision.commit,
-      branch: revision.branch,
-      at: this.graph.view.at,
-      dirty: revision.dirty.map((one) => ({ path: one.path, status: one.status })),
-      reextracted: [...reextracted],
-    });
+    const source = (): Record<string, unknown> => {
+      const fill = this.graph.fill;
+      return {
+        repository: this.absolute,
+        commit: revision.commit,
+        branch: revision.branch,
+        at: this.graph.view.at,
+        dirty: revision.dirty.map((one) => ({ path: one.path, status: one.status })),
+        reextracted: [...reextracted],
+        // What the fill that built this graph left out is named on every answer: a reader must never take a
+        // partial graph for the whole one (decision 0033, items 18 and 19).
+        ...(fill === undefined || fill.failed.length === 0 ? {} : { fill: { state: fill.state, failed: fill.failed } }),
+      };
+    };
     let answered: RepoToolAnswer;
     let questionsAnswered = 0;
     try {

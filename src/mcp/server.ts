@@ -44,9 +44,8 @@ function buildingAnswer(repository: string): Record<string, unknown> {
 
 /**
  * The answer a tool call gets once the start has failed for good: the failure is kept and reported on every call,
- * with the reason the start gave — a count, a bound, what to serve instead — rather than a progress note a client
- * would keep retrying (madarch-ztyq.10 recheck). A tree too large to build cold, with no graph to reuse, never
- * becomes servable by waiting.
+ * with the reason the start gave rather than a progress note a client would keep retrying (madarch-ztyq.10
+ * recheck). A start that failed does not become servable by waiting.
  */
 function failedAnswer(repository: string, failure: unknown): Record<string, unknown> {
   const message = failure instanceof Error ? failure.message : String(failure);

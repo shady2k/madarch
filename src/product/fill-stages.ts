@@ -263,7 +263,10 @@ export async function createRepositoryFill(options: RepositoryFillOptions): Prom
   const workflow = readWorkflows(folder).present ? firstFillStagesOf(folder) : engineFirstFillStages();
   const wiring: ProductFillWiring = {
     snapshot: () => snapshotOfPins(folder, registry, pin),
-    configuration: () => configurationOfWorkflow(workflow, { ok: true, file: workflow.ok ? workflow.file : 'madarch/workflows.yaml', stages: {}, lines: {} }, registry),
+    // The served checkout's own manifest declares its stage settings, as a product's does (`fill.stages` in
+    // `workspace.yaml`); a checkout that holds no manifest configures no stage, and its stages keep their own
+    // defaults — no engine constant stands in for a declaration the repository did not make.
+    configuration: () => configurationOfWorkflow(workflow, readFillStageConfiguration(folder), registry),
     graph: (ref, transaction) => (registry.get(ref.stageId)?.staticReading === true
       ? createStaticStageReadReader(store, transaction)
       : createStageReadReader({

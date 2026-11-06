@@ -173,7 +173,7 @@ The start is bounded in time and memory. The handshake and the tool list answer 
 a tool call made while it builds says `graph building` with a source that says the same; a madarch home
 that holds a product fill's graph for the same repository and commit is copied and served instead of
 extracted (measured here: 65 code files in 0.3 s of copying and 1.9 s to open, against 124.5 s and
-2 307 MB for the cold build); and a cold build is bounded to 400 code files, because it runs every producer
+2 307 MB for the cold build); and a cold build streams the tree by file
 and their facts are what memory cannot bound — measured on this 6 GB machine at 2 145 MB for 300 files with
 the facts, with the fact view of 898 files past 3 GB and the checkout's own 1 041 files killed at 3 164 MB.
 A larger tree is refused with the count, the bound and what to serve instead, because a process killed
