@@ -133,6 +133,43 @@ describe('the code-facts stage', () => {
   }, 900_000);
 });
 
+describe('a source file a string escape with U+0000 in it', () => {
+  test('publishes the escape as visible text instead of failing the draft insert', async () => {
+    const escapeRoot = mkdtempSync(join(tmpdir(), 'madarch-code-facts-nul-'));
+    const owner = createPGliteDatabaseOwner({ btreeGist: true });
+    try {
+      const { product } = writeProduct(escapeRoot, { 'services/orders/src/escape.ts': 'export const separator = "left\\0right";\n' });
+      const fill = await createStagesFill({ product, database: owner });
+      const service = createFillOrchestratorService({ home: join(escapeRoot, 'products'), owner, registry: fill.registry, wiring: () => fill.wiring, maxPasses: 100_000 });
+      try {
+        const result = await service.run({ product: fill.product, runId: 'run-code-facts-escape' });
+        expect(result.ok).toBe(true);
+        if (!result.ok) return;
+        expect(result.state).toBe('succeeded');
+        const store = createGraphStore(owner);
+        const nodes: NodeVersionRow[] = await store.readAll(async (page) => await store.byProperty('code.expression', 'file', 'services/orders/src/escape.ts', page));
+        const held = nodes.map((node) => propertiesOf(node)).filter((properties) => properties['repository'] === 'shop');
+        const literal = held.find((properties) => (properties['literal'] as Record<string, unknown> | undefined)?.['value'] !== undefined);
+        expect(String((literal?.['literal'] as Record<string, unknown>)['value'])).toContain('\\u0000');
+        // The stored text holds the six characters a reader sees, never the byte PostgreSQL refuses.
+        const holdsNul = (value: unknown): boolean => typeof value === 'string'
+          ? value.includes('\u0000')
+          : Array.isArray(value)
+            ? value.some(holdsNul)
+            : value !== null && typeof value === 'object'
+              ? Object.values(value as Record<string, unknown>).some(holdsNul)
+              : false;
+        expect(held.some(holdsNul)).toBe(false);
+      } finally {
+        await service.stop();
+      }
+    } finally {
+      await owner.close();
+      rmSync(escapeRoot, { recursive: true, force: true });
+    }
+  }, 900_000);
+});
+
 /** Whether a fact carries the empty value a draft would hold if the walk had lost it. */
 function stillUnknown(held: Record<string, unknown>): boolean {
   return held['recordKey'] === undefined || held['span'] === undefined;

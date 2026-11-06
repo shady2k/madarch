@@ -95,7 +95,7 @@ import { publishedTreeRead, publishedTreeRows } from './tree-rows.js';
 export const CODE_FACTS_STAGE_ID = 'code-facts';
 
 /** The stage's own version, bumped when what it writes or plans changes. */
-const CODE_FACTS_STAGE_VERSION = 2;
+const CODE_FACTS_STAGE_VERSION = 3;
 
 /** The fact kinds the stage produces, in code point order. */
 const CODE_FACTS_STAGE_KINDS: readonly string[] = ['binding', 'callable', 'callsite', 'coverage', 'declares', 'export', 'expression', 'field', 'listener-port', 'service-unit'];
@@ -620,7 +620,7 @@ export function collectFileFacts(repository: string, path: string, text: string,
     const quoted = raw.startsWith('`') && raw.endsWith('`') && node.type === 'template_string' ? raw.slice(1, -1) : undefined;
     // A template with an interpolation holds code, not one value: its raw text stands and no value is claimed.
     if (node.type === 'template_string' && node.namedChildren.some((child) => child !== null && child.type !== 'string_fragment')) return { kind, raw };
-    const decoded = quoted ?? decodeQuoted(raw);
+    const decoded = quoted === undefined ? decodeQuoted(raw) : storeText(quoted);
     return decoded === undefined ? { kind, raw } : { kind, raw, value: decoded };
   };
 
@@ -1021,6 +1021,30 @@ function decodeQuoted(raw: string): string | undefined {
       at = end;
     } else if (next === '\n') { /* a line continuation holds nothing */ }
     else out += next;
+  }
+  return storeText(out);
+}
+
+/**
+ * The text a fact can hold: a JSON string and PostgreSQL's text cannot carry
+ * U+0000 or a lone surrogate, so each is kept as the escape a reader sees
+ * written (`\u0000`, `\ud800`) instead of disappearing or failing the
+ * publication. The source's own escape stays visible, and the fact keeps its
+ * place in the graph.
+ */
+function storeText(text: string): string {
+  let out = '';
+  for (let at = 0; at < text.length; at += 1) {
+    const code = text.charCodeAt(at);
+    if (code === 0) { out += '\\u0000'; continue; }
+    if (code >= 0xd800 && code <= 0xdbff) {
+      const next = text.charCodeAt(at + 1);
+      if (next >= 0xdc00 && next <= 0xdfff) { out += text[at]! + text[at + 1]!; at += 1; continue; }
+      out += `\\u${code.toString(16).padStart(4, '0')}`;
+      continue;
+    }
+    if (code >= 0xdc00 && code <= 0xdfff) { out += `\\u${code.toString(16).padStart(4, '0')}`; continue; }
+    out += text[at]!;
   }
   return out;
 }
