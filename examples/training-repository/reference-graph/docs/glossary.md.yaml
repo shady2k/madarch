@@ -1,0 +1,103 @@
+path: 'docs/glossary.md'
+notes: 'the glossary''s terms; the vocabulary has no kind for a term of the product''s language.'
+nodes:
+  - id: 'code.document-section:docs/glossary.md#(the terms)'
+    kind: 'code.document-section'
+    label: '(the terms)'
+    evidence:
+      - path: 'docs/glossary.md'
+        startLine: 1
+        endLine: 1
+        quote: '# Glossary'
+    reading: 'judgement'
+  - id: 'code.document:docs/glossary.md'
+    kind: 'code.document'
+    label: 'glossary.md'
+    evidence:
+      - path: 'docs/glossary.md'
+        startLine: 1
+        endLine: 1
+        quote: '# Glossary'
+    reading: 'parsed'
+  - id: 'code.file:docs/glossary.md'
+    kind: 'code.file'
+    label: 'glossary.md'
+    evidence:
+      - path: 'docs/glossary.md'
+        startLine: 1
+        endLine: 1
+        quote: '# Glossary'
+    reading: 'parsed'
+edges:
+  - relation: 'code.contains'
+    from: 'code.document:docs/glossary.md'
+    to: 'code.document-section:docs/glossary.md#(the terms)'
+    evidence:
+      - path: 'docs/glossary.md'
+        startLine: 1
+        endLine: 1
+        quote: '# Glossary'
+    reading: 'parsed'
+  - relation: 'code.mentions'
+    from: 'code.document-section:docs/glossary.md#(the terms)'
+    to: 'code.column:orders.order_items.zero_rated'
+    evidence:
+      - path: 'docs/glossary.md'
+        startLine: 9
+        endLine: 9
+        quote: '- **Zero-rated** - a product that is sold without sales tax.'
+    reading: 'judgement'
+  - relation: 'code.mentions'
+    from: 'code.document-section:docs/glossary.md#(the terms)'
+    to: 'code.column:orders.orders.request_id'
+    evidence:
+      - path: 'docs/glossary.md'
+        startLine: 5
+        endLine: 5
+        quote: '- **Idempotency key** - a value the caller chooses so that repeating a request does not repeat its effect.'
+    reading: 'judgement'
+  - relation: 'code.mentions'
+    from: 'code.document-section:docs/glossary.md#(the terms)'
+    to: 'code.column:payments.payments.captured_at'
+    evidence:
+      - path: 'docs/glossary.md'
+        startLine: 8
+        endLine: 8
+        quote: '- **Capture** - the moment the money is taken from the card.'
+    reading: 'judgement'
+  - relation: 'code.mentions'
+    from: 'code.document-section:docs/glossary.md#(the terms)'
+    to: 'code.symbol:services/orders/internal/domain/order.go#Order'
+    evidence:
+      - path: 'docs/glossary.md'
+        startLine: 3
+        endLine: 3
+        quote: '- **Order** - one purchase: its lines, prices and a status.'
+    reading: 'judgement'
+  - relation: 'code.mentions'
+    from: 'code.document-section:docs/glossary.md#(the terms)'
+    to: 'code.symbol:services/payments/src/domain/payment.ts#CardToken'
+    evidence:
+      - path: 'docs/glossary.md'
+        startLine: 6
+        endLine: 6
+        quote: '- **CardToken** - a reference to a card in the card vault. The services never see the card number.'
+    reading: 'judgement'
+  - relation: 'code.mentions'
+    from: 'code.document-section:docs/glossary.md#(the terms)'
+    to: 'code.symbol:services/payments/src/domain/payment.ts#PaymentToken'
+    evidence:
+      - path: 'docs/glossary.md'
+        startLine: 7
+        endLine: 7
+        quote: '- **PaymentToken** - the proof a provider returns when it captured money.'
+    reading: 'judgement'
+  - relation: 'code.mentions'
+    from: 'code.document-section:docs/glossary.md#(the terms)'
+    to: 'code.table:orders.outbox'
+    evidence:
+      - path: 'docs/glossary.md'
+        startLine: 4
+        endLine: 4
+        quote: '- **Outbox** - the table in which orders queues the messages it will publish.'
+    reading: 'judgement'

@@ -1,0 +1,491 @@
+path: 'services/promotions/internal/api/handler.go'
+nodes:
+  - id: 'code.field:services/promotions/internal/api/handler.go#Handler.log'
+    kind: 'code.field'
+    label: 'Handler.log'
+    evidence:
+      - path: 'services/promotions/internal/api/handler.go'
+        startLine: 24
+        endLine: 24
+        quote: '	log        *slog.Logger'
+    reading: 'parsed'
+  - id: 'code.field:services/promotions/internal/api/handler.go#Handler.now'
+    kind: 'code.field'
+    label: 'Handler.now'
+    evidence:
+      - path: 'services/promotions/internal/api/handler.go'
+        startLine: 25
+        endLine: 25
+        quote: '	now        func() time.Time'
+    reading: 'parsed'
+  - id: 'code.field:services/promotions/internal/api/handler.go#Handler.promotions'
+    kind: 'code.field'
+    label: 'Handler.promotions'
+    evidence:
+      - path: 'services/promotions/internal/api/handler.go'
+        startLine: 23
+        endLine: 23
+        quote: '	promotions Promotions'
+    reading: 'parsed'
+  - id: 'code.field:services/promotions/internal/api/handler.go#applyRequest.Code'
+    kind: 'code.field'
+    label: 'applyRequest.Code'
+    evidence:
+      - path: 'services/promotions/internal/api/handler.go'
+        startLine: 44
+        endLine: 44
+        quote: '	Code          string `json:"code"`'
+    reading: 'parsed'
+  - id: 'code.field:services/promotions/internal/api/handler.go#applyRequest.SubtotalCents'
+    kind: 'code.field'
+    label: 'applyRequest.SubtotalCents'
+    evidence:
+      - path: 'services/promotions/internal/api/handler.go'
+        startLine: 45
+        endLine: 45
+        quote: '	SubtotalCents int64  `json:"subtotalCents"`'
+    reading: 'parsed'
+  - id: 'code.field:services/promotions/internal/api/handler.go#applyResponse.Code'
+    kind: 'code.field'
+    label: 'applyResponse.Code'
+    evidence:
+      - path: 'services/promotions/internal/api/handler.go'
+        startLine: 49
+        endLine: 49
+        quote: '	Code          string `json:"code"`'
+    reading: 'parsed'
+  - id: 'code.field:services/promotions/internal/api/handler.go#applyResponse.DiscountCents'
+    kind: 'code.field'
+    label: 'applyResponse.DiscountCents'
+    evidence:
+      - path: 'services/promotions/internal/api/handler.go'
+        startLine: 50
+        endLine: 50
+        quote: '	DiscountCents int64  `json:"discountCents"`'
+    reading: 'parsed'
+  - id: 'code.field:services/promotions/internal/api/handler.go#applyResponse.Percent'
+    kind: 'code.field'
+    label: 'applyResponse.Percent'
+    evidence:
+      - path: 'services/promotions/internal/api/handler.go'
+        startLine: 53
+        endLine: 53
+        quote: '	Percent int64 `json:"percent"`'
+    reading: 'parsed'
+  - id: 'code.file:services/promotions/internal/api/handler.go'
+    kind: 'code.file'
+    label: 'handler.go'
+    evidence:
+      - path: 'services/promotions/internal/api/handler.go'
+        startLine: 1
+        endLine: 1
+        quote: '// Package api is the HTTP layer of the promotions service.'
+    reading: 'parsed'
+  - id: 'code.health-endpoint:promotions:/healthz'
+    kind: 'code.health-endpoint'
+    label: 'GET /healthz'
+    evidence:
+      - path: 'services/promotions/internal/api/handler.go'
+        startLine: 37
+        endLine: 37
+        quote: '	mux.HandleFunc("GET /healthz", func(w http.ResponseWriter, _ *http.Request) {'
+    reading: 'parsed'
+  - id: 'code.module:services/promotions/internal/api'
+    kind: 'code.module'
+    label: 'services/promotions/internal/api'
+    evidence:
+      - path: 'services/promotions/internal/api/handler.go'
+        startLine: 2
+        endLine: 2
+        quote: 'package api'
+    reading: 'parsed'
+  - id: 'code.route:promotions:GET /healthz'
+    kind: 'code.route'
+    label: 'GET /healthz'
+    evidence:
+      - path: 'services/promotions/internal/api/handler.go'
+        startLine: 37
+        endLine: 37
+        quote: '	mux.HandleFunc("GET /healthz", func(w http.ResponseWriter, _ *http.Request) {'
+    reading: 'parsed'
+  - id: 'code.route:promotions:POST /internal/apply'
+    kind: 'code.route'
+    label: 'POST /internal/apply'
+    evidence:
+      - path: 'services/promotions/internal/api/handler.go'
+        startLine: 36
+        endLine: 36
+        quote: '	mux.HandleFunc("POST /internal/apply", h.apply)'
+    reading: 'parsed'
+  - id: 'code.symbol:services/promotions/internal/api/handler.go#Handler'
+    kind: 'code.symbol'
+    label: 'Handler'
+    evidence:
+      - path: 'services/promotions/internal/api/handler.go'
+        startLine: 22
+        endLine: 22
+        quote: 'type Handler struct {'
+    reading: 'parsed'
+  - id: 'code.symbol:services/promotions/internal/api/handler.go#Handler.Routes'
+    kind: 'code.symbol'
+    label: 'Handler.Routes'
+    evidence:
+      - path: 'services/promotions/internal/api/handler.go'
+        startLine: 34
+        endLine: 34
+        quote: 'func (h *Handler) Routes() http.Handler {'
+    reading: 'parsed'
+  - id: 'code.symbol:services/promotions/internal/api/handler.go#Handler.apply'
+    kind: 'code.symbol'
+    label: 'Handler.apply'
+    evidence:
+      - path: 'services/promotions/internal/api/handler.go'
+        startLine: 56
+        endLine: 56
+        quote: 'func (h *Handler) apply(w http.ResponseWriter, r *http.Request) {'
+    reading: 'parsed'
+  - id: 'code.symbol:services/promotions/internal/api/handler.go#New'
+    kind: 'code.symbol'
+    label: 'New'
+    evidence:
+      - path: 'services/promotions/internal/api/handler.go'
+        startLine: 29
+        endLine: 29
+        quote: 'func New(promotions Promotions, log *slog.Logger, now func() time.Time) *Handler {'
+    reading: 'parsed'
+  - id: 'code.symbol:services/promotions/internal/api/handler.go#Promotions'
+    kind: 'code.symbol'
+    label: 'Promotions'
+    evidence:
+      - path: 'services/promotions/internal/api/handler.go'
+        startLine: 17
+        endLine: 17
+        quote: 'type Promotions interface {'
+    reading: 'parsed'
+  - id: 'code.symbol:services/promotions/internal/api/handler.go#Promotions.FindActive'
+    kind: 'code.symbol'
+    label: 'Promotions.FindActive'
+    evidence:
+      - path: 'services/promotions/internal/api/handler.go'
+        startLine: 18
+        endLine: 18
+        quote: '	FindActive(ctx context.Context, code string, now time.Time) (store.Promotion, error)'
+    reading: 'parsed'
+  - id: 'code.symbol:services/promotions/internal/api/handler.go#applyRequest'
+    kind: 'code.symbol'
+    label: 'applyRequest'
+    evidence:
+      - path: 'services/promotions/internal/api/handler.go'
+        startLine: 43
+        endLine: 43
+        quote: 'type applyRequest struct {'
+    reading: 'parsed'
+  - id: 'code.symbol:services/promotions/internal/api/handler.go#applyResponse'
+    kind: 'code.symbol'
+    label: 'applyResponse'
+    evidence:
+      - path: 'services/promotions/internal/api/handler.go'
+        startLine: 48
+        endLine: 48
+        quote: 'type applyResponse struct {'
+    reading: 'parsed'
+  - id: 'code.symbol:services/promotions/internal/api/handler.go#writeJSON'
+    kind: 'code.symbol'
+    label: 'writeJSON'
+    evidence:
+      - path: 'services/promotions/internal/api/handler.go'
+        startLine: 90
+        endLine: 90
+        quote: 'func writeJSON(w http.ResponseWriter, status int, body any) {'
+    reading: 'parsed'
+edges:
+  - relation: 'code.belongs-to'
+    from: 'code.route:promotions:GET /healthz'
+    to: 'code.service:promotions'
+    evidence:
+      - path: 'services/promotions/internal/api/handler.go'
+        startLine: 37
+        endLine: 37
+        quote: '	mux.HandleFunc("GET /healthz", func(w http.ResponseWriter, _ *http.Request) {'
+    reading: 'parsed'
+  - relation: 'code.belongs-to'
+    from: 'code.route:promotions:POST /internal/apply'
+    to: 'code.service:promotions'
+    evidence:
+      - path: 'services/promotions/internal/api/handler.go'
+        startLine: 36
+        endLine: 36
+        quote: '	mux.HandleFunc("POST /internal/apply", h.apply)'
+    reading: 'parsed'
+  - relation: 'code.calls'
+    from: 'code.symbol:services/promotions/internal/api/handler.go#Handler.Routes'
+    to: 'code.symbol:services/promotions/internal/api/handler.go#writeJSON'
+    evidence:
+      - path: 'services/promotions/internal/api/handler.go'
+        startLine: 38
+        endLine: 38
+        quote: '		writeJSON(w, http.StatusOK, map[string]string{"status": "ok"})'
+    reading: 'parsed'
+  - relation: 'code.calls'
+    from: 'code.symbol:services/promotions/internal/api/handler.go#Handler.apply'
+    to: 'code.symbol:services/promotions/internal/api/handler.go#Promotions.FindActive'
+    evidence:
+      - path: 'services/promotions/internal/api/handler.go'
+        startLine: 62
+        endLine: 62
+        quote: '	promotion, err := h.promotions.FindActive(r.Context(), req.Code, h.now())'
+    reading: 'parsed'
+  - relation: 'code.calls'
+    from: 'code.symbol:services/promotions/internal/api/handler.go#Handler.apply'
+    to: 'code.symbol:services/promotions/internal/api/handler.go#writeJSON'
+    evidence:
+      - path: 'services/promotions/internal/api/handler.go'
+        startLine: 59
+        endLine: 59
+        quote: '		writeJSON(w, http.StatusBadRequest, map[string]string{"error": "bad_request"})'
+      - path: 'services/promotions/internal/api/handler.go'
+        startLine: 64
+        endLine: 64
+        quote: '		writeJSON(w, http.StatusNotFound, map[string]string{"error": "unknown_code"})'
+      - path: 'services/promotions/internal/api/handler.go'
+        startLine: 69
+        endLine: 69
+        quote: '		writeJSON(w, http.StatusInternalServerError, map[string]string{"error": "internal"})'
+      - path: 'services/promotions/internal/api/handler.go'
+        startLine: 75
+        endLine: 75
+        quote: '		writeJSON(w, http.StatusInternalServerError, map[string]string{"error": "internal"})'
+      - path: 'services/promotions/internal/api/handler.go'
+        startLine: 80
+        endLine: 80
+        quote: '		writeJSON(w, http.StatusUnprocessableEntity, map[string]string{"error": "does_not_apply"})'
+      - path: 'services/promotions/internal/api/handler.go'
+        startLine: 83
+        endLine: 83
+        quote: '	writeJSON(w, http.StatusOK, applyResponse{'
+    reading: 'parsed'
+  - relation: 'code.calls'
+    from: 'code.symbol:services/promotions/internal/api/handler.go#Handler.apply'
+    to: 'code.symbol:services/promotions/internal/discount/strategy.go#For'
+    evidence:
+      - path: 'services/promotions/internal/api/handler.go'
+        startLine: 72
+        endLine: 72
+        quote: '	strategy, err := discount.For(promotion.Kind, promotion.Value, promotion.MinCents)'
+    reading: 'parsed'
+  - relation: 'code.contains'
+    from: 'code.file:services/promotions/internal/api/handler.go'
+    to: 'code.symbol:services/promotions/internal/api/handler.go#Handler'
+    evidence:
+      - path: 'services/promotions/internal/api/handler.go'
+        startLine: 22
+        endLine: 22
+        quote: 'type Handler struct {'
+    reading: 'parsed'
+  - relation: 'code.contains'
+    from: 'code.file:services/promotions/internal/api/handler.go'
+    to: 'code.symbol:services/promotions/internal/api/handler.go#Handler.Routes'
+    evidence:
+      - path: 'services/promotions/internal/api/handler.go'
+        startLine: 34
+        endLine: 34
+        quote: 'func (h *Handler) Routes() http.Handler {'
+    reading: 'parsed'
+  - relation: 'code.contains'
+    from: 'code.file:services/promotions/internal/api/handler.go'
+    to: 'code.symbol:services/promotions/internal/api/handler.go#Handler.apply'
+    evidence:
+      - path: 'services/promotions/internal/api/handler.go'
+        startLine: 56
+        endLine: 56
+        quote: 'func (h *Handler) apply(w http.ResponseWriter, r *http.Request) {'
+    reading: 'parsed'
+  - relation: 'code.contains'
+    from: 'code.file:services/promotions/internal/api/handler.go'
+    to: 'code.symbol:services/promotions/internal/api/handler.go#New'
+    evidence:
+      - path: 'services/promotions/internal/api/handler.go'
+        startLine: 29
+        endLine: 29
+        quote: 'func New(promotions Promotions, log *slog.Logger, now func() time.Time) *Handler {'
+    reading: 'parsed'
+  - relation: 'code.contains'
+    from: 'code.file:services/promotions/internal/api/handler.go'
+    to: 'code.symbol:services/promotions/internal/api/handler.go#Promotions'
+    evidence:
+      - path: 'services/promotions/internal/api/handler.go'
+        startLine: 17
+        endLine: 17
+        quote: 'type Promotions interface {'
+    reading: 'parsed'
+  - relation: 'code.contains'
+    from: 'code.file:services/promotions/internal/api/handler.go'
+    to: 'code.symbol:services/promotions/internal/api/handler.go#applyRequest'
+    evidence:
+      - path: 'services/promotions/internal/api/handler.go'
+        startLine: 43
+        endLine: 43
+        quote: 'type applyRequest struct {'
+    reading: 'parsed'
+  - relation: 'code.contains'
+    from: 'code.file:services/promotions/internal/api/handler.go'
+    to: 'code.symbol:services/promotions/internal/api/handler.go#applyResponse'
+    evidence:
+      - path: 'services/promotions/internal/api/handler.go'
+        startLine: 48
+        endLine: 48
+        quote: 'type applyResponse struct {'
+    reading: 'parsed'
+  - relation: 'code.contains'
+    from: 'code.file:services/promotions/internal/api/handler.go'
+    to: 'code.symbol:services/promotions/internal/api/handler.go#writeJSON'
+    evidence:
+      - path: 'services/promotions/internal/api/handler.go'
+        startLine: 90
+        endLine: 90
+        quote: 'func writeJSON(w http.ResponseWriter, status int, body any) {'
+    reading: 'parsed'
+  - relation: 'code.contains'
+    from: 'code.module:services/promotions/internal/api'
+    to: 'code.file:services/promotions/internal/api/handler.go'
+    evidence:
+      - path: 'services/promotions/internal/api/handler.go'
+        startLine: 2
+        endLine: 2
+        quote: 'package api'
+    reading: 'parsed'
+  - relation: 'code.contains'
+    from: 'code.symbol:services/promotions/internal/api/handler.go#Handler'
+    to: 'code.field:services/promotions/internal/api/handler.go#Handler.log'
+    evidence:
+      - path: 'services/promotions/internal/api/handler.go'
+        startLine: 24
+        endLine: 24
+        quote: '	log        *slog.Logger'
+    reading: 'parsed'
+  - relation: 'code.contains'
+    from: 'code.symbol:services/promotions/internal/api/handler.go#Handler'
+    to: 'code.field:services/promotions/internal/api/handler.go#Handler.now'
+    evidence:
+      - path: 'services/promotions/internal/api/handler.go'
+        startLine: 25
+        endLine: 25
+        quote: '	now        func() time.Time'
+    reading: 'parsed'
+  - relation: 'code.contains'
+    from: 'code.symbol:services/promotions/internal/api/handler.go#Handler'
+    to: 'code.field:services/promotions/internal/api/handler.go#Handler.promotions'
+    evidence:
+      - path: 'services/promotions/internal/api/handler.go'
+        startLine: 23
+        endLine: 23
+        quote: '	promotions Promotions'
+    reading: 'parsed'
+  - relation: 'code.contains'
+    from: 'code.symbol:services/promotions/internal/api/handler.go#Promotions'
+    to: 'code.symbol:services/promotions/internal/api/handler.go#Promotions.FindActive'
+    evidence:
+      - path: 'services/promotions/internal/api/handler.go'
+        startLine: 18
+        endLine: 18
+        quote: '	FindActive(ctx context.Context, code string, now time.Time) (store.Promotion, error)'
+    reading: 'parsed'
+  - relation: 'code.contains'
+    from: 'code.symbol:services/promotions/internal/api/handler.go#applyRequest'
+    to: 'code.field:services/promotions/internal/api/handler.go#applyRequest.Code'
+    evidence:
+      - path: 'services/promotions/internal/api/handler.go'
+        startLine: 44
+        endLine: 44
+        quote: '	Code          string `json:"code"`'
+    reading: 'parsed'
+  - relation: 'code.contains'
+    from: 'code.symbol:services/promotions/internal/api/handler.go#applyRequest'
+    to: 'code.field:services/promotions/internal/api/handler.go#applyRequest.SubtotalCents'
+    evidence:
+      - path: 'services/promotions/internal/api/handler.go'
+        startLine: 45
+        endLine: 45
+        quote: '	SubtotalCents int64  `json:"subtotalCents"`'
+    reading: 'parsed'
+  - relation: 'code.contains'
+    from: 'code.symbol:services/promotions/internal/api/handler.go#applyResponse'
+    to: 'code.field:services/promotions/internal/api/handler.go#applyResponse.Code'
+    evidence:
+      - path: 'services/promotions/internal/api/handler.go'
+        startLine: 49
+        endLine: 49
+        quote: '	Code          string `json:"code"`'
+    reading: 'parsed'
+  - relation: 'code.contains'
+    from: 'code.symbol:services/promotions/internal/api/handler.go#applyResponse'
+    to: 'code.field:services/promotions/internal/api/handler.go#applyResponse.DiscountCents'
+    evidence:
+      - path: 'services/promotions/internal/api/handler.go'
+        startLine: 50
+        endLine: 50
+        quote: '	DiscountCents int64  `json:"discountCents"`'
+    reading: 'parsed'
+  - relation: 'code.contains'
+    from: 'code.symbol:services/promotions/internal/api/handler.go#applyResponse'
+    to: 'code.field:services/promotions/internal/api/handler.go#applyResponse.Percent'
+    evidence:
+      - path: 'services/promotions/internal/api/handler.go'
+        startLine: 53
+        endLine: 53
+        quote: '	Percent int64 `json:"percent"`'
+    reading: 'parsed'
+  - relation: 'code.imports'
+    from: 'code.file:services/promotions/internal/api/handler.go'
+    to: 'code.module:services/promotions/internal/discount'
+    evidence:
+      - path: 'services/promotions/internal/api/handler.go'
+        startLine: 12
+        endLine: 12
+        quote: '	"training.example/promotions/internal/discount"'
+    reading: 'parsed'
+  - relation: 'code.imports'
+    from: 'code.file:services/promotions/internal/api/handler.go'
+    to: 'code.module:services/promotions/internal/store'
+    evidence:
+      - path: 'services/promotions/internal/api/handler.go'
+        startLine: 13
+        endLine: 13
+        quote: '	"training.example/promotions/internal/store"'
+    reading: 'parsed'
+  - relation: 'code.served-by'
+    from: 'code.route:promotions:POST /internal/apply'
+    to: 'code.symbol:services/promotions/internal/api/handler.go#Handler.apply'
+    evidence:
+      - path: 'services/promotions/internal/api/handler.go'
+        startLine: 36
+        endLine: 36
+        quote: '	mux.HandleFunc("POST /internal/apply", h.apply)'
+    reading: 'parsed'
+  - relation: 'code.uses-type'
+    from: 'code.symbol:services/promotions/internal/api/handler.go#Handler'
+    to: 'code.symbol:services/promotions/internal/api/handler.go#Promotions'
+    evidence:
+      - path: 'services/promotions/internal/api/handler.go'
+        startLine: 23
+        endLine: 23
+        quote: '	promotions Promotions'
+    reading: 'parsed'
+  - relation: 'code.uses-type'
+    from: 'code.symbol:services/promotions/internal/api/handler.go#New'
+    to: 'code.symbol:services/promotions/internal/api/handler.go#Handler'
+    evidence:
+      - path: 'services/promotions/internal/api/handler.go'
+        startLine: 29
+        endLine: 29
+        quote: 'func New(promotions Promotions, log *slog.Logger, now func() time.Time) *Handler {'
+    reading: 'parsed'
+  - relation: 'code.uses-type'
+    from: 'code.symbol:services/promotions/internal/api/handler.go#New'
+    to: 'code.symbol:services/promotions/internal/api/handler.go#Promotions'
+    evidence:
+      - path: 'services/promotions/internal/api/handler.go'
+        startLine: 29
+        endLine: 29
+        quote: 'func New(promotions Promotions, log *slog.Logger, now func() time.Time) *Handler {'
+    reading: 'parsed'

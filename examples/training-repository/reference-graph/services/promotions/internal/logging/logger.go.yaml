@@ -1,0 +1,57 @@
+path: 'services/promotions/internal/logging/logger.go'
+nodes:
+  - id: 'code.file:services/promotions/internal/logging/logger.go'
+    kind: 'code.file'
+    label: 'logger.go'
+    evidence:
+      - path: 'services/promotions/internal/logging/logger.go'
+        startLine: 1
+        endLine: 1
+        quote: '// Package logging builds the service logger.'
+    reading: 'parsed'
+  - id: 'code.logger:promotions'
+    kind: 'code.logger'
+    label: 'promotions'
+    evidence:
+      - path: 'services/promotions/internal/logging/logger.go'
+        startLine: 10
+        endLine: 10
+        quote: 'func New(service string) *slog.Logger {'
+    reading: 'parsed'
+  - id: 'code.module:services/promotions/internal/logging'
+    kind: 'code.module'
+    label: 'services/promotions/internal/logging'
+    evidence:
+      - path: 'services/promotions/internal/logging/logger.go'
+        startLine: 2
+        endLine: 2
+        quote: 'package logging'
+    reading: 'parsed'
+  - id: 'code.symbol:services/promotions/internal/logging/logger.go#New'
+    kind: 'code.symbol'
+    label: 'New'
+    evidence:
+      - path: 'services/promotions/internal/logging/logger.go'
+        startLine: 10
+        endLine: 10
+        quote: 'func New(service string) *slog.Logger {'
+    reading: 'parsed'
+edges:
+  - relation: 'code.contains'
+    from: 'code.file:services/promotions/internal/logging/logger.go'
+    to: 'code.symbol:services/promotions/internal/logging/logger.go#New'
+    evidence:
+      - path: 'services/promotions/internal/logging/logger.go'
+        startLine: 10
+        endLine: 10
+        quote: 'func New(service string) *slog.Logger {'
+    reading: 'parsed'
+  - relation: 'code.contains'
+    from: 'code.module:services/promotions/internal/logging'
+    to: 'code.file:services/promotions/internal/logging/logger.go'
+    evidence:
+      - path: 'services/promotions/internal/logging/logger.go'
+        startLine: 2
+        endLine: 2
+        quote: 'package logging'
+    reading: 'parsed'

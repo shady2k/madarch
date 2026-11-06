@@ -1,0 +1,219 @@
+path: 'deploy/k8s/orders.yaml'
+nodes:
+  - id: 'code.file:deploy/k8s/orders.yaml'
+    kind: 'code.file'
+    label: 'orders.yaml'
+    evidence:
+      - path: 'deploy/k8s/orders.yaml'
+        startLine: 1
+        endLine: 1
+        quote: 'apiVersion: apps/v1'
+    reading: 'parsed'
+  - id: 'code.image:registry.example.test/training/orders:1.4.0'
+    kind: 'code.image'
+    label: 'registry.example.test/training/orders:1.4.0'
+    evidence:
+      - path: 'deploy/k8s/orders.yaml'
+        startLine: 19
+        endLine: 19
+        quote: '          image: registry.example.test/training/orders:1.4.0'
+    reading: 'declared'
+  - id: 'code.k8s-deployment:orders'
+    kind: 'code.k8s-deployment'
+    label: 'orders'
+    evidence:
+      - path: 'deploy/k8s/orders.yaml'
+        startLine: 4
+        endLine: 4
+        quote: '  name: orders'
+    reading: 'declared'
+  - id: 'code.k8s-service:orders'
+    kind: 'code.k8s-service'
+    label: 'orders'
+    evidence:
+      - path: 'deploy/k8s/orders.yaml'
+        startLine: 45
+        endLine: 45
+        quote: '  name: orders'
+    reading: 'declared'
+  - id: 'code.port:orders:80'
+    kind: 'code.port'
+    label: '80'
+    evidence:
+      - path: 'deploy/k8s/orders.yaml'
+        startLine: 51
+        endLine: 51
+        quote: '      port: 80'
+    reading: 'declared'
+  - id: 'code.probe:orders.liveness'
+    kind: 'code.probe'
+    label: 'liveness'
+    evidence:
+      - path: 'deploy/k8s/orders.yaml'
+        startLine: 30
+        endLine: 30
+        quote: '          livenessProbe:'
+    reading: 'declared'
+  - id: 'code.probe:orders.readiness'
+    kind: 'code.probe'
+    label: 'readiness'
+    evidence:
+      - path: 'deploy/k8s/orders.yaml'
+        startLine: 25
+        endLine: 25
+        quote: '          readinessProbe:'
+    reading: 'declared'
+  - id: 'code.probe:orders.startup'
+    kind: 'code.probe'
+    label: 'startup'
+    evidence:
+      - path: 'deploy/k8s/orders.yaml'
+        startLine: 35
+        endLine: 35
+        quote: '          startupProbe:'
+    reading: 'declared'
+edges:
+  - relation: 'code.belongs-to'
+    from: 'code.k8s-deployment:orders'
+    to: 'code.service:orders'
+    evidence:
+      - path: 'deploy/k8s/orders.yaml'
+        startLine: 4
+        endLine: 4
+        quote: '  name: orders'
+    reading: 'declared'
+  - relation: 'code.belongs-to'
+    from: 'code.k8s-service:orders'
+    to: 'code.service:orders'
+    evidence:
+      - path: 'deploy/k8s/orders.yaml'
+        startLine: 45
+        endLine: 45
+        quote: '  name: orders'
+    reading: 'declared'
+  - relation: 'code.exposes'
+    from: 'code.image:registry.example.test/training/orders:1.4.0'
+    to: 'code.port:orders:8080'
+    evidence:
+      - path: 'deploy/k8s/orders.yaml'
+        startLine: 21
+        endLine: 21
+        quote: '            - containerPort: 8080'
+    reading: 'declared'
+  - relation: 'code.exposes'
+    from: 'code.k8s-service:orders'
+    to: 'code.port:orders:80'
+    evidence:
+      - path: 'deploy/k8s/orders.yaml'
+        startLine: 51
+        endLine: 51
+        quote: '      port: 80'
+    reading: 'declared'
+  - relation: 'code.probes'
+    from: 'code.k8s-deployment:orders'
+    to: 'code.probe:orders.liveness'
+    evidence:
+      - path: 'deploy/k8s/orders.yaml'
+        startLine: 30
+        endLine: 30
+        quote: '          livenessProbe:'
+    reading: 'declared'
+  - relation: 'code.probes'
+    from: 'code.k8s-deployment:orders'
+    to: 'code.probe:orders.readiness'
+    evidence:
+      - path: 'deploy/k8s/orders.yaml'
+        startLine: 25
+        endLine: 25
+        quote: '          readinessProbe:'
+    reading: 'declared'
+  - relation: 'code.probes'
+    from: 'code.k8s-deployment:orders'
+    to: 'code.probe:orders.startup'
+    evidence:
+      - path: 'deploy/k8s/orders.yaml'
+        startLine: 35
+        endLine: 35
+        quote: '          startupProbe:'
+    reading: 'declared'
+  - relation: 'code.probes'
+    from: 'code.probe:orders.liveness'
+    to: 'code.health-endpoint:orders:/healthz'
+    evidence:
+      - path: 'deploy/k8s/orders.yaml'
+        startLine: 27
+        endLine: 27
+        quote: '              path: /healthz'
+    reading: 'declared'
+  - relation: 'code.probes'
+    from: 'code.probe:orders.readiness'
+    to: 'code.health-endpoint:orders:/healthz'
+    evidence:
+      - path: 'deploy/k8s/orders.yaml'
+        startLine: 27
+        endLine: 27
+        quote: '              path: /healthz'
+    reading: 'declared'
+  - relation: 'code.probes'
+    from: 'code.probe:orders.startup'
+    to: 'code.health-endpoint:orders:/healthz'
+    evidence:
+      - path: 'deploy/k8s/orders.yaml'
+        startLine: 27
+        endLine: 27
+        quote: '              path: /healthz'
+    reading: 'declared'
+  - relation: 'code.runs'
+    from: 'code.k8s-deployment:orders'
+    to: 'code.image:registry.example.test/training/orders:1.4.0'
+    evidence:
+      - path: 'deploy/k8s/orders.yaml'
+        startLine: 19
+        endLine: 19
+        quote: '          image: registry.example.test/training/orders:1.4.0'
+    reading: 'declared'
+  - relation: 'code.starts'
+    from: 'code.k8s-deployment:orders'
+    to: 'code.process:orders'
+    evidence:
+      - path: 'deploy/k8s/orders.yaml'
+        startLine: 18
+        endLine: 18
+        quote: '        - name: orders'
+    reading: 'declared'
+  - relation: 'code.targets'
+    from: 'code.k8s-service:orders'
+    to: 'code.port:orders:8080'
+    evidence:
+      - path: 'deploy/k8s/orders.yaml'
+        startLine: 52
+        endLine: 52
+        quote: '      targetPort: 8080'
+    reading: 'declared'
+  - relation: 'code.targets'
+    from: 'code.probe:orders.liveness'
+    to: 'code.port:orders:8080'
+    evidence:
+      - path: 'deploy/k8s/orders.yaml'
+        startLine: 28
+        endLine: 28
+        quote: '              port: 8080'
+    reading: 'declared'
+  - relation: 'code.targets'
+    from: 'code.probe:orders.readiness'
+    to: 'code.port:orders:8080'
+    evidence:
+      - path: 'deploy/k8s/orders.yaml'
+        startLine: 28
+        endLine: 28
+        quote: '              port: 8080'
+    reading: 'declared'
+  - relation: 'code.targets'
+    from: 'code.probe:orders.startup'
+    to: 'code.port:orders:8080'
+    evidence:
+      - path: 'deploy/k8s/orders.yaml'
+        startLine: 28
+        endLine: 28
+        quote: '              port: 8080'
+    reading: 'declared'

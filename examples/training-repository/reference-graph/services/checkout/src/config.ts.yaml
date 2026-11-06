@@ -1,0 +1,120 @@
+path: 'services/checkout/src/config.ts'
+nodes:
+  - id: 'code.field:services/checkout/src/config.ts#Config.ordersUrl'
+    kind: 'code.field'
+    label: 'Config.ordersUrl'
+    evidence:
+      - path: 'services/checkout/src/config.ts'
+        startLine: 3
+        endLine: 3
+        quote: '  ordersUrl: string;'
+    reading: 'parsed'
+  - id: 'code.field:services/checkout/src/config.ts#Config.paymentsAddr'
+    kind: 'code.field'
+    label: 'Config.paymentsAddr'
+    evidence:
+      - path: 'services/checkout/src/config.ts'
+        startLine: 7
+        endLine: 7
+        quote: '  paymentsAddr: string;'
+    reading: 'parsed'
+  - id: 'code.field:services/checkout/src/config.ts#Config.paymentsDeadlineMs'
+    kind: 'code.field'
+    label: 'Config.paymentsDeadlineMs'
+    evidence:
+      - path: 'services/checkout/src/config.ts'
+        startLine: 9
+        endLine: 9
+        quote: '  paymentsDeadlineMs: number;'
+    reading: 'parsed'
+  - id: 'code.field:services/checkout/src/config.ts#Config.promotionsUrl'
+    kind: 'code.field'
+    label: 'Config.promotionsUrl'
+    evidence:
+      - path: 'services/checkout/src/config.ts'
+        startLine: 5
+        endLine: 5
+        quote: '  promotionsUrl: string;'
+    reading: 'parsed'
+  - id: 'code.file:services/checkout/src/config.ts'
+    kind: 'code.file'
+    label: 'config.ts'
+    evidence:
+      - path: 'services/checkout/src/config.ts'
+        startLine: 1
+        endLine: 1
+        quote: 'export interface Config {'
+    reading: 'parsed'
+  - id: 'code.symbol:services/checkout/src/config.ts#Config'
+    kind: 'code.symbol'
+    label: 'Config'
+    evidence:
+      - path: 'services/checkout/src/config.ts'
+        startLine: 1
+        endLine: 1
+        quote: 'export interface Config {'
+    reading: 'parsed'
+  - id: 'code.symbol:services/checkout/src/config.ts#loadConfig'
+    kind: 'code.symbol'
+    label: 'loadConfig'
+    evidence:
+      - path: 'services/checkout/src/config.ts'
+        startLine: 13
+        endLine: 13
+        quote: 'export function loadConfig(env: NodeJS.ProcessEnv = process.env): Config {'
+    reading: 'parsed'
+edges:
+  - relation: 'code.contains'
+    from: 'code.file:services/checkout/src/config.ts'
+    to: 'code.symbol:services/checkout/src/config.ts#Config'
+    evidence:
+      - path: 'services/checkout/src/config.ts'
+        startLine: 1
+        endLine: 1
+        quote: 'export interface Config {'
+    reading: 'parsed'
+  - relation: 'code.contains'
+    from: 'code.file:services/checkout/src/config.ts'
+    to: 'code.symbol:services/checkout/src/config.ts#loadConfig'
+    evidence:
+      - path: 'services/checkout/src/config.ts'
+        startLine: 13
+        endLine: 13
+        quote: 'export function loadConfig(env: NodeJS.ProcessEnv = process.env): Config {'
+    reading: 'parsed'
+  - relation: 'code.contains'
+    from: 'code.symbol:services/checkout/src/config.ts#Config'
+    to: 'code.field:services/checkout/src/config.ts#Config.ordersUrl'
+    evidence:
+      - path: 'services/checkout/src/config.ts'
+        startLine: 3
+        endLine: 3
+        quote: '  ordersUrl: string;'
+    reading: 'parsed'
+  - relation: 'code.contains'
+    from: 'code.symbol:services/checkout/src/config.ts#Config'
+    to: 'code.field:services/checkout/src/config.ts#Config.paymentsAddr'
+    evidence:
+      - path: 'services/checkout/src/config.ts'
+        startLine: 7
+        endLine: 7
+        quote: '  paymentsAddr: string;'
+    reading: 'parsed'
+  - relation: 'code.contains'
+    from: 'code.symbol:services/checkout/src/config.ts#Config'
+    to: 'code.field:services/checkout/src/config.ts#Config.paymentsDeadlineMs'
+    evidence:
+      - path: 'services/checkout/src/config.ts'
+        startLine: 9
+        endLine: 9
+        quote: '  paymentsDeadlineMs: number;'
+    reading: 'parsed'
+  - relation: 'code.contains'
+    from: 'code.symbol:services/checkout/src/config.ts#Config'
+    to: 'code.field:services/checkout/src/config.ts#Config.promotionsUrl'
+    evidence:
+      - path: 'services/checkout/src/config.ts'
+        startLine: 5
+        endLine: 5
+        quote: '  promotionsUrl: string;'
+    reading: 'parsed'

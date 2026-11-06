@@ -1,0 +1,457 @@
+path: 'services/checkout/src/checkout-service.ts'
+nodes:
+  - id: 'code.field:services/checkout/src/checkout-service.ts#CheckoutRequest.auth'
+    kind: 'code.field'
+    label: 'CheckoutRequest.auth'
+    evidence:
+      - path: 'services/checkout/src/checkout-service.ts'
+        startLine: 13
+        endLine: 13
+        quote: '  auth: string;'
+    reading: 'parsed'
+  - id: 'code.field:services/checkout/src/checkout-service.ts#CheckoutRequest.cardToken'
+    kind: 'code.field'
+    label: 'CheckoutRequest.cardToken'
+    evidence:
+      - path: 'services/checkout/src/checkout-service.ts'
+        startLine: 10
+        endLine: 10
+        quote: '  cardToken: string;'
+    reading: 'parsed'
+  - id: 'code.field:services/checkout/src/checkout-service.ts#CheckoutRequest.currency'
+    kind: 'code.field'
+    label: 'CheckoutRequest.currency'
+    evidence:
+      - path: 'services/checkout/src/checkout-service.ts'
+        startLine: 11
+        endLine: 11
+        quote: '  currency: string;'
+    reading: 'parsed'
+  - id: 'code.field:services/checkout/src/checkout-service.ts#CheckoutRequest.idempotencyKey'
+    kind: 'code.field'
+    label: 'CheckoutRequest.idempotencyKey'
+    evidence:
+      - path: 'services/checkout/src/checkout-service.ts'
+        startLine: 17
+        endLine: 17
+        quote: '  idempotencyKey: string;'
+    reading: 'parsed'
+  - id: 'code.field:services/checkout/src/checkout-service.ts#CheckoutRequest.items'
+    kind: 'code.field'
+    label: 'CheckoutRequest.items'
+    evidence:
+      - path: 'services/checkout/src/checkout-service.ts'
+        startLine: 8
+        endLine: 8
+        quote: '  items: CartLine[];'
+    reading: 'parsed'
+  - id: 'code.field:services/checkout/src/checkout-service.ts#CheckoutRequest.promotionCode'
+    kind: 'code.field'
+    label: 'CheckoutRequest.promotionCode'
+    evidence:
+      - path: 'services/checkout/src/checkout-service.ts'
+        startLine: 9
+        endLine: 9
+        quote: '  promotionCode?: string;'
+    reading: 'parsed'
+  - id: 'code.field:services/checkout/src/checkout-service.ts#CheckoutRequest.requestId'
+    kind: 'code.field'
+    label: 'CheckoutRequest.requestId'
+    evidence:
+      - path: 'services/checkout/src/checkout-service.ts'
+        startLine: 15
+        endLine: 15
+        quote: '  requestId: string;'
+    reading: 'parsed'
+  - id: 'code.field:services/checkout/src/checkout-service.ts#CheckoutService.orders'
+    kind: 'code.field'
+    label: 'CheckoutService.orders'
+    evidence:
+      - path: 'services/checkout/src/checkout-service.ts'
+        startLine: 32
+        endLine: 32
+        quote: '    private readonly orders: OrdersClient,'
+    reading: 'parsed'
+  - id: 'code.field:services/checkout/src/checkout-service.ts#CheckoutService.payments'
+    kind: 'code.field'
+    label: 'CheckoutService.payments'
+    evidence:
+      - path: 'services/checkout/src/checkout-service.ts'
+        startLine: 33
+        endLine: 33
+        quote: '    private readonly payments: PaymentsClient,'
+    reading: 'parsed'
+  - id: 'code.field:services/checkout/src/checkout-service.ts#CheckoutService.promotions'
+    kind: 'code.field'
+    label: 'CheckoutService.promotions'
+    evidence:
+      - path: 'services/checkout/src/checkout-service.ts'
+        startLine: 34
+        endLine: 34
+        quote: '    private readonly promotions: PromotionsClient,'
+    reading: 'parsed'
+  - id: 'code.file:services/checkout/src/checkout-service.ts'
+    kind: 'code.file'
+    label: 'checkout-service.ts'
+    evidence:
+      - path: 'services/checkout/src/checkout-service.ts'
+        startLine: 1
+        endLine: 1
+        quote: 'import { logger } from ''./logging/logger'';'
+    reading: 'parsed'
+  - id: 'code.symbol:services/checkout/src/checkout-service.ts#CheckoutRequest'
+    kind: 'code.symbol'
+    label: 'CheckoutRequest'
+    evidence:
+      - path: 'services/checkout/src/checkout-service.ts'
+        startLine: 7
+        endLine: 7
+        quote: 'export interface CheckoutRequest {'
+    reading: 'parsed'
+  - id: 'code.symbol:services/checkout/src/checkout-service.ts#CheckoutResult'
+    kind: 'code.symbol'
+    label: 'CheckoutResult'
+    evidence:
+      - path: 'services/checkout/src/checkout-service.ts'
+        startLine: 20
+        endLine: 20
+        quote: 'export type CheckoutResult ='
+    reading: 'parsed'
+  - id: 'code.symbol:services/checkout/src/checkout-service.ts#CheckoutService'
+    kind: 'code.symbol'
+    label: 'CheckoutService'
+    evidence:
+      - path: 'services/checkout/src/checkout-service.ts'
+        startLine: 30
+        endLine: 30
+        quote: 'export class CheckoutService {'
+    reading: 'parsed'
+  - id: 'code.symbol:services/checkout/src/checkout-service.ts#CheckoutService.cancel'
+    kind: 'code.symbol'
+    label: 'CheckoutService.cancel'
+    evidence:
+      - path: 'services/checkout/src/checkout-service.ts'
+        startLine: 77
+        endLine: 77
+        quote: '  private async cancel(request: CheckoutRequest, orderId: string, reason: string): Promise<void> {'
+    reading: 'parsed'
+  - id: 'code.symbol:services/checkout/src/checkout-service.ts#CheckoutService.checkout'
+    kind: 'code.symbol'
+    label: 'CheckoutService.checkout'
+    evidence:
+      - path: 'services/checkout/src/checkout-service.ts'
+        startLine: 37
+        endLine: 37
+        quote: '  async checkout(request: CheckoutRequest): Promise<CheckoutResult> {'
+    reading: 'parsed'
+  - id: 'code.symbol:services/checkout/src/checkout-service.ts#CheckoutService.constructor'
+    kind: 'code.symbol'
+    label: 'CheckoutService.constructor'
+    evidence:
+      - path: 'services/checkout/src/checkout-service.ts'
+        startLine: 31
+        endLine: 31
+        quote: '  constructor('
+    reading: 'parsed'
+edges:
+  - relation: 'code.calls'
+    from: 'code.symbol:services/checkout/src/checkout-service.ts#CheckoutService.cancel'
+    to: 'code.symbol:services/checkout/src/orders-client.ts#OrdersClient.cancelOrder'
+    evidence:
+      - path: 'services/checkout/src/checkout-service.ts'
+        startLine: 79
+        endLine: 79
+        quote: '      await this.orders.cancelOrder(request.auth, request.requestId, orderId, reason);'
+    reading: 'parsed'
+  - relation: 'code.calls'
+    from: 'code.symbol:services/checkout/src/checkout-service.ts#CheckoutService.checkout'
+    to: 'code.symbol:services/checkout/src/checkout-service.ts#CheckoutService.cancel'
+    evidence:
+      - path: 'services/checkout/src/checkout-service.ts'
+        startLine: 67
+        endLine: 67
+        quote: '      await this.cancel(request, order.id, payment.declineReason || ''payment declined'');'
+      - path: 'services/checkout/src/checkout-service.ts'
+        startLine: 72
+        endLine: 72
+        quote: '      await this.cancel(request, order.id, ''payment service unavailable'');'
+    reading: 'parsed'
+  - relation: 'code.calls'
+    from: 'code.symbol:services/checkout/src/checkout-service.ts#CheckoutService.checkout'
+    to: 'code.symbol:services/checkout/src/orders-client.ts#OrdersClient.placeOrder'
+    evidence:
+      - path: 'services/checkout/src/checkout-service.ts'
+        startLine: 53
+        endLine: 53
+        quote: '      order = await this.orders.placeOrder(request.auth, request.requestId, request.items, percent, request.idempotencyKey);'
+    reading: 'parsed'
+  - relation: 'code.calls'
+    from: 'code.symbol:services/checkout/src/checkout-service.ts#CheckoutService.checkout'
+    to: 'code.symbol:services/checkout/src/payments-client.ts#PaymentsClient.authorize'
+    evidence:
+      - path: 'services/checkout/src/checkout-service.ts'
+        startLine: 62
+        endLine: 62
+        quote: '      const payment = await this.payments.authorize(order.id, order.totalCents, request.currency, request.cardToken, `pay-${order.id}`);'
+    reading: 'parsed'
+  - relation: 'code.calls'
+    from: 'code.symbol:services/checkout/src/checkout-service.ts#CheckoutService.checkout'
+    to: 'code.symbol:services/checkout/src/pricing.ts#previewTotal'
+    evidence:
+      - path: 'services/checkout/src/checkout-service.ts'
+        startLine: 42
+        endLine: 42
+        quote: '      const subtotal = previewTotal(request.items, 0).subtotalCents;'
+    reading: 'parsed'
+  - relation: 'code.calls'
+    from: 'code.symbol:services/checkout/src/checkout-service.ts#CheckoutService.checkout'
+    to: 'code.symbol:services/checkout/src/promotions-client.ts#PromotionsClient.apply'
+    evidence:
+      - path: 'services/checkout/src/checkout-service.ts'
+        startLine: 43
+        endLine: 43
+        quote: '      const promotion = await this.promotions.apply(request.promotionCode, subtotal);'
+    reading: 'parsed'
+  - relation: 'code.contains'
+    from: 'code.file:services/checkout/src/checkout-service.ts'
+    to: 'code.symbol:services/checkout/src/checkout-service.ts#CheckoutRequest'
+    evidence:
+      - path: 'services/checkout/src/checkout-service.ts'
+        startLine: 7
+        endLine: 7
+        quote: 'export interface CheckoutRequest {'
+    reading: 'parsed'
+  - relation: 'code.contains'
+    from: 'code.file:services/checkout/src/checkout-service.ts'
+    to: 'code.symbol:services/checkout/src/checkout-service.ts#CheckoutResult'
+    evidence:
+      - path: 'services/checkout/src/checkout-service.ts'
+        startLine: 20
+        endLine: 20
+        quote: 'export type CheckoutResult ='
+    reading: 'parsed'
+  - relation: 'code.contains'
+    from: 'code.file:services/checkout/src/checkout-service.ts'
+    to: 'code.symbol:services/checkout/src/checkout-service.ts#CheckoutService'
+    evidence:
+      - path: 'services/checkout/src/checkout-service.ts'
+        startLine: 30
+        endLine: 30
+        quote: 'export class CheckoutService {'
+    reading: 'parsed'
+  - relation: 'code.contains'
+    from: 'code.symbol:services/checkout/src/checkout-service.ts#CheckoutRequest'
+    to: 'code.field:services/checkout/src/checkout-service.ts#CheckoutRequest.auth'
+    evidence:
+      - path: 'services/checkout/src/checkout-service.ts'
+        startLine: 13
+        endLine: 13
+        quote: '  auth: string;'
+    reading: 'parsed'
+  - relation: 'code.contains'
+    from: 'code.symbol:services/checkout/src/checkout-service.ts#CheckoutRequest'
+    to: 'code.field:services/checkout/src/checkout-service.ts#CheckoutRequest.cardToken'
+    evidence:
+      - path: 'services/checkout/src/checkout-service.ts'
+        startLine: 10
+        endLine: 10
+        quote: '  cardToken: string;'
+    reading: 'parsed'
+  - relation: 'code.contains'
+    from: 'code.symbol:services/checkout/src/checkout-service.ts#CheckoutRequest'
+    to: 'code.field:services/checkout/src/checkout-service.ts#CheckoutRequest.currency'
+    evidence:
+      - path: 'services/checkout/src/checkout-service.ts'
+        startLine: 11
+        endLine: 11
+        quote: '  currency: string;'
+    reading: 'parsed'
+  - relation: 'code.contains'
+    from: 'code.symbol:services/checkout/src/checkout-service.ts#CheckoutRequest'
+    to: 'code.field:services/checkout/src/checkout-service.ts#CheckoutRequest.idempotencyKey'
+    evidence:
+      - path: 'services/checkout/src/checkout-service.ts'
+        startLine: 17
+        endLine: 17
+        quote: '  idempotencyKey: string;'
+    reading: 'parsed'
+  - relation: 'code.contains'
+    from: 'code.symbol:services/checkout/src/checkout-service.ts#CheckoutRequest'
+    to: 'code.field:services/checkout/src/checkout-service.ts#CheckoutRequest.items'
+    evidence:
+      - path: 'services/checkout/src/checkout-service.ts'
+        startLine: 8
+        endLine: 8
+        quote: '  items: CartLine[];'
+    reading: 'parsed'
+  - relation: 'code.contains'
+    from: 'code.symbol:services/checkout/src/checkout-service.ts#CheckoutRequest'
+    to: 'code.field:services/checkout/src/checkout-service.ts#CheckoutRequest.promotionCode'
+    evidence:
+      - path: 'services/checkout/src/checkout-service.ts'
+        startLine: 9
+        endLine: 9
+        quote: '  promotionCode?: string;'
+    reading: 'parsed'
+  - relation: 'code.contains'
+    from: 'code.symbol:services/checkout/src/checkout-service.ts#CheckoutRequest'
+    to: 'code.field:services/checkout/src/checkout-service.ts#CheckoutRequest.requestId'
+    evidence:
+      - path: 'services/checkout/src/checkout-service.ts'
+        startLine: 15
+        endLine: 15
+        quote: '  requestId: string;'
+    reading: 'parsed'
+  - relation: 'code.contains'
+    from: 'code.symbol:services/checkout/src/checkout-service.ts#CheckoutService'
+    to: 'code.field:services/checkout/src/checkout-service.ts#CheckoutService.orders'
+    evidence:
+      - path: 'services/checkout/src/checkout-service.ts'
+        startLine: 32
+        endLine: 32
+        quote: '    private readonly orders: OrdersClient,'
+    reading: 'parsed'
+  - relation: 'code.contains'
+    from: 'code.symbol:services/checkout/src/checkout-service.ts#CheckoutService'
+    to: 'code.field:services/checkout/src/checkout-service.ts#CheckoutService.payments'
+    evidence:
+      - path: 'services/checkout/src/checkout-service.ts'
+        startLine: 33
+        endLine: 33
+        quote: '    private readonly payments: PaymentsClient,'
+    reading: 'parsed'
+  - relation: 'code.contains'
+    from: 'code.symbol:services/checkout/src/checkout-service.ts#CheckoutService'
+    to: 'code.field:services/checkout/src/checkout-service.ts#CheckoutService.promotions'
+    evidence:
+      - path: 'services/checkout/src/checkout-service.ts'
+        startLine: 34
+        endLine: 34
+        quote: '    private readonly promotions: PromotionsClient,'
+    reading: 'parsed'
+  - relation: 'code.contains'
+    from: 'code.symbol:services/checkout/src/checkout-service.ts#CheckoutService'
+    to: 'code.symbol:services/checkout/src/checkout-service.ts#CheckoutService.cancel'
+    evidence:
+      - path: 'services/checkout/src/checkout-service.ts'
+        startLine: 77
+        endLine: 77
+        quote: '  private async cancel(request: CheckoutRequest, orderId: string, reason: string): Promise<void> {'
+    reading: 'parsed'
+  - relation: 'code.contains'
+    from: 'code.symbol:services/checkout/src/checkout-service.ts#CheckoutService'
+    to: 'code.symbol:services/checkout/src/checkout-service.ts#CheckoutService.checkout'
+    evidence:
+      - path: 'services/checkout/src/checkout-service.ts'
+        startLine: 37
+        endLine: 37
+        quote: '  async checkout(request: CheckoutRequest): Promise<CheckoutResult> {'
+    reading: 'parsed'
+  - relation: 'code.contains'
+    from: 'code.symbol:services/checkout/src/checkout-service.ts#CheckoutService'
+    to: 'code.symbol:services/checkout/src/checkout-service.ts#CheckoutService.constructor'
+    evidence:
+      - path: 'services/checkout/src/checkout-service.ts'
+        startLine: 31
+        endLine: 31
+        quote: '  constructor('
+    reading: 'parsed'
+  - relation: 'code.imports'
+    from: 'code.file:services/checkout/src/checkout-service.ts'
+    to: 'code.file:services/checkout/src/logging/logger.ts'
+    evidence:
+      - path: 'services/checkout/src/checkout-service.ts'
+        startLine: 1
+        endLine: 1
+        quote: 'import { logger } from ''./logging/logger'';'
+    reading: 'parsed'
+  - relation: 'code.imports'
+    from: 'code.file:services/checkout/src/checkout-service.ts'
+    to: 'code.file:services/checkout/src/orders-client.ts'
+    evidence:
+      - path: 'services/checkout/src/checkout-service.ts'
+        startLine: 2
+        endLine: 2
+        quote: 'import { OrdersClient, OrdersError } from ''./orders-client'';'
+    reading: 'parsed'
+  - relation: 'code.imports'
+    from: 'code.file:services/checkout/src/checkout-service.ts'
+    to: 'code.file:services/checkout/src/payments-client.ts'
+    evidence:
+      - path: 'services/checkout/src/checkout-service.ts'
+        startLine: 3
+        endLine: 3
+        quote: 'import { PaymentsClient } from ''./payments-client'';'
+    reading: 'parsed'
+  - relation: 'code.imports'
+    from: 'code.file:services/checkout/src/checkout-service.ts'
+    to: 'code.file:services/checkout/src/pricing.ts'
+    evidence:
+      - path: 'services/checkout/src/checkout-service.ts'
+        startLine: 4
+        endLine: 4
+        quote: 'import { CartLine, previewTotal } from ''./pricing'';'
+    reading: 'parsed'
+  - relation: 'code.imports'
+    from: 'code.file:services/checkout/src/checkout-service.ts'
+    to: 'code.file:services/checkout/src/promotions-client.ts'
+    evidence:
+      - path: 'services/checkout/src/checkout-service.ts'
+        startLine: 5
+        endLine: 5
+        quote: 'import { PromotionsClient } from ''./promotions-client'';'
+    reading: 'parsed'
+  - relation: 'code.uses-type'
+    from: 'code.field:services/checkout/src/checkout-service.ts#CheckoutService.orders'
+    to: 'code.symbol:services/checkout/src/orders-client.ts#OrdersClient'
+    evidence:
+      - path: 'services/checkout/src/checkout-service.ts'
+        startLine: 32
+        endLine: 32
+        quote: '    private readonly orders: OrdersClient,'
+    reading: 'parsed'
+  - relation: 'code.uses-type'
+    from: 'code.field:services/checkout/src/checkout-service.ts#CheckoutService.payments'
+    to: 'code.symbol:services/checkout/src/payments-client.ts#PaymentsClient'
+    evidence:
+      - path: 'services/checkout/src/checkout-service.ts'
+        startLine: 33
+        endLine: 33
+        quote: '    private readonly payments: PaymentsClient,'
+    reading: 'parsed'
+  - relation: 'code.uses-type'
+    from: 'code.field:services/checkout/src/checkout-service.ts#CheckoutService.promotions'
+    to: 'code.symbol:services/checkout/src/promotions-client.ts#PromotionsClient'
+    evidence:
+      - path: 'services/checkout/src/checkout-service.ts'
+        startLine: 34
+        endLine: 34
+        quote: '    private readonly promotions: PromotionsClient,'
+    reading: 'parsed'
+  - relation: 'code.uses-type'
+    from: 'code.symbol:services/checkout/src/checkout-service.ts#CheckoutService.constructor'
+    to: 'code.symbol:services/checkout/src/orders-client.ts#OrdersClient'
+    evidence:
+      - path: 'services/checkout/src/checkout-service.ts'
+        startLine: 31
+        endLine: 31
+        quote: '  constructor('
+    reading: 'parsed'
+  - relation: 'code.uses-type'
+    from: 'code.symbol:services/checkout/src/checkout-service.ts#CheckoutService.constructor'
+    to: 'code.symbol:services/checkout/src/payments-client.ts#PaymentsClient'
+    evidence:
+      - path: 'services/checkout/src/checkout-service.ts'
+        startLine: 31
+        endLine: 31
+        quote: '  constructor('
+    reading: 'parsed'
+  - relation: 'code.uses-type'
+    from: 'code.symbol:services/checkout/src/checkout-service.ts#CheckoutService.constructor'
+    to: 'code.symbol:services/checkout/src/promotions-client.ts#PromotionsClient'
+    evidence:
+      - path: 'services/checkout/src/checkout-service.ts'
+        startLine: 31
+        endLine: 31
+        quote: '  constructor('
+    reading: 'parsed'

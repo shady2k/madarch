@@ -1,0 +1,678 @@
+path: 'services/payments/src/domain/payment-service.ts'
+nodes:
+  - id: 'code.cycle:payments:domain-events'
+    kind: 'code.cycle'
+    label: 'payments: domain and events'
+    evidence:
+      - path: 'services/payments/src/domain/payment-service.ts'
+        startLine: 3
+        endLine: 3
+        quote: 'import { EventSink, publishPaymentEvent } from ''../events/publishers'';'
+    reading: 'judgement'
+  - id: 'code.field:services/payments/src/domain/payment-service.ts#PayRequest.amountCents'
+    kind: 'code.field'
+    label: 'PayRequest.amountCents'
+    evidence:
+      - path: 'services/payments/src/domain/payment-service.ts'
+        startLine: 12
+        endLine: 12
+        quote: '  amountCents: number;'
+    reading: 'parsed'
+  - id: 'code.field:services/payments/src/domain/payment-service.ts#PayRequest.cardToken'
+    kind: 'code.field'
+    label: 'PayRequest.cardToken'
+    evidence:
+      - path: 'services/payments/src/domain/payment-service.ts'
+        startLine: 14
+        endLine: 14
+        quote: '  cardToken: CardToken;'
+    reading: 'parsed'
+  - id: 'code.field:services/payments/src/domain/payment-service.ts#PayRequest.currency'
+    kind: 'code.field'
+    label: 'PayRequest.currency'
+    evidence:
+      - path: 'services/payments/src/domain/payment-service.ts'
+        startLine: 13
+        endLine: 13
+        quote: '  currency: string;'
+    reading: 'parsed'
+  - id: 'code.field:services/payments/src/domain/payment-service.ts#PayRequest.idempotencyKey'
+    kind: 'code.field'
+    label: 'PayRequest.idempotencyKey'
+    evidence:
+      - path: 'services/payments/src/domain/payment-service.ts'
+        startLine: 16
+        endLine: 16
+        quote: '  idempotencyKey: string;'
+    reading: 'parsed'
+  - id: 'code.field:services/payments/src/domain/payment-service.ts#PayRequest.orderId'
+    kind: 'code.field'
+    label: 'PayRequest.orderId'
+    evidence:
+      - path: 'services/payments/src/domain/payment-service.ts'
+        startLine: 11
+        endLine: 11
+        quote: '  orderId: string;'
+    reading: 'parsed'
+  - id: 'code.field:services/payments/src/domain/payment-service.ts#PaymentNotFound.paymentId'
+    kind: 'code.field'
+    label: 'PaymentNotFound.paymentId'
+    evidence:
+      - path: 'services/payments/src/domain/payment-service.ts'
+        startLine: 120
+        endLine: 120
+        quote: '  constructor(readonly paymentId: string) {'
+    reading: 'parsed'
+  - id: 'code.field:services/payments/src/domain/payment-service.ts#PaymentService.deps'
+    kind: 'code.field'
+    label: 'PaymentService.deps'
+    evidence:
+      - path: 'services/payments/src/domain/payment-service.ts'
+        startLine: 38
+        endLine: 38
+        quote: '  constructor(private readonly deps: PaymentServiceDeps) {'
+    reading: 'parsed'
+  - id: 'code.field:services/payments/src/domain/payment-service.ts#PaymentService.now'
+    kind: 'code.field'
+    label: 'PaymentService.now'
+    evidence:
+      - path: 'services/payments/src/domain/payment-service.ts'
+        startLine: 36
+        endLine: 36
+        quote: '  private readonly now: () => Date;'
+    reading: 'parsed'
+  - id: 'code.field:services/payments/src/domain/payment-service.ts#PaymentServiceDeps.now'
+    kind: 'code.field'
+    label: 'PaymentServiceDeps.now'
+    evidence:
+      - path: 'services/payments/src/domain/payment-service.ts'
+        startLine: 25
+        endLine: 25
+        quote: '  now?: () => Date;'
+    reading: 'parsed'
+  - id: 'code.field:services/payments/src/domain/payment-service.ts#PaymentServiceDeps.provider'
+    kind: 'code.field'
+    label: 'PaymentServiceDeps.provider'
+    evidence:
+      - path: 'services/payments/src/domain/payment-service.ts'
+        startLine: 20
+        endLine: 20
+        quote: '  provider: PaymentProvider;'
+    reading: 'parsed'
+  - id: 'code.field:services/payments/src/domain/payment-service.ts#PaymentServiceDeps.repository'
+    kind: 'code.field'
+    label: 'PaymentServiceDeps.repository'
+    evidence:
+      - path: 'services/payments/src/domain/payment-service.ts'
+        startLine: 21
+        endLine: 21
+        quote: '  repository: PaymentRepository;'
+    reading: 'parsed'
+  - id: 'code.field:services/payments/src/domain/payment-service.ts#PaymentServiceDeps.sink'
+    kind: 'code.field'
+    label: 'PaymentServiceDeps.sink'
+    evidence:
+      - path: 'services/payments/src/domain/payment-service.ts'
+        startLine: 22
+        endLine: 22
+        quote: '  sink: EventSink;'
+    reading: 'parsed'
+  - id: 'code.field:services/payments/src/domain/payment-service.ts#PaymentServiceDeps.sleep'
+    kind: 'code.field'
+    label: 'PaymentServiceDeps.sleep'
+    evidence:
+      - path: 'services/payments/src/domain/payment-service.ts'
+        startLine: 27
+        endLine: 27
+        quote: '  sleep?: (ms: number) => Promise<void>;'
+    reading: 'parsed'
+  - id: 'code.field:services/payments/src/domain/payment-service.ts#PaymentServiceDeps.timeoutMs'
+    kind: 'code.field'
+    label: 'PaymentServiceDeps.timeoutMs'
+    evidence:
+      - path: 'services/payments/src/domain/payment-service.ts'
+        startLine: 24
+        endLine: 24
+        quote: '  timeoutMs: number;'
+    reading: 'parsed'
+  - id: 'code.file:services/payments/src/domain/payment-service.ts'
+    kind: 'code.file'
+    label: 'payment-service.ts'
+    evidence:
+      - path: 'services/payments/src/domain/payment-service.ts'
+        startLine: 1
+        endLine: 1
+        quote: 'import { randomUUID } from ''node:crypto'';'
+    reading: 'parsed'
+  - id: 'code.symbol:services/payments/src/domain/payment-service.ts#ATTEMPTS'
+    kind: 'code.symbol'
+    label: 'ATTEMPTS'
+    evidence:
+      - path: 'services/payments/src/domain/payment-service.ts'
+        startLine: 31
+        endLine: 31
+        quote: 'const ATTEMPTS = 3;'
+    reading: 'parsed'
+  - id: 'code.symbol:services/payments/src/domain/payment-service.ts#BASE_DELAY_MS'
+    kind: 'code.symbol'
+    label: 'BASE_DELAY_MS'
+    evidence:
+      - path: 'services/payments/src/domain/payment-service.ts'
+        startLine: 32
+        endLine: 32
+        quote: 'const BASE_DELAY_MS = 200;'
+    reading: 'parsed'
+  - id: 'code.symbol:services/payments/src/domain/payment-service.ts#PayRequest'
+    kind: 'code.symbol'
+    label: 'PayRequest'
+    evidence:
+      - path: 'services/payments/src/domain/payment-service.ts'
+        startLine: 10
+        endLine: 10
+        quote: 'export interface PayRequest {'
+    reading: 'parsed'
+  - id: 'code.symbol:services/payments/src/domain/payment-service.ts#PaymentNotFound'
+    kind: 'code.symbol'
+    label: 'PaymentNotFound'
+    evidence:
+      - path: 'services/payments/src/domain/payment-service.ts'
+        startLine: 119
+        endLine: 119
+        quote: 'export class PaymentNotFound extends Error {'
+    reading: 'parsed'
+  - id: 'code.symbol:services/payments/src/domain/payment-service.ts#PaymentNotFound.constructor'
+    kind: 'code.symbol'
+    label: 'PaymentNotFound.constructor'
+    evidence:
+      - path: 'services/payments/src/domain/payment-service.ts'
+        startLine: 120
+        endLine: 120
+        quote: '  constructor(readonly paymentId: string) {'
+    reading: 'parsed'
+  - id: 'code.symbol:services/payments/src/domain/payment-service.ts#PaymentService'
+    kind: 'code.symbol'
+    label: 'PaymentService'
+    evidence:
+      - path: 'services/payments/src/domain/payment-service.ts'
+        startLine: 35
+        endLine: 35
+        quote: 'export class PaymentService {'
+    reading: 'parsed'
+  - id: 'code.symbol:services/payments/src/domain/payment-service.ts#PaymentService.constructor'
+    kind: 'code.symbol'
+    label: 'PaymentService.constructor'
+    evidence:
+      - path: 'services/payments/src/domain/payment-service.ts'
+        startLine: 38
+        endLine: 38
+        quote: '  constructor(private readonly deps: PaymentServiceDeps) {'
+    reading: 'parsed'
+  - id: 'code.symbol:services/payments/src/domain/payment-service.ts#PaymentService.get'
+    kind: 'code.symbol'
+    label: 'PaymentService.get'
+    evidence:
+      - path: 'services/payments/src/domain/payment-service.ts'
+        startLine: 110
+        endLine: 110
+        quote: '  async get(paymentId: string): Promise<Payment> {'
+    reading: 'parsed'
+  - id: 'code.symbol:services/payments/src/domain/payment-service.ts#PaymentService.pay'
+    kind: 'code.symbol'
+    label: 'PaymentService.pay'
+    evidence:
+      - path: 'services/payments/src/domain/payment-service.ts'
+        startLine: 46
+        endLine: 46
+        quote: '  async pay(request: PayRequest): Promise<Payment> {'
+    reading: 'parsed'
+  - id: 'code.symbol:services/payments/src/domain/payment-service.ts#PaymentService.refund'
+    kind: 'code.symbol'
+    label: 'PaymentService.refund'
+    evidence:
+      - path: 'services/payments/src/domain/payment-service.ts'
+        startLine: 92
+        endLine: 92
+        quote: '  async refund(paymentId: string, amountCents: number, reason?: string): Promise<Refund> {'
+    reading: 'parsed'
+  - id: 'code.symbol:services/payments/src/domain/payment-service.ts#PaymentServiceDeps'
+    kind: 'code.symbol'
+    label: 'PaymentServiceDeps'
+    evidence:
+      - path: 'services/payments/src/domain/payment-service.ts'
+        startLine: 19
+        endLine: 19
+        quote: 'export interface PaymentServiceDeps {'
+    reading: 'parsed'
+  - id: 'code.symbol:services/payments/src/domain/payment-service.ts#isTransient'
+    kind: 'code.symbol'
+    label: 'isTransient'
+    evidence:
+      - path: 'services/payments/src/domain/payment-service.ts'
+        startLine: 127
+        endLine: 127
+        quote: 'function isTransient(error: unknown): boolean {'
+    reading: 'parsed'
+edges:
+  - relation: 'code.calls'
+    from: 'code.symbol:services/payments/src/domain/payment-service.ts#PaymentService.get'
+    to: 'code.symbol:services/payments/src/domain/payment-service.ts#PaymentNotFound'
+    evidence:
+      - path: 'services/payments/src/domain/payment-service.ts'
+        startLine: 113
+        endLine: 113
+        quote: '      throw new PaymentNotFound(paymentId);'
+    reading: 'parsed'
+  - relation: 'code.calls'
+    from: 'code.symbol:services/payments/src/domain/payment-service.ts#PaymentService.pay'
+    to: 'code.symbol:services/payments/src/domain/payment.ts#capture'
+    evidence:
+      - path: 'services/payments/src/domain/payment-service.ts'
+        startLine: 81
+        endLine: 81
+        quote: '      outcome = await capture(pending, { value: result.providerReference }, this.now(), this.deps.sink);'
+    reading: 'parsed'
+  - relation: 'code.calls'
+    from: 'code.symbol:services/payments/src/domain/payment-service.ts#PaymentService.pay'
+    to: 'code.symbol:services/payments/src/domain/payment.ts#decline'
+    evidence:
+      - path: 'services/payments/src/domain/payment-service.ts'
+        startLine: 85
+        endLine: 85
+        quote: '      outcome = await decline(pending, reason, this.deps.sink);'
+    reading: 'parsed'
+  - relation: 'code.calls'
+    from: 'code.symbol:services/payments/src/domain/payment-service.ts#PaymentService.pay'
+    to: 'code.symbol:services/payments/src/resilience.ts#withRetry'
+    evidence:
+      - path: 'services/payments/src/domain/payment-service.ts'
+        startLine: 67
+        endLine: 67
+        quote: '      const result = await withRetry('
+    reading: 'parsed'
+  - relation: 'code.calls'
+    from: 'code.symbol:services/payments/src/domain/payment-service.ts#PaymentService.pay'
+    to: 'code.symbol:services/payments/src/resilience.ts#withTimeout'
+    evidence:
+      - path: 'services/payments/src/domain/payment-service.ts'
+        startLine: 69
+        endLine: 69
+        quote: '          withTimeout('
+    reading: 'parsed'
+  - relation: 'code.calls'
+    from: 'code.symbol:services/payments/src/domain/payment-service.ts#PaymentService.refund'
+    to: 'code.symbol:services/payments/src/domain/payment-service.ts#PaymentNotFound'
+    evidence:
+      - path: 'services/payments/src/domain/payment-service.ts'
+        startLine: 95
+        endLine: 95
+        quote: '      throw new PaymentNotFound(paymentId);'
+    reading: 'parsed'
+  - relation: 'code.calls'
+    from: 'code.symbol:services/payments/src/domain/payment-service.ts#PaymentService.refund'
+    to: 'code.symbol:services/payments/src/domain/refund.ts#checkRefund'
+    evidence:
+      - path: 'services/payments/src/domain/payment-service.ts'
+        startLine: 98
+        endLine: 98
+        quote: '    checkRefund(payment, amountCents, already, this.now());'
+    reading: 'parsed'
+  - relation: 'code.calls'
+    from: 'code.symbol:services/payments/src/domain/payment-service.ts#PaymentService.refund'
+    to: 'code.symbol:services/payments/src/events/publishers.ts#publishPaymentEvent'
+    evidence:
+      - path: 'services/payments/src/domain/payment-service.ts'
+        startLine: 105
+        endLine: 105
+        quote: '      await publishPaymentEvent(this.deps.sink, ''payment.refunded'', { ...payment, status: PaymentStatus.Refunded });'
+    reading: 'parsed'
+  - relation: 'code.contains'
+    from: 'code.file:services/payments/src/domain/payment-service.ts'
+    to: 'code.symbol:services/payments/src/domain/payment-service.ts#ATTEMPTS'
+    evidence:
+      - path: 'services/payments/src/domain/payment-service.ts'
+        startLine: 31
+        endLine: 31
+        quote: 'const ATTEMPTS = 3;'
+    reading: 'parsed'
+  - relation: 'code.contains'
+    from: 'code.file:services/payments/src/domain/payment-service.ts'
+    to: 'code.symbol:services/payments/src/domain/payment-service.ts#BASE_DELAY_MS'
+    evidence:
+      - path: 'services/payments/src/domain/payment-service.ts'
+        startLine: 32
+        endLine: 32
+        quote: 'const BASE_DELAY_MS = 200;'
+    reading: 'parsed'
+  - relation: 'code.contains'
+    from: 'code.file:services/payments/src/domain/payment-service.ts'
+    to: 'code.symbol:services/payments/src/domain/payment-service.ts#PayRequest'
+    evidence:
+      - path: 'services/payments/src/domain/payment-service.ts'
+        startLine: 10
+        endLine: 10
+        quote: 'export interface PayRequest {'
+    reading: 'parsed'
+  - relation: 'code.contains'
+    from: 'code.file:services/payments/src/domain/payment-service.ts'
+    to: 'code.symbol:services/payments/src/domain/payment-service.ts#PaymentNotFound'
+    evidence:
+      - path: 'services/payments/src/domain/payment-service.ts'
+        startLine: 119
+        endLine: 119
+        quote: 'export class PaymentNotFound extends Error {'
+    reading: 'parsed'
+  - relation: 'code.contains'
+    from: 'code.file:services/payments/src/domain/payment-service.ts'
+    to: 'code.symbol:services/payments/src/domain/payment-service.ts#PaymentService'
+    evidence:
+      - path: 'services/payments/src/domain/payment-service.ts'
+        startLine: 35
+        endLine: 35
+        quote: 'export class PaymentService {'
+    reading: 'parsed'
+  - relation: 'code.contains'
+    from: 'code.file:services/payments/src/domain/payment-service.ts'
+    to: 'code.symbol:services/payments/src/domain/payment-service.ts#PaymentServiceDeps'
+    evidence:
+      - path: 'services/payments/src/domain/payment-service.ts'
+        startLine: 19
+        endLine: 19
+        quote: 'export interface PaymentServiceDeps {'
+    reading: 'parsed'
+  - relation: 'code.contains'
+    from: 'code.file:services/payments/src/domain/payment-service.ts'
+    to: 'code.symbol:services/payments/src/domain/payment-service.ts#isTransient'
+    evidence:
+      - path: 'services/payments/src/domain/payment-service.ts'
+        startLine: 127
+        endLine: 127
+        quote: 'function isTransient(error: unknown): boolean {'
+    reading: 'parsed'
+  - relation: 'code.contains'
+    from: 'code.symbol:services/payments/src/domain/payment-service.ts#PayRequest'
+    to: 'code.field:services/payments/src/domain/payment-service.ts#PayRequest.amountCents'
+    evidence:
+      - path: 'services/payments/src/domain/payment-service.ts'
+        startLine: 12
+        endLine: 12
+        quote: '  amountCents: number;'
+    reading: 'parsed'
+  - relation: 'code.contains'
+    from: 'code.symbol:services/payments/src/domain/payment-service.ts#PayRequest'
+    to: 'code.field:services/payments/src/domain/payment-service.ts#PayRequest.cardToken'
+    evidence:
+      - path: 'services/payments/src/domain/payment-service.ts'
+        startLine: 14
+        endLine: 14
+        quote: '  cardToken: CardToken;'
+    reading: 'parsed'
+  - relation: 'code.contains'
+    from: 'code.symbol:services/payments/src/domain/payment-service.ts#PayRequest'
+    to: 'code.field:services/payments/src/domain/payment-service.ts#PayRequest.currency'
+    evidence:
+      - path: 'services/payments/src/domain/payment-service.ts'
+        startLine: 13
+        endLine: 13
+        quote: '  currency: string;'
+    reading: 'parsed'
+  - relation: 'code.contains'
+    from: 'code.symbol:services/payments/src/domain/payment-service.ts#PayRequest'
+    to: 'code.field:services/payments/src/domain/payment-service.ts#PayRequest.idempotencyKey'
+    evidence:
+      - path: 'services/payments/src/domain/payment-service.ts'
+        startLine: 16
+        endLine: 16
+        quote: '  idempotencyKey: string;'
+    reading: 'parsed'
+  - relation: 'code.contains'
+    from: 'code.symbol:services/payments/src/domain/payment-service.ts#PayRequest'
+    to: 'code.field:services/payments/src/domain/payment-service.ts#PayRequest.orderId'
+    evidence:
+      - path: 'services/payments/src/domain/payment-service.ts'
+        startLine: 11
+        endLine: 11
+        quote: '  orderId: string;'
+    reading: 'parsed'
+  - relation: 'code.contains'
+    from: 'code.symbol:services/payments/src/domain/payment-service.ts#PaymentNotFound'
+    to: 'code.field:services/payments/src/domain/payment-service.ts#PaymentNotFound.paymentId'
+    evidence:
+      - path: 'services/payments/src/domain/payment-service.ts'
+        startLine: 120
+        endLine: 120
+        quote: '  constructor(readonly paymentId: string) {'
+    reading: 'parsed'
+  - relation: 'code.contains'
+    from: 'code.symbol:services/payments/src/domain/payment-service.ts#PaymentNotFound'
+    to: 'code.symbol:services/payments/src/domain/payment-service.ts#PaymentNotFound.constructor'
+    evidence:
+      - path: 'services/payments/src/domain/payment-service.ts'
+        startLine: 120
+        endLine: 120
+        quote: '  constructor(readonly paymentId: string) {'
+    reading: 'parsed'
+  - relation: 'code.contains'
+    from: 'code.symbol:services/payments/src/domain/payment-service.ts#PaymentService'
+    to: 'code.field:services/payments/src/domain/payment-service.ts#PaymentService.deps'
+    evidence:
+      - path: 'services/payments/src/domain/payment-service.ts'
+        startLine: 38
+        endLine: 38
+        quote: '  constructor(private readonly deps: PaymentServiceDeps) {'
+    reading: 'parsed'
+  - relation: 'code.contains'
+    from: 'code.symbol:services/payments/src/domain/payment-service.ts#PaymentService'
+    to: 'code.field:services/payments/src/domain/payment-service.ts#PaymentService.now'
+    evidence:
+      - path: 'services/payments/src/domain/payment-service.ts'
+        startLine: 36
+        endLine: 36
+        quote: '  private readonly now: () => Date;'
+    reading: 'parsed'
+  - relation: 'code.contains'
+    from: 'code.symbol:services/payments/src/domain/payment-service.ts#PaymentService'
+    to: 'code.symbol:services/payments/src/domain/payment-service.ts#PaymentService.constructor'
+    evidence:
+      - path: 'services/payments/src/domain/payment-service.ts'
+        startLine: 38
+        endLine: 38
+        quote: '  constructor(private readonly deps: PaymentServiceDeps) {'
+    reading: 'parsed'
+  - relation: 'code.contains'
+    from: 'code.symbol:services/payments/src/domain/payment-service.ts#PaymentService'
+    to: 'code.symbol:services/payments/src/domain/payment-service.ts#PaymentService.get'
+    evidence:
+      - path: 'services/payments/src/domain/payment-service.ts'
+        startLine: 110
+        endLine: 110
+        quote: '  async get(paymentId: string): Promise<Payment> {'
+    reading: 'parsed'
+  - relation: 'code.contains'
+    from: 'code.symbol:services/payments/src/domain/payment-service.ts#PaymentService'
+    to: 'code.symbol:services/payments/src/domain/payment-service.ts#PaymentService.pay'
+    evidence:
+      - path: 'services/payments/src/domain/payment-service.ts'
+        startLine: 46
+        endLine: 46
+        quote: '  async pay(request: PayRequest): Promise<Payment> {'
+    reading: 'parsed'
+  - relation: 'code.contains'
+    from: 'code.symbol:services/payments/src/domain/payment-service.ts#PaymentService'
+    to: 'code.symbol:services/payments/src/domain/payment-service.ts#PaymentService.refund'
+    evidence:
+      - path: 'services/payments/src/domain/payment-service.ts'
+        startLine: 92
+        endLine: 92
+        quote: '  async refund(paymentId: string, amountCents: number, reason?: string): Promise<Refund> {'
+    reading: 'parsed'
+  - relation: 'code.contains'
+    from: 'code.symbol:services/payments/src/domain/payment-service.ts#PaymentServiceDeps'
+    to: 'code.field:services/payments/src/domain/payment-service.ts#PaymentServiceDeps.now'
+    evidence:
+      - path: 'services/payments/src/domain/payment-service.ts'
+        startLine: 25
+        endLine: 25
+        quote: '  now?: () => Date;'
+    reading: 'parsed'
+  - relation: 'code.contains'
+    from: 'code.symbol:services/payments/src/domain/payment-service.ts#PaymentServiceDeps'
+    to: 'code.field:services/payments/src/domain/payment-service.ts#PaymentServiceDeps.provider'
+    evidence:
+      - path: 'services/payments/src/domain/payment-service.ts'
+        startLine: 20
+        endLine: 20
+        quote: '  provider: PaymentProvider;'
+    reading: 'parsed'
+  - relation: 'code.contains'
+    from: 'code.symbol:services/payments/src/domain/payment-service.ts#PaymentServiceDeps'
+    to: 'code.field:services/payments/src/domain/payment-service.ts#PaymentServiceDeps.repository'
+    evidence:
+      - path: 'services/payments/src/domain/payment-service.ts'
+        startLine: 21
+        endLine: 21
+        quote: '  repository: PaymentRepository;'
+    reading: 'parsed'
+  - relation: 'code.contains'
+    from: 'code.symbol:services/payments/src/domain/payment-service.ts#PaymentServiceDeps'
+    to: 'code.field:services/payments/src/domain/payment-service.ts#PaymentServiceDeps.sink'
+    evidence:
+      - path: 'services/payments/src/domain/payment-service.ts'
+        startLine: 22
+        endLine: 22
+        quote: '  sink: EventSink;'
+    reading: 'parsed'
+  - relation: 'code.contains'
+    from: 'code.symbol:services/payments/src/domain/payment-service.ts#PaymentServiceDeps'
+    to: 'code.field:services/payments/src/domain/payment-service.ts#PaymentServiceDeps.sleep'
+    evidence:
+      - path: 'services/payments/src/domain/payment-service.ts'
+        startLine: 27
+        endLine: 27
+        quote: '  sleep?: (ms: number) => Promise<void>;'
+    reading: 'parsed'
+  - relation: 'code.contains'
+    from: 'code.symbol:services/payments/src/domain/payment-service.ts#PaymentServiceDeps'
+    to: 'code.field:services/payments/src/domain/payment-service.ts#PaymentServiceDeps.timeoutMs'
+    evidence:
+      - path: 'services/payments/src/domain/payment-service.ts'
+        startLine: 24
+        endLine: 24
+        quote: '  timeoutMs: number;'
+    reading: 'parsed'
+  - relation: 'code.cycle-member'
+    from: 'code.cycle:payments:domain-events'
+    to: 'code.file:services/payments/src/domain/payment-service.ts'
+    evidence:
+      - path: 'services/payments/src/domain/payment-service.ts'
+        startLine: 3
+        endLine: 3
+        quote: 'import { EventSink, publishPaymentEvent } from ''../events/publishers'';'
+    reading: 'judgement'
+  - relation: 'code.imports'
+    from: 'code.file:services/payments/src/domain/payment-service.ts'
+    to: 'code.file:services/payments/src/domain/payment.ts'
+    evidence:
+      - path: 'services/payments/src/domain/payment-service.ts'
+        startLine: 7
+        endLine: 7
+        quote: 'import { capture, CardToken, decline, Payment, PaymentStatus } from ''./payment'';'
+    reading: 'parsed'
+  - relation: 'code.imports'
+    from: 'code.file:services/payments/src/domain/payment-service.ts'
+    to: 'code.file:services/payments/src/domain/refund.ts'
+    evidence:
+      - path: 'services/payments/src/domain/payment-service.ts'
+        startLine: 8
+        endLine: 8
+        quote: 'import { checkRefund, Refund } from ''./refund'';'
+    reading: 'parsed'
+  - relation: 'code.imports'
+    from: 'code.file:services/payments/src/domain/payment-service.ts'
+    to: 'code.file:services/payments/src/events/publishers.ts'
+    evidence:
+      - path: 'services/payments/src/domain/payment-service.ts'
+        startLine: 3
+        endLine: 3
+        quote: 'import { EventSink, publishPaymentEvent } from ''../events/publishers'';'
+    reading: 'parsed'
+  - relation: 'code.imports'
+    from: 'code.file:services/payments/src/domain/payment-service.ts'
+    to: 'code.file:services/payments/src/logging/logger.ts'
+    evidence:
+      - path: 'services/payments/src/domain/payment-service.ts'
+        startLine: 2
+        endLine: 2
+        quote: 'import { logger } from ''../logging/logger'';'
+    reading: 'parsed'
+  - relation: 'code.imports'
+    from: 'code.file:services/payments/src/domain/payment-service.ts'
+    to: 'code.file:services/payments/src/providers/provider.ts'
+    evidence:
+      - path: 'services/payments/src/domain/payment-service.ts'
+        startLine: 4
+        endLine: 4
+        quote: 'import { PaymentProvider, ProviderDeclinedError, ProviderUnavailableError } from ''../providers/provider'';'
+    reading: 'parsed'
+  - relation: 'code.imports'
+    from: 'code.file:services/payments/src/domain/payment-service.ts'
+    to: 'code.file:services/payments/src/resilience.ts'
+    evidence:
+      - path: 'services/payments/src/domain/payment-service.ts'
+        startLine: 5
+        endLine: 5
+        quote: 'import { withRetry, withTimeout } from ''../resilience'';'
+    reading: 'parsed'
+  - relation: 'code.imports'
+    from: 'code.file:services/payments/src/domain/payment-service.ts'
+    to: 'code.file:services/payments/src/store/payment-repository.ts'
+    evidence:
+      - path: 'services/payments/src/domain/payment-service.ts'
+        startLine: 6
+        endLine: 6
+        quote: 'import { PaymentRepository } from ''../store/payment-repository'';'
+    reading: 'parsed'
+  - relation: 'code.uses-type'
+    from: 'code.field:services/payments/src/domain/payment-service.ts#PaymentService.deps'
+    to: 'code.symbol:services/payments/src/domain/payment-service.ts#PaymentServiceDeps'
+    evidence:
+      - path: 'services/payments/src/domain/payment-service.ts'
+        startLine: 38
+        endLine: 38
+        quote: '  constructor(private readonly deps: PaymentServiceDeps) {'
+    reading: 'parsed'
+  - relation: 'code.uses-type'
+    from: 'code.field:services/payments/src/domain/payment-service.ts#PaymentServiceDeps.provider'
+    to: 'code.symbol:services/payments/src/providers/provider.ts#PaymentProvider'
+    evidence:
+      - path: 'services/payments/src/domain/payment-service.ts'
+        startLine: 20
+        endLine: 20
+        quote: '  provider: PaymentProvider;'
+    reading: 'parsed'
+  - relation: 'code.uses-type'
+    from: 'code.field:services/payments/src/domain/payment-service.ts#PaymentServiceDeps.repository'
+    to: 'code.symbol:services/payments/src/store/payment-repository.ts#PaymentRepository'
+    evidence:
+      - path: 'services/payments/src/domain/payment-service.ts'
+        startLine: 21
+        endLine: 21
+        quote: '  repository: PaymentRepository;'
+    reading: 'parsed'
+  - relation: 'code.uses-type'
+    from: 'code.field:services/payments/src/domain/payment-service.ts#PaymentServiceDeps.sink'
+    to: 'code.symbol:services/payments/src/events/publishers.ts#EventSink'
+    evidence:
+      - path: 'services/payments/src/domain/payment-service.ts'
+        startLine: 22
+        endLine: 22
+        quote: '  sink: EventSink;'
+    reading: 'parsed'
+  - relation: 'code.uses-type'
+    from: 'code.symbol:services/payments/src/domain/payment-service.ts#PaymentService.constructor'
+    to: 'code.symbol:services/payments/src/domain/payment-service.ts#PaymentServiceDeps'
+    evidence:
+      - path: 'services/payments/src/domain/payment-service.ts'
+        startLine: 38
+        endLine: 38
+        quote: '  constructor(private readonly deps: PaymentServiceDeps) {'
+    reading: 'parsed'

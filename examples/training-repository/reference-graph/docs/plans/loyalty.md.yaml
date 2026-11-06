@@ -1,0 +1,66 @@
+path: 'docs/plans/loyalty.md'
+nodes:
+  - id: 'code.document-section:docs/plans/loyalty.md#(the plan)'
+    kind: 'code.document-section'
+    label: '(the plan)'
+    evidence:
+      - path: 'docs/plans/loyalty.md'
+        startLine: 1
+        endLine: 1
+        quote: '# Plan: loyalty'
+    reading: 'judgement'
+  - id: 'code.document:docs/plans/loyalty.md'
+    kind: 'code.document'
+    label: 'loyalty.md'
+    evidence:
+      - path: 'docs/plans/loyalty.md'
+        startLine: 1
+        endLine: 1
+        quote: '# Plan: loyalty'
+    reading: 'parsed'
+  - id: 'code.file:docs/plans/loyalty.md'
+    kind: 'code.file'
+    label: 'loyalty.md'
+    evidence:
+      - path: 'docs/plans/loyalty.md'
+        startLine: 1
+        endLine: 1
+        quote: '# Plan: loyalty'
+    reading: 'parsed'
+  - id: 'code.service:loyalty'
+    kind: 'code.service'
+    label: 'loyalty'
+    evidence:
+      - path: 'docs/plans/loyalty.md'
+        startLine: 5
+        endLine: 5
+        quote: 'A new service, **loyalty**, will keep a points balance per customer. Checkout'
+    reading: 'judgement'
+edges:
+  - relation: 'code.contains'
+    from: 'code.document:docs/plans/loyalty.md'
+    to: 'code.document-section:docs/plans/loyalty.md#(the plan)'
+    evidence:
+      - path: 'docs/plans/loyalty.md'
+        startLine: 1
+        endLine: 1
+        quote: '# Plan: loyalty'
+    reading: 'parsed'
+  - relation: 'code.depends-on'
+    from: 'code.service:checkout'
+    to: 'code.service:loyalty'
+    evidence:
+      - path: 'docs/plans/loyalty.md'
+        startLine: 6
+        endLine: 6
+        quote: 'will call it after a paid order to add points: a new relation, **checkout ->'
+    reading: 'judgement'
+  - relation: 'code.mentions'
+    from: 'code.document:docs/plans/loyalty.md'
+    to: 'code.service:loyalty'
+    evidence:
+      - path: 'docs/plans/loyalty.md'
+        startLine: 5
+        endLine: 5
+        quote: 'A new service, **loyalty**, will keep a points balance per customer. Checkout'
+    reading: 'judgement'

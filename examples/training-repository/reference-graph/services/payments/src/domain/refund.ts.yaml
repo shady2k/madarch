@@ -1,0 +1,240 @@
+path: 'services/payments/src/domain/refund.ts'
+nodes:
+  - id: 'code.field:services/payments/src/domain/refund.ts#Refund.amountCents'
+    kind: 'code.field'
+    label: 'Refund.amountCents'
+    evidence:
+      - path: 'services/payments/src/domain/refund.ts'
+        startLine: 9
+        endLine: 9
+        quote: '  amountCents: number;'
+    reading: 'parsed'
+  - id: 'code.field:services/payments/src/domain/refund.ts#Refund.createdAt'
+    kind: 'code.field'
+    label: 'Refund.createdAt'
+    evidence:
+      - path: 'services/payments/src/domain/refund.ts'
+        startLine: 11
+        endLine: 11
+        quote: '  createdAt: Date;'
+    reading: 'parsed'
+  - id: 'code.field:services/payments/src/domain/refund.ts#Refund.id'
+    kind: 'code.field'
+    label: 'Refund.id'
+    evidence:
+      - path: 'services/payments/src/domain/refund.ts'
+        startLine: 7
+        endLine: 7
+        quote: '  id: string;'
+    reading: 'parsed'
+  - id: 'code.field:services/payments/src/domain/refund.ts#Refund.paymentId'
+    kind: 'code.field'
+    label: 'Refund.paymentId'
+    evidence:
+      - path: 'services/payments/src/domain/refund.ts'
+        startLine: 8
+        endLine: 8
+        quote: '  paymentId: string;'
+    reading: 'parsed'
+  - id: 'code.field:services/payments/src/domain/refund.ts#Refund.reason'
+    kind: 'code.field'
+    label: 'Refund.reason'
+    evidence:
+      - path: 'services/payments/src/domain/refund.ts'
+        startLine: 10
+        endLine: 10
+        quote: '  reason?: string;'
+    reading: 'parsed'
+  - id: 'code.field:services/payments/src/domain/refund.ts#RefundRejected.code'
+    kind: 'code.field'
+    label: 'RefundRejected.code'
+    evidence:
+      - path: 'services/payments/src/domain/refund.ts'
+        startLine: 17
+        endLine: 17
+        quote: '    readonly code: ''not-captured'' | ''invalid-amount'' | ''exceeds-captured'' | ''window-closed'','
+    reading: 'parsed'
+  - id: 'code.file:services/payments/src/domain/refund.ts'
+    kind: 'code.file'
+    label: 'refund.ts'
+    evidence:
+      - path: 'services/payments/src/domain/refund.ts'
+        startLine: 1
+        endLine: 1
+        quote: 'import { Payment, PaymentStatus } from ''./payment'';'
+    reading: 'parsed'
+  - id: 'code.symbol:services/payments/src/domain/refund.ts#REFUND_WINDOW_DAYS'
+    kind: 'code.symbol'
+    label: 'REFUND_WINDOW_DAYS'
+    evidence:
+      - path: 'services/payments/src/domain/refund.ts'
+        startLine: 4
+        endLine: 4
+        quote: 'export const REFUND_WINDOW_DAYS = 30;'
+    reading: 'parsed'
+  - id: 'code.symbol:services/payments/src/domain/refund.ts#Refund'
+    kind: 'code.symbol'
+    label: 'Refund'
+    evidence:
+      - path: 'services/payments/src/domain/refund.ts'
+        startLine: 6
+        endLine: 6
+        quote: 'export interface Refund {'
+    reading: 'parsed'
+  - id: 'code.symbol:services/payments/src/domain/refund.ts#RefundRejected'
+    kind: 'code.symbol'
+    label: 'RefundRejected'
+    evidence:
+      - path: 'services/payments/src/domain/refund.ts'
+        startLine: 15
+        endLine: 15
+        quote: 'export class RefundRejected extends Error {'
+    reading: 'parsed'
+  - id: 'code.symbol:services/payments/src/domain/refund.ts#RefundRejected.constructor'
+    kind: 'code.symbol'
+    label: 'RefundRejected.constructor'
+    evidence:
+      - path: 'services/payments/src/domain/refund.ts'
+        startLine: 16
+        endLine: 16
+        quote: '  constructor('
+    reading: 'parsed'
+  - id: 'code.symbol:services/payments/src/domain/refund.ts#checkRefund'
+    kind: 'code.symbol'
+    label: 'checkRefund'
+    evidence:
+      - path: 'services/payments/src/domain/refund.ts'
+        startLine: 30
+        endLine: 30
+        quote: 'export function checkRefund(payment: Payment, amountCents: number, alreadyRefundedCents: number, now: Date): void {'
+    reading: 'parsed'
+edges:
+  - relation: 'code.calls'
+    from: 'code.symbol:services/payments/src/domain/refund.ts#checkRefund'
+    to: 'code.symbol:services/payments/src/domain/refund.ts#RefundRejected'
+    evidence:
+      - path: 'services/payments/src/domain/refund.ts'
+        startLine: 32
+        endLine: 32
+        quote: '    throw new RefundRejected(''not-captured'', `payment ${payment.id} is ${payment.status}, only captured payments can be refunded`);'
+      - path: 'services/payments/src/domain/refund.ts'
+        startLine: 35
+        endLine: 35
+        quote: '    throw new RefundRejected(''invalid-amount'', ''the refund amount must be a positive number of cents'');'
+      - path: 'services/payments/src/domain/refund.ts'
+        startLine: 38
+        endLine: 38
+        quote: '    throw new RefundRejected('
+      - path: 'services/payments/src/domain/refund.ts'
+        startLine: 46
+        endLine: 46
+        quote: '    throw new RefundRejected(''window-closed'', `payment ${payment.id} is ${Math.floor(ageDays)} days old`);'
+    reading: 'parsed'
+  - relation: 'code.contains'
+    from: 'code.file:services/payments/src/domain/refund.ts'
+    to: 'code.symbol:services/payments/src/domain/refund.ts#REFUND_WINDOW_DAYS'
+    evidence:
+      - path: 'services/payments/src/domain/refund.ts'
+        startLine: 4
+        endLine: 4
+        quote: 'export const REFUND_WINDOW_DAYS = 30;'
+    reading: 'parsed'
+  - relation: 'code.contains'
+    from: 'code.file:services/payments/src/domain/refund.ts'
+    to: 'code.symbol:services/payments/src/domain/refund.ts#Refund'
+    evidence:
+      - path: 'services/payments/src/domain/refund.ts'
+        startLine: 6
+        endLine: 6
+        quote: 'export interface Refund {'
+    reading: 'parsed'
+  - relation: 'code.contains'
+    from: 'code.file:services/payments/src/domain/refund.ts'
+    to: 'code.symbol:services/payments/src/domain/refund.ts#RefundRejected'
+    evidence:
+      - path: 'services/payments/src/domain/refund.ts'
+        startLine: 15
+        endLine: 15
+        quote: 'export class RefundRejected extends Error {'
+    reading: 'parsed'
+  - relation: 'code.contains'
+    from: 'code.file:services/payments/src/domain/refund.ts'
+    to: 'code.symbol:services/payments/src/domain/refund.ts#checkRefund'
+    evidence:
+      - path: 'services/payments/src/domain/refund.ts'
+        startLine: 30
+        endLine: 30
+        quote: 'export function checkRefund(payment: Payment, amountCents: number, alreadyRefundedCents: number, now: Date): void {'
+    reading: 'parsed'
+  - relation: 'code.contains'
+    from: 'code.symbol:services/payments/src/domain/refund.ts#Refund'
+    to: 'code.field:services/payments/src/domain/refund.ts#Refund.amountCents'
+    evidence:
+      - path: 'services/payments/src/domain/refund.ts'
+        startLine: 9
+        endLine: 9
+        quote: '  amountCents: number;'
+    reading: 'parsed'
+  - relation: 'code.contains'
+    from: 'code.symbol:services/payments/src/domain/refund.ts#Refund'
+    to: 'code.field:services/payments/src/domain/refund.ts#Refund.createdAt'
+    evidence:
+      - path: 'services/payments/src/domain/refund.ts'
+        startLine: 11
+        endLine: 11
+        quote: '  createdAt: Date;'
+    reading: 'parsed'
+  - relation: 'code.contains'
+    from: 'code.symbol:services/payments/src/domain/refund.ts#Refund'
+    to: 'code.field:services/payments/src/domain/refund.ts#Refund.id'
+    evidence:
+      - path: 'services/payments/src/domain/refund.ts'
+        startLine: 7
+        endLine: 7
+        quote: '  id: string;'
+    reading: 'parsed'
+  - relation: 'code.contains'
+    from: 'code.symbol:services/payments/src/domain/refund.ts#Refund'
+    to: 'code.field:services/payments/src/domain/refund.ts#Refund.paymentId'
+    evidence:
+      - path: 'services/payments/src/domain/refund.ts'
+        startLine: 8
+        endLine: 8
+        quote: '  paymentId: string;'
+    reading: 'parsed'
+  - relation: 'code.contains'
+    from: 'code.symbol:services/payments/src/domain/refund.ts#Refund'
+    to: 'code.field:services/payments/src/domain/refund.ts#Refund.reason'
+    evidence:
+      - path: 'services/payments/src/domain/refund.ts'
+        startLine: 10
+        endLine: 10
+        quote: '  reason?: string;'
+    reading: 'parsed'
+  - relation: 'code.contains'
+    from: 'code.symbol:services/payments/src/domain/refund.ts#RefundRejected'
+    to: 'code.field:services/payments/src/domain/refund.ts#RefundRejected.code'
+    evidence:
+      - path: 'services/payments/src/domain/refund.ts'
+        startLine: 17
+        endLine: 17
+        quote: '    readonly code: ''not-captured'' | ''invalid-amount'' | ''exceeds-captured'' | ''window-closed'','
+    reading: 'parsed'
+  - relation: 'code.contains'
+    from: 'code.symbol:services/payments/src/domain/refund.ts#RefundRejected'
+    to: 'code.symbol:services/payments/src/domain/refund.ts#RefundRejected.constructor'
+    evidence:
+      - path: 'services/payments/src/domain/refund.ts'
+        startLine: 16
+        endLine: 16
+        quote: '  constructor('
+    reading: 'parsed'
+  - relation: 'code.imports'
+    from: 'code.file:services/payments/src/domain/refund.ts'
+    to: 'code.file:services/payments/src/domain/payment.ts'
+    evidence:
+      - path: 'services/payments/src/domain/refund.ts'
+        startLine: 1
+        endLine: 1
+        quote: 'import { Payment, PaymentStatus } from ''./payment'';'
+    reading: 'parsed'

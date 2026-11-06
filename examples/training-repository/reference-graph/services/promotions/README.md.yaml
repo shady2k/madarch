@@ -1,0 +1,39 @@
+path: 'services/promotions/README.md'
+nodes:
+  - id: 'code.document:services/promotions/README.md'
+    kind: 'code.document'
+    label: 'README.md'
+    evidence:
+      - path: 'services/promotions/README.md'
+        startLine: 1
+        endLine: 1
+        quote: '# Promotions service'
+    reading: 'parsed'
+  - id: 'code.file:services/promotions/README.md'
+    kind: 'code.file'
+    label: 'README.md'
+    evidence:
+      - path: 'services/promotions/README.md'
+        startLine: 1
+        endLine: 1
+        quote: '# Promotions service'
+    reading: 'parsed'
+edges:
+  - relation: 'code.mentions'
+    from: 'code.document:services/promotions/README.md'
+    to: 'code.migration:services/promotions/migrations/0001_promotions.sql'
+    evidence:
+      - path: 'services/promotions/README.md'
+        startLine: 5
+        endLine: 5
+        quote: 'subtotal. Listens on 8082; the table is created by migrations/0001_promotions.sql.'
+    reading: 'judgement'
+  - relation: 'code.mentions'
+    from: 'code.document:services/promotions/README.md'
+    to: 'code.route:promotions:POST /internal/apply'
+    evidence:
+      - path: 'services/promotions/README.md'
+        startLine: 4
+        endLine: 4
+        quote: 'spend threshold). `POST /internal/apply` answers how much a code takes off a'
+    reading: 'judgement'

@@ -1,0 +1,165 @@
+path: 'services/checkout/src/promotions-client.ts'
+nodes:
+  - id: 'code.field:services/checkout/src/promotions-client.ts#AppliedPromotion.code'
+    kind: 'code.field'
+    label: 'AppliedPromotion.code'
+    evidence:
+      - path: 'services/checkout/src/promotions-client.ts'
+        startLine: 2
+        endLine: 2
+        quote: '  code: string;'
+    reading: 'parsed'
+  - id: 'code.field:services/checkout/src/promotions-client.ts#AppliedPromotion.discountCents'
+    kind: 'code.field'
+    label: 'AppliedPromotion.discountCents'
+    evidence:
+      - path: 'services/checkout/src/promotions-client.ts'
+        startLine: 3
+        endLine: 3
+        quote: '  discountCents: number;'
+    reading: 'parsed'
+  - id: 'code.field:services/checkout/src/promotions-client.ts#AppliedPromotion.percent'
+    kind: 'code.field'
+    label: 'AppliedPromotion.percent'
+    evidence:
+      - path: 'services/checkout/src/promotions-client.ts'
+        startLine: 5
+        endLine: 5
+        quote: '  percent: number;'
+    reading: 'parsed'
+  - id: 'code.field:services/checkout/src/promotions-client.ts#PromotionsClient.baseUrl'
+    kind: 'code.field'
+    label: 'PromotionsClient.baseUrl'
+    evidence:
+      - path: 'services/checkout/src/promotions-client.ts'
+        startLine: 10
+        endLine: 10
+        quote: '  constructor(private readonly baseUrl: string) {}'
+    reading: 'parsed'
+  - id: 'code.file:services/checkout/src/promotions-client.ts'
+    kind: 'code.file'
+    label: 'promotions-client.ts'
+    evidence:
+      - path: 'services/checkout/src/promotions-client.ts'
+        startLine: 1
+        endLine: 1
+        quote: 'export interface AppliedPromotion {'
+    reading: 'parsed'
+  - id: 'code.symbol:services/checkout/src/promotions-client.ts#AppliedPromotion'
+    kind: 'code.symbol'
+    label: 'AppliedPromotion'
+    evidence:
+      - path: 'services/checkout/src/promotions-client.ts'
+        startLine: 1
+        endLine: 1
+        quote: 'export interface AppliedPromotion {'
+    reading: 'parsed'
+  - id: 'code.symbol:services/checkout/src/promotions-client.ts#PromotionsClient'
+    kind: 'code.symbol'
+    label: 'PromotionsClient'
+    evidence:
+      - path: 'services/checkout/src/promotions-client.ts'
+        startLine: 9
+        endLine: 9
+        quote: 'export class PromotionsClient {'
+    reading: 'parsed'
+  - id: 'code.symbol:services/checkout/src/promotions-client.ts#PromotionsClient.apply'
+    kind: 'code.symbol'
+    label: 'PromotionsClient.apply'
+    evidence:
+      - path: 'services/checkout/src/promotions-client.ts'
+        startLine: 13
+        endLine: 13
+        quote: '  async apply(code: string, subtotalCents: number): Promise<AppliedPromotion | undefined> {'
+    reading: 'parsed'
+  - id: 'code.symbol:services/checkout/src/promotions-client.ts#PromotionsClient.constructor'
+    kind: 'code.symbol'
+    label: 'PromotionsClient.constructor'
+    evidence:
+      - path: 'services/checkout/src/promotions-client.ts'
+        startLine: 10
+        endLine: 10
+        quote: '  constructor(private readonly baseUrl: string) {}'
+    reading: 'parsed'
+edges:
+  - relation: 'code.calls-remote'
+    from: 'code.symbol:services/checkout/src/promotions-client.ts#PromotionsClient.apply'
+    to: 'code.route:promotions:POST /internal/apply'
+    evidence:
+      - path: 'services/checkout/src/promotions-client.ts'
+        startLine: 14
+        endLine: 14
+        quote: '    const response = await fetch(`${this.baseUrl}/internal/apply`, {'
+    reading: 'parsed'
+  - relation: 'code.contains'
+    from: 'code.file:services/checkout/src/promotions-client.ts'
+    to: 'code.symbol:services/checkout/src/promotions-client.ts#AppliedPromotion'
+    evidence:
+      - path: 'services/checkout/src/promotions-client.ts'
+        startLine: 1
+        endLine: 1
+        quote: 'export interface AppliedPromotion {'
+    reading: 'parsed'
+  - relation: 'code.contains'
+    from: 'code.file:services/checkout/src/promotions-client.ts'
+    to: 'code.symbol:services/checkout/src/promotions-client.ts#PromotionsClient'
+    evidence:
+      - path: 'services/checkout/src/promotions-client.ts'
+        startLine: 9
+        endLine: 9
+        quote: 'export class PromotionsClient {'
+    reading: 'parsed'
+  - relation: 'code.contains'
+    from: 'code.symbol:services/checkout/src/promotions-client.ts#AppliedPromotion'
+    to: 'code.field:services/checkout/src/promotions-client.ts#AppliedPromotion.code'
+    evidence:
+      - path: 'services/checkout/src/promotions-client.ts'
+        startLine: 2
+        endLine: 2
+        quote: '  code: string;'
+    reading: 'parsed'
+  - relation: 'code.contains'
+    from: 'code.symbol:services/checkout/src/promotions-client.ts#AppliedPromotion'
+    to: 'code.field:services/checkout/src/promotions-client.ts#AppliedPromotion.discountCents'
+    evidence:
+      - path: 'services/checkout/src/promotions-client.ts'
+        startLine: 3
+        endLine: 3
+        quote: '  discountCents: number;'
+    reading: 'parsed'
+  - relation: 'code.contains'
+    from: 'code.symbol:services/checkout/src/promotions-client.ts#AppliedPromotion'
+    to: 'code.field:services/checkout/src/promotions-client.ts#AppliedPromotion.percent'
+    evidence:
+      - path: 'services/checkout/src/promotions-client.ts'
+        startLine: 5
+        endLine: 5
+        quote: '  percent: number;'
+    reading: 'parsed'
+  - relation: 'code.contains'
+    from: 'code.symbol:services/checkout/src/promotions-client.ts#PromotionsClient'
+    to: 'code.field:services/checkout/src/promotions-client.ts#PromotionsClient.baseUrl'
+    evidence:
+      - path: 'services/checkout/src/promotions-client.ts'
+        startLine: 10
+        endLine: 10
+        quote: '  constructor(private readonly baseUrl: string) {}'
+    reading: 'parsed'
+  - relation: 'code.contains'
+    from: 'code.symbol:services/checkout/src/promotions-client.ts#PromotionsClient'
+    to: 'code.symbol:services/checkout/src/promotions-client.ts#PromotionsClient.apply'
+    evidence:
+      - path: 'services/checkout/src/promotions-client.ts'
+        startLine: 13
+        endLine: 13
+        quote: '  async apply(code: string, subtotalCents: number): Promise<AppliedPromotion | undefined> {'
+    reading: 'parsed'
+  - relation: 'code.contains'
+    from: 'code.symbol:services/checkout/src/promotions-client.ts#PromotionsClient'
+    to: 'code.symbol:services/checkout/src/promotions-client.ts#PromotionsClient.constructor'
+    evidence:
+      - path: 'services/checkout/src/promotions-client.ts'
+        startLine: 10
+        endLine: 10
+        quote: '  constructor(private readonly baseUrl: string) {}'
+    reading: 'parsed'

@@ -1,0 +1,1254 @@
+path: 'services/orders/internal/application/order_service.go'
+nodes:
+  - id: 'code.field:services/orders/internal/application/order_service.go#ListFilter.AfterID'
+    kind: 'code.field'
+    label: 'ListFilter.AfterID'
+    evidence:
+      - path: 'services/orders/internal/application/order_service.go'
+        startLine: 92
+        endLine: 92
+        quote: '	AfterID string'
+    reading: 'parsed'
+  - id: 'code.field:services/orders/internal/application/order_service.go#ListFilter.CustomerID'
+    kind: 'code.field'
+    label: 'ListFilter.CustomerID'
+    evidence:
+      - path: 'services/orders/internal/application/order_service.go'
+        startLine: 96
+        endLine: 96
+        quote: '	CustomerID string'
+    reading: 'parsed'
+  - id: 'code.field:services/orders/internal/application/order_service.go#ListFilter.Limit'
+    kind: 'code.field'
+    label: 'ListFilter.Limit'
+    evidence:
+      - path: 'services/orders/internal/application/order_service.go'
+        startLine: 94
+        endLine: 94
+        quote: '	Limit int'
+    reading: 'parsed'
+  - id: 'code.field:services/orders/internal/application/order_service.go#PlaceOrder.CustomerID'
+    kind: 'code.field'
+    label: 'PlaceOrder.CustomerID'
+    evidence:
+      - path: 'services/orders/internal/application/order_service.go'
+        startLine: 77
+        endLine: 77
+        quote: '	CustomerID string'
+    reading: 'parsed'
+  - id: 'code.field:services/orders/internal/application/order_service.go#PlaceOrder.DiscountPercent'
+    kind: 'code.field'
+    label: 'PlaceOrder.DiscountPercent'
+    evidence:
+      - path: 'services/orders/internal/application/order_service.go'
+        startLine: 82
+        endLine: 82
+        quote: '	DiscountPercent int'
+    reading: 'parsed'
+  - id: 'code.field:services/orders/internal/application/order_service.go#PlaceOrder.Items'
+    kind: 'code.field'
+    label: 'PlaceOrder.Items'
+    evidence:
+      - path: 'services/orders/internal/application/order_service.go'
+        startLine: 78
+        endLine: 78
+        quote: '	Items      []domain.Item'
+    reading: 'parsed'
+  - id: 'code.field:services/orders/internal/application/order_service.go#PlaceOrder.RequestID'
+    kind: 'code.field'
+    label: 'PlaceOrder.RequestID'
+    evidence:
+      - path: 'services/orders/internal/application/order_service.go'
+        startLine: 86
+        endLine: 86
+        quote: '	RequestID string'
+    reading: 'parsed'
+  - id: 'code.field:services/orders/internal/application/order_service.go#Service.metrics'
+    kind: 'code.field'
+    label: 'Service.metrics'
+    evidence:
+      - path: 'services/orders/internal/application/order_service.go'
+        startLine: 104
+        endLine: 104
+        quote: '	metrics Metrics'
+    reading: 'parsed'
+  - id: 'code.field:services/orders/internal/application/order_service.go#Service.now'
+    kind: 'code.field'
+    label: 'Service.now'
+    evidence:
+      - path: 'services/orders/internal/application/order_service.go'
+        startLine: 106
+        endLine: 106
+        quote: '	now func() time.Time'
+    reading: 'parsed'
+  - id: 'code.field:services/orders/internal/application/order_service.go#Service.store'
+    kind: 'code.field'
+    label: 'Service.store'
+    evidence:
+      - path: 'services/orders/internal/application/order_service.go'
+        startLine: 102
+        endLine: 102
+        quote: '	store OrderStore'
+    reading: 'parsed'
+  - id: 'code.file:services/orders/internal/application/order_service.go'
+    kind: 'code.file'
+    label: 'order_service.go'
+    evidence:
+      - path: 'services/orders/internal/application/order_service.go'
+        startLine: 1
+        endLine: 1
+        quote: '// Package application holds the order use cases. It talks to storage through'
+    reading: 'parsed'
+  - id: 'code.module:services/orders/internal/application'
+    kind: 'code.module'
+    label: 'services/orders/internal/application'
+    evidence:
+      - path: 'services/orders/internal/application/order_service.go'
+        startLine: 4
+        endLine: 4
+        quote: 'package application'
+    reading: 'parsed'
+  - id: 'code.symbol:services/orders/internal/application/order_service.go#ErrInvalidDiscount'
+    kind: 'code.symbol'
+    label: 'ErrInvalidDiscount'
+    evidence:
+      - path: 'services/orders/internal/application/order_service.go'
+        startLine: 35
+        endLine: 35
+        quote: '	ErrInvalidDiscount = errors.New("discount percent must be between 0 and 100")'
+    reading: 'parsed'
+  - id: 'code.symbol:services/orders/internal/application/order_service.go#ErrUnknownCustomer'
+    kind: 'code.symbol'
+    label: 'ErrUnknownCustomer'
+    evidence:
+      - path: 'services/orders/internal/application/order_service.go'
+        startLine: 33
+        endLine: 33
+        quote: '	ErrUnknownCustomer = errors.New("unknown customer")'
+    reading: 'parsed'
+  - id: 'code.symbol:services/orders/internal/application/order_service.go#ErrUnknownPaymentEvent'
+    kind: 'code.symbol'
+    label: 'ErrUnknownPaymentEvent'
+    evidence:
+      - path: 'services/orders/internal/application/order_service.go'
+        startLine: 37
+        endLine: 37
+        quote: '	ErrUnknownPaymentEvent = errors.New("unknown payment event")'
+    reading: 'parsed'
+  - id: 'code.symbol:services/orders/internal/application/order_service.go#ListFilter'
+    kind: 'code.symbol'
+    label: 'ListFilter'
+    evidence:
+      - path: 'services/orders/internal/application/order_service.go'
+        startLine: 90
+        endLine: 90
+        quote: 'type ListFilter struct {'
+    reading: 'parsed'
+  - id: 'code.symbol:services/orders/internal/application/order_service.go#Metrics'
+    kind: 'code.symbol'
+    label: 'Metrics'
+    evidence:
+      - path: 'services/orders/internal/application/order_service.go'
+        startLine: 66
+        endLine: 66
+        quote: 'type Metrics interface {'
+    reading: 'parsed'
+  - id: 'code.symbol:services/orders/internal/application/order_service.go#Metrics.OrderCreated'
+    kind: 'code.symbol'
+    label: 'Metrics.OrderCreated'
+    evidence:
+      - path: 'services/orders/internal/application/order_service.go'
+        startLine: 68
+        endLine: 68
+        quote: '	OrderCreated()'
+    reading: 'parsed'
+  - id: 'code.symbol:services/orders/internal/application/order_service.go#Metrics.Purged'
+    kind: 'code.symbol'
+    label: 'Metrics.Purged'
+    evidence:
+      - path: 'services/orders/internal/application/order_service.go'
+        startLine: 72
+        endLine: 72
+        quote: '	Purged(n int)'
+    reading: 'parsed'
+  - id: 'code.symbol:services/orders/internal/application/order_service.go#Metrics.Transitioned'
+    kind: 'code.symbol'
+    label: 'Metrics.Transitioned'
+    evidence:
+      - path: 'services/orders/internal/application/order_service.go'
+        startLine: 70
+        endLine: 70
+        quote: '	Transitioned(to domain.Status)'
+    reading: 'parsed'
+  - id: 'code.symbol:services/orders/internal/application/order_service.go#NewService'
+    kind: 'code.symbol'
+    label: 'NewService'
+    evidence:
+      - path: 'services/orders/internal/application/order_service.go'
+        startLine: 110
+        endLine: 110
+        quote: 'func NewService(store OrderStore, metrics Metrics, now func() time.Time) *Service {'
+    reading: 'parsed'
+  - id: 'code.symbol:services/orders/internal/application/order_service.go#OrderStore'
+    kind: 'code.symbol'
+    label: 'OrderStore'
+    evidence:
+      - path: 'services/orders/internal/application/order_service.go'
+        startLine: 45
+        endLine: 45
+        quote: 'type OrderStore interface {'
+    reading: 'parsed'
+  - id: 'code.symbol:services/orders/internal/application/order_service.go#OrderStore.Create'
+    kind: 'code.symbol'
+    label: 'OrderStore.Create'
+    evidence:
+      - path: 'services/orders/internal/application/order_service.go'
+        startLine: 47
+        endLine: 47
+        quote: '	Create(ctx context.Context, order domain.Order) error'
+    reading: 'parsed'
+  - id: 'code.symbol:services/orders/internal/application/order_service.go#OrderStore.CustomerExists'
+    kind: 'code.symbol'
+    label: 'OrderStore.CustomerExists'
+    evidence:
+      - path: 'services/orders/internal/application/order_service.go'
+        startLine: 58
+        endLine: 58
+        quote: '	CustomerExists(ctx context.Context, id string) (bool, error)'
+    reading: 'parsed'
+  - id: 'code.symbol:services/orders/internal/application/order_service.go#OrderStore.Delete'
+    kind: 'code.symbol'
+    label: 'OrderStore.Delete'
+    evidence:
+      - path: 'services/orders/internal/application/order_service.go'
+        startLine: 62
+        endLine: 62
+        quote: '	Delete(ctx context.Context, ids []string) error'
+    reading: 'parsed'
+  - id: 'code.symbol:services/orders/internal/application/order_service.go#OrderStore.FindByRequestID'
+    kind: 'code.symbol'
+    label: 'OrderStore.FindByRequestID'
+    evidence:
+      - path: 'services/orders/internal/application/order_service.go'
+        startLine: 56
+        endLine: 56
+        quote: '	FindByRequestID(ctx context.Context, customerID, requestID string) (domain.Order, error)'
+    reading: 'parsed'
+  - id: 'code.symbol:services/orders/internal/application/order_service.go#OrderStore.Get'
+    kind: 'code.symbol'
+    label: 'OrderStore.Get'
+    evidence:
+      - path: 'services/orders/internal/application/order_service.go'
+        startLine: 51
+        endLine: 51
+        quote: '	Get(ctx context.Context, id string) (domain.Order, error)'
+    reading: 'parsed'
+  - id: 'code.symbol:services/orders/internal/application/order_service.go#OrderStore.List'
+    kind: 'code.symbol'
+    label: 'OrderStore.List'
+    evidence:
+      - path: 'services/orders/internal/application/order_service.go'
+        startLine: 53
+        endLine: 53
+        quote: '	List(ctx context.Context, filter ListFilter) ([]domain.Order, error)'
+    reading: 'parsed'
+  - id: 'code.symbol:services/orders/internal/application/order_service.go#OrderStore.ListCreatedBefore'
+    kind: 'code.symbol'
+    label: 'OrderStore.ListCreatedBefore'
+    evidence:
+      - path: 'services/orders/internal/application/order_service.go'
+        startLine: 60
+        endLine: 60
+        quote: '	ListCreatedBefore(ctx context.Context, cutoff time.Time, limit int) ([]domain.Order, error)'
+    reading: 'parsed'
+  - id: 'code.symbol:services/orders/internal/application/order_service.go#OrderStore.Save'
+    kind: 'code.symbol'
+    label: 'OrderStore.Save'
+    evidence:
+      - path: 'services/orders/internal/application/order_service.go'
+        startLine: 49
+        endLine: 49
+        quote: '	Save(ctx context.Context, order domain.Order) error'
+    reading: 'parsed'
+  - id: 'code.symbol:services/orders/internal/application/order_service.go#PlaceOrder'
+    kind: 'code.symbol'
+    label: 'PlaceOrder'
+    evidence:
+      - path: 'services/orders/internal/application/order_service.go'
+        startLine: 76
+        endLine: 76
+        quote: 'type PlaceOrder struct {'
+    reading: 'parsed'
+  - id: 'code.symbol:services/orders/internal/application/order_service.go#Service'
+    kind: 'code.symbol'
+    label: 'Service'
+    evidence:
+      - path: 'services/orders/internal/application/order_service.go'
+        startLine: 100
+        endLine: 100
+        quote: 'type Service struct {'
+    reading: 'parsed'
+  - id: 'code.symbol:services/orders/internal/application/order_service.go#Service.Apply'
+    kind: 'code.symbol'
+    label: 'Service.Apply'
+    evidence:
+      - path: 'services/orders/internal/application/order_service.go'
+        startLine: 198
+        endLine: 198
+        quote: 'func (s *Service) Apply(ctx context.Context, id string, event domain.Event, note string) (domain.Order, error) {'
+    reading: 'parsed'
+  - id: 'code.symbol:services/orders/internal/application/order_service.go#Service.ApplyPaymentEvent'
+    kind: 'code.symbol'
+    label: 'Service.ApplyPaymentEvent'
+    evidence:
+      - path: 'services/orders/internal/application/order_service.go'
+        startLine: 231
+        endLine: 231
+        quote: 'func (s *Service) ApplyPaymentEvent(ctx context.Context, orderID, kind, note string) error {'
+    reading: 'parsed'
+  - id: 'code.symbol:services/orders/internal/application/order_service.go#Service.Cancel'
+    kind: 'code.symbol'
+    label: 'Service.Cancel'
+    evidence:
+      - path: 'services/orders/internal/application/order_service.go'
+        startLine: 220
+        endLine: 220
+        quote: 'func (s *Service) Cancel(ctx context.Context, id, reason string) (domain.Order, error) {'
+    reading: 'parsed'
+  - id: 'code.symbol:services/orders/internal/application/order_service.go#Service.ForEach'
+    kind: 'code.symbol'
+    label: 'Service.ForEach'
+    evidence:
+      - path: 'services/orders/internal/application/order_service.go'
+        startLine: 177
+        endLine: 177
+        quote: 'func (s *Service) ForEach(ctx context.Context, filter ListFilter, fn func(domain.Order) error) error {'
+    reading: 'parsed'
+  - id: 'code.symbol:services/orders/internal/application/order_service.go#Service.Get'
+    kind: 'code.symbol'
+    label: 'Service.Get'
+    evidence:
+      - path: 'services/orders/internal/application/order_service.go'
+        startLine: 164
+        endLine: 164
+        quote: 'func (s *Service) Get(ctx context.Context, id string) (domain.Order, error) {'
+    reading: 'parsed'
+  - id: 'code.symbol:services/orders/internal/application/order_service.go#Service.List'
+    kind: 'code.symbol'
+    label: 'Service.List'
+    evidence:
+      - path: 'services/orders/internal/application/order_service.go'
+        startLine: 169
+        endLine: 169
+        quote: 'func (s *Service) List(ctx context.Context, filter ListFilter) ([]domain.Order, error) {'
+    reading: 'parsed'
+  - id: 'code.symbol:services/orders/internal/application/order_service.go#Service.Place'
+    kind: 'code.symbol'
+    label: 'Service.Place'
+    evidence:
+      - path: 'services/orders/internal/application/order_service.go'
+        startLine: 115
+        endLine: 115
+        quote: 'func (s *Service) Place(ctx context.Context, cmd PlaceOrder) (domain.Order, error) {'
+    reading: 'parsed'
+  - id: 'code.symbol:services/orders/internal/application/order_service.go#Service.RunRetentionJob'
+    kind: 'code.symbol'
+    label: 'Service.RunRetentionJob'
+    evidence:
+      - path: 'services/orders/internal/application/order_service.go'
+        startLine: 262
+        endLine: 262
+        quote: 'func (s *Service) RunRetentionJob(ctx context.Context) (int, error) {'
+    reading: 'parsed'
+  - id: 'code.symbol:services/orders/internal/application/order_service.go#Service.Ship'
+    kind: 'code.symbol'
+    label: 'Service.Ship'
+    evidence:
+      - path: 'services/orders/internal/application/order_service.go'
+        startLine: 225
+        endLine: 225
+        quote: 'func (s *Service) Ship(ctx context.Context, id string) (domain.Order, error) {'
+    reading: 'parsed'
+  - id: 'code.symbol:services/orders/internal/application/order_service.go#Service.alreadyApplied'
+    kind: 'code.symbol'
+    label: 'Service.alreadyApplied'
+    evidence:
+      - path: 'services/orders/internal/application/order_service.go'
+        startLine: 251
+        endLine: 251
+        quote: 'func (s *Service) alreadyApplied(ctx context.Context, orderID string, event domain.Event) (bool, error) {'
+    reading: 'parsed'
+  - id: 'code.symbol:services/orders/internal/application/order_service.go#callTimeout'
+    kind: 'code.symbol'
+    label: 'callTimeout'
+    evidence:
+      - path: 'services/orders/internal/application/order_service.go'
+        startLine: 26
+        endLine: 26
+        quote: 'const callTimeout = 5 * time.Second'
+    reading: 'parsed'
+  - id: 'code.symbol:services/orders/internal/application/order_service.go#defaultPageSize'
+    kind: 'code.symbol'
+    label: 'defaultPageSize'
+    evidence:
+      - path: 'services/orders/internal/application/order_service.go'
+        startLine: 21
+        endLine: 21
+        quote: '	defaultPageSize = 50'
+    reading: 'parsed'
+  - id: 'code.symbol:services/orders/internal/application/order_service.go#maxPageSize'
+    kind: 'code.symbol'
+    label: 'maxPageSize'
+    evidence:
+      - path: 'services/orders/internal/application/order_service.go'
+        startLine: 22
+        endLine: 22
+        quote: '	maxPageSize     = 200'
+    reading: 'parsed'
+  - id: 'code.symbol:services/orders/internal/application/order_service.go#newID'
+    kind: 'code.symbol'
+    label: 'newID'
+    evidence:
+      - path: 'services/orders/internal/application/order_service.go'
+        startLine: 287
+        endLine: 287
+        quote: 'func newID() string {'
+    reading: 'parsed'
+  - id: 'code.symbol:services/orders/internal/application/order_service.go#retentionBatch'
+    kind: 'code.symbol'
+    label: 'retentionBatch'
+    evidence:
+      - path: 'services/orders/internal/application/order_service.go'
+        startLine: 29
+        endLine: 29
+        quote: 'const retentionBatch = 100'
+    reading: 'parsed'
+edges:
+  - relation: 'code.calls'
+    from: 'code.symbol:services/orders/internal/application/order_service.go#Service.Apply'
+    to: 'code.symbol:services/orders/internal/application/order_service.go#Metrics.Transitioned'
+    evidence:
+      - path: 'services/orders/internal/application/order_service.go'
+        startLine: 215
+        endLine: 215
+        quote: '	s.metrics.Transitioned(order.Status)'
+    reading: 'parsed'
+  - relation: 'code.calls'
+    from: 'code.symbol:services/orders/internal/application/order_service.go#Service.Apply'
+    to: 'code.symbol:services/orders/internal/application/order_service.go#OrderStore.Get'
+    evidence:
+      - path: 'services/orders/internal/application/order_service.go'
+        startLine: 201
+        endLine: 201
+        quote: '	order, err := s.store.Get(ctx, id)'
+    reading: 'parsed'
+  - relation: 'code.calls'
+    from: 'code.symbol:services/orders/internal/application/order_service.go#Service.Apply'
+    to: 'code.symbol:services/orders/internal/application/order_service.go#OrderStore.Save'
+    evidence:
+      - path: 'services/orders/internal/application/order_service.go'
+        startLine: 211
+        endLine: 211
+        quote: '	if err := s.store.Save(ctx, order); err != nil {'
+    reading: 'parsed'
+  - relation: 'code.calls'
+    from: 'code.symbol:services/orders/internal/application/order_service.go#Service.Apply'
+    to: 'code.symbol:services/orders/internal/logging/logger.go#FromContext'
+    evidence:
+      - path: 'services/orders/internal/application/order_service.go'
+        startLine: 214
+        endLine: 214
+        quote: '	logging.FromContext(ctx).Info("order moved", "order", order.ID, "event", string(event), "status", string(order.Status))'
+    reading: 'parsed'
+  - relation: 'code.calls'
+    from: 'code.symbol:services/orders/internal/application/order_service.go#Service.ApplyPaymentEvent'
+    to: 'code.symbol:services/orders/internal/application/order_service.go#Service.Apply'
+    evidence:
+      - path: 'services/orders/internal/application/order_service.go'
+        startLine: 246
+        endLine: 246
+        quote: '	_, err := s.Apply(ctx, orderID, event, note)'
+    reading: 'parsed'
+  - relation: 'code.calls'
+    from: 'code.symbol:services/orders/internal/application/order_service.go#Service.ApplyPaymentEvent'
+    to: 'code.symbol:services/orders/internal/application/order_service.go#Service.alreadyApplied'
+    evidence:
+      - path: 'services/orders/internal/application/order_service.go'
+        startLine: 243
+        endLine: 243
+        quote: '	if done, err := s.alreadyApplied(ctx, orderID, event); err != nil || done {'
+    reading: 'parsed'
+  - relation: 'code.calls'
+    from: 'code.symbol:services/orders/internal/application/order_service.go#Service.Cancel'
+    to: 'code.symbol:services/orders/internal/application/order_service.go#Service.Apply'
+    evidence:
+      - path: 'services/orders/internal/application/order_service.go'
+        startLine: 221
+        endLine: 221
+        quote: '	return s.Apply(ctx, id, domain.CancelRequested, reason)'
+    reading: 'parsed'
+  - relation: 'code.calls'
+    from: 'code.symbol:services/orders/internal/application/order_service.go#Service.ForEach'
+    to: 'code.symbol:services/orders/internal/application/order_service.go#Service.List'
+    evidence:
+      - path: 'services/orders/internal/application/order_service.go'
+        startLine: 180
+        endLine: 180
+        quote: '		page, err := s.List(ctx, filter)'
+    reading: 'parsed'
+  - relation: 'code.calls'
+    from: 'code.symbol:services/orders/internal/application/order_service.go#Service.Get'
+    to: 'code.symbol:services/orders/internal/application/order_service.go#OrderStore.Get'
+    evidence:
+      - path: 'services/orders/internal/application/order_service.go'
+        startLine: 165
+        endLine: 165
+        quote: '	return s.store.Get(ctx, strings.TrimSpace(id))'
+    reading: 'parsed'
+  - relation: 'code.calls'
+    from: 'code.symbol:services/orders/internal/application/order_service.go#Service.List'
+    to: 'code.symbol:services/orders/internal/application/order_service.go#OrderStore.List'
+    evidence:
+      - path: 'services/orders/internal/application/order_service.go'
+        startLine: 173
+        endLine: 173
+        quote: '	return s.store.List(ctx, filter)'
+    reading: 'parsed'
+  - relation: 'code.calls'
+    from: 'code.symbol:services/orders/internal/application/order_service.go#Service.Place'
+    to: 'code.symbol:services/orders/internal/application/order_service.go#Metrics.OrderCreated'
+    evidence:
+      - path: 'services/orders/internal/application/order_service.go'
+        startLine: 158
+        endLine: 158
+        quote: '	s.metrics.OrderCreated()'
+    reading: 'parsed'
+  - relation: 'code.calls'
+    from: 'code.symbol:services/orders/internal/application/order_service.go#Service.Place'
+    to: 'code.symbol:services/orders/internal/application/order_service.go#OrderStore.Create'
+    evidence:
+      - path: 'services/orders/internal/application/order_service.go'
+        startLine: 155
+        endLine: 155
+        quote: '	if err := s.store.Create(ctx, order); err != nil {'
+    reading: 'parsed'
+  - relation: 'code.calls'
+    from: 'code.symbol:services/orders/internal/application/order_service.go#Service.Place'
+    to: 'code.symbol:services/orders/internal/application/order_service.go#OrderStore.CustomerExists'
+    evidence:
+      - path: 'services/orders/internal/application/order_service.go'
+        startLine: 135
+        endLine: 135
+        quote: '	known, err := s.store.CustomerExists(ctx, cmd.CustomerID)'
+    reading: 'parsed'
+  - relation: 'code.calls'
+    from: 'code.symbol:services/orders/internal/application/order_service.go#Service.Place'
+    to: 'code.symbol:services/orders/internal/application/order_service.go#OrderStore.FindByRequestID'
+    evidence:
+      - path: 'services/orders/internal/application/order_service.go'
+        startLine: 127
+        endLine: 127
+        quote: '		existing, err := s.store.FindByRequestID(ctx, cmd.CustomerID, cmd.RequestID)'
+    reading: 'parsed'
+  - relation: 'code.calls'
+    from: 'code.symbol:services/orders/internal/application/order_service.go#Service.Place'
+    to: 'code.symbol:services/orders/internal/application/order_service.go#newID'
+    evidence:
+      - path: 'services/orders/internal/application/order_service.go'
+        startLine: 142
+        endLine: 142
+        quote: '	order := domain.NewOrder(newID(), cmd.CustomerID, cmd.Items, s.now())'
+    reading: 'parsed'
+  - relation: 'code.calls'
+    from: 'code.symbol:services/orders/internal/application/order_service.go#Service.Place'
+    to: 'code.symbol:services/orders/internal/domain/order.go#NewOrder'
+    evidence:
+      - path: 'services/orders/internal/application/order_service.go'
+        startLine: 142
+        endLine: 142
+        quote: '	order := domain.NewOrder(newID(), cmd.CustomerID, cmd.Items, s.now())'
+    reading: 'parsed'
+  - relation: 'code.calls'
+    from: 'code.symbol:services/orders/internal/application/order_service.go#Service.Place'
+    to: 'code.symbol:services/orders/internal/domain/order.go#ValidateItems'
+    evidence:
+      - path: 'services/orders/internal/application/order_service.go'
+        startLine: 120
+        endLine: 120
+        quote: '	if err := domain.ValidateItems(cmd.Items); err != nil {'
+    reading: 'parsed'
+  - relation: 'code.calls'
+    from: 'code.symbol:services/orders/internal/application/order_service.go#Service.Place'
+    to: 'code.symbol:services/orders/internal/logging/logger.go#FromContext'
+    evidence:
+      - path: 'services/orders/internal/application/order_service.go'
+        startLine: 159
+        endLine: 159
+        quote: '	logging.FromContext(ctx).Info("order placed", "order", order.ID, "customer", order.CustomerID, "total", order.Total)'
+    reading: 'parsed'
+  - relation: 'code.calls'
+    from: 'code.symbol:services/orders/internal/application/order_service.go#Service.Place'
+    to: 'code.symbol:services/orders/internal/pricing/pricing.go#Discount'
+    evidence:
+      - path: 'services/orders/internal/application/order_service.go'
+        startLine: 148
+        endLine: 148
+        quote: '		discount := pricing.Discount(gross, cmd.DiscountPercent)'
+    reading: 'parsed'
+  - relation: 'code.calls'
+    from: 'code.symbol:services/orders/internal/application/order_service.go#Service.Place'
+    to: 'code.symbol:services/orders/internal/pricing/pricing.go#LineTotal'
+    evidence:
+      - path: 'services/orders/internal/application/order_service.go'
+        startLine: 147
+        endLine: 147
+        quote: '		gross := pricing.LineTotal(item.PriceCents, item.Quantity)'
+    reading: 'parsed'
+  - relation: 'code.calls'
+    from: 'code.symbol:services/orders/internal/application/order_service.go#Service.Place'
+    to: 'code.symbol:services/orders/internal/pricing/tax.go#LineTax'
+    evidence:
+      - path: 'services/orders/internal/application/order_service.go'
+        startLine: 151
+        endLine: 151
+        quote: '		tax += pricing.LineTax(gross-discount, item.ZeroRated)'
+    reading: 'parsed'
+  - relation: 'code.calls'
+    from: 'code.symbol:services/orders/internal/application/order_service.go#Service.RunRetentionJob'
+    to: 'code.symbol:services/orders/internal/application/order_service.go#Metrics.Purged'
+    evidence:
+      - path: 'services/orders/internal/application/order_service.go'
+        startLine: 282
+        endLine: 282
+        quote: '		s.metrics.Purged(len(ids))'
+    reading: 'parsed'
+  - relation: 'code.calls'
+    from: 'code.symbol:services/orders/internal/application/order_service.go#Service.RunRetentionJob'
+    to: 'code.symbol:services/orders/internal/application/order_service.go#OrderStore.Delete'
+    evidence:
+      - path: 'services/orders/internal/application/order_service.go'
+        startLine: 278
+        endLine: 278
+        quote: '		if err := s.store.Delete(ctx, ids); err != nil {'
+    reading: 'parsed'
+  - relation: 'code.calls'
+    from: 'code.symbol:services/orders/internal/application/order_service.go#Service.RunRetentionJob'
+    to: 'code.symbol:services/orders/internal/application/order_service.go#OrderStore.ListCreatedBefore'
+    evidence:
+      - path: 'services/orders/internal/application/order_service.go'
+        startLine: 266
+        endLine: 266
+        quote: '		candidates, err := s.store.ListCreatedBefore(ctx, now.AddDate(0, 0, -domain.ExpiryDays), retentionBatch)'
+    reading: 'parsed'
+  - relation: 'code.calls'
+    from: 'code.symbol:services/orders/internal/application/order_service.go#Service.RunRetentionJob'
+    to: 'code.symbol:services/orders/internal/domain/order.go#PurgeExpired'
+    evidence:
+      - path: 'services/orders/internal/application/order_service.go'
+        startLine: 270
+        endLine: 270
+        quote: '		expired := domain.PurgeExpired(candidates, now)'
+    reading: 'parsed'
+  - relation: 'code.calls'
+    from: 'code.symbol:services/orders/internal/application/order_service.go#Service.Ship'
+    to: 'code.symbol:services/orders/internal/application/order_service.go#Service.Apply'
+    evidence:
+      - path: 'services/orders/internal/application/order_service.go'
+        startLine: 226
+        endLine: 226
+        quote: '	return s.Apply(ctx, id, domain.ShipmentDispatched, "")'
+    reading: 'parsed'
+  - relation: 'code.calls'
+    from: 'code.symbol:services/orders/internal/application/order_service.go#Service.alreadyApplied'
+    to: 'code.symbol:services/orders/internal/application/order_service.go#OrderStore.Get'
+    evidence:
+      - path: 'services/orders/internal/application/order_service.go'
+        startLine: 252
+        endLine: 252
+        quote: '	order, err := s.store.Get(ctx, orderID)'
+    reading: 'parsed'
+  - relation: 'code.calls'
+    from: 'code.symbol:services/orders/internal/application/order_service.go#Service.alreadyApplied'
+    to: 'code.symbol:services/orders/internal/domain/order.go#Outcome'
+    evidence:
+      - path: 'services/orders/internal/application/order_service.go'
+        startLine: 256
+        endLine: 256
+        quote: '	outcome, known := domain.Outcome(event)'
+    reading: 'parsed'
+  - relation: 'code.contains'
+    from: 'code.file:services/orders/internal/application/order_service.go'
+    to: 'code.symbol:services/orders/internal/application/order_service.go#ErrInvalidDiscount'
+    evidence:
+      - path: 'services/orders/internal/application/order_service.go'
+        startLine: 35
+        endLine: 35
+        quote: '	ErrInvalidDiscount = errors.New("discount percent must be between 0 and 100")'
+    reading: 'parsed'
+  - relation: 'code.contains'
+    from: 'code.file:services/orders/internal/application/order_service.go'
+    to: 'code.symbol:services/orders/internal/application/order_service.go#ErrUnknownCustomer'
+    evidence:
+      - path: 'services/orders/internal/application/order_service.go'
+        startLine: 33
+        endLine: 33
+        quote: '	ErrUnknownCustomer = errors.New("unknown customer")'
+    reading: 'parsed'
+  - relation: 'code.contains'
+    from: 'code.file:services/orders/internal/application/order_service.go'
+    to: 'code.symbol:services/orders/internal/application/order_service.go#ErrUnknownPaymentEvent'
+    evidence:
+      - path: 'services/orders/internal/application/order_service.go'
+        startLine: 37
+        endLine: 37
+        quote: '	ErrUnknownPaymentEvent = errors.New("unknown payment event")'
+    reading: 'parsed'
+  - relation: 'code.contains'
+    from: 'code.file:services/orders/internal/application/order_service.go'
+    to: 'code.symbol:services/orders/internal/application/order_service.go#ListFilter'
+    evidence:
+      - path: 'services/orders/internal/application/order_service.go'
+        startLine: 90
+        endLine: 90
+        quote: 'type ListFilter struct {'
+    reading: 'parsed'
+  - relation: 'code.contains'
+    from: 'code.file:services/orders/internal/application/order_service.go'
+    to: 'code.symbol:services/orders/internal/application/order_service.go#Metrics'
+    evidence:
+      - path: 'services/orders/internal/application/order_service.go'
+        startLine: 66
+        endLine: 66
+        quote: 'type Metrics interface {'
+    reading: 'parsed'
+  - relation: 'code.contains'
+    from: 'code.file:services/orders/internal/application/order_service.go'
+    to: 'code.symbol:services/orders/internal/application/order_service.go#NewService'
+    evidence:
+      - path: 'services/orders/internal/application/order_service.go'
+        startLine: 110
+        endLine: 110
+        quote: 'func NewService(store OrderStore, metrics Metrics, now func() time.Time) *Service {'
+    reading: 'parsed'
+  - relation: 'code.contains'
+    from: 'code.file:services/orders/internal/application/order_service.go'
+    to: 'code.symbol:services/orders/internal/application/order_service.go#OrderStore'
+    evidence:
+      - path: 'services/orders/internal/application/order_service.go'
+        startLine: 45
+        endLine: 45
+        quote: 'type OrderStore interface {'
+    reading: 'parsed'
+  - relation: 'code.contains'
+    from: 'code.file:services/orders/internal/application/order_service.go'
+    to: 'code.symbol:services/orders/internal/application/order_service.go#PlaceOrder'
+    evidence:
+      - path: 'services/orders/internal/application/order_service.go'
+        startLine: 76
+        endLine: 76
+        quote: 'type PlaceOrder struct {'
+    reading: 'parsed'
+  - relation: 'code.contains'
+    from: 'code.file:services/orders/internal/application/order_service.go'
+    to: 'code.symbol:services/orders/internal/application/order_service.go#Service'
+    evidence:
+      - path: 'services/orders/internal/application/order_service.go'
+        startLine: 100
+        endLine: 100
+        quote: 'type Service struct {'
+    reading: 'parsed'
+  - relation: 'code.contains'
+    from: 'code.file:services/orders/internal/application/order_service.go'
+    to: 'code.symbol:services/orders/internal/application/order_service.go#Service.Apply'
+    evidence:
+      - path: 'services/orders/internal/application/order_service.go'
+        startLine: 198
+        endLine: 198
+        quote: 'func (s *Service) Apply(ctx context.Context, id string, event domain.Event, note string) (domain.Order, error) {'
+    reading: 'parsed'
+  - relation: 'code.contains'
+    from: 'code.file:services/orders/internal/application/order_service.go'
+    to: 'code.symbol:services/orders/internal/application/order_service.go#Service.ApplyPaymentEvent'
+    evidence:
+      - path: 'services/orders/internal/application/order_service.go'
+        startLine: 231
+        endLine: 231
+        quote: 'func (s *Service) ApplyPaymentEvent(ctx context.Context, orderID, kind, note string) error {'
+    reading: 'parsed'
+  - relation: 'code.contains'
+    from: 'code.file:services/orders/internal/application/order_service.go'
+    to: 'code.symbol:services/orders/internal/application/order_service.go#Service.Cancel'
+    evidence:
+      - path: 'services/orders/internal/application/order_service.go'
+        startLine: 220
+        endLine: 220
+        quote: 'func (s *Service) Cancel(ctx context.Context, id, reason string) (domain.Order, error) {'
+    reading: 'parsed'
+  - relation: 'code.contains'
+    from: 'code.file:services/orders/internal/application/order_service.go'
+    to: 'code.symbol:services/orders/internal/application/order_service.go#Service.ForEach'
+    evidence:
+      - path: 'services/orders/internal/application/order_service.go'
+        startLine: 177
+        endLine: 177
+        quote: 'func (s *Service) ForEach(ctx context.Context, filter ListFilter, fn func(domain.Order) error) error {'
+    reading: 'parsed'
+  - relation: 'code.contains'
+    from: 'code.file:services/orders/internal/application/order_service.go'
+    to: 'code.symbol:services/orders/internal/application/order_service.go#Service.Get'
+    evidence:
+      - path: 'services/orders/internal/application/order_service.go'
+        startLine: 164
+        endLine: 164
+        quote: 'func (s *Service) Get(ctx context.Context, id string) (domain.Order, error) {'
+    reading: 'parsed'
+  - relation: 'code.contains'
+    from: 'code.file:services/orders/internal/application/order_service.go'
+    to: 'code.symbol:services/orders/internal/application/order_service.go#Service.List'
+    evidence:
+      - path: 'services/orders/internal/application/order_service.go'
+        startLine: 169
+        endLine: 169
+        quote: 'func (s *Service) List(ctx context.Context, filter ListFilter) ([]domain.Order, error) {'
+    reading: 'parsed'
+  - relation: 'code.contains'
+    from: 'code.file:services/orders/internal/application/order_service.go'
+    to: 'code.symbol:services/orders/internal/application/order_service.go#Service.Place'
+    evidence:
+      - path: 'services/orders/internal/application/order_service.go'
+        startLine: 115
+        endLine: 115
+        quote: 'func (s *Service) Place(ctx context.Context, cmd PlaceOrder) (domain.Order, error) {'
+    reading: 'parsed'
+  - relation: 'code.contains'
+    from: 'code.file:services/orders/internal/application/order_service.go'
+    to: 'code.symbol:services/orders/internal/application/order_service.go#Service.RunRetentionJob'
+    evidence:
+      - path: 'services/orders/internal/application/order_service.go'
+        startLine: 262
+        endLine: 262
+        quote: 'func (s *Service) RunRetentionJob(ctx context.Context) (int, error) {'
+    reading: 'parsed'
+  - relation: 'code.contains'
+    from: 'code.file:services/orders/internal/application/order_service.go'
+    to: 'code.symbol:services/orders/internal/application/order_service.go#Service.Ship'
+    evidence:
+      - path: 'services/orders/internal/application/order_service.go'
+        startLine: 225
+        endLine: 225
+        quote: 'func (s *Service) Ship(ctx context.Context, id string) (domain.Order, error) {'
+    reading: 'parsed'
+  - relation: 'code.contains'
+    from: 'code.file:services/orders/internal/application/order_service.go'
+    to: 'code.symbol:services/orders/internal/application/order_service.go#Service.alreadyApplied'
+    evidence:
+      - path: 'services/orders/internal/application/order_service.go'
+        startLine: 251
+        endLine: 251
+        quote: 'func (s *Service) alreadyApplied(ctx context.Context, orderID string, event domain.Event) (bool, error) {'
+    reading: 'parsed'
+  - relation: 'code.contains'
+    from: 'code.file:services/orders/internal/application/order_service.go'
+    to: 'code.symbol:services/orders/internal/application/order_service.go#callTimeout'
+    evidence:
+      - path: 'services/orders/internal/application/order_service.go'
+        startLine: 26
+        endLine: 26
+        quote: 'const callTimeout = 5 * time.Second'
+    reading: 'parsed'
+  - relation: 'code.contains'
+    from: 'code.file:services/orders/internal/application/order_service.go'
+    to: 'code.symbol:services/orders/internal/application/order_service.go#defaultPageSize'
+    evidence:
+      - path: 'services/orders/internal/application/order_service.go'
+        startLine: 21
+        endLine: 21
+        quote: '	defaultPageSize = 50'
+    reading: 'parsed'
+  - relation: 'code.contains'
+    from: 'code.file:services/orders/internal/application/order_service.go'
+    to: 'code.symbol:services/orders/internal/application/order_service.go#maxPageSize'
+    evidence:
+      - path: 'services/orders/internal/application/order_service.go'
+        startLine: 22
+        endLine: 22
+        quote: '	maxPageSize     = 200'
+    reading: 'parsed'
+  - relation: 'code.contains'
+    from: 'code.file:services/orders/internal/application/order_service.go'
+    to: 'code.symbol:services/orders/internal/application/order_service.go#newID'
+    evidence:
+      - path: 'services/orders/internal/application/order_service.go'
+        startLine: 287
+        endLine: 287
+        quote: 'func newID() string {'
+    reading: 'parsed'
+  - relation: 'code.contains'
+    from: 'code.file:services/orders/internal/application/order_service.go'
+    to: 'code.symbol:services/orders/internal/application/order_service.go#retentionBatch'
+    evidence:
+      - path: 'services/orders/internal/application/order_service.go'
+        startLine: 29
+        endLine: 29
+        quote: 'const retentionBatch = 100'
+    reading: 'parsed'
+  - relation: 'code.contains'
+    from: 'code.module:services/orders/internal/application'
+    to: 'code.file:services/orders/internal/application/order_service.go'
+    evidence:
+      - path: 'services/orders/internal/application/order_service.go'
+        startLine: 4
+        endLine: 4
+        quote: 'package application'
+    reading: 'parsed'
+  - relation: 'code.contains'
+    from: 'code.symbol:services/orders/internal/application/order_service.go#ListFilter'
+    to: 'code.field:services/orders/internal/application/order_service.go#ListFilter.AfterID'
+    evidence:
+      - path: 'services/orders/internal/application/order_service.go'
+        startLine: 92
+        endLine: 92
+        quote: '	AfterID string'
+    reading: 'parsed'
+  - relation: 'code.contains'
+    from: 'code.symbol:services/orders/internal/application/order_service.go#ListFilter'
+    to: 'code.field:services/orders/internal/application/order_service.go#ListFilter.CustomerID'
+    evidence:
+      - path: 'services/orders/internal/application/order_service.go'
+        startLine: 96
+        endLine: 96
+        quote: '	CustomerID string'
+    reading: 'parsed'
+  - relation: 'code.contains'
+    from: 'code.symbol:services/orders/internal/application/order_service.go#ListFilter'
+    to: 'code.field:services/orders/internal/application/order_service.go#ListFilter.Limit'
+    evidence:
+      - path: 'services/orders/internal/application/order_service.go'
+        startLine: 94
+        endLine: 94
+        quote: '	Limit int'
+    reading: 'parsed'
+  - relation: 'code.contains'
+    from: 'code.symbol:services/orders/internal/application/order_service.go#Metrics'
+    to: 'code.symbol:services/orders/internal/application/order_service.go#Metrics.OrderCreated'
+    evidence:
+      - path: 'services/orders/internal/application/order_service.go'
+        startLine: 68
+        endLine: 68
+        quote: '	OrderCreated()'
+    reading: 'parsed'
+  - relation: 'code.contains'
+    from: 'code.symbol:services/orders/internal/application/order_service.go#Metrics'
+    to: 'code.symbol:services/orders/internal/application/order_service.go#Metrics.Purged'
+    evidence:
+      - path: 'services/orders/internal/application/order_service.go'
+        startLine: 72
+        endLine: 72
+        quote: '	Purged(n int)'
+    reading: 'parsed'
+  - relation: 'code.contains'
+    from: 'code.symbol:services/orders/internal/application/order_service.go#Metrics'
+    to: 'code.symbol:services/orders/internal/application/order_service.go#Metrics.Transitioned'
+    evidence:
+      - path: 'services/orders/internal/application/order_service.go'
+        startLine: 70
+        endLine: 70
+        quote: '	Transitioned(to domain.Status)'
+    reading: 'parsed'
+  - relation: 'code.contains'
+    from: 'code.symbol:services/orders/internal/application/order_service.go#OrderStore'
+    to: 'code.symbol:services/orders/internal/application/order_service.go#OrderStore.Create'
+    evidence:
+      - path: 'services/orders/internal/application/order_service.go'
+        startLine: 47
+        endLine: 47
+        quote: '	Create(ctx context.Context, order domain.Order) error'
+    reading: 'parsed'
+  - relation: 'code.contains'
+    from: 'code.symbol:services/orders/internal/application/order_service.go#OrderStore'
+    to: 'code.symbol:services/orders/internal/application/order_service.go#OrderStore.CustomerExists'
+    evidence:
+      - path: 'services/orders/internal/application/order_service.go'
+        startLine: 58
+        endLine: 58
+        quote: '	CustomerExists(ctx context.Context, id string) (bool, error)'
+    reading: 'parsed'
+  - relation: 'code.contains'
+    from: 'code.symbol:services/orders/internal/application/order_service.go#OrderStore'
+    to: 'code.symbol:services/orders/internal/application/order_service.go#OrderStore.Delete'
+    evidence:
+      - path: 'services/orders/internal/application/order_service.go'
+        startLine: 62
+        endLine: 62
+        quote: '	Delete(ctx context.Context, ids []string) error'
+    reading: 'parsed'
+  - relation: 'code.contains'
+    from: 'code.symbol:services/orders/internal/application/order_service.go#OrderStore'
+    to: 'code.symbol:services/orders/internal/application/order_service.go#OrderStore.FindByRequestID'
+    evidence:
+      - path: 'services/orders/internal/application/order_service.go'
+        startLine: 56
+        endLine: 56
+        quote: '	FindByRequestID(ctx context.Context, customerID, requestID string) (domain.Order, error)'
+    reading: 'parsed'
+  - relation: 'code.contains'
+    from: 'code.symbol:services/orders/internal/application/order_service.go#OrderStore'
+    to: 'code.symbol:services/orders/internal/application/order_service.go#OrderStore.Get'
+    evidence:
+      - path: 'services/orders/internal/application/order_service.go'
+        startLine: 51
+        endLine: 51
+        quote: '	Get(ctx context.Context, id string) (domain.Order, error)'
+    reading: 'parsed'
+  - relation: 'code.contains'
+    from: 'code.symbol:services/orders/internal/application/order_service.go#OrderStore'
+    to: 'code.symbol:services/orders/internal/application/order_service.go#OrderStore.List'
+    evidence:
+      - path: 'services/orders/internal/application/order_service.go'
+        startLine: 53
+        endLine: 53
+        quote: '	List(ctx context.Context, filter ListFilter) ([]domain.Order, error)'
+    reading: 'parsed'
+  - relation: 'code.contains'
+    from: 'code.symbol:services/orders/internal/application/order_service.go#OrderStore'
+    to: 'code.symbol:services/orders/internal/application/order_service.go#OrderStore.ListCreatedBefore'
+    evidence:
+      - path: 'services/orders/internal/application/order_service.go'
+        startLine: 60
+        endLine: 60
+        quote: '	ListCreatedBefore(ctx context.Context, cutoff time.Time, limit int) ([]domain.Order, error)'
+    reading: 'parsed'
+  - relation: 'code.contains'
+    from: 'code.symbol:services/orders/internal/application/order_service.go#OrderStore'
+    to: 'code.symbol:services/orders/internal/application/order_service.go#OrderStore.Save'
+    evidence:
+      - path: 'services/orders/internal/application/order_service.go'
+        startLine: 49
+        endLine: 49
+        quote: '	Save(ctx context.Context, order domain.Order) error'
+    reading: 'parsed'
+  - relation: 'code.contains'
+    from: 'code.symbol:services/orders/internal/application/order_service.go#PlaceOrder'
+    to: 'code.field:services/orders/internal/application/order_service.go#PlaceOrder.CustomerID'
+    evidence:
+      - path: 'services/orders/internal/application/order_service.go'
+        startLine: 77
+        endLine: 77
+        quote: '	CustomerID string'
+    reading: 'parsed'
+  - relation: 'code.contains'
+    from: 'code.symbol:services/orders/internal/application/order_service.go#PlaceOrder'
+    to: 'code.field:services/orders/internal/application/order_service.go#PlaceOrder.DiscountPercent'
+    evidence:
+      - path: 'services/orders/internal/application/order_service.go'
+        startLine: 82
+        endLine: 82
+        quote: '	DiscountPercent int'
+    reading: 'parsed'
+  - relation: 'code.contains'
+    from: 'code.symbol:services/orders/internal/application/order_service.go#PlaceOrder'
+    to: 'code.field:services/orders/internal/application/order_service.go#PlaceOrder.Items'
+    evidence:
+      - path: 'services/orders/internal/application/order_service.go'
+        startLine: 78
+        endLine: 78
+        quote: '	Items      []domain.Item'
+    reading: 'parsed'
+  - relation: 'code.contains'
+    from: 'code.symbol:services/orders/internal/application/order_service.go#PlaceOrder'
+    to: 'code.field:services/orders/internal/application/order_service.go#PlaceOrder.RequestID'
+    evidence:
+      - path: 'services/orders/internal/application/order_service.go'
+        startLine: 86
+        endLine: 86
+        quote: '	RequestID string'
+    reading: 'parsed'
+  - relation: 'code.contains'
+    from: 'code.symbol:services/orders/internal/application/order_service.go#Service'
+    to: 'code.field:services/orders/internal/application/order_service.go#Service.metrics'
+    evidence:
+      - path: 'services/orders/internal/application/order_service.go'
+        startLine: 104
+        endLine: 104
+        quote: '	metrics Metrics'
+    reading: 'parsed'
+  - relation: 'code.contains'
+    from: 'code.symbol:services/orders/internal/application/order_service.go#Service'
+    to: 'code.field:services/orders/internal/application/order_service.go#Service.now'
+    evidence:
+      - path: 'services/orders/internal/application/order_service.go'
+        startLine: 106
+        endLine: 106
+        quote: '	now func() time.Time'
+    reading: 'parsed'
+  - relation: 'code.contains'
+    from: 'code.symbol:services/orders/internal/application/order_service.go#Service'
+    to: 'code.field:services/orders/internal/application/order_service.go#Service.store'
+    evidence:
+      - path: 'services/orders/internal/application/order_service.go'
+        startLine: 102
+        endLine: 102
+        quote: '	store OrderStore'
+    reading: 'parsed'
+  - relation: 'code.imports'
+    from: 'code.file:services/orders/internal/application/order_service.go'
+    to: 'code.module:services/orders/internal/domain'
+    evidence:
+      - path: 'services/orders/internal/application/order_service.go'
+        startLine: 15
+        endLine: 15
+        quote: '	"training.example/orders/internal/domain"'
+    reading: 'parsed'
+  - relation: 'code.imports'
+    from: 'code.file:services/orders/internal/application/order_service.go'
+    to: 'code.module:services/orders/internal/logging'
+    evidence:
+      - path: 'services/orders/internal/application/order_service.go'
+        startLine: 16
+        endLine: 16
+        quote: '	"training.example/orders/internal/logging"'
+    reading: 'parsed'
+  - relation: 'code.imports'
+    from: 'code.file:services/orders/internal/application/order_service.go'
+    to: 'code.module:services/orders/internal/pricing'
+    evidence:
+      - path: 'services/orders/internal/application/order_service.go'
+        startLine: 17
+        endLine: 17
+        quote: '	"training.example/orders/internal/pricing"'
+    reading: 'parsed'
+  - relation: 'code.uses-type'
+    from: 'code.symbol:services/orders/internal/application/order_service.go#NewService'
+    to: 'code.symbol:services/orders/internal/application/order_service.go#Metrics'
+    evidence:
+      - path: 'services/orders/internal/application/order_service.go'
+        startLine: 110
+        endLine: 110
+        quote: 'func NewService(store OrderStore, metrics Metrics, now func() time.Time) *Service {'
+    reading: 'parsed'
+  - relation: 'code.uses-type'
+    from: 'code.symbol:services/orders/internal/application/order_service.go#NewService'
+    to: 'code.symbol:services/orders/internal/application/order_service.go#OrderStore'
+    evidence:
+      - path: 'services/orders/internal/application/order_service.go'
+        startLine: 110
+        endLine: 110
+        quote: 'func NewService(store OrderStore, metrics Metrics, now func() time.Time) *Service {'
+    reading: 'parsed'
+  - relation: 'code.uses-type'
+    from: 'code.symbol:services/orders/internal/application/order_service.go#NewService'
+    to: 'code.symbol:services/orders/internal/application/order_service.go#Service'
+    evidence:
+      - path: 'services/orders/internal/application/order_service.go'
+        startLine: 110
+        endLine: 110
+        quote: 'func NewService(store OrderStore, metrics Metrics, now func() time.Time) *Service {'
+    reading: 'parsed'
+  - relation: 'code.uses-type'
+    from: 'code.symbol:services/orders/internal/application/order_service.go#Service'
+    to: 'code.symbol:services/orders/internal/application/order_service.go#Metrics'
+    evidence:
+      - path: 'services/orders/internal/application/order_service.go'
+        startLine: 104
+        endLine: 104
+        quote: '	metrics Metrics'
+    reading: 'parsed'
+  - relation: 'code.uses-type'
+    from: 'code.symbol:services/orders/internal/application/order_service.go#Service'
+    to: 'code.symbol:services/orders/internal/application/order_service.go#OrderStore'
+    evidence:
+      - path: 'services/orders/internal/application/order_service.go'
+        startLine: 102
+        endLine: 102
+        quote: '	store OrderStore'
+    reading: 'parsed'
+  - relation: 'code.uses-type'
+    from: 'code.symbol:services/orders/internal/application/order_service.go#Service.Apply'
+    to: 'code.symbol:services/orders/internal/domain/order.go#Event'
+    evidence:
+      - path: 'services/orders/internal/application/order_service.go'
+        startLine: 198
+        endLine: 198
+        quote: 'func (s *Service) Apply(ctx context.Context, id string, event domain.Event, note string) (domain.Order, error) {'
+    reading: 'parsed'
+  - relation: 'code.uses-type'
+    from: 'code.symbol:services/orders/internal/application/order_service.go#Service.Apply'
+    to: 'code.symbol:services/orders/internal/domain/order.go#Order'
+    evidence:
+      - path: 'services/orders/internal/application/order_service.go'
+        startLine: 198
+        endLine: 198
+        quote: 'func (s *Service) Apply(ctx context.Context, id string, event domain.Event, note string) (domain.Order, error) {'
+    reading: 'parsed'
+  - relation: 'code.uses-type'
+    from: 'code.symbol:services/orders/internal/application/order_service.go#Service.Cancel'
+    to: 'code.symbol:services/orders/internal/domain/order.go#Order'
+    evidence:
+      - path: 'services/orders/internal/application/order_service.go'
+        startLine: 220
+        endLine: 220
+        quote: 'func (s *Service) Cancel(ctx context.Context, id, reason string) (domain.Order, error) {'
+    reading: 'parsed'
+  - relation: 'code.uses-type'
+    from: 'code.symbol:services/orders/internal/application/order_service.go#Service.ForEach'
+    to: 'code.symbol:services/orders/internal/application/order_service.go#ListFilter'
+    evidence:
+      - path: 'services/orders/internal/application/order_service.go'
+        startLine: 177
+        endLine: 177
+        quote: 'func (s *Service) ForEach(ctx context.Context, filter ListFilter, fn func(domain.Order) error) error {'
+    reading: 'parsed'
+  - relation: 'code.uses-type'
+    from: 'code.symbol:services/orders/internal/application/order_service.go#Service.Get'
+    to: 'code.symbol:services/orders/internal/domain/order.go#Order'
+    evidence:
+      - path: 'services/orders/internal/application/order_service.go'
+        startLine: 164
+        endLine: 164
+        quote: 'func (s *Service) Get(ctx context.Context, id string) (domain.Order, error) {'
+    reading: 'parsed'
+  - relation: 'code.uses-type'
+    from: 'code.symbol:services/orders/internal/application/order_service.go#Service.List'
+    to: 'code.symbol:services/orders/internal/application/order_service.go#ListFilter'
+    evidence:
+      - path: 'services/orders/internal/application/order_service.go'
+        startLine: 169
+        endLine: 169
+        quote: 'func (s *Service) List(ctx context.Context, filter ListFilter) ([]domain.Order, error) {'
+    reading: 'parsed'
+  - relation: 'code.uses-type'
+    from: 'code.symbol:services/orders/internal/application/order_service.go#Service.Place'
+    to: 'code.symbol:services/orders/internal/application/order_service.go#PlaceOrder'
+    evidence:
+      - path: 'services/orders/internal/application/order_service.go'
+        startLine: 115
+        endLine: 115
+        quote: 'func (s *Service) Place(ctx context.Context, cmd PlaceOrder) (domain.Order, error) {'
+    reading: 'parsed'
+  - relation: 'code.uses-type'
+    from: 'code.symbol:services/orders/internal/application/order_service.go#Service.Place'
+    to: 'code.symbol:services/orders/internal/domain/order.go#Order'
+    evidence:
+      - path: 'services/orders/internal/application/order_service.go'
+        startLine: 115
+        endLine: 115
+        quote: 'func (s *Service) Place(ctx context.Context, cmd PlaceOrder) (domain.Order, error) {'
+    reading: 'parsed'
+  - relation: 'code.uses-type'
+    from: 'code.symbol:services/orders/internal/application/order_service.go#Service.Ship'
+    to: 'code.symbol:services/orders/internal/domain/order.go#Order'
+    evidence:
+      - path: 'services/orders/internal/application/order_service.go'
+        startLine: 225
+        endLine: 225
+        quote: 'func (s *Service) Ship(ctx context.Context, id string) (domain.Order, error) {'
+    reading: 'parsed'
+  - relation: 'code.uses-type'
+    from: 'code.symbol:services/orders/internal/application/order_service.go#Service.alreadyApplied'
+    to: 'code.symbol:services/orders/internal/domain/order.go#Event'
+    evidence:
+      - path: 'services/orders/internal/application/order_service.go'
+        startLine: 251
+        endLine: 251
+        quote: 'func (s *Service) alreadyApplied(ctx context.Context, orderID string, event domain.Event) (bool, error) {'
+    reading: 'parsed'

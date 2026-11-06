@@ -1,0 +1,57 @@
+path: 'services/promotions/Dockerfile'
+nodes:
+  - id: 'code.dockerfile:services/promotions/Dockerfile'
+    kind: 'code.dockerfile'
+    label: 'services/promotions/Dockerfile'
+    evidence:
+      - path: 'services/promotions/Dockerfile'
+        startLine: 1
+        endLine: 1
+        quote: 'FROM golang:1.22.5-alpine AS build'
+    reading: 'declared'
+  - id: 'code.file:services/promotions/Dockerfile'
+    kind: 'code.file'
+    label: 'Dockerfile'
+    evidence:
+      - path: 'services/promotions/Dockerfile'
+        startLine: 1
+        endLine: 1
+        quote: 'FROM golang:1.22.5-alpine AS build'
+    reading: 'parsed'
+  - id: 'code.port:services/promotions:8082'
+    kind: 'code.port'
+    label: '8082'
+    evidence:
+      - path: 'services/promotions/Dockerfile'
+        startLine: 12
+        endLine: 12
+        quote: 'EXPOSE 8082'
+    reading: 'declared'
+edges:
+  - relation: 'code.belongs-to'
+    from: 'code.dockerfile:services/promotions/Dockerfile'
+    to: 'code.package:services/promotions'
+    evidence:
+      - path: 'services/promotions/Dockerfile'
+        startLine: 1
+        endLine: 1
+        quote: 'FROM golang:1.22.5-alpine AS build'
+    reading: 'declared'
+  - relation: 'code.built-by'
+    from: 'code.dockerfile:services/promotions/Dockerfile'
+    to: 'code.image:golang:1.22.5-alpine'
+    evidence:
+      - path: 'services/promotions/Dockerfile'
+        startLine: 1
+        endLine: 1
+        quote: 'FROM golang:1.22.5-alpine AS build'
+    reading: 'declared'
+  - relation: 'code.exposes'
+    from: 'code.dockerfile:services/promotions/Dockerfile'
+    to: 'code.port:services/promotions:8082'
+    evidence:
+      - path: 'services/promotions/Dockerfile'
+        startLine: 12
+        endLine: 12
+        quote: 'EXPOSE 8082'
+    reading: 'declared'

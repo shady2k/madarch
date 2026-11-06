@@ -1,0 +1,84 @@
+path: 'services/checkout/src/api/routes.ts'
+nodes:
+  - id: 'code.file:services/checkout/src/api/routes.ts'
+    kind: 'code.file'
+    label: 'routes.ts'
+    evidence:
+      - path: 'services/checkout/src/api/routes.ts'
+        startLine: 1
+        endLine: 1
+        quote: 'import { randomUUID } from ''node:crypto'';'
+    reading: 'parsed'
+  - id: 'code.symbol:services/checkout/src/api/routes.ts#checkoutRoutes'
+    kind: 'code.symbol'
+    label: 'checkoutRoutes'
+    evidence:
+      - path: 'services/checkout/src/api/routes.ts'
+        startLine: 7
+        endLine: 7
+        quote: 'export function checkoutRoutes(service: CheckoutService): Router {'
+    reading: 'parsed'
+edges:
+  - relation: 'code.calls'
+    from: 'code.route:checkout:POST /checkout'
+    to: 'code.symbol:services/checkout/src/checkout-service.ts#CheckoutService.checkout'
+    evidence:
+      - path: 'services/checkout/src/api/routes.ts'
+        startLine: 31
+        endLine: 31
+        quote: '      const result = await service.checkout({'
+    reading: 'judgement'
+  - relation: 'code.calls'
+    from: 'code.route:checkout:POST /checkout/preview'
+    to: 'code.symbol:services/checkout/src/pricing.ts#previewTotal'
+    evidence:
+      - path: 'services/checkout/src/api/routes.ts'
+        startLine: 17
+        endLine: 17
+        quote: '    res.json(previewTotal(items, Number(percent ?? 0)));'
+    reading: 'judgement'
+  - relation: 'code.calls'
+    from: 'code.symbol:services/checkout/src/api/routes.ts#checkoutRoutes'
+    to: 'code.symbol:services/checkout/src/pricing.ts#previewTotal'
+    evidence:
+      - path: 'services/checkout/src/api/routes.ts'
+        startLine: 17
+        endLine: 17
+        quote: '    res.json(previewTotal(items, Number(percent ?? 0)));'
+    reading: 'parsed'
+  - relation: 'code.contains'
+    from: 'code.file:services/checkout/src/api/routes.ts'
+    to: 'code.symbol:services/checkout/src/api/routes.ts#checkoutRoutes'
+    evidence:
+      - path: 'services/checkout/src/api/routes.ts'
+        startLine: 7
+        endLine: 7
+        quote: 'export function checkoutRoutes(service: CheckoutService): Router {'
+    reading: 'parsed'
+  - relation: 'code.imports'
+    from: 'code.file:services/checkout/src/api/routes.ts'
+    to: 'code.dependency:services/checkout/package.json#express'
+    evidence:
+      - path: 'services/checkout/src/api/routes.ts'
+        startLine: 2
+        endLine: 2
+        quote: 'import { NextFunction, Request, Response, Router } from ''express'';'
+    reading: 'parsed'
+  - relation: 'code.imports'
+    from: 'code.file:services/checkout/src/api/routes.ts'
+    to: 'code.file:services/checkout/src/checkout-service.ts'
+    evidence:
+      - path: 'services/checkout/src/api/routes.ts'
+        startLine: 3
+        endLine: 3
+        quote: 'import { CheckoutService } from ''../checkout-service'';'
+    reading: 'parsed'
+  - relation: 'code.imports'
+    from: 'code.file:services/checkout/src/api/routes.ts'
+    to: 'code.file:services/checkout/src/pricing.ts'
+    evidence:
+      - path: 'services/checkout/src/api/routes.ts'
+        startLine: 4
+        endLine: 4
+        quote: 'import { previewTotal } from ''../pricing'';'
+    reading: 'parsed'

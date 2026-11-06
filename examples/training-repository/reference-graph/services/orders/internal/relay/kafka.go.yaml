@@ -1,0 +1,138 @@
+path: 'services/orders/internal/relay/kafka.go'
+nodes:
+  - id: 'code.field:services/orders/internal/relay/kafka.go#KafkaPublisher.writer'
+    kind: 'code.field'
+    label: 'KafkaPublisher.writer'
+    evidence:
+      - path: 'services/orders/internal/relay/kafka.go'
+        startLine: 12
+        endLine: 12
+        quote: '	writer *kafka.Writer'
+    reading: 'parsed'
+  - id: 'code.file:services/orders/internal/relay/kafka.go'
+    kind: 'code.file'
+    label: 'kafka.go'
+    evidence:
+      - path: 'services/orders/internal/relay/kafka.go'
+        startLine: 1
+        endLine: 1
+        quote: 'package relay'
+    reading: 'parsed'
+  - id: 'code.module:services/orders/internal/relay'
+    kind: 'code.module'
+    label: 'services/orders/internal/relay'
+    evidence:
+      - path: 'services/orders/internal/relay/kafka.go'
+        startLine: 1
+        endLine: 1
+        quote: 'package relay'
+    reading: 'parsed'
+  - id: 'code.symbol:services/orders/internal/relay/kafka.go#KafkaPublisher'
+    kind: 'code.symbol'
+    label: 'KafkaPublisher'
+    evidence:
+      - path: 'services/orders/internal/relay/kafka.go'
+        startLine: 11
+        endLine: 11
+        quote: 'type KafkaPublisher struct {'
+    reading: 'parsed'
+  - id: 'code.symbol:services/orders/internal/relay/kafka.go#KafkaPublisher.Close'
+    kind: 'code.symbol'
+    label: 'KafkaPublisher.Close'
+    evidence:
+      - path: 'services/orders/internal/relay/kafka.go'
+        startLine: 32
+        endLine: 32
+        quote: 'func (p *KafkaPublisher) Close() error {'
+    reading: 'parsed'
+  - id: 'code.symbol:services/orders/internal/relay/kafka.go#KafkaPublisher.Publish'
+    kind: 'code.symbol'
+    label: 'KafkaPublisher.Publish'
+    evidence:
+      - path: 'services/orders/internal/relay/kafka.go'
+        startLine: 27
+        endLine: 27
+        quote: 'func (p *KafkaPublisher) Publish(ctx context.Context, topic, key string, payload []byte) error {'
+    reading: 'parsed'
+  - id: 'code.symbol:services/orders/internal/relay/kafka.go#NewKafkaPublisher'
+    kind: 'code.symbol'
+    label: 'NewKafkaPublisher'
+    evidence:
+      - path: 'services/orders/internal/relay/kafka.go'
+        startLine: 18
+        endLine: 18
+        quote: 'func NewKafkaPublisher(brokers string) *KafkaPublisher {'
+    reading: 'parsed'
+edges:
+  - relation: 'code.contains'
+    from: 'code.file:services/orders/internal/relay/kafka.go'
+    to: 'code.symbol:services/orders/internal/relay/kafka.go#KafkaPublisher'
+    evidence:
+      - path: 'services/orders/internal/relay/kafka.go'
+        startLine: 11
+        endLine: 11
+        quote: 'type KafkaPublisher struct {'
+    reading: 'parsed'
+  - relation: 'code.contains'
+    from: 'code.file:services/orders/internal/relay/kafka.go'
+    to: 'code.symbol:services/orders/internal/relay/kafka.go#KafkaPublisher.Close'
+    evidence:
+      - path: 'services/orders/internal/relay/kafka.go'
+        startLine: 32
+        endLine: 32
+        quote: 'func (p *KafkaPublisher) Close() error {'
+    reading: 'parsed'
+  - relation: 'code.contains'
+    from: 'code.file:services/orders/internal/relay/kafka.go'
+    to: 'code.symbol:services/orders/internal/relay/kafka.go#KafkaPublisher.Publish'
+    evidence:
+      - path: 'services/orders/internal/relay/kafka.go'
+        startLine: 27
+        endLine: 27
+        quote: 'func (p *KafkaPublisher) Publish(ctx context.Context, topic, key string, payload []byte) error {'
+    reading: 'parsed'
+  - relation: 'code.contains'
+    from: 'code.file:services/orders/internal/relay/kafka.go'
+    to: 'code.symbol:services/orders/internal/relay/kafka.go#NewKafkaPublisher'
+    evidence:
+      - path: 'services/orders/internal/relay/kafka.go'
+        startLine: 18
+        endLine: 18
+        quote: 'func NewKafkaPublisher(brokers string) *KafkaPublisher {'
+    reading: 'parsed'
+  - relation: 'code.contains'
+    from: 'code.module:services/orders/internal/relay'
+    to: 'code.file:services/orders/internal/relay/kafka.go'
+    evidence:
+      - path: 'services/orders/internal/relay/kafka.go'
+        startLine: 1
+        endLine: 1
+        quote: 'package relay'
+    reading: 'parsed'
+  - relation: 'code.contains'
+    from: 'code.symbol:services/orders/internal/relay/kafka.go#KafkaPublisher'
+    to: 'code.field:services/orders/internal/relay/kafka.go#KafkaPublisher.writer'
+    evidence:
+      - path: 'services/orders/internal/relay/kafka.go'
+        startLine: 12
+        endLine: 12
+        quote: '	writer *kafka.Writer'
+    reading: 'parsed'
+  - relation: 'code.imports'
+    from: 'code.file:services/orders/internal/relay/kafka.go'
+    to: 'code.dependency:services/orders/go.mod#github.com/segmentio/kafka-go'
+    evidence:
+      - path: 'services/orders/internal/relay/kafka.go'
+        startLine: 7
+        endLine: 7
+        quote: '	"github.com/segmentio/kafka-go"'
+    reading: 'parsed'
+  - relation: 'code.uses-type'
+    from: 'code.symbol:services/orders/internal/relay/kafka.go#NewKafkaPublisher'
+    to: 'code.symbol:services/orders/internal/relay/kafka.go#KafkaPublisher'
+    evidence:
+      - path: 'services/orders/internal/relay/kafka.go'
+        startLine: 18
+        endLine: 18
+        quote: 'func NewKafkaPublisher(brokers string) *KafkaPublisher {'
+    reading: 'parsed'

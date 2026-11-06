@@ -1,0 +1,66 @@
+path: 'services/promotions/go.mod'
+nodes:
+  - id: 'code.dependency:services/promotions/go.mod#github.com/lib/pq'
+    kind: 'code.dependency'
+    label: 'github.com/lib/pq v1.10.9'
+    evidence:
+      - path: 'services/promotions/go.mod'
+        startLine: 5
+        endLine: 5
+        quote: 'require github.com/lib/pq v1.10.9'
+    reading: 'declared'
+  - id: 'code.file:services/promotions/go.mod'
+    kind: 'code.file'
+    label: 'go.mod'
+    evidence:
+      - path: 'services/promotions/go.mod'
+        startLine: 1
+        endLine: 1
+        quote: 'module training.example/promotions'
+    reading: 'parsed'
+  - id: 'code.manifest:services/promotions/go.mod'
+    kind: 'code.manifest'
+    label: 'go.mod'
+    evidence:
+      - path: 'services/promotions/go.mod'
+        startLine: 1
+        endLine: 1
+        quote: 'module training.example/promotions'
+    reading: 'declared'
+  - id: 'code.package:services/promotions'
+    kind: 'code.package'
+    label: 'services/promotions'
+    evidence:
+      - path: 'services/promotions/go.mod'
+        startLine: 1
+        endLine: 1
+        quote: 'module training.example/promotions'
+    reading: 'declared'
+edges:
+  - relation: 'code.belongs-to'
+    from: 'code.manifest:services/promotions/go.mod'
+    to: 'code.package:services/promotions'
+    evidence:
+      - path: 'services/promotions/go.mod'
+        startLine: 1
+        endLine: 1
+        quote: 'module training.example/promotions'
+    reading: 'declared'
+  - relation: 'code.belongs-to'
+    from: 'code.package:services/promotions'
+    to: 'code.service:promotions'
+    evidence:
+      - path: 'services/promotions/go.mod'
+        startLine: 1
+        endLine: 1
+        quote: 'module training.example/promotions'
+    reading: 'declared'
+  - relation: 'code.declares-dependency'
+    from: 'code.manifest:services/promotions/go.mod'
+    to: 'code.dependency:services/promotions/go.mod#github.com/lib/pq'
+    evidence:
+      - path: 'services/promotions/go.mod'
+        startLine: 5
+        endLine: 5
+        quote: 'require github.com/lib/pq v1.10.9'
+    reading: 'declared'

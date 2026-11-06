@@ -1,0 +1,165 @@
+path: 'services/payments/src/config.ts'
+nodes:
+  - id: 'code.debt:services/payments/src/config.ts:1'
+    kind: 'code.debt'
+    label: 'TODO'
+    evidence:
+      - path: 'services/payments/src/config.ts'
+        startLine: 1
+        endLine: 1
+        quote: '// TODO: source the provider secret from the vault when the sandbox is connected.'
+    reading: 'parsed'
+  - id: 'code.field:services/payments/src/config.ts#Config.databaseUrl'
+    kind: 'code.field'
+    label: 'Config.databaseUrl'
+    evidence:
+      - path: 'services/payments/src/config.ts'
+        startLine: 5
+        endLine: 5
+        quote: '  databaseUrl: string;'
+    reading: 'parsed'
+  - id: 'code.field:services/payments/src/config.ts#Config.jwtSecret'
+    kind: 'code.field'
+    label: 'Config.jwtSecret'
+    evidence:
+      - path: 'services/payments/src/config.ts'
+        startLine: 9
+        endLine: 9
+        quote: '  jwtSecret: string;'
+    reading: 'parsed'
+  - id: 'code.field:services/payments/src/config.ts#Config.kafkaBrokers'
+    kind: 'code.field'
+    label: 'Config.kafkaBrokers'
+    evidence:
+      - path: 'services/payments/src/config.ts'
+        startLine: 7
+        endLine: 7
+        quote: '  kafkaBrokers: string[];'
+    reading: 'parsed'
+  - id: 'code.field:services/payments/src/config.ts#Config.paymentProvider'
+    kind: 'code.field'
+    label: 'Config.paymentProvider'
+    evidence:
+      - path: 'services/payments/src/config.ts'
+        startLine: 11
+        endLine: 11
+        quote: '  paymentProvider: string;'
+    reading: 'parsed'
+  - id: 'code.field:services/payments/src/config.ts#Config.paymentTimeoutMs'
+    kind: 'code.field'
+    label: 'Config.paymentTimeoutMs'
+    evidence:
+      - path: 'services/payments/src/config.ts'
+        startLine: 13
+        endLine: 13
+        quote: '  paymentTimeoutMs: number;'
+    reading: 'parsed'
+  - id: 'code.file:services/payments/src/config.ts'
+    kind: 'code.file'
+    label: 'config.ts'
+    evidence:
+      - path: 'services/payments/src/config.ts'
+        startLine: 1
+        endLine: 1
+        quote: '// TODO: source the provider secret from the vault when the sandbox is connected.'
+    reading: 'parsed'
+  - id: 'code.symbol:services/payments/src/config.ts#Config'
+    kind: 'code.symbol'
+    label: 'Config'
+    evidence:
+      - path: 'services/payments/src/config.ts'
+        startLine: 3
+        endLine: 3
+        quote: 'export interface Config {'
+    reading: 'parsed'
+  - id: 'code.symbol:services/payments/src/config.ts#DEFAULT_PAYMENT_TIMEOUT_MS'
+    kind: 'code.symbol'
+    label: 'DEFAULT_PAYMENT_TIMEOUT_MS'
+    evidence:
+      - path: 'services/payments/src/config.ts'
+        startLine: 16
+        endLine: 16
+        quote: 'const DEFAULT_PAYMENT_TIMEOUT_MS = 3000;'
+    reading: 'parsed'
+  - id: 'code.symbol:services/payments/src/config.ts#loadConfig'
+    kind: 'code.symbol'
+    label: 'loadConfig'
+    evidence:
+      - path: 'services/payments/src/config.ts'
+        startLine: 19
+        endLine: 19
+        quote: 'export function loadConfig(env: NodeJS.ProcessEnv = process.env): Config {'
+    reading: 'parsed'
+edges:
+  - relation: 'code.contains'
+    from: 'code.file:services/payments/src/config.ts'
+    to: 'code.symbol:services/payments/src/config.ts#Config'
+    evidence:
+      - path: 'services/payments/src/config.ts'
+        startLine: 3
+        endLine: 3
+        quote: 'export interface Config {'
+    reading: 'parsed'
+  - relation: 'code.contains'
+    from: 'code.file:services/payments/src/config.ts'
+    to: 'code.symbol:services/payments/src/config.ts#DEFAULT_PAYMENT_TIMEOUT_MS'
+    evidence:
+      - path: 'services/payments/src/config.ts'
+        startLine: 16
+        endLine: 16
+        quote: 'const DEFAULT_PAYMENT_TIMEOUT_MS = 3000;'
+    reading: 'parsed'
+  - relation: 'code.contains'
+    from: 'code.file:services/payments/src/config.ts'
+    to: 'code.symbol:services/payments/src/config.ts#loadConfig'
+    evidence:
+      - path: 'services/payments/src/config.ts'
+        startLine: 19
+        endLine: 19
+        quote: 'export function loadConfig(env: NodeJS.ProcessEnv = process.env): Config {'
+    reading: 'parsed'
+  - relation: 'code.contains'
+    from: 'code.symbol:services/payments/src/config.ts#Config'
+    to: 'code.field:services/payments/src/config.ts#Config.databaseUrl'
+    evidence:
+      - path: 'services/payments/src/config.ts'
+        startLine: 5
+        endLine: 5
+        quote: '  databaseUrl: string;'
+    reading: 'parsed'
+  - relation: 'code.contains'
+    from: 'code.symbol:services/payments/src/config.ts#Config'
+    to: 'code.field:services/payments/src/config.ts#Config.jwtSecret'
+    evidence:
+      - path: 'services/payments/src/config.ts'
+        startLine: 9
+        endLine: 9
+        quote: '  jwtSecret: string;'
+    reading: 'parsed'
+  - relation: 'code.contains'
+    from: 'code.symbol:services/payments/src/config.ts#Config'
+    to: 'code.field:services/payments/src/config.ts#Config.kafkaBrokers'
+    evidence:
+      - path: 'services/payments/src/config.ts'
+        startLine: 7
+        endLine: 7
+        quote: '  kafkaBrokers: string[];'
+    reading: 'parsed'
+  - relation: 'code.contains'
+    from: 'code.symbol:services/payments/src/config.ts#Config'
+    to: 'code.field:services/payments/src/config.ts#Config.paymentProvider'
+    evidence:
+      - path: 'services/payments/src/config.ts'
+        startLine: 11
+        endLine: 11
+        quote: '  paymentProvider: string;'
+    reading: 'parsed'
+  - relation: 'code.contains'
+    from: 'code.symbol:services/payments/src/config.ts#Config'
+    to: 'code.field:services/payments/src/config.ts#Config.paymentTimeoutMs'
+    evidence:
+      - path: 'services/payments/src/config.ts'
+        startLine: 13
+        endLine: 13
+        quote: '  paymentTimeoutMs: number;'
+    reading: 'parsed'

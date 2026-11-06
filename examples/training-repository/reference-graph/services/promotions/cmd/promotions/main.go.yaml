@@ -1,0 +1,174 @@
+path: 'services/promotions/cmd/promotions/main.go'
+nodes:
+  - id: 'code.entry-point:promotions'
+    kind: 'code.entry-point'
+    label: 'main'
+    evidence:
+      - path: 'services/promotions/cmd/promotions/main.go'
+        startLine: 17
+        endLine: 17
+        quote: 'func main() {'
+    reading: 'parsed'
+  - id: 'code.file:services/promotions/cmd/promotions/main.go'
+    kind: 'code.file'
+    label: 'main.go'
+    evidence:
+      - path: 'services/promotions/cmd/promotions/main.go'
+        startLine: 1
+        endLine: 1
+        quote: '// Command promotions runs the promotions service.'
+    reading: 'parsed'
+  - id: 'code.module:services/promotions/cmd/promotions'
+    kind: 'code.module'
+    label: 'services/promotions/cmd/promotions'
+    evidence:
+      - path: 'services/promotions/cmd/promotions/main.go'
+        startLine: 2
+        endLine: 2
+        quote: 'package main'
+    reading: 'parsed'
+  - id: 'code.process:promotions'
+    kind: 'code.process'
+    label: 'promotions'
+    evidence:
+      - path: 'services/promotions/cmd/promotions/main.go'
+        startLine: 1
+        endLine: 1
+        quote: '// Command promotions runs the promotions service.'
+    reading: 'parsed'
+  - id: 'code.symbol:services/promotions/cmd/promotions/main.go#listenAddr'
+    kind: 'code.symbol'
+    label: 'listenAddr'
+    evidence:
+      - path: 'services/promotions/cmd/promotions/main.go'
+        startLine: 15
+        endLine: 15
+        quote: 'const listenAddr = ":8082"'
+    reading: 'parsed'
+  - id: 'code.symbol:services/promotions/cmd/promotions/main.go#main'
+    kind: 'code.symbol'
+    label: 'main'
+    evidence:
+      - path: 'services/promotions/cmd/promotions/main.go'
+        startLine: 17
+        endLine: 17
+        quote: 'func main() {'
+    reading: 'parsed'
+edges:
+  - relation: 'code.belongs-to'
+    from: 'code.process:promotions'
+    to: 'code.service:promotions'
+    evidence:
+      - path: 'services/promotions/cmd/promotions/main.go'
+        startLine: 1
+        endLine: 1
+        quote: '// Command promotions runs the promotions service.'
+    reading: 'parsed'
+  - relation: 'code.calls'
+    from: 'code.symbol:services/promotions/cmd/promotions/main.go#main'
+    to: 'code.symbol:services/promotions/internal/api/handler.go#Handler.Routes'
+    evidence:
+      - path: 'services/promotions/cmd/promotions/main.go'
+        startLine: 32
+        endLine: 32
+        quote: '	server := &http.Server{Addr: listenAddr, Handler: handler.Routes(), ReadHeaderTimeout: 5 * time.Second}'
+    reading: 'parsed'
+  - relation: 'code.calls'
+    from: 'code.symbol:services/promotions/cmd/promotions/main.go#main'
+    to: 'code.symbol:services/promotions/internal/api/handler.go#New'
+    evidence:
+      - path: 'services/promotions/cmd/promotions/main.go'
+        startLine: 31
+        endLine: 31
+        quote: '	handler := api.New(promotions, log, time.Now)'
+    reading: 'parsed'
+  - relation: 'code.calls'
+    from: 'code.symbol:services/promotions/cmd/promotions/main.go#main'
+    to: 'code.symbol:services/promotions/internal/logging/logger.go#New'
+    evidence:
+      - path: 'services/promotions/cmd/promotions/main.go'
+        startLine: 18
+        endLine: 18
+        quote: '	log := logging.New("promotions")'
+    reading: 'parsed'
+  - relation: 'code.calls'
+    from: 'code.symbol:services/promotions/cmd/promotions/main.go#main'
+    to: 'code.symbol:services/promotions/internal/store/promotions.go#Open'
+    evidence:
+      - path: 'services/promotions/cmd/promotions/main.go'
+        startLine: 24
+        endLine: 24
+        quote: '	promotions, err := store.Open(context.Background(), url)'
+    reading: 'parsed'
+  - relation: 'code.contains'
+    from: 'code.file:services/promotions/cmd/promotions/main.go'
+    to: 'code.symbol:services/promotions/cmd/promotions/main.go#listenAddr'
+    evidence:
+      - path: 'services/promotions/cmd/promotions/main.go'
+        startLine: 15
+        endLine: 15
+        quote: 'const listenAddr = ":8082"'
+    reading: 'parsed'
+  - relation: 'code.contains'
+    from: 'code.file:services/promotions/cmd/promotions/main.go'
+    to: 'code.symbol:services/promotions/cmd/promotions/main.go#main'
+    evidence:
+      - path: 'services/promotions/cmd/promotions/main.go'
+        startLine: 17
+        endLine: 17
+        quote: 'func main() {'
+    reading: 'parsed'
+  - relation: 'code.contains'
+    from: 'code.module:services/promotions/cmd/promotions'
+    to: 'code.file:services/promotions/cmd/promotions/main.go'
+    evidence:
+      - path: 'services/promotions/cmd/promotions/main.go'
+        startLine: 2
+        endLine: 2
+        quote: 'package main'
+    reading: 'parsed'
+  - relation: 'code.imports'
+    from: 'code.file:services/promotions/cmd/promotions/main.go'
+    to: 'code.module:services/promotions/internal/api'
+    evidence:
+      - path: 'services/promotions/cmd/promotions/main.go'
+        startLine: 10
+        endLine: 10
+        quote: '	"training.example/promotions/internal/api"'
+    reading: 'parsed'
+  - relation: 'code.imports'
+    from: 'code.file:services/promotions/cmd/promotions/main.go'
+    to: 'code.module:services/promotions/internal/logging'
+    evidence:
+      - path: 'services/promotions/cmd/promotions/main.go'
+        startLine: 11
+        endLine: 11
+        quote: '	"training.example/promotions/internal/logging"'
+    reading: 'parsed'
+  - relation: 'code.imports'
+    from: 'code.file:services/promotions/cmd/promotions/main.go'
+    to: 'code.module:services/promotions/internal/store'
+    evidence:
+      - path: 'services/promotions/cmd/promotions/main.go'
+        startLine: 12
+        endLine: 12
+        quote: '	"training.example/promotions/internal/store"'
+    reading: 'parsed'
+  - relation: 'code.listens-on'
+    from: 'code.process:promotions'
+    to: 'code.port:promotions:8082'
+    evidence:
+      - path: 'services/promotions/cmd/promotions/main.go'
+        startLine: 15
+        endLine: 15
+        quote: 'const listenAddr = ":8082"'
+    reading: 'parsed'
+  - relation: 'code.reads-env'
+    from: 'code.file:services/promotions/cmd/promotions/main.go'
+    to: 'code.env-var:DATABASE_URL'
+    evidence:
+      - path: 'services/promotions/cmd/promotions/main.go'
+        startLine: 19
+        endLine: 19
+        quote: '	url := os.Getenv("DATABASE_URL")'
+    reading: 'parsed'

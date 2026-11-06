@@ -1,0 +1,39 @@
+path: 'services/checkout/README.md'
+nodes:
+  - id: 'code.document:services/checkout/README.md'
+    kind: 'code.document'
+    label: 'README.md'
+    evidence:
+      - path: 'services/checkout/README.md'
+        startLine: 1
+        endLine: 1
+        quote: '# Checkout'
+    reading: 'parsed'
+  - id: 'code.file:services/checkout/README.md'
+    kind: 'code.file'
+    label: 'README.md'
+    evidence:
+      - path: 'services/checkout/README.md'
+        startLine: 1
+        endLine: 1
+        quote: '# Checkout'
+    reading: 'parsed'
+edges:
+  - relation: 'code.mentions'
+    from: 'code.document:services/checkout/README.md'
+    to: 'code.route:checkout:POST /checkout'
+    evidence:
+      - path: 'services/checkout/README.md'
+        startLine: 3
+        endLine: 3
+        quote: 'The backend for the frontend. `POST /checkout` applies the promotion code, places'
+    reading: 'judgement'
+  - relation: 'code.mentions'
+    from: 'code.document:services/checkout/README.md'
+    to: 'code.route:checkout:POST /checkout/preview'
+    evidence:
+      - path: 'services/checkout/README.md'
+        startLine: 5
+        endLine: 5
+        quote: 'the order again when the payment is declined. `POST /checkout/preview` prices a'
+    reading: 'judgement'

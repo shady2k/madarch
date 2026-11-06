@@ -1,0 +1,264 @@
+path: 'services/payments/src/events/publishers.ts'
+nodes:
+  - id: 'code.field:services/payments/src/events/publishers.ts#EventSink.send'
+    kind: 'code.field'
+    label: 'EventSink.send'
+    evidence:
+      - path: 'services/payments/src/events/publishers.ts'
+        startLine: 11
+        endLine: 11
+        quote: '  send(topic: string, key: string, value: string): Promise<void>;'
+    reading: 'parsed'
+  - id: 'code.field:services/payments/src/events/publishers.ts#KafkaEventSink.producer'
+    kind: 'code.field'
+    label: 'KafkaEventSink.producer'
+    evidence:
+      - path: 'services/payments/src/events/publishers.ts'
+        startLine: 15
+        endLine: 15
+        quote: '  private constructor(private readonly producer: Producer) {}'
+    reading: 'parsed'
+  - id: 'code.file:services/payments/src/events/publishers.ts'
+    kind: 'code.file'
+    label: 'publishers.ts'
+    evidence:
+      - path: 'services/payments/src/events/publishers.ts'
+        startLine: 1
+        endLine: 1
+        quote: 'import { Kafka, Producer } from ''kafkajs'';'
+    reading: 'parsed'
+  - id: 'code.symbol:services/payments/src/events/publishers.ts#EventSink'
+    kind: 'code.symbol'
+    label: 'EventSink'
+    evidence:
+      - path: 'services/payments/src/events/publishers.ts'
+        startLine: 10
+        endLine: 10
+        quote: 'export interface EventSink {'
+    reading: 'parsed'
+  - id: 'code.symbol:services/payments/src/events/publishers.ts#KafkaEventSink'
+    kind: 'code.symbol'
+    label: 'KafkaEventSink'
+    evidence:
+      - path: 'services/payments/src/events/publishers.ts'
+        startLine: 14
+        endLine: 14
+        quote: 'export class KafkaEventSink implements EventSink {'
+    reading: 'parsed'
+  - id: 'code.symbol:services/payments/src/events/publishers.ts#KafkaEventSink.close'
+    kind: 'code.symbol'
+    label: 'KafkaEventSink.close'
+    evidence:
+      - path: 'services/payments/src/events/publishers.ts'
+        startLine: 28
+        endLine: 28
+        quote: '  async close(): Promise<void> {'
+    reading: 'parsed'
+  - id: 'code.symbol:services/payments/src/events/publishers.ts#KafkaEventSink.connect'
+    kind: 'code.symbol'
+    label: 'KafkaEventSink.connect'
+    evidence:
+      - path: 'services/payments/src/events/publishers.ts'
+        startLine: 18
+        endLine: 18
+        quote: '  static async connect(brokers: string[]): Promise<KafkaEventSink> {'
+    reading: 'parsed'
+  - id: 'code.symbol:services/payments/src/events/publishers.ts#KafkaEventSink.constructor'
+    kind: 'code.symbol'
+    label: 'KafkaEventSink.constructor'
+    evidence:
+      - path: 'services/payments/src/events/publishers.ts'
+        startLine: 15
+        endLine: 15
+        quote: '  private constructor(private readonly producer: Producer) {}'
+    reading: 'parsed'
+  - id: 'code.symbol:services/payments/src/events/publishers.ts#KafkaEventSink.send'
+    kind: 'code.symbol'
+    label: 'KafkaEventSink.send'
+    evidence:
+      - path: 'services/payments/src/events/publishers.ts'
+        startLine: 24
+        endLine: 24
+        quote: '  async send(topic: string, key: string, value: string): Promise<void> {'
+    reading: 'parsed'
+  - id: 'code.symbol:services/payments/src/events/publishers.ts#PAYMENTS_TOPIC'
+    kind: 'code.symbol'
+    label: 'PAYMENTS_TOPIC'
+    evidence:
+      - path: 'services/payments/src/events/publishers.ts'
+        startLine: 5
+        endLine: 5
+        quote: 'export const PAYMENTS_TOPIC = ''payments.events'';'
+    reading: 'parsed'
+  - id: 'code.symbol:services/payments/src/events/publishers.ts#PaymentEventType'
+    kind: 'code.symbol'
+    label: 'PaymentEventType'
+    evidence:
+      - path: 'services/payments/src/events/publishers.ts'
+        startLine: 7
+        endLine: 7
+        quote: 'export type PaymentEventType = ''payment.captured'' | ''payment.failed'' | ''payment.refunded'';'
+    reading: 'parsed'
+  - id: 'code.symbol:services/payments/src/events/publishers.ts#publishPaymentEvent'
+    kind: 'code.symbol'
+    label: 'publishPaymentEvent'
+    evidence:
+      - path: 'services/payments/src/events/publishers.ts'
+        startLine: 38
+        endLine: 38
+        quote: 'export async function publishPaymentEvent(sink: EventSink, type: PaymentEventType, payment: Payment): Promise<void> {'
+    reading: 'parsed'
+edges:
+  - relation: 'code.calls'
+    from: 'code.symbol:services/payments/src/events/publishers.ts#KafkaEventSink.connect'
+    to: 'code.symbol:services/payments/src/events/publishers.ts#KafkaEventSink'
+    evidence:
+      - path: 'services/payments/src/events/publishers.ts'
+        startLine: 21
+        endLine: 21
+        quote: '    return new KafkaEventSink(producer);'
+    reading: 'parsed'
+  - relation: 'code.contains'
+    from: 'code.file:services/payments/src/events/publishers.ts'
+    to: 'code.symbol:services/payments/src/events/publishers.ts#EventSink'
+    evidence:
+      - path: 'services/payments/src/events/publishers.ts'
+        startLine: 10
+        endLine: 10
+        quote: 'export interface EventSink {'
+    reading: 'parsed'
+  - relation: 'code.contains'
+    from: 'code.file:services/payments/src/events/publishers.ts'
+    to: 'code.symbol:services/payments/src/events/publishers.ts#KafkaEventSink'
+    evidence:
+      - path: 'services/payments/src/events/publishers.ts'
+        startLine: 14
+        endLine: 14
+        quote: 'export class KafkaEventSink implements EventSink {'
+    reading: 'parsed'
+  - relation: 'code.contains'
+    from: 'code.file:services/payments/src/events/publishers.ts'
+    to: 'code.symbol:services/payments/src/events/publishers.ts#PAYMENTS_TOPIC'
+    evidence:
+      - path: 'services/payments/src/events/publishers.ts'
+        startLine: 5
+        endLine: 5
+        quote: 'export const PAYMENTS_TOPIC = ''payments.events'';'
+    reading: 'parsed'
+  - relation: 'code.contains'
+    from: 'code.file:services/payments/src/events/publishers.ts'
+    to: 'code.symbol:services/payments/src/events/publishers.ts#PaymentEventType'
+    evidence:
+      - path: 'services/payments/src/events/publishers.ts'
+        startLine: 7
+        endLine: 7
+        quote: 'export type PaymentEventType = ''payment.captured'' | ''payment.failed'' | ''payment.refunded'';'
+    reading: 'parsed'
+  - relation: 'code.contains'
+    from: 'code.file:services/payments/src/events/publishers.ts'
+    to: 'code.symbol:services/payments/src/events/publishers.ts#publishPaymentEvent'
+    evidence:
+      - path: 'services/payments/src/events/publishers.ts'
+        startLine: 38
+        endLine: 38
+        quote: 'export async function publishPaymentEvent(sink: EventSink, type: PaymentEventType, payment: Payment): Promise<void> {'
+    reading: 'parsed'
+  - relation: 'code.contains'
+    from: 'code.symbol:services/payments/src/events/publishers.ts#EventSink'
+    to: 'code.field:services/payments/src/events/publishers.ts#EventSink.send'
+    evidence:
+      - path: 'services/payments/src/events/publishers.ts'
+        startLine: 11
+        endLine: 11
+        quote: '  send(topic: string, key: string, value: string): Promise<void>;'
+    reading: 'parsed'
+  - relation: 'code.contains'
+    from: 'code.symbol:services/payments/src/events/publishers.ts#KafkaEventSink'
+    to: 'code.field:services/payments/src/events/publishers.ts#KafkaEventSink.producer'
+    evidence:
+      - path: 'services/payments/src/events/publishers.ts'
+        startLine: 15
+        endLine: 15
+        quote: '  private constructor(private readonly producer: Producer) {}'
+    reading: 'parsed'
+  - relation: 'code.contains'
+    from: 'code.symbol:services/payments/src/events/publishers.ts#KafkaEventSink'
+    to: 'code.symbol:services/payments/src/events/publishers.ts#KafkaEventSink.close'
+    evidence:
+      - path: 'services/payments/src/events/publishers.ts'
+        startLine: 28
+        endLine: 28
+        quote: '  async close(): Promise<void> {'
+    reading: 'parsed'
+  - relation: 'code.contains'
+    from: 'code.symbol:services/payments/src/events/publishers.ts#KafkaEventSink'
+    to: 'code.symbol:services/payments/src/events/publishers.ts#KafkaEventSink.connect'
+    evidence:
+      - path: 'services/payments/src/events/publishers.ts'
+        startLine: 18
+        endLine: 18
+        quote: '  static async connect(brokers: string[]): Promise<KafkaEventSink> {'
+    reading: 'parsed'
+  - relation: 'code.contains'
+    from: 'code.symbol:services/payments/src/events/publishers.ts#KafkaEventSink'
+    to: 'code.symbol:services/payments/src/events/publishers.ts#KafkaEventSink.constructor'
+    evidence:
+      - path: 'services/payments/src/events/publishers.ts'
+        startLine: 15
+        endLine: 15
+        quote: '  private constructor(private readonly producer: Producer) {}'
+    reading: 'parsed'
+  - relation: 'code.contains'
+    from: 'code.symbol:services/payments/src/events/publishers.ts#KafkaEventSink'
+    to: 'code.symbol:services/payments/src/events/publishers.ts#KafkaEventSink.send'
+    evidence:
+      - path: 'services/payments/src/events/publishers.ts'
+        startLine: 24
+        endLine: 24
+        quote: '  async send(topic: string, key: string, value: string): Promise<void> {'
+    reading: 'parsed'
+  - relation: 'code.cycle-member'
+    from: 'code.cycle:payments:domain-events'
+    to: 'code.file:services/payments/src/events/publishers.ts'
+    evidence:
+      - path: 'services/payments/src/events/publishers.ts'
+        startLine: 2
+        endLine: 2
+        quote: 'import { Payment, PaymentStatus } from ''../domain/payment'';'
+    reading: 'judgement'
+  - relation: 'code.implements'
+    from: 'code.symbol:services/payments/src/events/publishers.ts#KafkaEventSink'
+    to: 'code.symbol:services/payments/src/events/publishers.ts#EventSink'
+    evidence:
+      - path: 'services/payments/src/events/publishers.ts'
+        startLine: 14
+        endLine: 14
+        quote: 'export class KafkaEventSink implements EventSink {'
+    reading: 'parsed'
+  - relation: 'code.imports'
+    from: 'code.file:services/payments/src/events/publishers.ts'
+    to: 'code.dependency:services/payments/package.json#kafkajs'
+    evidence:
+      - path: 'services/payments/src/events/publishers.ts'
+        startLine: 1
+        endLine: 1
+        quote: 'import { Kafka, Producer } from ''kafkajs'';'
+    reading: 'parsed'
+  - relation: 'code.imports'
+    from: 'code.file:services/payments/src/events/publishers.ts'
+    to: 'code.file:services/payments/src/domain/payment.ts'
+    evidence:
+      - path: 'services/payments/src/events/publishers.ts'
+        startLine: 2
+        endLine: 2
+        quote: 'import { Payment, PaymentStatus } from ''../domain/payment'';'
+    reading: 'parsed'
+  - relation: 'code.publishes'
+    from: 'code.symbol:services/payments/src/events/publishers.ts#publishPaymentEvent'
+    to: 'code.channel:payments.events'
+    evidence:
+      - path: 'services/payments/src/events/publishers.ts'
+        startLine: 46
+        endLine: 46
+        quote: '  await sink.send(PAYMENTS_TOPIC, payment.orderId, JSON.stringify(body));'
+    reading: 'parsed'

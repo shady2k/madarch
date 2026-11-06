@@ -1,0 +1,167 @@
+path: 'Makefile'
+nodes:
+  - id: 'code.file:Makefile'
+    kind: 'code.file'
+    label: 'Makefile'
+    evidence:
+      - path: 'Makefile'
+        startLine: 1
+        endLine: 1
+        quote: '-include .env'
+    reading: 'parsed'
+  - id: 'code.make-target:down'
+    kind: 'code.make-target'
+    label: 'down'
+    evidence:
+      - path: 'Makefile'
+        startLine: 26
+        endLine: 26
+        quote: 'down:'
+      - path: 'Makefile'
+        startLine: 27
+        endLine: 27
+        quote: '	docker compose down'
+    reading: 'declared'
+  - id: 'code.make-target:install'
+    kind: 'code.make-target'
+    label: 'install'
+    evidence:
+      - path: 'Makefile'
+        startLine: 17
+        endLine: 17
+        quote: 'install:'
+      - path: 'Makefile'
+        startLine: 18
+        endLine: 18
+        quote: '	cd services/orders && go mod download'
+      - path: 'Makefile'
+        startLine: 19
+        endLine: 19
+        quote: '	cd services/promotions && go mod download'
+      - path: 'Makefile'
+        startLine: 20
+        endLine: 20
+        quote: '	cd services/payments && npm ci && npx prisma generate'
+      - path: 'Makefile'
+        startLine: 21
+        endLine: 21
+        quote: '	cd services/checkout && npm ci'
+    reading: 'declared'
+  - id: 'code.make-target:run-orders'
+    kind: 'code.make-target'
+    label: 'run-orders'
+    evidence:
+      - path: 'Makefile'
+        startLine: 7
+        endLine: 7
+        quote: 'run-orders:'
+      - path: 'Makefile'
+        startLine: 8
+        endLine: 8
+        quote: '	cd services/orders && go run ./cmd/orders'
+    reading: 'declared'
+  - id: 'code.make-target:seed'
+    kind: 'code.make-target'
+    label: 'seed'
+    evidence:
+      - path: 'Makefile'
+        startLine: 31
+        endLine: 31
+        quote: 'seed:'
+      - path: 'Makefile'
+        startLine: 32
+        endLine: 32
+        quote: '	docker compose exec -T postgres psql -U training -d orders -f - < scripts/seed-orders.sql'
+      - path: 'Makefile'
+        startLine: 33
+        endLine: 33
+        quote: '	cat services/promotions/migrations/*.sql scripts/seed-promotions.sql | docker compose exec -T postgres psql -U training -d promotions -f -'
+    reading: 'declared'
+  - id: 'code.make-target:test'
+    kind: 'code.make-target'
+    label: 'test'
+    evidence:
+      - path: 'Makefile'
+        startLine: 10
+        endLine: 10
+        quote: 'test:'
+      - path: 'Makefile'
+        startLine: 11
+        endLine: 11
+        quote: '	cd services/orders && go test ./...'
+      - path: 'Makefile'
+        startLine: 12
+        endLine: 12
+        quote: '	cd services/promotions && go vet ./...'
+      - path: 'Makefile'
+        startLine: 13
+        endLine: 13
+        quote: '	cd services/payments && npm test'
+      - path: 'Makefile'
+        startLine: 14
+        endLine: 14
+        quote: '	cd services/checkout && npm test'
+    reading: 'declared'
+  - id: 'code.make-target:token'
+    kind: 'code.make-target'
+    label: 'token'
+    evidence:
+      - path: 'Makefile'
+        startLine: 36
+        endLine: 36
+        quote: 'token:'
+      - path: 'Makefile'
+        startLine: 37
+        endLine: 37
+        quote: '	@node scripts/token.mjs'
+    reading: 'declared'
+  - id: 'code.make-target:up'
+    kind: 'code.make-target'
+    label: 'up'
+    evidence:
+      - path: 'Makefile'
+        startLine: 23
+        endLine: 23
+        quote: 'up:'
+      - path: 'Makefile'
+        startLine: 24
+        endLine: 24
+        quote: '	docker compose up --build -d'
+    reading: 'declared'
+edges:
+  - relation: 'code.depends-on'
+    from: 'code.make-target:test'
+    to: 'code.service:checkout'
+    evidence:
+      - path: 'Makefile'
+        startLine: 14
+        endLine: 14
+        quote: '	cd services/checkout && npm test'
+    reading: 'judgement'
+  - relation: 'code.depends-on'
+    from: 'code.make-target:test'
+    to: 'code.service:orders'
+    evidence:
+      - path: 'Makefile'
+        startLine: 11
+        endLine: 11
+        quote: '	cd services/orders && go test ./...'
+    reading: 'judgement'
+  - relation: 'code.depends-on'
+    from: 'code.make-target:test'
+    to: 'code.service:payments'
+    evidence:
+      - path: 'Makefile'
+        startLine: 13
+        endLine: 13
+        quote: '	cd services/payments && npm test'
+    reading: 'judgement'
+  - relation: 'code.depends-on'
+    from: 'code.make-target:test'
+    to: 'code.service:promotions'
+    evidence:
+      - path: 'Makefile'
+        startLine: 12
+        endLine: 12
+        quote: '	cd services/promotions && go vet ./...'
+    reading: 'judgement'

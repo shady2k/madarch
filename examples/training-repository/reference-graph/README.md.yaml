@@ -1,0 +1,147 @@
+path: 'README.md'
+nodes:
+  - id: 'code.document-section:README.md#Run it'
+    kind: 'code.document-section'
+    label: 'Run it'
+    evidence:
+      - path: 'README.md'
+        startLine: 7
+        endLine: 7
+        quote: '## Run it'
+    reading: 'parsed'
+  - id: 'code.document-section:README.md#What it does'
+    kind: 'code.document-section'
+    label: 'What it does'
+    evidence:
+      - path: 'README.md'
+        startLine: 22
+        endLine: 22
+        quote: '## What it does'
+    reading: 'judgement'
+  - id: 'code.document:README.md'
+    kind: 'code.document'
+    label: 'README.md'
+    evidence:
+      - path: 'README.md'
+        startLine: 1
+        endLine: 1
+        quote: '# Ordering and payments training system'
+    reading: 'parsed'
+  - id: 'code.file:README.md'
+    kind: 'code.file'
+    label: 'README.md'
+    evidence:
+      - path: 'README.md'
+        startLine: 1
+        endLine: 1
+        quote: '# Ordering and payments training system'
+    reading: 'parsed'
+  - id: 'code.newcomer-command:README.md#cp .env.example .env'
+    kind: 'code.newcomer-command'
+    label: 'cp .env.example .env'
+    evidence:
+      - path: 'README.md'
+        startLine: 11
+        endLine: 11
+        quote: '1. From the repository root, copy the settings: `cp .env.example .env`.'
+    reading: 'parsed'
+  - id: 'code.newcomer-command:README.md#curl -X POST /orders'
+    kind: 'code.newcomer-command'
+    label: 'curl -X POST /orders'
+    evidence:
+      - path: 'README.md'
+        startLine: 16
+        endLine: 16
+        quote: '5. Place an order: `curl -s -X POST http://localhost:8080/orders -H "Authorization: Bearer $(make -s token)" -H ''Content-Type: application/json'' -d ''{"items":[{"sku":"A-1","quantity":2,"priceCents":1000}]}''`'
+    reading: 'parsed'
+  - id: 'code.newcomer-command:README.md#make install'
+    kind: 'code.newcomer-command'
+    label: 'make install'
+    evidence:
+      - path: 'README.md'
+        startLine: 14
+        endLine: 14
+        quote: '4. Install what the tests need on your machine: `make install` (runs `go mod download` in orders and'
+    reading: 'parsed'
+  - id: 'code.newcomer-command:README.md#make seed'
+    kind: 'code.newcomer-command'
+    label: 'make seed'
+    evidence:
+      - path: 'README.md'
+        startLine: 13
+        endLine: 13
+        quote: '3. Load the demo customer and promotion codes: `make seed`.'
+    reading: 'parsed'
+  - id: 'code.newcomer-command:README.md#make test'
+    kind: 'code.newcomer-command'
+    label: 'make test'
+    evidence:
+      - path: 'README.md'
+        startLine: 17
+        endLine: 17
+        quote: '6. Run the tests: `make test`.'
+    reading: 'parsed'
+  - id: 'code.newcomer-command:README.md#make up'
+    kind: 'code.newcomer-command'
+    label: 'make up'
+    evidence:
+      - path: 'README.md'
+        startLine: 12
+        endLine: 12
+        quote: '2. Start everything: `make up` (builds the four services and starts Postgres and Kafka).'
+    reading: 'parsed'
+  - id: 'code.newcomer-failure:README.md'
+    kind: 'code.newcomer-failure'
+    label: 'port is already allocated'
+    evidence:
+      - path: 'README.md'
+        startLine: 19
+        endLine: 19
+        quote: 'Common failure: `make up` stops with "port is already allocated" when a Postgres'
+    reading: 'parsed'
+  - id: 'code.newcomer-prerequisites:README.md'
+    kind: 'code.newcomer-prerequisites'
+    label: 'Go 1.22, Node 20, Docker Compose, psql'
+    evidence:
+      - path: 'README.md'
+        startLine: 9
+        endLine: 9
+        quote: 'Prerequisites: Go 1.22, Node 20, Docker Compose and psql.'
+    reading: 'parsed'
+edges:
+  - relation: 'code.contains'
+    from: 'code.document:README.md'
+    to: 'code.document-section:README.md#Run it'
+    evidence:
+      - path: 'README.md'
+        startLine: 7
+        endLine: 7
+        quote: '## Run it'
+    reading: 'parsed'
+  - relation: 'code.contains'
+    from: 'code.document:README.md'
+    to: 'code.document-section:README.md#What it does'
+    evidence:
+      - path: 'README.md'
+        startLine: 22
+        endLine: 22
+        quote: '## What it does'
+    reading: 'parsed'
+  - relation: 'code.mentions'
+    from: 'code.document-section:README.md#What it does'
+    to: 'code.symbol:services/orders/internal/domain/order.go#Order.Expired'
+    evidence:
+      - path: 'README.md'
+        startLine: 25
+        endLine: 25
+        quote: 'Orders are retained indefinitely. Payments go through a card provider chosen in'
+    reading: 'judgement'
+  - relation: 'code.mentions'
+    from: 'code.document-section:README.md#What it does'
+    to: 'code.symbol:services/orders/internal/pricing/tax.go#TaxRateBasisPoints'
+    evidence:
+      - path: 'README.md'
+        startLine: 24
+        endLine: 24
+        quote: 'The service applies a 10% discount to every order and calculates tax at a flat 5%.'
+    reading: 'judgement'

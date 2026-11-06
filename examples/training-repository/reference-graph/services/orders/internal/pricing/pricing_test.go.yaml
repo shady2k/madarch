@@ -1,0 +1,205 @@
+path: 'services/orders/internal/pricing/pricing_test.go'
+nodes:
+  - id: 'code.file:services/orders/internal/pricing/pricing_test.go'
+    kind: 'code.file'
+    label: 'pricing_test.go'
+    evidence:
+      - path: 'services/orders/internal/pricing/pricing_test.go'
+        startLine: 1
+        endLine: 1
+        quote: 'package pricing'
+    reading: 'parsed'
+  - id: 'code.symbol:services/orders/internal/pricing/pricing_test.go#TestDiscount'
+    kind: 'code.symbol'
+    label: 'TestDiscount'
+    evidence:
+      - path: 'services/orders/internal/pricing/pricing_test.go'
+        startLine: 5
+        endLine: 5
+        quote: 'func TestDiscount(t *testing.T) {'
+    reading: 'parsed'
+  - id: 'code.symbol:services/orders/internal/pricing/pricing_test.go#TestLineTax'
+    kind: 'code.symbol'
+    label: 'TestLineTax'
+    evidence:
+      - path: 'services/orders/internal/pricing/pricing_test.go'
+        startLine: 53
+        endLine: 53
+        quote: 'func TestLineTax(t *testing.T) {'
+    reading: 'parsed'
+  - id: 'code.symbol:services/orders/internal/pricing/pricing_test.go#TestLineTotal'
+    kind: 'code.symbol'
+    label: 'TestLineTotal'
+    evidence:
+      - path: 'services/orders/internal/pricing/pricing_test.go'
+        startLine: 27
+        endLine: 27
+        quote: 'func TestLineTotal(t *testing.T) {'
+    reading: 'parsed'
+  - id: 'code.symbol:services/orders/internal/pricing/pricing_test.go#TestTax'
+    kind: 'code.symbol'
+    label: 'TestTax'
+    evidence:
+      - path: 'services/orders/internal/pricing/pricing_test.go'
+        startLine: 33
+        endLine: 33
+        quote: 'func TestTax(t *testing.T) {'
+    reading: 'parsed'
+  - id: 'code.test-case:services/orders/internal/pricing/pricing_test.go#TestDiscount'
+    kind: 'code.test-case'
+    label: 'TestDiscount'
+    evidence:
+      - path: 'services/orders/internal/pricing/pricing_test.go'
+        startLine: 5
+        endLine: 5
+        quote: 'func TestDiscount(t *testing.T) {'
+    reading: 'parsed'
+  - id: 'code.test-case:services/orders/internal/pricing/pricing_test.go#TestLineTax'
+    kind: 'code.test-case'
+    label: 'TestLineTax'
+    evidence:
+      - path: 'services/orders/internal/pricing/pricing_test.go'
+        startLine: 53
+        endLine: 53
+        quote: 'func TestLineTax(t *testing.T) {'
+    reading: 'parsed'
+  - id: 'code.test-case:services/orders/internal/pricing/pricing_test.go#TestLineTotal'
+    kind: 'code.test-case'
+    label: 'TestLineTotal'
+    evidence:
+      - path: 'services/orders/internal/pricing/pricing_test.go'
+        startLine: 27
+        endLine: 27
+        quote: 'func TestLineTotal(t *testing.T) {'
+    reading: 'parsed'
+  - id: 'code.test-case:services/orders/internal/pricing/pricing_test.go#TestTax'
+    kind: 'code.test-case'
+    label: 'TestTax'
+    evidence:
+      - path: 'services/orders/internal/pricing/pricing_test.go'
+        startLine: 33
+        endLine: 33
+        quote: 'func TestTax(t *testing.T) {'
+    reading: 'parsed'
+edges:
+  - relation: 'code.calls'
+    from: 'code.symbol:services/orders/internal/pricing/pricing_test.go#TestDiscount'
+    to: 'code.symbol:services/orders/internal/pricing/pricing.go#Discount'
+    evidence:
+      - path: 'services/orders/internal/pricing/pricing_test.go'
+        startLine: 20
+        endLine: 20
+        quote: '			if got := Discount(c.amount, c.percent); got != c.want {'
+    reading: 'parsed'
+  - relation: 'code.calls'
+    from: 'code.symbol:services/orders/internal/pricing/pricing_test.go#TestLineTax'
+    to: 'code.symbol:services/orders/internal/pricing/tax.go#LineTax'
+    evidence:
+      - path: 'services/orders/internal/pricing/pricing_test.go'
+        startLine: 54
+        endLine: 54
+        quote: '	if got := LineTax(1000, true); got != 0 {'
+      - path: 'services/orders/internal/pricing/pricing_test.go'
+        startLine: 57
+        endLine: 57
+        quote: '	if got := LineTax(1000, false); got != 80 {'
+    reading: 'parsed'
+  - relation: 'code.calls'
+    from: 'code.symbol:services/orders/internal/pricing/pricing_test.go#TestLineTotal'
+    to: 'code.symbol:services/orders/internal/pricing/pricing.go#LineTotal'
+    evidence:
+      - path: 'services/orders/internal/pricing/pricing_test.go'
+        startLine: 28
+        endLine: 28
+        quote: '	if got := LineTotal(1250, 3); got != 3750 {'
+    reading: 'parsed'
+  - relation: 'code.calls'
+    from: 'code.symbol:services/orders/internal/pricing/pricing_test.go#TestTax'
+    to: 'code.symbol:services/orders/internal/pricing/tax.go#Tax'
+    evidence:
+      - path: 'services/orders/internal/pricing/pricing_test.go'
+        startLine: 46
+        endLine: 46
+        quote: '			if got := Tax(c.taxable); got != c.want {'
+    reading: 'parsed'
+  - relation: 'code.contains'
+    from: 'code.file:services/orders/internal/pricing/pricing_test.go'
+    to: 'code.symbol:services/orders/internal/pricing/pricing_test.go#TestDiscount'
+    evidence:
+      - path: 'services/orders/internal/pricing/pricing_test.go'
+        startLine: 5
+        endLine: 5
+        quote: 'func TestDiscount(t *testing.T) {'
+    reading: 'parsed'
+  - relation: 'code.contains'
+    from: 'code.file:services/orders/internal/pricing/pricing_test.go'
+    to: 'code.symbol:services/orders/internal/pricing/pricing_test.go#TestLineTax'
+    evidence:
+      - path: 'services/orders/internal/pricing/pricing_test.go'
+        startLine: 53
+        endLine: 53
+        quote: 'func TestLineTax(t *testing.T) {'
+    reading: 'parsed'
+  - relation: 'code.contains'
+    from: 'code.file:services/orders/internal/pricing/pricing_test.go'
+    to: 'code.symbol:services/orders/internal/pricing/pricing_test.go#TestLineTotal'
+    evidence:
+      - path: 'services/orders/internal/pricing/pricing_test.go'
+        startLine: 27
+        endLine: 27
+        quote: 'func TestLineTotal(t *testing.T) {'
+    reading: 'parsed'
+  - relation: 'code.contains'
+    from: 'code.file:services/orders/internal/pricing/pricing_test.go'
+    to: 'code.symbol:services/orders/internal/pricing/pricing_test.go#TestTax'
+    evidence:
+      - path: 'services/orders/internal/pricing/pricing_test.go'
+        startLine: 33
+        endLine: 33
+        quote: 'func TestTax(t *testing.T) {'
+    reading: 'parsed'
+  - relation: 'code.contains'
+    from: 'code.module:services/orders/internal/pricing'
+    to: 'code.file:services/orders/internal/pricing/pricing_test.go'
+    evidence:
+      - path: 'services/orders/internal/pricing/pricing_test.go'
+        startLine: 1
+        endLine: 1
+        quote: 'package pricing'
+    reading: 'parsed'
+  - relation: 'code.tests'
+    from: 'code.test-case:services/orders/internal/pricing/pricing_test.go#TestDiscount'
+    to: 'code.symbol:services/orders/internal/pricing/pricing.go#Discount'
+    evidence:
+      - path: 'services/orders/internal/pricing/pricing_test.go'
+        startLine: 5
+        endLine: 5
+        quote: 'func TestDiscount(t *testing.T) {'
+    reading: 'judgement'
+  - relation: 'code.tests'
+    from: 'code.test-case:services/orders/internal/pricing/pricing_test.go#TestLineTax'
+    to: 'code.symbol:services/orders/internal/pricing/tax.go#LineTax'
+    evidence:
+      - path: 'services/orders/internal/pricing/pricing_test.go'
+        startLine: 53
+        endLine: 53
+        quote: 'func TestLineTax(t *testing.T) {'
+    reading: 'judgement'
+  - relation: 'code.tests'
+    from: 'code.test-case:services/orders/internal/pricing/pricing_test.go#TestLineTotal'
+    to: 'code.symbol:services/orders/internal/pricing/pricing.go#LineTotal'
+    evidence:
+      - path: 'services/orders/internal/pricing/pricing_test.go'
+        startLine: 27
+        endLine: 27
+        quote: 'func TestLineTotal(t *testing.T) {'
+    reading: 'judgement'
+  - relation: 'code.tests'
+    from: 'code.test-case:services/orders/internal/pricing/pricing_test.go#TestTax'
+    to: 'code.symbol:services/orders/internal/pricing/tax.go#Tax'
+    evidence:
+      - path: 'services/orders/internal/pricing/pricing_test.go'
+        startLine: 33
+        endLine: 33
+        quote: 'func TestTax(t *testing.T) {'
+    reading: 'judgement'

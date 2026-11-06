@@ -1,0 +1,798 @@
+path: 'services/orders/internal/application/order_service_test.go'
+nodes:
+  - id: 'code.field:services/orders/internal/application/order_service_test.go#fakeStore.created'
+    kind: 'code.field'
+    label: 'fakeStore.created'
+    evidence:
+      - path: 'services/orders/internal/application/order_service_test.go'
+        startLine: 17
+        endLine: 17
+        quote: '	created   int'
+    reading: 'parsed'
+  - id: 'code.field:services/orders/internal/application/order_service_test.go#fakeStore.customers'
+    kind: 'code.field'
+    label: 'fakeStore.customers'
+    evidence:
+      - path: 'services/orders/internal/application/order_service_test.go'
+        startLine: 16
+        endLine: 16
+        quote: '	customers map[string]bool'
+    reading: 'parsed'
+  - id: 'code.field:services/orders/internal/application/order_service_test.go#fakeStore.orders'
+    kind: 'code.field'
+    label: 'fakeStore.orders'
+    evidence:
+      - path: 'services/orders/internal/application/order_service_test.go'
+        startLine: 15
+        endLine: 15
+        quote: '	orders    map[string]domain.Order'
+    reading: 'parsed'
+  - id: 'code.file:services/orders/internal/application/order_service_test.go'
+    kind: 'code.file'
+    label: 'order_service_test.go'
+    evidence:
+      - path: 'services/orders/internal/application/order_service_test.go'
+        startLine: 1
+        endLine: 1
+        quote: 'package application'
+    reading: 'parsed'
+  - id: 'code.symbol:services/orders/internal/application/order_service_test.go#TestPaymentEventsMoveTheOrder'
+    kind: 'code.symbol'
+    label: 'TestPaymentEventsMoveTheOrder'
+    evidence:
+      - path: 'services/orders/internal/application/order_service_test.go'
+        startLine: 159
+        endLine: 159
+        quote: 'func TestPaymentEventsMoveTheOrder(t *testing.T) {'
+    reading: 'parsed'
+  - id: 'code.symbol:services/orders/internal/application/order_service_test.go#TestPlacePricesEveryLine'
+    kind: 'code.symbol'
+    label: 'TestPlacePricesEveryLine'
+    evidence:
+      - path: 'services/orders/internal/application/order_service_test.go'
+        startLine: 99
+        endLine: 99
+        quote: 'func TestPlacePricesEveryLine(t *testing.T) {'
+    reading: 'parsed'
+  - id: 'code.symbol:services/orders/internal/application/order_service_test.go#TestPlaceRefusesWhatCannotBePriced'
+    kind: 'code.symbol'
+    label: 'TestPlaceRefusesWhatCannotBePriced'
+    evidence:
+      - path: 'services/orders/internal/application/order_service_test.go'
+        startLine: 138
+        endLine: 138
+        quote: 'func TestPlaceRefusesWhatCannotBePriced(t *testing.T) {'
+    reading: 'parsed'
+  - id: 'code.symbol:services/orders/internal/application/order_service_test.go#TestPlaceWithTheSameRequestIDReturnsTheFirstOrder'
+    kind: 'code.symbol'
+    label: 'TestPlaceWithTheSameRequestIDReturnsTheFirstOrder'
+    evidence:
+      - path: 'services/orders/internal/application/order_service_test.go'
+        startLine: 121
+        endLine: 121
+        quote: 'func TestPlaceWithTheSameRequestIDReturnsTheFirstOrder(t *testing.T) {'
+    reading: 'parsed'
+  - id: 'code.symbol:services/orders/internal/application/order_service_test.go#TestRetentionJobRemovesOnlyExpiredUnshippedOrders'
+    kind: 'code.symbol'
+    label: 'TestRetentionJobRemovesOnlyExpiredUnshippedOrders'
+    evidence:
+      - path: 'services/orders/internal/application/order_service_test.go'
+        startLine: 179
+        endLine: 179
+        quote: 'func TestRetentionJobRemovesOnlyExpiredUnshippedOrders(t *testing.T) {'
+    reading: 'parsed'
+  - id: 'code.symbol:services/orders/internal/application/order_service_test.go#day'
+    kind: 'code.symbol'
+    label: 'day'
+    evidence:
+      - path: 'services/orders/internal/application/order_service_test.go'
+        startLine: 97
+        endLine: 97
+        quote: 'var day = time.Date(2026, 9, 25, 10, 0, 0, 0, time.UTC)'
+    reading: 'parsed'
+  - id: 'code.symbol:services/orders/internal/application/order_service_test.go#fakeStore'
+    kind: 'code.symbol'
+    label: 'fakeStore'
+    evidence:
+      - path: 'services/orders/internal/application/order_service_test.go'
+        startLine: 14
+        endLine: 14
+        quote: 'type fakeStore struct {'
+    reading: 'parsed'
+  - id: 'code.symbol:services/orders/internal/application/order_service_test.go#fakeStore.Create'
+    kind: 'code.symbol'
+    label: 'fakeStore.Create'
+    evidence:
+      - path: 'services/orders/internal/application/order_service_test.go'
+        startLine: 24
+        endLine: 24
+        quote: 'func (f *fakeStore) Create(_ context.Context, o domain.Order) error {'
+    reading: 'parsed'
+  - id: 'code.symbol:services/orders/internal/application/order_service_test.go#fakeStore.CustomerExists'
+    kind: 'code.symbol'
+    label: 'fakeStore.CustomerExists'
+    evidence:
+      - path: 'services/orders/internal/application/order_service_test.go'
+        startLine: 66
+        endLine: 66
+        quote: 'func (f *fakeStore) CustomerExists(_ context.Context, id string) (bool, error) {'
+    reading: 'parsed'
+  - id: 'code.symbol:services/orders/internal/application/order_service_test.go#fakeStore.Delete'
+    kind: 'code.symbol'
+    label: 'fakeStore.Delete'
+    evidence:
+      - path: 'services/orders/internal/application/order_service_test.go'
+        startLine: 80
+        endLine: 80
+        quote: 'func (f *fakeStore) Delete(_ context.Context, ids []string) error {'
+    reading: 'parsed'
+  - id: 'code.symbol:services/orders/internal/application/order_service_test.go#fakeStore.FindByRequestID'
+    kind: 'code.symbol'
+    label: 'fakeStore.FindByRequestID'
+    evidence:
+      - path: 'services/orders/internal/application/order_service_test.go'
+        startLine: 57
+        endLine: 57
+        quote: 'func (f *fakeStore) FindByRequestID(_ context.Context, customerID, requestID string) (domain.Order, error) {'
+    reading: 'parsed'
+  - id: 'code.symbol:services/orders/internal/application/order_service_test.go#fakeStore.Get'
+    kind: 'code.symbol'
+    label: 'fakeStore.Get'
+    evidence:
+      - path: 'services/orders/internal/application/order_service_test.go'
+        startLine: 38
+        endLine: 38
+        quote: 'func (f *fakeStore) Get(_ context.Context, id string) (domain.Order, error) {'
+    reading: 'parsed'
+  - id: 'code.symbol:services/orders/internal/application/order_service_test.go#fakeStore.List'
+    kind: 'code.symbol'
+    label: 'fakeStore.List'
+    evidence:
+      - path: 'services/orders/internal/application/order_service_test.go'
+        startLine: 46
+        endLine: 46
+        quote: 'func (f *fakeStore) List(_ context.Context, filter ListFilter) ([]domain.Order, error) {'
+    reading: 'parsed'
+  - id: 'code.symbol:services/orders/internal/application/order_service_test.go#fakeStore.ListCreatedBefore'
+    kind: 'code.symbol'
+    label: 'fakeStore.ListCreatedBefore'
+    evidence:
+      - path: 'services/orders/internal/application/order_service_test.go'
+        startLine: 70
+        endLine: 70
+        quote: 'func (f *fakeStore) ListCreatedBefore(_ context.Context, cutoff time.Time, limit int) ([]domain.Order, error) {'
+    reading: 'parsed'
+  - id: 'code.symbol:services/orders/internal/application/order_service_test.go#fakeStore.Save'
+    kind: 'code.symbol'
+    label: 'fakeStore.Save'
+    evidence:
+      - path: 'services/orders/internal/application/order_service_test.go'
+        startLine: 30
+        endLine: 30
+        quote: 'func (f *fakeStore) Save(_ context.Context, o domain.Order) error {'
+    reading: 'parsed'
+  - id: 'code.symbol:services/orders/internal/application/order_service_test.go#newFakeStore'
+    kind: 'code.symbol'
+    label: 'newFakeStore'
+    evidence:
+      - path: 'services/orders/internal/application/order_service_test.go'
+        startLine: 20
+        endLine: 20
+        quote: 'func newFakeStore() *fakeStore {'
+    reading: 'parsed'
+  - id: 'code.symbol:services/orders/internal/application/order_service_test.go#newService'
+    kind: 'code.symbol'
+    label: 'newService'
+    evidence:
+      - path: 'services/orders/internal/application/order_service_test.go'
+        startLine: 93
+        endLine: 93
+        quote: 'func newService(store *fakeStore, now time.Time) *Service {'
+    reading: 'parsed'
+  - id: 'code.symbol:services/orders/internal/application/order_service_test.go#noMetrics'
+    kind: 'code.symbol'
+    label: 'noMetrics'
+    evidence:
+      - path: 'services/orders/internal/application/order_service_test.go'
+        startLine: 87
+        endLine: 87
+        quote: 'type noMetrics struct{}'
+    reading: 'parsed'
+  - id: 'code.symbol:services/orders/internal/application/order_service_test.go#noMetrics.OrderCreated'
+    kind: 'code.symbol'
+    label: 'noMetrics.OrderCreated'
+    evidence:
+      - path: 'services/orders/internal/application/order_service_test.go'
+        startLine: 89
+        endLine: 89
+        quote: 'func (noMetrics) OrderCreated()              {}'
+    reading: 'parsed'
+  - id: 'code.symbol:services/orders/internal/application/order_service_test.go#noMetrics.Purged'
+    kind: 'code.symbol'
+    label: 'noMetrics.Purged'
+    evidence:
+      - path: 'services/orders/internal/application/order_service_test.go'
+        startLine: 91
+        endLine: 91
+        quote: 'func (noMetrics) Purged(int)                 {}'
+    reading: 'parsed'
+  - id: 'code.symbol:services/orders/internal/application/order_service_test.go#noMetrics.Transitioned'
+    kind: 'code.symbol'
+    label: 'noMetrics.Transitioned'
+    evidence:
+      - path: 'services/orders/internal/application/order_service_test.go'
+        startLine: 90
+        endLine: 90
+        quote: 'func (noMetrics) Transitioned(domain.Status) {}'
+    reading: 'parsed'
+  - id: 'code.test-case:services/orders/internal/application/order_service_test.go#TestPaymentEventsMoveTheOrder'
+    kind: 'code.test-case'
+    label: 'TestPaymentEventsMoveTheOrder'
+    evidence:
+      - path: 'services/orders/internal/application/order_service_test.go'
+        startLine: 159
+        endLine: 159
+        quote: 'func TestPaymentEventsMoveTheOrder(t *testing.T) {'
+    reading: 'parsed'
+  - id: 'code.test-case:services/orders/internal/application/order_service_test.go#TestPlacePricesEveryLine'
+    kind: 'code.test-case'
+    label: 'TestPlacePricesEveryLine'
+    evidence:
+      - path: 'services/orders/internal/application/order_service_test.go'
+        startLine: 99
+        endLine: 99
+        quote: 'func TestPlacePricesEveryLine(t *testing.T) {'
+    reading: 'parsed'
+  - id: 'code.test-case:services/orders/internal/application/order_service_test.go#TestPlaceRefusesWhatCannotBePriced'
+    kind: 'code.test-case'
+    label: 'TestPlaceRefusesWhatCannotBePriced'
+    evidence:
+      - path: 'services/orders/internal/application/order_service_test.go'
+        startLine: 138
+        endLine: 138
+        quote: 'func TestPlaceRefusesWhatCannotBePriced(t *testing.T) {'
+    reading: 'parsed'
+  - id: 'code.test-case:services/orders/internal/application/order_service_test.go#TestPlaceWithTheSameRequestIDReturnsTheFirstOrder'
+    kind: 'code.test-case'
+    label: 'TestPlaceWithTheSameRequestIDReturnsTheFirstOrder'
+    evidence:
+      - path: 'services/orders/internal/application/order_service_test.go'
+        startLine: 121
+        endLine: 121
+        quote: 'func TestPlaceWithTheSameRequestIDReturnsTheFirstOrder(t *testing.T) {'
+    reading: 'parsed'
+  - id: 'code.test-case:services/orders/internal/application/order_service_test.go#TestRetentionJobRemovesOnlyExpiredUnshippedOrders'
+    kind: 'code.test-case'
+    label: 'TestRetentionJobRemovesOnlyExpiredUnshippedOrders'
+    evidence:
+      - path: 'services/orders/internal/application/order_service_test.go'
+        startLine: 179
+        endLine: 179
+        quote: 'func TestRetentionJobRemovesOnlyExpiredUnshippedOrders(t *testing.T) {'
+    reading: 'parsed'
+edges:
+  - relation: 'code.calls'
+    from: 'code.symbol:services/orders/internal/application/order_service_test.go#TestPaymentEventsMoveTheOrder'
+    to: 'code.symbol:services/orders/internal/application/order_service.go#Service.ApplyPaymentEvent'
+    evidence:
+      - path: 'services/orders/internal/application/order_service_test.go'
+        startLine: 164
+        endLine: 164
+        quote: '	if err := svc.ApplyPaymentEvent(context.Background(), order.ID, "payment.failed", "card declined"); err != nil {'
+      - path: 'services/orders/internal/application/order_service_test.go'
+        startLine: 171
+        endLine: 171
+        quote: '	if err := svc.ApplyPaymentEvent(context.Background(), order.ID, "payment.captured", ""); !errors.Is(err, domain.ErrInvalidTransition) {'
+      - path: 'services/orders/internal/application/order_service_test.go'
+        startLine: 174
+        endLine: 174
+        quote: '	if err := svc.ApplyPaymentEvent(context.Background(), order.ID, "payment.unheard-of", ""); !errors.Is(err, ErrUnknownPaymentEvent) {'
+    reading: 'parsed'
+  - relation: 'code.calls'
+    from: 'code.symbol:services/orders/internal/application/order_service_test.go#TestPaymentEventsMoveTheOrder'
+    to: 'code.symbol:services/orders/internal/application/order_service.go#Service.Get'
+    evidence:
+      - path: 'services/orders/internal/application/order_service_test.go'
+        startLine: 167
+        endLine: 167
+        quote: '	got, _ := svc.Get(context.Background(), order.ID)'
+    reading: 'parsed'
+  - relation: 'code.calls'
+    from: 'code.symbol:services/orders/internal/application/order_service_test.go#TestPaymentEventsMoveTheOrder'
+    to: 'code.symbol:services/orders/internal/application/order_service.go#Service.Place'
+    evidence:
+      - path: 'services/orders/internal/application/order_service_test.go'
+        startLine: 162
+        endLine: 162
+        quote: '	order, _ := svc.Place(context.Background(), PlaceOrder{CustomerID: "cus_1", Items: []domain.Item{{SKU: "A-1", Quantity: 1, PriceCents: 100}}})'
+    reading: 'parsed'
+  - relation: 'code.calls'
+    from: 'code.symbol:services/orders/internal/application/order_service_test.go#TestPaymentEventsMoveTheOrder'
+    to: 'code.symbol:services/orders/internal/application/order_service_test.go#newFakeStore'
+    evidence:
+      - path: 'services/orders/internal/application/order_service_test.go'
+        startLine: 160
+        endLine: 160
+        quote: '	store := newFakeStore()'
+    reading: 'parsed'
+  - relation: 'code.calls'
+    from: 'code.symbol:services/orders/internal/application/order_service_test.go#TestPaymentEventsMoveTheOrder'
+    to: 'code.symbol:services/orders/internal/application/order_service_test.go#newService'
+    evidence:
+      - path: 'services/orders/internal/application/order_service_test.go'
+        startLine: 161
+        endLine: 161
+        quote: '	svc := newService(store, day)'
+    reading: 'parsed'
+  - relation: 'code.calls'
+    from: 'code.symbol:services/orders/internal/application/order_service_test.go#TestPlacePricesEveryLine'
+    to: 'code.symbol:services/orders/internal/application/order_service.go#Service.Place'
+    evidence:
+      - path: 'services/orders/internal/application/order_service_test.go'
+        startLine: 101
+        endLine: 101
+        quote: '	order, err := svc.Place(context.Background(), PlaceOrder{'
+    reading: 'parsed'
+  - relation: 'code.calls'
+    from: 'code.symbol:services/orders/internal/application/order_service_test.go#TestPlacePricesEveryLine'
+    to: 'code.symbol:services/orders/internal/application/order_service_test.go#newFakeStore'
+    evidence:
+      - path: 'services/orders/internal/application/order_service_test.go'
+        startLine: 100
+        endLine: 100
+        quote: '	svc := newService(newFakeStore(), day)'
+    reading: 'parsed'
+  - relation: 'code.calls'
+    from: 'code.symbol:services/orders/internal/application/order_service_test.go#TestPlacePricesEveryLine'
+    to: 'code.symbol:services/orders/internal/application/order_service_test.go#newService'
+    evidence:
+      - path: 'services/orders/internal/application/order_service_test.go'
+        startLine: 100
+        endLine: 100
+        quote: '	svc := newService(newFakeStore(), day)'
+    reading: 'parsed'
+  - relation: 'code.calls'
+    from: 'code.symbol:services/orders/internal/application/order_service_test.go#TestPlaceRefusesWhatCannotBePriced'
+    to: 'code.symbol:services/orders/internal/application/order_service.go#Service.Place'
+    evidence:
+      - path: 'services/orders/internal/application/order_service_test.go'
+        startLine: 152
+        endLine: 152
+        quote: '			if _, err := svc.Place(context.Background(), c.cmd); !errors.Is(err, c.want) {'
+    reading: 'parsed'
+  - relation: 'code.calls'
+    from: 'code.symbol:services/orders/internal/application/order_service_test.go#TestPlaceRefusesWhatCannotBePriced'
+    to: 'code.symbol:services/orders/internal/application/order_service_test.go#newFakeStore'
+    evidence:
+      - path: 'services/orders/internal/application/order_service_test.go'
+        startLine: 139
+        endLine: 139
+        quote: '	svc := newService(newFakeStore(), day)'
+    reading: 'parsed'
+  - relation: 'code.calls'
+    from: 'code.symbol:services/orders/internal/application/order_service_test.go#TestPlaceRefusesWhatCannotBePriced'
+    to: 'code.symbol:services/orders/internal/application/order_service_test.go#newService'
+    evidence:
+      - path: 'services/orders/internal/application/order_service_test.go'
+        startLine: 139
+        endLine: 139
+        quote: '	svc := newService(newFakeStore(), day)'
+    reading: 'parsed'
+  - relation: 'code.calls'
+    from: 'code.symbol:services/orders/internal/application/order_service_test.go#TestPlaceWithTheSameRequestIDReturnsTheFirstOrder'
+    to: 'code.symbol:services/orders/internal/application/order_service.go#Service.Place'
+    evidence:
+      - path: 'services/orders/internal/application/order_service_test.go'
+        startLine: 125
+        endLine: 125
+        quote: '	first, err := svc.Place(context.Background(), cmd)'
+      - path: 'services/orders/internal/application/order_service_test.go'
+        startLine: 129
+        endLine: 129
+        quote: '	second, err := svc.Place(context.Background(), cmd)'
+    reading: 'parsed'
+  - relation: 'code.calls'
+    from: 'code.symbol:services/orders/internal/application/order_service_test.go#TestPlaceWithTheSameRequestIDReturnsTheFirstOrder'
+    to: 'code.symbol:services/orders/internal/application/order_service_test.go#newFakeStore'
+    evidence:
+      - path: 'services/orders/internal/application/order_service_test.go'
+        startLine: 122
+        endLine: 122
+        quote: '	store := newFakeStore()'
+    reading: 'parsed'
+  - relation: 'code.calls'
+    from: 'code.symbol:services/orders/internal/application/order_service_test.go#TestPlaceWithTheSameRequestIDReturnsTheFirstOrder'
+    to: 'code.symbol:services/orders/internal/application/order_service_test.go#newService'
+    evidence:
+      - path: 'services/orders/internal/application/order_service_test.go'
+        startLine: 123
+        endLine: 123
+        quote: '	svc := newService(store, day)'
+    reading: 'parsed'
+  - relation: 'code.calls'
+    from: 'code.symbol:services/orders/internal/application/order_service_test.go#TestRetentionJobRemovesOnlyExpiredUnshippedOrders'
+    to: 'code.symbol:services/orders/internal/application/order_service_test.go#newFakeStore'
+    evidence:
+      - path: 'services/orders/internal/application/order_service_test.go'
+        startLine: 180
+        endLine: 180
+        quote: '	store := newFakeStore()'
+    reading: 'parsed'
+  - relation: 'code.calls'
+    from: 'code.symbol:services/orders/internal/application/order_service_test.go#TestRetentionJobRemovesOnlyExpiredUnshippedOrders'
+    to: 'code.symbol:services/orders/internal/application/order_service_test.go#newService'
+    evidence:
+      - path: 'services/orders/internal/application/order_service_test.go'
+        startLine: 185
+        endLine: 185
+        quote: '	removed, err := newService(store, day).RunRetentionJob(context.Background())'
+    reading: 'parsed'
+  - relation: 'code.calls'
+    from: 'code.symbol:services/orders/internal/application/order_service_test.go#newService'
+    to: 'code.symbol:services/orders/internal/application/order_service.go#NewService'
+    evidence:
+      - path: 'services/orders/internal/application/order_service_test.go'
+        startLine: 94
+        endLine: 94
+        quote: '	return NewService(store, noMetrics{}, func() time.Time { return now })'
+    reading: 'parsed'
+  - relation: 'code.contains'
+    from: 'code.file:services/orders/internal/application/order_service_test.go'
+    to: 'code.symbol:services/orders/internal/application/order_service_test.go#TestPaymentEventsMoveTheOrder'
+    evidence:
+      - path: 'services/orders/internal/application/order_service_test.go'
+        startLine: 159
+        endLine: 159
+        quote: 'func TestPaymentEventsMoveTheOrder(t *testing.T) {'
+    reading: 'parsed'
+  - relation: 'code.contains'
+    from: 'code.file:services/orders/internal/application/order_service_test.go'
+    to: 'code.symbol:services/orders/internal/application/order_service_test.go#TestPlacePricesEveryLine'
+    evidence:
+      - path: 'services/orders/internal/application/order_service_test.go'
+        startLine: 99
+        endLine: 99
+        quote: 'func TestPlacePricesEveryLine(t *testing.T) {'
+    reading: 'parsed'
+  - relation: 'code.contains'
+    from: 'code.file:services/orders/internal/application/order_service_test.go'
+    to: 'code.symbol:services/orders/internal/application/order_service_test.go#TestPlaceRefusesWhatCannotBePriced'
+    evidence:
+      - path: 'services/orders/internal/application/order_service_test.go'
+        startLine: 138
+        endLine: 138
+        quote: 'func TestPlaceRefusesWhatCannotBePriced(t *testing.T) {'
+    reading: 'parsed'
+  - relation: 'code.contains'
+    from: 'code.file:services/orders/internal/application/order_service_test.go'
+    to: 'code.symbol:services/orders/internal/application/order_service_test.go#TestPlaceWithTheSameRequestIDReturnsTheFirstOrder'
+    evidence:
+      - path: 'services/orders/internal/application/order_service_test.go'
+        startLine: 121
+        endLine: 121
+        quote: 'func TestPlaceWithTheSameRequestIDReturnsTheFirstOrder(t *testing.T) {'
+    reading: 'parsed'
+  - relation: 'code.contains'
+    from: 'code.file:services/orders/internal/application/order_service_test.go'
+    to: 'code.symbol:services/orders/internal/application/order_service_test.go#TestRetentionJobRemovesOnlyExpiredUnshippedOrders'
+    evidence:
+      - path: 'services/orders/internal/application/order_service_test.go'
+        startLine: 179
+        endLine: 179
+        quote: 'func TestRetentionJobRemovesOnlyExpiredUnshippedOrders(t *testing.T) {'
+    reading: 'parsed'
+  - relation: 'code.contains'
+    from: 'code.file:services/orders/internal/application/order_service_test.go'
+    to: 'code.symbol:services/orders/internal/application/order_service_test.go#day'
+    evidence:
+      - path: 'services/orders/internal/application/order_service_test.go'
+        startLine: 97
+        endLine: 97
+        quote: 'var day = time.Date(2026, 9, 25, 10, 0, 0, 0, time.UTC)'
+    reading: 'parsed'
+  - relation: 'code.contains'
+    from: 'code.file:services/orders/internal/application/order_service_test.go'
+    to: 'code.symbol:services/orders/internal/application/order_service_test.go#fakeStore'
+    evidence:
+      - path: 'services/orders/internal/application/order_service_test.go'
+        startLine: 14
+        endLine: 14
+        quote: 'type fakeStore struct {'
+    reading: 'parsed'
+  - relation: 'code.contains'
+    from: 'code.file:services/orders/internal/application/order_service_test.go'
+    to: 'code.symbol:services/orders/internal/application/order_service_test.go#fakeStore.Create'
+    evidence:
+      - path: 'services/orders/internal/application/order_service_test.go'
+        startLine: 24
+        endLine: 24
+        quote: 'func (f *fakeStore) Create(_ context.Context, o domain.Order) error {'
+    reading: 'parsed'
+  - relation: 'code.contains'
+    from: 'code.file:services/orders/internal/application/order_service_test.go'
+    to: 'code.symbol:services/orders/internal/application/order_service_test.go#fakeStore.CustomerExists'
+    evidence:
+      - path: 'services/orders/internal/application/order_service_test.go'
+        startLine: 66
+        endLine: 66
+        quote: 'func (f *fakeStore) CustomerExists(_ context.Context, id string) (bool, error) {'
+    reading: 'parsed'
+  - relation: 'code.contains'
+    from: 'code.file:services/orders/internal/application/order_service_test.go'
+    to: 'code.symbol:services/orders/internal/application/order_service_test.go#fakeStore.Delete'
+    evidence:
+      - path: 'services/orders/internal/application/order_service_test.go'
+        startLine: 80
+        endLine: 80
+        quote: 'func (f *fakeStore) Delete(_ context.Context, ids []string) error {'
+    reading: 'parsed'
+  - relation: 'code.contains'
+    from: 'code.file:services/orders/internal/application/order_service_test.go'
+    to: 'code.symbol:services/orders/internal/application/order_service_test.go#fakeStore.FindByRequestID'
+    evidence:
+      - path: 'services/orders/internal/application/order_service_test.go'
+        startLine: 57
+        endLine: 57
+        quote: 'func (f *fakeStore) FindByRequestID(_ context.Context, customerID, requestID string) (domain.Order, error) {'
+    reading: 'parsed'
+  - relation: 'code.contains'
+    from: 'code.file:services/orders/internal/application/order_service_test.go'
+    to: 'code.symbol:services/orders/internal/application/order_service_test.go#fakeStore.Get'
+    evidence:
+      - path: 'services/orders/internal/application/order_service_test.go'
+        startLine: 38
+        endLine: 38
+        quote: 'func (f *fakeStore) Get(_ context.Context, id string) (domain.Order, error) {'
+    reading: 'parsed'
+  - relation: 'code.contains'
+    from: 'code.file:services/orders/internal/application/order_service_test.go'
+    to: 'code.symbol:services/orders/internal/application/order_service_test.go#fakeStore.List'
+    evidence:
+      - path: 'services/orders/internal/application/order_service_test.go'
+        startLine: 46
+        endLine: 46
+        quote: 'func (f *fakeStore) List(_ context.Context, filter ListFilter) ([]domain.Order, error) {'
+    reading: 'parsed'
+  - relation: 'code.contains'
+    from: 'code.file:services/orders/internal/application/order_service_test.go'
+    to: 'code.symbol:services/orders/internal/application/order_service_test.go#fakeStore.ListCreatedBefore'
+    evidence:
+      - path: 'services/orders/internal/application/order_service_test.go'
+        startLine: 70
+        endLine: 70
+        quote: 'func (f *fakeStore) ListCreatedBefore(_ context.Context, cutoff time.Time, limit int) ([]domain.Order, error) {'
+    reading: 'parsed'
+  - relation: 'code.contains'
+    from: 'code.file:services/orders/internal/application/order_service_test.go'
+    to: 'code.symbol:services/orders/internal/application/order_service_test.go#fakeStore.Save'
+    evidence:
+      - path: 'services/orders/internal/application/order_service_test.go'
+        startLine: 30
+        endLine: 30
+        quote: 'func (f *fakeStore) Save(_ context.Context, o domain.Order) error {'
+    reading: 'parsed'
+  - relation: 'code.contains'
+    from: 'code.file:services/orders/internal/application/order_service_test.go'
+    to: 'code.symbol:services/orders/internal/application/order_service_test.go#newFakeStore'
+    evidence:
+      - path: 'services/orders/internal/application/order_service_test.go'
+        startLine: 20
+        endLine: 20
+        quote: 'func newFakeStore() *fakeStore {'
+    reading: 'parsed'
+  - relation: 'code.contains'
+    from: 'code.file:services/orders/internal/application/order_service_test.go'
+    to: 'code.symbol:services/orders/internal/application/order_service_test.go#newService'
+    evidence:
+      - path: 'services/orders/internal/application/order_service_test.go'
+        startLine: 93
+        endLine: 93
+        quote: 'func newService(store *fakeStore, now time.Time) *Service {'
+    reading: 'parsed'
+  - relation: 'code.contains'
+    from: 'code.file:services/orders/internal/application/order_service_test.go'
+    to: 'code.symbol:services/orders/internal/application/order_service_test.go#noMetrics'
+    evidence:
+      - path: 'services/orders/internal/application/order_service_test.go'
+        startLine: 87
+        endLine: 87
+        quote: 'type noMetrics struct{}'
+    reading: 'parsed'
+  - relation: 'code.contains'
+    from: 'code.file:services/orders/internal/application/order_service_test.go'
+    to: 'code.symbol:services/orders/internal/application/order_service_test.go#noMetrics.OrderCreated'
+    evidence:
+      - path: 'services/orders/internal/application/order_service_test.go'
+        startLine: 89
+        endLine: 89
+        quote: 'func (noMetrics) OrderCreated()              {}'
+    reading: 'parsed'
+  - relation: 'code.contains'
+    from: 'code.file:services/orders/internal/application/order_service_test.go'
+    to: 'code.symbol:services/orders/internal/application/order_service_test.go#noMetrics.Purged'
+    evidence:
+      - path: 'services/orders/internal/application/order_service_test.go'
+        startLine: 91
+        endLine: 91
+        quote: 'func (noMetrics) Purged(int)                 {}'
+    reading: 'parsed'
+  - relation: 'code.contains'
+    from: 'code.file:services/orders/internal/application/order_service_test.go'
+    to: 'code.symbol:services/orders/internal/application/order_service_test.go#noMetrics.Transitioned'
+    evidence:
+      - path: 'services/orders/internal/application/order_service_test.go'
+        startLine: 90
+        endLine: 90
+        quote: 'func (noMetrics) Transitioned(domain.Status) {}'
+    reading: 'parsed'
+  - relation: 'code.contains'
+    from: 'code.module:services/orders/internal/application'
+    to: 'code.file:services/orders/internal/application/order_service_test.go'
+    evidence:
+      - path: 'services/orders/internal/application/order_service_test.go'
+        startLine: 1
+        endLine: 1
+        quote: 'package application'
+    reading: 'parsed'
+  - relation: 'code.contains'
+    from: 'code.symbol:services/orders/internal/application/order_service_test.go#fakeStore'
+    to: 'code.field:services/orders/internal/application/order_service_test.go#fakeStore.created'
+    evidence:
+      - path: 'services/orders/internal/application/order_service_test.go'
+        startLine: 17
+        endLine: 17
+        quote: '	created   int'
+    reading: 'parsed'
+  - relation: 'code.contains'
+    from: 'code.symbol:services/orders/internal/application/order_service_test.go#fakeStore'
+    to: 'code.field:services/orders/internal/application/order_service_test.go#fakeStore.customers'
+    evidence:
+      - path: 'services/orders/internal/application/order_service_test.go'
+        startLine: 16
+        endLine: 16
+        quote: '	customers map[string]bool'
+    reading: 'parsed'
+  - relation: 'code.contains'
+    from: 'code.symbol:services/orders/internal/application/order_service_test.go#fakeStore'
+    to: 'code.field:services/orders/internal/application/order_service_test.go#fakeStore.orders'
+    evidence:
+      - path: 'services/orders/internal/application/order_service_test.go'
+        startLine: 15
+        endLine: 15
+        quote: '	orders    map[string]domain.Order'
+    reading: 'parsed'
+  - relation: 'code.imports'
+    from: 'code.file:services/orders/internal/application/order_service_test.go'
+    to: 'code.module:services/orders/internal/domain'
+    evidence:
+      - path: 'services/orders/internal/application/order_service_test.go'
+        startLine: 10
+        endLine: 10
+        quote: '	"training.example/orders/internal/domain"'
+    reading: 'parsed'
+  - relation: 'code.tests'
+    from: 'code.test-case:services/orders/internal/application/order_service_test.go#TestPaymentEventsMoveTheOrder'
+    to: 'code.symbol:services/orders/internal/application/order_service.go#Service.ApplyPaymentEvent'
+    evidence:
+      - path: 'services/orders/internal/application/order_service_test.go'
+        startLine: 159
+        endLine: 159
+        quote: 'func TestPaymentEventsMoveTheOrder(t *testing.T) {'
+    reading: 'judgement'
+  - relation: 'code.tests'
+    from: 'code.test-case:services/orders/internal/application/order_service_test.go#TestPlacePricesEveryLine'
+    to: 'code.symbol:services/orders/internal/application/order_service.go#Service.Place'
+    evidence:
+      - path: 'services/orders/internal/application/order_service_test.go'
+        startLine: 99
+        endLine: 99
+        quote: 'func TestPlacePricesEveryLine(t *testing.T) {'
+    reading: 'judgement'
+  - relation: 'code.tests'
+    from: 'code.test-case:services/orders/internal/application/order_service_test.go#TestPlaceRefusesWhatCannotBePriced'
+    to: 'code.symbol:services/orders/internal/application/order_service.go#Service.Place'
+    evidence:
+      - path: 'services/orders/internal/application/order_service_test.go'
+        startLine: 138
+        endLine: 138
+        quote: 'func TestPlaceRefusesWhatCannotBePriced(t *testing.T) {'
+    reading: 'judgement'
+  - relation: 'code.tests'
+    from: 'code.test-case:services/orders/internal/application/order_service_test.go#TestPlaceWithTheSameRequestIDReturnsTheFirstOrder'
+    to: 'code.symbol:services/orders/internal/application/order_service.go#Service.Place'
+    evidence:
+      - path: 'services/orders/internal/application/order_service_test.go'
+        startLine: 121
+        endLine: 121
+        quote: 'func TestPlaceWithTheSameRequestIDReturnsTheFirstOrder(t *testing.T) {'
+    reading: 'judgement'
+  - relation: 'code.tests'
+    from: 'code.test-case:services/orders/internal/application/order_service_test.go#TestRetentionJobRemovesOnlyExpiredUnshippedOrders'
+    to: 'code.symbol:services/orders/internal/application/order_service.go#Service.RunRetentionJob'
+    evidence:
+      - path: 'services/orders/internal/application/order_service_test.go'
+        startLine: 179
+        endLine: 179
+        quote: 'func TestRetentionJobRemovesOnlyExpiredUnshippedOrders(t *testing.T) {'
+    reading: 'judgement'
+  - relation: 'code.uses-type'
+    from: 'code.symbol:services/orders/internal/application/order_service_test.go#fakeStore.Create'
+    to: 'code.symbol:services/orders/internal/domain/order.go#Order'
+    evidence:
+      - path: 'services/orders/internal/application/order_service_test.go'
+        startLine: 24
+        endLine: 24
+        quote: 'func (f *fakeStore) Create(_ context.Context, o domain.Order) error {'
+    reading: 'parsed'
+  - relation: 'code.uses-type'
+    from: 'code.symbol:services/orders/internal/application/order_service_test.go#fakeStore.FindByRequestID'
+    to: 'code.symbol:services/orders/internal/domain/order.go#Order'
+    evidence:
+      - path: 'services/orders/internal/application/order_service_test.go'
+        startLine: 57
+        endLine: 57
+        quote: 'func (f *fakeStore) FindByRequestID(_ context.Context, customerID, requestID string) (domain.Order, error) {'
+    reading: 'parsed'
+  - relation: 'code.uses-type'
+    from: 'code.symbol:services/orders/internal/application/order_service_test.go#fakeStore.Get'
+    to: 'code.symbol:services/orders/internal/domain/order.go#Order'
+    evidence:
+      - path: 'services/orders/internal/application/order_service_test.go'
+        startLine: 38
+        endLine: 38
+        quote: 'func (f *fakeStore) Get(_ context.Context, id string) (domain.Order, error) {'
+    reading: 'parsed'
+  - relation: 'code.uses-type'
+    from: 'code.symbol:services/orders/internal/application/order_service_test.go#fakeStore.List'
+    to: 'code.symbol:services/orders/internal/application/order_service.go#ListFilter'
+    evidence:
+      - path: 'services/orders/internal/application/order_service_test.go'
+        startLine: 46
+        endLine: 46
+        quote: 'func (f *fakeStore) List(_ context.Context, filter ListFilter) ([]domain.Order, error) {'
+    reading: 'parsed'
+  - relation: 'code.uses-type'
+    from: 'code.symbol:services/orders/internal/application/order_service_test.go#fakeStore.Save'
+    to: 'code.symbol:services/orders/internal/domain/order.go#Order'
+    evidence:
+      - path: 'services/orders/internal/application/order_service_test.go'
+        startLine: 30
+        endLine: 30
+        quote: 'func (f *fakeStore) Save(_ context.Context, o domain.Order) error {'
+    reading: 'parsed'
+  - relation: 'code.uses-type'
+    from: 'code.symbol:services/orders/internal/application/order_service_test.go#newFakeStore'
+    to: 'code.symbol:services/orders/internal/application/order_service_test.go#fakeStore'
+    evidence:
+      - path: 'services/orders/internal/application/order_service_test.go'
+        startLine: 20
+        endLine: 20
+        quote: 'func newFakeStore() *fakeStore {'
+    reading: 'parsed'
+  - relation: 'code.uses-type'
+    from: 'code.symbol:services/orders/internal/application/order_service_test.go#newService'
+    to: 'code.symbol:services/orders/internal/application/order_service.go#Service'
+    evidence:
+      - path: 'services/orders/internal/application/order_service_test.go'
+        startLine: 93
+        endLine: 93
+        quote: 'func newService(store *fakeStore, now time.Time) *Service {'
+    reading: 'parsed'
+  - relation: 'code.uses-type'
+    from: 'code.symbol:services/orders/internal/application/order_service_test.go#newService'
+    to: 'code.symbol:services/orders/internal/application/order_service_test.go#fakeStore'
+    evidence:
+      - path: 'services/orders/internal/application/order_service_test.go'
+        startLine: 93
+        endLine: 93
+        quote: 'func newService(store *fakeStore, now time.Time) *Service {'
+    reading: 'parsed'
+  - relation: 'code.uses-type'
+    from: 'code.symbol:services/orders/internal/application/order_service_test.go#noMetrics.Transitioned'
+    to: 'code.symbol:services/orders/internal/domain/order.go#Status'
+    evidence:
+      - path: 'services/orders/internal/application/order_service_test.go'
+        startLine: 90
+        endLine: 90
+        quote: 'func (noMetrics) Transitioned(domain.Status) {}'
+    reading: 'parsed'

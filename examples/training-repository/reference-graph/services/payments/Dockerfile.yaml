@@ -1,0 +1,88 @@
+path: 'services/payments/Dockerfile'
+nodes:
+  - id: 'code.dockerfile:services/payments/Dockerfile'
+    kind: 'code.dockerfile'
+    label: 'services/payments/Dockerfile'
+    evidence:
+      - path: 'services/payments/Dockerfile'
+        startLine: 1
+        endLine: 1
+        quote: '# Build context is the repository root, because the image also needs contracts/proto.'
+    reading: 'declared'
+  - id: 'code.file:services/payments/Dockerfile'
+    kind: 'code.file'
+    label: 'Dockerfile'
+    evidence:
+      - path: 'services/payments/Dockerfile'
+        startLine: 1
+        endLine: 1
+        quote: '# Build context is the repository root, because the image also needs contracts/proto.'
+    reading: 'parsed'
+  - id: 'code.image:node:20-alpine'
+    kind: 'code.image'
+    label: 'node:20-alpine'
+    evidence:
+      - path: 'services/payments/Dockerfile'
+        startLine: 2
+        endLine: 2
+        quote: 'FROM node:20-alpine AS build'
+      - path: 'services/checkout/Dockerfile'
+        startLine: 2
+        endLine: 2
+        quote: 'FROM node:20-alpine AS build'
+    reading: 'declared'
+  - id: 'code.port:services/payments:50051'
+    kind: 'code.port'
+    label: '50051'
+    evidence:
+      - path: 'services/payments/Dockerfile'
+        startLine: 18
+        endLine: 18
+        quote: 'EXPOSE 8081 50051'
+    reading: 'declared'
+  - id: 'code.port:services/payments:8081'
+    kind: 'code.port'
+    label: '8081'
+    evidence:
+      - path: 'services/payments/Dockerfile'
+        startLine: 18
+        endLine: 18
+        quote: 'EXPOSE 8081 50051'
+    reading: 'declared'
+edges:
+  - relation: 'code.belongs-to'
+    from: 'code.dockerfile:services/payments/Dockerfile'
+    to: 'code.package:services/payments'
+    evidence:
+      - path: 'services/payments/Dockerfile'
+        startLine: 1
+        endLine: 1
+        quote: '# Build context is the repository root, because the image also needs contracts/proto.'
+    reading: 'declared'
+  - relation: 'code.built-by'
+    from: 'code.dockerfile:services/payments/Dockerfile'
+    to: 'code.image:node:20-alpine'
+    evidence:
+      - path: 'services/payments/Dockerfile'
+        startLine: 2
+        endLine: 2
+        quote: 'FROM node:20-alpine AS build'
+    reading: 'declared'
+  - relation: 'code.exposes'
+    from: 'code.dockerfile:services/payments/Dockerfile'
+    to: 'code.port:services/payments:50051'
+    evidence:
+      - path: 'services/payments/Dockerfile'
+        startLine: 18
+        endLine: 18
+        quote: 'EXPOSE 8081 50051'
+    reading: 'declared'
+  - relation: 'code.exposes'
+    from: 'code.dockerfile:services/payments/Dockerfile'
+    to: 'code.port:services/payments:8081'
+    evidence:
+      - path: 'services/payments/Dockerfile'
+        startLine: 18
+        endLine: 18
+        quote: 'EXPOSE 8081 50051'
+    reading: 'declared'

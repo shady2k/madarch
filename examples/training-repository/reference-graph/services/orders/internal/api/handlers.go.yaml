@@ -1,0 +1,1289 @@
+path: 'services/orders/internal/api/handlers.go'
+nodes:
+  - id: 'code.field:services/orders/internal/api/handlers.go#OrderHandlers.svc'
+    kind: 'code.field'
+    label: 'OrderHandlers.svc'
+    evidence:
+      - path: 'services/orders/internal/api/handlers.go'
+        startLine: 29
+        endLine: 29
+        quote: '	svc OrderService'
+    reading: 'parsed'
+  - id: 'code.field:services/orders/internal/api/handlers.go#errorBody.Error'
+    kind: 'code.field'
+    label: 'errorBody.Error'
+    evidence:
+      - path: 'services/orders/internal/api/handlers.go'
+        startLine: 208
+        endLine: 208
+        quote: '	Error   string `json:"error"`'
+    reading: 'parsed'
+  - id: 'code.field:services/orders/internal/api/handlers.go#errorBody.Message'
+    kind: 'code.field'
+    label: 'errorBody.Message'
+    evidence:
+      - path: 'services/orders/internal/api/handlers.go'
+        startLine: 209
+        endLine: 209
+        quote: '	Message string `json:"message"`'
+    reading: 'parsed'
+  - id: 'code.field:services/orders/internal/api/handlers.go#itemJSON.PriceCents'
+    kind: 'code.field'
+    label: 'itemJSON.PriceCents'
+    evidence:
+      - path: 'services/orders/internal/api/handlers.go'
+        startLine: 40
+        endLine: 40
+        quote: '	PriceCents int64  `json:"priceCents"`'
+    reading: 'parsed'
+  - id: 'code.field:services/orders/internal/api/handlers.go#itemJSON.Quantity'
+    kind: 'code.field'
+    label: 'itemJSON.Quantity'
+    evidence:
+      - path: 'services/orders/internal/api/handlers.go'
+        startLine: 39
+        endLine: 39
+        quote: '	Quantity   int    `json:"quantity"`'
+    reading: 'parsed'
+  - id: 'code.field:services/orders/internal/api/handlers.go#itemJSON.SKU'
+    kind: 'code.field'
+    label: 'itemJSON.SKU'
+    evidence:
+      - path: 'services/orders/internal/api/handlers.go'
+        startLine: 38
+        endLine: 38
+        quote: '	SKU        string `json:"sku"`'
+    reading: 'parsed'
+  - id: 'code.field:services/orders/internal/api/handlers.go#itemJSON.ZeroRated'
+    kind: 'code.field'
+    label: 'itemJSON.ZeroRated'
+    evidence:
+      - path: 'services/orders/internal/api/handlers.go'
+        startLine: 41
+        endLine: 41
+        quote: '	ZeroRated  bool   `json:"zeroRated,omitempty"`'
+    reading: 'parsed'
+  - id: 'code.field:services/orders/internal/api/handlers.go#listJSON.NextCursor'
+    kind: 'code.field'
+    label: 'listJSON.NextCursor'
+    evidence:
+      - path: 'services/orders/internal/api/handlers.go'
+        startLine: 70
+        endLine: 70
+        quote: '	NextCursor string `json:"nextCursor,omitempty"`'
+    reading: 'parsed'
+  - id: 'code.field:services/orders/internal/api/handlers.go#listJSON.Orders'
+    kind: 'code.field'
+    label: 'listJSON.Orders'
+    evidence:
+      - path: 'services/orders/internal/api/handlers.go'
+        startLine: 67
+        endLine: 67
+        quote: '	Orders []orderJSON `json:"orders"`'
+    reading: 'parsed'
+  - id: 'code.field:services/orders/internal/api/handlers.go#orderJSON.CancelReason'
+    kind: 'code.field'
+    label: 'orderJSON.CancelReason'
+    evidence:
+      - path: 'services/orders/internal/api/handlers.go'
+        startLine: 61
+        endLine: 61
+        quote: '	CancelReason string `json:"cancelReason,omitempty"`'
+    reading: 'parsed'
+  - id: 'code.field:services/orders/internal/api/handlers.go#orderJSON.CreatedAt'
+    kind: 'code.field'
+    label: 'orderJSON.CreatedAt'
+    evidence:
+      - path: 'services/orders/internal/api/handlers.go'
+        startLine: 63
+        endLine: 63
+        quote: '	CreatedAt time.Time `json:"createdAt"`'
+    reading: 'parsed'
+  - id: 'code.field:services/orders/internal/api/handlers.go#orderJSON.CustomerID'
+    kind: 'code.field'
+    label: 'orderJSON.CustomerID'
+    evidence:
+      - path: 'services/orders/internal/api/handlers.go'
+        startLine: 52
+        endLine: 52
+        quote: '	CustomerID string     `json:"customerId"`'
+    reading: 'parsed'
+  - id: 'code.field:services/orders/internal/api/handlers.go#orderJSON.DiscountCents'
+    kind: 'code.field'
+    label: 'orderJSON.DiscountCents'
+    evidence:
+      - path: 'services/orders/internal/api/handlers.go'
+        startLine: 57
+        endLine: 57
+        quote: '	DiscountCents int64 `json:"discountCents"`'
+    reading: 'parsed'
+  - id: 'code.field:services/orders/internal/api/handlers.go#orderJSON.ID'
+    kind: 'code.field'
+    label: 'orderJSON.ID'
+    evidence:
+      - path: 'services/orders/internal/api/handlers.go'
+        startLine: 51
+        endLine: 51
+        quote: '	ID         string     `json:"id"`'
+    reading: 'parsed'
+  - id: 'code.field:services/orders/internal/api/handlers.go#orderJSON.Items'
+    kind: 'code.field'
+    label: 'orderJSON.Items'
+    evidence:
+      - path: 'services/orders/internal/api/handlers.go'
+        startLine: 54
+        endLine: 54
+        quote: '	Items      []itemJSON `json:"items"`'
+    reading: 'parsed'
+  - id: 'code.field:services/orders/internal/api/handlers.go#orderJSON.Status'
+    kind: 'code.field'
+    label: 'orderJSON.Status'
+    evidence:
+      - path: 'services/orders/internal/api/handlers.go'
+        startLine: 53
+        endLine: 53
+        quote: '	Status     string     `json:"status"`'
+    reading: 'parsed'
+  - id: 'code.field:services/orders/internal/api/handlers.go#orderJSON.SubtotalCents'
+    kind: 'code.field'
+    label: 'orderJSON.SubtotalCents'
+    evidence:
+      - path: 'services/orders/internal/api/handlers.go'
+        startLine: 56
+        endLine: 56
+        quote: '	SubtotalCents int64 `json:"subtotalCents"`'
+    reading: 'parsed'
+  - id: 'code.field:services/orders/internal/api/handlers.go#orderJSON.TaxCents'
+    kind: 'code.field'
+    label: 'orderJSON.TaxCents'
+    evidence:
+      - path: 'services/orders/internal/api/handlers.go'
+        startLine: 58
+        endLine: 58
+        quote: '	TaxCents      int64 `json:"taxCents"`'
+    reading: 'parsed'
+  - id: 'code.field:services/orders/internal/api/handlers.go#orderJSON.TotalCents'
+    kind: 'code.field'
+    label: 'orderJSON.TotalCents'
+    evidence:
+      - path: 'services/orders/internal/api/handlers.go'
+        startLine: 59
+        endLine: 59
+        quote: '	TotalCents    int64 `json:"totalCents"`'
+    reading: 'parsed'
+  - id: 'code.field:services/orders/internal/api/handlers.go#placeRequest.DiscountPercent'
+    kind: 'code.field'
+    label: 'placeRequest.DiscountPercent'
+    evidence:
+      - path: 'services/orders/internal/api/handlers.go'
+        startLine: 47
+        endLine: 47
+        quote: '	DiscountPercent int `json:"discountPercent"`'
+    reading: 'parsed'
+  - id: 'code.field:services/orders/internal/api/handlers.go#placeRequest.Items'
+    kind: 'code.field'
+    label: 'placeRequest.Items'
+    evidence:
+      - path: 'services/orders/internal/api/handlers.go'
+        startLine: 45
+        endLine: 45
+        quote: '	Items []itemJSON `json:"items"`'
+    reading: 'parsed'
+  - id: 'code.field:services/orders/internal/api/handlers.go#requestError.message'
+    kind: 'code.field'
+    label: 'requestError.message'
+    evidence:
+      - path: 'services/orders/internal/api/handlers.go'
+        startLine: 200
+        endLine: 200
+        quote: '	message string'
+    reading: 'parsed'
+  - id: 'code.file:services/orders/internal/api/handlers.go'
+    kind: 'code.file'
+    label: 'handlers.go'
+    evidence:
+      - path: 'services/orders/internal/api/handlers.go'
+        startLine: 1
+        endLine: 1
+        quote: 'package api'
+    reading: 'parsed'
+  - id: 'code.symbol:services/orders/internal/api/handlers.go#NewOrderHandlers'
+    kind: 'code.symbol'
+    label: 'NewOrderHandlers'
+    evidence:
+      - path: 'services/orders/internal/api/handlers.go'
+        startLine: 33
+        endLine: 33
+        quote: 'func NewOrderHandlers(svc OrderService) *OrderHandlers {'
+    reading: 'parsed'
+  - id: 'code.symbol:services/orders/internal/api/handlers.go#OrderHandlers'
+    kind: 'code.symbol'
+    label: 'OrderHandlers'
+    evidence:
+      - path: 'services/orders/internal/api/handlers.go'
+        startLine: 28
+        endLine: 28
+        quote: 'type OrderHandlers struct {'
+    reading: 'parsed'
+  - id: 'code.symbol:services/orders/internal/api/handlers.go#OrderHandlers.Cancel'
+    kind: 'code.symbol'
+    label: 'OrderHandlers.Cancel'
+    evidence:
+      - path: 'services/orders/internal/api/handlers.go'
+        startLine: 158
+        endLine: 158
+        quote: 'func (h *OrderHandlers) Cancel(w http.ResponseWriter, r *http.Request) {'
+    reading: 'parsed'
+  - id: 'code.symbol:services/orders/internal/api/handlers.go#OrderHandlers.Create'
+    kind: 'code.symbol'
+    label: 'OrderHandlers.Create'
+    evidence:
+      - path: 'services/orders/internal/api/handlers.go'
+        startLine: 95
+        endLine: 95
+        quote: 'func (h *OrderHandlers) Create(w http.ResponseWriter, r *http.Request) {'
+    reading: 'parsed'
+  - id: 'code.symbol:services/orders/internal/api/handlers.go#OrderHandlers.Get'
+    kind: 'code.symbol'
+    label: 'OrderHandlers.Get'
+    evidence:
+      - path: 'services/orders/internal/api/handlers.go'
+        startLine: 114
+        endLine: 114
+        quote: 'func (h *OrderHandlers) Get(w http.ResponseWriter, r *http.Request) {'
+    reading: 'parsed'
+  - id: 'code.symbol:services/orders/internal/api/handlers.go#OrderHandlers.List'
+    kind: 'code.symbol'
+    label: 'OrderHandlers.List'
+    evidence:
+      - path: 'services/orders/internal/api/handlers.go'
+        startLine: 129
+        endLine: 129
+        quote: 'func (h *OrderHandlers) List(w http.ResponseWriter, r *http.Request) {'
+    reading: 'parsed'
+  - id: 'code.symbol:services/orders/internal/api/handlers.go#OrderHandlers.Ship'
+    kind: 'code.symbol'
+    label: 'OrderHandlers.Ship'
+    evidence:
+      - path: 'services/orders/internal/api/handlers.go'
+        startLine: 183
+        endLine: 183
+        quote: 'func (h *OrderHandlers) Ship(w http.ResponseWriter, r *http.Request) {'
+    reading: 'parsed'
+  - id: 'code.symbol:services/orders/internal/api/handlers.go#OrderService'
+    kind: 'code.symbol'
+    label: 'OrderService'
+    evidence:
+      - path: 'services/orders/internal/api/handlers.go'
+        startLine: 18
+        endLine: 18
+        quote: 'type OrderService interface {'
+    reading: 'parsed'
+  - id: 'code.symbol:services/orders/internal/api/handlers.go#OrderService.Cancel'
+    kind: 'code.symbol'
+    label: 'OrderService.Cancel'
+    evidence:
+      - path: 'services/orders/internal/api/handlers.go'
+        startLine: 22
+        endLine: 22
+        quote: '	Cancel(ctx context.Context, id, reason string) (domain.Order, error)'
+    reading: 'parsed'
+  - id: 'code.symbol:services/orders/internal/api/handlers.go#OrderService.ForEach'
+    kind: 'code.symbol'
+    label: 'OrderService.ForEach'
+    evidence:
+      - path: 'services/orders/internal/api/handlers.go'
+        startLine: 24
+        endLine: 24
+        quote: '	ForEach(ctx context.Context, filter application.ListFilter, fn func(domain.Order) error) error'
+    reading: 'parsed'
+  - id: 'code.symbol:services/orders/internal/api/handlers.go#OrderService.Get'
+    kind: 'code.symbol'
+    label: 'OrderService.Get'
+    evidence:
+      - path: 'services/orders/internal/api/handlers.go'
+        startLine: 20
+        endLine: 20
+        quote: '	Get(ctx context.Context, id string) (domain.Order, error)'
+    reading: 'parsed'
+  - id: 'code.symbol:services/orders/internal/api/handlers.go#OrderService.List'
+    kind: 'code.symbol'
+    label: 'OrderService.List'
+    evidence:
+      - path: 'services/orders/internal/api/handlers.go'
+        startLine: 21
+        endLine: 21
+        quote: '	List(ctx context.Context, filter application.ListFilter) ([]domain.Order, error)'
+    reading: 'parsed'
+  - id: 'code.symbol:services/orders/internal/api/handlers.go#OrderService.Place'
+    kind: 'code.symbol'
+    label: 'OrderService.Place'
+    evidence:
+      - path: 'services/orders/internal/api/handlers.go'
+        startLine: 19
+        endLine: 19
+        quote: '	Place(ctx context.Context, cmd application.PlaceOrder) (domain.Order, error)'
+    reading: 'parsed'
+  - id: 'code.symbol:services/orders/internal/api/handlers.go#OrderService.Ship'
+    kind: 'code.symbol'
+    label: 'OrderService.Ship'
+    evidence:
+      - path: 'services/orders/internal/api/handlers.go'
+        startLine: 23
+        endLine: 23
+        quote: '	Ship(ctx context.Context, id string) (domain.Order, error)'
+    reading: 'parsed'
+  - id: 'code.symbol:services/orders/internal/api/handlers.go#badRequest'
+    kind: 'code.symbol'
+    label: 'badRequest'
+    evidence:
+      - path: 'services/orders/internal/api/handlers.go'
+        startLine: 205
+        endLine: 205
+        quote: 'func badRequest(message string) error { return requestError{message: message} }'
+    reading: 'parsed'
+  - id: 'code.symbol:services/orders/internal/api/handlers.go#canSee'
+    kind: 'code.symbol'
+    label: 'canSee'
+    evidence:
+      - path: 'services/orders/internal/api/handlers.go'
+        startLine: 193
+        endLine: 193
+        quote: 'func canSee(r *http.Request, o domain.Order) bool {'
+    reading: 'parsed'
+  - id: 'code.symbol:services/orders/internal/api/handlers.go#errorBody'
+    kind: 'code.symbol'
+    label: 'errorBody'
+    evidence:
+      - path: 'services/orders/internal/api/handlers.go'
+        startLine: 207
+        endLine: 207
+        quote: 'type errorBody struct {'
+    reading: 'parsed'
+  - id: 'code.symbol:services/orders/internal/api/handlers.go#itemJSON'
+    kind: 'code.symbol'
+    label: 'itemJSON'
+    evidence:
+      - path: 'services/orders/internal/api/handlers.go'
+        startLine: 37
+        endLine: 37
+        quote: 'type itemJSON struct {'
+    reading: 'parsed'
+  - id: 'code.symbol:services/orders/internal/api/handlers.go#listJSON'
+    kind: 'code.symbol'
+    label: 'listJSON'
+    evidence:
+      - path: 'services/orders/internal/api/handlers.go'
+        startLine: 66
+        endLine: 66
+        quote: 'type listJSON struct {'
+    reading: 'parsed'
+  - id: 'code.symbol:services/orders/internal/api/handlers.go#orderJSON'
+    kind: 'code.symbol'
+    label: 'orderJSON'
+    evidence:
+      - path: 'services/orders/internal/api/handlers.go'
+        startLine: 50
+        endLine: 50
+        quote: 'type orderJSON struct {'
+    reading: 'parsed'
+  - id: 'code.symbol:services/orders/internal/api/handlers.go#placeRequest'
+    kind: 'code.symbol'
+    label: 'placeRequest'
+    evidence:
+      - path: 'services/orders/internal/api/handlers.go'
+        startLine: 44
+        endLine: 44
+        quote: 'type placeRequest struct {'
+    reading: 'parsed'
+  - id: 'code.symbol:services/orders/internal/api/handlers.go#requestError'
+    kind: 'code.symbol'
+    label: 'requestError'
+    evidence:
+      - path: 'services/orders/internal/api/handlers.go'
+        startLine: 199
+        endLine: 199
+        quote: 'type requestError struct {'
+    reading: 'parsed'
+  - id: 'code.symbol:services/orders/internal/api/handlers.go#requestError.Error'
+    kind: 'code.symbol'
+    label: 'requestError.Error'
+    evidence:
+      - path: 'services/orders/internal/api/handlers.go'
+        startLine: 203
+        endLine: 203
+        quote: 'func (e requestError) Error() string { return e.message }'
+    reading: 'parsed'
+  - id: 'code.symbol:services/orders/internal/api/handlers.go#toItems'
+    kind: 'code.symbol'
+    label: 'toItems'
+    evidence:
+      - path: 'services/orders/internal/api/handlers.go'
+        startLine: 73
+        endLine: 73
+        quote: 'func toItems(in []itemJSON) []domain.Item {'
+    reading: 'parsed'
+  - id: 'code.symbol:services/orders/internal/api/handlers.go#toJSON'
+    kind: 'code.symbol'
+    label: 'toJSON'
+    evidence:
+      - path: 'services/orders/internal/api/handlers.go'
+        startLine: 81
+        endLine: 81
+        quote: 'func toJSON(o domain.Order) orderJSON {'
+    reading: 'parsed'
+  - id: 'code.symbol:services/orders/internal/api/handlers.go#writeError'
+    kind: 'code.symbol'
+    label: 'writeError'
+    evidence:
+      - path: 'services/orders/internal/api/handlers.go'
+        startLine: 221
+        endLine: 221
+        quote: 'func writeError(w http.ResponseWriter, r *http.Request, err error) {'
+    reading: 'parsed'
+  - id: 'code.symbol:services/orders/internal/api/handlers.go#writeJSON'
+    kind: 'code.symbol'
+    label: 'writeJSON'
+    evidence:
+      - path: 'services/orders/internal/api/handlers.go'
+        startLine: 212
+        endLine: 212
+        quote: 'func writeJSON(w http.ResponseWriter, status int, body any) {'
+    reading: 'parsed'
+edges:
+  - relation: 'code.calls'
+    from: 'code.symbol:services/orders/internal/api/handlers.go#OrderHandlers.Cancel'
+    to: 'code.symbol:services/orders/internal/api/handlers.go#OrderService.Cancel'
+    evidence:
+      - path: 'services/orders/internal/api/handlers.go'
+        startLine: 173
+        endLine: 173
+        quote: '	order, err := h.svc.Cancel(r.Context(), id, body.Reason)'
+    reading: 'parsed'
+  - relation: 'code.calls'
+    from: 'code.symbol:services/orders/internal/api/handlers.go#OrderHandlers.Cancel'
+    to: 'code.symbol:services/orders/internal/api/handlers.go#OrderService.Get'
+    evidence:
+      - path: 'services/orders/internal/api/handlers.go'
+        startLine: 160
+        endLine: 160
+        quote: '	existing, err := h.svc.Get(r.Context(), id)'
+    reading: 'parsed'
+  - relation: 'code.calls'
+    from: 'code.symbol:services/orders/internal/api/handlers.go#OrderHandlers.Cancel'
+    to: 'code.symbol:services/orders/internal/api/handlers.go#canSee'
+    evidence:
+      - path: 'services/orders/internal/api/handlers.go'
+        startLine: 165
+        endLine: 165
+        quote: '	if !canSee(r, existing) {'
+    reading: 'parsed'
+  - relation: 'code.calls'
+    from: 'code.symbol:services/orders/internal/api/handlers.go#OrderHandlers.Cancel'
+    to: 'code.symbol:services/orders/internal/api/handlers.go#toJSON'
+    evidence:
+      - path: 'services/orders/internal/api/handlers.go'
+        startLine: 178
+        endLine: 178
+        quote: '	writeJSON(w, http.StatusOK, toJSON(order))'
+    reading: 'parsed'
+  - relation: 'code.calls'
+    from: 'code.symbol:services/orders/internal/api/handlers.go#OrderHandlers.Cancel'
+    to: 'code.symbol:services/orders/internal/api/handlers.go#writeError'
+    evidence:
+      - path: 'services/orders/internal/api/handlers.go'
+        startLine: 162
+        endLine: 162
+        quote: '		writeError(w, r, err)'
+      - path: 'services/orders/internal/api/handlers.go'
+        startLine: 166
+        endLine: 166
+        quote: '		writeError(w, r, domain.ErrNotFound)'
+      - path: 'services/orders/internal/api/handlers.go'
+        startLine: 175
+        endLine: 175
+        quote: '		writeError(w, r, err)'
+    reading: 'parsed'
+  - relation: 'code.calls'
+    from: 'code.symbol:services/orders/internal/api/handlers.go#OrderHandlers.Cancel'
+    to: 'code.symbol:services/orders/internal/api/handlers.go#writeJSON'
+    evidence:
+      - path: 'services/orders/internal/api/handlers.go'
+        startLine: 178
+        endLine: 178
+        quote: '	writeJSON(w, http.StatusOK, toJSON(order))'
+    reading: 'parsed'
+  - relation: 'code.calls'
+    from: 'code.symbol:services/orders/internal/api/handlers.go#OrderHandlers.Create'
+    to: 'code.symbol:services/orders/internal/api/handlers.go#OrderService.Place'
+    evidence:
+      - path: 'services/orders/internal/api/handlers.go'
+        startLine: 105
+        endLine: 105
+        quote: '	order, err := h.svc.Place(r.Context(), cmd)'
+    reading: 'parsed'
+  - relation: 'code.calls'
+    from: 'code.symbol:services/orders/internal/api/handlers.go#OrderHandlers.Create'
+    to: 'code.symbol:services/orders/internal/api/handlers.go#badRequest'
+    evidence:
+      - path: 'services/orders/internal/api/handlers.go'
+        startLine: 98
+        endLine: 98
+        quote: '		writeError(w, r, badRequest("the request body is not valid JSON"))'
+    reading: 'parsed'
+  - relation: 'code.calls'
+    from: 'code.symbol:services/orders/internal/api/handlers.go#OrderHandlers.Create'
+    to: 'code.symbol:services/orders/internal/api/handlers.go#toItems'
+    evidence:
+      - path: 'services/orders/internal/api/handlers.go'
+        startLine: 102
+        endLine: 102
+        quote: '	cmd := application.PlaceOrder{CustomerID: claims.CustomerID, Items: toItems(req.Items)}'
+    reading: 'parsed'
+  - relation: 'code.calls'
+    from: 'code.symbol:services/orders/internal/api/handlers.go#OrderHandlers.Create'
+    to: 'code.symbol:services/orders/internal/api/handlers.go#toJSON'
+    evidence:
+      - path: 'services/orders/internal/api/handlers.go'
+        startLine: 110
+        endLine: 110
+        quote: '	writeJSON(w, http.StatusCreated, toJSON(order))'
+    reading: 'parsed'
+  - relation: 'code.calls'
+    from: 'code.symbol:services/orders/internal/api/handlers.go#OrderHandlers.Create'
+    to: 'code.symbol:services/orders/internal/api/handlers.go#writeError'
+    evidence:
+      - path: 'services/orders/internal/api/handlers.go'
+        startLine: 98
+        endLine: 98
+        quote: '		writeError(w, r, badRequest("the request body is not valid JSON"))'
+      - path: 'services/orders/internal/api/handlers.go'
+        startLine: 107
+        endLine: 107
+        quote: '		writeError(w, r, err)'
+    reading: 'parsed'
+  - relation: 'code.calls'
+    from: 'code.symbol:services/orders/internal/api/handlers.go#OrderHandlers.Create'
+    to: 'code.symbol:services/orders/internal/api/handlers.go#writeJSON'
+    evidence:
+      - path: 'services/orders/internal/api/handlers.go'
+        startLine: 110
+        endLine: 110
+        quote: '	writeJSON(w, http.StatusCreated, toJSON(order))'
+    reading: 'parsed'
+  - relation: 'code.calls'
+    from: 'code.symbol:services/orders/internal/api/handlers.go#OrderHandlers.Create'
+    to: 'code.symbol:services/orders/internal/api/middleware.go#ClaimsFromContext'
+    evidence:
+      - path: 'services/orders/internal/api/handlers.go'
+        startLine: 101
+        endLine: 101
+        quote: '	claims, _ := ClaimsFromContext(r.Context())'
+    reading: 'parsed'
+  - relation: 'code.calls'
+    from: 'code.symbol:services/orders/internal/api/handlers.go#OrderHandlers.Get'
+    to: 'code.symbol:services/orders/internal/api/handlers.go#OrderService.Get'
+    evidence:
+      - path: 'services/orders/internal/api/handlers.go'
+        startLine: 115
+        endLine: 115
+        quote: '	order, err := h.svc.Get(r.Context(), r.PathValue("id"))'
+    reading: 'parsed'
+  - relation: 'code.calls'
+    from: 'code.symbol:services/orders/internal/api/handlers.go#OrderHandlers.Get'
+    to: 'code.symbol:services/orders/internal/api/handlers.go#canSee'
+    evidence:
+      - path: 'services/orders/internal/api/handlers.go'
+        startLine: 120
+        endLine: 120
+        quote: '	if !canSee(r, order) {'
+    reading: 'parsed'
+  - relation: 'code.calls'
+    from: 'code.symbol:services/orders/internal/api/handlers.go#OrderHandlers.Get'
+    to: 'code.symbol:services/orders/internal/api/handlers.go#toJSON'
+    evidence:
+      - path: 'services/orders/internal/api/handlers.go'
+        startLine: 124
+        endLine: 124
+        quote: '	writeJSON(w, http.StatusOK, toJSON(order))'
+    reading: 'parsed'
+  - relation: 'code.calls'
+    from: 'code.symbol:services/orders/internal/api/handlers.go#OrderHandlers.Get'
+    to: 'code.symbol:services/orders/internal/api/handlers.go#writeError'
+    evidence:
+      - path: 'services/orders/internal/api/handlers.go'
+        startLine: 117
+        endLine: 117
+        quote: '		writeError(w, r, err)'
+      - path: 'services/orders/internal/api/handlers.go'
+        startLine: 121
+        endLine: 121
+        quote: '		writeError(w, r, domain.ErrNotFound)'
+    reading: 'parsed'
+  - relation: 'code.calls'
+    from: 'code.symbol:services/orders/internal/api/handlers.go#OrderHandlers.Get'
+    to: 'code.symbol:services/orders/internal/api/handlers.go#writeJSON'
+    evidence:
+      - path: 'services/orders/internal/api/handlers.go'
+        startLine: 124
+        endLine: 124
+        quote: '	writeJSON(w, http.StatusOK, toJSON(order))'
+    reading: 'parsed'
+  - relation: 'code.calls'
+    from: 'code.symbol:services/orders/internal/api/handlers.go#OrderHandlers.List'
+    to: 'code.symbol:services/orders/internal/api/handlers.go#OrderService.List'
+    evidence:
+      - path: 'services/orders/internal/api/handlers.go'
+        startLine: 143
+        endLine: 143
+        quote: '	orders, err := h.svc.List(r.Context(), filter)'
+    reading: 'parsed'
+  - relation: 'code.calls'
+    from: 'code.symbol:services/orders/internal/api/handlers.go#OrderHandlers.List'
+    to: 'code.symbol:services/orders/internal/api/handlers.go#badRequest'
+    evidence:
+      - path: 'services/orders/internal/api/handlers.go'
+        startLine: 135
+        endLine: 135
+        quote: '			writeError(w, r, badRequest("limit must be a whole number, zero or more"))'
+    reading: 'parsed'
+  - relation: 'code.calls'
+    from: 'code.symbol:services/orders/internal/api/handlers.go#OrderHandlers.List'
+    to: 'code.symbol:services/orders/internal/api/handlers.go#toJSON'
+    evidence:
+      - path: 'services/orders/internal/api/handlers.go'
+        startLine: 150
+        endLine: 150
+        quote: '		body.Orders = append(body.Orders, toJSON(o))'
+    reading: 'parsed'
+  - relation: 'code.calls'
+    from: 'code.symbol:services/orders/internal/api/handlers.go#OrderHandlers.List'
+    to: 'code.symbol:services/orders/internal/api/handlers.go#writeError'
+    evidence:
+      - path: 'services/orders/internal/api/handlers.go'
+        startLine: 135
+        endLine: 135
+        quote: '			writeError(w, r, badRequest("limit must be a whole number, zero or more"))'
+      - path: 'services/orders/internal/api/handlers.go'
+        startLine: 145
+        endLine: 145
+        quote: '		writeError(w, r, err)'
+    reading: 'parsed'
+  - relation: 'code.calls'
+    from: 'code.symbol:services/orders/internal/api/handlers.go#OrderHandlers.List'
+    to: 'code.symbol:services/orders/internal/api/handlers.go#writeJSON'
+    evidence:
+      - path: 'services/orders/internal/api/handlers.go'
+        startLine: 153
+        endLine: 153
+        quote: '	writeJSON(w, http.StatusOK, body)'
+    reading: 'parsed'
+  - relation: 'code.calls'
+    from: 'code.symbol:services/orders/internal/api/handlers.go#OrderHandlers.List'
+    to: 'code.symbol:services/orders/internal/api/middleware.go#ClaimsFromContext'
+    evidence:
+      - path: 'services/orders/internal/api/handlers.go'
+        startLine: 140
+        endLine: 140
+        quote: '	if claims, ok := ClaimsFromContext(r.Context()); ok && claims.Role != "support" {'
+    reading: 'parsed'
+  - relation: 'code.calls'
+    from: 'code.symbol:services/orders/internal/api/handlers.go#OrderHandlers.Ship'
+    to: 'code.symbol:services/orders/internal/api/handlers.go#OrderService.Ship'
+    evidence:
+      - path: 'services/orders/internal/api/handlers.go'
+        startLine: 184
+        endLine: 184
+        quote: '	order, err := h.svc.Ship(r.Context(), r.PathValue("id"))'
+    reading: 'parsed'
+  - relation: 'code.calls'
+    from: 'code.symbol:services/orders/internal/api/handlers.go#OrderHandlers.Ship'
+    to: 'code.symbol:services/orders/internal/api/handlers.go#toJSON'
+    evidence:
+      - path: 'services/orders/internal/api/handlers.go'
+        startLine: 189
+        endLine: 189
+        quote: '	writeJSON(w, http.StatusOK, toJSON(order))'
+    reading: 'parsed'
+  - relation: 'code.calls'
+    from: 'code.symbol:services/orders/internal/api/handlers.go#OrderHandlers.Ship'
+    to: 'code.symbol:services/orders/internal/api/handlers.go#writeError'
+    evidence:
+      - path: 'services/orders/internal/api/handlers.go'
+        startLine: 186
+        endLine: 186
+        quote: '		writeError(w, r, err)'
+    reading: 'parsed'
+  - relation: 'code.calls'
+    from: 'code.symbol:services/orders/internal/api/handlers.go#OrderHandlers.Ship'
+    to: 'code.symbol:services/orders/internal/api/handlers.go#writeJSON'
+    evidence:
+      - path: 'services/orders/internal/api/handlers.go'
+        startLine: 189
+        endLine: 189
+        quote: '	writeJSON(w, http.StatusOK, toJSON(order))'
+    reading: 'parsed'
+  - relation: 'code.calls'
+    from: 'code.symbol:services/orders/internal/api/handlers.go#canSee'
+    to: 'code.symbol:services/orders/internal/api/middleware.go#ClaimsFromContext'
+    evidence:
+      - path: 'services/orders/internal/api/handlers.go'
+        startLine: 194
+        endLine: 194
+        quote: '	claims, ok := ClaimsFromContext(r.Context())'
+    reading: 'parsed'
+  - relation: 'code.calls'
+    from: 'code.symbol:services/orders/internal/api/handlers.go#writeError'
+    to: 'code.symbol:services/orders/internal/api/handlers.go#writeJSON'
+    evidence:
+      - path: 'services/orders/internal/api/handlers.go'
+        startLine: 225
+        endLine: 225
+        quote: '		writeJSON(w, http.StatusBadRequest, errorBody{Error: "bad_request", Message: bad.message})'
+      - path: 'services/orders/internal/api/handlers.go'
+        startLine: 227
+        endLine: 227
+        quote: '		writeJSON(w, http.StatusNotFound, errorBody{Error: "not_found", Message: "no such order"})'
+      - path: 'services/orders/internal/api/handlers.go'
+        startLine: 229
+        endLine: 229
+        quote: '		writeJSON(w, http.StatusConflict, errorBody{Error: "conflict", Message: err.Error()})'
+      - path: 'services/orders/internal/api/handlers.go'
+        startLine: 231
+        endLine: 231
+        quote: '		writeJSON(w, http.StatusUnprocessableEntity, errorBody{Error: "invalid_items", Message: err.Error()})'
+      - path: 'services/orders/internal/api/handlers.go'
+        startLine: 233
+        endLine: 233
+        quote: '		writeJSON(w, http.StatusUnprocessableEntity, errorBody{Error: "unknown_customer", Message: err.Error()})'
+      - path: 'services/orders/internal/api/handlers.go'
+        startLine: 235
+        endLine: 235
+        quote: '		writeJSON(w, http.StatusUnprocessableEntity, errorBody{Error: "invalid_discount", Message: err.Error()})'
+      - path: 'services/orders/internal/api/handlers.go'
+        startLine: 238
+        endLine: 238
+        quote: '		writeJSON(w, http.StatusInternalServerError, errorBody{Error: "internal", Message: "internal error"})'
+    reading: 'parsed'
+  - relation: 'code.contains'
+    from: 'code.file:services/orders/internal/api/handlers.go'
+    to: 'code.symbol:services/orders/internal/api/handlers.go#NewOrderHandlers'
+    evidence:
+      - path: 'services/orders/internal/api/handlers.go'
+        startLine: 33
+        endLine: 33
+        quote: 'func NewOrderHandlers(svc OrderService) *OrderHandlers {'
+    reading: 'parsed'
+  - relation: 'code.contains'
+    from: 'code.file:services/orders/internal/api/handlers.go'
+    to: 'code.symbol:services/orders/internal/api/handlers.go#OrderHandlers'
+    evidence:
+      - path: 'services/orders/internal/api/handlers.go'
+        startLine: 28
+        endLine: 28
+        quote: 'type OrderHandlers struct {'
+    reading: 'parsed'
+  - relation: 'code.contains'
+    from: 'code.file:services/orders/internal/api/handlers.go'
+    to: 'code.symbol:services/orders/internal/api/handlers.go#OrderHandlers.Cancel'
+    evidence:
+      - path: 'services/orders/internal/api/handlers.go'
+        startLine: 158
+        endLine: 158
+        quote: 'func (h *OrderHandlers) Cancel(w http.ResponseWriter, r *http.Request) {'
+    reading: 'parsed'
+  - relation: 'code.contains'
+    from: 'code.file:services/orders/internal/api/handlers.go'
+    to: 'code.symbol:services/orders/internal/api/handlers.go#OrderHandlers.Create'
+    evidence:
+      - path: 'services/orders/internal/api/handlers.go'
+        startLine: 95
+        endLine: 95
+        quote: 'func (h *OrderHandlers) Create(w http.ResponseWriter, r *http.Request) {'
+    reading: 'parsed'
+  - relation: 'code.contains'
+    from: 'code.file:services/orders/internal/api/handlers.go'
+    to: 'code.symbol:services/orders/internal/api/handlers.go#OrderHandlers.Get'
+    evidence:
+      - path: 'services/orders/internal/api/handlers.go'
+        startLine: 114
+        endLine: 114
+        quote: 'func (h *OrderHandlers) Get(w http.ResponseWriter, r *http.Request) {'
+    reading: 'parsed'
+  - relation: 'code.contains'
+    from: 'code.file:services/orders/internal/api/handlers.go'
+    to: 'code.symbol:services/orders/internal/api/handlers.go#OrderHandlers.List'
+    evidence:
+      - path: 'services/orders/internal/api/handlers.go'
+        startLine: 129
+        endLine: 129
+        quote: 'func (h *OrderHandlers) List(w http.ResponseWriter, r *http.Request) {'
+    reading: 'parsed'
+  - relation: 'code.contains'
+    from: 'code.file:services/orders/internal/api/handlers.go'
+    to: 'code.symbol:services/orders/internal/api/handlers.go#OrderHandlers.Ship'
+    evidence:
+      - path: 'services/orders/internal/api/handlers.go'
+        startLine: 183
+        endLine: 183
+        quote: 'func (h *OrderHandlers) Ship(w http.ResponseWriter, r *http.Request) {'
+    reading: 'parsed'
+  - relation: 'code.contains'
+    from: 'code.file:services/orders/internal/api/handlers.go'
+    to: 'code.symbol:services/orders/internal/api/handlers.go#OrderService'
+    evidence:
+      - path: 'services/orders/internal/api/handlers.go'
+        startLine: 18
+        endLine: 18
+        quote: 'type OrderService interface {'
+    reading: 'parsed'
+  - relation: 'code.contains'
+    from: 'code.file:services/orders/internal/api/handlers.go'
+    to: 'code.symbol:services/orders/internal/api/handlers.go#badRequest'
+    evidence:
+      - path: 'services/orders/internal/api/handlers.go'
+        startLine: 205
+        endLine: 205
+        quote: 'func badRequest(message string) error { return requestError{message: message} }'
+    reading: 'parsed'
+  - relation: 'code.contains'
+    from: 'code.file:services/orders/internal/api/handlers.go'
+    to: 'code.symbol:services/orders/internal/api/handlers.go#canSee'
+    evidence:
+      - path: 'services/orders/internal/api/handlers.go'
+        startLine: 193
+        endLine: 193
+        quote: 'func canSee(r *http.Request, o domain.Order) bool {'
+    reading: 'parsed'
+  - relation: 'code.contains'
+    from: 'code.file:services/orders/internal/api/handlers.go'
+    to: 'code.symbol:services/orders/internal/api/handlers.go#errorBody'
+    evidence:
+      - path: 'services/orders/internal/api/handlers.go'
+        startLine: 207
+        endLine: 207
+        quote: 'type errorBody struct {'
+    reading: 'parsed'
+  - relation: 'code.contains'
+    from: 'code.file:services/orders/internal/api/handlers.go'
+    to: 'code.symbol:services/orders/internal/api/handlers.go#itemJSON'
+    evidence:
+      - path: 'services/orders/internal/api/handlers.go'
+        startLine: 37
+        endLine: 37
+        quote: 'type itemJSON struct {'
+    reading: 'parsed'
+  - relation: 'code.contains'
+    from: 'code.file:services/orders/internal/api/handlers.go'
+    to: 'code.symbol:services/orders/internal/api/handlers.go#listJSON'
+    evidence:
+      - path: 'services/orders/internal/api/handlers.go'
+        startLine: 66
+        endLine: 66
+        quote: 'type listJSON struct {'
+    reading: 'parsed'
+  - relation: 'code.contains'
+    from: 'code.file:services/orders/internal/api/handlers.go'
+    to: 'code.symbol:services/orders/internal/api/handlers.go#orderJSON'
+    evidence:
+      - path: 'services/orders/internal/api/handlers.go'
+        startLine: 50
+        endLine: 50
+        quote: 'type orderJSON struct {'
+    reading: 'parsed'
+  - relation: 'code.contains'
+    from: 'code.file:services/orders/internal/api/handlers.go'
+    to: 'code.symbol:services/orders/internal/api/handlers.go#placeRequest'
+    evidence:
+      - path: 'services/orders/internal/api/handlers.go'
+        startLine: 44
+        endLine: 44
+        quote: 'type placeRequest struct {'
+    reading: 'parsed'
+  - relation: 'code.contains'
+    from: 'code.file:services/orders/internal/api/handlers.go'
+    to: 'code.symbol:services/orders/internal/api/handlers.go#requestError'
+    evidence:
+      - path: 'services/orders/internal/api/handlers.go'
+        startLine: 199
+        endLine: 199
+        quote: 'type requestError struct {'
+    reading: 'parsed'
+  - relation: 'code.contains'
+    from: 'code.file:services/orders/internal/api/handlers.go'
+    to: 'code.symbol:services/orders/internal/api/handlers.go#requestError.Error'
+    evidence:
+      - path: 'services/orders/internal/api/handlers.go'
+        startLine: 203
+        endLine: 203
+        quote: 'func (e requestError) Error() string { return e.message }'
+    reading: 'parsed'
+  - relation: 'code.contains'
+    from: 'code.file:services/orders/internal/api/handlers.go'
+    to: 'code.symbol:services/orders/internal/api/handlers.go#toItems'
+    evidence:
+      - path: 'services/orders/internal/api/handlers.go'
+        startLine: 73
+        endLine: 73
+        quote: 'func toItems(in []itemJSON) []domain.Item {'
+    reading: 'parsed'
+  - relation: 'code.contains'
+    from: 'code.file:services/orders/internal/api/handlers.go'
+    to: 'code.symbol:services/orders/internal/api/handlers.go#toJSON'
+    evidence:
+      - path: 'services/orders/internal/api/handlers.go'
+        startLine: 81
+        endLine: 81
+        quote: 'func toJSON(o domain.Order) orderJSON {'
+    reading: 'parsed'
+  - relation: 'code.contains'
+    from: 'code.file:services/orders/internal/api/handlers.go'
+    to: 'code.symbol:services/orders/internal/api/handlers.go#writeError'
+    evidence:
+      - path: 'services/orders/internal/api/handlers.go'
+        startLine: 221
+        endLine: 221
+        quote: 'func writeError(w http.ResponseWriter, r *http.Request, err error) {'
+    reading: 'parsed'
+  - relation: 'code.contains'
+    from: 'code.file:services/orders/internal/api/handlers.go'
+    to: 'code.symbol:services/orders/internal/api/handlers.go#writeJSON'
+    evidence:
+      - path: 'services/orders/internal/api/handlers.go'
+        startLine: 212
+        endLine: 212
+        quote: 'func writeJSON(w http.ResponseWriter, status int, body any) {'
+    reading: 'parsed'
+  - relation: 'code.contains'
+    from: 'code.module:services/orders/internal/api'
+    to: 'code.file:services/orders/internal/api/handlers.go'
+    evidence:
+      - path: 'services/orders/internal/api/handlers.go'
+        startLine: 1
+        endLine: 1
+        quote: 'package api'
+    reading: 'parsed'
+  - relation: 'code.contains'
+    from: 'code.symbol:services/orders/internal/api/handlers.go#OrderHandlers'
+    to: 'code.field:services/orders/internal/api/handlers.go#OrderHandlers.svc'
+    evidence:
+      - path: 'services/orders/internal/api/handlers.go'
+        startLine: 29
+        endLine: 29
+        quote: '	svc OrderService'
+    reading: 'parsed'
+  - relation: 'code.contains'
+    from: 'code.symbol:services/orders/internal/api/handlers.go#OrderService'
+    to: 'code.symbol:services/orders/internal/api/handlers.go#OrderService.Cancel'
+    evidence:
+      - path: 'services/orders/internal/api/handlers.go'
+        startLine: 22
+        endLine: 22
+        quote: '	Cancel(ctx context.Context, id, reason string) (domain.Order, error)'
+    reading: 'parsed'
+  - relation: 'code.contains'
+    from: 'code.symbol:services/orders/internal/api/handlers.go#OrderService'
+    to: 'code.symbol:services/orders/internal/api/handlers.go#OrderService.ForEach'
+    evidence:
+      - path: 'services/orders/internal/api/handlers.go'
+        startLine: 24
+        endLine: 24
+        quote: '	ForEach(ctx context.Context, filter application.ListFilter, fn func(domain.Order) error) error'
+    reading: 'parsed'
+  - relation: 'code.contains'
+    from: 'code.symbol:services/orders/internal/api/handlers.go#OrderService'
+    to: 'code.symbol:services/orders/internal/api/handlers.go#OrderService.Get'
+    evidence:
+      - path: 'services/orders/internal/api/handlers.go'
+        startLine: 20
+        endLine: 20
+        quote: '	Get(ctx context.Context, id string) (domain.Order, error)'
+    reading: 'parsed'
+  - relation: 'code.contains'
+    from: 'code.symbol:services/orders/internal/api/handlers.go#OrderService'
+    to: 'code.symbol:services/orders/internal/api/handlers.go#OrderService.List'
+    evidence:
+      - path: 'services/orders/internal/api/handlers.go'
+        startLine: 21
+        endLine: 21
+        quote: '	List(ctx context.Context, filter application.ListFilter) ([]domain.Order, error)'
+    reading: 'parsed'
+  - relation: 'code.contains'
+    from: 'code.symbol:services/orders/internal/api/handlers.go#OrderService'
+    to: 'code.symbol:services/orders/internal/api/handlers.go#OrderService.Place'
+    evidence:
+      - path: 'services/orders/internal/api/handlers.go'
+        startLine: 19
+        endLine: 19
+        quote: '	Place(ctx context.Context, cmd application.PlaceOrder) (domain.Order, error)'
+    reading: 'parsed'
+  - relation: 'code.contains'
+    from: 'code.symbol:services/orders/internal/api/handlers.go#OrderService'
+    to: 'code.symbol:services/orders/internal/api/handlers.go#OrderService.Ship'
+    evidence:
+      - path: 'services/orders/internal/api/handlers.go'
+        startLine: 23
+        endLine: 23
+        quote: '	Ship(ctx context.Context, id string) (domain.Order, error)'
+    reading: 'parsed'
+  - relation: 'code.contains'
+    from: 'code.symbol:services/orders/internal/api/handlers.go#errorBody'
+    to: 'code.field:services/orders/internal/api/handlers.go#errorBody.Error'
+    evidence:
+      - path: 'services/orders/internal/api/handlers.go'
+        startLine: 208
+        endLine: 208
+        quote: '	Error   string `json:"error"`'
+    reading: 'parsed'
+  - relation: 'code.contains'
+    from: 'code.symbol:services/orders/internal/api/handlers.go#errorBody'
+    to: 'code.field:services/orders/internal/api/handlers.go#errorBody.Message'
+    evidence:
+      - path: 'services/orders/internal/api/handlers.go'
+        startLine: 209
+        endLine: 209
+        quote: '	Message string `json:"message"`'
+    reading: 'parsed'
+  - relation: 'code.contains'
+    from: 'code.symbol:services/orders/internal/api/handlers.go#itemJSON'
+    to: 'code.field:services/orders/internal/api/handlers.go#itemJSON.PriceCents'
+    evidence:
+      - path: 'services/orders/internal/api/handlers.go'
+        startLine: 40
+        endLine: 40
+        quote: '	PriceCents int64  `json:"priceCents"`'
+    reading: 'parsed'
+  - relation: 'code.contains'
+    from: 'code.symbol:services/orders/internal/api/handlers.go#itemJSON'
+    to: 'code.field:services/orders/internal/api/handlers.go#itemJSON.Quantity'
+    evidence:
+      - path: 'services/orders/internal/api/handlers.go'
+        startLine: 39
+        endLine: 39
+        quote: '	Quantity   int    `json:"quantity"`'
+    reading: 'parsed'
+  - relation: 'code.contains'
+    from: 'code.symbol:services/orders/internal/api/handlers.go#itemJSON'
+    to: 'code.field:services/orders/internal/api/handlers.go#itemJSON.SKU'
+    evidence:
+      - path: 'services/orders/internal/api/handlers.go'
+        startLine: 38
+        endLine: 38
+        quote: '	SKU        string `json:"sku"`'
+    reading: 'parsed'
+  - relation: 'code.contains'
+    from: 'code.symbol:services/orders/internal/api/handlers.go#itemJSON'
+    to: 'code.field:services/orders/internal/api/handlers.go#itemJSON.ZeroRated'
+    evidence:
+      - path: 'services/orders/internal/api/handlers.go'
+        startLine: 41
+        endLine: 41
+        quote: '	ZeroRated  bool   `json:"zeroRated,omitempty"`'
+    reading: 'parsed'
+  - relation: 'code.contains'
+    from: 'code.symbol:services/orders/internal/api/handlers.go#listJSON'
+    to: 'code.field:services/orders/internal/api/handlers.go#listJSON.NextCursor'
+    evidence:
+      - path: 'services/orders/internal/api/handlers.go'
+        startLine: 70
+        endLine: 70
+        quote: '	NextCursor string `json:"nextCursor,omitempty"`'
+    reading: 'parsed'
+  - relation: 'code.contains'
+    from: 'code.symbol:services/orders/internal/api/handlers.go#listJSON'
+    to: 'code.field:services/orders/internal/api/handlers.go#listJSON.Orders'
+    evidence:
+      - path: 'services/orders/internal/api/handlers.go'
+        startLine: 67
+        endLine: 67
+        quote: '	Orders []orderJSON `json:"orders"`'
+    reading: 'parsed'
+  - relation: 'code.contains'
+    from: 'code.symbol:services/orders/internal/api/handlers.go#orderJSON'
+    to: 'code.field:services/orders/internal/api/handlers.go#orderJSON.CancelReason'
+    evidence:
+      - path: 'services/orders/internal/api/handlers.go'
+        startLine: 61
+        endLine: 61
+        quote: '	CancelReason string `json:"cancelReason,omitempty"`'
+    reading: 'parsed'
+  - relation: 'code.contains'
+    from: 'code.symbol:services/orders/internal/api/handlers.go#orderJSON'
+    to: 'code.field:services/orders/internal/api/handlers.go#orderJSON.CreatedAt'
+    evidence:
+      - path: 'services/orders/internal/api/handlers.go'
+        startLine: 63
+        endLine: 63
+        quote: '	CreatedAt time.Time `json:"createdAt"`'
+    reading: 'parsed'
+  - relation: 'code.contains'
+    from: 'code.symbol:services/orders/internal/api/handlers.go#orderJSON'
+    to: 'code.field:services/orders/internal/api/handlers.go#orderJSON.CustomerID'
+    evidence:
+      - path: 'services/orders/internal/api/handlers.go'
+        startLine: 52
+        endLine: 52
+        quote: '	CustomerID string     `json:"customerId"`'
+    reading: 'parsed'
+  - relation: 'code.contains'
+    from: 'code.symbol:services/orders/internal/api/handlers.go#orderJSON'
+    to: 'code.field:services/orders/internal/api/handlers.go#orderJSON.DiscountCents'
+    evidence:
+      - path: 'services/orders/internal/api/handlers.go'
+        startLine: 57
+        endLine: 57
+        quote: '	DiscountCents int64 `json:"discountCents"`'
+    reading: 'parsed'
+  - relation: 'code.contains'
+    from: 'code.symbol:services/orders/internal/api/handlers.go#orderJSON'
+    to: 'code.field:services/orders/internal/api/handlers.go#orderJSON.ID'
+    evidence:
+      - path: 'services/orders/internal/api/handlers.go'
+        startLine: 51
+        endLine: 51
+        quote: '	ID         string     `json:"id"`'
+    reading: 'parsed'
+  - relation: 'code.contains'
+    from: 'code.symbol:services/orders/internal/api/handlers.go#orderJSON'
+    to: 'code.field:services/orders/internal/api/handlers.go#orderJSON.Items'
+    evidence:
+      - path: 'services/orders/internal/api/handlers.go'
+        startLine: 54
+        endLine: 54
+        quote: '	Items      []itemJSON `json:"items"`'
+    reading: 'parsed'
+  - relation: 'code.contains'
+    from: 'code.symbol:services/orders/internal/api/handlers.go#orderJSON'
+    to: 'code.field:services/orders/internal/api/handlers.go#orderJSON.Status'
+    evidence:
+      - path: 'services/orders/internal/api/handlers.go'
+        startLine: 53
+        endLine: 53
+        quote: '	Status     string     `json:"status"`'
+    reading: 'parsed'
+  - relation: 'code.contains'
+    from: 'code.symbol:services/orders/internal/api/handlers.go#orderJSON'
+    to: 'code.field:services/orders/internal/api/handlers.go#orderJSON.SubtotalCents'
+    evidence:
+      - path: 'services/orders/internal/api/handlers.go'
+        startLine: 56
+        endLine: 56
+        quote: '	SubtotalCents int64 `json:"subtotalCents"`'
+    reading: 'parsed'
+  - relation: 'code.contains'
+    from: 'code.symbol:services/orders/internal/api/handlers.go#orderJSON'
+    to: 'code.field:services/orders/internal/api/handlers.go#orderJSON.TaxCents'
+    evidence:
+      - path: 'services/orders/internal/api/handlers.go'
+        startLine: 58
+        endLine: 58
+        quote: '	TaxCents      int64 `json:"taxCents"`'
+    reading: 'parsed'
+  - relation: 'code.contains'
+    from: 'code.symbol:services/orders/internal/api/handlers.go#orderJSON'
+    to: 'code.field:services/orders/internal/api/handlers.go#orderJSON.TotalCents'
+    evidence:
+      - path: 'services/orders/internal/api/handlers.go'
+        startLine: 59
+        endLine: 59
+        quote: '	TotalCents    int64 `json:"totalCents"`'
+    reading: 'parsed'
+  - relation: 'code.contains'
+    from: 'code.symbol:services/orders/internal/api/handlers.go#placeRequest'
+    to: 'code.field:services/orders/internal/api/handlers.go#placeRequest.DiscountPercent'
+    evidence:
+      - path: 'services/orders/internal/api/handlers.go'
+        startLine: 47
+        endLine: 47
+        quote: '	DiscountPercent int `json:"discountPercent"`'
+    reading: 'parsed'
+  - relation: 'code.contains'
+    from: 'code.symbol:services/orders/internal/api/handlers.go#placeRequest'
+    to: 'code.field:services/orders/internal/api/handlers.go#placeRequest.Items'
+    evidence:
+      - path: 'services/orders/internal/api/handlers.go'
+        startLine: 45
+        endLine: 45
+        quote: '	Items []itemJSON `json:"items"`'
+    reading: 'parsed'
+  - relation: 'code.contains'
+    from: 'code.symbol:services/orders/internal/api/handlers.go#requestError'
+    to: 'code.field:services/orders/internal/api/handlers.go#requestError.message'
+    evidence:
+      - path: 'services/orders/internal/api/handlers.go'
+        startLine: 200
+        endLine: 200
+        quote: '	message string'
+    reading: 'parsed'
+  - relation: 'code.imports'
+    from: 'code.file:services/orders/internal/api/handlers.go'
+    to: 'code.module:services/orders/internal/application'
+    evidence:
+      - path: 'services/orders/internal/api/handlers.go'
+        startLine: 12
+        endLine: 12
+        quote: '	"training.example/orders/internal/application"'
+    reading: 'parsed'
+  - relation: 'code.imports'
+    from: 'code.file:services/orders/internal/api/handlers.go'
+    to: 'code.module:services/orders/internal/domain'
+    evidence:
+      - path: 'services/orders/internal/api/handlers.go'
+        startLine: 13
+        endLine: 13
+        quote: '	"training.example/orders/internal/domain"'
+    reading: 'parsed'
+  - relation: 'code.uses-type'
+    from: 'code.symbol:services/orders/internal/api/handlers.go#NewOrderHandlers'
+    to: 'code.symbol:services/orders/internal/api/handlers.go#OrderHandlers'
+    evidence:
+      - path: 'services/orders/internal/api/handlers.go'
+        startLine: 33
+        endLine: 33
+        quote: 'func NewOrderHandlers(svc OrderService) *OrderHandlers {'
+    reading: 'parsed'
+  - relation: 'code.uses-type'
+    from: 'code.symbol:services/orders/internal/api/handlers.go#NewOrderHandlers'
+    to: 'code.symbol:services/orders/internal/api/handlers.go#OrderService'
+    evidence:
+      - path: 'services/orders/internal/api/handlers.go'
+        startLine: 33
+        endLine: 33
+        quote: 'func NewOrderHandlers(svc OrderService) *OrderHandlers {'
+    reading: 'parsed'
+  - relation: 'code.uses-type'
+    from: 'code.symbol:services/orders/internal/api/handlers.go#OrderHandlers'
+    to: 'code.symbol:services/orders/internal/api/handlers.go#OrderService'
+    evidence:
+      - path: 'services/orders/internal/api/handlers.go'
+        startLine: 29
+        endLine: 29
+        quote: '	svc OrderService'
+    reading: 'parsed'
+  - relation: 'code.uses-type'
+    from: 'code.symbol:services/orders/internal/api/handlers.go#canSee'
+    to: 'code.symbol:services/orders/internal/domain/order.go#Order'
+    evidence:
+      - path: 'services/orders/internal/api/handlers.go'
+        startLine: 193
+        endLine: 193
+        quote: 'func canSee(r *http.Request, o domain.Order) bool {'
+    reading: 'parsed'
+  - relation: 'code.uses-type'
+    from: 'code.symbol:services/orders/internal/api/handlers.go#toJSON'
+    to: 'code.symbol:services/orders/internal/api/handlers.go#orderJSON'
+    evidence:
+      - path: 'services/orders/internal/api/handlers.go'
+        startLine: 81
+        endLine: 81
+        quote: 'func toJSON(o domain.Order) orderJSON {'
+    reading: 'parsed'
+  - relation: 'code.uses-type'
+    from: 'code.symbol:services/orders/internal/api/handlers.go#toJSON'
+    to: 'code.symbol:services/orders/internal/domain/order.go#Order'
+    evidence:
+      - path: 'services/orders/internal/api/handlers.go'
+        startLine: 81
+        endLine: 81
+        quote: 'func toJSON(o domain.Order) orderJSON {'
+    reading: 'parsed'

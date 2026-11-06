@@ -1,0 +1,174 @@
+path: 'services/promotions/migrations/0001_promotions.sql'
+nodes:
+  - id: 'code.column:promotions.promotions.active'
+    kind: 'code.column'
+    label: 'active'
+    evidence:
+      - path: 'services/promotions/migrations/0001_promotions.sql'
+        startLine: 10
+        endLine: 10
+        quote: '    active     BOOLEAN NOT NULL DEFAULT true,'
+    reading: 'parsed'
+  - id: 'code.column:promotions.promotions.code'
+    kind: 'code.column'
+    label: 'code'
+    evidence:
+      - path: 'services/promotions/migrations/0001_promotions.sql'
+        startLine: 5
+        endLine: 5
+        quote: '    code       TEXT NOT NULL UNIQUE,'
+    reading: 'parsed'
+  - id: 'code.column:promotions.promotions.expires_at'
+    kind: 'code.column'
+    label: 'expires_at'
+    evidence:
+      - path: 'services/promotions/migrations/0001_promotions.sql'
+        startLine: 11
+        endLine: 11
+        quote: '    expires_at TIMESTAMPTZ'
+    reading: 'parsed'
+  - id: 'code.column:promotions.promotions.id'
+    kind: 'code.column'
+    label: 'id'
+    evidence:
+      - path: 'services/promotions/migrations/0001_promotions.sql'
+        startLine: 4
+        endLine: 4
+        quote: '    id         TEXT PRIMARY KEY,'
+    reading: 'parsed'
+  - id: 'code.column:promotions.promotions.kind'
+    kind: 'code.column'
+    label: 'kind'
+    evidence:
+      - path: 'services/promotions/migrations/0001_promotions.sql'
+        startLine: 6
+        endLine: 6
+        quote: '    kind       TEXT NOT NULL CHECK (kind IN (''percent'', ''fixed'', ''threshold'')),'
+    reading: 'parsed'
+  - id: 'code.column:promotions.promotions.min_cents'
+    kind: 'code.column'
+    label: 'min_cents'
+    evidence:
+      - path: 'services/promotions/migrations/0001_promotions.sql'
+        startLine: 9
+        endLine: 9
+        quote: '    min_cents  BIGINT,'
+    reading: 'parsed'
+  - id: 'code.column:promotions.promotions.value'
+    kind: 'code.column'
+    label: 'value'
+    evidence:
+      - path: 'services/promotions/migrations/0001_promotions.sql'
+        startLine: 7
+        endLine: 7
+        quote: '    value      BIGINT NOT NULL,'
+    reading: 'parsed'
+  - id: 'code.file:services/promotions/migrations/0001_promotions.sql'
+    kind: 'code.file'
+    label: '0001_promotions.sql'
+    evidence:
+      - path: 'services/promotions/migrations/0001_promotions.sql'
+        startLine: 1
+        endLine: 1
+        quote: '-- Promotion codes. kind selects the discount strategy (percent, fixed,'
+    reading: 'parsed'
+  - id: 'code.migration:services/promotions/migrations/0001_promotions.sql'
+    kind: 'code.migration'
+    label: '0001_promotions.sql'
+    evidence:
+      - path: 'services/promotions/migrations/0001_promotions.sql'
+        startLine: 1
+        endLine: 1
+        quote: '-- Promotion codes. kind selects the discount strategy (percent, fixed,'
+    reading: 'parsed'
+  - id: 'code.table:promotions.promotions'
+    kind: 'code.table'
+    label: 'promotions'
+    evidence:
+      - path: 'services/promotions/migrations/0001_promotions.sql'
+        startLine: 3
+        endLine: 3
+        quote: 'CREATE TABLE promotions ('
+    reading: 'parsed'
+edges:
+  - relation: 'code.belongs-to'
+    from: 'code.migration:services/promotions/migrations/0001_promotions.sql'
+    to: 'code.package:services/promotions'
+    evidence:
+      - path: 'services/promotions/migrations/0001_promotions.sql'
+        startLine: 1
+        endLine: 1
+        quote: '-- Promotion codes. kind selects the discount strategy (percent, fixed,'
+    reading: 'parsed'
+  - relation: 'code.contains'
+    from: 'code.table:promotions.promotions'
+    to: 'code.column:promotions.promotions.active'
+    evidence:
+      - path: 'services/promotions/migrations/0001_promotions.sql'
+        startLine: 10
+        endLine: 10
+        quote: '    active     BOOLEAN NOT NULL DEFAULT true,'
+    reading: 'parsed'
+  - relation: 'code.contains'
+    from: 'code.table:promotions.promotions'
+    to: 'code.column:promotions.promotions.code'
+    evidence:
+      - path: 'services/promotions/migrations/0001_promotions.sql'
+        startLine: 5
+        endLine: 5
+        quote: '    code       TEXT NOT NULL UNIQUE,'
+    reading: 'parsed'
+  - relation: 'code.contains'
+    from: 'code.table:promotions.promotions'
+    to: 'code.column:promotions.promotions.expires_at'
+    evidence:
+      - path: 'services/promotions/migrations/0001_promotions.sql'
+        startLine: 11
+        endLine: 11
+        quote: '    expires_at TIMESTAMPTZ'
+    reading: 'parsed'
+  - relation: 'code.contains'
+    from: 'code.table:promotions.promotions'
+    to: 'code.column:promotions.promotions.id'
+    evidence:
+      - path: 'services/promotions/migrations/0001_promotions.sql'
+        startLine: 4
+        endLine: 4
+        quote: '    id         TEXT PRIMARY KEY,'
+    reading: 'parsed'
+  - relation: 'code.contains'
+    from: 'code.table:promotions.promotions'
+    to: 'code.column:promotions.promotions.kind'
+    evidence:
+      - path: 'services/promotions/migrations/0001_promotions.sql'
+        startLine: 6
+        endLine: 6
+        quote: '    kind       TEXT NOT NULL CHECK (kind IN (''percent'', ''fixed'', ''threshold'')),'
+    reading: 'parsed'
+  - relation: 'code.contains'
+    from: 'code.table:promotions.promotions'
+    to: 'code.column:promotions.promotions.min_cents'
+    evidence:
+      - path: 'services/promotions/migrations/0001_promotions.sql'
+        startLine: 9
+        endLine: 9
+        quote: '    min_cents  BIGINT,'
+    reading: 'parsed'
+  - relation: 'code.contains'
+    from: 'code.table:promotions.promotions'
+    to: 'code.column:promotions.promotions.value'
+    evidence:
+      - path: 'services/promotions/migrations/0001_promotions.sql'
+        startLine: 7
+        endLine: 7
+        quote: '    value      BIGINT NOT NULL,'
+    reading: 'parsed'
+  - relation: 'code.creates'
+    from: 'code.migration:services/promotions/migrations/0001_promotions.sql'
+    to: 'code.table:promotions.promotions'
+    evidence:
+      - path: 'services/promotions/migrations/0001_promotions.sql'
+        startLine: 3
+        endLine: 3
+        quote: 'CREATE TABLE promotions ('
+    reading: 'parsed'

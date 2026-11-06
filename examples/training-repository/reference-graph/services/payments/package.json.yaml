@@ -1,0 +1,354 @@
+path: 'services/payments/package.json'
+nodes:
+  - id: 'code.dependency:services/payments/package.json#@grpc/grpc-js'
+    kind: 'code.dependency'
+    label: '@grpc/grpc-js 1.10.8'
+    evidence:
+      - path: 'services/payments/package.json'
+        startLine: 14
+        endLine: 14
+        quote: '    "@grpc/grpc-js": "1.10.8",'
+    reading: 'declared'
+  - id: 'code.dependency:services/payments/package.json#@grpc/proto-loader'
+    kind: 'code.dependency'
+    label: '@grpc/proto-loader 0.7.13'
+    evidence:
+      - path: 'services/payments/package.json'
+        startLine: 15
+        endLine: 15
+        quote: '    "@grpc/proto-loader": "0.7.13",'
+    reading: 'declared'
+  - id: 'code.dependency:services/payments/package.json#@prisma/client'
+    kind: 'code.dependency'
+    label: '@prisma/client 5.14.0'
+    evidence:
+      - path: 'services/payments/package.json'
+        startLine: 16
+        endLine: 16
+        quote: '    "@prisma/client": "5.14.0",'
+    reading: 'declared'
+  - id: 'code.dependency:services/payments/package.json#@types/express'
+    kind: 'code.dependency'
+    label: '@types/express 4.17.21 (dev)'
+    evidence:
+      - path: 'services/payments/package.json'
+        startLine: 25
+        endLine: 25
+        quote: '    "@types/express": "4.17.21",'
+    reading: 'declared'
+  - id: 'code.dependency:services/payments/package.json#@types/jest'
+    kind: 'code.dependency'
+    label: '@types/jest 29.5.12 (dev)'
+    evidence:
+      - path: 'services/payments/package.json'
+        startLine: 26
+        endLine: 26
+        quote: '    "@types/jest": "29.5.12",'
+    reading: 'declared'
+  - id: 'code.dependency:services/payments/package.json#@types/jsonwebtoken'
+    kind: 'code.dependency'
+    label: '@types/jsonwebtoken 9.0.6 (dev)'
+    evidence:
+      - path: 'services/payments/package.json'
+        startLine: 27
+        endLine: 27
+        quote: '    "@types/jsonwebtoken": "9.0.6",'
+    reading: 'declared'
+  - id: 'code.dependency:services/payments/package.json#@types/lodash'
+    kind: 'code.dependency'
+    label: '@types/lodash 4.17.4 (dev)'
+    evidence:
+      - path: 'services/payments/package.json'
+        startLine: 28
+        endLine: 28
+        quote: '    "@types/lodash": "4.17.4",'
+    reading: 'declared'
+  - id: 'code.dependency:services/payments/package.json#@types/node'
+    kind: 'code.dependency'
+    label: '@types/node 20.12.12 (dev)'
+    evidence:
+      - path: 'services/payments/package.json'
+        startLine: 29
+        endLine: 29
+        quote: '    "@types/node": "20.12.12",'
+    reading: 'declared'
+  - id: 'code.dependency:services/payments/package.json#express'
+    kind: 'code.dependency'
+    label: 'express 4.19.2'
+    evidence:
+      - path: 'services/payments/package.json'
+        startLine: 17
+        endLine: 17
+        quote: '    "express": "4.19.2",'
+    reading: 'declared'
+  - id: 'code.dependency:services/payments/package.json#jest'
+    kind: 'code.dependency'
+    label: 'jest 29.7.0 (dev)'
+    evidence:
+      - path: 'services/payments/package.json'
+        startLine: 30
+        endLine: 30
+        quote: '    "jest": "29.7.0",'
+    reading: 'declared'
+  - id: 'code.dependency:services/payments/package.json#jsonwebtoken'
+    kind: 'code.dependency'
+    label: 'jsonwebtoken 9.0.2'
+    evidence:
+      - path: 'services/payments/package.json'
+        startLine: 18
+        endLine: 18
+        quote: '    "jsonwebtoken": "9.0.2",'
+    reading: 'declared'
+  - id: 'code.dependency:services/payments/package.json#kafkajs'
+    kind: 'code.dependency'
+    label: 'kafkajs 2.2.4'
+    evidence:
+      - path: 'services/payments/package.json'
+        startLine: 19
+        endLine: 19
+        quote: '    "kafkajs": "2.2.4",'
+    reading: 'declared'
+  - id: 'code.dependency:services/payments/package.json#lodash'
+    kind: 'code.dependency'
+    label: 'lodash 4.17.15'
+    evidence:
+      - path: 'services/payments/package.json'
+        startLine: 20
+        endLine: 20
+        quote: '    "lodash": "4.17.15",'
+    reading: 'declared'
+  - id: 'code.dependency:services/payments/package.json#pino'
+    kind: 'code.dependency'
+    label: 'pino 9.1.0'
+    evidence:
+      - path: 'services/payments/package.json'
+        startLine: 21
+        endLine: 21
+        quote: '    "pino": "9.1.0",'
+    reading: 'declared'
+  - id: 'code.dependency:services/payments/package.json#prisma'
+    kind: 'code.dependency'
+    label: 'prisma 5.14.0'
+    evidence:
+      - path: 'services/payments/package.json'
+        startLine: 22
+        endLine: 22
+        quote: '    "prisma": "5.14.0"'
+    reading: 'declared'
+  - id: 'code.dependency:services/payments/package.json#ts-jest'
+    kind: 'code.dependency'
+    label: 'ts-jest 29.1.4 (dev)'
+    evidence:
+      - path: 'services/payments/package.json'
+        startLine: 31
+        endLine: 31
+        quote: '    "ts-jest": "29.1.4",'
+    reading: 'declared'
+  - id: 'code.dependency:services/payments/package.json#typescript'
+    kind: 'code.dependency'
+    label: 'typescript 5.4.5 (dev)'
+    evidence:
+      - path: 'services/payments/package.json'
+        startLine: 32
+        endLine: 32
+        quote: '    "typescript": "5.4.5"'
+    reading: 'declared'
+  - id: 'code.file:services/payments/package.json'
+    kind: 'code.file'
+    label: 'package.json'
+    evidence:
+      - path: 'services/payments/package.json'
+        startLine: 1
+        endLine: 1
+        quote: '{'
+    reading: 'parsed'
+  - id: 'code.manifest:services/payments/package.json'
+    kind: 'code.manifest'
+    label: 'package.json'
+    evidence:
+      - path: 'services/payments/package.json'
+        startLine: 1
+        endLine: 1
+        quote: '{'
+    reading: 'declared'
+  - id: 'code.package:services/payments'
+    kind: 'code.package'
+    label: 'services/payments'
+    evidence:
+      - path: 'services/payments/package.json'
+        startLine: 1
+        endLine: 1
+        quote: '{'
+    reading: 'declared'
+edges:
+  - relation: 'code.belongs-to'
+    from: 'code.manifest:services/payments/package.json'
+    to: 'code.package:services/payments'
+    evidence:
+      - path: 'services/payments/package.json'
+        startLine: 1
+        endLine: 1
+        quote: '{'
+    reading: 'declared'
+  - relation: 'code.belongs-to'
+    from: 'code.package:services/payments'
+    to: 'code.service:payments'
+    evidence:
+      - path: 'services/payments/package.json'
+        startLine: 1
+        endLine: 1
+        quote: '{'
+    reading: 'declared'
+  - relation: 'code.declares-dependency'
+    from: 'code.manifest:services/payments/package.json'
+    to: 'code.dependency:services/payments/package.json#@grpc/grpc-js'
+    evidence:
+      - path: 'services/payments/package.json'
+        startLine: 14
+        endLine: 14
+        quote: '    "@grpc/grpc-js": "1.10.8",'
+    reading: 'declared'
+  - relation: 'code.declares-dependency'
+    from: 'code.manifest:services/payments/package.json'
+    to: 'code.dependency:services/payments/package.json#@grpc/proto-loader'
+    evidence:
+      - path: 'services/payments/package.json'
+        startLine: 15
+        endLine: 15
+        quote: '    "@grpc/proto-loader": "0.7.13",'
+    reading: 'declared'
+  - relation: 'code.declares-dependency'
+    from: 'code.manifest:services/payments/package.json'
+    to: 'code.dependency:services/payments/package.json#@prisma/client'
+    evidence:
+      - path: 'services/payments/package.json'
+        startLine: 16
+        endLine: 16
+        quote: '    "@prisma/client": "5.14.0",'
+    reading: 'declared'
+  - relation: 'code.declares-dependency'
+    from: 'code.manifest:services/payments/package.json'
+    to: 'code.dependency:services/payments/package.json#@types/express'
+    evidence:
+      - path: 'services/payments/package.json'
+        startLine: 25
+        endLine: 25
+        quote: '    "@types/express": "4.17.21",'
+    reading: 'declared'
+  - relation: 'code.declares-dependency'
+    from: 'code.manifest:services/payments/package.json'
+    to: 'code.dependency:services/payments/package.json#@types/jest'
+    evidence:
+      - path: 'services/payments/package.json'
+        startLine: 26
+        endLine: 26
+        quote: '    "@types/jest": "29.5.12",'
+    reading: 'declared'
+  - relation: 'code.declares-dependency'
+    from: 'code.manifest:services/payments/package.json'
+    to: 'code.dependency:services/payments/package.json#@types/jsonwebtoken'
+    evidence:
+      - path: 'services/payments/package.json'
+        startLine: 27
+        endLine: 27
+        quote: '    "@types/jsonwebtoken": "9.0.6",'
+    reading: 'declared'
+  - relation: 'code.declares-dependency'
+    from: 'code.manifest:services/payments/package.json'
+    to: 'code.dependency:services/payments/package.json#@types/lodash'
+    evidence:
+      - path: 'services/payments/package.json'
+        startLine: 28
+        endLine: 28
+        quote: '    "@types/lodash": "4.17.4",'
+    reading: 'declared'
+  - relation: 'code.declares-dependency'
+    from: 'code.manifest:services/payments/package.json'
+    to: 'code.dependency:services/payments/package.json#@types/node'
+    evidence:
+      - path: 'services/payments/package.json'
+        startLine: 29
+        endLine: 29
+        quote: '    "@types/node": "20.12.12",'
+    reading: 'declared'
+  - relation: 'code.declares-dependency'
+    from: 'code.manifest:services/payments/package.json'
+    to: 'code.dependency:services/payments/package.json#express'
+    evidence:
+      - path: 'services/payments/package.json'
+        startLine: 17
+        endLine: 17
+        quote: '    "express": "4.19.2",'
+    reading: 'declared'
+  - relation: 'code.declares-dependency'
+    from: 'code.manifest:services/payments/package.json'
+    to: 'code.dependency:services/payments/package.json#jest'
+    evidence:
+      - path: 'services/payments/package.json'
+        startLine: 30
+        endLine: 30
+        quote: '    "jest": "29.7.0",'
+    reading: 'declared'
+  - relation: 'code.declares-dependency'
+    from: 'code.manifest:services/payments/package.json'
+    to: 'code.dependency:services/payments/package.json#jsonwebtoken'
+    evidence:
+      - path: 'services/payments/package.json'
+        startLine: 18
+        endLine: 18
+        quote: '    "jsonwebtoken": "9.0.2",'
+    reading: 'declared'
+  - relation: 'code.declares-dependency'
+    from: 'code.manifest:services/payments/package.json'
+    to: 'code.dependency:services/payments/package.json#kafkajs'
+    evidence:
+      - path: 'services/payments/package.json'
+        startLine: 19
+        endLine: 19
+        quote: '    "kafkajs": "2.2.4",'
+    reading: 'declared'
+  - relation: 'code.declares-dependency'
+    from: 'code.manifest:services/payments/package.json'
+    to: 'code.dependency:services/payments/package.json#lodash'
+    evidence:
+      - path: 'services/payments/package.json'
+        startLine: 20
+        endLine: 20
+        quote: '    "lodash": "4.17.15",'
+    reading: 'declared'
+  - relation: 'code.declares-dependency'
+    from: 'code.manifest:services/payments/package.json'
+    to: 'code.dependency:services/payments/package.json#pino'
+    evidence:
+      - path: 'services/payments/package.json'
+        startLine: 21
+        endLine: 21
+        quote: '    "pino": "9.1.0",'
+    reading: 'declared'
+  - relation: 'code.declares-dependency'
+    from: 'code.manifest:services/payments/package.json'
+    to: 'code.dependency:services/payments/package.json#prisma'
+    evidence:
+      - path: 'services/payments/package.json'
+        startLine: 22
+        endLine: 22
+        quote: '    "prisma": "5.14.0"'
+    reading: 'declared'
+  - relation: 'code.declares-dependency'
+    from: 'code.manifest:services/payments/package.json'
+    to: 'code.dependency:services/payments/package.json#ts-jest'
+    evidence:
+      - path: 'services/payments/package.json'
+        startLine: 31
+        endLine: 31
+        quote: '    "ts-jest": "29.1.4",'
+    reading: 'declared'
+  - relation: 'code.declares-dependency'
+    from: 'code.manifest:services/payments/package.json'
+    to: 'code.dependency:services/payments/package.json#typescript'
+    evidence:
+      - path: 'services/payments/package.json'
+        startLine: 32
+        endLine: 32
+        quote: '    "typescript": "5.4.5"'
+    reading: 'declared'

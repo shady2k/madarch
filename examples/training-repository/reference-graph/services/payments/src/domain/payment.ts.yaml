@@ -1,0 +1,335 @@
+path: 'services/payments/src/domain/payment.ts'
+nodes:
+  - id: 'code.field:services/payments/src/domain/payment.ts#Payment.amountCents'
+    kind: 'code.field'
+    label: 'Payment.amountCents'
+    evidence:
+      - path: 'services/payments/src/domain/payment.ts'
+        startLine: 24
+        endLine: 24
+        quote: '  amountCents: number;'
+    reading: 'parsed'
+  - id: 'code.field:services/payments/src/domain/payment.ts#Payment.capturedAt'
+    kind: 'code.field'
+    label: 'Payment.capturedAt'
+    evidence:
+      - path: 'services/payments/src/domain/payment.ts'
+        startLine: 34
+        endLine: 34
+        quote: '  capturedAt?: Date;'
+    reading: 'parsed'
+  - id: 'code.field:services/payments/src/domain/payment.ts#Payment.createdAt'
+    kind: 'code.field'
+    label: 'Payment.createdAt'
+    evidence:
+      - path: 'services/payments/src/domain/payment.ts'
+        startLine: 33
+        endLine: 33
+        quote: '  createdAt: Date;'
+    reading: 'parsed'
+  - id: 'code.field:services/payments/src/domain/payment.ts#Payment.currency'
+    kind: 'code.field'
+    label: 'Payment.currency'
+    evidence:
+      - path: 'services/payments/src/domain/payment.ts'
+        startLine: 25
+        endLine: 25
+        quote: '  currency: string;'
+    reading: 'parsed'
+  - id: 'code.field:services/payments/src/domain/payment.ts#Payment.declineReason'
+    kind: 'code.field'
+    label: 'Payment.declineReason'
+    evidence:
+      - path: 'services/payments/src/domain/payment.ts'
+        startLine: 32
+        endLine: 32
+        quote: '  declineReason?: string;'
+    reading: 'parsed'
+  - id: 'code.field:services/payments/src/domain/payment.ts#Payment.id'
+    kind: 'code.field'
+    label: 'Payment.id'
+    evidence:
+      - path: 'services/payments/src/domain/payment.ts'
+        startLine: 18
+        endLine: 18
+        quote: '  id: string;'
+    reading: 'parsed'
+  - id: 'code.field:services/payments/src/domain/payment.ts#Payment.idempotencyKey'
+    kind: 'code.field'
+    label: 'Payment.idempotencyKey'
+    evidence:
+      - path: 'services/payments/src/domain/payment.ts'
+        startLine: 28
+        endLine: 28
+        quote: '  idempotencyKey: string;'
+    reading: 'parsed'
+  - id: 'code.field:services/payments/src/domain/payment.ts#Payment.orderId'
+    kind: 'code.field'
+    label: 'Payment.orderId'
+    evidence:
+      - path: 'services/payments/src/domain/payment.ts'
+        startLine: 23
+        endLine: 23
+        quote: '  orderId: string;'
+    reading: 'parsed'
+  - id: 'code.field:services/payments/src/domain/payment.ts#Payment.providerReference'
+    kind: 'code.field'
+    label: 'Payment.providerReference'
+    evidence:
+      - path: 'services/payments/src/domain/payment.ts'
+        startLine: 30
+        endLine: 30
+        quote: '  providerReference?: string;'
+    reading: 'parsed'
+  - id: 'code.field:services/payments/src/domain/payment.ts#Payment.status'
+    kind: 'code.field'
+    label: 'Payment.status'
+    evidence:
+      - path: 'services/payments/src/domain/payment.ts'
+        startLine: 26
+        endLine: 26
+        quote: '  status: PaymentStatus;'
+    reading: 'parsed'
+  - id: 'code.file:services/payments/src/domain/payment.ts'
+    kind: 'code.file'
+    label: 'payment.ts'
+    evidence:
+      - path: 'services/payments/src/domain/payment.ts'
+        startLine: 1
+        endLine: 1
+        quote: 'import { EventSink, publishPaymentEvent } from ''../events/publishers'';'
+    reading: 'parsed'
+  - id: 'code.symbol:services/payments/src/domain/payment.ts#CardToken'
+    kind: 'code.symbol'
+    label: 'CardToken'
+    evidence:
+      - path: 'services/payments/src/domain/payment.ts'
+        startLine: 4
+        endLine: 4
+        quote: 'export type CardToken = { vaultReference: string };'
+    reading: 'parsed'
+  - id: 'code.symbol:services/payments/src/domain/payment.ts#Payment'
+    kind: 'code.symbol'
+    label: 'Payment'
+    evidence:
+      - path: 'services/payments/src/domain/payment.ts'
+        startLine: 17
+        endLine: 17
+        quote: 'export interface Payment {'
+    reading: 'parsed'
+  - id: 'code.symbol:services/payments/src/domain/payment.ts#PaymentStatus'
+    kind: 'code.symbol'
+    label: 'PaymentStatus'
+    evidence:
+      - path: 'services/payments/src/domain/payment.ts'
+        startLine: 9
+        endLine: 9
+        quote: 'export const PaymentStatus = {'
+      - path: 'services/payments/src/domain/payment.ts'
+        startLine: 15
+        endLine: 15
+        quote: 'export type PaymentStatus = (typeof PaymentStatus)[keyof typeof PaymentStatus];'
+    reading: 'parsed'
+  - id: 'code.symbol:services/payments/src/domain/payment.ts#PaymentToken'
+    kind: 'code.symbol'
+    label: 'PaymentToken'
+    evidence:
+      - path: 'services/payments/src/domain/payment.ts'
+        startLine: 7
+        endLine: 7
+        quote: 'export type PaymentToken = { value: string };'
+    reading: 'parsed'
+  - id: 'code.symbol:services/payments/src/domain/payment.ts#capture'
+    kind: 'code.symbol'
+    label: 'capture'
+    evidence:
+      - path: 'services/payments/src/domain/payment.ts'
+        startLine: 38
+        endLine: 38
+        quote: 'export async function capture(payment: Payment, token: PaymentToken, now: Date, sink: EventSink): Promise<Payment> {'
+    reading: 'parsed'
+  - id: 'code.symbol:services/payments/src/domain/payment.ts#decline'
+    kind: 'code.symbol'
+    label: 'decline'
+    evidence:
+      - path: 'services/payments/src/domain/payment.ts'
+        startLine: 51
+        endLine: 51
+        quote: 'export async function decline(payment: Payment, reason: string, sink: EventSink): Promise<Payment> {'
+    reading: 'parsed'
+edges:
+  - relation: 'code.calls'
+    from: 'code.symbol:services/payments/src/domain/payment.ts#capture'
+    to: 'code.symbol:services/payments/src/events/publishers.ts#publishPaymentEvent'
+    evidence:
+      - path: 'services/payments/src/domain/payment.ts'
+        startLine: 46
+        endLine: 46
+        quote: '  await publishPaymentEvent(sink, ''payment.captured'', captured);'
+    reading: 'parsed'
+  - relation: 'code.calls'
+    from: 'code.symbol:services/payments/src/domain/payment.ts#decline'
+    to: 'code.symbol:services/payments/src/events/publishers.ts#publishPaymentEvent'
+    evidence:
+      - path: 'services/payments/src/domain/payment.ts'
+        startLine: 53
+        endLine: 53
+        quote: '  await publishPaymentEvent(sink, ''payment.failed'', declined);'
+    reading: 'parsed'
+  - relation: 'code.contains'
+    from: 'code.file:services/payments/src/domain/payment.ts'
+    to: 'code.symbol:services/payments/src/domain/payment.ts#CardToken'
+    evidence:
+      - path: 'services/payments/src/domain/payment.ts'
+        startLine: 4
+        endLine: 4
+        quote: 'export type CardToken = { vaultReference: string };'
+    reading: 'parsed'
+  - relation: 'code.contains'
+    from: 'code.file:services/payments/src/domain/payment.ts'
+    to: 'code.symbol:services/payments/src/domain/payment.ts#Payment'
+    evidence:
+      - path: 'services/payments/src/domain/payment.ts'
+        startLine: 17
+        endLine: 17
+        quote: 'export interface Payment {'
+    reading: 'parsed'
+  - relation: 'code.contains'
+    from: 'code.file:services/payments/src/domain/payment.ts'
+    to: 'code.symbol:services/payments/src/domain/payment.ts#PaymentStatus'
+    evidence:
+      - path: 'services/payments/src/domain/payment.ts'
+        startLine: 9
+        endLine: 9
+        quote: 'export const PaymentStatus = {'
+      - path: 'services/payments/src/domain/payment.ts'
+        startLine: 15
+        endLine: 15
+        quote: 'export type PaymentStatus = (typeof PaymentStatus)[keyof typeof PaymentStatus];'
+    reading: 'parsed'
+  - relation: 'code.contains'
+    from: 'code.file:services/payments/src/domain/payment.ts'
+    to: 'code.symbol:services/payments/src/domain/payment.ts#PaymentToken'
+    evidence:
+      - path: 'services/payments/src/domain/payment.ts'
+        startLine: 7
+        endLine: 7
+        quote: 'export type PaymentToken = { value: string };'
+    reading: 'parsed'
+  - relation: 'code.contains'
+    from: 'code.file:services/payments/src/domain/payment.ts'
+    to: 'code.symbol:services/payments/src/domain/payment.ts#capture'
+    evidence:
+      - path: 'services/payments/src/domain/payment.ts'
+        startLine: 38
+        endLine: 38
+        quote: 'export async function capture(payment: Payment, token: PaymentToken, now: Date, sink: EventSink): Promise<Payment> {'
+    reading: 'parsed'
+  - relation: 'code.contains'
+    from: 'code.file:services/payments/src/domain/payment.ts'
+    to: 'code.symbol:services/payments/src/domain/payment.ts#decline'
+    evidence:
+      - path: 'services/payments/src/domain/payment.ts'
+        startLine: 51
+        endLine: 51
+        quote: 'export async function decline(payment: Payment, reason: string, sink: EventSink): Promise<Payment> {'
+    reading: 'parsed'
+  - relation: 'code.contains'
+    from: 'code.symbol:services/payments/src/domain/payment.ts#Payment'
+    to: 'code.field:services/payments/src/domain/payment.ts#Payment.amountCents'
+    evidence:
+      - path: 'services/payments/src/domain/payment.ts'
+        startLine: 24
+        endLine: 24
+        quote: '  amountCents: number;'
+    reading: 'parsed'
+  - relation: 'code.contains'
+    from: 'code.symbol:services/payments/src/domain/payment.ts#Payment'
+    to: 'code.field:services/payments/src/domain/payment.ts#Payment.capturedAt'
+    evidence:
+      - path: 'services/payments/src/domain/payment.ts'
+        startLine: 34
+        endLine: 34
+        quote: '  capturedAt?: Date;'
+    reading: 'parsed'
+  - relation: 'code.contains'
+    from: 'code.symbol:services/payments/src/domain/payment.ts#Payment'
+    to: 'code.field:services/payments/src/domain/payment.ts#Payment.createdAt'
+    evidence:
+      - path: 'services/payments/src/domain/payment.ts'
+        startLine: 33
+        endLine: 33
+        quote: '  createdAt: Date;'
+    reading: 'parsed'
+  - relation: 'code.contains'
+    from: 'code.symbol:services/payments/src/domain/payment.ts#Payment'
+    to: 'code.field:services/payments/src/domain/payment.ts#Payment.currency'
+    evidence:
+      - path: 'services/payments/src/domain/payment.ts'
+        startLine: 25
+        endLine: 25
+        quote: '  currency: string;'
+    reading: 'parsed'
+  - relation: 'code.contains'
+    from: 'code.symbol:services/payments/src/domain/payment.ts#Payment'
+    to: 'code.field:services/payments/src/domain/payment.ts#Payment.declineReason'
+    evidence:
+      - path: 'services/payments/src/domain/payment.ts'
+        startLine: 32
+        endLine: 32
+        quote: '  declineReason?: string;'
+    reading: 'parsed'
+  - relation: 'code.contains'
+    from: 'code.symbol:services/payments/src/domain/payment.ts#Payment'
+    to: 'code.field:services/payments/src/domain/payment.ts#Payment.id'
+    evidence:
+      - path: 'services/payments/src/domain/payment.ts'
+        startLine: 18
+        endLine: 18
+        quote: '  id: string;'
+    reading: 'parsed'
+  - relation: 'code.contains'
+    from: 'code.symbol:services/payments/src/domain/payment.ts#Payment'
+    to: 'code.field:services/payments/src/domain/payment.ts#Payment.idempotencyKey'
+    evidence:
+      - path: 'services/payments/src/domain/payment.ts'
+        startLine: 28
+        endLine: 28
+        quote: '  idempotencyKey: string;'
+    reading: 'parsed'
+  - relation: 'code.contains'
+    from: 'code.symbol:services/payments/src/domain/payment.ts#Payment'
+    to: 'code.field:services/payments/src/domain/payment.ts#Payment.orderId'
+    evidence:
+      - path: 'services/payments/src/domain/payment.ts'
+        startLine: 23
+        endLine: 23
+        quote: '  orderId: string;'
+    reading: 'parsed'
+  - relation: 'code.contains'
+    from: 'code.symbol:services/payments/src/domain/payment.ts#Payment'
+    to: 'code.field:services/payments/src/domain/payment.ts#Payment.providerReference'
+    evidence:
+      - path: 'services/payments/src/domain/payment.ts'
+        startLine: 30
+        endLine: 30
+        quote: '  providerReference?: string;'
+    reading: 'parsed'
+  - relation: 'code.contains'
+    from: 'code.symbol:services/payments/src/domain/payment.ts#Payment'
+    to: 'code.field:services/payments/src/domain/payment.ts#Payment.status'
+    evidence:
+      - path: 'services/payments/src/domain/payment.ts'
+        startLine: 26
+        endLine: 26
+        quote: '  status: PaymentStatus;'
+    reading: 'parsed'
+  - relation: 'code.imports'
+    from: 'code.file:services/payments/src/domain/payment.ts'
+    to: 'code.file:services/payments/src/events/publishers.ts'
+    evidence:
+      - path: 'services/payments/src/domain/payment.ts'
+        startLine: 1
+        endLine: 1
+        quote: 'import { EventSink, publishPaymentEvent } from ''../events/publishers'';'
+    reading: 'parsed'

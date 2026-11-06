@@ -1,0 +1,583 @@
+path: 'docker-compose.yml'
+nodes:
+  - id: 'code.compose-service:checkout'
+    kind: 'code.compose-service'
+    label: 'checkout'
+    evidence:
+      - path: 'docker-compose.yml'
+        startLine: 75
+        endLine: 75
+        quote: '  checkout:'
+    reading: 'declared'
+  - id: 'code.compose-service:kafka'
+    kind: 'code.compose-service'
+    label: 'kafka'
+    evidence:
+      - path: 'docker-compose.yml'
+        startLine: 17
+        endLine: 17
+        quote: '  kafka:'
+    reading: 'declared'
+  - id: 'code.compose-service:orders'
+    kind: 'code.compose-service'
+    label: 'orders'
+    evidence:
+      - path: 'docker-compose.yml'
+        startLine: 33
+        endLine: 33
+        quote: '  orders:'
+    reading: 'declared'
+  - id: 'code.compose-service:payments'
+    kind: 'code.compose-service'
+    label: 'payments'
+    evidence:
+      - path: 'docker-compose.yml'
+        startLine: 47
+        endLine: 47
+        quote: '  payments:'
+    reading: 'declared'
+  - id: 'code.compose-service:postgres'
+    kind: 'code.compose-service'
+    label: 'postgres'
+    evidence:
+      - path: 'docker-compose.yml'
+        startLine: 2
+        endLine: 2
+        quote: '  postgres:'
+    reading: 'declared'
+  - id: 'code.compose-service:promotions'
+    kind: 'code.compose-service'
+    label: 'promotions'
+    evidence:
+      - path: 'docker-compose.yml'
+        startLine: 65
+        endLine: 65
+        quote: '  promotions:'
+    reading: 'declared'
+  - id: 'code.env-definition:docker-compose.yml#DATABASE_URL'
+    kind: 'code.env-definition'
+    label: 'DATABASE_URL'
+    evidence:
+      - path: 'docker-compose.yml'
+        startLine: 38
+        endLine: 38
+        quote: '      DATABASE_URL: postgres://training:training@postgres:5432/orders?sslmode=disable'
+    reading: 'declared'
+  - id: 'code.env-definition:docker-compose.yml#JWT_SECRET'
+    kind: 'code.env-definition'
+    label: 'JWT_SECRET'
+    evidence:
+      - path: 'docker-compose.yml'
+        startLine: 40
+        endLine: 40
+        quote: '      JWT_SECRET: ${JWT_SECRET:-local-development-secret}'
+    reading: 'declared'
+  - id: 'code.env-definition:docker-compose.yml#KAFKA_BROKERS'
+    kind: 'code.env-definition'
+    label: 'KAFKA_BROKERS'
+    evidence:
+      - path: 'docker-compose.yml'
+        startLine: 39
+        endLine: 39
+        quote: '      KAFKA_BROKERS: kafka:9092'
+    reading: 'declared'
+  - id: 'code.env-definition:docker-compose.yml#ORDERS_URL'
+    kind: 'code.env-definition'
+    label: 'ORDERS_URL'
+    evidence:
+      - path: 'docker-compose.yml'
+        startLine: 82
+        endLine: 82
+        quote: '      ORDERS_URL: http://orders:8080'
+    reading: 'declared'
+  - id: 'code.env-definition:docker-compose.yml#PAYMENTS_ADDR'
+    kind: 'code.env-definition'
+    label: 'PAYMENTS_ADDR'
+    evidence:
+      - path: 'docker-compose.yml'
+        startLine: 84
+        endLine: 84
+        quote: '      PAYMENTS_ADDR: payments:50051'
+    reading: 'declared'
+  - id: 'code.env-definition:docker-compose.yml#PAYMENT_PROVIDER'
+    kind: 'code.env-definition'
+    label: 'PAYMENT_PROVIDER'
+    evidence:
+      - path: 'docker-compose.yml'
+        startLine: 58
+        endLine: 58
+        quote: '      PAYMENT_PROVIDER: ${PAYMENT_PROVIDER:-deferred}'
+    reading: 'declared'
+  - id: 'code.env-definition:docker-compose.yml#PROMOTIONS_URL'
+    kind: 'code.env-definition'
+    label: 'PROMOTIONS_URL'
+    evidence:
+      - path: 'docker-compose.yml'
+        startLine: 83
+        endLine: 83
+        quote: '      PROMOTIONS_URL: http://promotions:8082'
+    reading: 'declared'
+  - id: 'code.file:docker-compose.yml'
+    kind: 'code.file'
+    label: 'docker-compose.yml'
+    evidence:
+      - path: 'docker-compose.yml'
+        startLine: 1
+        endLine: 1
+        quote: 'services:'
+    reading: 'parsed'
+  - id: 'code.healthcheck:postgres'
+    kind: 'code.healthcheck'
+    label: 'postgres healthcheck'
+    evidence:
+      - path: 'docker-compose.yml'
+        startLine: 11
+        endLine: 11
+        quote: '    healthcheck:'
+    reading: 'declared'
+  - id: 'code.image:apache/kafka:3.7.0'
+    kind: 'code.image'
+    label: 'apache/kafka:3.7.0'
+    evidence:
+      - path: 'docker-compose.yml'
+        startLine: 18
+        endLine: 18
+        quote: '    image: apache/kafka:3.7.0'
+    reading: 'declared'
+  - id: 'code.image:postgres:16'
+    kind: 'code.image'
+    label: 'postgres:16'
+    evidence:
+      - path: 'docker-compose.yml'
+        startLine: 3
+        endLine: 3
+        quote: '    image: postgres:16'
+    reading: 'declared'
+  - id: 'code.port:checkout:8083'
+    kind: 'code.port'
+    label: '8083'
+    evidence:
+      - path: 'docker-compose.yml'
+        startLine: 80
+        endLine: 80
+        quote: '      - "8083:8083"'
+      - path: 'services/checkout/src/index.ts'
+        startLine: 9
+        endLine: 9
+        quote: 'const PORT = 8083;'
+    reading: 'declared'
+  - id: 'code.port:kafka:9092'
+    kind: 'code.port'
+    label: '9092'
+    evidence:
+      - path: 'docker-compose.yml'
+        startLine: 20
+        endLine: 20
+        quote: '      - "9092:9092"'
+    reading: 'declared'
+  - id: 'code.port:kafka:9094'
+    kind: 'code.port'
+    label: '9094'
+    evidence:
+      - path: 'docker-compose.yml'
+        startLine: 21
+        endLine: 21
+        quote: '      - "9094:9094"'
+    reading: 'declared'
+  - id: 'code.port:orders:8080'
+    kind: 'code.port'
+    label: '8080'
+    evidence:
+      - path: 'docker-compose.yml'
+        startLine: 36
+        endLine: 36
+        quote: '      - "8080:8080"'
+      - path: 'deploy/k8s/orders.yaml'
+        startLine: 21
+        endLine: 21
+        quote: '            - containerPort: 8080'
+      - path: 'services/orders/cmd/orders/main.go'
+        startLine: 25
+        endLine: 25
+        quote: '	listenAddr = ":8080"'
+    reading: 'declared'
+  - id: 'code.port:payments:50051'
+    kind: 'code.port'
+    label: '50051'
+    evidence:
+      - path: 'docker-compose.yml'
+        startLine: 53
+        endLine: 53
+        quote: '      - "50051:50051"'
+      - path: 'services/payments/src/index.ts'
+        startLine: 12
+        endLine: 12
+        quote: 'const GRPC_PORT = 50051;'
+    reading: 'declared'
+  - id: 'code.port:payments:8081'
+    kind: 'code.port'
+    label: '8081'
+    evidence:
+      - path: 'docker-compose.yml'
+        startLine: 52
+        endLine: 52
+        quote: '      - "8081:8081"'
+      - path: 'services/payments/src/index.ts'
+        startLine: 11
+        endLine: 11
+        quote: 'const HTTP_PORT = 8081;'
+    reading: 'declared'
+  - id: 'code.port:postgres:5432'
+    kind: 'code.port'
+    label: '5432'
+    evidence:
+      - path: 'docker-compose.yml'
+        startLine: 8
+        endLine: 8
+        quote: '      - "5432:5432"'
+    reading: 'declared'
+  - id: 'code.port:promotions:8082'
+    kind: 'code.port'
+    label: '8082'
+    evidence:
+      - path: 'docker-compose.yml'
+        startLine: 68
+        endLine: 68
+        quote: '      - "8082:8082"'
+      - path: 'services/promotions/cmd/promotions/main.go'
+        startLine: 15
+        endLine: 15
+        quote: 'const listenAddr = ":8082"'
+    reading: 'declared'
+edges:
+  - relation: 'code.belongs-to'
+    from: 'code.compose-service:checkout'
+    to: 'code.service:checkout'
+    evidence:
+      - path: 'docker-compose.yml'
+        startLine: 75
+        endLine: 75
+        quote: '  checkout:'
+    reading: 'declared'
+  - relation: 'code.belongs-to'
+    from: 'code.compose-service:orders'
+    to: 'code.service:orders'
+    evidence:
+      - path: 'docker-compose.yml'
+        startLine: 33
+        endLine: 33
+        quote: '  orders:'
+    reading: 'declared'
+  - relation: 'code.belongs-to'
+    from: 'code.compose-service:payments'
+    to: 'code.service:payments'
+    evidence:
+      - path: 'docker-compose.yml'
+        startLine: 47
+        endLine: 47
+        quote: '  payments:'
+    reading: 'declared'
+  - relation: 'code.belongs-to'
+    from: 'code.compose-service:promotions'
+    to: 'code.service:promotions'
+    evidence:
+      - path: 'docker-compose.yml'
+        startLine: 65
+        endLine: 65
+        quote: '  promotions:'
+    reading: 'declared'
+  - relation: 'code.built-by'
+    from: 'code.compose-service:checkout'
+    to: 'code.dockerfile:services/payments/Dockerfile'
+    evidence:
+      - path: 'docker-compose.yml'
+        startLine: 50
+        endLine: 50
+        quote: '      dockerfile: services/payments/Dockerfile'
+    reading: 'declared'
+  - relation: 'code.built-by'
+    from: 'code.compose-service:orders'
+    to: 'code.dockerfile:services/orders/Dockerfile'
+    evidence:
+      - path: 'docker-compose.yml'
+        startLine: 34
+        endLine: 34
+        quote: '    build: ./services/orders'
+    reading: 'declared'
+  - relation: 'code.built-by'
+    from: 'code.compose-service:payments'
+    to: 'code.dockerfile:services/payments/Dockerfile'
+    evidence:
+      - path: 'docker-compose.yml'
+        startLine: 50
+        endLine: 50
+        quote: '      dockerfile: services/payments/Dockerfile'
+    reading: 'declared'
+  - relation: 'code.built-by'
+    from: 'code.compose-service:promotions'
+    to: 'code.dockerfile:services/promotions/Dockerfile'
+    evidence:
+      - path: 'docker-compose.yml'
+        startLine: 66
+        endLine: 66
+        quote: '    build: ./services/promotions'
+    reading: 'declared'
+  - relation: 'code.defines'
+    from: 'code.env-definition:docker-compose.yml#DATABASE_URL'
+    to: 'code.env-var:DATABASE_URL'
+    evidence:
+      - path: 'docker-compose.yml'
+        startLine: 38
+        endLine: 38
+        quote: '      DATABASE_URL: postgres://training:training@postgres:5432/orders?sslmode=disable'
+      - path: 'docker-compose.yml'
+        startLine: 55
+        endLine: 55
+        quote: '      DATABASE_URL: postgres://training:training@postgres:5432/payments?sslmode=disable'
+      - path: 'docker-compose.yml'
+        startLine: 70
+        endLine: 70
+        quote: '      DATABASE_URL: postgres://training:training@postgres:5432/promotions?sslmode=disable'
+    reading: 'declared'
+  - relation: 'code.defines'
+    from: 'code.env-definition:docker-compose.yml#JWT_SECRET'
+    to: 'code.env-var:JWT_SECRET'
+    evidence:
+      - path: 'docker-compose.yml'
+        startLine: 40
+        endLine: 40
+        quote: '      JWT_SECRET: ${JWT_SECRET:-local-development-secret}'
+      - path: 'docker-compose.yml'
+        startLine: 57
+        endLine: 57
+        quote: '      JWT_SECRET: ${JWT_SECRET:-local-development-secret}'
+    reading: 'declared'
+  - relation: 'code.defines'
+    from: 'code.env-definition:docker-compose.yml#KAFKA_BROKERS'
+    to: 'code.env-var:KAFKA_BROKERS'
+    evidence:
+      - path: 'docker-compose.yml'
+        startLine: 39
+        endLine: 39
+        quote: '      KAFKA_BROKERS: kafka:9092'
+      - path: 'docker-compose.yml'
+        startLine: 56
+        endLine: 56
+        quote: '      KAFKA_BROKERS: kafka:9092'
+    reading: 'declared'
+  - relation: 'code.defines'
+    from: 'code.env-definition:docker-compose.yml#ORDERS_URL'
+    to: 'code.env-var:ORDERS_URL'
+    evidence:
+      - path: 'docker-compose.yml'
+        startLine: 82
+        endLine: 82
+        quote: '      ORDERS_URL: http://orders:8080'
+    reading: 'declared'
+  - relation: 'code.defines'
+    from: 'code.env-definition:docker-compose.yml#PAYMENTS_ADDR'
+    to: 'code.env-var:PAYMENTS_ADDR'
+    evidence:
+      - path: 'docker-compose.yml'
+        startLine: 84
+        endLine: 84
+        quote: '      PAYMENTS_ADDR: payments:50051'
+    reading: 'declared'
+  - relation: 'code.defines'
+    from: 'code.env-definition:docker-compose.yml#PAYMENT_PROVIDER'
+    to: 'code.env-var:PAYMENT_PROVIDER'
+    evidence:
+      - path: 'docker-compose.yml'
+        startLine: 58
+        endLine: 58
+        quote: '      PAYMENT_PROVIDER: ${PAYMENT_PROVIDER:-deferred}'
+    reading: 'declared'
+  - relation: 'code.defines'
+    from: 'code.env-definition:docker-compose.yml#PROMOTIONS_URL'
+    to: 'code.env-var:PROMOTIONS_URL'
+    evidence:
+      - path: 'docker-compose.yml'
+        startLine: 83
+        endLine: 83
+        quote: '      PROMOTIONS_URL: http://promotions:8082'
+    reading: 'declared'
+  - relation: 'code.depends-on'
+    from: 'code.compose-service:orders'
+    to: 'code.compose-service:kafka'
+    evidence:
+      - path: 'docker-compose.yml'
+        startLine: 44
+        endLine: 44
+        quote: '      kafka:'
+    reading: 'declared'
+  - relation: 'code.depends-on'
+    from: 'code.compose-service:orders'
+    to: 'code.compose-service:postgres'
+    evidence:
+      - path: 'docker-compose.yml'
+        startLine: 42
+        endLine: 42
+        quote: '      postgres:'
+    reading: 'declared'
+  - relation: 'code.depends-on'
+    from: 'code.compose-service:payments'
+    to: 'code.compose-service:kafka'
+    evidence:
+      - path: 'docker-compose.yml'
+        startLine: 62
+        endLine: 62
+        quote: '      kafka:'
+    reading: 'declared'
+  - relation: 'code.depends-on'
+    from: 'code.compose-service:payments'
+    to: 'code.compose-service:postgres'
+    evidence:
+      - path: 'docker-compose.yml'
+        startLine: 60
+        endLine: 60
+        quote: '      postgres:'
+    reading: 'declared'
+  - relation: 'code.depends-on'
+    from: 'code.compose-service:promotions'
+    to: 'code.compose-service:postgres'
+    evidence:
+      - path: 'docker-compose.yml'
+        startLine: 72
+        endLine: 72
+        quote: '      postgres:'
+    reading: 'declared'
+  - relation: 'code.exposes'
+    from: 'code.compose-service:kafka'
+    to: 'code.port:kafka:9092'
+    evidence:
+      - path: 'docker-compose.yml'
+        startLine: 20
+        endLine: 20
+        quote: '      - "9092:9092"'
+    reading: 'declared'
+  - relation: 'code.exposes'
+    from: 'code.compose-service:kafka'
+    to: 'code.port:kafka:9094'
+    evidence:
+      - path: 'docker-compose.yml'
+        startLine: 21
+        endLine: 21
+        quote: '      - "9094:9094"'
+    reading: 'declared'
+  - relation: 'code.exposes'
+    from: 'code.compose-service:postgres'
+    to: 'code.port:postgres:5432'
+    evidence:
+      - path: 'docker-compose.yml'
+        startLine: 8
+        endLine: 8
+        quote: '      - "5432:5432"'
+    reading: 'declared'
+  - relation: 'code.exposes'
+    from: 'code.service:checkout'
+    to: 'code.port:checkout:8083'
+    evidence:
+      - path: 'docker-compose.yml'
+        startLine: 80
+        endLine: 80
+        quote: '      - "8083:8083"'
+    reading: 'declared'
+  - relation: 'code.exposes'
+    from: 'code.service:orders'
+    to: 'code.port:orders:8080'
+    evidence:
+      - path: 'docker-compose.yml'
+        startLine: 36
+        endLine: 36
+        quote: '      - "8080:8080"'
+    reading: 'declared'
+  - relation: 'code.exposes'
+    from: 'code.service:payments'
+    to: 'code.port:payments:50051'
+    evidence:
+      - path: 'docker-compose.yml'
+        startLine: 53
+        endLine: 53
+        quote: '      - "50051:50051"'
+    reading: 'declared'
+  - relation: 'code.exposes'
+    from: 'code.service:payments'
+    to: 'code.port:payments:8081'
+    evidence:
+      - path: 'docker-compose.yml'
+        startLine: 52
+        endLine: 52
+        quote: '      - "8081:8081"'
+    reading: 'declared'
+  - relation: 'code.exposes'
+    from: 'code.service:promotions'
+    to: 'code.port:promotions:8082'
+    evidence:
+      - path: 'docker-compose.yml'
+        startLine: 68
+        endLine: 68
+        quote: '      - "8082:8082"'
+    reading: 'declared'
+  - relation: 'code.probes'
+    from: 'code.compose-service:postgres'
+    to: 'code.healthcheck:postgres'
+    evidence:
+      - path: 'docker-compose.yml'
+        startLine: 11
+        endLine: 11
+        quote: '    healthcheck:'
+    reading: 'declared'
+  - relation: 'code.runs'
+    from: 'code.compose-service:kafka'
+    to: 'code.image:apache/kafka:3.7.0'
+    evidence:
+      - path: 'docker-compose.yml'
+        startLine: 18
+        endLine: 18
+        quote: '    image: apache/kafka:3.7.0'
+    reading: 'declared'
+  - relation: 'code.runs'
+    from: 'code.compose-service:postgres'
+    to: 'code.image:postgres:16'
+    evidence:
+      - path: 'docker-compose.yml'
+        startLine: 3
+        endLine: 3
+        quote: '    image: postgres:16'
+    reading: 'declared'
+  - relation: 'code.starts'
+    from: 'code.compose-service:checkout'
+    to: 'code.process:checkout'
+    evidence:
+      - path: 'docker-compose.yml'
+        startLine: 75
+        endLine: 75
+        quote: '  checkout:'
+    reading: 'declared'
+  - relation: 'code.starts'
+    from: 'code.compose-service:orders'
+    to: 'code.process:orders'
+    evidence:
+      - path: 'docker-compose.yml'
+        startLine: 33
+        endLine: 33
+        quote: '  orders:'
+    reading: 'declared'
+  - relation: 'code.starts'
+    from: 'code.compose-service:payments'
+    to: 'code.process:payments'
+    evidence:
+      - path: 'docker-compose.yml'
+        startLine: 47
+        endLine: 47
+        quote: '  payments:'
+    reading: 'declared'
+  - relation: 'code.starts'
+    from: 'code.compose-service:promotions'
+    to: 'code.process:promotions'
+    evidence:
+      - path: 'docker-compose.yml'
+        startLine: 65
+        endLine: 65
+        quote: '  promotions:'
+    reading: 'declared'

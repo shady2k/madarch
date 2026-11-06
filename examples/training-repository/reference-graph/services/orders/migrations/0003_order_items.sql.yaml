@@ -1,0 +1,192 @@
+path: 'services/orders/migrations/0003_order_items.sql'
+nodes:
+  - id: 'code.column:orders.order_items.id'
+    kind: 'code.column'
+    label: 'id'
+    evidence:
+      - path: 'services/orders/migrations/0003_order_items.sql'
+        startLine: 4
+        endLine: 4
+        quote: '    id          BIGSERIAL PRIMARY KEY,'
+    reading: 'parsed'
+  - id: 'code.column:orders.order_items.order_id'
+    kind: 'code.column'
+    label: 'order_id'
+    evidence:
+      - path: 'services/orders/migrations/0003_order_items.sql'
+        startLine: 5
+        endLine: 5
+        quote: '    order_id    TEXT NOT NULL REFERENCES orders (id) ON DELETE CASCADE,'
+    reading: 'parsed'
+  - id: 'code.column:orders.order_items.price_cents'
+    kind: 'code.column'
+    label: 'price_cents'
+    evidence:
+      - path: 'services/orders/migrations/0003_order_items.sql'
+        startLine: 8
+        endLine: 8
+        quote: '    price_cents BIGINT NOT NULL,'
+    reading: 'parsed'
+  - id: 'code.column:orders.order_items.quantity'
+    kind: 'code.column'
+    label: 'quantity'
+    evidence:
+      - path: 'services/orders/migrations/0003_order_items.sql'
+        startLine: 7
+        endLine: 7
+        quote: '    quantity    INTEGER NOT NULL CHECK (quantity > 0),'
+    reading: 'parsed'
+  - id: 'code.column:orders.order_items.sku'
+    kind: 'code.column'
+    label: 'sku'
+    evidence:
+      - path: 'services/orders/migrations/0003_order_items.sql'
+        startLine: 6
+        endLine: 6
+        quote: '    sku         TEXT NOT NULL,'
+    reading: 'parsed'
+  - id: 'code.column:orders.order_items.zero_rated'
+    kind: 'code.column'
+    label: 'zero_rated'
+    evidence:
+      - path: 'services/orders/migrations/0003_order_items.sql'
+        startLine: 9
+        endLine: 9
+        quote: '    zero_rated  BOOLEAN NOT NULL DEFAULT false'
+    reading: 'parsed'
+  - id: 'code.file:services/orders/migrations/0003_order_items.sql'
+    kind: 'code.file'
+    label: '0003_order_items.sql'
+    evidence:
+      - path: 'services/orders/migrations/0003_order_items.sql'
+        startLine: 1
+        endLine: 1
+        quote: '-- The lines of an order: one order has many items, an item belongs to one'
+    reading: 'parsed'
+  - id: 'code.index:orders.order_items_order_idx'
+    kind: 'code.index'
+    label: 'order_items_order_idx'
+    evidence:
+      - path: 'services/orders/migrations/0003_order_items.sql'
+        startLine: 12
+        endLine: 12
+        quote: 'CREATE INDEX order_items_order_idx ON order_items (order_id);'
+    reading: 'parsed'
+  - id: 'code.migration:services/orders/migrations/0003_order_items.sql'
+    kind: 'code.migration'
+    label: '0003_order_items.sql'
+    evidence:
+      - path: 'services/orders/migrations/0003_order_items.sql'
+        startLine: 1
+        endLine: 1
+        quote: '-- The lines of an order: one order has many items, an item belongs to one'
+    reading: 'parsed'
+  - id: 'code.table:orders.order_items'
+    kind: 'code.table'
+    label: 'order_items'
+    evidence:
+      - path: 'services/orders/migrations/0003_order_items.sql'
+        startLine: 3
+        endLine: 3
+        quote: 'CREATE TABLE order_items ('
+    reading: 'parsed'
+edges:
+  - relation: 'code.belongs-to'
+    from: 'code.migration:services/orders/migrations/0003_order_items.sql'
+    to: 'code.package:services/orders'
+    evidence:
+      - path: 'services/orders/migrations/0003_order_items.sql'
+        startLine: 1
+        endLine: 1
+        quote: '-- The lines of an order: one order has many items, an item belongs to one'
+    reading: 'parsed'
+  - relation: 'code.contains'
+    from: 'code.table:orders.order_items'
+    to: 'code.column:orders.order_items.id'
+    evidence:
+      - path: 'services/orders/migrations/0003_order_items.sql'
+        startLine: 4
+        endLine: 4
+        quote: '    id          BIGSERIAL PRIMARY KEY,'
+    reading: 'parsed'
+  - relation: 'code.contains'
+    from: 'code.table:orders.order_items'
+    to: 'code.column:orders.order_items.order_id'
+    evidence:
+      - path: 'services/orders/migrations/0003_order_items.sql'
+        startLine: 5
+        endLine: 5
+        quote: '    order_id    TEXT NOT NULL REFERENCES orders (id) ON DELETE CASCADE,'
+    reading: 'parsed'
+  - relation: 'code.contains'
+    from: 'code.table:orders.order_items'
+    to: 'code.column:orders.order_items.price_cents'
+    evidence:
+      - path: 'services/orders/migrations/0003_order_items.sql'
+        startLine: 8
+        endLine: 8
+        quote: '    price_cents BIGINT NOT NULL,'
+    reading: 'parsed'
+  - relation: 'code.contains'
+    from: 'code.table:orders.order_items'
+    to: 'code.column:orders.order_items.quantity'
+    evidence:
+      - path: 'services/orders/migrations/0003_order_items.sql'
+        startLine: 7
+        endLine: 7
+        quote: '    quantity    INTEGER NOT NULL CHECK (quantity > 0),'
+    reading: 'parsed'
+  - relation: 'code.contains'
+    from: 'code.table:orders.order_items'
+    to: 'code.column:orders.order_items.sku'
+    evidence:
+      - path: 'services/orders/migrations/0003_order_items.sql'
+        startLine: 6
+        endLine: 6
+        quote: '    sku         TEXT NOT NULL,'
+    reading: 'parsed'
+  - relation: 'code.contains'
+    from: 'code.table:orders.order_items'
+    to: 'code.column:orders.order_items.zero_rated'
+    evidence:
+      - path: 'services/orders/migrations/0003_order_items.sql'
+        startLine: 9
+        endLine: 9
+        quote: '    zero_rated  BOOLEAN NOT NULL DEFAULT false'
+    reading: 'parsed'
+  - relation: 'code.contains'
+    from: 'code.table:orders.order_items'
+    to: 'code.index:orders.order_items_order_idx'
+    evidence:
+      - path: 'services/orders/migrations/0003_order_items.sql'
+        startLine: 12
+        endLine: 12
+        quote: 'CREATE INDEX order_items_order_idx ON order_items (order_id);'
+    reading: 'parsed'
+  - relation: 'code.creates'
+    from: 'code.migration:services/orders/migrations/0003_order_items.sql'
+    to: 'code.index:orders.order_items_order_idx'
+    evidence:
+      - path: 'services/orders/migrations/0003_order_items.sql'
+        startLine: 12
+        endLine: 12
+        quote: 'CREATE INDEX order_items_order_idx ON order_items (order_id);'
+    reading: 'parsed'
+  - relation: 'code.creates'
+    from: 'code.migration:services/orders/migrations/0003_order_items.sql'
+    to: 'code.table:orders.order_items'
+    evidence:
+      - path: 'services/orders/migrations/0003_order_items.sql'
+        startLine: 3
+        endLine: 3
+        quote: 'CREATE TABLE order_items ('
+    reading: 'parsed'
+  - relation: 'code.foreign-key'
+    from: 'code.column:orders.order_items.order_id'
+    to: 'code.column:orders.orders.id'
+    evidence:
+      - path: 'services/orders/migrations/0003_order_items.sql'
+        startLine: 5
+        endLine: 5
+        quote: '    order_id    TEXT NOT NULL REFERENCES orders (id) ON DELETE CASCADE,'
+    reading: 'parsed'

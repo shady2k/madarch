@@ -1,0 +1,255 @@
+path: 'services/checkout/src/pricing.ts'
+nodes:
+  - id: 'code.field:services/checkout/src/pricing.ts#CartLine.priceCents'
+    kind: 'code.field'
+    label: 'CartLine.priceCents'
+    evidence:
+      - path: 'services/checkout/src/pricing.ts'
+        startLine: 4
+        endLine: 4
+        quote: '  priceCents: number;'
+    reading: 'parsed'
+  - id: 'code.field:services/checkout/src/pricing.ts#CartLine.quantity'
+    kind: 'code.field'
+    label: 'CartLine.quantity'
+    evidence:
+      - path: 'services/checkout/src/pricing.ts'
+        startLine: 3
+        endLine: 3
+        quote: '  quantity: number;'
+    reading: 'parsed'
+  - id: 'code.field:services/checkout/src/pricing.ts#CartLine.sku'
+    kind: 'code.field'
+    label: 'CartLine.sku'
+    evidence:
+      - path: 'services/checkout/src/pricing.ts'
+        startLine: 2
+        endLine: 2
+        quote: '  sku: string;'
+    reading: 'parsed'
+  - id: 'code.field:services/checkout/src/pricing.ts#CartLine.zeroRated'
+    kind: 'code.field'
+    label: 'CartLine.zeroRated'
+    evidence:
+      - path: 'services/checkout/src/pricing.ts'
+        startLine: 5
+        endLine: 5
+        quote: '  zeroRated?: boolean;'
+    reading: 'parsed'
+  - id: 'code.field:services/checkout/src/pricing.ts#Preview.discountCents'
+    kind: 'code.field'
+    label: 'Preview.discountCents'
+    evidence:
+      - path: 'services/checkout/src/pricing.ts'
+        startLine: 18
+        endLine: 18
+        quote: '  discountCents: number;'
+    reading: 'parsed'
+  - id: 'code.field:services/checkout/src/pricing.ts#Preview.subtotalCents'
+    kind: 'code.field'
+    label: 'Preview.subtotalCents'
+    evidence:
+      - path: 'services/checkout/src/pricing.ts'
+        startLine: 17
+        endLine: 17
+        quote: '  subtotalCents: number;'
+    reading: 'parsed'
+  - id: 'code.field:services/checkout/src/pricing.ts#Preview.taxCents'
+    kind: 'code.field'
+    label: 'Preview.taxCents'
+    evidence:
+      - path: 'services/checkout/src/pricing.ts'
+        startLine: 19
+        endLine: 19
+        quote: '  taxCents: number;'
+    reading: 'parsed'
+  - id: 'code.field:services/checkout/src/pricing.ts#Preview.totalCents'
+    kind: 'code.field'
+    label: 'Preview.totalCents'
+    evidence:
+      - path: 'services/checkout/src/pricing.ts'
+        startLine: 20
+        endLine: 20
+        quote: '  totalCents: number;'
+    reading: 'parsed'
+  - id: 'code.file:services/checkout/src/pricing.ts'
+    kind: 'code.file'
+    label: 'pricing.ts'
+    evidence:
+      - path: 'services/checkout/src/pricing.ts'
+        startLine: 1
+        endLine: 1
+        quote: 'export interface CartLine {'
+    reading: 'parsed'
+  - id: 'code.symbol:services/checkout/src/pricing.ts#CartLine'
+    kind: 'code.symbol'
+    label: 'CartLine'
+    evidence:
+      - path: 'services/checkout/src/pricing.ts'
+        startLine: 1
+        endLine: 1
+        quote: 'export interface CartLine {'
+    reading: 'parsed'
+  - id: 'code.symbol:services/checkout/src/pricing.ts#Preview'
+    kind: 'code.symbol'
+    label: 'Preview'
+    evidence:
+      - path: 'services/checkout/src/pricing.ts'
+        startLine: 16
+        endLine: 16
+        quote: 'export interface Preview {'
+    reading: 'parsed'
+  - id: 'code.symbol:services/checkout/src/pricing.ts#discountFor'
+    kind: 'code.symbol'
+    label: 'discountFor'
+    evidence:
+      - path: 'services/checkout/src/pricing.ts'
+        startLine: 12
+        endLine: 12
+        quote: 'export function discountFor(amountCents: number, percent: number): number {'
+    reading: 'parsed'
+  - id: 'code.symbol:services/checkout/src/pricing.ts#previewTotal'
+    kind: 'code.symbol'
+    label: 'previewTotal'
+    evidence:
+      - path: 'services/checkout/src/pricing.ts'
+        startLine: 27
+        endLine: 27
+        quote: 'export function previewTotal(lines: CartLine[], percent: number): Preview {'
+    reading: 'parsed'
+  - id: 'code.symbol:services/checkout/src/pricing.ts#taxRate'
+    kind: 'code.symbol'
+    label: 'taxRate'
+    evidence:
+      - path: 'services/checkout/src/pricing.ts'
+        startLine: 9
+        endLine: 9
+        quote: 'export const taxRate = 0.08;'
+    reading: 'parsed'
+edges:
+  - relation: 'code.calls'
+    from: 'code.symbol:services/checkout/src/pricing.ts#previewTotal'
+    to: 'code.symbol:services/checkout/src/pricing.ts#discountFor'
+    evidence:
+      - path: 'services/checkout/src/pricing.ts'
+        startLine: 33
+        endLine: 33
+        quote: '    const discount = discountFor(gross, percent);'
+    reading: 'parsed'
+  - relation: 'code.contains'
+    from: 'code.file:services/checkout/src/pricing.ts'
+    to: 'code.symbol:services/checkout/src/pricing.ts#CartLine'
+    evidence:
+      - path: 'services/checkout/src/pricing.ts'
+        startLine: 1
+        endLine: 1
+        quote: 'export interface CartLine {'
+    reading: 'parsed'
+  - relation: 'code.contains'
+    from: 'code.file:services/checkout/src/pricing.ts'
+    to: 'code.symbol:services/checkout/src/pricing.ts#Preview'
+    evidence:
+      - path: 'services/checkout/src/pricing.ts'
+        startLine: 16
+        endLine: 16
+        quote: 'export interface Preview {'
+    reading: 'parsed'
+  - relation: 'code.contains'
+    from: 'code.file:services/checkout/src/pricing.ts'
+    to: 'code.symbol:services/checkout/src/pricing.ts#discountFor'
+    evidence:
+      - path: 'services/checkout/src/pricing.ts'
+        startLine: 12
+        endLine: 12
+        quote: 'export function discountFor(amountCents: number, percent: number): number {'
+    reading: 'parsed'
+  - relation: 'code.contains'
+    from: 'code.file:services/checkout/src/pricing.ts'
+    to: 'code.symbol:services/checkout/src/pricing.ts#previewTotal'
+    evidence:
+      - path: 'services/checkout/src/pricing.ts'
+        startLine: 27
+        endLine: 27
+        quote: 'export function previewTotal(lines: CartLine[], percent: number): Preview {'
+    reading: 'parsed'
+  - relation: 'code.contains'
+    from: 'code.file:services/checkout/src/pricing.ts'
+    to: 'code.symbol:services/checkout/src/pricing.ts#taxRate'
+    evidence:
+      - path: 'services/checkout/src/pricing.ts'
+        startLine: 9
+        endLine: 9
+        quote: 'export const taxRate = 0.08;'
+    reading: 'parsed'
+  - relation: 'code.contains'
+    from: 'code.symbol:services/checkout/src/pricing.ts#CartLine'
+    to: 'code.field:services/checkout/src/pricing.ts#CartLine.priceCents'
+    evidence:
+      - path: 'services/checkout/src/pricing.ts'
+        startLine: 4
+        endLine: 4
+        quote: '  priceCents: number;'
+    reading: 'parsed'
+  - relation: 'code.contains'
+    from: 'code.symbol:services/checkout/src/pricing.ts#CartLine'
+    to: 'code.field:services/checkout/src/pricing.ts#CartLine.quantity'
+    evidence:
+      - path: 'services/checkout/src/pricing.ts'
+        startLine: 3
+        endLine: 3
+        quote: '  quantity: number;'
+    reading: 'parsed'
+  - relation: 'code.contains'
+    from: 'code.symbol:services/checkout/src/pricing.ts#CartLine'
+    to: 'code.field:services/checkout/src/pricing.ts#CartLine.sku'
+    evidence:
+      - path: 'services/checkout/src/pricing.ts'
+        startLine: 2
+        endLine: 2
+        quote: '  sku: string;'
+    reading: 'parsed'
+  - relation: 'code.contains'
+    from: 'code.symbol:services/checkout/src/pricing.ts#CartLine'
+    to: 'code.field:services/checkout/src/pricing.ts#CartLine.zeroRated'
+    evidence:
+      - path: 'services/checkout/src/pricing.ts'
+        startLine: 5
+        endLine: 5
+        quote: '  zeroRated?: boolean;'
+    reading: 'parsed'
+  - relation: 'code.contains'
+    from: 'code.symbol:services/checkout/src/pricing.ts#Preview'
+    to: 'code.field:services/checkout/src/pricing.ts#Preview.discountCents'
+    evidence:
+      - path: 'services/checkout/src/pricing.ts'
+        startLine: 18
+        endLine: 18
+        quote: '  discountCents: number;'
+    reading: 'parsed'
+  - relation: 'code.contains'
+    from: 'code.symbol:services/checkout/src/pricing.ts#Preview'
+    to: 'code.field:services/checkout/src/pricing.ts#Preview.subtotalCents'
+    evidence:
+      - path: 'services/checkout/src/pricing.ts'
+        startLine: 17
+        endLine: 17
+        quote: '  subtotalCents: number;'
+    reading: 'parsed'
+  - relation: 'code.contains'
+    from: 'code.symbol:services/checkout/src/pricing.ts#Preview'
+    to: 'code.field:services/checkout/src/pricing.ts#Preview.taxCents'
+    evidence:
+      - path: 'services/checkout/src/pricing.ts'
+        startLine: 19
+        endLine: 19
+        quote: '  taxCents: number;'
+    reading: 'parsed'
+  - relation: 'code.contains'
+    from: 'code.symbol:services/checkout/src/pricing.ts#Preview'
+    to: 'code.field:services/checkout/src/pricing.ts#Preview.totalCents'
+    evidence:
+      - path: 'services/checkout/src/pricing.ts'
+        startLine: 20
+        endLine: 20
+        quote: '  totalCents: number;'
+    reading: 'parsed'

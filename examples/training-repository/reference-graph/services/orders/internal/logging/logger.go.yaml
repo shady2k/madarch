@@ -1,0 +1,111 @@
+path: 'services/orders/internal/logging/logger.go'
+nodes:
+  - id: 'code.file:services/orders/internal/logging/logger.go'
+    kind: 'code.file'
+    label: 'logger.go'
+    evidence:
+      - path: 'services/orders/internal/logging/logger.go'
+        startLine: 1
+        endLine: 1
+        quote: '// Package logging builds the service logger and carries a request-scoped one'
+    reading: 'parsed'
+  - id: 'code.logger:orders'
+    kind: 'code.logger'
+    label: 'orders'
+    evidence:
+      - path: 'services/orders/internal/logging/logger.go'
+        startLine: 12
+        endLine: 12
+        quote: 'func New(service string) *slog.Logger {'
+    reading: 'parsed'
+  - id: 'code.module:services/orders/internal/logging'
+    kind: 'code.module'
+    label: 'services/orders/internal/logging'
+    evidence:
+      - path: 'services/orders/internal/logging/logger.go'
+        startLine: 3
+        endLine: 3
+        quote: 'package logging'
+    reading: 'parsed'
+  - id: 'code.symbol:services/orders/internal/logging/logger.go#FromContext'
+    kind: 'code.symbol'
+    label: 'FromContext'
+    evidence:
+      - path: 'services/orders/internal/logging/logger.go'
+        startLine: 25
+        endLine: 25
+        quote: 'func FromContext(ctx context.Context) *slog.Logger {'
+    reading: 'parsed'
+  - id: 'code.symbol:services/orders/internal/logging/logger.go#New'
+    kind: 'code.symbol'
+    label: 'New'
+    evidence:
+      - path: 'services/orders/internal/logging/logger.go'
+        startLine: 12
+        endLine: 12
+        quote: 'func New(service string) *slog.Logger {'
+    reading: 'parsed'
+  - id: 'code.symbol:services/orders/internal/logging/logger.go#WithLogger'
+    kind: 'code.symbol'
+    label: 'WithLogger'
+    evidence:
+      - path: 'services/orders/internal/logging/logger.go'
+        startLine: 19
+        endLine: 19
+        quote: 'func WithLogger(ctx context.Context, log *slog.Logger) context.Context {'
+    reading: 'parsed'
+  - id: 'code.symbol:services/orders/internal/logging/logger.go#contextKey'
+    kind: 'code.symbol'
+    label: 'contextKey'
+    evidence:
+      - path: 'services/orders/internal/logging/logger.go'
+        startLine: 16
+        endLine: 16
+        quote: 'type contextKey struct{}'
+    reading: 'parsed'
+edges:
+  - relation: 'code.contains'
+    from: 'code.file:services/orders/internal/logging/logger.go'
+    to: 'code.symbol:services/orders/internal/logging/logger.go#FromContext'
+    evidence:
+      - path: 'services/orders/internal/logging/logger.go'
+        startLine: 25
+        endLine: 25
+        quote: 'func FromContext(ctx context.Context) *slog.Logger {'
+    reading: 'parsed'
+  - relation: 'code.contains'
+    from: 'code.file:services/orders/internal/logging/logger.go'
+    to: 'code.symbol:services/orders/internal/logging/logger.go#New'
+    evidence:
+      - path: 'services/orders/internal/logging/logger.go'
+        startLine: 12
+        endLine: 12
+        quote: 'func New(service string) *slog.Logger {'
+    reading: 'parsed'
+  - relation: 'code.contains'
+    from: 'code.file:services/orders/internal/logging/logger.go'
+    to: 'code.symbol:services/orders/internal/logging/logger.go#WithLogger'
+    evidence:
+      - path: 'services/orders/internal/logging/logger.go'
+        startLine: 19
+        endLine: 19
+        quote: 'func WithLogger(ctx context.Context, log *slog.Logger) context.Context {'
+    reading: 'parsed'
+  - relation: 'code.contains'
+    from: 'code.file:services/orders/internal/logging/logger.go'
+    to: 'code.symbol:services/orders/internal/logging/logger.go#contextKey'
+    evidence:
+      - path: 'services/orders/internal/logging/logger.go'
+        startLine: 16
+        endLine: 16
+        quote: 'type contextKey struct{}'
+    reading: 'parsed'
+  - relation: 'code.contains'
+    from: 'code.module:services/orders/internal/logging'
+    to: 'code.file:services/orders/internal/logging/logger.go'
+    evidence:
+      - path: 'services/orders/internal/logging/logger.go'
+        startLine: 3
+        endLine: 3
+        quote: 'package logging'
+    reading: 'parsed'

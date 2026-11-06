@@ -1,0 +1,462 @@
+path: 'services/orders/internal/relay/relay.go'
+nodes:
+  - id: 'code.field:services/orders/internal/relay/relay.go#Relay.db'
+    kind: 'code.field'
+    label: 'Relay.db'
+    evidence:
+      - path: 'services/orders/internal/relay/relay.go'
+        startLine: 24
+        endLine: 24
+        quote: '	db        *sql.DB'
+    reading: 'parsed'
+  - id: 'code.field:services/orders/internal/relay/relay.go#Relay.interval'
+    kind: 'code.field'
+    label: 'Relay.interval'
+    evidence:
+      - path: 'services/orders/internal/relay/relay.go'
+        startLine: 27
+        endLine: 27
+        quote: '	interval  time.Duration'
+    reading: 'parsed'
+  - id: 'code.field:services/orders/internal/relay/relay.go#Relay.log'
+    kind: 'code.field'
+    label: 'Relay.log'
+    evidence:
+      - path: 'services/orders/internal/relay/relay.go'
+        startLine: 26
+        endLine: 26
+        quote: '	log       *slog.Logger'
+    reading: 'parsed'
+  - id: 'code.field:services/orders/internal/relay/relay.go#Relay.publisher'
+    kind: 'code.field'
+    label: 'Relay.publisher'
+    evidence:
+      - path: 'services/orders/internal/relay/relay.go'
+        startLine: 25
+        endLine: 25
+        quote: '	publisher Publisher'
+    reading: 'parsed'
+  - id: 'code.field:services/orders/internal/relay/relay.go#pending.id'
+    kind: 'code.field'
+    label: 'pending.id'
+    evidence:
+      - path: 'services/orders/internal/relay/relay.go'
+        startLine: 60
+        endLine: 60
+        quote: '	id      int64'
+    reading: 'parsed'
+  - id: 'code.field:services/orders/internal/relay/relay.go#pending.key'
+    kind: 'code.field'
+    label: 'pending.key'
+    evidence:
+      - path: 'services/orders/internal/relay/relay.go'
+        startLine: 61
+        endLine: 61
+        quote: '	key     string'
+    reading: 'parsed'
+  - id: 'code.field:services/orders/internal/relay/relay.go#pending.payload'
+    kind: 'code.field'
+    label: 'pending.payload'
+    evidence:
+      - path: 'services/orders/internal/relay/relay.go'
+        startLine: 63
+        endLine: 63
+        quote: '	payload []byte'
+    reading: 'parsed'
+  - id: 'code.field:services/orders/internal/relay/relay.go#pending.topic'
+    kind: 'code.field'
+    label: 'pending.topic'
+    evidence:
+      - path: 'services/orders/internal/relay/relay.go'
+        startLine: 62
+        endLine: 62
+        quote: '	topic   string'
+    reading: 'parsed'
+  - id: 'code.file:services/orders/internal/relay/relay.go'
+    kind: 'code.file'
+    label: 'relay.go'
+    evidence:
+      - path: 'services/orders/internal/relay/relay.go'
+        startLine: 1
+        endLine: 1
+        quote: '// Package relay publishes the rows of the outbox table to the broker.'
+    reading: 'parsed'
+  - id: 'code.symbol:services/orders/internal/relay/relay.go#New'
+    kind: 'code.symbol'
+    label: 'New'
+    evidence:
+      - path: 'services/orders/internal/relay/relay.go'
+        startLine: 31
+        endLine: 31
+        quote: 'func New(db *sql.DB, publisher Publisher, log *slog.Logger, interval time.Duration) *Relay {'
+    reading: 'parsed'
+  - id: 'code.symbol:services/orders/internal/relay/relay.go#Publisher'
+    kind: 'code.symbol'
+    label: 'Publisher'
+    evidence:
+      - path: 'services/orders/internal/relay/relay.go'
+        startLine: 15
+        endLine: 15
+        quote: 'type Publisher interface {'
+    reading: 'parsed'
+  - id: 'code.symbol:services/orders/internal/relay/relay.go#Publisher.Publish'
+    kind: 'code.symbol'
+    label: 'Publisher.Publish'
+    evidence:
+      - path: 'services/orders/internal/relay/relay.go'
+        startLine: 16
+        endLine: 16
+        quote: '	Publish(ctx context.Context, topic, key string, payload []byte) error'
+    reading: 'parsed'
+  - id: 'code.symbol:services/orders/internal/relay/relay.go#Relay'
+    kind: 'code.symbol'
+    label: 'Relay'
+    evidence:
+      - path: 'services/orders/internal/relay/relay.go'
+        startLine: 23
+        endLine: 23
+        quote: 'type Relay struct {'
+    reading: 'parsed'
+  - id: 'code.symbol:services/orders/internal/relay/relay.go#Relay.Flush'
+    kind: 'code.symbol'
+    label: 'Relay.Flush'
+    evidence:
+      - path: 'services/orders/internal/relay/relay.go'
+        startLine: 69
+        endLine: 69
+        quote: 'func (r *Relay) Flush(ctx context.Context) (int, error) {'
+    reading: 'parsed'
+  - id: 'code.symbol:services/orders/internal/relay/relay.go#Relay.Run'
+    kind: 'code.symbol'
+    label: 'Relay.Run'
+    evidence:
+      - path: 'services/orders/internal/relay/relay.go'
+        startLine: 39
+        endLine: 39
+        quote: 'func (r *Relay) Run(ctx context.Context) error {'
+    reading: 'parsed'
+  - id: 'code.symbol:services/orders/internal/relay/relay.go#Relay.markPublished'
+    kind: 'code.symbol'
+    label: 'Relay.markPublished'
+    evidence:
+      - path: 'services/orders/internal/relay/relay.go'
+        startLine: 110
+        endLine: 110
+        quote: 'func (r *Relay) markPublished(ctx context.Context, db execer, ids []int64) error {'
+    reading: 'parsed'
+  - id: 'code.symbol:services/orders/internal/relay/relay.go#batchSize'
+    kind: 'code.symbol'
+    label: 'batchSize'
+    evidence:
+      - path: 'services/orders/internal/relay/relay.go'
+        startLine: 36
+        endLine: 36
+        quote: 'const batchSize = 100'
+    reading: 'parsed'
+  - id: 'code.symbol:services/orders/internal/relay/relay.go#execer'
+    kind: 'code.symbol'
+    label: 'execer'
+    evidence:
+      - path: 'services/orders/internal/relay/relay.go'
+        startLine: 106
+        endLine: 106
+        quote: 'type execer interface {'
+    reading: 'parsed'
+  - id: 'code.symbol:services/orders/internal/relay/relay.go#execer.ExecContext'
+    kind: 'code.symbol'
+    label: 'execer.ExecContext'
+    evidence:
+      - path: 'services/orders/internal/relay/relay.go'
+        startLine: 107
+        endLine: 107
+        quote: '	ExecContext(ctx context.Context, query string, args ...any) (sql.Result, error)'
+    reading: 'parsed'
+  - id: 'code.symbol:services/orders/internal/relay/relay.go#pending'
+    kind: 'code.symbol'
+    label: 'pending'
+    evidence:
+      - path: 'services/orders/internal/relay/relay.go'
+        startLine: 59
+        endLine: 59
+        quote: 'type pending struct {'
+    reading: 'parsed'
+edges:
+  - relation: 'code.calls'
+    from: 'code.symbol:services/orders/internal/relay/relay.go#Relay.Flush'
+    to: 'code.symbol:services/orders/internal/relay/relay.go#Publisher.Publish'
+    evidence:
+      - path: 'services/orders/internal/relay/relay.go'
+        startLine: 94
+        endLine: 94
+        quote: '		if err := r.publisher.Publish(ctx, p.topic, p.key, p.payload); err != nil {'
+    reading: 'parsed'
+  - relation: 'code.calls'
+    from: 'code.symbol:services/orders/internal/relay/relay.go#Relay.Flush'
+    to: 'code.symbol:services/orders/internal/relay/relay.go#Relay.markPublished'
+    evidence:
+      - path: 'services/orders/internal/relay/relay.go'
+        startLine: 99
+        endLine: 99
+        quote: '	if err := r.markPublished(ctx, tx, published); err != nil {'
+    reading: 'parsed'
+  - relation: 'code.calls'
+    from: 'code.symbol:services/orders/internal/relay/relay.go#Relay.Run'
+    to: 'code.symbol:services/orders/internal/relay/relay.go#Relay.Flush'
+    evidence:
+      - path: 'services/orders/internal/relay/relay.go'
+        startLine: 47
+        endLine: 47
+        quote: '			n, err := r.Flush(ctx)'
+    reading: 'parsed'
+  - relation: 'code.calls'
+    from: 'code.symbol:services/orders/internal/relay/relay.go#Relay.markPublished'
+    to: 'code.symbol:services/orders/internal/relay/relay.go#execer.ExecContext'
+    evidence:
+      - path: 'services/orders/internal/relay/relay.go'
+        startLine: 114
+        endLine: 114
+        quote: '	_, err := db.ExecContext(ctx, `UPDATE outbox SET published_at = now() WHERE id = ANY($1)`, pq.Array(ids))'
+    reading: 'parsed'
+  - relation: 'code.contains'
+    from: 'code.file:services/orders/internal/relay/relay.go'
+    to: 'code.symbol:services/orders/internal/relay/relay.go#New'
+    evidence:
+      - path: 'services/orders/internal/relay/relay.go'
+        startLine: 31
+        endLine: 31
+        quote: 'func New(db *sql.DB, publisher Publisher, log *slog.Logger, interval time.Duration) *Relay {'
+    reading: 'parsed'
+  - relation: 'code.contains'
+    from: 'code.file:services/orders/internal/relay/relay.go'
+    to: 'code.symbol:services/orders/internal/relay/relay.go#Publisher'
+    evidence:
+      - path: 'services/orders/internal/relay/relay.go'
+        startLine: 15
+        endLine: 15
+        quote: 'type Publisher interface {'
+    reading: 'parsed'
+  - relation: 'code.contains'
+    from: 'code.file:services/orders/internal/relay/relay.go'
+    to: 'code.symbol:services/orders/internal/relay/relay.go#Relay'
+    evidence:
+      - path: 'services/orders/internal/relay/relay.go'
+        startLine: 23
+        endLine: 23
+        quote: 'type Relay struct {'
+    reading: 'parsed'
+  - relation: 'code.contains'
+    from: 'code.file:services/orders/internal/relay/relay.go'
+    to: 'code.symbol:services/orders/internal/relay/relay.go#Relay.Flush'
+    evidence:
+      - path: 'services/orders/internal/relay/relay.go'
+        startLine: 69
+        endLine: 69
+        quote: 'func (r *Relay) Flush(ctx context.Context) (int, error) {'
+    reading: 'parsed'
+  - relation: 'code.contains'
+    from: 'code.file:services/orders/internal/relay/relay.go'
+    to: 'code.symbol:services/orders/internal/relay/relay.go#Relay.Run'
+    evidence:
+      - path: 'services/orders/internal/relay/relay.go'
+        startLine: 39
+        endLine: 39
+        quote: 'func (r *Relay) Run(ctx context.Context) error {'
+    reading: 'parsed'
+  - relation: 'code.contains'
+    from: 'code.file:services/orders/internal/relay/relay.go'
+    to: 'code.symbol:services/orders/internal/relay/relay.go#Relay.markPublished'
+    evidence:
+      - path: 'services/orders/internal/relay/relay.go'
+        startLine: 110
+        endLine: 110
+        quote: 'func (r *Relay) markPublished(ctx context.Context, db execer, ids []int64) error {'
+    reading: 'parsed'
+  - relation: 'code.contains'
+    from: 'code.file:services/orders/internal/relay/relay.go'
+    to: 'code.symbol:services/orders/internal/relay/relay.go#batchSize'
+    evidence:
+      - path: 'services/orders/internal/relay/relay.go'
+        startLine: 36
+        endLine: 36
+        quote: 'const batchSize = 100'
+    reading: 'parsed'
+  - relation: 'code.contains'
+    from: 'code.file:services/orders/internal/relay/relay.go'
+    to: 'code.symbol:services/orders/internal/relay/relay.go#execer'
+    evidence:
+      - path: 'services/orders/internal/relay/relay.go'
+        startLine: 106
+        endLine: 106
+        quote: 'type execer interface {'
+    reading: 'parsed'
+  - relation: 'code.contains'
+    from: 'code.file:services/orders/internal/relay/relay.go'
+    to: 'code.symbol:services/orders/internal/relay/relay.go#pending'
+    evidence:
+      - path: 'services/orders/internal/relay/relay.go'
+        startLine: 59
+        endLine: 59
+        quote: 'type pending struct {'
+    reading: 'parsed'
+  - relation: 'code.contains'
+    from: 'code.module:services/orders/internal/relay'
+    to: 'code.file:services/orders/internal/relay/relay.go'
+    evidence:
+      - path: 'services/orders/internal/relay/relay.go'
+        startLine: 2
+        endLine: 2
+        quote: 'package relay'
+    reading: 'parsed'
+  - relation: 'code.contains'
+    from: 'code.symbol:services/orders/internal/relay/relay.go#Publisher'
+    to: 'code.symbol:services/orders/internal/relay/relay.go#Publisher.Publish'
+    evidence:
+      - path: 'services/orders/internal/relay/relay.go'
+        startLine: 16
+        endLine: 16
+        quote: '	Publish(ctx context.Context, topic, key string, payload []byte) error'
+    reading: 'parsed'
+  - relation: 'code.contains'
+    from: 'code.symbol:services/orders/internal/relay/relay.go#Relay'
+    to: 'code.field:services/orders/internal/relay/relay.go#Relay.db'
+    evidence:
+      - path: 'services/orders/internal/relay/relay.go'
+        startLine: 24
+        endLine: 24
+        quote: '	db        *sql.DB'
+    reading: 'parsed'
+  - relation: 'code.contains'
+    from: 'code.symbol:services/orders/internal/relay/relay.go#Relay'
+    to: 'code.field:services/orders/internal/relay/relay.go#Relay.interval'
+    evidence:
+      - path: 'services/orders/internal/relay/relay.go'
+        startLine: 27
+        endLine: 27
+        quote: '	interval  time.Duration'
+    reading: 'parsed'
+  - relation: 'code.contains'
+    from: 'code.symbol:services/orders/internal/relay/relay.go#Relay'
+    to: 'code.field:services/orders/internal/relay/relay.go#Relay.log'
+    evidence:
+      - path: 'services/orders/internal/relay/relay.go'
+        startLine: 26
+        endLine: 26
+        quote: '	log       *slog.Logger'
+    reading: 'parsed'
+  - relation: 'code.contains'
+    from: 'code.symbol:services/orders/internal/relay/relay.go#Relay'
+    to: 'code.field:services/orders/internal/relay/relay.go#Relay.publisher'
+    evidence:
+      - path: 'services/orders/internal/relay/relay.go'
+        startLine: 25
+        endLine: 25
+        quote: '	publisher Publisher'
+    reading: 'parsed'
+  - relation: 'code.contains'
+    from: 'code.symbol:services/orders/internal/relay/relay.go#execer'
+    to: 'code.symbol:services/orders/internal/relay/relay.go#execer.ExecContext'
+    evidence:
+      - path: 'services/orders/internal/relay/relay.go'
+        startLine: 107
+        endLine: 107
+        quote: '	ExecContext(ctx context.Context, query string, args ...any) (sql.Result, error)'
+    reading: 'parsed'
+  - relation: 'code.contains'
+    from: 'code.symbol:services/orders/internal/relay/relay.go#pending'
+    to: 'code.field:services/orders/internal/relay/relay.go#pending.id'
+    evidence:
+      - path: 'services/orders/internal/relay/relay.go'
+        startLine: 60
+        endLine: 60
+        quote: '	id      int64'
+    reading: 'parsed'
+  - relation: 'code.contains'
+    from: 'code.symbol:services/orders/internal/relay/relay.go#pending'
+    to: 'code.field:services/orders/internal/relay/relay.go#pending.key'
+    evidence:
+      - path: 'services/orders/internal/relay/relay.go'
+        startLine: 61
+        endLine: 61
+        quote: '	key     string'
+    reading: 'parsed'
+  - relation: 'code.contains'
+    from: 'code.symbol:services/orders/internal/relay/relay.go#pending'
+    to: 'code.field:services/orders/internal/relay/relay.go#pending.payload'
+    evidence:
+      - path: 'services/orders/internal/relay/relay.go'
+        startLine: 63
+        endLine: 63
+        quote: '	payload []byte'
+    reading: 'parsed'
+  - relation: 'code.contains'
+    from: 'code.symbol:services/orders/internal/relay/relay.go#pending'
+    to: 'code.field:services/orders/internal/relay/relay.go#pending.topic'
+    evidence:
+      - path: 'services/orders/internal/relay/relay.go'
+        startLine: 62
+        endLine: 62
+        quote: '	topic   string'
+    reading: 'parsed'
+  - relation: 'code.imports'
+    from: 'code.file:services/orders/internal/relay/relay.go'
+    to: 'code.dependency:services/orders/go.mod#github.com/lib/pq'
+    evidence:
+      - path: 'services/orders/internal/relay/relay.go'
+        startLine: 11
+        endLine: 11
+        quote: '	"github.com/lib/pq"'
+    reading: 'parsed'
+  - relation: 'code.reads-table'
+    from: 'code.file:services/orders/internal/relay/relay.go'
+    to: 'code.table:orders.outbox'
+    evidence:
+      - path: 'services/orders/internal/relay/relay.go'
+        startLine: 76
+        endLine: 76
+        quote: '		`SELECT id, aggregate_id, topic, payload FROM outbox WHERE published_at IS NULL ORDER BY id LIMIT $1 FOR UPDATE SKIP LOCKED`, batchSize)'
+    reading: 'judgement'
+  - relation: 'code.uses-type'
+    from: 'code.symbol:services/orders/internal/relay/relay.go#New'
+    to: 'code.symbol:services/orders/internal/relay/relay.go#Publisher'
+    evidence:
+      - path: 'services/orders/internal/relay/relay.go'
+        startLine: 31
+        endLine: 31
+        quote: 'func New(db *sql.DB, publisher Publisher, log *slog.Logger, interval time.Duration) *Relay {'
+    reading: 'parsed'
+  - relation: 'code.uses-type'
+    from: 'code.symbol:services/orders/internal/relay/relay.go#New'
+    to: 'code.symbol:services/orders/internal/relay/relay.go#Relay'
+    evidence:
+      - path: 'services/orders/internal/relay/relay.go'
+        startLine: 31
+        endLine: 31
+        quote: 'func New(db *sql.DB, publisher Publisher, log *slog.Logger, interval time.Duration) *Relay {'
+    reading: 'parsed'
+  - relation: 'code.uses-type'
+    from: 'code.symbol:services/orders/internal/relay/relay.go#Relay'
+    to: 'code.symbol:services/orders/internal/relay/relay.go#Publisher'
+    evidence:
+      - path: 'services/orders/internal/relay/relay.go'
+        startLine: 25
+        endLine: 25
+        quote: '	publisher Publisher'
+    reading: 'parsed'
+  - relation: 'code.uses-type'
+    from: 'code.symbol:services/orders/internal/relay/relay.go#Relay.markPublished'
+    to: 'code.symbol:services/orders/internal/relay/relay.go#execer'
+    evidence:
+      - path: 'services/orders/internal/relay/relay.go'
+        startLine: 110
+        endLine: 110
+        quote: 'func (r *Relay) markPublished(ctx context.Context, db execer, ids []int64) error {'
+    reading: 'parsed'
+  - relation: 'code.writes-table'
+    from: 'code.file:services/orders/internal/relay/relay.go'
+    to: 'code.table:orders.outbox'
+    evidence:
+      - path: 'services/orders/internal/relay/relay.go'
+        startLine: 114
+        endLine: 114
+        quote: '	_, err := db.ExecContext(ctx, `UPDATE outbox SET published_at = now() WHERE id = ANY($1)`, pq.Array(ids))'
+    reading: 'judgement'

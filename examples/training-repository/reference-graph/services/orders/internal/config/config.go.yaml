@@ -1,0 +1,219 @@
+path: 'services/orders/internal/config/config.go'
+nodes:
+  - id: 'code.field:services/orders/internal/config/config.go#Config.DatabaseURL'
+    kind: 'code.field'
+    label: 'Config.DatabaseURL'
+    evidence:
+      - path: 'services/orders/internal/config/config.go'
+        startLine: 14
+        endLine: 14
+        quote: '	DatabaseURL string'
+    reading: 'parsed'
+  - id: 'code.field:services/orders/internal/config/config.go#Config.JWTSecret'
+    kind: 'code.field'
+    label: 'Config.JWTSecret'
+    evidence:
+      - path: 'services/orders/internal/config/config.go'
+        startLine: 18
+        endLine: 18
+        quote: '	JWTSecret string'
+    reading: 'parsed'
+  - id: 'code.field:services/orders/internal/config/config.go#Config.KafkaBrokers'
+    kind: 'code.field'
+    label: 'Config.KafkaBrokers'
+    evidence:
+      - path: 'services/orders/internal/config/config.go'
+        startLine: 16
+        endLine: 16
+        quote: '	KafkaBrokers string'
+    reading: 'parsed'
+  - id: 'code.file:services/orders/internal/config/config.go'
+    kind: 'code.file'
+    label: 'config.go'
+    evidence:
+      - path: 'services/orders/internal/config/config.go'
+        startLine: 1
+        endLine: 1
+        quote: '// Package config reads the process environment once.'
+    reading: 'parsed'
+  - id: 'code.module:services/orders/internal/config'
+    kind: 'code.module'
+    label: 'services/orders/internal/config'
+    evidence:
+      - path: 'services/orders/internal/config/config.go'
+        startLine: 2
+        endLine: 2
+        quote: 'package config'
+    reading: 'parsed'
+  - id: 'code.symbol:services/orders/internal/config/config.go#Config'
+    kind: 'code.symbol'
+    label: 'Config'
+    evidence:
+      - path: 'services/orders/internal/config/config.go'
+        startLine: 12
+        endLine: 12
+        quote: 'type Config struct {'
+    reading: 'parsed'
+  - id: 'code.symbol:services/orders/internal/config/config.go#Load'
+    kind: 'code.symbol'
+    label: 'Load'
+    evidence:
+      - path: 'services/orders/internal/config/config.go'
+        startLine: 29
+        endLine: 29
+        quote: 'func Load() (Config, error) {'
+    reading: 'parsed'
+  - id: 'code.symbol:services/orders/internal/config/config.go#fromEnv'
+    kind: 'code.symbol'
+    label: 'fromEnv'
+    evidence:
+      - path: 'services/orders/internal/config/config.go'
+        startLine: 36
+        endLine: 36
+        quote: 'func fromEnv(get func(string) string) (Config, error) {'
+    reading: 'parsed'
+  - id: 'code.symbol:services/orders/internal/config/config.go#instance'
+    kind: 'code.symbol'
+    label: 'instance'
+    evidence:
+      - path: 'services/orders/internal/config/config.go'
+        startLine: 23
+        endLine: 23
+        quote: '	instance Config'
+    reading: 'parsed'
+  - id: 'code.symbol:services/orders/internal/config/config.go#loadErr'
+    kind: 'code.symbol'
+    label: 'loadErr'
+    evidence:
+      - path: 'services/orders/internal/config/config.go'
+        startLine: 24
+        endLine: 24
+        quote: '	loadErr  error'
+    reading: 'parsed'
+  - id: 'code.symbol:services/orders/internal/config/config.go#once'
+    kind: 'code.symbol'
+    label: 'once'
+    evidence:
+      - path: 'services/orders/internal/config/config.go'
+        startLine: 22
+        endLine: 22
+        quote: '	once     sync.Once'
+    reading: 'parsed'
+edges:
+  - relation: 'code.calls'
+    from: 'code.symbol:services/orders/internal/config/config.go#Load'
+    to: 'code.symbol:services/orders/internal/config/config.go#fromEnv'
+    evidence:
+      - path: 'services/orders/internal/config/config.go'
+        startLine: 31
+        endLine: 31
+        quote: '		instance, loadErr = fromEnv(os.Getenv)'
+    reading: 'parsed'
+  - relation: 'code.contains'
+    from: 'code.file:services/orders/internal/config/config.go'
+    to: 'code.symbol:services/orders/internal/config/config.go#Config'
+    evidence:
+      - path: 'services/orders/internal/config/config.go'
+        startLine: 12
+        endLine: 12
+        quote: 'type Config struct {'
+    reading: 'parsed'
+  - relation: 'code.contains'
+    from: 'code.file:services/orders/internal/config/config.go'
+    to: 'code.symbol:services/orders/internal/config/config.go#Load'
+    evidence:
+      - path: 'services/orders/internal/config/config.go'
+        startLine: 29
+        endLine: 29
+        quote: 'func Load() (Config, error) {'
+    reading: 'parsed'
+  - relation: 'code.contains'
+    from: 'code.file:services/orders/internal/config/config.go'
+    to: 'code.symbol:services/orders/internal/config/config.go#fromEnv'
+    evidence:
+      - path: 'services/orders/internal/config/config.go'
+        startLine: 36
+        endLine: 36
+        quote: 'func fromEnv(get func(string) string) (Config, error) {'
+    reading: 'parsed'
+  - relation: 'code.contains'
+    from: 'code.file:services/orders/internal/config/config.go'
+    to: 'code.symbol:services/orders/internal/config/config.go#instance'
+    evidence:
+      - path: 'services/orders/internal/config/config.go'
+        startLine: 23
+        endLine: 23
+        quote: '	instance Config'
+    reading: 'parsed'
+  - relation: 'code.contains'
+    from: 'code.file:services/orders/internal/config/config.go'
+    to: 'code.symbol:services/orders/internal/config/config.go#loadErr'
+    evidence:
+      - path: 'services/orders/internal/config/config.go'
+        startLine: 24
+        endLine: 24
+        quote: '	loadErr  error'
+    reading: 'parsed'
+  - relation: 'code.contains'
+    from: 'code.file:services/orders/internal/config/config.go'
+    to: 'code.symbol:services/orders/internal/config/config.go#once'
+    evidence:
+      - path: 'services/orders/internal/config/config.go'
+        startLine: 22
+        endLine: 22
+        quote: '	once     sync.Once'
+    reading: 'parsed'
+  - relation: 'code.contains'
+    from: 'code.module:services/orders/internal/config'
+    to: 'code.file:services/orders/internal/config/config.go'
+    evidence:
+      - path: 'services/orders/internal/config/config.go'
+        startLine: 2
+        endLine: 2
+        quote: 'package config'
+    reading: 'parsed'
+  - relation: 'code.contains'
+    from: 'code.symbol:services/orders/internal/config/config.go#Config'
+    to: 'code.field:services/orders/internal/config/config.go#Config.DatabaseURL'
+    evidence:
+      - path: 'services/orders/internal/config/config.go'
+        startLine: 14
+        endLine: 14
+        quote: '	DatabaseURL string'
+    reading: 'parsed'
+  - relation: 'code.contains'
+    from: 'code.symbol:services/orders/internal/config/config.go#Config'
+    to: 'code.field:services/orders/internal/config/config.go#Config.JWTSecret'
+    evidence:
+      - path: 'services/orders/internal/config/config.go'
+        startLine: 18
+        endLine: 18
+        quote: '	JWTSecret string'
+    reading: 'parsed'
+  - relation: 'code.contains'
+    from: 'code.symbol:services/orders/internal/config/config.go#Config'
+    to: 'code.field:services/orders/internal/config/config.go#Config.KafkaBrokers'
+    evidence:
+      - path: 'services/orders/internal/config/config.go'
+        startLine: 16
+        endLine: 16
+        quote: '	KafkaBrokers string'
+    reading: 'parsed'
+  - relation: 'code.uses-type'
+    from: 'code.symbol:services/orders/internal/config/config.go#Load'
+    to: 'code.symbol:services/orders/internal/config/config.go#Config'
+    evidence:
+      - path: 'services/orders/internal/config/config.go'
+        startLine: 29
+        endLine: 29
+        quote: 'func Load() (Config, error) {'
+    reading: 'parsed'
+  - relation: 'code.uses-type'
+    from: 'code.symbol:services/orders/internal/config/config.go#fromEnv'
+    to: 'code.symbol:services/orders/internal/config/config.go#Config'
+    evidence:
+      - path: 'services/orders/internal/config/config.go'
+        startLine: 36
+        endLine: 36
+        quote: 'func fromEnv(get func(string) string) (Config, error) {'
+    reading: 'parsed'

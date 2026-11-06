@@ -1,0 +1,70 @@
+path: 'services/orders/Dockerfile'
+nodes:
+  - id: 'code.dockerfile:services/orders/Dockerfile'
+    kind: 'code.dockerfile'
+    label: 'services/orders/Dockerfile'
+    evidence:
+      - path: 'services/orders/Dockerfile'
+        startLine: 1
+        endLine: 1
+        quote: '# Build the orders binary, then copy it with the migrations into a small image.'
+    reading: 'declared'
+  - id: 'code.file:services/orders/Dockerfile'
+    kind: 'code.file'
+    label: 'Dockerfile'
+    evidence:
+      - path: 'services/orders/Dockerfile'
+        startLine: 1
+        endLine: 1
+        quote: '# Build the orders binary, then copy it with the migrations into a small image.'
+    reading: 'parsed'
+  - id: 'code.image:golang:1.22.5-alpine'
+    kind: 'code.image'
+    label: 'golang:1.22.5-alpine'
+    evidence:
+      - path: 'services/orders/Dockerfile'
+        startLine: 3
+        endLine: 3
+        quote: 'FROM golang:1.22.5-alpine AS build'
+      - path: 'services/promotions/Dockerfile'
+        startLine: 1
+        endLine: 1
+        quote: 'FROM golang:1.22.5-alpine AS build'
+    reading: 'declared'
+  - id: 'code.port:services/orders:8080'
+    kind: 'code.port'
+    label: '8080'
+    evidence:
+      - path: 'services/orders/Dockerfile'
+        startLine: 14
+        endLine: 14
+        quote: 'EXPOSE 8080'
+    reading: 'declared'
+edges:
+  - relation: 'code.belongs-to'
+    from: 'code.dockerfile:services/orders/Dockerfile'
+    to: 'code.package:services/orders'
+    evidence:
+      - path: 'services/orders/Dockerfile'
+        startLine: 1
+        endLine: 1
+        quote: '# Build the orders binary, then copy it with the migrations into a small image.'
+    reading: 'declared'
+  - relation: 'code.built-by'
+    from: 'code.dockerfile:services/orders/Dockerfile'
+    to: 'code.image:golang:1.22.5-alpine'
+    evidence:
+      - path: 'services/orders/Dockerfile'
+        startLine: 3
+        endLine: 3
+        quote: 'FROM golang:1.22.5-alpine AS build'
+    reading: 'declared'
+  - relation: 'code.exposes'
+    from: 'code.dockerfile:services/orders/Dockerfile'
+    to: 'code.port:services/orders:8080'
+    evidence:
+      - path: 'services/orders/Dockerfile'
+        startLine: 14
+        endLine: 14
+        quote: 'EXPOSE 8080'
+    reading: 'declared'

@@ -1,0 +1,165 @@
+path: 'contracts/proto/payments.proto'
+nodes:
+  - id: 'code.contract:contracts/proto/payments.proto'
+    kind: 'code.contract'
+    label: 'payments.proto'
+    evidence:
+      - path: 'contracts/proto/payments.proto'
+        startLine: 4
+        endLine: 4
+        quote: 'syntax = "proto3";'
+    reading: 'parsed'
+  - id: 'code.file:contracts/proto/payments.proto'
+    kind: 'code.file'
+    label: 'payments.proto'
+    evidence:
+      - path: 'contracts/proto/payments.proto'
+        startLine: 1
+        endLine: 1
+        quote: '// The payments service as checkout calls it. Implemented by'
+    reading: 'parsed'
+  - id: 'code.message:AuthorizeReply'
+    kind: 'code.message'
+    label: 'AuthorizeReply'
+    evidence:
+      - path: 'contracts/proto/payments.proto'
+        startLine: 26
+        endLine: 26
+        quote: 'message AuthorizeReply {'
+    reading: 'parsed'
+  - id: 'code.message:AuthorizeRequest'
+    kind: 'code.message'
+    label: 'AuthorizeRequest'
+    evidence:
+      - path: 'contracts/proto/payments.proto'
+        startLine: 17
+        endLine: 17
+        quote: 'message AuthorizeRequest {'
+    reading: 'parsed'
+  - id: 'code.message:RefundReply'
+    kind: 'code.message'
+    label: 'RefundReply'
+    evidence:
+      - path: 'contracts/proto/payments.proto'
+        startLine: 40
+        endLine: 40
+        quote: 'message RefundReply {'
+    reading: 'parsed'
+  - id: 'code.message:RefundRequest'
+    kind: 'code.message'
+    label: 'RefundRequest'
+    evidence:
+      - path: 'contracts/proto/payments.proto'
+        startLine: 34
+        endLine: 34
+        quote: 'message RefundRequest {'
+    reading: 'parsed'
+  - id: 'code.operation:contracts/proto/payments.proto#Authorize'
+    kind: 'code.operation'
+    label: 'Authorize'
+    evidence:
+      - path: 'contracts/proto/payments.proto'
+        startLine: 11
+        endLine: 11
+        quote: '  rpc Authorize(AuthorizeRequest) returns (AuthorizeReply);'
+    reading: 'parsed'
+  - id: 'code.operation:contracts/proto/payments.proto#Refund'
+    kind: 'code.operation'
+    label: 'Refund'
+    evidence:
+      - path: 'contracts/proto/payments.proto'
+        startLine: 14
+        endLine: 14
+        quote: '  rpc Refund(RefundRequest) returns (RefundReply);'
+    reading: 'parsed'
+edges:
+  - relation: 'code.carries'
+    from: 'code.operation:contracts/proto/payments.proto#Authorize'
+    to: 'code.message:AuthorizeReply'
+    evidence:
+      - path: 'contracts/proto/payments.proto'
+        startLine: 11
+        endLine: 11
+        quote: '  rpc Authorize(AuthorizeRequest) returns (AuthorizeReply);'
+    reading: 'parsed'
+  - relation: 'code.carries'
+    from: 'code.operation:contracts/proto/payments.proto#Authorize'
+    to: 'code.message:AuthorizeRequest'
+    evidence:
+      - path: 'contracts/proto/payments.proto'
+        startLine: 11
+        endLine: 11
+        quote: '  rpc Authorize(AuthorizeRequest) returns (AuthorizeReply);'
+    reading: 'parsed'
+  - relation: 'code.carries'
+    from: 'code.operation:contracts/proto/payments.proto#Refund'
+    to: 'code.message:RefundReply'
+    evidence:
+      - path: 'contracts/proto/payments.proto'
+        startLine: 14
+        endLine: 14
+        quote: '  rpc Refund(RefundRequest) returns (RefundReply);'
+    reading: 'parsed'
+  - relation: 'code.carries'
+    from: 'code.operation:contracts/proto/payments.proto#Refund'
+    to: 'code.message:RefundRequest'
+    evidence:
+      - path: 'contracts/proto/payments.proto'
+        startLine: 14
+        endLine: 14
+        quote: '  rpc Refund(RefundRequest) returns (RefundReply);'
+    reading: 'parsed'
+  - relation: 'code.contains'
+    from: 'code.contract:contracts/proto/payments.proto'
+    to: 'code.message:AuthorizeReply'
+    evidence:
+      - path: 'contracts/proto/payments.proto'
+        startLine: 26
+        endLine: 26
+        quote: 'message AuthorizeReply {'
+    reading: 'parsed'
+  - relation: 'code.contains'
+    from: 'code.contract:contracts/proto/payments.proto'
+    to: 'code.message:AuthorizeRequest'
+    evidence:
+      - path: 'contracts/proto/payments.proto'
+        startLine: 17
+        endLine: 17
+        quote: 'message AuthorizeRequest {'
+    reading: 'parsed'
+  - relation: 'code.contains'
+    from: 'code.contract:contracts/proto/payments.proto'
+    to: 'code.message:RefundReply'
+    evidence:
+      - path: 'contracts/proto/payments.proto'
+        startLine: 40
+        endLine: 40
+        quote: 'message RefundReply {'
+    reading: 'parsed'
+  - relation: 'code.contains'
+    from: 'code.contract:contracts/proto/payments.proto'
+    to: 'code.message:RefundRequest'
+    evidence:
+      - path: 'contracts/proto/payments.proto'
+        startLine: 34
+        endLine: 34
+        quote: 'message RefundRequest {'
+    reading: 'parsed'
+  - relation: 'code.contains'
+    from: 'code.contract:contracts/proto/payments.proto'
+    to: 'code.operation:contracts/proto/payments.proto#Authorize'
+    evidence:
+      - path: 'contracts/proto/payments.proto'
+        startLine: 11
+        endLine: 11
+        quote: '  rpc Authorize(AuthorizeRequest) returns (AuthorizeReply);'
+    reading: 'parsed'
+  - relation: 'code.contains'
+    from: 'code.contract:contracts/proto/payments.proto'
+    to: 'code.operation:contracts/proto/payments.proto#Refund'
+    evidence:
+      - path: 'contracts/proto/payments.proto'
+        startLine: 14
+        endLine: 14
+        quote: '  rpc Refund(RefundRequest) returns (RefundReply);'
+    reading: 'parsed'

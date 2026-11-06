@@ -1,0 +1,228 @@
+path: 'docs/requirements.md'
+nodes:
+  - id: 'code.document-section:docs/requirements.md#Business rules'
+    kind: 'code.document-section'
+    label: 'Business rules'
+    evidence:
+      - path: 'docs/requirements.md'
+        startLine: 16
+        endLine: 16
+        quote: '## Business rules'
+    reading: 'parsed'
+  - id: 'code.document-section:docs/requirements.md#Qualities'
+    kind: 'code.document-section'
+    label: 'Qualities'
+    evidence:
+      - path: 'docs/requirements.md'
+        startLine: 40
+        endLine: 40
+        quote: '## Qualities'
+    reading: 'parsed'
+  - id: 'code.document-section:docs/requirements.md#Use cases'
+    kind: 'code.document-section'
+    label: 'Use cases'
+    evidence:
+      - path: 'docs/requirements.md'
+        startLine: 3
+        endLine: 3
+        quote: '## Use cases'
+    reading: 'parsed'
+  - id: 'code.document:docs/requirements.md'
+    kind: 'code.document'
+    label: 'requirements.md'
+    evidence:
+      - path: 'docs/requirements.md'
+        startLine: 1
+        endLine: 1
+        quote: '# Requirements'
+    reading: 'parsed'
+  - id: 'code.file:docs/requirements.md'
+    kind: 'code.file'
+    label: 'requirements.md'
+    evidence:
+      - path: 'docs/requirements.md'
+        startLine: 1
+        endLine: 1
+        quote: '# Requirements'
+    reading: 'parsed'
+edges:
+  - relation: 'code.contains'
+    from: 'code.document:docs/requirements.md'
+    to: 'code.document-section:docs/requirements.md#Business rules'
+    evidence:
+      - path: 'docs/requirements.md'
+        startLine: 16
+        endLine: 16
+        quote: '## Business rules'
+    reading: 'parsed'
+  - relation: 'code.contains'
+    from: 'code.document:docs/requirements.md'
+    to: 'code.document-section:docs/requirements.md#Qualities'
+    evidence:
+      - path: 'docs/requirements.md'
+        startLine: 40
+        endLine: 40
+        quote: '## Qualities'
+    reading: 'parsed'
+  - relation: 'code.contains'
+    from: 'code.document:docs/requirements.md'
+    to: 'code.document-section:docs/requirements.md#Use cases'
+    evidence:
+      - path: 'docs/requirements.md'
+        startLine: 3
+        endLine: 3
+        quote: '## Use cases'
+    reading: 'parsed'
+  - relation: 'code.mentions'
+    from: 'code.document-section:docs/requirements.md#Business rules'
+    to: 'code.symbol:services/checkout/src/pricing.ts#discountFor'
+    evidence:
+      - path: 'docs/requirements.md'
+        startLine: 23
+        endLine: 23
+        quote: '  `services/checkout/src/pricing.ts` (`discountFor`).'
+    reading: 'judgement'
+  - relation: 'code.mentions'
+    from: 'code.document-section:docs/requirements.md#Business rules'
+    to: 'code.symbol:services/checkout/src/pricing.ts#previewTotal'
+    evidence:
+      - path: 'docs/requirements.md'
+        startLine: 27
+        endLine: 27
+        quote: '  `services/checkout/src/pricing.ts` (`previewTotal`).'
+    reading: 'judgement'
+  - relation: 'code.mentions'
+    from: 'code.document-section:docs/requirements.md#Business rules'
+    to: 'code.symbol:services/orders/internal/application/order_service.go#Service.Place'
+    evidence:
+      - path: 'docs/requirements.md'
+        startLine: 22
+        endLine: 22
+        quote: '  `services/orders/internal/application/order_service.go` (`Place`); checkout previews it in'
+    reading: 'judgement'
+  - relation: 'code.mentions'
+    from: 'code.document-section:docs/requirements.md#Business rules'
+    to: 'code.symbol:services/orders/internal/pricing/pricing.go#Discount'
+    evidence:
+      - path: 'docs/requirements.md'
+        startLine: 21
+        endLine: 21
+        quote: '  Implemented in `services/orders/internal/pricing/pricing.go` (`Discount`), applied per line in'
+    reading: 'judgement'
+  - relation: 'code.mentions'
+    from: 'code.document-section:docs/requirements.md#Business rules'
+    to: 'code.symbol:services/orders/internal/pricing/tax.go#LineTax'
+    evidence:
+      - path: 'docs/requirements.md'
+        startLine: 26
+        endLine: 26
+        quote: '  Implemented in `services/orders/internal/pricing/tax.go` (`Tax`, `LineTax`); checkout previews it in'
+    reading: 'judgement'
+  - relation: 'code.mentions'
+    from: 'code.document-section:docs/requirements.md#Business rules'
+    to: 'code.symbol:services/orders/internal/pricing/tax.go#Tax'
+    evidence:
+      - path: 'docs/requirements.md'
+        startLine: 26
+        endLine: 26
+        quote: '  Implemented in `services/orders/internal/pricing/tax.go` (`Tax`, `LineTax`); checkout previews it in'
+    reading: 'judgement'
+  - relation: 'code.mentions'
+    from: 'code.document-section:docs/requirements.md#Business rules'
+    to: 'code.symbol:services/payments/src/domain/payment-service.ts#PaymentService.pay'
+    evidence:
+      - path: 'docs/requirements.md'
+        startLine: 30
+        endLine: 30
+        quote: '  Implemented in `services/payments/src/domain/payment-service.ts` (`pay`) and the unique index of'
+    reading: 'judgement'
+  - relation: 'code.mentions'
+    from: 'code.document-section:docs/requirements.md#Business rules'
+    to: 'code.symbol:services/payments/src/domain/payment-service.ts#PaymentService.refund'
+    evidence:
+      - path: 'docs/requirements.md'
+        startLine: 36
+        endLine: 36
+        quote: '  `services/payments/src/domain/payment-service.ts` (`refund`).'
+    reading: 'judgement'
+  - relation: 'code.mentions'
+    from: 'code.document-section:docs/requirements.md#Business rules'
+    to: 'code.symbol:services/payments/src/domain/refund.ts#checkRefund'
+    evidence:
+      - path: 'docs/requirements.md'
+        startLine: 35
+        endLine: 35
+        quote: '  Implemented in `services/payments/src/domain/refund.ts` (`checkRefund`), called by'
+    reading: 'judgement'
+  - relation: 'code.mentions'
+    from: 'code.document-section:docs/requirements.md#Business rules'
+    to: 'code.symbol:services/promotions/internal/discount/strategy.go#clamp'
+    evidence:
+      - path: 'docs/requirements.md'
+        startLine: 38
+        endLine: 38
+        quote: '  Implemented in `services/promotions/internal/discount/strategy.go` (`clamp`).'
+    reading: 'judgement'
+  - relation: 'code.mentions'
+    from: 'code.document-section:docs/requirements.md#Qualities'
+    to: 'code.symbol:services/orders/internal/store/outbox.go#OutboxWriter'
+    evidence:
+      - path: 'docs/requirements.md'
+        startLine: 44
+        endLine: 44
+        quote: '- Every change of an order reaches Kafka exactly when the change is committed'
+    reading: 'judgement'
+  - relation: 'code.mentions'
+    from: 'code.document-section:docs/requirements.md#Qualities'
+    to: 'code.symbol:services/payments/src/resilience.ts#withRetry'
+    evidence:
+      - path: 'docs/requirements.md'
+        startLine: 42
+        endLine: 42
+        quote: '- The payment provider may be slow: a payment call that does not answer'
+    reading: 'judgement'
+  - relation: 'code.mentions'
+    from: 'code.document-section:docs/requirements.md#Qualities'
+    to: 'code.symbol:services/payments/src/resilience.ts#withTimeout'
+    evidence:
+      - path: 'docs/requirements.md'
+        startLine: 42
+        endLine: 42
+        quote: '- The payment provider may be slow: a payment call that does not answer'
+    reading: 'judgement'
+  - relation: 'code.mentions'
+    from: 'code.document-section:docs/requirements.md#Use cases'
+    to: 'code.symbol:services/checkout/src/payments-client.ts#PaymentsClient.authorize'
+    evidence:
+      - path: 'docs/requirements.md'
+        startLine: 8
+        endLine: 8
+        quote: '- **UC-2 Pay.** Checkout asks payments to authorize the card for the order''s'
+    reading: 'judgement'
+  - relation: 'code.mentions'
+    from: 'code.document-section:docs/requirements.md#Use cases'
+    to: 'code.symbol:services/checkout/src/promotions-client.ts#PromotionsClient.apply'
+    evidence:
+      - path: 'docs/requirements.md'
+        startLine: 13
+        endLine: 13
+        quote: '- **UC-4 Apply promotion.** The shopper enters a code; the discount it gives'
+    reading: 'judgement'
+  - relation: 'code.mentions'
+    from: 'code.document-section:docs/requirements.md#Use cases'
+    to: 'code.symbol:services/orders/internal/application/order_service.go#Service.Place'
+    evidence:
+      - path: 'docs/requirements.md'
+        startLine: 5
+        endLine: 5
+        quote: '- **UC-1 Place order.** A signed-in shopper submits a cart. The order is'
+    reading: 'judgement'
+  - relation: 'code.mentions'
+    from: 'code.document-section:docs/requirements.md#Use cases'
+    to: 'code.symbol:services/payments/src/domain/payment-service.ts#PaymentService.refund'
+    evidence:
+      - path: 'docs/requirements.md'
+        startLine: 11
+        endLine: 11
+        quote: '- **UC-3 Refund.** Support refunds a captured payment. A refund that brings'
+    reading: 'judgement'

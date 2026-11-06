@@ -1,0 +1,138 @@
+path: 'services/checkout/src/app.ts'
+nodes:
+  - id: 'code.file:services/checkout/src/app.ts'
+    kind: 'code.file'
+    label: 'app.ts'
+    evidence:
+      - path: 'services/checkout/src/app.ts'
+        startLine: 1
+        endLine: 1
+        quote: 'import express, { Express, NextFunction, Request, Response } from ''express'';'
+    reading: 'parsed'
+  - id: 'code.health-endpoint:checkout:/healthz'
+    kind: 'code.health-endpoint'
+    label: 'GET /healthz'
+    evidence:
+      - path: 'services/checkout/src/app.ts'
+        startLine: 10
+        endLine: 10
+        quote: '  app.get(''/healthz'', (_req, res) => {'
+    reading: 'parsed'
+  - id: 'code.route:checkout:GET /healthz'
+    kind: 'code.route'
+    label: 'GET /healthz'
+    evidence:
+      - path: 'services/checkout/src/app.ts'
+        startLine: 10
+        endLine: 10
+        quote: '  app.get(''/healthz'', (_req, res) => {'
+    reading: 'parsed'
+  - id: 'code.route:checkout:POST /checkout'
+    kind: 'code.route'
+    label: 'POST /checkout'
+    evidence:
+      - path: 'services/checkout/src/app.ts'
+        startLine: 13
+        endLine: 13
+        quote: '  app.use(''/checkout'', checkoutRoutes(service));'
+    reading: 'parsed'
+  - id: 'code.route:checkout:POST /checkout/preview'
+    kind: 'code.route'
+    label: 'POST /checkout/preview'
+    evidence:
+      - path: 'services/checkout/src/app.ts'
+        startLine: 13
+        endLine: 13
+        quote: '  app.use(''/checkout'', checkoutRoutes(service));'
+    reading: 'parsed'
+  - id: 'code.symbol:services/checkout/src/app.ts#createApp'
+    kind: 'code.symbol'
+    label: 'createApp'
+    evidence:
+      - path: 'services/checkout/src/app.ts'
+        startLine: 7
+        endLine: 7
+        quote: 'export function createApp(service: CheckoutService): Express {'
+    reading: 'parsed'
+edges:
+  - relation: 'code.belongs-to'
+    from: 'code.route:checkout:GET /healthz'
+    to: 'code.service:checkout'
+    evidence:
+      - path: 'services/checkout/src/app.ts'
+        startLine: 10
+        endLine: 10
+        quote: '  app.get(''/healthz'', (_req, res) => {'
+    reading: 'parsed'
+  - relation: 'code.belongs-to'
+    from: 'code.route:checkout:POST /checkout'
+    to: 'code.service:checkout'
+    evidence:
+      - path: 'services/checkout/src/app.ts'
+        startLine: 13
+        endLine: 13
+        quote: '  app.use(''/checkout'', checkoutRoutes(service));'
+    reading: 'parsed'
+  - relation: 'code.belongs-to'
+    from: 'code.route:checkout:POST /checkout/preview'
+    to: 'code.service:checkout'
+    evidence:
+      - path: 'services/checkout/src/app.ts'
+        startLine: 13
+        endLine: 13
+        quote: '  app.use(''/checkout'', checkoutRoutes(service));'
+    reading: 'parsed'
+  - relation: 'code.calls'
+    from: 'code.symbol:services/checkout/src/app.ts#createApp'
+    to: 'code.symbol:services/checkout/src/api/routes.ts#checkoutRoutes'
+    evidence:
+      - path: 'services/checkout/src/app.ts'
+        startLine: 13
+        endLine: 13
+        quote: '  app.use(''/checkout'', checkoutRoutes(service));'
+    reading: 'parsed'
+  - relation: 'code.contains'
+    from: 'code.file:services/checkout/src/app.ts'
+    to: 'code.symbol:services/checkout/src/app.ts#createApp'
+    evidence:
+      - path: 'services/checkout/src/app.ts'
+        startLine: 7
+        endLine: 7
+        quote: 'export function createApp(service: CheckoutService): Express {'
+    reading: 'parsed'
+  - relation: 'code.imports'
+    from: 'code.file:services/checkout/src/app.ts'
+    to: 'code.dependency:services/checkout/package.json#express'
+    evidence:
+      - path: 'services/checkout/src/app.ts'
+        startLine: 1
+        endLine: 1
+        quote: 'import express, { Express, NextFunction, Request, Response } from ''express'';'
+    reading: 'parsed'
+  - relation: 'code.imports'
+    from: 'code.file:services/checkout/src/app.ts'
+    to: 'code.file:services/checkout/src/api/routes.ts'
+    evidence:
+      - path: 'services/checkout/src/app.ts'
+        startLine: 2
+        endLine: 2
+        quote: 'import { checkoutRoutes } from ''./api/routes'';'
+    reading: 'parsed'
+  - relation: 'code.imports'
+    from: 'code.file:services/checkout/src/app.ts'
+    to: 'code.file:services/checkout/src/checkout-service.ts'
+    evidence:
+      - path: 'services/checkout/src/app.ts'
+        startLine: 3
+        endLine: 3
+        quote: 'import { CheckoutService } from ''./checkout-service'';'
+    reading: 'parsed'
+  - relation: 'code.imports'
+    from: 'code.file:services/checkout/src/app.ts'
+    to: 'code.file:services/checkout/src/logging/logger.ts'
+    evidence:
+      - path: 'services/checkout/src/app.ts'
+        startLine: 4
+        endLine: 4
+        quote: 'import { logger } from ''./logging/logger'';'
+    reading: 'parsed'

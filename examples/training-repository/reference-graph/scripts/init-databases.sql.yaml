@@ -1,0 +1,39 @@
+path: 'scripts/init-databases.sql'
+nodes:
+  - id: 'code.database:orders'
+    kind: 'code.database'
+    label: 'orders'
+    evidence:
+      - path: 'scripts/init-databases.sql'
+        startLine: 2
+        endLine: 2
+        quote: 'CREATE DATABASE orders;'
+    reading: 'parsed'
+  - id: 'code.database:payments'
+    kind: 'code.database'
+    label: 'payments'
+    evidence:
+      - path: 'scripts/init-databases.sql'
+        startLine: 3
+        endLine: 3
+        quote: 'CREATE DATABASE payments;'
+    reading: 'parsed'
+  - id: 'code.database:promotions'
+    kind: 'code.database'
+    label: 'promotions'
+    evidence:
+      - path: 'scripts/init-databases.sql'
+        startLine: 4
+        endLine: 4
+        quote: 'CREATE DATABASE promotions;'
+    reading: 'parsed'
+  - id: 'code.file:scripts/init-databases.sql'
+    kind: 'code.file'
+    label: 'init-databases.sql'
+    evidence:
+      - path: 'scripts/init-databases.sql'
+        startLine: 1
+        endLine: 1
+        quote: '-- Runs once, when the postgres container starts with an empty data folder.'
+    reading: 'parsed'
+edges: []

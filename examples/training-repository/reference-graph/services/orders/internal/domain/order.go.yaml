@@ -1,0 +1,1015 @@
+path: 'services/orders/internal/domain/order.go'
+nodes:
+  - id: 'code.field:services/orders/internal/domain/order.go#Item.PriceCents'
+    kind: 'code.field'
+    label: 'Item.PriceCents'
+    evidence:
+      - path: 'services/orders/internal/domain/order.go'
+        startLine: 75
+        endLine: 75
+        quote: '	PriceCents int64'
+    reading: 'parsed'
+  - id: 'code.field:services/orders/internal/domain/order.go#Item.Quantity'
+    kind: 'code.field'
+    label: 'Item.Quantity'
+    evidence:
+      - path: 'services/orders/internal/domain/order.go'
+        startLine: 74
+        endLine: 74
+        quote: '	Quantity   int'
+    reading: 'parsed'
+  - id: 'code.field:services/orders/internal/domain/order.go#Item.SKU'
+    kind: 'code.field'
+    label: 'Item.SKU'
+    evidence:
+      - path: 'services/orders/internal/domain/order.go'
+        startLine: 73
+        endLine: 73
+        quote: '	SKU        string'
+    reading: 'parsed'
+  - id: 'code.field:services/orders/internal/domain/order.go#Item.ZeroRated'
+    kind: 'code.field'
+    label: 'Item.ZeroRated'
+    evidence:
+      - path: 'services/orders/internal/domain/order.go'
+        startLine: 76
+        endLine: 76
+        quote: '	ZeroRated  bool'
+    reading: 'parsed'
+  - id: 'code.field:services/orders/internal/domain/order.go#Order.CancelReason'
+    kind: 'code.field'
+    label: 'Order.CancelReason'
+    evidence:
+      - path: 'services/orders/internal/domain/order.go'
+        startLine: 96
+        endLine: 96
+        quote: '	CancelReason string'
+    reading: 'parsed'
+  - id: 'code.field:services/orders/internal/domain/order.go#Order.CreatedAt'
+    kind: 'code.field'
+    label: 'Order.CreatedAt'
+    evidence:
+      - path: 'services/orders/internal/domain/order.go'
+        startLine: 98
+        endLine: 98
+        quote: '	CreatedAt time.Time'
+    reading: 'parsed'
+  - id: 'code.field:services/orders/internal/domain/order.go#Order.CustomerID'
+    kind: 'code.field'
+    label: 'Order.CustomerID'
+    evidence:
+      - path: 'services/orders/internal/domain/order.go'
+        startLine: 82
+        endLine: 82
+        quote: '	CustomerID string'
+    reading: 'parsed'
+  - id: 'code.field:services/orders/internal/domain/order.go#Order.Discount'
+    kind: 'code.field'
+    label: 'Order.Discount'
+    evidence:
+      - path: 'services/orders/internal/domain/order.go'
+        startLine: 88
+        endLine: 88
+        quote: '	Discount int64'
+    reading: 'parsed'
+  - id: 'code.field:services/orders/internal/domain/order.go#Order.ID'
+    kind: 'code.field'
+    label: 'Order.ID'
+    evidence:
+      - path: 'services/orders/internal/domain/order.go'
+        startLine: 81
+        endLine: 81
+        quote: '	ID         string'
+    reading: 'parsed'
+  - id: 'code.field:services/orders/internal/domain/order.go#Order.Items'
+    kind: 'code.field'
+    label: 'Order.Items'
+    evidence:
+      - path: 'services/orders/internal/domain/order.go'
+        startLine: 84
+        endLine: 84
+        quote: '	Items      []Item'
+    reading: 'parsed'
+  - id: 'code.field:services/orders/internal/domain/order.go#Order.RequestID'
+    kind: 'code.field'
+    label: 'Order.RequestID'
+    evidence:
+      - path: 'services/orders/internal/domain/order.go'
+        startLine: 93
+        endLine: 93
+        quote: '	RequestID string'
+    reading: 'parsed'
+  - id: 'code.field:services/orders/internal/domain/order.go#Order.Status'
+    kind: 'code.field'
+    label: 'Order.Status'
+    evidence:
+      - path: 'services/orders/internal/domain/order.go'
+        startLine: 83
+        endLine: 83
+        quote: '	Status     Status'
+    reading: 'parsed'
+  - id: 'code.field:services/orders/internal/domain/order.go#Order.Subtotal'
+    kind: 'code.field'
+    label: 'Order.Subtotal'
+    evidence:
+      - path: 'services/orders/internal/domain/order.go'
+        startLine: 87
+        endLine: 87
+        quote: '	Subtotal int64'
+    reading: 'parsed'
+  - id: 'code.field:services/orders/internal/domain/order.go#Order.Tax'
+    kind: 'code.field'
+    label: 'Order.Tax'
+    evidence:
+      - path: 'services/orders/internal/domain/order.go'
+        startLine: 89
+        endLine: 89
+        quote: '	Tax      int64'
+    reading: 'parsed'
+  - id: 'code.field:services/orders/internal/domain/order.go#Order.Total'
+    kind: 'code.field'
+    label: 'Order.Total'
+    evidence:
+      - path: 'services/orders/internal/domain/order.go'
+        startLine: 90
+        endLine: 90
+        quote: '	Total    int64'
+    reading: 'parsed'
+  - id: 'code.field:services/orders/internal/domain/order.go#Order.UpdatedAt'
+    kind: 'code.field'
+    label: 'Order.UpdatedAt'
+    evidence:
+      - path: 'services/orders/internal/domain/order.go'
+        startLine: 99
+        endLine: 99
+        quote: '	UpdatedAt time.Time'
+    reading: 'parsed'
+  - id: 'code.file:services/orders/internal/domain/order.go'
+    kind: 'code.file'
+    label: 'order.go'
+    evidence:
+      - path: 'services/orders/internal/domain/order.go'
+        startLine: 1
+        endLine: 1
+        quote: '// Package domain holds the Order aggregate and its status state machine.'
+    reading: 'parsed'
+  - id: 'code.module:services/orders/internal/domain'
+    kind: 'code.module'
+    label: 'services/orders/internal/domain'
+    evidence:
+      - path: 'services/orders/internal/domain/order.go'
+        startLine: 2
+        endLine: 2
+        quote: 'package domain'
+    reading: 'parsed'
+  - id: 'code.state-machine:Order.status'
+    kind: 'code.state-machine'
+    label: 'Order.status'
+    evidence:
+      - path: 'services/orders/internal/domain/order.go'
+        startLine: 55
+        endLine: 55
+        quote: 'var transitions = map[Status]map[Event]Status{'
+    reading: 'parsed'
+  - id: 'code.state:cancelled'
+    kind: 'code.state'
+    label: 'cancelled'
+    evidence:
+      - path: 'services/orders/internal/domain/order.go'
+        startLine: 31
+        endLine: 31
+        quote: '	Cancelled Status = "cancelled"'
+    reading: 'parsed'
+  - id: 'code.state:confirmed'
+    kind: 'code.state'
+    label: 'confirmed'
+    evidence:
+      - path: 'services/orders/internal/domain/order.go'
+        startLine: 29
+        endLine: 29
+        quote: '	Confirmed Status = "confirmed"'
+    reading: 'parsed'
+  - id: 'code.state:pending_payment'
+    kind: 'code.state'
+    label: 'pending_payment'
+    evidence:
+      - path: 'services/orders/internal/domain/order.go'
+        startLine: 27
+        endLine: 27
+        quote: '	PendingPayment Status = "pending_payment"'
+    reading: 'parsed'
+  - id: 'code.state:refunded'
+    kind: 'code.state'
+    label: 'refunded'
+    evidence:
+      - path: 'services/orders/internal/domain/order.go'
+        startLine: 35
+        endLine: 35
+        quote: '	Refunded Status = "refunded"'
+    reading: 'parsed'
+  - id: 'code.state:shipped'
+    kind: 'code.state'
+    label: 'shipped'
+    evidence:
+      - path: 'services/orders/internal/domain/order.go'
+        startLine: 33
+        endLine: 33
+        quote: '	Shipped Status = "shipped"'
+    reading: 'parsed'
+  - id: 'code.symbol:services/orders/internal/domain/order.go#CancelRequested'
+    kind: 'code.symbol'
+    label: 'CancelRequested'
+    evidence:
+      - path: 'services/orders/internal/domain/order.go'
+        startLine: 47
+        endLine: 47
+        quote: '	CancelRequested Event = "cancel-requested"'
+    reading: 'parsed'
+  - id: 'code.symbol:services/orders/internal/domain/order.go#Cancelled'
+    kind: 'code.symbol'
+    label: 'Cancelled'
+    evidence:
+      - path: 'services/orders/internal/domain/order.go'
+        startLine: 31
+        endLine: 31
+        quote: '	Cancelled Status = "cancelled"'
+    reading: 'parsed'
+  - id: 'code.symbol:services/orders/internal/domain/order.go#Confirmed'
+    kind: 'code.symbol'
+    label: 'Confirmed'
+    evidence:
+      - path: 'services/orders/internal/domain/order.go'
+        startLine: 29
+        endLine: 29
+        quote: '	Confirmed Status = "confirmed"'
+    reading: 'parsed'
+  - id: 'code.symbol:services/orders/internal/domain/order.go#ErrInvalidItems'
+    kind: 'code.symbol'
+    label: 'ErrInvalidItems'
+    evidence:
+      - path: 'services/orders/internal/domain/order.go'
+        startLine: 20
+        endLine: 20
+        quote: 'var ErrInvalidItems = errors.New("order lines are not valid")'
+    reading: 'parsed'
+  - id: 'code.symbol:services/orders/internal/domain/order.go#ErrInvalidTransition'
+    kind: 'code.symbol'
+    label: 'ErrInvalidTransition'
+    evidence:
+      - path: 'services/orders/internal/domain/order.go'
+        startLine: 14
+        endLine: 14
+        quote: 'var ErrInvalidTransition = errors.New("event is not allowed in this status")'
+    reading: 'parsed'
+  - id: 'code.symbol:services/orders/internal/domain/order.go#ErrNotFound'
+    kind: 'code.symbol'
+    label: 'ErrNotFound'
+    evidence:
+      - path: 'services/orders/internal/domain/order.go'
+        startLine: 17
+        endLine: 17
+        quote: 'var ErrNotFound = errors.New("order not found")'
+    reading: 'parsed'
+  - id: 'code.symbol:services/orders/internal/domain/order.go#Event'
+    kind: 'code.symbol'
+    label: 'Event'
+    evidence:
+      - path: 'services/orders/internal/domain/order.go'
+        startLine: 39
+        endLine: 39
+        quote: 'type Event string'
+    reading: 'parsed'
+  - id: 'code.symbol:services/orders/internal/domain/order.go#ExpiryDays'
+    kind: 'code.symbol'
+    label: 'ExpiryDays'
+    evidence:
+      - path: 'services/orders/internal/domain/order.go'
+        startLine: 11
+        endLine: 11
+        quote: 'const ExpiryDays = 90'
+    reading: 'parsed'
+  - id: 'code.symbol:services/orders/internal/domain/order.go#Item'
+    kind: 'code.symbol'
+    label: 'Item'
+    evidence:
+      - path: 'services/orders/internal/domain/order.go'
+        startLine: 72
+        endLine: 72
+        quote: 'type Item struct {'
+    reading: 'parsed'
+  - id: 'code.symbol:services/orders/internal/domain/order.go#NewOrder'
+    kind: 'code.symbol'
+    label: 'NewOrder'
+    evidence:
+      - path: 'services/orders/internal/domain/order.go'
+        startLine: 103
+        endLine: 103
+        quote: 'func NewOrder(id, customerID string, items []Item, now time.Time) Order {'
+    reading: 'parsed'
+  - id: 'code.symbol:services/orders/internal/domain/order.go#Order'
+    kind: 'code.symbol'
+    label: 'Order'
+    evidence:
+      - path: 'services/orders/internal/domain/order.go'
+        startLine: 80
+        endLine: 80
+        quote: 'type Order struct {'
+    reading: 'parsed'
+  - id: 'code.symbol:services/orders/internal/domain/order.go#Order.Apply'
+    kind: 'code.symbol'
+    label: 'Order.Apply'
+    evidence:
+      - path: 'services/orders/internal/domain/order.go'
+        startLine: 117
+        endLine: 117
+        quote: 'func (o *Order) Apply(event Event, now time.Time) error {'
+    reading: 'parsed'
+  - id: 'code.symbol:services/orders/internal/domain/order.go#Order.Expired'
+    kind: 'code.symbol'
+    label: 'Order.Expired'
+    evidence:
+      - path: 'services/orders/internal/domain/order.go'
+        startLine: 156
+        endLine: 156
+        quote: 'func (o Order) Expired(now time.Time) bool {'
+    reading: 'parsed'
+  - id: 'code.symbol:services/orders/internal/domain/order.go#Outcome'
+    kind: 'code.symbol'
+    label: 'Outcome'
+    evidence:
+      - path: 'services/orders/internal/domain/order.go'
+        startLine: 143
+        endLine: 143
+        quote: 'func Outcome(event Event) (Status, bool) {'
+    reading: 'parsed'
+  - id: 'code.symbol:services/orders/internal/domain/order.go#PaymentCaptured'
+    kind: 'code.symbol'
+    label: 'PaymentCaptured'
+    evidence:
+      - path: 'services/orders/internal/domain/order.go'
+        startLine: 43
+        endLine: 43
+        quote: '	PaymentCaptured Event = "payment-captured"'
+    reading: 'parsed'
+  - id: 'code.symbol:services/orders/internal/domain/order.go#PaymentFailed'
+    kind: 'code.symbol'
+    label: 'PaymentFailed'
+    evidence:
+      - path: 'services/orders/internal/domain/order.go'
+        startLine: 45
+        endLine: 45
+        quote: '	PaymentFailed Event = "payment-failed"'
+    reading: 'parsed'
+  - id: 'code.symbol:services/orders/internal/domain/order.go#PaymentRefunded'
+    kind: 'code.symbol'
+    label: 'PaymentRefunded'
+    evidence:
+      - path: 'services/orders/internal/domain/order.go'
+        startLine: 51
+        endLine: 51
+        quote: '	PaymentRefunded Event = "payment-refunded"'
+    reading: 'parsed'
+  - id: 'code.symbol:services/orders/internal/domain/order.go#PendingPayment'
+    kind: 'code.symbol'
+    label: 'PendingPayment'
+    evidence:
+      - path: 'services/orders/internal/domain/order.go'
+        startLine: 27
+        endLine: 27
+        quote: '	PendingPayment Status = "pending_payment"'
+    reading: 'parsed'
+  - id: 'code.symbol:services/orders/internal/domain/order.go#PurgeExpired'
+    kind: 'code.symbol'
+    label: 'PurgeExpired'
+    evidence:
+      - path: 'services/orders/internal/domain/order.go'
+        startLine: 162
+        endLine: 162
+        quote: 'func PurgeExpired(orders []Order, now time.Time) []Order {'
+    reading: 'parsed'
+  - id: 'code.symbol:services/orders/internal/domain/order.go#Refunded'
+    kind: 'code.symbol'
+    label: 'Refunded'
+    evidence:
+      - path: 'services/orders/internal/domain/order.go'
+        startLine: 35
+        endLine: 35
+        quote: '	Refunded Status = "refunded"'
+    reading: 'parsed'
+  - id: 'code.symbol:services/orders/internal/domain/order.go#ShipmentDispatched'
+    kind: 'code.symbol'
+    label: 'ShipmentDispatched'
+    evidence:
+      - path: 'services/orders/internal/domain/order.go'
+        startLine: 49
+        endLine: 49
+        quote: '	ShipmentDispatched Event = "shipment-dispatched"'
+    reading: 'parsed'
+  - id: 'code.symbol:services/orders/internal/domain/order.go#Shipped'
+    kind: 'code.symbol'
+    label: 'Shipped'
+    evidence:
+      - path: 'services/orders/internal/domain/order.go'
+        startLine: 33
+        endLine: 33
+        quote: '	Shipped Status = "shipped"'
+    reading: 'parsed'
+  - id: 'code.symbol:services/orders/internal/domain/order.go#Status'
+    kind: 'code.symbol'
+    label: 'Status'
+    evidence:
+      - path: 'services/orders/internal/domain/order.go'
+        startLine: 23
+        endLine: 23
+        quote: 'type Status string'
+    reading: 'parsed'
+  - id: 'code.symbol:services/orders/internal/domain/order.go#Transition'
+    kind: 'code.symbol'
+    label: 'Transition'
+    evidence:
+      - path: 'services/orders/internal/domain/order.go'
+        startLine: 108
+        endLine: 108
+        quote: 'func Transition(from Status, event Event) (Status, error) {'
+    reading: 'parsed'
+  - id: 'code.symbol:services/orders/internal/domain/order.go#ValidateItems'
+    kind: 'code.symbol'
+    label: 'ValidateItems'
+    evidence:
+      - path: 'services/orders/internal/domain/order.go'
+        startLine: 129
+        endLine: 129
+        quote: 'func ValidateItems(items []Item) error {'
+    reading: 'parsed'
+  - id: 'code.symbol:services/orders/internal/domain/order.go#transitions'
+    kind: 'code.symbol'
+    label: 'transitions'
+    evidence:
+      - path: 'services/orders/internal/domain/order.go'
+        startLine: 55
+        endLine: 55
+        quote: 'var transitions = map[Status]map[Event]Status{'
+    reading: 'parsed'
+edges:
+  - relation: 'code.calls'
+    from: 'code.symbol:services/orders/internal/domain/order.go#Order.Apply'
+    to: 'code.symbol:services/orders/internal/domain/order.go#Transition'
+    evidence:
+      - path: 'services/orders/internal/domain/order.go'
+        startLine: 118
+        endLine: 118
+        quote: '	next, err := Transition(o.Status, event)'
+    reading: 'parsed'
+  - relation: 'code.contains'
+    from: 'code.file:services/orders/internal/domain/order.go'
+    to: 'code.symbol:services/orders/internal/domain/order.go#CancelRequested'
+    evidence:
+      - path: 'services/orders/internal/domain/order.go'
+        startLine: 47
+        endLine: 47
+        quote: '	CancelRequested Event = "cancel-requested"'
+    reading: 'parsed'
+  - relation: 'code.contains'
+    from: 'code.file:services/orders/internal/domain/order.go'
+    to: 'code.symbol:services/orders/internal/domain/order.go#Cancelled'
+    evidence:
+      - path: 'services/orders/internal/domain/order.go'
+        startLine: 31
+        endLine: 31
+        quote: '	Cancelled Status = "cancelled"'
+    reading: 'parsed'
+  - relation: 'code.contains'
+    from: 'code.file:services/orders/internal/domain/order.go'
+    to: 'code.symbol:services/orders/internal/domain/order.go#Confirmed'
+    evidence:
+      - path: 'services/orders/internal/domain/order.go'
+        startLine: 29
+        endLine: 29
+        quote: '	Confirmed Status = "confirmed"'
+    reading: 'parsed'
+  - relation: 'code.contains'
+    from: 'code.file:services/orders/internal/domain/order.go'
+    to: 'code.symbol:services/orders/internal/domain/order.go#ErrInvalidItems'
+    evidence:
+      - path: 'services/orders/internal/domain/order.go'
+        startLine: 20
+        endLine: 20
+        quote: 'var ErrInvalidItems = errors.New("order lines are not valid")'
+    reading: 'parsed'
+  - relation: 'code.contains'
+    from: 'code.file:services/orders/internal/domain/order.go'
+    to: 'code.symbol:services/orders/internal/domain/order.go#ErrInvalidTransition'
+    evidence:
+      - path: 'services/orders/internal/domain/order.go'
+        startLine: 14
+        endLine: 14
+        quote: 'var ErrInvalidTransition = errors.New("event is not allowed in this status")'
+    reading: 'parsed'
+  - relation: 'code.contains'
+    from: 'code.file:services/orders/internal/domain/order.go'
+    to: 'code.symbol:services/orders/internal/domain/order.go#ErrNotFound'
+    evidence:
+      - path: 'services/orders/internal/domain/order.go'
+        startLine: 17
+        endLine: 17
+        quote: 'var ErrNotFound = errors.New("order not found")'
+    reading: 'parsed'
+  - relation: 'code.contains'
+    from: 'code.file:services/orders/internal/domain/order.go'
+    to: 'code.symbol:services/orders/internal/domain/order.go#Event'
+    evidence:
+      - path: 'services/orders/internal/domain/order.go'
+        startLine: 39
+        endLine: 39
+        quote: 'type Event string'
+    reading: 'parsed'
+  - relation: 'code.contains'
+    from: 'code.file:services/orders/internal/domain/order.go'
+    to: 'code.symbol:services/orders/internal/domain/order.go#ExpiryDays'
+    evidence:
+      - path: 'services/orders/internal/domain/order.go'
+        startLine: 11
+        endLine: 11
+        quote: 'const ExpiryDays = 90'
+    reading: 'parsed'
+  - relation: 'code.contains'
+    from: 'code.file:services/orders/internal/domain/order.go'
+    to: 'code.symbol:services/orders/internal/domain/order.go#Item'
+    evidence:
+      - path: 'services/orders/internal/domain/order.go'
+        startLine: 72
+        endLine: 72
+        quote: 'type Item struct {'
+    reading: 'parsed'
+  - relation: 'code.contains'
+    from: 'code.file:services/orders/internal/domain/order.go'
+    to: 'code.symbol:services/orders/internal/domain/order.go#NewOrder'
+    evidence:
+      - path: 'services/orders/internal/domain/order.go'
+        startLine: 103
+        endLine: 103
+        quote: 'func NewOrder(id, customerID string, items []Item, now time.Time) Order {'
+    reading: 'parsed'
+  - relation: 'code.contains'
+    from: 'code.file:services/orders/internal/domain/order.go'
+    to: 'code.symbol:services/orders/internal/domain/order.go#Order'
+    evidence:
+      - path: 'services/orders/internal/domain/order.go'
+        startLine: 80
+        endLine: 80
+        quote: 'type Order struct {'
+    reading: 'parsed'
+  - relation: 'code.contains'
+    from: 'code.file:services/orders/internal/domain/order.go'
+    to: 'code.symbol:services/orders/internal/domain/order.go#Order.Apply'
+    evidence:
+      - path: 'services/orders/internal/domain/order.go'
+        startLine: 117
+        endLine: 117
+        quote: 'func (o *Order) Apply(event Event, now time.Time) error {'
+    reading: 'parsed'
+  - relation: 'code.contains'
+    from: 'code.file:services/orders/internal/domain/order.go'
+    to: 'code.symbol:services/orders/internal/domain/order.go#Order.Expired'
+    evidence:
+      - path: 'services/orders/internal/domain/order.go'
+        startLine: 156
+        endLine: 156
+        quote: 'func (o Order) Expired(now time.Time) bool {'
+    reading: 'parsed'
+  - relation: 'code.contains'
+    from: 'code.file:services/orders/internal/domain/order.go'
+    to: 'code.symbol:services/orders/internal/domain/order.go#Outcome'
+    evidence:
+      - path: 'services/orders/internal/domain/order.go'
+        startLine: 143
+        endLine: 143
+        quote: 'func Outcome(event Event) (Status, bool) {'
+    reading: 'parsed'
+  - relation: 'code.contains'
+    from: 'code.file:services/orders/internal/domain/order.go'
+    to: 'code.symbol:services/orders/internal/domain/order.go#PaymentCaptured'
+    evidence:
+      - path: 'services/orders/internal/domain/order.go'
+        startLine: 43
+        endLine: 43
+        quote: '	PaymentCaptured Event = "payment-captured"'
+    reading: 'parsed'
+  - relation: 'code.contains'
+    from: 'code.file:services/orders/internal/domain/order.go'
+    to: 'code.symbol:services/orders/internal/domain/order.go#PaymentFailed'
+    evidence:
+      - path: 'services/orders/internal/domain/order.go'
+        startLine: 45
+        endLine: 45
+        quote: '	PaymentFailed Event = "payment-failed"'
+    reading: 'parsed'
+  - relation: 'code.contains'
+    from: 'code.file:services/orders/internal/domain/order.go'
+    to: 'code.symbol:services/orders/internal/domain/order.go#PaymentRefunded'
+    evidence:
+      - path: 'services/orders/internal/domain/order.go'
+        startLine: 51
+        endLine: 51
+        quote: '	PaymentRefunded Event = "payment-refunded"'
+    reading: 'parsed'
+  - relation: 'code.contains'
+    from: 'code.file:services/orders/internal/domain/order.go'
+    to: 'code.symbol:services/orders/internal/domain/order.go#PendingPayment'
+    evidence:
+      - path: 'services/orders/internal/domain/order.go'
+        startLine: 27
+        endLine: 27
+        quote: '	PendingPayment Status = "pending_payment"'
+    reading: 'parsed'
+  - relation: 'code.contains'
+    from: 'code.file:services/orders/internal/domain/order.go'
+    to: 'code.symbol:services/orders/internal/domain/order.go#PurgeExpired'
+    evidence:
+      - path: 'services/orders/internal/domain/order.go'
+        startLine: 162
+        endLine: 162
+        quote: 'func PurgeExpired(orders []Order, now time.Time) []Order {'
+    reading: 'parsed'
+  - relation: 'code.contains'
+    from: 'code.file:services/orders/internal/domain/order.go'
+    to: 'code.symbol:services/orders/internal/domain/order.go#Refunded'
+    evidence:
+      - path: 'services/orders/internal/domain/order.go'
+        startLine: 35
+        endLine: 35
+        quote: '	Refunded Status = "refunded"'
+    reading: 'parsed'
+  - relation: 'code.contains'
+    from: 'code.file:services/orders/internal/domain/order.go'
+    to: 'code.symbol:services/orders/internal/domain/order.go#ShipmentDispatched'
+    evidence:
+      - path: 'services/orders/internal/domain/order.go'
+        startLine: 49
+        endLine: 49
+        quote: '	ShipmentDispatched Event = "shipment-dispatched"'
+    reading: 'parsed'
+  - relation: 'code.contains'
+    from: 'code.file:services/orders/internal/domain/order.go'
+    to: 'code.symbol:services/orders/internal/domain/order.go#Shipped'
+    evidence:
+      - path: 'services/orders/internal/domain/order.go'
+        startLine: 33
+        endLine: 33
+        quote: '	Shipped Status = "shipped"'
+    reading: 'parsed'
+  - relation: 'code.contains'
+    from: 'code.file:services/orders/internal/domain/order.go'
+    to: 'code.symbol:services/orders/internal/domain/order.go#Status'
+    evidence:
+      - path: 'services/orders/internal/domain/order.go'
+        startLine: 23
+        endLine: 23
+        quote: 'type Status string'
+    reading: 'parsed'
+  - relation: 'code.contains'
+    from: 'code.file:services/orders/internal/domain/order.go'
+    to: 'code.symbol:services/orders/internal/domain/order.go#Transition'
+    evidence:
+      - path: 'services/orders/internal/domain/order.go'
+        startLine: 108
+        endLine: 108
+        quote: 'func Transition(from Status, event Event) (Status, error) {'
+    reading: 'parsed'
+  - relation: 'code.contains'
+    from: 'code.file:services/orders/internal/domain/order.go'
+    to: 'code.symbol:services/orders/internal/domain/order.go#ValidateItems'
+    evidence:
+      - path: 'services/orders/internal/domain/order.go'
+        startLine: 129
+        endLine: 129
+        quote: 'func ValidateItems(items []Item) error {'
+    reading: 'parsed'
+  - relation: 'code.contains'
+    from: 'code.file:services/orders/internal/domain/order.go'
+    to: 'code.symbol:services/orders/internal/domain/order.go#transitions'
+    evidence:
+      - path: 'services/orders/internal/domain/order.go'
+        startLine: 55
+        endLine: 55
+        quote: 'var transitions = map[Status]map[Event]Status{'
+    reading: 'parsed'
+  - relation: 'code.contains'
+    from: 'code.module:services/orders/internal/domain'
+    to: 'code.file:services/orders/internal/domain/order.go'
+    evidence:
+      - path: 'services/orders/internal/domain/order.go'
+        startLine: 2
+        endLine: 2
+        quote: 'package domain'
+    reading: 'parsed'
+  - relation: 'code.contains'
+    from: 'code.state-machine:Order.status'
+    to: 'code.state:cancelled'
+    evidence:
+      - path: 'services/orders/internal/domain/order.go'
+        startLine: 31
+        endLine: 31
+        quote: '	Cancelled Status = "cancelled"'
+    reading: 'parsed'
+  - relation: 'code.contains'
+    from: 'code.state-machine:Order.status'
+    to: 'code.state:confirmed'
+    evidence:
+      - path: 'services/orders/internal/domain/order.go'
+        startLine: 29
+        endLine: 29
+        quote: '	Confirmed Status = "confirmed"'
+    reading: 'parsed'
+  - relation: 'code.contains'
+    from: 'code.state-machine:Order.status'
+    to: 'code.state:pending_payment'
+    evidence:
+      - path: 'services/orders/internal/domain/order.go'
+        startLine: 27
+        endLine: 27
+        quote: '	PendingPayment Status = "pending_payment"'
+    reading: 'parsed'
+  - relation: 'code.contains'
+    from: 'code.state-machine:Order.status'
+    to: 'code.state:refunded'
+    evidence:
+      - path: 'services/orders/internal/domain/order.go'
+        startLine: 35
+        endLine: 35
+        quote: '	Refunded Status = "refunded"'
+    reading: 'parsed'
+  - relation: 'code.contains'
+    from: 'code.state-machine:Order.status'
+    to: 'code.state:shipped'
+    evidence:
+      - path: 'services/orders/internal/domain/order.go'
+        startLine: 33
+        endLine: 33
+        quote: '	Shipped Status = "shipped"'
+    reading: 'parsed'
+  - relation: 'code.contains'
+    from: 'code.symbol:services/orders/internal/domain/order.go#Item'
+    to: 'code.field:services/orders/internal/domain/order.go#Item.PriceCents'
+    evidence:
+      - path: 'services/orders/internal/domain/order.go'
+        startLine: 75
+        endLine: 75
+        quote: '	PriceCents int64'
+    reading: 'parsed'
+  - relation: 'code.contains'
+    from: 'code.symbol:services/orders/internal/domain/order.go#Item'
+    to: 'code.field:services/orders/internal/domain/order.go#Item.Quantity'
+    evidence:
+      - path: 'services/orders/internal/domain/order.go'
+        startLine: 74
+        endLine: 74
+        quote: '	Quantity   int'
+    reading: 'parsed'
+  - relation: 'code.contains'
+    from: 'code.symbol:services/orders/internal/domain/order.go#Item'
+    to: 'code.field:services/orders/internal/domain/order.go#Item.SKU'
+    evidence:
+      - path: 'services/orders/internal/domain/order.go'
+        startLine: 73
+        endLine: 73
+        quote: '	SKU        string'
+    reading: 'parsed'
+  - relation: 'code.contains'
+    from: 'code.symbol:services/orders/internal/domain/order.go#Item'
+    to: 'code.field:services/orders/internal/domain/order.go#Item.ZeroRated'
+    evidence:
+      - path: 'services/orders/internal/domain/order.go'
+        startLine: 76
+        endLine: 76
+        quote: '	ZeroRated  bool'
+    reading: 'parsed'
+  - relation: 'code.contains'
+    from: 'code.symbol:services/orders/internal/domain/order.go#Order'
+    to: 'code.field:services/orders/internal/domain/order.go#Order.CancelReason'
+    evidence:
+      - path: 'services/orders/internal/domain/order.go'
+        startLine: 96
+        endLine: 96
+        quote: '	CancelReason string'
+    reading: 'parsed'
+  - relation: 'code.contains'
+    from: 'code.symbol:services/orders/internal/domain/order.go#Order'
+    to: 'code.field:services/orders/internal/domain/order.go#Order.CreatedAt'
+    evidence:
+      - path: 'services/orders/internal/domain/order.go'
+        startLine: 98
+        endLine: 98
+        quote: '	CreatedAt time.Time'
+    reading: 'parsed'
+  - relation: 'code.contains'
+    from: 'code.symbol:services/orders/internal/domain/order.go#Order'
+    to: 'code.field:services/orders/internal/domain/order.go#Order.CustomerID'
+    evidence:
+      - path: 'services/orders/internal/domain/order.go'
+        startLine: 82
+        endLine: 82
+        quote: '	CustomerID string'
+    reading: 'parsed'
+  - relation: 'code.contains'
+    from: 'code.symbol:services/orders/internal/domain/order.go#Order'
+    to: 'code.field:services/orders/internal/domain/order.go#Order.Discount'
+    evidence:
+      - path: 'services/orders/internal/domain/order.go'
+        startLine: 88
+        endLine: 88
+        quote: '	Discount int64'
+    reading: 'parsed'
+  - relation: 'code.contains'
+    from: 'code.symbol:services/orders/internal/domain/order.go#Order'
+    to: 'code.field:services/orders/internal/domain/order.go#Order.ID'
+    evidence:
+      - path: 'services/orders/internal/domain/order.go'
+        startLine: 81
+        endLine: 81
+        quote: '	ID         string'
+    reading: 'parsed'
+  - relation: 'code.contains'
+    from: 'code.symbol:services/orders/internal/domain/order.go#Order'
+    to: 'code.field:services/orders/internal/domain/order.go#Order.Items'
+    evidence:
+      - path: 'services/orders/internal/domain/order.go'
+        startLine: 84
+        endLine: 84
+        quote: '	Items      []Item'
+    reading: 'parsed'
+  - relation: 'code.contains'
+    from: 'code.symbol:services/orders/internal/domain/order.go#Order'
+    to: 'code.field:services/orders/internal/domain/order.go#Order.RequestID'
+    evidence:
+      - path: 'services/orders/internal/domain/order.go'
+        startLine: 93
+        endLine: 93
+        quote: '	RequestID string'
+    reading: 'parsed'
+  - relation: 'code.contains'
+    from: 'code.symbol:services/orders/internal/domain/order.go#Order'
+    to: 'code.field:services/orders/internal/domain/order.go#Order.Status'
+    evidence:
+      - path: 'services/orders/internal/domain/order.go'
+        startLine: 83
+        endLine: 83
+        quote: '	Status     Status'
+    reading: 'parsed'
+  - relation: 'code.contains'
+    from: 'code.symbol:services/orders/internal/domain/order.go#Order'
+    to: 'code.field:services/orders/internal/domain/order.go#Order.Subtotal'
+    evidence:
+      - path: 'services/orders/internal/domain/order.go'
+        startLine: 87
+        endLine: 87
+        quote: '	Subtotal int64'
+    reading: 'parsed'
+  - relation: 'code.contains'
+    from: 'code.symbol:services/orders/internal/domain/order.go#Order'
+    to: 'code.field:services/orders/internal/domain/order.go#Order.Tax'
+    evidence:
+      - path: 'services/orders/internal/domain/order.go'
+        startLine: 89
+        endLine: 89
+        quote: '	Tax      int64'
+    reading: 'parsed'
+  - relation: 'code.contains'
+    from: 'code.symbol:services/orders/internal/domain/order.go#Order'
+    to: 'code.field:services/orders/internal/domain/order.go#Order.Total'
+    evidence:
+      - path: 'services/orders/internal/domain/order.go'
+        startLine: 90
+        endLine: 90
+        quote: '	Total    int64'
+    reading: 'parsed'
+  - relation: 'code.contains'
+    from: 'code.symbol:services/orders/internal/domain/order.go#Order'
+    to: 'code.field:services/orders/internal/domain/order.go#Order.UpdatedAt'
+    evidence:
+      - path: 'services/orders/internal/domain/order.go'
+        startLine: 99
+        endLine: 99
+        quote: '	UpdatedAt time.Time'
+    reading: 'parsed'
+  - relation: 'code.transitions'
+    from: 'code.state:confirmed'
+    to: 'code.state:cancelled'
+    evidence:
+      - path: 'services/orders/internal/domain/order.go'
+        startLine: 63
+        endLine: 63
+        quote: '		CancelRequested:    Cancelled,'
+    reading: 'parsed'
+  - relation: 'code.transitions'
+    from: 'code.state:confirmed'
+    to: 'code.state:refunded'
+    evidence:
+      - path: 'services/orders/internal/domain/order.go'
+        startLine: 64
+        endLine: 64
+        quote: '		PaymentRefunded:    Refunded,'
+    reading: 'parsed'
+  - relation: 'code.transitions'
+    from: 'code.state:confirmed'
+    to: 'code.state:shipped'
+    evidence:
+      - path: 'services/orders/internal/domain/order.go'
+        startLine: 62
+        endLine: 62
+        quote: '		ShipmentDispatched: Shipped,'
+    reading: 'parsed'
+  - relation: 'code.transitions'
+    from: 'code.state:pending_payment'
+    to: 'code.state:cancelled'
+    evidence:
+      - path: 'services/orders/internal/domain/order.go'
+        startLine: 58
+        endLine: 58
+        quote: '		PaymentFailed:   Cancelled,'
+      - path: 'services/orders/internal/domain/order.go'
+        startLine: 59
+        endLine: 59
+        quote: '		CancelRequested: Cancelled,'
+    reading: 'parsed'
+  - relation: 'code.transitions'
+    from: 'code.state:pending_payment'
+    to: 'code.state:confirmed'
+    evidence:
+      - path: 'services/orders/internal/domain/order.go'
+        startLine: 57
+        endLine: 57
+        quote: '		PaymentCaptured: Confirmed,'
+    reading: 'parsed'
+  - relation: 'code.transitions'
+    from: 'code.state:shipped'
+    to: 'code.state:refunded'
+    evidence:
+      - path: 'services/orders/internal/domain/order.go'
+        startLine: 67
+        endLine: 67
+        quote: '		PaymentRefunded: Refunded,'
+    reading: 'parsed'
+  - relation: 'code.uses-type'
+    from: 'code.symbol:services/orders/internal/domain/order.go#NewOrder'
+    to: 'code.symbol:services/orders/internal/domain/order.go#Order'
+    evidence:
+      - path: 'services/orders/internal/domain/order.go'
+        startLine: 103
+        endLine: 103
+        quote: 'func NewOrder(id, customerID string, items []Item, now time.Time) Order {'
+    reading: 'parsed'
+  - relation: 'code.uses-type'
+    from: 'code.symbol:services/orders/internal/domain/order.go#Order'
+    to: 'code.symbol:services/orders/internal/domain/order.go#Status'
+    evidence:
+      - path: 'services/orders/internal/domain/order.go'
+        startLine: 83
+        endLine: 83
+        quote: '	Status     Status'
+    reading: 'parsed'
+  - relation: 'code.uses-type'
+    from: 'code.symbol:services/orders/internal/domain/order.go#Order.Apply'
+    to: 'code.symbol:services/orders/internal/domain/order.go#Event'
+    evidence:
+      - path: 'services/orders/internal/domain/order.go'
+        startLine: 117
+        endLine: 117
+        quote: 'func (o *Order) Apply(event Event, now time.Time) error {'
+    reading: 'parsed'
+  - relation: 'code.uses-type'
+    from: 'code.symbol:services/orders/internal/domain/order.go#Outcome'
+    to: 'code.symbol:services/orders/internal/domain/order.go#Event'
+    evidence:
+      - path: 'services/orders/internal/domain/order.go'
+        startLine: 143
+        endLine: 143
+        quote: 'func Outcome(event Event) (Status, bool) {'
+    reading: 'parsed'
+  - relation: 'code.uses-type'
+    from: 'code.symbol:services/orders/internal/domain/order.go#Outcome'
+    to: 'code.symbol:services/orders/internal/domain/order.go#Status'
+    evidence:
+      - path: 'services/orders/internal/domain/order.go'
+        startLine: 143
+        endLine: 143
+        quote: 'func Outcome(event Event) (Status, bool) {'
+    reading: 'parsed'
+  - relation: 'code.uses-type'
+    from: 'code.symbol:services/orders/internal/domain/order.go#Transition'
+    to: 'code.symbol:services/orders/internal/domain/order.go#Event'
+    evidence:
+      - path: 'services/orders/internal/domain/order.go'
+        startLine: 108
+        endLine: 108
+        quote: 'func Transition(from Status, event Event) (Status, error) {'
+    reading: 'parsed'
+  - relation: 'code.uses-type'
+    from: 'code.symbol:services/orders/internal/domain/order.go#Transition'
+    to: 'code.symbol:services/orders/internal/domain/order.go#Status'
+    evidence:
+      - path: 'services/orders/internal/domain/order.go'
+        startLine: 108
+        endLine: 108
+        quote: 'func Transition(from Status, event Event) (Status, error) {'
+    reading: 'parsed'

@@ -1,0 +1,264 @@
+path: 'services/orders/migrations/0002_orders.sql'
+nodes:
+  - id: 'code.column:orders.orders.cancel_reason'
+    kind: 'code.column'
+    label: 'cancel_reason'
+    evidence:
+      - path: 'services/orders/migrations/0002_orders.sql'
+        startLine: 11
+        endLine: 11
+        quote: '    cancel_reason  TEXT,'
+    reading: 'parsed'
+  - id: 'code.column:orders.orders.created_at'
+    kind: 'code.column'
+    label: 'created_at'
+    evidence:
+      - path: 'services/orders/migrations/0002_orders.sql'
+        startLine: 12
+        endLine: 12
+        quote: '    created_at     TIMESTAMPTZ NOT NULL,'
+    reading: 'parsed'
+  - id: 'code.column:orders.orders.customer_id'
+    kind: 'code.column'
+    label: 'customer_id'
+    evidence:
+      - path: 'services/orders/migrations/0002_orders.sql'
+        startLine: 5
+        endLine: 5
+        quote: '    customer_id    TEXT NOT NULL REFERENCES customers (id),'
+    reading: 'parsed'
+  - id: 'code.column:orders.orders.discount_cents'
+    kind: 'code.column'
+    label: 'discount_cents'
+    evidence:
+      - path: 'services/orders/migrations/0002_orders.sql'
+        startLine: 8
+        endLine: 8
+        quote: '    discount_cents BIGINT NOT NULL DEFAULT 0,'
+    reading: 'parsed'
+  - id: 'code.column:orders.orders.id'
+    kind: 'code.column'
+    label: 'id'
+    evidence:
+      - path: 'services/orders/migrations/0002_orders.sql'
+        startLine: 4
+        endLine: 4
+        quote: '    id             TEXT PRIMARY KEY,'
+    reading: 'parsed'
+  - id: 'code.column:orders.orders.status'
+    kind: 'code.column'
+    label: 'status'
+    evidence:
+      - path: 'services/orders/migrations/0002_orders.sql'
+        startLine: 6
+        endLine: 6
+        quote: '    status         TEXT NOT NULL,'
+    reading: 'parsed'
+  - id: 'code.column:orders.orders.subtotal_cents'
+    kind: 'code.column'
+    label: 'subtotal_cents'
+    evidence:
+      - path: 'services/orders/migrations/0002_orders.sql'
+        startLine: 7
+        endLine: 7
+        quote: '    subtotal_cents BIGINT NOT NULL DEFAULT 0,'
+    reading: 'parsed'
+  - id: 'code.column:orders.orders.tax_cents'
+    kind: 'code.column'
+    label: 'tax_cents'
+    evidence:
+      - path: 'services/orders/migrations/0002_orders.sql'
+        startLine: 9
+        endLine: 9
+        quote: '    tax_cents      BIGINT NOT NULL DEFAULT 0,'
+    reading: 'parsed'
+  - id: 'code.column:orders.orders.total_cents'
+    kind: 'code.column'
+    label: 'total_cents'
+    evidence:
+      - path: 'services/orders/migrations/0002_orders.sql'
+        startLine: 10
+        endLine: 10
+        quote: '    total_cents    BIGINT NOT NULL,'
+    reading: 'parsed'
+  - id: 'code.column:orders.orders.updated_at'
+    kind: 'code.column'
+    label: 'updated_at'
+    evidence:
+      - path: 'services/orders/migrations/0002_orders.sql'
+        startLine: 13
+        endLine: 13
+        quote: '    updated_at     TIMESTAMPTZ NOT NULL'
+    reading: 'parsed'
+  - id: 'code.file:services/orders/migrations/0002_orders.sql'
+    kind: 'code.file'
+    label: '0002_orders.sql'
+    evidence:
+      - path: 'services/orders/migrations/0002_orders.sql'
+        startLine: 1
+        endLine: 1
+        quote: '-- One row per order. Money columns are cents. cancel_reason is only set on'
+    reading: 'parsed'
+  - id: 'code.index:orders.orders_customer_idx'
+    kind: 'code.index'
+    label: 'orders_customer_idx'
+    evidence:
+      - path: 'services/orders/migrations/0002_orders.sql'
+        startLine: 16
+        endLine: 16
+        quote: 'CREATE INDEX orders_customer_idx ON orders (customer_id, created_at);'
+    reading: 'parsed'
+  - id: 'code.migration:services/orders/migrations/0002_orders.sql'
+    kind: 'code.migration'
+    label: '0002_orders.sql'
+    evidence:
+      - path: 'services/orders/migrations/0002_orders.sql'
+        startLine: 1
+        endLine: 1
+        quote: '-- One row per order. Money columns are cents. cancel_reason is only set on'
+    reading: 'parsed'
+  - id: 'code.table:orders.orders'
+    kind: 'code.table'
+    label: 'orders'
+    evidence:
+      - path: 'services/orders/migrations/0002_orders.sql'
+        startLine: 3
+        endLine: 3
+        quote: 'CREATE TABLE orders ('
+    reading: 'parsed'
+edges:
+  - relation: 'code.belongs-to'
+    from: 'code.migration:services/orders/migrations/0002_orders.sql'
+    to: 'code.package:services/orders'
+    evidence:
+      - path: 'services/orders/migrations/0002_orders.sql'
+        startLine: 1
+        endLine: 1
+        quote: '-- One row per order. Money columns are cents. cancel_reason is only set on'
+    reading: 'parsed'
+  - relation: 'code.contains'
+    from: 'code.table:orders.orders'
+    to: 'code.column:orders.orders.cancel_reason'
+    evidence:
+      - path: 'services/orders/migrations/0002_orders.sql'
+        startLine: 11
+        endLine: 11
+        quote: '    cancel_reason  TEXT,'
+    reading: 'parsed'
+  - relation: 'code.contains'
+    from: 'code.table:orders.orders'
+    to: 'code.column:orders.orders.created_at'
+    evidence:
+      - path: 'services/orders/migrations/0002_orders.sql'
+        startLine: 12
+        endLine: 12
+        quote: '    created_at     TIMESTAMPTZ NOT NULL,'
+    reading: 'parsed'
+  - relation: 'code.contains'
+    from: 'code.table:orders.orders'
+    to: 'code.column:orders.orders.customer_id'
+    evidence:
+      - path: 'services/orders/migrations/0002_orders.sql'
+        startLine: 5
+        endLine: 5
+        quote: '    customer_id    TEXT NOT NULL REFERENCES customers (id),'
+    reading: 'parsed'
+  - relation: 'code.contains'
+    from: 'code.table:orders.orders'
+    to: 'code.column:orders.orders.discount_cents'
+    evidence:
+      - path: 'services/orders/migrations/0002_orders.sql'
+        startLine: 8
+        endLine: 8
+        quote: '    discount_cents BIGINT NOT NULL DEFAULT 0,'
+    reading: 'parsed'
+  - relation: 'code.contains'
+    from: 'code.table:orders.orders'
+    to: 'code.column:orders.orders.id'
+    evidence:
+      - path: 'services/orders/migrations/0002_orders.sql'
+        startLine: 4
+        endLine: 4
+        quote: '    id             TEXT PRIMARY KEY,'
+    reading: 'parsed'
+  - relation: 'code.contains'
+    from: 'code.table:orders.orders'
+    to: 'code.column:orders.orders.status'
+    evidence:
+      - path: 'services/orders/migrations/0002_orders.sql'
+        startLine: 6
+        endLine: 6
+        quote: '    status         TEXT NOT NULL,'
+    reading: 'parsed'
+  - relation: 'code.contains'
+    from: 'code.table:orders.orders'
+    to: 'code.column:orders.orders.subtotal_cents'
+    evidence:
+      - path: 'services/orders/migrations/0002_orders.sql'
+        startLine: 7
+        endLine: 7
+        quote: '    subtotal_cents BIGINT NOT NULL DEFAULT 0,'
+    reading: 'parsed'
+  - relation: 'code.contains'
+    from: 'code.table:orders.orders'
+    to: 'code.column:orders.orders.tax_cents'
+    evidence:
+      - path: 'services/orders/migrations/0002_orders.sql'
+        startLine: 9
+        endLine: 9
+        quote: '    tax_cents      BIGINT NOT NULL DEFAULT 0,'
+    reading: 'parsed'
+  - relation: 'code.contains'
+    from: 'code.table:orders.orders'
+    to: 'code.column:orders.orders.total_cents'
+    evidence:
+      - path: 'services/orders/migrations/0002_orders.sql'
+        startLine: 10
+        endLine: 10
+        quote: '    total_cents    BIGINT NOT NULL,'
+    reading: 'parsed'
+  - relation: 'code.contains'
+    from: 'code.table:orders.orders'
+    to: 'code.column:orders.orders.updated_at'
+    evidence:
+      - path: 'services/orders/migrations/0002_orders.sql'
+        startLine: 13
+        endLine: 13
+        quote: '    updated_at     TIMESTAMPTZ NOT NULL'
+    reading: 'parsed'
+  - relation: 'code.contains'
+    from: 'code.table:orders.orders'
+    to: 'code.index:orders.orders_customer_idx'
+    evidence:
+      - path: 'services/orders/migrations/0002_orders.sql'
+        startLine: 16
+        endLine: 16
+        quote: 'CREATE INDEX orders_customer_idx ON orders (customer_id, created_at);'
+    reading: 'parsed'
+  - relation: 'code.creates'
+    from: 'code.migration:services/orders/migrations/0002_orders.sql'
+    to: 'code.index:orders.orders_customer_idx'
+    evidence:
+      - path: 'services/orders/migrations/0002_orders.sql'
+        startLine: 16
+        endLine: 16
+        quote: 'CREATE INDEX orders_customer_idx ON orders (customer_id, created_at);'
+    reading: 'parsed'
+  - relation: 'code.creates'
+    from: 'code.migration:services/orders/migrations/0002_orders.sql'
+    to: 'code.table:orders.orders'
+    evidence:
+      - path: 'services/orders/migrations/0002_orders.sql'
+        startLine: 3
+        endLine: 3
+        quote: 'CREATE TABLE orders ('
+    reading: 'parsed'
+  - relation: 'code.foreign-key'
+    from: 'code.column:orders.orders.customer_id'
+    to: 'code.column:orders.customers.id'
+    evidence:
+      - path: 'services/orders/migrations/0002_orders.sql'
+        startLine: 5
+        endLine: 5
+        quote: '    customer_id    TEXT NOT NULL REFERENCES customers (id),'
+    reading: 'parsed'

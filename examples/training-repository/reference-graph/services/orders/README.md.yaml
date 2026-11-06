@@ -1,0 +1,57 @@
+path: 'services/orders/README.md'
+nodes:
+  - id: 'code.document:services/orders/README.md'
+    kind: 'code.document'
+    label: 'README.md'
+    evidence:
+      - path: 'services/orders/README.md'
+        startLine: 1
+        endLine: 1
+        quote: '# Orders service'
+    reading: 'parsed'
+  - id: 'code.file:services/orders/README.md'
+    kind: 'code.file'
+    label: 'README.md'
+    evidence:
+      - path: 'services/orders/README.md'
+        startLine: 1
+        endLine: 1
+        quote: '# Orders service'
+    reading: 'parsed'
+edges:
+  - relation: 'code.mentions'
+    from: 'code.document:services/orders/README.md'
+    to: 'code.channel:orders.events'
+    evidence:
+      - path: 'services/orders/README.md'
+        startLine: 7
+        endLine: 7
+        quote: 'outbox (contracts/asyncapi/order-events.yaml).'
+    reading: 'judgement'
+  - relation: 'code.mentions'
+    from: 'code.document:services/orders/README.md'
+    to: 'code.contract:contracts/openapi/orders.yaml'
+    evidence:
+      - path: 'services/orders/README.md'
+        startLine: 5
+        endLine: 5
+        quote: 'The service takes orders from checkout over HTTP (contracts/openapi/orders.yaml),'
+    reading: 'judgement'
+  - relation: 'code.mentions'
+    from: 'code.document:services/orders/README.md'
+    to: 'code.env-var:DATABASE_URL'
+    evidence:
+      - path: 'services/orders/README.md'
+        startLine: 10
+        endLine: 10
+        quote: '`DATABASE_URL`, `KAFKA_BROKERS` and `JWT_SECRET` (see `.env.example`).'
+    reading: 'judgement'
+  - relation: 'code.mentions'
+    from: 'code.document:services/orders/README.md'
+    to: 'code.symbol:services/orders/internal/domain/order.go#Order.Expired'
+    evidence:
+      - path: 'services/orders/README.md'
+        startLine: 3
+        endLine: 3
+        quote: 'Orders remain available forever.'
+    reading: 'judgement'

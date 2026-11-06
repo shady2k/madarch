@@ -1,0 +1,699 @@
+path: 'services/payments/test/pay.test.ts'
+nodes:
+  - id: 'code.field:services/payments/test/pay.test.ts#MemoryRepository.payments'
+    kind: 'code.field'
+    label: 'MemoryRepository.payments'
+    evidence:
+      - path: 'services/payments/test/pay.test.ts'
+        startLine: 9
+        endLine: 9
+        quote: '  payments = new Map<string, Payment>();'
+    reading: 'parsed'
+  - id: 'code.field:services/payments/test/pay.test.ts#MemoryRepository.refunds'
+    kind: 'code.field'
+    label: 'MemoryRepository.refunds'
+    evidence:
+      - path: 'services/payments/test/pay.test.ts'
+        startLine: 10
+        endLine: 10
+        quote: '  refunds: Refund[] = [];'
+    reading: 'parsed'
+  - id: 'code.field:services/payments/test/pay.test.ts#RecordingSink.events'
+    kind: 'code.field'
+    label: 'RecordingSink.events'
+    evidence:
+      - path: 'services/payments/test/pay.test.ts'
+        startLine: 33
+        endLine: 33
+        quote: '  events: Array<{ topic: string; key: string; body: Record<string, unknown> }> = [];'
+    reading: 'parsed'
+  - id: 'code.field:services/payments/test/pay.test.ts#ScriptedProvider.calls'
+    kind: 'code.field'
+    label: 'ScriptedProvider.calls'
+    evidence:
+      - path: 'services/payments/test/pay.test.ts'
+        startLine: 42
+        endLine: 42
+        quote: '  calls = 0;'
+    reading: 'parsed'
+  - id: 'code.field:services/payments/test/pay.test.ts#ScriptedProvider.name'
+    kind: 'code.field'
+    label: 'ScriptedProvider.name'
+    evidence:
+      - path: 'services/payments/test/pay.test.ts'
+        startLine: 41
+        endLine: 41
+        quote: '  readonly name = ''scripted'';'
+    reading: 'parsed'
+  - id: 'code.field:services/payments/test/pay.test.ts#ScriptedProvider.steps'
+    kind: 'code.field'
+    label: 'ScriptedProvider.steps'
+    evidence:
+      - path: 'services/payments/test/pay.test.ts'
+        startLine: 43
+        endLine: 43
+        quote: '  constructor(private readonly steps: Array<() => Promise<ChargeResult>>) {}'
+    reading: 'parsed'
+  - id: 'code.file:services/payments/test/pay.test.ts'
+    kind: 'code.file'
+    label: 'pay.test.ts'
+    evidence:
+      - path: 'services/payments/test/pay.test.ts'
+        startLine: 1
+        endLine: 1
+        quote: 'import { PaymentService } from ''../src/domain/payment-service'';'
+    reading: 'parsed'
+  - id: 'code.symbol:services/payments/test/pay.test.ts#MemoryRepository'
+    kind: 'code.symbol'
+    label: 'MemoryRepository'
+    evidence:
+      - path: 'services/payments/test/pay.test.ts'
+        startLine: 8
+        endLine: 8
+        quote: 'class MemoryRepository implements PaymentRepository {'
+    reading: 'parsed'
+  - id: 'code.symbol:services/payments/test/pay.test.ts#MemoryRepository.addRefund'
+    kind: 'code.symbol'
+    label: 'MemoryRepository.addRefund'
+    evidence:
+      - path: 'services/payments/test/pay.test.ts'
+        startLine: 24
+        endLine: 24
+        quote: '  async addRefund(refund: Refund) {'
+    reading: 'parsed'
+  - id: 'code.symbol:services/payments/test/pay.test.ts#MemoryRepository.create'
+    kind: 'code.symbol'
+    label: 'MemoryRepository.create'
+    evidence:
+      - path: 'services/payments/test/pay.test.ts'
+        startLine: 12
+        endLine: 12
+        quote: '  async create(payment: Payment) {'
+    reading: 'parsed'
+  - id: 'code.symbol:services/payments/test/pay.test.ts#MemoryRepository.findById'
+    kind: 'code.symbol'
+    label: 'MemoryRepository.findById'
+    evidence:
+      - path: 'services/payments/test/pay.test.ts'
+        startLine: 18
+        endLine: 18
+        quote: '  async findById(id: string) {'
+    reading: 'parsed'
+  - id: 'code.symbol:services/payments/test/pay.test.ts#MemoryRepository.findByIdempotencyKey'
+    kind: 'code.symbol'
+    label: 'MemoryRepository.findByIdempotencyKey'
+    evidence:
+      - path: 'services/payments/test/pay.test.ts'
+        startLine: 21
+        endLine: 21
+        quote: '  async findByIdempotencyKey(key: string) {'
+    reading: 'parsed'
+  - id: 'code.symbol:services/payments/test/pay.test.ts#MemoryRepository.refundedTotal'
+    kind: 'code.symbol'
+    label: 'MemoryRepository.refundedTotal'
+    evidence:
+      - path: 'services/payments/test/pay.test.ts'
+        startLine: 27
+        endLine: 27
+        quote: '  async refundedTotal(paymentId: string) {'
+    reading: 'parsed'
+  - id: 'code.symbol:services/payments/test/pay.test.ts#MemoryRepository.save'
+    kind: 'code.symbol'
+    label: 'MemoryRepository.save'
+    evidence:
+      - path: 'services/payments/test/pay.test.ts'
+        startLine: 15
+        endLine: 15
+        quote: '  async save(payment: Payment) {'
+    reading: 'parsed'
+  - id: 'code.symbol:services/payments/test/pay.test.ts#RecordingSink'
+    kind: 'code.symbol'
+    label: 'RecordingSink'
+    evidence:
+      - path: 'services/payments/test/pay.test.ts'
+        startLine: 32
+        endLine: 32
+        quote: 'class RecordingSink implements EventSink {'
+    reading: 'parsed'
+  - id: 'code.symbol:services/payments/test/pay.test.ts#RecordingSink.send'
+    kind: 'code.symbol'
+    label: 'RecordingSink.send'
+    evidence:
+      - path: 'services/payments/test/pay.test.ts'
+        startLine: 34
+        endLine: 34
+        quote: '  async send(topic: string, key: string, value: string) {'
+    reading: 'parsed'
+  - id: 'code.symbol:services/payments/test/pay.test.ts#ScriptedProvider'
+    kind: 'code.symbol'
+    label: 'ScriptedProvider'
+    evidence:
+      - path: 'services/payments/test/pay.test.ts'
+        startLine: 40
+        endLine: 40
+        quote: 'class ScriptedProvider implements PaymentProvider {'
+    reading: 'parsed'
+  - id: 'code.symbol:services/payments/test/pay.test.ts#ScriptedProvider.charge'
+    kind: 'code.symbol'
+    label: 'ScriptedProvider.charge'
+    evidence:
+      - path: 'services/payments/test/pay.test.ts'
+        startLine: 44
+        endLine: 44
+        quote: '  async charge(_request: ChargeRequest): Promise<ChargeResult> {'
+    reading: 'parsed'
+  - id: 'code.symbol:services/payments/test/pay.test.ts#ScriptedProvider.constructor'
+    kind: 'code.symbol'
+    label: 'ScriptedProvider.constructor'
+    evidence:
+      - path: 'services/payments/test/pay.test.ts'
+        startLine: 43
+        endLine: 43
+        quote: '  constructor(private readonly steps: Array<() => Promise<ChargeResult>>) {}'
+    reading: 'parsed'
+  - id: 'code.symbol:services/payments/test/pay.test.ts#ScriptedProvider.refund'
+    kind: 'code.symbol'
+    label: 'ScriptedProvider.refund'
+    evidence:
+      - path: 'services/payments/test/pay.test.ts'
+        startLine: 49
+        endLine: 49
+        quote: '  async refund(): Promise<void> {}'
+    reading: 'parsed'
+  - id: 'code.symbol:services/payments/test/pay.test.ts#build'
+    kind: 'code.symbol'
+    label: 'build'
+    evidence:
+      - path: 'services/payments/test/pay.test.ts'
+        startLine: 60
+        endLine: 60
+        quote: 'function build(provider: PaymentProvider, timeoutMs = 50) {'
+    reading: 'parsed'
+  - id: 'code.symbol:services/payments/test/pay.test.ts#declined'
+    kind: 'code.symbol'
+    label: 'declined'
+    evidence:
+      - path: 'services/payments/test/pay.test.ts'
+        startLine: 56
+        endLine: 56
+        quote: 'const declined = () => async (): Promise<ChargeResult> => {'
+    reading: 'parsed'
+  - id: 'code.symbol:services/payments/test/pay.test.ts#ok'
+    kind: 'code.symbol'
+    label: 'ok'
+    evidence:
+      - path: 'services/payments/test/pay.test.ts'
+        startLine: 52
+        endLine: 52
+        quote: 'const ok = (reference: string) => async () => ({ providerReference: reference });'
+    reading: 'parsed'
+  - id: 'code.symbol:services/payments/test/pay.test.ts#request'
+    kind: 'code.symbol'
+    label: 'request'
+    evidence:
+      - path: 'services/payments/test/pay.test.ts'
+        startLine: 76
+        endLine: 76
+        quote: 'const request = {'
+    reading: 'parsed'
+  - id: 'code.symbol:services/payments/test/pay.test.ts#unavailable'
+    kind: 'code.symbol'
+    label: 'unavailable'
+    evidence:
+      - path: 'services/payments/test/pay.test.ts'
+        startLine: 53
+        endLine: 53
+        quote: 'const unavailable = () => async (): Promise<ChargeResult> => {'
+    reading: 'parsed'
+  - id: 'code.test-case:services/payments/test/pay.test.ts#captures the payment and publishes payment.captured keyed by the order'
+    kind: 'code.test-case'
+    label: 'captures the payment and publishes payment.captured keyed by the order'
+    evidence:
+      - path: 'services/payments/test/pay.test.ts'
+        startLine: 85
+        endLine: 85
+        quote: '  it(''captures the payment and publishes payment.captured keyed by the order'', async () => {'
+    reading: 'parsed'
+  - id: 'code.test-case:services/payments/test/pay.test.ts#declines after three unavailable answers'
+    kind: 'code.test-case'
+    label: 'declines after three unavailable answers'
+    evidence:
+      - path: 'services/payments/test/pay.test.ts'
+        startLine: 113
+        endLine: 113
+        quote: '  it(''declines after three unavailable answers'', async () => {'
+    reading: 'parsed'
+  - id: 'code.test-case:services/payments/test/pay.test.ts#does not retry a refusal'
+    kind: 'code.test-case'
+    label: 'does not retry a refusal'
+    evidence:
+      - path: 'services/payments/test/pay.test.ts'
+        startLine: 123
+        endLine: 123
+        quote: '  it(''does not retry a refusal'', async () => {'
+    reading: 'parsed'
+  - id: 'code.test-case:services/payments/test/pay.test.ts#gives up on a provider that does not answer within the timeout'
+    kind: 'code.test-case'
+    label: 'gives up on a provider that does not answer within the timeout'
+    evidence:
+      - path: 'services/payments/test/pay.test.ts'
+        startLine: 131
+        endLine: 131
+        quote: '  it(''gives up on a provider that does not answer within the timeout'', async () => {'
+    reading: 'parsed'
+  - id: 'code.test-case:services/payments/test/pay.test.ts#refunds in two parts and publishes payment.refunded when the last part completes it'
+    kind: 'code.test-case'
+    label: 'refunds in two parts and publishes payment.refunded when the last part completes it'
+    evidence:
+      - path: 'services/payments/test/pay.test.ts'
+        startLine: 142
+        endLine: 142
+        quote: '  it(''refunds in two parts and publishes payment.refunded when the last part completes it'', async () => {'
+    reading: 'parsed'
+  - id: 'code.test-case:services/payments/test/pay.test.ts#retries an unavailable provider with doubling waits and then captures'
+    kind: 'code.test-case'
+    label: 'retries an unavailable provider with doubling waits and then captures'
+    evidence:
+      - path: 'services/payments/test/pay.test.ts'
+        startLine: 104
+        endLine: 104
+        quote: '  it(''retries an unavailable provider with doubling waits and then captures'', async () => {'
+    reading: 'parsed'
+  - id: 'code.test-case:services/payments/test/pay.test.ts#returns the first payment when the idempotency key repeats, without charging again'
+    kind: 'code.test-case'
+    label: 'returns the first payment when the idempotency key repeats, without charging again'
+    evidence:
+      - path: 'services/payments/test/pay.test.ts'
+        startLine: 95
+        endLine: 95
+        quote: '  it(''returns the first payment when the idempotency key repeats, without charging again'', async () => {'
+    reading: 'parsed'
+edges:
+  - relation: 'code.calls'
+    from: 'code.file:services/payments/test/pay.test.ts'
+    to: 'code.symbol:services/payments/test/pay.test.ts#ScriptedProvider'
+    evidence:
+      - path: 'services/payments/test/pay.test.ts'
+        startLine: 86
+        endLine: 86
+        quote: '    const { service, sink } = build(new ScriptedProvider([ok(''ref_1'')]));'
+      - path: 'services/payments/test/pay.test.ts'
+        startLine: 96
+        endLine: 96
+        quote: '    const provider = new ScriptedProvider([ok(''ref_1'')]);'
+      - path: 'services/payments/test/pay.test.ts'
+        startLine: 105
+        endLine: 105
+        quote: '    const provider = new ScriptedProvider([unavailable(), unavailable(), ok(''ref_3'')]);'
+      - path: 'services/payments/test/pay.test.ts'
+        startLine: 114
+        endLine: 114
+        quote: '    const provider = new ScriptedProvider([unavailable()]);'
+      - path: 'services/payments/test/pay.test.ts'
+        startLine: 124
+        endLine: 124
+        quote: '    const provider = new ScriptedProvider([declined()]);'
+      - path: 'services/payments/test/pay.test.ts'
+        startLine: 133
+        endLine: 133
+        quote: '    const provider = new ScriptedProvider([hangs]);'
+      - path: 'services/payments/test/pay.test.ts'
+        startLine: 143
+        endLine: 143
+        quote: '    const { service, sink } = build(new ScriptedProvider([ok(''ref_1'')]));'
+    reading: 'parsed'
+  - relation: 'code.calls'
+    from: 'code.file:services/payments/test/pay.test.ts'
+    to: 'code.symbol:services/payments/test/pay.test.ts#build'
+    evidence:
+      - path: 'services/payments/test/pay.test.ts'
+        startLine: 86
+        endLine: 86
+        quote: '    const { service, sink } = build(new ScriptedProvider([ok(''ref_1'')]));'
+      - path: 'services/payments/test/pay.test.ts'
+        startLine: 97
+        endLine: 97
+        quote: '    const { service } = build(provider);'
+      - path: 'services/payments/test/pay.test.ts'
+        startLine: 106
+        endLine: 106
+        quote: '    const { service, sleeps } = build(provider);'
+      - path: 'services/payments/test/pay.test.ts'
+        startLine: 115
+        endLine: 115
+        quote: '    const { service, sink } = build(provider);'
+      - path: 'services/payments/test/pay.test.ts'
+        startLine: 125
+        endLine: 125
+        quote: '    const { service } = build(provider);'
+      - path: 'services/payments/test/pay.test.ts'
+        startLine: 134
+        endLine: 134
+        quote: '    const { service } = build(provider, 20);'
+      - path: 'services/payments/test/pay.test.ts'
+        startLine: 143
+        endLine: 143
+        quote: '    const { service, sink } = build(new ScriptedProvider([ok(''ref_1'')]));'
+    reading: 'parsed'
+  - relation: 'code.calls'
+    from: 'code.symbol:services/payments/test/pay.test.ts#build'
+    to: 'code.symbol:services/payments/src/domain/payment-service.ts#PaymentService'
+    evidence:
+      - path: 'services/payments/test/pay.test.ts'
+        startLine: 64
+        endLine: 64
+        quote: '  const service = new PaymentService({'
+    reading: 'parsed'
+  - relation: 'code.calls'
+    from: 'code.symbol:services/payments/test/pay.test.ts#build'
+    to: 'code.symbol:services/payments/test/pay.test.ts#MemoryRepository'
+    evidence:
+      - path: 'services/payments/test/pay.test.ts'
+        startLine: 61
+        endLine: 61
+        quote: '  const repository = new MemoryRepository();'
+    reading: 'parsed'
+  - relation: 'code.calls'
+    from: 'code.symbol:services/payments/test/pay.test.ts#build'
+    to: 'code.symbol:services/payments/test/pay.test.ts#RecordingSink'
+    evidence:
+      - path: 'services/payments/test/pay.test.ts'
+        startLine: 62
+        endLine: 62
+        quote: '  const sink = new RecordingSink();'
+    reading: 'parsed'
+  - relation: 'code.calls'
+    from: 'code.symbol:services/payments/test/pay.test.ts#declined'
+    to: 'code.symbol:services/payments/src/providers/provider.ts#ProviderDeclinedError'
+    evidence:
+      - path: 'services/payments/test/pay.test.ts'
+        startLine: 57
+        endLine: 57
+        quote: '  throw new ProviderDeclinedError(''insufficient funds'');'
+    reading: 'parsed'
+  - relation: 'code.calls'
+    from: 'code.symbol:services/payments/test/pay.test.ts#unavailable'
+    to: 'code.symbol:services/payments/src/providers/provider.ts#ProviderUnavailableError'
+    evidence:
+      - path: 'services/payments/test/pay.test.ts'
+        startLine: 54
+        endLine: 54
+        quote: '  throw new ProviderUnavailableError(''provider down'');'
+    reading: 'parsed'
+  - relation: 'code.contains'
+    from: 'code.file:services/payments/test/pay.test.ts'
+    to: 'code.symbol:services/payments/test/pay.test.ts#MemoryRepository'
+    evidence:
+      - path: 'services/payments/test/pay.test.ts'
+        startLine: 8
+        endLine: 8
+        quote: 'class MemoryRepository implements PaymentRepository {'
+    reading: 'parsed'
+  - relation: 'code.contains'
+    from: 'code.file:services/payments/test/pay.test.ts'
+    to: 'code.symbol:services/payments/test/pay.test.ts#RecordingSink'
+    evidence:
+      - path: 'services/payments/test/pay.test.ts'
+        startLine: 32
+        endLine: 32
+        quote: 'class RecordingSink implements EventSink {'
+    reading: 'parsed'
+  - relation: 'code.contains'
+    from: 'code.file:services/payments/test/pay.test.ts'
+    to: 'code.symbol:services/payments/test/pay.test.ts#ScriptedProvider'
+    evidence:
+      - path: 'services/payments/test/pay.test.ts'
+        startLine: 40
+        endLine: 40
+        quote: 'class ScriptedProvider implements PaymentProvider {'
+    reading: 'parsed'
+  - relation: 'code.contains'
+    from: 'code.file:services/payments/test/pay.test.ts'
+    to: 'code.symbol:services/payments/test/pay.test.ts#build'
+    evidence:
+      - path: 'services/payments/test/pay.test.ts'
+        startLine: 60
+        endLine: 60
+        quote: 'function build(provider: PaymentProvider, timeoutMs = 50) {'
+    reading: 'parsed'
+  - relation: 'code.contains'
+    from: 'code.file:services/payments/test/pay.test.ts'
+    to: 'code.symbol:services/payments/test/pay.test.ts#declined'
+    evidence:
+      - path: 'services/payments/test/pay.test.ts'
+        startLine: 56
+        endLine: 56
+        quote: 'const declined = () => async (): Promise<ChargeResult> => {'
+    reading: 'parsed'
+  - relation: 'code.contains'
+    from: 'code.file:services/payments/test/pay.test.ts'
+    to: 'code.symbol:services/payments/test/pay.test.ts#ok'
+    evidence:
+      - path: 'services/payments/test/pay.test.ts'
+        startLine: 52
+        endLine: 52
+        quote: 'const ok = (reference: string) => async () => ({ providerReference: reference });'
+    reading: 'parsed'
+  - relation: 'code.contains'
+    from: 'code.file:services/payments/test/pay.test.ts'
+    to: 'code.symbol:services/payments/test/pay.test.ts#request'
+    evidence:
+      - path: 'services/payments/test/pay.test.ts'
+        startLine: 76
+        endLine: 76
+        quote: 'const request = {'
+    reading: 'parsed'
+  - relation: 'code.contains'
+    from: 'code.file:services/payments/test/pay.test.ts'
+    to: 'code.symbol:services/payments/test/pay.test.ts#unavailable'
+    evidence:
+      - path: 'services/payments/test/pay.test.ts'
+        startLine: 53
+        endLine: 53
+        quote: 'const unavailable = () => async (): Promise<ChargeResult> => {'
+    reading: 'parsed'
+  - relation: 'code.contains'
+    from: 'code.symbol:services/payments/test/pay.test.ts#MemoryRepository'
+    to: 'code.field:services/payments/test/pay.test.ts#MemoryRepository.payments'
+    evidence:
+      - path: 'services/payments/test/pay.test.ts'
+        startLine: 9
+        endLine: 9
+        quote: '  payments = new Map<string, Payment>();'
+    reading: 'parsed'
+  - relation: 'code.contains'
+    from: 'code.symbol:services/payments/test/pay.test.ts#MemoryRepository'
+    to: 'code.field:services/payments/test/pay.test.ts#MemoryRepository.refunds'
+    evidence:
+      - path: 'services/payments/test/pay.test.ts'
+        startLine: 10
+        endLine: 10
+        quote: '  refunds: Refund[] = [];'
+    reading: 'parsed'
+  - relation: 'code.contains'
+    from: 'code.symbol:services/payments/test/pay.test.ts#MemoryRepository'
+    to: 'code.symbol:services/payments/test/pay.test.ts#MemoryRepository.addRefund'
+    evidence:
+      - path: 'services/payments/test/pay.test.ts'
+        startLine: 24
+        endLine: 24
+        quote: '  async addRefund(refund: Refund) {'
+    reading: 'parsed'
+  - relation: 'code.contains'
+    from: 'code.symbol:services/payments/test/pay.test.ts#MemoryRepository'
+    to: 'code.symbol:services/payments/test/pay.test.ts#MemoryRepository.create'
+    evidence:
+      - path: 'services/payments/test/pay.test.ts'
+        startLine: 12
+        endLine: 12
+        quote: '  async create(payment: Payment) {'
+    reading: 'parsed'
+  - relation: 'code.contains'
+    from: 'code.symbol:services/payments/test/pay.test.ts#MemoryRepository'
+    to: 'code.symbol:services/payments/test/pay.test.ts#MemoryRepository.findById'
+    evidence:
+      - path: 'services/payments/test/pay.test.ts'
+        startLine: 18
+        endLine: 18
+        quote: '  async findById(id: string) {'
+    reading: 'parsed'
+  - relation: 'code.contains'
+    from: 'code.symbol:services/payments/test/pay.test.ts#MemoryRepository'
+    to: 'code.symbol:services/payments/test/pay.test.ts#MemoryRepository.findByIdempotencyKey'
+    evidence:
+      - path: 'services/payments/test/pay.test.ts'
+        startLine: 21
+        endLine: 21
+        quote: '  async findByIdempotencyKey(key: string) {'
+    reading: 'parsed'
+  - relation: 'code.contains'
+    from: 'code.symbol:services/payments/test/pay.test.ts#MemoryRepository'
+    to: 'code.symbol:services/payments/test/pay.test.ts#MemoryRepository.refundedTotal'
+    evidence:
+      - path: 'services/payments/test/pay.test.ts'
+        startLine: 27
+        endLine: 27
+        quote: '  async refundedTotal(paymentId: string) {'
+    reading: 'parsed'
+  - relation: 'code.contains'
+    from: 'code.symbol:services/payments/test/pay.test.ts#MemoryRepository'
+    to: 'code.symbol:services/payments/test/pay.test.ts#MemoryRepository.save'
+    evidence:
+      - path: 'services/payments/test/pay.test.ts'
+        startLine: 15
+        endLine: 15
+        quote: '  async save(payment: Payment) {'
+    reading: 'parsed'
+  - relation: 'code.contains'
+    from: 'code.symbol:services/payments/test/pay.test.ts#RecordingSink'
+    to: 'code.field:services/payments/test/pay.test.ts#RecordingSink.events'
+    evidence:
+      - path: 'services/payments/test/pay.test.ts'
+        startLine: 33
+        endLine: 33
+        quote: '  events: Array<{ topic: string; key: string; body: Record<string, unknown> }> = [];'
+    reading: 'parsed'
+  - relation: 'code.contains'
+    from: 'code.symbol:services/payments/test/pay.test.ts#RecordingSink'
+    to: 'code.symbol:services/payments/test/pay.test.ts#RecordingSink.send'
+    evidence:
+      - path: 'services/payments/test/pay.test.ts'
+        startLine: 34
+        endLine: 34
+        quote: '  async send(topic: string, key: string, value: string) {'
+    reading: 'parsed'
+  - relation: 'code.contains'
+    from: 'code.symbol:services/payments/test/pay.test.ts#ScriptedProvider'
+    to: 'code.field:services/payments/test/pay.test.ts#ScriptedProvider.calls'
+    evidence:
+      - path: 'services/payments/test/pay.test.ts'
+        startLine: 42
+        endLine: 42
+        quote: '  calls = 0;'
+    reading: 'parsed'
+  - relation: 'code.contains'
+    from: 'code.symbol:services/payments/test/pay.test.ts#ScriptedProvider'
+    to: 'code.field:services/payments/test/pay.test.ts#ScriptedProvider.name'
+    evidence:
+      - path: 'services/payments/test/pay.test.ts'
+        startLine: 41
+        endLine: 41
+        quote: '  readonly name = ''scripted'';'
+    reading: 'parsed'
+  - relation: 'code.contains'
+    from: 'code.symbol:services/payments/test/pay.test.ts#ScriptedProvider'
+    to: 'code.field:services/payments/test/pay.test.ts#ScriptedProvider.steps'
+    evidence:
+      - path: 'services/payments/test/pay.test.ts'
+        startLine: 43
+        endLine: 43
+        quote: '  constructor(private readonly steps: Array<() => Promise<ChargeResult>>) {}'
+    reading: 'parsed'
+  - relation: 'code.contains'
+    from: 'code.symbol:services/payments/test/pay.test.ts#ScriptedProvider'
+    to: 'code.symbol:services/payments/test/pay.test.ts#ScriptedProvider.charge'
+    evidence:
+      - path: 'services/payments/test/pay.test.ts'
+        startLine: 44
+        endLine: 44
+        quote: '  async charge(_request: ChargeRequest): Promise<ChargeResult> {'
+    reading: 'parsed'
+  - relation: 'code.contains'
+    from: 'code.symbol:services/payments/test/pay.test.ts#ScriptedProvider'
+    to: 'code.symbol:services/payments/test/pay.test.ts#ScriptedProvider.constructor'
+    evidence:
+      - path: 'services/payments/test/pay.test.ts'
+        startLine: 43
+        endLine: 43
+        quote: '  constructor(private readonly steps: Array<() => Promise<ChargeResult>>) {}'
+    reading: 'parsed'
+  - relation: 'code.contains'
+    from: 'code.symbol:services/payments/test/pay.test.ts#ScriptedProvider'
+    to: 'code.symbol:services/payments/test/pay.test.ts#ScriptedProvider.refund'
+    evidence:
+      - path: 'services/payments/test/pay.test.ts'
+        startLine: 49
+        endLine: 49
+        quote: '  async refund(): Promise<void> {}'
+    reading: 'parsed'
+  - relation: 'code.implements'
+    from: 'code.symbol:services/payments/test/pay.test.ts#MemoryRepository'
+    to: 'code.symbol:services/payments/src/store/payment-repository.ts#PaymentRepository'
+    evidence:
+      - path: 'services/payments/test/pay.test.ts'
+        startLine: 8
+        endLine: 8
+        quote: 'class MemoryRepository implements PaymentRepository {'
+    reading: 'parsed'
+  - relation: 'code.implements'
+    from: 'code.symbol:services/payments/test/pay.test.ts#RecordingSink'
+    to: 'code.symbol:services/payments/src/events/publishers.ts#EventSink'
+    evidence:
+      - path: 'services/payments/test/pay.test.ts'
+        startLine: 32
+        endLine: 32
+        quote: 'class RecordingSink implements EventSink {'
+    reading: 'parsed'
+  - relation: 'code.implements'
+    from: 'code.symbol:services/payments/test/pay.test.ts#ScriptedProvider'
+    to: 'code.symbol:services/payments/src/providers/provider.ts#PaymentProvider'
+    evidence:
+      - path: 'services/payments/test/pay.test.ts'
+        startLine: 40
+        endLine: 40
+        quote: 'class ScriptedProvider implements PaymentProvider {'
+    reading: 'parsed'
+  - relation: 'code.imports'
+    from: 'code.file:services/payments/test/pay.test.ts'
+    to: 'code.file:services/payments/src/domain/payment-service.ts'
+    evidence:
+      - path: 'services/payments/test/pay.test.ts'
+        startLine: 1
+        endLine: 1
+        quote: 'import { PaymentService } from ''../src/domain/payment-service'';'
+    reading: 'parsed'
+  - relation: 'code.imports'
+    from: 'code.file:services/payments/test/pay.test.ts'
+    to: 'code.file:services/payments/src/domain/payment.ts'
+    evidence:
+      - path: 'services/payments/test/pay.test.ts'
+        startLine: 2
+        endLine: 2
+        quote: 'import { Payment, PaymentStatus } from ''../src/domain/payment'';'
+    reading: 'parsed'
+  - relation: 'code.imports'
+    from: 'code.file:services/payments/test/pay.test.ts'
+    to: 'code.file:services/payments/src/domain/refund.ts'
+    evidence:
+      - path: 'services/payments/test/pay.test.ts'
+        startLine: 3
+        endLine: 3
+        quote: 'import { Refund } from ''../src/domain/refund'';'
+    reading: 'parsed'
+  - relation: 'code.imports'
+    from: 'code.file:services/payments/test/pay.test.ts'
+    to: 'code.file:services/payments/src/events/publishers.ts'
+    evidence:
+      - path: 'services/payments/test/pay.test.ts'
+        startLine: 4
+        endLine: 4
+        quote: 'import { EventSink } from ''../src/events/publishers'';'
+    reading: 'parsed'
+  - relation: 'code.imports'
+    from: 'code.file:services/payments/test/pay.test.ts'
+    to: 'code.file:services/payments/src/providers/provider.ts'
+    evidence:
+      - path: 'services/payments/test/pay.test.ts'
+        startLine: 5
+        endLine: 5
+        quote: 'import { ChargeRequest, ChargeResult, PaymentProvider, ProviderDeclinedError, ProviderUnavailableError } from ''../src/providers/provider'';'
+    reading: 'parsed'
+  - relation: 'code.imports'
+    from: 'code.file:services/payments/test/pay.test.ts'
+    to: 'code.file:services/payments/src/store/payment-repository.ts'
+    evidence:
+      - path: 'services/payments/test/pay.test.ts'
+        startLine: 6
+        endLine: 6
+        quote: 'import { PaymentRepository } from ''../src/store/payment-repository'';'
+    reading: 'parsed'

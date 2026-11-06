@@ -1,0 +1,57 @@
+path: 'services/checkout/src/logging/logger.ts'
+nodes:
+  - id: 'code.file:services/checkout/src/logging/logger.ts'
+    kind: 'code.file'
+    label: 'logger.ts'
+    evidence:
+      - path: 'services/checkout/src/logging/logger.ts'
+        startLine: 1
+        endLine: 1
+        quote: 'import pino from ''pino'';'
+    reading: 'parsed'
+  - id: 'code.logger:checkout'
+    kind: 'code.logger'
+    label: 'checkout'
+    evidence:
+      - path: 'services/checkout/src/logging/logger.ts'
+        startLine: 4
+        endLine: 4
+        quote: 'export const logger = pino({'
+    reading: 'parsed'
+  - id: 'code.symbol:services/checkout/src/logging/logger.ts#logger'
+    kind: 'code.symbol'
+    label: 'logger'
+    evidence:
+      - path: 'services/checkout/src/logging/logger.ts'
+        startLine: 4
+        endLine: 4
+        quote: 'export const logger = pino({'
+    reading: 'parsed'
+edges:
+  - relation: 'code.contains'
+    from: 'code.file:services/checkout/src/logging/logger.ts'
+    to: 'code.symbol:services/checkout/src/logging/logger.ts#logger'
+    evidence:
+      - path: 'services/checkout/src/logging/logger.ts'
+        startLine: 4
+        endLine: 4
+        quote: 'export const logger = pino({'
+    reading: 'parsed'
+  - relation: 'code.imports'
+    from: 'code.file:services/checkout/src/logging/logger.ts'
+    to: 'code.dependency:services/checkout/package.json#pino'
+    evidence:
+      - path: 'services/checkout/src/logging/logger.ts'
+        startLine: 1
+        endLine: 1
+        quote: 'import pino from ''pino'';'
+    reading: 'parsed'
+  - relation: 'code.reads-env'
+    from: 'code.file:services/checkout/src/logging/logger.ts'
+    to: 'code.env-var:LOG_LEVEL'
+    evidence:
+      - path: 'services/checkout/src/logging/logger.ts'
+        startLine: 5
+        endLine: 5
+        quote: '  level: process.env.LOG_LEVEL ?? ''info'','
+    reading: 'parsed'

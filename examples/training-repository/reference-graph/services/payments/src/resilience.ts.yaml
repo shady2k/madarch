@@ -1,0 +1,201 @@
+path: 'services/payments/src/resilience.ts'
+nodes:
+  - id: 'code.field:services/payments/src/resilience.ts#RetryOptions.attempts'
+    kind: 'code.field'
+    label: 'RetryOptions.attempts'
+    evidence:
+      - path: 'services/payments/src/resilience.ts'
+        startLine: 24
+        endLine: 24
+        quote: '  attempts: number;'
+    reading: 'parsed'
+  - id: 'code.field:services/payments/src/resilience.ts#RetryOptions.baseDelayMs'
+    kind: 'code.field'
+    label: 'RetryOptions.baseDelayMs'
+    evidence:
+      - path: 'services/payments/src/resilience.ts'
+        startLine: 26
+        endLine: 26
+        quote: '  baseDelayMs: number;'
+    reading: 'parsed'
+  - id: 'code.field:services/payments/src/resilience.ts#RetryOptions.isTransient'
+    kind: 'code.field'
+    label: 'RetryOptions.isTransient'
+    evidence:
+      - path: 'services/payments/src/resilience.ts'
+        startLine: 28
+        endLine: 28
+        quote: '  isTransient: (error: unknown) => boolean;'
+    reading: 'parsed'
+  - id: 'code.field:services/payments/src/resilience.ts#RetryOptions.sleep'
+    kind: 'code.field'
+    label: 'RetryOptions.sleep'
+    evidence:
+      - path: 'services/payments/src/resilience.ts'
+        startLine: 29
+        endLine: 29
+        quote: '  sleep?: (ms: number) => Promise<void>;'
+    reading: 'parsed'
+  - id: 'code.field:services/payments/src/resilience.ts#TimeoutError.timeoutMs'
+    kind: 'code.field'
+    label: 'TimeoutError.timeoutMs'
+    evidence:
+      - path: 'services/payments/src/resilience.ts'
+        startLine: 3
+        endLine: 3
+        quote: '  constructor(readonly timeoutMs: number) {'
+    reading: 'parsed'
+  - id: 'code.file:services/payments/src/resilience.ts'
+    kind: 'code.file'
+    label: 'resilience.ts'
+    evidence:
+      - path: 'services/payments/src/resilience.ts'
+        startLine: 1
+        endLine: 1
+        quote: '/** Rejects with this when a call did not finish in time. */'
+    reading: 'parsed'
+  - id: 'code.symbol:services/payments/src/resilience.ts#RetryOptions'
+    kind: 'code.symbol'
+    label: 'RetryOptions'
+    evidence:
+      - path: 'services/payments/src/resilience.ts'
+        startLine: 22
+        endLine: 22
+        quote: 'export interface RetryOptions {'
+    reading: 'parsed'
+  - id: 'code.symbol:services/payments/src/resilience.ts#TimeoutError'
+    kind: 'code.symbol'
+    label: 'TimeoutError'
+    evidence:
+      - path: 'services/payments/src/resilience.ts'
+        startLine: 2
+        endLine: 2
+        quote: 'export class TimeoutError extends Error {'
+    reading: 'parsed'
+  - id: 'code.symbol:services/payments/src/resilience.ts#TimeoutError.constructor'
+    kind: 'code.symbol'
+    label: 'TimeoutError.constructor'
+    evidence:
+      - path: 'services/payments/src/resilience.ts'
+        startLine: 3
+        endLine: 3
+        quote: '  constructor(readonly timeoutMs: number) {'
+    reading: 'parsed'
+  - id: 'code.symbol:services/payments/src/resilience.ts#withRetry'
+    kind: 'code.symbol'
+    label: 'withRetry'
+    evidence:
+      - path: 'services/payments/src/resilience.ts'
+        startLine: 33
+        endLine: 33
+        quote: 'export async function withRetry<T>(fn: () => Promise<T>, options: RetryOptions): Promise<T> {'
+    reading: 'parsed'
+  - id: 'code.symbol:services/payments/src/resilience.ts#withTimeout'
+    kind: 'code.symbol'
+    label: 'withTimeout'
+    evidence:
+      - path: 'services/payments/src/resilience.ts'
+        startLine: 10
+        endLine: 10
+        quote: 'export async function withTimeout<T>(call: Promise<T>, timeoutMs: number): Promise<T> {'
+    reading: 'parsed'
+edges:
+  - relation: 'code.calls'
+    from: 'code.symbol:services/payments/src/resilience.ts#withTimeout'
+    to: 'code.symbol:services/payments/src/resilience.ts#TimeoutError'
+    evidence:
+      - path: 'services/payments/src/resilience.ts'
+        startLine: 13
+        endLine: 13
+        quote: '    timer = setTimeout(() => reject(new TimeoutError(timeoutMs)), timeoutMs);'
+    reading: 'parsed'
+  - relation: 'code.contains'
+    from: 'code.file:services/payments/src/resilience.ts'
+    to: 'code.symbol:services/payments/src/resilience.ts#RetryOptions'
+    evidence:
+      - path: 'services/payments/src/resilience.ts'
+        startLine: 22
+        endLine: 22
+        quote: 'export interface RetryOptions {'
+    reading: 'parsed'
+  - relation: 'code.contains'
+    from: 'code.file:services/payments/src/resilience.ts'
+    to: 'code.symbol:services/payments/src/resilience.ts#TimeoutError'
+    evidence:
+      - path: 'services/payments/src/resilience.ts'
+        startLine: 2
+        endLine: 2
+        quote: 'export class TimeoutError extends Error {'
+    reading: 'parsed'
+  - relation: 'code.contains'
+    from: 'code.file:services/payments/src/resilience.ts'
+    to: 'code.symbol:services/payments/src/resilience.ts#withRetry'
+    evidence:
+      - path: 'services/payments/src/resilience.ts'
+        startLine: 33
+        endLine: 33
+        quote: 'export async function withRetry<T>(fn: () => Promise<T>, options: RetryOptions): Promise<T> {'
+    reading: 'parsed'
+  - relation: 'code.contains'
+    from: 'code.file:services/payments/src/resilience.ts'
+    to: 'code.symbol:services/payments/src/resilience.ts#withTimeout'
+    evidence:
+      - path: 'services/payments/src/resilience.ts'
+        startLine: 10
+        endLine: 10
+        quote: 'export async function withTimeout<T>(call: Promise<T>, timeoutMs: number): Promise<T> {'
+    reading: 'parsed'
+  - relation: 'code.contains'
+    from: 'code.symbol:services/payments/src/resilience.ts#RetryOptions'
+    to: 'code.field:services/payments/src/resilience.ts#RetryOptions.attempts'
+    evidence:
+      - path: 'services/payments/src/resilience.ts'
+        startLine: 24
+        endLine: 24
+        quote: '  attempts: number;'
+    reading: 'parsed'
+  - relation: 'code.contains'
+    from: 'code.symbol:services/payments/src/resilience.ts#RetryOptions'
+    to: 'code.field:services/payments/src/resilience.ts#RetryOptions.baseDelayMs'
+    evidence:
+      - path: 'services/payments/src/resilience.ts'
+        startLine: 26
+        endLine: 26
+        quote: '  baseDelayMs: number;'
+    reading: 'parsed'
+  - relation: 'code.contains'
+    from: 'code.symbol:services/payments/src/resilience.ts#RetryOptions'
+    to: 'code.field:services/payments/src/resilience.ts#RetryOptions.isTransient'
+    evidence:
+      - path: 'services/payments/src/resilience.ts'
+        startLine: 28
+        endLine: 28
+        quote: '  isTransient: (error: unknown) => boolean;'
+    reading: 'parsed'
+  - relation: 'code.contains'
+    from: 'code.symbol:services/payments/src/resilience.ts#RetryOptions'
+    to: 'code.field:services/payments/src/resilience.ts#RetryOptions.sleep'
+    evidence:
+      - path: 'services/payments/src/resilience.ts'
+        startLine: 29
+        endLine: 29
+        quote: '  sleep?: (ms: number) => Promise<void>;'
+    reading: 'parsed'
+  - relation: 'code.contains'
+    from: 'code.symbol:services/payments/src/resilience.ts#TimeoutError'
+    to: 'code.field:services/payments/src/resilience.ts#TimeoutError.timeoutMs'
+    evidence:
+      - path: 'services/payments/src/resilience.ts'
+        startLine: 3
+        endLine: 3
+        quote: '  constructor(readonly timeoutMs: number) {'
+    reading: 'parsed'
+  - relation: 'code.contains'
+    from: 'code.symbol:services/payments/src/resilience.ts#TimeoutError'
+    to: 'code.symbol:services/payments/src/resilience.ts#TimeoutError.constructor'
+    evidence:
+      - path: 'services/payments/src/resilience.ts'
+        startLine: 3
+        endLine: 3
+        quote: '  constructor(readonly timeoutMs: number) {'
+    reading: 'parsed'

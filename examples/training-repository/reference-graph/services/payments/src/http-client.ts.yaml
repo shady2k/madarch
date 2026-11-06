@@ -1,0 +1,165 @@
+path: 'services/payments/src/http-client.ts'
+nodes:
+  - id: 'code.field:services/payments/src/http-client.ts#HttpClient.request'
+    kind: 'code.field'
+    label: 'HttpClient.request'
+    evidence:
+      - path: 'services/payments/src/http-client.ts'
+        startLine: 8
+        endLine: 8
+        quote: '  request(url: string, init: RequestInit): Promise<HttpResponse>;'
+    reading: 'parsed'
+  - id: 'code.field:services/payments/src/http-client.ts#HttpResponse.json'
+    kind: 'code.field'
+    label: 'HttpResponse.json'
+    evidence:
+      - path: 'services/payments/src/http-client.ts'
+        startLine: 4
+        endLine: 4
+        quote: '  json(): Promise<unknown>;'
+    reading: 'parsed'
+  - id: 'code.field:services/payments/src/http-client.ts#HttpResponse.status'
+    kind: 'code.field'
+    label: 'HttpResponse.status'
+    evidence:
+      - path: 'services/payments/src/http-client.ts'
+        startLine: 3
+        endLine: 3
+        quote: '  status: number;'
+    reading: 'parsed'
+  - id: 'code.file:services/payments/src/http-client.ts'
+    kind: 'code.file'
+    label: 'http-client.ts'
+    evidence:
+      - path: 'services/payments/src/http-client.ts'
+        startLine: 1
+        endLine: 1
+        quote: '/** The few fields of a response the providers read. */'
+    reading: 'parsed'
+  - id: 'code.symbol:services/payments/src/http-client.ts#HttpClient'
+    kind: 'code.symbol'
+    label: 'HttpClient'
+    evidence:
+      - path: 'services/payments/src/http-client.ts'
+        startLine: 7
+        endLine: 7
+        quote: 'interface HttpClient {'
+    reading: 'parsed'
+  - id: 'code.symbol:services/payments/src/http-client.ts#HttpResponse'
+    kind: 'code.symbol'
+    label: 'HttpResponse'
+    evidence:
+      - path: 'services/payments/src/http-client.ts'
+        startLine: 2
+        endLine: 2
+        quote: 'export interface HttpResponse {'
+    reading: 'parsed'
+  - id: 'code.symbol:services/payments/src/http-client.ts#client'
+    kind: 'code.symbol'
+    label: 'client'
+    evidence:
+      - path: 'services/payments/src/http-client.ts'
+        startLine: 21
+        endLine: 21
+        quote: 'let client: HttpClient | undefined;'
+    reading: 'parsed'
+  - id: 'code.symbol:services/payments/src/http-client.ts#createClient'
+    kind: 'code.symbol'
+    label: 'createClient'
+    evidence:
+      - path: 'services/payments/src/http-client.ts'
+        startLine: 11
+        endLine: 11
+        quote: 'function createClient(timeoutMs: number): HttpClient {'
+    reading: 'parsed'
+  - id: 'code.symbol:services/payments/src/http-client.ts#request'
+    kind: 'code.symbol'
+    label: 'request'
+    evidence:
+      - path: 'services/payments/src/http-client.ts'
+        startLine: 24
+        endLine: 24
+        quote: 'export async function request(url: string, init: RequestInit = {}, timeoutMs = 10_000): Promise<HttpResponse> {'
+    reading: 'parsed'
+edges:
+  - relation: 'code.calls'
+    from: 'code.symbol:services/payments/src/http-client.ts#request'
+    to: 'code.symbol:services/payments/src/http-client.ts#createClient'
+    evidence:
+      - path: 'services/payments/src/http-client.ts'
+        startLine: 25
+        endLine: 25
+        quote: '  client = createClient(timeoutMs);'
+    reading: 'parsed'
+  - relation: 'code.contains'
+    from: 'code.file:services/payments/src/http-client.ts'
+    to: 'code.symbol:services/payments/src/http-client.ts#HttpClient'
+    evidence:
+      - path: 'services/payments/src/http-client.ts'
+        startLine: 7
+        endLine: 7
+        quote: 'interface HttpClient {'
+    reading: 'parsed'
+  - relation: 'code.contains'
+    from: 'code.file:services/payments/src/http-client.ts'
+    to: 'code.symbol:services/payments/src/http-client.ts#HttpResponse'
+    evidence:
+      - path: 'services/payments/src/http-client.ts'
+        startLine: 2
+        endLine: 2
+        quote: 'export interface HttpResponse {'
+    reading: 'parsed'
+  - relation: 'code.contains'
+    from: 'code.file:services/payments/src/http-client.ts'
+    to: 'code.symbol:services/payments/src/http-client.ts#client'
+    evidence:
+      - path: 'services/payments/src/http-client.ts'
+        startLine: 21
+        endLine: 21
+        quote: 'let client: HttpClient | undefined;'
+    reading: 'parsed'
+  - relation: 'code.contains'
+    from: 'code.file:services/payments/src/http-client.ts'
+    to: 'code.symbol:services/payments/src/http-client.ts#createClient'
+    evidence:
+      - path: 'services/payments/src/http-client.ts'
+        startLine: 11
+        endLine: 11
+        quote: 'function createClient(timeoutMs: number): HttpClient {'
+    reading: 'parsed'
+  - relation: 'code.contains'
+    from: 'code.file:services/payments/src/http-client.ts'
+    to: 'code.symbol:services/payments/src/http-client.ts#request'
+    evidence:
+      - path: 'services/payments/src/http-client.ts'
+        startLine: 24
+        endLine: 24
+        quote: 'export async function request(url: string, init: RequestInit = {}, timeoutMs = 10_000): Promise<HttpResponse> {'
+    reading: 'parsed'
+  - relation: 'code.contains'
+    from: 'code.symbol:services/payments/src/http-client.ts#HttpClient'
+    to: 'code.field:services/payments/src/http-client.ts#HttpClient.request'
+    evidence:
+      - path: 'services/payments/src/http-client.ts'
+        startLine: 8
+        endLine: 8
+        quote: '  request(url: string, init: RequestInit): Promise<HttpResponse>;'
+    reading: 'parsed'
+  - relation: 'code.contains'
+    from: 'code.symbol:services/payments/src/http-client.ts#HttpResponse'
+    to: 'code.field:services/payments/src/http-client.ts#HttpResponse.json'
+    evidence:
+      - path: 'services/payments/src/http-client.ts'
+        startLine: 4
+        endLine: 4
+        quote: '  json(): Promise<unknown>;'
+    reading: 'parsed'
+  - relation: 'code.contains'
+    from: 'code.symbol:services/payments/src/http-client.ts#HttpResponse'
+    to: 'code.field:services/payments/src/http-client.ts#HttpResponse.status'
+    evidence:
+      - path: 'services/payments/src/http-client.ts'
+        startLine: 3
+        endLine: 3
+        quote: '  status: number;'
+    reading: 'parsed'

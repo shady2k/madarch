@@ -1,0 +1,358 @@
+path: 'services/payments/src/grpc/server.ts'
+nodes:
+  - id: 'code.field:services/payments/src/grpc/server.ts#AuthorizeRequest.amountCents'
+    kind: 'code.field'
+    label: 'AuthorizeRequest.amountCents'
+    evidence:
+      - path: 'services/payments/src/grpc/server.ts'
+        startLine: 14
+        endLine: 14
+        quote: '  amountCents: number | string;'
+    reading: 'parsed'
+  - id: 'code.field:services/payments/src/grpc/server.ts#AuthorizeRequest.cardToken'
+    kind: 'code.field'
+    label: 'AuthorizeRequest.cardToken'
+    evidence:
+      - path: 'services/payments/src/grpc/server.ts'
+        startLine: 16
+        endLine: 16
+        quote: '  cardToken: string;'
+    reading: 'parsed'
+  - id: 'code.field:services/payments/src/grpc/server.ts#AuthorizeRequest.currency'
+    kind: 'code.field'
+    label: 'AuthorizeRequest.currency'
+    evidence:
+      - path: 'services/payments/src/grpc/server.ts'
+        startLine: 15
+        endLine: 15
+        quote: '  currency: string;'
+    reading: 'parsed'
+  - id: 'code.field:services/payments/src/grpc/server.ts#AuthorizeRequest.idempotencyKey'
+    kind: 'code.field'
+    label: 'AuthorizeRequest.idempotencyKey'
+    evidence:
+      - path: 'services/payments/src/grpc/server.ts'
+        startLine: 17
+        endLine: 17
+        quote: '  idempotencyKey: string;'
+    reading: 'parsed'
+  - id: 'code.field:services/payments/src/grpc/server.ts#AuthorizeRequest.orderId'
+    kind: 'code.field'
+    label: 'AuthorizeRequest.orderId'
+    evidence:
+      - path: 'services/payments/src/grpc/server.ts'
+        startLine: 13
+        endLine: 13
+        quote: '  orderId: string;'
+    reading: 'parsed'
+  - id: 'code.field:services/payments/src/grpc/server.ts#RefundRequest.amountCents'
+    kind: 'code.field'
+    label: 'RefundRequest.amountCents'
+    evidence:
+      - path: 'services/payments/src/grpc/server.ts'
+        startLine: 22
+        endLine: 22
+        quote: '  amountCents: number | string;'
+    reading: 'parsed'
+  - id: 'code.field:services/payments/src/grpc/server.ts#RefundRequest.paymentId'
+    kind: 'code.field'
+    label: 'RefundRequest.paymentId'
+    evidence:
+      - path: 'services/payments/src/grpc/server.ts'
+        startLine: 21
+        endLine: 21
+        quote: '  paymentId: string;'
+    reading: 'parsed'
+  - id: 'code.field:services/payments/src/grpc/server.ts#RefundRequest.reason'
+    kind: 'code.field'
+    label: 'RefundRequest.reason'
+    evidence:
+      - path: 'services/payments/src/grpc/server.ts'
+        startLine: 23
+        endLine: 23
+        quote: '  reason: string;'
+    reading: 'parsed'
+  - id: 'code.file:services/payments/src/grpc/server.ts'
+    kind: 'code.file'
+    label: 'server.ts'
+    evidence:
+      - path: 'services/payments/src/grpc/server.ts'
+        startLine: 1
+        endLine: 1
+        quote: 'import path from ''node:path'';'
+    reading: 'parsed'
+  - id: 'code.symbol:services/payments/src/grpc/server.ts#AuthorizeRequest'
+    kind: 'code.symbol'
+    label: 'AuthorizeRequest'
+    evidence:
+      - path: 'services/payments/src/grpc/server.ts'
+        startLine: 12
+        endLine: 12
+        quote: 'interface AuthorizeRequest {'
+    reading: 'parsed'
+  - id: 'code.symbol:services/payments/src/grpc/server.ts#PROTO_PATH'
+    kind: 'code.symbol'
+    label: 'PROTO_PATH'
+    evidence:
+      - path: 'services/payments/src/grpc/server.ts'
+        startLine: 10
+        endLine: 10
+        quote: 'export const PROTO_PATH = path.resolve(__dirname, ''../../../../contracts/proto/payments.proto'');'
+    reading: 'parsed'
+  - id: 'code.symbol:services/payments/src/grpc/server.ts#RefundRequest'
+    kind: 'code.symbol'
+    label: 'RefundRequest'
+    evidence:
+      - path: 'services/payments/src/grpc/server.ts'
+        startLine: 20
+        endLine: 20
+        quote: 'interface RefundRequest {'
+    reading: 'parsed'
+  - id: 'code.symbol:services/payments/src/grpc/server.ts#loadServiceDefinition'
+    kind: 'code.symbol'
+    label: 'loadServiceDefinition'
+    evidence:
+      - path: 'services/payments/src/grpc/server.ts'
+        startLine: 27
+        endLine: 27
+        quote: 'export function loadServiceDefinition(): grpc.ServiceDefinition {'
+    reading: 'parsed'
+  - id: 'code.symbol:services/payments/src/grpc/server.ts#paymentsHandlers'
+    kind: 'code.symbol'
+    label: 'paymentsHandlers'
+    evidence:
+      - path: 'services/payments/src/grpc/server.ts'
+        startLine: 36
+        endLine: 36
+        quote: 'export function paymentsHandlers(service: PaymentService): grpc.UntypedServiceImplementation {'
+    reading: 'parsed'
+  - id: 'code.symbol:services/payments/src/grpc/server.ts#startGrpcServer'
+    kind: 'code.symbol'
+    label: 'startGrpcServer'
+    evidence:
+      - path: 'services/payments/src/grpc/server.ts'
+        startLine: 74
+        endLine: 74
+        quote: 'export function startGrpcServer(service: PaymentService, port: number): Promise<grpc.Server> {'
+    reading: 'parsed'
+edges:
+  - relation: 'code.calls'
+    from: 'code.symbol:services/payments/src/grpc/server.ts#startGrpcServer'
+    to: 'code.symbol:services/payments/src/grpc/server.ts#loadServiceDefinition'
+    evidence:
+      - path: 'services/payments/src/grpc/server.ts'
+        startLine: 76
+        endLine: 76
+        quote: '  server.addService(loadServiceDefinition(), paymentsHandlers(service));'
+    reading: 'parsed'
+  - relation: 'code.calls'
+    from: 'code.symbol:services/payments/src/grpc/server.ts#startGrpcServer'
+    to: 'code.symbol:services/payments/src/grpc/server.ts#paymentsHandlers'
+    evidence:
+      - path: 'services/payments/src/grpc/server.ts'
+        startLine: 76
+        endLine: 76
+        quote: '  server.addService(loadServiceDefinition(), paymentsHandlers(service));'
+    reading: 'parsed'
+  - relation: 'code.contains'
+    from: 'code.file:services/payments/src/grpc/server.ts'
+    to: 'code.symbol:services/payments/src/grpc/server.ts#AuthorizeRequest'
+    evidence:
+      - path: 'services/payments/src/grpc/server.ts'
+        startLine: 12
+        endLine: 12
+        quote: 'interface AuthorizeRequest {'
+    reading: 'parsed'
+  - relation: 'code.contains'
+    from: 'code.file:services/payments/src/grpc/server.ts'
+    to: 'code.symbol:services/payments/src/grpc/server.ts#PROTO_PATH'
+    evidence:
+      - path: 'services/payments/src/grpc/server.ts'
+        startLine: 10
+        endLine: 10
+        quote: 'export const PROTO_PATH = path.resolve(__dirname, ''../../../../contracts/proto/payments.proto'');'
+    reading: 'parsed'
+  - relation: 'code.contains'
+    from: 'code.file:services/payments/src/grpc/server.ts'
+    to: 'code.symbol:services/payments/src/grpc/server.ts#RefundRequest'
+    evidence:
+      - path: 'services/payments/src/grpc/server.ts'
+        startLine: 20
+        endLine: 20
+        quote: 'interface RefundRequest {'
+    reading: 'parsed'
+  - relation: 'code.contains'
+    from: 'code.file:services/payments/src/grpc/server.ts'
+    to: 'code.symbol:services/payments/src/grpc/server.ts#loadServiceDefinition'
+    evidence:
+      - path: 'services/payments/src/grpc/server.ts'
+        startLine: 27
+        endLine: 27
+        quote: 'export function loadServiceDefinition(): grpc.ServiceDefinition {'
+    reading: 'parsed'
+  - relation: 'code.contains'
+    from: 'code.file:services/payments/src/grpc/server.ts'
+    to: 'code.symbol:services/payments/src/grpc/server.ts#paymentsHandlers'
+    evidence:
+      - path: 'services/payments/src/grpc/server.ts'
+        startLine: 36
+        endLine: 36
+        quote: 'export function paymentsHandlers(service: PaymentService): grpc.UntypedServiceImplementation {'
+    reading: 'parsed'
+  - relation: 'code.contains'
+    from: 'code.file:services/payments/src/grpc/server.ts'
+    to: 'code.symbol:services/payments/src/grpc/server.ts#startGrpcServer'
+    evidence:
+      - path: 'services/payments/src/grpc/server.ts'
+        startLine: 74
+        endLine: 74
+        quote: 'export function startGrpcServer(service: PaymentService, port: number): Promise<grpc.Server> {'
+    reading: 'parsed'
+  - relation: 'code.contains'
+    from: 'code.symbol:services/payments/src/grpc/server.ts#AuthorizeRequest'
+    to: 'code.field:services/payments/src/grpc/server.ts#AuthorizeRequest.amountCents'
+    evidence:
+      - path: 'services/payments/src/grpc/server.ts'
+        startLine: 14
+        endLine: 14
+        quote: '  amountCents: number | string;'
+    reading: 'parsed'
+  - relation: 'code.contains'
+    from: 'code.symbol:services/payments/src/grpc/server.ts#AuthorizeRequest'
+    to: 'code.field:services/payments/src/grpc/server.ts#AuthorizeRequest.cardToken'
+    evidence:
+      - path: 'services/payments/src/grpc/server.ts'
+        startLine: 16
+        endLine: 16
+        quote: '  cardToken: string;'
+    reading: 'parsed'
+  - relation: 'code.contains'
+    from: 'code.symbol:services/payments/src/grpc/server.ts#AuthorizeRequest'
+    to: 'code.field:services/payments/src/grpc/server.ts#AuthorizeRequest.currency'
+    evidence:
+      - path: 'services/payments/src/grpc/server.ts'
+        startLine: 15
+        endLine: 15
+        quote: '  currency: string;'
+    reading: 'parsed'
+  - relation: 'code.contains'
+    from: 'code.symbol:services/payments/src/grpc/server.ts#AuthorizeRequest'
+    to: 'code.field:services/payments/src/grpc/server.ts#AuthorizeRequest.idempotencyKey'
+    evidence:
+      - path: 'services/payments/src/grpc/server.ts'
+        startLine: 17
+        endLine: 17
+        quote: '  idempotencyKey: string;'
+    reading: 'parsed'
+  - relation: 'code.contains'
+    from: 'code.symbol:services/payments/src/grpc/server.ts#AuthorizeRequest'
+    to: 'code.field:services/payments/src/grpc/server.ts#AuthorizeRequest.orderId'
+    evidence:
+      - path: 'services/payments/src/grpc/server.ts'
+        startLine: 13
+        endLine: 13
+        quote: '  orderId: string;'
+    reading: 'parsed'
+  - relation: 'code.contains'
+    from: 'code.symbol:services/payments/src/grpc/server.ts#RefundRequest'
+    to: 'code.field:services/payments/src/grpc/server.ts#RefundRequest.amountCents'
+    evidence:
+      - path: 'services/payments/src/grpc/server.ts'
+        startLine: 22
+        endLine: 22
+        quote: '  amountCents: number | string;'
+    reading: 'parsed'
+  - relation: 'code.contains'
+    from: 'code.symbol:services/payments/src/grpc/server.ts#RefundRequest'
+    to: 'code.field:services/payments/src/grpc/server.ts#RefundRequest.paymentId'
+    evidence:
+      - path: 'services/payments/src/grpc/server.ts'
+        startLine: 21
+        endLine: 21
+        quote: '  paymentId: string;'
+    reading: 'parsed'
+  - relation: 'code.contains'
+    from: 'code.symbol:services/payments/src/grpc/server.ts#RefundRequest'
+    to: 'code.field:services/payments/src/grpc/server.ts#RefundRequest.reason'
+    evidence:
+      - path: 'services/payments/src/grpc/server.ts'
+        startLine: 23
+        endLine: 23
+        quote: '  reason: string;'
+    reading: 'parsed'
+  - relation: 'code.depends-on'
+    from: 'code.file:services/payments/src/grpc/server.ts'
+    to: 'code.contract:contracts/proto/payments.proto'
+    evidence:
+      - path: 'services/payments/src/grpc/server.ts'
+        startLine: 10
+        endLine: 10
+        quote: 'export const PROTO_PATH = path.resolve(__dirname, ''../../../../contracts/proto/payments.proto'');'
+    reading: 'parsed'
+  - relation: 'code.implements'
+    from: 'code.symbol:services/payments/src/grpc/server.ts#paymentsHandlers'
+    to: 'code.operation:contracts/proto/payments.proto#Authorize'
+    evidence:
+      - path: 'services/payments/src/grpc/server.ts'
+        startLine: 38
+        endLine: 38
+        quote: '    authorize: async (call: grpc.ServerUnaryCall<AuthorizeRequest, unknown>, callback: grpc.sendUnaryData<unknown>) => {'
+    reading: 'parsed'
+  - relation: 'code.implements'
+    from: 'code.symbol:services/payments/src/grpc/server.ts#paymentsHandlers'
+    to: 'code.operation:contracts/proto/payments.proto#Refund'
+    evidence:
+      - path: 'services/payments/src/grpc/server.ts'
+        startLine: 54
+        endLine: 54
+        quote: '    refund: async (call: grpc.ServerUnaryCall<RefundRequest, unknown>, callback: grpc.sendUnaryData<unknown>) => {'
+    reading: 'parsed'
+  - relation: 'code.imports'
+    from: 'code.file:services/payments/src/grpc/server.ts'
+    to: 'code.dependency:services/payments/package.json#@grpc/grpc-js'
+    evidence:
+      - path: 'services/payments/src/grpc/server.ts'
+        startLine: 2
+        endLine: 2
+        quote: 'import * as grpc from ''@grpc/grpc-js'';'
+    reading: 'parsed'
+  - relation: 'code.imports'
+    from: 'code.file:services/payments/src/grpc/server.ts'
+    to: 'code.dependency:services/payments/package.json#@grpc/proto-loader'
+    evidence:
+      - path: 'services/payments/src/grpc/server.ts'
+        startLine: 3
+        endLine: 3
+        quote: 'import * as protoLoader from ''@grpc/proto-loader'';'
+    reading: 'parsed'
+  - relation: 'code.imports'
+    from: 'code.file:services/payments/src/grpc/server.ts'
+    to: 'code.file:services/payments/src/domain/payment-service.ts'
+    evidence:
+      - path: 'services/payments/src/grpc/server.ts'
+        startLine: 5
+        endLine: 5
+        quote: 'import { PaymentService } from ''../domain/payment-service'';'
+      - path: 'services/payments/src/grpc/server.ts'
+        startLine: 6
+        endLine: 6
+        quote: 'import { PaymentNotFound } from ''../domain/payment-service'';'
+    reading: 'parsed'
+  - relation: 'code.imports'
+    from: 'code.file:services/payments/src/grpc/server.ts'
+    to: 'code.file:services/payments/src/domain/refund.ts'
+    evidence:
+      - path: 'services/payments/src/grpc/server.ts'
+        startLine: 7
+        endLine: 7
+        quote: 'import { RefundRejected } from ''../domain/refund'';'
+    reading: 'parsed'
+  - relation: 'code.imports'
+    from: 'code.file:services/payments/src/grpc/server.ts'
+    to: 'code.file:services/payments/src/logging/logger.ts'
+    evidence:
+      - path: 'services/payments/src/grpc/server.ts'
+        startLine: 4
+        endLine: 4
+        quote: 'import { logger } from ''../logging/logger'';'
+    reading: 'parsed'
