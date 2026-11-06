@@ -95,7 +95,7 @@ import { publishedTreeRead, publishedTreeRows } from './tree-rows.js';
 export const CODE_FACTS_STAGE_ID = 'code-facts';
 
 /** The stage's own version, bumped when what it writes or plans changes. */
-const CODE_FACTS_STAGE_VERSION = 3;
+const CODE_FACTS_STAGE_VERSION = 4;
 
 /** The fact kinds the stage produces, in code point order. */
 const CODE_FACTS_STAGE_KINDS: readonly string[] = ['binding', 'callable', 'callsite', 'coverage', 'declares', 'export', 'expression', 'field', 'listener-port', 'service-unit'];
@@ -546,7 +546,15 @@ export async function callablesOfFile(path: string, bytes: Uint8Array, findings:
       }),
     });
   }
-  return callables.sort((left, right) => byCodePoint(left.key, right.key));
+  // Two declarations of one name in two scopes are two callables, and the extract reading names
+  // both `code.symbol:<path>#<name>`. A key that repeats takes its own place in the file, so one
+  // draft names one node by one key; a name written once keeps the reading's key unchanged.
+  const counts = new Map<string, number>();
+  for (const callable of callables) counts.set(callable.key, (counts.get(callable.key) ?? 0) + 1);
+  const keyed = callables.map((callable) => (counts.get(callable.key) ?? 0) > 1
+    ? { ...callable, key: `${callable.key}#${String(callable.span.byteStart)}` }
+    : callable);
+  return keyed.sort((left, right) => byCodePoint(left.key, right.key));
 }
 
 /** One syntax span as the graph's own span. */

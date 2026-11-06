@@ -170,6 +170,39 @@ describe('a source file a string escape with U+0000 in it', () => {
   }, 900_000);
 });
 
+describe('two callables of one name in two scopes', () => {
+  test('are two nodes with their own keys, and the draft validates', async () => {
+    const root = mkdtempSync(join(tmpdir(), 'madarch-code-facts-scopes-'));
+    const owner = createPGliteDatabaseOwner({ btreeGist: true });
+    try {
+      const { product } = writeProduct(root, {
+        'services/orders/src/scopes.ts': 'export function row(): number {\n  return 1;\n}\n\nexport function outer(): number {\n  function row(): number {\n    return 2;\n  }\n  return row();\n}\n',
+      });
+      const fill = await createStagesFill({ product, database: owner });
+      const service = createFillOrchestratorService({ home: join(root, 'products'), owner, registry: fill.registry, wiring: () => fill.wiring, maxPasses: 100_000 });
+      try {
+        const result = await service.run({ product: fill.product, runId: 'run-code-facts-scopes' });
+        expect(result.ok).toBe(true);
+        if (!result.ok) return;
+        expect(result.state).toBe('succeeded');
+        const store = createGraphStore(owner);
+        const nodes: NodeVersionRow[] = await store.readAll(async (page) => await store.byProperty('code.callable', 'file', 'services/orders/src/scopes.ts', page));
+        const held = nodes.map((node) => propertiesOf(node)).filter((properties) => properties['repository'] === 'shop');
+        expect(held).toHaveLength(3);
+        const rows = held.filter((properties) => properties['name'] === 'row');
+        expect(rows).toHaveLength(2);
+        expect(new Set(rows.map((properties) => properties['recordKey'])).size).toBe(2);
+        expect(new Set(held.map((properties) => properties['recordKey'])).size).toBe(3);
+      } finally {
+        await service.stop();
+      }
+    } finally {
+      await owner.close();
+      rmSync(root, { recursive: true, force: true });
+    }
+  }, 900_000);
+});
+
 /** Whether a fact carries the empty value a draft would hold if the walk had lost it. */
 function stillUnknown(held: Record<string, unknown>): boolean {
   return held['recordKey'] === undefined || held['span'] === undefined;
