@@ -19,6 +19,8 @@
 import { byCodePoint } from '../../model/order.js';
 import type { SourceSpan } from '../../extract/records.js';
 import type { PublisherExpression, PublisherFacts } from '../../extract/contracts/ts-code.js';
+import { decodeStringToken } from '../../extract/code/literals.js';
+import { messagingTypes } from '../../extract/library-models/messaging-models.js';
 import { fieldSymbolKeyOf } from './operations-code-facts.js';
 import { STATIC_READ_ROW_LIMIT, type StaticStageContext } from './static-context.js';
 
@@ -171,7 +173,7 @@ export async function fileCodeViewOf(stage: StaticStageContext, repository: stri
       },
     });
     for (const expression of expressions.values()) {
-      if (expression.bindingId === undefined && expression.syntaxKind === 'type_identifier' && expression.name === name && contains(declared.node.span, expression.span)) {
+      if (expression.bindingId === undefined && expression.syntaxKind === 'type_identifier' && expression.name === name) {
         (expression as unknown as {bindingId?: string}).bindingId = declared.id;
       }
     }
@@ -180,13 +182,21 @@ export async function fileCodeViewOf(stage: StaticStageContext, repository: stri
   // every identifier to its declaration, and a proof that a type comes from a package asks the
   // import by the name it binds. The file's own imports are the only candidates.
   const importBindings = new Map<string, Row[]>();
+  const importsByDeclaredName = new Map<string, Row[]>();
+  const declaredNames = new Map(messagingTypes.flatMap((model) => model.ecosystem === 'go' && model.packageName !== undefined ? [[model.package, model.packageName] as const] : []));
   for (const row of bindingRows) {
     if (row['kind'] !== 'import' || typeof row['name'] !== 'string') continue;
     importBindings.set(row['name'], [...(importBindings.get(row['name']) ?? []), row]);
+    // A Go package's name is not always its path's tail (`.../kafka-go` is `kafka`): the library
+    // models name the package the import binds, as the Go reader's own rule reads it.
+    const declared = typeof row['specifier'] === 'string' ? declaredNames.get(row['specifier']) : undefined;
+    if (declared !== undefined) importsByDeclaredName.set(declared, [...(importsByDeclaredName.get(declared) ?? []), row]);
   }
   for (const expression of expressions.values()) {
-    if (expression.bindingId !== undefined || (expression.syntaxKind !== 'identifier' && expression.syntaxKind !== 'type_identifier') || expression.name === undefined) continue;
-    const candidates = importBindings.get(expression.name) ?? [];
+    if (expression.bindingId !== undefined || (expression.syntaxKind !== 'identifier' && expression.syntaxKind !== 'type_identifier' && expression.syntaxKind !== 'package_identifier') || expression.name === undefined) continue;
+    const candidates = expression.syntaxKind === 'package_identifier'
+      ? [...(importBindings.get(expression.name) ?? []), ...(importsByDeclaredName.get(expression.name) ?? [])]
+      : importBindings.get(expression.name) ?? [];
     if (candidates.length !== 1) continue;
     const scope = spanOf(candidates[0]!['scope']);
     if (scope === undefined || !contains(scope, expression.span)) continue;
@@ -311,6 +321,10 @@ export async function fileCodeViewOf(stage: StaticStageContext, repository: stri
       const constructed = classNames.get(callee.name);
       const classSymbol = constructed === undefined ? undefined : callables.find((symbol) => !symbol.callable && symbol.qualifiedName === callee.name);
       if (classSymbol !== undefined) targets.push({to: classSymbol.key, fanOut: []});
+      // A construction is also the constructor declaration it runs; a deadline's wiring is proved
+      // by the construction's arguments, and the driver names that declaration.
+      const constructor = constructed === undefined ? undefined : callables.find((symbol) => symbol.callable && symbol.qualifiedName === `${callee.name}.constructor`);
+      if (constructor !== undefined) targets.push({to: constructor.key, fanOut: []});
     } else if (callee.syntaxKind === 'member_expression' && callee.member !== undefined && callee.receiver !== undefined) {
       const receiver = expressions.get(callee.receiver);
       const owner = typeNameOfReceiver(receiver, callee.span);
@@ -384,3 +398,104 @@ function spanOfFileSpan(path: string, bytes: Uint8Array): SourceSpan {
 }
 
 
+
+/** The resolved URL parts of one fetch call, as the driver's `httpCallUrl` reads them. */
+export function httpCallUrlOf(view: FileCodeView, span: SourceSpan): readonly string[] | undefined {
+  const one = <T>(values: readonly T[]): T | undefined => values.length === 1 ? values[0] : undefined;
+  const expressions = new Map<string, PublisherExpression>(view.facts.expressions.map((node) => [node.id, node]));
+  const bindings = view.facts.bindings;
+  const calls = view.facts.calls.filter((call) => call.path === span.path && call.span.byteStart === span.byteStart && call.span.byteEnd === span.byteEnd);
+  const call = one(calls);
+  const argument = call === undefined ? undefined : expressions.get(call.arguments[0] ?? '');
+  if (argument === undefined) return undefined;
+  const changed = new Set<string>();
+  const mark = (id: string): void => {
+    const node = expressions.get(id);
+    if (node === undefined) return;
+    if (node.bindingId !== undefined) changed.add(node.bindingId);
+    for (const child of node.children) mark(child);
+  };
+  for (const node of view.facts.expressions) {
+    if (!['assignment_expression', 'augmented_assignment_expression', 'update_expression'].includes(node.syntaxKind)) continue;
+    for (const id of node.fields['left'] ?? node.children) mark(id);
+  }
+  const parameter = (node: PublisherExpression | undefined): boolean => {
+    if (node?.syntaxKind !== 'identifier' || node.bindingId === undefined) return false;
+    const binding = bindings.find((held) => held.id === node.bindingId);
+    return binding?.kind === 'parameter' && !changed.has(binding.id) && binding.path === node.path
+      && binding.scope.path === node.path && node.span.byteStart >= binding.scope.byteStart && node.span.byteEnd <= binding.scope.byteEnd;
+  };
+  const resolve = (node: PublisherExpression, seen = new Set<string>()): readonly string[] | undefined => {
+    if (seen.has(node.id) || seen.size >= 40) return undefined;
+    seen = new Set([...seen, node.id]);
+    if (node.literal?.kind === 'string' && typeof node.literal.value === 'string') return [node.literal.value];
+    if (node.syntaxKind === 'parenthesized_expression') {
+      const child = one(node.children.flatMap((id) => {
+        const held = expressions.get(id);
+        return held === undefined || held.syntaxKind === 'comment' ? [] : [held];
+      }));
+      return child === undefined ? undefined : resolve(child, seen);
+    }
+    if (node.bindingId !== undefined) {
+      const binding = one(bindings.filter((held) => held.id === node.bindingId));
+      if (binding === undefined || changed.has(binding.id) || node.path !== binding.scope.path || node.span.byteStart < binding.scope.byteStart || node.span.byteEnd > binding.scope.byteEnd) return undefined;
+      const imported = binding.importId === undefined ? undefined : one(view.facts.imports.filter((held) => held.id === binding.importId && held.typeOnly !== true));
+      const target = binding.kind === 'import' ? imported?.targetExpression : binding.initializer;
+      const value = target === undefined ? undefined : expressions.get(target);
+      return value === undefined ? undefined : resolve(value, seen);
+    }
+    if (node.syntaxKind !== 'template_string' || node.literal?.kind !== 'string') return undefined;
+    const raw = Buffer.from(node.literal.raw, 'utf8');
+    if (raw.length !== node.span.byteEnd - node.span.byteStart) return undefined;
+    const substitutions = node.children.flatMap((id) => {
+      const child = expressions.get(id);
+      return child?.syntaxKind === 'template_substitution' ? [child] : [];
+    }).sort((left, right) => left.span.byteStart - right.span.byteStart);
+    if (substitutions.length === 0) return undefined;
+    let at = 1;
+    let value = '';
+    const parts: string[] = [];
+    for (const substitution of substitutions) {
+      const start = substitution.span.byteStart - node.span.byteStart;
+      const end = substitution.span.byteEnd - node.span.byteStart;
+      if (substitution.path !== node.path || start < at || end > raw.length - 1) return undefined;
+      const fragment = decodeStringToken('template_string', '`' + raw.subarray(at, start).toString('utf8') + '`');
+      if (fragment === undefined) return undefined;
+      value += fragment;
+      const child = one(substitution.children.flatMap((id) => {
+        const held = expressions.get(id);
+        return held === undefined || held.syntaxKind === 'comment' ? [] : [held];
+      }));
+      const resolved = child === undefined ? undefined : resolve(child, seen);
+      if (resolved === undefined) {
+        if (start === 1 && parts.length === 0 && value === '') { /* A relative suffix only. */ }
+        else if (parameter(child)) { parts.push(value); value = ''; }
+        else return undefined;
+      } else {
+        if (resolved.length !== 1) return undefined;
+        value += resolved[0]!;
+      }
+      at = end;
+    }
+    const tail = decodeStringToken('template_string', '`' + raw.subarray(at, raw.length - 1).toString('utf8') + '`');
+    return tail === undefined ? undefined : [...parts, value + tail];
+  };
+  return resolve(argument);
+}
+
+/** The alternating parameter path a resolved URL names, as `httpParameterPath` reads it. */
+export function httpParameterPathOf(parts: readonly string[]): readonly (string | undefined)[] | undefined {
+  if (parts.length < 2 || parts.some((part) => part.includes('?') || part.includes('#'))) return undefined;
+  let prefix = parts[0]!;
+  try { prefix = new URL(prefix).pathname; } catch { /* A relative path has no origin. */ }
+  if (!prefix.startsWith('/') || !prefix.endsWith('/')) return undefined;
+  const segments: (string | undefined)[] = prefix.split('/').slice(0, -1);
+  for (const [index, tail] of parts.slice(1).entries()) {
+    if (tail !== '' && !tail.startsWith('/')) return undefined;
+    if (index < parts.length - 2 && !tail.endsWith('/')) return undefined;
+    segments.push(undefined);
+    const suffix = tail === '' ? [] : tail.slice(1).split('/');
+    segments.push(...(index < parts.length - 2 ? suffix.slice(0, -1) : suffix));
+  }
+  return segments;
+}

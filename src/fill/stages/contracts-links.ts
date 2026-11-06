@@ -38,12 +38,12 @@ import {
   type FillStage, type StageContext, type StageDraftSet, type StageDraftWrite, type StageExecutionResult,
   type StageGraphReader, type StagePlan, type StageUnit,
 } from '../stage.js';
-import { readTsFile, joinPath, type TsFileFacts } from '../../extract/contracts/ts-code.js';
+import { readTsFile, joinPath, structuralGrpcDeadline, type TsFileFacts } from '../../extract/contracts/ts-code.js';
 import { inferOutboxPublications } from '../../extract/contracts/outbox.js';
-import { fileCodeViewOf } from './contracts-facts.js';
+import { fileCodeViewOf, httpParameterPathOf, type FileCodeView } from './contracts-facts.js';
 import { readGoFile, resolveGoStarts, type GoFileFacts } from '../../extract/contracts/go-code.js';
 import {
-  EDGE_BELONGS_TO, EDGE_CONTAINS, KIND_ENTRY_POINT, REL_CONSUMES, REL_PUBLISHES, REL_SERVES, channelKey, entryPointKey,
+  EDGE_BELONGS_TO, EDGE_CONTAINS, KIND_ENTRY_POINT, REL_CALLS_REMOTE, REL_CONSUMES, REL_PUBLISHES, REL_SERVES, channelKey, entryPointKey,
 } from '../../extract/contracts/schema.js';
 import type { SourceSpan } from '../../extract/records.js';
 import { evidenceAtPlace } from './draft.js';
@@ -61,7 +61,7 @@ const CONTRACTS_LINKS_STAGE_ID = 'contracts-links';
 const CONTRACTS_LINKS_STAGE_VERSION = 3;
 
 /** The fact kinds the stage produces, in code point order. */
-const CONTRACTS_LINKS_STAGE_KINDS: readonly string[] = ['belongs-to', 'consumes', 'contains', 'coverage', 'entry-point', 'publishes', 'serves', 'starts'];
+const CONTRACTS_LINKS_STAGE_KINDS: readonly string[] = ['belongs-to', 'calls-remote', 'consumes', 'contains', 'coverage', 'entry-point', 'publishes', 'serves', 'starts'];
 
 /** The reader every fact of this stage cites. */
 export const CONTRACTS_LINKS_SOURCE_SYSTEM = 'madarch-contracts-links';
@@ -116,12 +116,15 @@ export function createContractsLinksStage(sources: SnapshotSource): FillStage {
         // The publication sites one file states and the constants and unions a channel's edge names.
         { capability: 'publisher-site', scope: 'repository', freshness: 'current' },
         { capability: 'file-names', scope: 'repository', freshness: 'current' },
+        // The remote call sites one file states, joined to the operation or route they call.
+        { capability: 'remote-call-site', scope: 'repository', freshness: 'current' },
       ],
     },
     produces: [
       { kind: 'belongs-to', schemaVersion: 1, scope: 'file' },
       { kind: 'consumes', schemaVersion: 1, scope: 'file' },
       { kind: 'publishes', schemaVersion: 1, scope: 'file' },
+      { kind: 'calls-remote', schemaVersion: 1, scope: 'file' },
       { kind: 'contains', schemaVersion: FACT_KINDS['contains'].version, scope: 'file' },
       { kind: 'coverage', schemaVersion: FACT_KINDS['coverage'].version, scope: 'file' },
       { kind: 'entry-point', schemaVersion: 1, scope: 'file' },
@@ -292,9 +295,10 @@ async function executeContractsLinksUnit(unit: StageUnit, context: StageContext)
   for (const write of entryRecords) context.draft.write(write);
   const consumeRecords = await consumeWrites(stage, planned.repository, planned.path, evidence, fileFactIdOf(planned.repository, planned.path));
   for (const write of consumeRecords) context.draft.write(write);
-  const publishRecords: readonly StageDraftWrite[] = [];
-  // const publishRecords = await publishWrites(stage, source, planned.repository, planned.path, evidence, fileFactIdOf(planned.repository, planned.path));
-  // for (const write of publishRecords) context.draft.write(write);
+  const publishRecords = await publishWrites(stage, source, planned.repository, planned.path, evidence, fileFactIdOf(planned.repository, planned.path));
+  for (const write of publishRecords) context.draft.write(write);
+  const remoteRecords = await remoteWrites(stage, source, planned.repository, planned.path, evidence, fileFactIdOf(planned.repository, planned.path));
+  for (const write of remoteRecords) context.draft.write(write);
   writeCoverage(context, source, planned.path, { repository: planned.repository, scope: planned.path, complete: true, read: [planned.path], unread: [] }, entry.id);
   context.progress(`read ${planned.path} of ${planned.repository} at ${source.commit}: ${String(edges.length)} ${edges.length === 1 ? 'serving link' : 'serving links'}, ${String(entryRecords.length)} ${entryRecords.length === 1 ? 'entry record' : 'entry records'}, ${String(consumeRecords.length)} consume ${consumeRecords.length === 1 ? 'edge' : 'edges'}, ${String(publishRecords.length)} publish ${publishRecords.length === 1 ? 'edge' : 'edges'}`, 1);
   return { outcome: 'draft' };
@@ -813,6 +817,179 @@ async function outboxWrites(stage: StaticStageContext, source: StaticStageSource
     writes.push(...linkWrites(REL_PUBLISHES, fileFactIdOf(repository, site.span.path), enclosing, channelKey(site.channel), properties, site.span, place));
   }
   return writes;
+}
+
+// ---- the remote calls a file makes ----------------------------------------
+
+/** Whether one URL segment is an explicit path parameter (`{id}`). */
+function httpPathParameter(segment: string): boolean {
+  return segment.startsWith('{') && segment.endsWith('}') && segment.length > 2
+    && ![...segment.slice(1, -1)].some((char) => char === '{' || char === '}' || char === '/' || char === '?' || char === '#');
+}
+
+/** One remote call site a file states, as the contracts-code stage published it. */
+interface RemoteSiteRow {
+  readonly span: SourceSpan;
+  readonly kind: 'http' | 'grpc';
+  readonly method?: string;
+  readonly urlParts?: readonly string[];
+  readonly tokenForwarded?: boolean;
+  readonly client?: string;
+  readonly rpc?: string;
+  readonly fn?: string;
+  readonly className?: string;
+  readonly protoRel?: string;
+  readonly enclosing?: string;
+}
+
+/** One listener port a service's code listens on, as the code-facts stage published it. */
+interface ListenerPortRow {
+  readonly service?: string;
+  readonly port: string;
+}
+
+/**
+ * The remote-call links one file's sites state: a `fetch` call that answers one contract operation
+ * (or, with no contract, the one route that serves its path), and a gRPC call to a proto method,
+ * with the deadline the client's own wiring proves. The matching rule is the driver's own, and the
+ * operations, routes and ports it reads are bounded reads of the graph (madarch-8bdc.2.4).
+ */
+async function remoteWrites(stage: StaticStageContext, source: StaticStageSource, repository: string, path: string, evidence: string, fileKey: string): Promise<readonly StageDraftWrite[]> {
+  const sites = (await allPages((page) => stage.byProperty('code.remote-call-site', 'file', path, page)))
+    .filter((node) => node.properties['repository'] === repository)
+    .map(remoteSiteOf)
+    .filter((site): site is RemoteSiteRow => site !== undefined);
+  if (sites.length === 0) return [];
+  const operations = await operationRows(stage, repository);
+  const routes = await allPages((page) => stage.byProperty('code.route', 'repository', repository, page));
+  const routeRows: RouteRow[] = routes.map((node) => ({
+    key: recordKeyOf(node),
+    method: String(node.properties['method'] ?? ''),
+    path: String(node.properties['path'] ?? ''),
+    ...(typeof node.properties['service'] === 'string' ? { service: node.properties['service'] as string } : {}),
+  }));
+  const ports = (await allPages((page) => stage.byProperty('code.listener-port', 'repository', repository, page))).map(listenerPortOf).filter((row): row is ListenerPortRow => row !== undefined);
+  const place = inputOf(repository, evidence);
+  const writes: StageDraftWrite[] = [];
+  for (const site of sites) {
+    if (site.kind === 'grpc') {
+      const protoPath = site.protoRel === undefined ? undefined : normalizePath(`${folderOf(path)}/${site.protoRel}`);
+      if (protoPath === undefined || site.rpc === undefined) continue;
+      const match = operations.find((operation) => operation.rpc !== undefined && operation.key.startsWith(`code.operation:${protoPath}#`) && operation.rpc.toLowerCase() === site.rpc!.toLowerCase());
+      if (match === undefined) continue;
+      const properties: Record<string, unknown> = { client: site.className !== undefined && site.fn !== undefined ? `${site.className}.${site.fn}` : site.fn ?? site.rpc, via: 'grpc' };
+      const deadline = await grpcDeadlineOf(stage, source, repository, path, site.span);
+      if (deadline !== undefined) { properties['deadlineMs'] = deadline.deadlineMs; properties['deadlineEvidence'] = deadline.evidence.map((span) => ({ ...span })); }
+      writes.push(...linkWrites(REL_CALLS_REMOTE, fileKey, site.enclosing, match.key, properties, site.span, place));
+      continue;
+    }
+    const urlParts = site.urlParts;
+    if (urlParts === undefined || urlParts.length === 0 || site.method === undefined) continue;
+    const parameterPath = urlParts.length > 1 ? httpParameterPathOf(urlParts) : undefined;
+    if (urlParts.length > 1 && parameterPath === undefined) continue;
+    const urlText = urlParts[0]!;
+    let placeholder = urlText.split('?')[0]!;
+    let origin: string | undefined;
+    try { const url = new URL(urlText); placeholder = url.pathname; origin = url.origin; } catch { /* A relative URL has no resolved origin. */ }
+    if (!placeholder.startsWith('/')) continue;
+    const compatible = (candidate: string, requireParameters: boolean): boolean => {
+      if (parameterPath === undefined) return false;
+      const segments = candidate.split('/');
+      return segments.length === parameterPath.length && parameterPath.every((segment, index) =>
+        segment === undefined ? !requireParameters || httpPathParameter(segments[index]!) : segment === segments[index]);
+    };
+    const candidates = operations.filter((operation) => operation.method === site.method && (parameterPath === undefined
+      ? operationPaths(operation).some((candidate) => pathMatches(placeholder, candidate))
+      : operationPaths(operation).some((candidate) => compatible(candidate, false))));
+    const scoped = origin === undefined ? candidates : candidates.filter((operation) => operation.servers.some((server) => { try { return new URL(server).origin === origin; } catch { return false; } }));
+    const matching = scoped.filter((operation) => parameterPath === undefined || operationPaths(operation).some((candidate) => compatible(candidate, true)));
+    const properties: Record<string, unknown> = { ...(site.client === undefined ? {} : { client: site.client }), via: 'http', ...(site.tokenForwarded === true ? { tokenForwarded: true } : {}) };
+    const operation = matching.length === 1 && scoped.length === 1 ? matching[0] : undefined;
+    if (operation !== undefined) {
+      writes.push(...linkWrites(REL_CALLS_REMOTE, fileKey, site.enclosing, operation.key, properties, site.span, place));
+      continue;
+    }
+    if (candidates.length > 0 || parameterPath !== undefined) continue;
+    const scope = origin === undefined ? undefined : servicesOfServers([origin], ports);
+    const serving = routeRows.filter((route) => route.method === site.method && pathMatches(placeholder, route.path) && (scope === undefined || (route.service !== undefined && scope.has(route.service))));
+    if (serving.length === 1) writes.push(...linkWrites(REL_CALLS_REMOTE, fileKey, site.enclosing, serving[0]!.key, properties, site.span, place));
+  }
+  return writes;
+}
+
+/** One remote site's properties, or none where the node is not one of this reading's. */
+function remoteSiteOf(node: StaticGraphNode): RemoteSiteRow | undefined {
+  const span = spanIn(node.properties['span']);
+  if (span === undefined) return undefined;
+  const kind = node.properties['callKind'] === 'grpc' ? 'grpc' : node.properties['callKind'] === 'http' ? 'http' : undefined;
+  if (kind === undefined) return undefined;
+  return {
+    span,
+    kind,
+    ...(typeof node.properties['method'] === 'string' ? { method: node.properties['method'] } : {}),
+    ...(Array.isArray(node.properties['urlParts']) ? { urlParts: node.properties['urlParts'].filter((part): part is string => typeof part === 'string') } : {}),
+    ...(node.properties['tokenForwarded'] === true ? { tokenForwarded: true } : {}),
+    ...(typeof node.properties['client'] === 'string' ? { client: node.properties['client'] } : {}),
+    ...(typeof node.properties['rpc'] === 'string' ? { rpc: node.properties['rpc'] } : {}),
+    ...(typeof node.properties['fn'] === 'string' ? { fn: node.properties['fn'] } : {}),
+    ...(typeof node.properties['className'] === 'string' ? { className: node.properties['className'] } : {}),
+    ...(typeof node.properties['protoRel'] === 'string' ? { protoRel: node.properties['protoRel'] } : {}),
+    ...(typeof node.properties['enclosing'] === 'string' ? { enclosing: node.properties['enclosing'] } : {}),
+  };
+}
+
+/** One listener port's service and port. */
+function listenerPortOf(node: StaticGraphNode): ListenerPortRow | undefined {
+  const port = node.properties['port'];
+  if (typeof port !== 'string') return undefined;
+  return { port, ...(typeof node.properties['service'] === 'string' ? { service: node.properties['service'] } : {}) };
+}
+
+/** The ports each service's code listens on, from the per-file facts. */
+function servicesOfServers(servers: readonly string[], ports: readonly ListenerPortRow[]): Set<string> {
+  const byService = new Map<string, Set<string>>();
+  for (const row of ports) {
+    if (row.service === undefined) continue;
+    byService.set(row.service, new Set([...(byService.get(row.service) ?? []), row.port]));
+  }
+  const services = new Set<string>();
+  for (const server of servers) {
+    try {
+      const url = new URL(server);
+      if (byService.has(url.hostname)) { services.add(url.hostname); continue; }
+      const byPort = [...byService].filter(([, held]) => url.port !== '' && held.has(url.port));
+      if (byPort.length === 1 && ['localhost', '127.0.0.1', '0.0.0.0'].includes(url.hostname)) services.add(byPort[0]![0]);
+    } catch { /* A relative or variable server URL identifies no service. */ }
+  }
+  return services;
+}
+
+/** The deadline one gRPC call's own wiring proves, over the facts of the service the client stands in. */
+async function grpcDeadlineOf(stage: StaticStageContext, source: StaticStageSource, repository: string, path: string, span: SourceSpan): Promise<{ readonly deadlineMs: number; readonly evidence: readonly SourceSpan[] } | undefined> {
+  const unit = (await allPages((page) => stage.byProperty('code.service-unit', 'file', path, page))).find((node) => node.properties['repository'] === repository);
+  const service = unit === undefined || typeof unit.properties['name'] !== 'string' ? undefined : unit.properties['name'] as string;
+  if (service === undefined) return undefined;
+  const files = [...new Set((await allPages((page) => stage.byProperty('code.service-unit', 'name', service, page)))
+    .filter((node) => node.properties['repository'] === repository)
+    .flatMap((node) => typeof node.properties['file'] === 'string' ? [node.properties['file'] as string] : []))].sort(byCodePoint);
+  const views: FileCodeView[] = [];
+  for (const file of files) {
+    const held = await source.file(file);
+    if (held?.content === undefined) continue;
+    views.push(await fileCodeViewOf(stage, repository, file, held.content));
+  }
+  if (views.length === 0) return undefined;
+  const facts = {
+    files: views.flatMap((view) => view.facts.files),
+    expressions: views.flatMap((view) => view.facts.expressions),
+    bindings: views.flatMap((view) => view.facts.bindings),
+    calls: views.flatMap((view) => view.facts.calls),
+    symbols: views.flatMap((view) => view.facts.symbols),
+    imports: views.flatMap((view) => view.facts.imports),
+    sites: views.flatMap((view) => view.facts.sites),
+    fields: views.flatMap((view) => view.facts.fields ?? []),
+  };
+  return structuralGrpcDeadline({ facts, code: { edges: views.flatMap((view) => view.code.edges) }, tree: { read: (asked: string) => views.find((view) => view.facts.files.some((file) => file.path === asked))?.read(asked) ?? new Uint8Array() }, libraryFacts: () => undefined }, span);
 }
 
 // ---- the reads one unit makes ---------------------------------------------

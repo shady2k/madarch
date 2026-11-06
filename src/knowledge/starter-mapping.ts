@@ -63,6 +63,7 @@ export const MAPPING_KIND_ROWS: readonly CatalogMappingRow[] = [
   { key: 'code.kafka-site', internal: 'one Kafka reader or writer site a Go file states, from which the contracts reading links a channel to its consumer or publisher' },
   { key: 'code.publisher-site', internal: 'one publication site a file states, from which the contracts reading links a channel to the code that writes it' },
   { key: 'code.file-names', internal: 'the constant strings and type unions one code file states, read by the contracts reading as a publication\'s topic constant and event kinds' },
+  { key: 'code.remote-call-site', internal: 'one remote call site a file states, from which the contracts reading links the operation or route it calls' },
   { key: 'code.health-endpoint', kind: 'code.health-endpoint' },
   { key: 'code.healthcheck', kind: 'code.healthcheck' },
   { key: 'code.http-route', internal: 'one route a file registers, from which the links stage makes the endpoint of the handler it names' },

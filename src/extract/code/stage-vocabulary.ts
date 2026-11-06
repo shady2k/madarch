@@ -110,6 +110,8 @@ export const STAGE_NODE_KINDS: readonly string[] = [
   // constant strings and type unions another file's edge names.
   'code.publisher-site',
   'code.file-names',
+  // One remote call site a file states, which the links stage joins to the operation it calls.
+  'code.remote-call-site',
 ];
 
 /**

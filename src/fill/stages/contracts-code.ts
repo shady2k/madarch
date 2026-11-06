@@ -40,7 +40,7 @@ import {
 } from '../stage.js';
 import { readTsFile, structuralPublishers, type TsFileFacts } from '../../extract/contracts/ts-code.js';
 import { libraryEffectsOf } from './library-effects.js';
-import { fileCodeViewOf } from './contracts-facts.js';
+import { fileCodeViewOf, httpCallUrlOf, type FileCodeView } from './contracts-facts.js';
 import { readGoFile, type GoFileFacts } from '../../extract/contracts/go-code.js';
 import {
   EDGE_CONTAINS, inputKey, KIND_INPUT, KIND_SQL_BUILD, KIND_SQL_SINK, REL_FLOWS_INTO, sqlBuildKey, sqlSinkKey,
@@ -61,7 +61,7 @@ export const CONTRACTS_CODE_STAGE_ID = 'contracts-code';
 const CONTRACTS_CODE_STAGE_VERSION = 1;
 
 /** The fact kinds the stage produces, in code point order. */
-const CONTRACTS_CODE_STAGE_KINDS: readonly string[] = ['contains', 'coverage', 'declares', 'file-names', 'flows-into', 'go-consumer', 'go-package', 'input', 'kafka-site', 'middleware-chain', 'publisher-site', 'router-mount', 'sql-build', 'sql-sink'];
+const CONTRACTS_CODE_STAGE_KINDS: readonly string[] = ['contains', 'coverage', 'declares', 'file-names', 'flows-into', 'go-consumer', 'go-package', 'input', 'kafka-site', 'middleware-chain', 'publisher-site', 'remote-call-site', 'router-mount', 'sql-build', 'sql-sink'];
 
 /** The kinds the stage writes beside the extractor's own: the per-file facts the later stages read. */
 const MIDDLEWARE_CHAIN_KIND = 'code.middleware-chain';
@@ -71,6 +71,8 @@ const KAFKA_SITE_KIND = 'code.kafka-site';
 const GO_CONSUMER_KIND = 'code.go-consumer';
 /** One publication site one file states, linked to a channel by the links stage. */
 const PUBLISHER_SITE_KIND = 'code.publisher-site';
+/** One remote call site one file states, linked to the operation or route it calls. */
+const REMOTE_SITE_KIND = 'code.remote-call-site';
 /** The constant strings and the type unions one code file states, which a publication's edge names. */
 const FILE_NAMES_KIND = 'code.file-names';
 /**
@@ -139,6 +141,7 @@ export function createContractsCodeStage(sources: SnapshotSource): FillStage {
       { kind: 'kafka-site', schemaVersion: 1, scope: 'file' },
       { kind: 'middleware-chain', schemaVersion: 1, scope: 'file' },
       { kind: 'publisher-site', schemaVersion: 1, scope: 'file' },
+      { kind: 'remote-call-site', schemaVersion: 1, scope: 'file' },
       { kind: 'router-mount', schemaVersion: 1, scope: 'file' },
       { kind: 'sql-build', schemaVersion: 1, scope: 'file' },
       { kind: 'sql-sink', schemaVersion: 1, scope: 'file' },
@@ -272,8 +275,12 @@ async function executeContractsCodeUnit(unit: StageUnit, context: StageContext):
   const callables = await allPages((page) => stage.byProperty('code.callable', 'file', planned.path, page));
   const symbols = await allPages((page) => stage.byProperty('code.symbol', 'file', planned.path, page));
   const enclosing = (span: SourceSpan): string | undefined => enclosingAt(span, callables, symbols);
-  const publications = { sites: [] as readonly { readonly span: SourceSpan; readonly channel?: string; readonly publisher?: string; readonly key?: string; readonly evidence: readonly SourceSpan[] }[], gaps: [] };
+  const library = await libraryEffectsOf(stage, planned.repository, planned.path);
+  const view = await fileCodeViewOf(stage, planned.repository, planned.path, file.content!, library.roles);
+  const publications = structuralPublishers(view);
+  const remote = remoteSiteWrites({ repository: planned.repository, path: planned.path, fileKey, evidence, view, ts, enclosing, service });
   for (const write of codeSiteWrites({ repository: planned.repository, path: planned.path, fileKey, evidence, fileSpan, ts, go, service, enclosing, publishers: publications.sites })) context.draft.write(write);
+  for (const write of remote) context.draft.write(write);
   writeCoverage(context, source, planned.path, { repository: planned.repository, scope: planned.path, complete: true, read: [planned.path], unread: [] }, entry.id);
   const inputs = ts?.inputs.length ?? 0;
   const sinks = ts?.sqlSinks.length ?? 0;
@@ -656,6 +663,69 @@ function codeSiteWrites(input: {
   return writes;
 }
 
+/**
+ * The remote call sites one TypeScript file states: its `fetch` calls with the URL parts its own
+ * facts resolve, and its gRPC client calls with the proto the file loads. The links stage joins a
+ * site to the operation or route another file declares (madarch-8bdc.2.4).
+ */
+function remoteSiteWrites(input: {
+  readonly repository: string;
+  readonly path: string;
+  readonly fileKey: string;
+  readonly evidence: string;
+  readonly view: FileCodeView;
+  readonly ts: TsFileFacts | undefined;
+  readonly enclosing: (span: SourceSpan) => string | undefined;
+  readonly service: string | undefined;
+}): readonly StageDraftWrite[] {
+  if (input.ts === undefined) return [];
+  const writes: StageDraftWrite[] = [];
+  const commit = commitOf(input.evidence);
+  const sites: { key: string; span: SourceSpan; properties: Record<string, unknown> }[] = [];
+  for (const call of input.ts.fetchCalls) {
+    const urlParts = httpCallUrlOf(input.view, call.span);
+    if (urlParts === undefined) continue;
+    sites.push({
+      key: `${REMOTE_SITE_KIND}:${input.repository}:${input.path}#${String(call.span.byteStart)}`,
+      span: call.span,
+      properties: {
+        file: input.path,
+        path: input.path,
+        callKind: 'http',
+        method: call.method,
+        urlParts: [...urlParts],
+        ...(call.tokenForwarded ? { tokenForwarded: true } : {}),
+        ...(call.client === undefined ? {} : { client: call.client }),
+        ...(input.service === undefined ? {} : { service: input.service }),
+        ...(input.enclosing(call.span) === undefined ? {} : { enclosing: input.enclosing(call.span) }),
+      },
+    });
+  }
+  for (const site of input.ts.grpcSites) {
+    if (site.kind !== 'call') continue;
+    sites.push({
+      key: `${REMOTE_SITE_KIND}:${input.repository}:${input.path}#${String(site.span.byteStart)}`,
+      span: site.span,
+      properties: {
+        file: input.path,
+        path: input.path,
+        callKind: 'grpc',
+        rpc: site.rpc,
+        ...(site.fn === undefined ? {} : { fn: site.fn }),
+        ...(site.className === undefined ? {} : { className: site.className }),
+        ...(input.ts.protoRel === undefined ? {} : { protoRel: input.ts.protoRel }),
+        ...(input.service === undefined ? {} : { service: input.service }),
+        ...(input.enclosing(site.span) === undefined ? {} : { enclosing: input.enclosing(site.span) }),
+      },
+    });
+  }
+  for (const site of sites.sort((left, right) => byCodePoint(left.key, right.key))) {
+    writes.push(nodeWrite({ key: site.key, kind: REMOTE_SITE_KIND, label: input.path, properties: site.properties }, site.span, input.repository, commit, input.evidence));
+    writes.push(edgeWrite(DECLARES_RELATION, input.fileKey, site.key, { span: site.span, discriminator: '' }, input.repository, input.evidence, commit));
+  }
+  return writes;
+}
+
 /** One record this stage writes: the extractor's node, or a per-file fact of the stage's own kind. */
 interface WrittenNode {
   readonly key: string;
@@ -697,6 +767,7 @@ function factKindOf(kind: string): string {
   if (kind === KAFKA_SITE_KIND) return 'kafka-site';
   if (kind === GO_CONSUMER_KIND) return 'go-consumer';
   if (kind === PUBLISHER_SITE_KIND) return 'publisher-site';
+  if (kind === REMOTE_SITE_KIND) return 'remote-call-site';
   if (kind === FILE_NAMES_KIND) return 'file-names';
   throw new Error(`the contracts-code stage writes a ${JSON.stringify(kind)} node and names no fact kind for it (src/fill/stages/contracts-code.ts)`);
 }

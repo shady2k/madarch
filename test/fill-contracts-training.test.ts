@@ -309,7 +309,7 @@ function stageRecords(): Reading[] {
 }
 
 /** The per-file facts this reading publishes for later stages, which the extract driver never reads. */
-const INTERNAL_PREFIXES: readonly string[] = ['code.middleware-chain:', 'code.router-mount:', 'code.go-package:', 'code.kafka-site:', 'code.go-consumer:', 'code.publisher-site:', 'code.file-names:'];
+const INTERNAL_PREFIXES: readonly string[] = ['code.middleware-chain:', 'code.router-mount:', 'code.go-package:', 'code.kafka-site:', 'code.go-consumer:', 'code.publisher-site:', 'code.file-names:', 'code.remote-call-site:'];
 
 /** Whether a row is one of the reading's own per-file facts rather than a record of the extractor's. */
 function internal(row: { readonly kind: string; readonly properties: unknown }): boolean {
