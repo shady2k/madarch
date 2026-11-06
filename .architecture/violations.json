@@ -3716,11 +3716,6 @@
   },
   {
     "rule": "no-unreachable-code",
-    "file": "src/product/daemon.ts",
-    "symbol": "landedFillOf"
-  },
-  {
-    "rule": "no-unreachable-code",
     "file": "src/product/demo.ts",
     "symbol": "DEMO_REPOSITORY"
   },

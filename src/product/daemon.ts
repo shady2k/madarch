@@ -608,26 +608,6 @@ export function daemonFillOrchestrator(home: string, options: Omit<FillOrchestra
 }
 
 /**
- * The landed fill's own state, where it is one that holds the product: the fill a
- * person started from the wizard keeps `run.json` under the product's
- * `.madarch/fill`, and a run that stands `running` or `paused` there is a fill of
- * that product in progress. A product that never ran one, and one whose state
- * cannot be read, answer nothing: an unreadable state file is not a fill that
- * holds the product, and the update it would block is not this function's to guess.
- */
-export async function landedFillOf(folder: string): Promise<{ status: string; file: string } | undefined> {
-  const paths = fillStatePaths(folder);
-  let run: { status?: unknown };
-  try {
-    run = await readFillJson<{ status?: unknown }>(paths.run);
-  } catch {
-    return undefined;
-  }
-  if (typeof run.status !== 'string') return undefined;
-  return run.status === 'running' || run.status === 'paused' ? { status: run.status, file: paths.run } : undefined;
-}
-
-/**
  * The update after commits to a product's default branch (madarch-tzte.26.2;
  * decision 0026, "Updates"): the watcher of the server's own products home, which
  * starts one debounced run of a product whose default branch moved. A start is the
@@ -644,13 +624,6 @@ export function daemonUpdateWatch(home: string, service: FillOrchestratorService
     ...(options.enabled === undefined ? {} : { enabled: options.enabled }),
     log: options.log ?? ((line: string) => console.log(`updates: ${line}`)),
     start: async (request) => {
-      // The landed fill — the one the wizard's own Start runs — keeps its state in the product's `.madarch/fill` and
-      // is no run of this service: an update started over it would be a second fill of one product at once, so the
-      // commit waits for it exactly as it waits for a run of the orchestrator (`startRun`'s chain, below).
-      const landed = await landedFillOf(request.product.folder);
-      if (landed !== undefined) {
-        return { started: false, deferred: true, reason: `the product ${JSON.stringify(request.product.name)} fills in ${landed.file}, which stands ${landed.status}: an update waits for that fill to end` };
-      }
       // A product that fills now is asked nothing: the store's chain says so before any run record is written, so a
       // commit that waits for a fill leaves none behind. `run`'s own rule still governs the race.
       const active = await service.activity({ product: request.product });
