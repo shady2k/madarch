@@ -40,8 +40,12 @@ import { STAGE_EDGE_TYPES } from '../src/extract/code/stage-vocabulary.js';
 import { GraphReader, type GraphEntity, type RelationEdge } from '../src/knowledge/graph-read.js';
 import { NAMED_KINDS, naturalKeyOf } from './reference-graph-natural-key.js';
 import {
+  catalogEdgeOf, catalogKindOf, catalogNameOf, catalogRelationOf, kindMappingOf, relationMappingOf,
+  type CanonicalEdge,
+} from './reference-graph-catalog.js';
+import {
   IDENTITY_KINDS, matchEdges, matchNodes, placeOfProperties, readScoring,
-  type GraphEdge, type NodeRecord, type ReferenceEdge, type ReferenceEntry,
+  type GraphEdge, type NodeRecord, type ReferenceEdge, type ReferenceEntry, type Scoring,
 } from './reference-graph-by-place.js';
 
 const USAGE = 'usage: bun scripts/score-reference-graph.ts <reference folder> <repository folder> <graph database> [--json]';
@@ -127,6 +131,12 @@ interface Result {
   readonly scopedApart: readonly { readonly scope: string; readonly count: number }[];
   readonly unscored: { readonly nodes: number; readonly edges: number };
   readonly outOfScope: readonly { readonly name: string; readonly reference: number; readonly graph: number; readonly why: string }[];
+  readonly mappings: readonly {
+    readonly sort: 'kind' | 'relation';
+    readonly extractor: string;
+    readonly catalog: string;
+    readonly direction: 'same' | 'inverse';
+  }[];
   readonly totals: Readonly<Record<string, Readonly<Record<string, {
     reference: number; graph: number; truePositives: number;
     nameReference: number; nameGraph: number; nameTruePositives: number;
@@ -292,50 +302,83 @@ async function score(referenceRoot: string, repositoryFolder: string, database: 
     }
     if (entities.length === 0) throw new UsageError(`the graph holds no record of a repository named ${JSON.stringify(repository)}: its records say which repository they were read from, and none says this one`);
 
+    // Both sides are read in the catalog's vocabulary: every kind and relation is
+    // resolved through the mapping, and a key without a row is compared as written.
+    const originalKindOfRecord = new Map<string, string>(entities.map((entity) => [entity.key, entity.kind]));
+    const matchEntries: ReferenceEntry[] = reference.nodes.map((node) => ({
+      id: node.id,
+      kind: catalogKindOf(node.kind),
+      evidence: node.evidence,
+      ...(node.scored === false ? { scored: false as const } : {}),
+    }));
+    const originalKindOfEntry = new Map<string, string>(reference.nodes.map((node) => [node.id, node.kind]));
+
     const records: NodeRecord[] = entities.map((entity) => {
       const name = nameOf(entity);
       const identity = identityOf(entity);
       const place = placeOfEntity(entity);
       return {
         key: entity.key,
-        kind: entity.kind,
+        kind: catalogKindOf(entity.kind),
         ...(name === undefined ? {} : { name }),
         ...(place === undefined ? {} : { place }),
         ...(identity === undefined ? {} : { identity }),
       };
     });
-    const match = matchNodes(reference.nodes, records);
+    const match = matchNodes(matchEntries, records);
 
-    // The names a reference's SCORING.md keeps out of every count (`scored: no`):
-    // the two sides mean different facts there, or the reference does not state it.
-    const scoredOut = new Set([...reference.scoring.entries()].filter(([, held]) => held.scored === false).map(([name]) => name));
-    const allKinds = new Set([...reference.nodes.map((node) => node.kind), ...entities.map((entity) => entity.kind)]);
+    // The names a reference's SCORING.md keeps out of every count (`scored: no`),
+    // in the catalog's vocabulary.
+    const scoring = new Map<string, Scoring>();
+    for (const [name, held] of reference.scoring) scoring.set(catalogNameOf(name), held);
+    const scoredOut = new Set([...scoring.entries()].filter(([, held]) => held.scored === false).map(([name]) => name));
+    const allKinds = new Set([...matchEntries.map((entry) => entry.kind), ...records.map((record) => record.kind)]);
     const outOfScopeKinds = new Set([...scoredOut].filter((name) => allKinds.has(name)));
 
-    // The edges of every relation the producers declare and the reference uses.
+    // Every edge the graph holds, of every relation the producers declare, in the
+    // catalog's vocabulary.
     const relations = [...new Set([...EXTRACTOR_RELATIONS.keys(), ...STAGE_EDGE_TYPES.map((relation) => relation.key), ...reference.edges.map((edge) => edge.relation)])].sort();
-    const graphEdges: GraphEdge[] = [];
-    const graphEdgeRows = new Map<string, RelationEdge>();
+    const rawGraphEdges: { relation: string; from: string; to: string; row: RelationEdge }[] = [];
     for (const relation of relations) {
       const found = await reader.relationEdges(relation, 100_000);
       for (const edge of found.rows) {
         const own = edge.properties['repository'];
         if (typeof own === 'string' && own !== repository) continue;
-        graphEdges.push({ relation, from: edge.from.key, to: edge.to.key });
-        graphEdgeRows.set(`${relation}\u0000${edge.from.key}\u0000${edge.to.key}`, edge);
+        rawGraphEdges.push({ relation, from: edge.from.key, to: edge.to.key, row: edge });
       }
     }
+    const graphEdgeOf = (edge: { relation: string; from: string; to: string }): CanonicalEdge => catalogEdgeOf(edge.relation, edge.from, edge.to);
+    const graphEdgeRows = new Map<string, RelationEdge>();
+    for (const edge of rawGraphEdges) {
+      const held = graphEdgeOf(edge);
+      graphEdgeRows.set(`${held.relation}\u0000${held.from}\u0000${held.to}`, edge.row);
+    }
+    const canonicalGraphRelations = new Set(rawGraphEdges.map((edge) => graphEdgeOf(edge).relation));
+
     // A relation the reference keeps out of every count, as SCORING.md says.
-    const outOfScopeRelations = new Set([...scoredOut].filter((name) => [...reference.edges.map((edge) => edge.relation), ...graphEdges.map((edge) => edge.relation)].includes(name)));
+    const outOfScopeRelations = new Set([...scoredOut].filter((name) => canonicalGraphRelations.has(name) || reference.edges.some((edge) => catalogRelationOf(edge.relation) === name)));
     // An edge is comparable only when both of its ends are records of kinds the
     // reference states; an edge that touches a kind the reference leaves out by
     // design is reported apart, like the record itself.
-    const referenceKindsForEdges = new Set(reference.nodes.map((node) => node.kind).filter((kind) => !outOfScopeKinds.has(kind)));
-    const kindOfKey = new Map<string, string>(entities.map((entity) => [entity.key, entity.kind]));
-    const inScope = graphEdges.filter((edge) => !outOfScopeRelations.has(edge.relation) && referenceKindsForEdges.has(kindOfKey.get(edge.from) ?? '') && referenceKindsForEdges.has(kindOfKey.get(edge.to) ?? ''));
+    const referenceKindsForEdges = new Set(matchEntries.map((entry) => entry.kind).filter((kind) => !outOfScopeKinds.has(kind)));
+    const kindOfKey = new Map<string, string>(records.map((record) => [record.key, record.kind]));
+    const rawInScope = rawGraphEdges.filter((edge) => {
+      if (outOfScopeRelations.has(graphEdgeOf(edge).relation)) return false;
+      return referenceKindsForEdges.has(kindOfKey.get(edge.from) ?? '') && referenceKindsForEdges.has(kindOfKey.get(edge.to) ?? '');
+    });
+    const inScope: CanonicalEdge[] = [];
+    const inScopeSeen = new Set<string>();
+    for (const edge of rawInScope) {
+      const held = graphEdgeOf(edge);
+      const key = `${held.relation}\u0000${held.from}\u0000${held.to}`;
+      if (inScopeSeen.has(key)) continue;
+      inScopeSeen.add(key);
+      inScope.push(held);
+    }
     const keepsApart = new Map<string, number>();
-    for (const edge of graphEdges) {
-      if (inScope.includes(edge)) continue;
+    for (const edge of rawGraphEdges) {
+      if (rawInScope.includes(edge)) continue;
+      if (outOfScopeRelations.has(graphEdgeOf(edge).relation)) continue;
       const kind = !referenceKindsForEdges.has(kindOfKey.get(edge.from) ?? '') ? kindOfKey.get(edge.from) ?? '—' : kindOfKey.get(edge.to) ?? '—';
       keepsApart.set(kind, (keepsApart.get(kind) ?? 0) + 1);
     }
@@ -343,9 +386,15 @@ async function score(referenceRoot: string, repositoryFolder: string, database: 
     const unscoredNodes = new Set(reference.nodes.filter((node) => node.scored === false).map((node) => node.id));
     const unscoredEdges = new Set(reference.edges.filter((edge) => edge.scored === false || unscoredNodes.has(edge.from) || unscoredNodes.has(edge.to)));
     const scoredReferenceEdges = reference.edges.filter((edge) => !unscoredEdges.has(edge));
-    const edgeMatch = matchEdges(scoredReferenceEdges, inScope, match.recordToEntry);
+    const canonicalReferenceEdges = scoredReferenceEdges.map((edge) => ({ ...graphEdgeOf(edge), original: edge }));
+    const edgeMatch = matchEdges(
+      canonicalReferenceEdges.map((edge) => ({ relation: edge.relation, from: edge.from, to: edge.to, reading: edge.original.reading, evidence: edge.original.evidence, ...(edge.original.scored === false ? { scored: false as const } : {}), ...(edge.original.scope === undefined ? {} : { scope: edge.original.scope }) })),
+      inScope,
+      match.recordToEntry,
+    );
 
-    // The name-only match, for comparison: the natural id of a record against the entry's id.
+    // The name-only match, for comparison: the natural id of a record against the
+    // entry's id, grouped in the catalog's vocabulary.
     const nameKey = new Map<string, string>();
     for (const entity of entities) {
       if (!NAMED_KINDS.has(entity.kind)) continue;
@@ -367,16 +416,17 @@ async function score(referenceRoot: string, repositoryFolder: string, database: 
       if (namesByKind.get(node.kind)?.has(node.id) === true) nameFound.add(node.id);
     }
     const nameEdgesHeld = new Set<string>();
-    for (const edge of inScope) {
+    for (const edge of rawInScope) {
       const from = nameKey.get(edge.from);
       const to = nameKey.get(edge.to);
       if (from === undefined || to === undefined) continue;
-      nameEdgesHeld.add(`${edge.relation}\u0000${from}\u0000${to}`);
+      const held = graphEdgeOf(edge);
+      nameEdgesHeld.add(`${held.relation}\u0000${from}\u0000${to}`);
     }
+    const originalKindsOf = (catalog: string): string[] => [...new Set(reference.nodes.map((node) => node.kind).concat(entities.map((entity) => entity.kind)).filter((kind) => catalogKindOf(kind) === catalog))];
 
-    // The names a reference's SCORING.md keeps out of every count (`scored: no`):
-    // the two sides mean different facts there, or the reference does not state it.
-    const referenceKinds = new Set(reference.nodes.map((node) => node.kind).filter((kind) => !outOfScopeKinds.has(kind)));
+    // The names a reference's SCORING.md keeps out of every count (`scored: no`).
+    const referenceKinds = new Set(matchEntries.map((entry) => entry.kind).filter((kind) => !outOfScopeKinds.has(kind)));
     const table: Row[] = [];
     const missing: Missing[] = [];
     const extra: Extra[] = [];
@@ -387,17 +437,18 @@ async function score(referenceRoot: string, repositoryFolder: string, database: 
     // apart (it is left out by design), never scored.
     const kinds = [...referenceKinds].sort();
     for (const kind of kinds) {
-      const entries = reference.nodes.filter((node) => node.kind === kind && node.scored !== false);
-      const held = entities.filter((entity) => entity.kind === kind);
-      const names = namesByKind.get(kind)?.size ?? 0;
+      const entries = matchEntries.filter((entry) => entry.kind === kind && entry.scored !== false);
+      const held = entities.filter((entity) => catalogKindOf(entity.kind) === kind);
+      const originals = originalKindsOf(kind);
+      const names = originals.reduce((sum, original) => sum + (namesByKind.get(original)?.size ?? 0), 0);
       const ambiguity = match.ambiguous.get(kind);
       if (ambiguity !== undefined) ambiguous.push(ambiguity);
       const unplaced = match.noPlace.get(kind);
       if (unplaced !== undefined) noPlace.push({ kind, count: unplaced });
       for (const className of ['parsed+declared', 'judgement']) {
-        const wanted = entries.filter((node) => classOf(node.reading) === className);
-        const tp = wanted.filter((node) => match.entryToRecord.has(node.id)).length;
-        const tpName = wanted.filter((node) => nameFound.has(node.id)).length;
+        const wanted = entries.filter((entry) => classOf(reference.nodes.find((node) => node.id === entry.id)?.reading ?? 'parsed') === className);
+        const tp = wanted.filter((entry) => match.entryToRecord.has(entry.id)).length;
+        const tpName = wanted.filter((entry) => nameFound.has(entry.id)).length;
         const precision = share(tp, held.length);
         const recall = share(tp, wanted.length);
         table.push({
@@ -408,11 +459,14 @@ async function score(referenceRoot: string, repositoryFolder: string, database: 
           namePrecision: share(tpName, names), nameRecall: share(tpName, wanted.length),
           noPlace: unplaced ?? 0,
           ambiguous: ambiguity?.entries ?? 0,
-          recallScored: reference.scoring.get(kind)?.recall !== false,
+          recallScored: scoring.get(kind)?.recall !== false,
         });
       }
-      for (const node of entries) {
-        if (!match.entryToRecord.has(node.id)) missing.push({ kind, id: node.id, reading: node.reading, evidence: node.evidence });
+      for (const entry of entries) {
+        if (!match.entryToRecord.has(entry.id)) {
+          const node = reference.nodes.find((held2) => held2.id === entry.id)!;
+          missing.push({ kind, id: entry.id, reading: node.reading, evidence: node.evidence });
+        }
       }
       for (const entity of held) {
         if (match.recordToEntry.has(entity.key)) continue;
@@ -421,13 +475,13 @@ async function score(referenceRoot: string, repositoryFolder: string, database: 
       }
     }
 
-    // Relations, by relation and by class.
-    const referenceRelations = new Set(reference.edges.map((edge) => edge.relation).filter((relation) => !outOfScopeRelations.has(relation)));
+    // Relations, by relation and by class, in the catalog's vocabulary.
+    const referenceRelations = new Set(canonicalReferenceEdges.map((edge) => edge.relation).filter((relation) => !outOfScopeRelations.has(relation)));
     const relationsHeld = [...referenceRelations].sort();
     for (const relation of relationsHeld) {
       const held = inScope.filter((edge) => edge.relation === relation);
       for (const className of ['parsed+declared', 'judgement']) {
-        const edges = scoredReferenceEdges.filter((edge) => edge.relation === relation && scoredEdge(edge) && classOf(edge.reading) === className);
+        const edges = canonicalReferenceEdges.filter((edge) => edge.relation === relation && scoredEdge(edge.original) && classOf(edge.original.reading) === className);
         const tp = edges.filter((edge) => edgeMatch.matched.has(`${edge.relation}\u0000${edge.from}\u0000${edge.to}`)).length;
         const tpName = edges.filter((edge) => nameEdgesHeld.has(`${edge.relation}\u0000${edge.from}\u0000${edge.to}`)).length;
         const precision = share(tp, held.length);
@@ -442,11 +496,11 @@ async function score(referenceRoot: string, repositoryFolder: string, database: 
           namePrecision: share(tpName, [...nameEdgesHeld].filter((key) => key.startsWith(`${relation}\u0000`)).length),
           nameRecall: share(tpName, edges.length),
           noPlace: 0, ambiguous: 0,
-          recallScored: reference.scoring.get(relation)?.recall !== false,
+          recallScored: scoring.get(relation)?.recall !== false,
         });
         for (const edge of edges) {
           if (!edgeMatch.matched.has(`${edge.relation}\u0000${edge.from}\u0000${edge.to}`)) {
-            missing.push({ kind: relation, id: `${edge.from} -> ${edge.to}`, reading: edge.reading, evidence: edge.evidence });
+            missing.push({ kind: relation, id: `${edge.original.from} -> ${edge.original.to}`, reading: edge.original.reading, evidence: edge.original.evidence });
           }
         }
       }
@@ -461,7 +515,10 @@ async function score(referenceRoot: string, repositoryFolder: string, database: 
     // Kinds the graph holds that the reference leaves out by design.
     const excluded: { kind: string; count: number; reason: string }[] = [];
     const byKind = new Map<string, number>();
-    for (const entity of entities) if (!referenceKinds.has(entity.kind)) byKind.set(entity.kind, (byKind.get(entity.kind) ?? 0) + 1);
+    for (const entity of entities) {
+      const kind = catalogKindOf(entity.kind);
+      if (!referenceKinds.has(kind)) byKind.set(kind, (byKind.get(kind) ?? 0) + 1);
+    }
     for (const [kind, count] of [...byKind.entries()].sort(([left], [right]) => (left < right ? -1 : left > right ? 1 : 0))) {
       excluded.push({ kind, count, reason: reasonFor(kind) });
     }
@@ -473,27 +530,44 @@ async function score(referenceRoot: string, repositoryFolder: string, database: 
       excludedRelations.push({ relation, count, reason: 'the reference states no edge of this relation' });
     }
     const outOfScope: { name: string; reference: number; graph: number; why: string }[] = [];
-    for (const [name, held] of [...outOfScopeKinds].map((kind) => [kind, entities.filter((entity) => entity.kind === kind).length] as const).sort(([left], [right]) => (left < right ? -1 : 1))) {
+    for (const [name, held] of [...outOfScopeKinds].map((kind) => [kind, entities.filter((entity) => catalogKindOf(entity.kind) === kind).length] as const).sort(([left], [right]) => (left < right ? -1 : 1))) {
       outOfScope.push({
         name,
-        reference: reference.nodes.filter((node) => node.kind === name).length,
+        reference: matchEntries.filter((entry) => entry.kind === name).length,
         graph: held,
-        why: reference.scoring.get(name)?.why ?? 'the reference keeps this kind out of every count',
+        why: scoring.get(name)?.why ?? 'the reference keeps this kind out of every count',
       });
     }
-    for (const [name, held] of [...outOfScopeRelations].map((relation) => [relation, graphEdges.filter((edge) => edge.relation === relation).length] as const).sort(([left], [right]) => (left < right ? -1 : 1))) {
+    for (const [name, held] of [...outOfScopeRelations].map((relation) => [relation, rawGraphEdges.filter((edge) => graphEdgeOf(edge).relation === relation).length] as const).sort(([left], [right]) => (left < right ? -1 : 1))) {
       outOfScope.push({
         name,
-        reference: reference.edges.filter((edge) => edge.relation === name).length,
+        reference: reference.edges.filter((edge) => catalogRelationOf(edge.relation) === name).length,
         graph: held,
-        why: reference.scoring.get(name)?.why ?? 'the reference keeps this relation out of every count',
+        why: scoring.get(name)?.why ?? 'the reference keeps this relation out of every count',
       });
     }
     const identity = Object.entries(IDENTITY_KINDS).map(([kind, held]) => ({ kind, property: held.property, why: held.why, matched: match.identity.get(kind) ?? 0 }));
     const scopedApart = [...edgeMatch.scopedApart.entries()].map(([heldScope, count]) => ({ scope: heldScope, count })).sort((left, right) => (left.scope < right.scope ? -1 : 1));
     const unscored = { nodes: unscoredNodes.size, edges: unscoredEdges.size };
     const edgesApart = [...keepsApart.entries()].map(([kind, count]) => ({ kind, count })).sort((left, right) => (left.kind < right.kind ? -1 : 1));
-    return { repository, scope, table, missing, extra, excluded, excludedRelations, edgesApart, noPlace, ambiguous, identity, scopedApart, unscored, outOfScope, totals: totalsOf(table) };
+
+    // Which mappings the comparison used, as a list: every key either side names
+    // that the mapping ties, with its catalog name and direction.
+    const mappings: Result['mappings'][number][] = [];
+    const seenKinds = new Map<string, string>();
+    for (const node of reference.nodes) seenKinds.set(node.kind, 'kind');
+    for (const entity of entities) seenKinds.set(entity.kind, 'kind');
+    for (const edge of reference.edges) seenKinds.set(edge.relation, 'relation');
+    for (const edge of rawGraphEdges) seenKinds.set(edge.relation, 'relation');
+    for (const [key, sort] of seenKinds) {
+      const kindRow = kindMappingOf(key);
+      if (kindRow !== undefined) { mappings.push({ sort: 'kind', extractor: kindRow.extractor, catalog: kindRow.catalog, direction: 'same' }); continue; }
+      const relationRow = relationMappingOf(key);
+      if (relationRow !== undefined) mappings.push({ sort: 'relation', extractor: relationRow.extractor, catalog: relationRow.catalog, direction: relationRow.direction });
+    }
+    mappings.sort((left, right) => (left.sort === right.sort ? (left.extractor < right.extractor ? -1 : left.extractor > right.extractor ? 1 : 0) : left.sort === 'kind' ? -1 : 1));
+
+    return { repository, scope, table, missing, extra, excluded, excludedRelations, edgesApart, noPlace, ambiguous, identity, scopedApart, unscored, outOfScope, mappings, totals: totalsOf(table) };
   } finally {
     await owner.close();
   }
@@ -595,6 +669,9 @@ function report(result: Result): void {
     console.log('Out of scope by SCORING.md (scored: no):');
     for (const entry of result.outOfScope) console.log(`OUT-OF-SCOPE\t${entry.name}\t${String(entry.reference)} reference, ${String(entry.graph)} graph\t${entry.why}`);
   }
+  console.log('');
+  console.log(`Mappings used: ${String(result.mappings.length)} (the catalog's vocabulary is the comparison's; a key without a row is compared as written).`);
+  for (const entry of result.mappings) console.log(`MAPPING\t${entry.sort}\t${entry.extractor}\t${entry.catalog}\t${entry.direction}`);
 }
 
 try {
