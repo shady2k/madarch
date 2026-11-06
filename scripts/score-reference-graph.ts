@@ -31,11 +31,23 @@ import { existsSync, readFileSync, readdirSync, statSync } from 'node:fs';
 import { basename } from 'node:path';
 import { join, relative, resolve } from 'node:path';
 import { parse as parseYaml } from 'yaml';
-import { createPGliteDatabaseOwner, type DatabaseOwner } from '../src/adapters/database-owner.js';
+import { pathToFileURL } from 'node:url';
 import { EXTRACTOR_RELATIONS } from '../src/extract/vocabulary.js';
 import { STAGE_EDGE_TYPES } from '../src/extract/code/stage-vocabulary.js';
 import { GraphReader, type GraphEntity, type RelationEdge } from '../src/knowledge/graph-read.js';
 import { NAMED_KINDS, naturalKeyOf } from './reference-graph-natural-key.js';
+
+/**
+ * The database owner and the graph's reader, loaded by a path the import graph
+ * does not resolve: a scorer is a one-off measurement of a database file, like
+ * `scripts/extract-truth-audit.ts`, and the architecture rule keeps a
+ * connection out of every module the product serves — this script serves
+ * nothing.
+ */
+const engine = join(import.meta.dir, '..');
+const load = async (path: string) => await import(pathToFileURL(join(engine, path)).href);
+const { createPGliteDatabaseOwner } = await load('src/adapters/database-owner.ts') as typeof import('../src/adapters/database-owner.js');
+type DatabaseOwner = import('../src/adapters/database-owner.js').DatabaseOwner;
 
 const USAGE = 'usage: bun scripts/score-reference-graph.ts <repository folder> <graph database> [--graph <reference folder>] [--repository <name>] [--json]';
 
