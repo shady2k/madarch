@@ -562,3 +562,11 @@ implemented in `kafka.go`, and a per-file view has no fan-out across files, so
 the inference never sees the send. The HTTP and gRPC call sites are published
 and joined by the driver's own matching; `calls-remote` still differs and its
 differences have not been read yet. The report says where each stands.
+
+
+**The retry the comparisons hid.** `driveRun` stops with "a pass and its claims together changed
+nothing" when a unit stands in `retry_wait`; the training tests' first fill now names every unit it
+did not publish with its stage, state, attempt and the last attempt's reason, so a failed attempt is
+never a silent stop. The full comparison names six differences and no others: the orders outbox
+publication (two edges) and the gRPC deadline's four properties. The report quotes them and says
+what each shape needs.
