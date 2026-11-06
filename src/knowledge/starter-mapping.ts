@@ -58,6 +58,7 @@ export const MAPPING_KIND_ROWS: readonly CatalogMappingRow[] = [
   { key: 'code.facet', internal: 'a reading of one file the wiki shows on the file\'s page, not a kind of the catalog' },
   { key: 'code.field', kind: 'code.field' },
   { key: 'code.file', kind: 'code.file' },
+  { key: 'code.go-package', internal: 'the folder and package names one Go file declares, from which the contracts reading resolves a main file\'s starts' },
   { key: 'code.health-endpoint', kind: 'code.health-endpoint' },
   { key: 'code.healthcheck', kind: 'code.healthcheck' },
   { key: 'code.image', kind: 'code.image' },

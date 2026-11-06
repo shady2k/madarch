@@ -93,6 +93,9 @@ export const STAGE_NODE_KINDS: readonly string[] = [
   // stage; madarch-8bdc.2.4): per-file facts the routes stage reads, internal to the fill's readings.
   'code.middleware-chain',
   'code.router-mount',
+  // What one Go file's folder and package names answer, so an entry point's `starts` is resolved
+  // from the package's per-file facts (the contracts-code stage; madarch-8bdc.2.4).
+  'code.go-package',
 ];
 
 /**

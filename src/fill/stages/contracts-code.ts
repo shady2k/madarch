@@ -59,11 +59,17 @@ export const CONTRACTS_CODE_STAGE_ID = 'contracts-code';
 const CONTRACTS_CODE_STAGE_VERSION = 1;
 
 /** The fact kinds the stage produces, in code point order. */
-const CONTRACTS_CODE_STAGE_KINDS: readonly string[] = ['contains', 'coverage', 'declares', 'flows-into', 'input', 'middleware-chain', 'router-mount', 'sql-build', 'sql-sink'];
+const CONTRACTS_CODE_STAGE_KINDS: readonly string[] = ['contains', 'coverage', 'declares', 'flows-into', 'go-package', 'input', 'middleware-chain', 'router-mount', 'sql-build', 'sql-sink'];
 
 /** The kinds the stage writes beside the extractor's own: the per-file facts the later stages read. */
 const MIDDLEWARE_CHAIN_KIND = 'code.middleware-chain';
 const ROUTER_MOUNT_KIND = 'code.router-mount';
+/**
+ * What one Go file's package joins answer (`resolveGoStarts`): the file's folder and the constants,
+ * server addresses and functions of it, so a `main` file's entry point can be resolved by a later
+ * stage from the package's per-file facts rather than by reading the other files' bytes.
+ */
+const GO_PACKAGE_KIND = 'code.go-package';
 
 /** The reader every fact of this stage cites as its source: this fill's own reading of one file's code. */
 export const CONTRACTS_CODE_SOURCE_SYSTEM = 'madarch-contracts-code';
@@ -101,6 +107,7 @@ export function createContractsCodeStage(sources: SnapshotSource): FillStage {
       { kind: 'contains', schemaVersion: FACT_KINDS['contains'].version, scope: 'file' },
       { kind: 'coverage', schemaVersion: FACT_KINDS['coverage'].version, scope: 'file' },
       { kind: 'flows-into', schemaVersion: 1, scope: 'file' },
+      { kind: 'go-package', schemaVersion: 1, scope: 'file' },
       { kind: 'input', schemaVersion: 1, scope: 'file' },
       { kind: 'middleware-chain', schemaVersion: 1, scope: 'file' },
       { kind: 'router-mount', schemaVersion: 1, scope: 'file' },
@@ -401,6 +408,28 @@ function codeSiteWrites(input: {
     for (const route of input.go.routes) for (const name of route.middleware) names.add(name.replace(/\(.*/, ''));
     for (const name of input.go.hs256Functions) hs256.add(name);
   }
+  // The package joins a `main` file's entry point resolves through: its folder and the names the
+  // package's other files answer with, as one file's own facts (decision 0033, item 5).
+  if (input.go !== undefined) {
+    const folder = path.includes('/') ? path.slice(0, path.lastIndexOf('/')) : '';
+    declared.push({
+      span: input.fileSpan,
+      node: {
+        key: `${GO_PACKAGE_KIND}:${input.repository}:${path}`,
+        kind: GO_PACKAGE_KIND,
+        label: `${folder} ${path}`,
+        properties: {
+          file: path,
+          path,
+          folder,
+          consts: [...input.go.consts].map(([name, value]) => [name, value]),
+          serverAddrs: [...input.go.serverAddrs].map(([name, value]) => [name, value]),
+          functions: [...input.go.functions],
+          entryPoint: input.go.entryPoint,
+        },
+      },
+    });
+  }
   declared.push({
     span: input.fileSpan,
     node: {
@@ -470,6 +499,7 @@ function factKindOf(kind: string): string {
   if (kind === KIND_SQL_SINK) return 'sql-sink';
   if (kind === MIDDLEWARE_CHAIN_KIND) return 'middleware-chain';
   if (kind === ROUTER_MOUNT_KIND) return 'router-mount';
+  if (kind === GO_PACKAGE_KIND) return 'go-package';
   throw new Error(`the contracts-code stage writes a ${JSON.stringify(kind)} node and names no fact kind for it (src/fill/stages/contracts-code.ts)`);
 }
 

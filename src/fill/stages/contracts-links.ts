@@ -39,8 +39,10 @@ import {
   type StageGraphReader, type StagePlan, type StageUnit,
 } from '../stage.js';
 import { readTsFile, joinPath, type TsFileFacts } from '../../extract/contracts/ts-code.js';
-import { readGoFile } from '../../extract/contracts/go-code.js';
-import { REL_SERVES } from '../../extract/contracts/schema.js';
+import { readGoFile, resolveGoStarts, type GoFileFacts } from '../../extract/contracts/go-code.js';
+import {
+  EDGE_BELONGS_TO, EDGE_CONTAINS, KIND_ENTRY_POINT, REL_SERVES, entryPointKey,
+} from '../../extract/contracts/schema.js';
 import type { SourceSpan } from '../../extract/records.js';
 import { evidenceAtPlace } from './draft.js';
 import { readSyntaxTree } from './syntax-extract.js';
@@ -57,7 +59,7 @@ const CONTRACTS_LINKS_STAGE_ID = 'contracts-links';
 const CONTRACTS_LINKS_STAGE_VERSION = 1;
 
 /** The fact kinds the stage produces, in code point order. */
-const CONTRACTS_LINKS_STAGE_KINDS: readonly string[] = ['contains', 'coverage', 'serves'];
+const CONTRACTS_LINKS_STAGE_KINDS: readonly string[] = ['belongs-to', 'contains', 'coverage', 'entry-point', 'serves', 'starts'];
 
 /** The reader every fact of this stage cites. */
 export const CONTRACTS_LINKS_SOURCE_SYSTEM = 'madarch-contracts-links';
@@ -97,12 +99,22 @@ export function createContractsLinksStage(sources: SnapshotSource): FillStage {
         { capability: 'callable', scope: 'repository', freshness: 'current' },
         { capability: 'service-unit', scope: 'repository', freshness: 'current' },
         { capability: 'symbol', scope: 'repository', freshness: 'current' },
+        // An entry point's `code.starts` ends at the process the operations reading publishes, and
+        // its `code.belongs-to` at the service that reading owns; ordering the stage after the
+        // operations stage is the graph's own answer (decision 0033, item 5).
+        { capability: 'process', scope: 'repository', freshness: 'current' },
+        { capability: 'service', scope: 'repository', freshness: 'current' },
+        // The Go package a `main` file's `starts` resolves through: its per-file facts.
+        { capability: 'go-package', scope: 'repository', freshness: 'current' },
       ],
     },
     produces: [
+      { kind: 'belongs-to', schemaVersion: 1, scope: 'file' },
       { kind: 'contains', schemaVersion: FACT_KINDS['contains'].version, scope: 'file' },
       { kind: 'coverage', schemaVersion: FACT_KINDS['coverage'].version, scope: 'file' },
+      { kind: 'entry-point', schemaVersion: 1, scope: 'file' },
       { kind: 'serves', schemaVersion: 1, scope: 'file' },
+      { kind: 'starts', schemaVersion: 1, scope: 'file' },
     ],
     configSchema: Type.Object({}),
     defaults: { ...DEFAULT_STAGE_DEFAULTS, config: {} },
@@ -254,9 +266,155 @@ async function executeContractsLinksUnit(unit: StageUnit, context: StageContext)
   for (const edge of edges) {
     context.draft.write(edgeWrite(REL_SERVES, edge.from, edge.to, { span: edge.span, discriminator: '' }, inputOf(planned.repository, evidence), edge.properties));
   }
+  const entryRecords = await entryWrites({
+    stage,
+    path: planned.path,
+    repository: planned.repository,
+    evidence,
+    service,
+    fileKey: fileFactIdOf(planned.repository, planned.path),
+    bytes: file.content!,
+    ts: isGo ? undefined : read.value as TsFileFacts,
+    go: isGo ? read.value as GoFileFacts : undefined,
+  });
+  for (const write of entryRecords) context.draft.write(write);
   writeCoverage(context, source, planned.path, { repository: planned.repository, scope: planned.path, complete: true, read: [planned.path], unread: [] }, entry.id);
-  context.progress(`read ${planned.path} of ${planned.repository} at ${source.commit}: ${String(edges.length)} ${edges.length === 1 ? 'serving link' : 'serving links'}`, 1);
+  context.progress(`read ${planned.path} of ${planned.repository} at ${source.commit}: ${String(edges.length)} ${edges.length === 1 ? 'serving link' : 'serving links'}, ${String(entryRecords.length)} ${entryRecords.length === 1 ? 'entry record' : 'entry records'}`, 1);
   return { outcome: 'draft' };
+}
+
+// ---- the entry point a file states ---------------------------------------
+
+/** One started unit of an entry point, as the driver's own reader names it. */
+interface StartedUnit {
+  readonly kind: string;
+  readonly symbol: string;
+  readonly path?: string;
+  readonly port?: string;
+}
+
+/**
+ * The entry point a file states, its `code.starts` edges and its `code.belongs-to` edge, as the
+ * driver's contracts reading publishes them: a Go `package main` whose `main` starts the process,
+ * and a TypeScript file the code facts prove an entry (madarch-8bdc.2.4). A `starts` edge ends at
+ * the file, at the process the operations reading published, or at the file a started job stands
+ * in; an end no node carries is named in the unit's progress and claims no edge, because an edge
+ * joins nodes that exist (decision 0028).
+ */
+async function entryWrites(input: {
+  readonly stage: StaticStageContext;
+  readonly path: string;
+  readonly repository: string;
+  readonly evidence: string;
+  readonly service: string | undefined;
+  readonly fileKey: string;
+  readonly bytes: Uint8Array;
+  readonly ts: TsFileFacts | undefined;
+  readonly go: GoFileFacts | undefined;
+}): Promise<readonly StageDraftWrite[]> {
+  const whole = wholeFileSpan(input.path, input.bytes);
+  const writes: StageDraftWrite[] = [];
+  let symbol: string | undefined;
+  let started: readonly StartedUnit[] = [];
+  if (input.go !== undefined) {
+    if (!input.go.entryPoint) return [];
+    symbol = 'main';
+    started = await goStarts(input.stage, input.repository, input.path, input.go.rawStarts);
+  } else if (input.ts?.entry !== undefined) {
+    symbol = input.ts.entry.symbol;
+    started = input.ts.started.map((unit) => ({
+      kind: unit.kind,
+      symbol: unit.symbol,
+      ...(unit.path === undefined ? {} : { path: unit.path }),
+      ...(unit.port === undefined ? {} : { port: unit.port }),
+    }));
+  }
+  if (symbol === undefined) return [];
+  const key = entryPointKey(input.path, symbol);
+  const language = input.go === undefined ? 'typescript' : 'go';
+  const label = input.go === undefined
+    ? `${input.service ?? 'service'} · ${input.path} · ${symbol}`
+    : `${input.service ?? 'service'} · ${input.path}`;
+  writes.push(nodeWrite(key, KIND_ENTRY_POINT, label, {
+    language,
+    service: input.service ?? '',
+    file: input.path,
+    symbol,
+    starts: started.map((unit) => ({
+      kind: unit.kind,
+      symbol: unit.symbol,
+      ...(unit.path === undefined ? {} : { path: unit.path }),
+      ...(unit.port === undefined ? {} : { port: unit.port }),
+    })),
+  }, whole, input.repository, input.evidence, 'entry-point'));
+  writes.push(recordEdge(EDGE_CONTAINS, input.fileKey, key, {}, whole, input.evidence, input.repository));
+  writes.push(recordEdge('code.starts', key, input.fileKey, { kind: 'entry-file' }, whole, input.evidence, input.repository));
+  if (input.service !== undefined && await nodeExists(input.stage, 'code.service', `code.service:${input.service}`)) {
+    writes.push(recordEdge(EDGE_BELONGS_TO, key, `code.service:${input.service}`, {}, whole, input.evidence, input.repository));
+  }
+  const process = processKeyOf(input.path);
+  if (process !== undefined && await nodeExists(input.stage, 'code.process', process)) {
+    writes.push(recordEdge('code.starts', key, process, { kind: 'process' }, whole, input.evidence, input.repository, 'process'));
+  }
+  for (const unit of started) {
+    if (unit.path === undefined) continue;
+    const startedFile = fileFactIdOf(input.repository, unit.path);
+    // A started file the snapshot published no node for claims no edge: an edge joins nodes that exist.
+    if (!await nodeExists(input.stage, 'code.file', startedFile)) continue;
+    writes.push(recordEdge('code.starts', key, startedFile, { kind: unit.kind, symbol: unit.symbol, ...(unit.port === undefined ? {} : { port: unit.port }) }, whole, input.evidence, input.repository, `${unit.kind}:${unit.symbol}`));
+  }
+  return writes;
+}
+
+/**
+ * The units a Go `main` starts, by the driver's own package rule (`resolveGoStarts`): the package's
+ * constants, server addresses and functions are the per-file `code.go-package` facts of the folder,
+ * in code point order of their paths, which is the order the driver's walk holds them in.
+ */
+async function goStarts(stage: StaticStageContext, repository: string, path: string, rawStarts: GoFileFacts['rawStarts']): Promise<readonly StartedUnit[]> {
+  const folder = path.includes('/') ? path.slice(0, path.lastIndexOf('/')) : '';
+  const rows = (await allPages((page) => stage.byProperty('code.go-package', 'folder', folder, page)))
+    .filter((row) => typeof row.properties['file'] === 'string' && String(row.properties['repository'] ?? repository) === repository)
+    .sort((left, right) => byCodePoint(String(left.properties['file']), String(right.properties['file'])));
+  const files = rows.map((row) => ({
+    path: String(row.properties['file']),
+    go: {
+      consts: pairsOf(row.properties['consts']),
+      serverAddrs: pairsOf(row.properties['serverAddrs']),
+      functions: arrayOf(row.properties['functions']),
+      rawStarts,
+    },
+  }));
+  if (rows.length === 0) {
+    return resolveGoStarts([{ path, go: { consts: new Map(), serverAddrs: new Map(), functions: [], rawStarts } }], path);
+  }
+  return resolveGoStarts(files, path);
+}
+
+/** A pair list a fact holds (`[[name, value], ...]`), as the map whose order the list keeps. */
+function pairsOf(value: unknown): Map<string, string> {
+  const out = new Map<string, string>();
+  if (!Array.isArray(value)) return out;
+  for (const entry of value) {
+    if (!Array.isArray(entry) || entry.length !== 2 || typeof entry[0] !== 'string' || typeof entry[1] !== 'string') continue;
+    out.set(entry[0], entry[1]);
+  }
+  return out;
+}
+
+/** Whether the graph holds one node under a key. */
+async function nodeExists(stage: StaticStageContext, kind: string, key: string): Promise<boolean> {
+  const rows = await allPages((page) => stage.byProperty(kind, 'recordKey', key, page));
+  return rows.length > 0;
+}
+
+/** The process a file's entry point starts, keyed as the operations reading keys it. */
+function processKeyOf(path: string): string | undefined {
+  if (path.endsWith('/main.go')) {
+    const folder = path.slice(0, path.lastIndexOf('/'));
+    return folder === '' ? undefined : `code.process:${folder}`;
+  }
+  return /\.[cm]?[jt]sx?$/.test(path) ? `code.process:${path}` : undefined;
 }
 
 /** The operations one run published, read by repository. */
@@ -425,6 +583,40 @@ function recordKeyOf(node: StaticGraphNode): string {
 /** The two parts every edge of this stage cites. */
 function inputOf(repository: string, evidence: string): { readonly repository: string; readonly evidence: string; readonly commit: string } {
   return { repository, evidence, commit: commitOf(evidence) };
+}
+
+/** The span of a whole file: its first line to its last, its first byte to its length. */
+function wholeFileSpan(path: string, bytes: Uint8Array): SourceSpan {
+  const text = new TextDecoder('utf-8').decode(bytes);
+  const lines = text === '' ? 1 : text.split('\n').length;
+  return { path, byteStart: 0, byteEnd: bytes.byteLength, lineStart: 1, lineEnd: lines };
+}
+
+/** One node write of this stage: the record, its span and the envelope the graph holds it with. */
+function nodeWrite(key: string, kind: string, label: string, properties: Readonly<Record<string, unknown>>, span: SourceSpan, repository: string, evidence: string, factKind: string): StageDraftWrite {
+  return {
+    kind: 'node',
+    evidence,
+    value: {
+      key,
+      kind,
+      label,
+      properties: {
+        ...properties,
+        span: { ...span },
+        recordKey: key,
+        factKind,
+        layer: 'extracted',
+        repository,
+        provenance: { source: CONTRACTS_LINKS_SOURCE, repository: { id: repository, commit: commitOf(evidence) }, place: { file: span.path, range: { startLine: span.lineStart, startColumn: 0, endLine: span.lineEnd, endColumn: 0, startByte: span.byteStart, endByte: span.byteEnd } } },
+      },
+    },
+  };
+}
+
+/** One edge of an entry point or a link: its record's properties, its span and the discriminator. */
+function recordEdge(relation: string, from: string, to: string, extra: Readonly<Record<string, unknown>>, span: SourceSpan, evidence: string, repository: string, discriminator = ''): StageDraftWrite {
+  return edgeWrite(relation, from, to, { span, discriminator }, inputOf(repository, evidence), extra);
 }
 
 /** One edge write of this stage. */

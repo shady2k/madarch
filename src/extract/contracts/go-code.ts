@@ -936,8 +936,16 @@ function inFunctionBody(statement: SyntaxNode): boolean {
 }
 
 /** Joins one file's raw starts across its package: ports from the package's consts and server addresses, jobs from the package's files. */
+/** The parts of one file's facts a package's `starts` joins: its constants, addresses and functions. */
+export interface GoStartSources {
+  readonly consts: ReadonlyMap<string, string>;
+  readonly serverAddrs: ReadonlyMap<string, string>;
+  readonly functions: readonly string[];
+  readonly rawStarts: readonly RawStart[];
+}
+
 export function resolveGoStarts(
-  files: readonly {path: string; go: GoFileFacts}[],
+  files: readonly {path: string; go: GoStartSources}[],
   ownPath: string,
 ): {kind: string; symbol: string; path?: string; port?: string}[] {
   const consts = new Map<string, string>();
