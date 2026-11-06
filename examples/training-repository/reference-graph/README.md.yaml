@@ -1,5 +1,14 @@
 path: 'README.md'
 nodes:
+  - id: 'code.document-section:README.md#Ordering and payments training system'
+    kind: 'code.document-section'
+    label: 'Ordering and payments training system'
+    evidence:
+      - path: 'README.md'
+        startLine: 1
+        endLine: 1
+        quote: '# Ordering and payments training system'
+    reading: 'parsed'
   - id: 'code.document-section:README.md#Run it'
     kind: 'code.document-section'
     label: 'Run it'
@@ -45,9 +54,9 @@ nodes:
         endLine: 11
         quote: '1. From the repository root, copy the settings: `cp .env.example .env`.'
     reading: 'parsed'
-  - id: 'code.newcomer-command:README.md#curl -X POST /orders'
+  - id: 'code.newcomer-command:README.md#curl -s -X POST http://localhost:8080/orders -H "Authorization: Bearer $(make -s token)" -H ''Content-Type: application/json'' -d ''{"items":[{"sku":"A-1","quantity":2,"priceCents":1000}]}'''
     kind: 'code.newcomer-command'
-    label: 'curl -X POST /orders'
+    label: 'curl -s -X POST http://localhost:8080/orders -H "Authorization: Bearer $(make -s token)" -H ''Content-Type: application/json'' -d ''{"items":[{"sku":"A-1","quantity":2,"priceCents":1000}]}'''
     evidence:
       - path: 'README.md'
         startLine: 16
@@ -109,6 +118,60 @@ nodes:
         quote: 'Prerequisites: Go 1.22, Node 20, Docker Compose and psql.'
     reading: 'parsed'
 edges:
+  - relation: 'code.backed-by'
+    from: 'code.newcomer-command:README.md#curl -s -X POST http://localhost:8080/orders -H "Authorization: Bearer $(make -s token)" -H ''Content-Type: application/json'' -d ''{"items":[{"sku":"A-1","quantity":2,"priceCents":1000}]}'''
+    to: 'code.make-target:token'
+    evidence:
+      - path: 'README.md'
+        startLine: 16
+        endLine: 16
+        quote: '5. Place an order: `curl -s -X POST http://localhost:8080/orders -H "Authorization: Bearer $(make -s token)" -H ''Content-Type: application/json'' -d ''{"items":[{"sku":"A-1","quantity":2,"priceCents":1000}]}''`'
+    reading: 'judgement'
+  - relation: 'code.backed-by'
+    from: 'code.newcomer-command:README.md#make install'
+    to: 'code.make-target:install'
+    evidence:
+      - path: 'README.md'
+        startLine: 14
+        endLine: 14
+        quote: '4. Install what the tests need on your machine: `make install` (runs `go mod download` in orders and'
+    reading: 'judgement'
+  - relation: 'code.backed-by'
+    from: 'code.newcomer-command:README.md#make seed'
+    to: 'code.make-target:seed'
+    evidence:
+      - path: 'README.md'
+        startLine: 13
+        endLine: 13
+        quote: '3. Load the demo customer and promotion codes: `make seed`.'
+    reading: 'judgement'
+  - relation: 'code.backed-by'
+    from: 'code.newcomer-command:README.md#make test'
+    to: 'code.make-target:test'
+    evidence:
+      - path: 'README.md'
+        startLine: 17
+        endLine: 17
+        quote: '6. Run the tests: `make test`.'
+    reading: 'judgement'
+  - relation: 'code.backed-by'
+    from: 'code.newcomer-command:README.md#make up'
+    to: 'code.make-target:up'
+    evidence:
+      - path: 'README.md'
+        startLine: 12
+        endLine: 12
+        quote: '2. Start everything: `make up` (builds the four services and starts Postgres and Kafka).'
+    reading: 'judgement'
+  - relation: 'code.contains'
+    from: 'code.document:README.md'
+    to: 'code.document-section:README.md#Ordering and payments training system'
+    evidence:
+      - path: 'README.md'
+        startLine: 1
+        endLine: 1
+        quote: '# Ordering and payments training system'
+    reading: 'parsed'
   - relation: 'code.contains'
     from: 'code.document:README.md'
     to: 'code.document-section:README.md#Run it'

@@ -54,34 +54,7 @@ nodes:
         endLine: 65
         quote: '  promotions:'
     reading: 'declared'
-  - id: 'code.env-definition:docker-compose.yml#DATABASE_URL'
-    kind: 'code.env-definition'
-    label: 'DATABASE_URL'
-    evidence:
-      - path: 'docker-compose.yml'
-        startLine: 38
-        endLine: 38
-        quote: '      DATABASE_URL: postgres://training:training@postgres:5432/orders?sslmode=disable'
-    reading: 'declared'
-  - id: 'code.env-definition:docker-compose.yml#JWT_SECRET'
-    kind: 'code.env-definition'
-    label: 'JWT_SECRET'
-    evidence:
-      - path: 'docker-compose.yml'
-        startLine: 40
-        endLine: 40
-        quote: '      JWT_SECRET: ${JWT_SECRET:-local-development-secret}'
-    reading: 'declared'
-  - id: 'code.env-definition:docker-compose.yml#KAFKA_BROKERS'
-    kind: 'code.env-definition'
-    label: 'KAFKA_BROKERS'
-    evidence:
-      - path: 'docker-compose.yml'
-        startLine: 39
-        endLine: 39
-        quote: '      KAFKA_BROKERS: kafka:9092'
-    reading: 'declared'
-  - id: 'code.env-definition:docker-compose.yml#ORDERS_URL'
+  - id: 'code.env-definition:docker-compose.yml#checkout/ORDERS_URL'
     kind: 'code.env-definition'
     label: 'ORDERS_URL'
     evidence:
@@ -90,7 +63,7 @@ nodes:
         endLine: 82
         quote: '      ORDERS_URL: http://orders:8080'
     reading: 'declared'
-  - id: 'code.env-definition:docker-compose.yml#PAYMENTS_ADDR'
+  - id: 'code.env-definition:docker-compose.yml#checkout/PAYMENTS_ADDR'
     kind: 'code.env-definition'
     label: 'PAYMENTS_ADDR'
     evidence:
@@ -99,7 +72,70 @@ nodes:
         endLine: 84
         quote: '      PAYMENTS_ADDR: payments:50051'
     reading: 'declared'
-  - id: 'code.env-definition:docker-compose.yml#PAYMENT_PROVIDER'
+  - id: 'code.env-definition:docker-compose.yml#checkout/PROMOTIONS_URL'
+    kind: 'code.env-definition'
+    label: 'PROMOTIONS_URL'
+    evidence:
+      - path: 'docker-compose.yml'
+        startLine: 83
+        endLine: 83
+        quote: '      PROMOTIONS_URL: http://promotions:8082'
+    reading: 'declared'
+  - id: 'code.env-definition:docker-compose.yml#orders/DATABASE_URL'
+    kind: 'code.env-definition'
+    label: 'DATABASE_URL'
+    evidence:
+      - path: 'docker-compose.yml'
+        startLine: 38
+        endLine: 38
+        quote: '      DATABASE_URL: postgres://training:training@postgres:5432/orders?sslmode=disable'
+    reading: 'declared'
+  - id: 'code.env-definition:docker-compose.yml#orders/JWT_SECRET'
+    kind: 'code.env-definition'
+    label: 'JWT_SECRET'
+    evidence:
+      - path: 'docker-compose.yml'
+        startLine: 40
+        endLine: 40
+        quote: '      JWT_SECRET: ${JWT_SECRET:-local-development-secret}'
+    reading: 'declared'
+  - id: 'code.env-definition:docker-compose.yml#orders/KAFKA_BROKERS'
+    kind: 'code.env-definition'
+    label: 'KAFKA_BROKERS'
+    evidence:
+      - path: 'docker-compose.yml'
+        startLine: 39
+        endLine: 39
+        quote: '      KAFKA_BROKERS: kafka:9092'
+    reading: 'declared'
+  - id: 'code.env-definition:docker-compose.yml#payments/DATABASE_URL'
+    kind: 'code.env-definition'
+    label: 'DATABASE_URL'
+    evidence:
+      - path: 'docker-compose.yml'
+        startLine: 55
+        endLine: 55
+        quote: '      DATABASE_URL: postgres://training:training@postgres:5432/payments?sslmode=disable'
+    reading: 'declared'
+  - id: 'code.env-definition:docker-compose.yml#payments/JWT_SECRET'
+    kind: 'code.env-definition'
+    label: 'JWT_SECRET'
+    evidence:
+      - path: 'docker-compose.yml'
+        startLine: 57
+        endLine: 57
+        quote: '      JWT_SECRET: ${JWT_SECRET:-local-development-secret}'
+    reading: 'declared'
+  - id: 'code.env-definition:docker-compose.yml#payments/KAFKA_BROKERS'
+    kind: 'code.env-definition'
+    label: 'KAFKA_BROKERS'
+    evidence:
+      - path: 'docker-compose.yml'
+        startLine: 56
+        endLine: 56
+        quote: '      KAFKA_BROKERS: kafka:9092'
+    reading: 'declared'
+  - id: 'code.env-definition:docker-compose.yml#payments/PAYMENT_PROVIDER'
     kind: 'code.env-definition'
     label: 'PAYMENT_PROVIDER'
     evidence:
@@ -108,14 +144,14 @@ nodes:
         endLine: 58
         quote: '      PAYMENT_PROVIDER: ${PAYMENT_PROVIDER:-deferred}'
     reading: 'declared'
-  - id: 'code.env-definition:docker-compose.yml#PROMOTIONS_URL'
+  - id: 'code.env-definition:docker-compose.yml#promotions/DATABASE_URL'
     kind: 'code.env-definition'
-    label: 'PROMOTIONS_URL'
+    label: 'DATABASE_URL'
     evidence:
       - path: 'docker-compose.yml'
-        startLine: 83
-        endLine: 83
-        quote: '      PROMOTIONS_URL: http://promotions:8082'
+        startLine: 70
+        endLine: 70
+        quote: '      DATABASE_URL: postgres://training:training@postgres:5432/promotions?sslmode=disable'
     reading: 'declared'
   - id: 'code.file:docker-compose.yml'
     kind: 'code.file'
@@ -161,6 +197,10 @@ nodes:
         startLine: 80
         endLine: 80
         quote: '      - "8083:8083"'
+      - path: 'services/checkout/Dockerfile'
+        startLine: 16
+        endLine: 16
+        quote: 'EXPOSE 8083'
       - path: 'services/checkout/src/index.ts'
         startLine: 9
         endLine: 9
@@ -192,6 +232,10 @@ nodes:
         startLine: 36
         endLine: 36
         quote: '      - "8080:8080"'
+      - path: 'services/orders/Dockerfile'
+        startLine: 14
+        endLine: 14
+        quote: 'EXPOSE 8080'
       - path: 'deploy/k8s/orders.yaml'
         startLine: 21
         endLine: 21
@@ -209,6 +253,10 @@ nodes:
         startLine: 53
         endLine: 53
         quote: '      - "50051:50051"'
+      - path: 'services/payments/Dockerfile'
+        startLine: 18
+        endLine: 18
+        quote: 'EXPOSE 8081 50051'
       - path: 'services/payments/src/index.ts'
         startLine: 12
         endLine: 12
@@ -222,6 +270,10 @@ nodes:
         startLine: 52
         endLine: 52
         quote: '      - "8081:8081"'
+      - path: 'services/payments/Dockerfile'
+        startLine: 18
+        endLine: 18
+        quote: 'EXPOSE 8081 50051'
       - path: 'services/payments/src/index.ts'
         startLine: 11
         endLine: 11
@@ -244,6 +296,10 @@ nodes:
         startLine: 68
         endLine: 68
         quote: '      - "8082:8082"'
+      - path: 'services/promotions/Dockerfile'
+        startLine: 12
+        endLine: 12
+        quote: 'EXPOSE 8082'
       - path: 'services/promotions/cmd/promotions/main.go'
         startLine: 15
         endLine: 15
@@ -323,50 +379,7 @@ edges:
         quote: '    build: ./services/promotions'
     reading: 'declared'
   - relation: 'code.defines'
-    from: 'code.env-definition:docker-compose.yml#DATABASE_URL'
-    to: 'code.env-var:DATABASE_URL'
-    evidence:
-      - path: 'docker-compose.yml'
-        startLine: 38
-        endLine: 38
-        quote: '      DATABASE_URL: postgres://training:training@postgres:5432/orders?sslmode=disable'
-      - path: 'docker-compose.yml'
-        startLine: 55
-        endLine: 55
-        quote: '      DATABASE_URL: postgres://training:training@postgres:5432/payments?sslmode=disable'
-      - path: 'docker-compose.yml'
-        startLine: 70
-        endLine: 70
-        quote: '      DATABASE_URL: postgres://training:training@postgres:5432/promotions?sslmode=disable'
-    reading: 'declared'
-  - relation: 'code.defines'
-    from: 'code.env-definition:docker-compose.yml#JWT_SECRET'
-    to: 'code.env-var:JWT_SECRET'
-    evidence:
-      - path: 'docker-compose.yml'
-        startLine: 40
-        endLine: 40
-        quote: '      JWT_SECRET: ${JWT_SECRET:-local-development-secret}'
-      - path: 'docker-compose.yml'
-        startLine: 57
-        endLine: 57
-        quote: '      JWT_SECRET: ${JWT_SECRET:-local-development-secret}'
-    reading: 'declared'
-  - relation: 'code.defines'
-    from: 'code.env-definition:docker-compose.yml#KAFKA_BROKERS'
-    to: 'code.env-var:KAFKA_BROKERS'
-    evidence:
-      - path: 'docker-compose.yml'
-        startLine: 39
-        endLine: 39
-        quote: '      KAFKA_BROKERS: kafka:9092'
-      - path: 'docker-compose.yml'
-        startLine: 56
-        endLine: 56
-        quote: '      KAFKA_BROKERS: kafka:9092'
-    reading: 'declared'
-  - relation: 'code.defines'
-    from: 'code.env-definition:docker-compose.yml#ORDERS_URL'
+    from: 'code.env-definition:docker-compose.yml#checkout/ORDERS_URL'
     to: 'code.env-var:ORDERS_URL'
     evidence:
       - path: 'docker-compose.yml'
@@ -375,7 +388,7 @@ edges:
         quote: '      ORDERS_URL: http://orders:8080'
     reading: 'declared'
   - relation: 'code.defines'
-    from: 'code.env-definition:docker-compose.yml#PAYMENTS_ADDR'
+    from: 'code.env-definition:docker-compose.yml#checkout/PAYMENTS_ADDR'
     to: 'code.env-var:PAYMENTS_ADDR'
     evidence:
       - path: 'docker-compose.yml'
@@ -384,7 +397,70 @@ edges:
         quote: '      PAYMENTS_ADDR: payments:50051'
     reading: 'declared'
   - relation: 'code.defines'
-    from: 'code.env-definition:docker-compose.yml#PAYMENT_PROVIDER'
+    from: 'code.env-definition:docker-compose.yml#checkout/PROMOTIONS_URL'
+    to: 'code.env-var:PROMOTIONS_URL'
+    evidence:
+      - path: 'docker-compose.yml'
+        startLine: 83
+        endLine: 83
+        quote: '      PROMOTIONS_URL: http://promotions:8082'
+    reading: 'declared'
+  - relation: 'code.defines'
+    from: 'code.env-definition:docker-compose.yml#orders/DATABASE_URL'
+    to: 'code.env-var:DATABASE_URL'
+    evidence:
+      - path: 'docker-compose.yml'
+        startLine: 38
+        endLine: 38
+        quote: '      DATABASE_URL: postgres://training:training@postgres:5432/orders?sslmode=disable'
+    reading: 'declared'
+  - relation: 'code.defines'
+    from: 'code.env-definition:docker-compose.yml#orders/JWT_SECRET'
+    to: 'code.env-var:JWT_SECRET'
+    evidence:
+      - path: 'docker-compose.yml'
+        startLine: 40
+        endLine: 40
+        quote: '      JWT_SECRET: ${JWT_SECRET:-local-development-secret}'
+    reading: 'declared'
+  - relation: 'code.defines'
+    from: 'code.env-definition:docker-compose.yml#orders/KAFKA_BROKERS'
+    to: 'code.env-var:KAFKA_BROKERS'
+    evidence:
+      - path: 'docker-compose.yml'
+        startLine: 39
+        endLine: 39
+        quote: '      KAFKA_BROKERS: kafka:9092'
+    reading: 'declared'
+  - relation: 'code.defines'
+    from: 'code.env-definition:docker-compose.yml#payments/DATABASE_URL'
+    to: 'code.env-var:DATABASE_URL'
+    evidence:
+      - path: 'docker-compose.yml'
+        startLine: 55
+        endLine: 55
+        quote: '      DATABASE_URL: postgres://training:training@postgres:5432/payments?sslmode=disable'
+    reading: 'declared'
+  - relation: 'code.defines'
+    from: 'code.env-definition:docker-compose.yml#payments/JWT_SECRET'
+    to: 'code.env-var:JWT_SECRET'
+    evidence:
+      - path: 'docker-compose.yml'
+        startLine: 57
+        endLine: 57
+        quote: '      JWT_SECRET: ${JWT_SECRET:-local-development-secret}'
+    reading: 'declared'
+  - relation: 'code.defines'
+    from: 'code.env-definition:docker-compose.yml#payments/KAFKA_BROKERS'
+    to: 'code.env-var:KAFKA_BROKERS'
+    evidence:
+      - path: 'docker-compose.yml'
+        startLine: 56
+        endLine: 56
+        quote: '      KAFKA_BROKERS: kafka:9092'
+    reading: 'declared'
+  - relation: 'code.defines'
+    from: 'code.env-definition:docker-compose.yml#payments/PAYMENT_PROVIDER'
     to: 'code.env-var:PAYMENT_PROVIDER'
     evidence:
       - path: 'docker-compose.yml'
@@ -393,13 +469,13 @@ edges:
         quote: '      PAYMENT_PROVIDER: ${PAYMENT_PROVIDER:-deferred}'
     reading: 'declared'
   - relation: 'code.defines'
-    from: 'code.env-definition:docker-compose.yml#PROMOTIONS_URL'
-    to: 'code.env-var:PROMOTIONS_URL'
+    from: 'code.env-definition:docker-compose.yml#promotions/DATABASE_URL'
+    to: 'code.env-var:DATABASE_URL'
     evidence:
       - path: 'docker-compose.yml'
-        startLine: 83
-        endLine: 83
-        quote: '      PROMOTIONS_URL: http://promotions:8082'
+        startLine: 70
+        endLine: 70
+        quote: '      DATABASE_URL: postgres://training:training@postgres:5432/promotions?sslmode=disable'
     reading: 'declared'
   - relation: 'code.depends-on'
     from: 'code.compose-service:orders'

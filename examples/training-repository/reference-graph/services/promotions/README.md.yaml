@@ -1,5 +1,14 @@
 path: 'services/promotions/README.md'
 nodes:
+  - id: 'code.document-section:services/promotions/README.md#Promotions service'
+    kind: 'code.document-section'
+    label: 'Promotions service'
+    evidence:
+      - path: 'services/promotions/README.md'
+        startLine: 1
+        endLine: 1
+        quote: '# Promotions service'
+    reading: 'parsed'
   - id: 'code.document:services/promotions/README.md'
     kind: 'code.document'
     label: 'README.md'
@@ -19,6 +28,15 @@ nodes:
         quote: '# Promotions service'
     reading: 'parsed'
 edges:
+  - relation: 'code.contains'
+    from: 'code.document:services/promotions/README.md'
+    to: 'code.document-section:services/promotions/README.md#Promotions service'
+    evidence:
+      - path: 'services/promotions/README.md'
+        startLine: 1
+        endLine: 1
+        quote: '# Promotions service'
+    reading: 'parsed'
   - relation: 'code.mentions'
     from: 'code.document:services/promotions/README.md'
     to: 'code.migration:services/promotions/migrations/0001_promotions.sql'

@@ -1,5 +1,14 @@
 path: 'services/checkout/README.md'
 nodes:
+  - id: 'code.document-section:services/checkout/README.md#Checkout'
+    kind: 'code.document-section'
+    label: 'Checkout'
+    evidence:
+      - path: 'services/checkout/README.md'
+        startLine: 1
+        endLine: 1
+        quote: '# Checkout'
+    reading: 'parsed'
   - id: 'code.document:services/checkout/README.md'
     kind: 'code.document'
     label: 'README.md'
@@ -19,6 +28,15 @@ nodes:
         quote: '# Checkout'
     reading: 'parsed'
 edges:
+  - relation: 'code.contains'
+    from: 'code.document:services/checkout/README.md'
+    to: 'code.document-section:services/checkout/README.md#Checkout'
+    evidence:
+      - path: 'services/checkout/README.md'
+        startLine: 1
+        endLine: 1
+        quote: '# Checkout'
+    reading: 'parsed'
   - relation: 'code.mentions'
     from: 'code.document:services/checkout/README.md'
     to: 'code.route:checkout:POST /checkout'

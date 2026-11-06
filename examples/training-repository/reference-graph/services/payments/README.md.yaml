@@ -1,5 +1,14 @@
 path: 'services/payments/README.md'
 nodes:
+  - id: 'code.document-section:services/payments/README.md#Payments service'
+    kind: 'code.document-section'
+    label: 'Payments service'
+    evidence:
+      - path: 'services/payments/README.md'
+        startLine: 1
+        endLine: 1
+        quote: '# Payments service'
+    reading: 'parsed'
   - id: 'code.document:services/payments/README.md'
     kind: 'code.document'
     label: 'README.md'
@@ -19,6 +28,15 @@ nodes:
         quote: '# Payments service'
     reading: 'parsed'
 edges:
+  - relation: 'code.contains'
+    from: 'code.document:services/payments/README.md'
+    to: 'code.document-section:services/payments/README.md#Payments service'
+    evidence:
+      - path: 'services/payments/README.md'
+        startLine: 1
+        endLine: 1
+        quote: '# Payments service'
+    reading: 'parsed'
   - relation: 'code.mentions'
     from: 'code.document:services/payments/README.md'
     to: 'code.contract:contracts/proto/payments.proto'

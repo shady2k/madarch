@@ -281,6 +281,24 @@ edges:
         endLine: 20
         quote: 'CREATE INDEX "payments_order_id_idx" ON "payments"("order_id");'
     reading: 'parsed'
+  - relation: 'code.covers'
+    from: 'code.index:payments.payments_idempotency_key_key'
+    to: 'code.column:payments.payments.idempotency_key'
+    evidence:
+      - path: 'services/payments/prisma/migrations/20260603000000_create_payments/migration.sql'
+        startLine: 18
+        endLine: 18
+        quote: 'CREATE UNIQUE INDEX "payments_idempotency_key_key" ON "payments"("idempotency_key");'
+    reading: 'parsed'
+  - relation: 'code.covers'
+    from: 'code.index:payments.payments_order_id_idx'
+    to: 'code.column:payments.payments.order_id'
+    evidence:
+      - path: 'services/payments/prisma/migrations/20260603000000_create_payments/migration.sql'
+        startLine: 20
+        endLine: 20
+        quote: 'CREATE INDEX "payments_order_id_idx" ON "payments"("order_id");'
+    reading: 'parsed'
   - relation: 'code.creates'
     from: 'code.migration:services/payments/prisma/migrations/20260603000000_create_payments/migration.sql'
     to: 'code.index:payments.payments_idempotency_key_key'

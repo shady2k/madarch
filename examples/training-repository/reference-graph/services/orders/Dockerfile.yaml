@@ -31,15 +31,6 @@ nodes:
         endLine: 1
         quote: 'FROM golang:1.22.5-alpine AS build'
     reading: 'declared'
-  - id: 'code.port:services/orders:8080'
-    kind: 'code.port'
-    label: '8080'
-    evidence:
-      - path: 'services/orders/Dockerfile'
-        startLine: 14
-        endLine: 14
-        quote: 'EXPOSE 8080'
-    reading: 'declared'
 edges:
   - relation: 'code.belongs-to'
     from: 'code.dockerfile:services/orders/Dockerfile'
@@ -61,7 +52,7 @@ edges:
     reading: 'declared'
   - relation: 'code.exposes'
     from: 'code.dockerfile:services/orders/Dockerfile'
-    to: 'code.port:services/orders:8080'
+    to: 'code.port:orders:8080'
     evidence:
       - path: 'services/orders/Dockerfile'
         startLine: 14

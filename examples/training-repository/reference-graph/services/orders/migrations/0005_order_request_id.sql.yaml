@@ -64,6 +64,24 @@ edges:
         endLine: 5
         quote: 'CREATE UNIQUE INDEX orders_request_idx ON orders (customer_id, request_id) WHERE request_id IS NOT NULL;'
     reading: 'parsed'
+  - relation: 'code.covers'
+    from: 'code.index:orders.orders_request_idx'
+    to: 'code.column:orders.orders.customer_id'
+    evidence:
+      - path: 'services/orders/migrations/0005_order_request_id.sql'
+        startLine: 5
+        endLine: 5
+        quote: 'CREATE UNIQUE INDEX orders_request_idx ON orders (customer_id, request_id) WHERE request_id IS NOT NULL;'
+    reading: 'parsed'
+  - relation: 'code.covers'
+    from: 'code.index:orders.orders_request_idx'
+    to: 'code.column:orders.orders.request_id'
+    evidence:
+      - path: 'services/orders/migrations/0005_order_request_id.sql'
+        startLine: 5
+        endLine: 5
+        quote: 'CREATE UNIQUE INDEX orders_request_idx ON orders (customer_id, request_id) WHERE request_id IS NOT NULL;'
+    reading: 'parsed'
   - relation: 'code.creates'
     from: 'code.migration:services/orders/migrations/0005_order_request_id.sql'
     to: 'code.index:orders.orders_request_idx'

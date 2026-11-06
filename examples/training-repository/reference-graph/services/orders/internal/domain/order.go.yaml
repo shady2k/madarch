@@ -162,9 +162,9 @@ nodes:
         endLine: 2
         quote: 'package domain'
     reading: 'parsed'
-  - id: 'code.state-machine:Order.status'
+  - id: 'code.state-machine:services/orders/internal/domain/order.go#transitions'
     kind: 'code.state-machine'
-    label: 'Order.status'
+    label: 'transitions'
     evidence:
       - path: 'services/orders/internal/domain/order.go'
         startLine: 55
@@ -704,7 +704,7 @@ edges:
         quote: 'package domain'
     reading: 'parsed'
   - relation: 'code.contains'
-    from: 'code.state-machine:Order.status'
+    from: 'code.state-machine:services/orders/internal/domain/order.go#transitions'
     to: 'code.state:cancelled'
     evidence:
       - path: 'services/orders/internal/domain/order.go'
@@ -713,7 +713,7 @@ edges:
         quote: '	Cancelled Status = "cancelled"'
     reading: 'parsed'
   - relation: 'code.contains'
-    from: 'code.state-machine:Order.status'
+    from: 'code.state-machine:services/orders/internal/domain/order.go#transitions'
     to: 'code.state:confirmed'
     evidence:
       - path: 'services/orders/internal/domain/order.go'
@@ -722,7 +722,7 @@ edges:
         quote: '	Confirmed Status = "confirmed"'
     reading: 'parsed'
   - relation: 'code.contains'
-    from: 'code.state-machine:Order.status'
+    from: 'code.state-machine:services/orders/internal/domain/order.go#transitions'
     to: 'code.state:pending_payment'
     evidence:
       - path: 'services/orders/internal/domain/order.go'
@@ -731,7 +731,7 @@ edges:
         quote: '	PendingPayment Status = "pending_payment"'
     reading: 'parsed'
   - relation: 'code.contains'
-    from: 'code.state-machine:Order.status'
+    from: 'code.state-machine:services/orders/internal/domain/order.go#transitions'
     to: 'code.state:refunded'
     evidence:
       - path: 'services/orders/internal/domain/order.go'
@@ -740,7 +740,7 @@ edges:
         quote: '	Refunded Status = "refunded"'
     reading: 'parsed'
   - relation: 'code.contains'
-    from: 'code.state-machine:Order.status'
+    from: 'code.state-machine:services/orders/internal/domain/order.go#transitions'
     to: 'code.state:shipped'
     evidence:
       - path: 'services/orders/internal/domain/order.go'

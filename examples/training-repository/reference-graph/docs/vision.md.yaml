@@ -27,6 +27,15 @@ nodes:
         endLine: 7
         quote: '## Users'
     reading: 'parsed'
+  - id: 'code.document-section:docs/vision.md#Vision'
+    kind: 'code.document-section'
+    label: 'Vision'
+    evidence:
+      - path: 'docs/vision.md'
+        startLine: 1
+        endLine: 1
+        quote: '# Vision'
+    reading: 'parsed'
   - id: 'code.document:docs/vision.md'
     kind: 'code.document'
     label: 'vision.md'
@@ -72,6 +81,15 @@ edges:
         startLine: 7
         endLine: 7
         quote: '## Users'
+    reading: 'parsed'
+  - relation: 'code.contains'
+    from: 'code.document:docs/vision.md'
+    to: 'code.document-section:docs/vision.md#Vision'
+    evidence:
+      - path: 'docs/vision.md'
+        startLine: 1
+        endLine: 1
+        quote: '# Vision'
     reading: 'parsed'
   - relation: 'code.mentions'
     from: 'code.document-section:docs/vision.md#Journeys'

@@ -1,5 +1,14 @@
 path: 'docs/adr/0001-broker.md'
 nodes:
+  - id: 'code.document-section:docs/adr/0001-broker.md#ADR-0001: Kafka is the broker'
+    kind: 'code.document-section'
+    label: 'ADR-0001: Kafka is the broker'
+    evidence:
+      - path: 'docs/adr/0001-broker.md'
+        startLine: 1
+        endLine: 1
+        quote: '# ADR-0001: Kafka is the broker'
+    reading: 'parsed'
   - id: 'code.document-section:docs/adr/0001-broker.md#Consequences'
     kind: 'code.document-section'
     label: 'Consequences'
@@ -55,6 +64,15 @@ nodes:
         quote: '# ADR-0001: Kafka is the broker'
     reading: 'parsed'
 edges:
+  - relation: 'code.contains'
+    from: 'code.document:docs/adr/0001-broker.md'
+    to: 'code.document-section:docs/adr/0001-broker.md#ADR-0001: Kafka is the broker'
+    evidence:
+      - path: 'docs/adr/0001-broker.md'
+        startLine: 1
+        endLine: 1
+        quote: '# ADR-0001: Kafka is the broker'
+    reading: 'parsed'
   - relation: 'code.contains'
     from: 'code.document:docs/adr/0001-broker.md'
     to: 'code.document-section:docs/adr/0001-broker.md#Consequences'

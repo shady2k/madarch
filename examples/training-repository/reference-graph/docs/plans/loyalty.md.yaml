@@ -1,8 +1,8 @@
 path: 'docs/plans/loyalty.md'
 nodes:
-  - id: 'code.document-section:docs/plans/loyalty.md#(the plan)'
+  - id: 'code.document-section:docs/plans/loyalty.md#Plan: loyalty'
     kind: 'code.document-section'
-    label: '(the plan)'
+    label: 'Plan: loyalty'
     evidence:
       - path: 'docs/plans/loyalty.md'
         startLine: 1
@@ -39,7 +39,7 @@ nodes:
 edges:
   - relation: 'code.contains'
     from: 'code.document:docs/plans/loyalty.md'
-    to: 'code.document-section:docs/plans/loyalty.md#(the plan)'
+    to: 'code.document-section:docs/plans/loyalty.md#Plan: loyalty'
     evidence:
       - path: 'docs/plans/loyalty.md'
         startLine: 1

@@ -1,5 +1,14 @@
 path: 'services/orders/README.md'
 nodes:
+  - id: 'code.document-section:services/orders/README.md#Orders service'
+    kind: 'code.document-section'
+    label: 'Orders service'
+    evidence:
+      - path: 'services/orders/README.md'
+        startLine: 1
+        endLine: 1
+        quote: '# Orders service'
+    reading: 'parsed'
   - id: 'code.document:services/orders/README.md'
     kind: 'code.document'
     label: 'README.md'
@@ -19,6 +28,15 @@ nodes:
         quote: '# Orders service'
     reading: 'parsed'
 edges:
+  - relation: 'code.contains'
+    from: 'code.document:services/orders/README.md'
+    to: 'code.document-section:services/orders/README.md#Orders service'
+    evidence:
+      - path: 'services/orders/README.md'
+        startLine: 1
+        endLine: 1
+        quote: '# Orders service'
+    reading: 'parsed'
   - relation: 'code.mentions'
     from: 'code.document:services/orders/README.md'
     to: 'code.channel:orders.events'

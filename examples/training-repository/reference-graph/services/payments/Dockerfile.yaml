@@ -31,24 +31,6 @@ nodes:
         endLine: 2
         quote: 'FROM node:20-alpine AS build'
     reading: 'declared'
-  - id: 'code.port:services/payments:50051'
-    kind: 'code.port'
-    label: '50051'
-    evidence:
-      - path: 'services/payments/Dockerfile'
-        startLine: 18
-        endLine: 18
-        quote: 'EXPOSE 8081 50051'
-    reading: 'declared'
-  - id: 'code.port:services/payments:8081'
-    kind: 'code.port'
-    label: '8081'
-    evidence:
-      - path: 'services/payments/Dockerfile'
-        startLine: 18
-        endLine: 18
-        quote: 'EXPOSE 8081 50051'
-    reading: 'declared'
 edges:
   - relation: 'code.belongs-to'
     from: 'code.dockerfile:services/payments/Dockerfile'
@@ -70,7 +52,7 @@ edges:
     reading: 'declared'
   - relation: 'code.exposes'
     from: 'code.dockerfile:services/payments/Dockerfile'
-    to: 'code.port:services/payments:50051'
+    to: 'code.port:payments:50051'
     evidence:
       - path: 'services/payments/Dockerfile'
         startLine: 18
@@ -79,7 +61,7 @@ edges:
     reading: 'declared'
   - relation: 'code.exposes'
     from: 'code.dockerfile:services/payments/Dockerfile'
-    to: 'code.port:services/payments:8081'
+    to: 'code.port:payments:8081'
     evidence:
       - path: 'services/payments/Dockerfile'
         startLine: 18

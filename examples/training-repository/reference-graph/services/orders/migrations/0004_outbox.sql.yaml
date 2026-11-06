@@ -163,6 +163,15 @@ edges:
         endLine: 13
         quote: 'CREATE INDEX outbox_unpublished_idx ON outbox (id) WHERE published_at IS NULL;'
     reading: 'parsed'
+  - relation: 'code.covers'
+    from: 'code.index:orders.outbox_unpublished_idx'
+    to: 'code.column:orders.outbox.id'
+    evidence:
+      - path: 'services/orders/migrations/0004_outbox.sql'
+        startLine: 13
+        endLine: 13
+        quote: 'CREATE INDEX outbox_unpublished_idx ON outbox (id) WHERE published_at IS NULL;'
+    reading: 'parsed'
   - relation: 'code.creates'
     from: 'code.migration:services/orders/migrations/0004_outbox.sql'
     to: 'code.index:orders.outbox_unpublished_idx'

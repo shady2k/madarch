@@ -1,5 +1,14 @@
 path: 'docs/adr/0002-outbox.md'
 nodes:
+  - id: 'code.document-section:docs/adr/0002-outbox.md#ADR-0002: Events leave through a transactional outbox'
+    kind: 'code.document-section'
+    label: 'ADR-0002: Events leave through a transactional outbox'
+    evidence:
+      - path: 'docs/adr/0002-outbox.md'
+        startLine: 1
+        endLine: 1
+        quote: '# ADR-0002: Events leave through a transactional outbox'
+    reading: 'parsed'
   - id: 'code.document-section:docs/adr/0002-outbox.md#Consequences'
     kind: 'code.document-section'
     label: 'Consequences'
@@ -46,6 +55,15 @@ nodes:
         quote: '# ADR-0002: Events leave through a transactional outbox'
     reading: 'parsed'
 edges:
+  - relation: 'code.contains'
+    from: 'code.document:docs/adr/0002-outbox.md'
+    to: 'code.document-section:docs/adr/0002-outbox.md#ADR-0002: Events leave through a transactional outbox'
+    evidence:
+      - path: 'docs/adr/0002-outbox.md'
+        startLine: 1
+        endLine: 1
+        quote: '# ADR-0002: Events leave through a transactional outbox'
+    reading: 'parsed'
   - relation: 'code.contains'
     from: 'code.document:docs/adr/0002-outbox.md'
     to: 'code.document-section:docs/adr/0002-outbox.md#Consequences'

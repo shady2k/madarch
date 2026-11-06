@@ -18,6 +18,15 @@ nodes:
         endLine: 40
         quote: '## Qualities'
     reading: 'parsed'
+  - id: 'code.document-section:docs/requirements.md#Requirements'
+    kind: 'code.document-section'
+    label: 'Requirements'
+    evidence:
+      - path: 'docs/requirements.md'
+        startLine: 1
+        endLine: 1
+        quote: '# Requirements'
+    reading: 'parsed'
   - id: 'code.document-section:docs/requirements.md#Use cases'
     kind: 'code.document-section'
     label: 'Use cases'
@@ -63,6 +72,15 @@ edges:
         startLine: 40
         endLine: 40
         quote: '## Qualities'
+    reading: 'parsed'
+  - relation: 'code.contains'
+    from: 'code.document:docs/requirements.md'
+    to: 'code.document-section:docs/requirements.md#Requirements'
+    evidence:
+      - path: 'docs/requirements.md'
+        startLine: 1
+        endLine: 1
+        quote: '# Requirements'
     reading: 'parsed'
   - relation: 'code.contains'
     from: 'code.document:docs/requirements.md'

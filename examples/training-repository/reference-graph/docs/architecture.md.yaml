@@ -1,5 +1,14 @@
 path: 'docs/architecture.md'
 nodes:
+  - id: 'code.document-section:docs/architecture.md#Architecture'
+    kind: 'code.document-section'
+    label: 'Architecture'
+    evidence:
+      - path: 'docs/architecture.md'
+        startLine: 1
+        endLine: 1
+        quote: '# Architecture'
+    reading: 'parsed'
   - id: 'code.document-section:docs/architecture.md#Data'
     kind: 'code.document-section'
     label: 'Data'
@@ -55,6 +64,15 @@ nodes:
         quote: '# Architecture'
     reading: 'parsed'
 edges:
+  - relation: 'code.contains'
+    from: 'code.document:docs/architecture.md'
+    to: 'code.document-section:docs/architecture.md#Architecture'
+    evidence:
+      - path: 'docs/architecture.md'
+        startLine: 1
+        endLine: 1
+        quote: '# Architecture'
+    reading: 'parsed'
   - relation: 'code.contains'
     from: 'code.document:docs/architecture.md'
     to: 'code.document-section:docs/architecture.md#Data'
