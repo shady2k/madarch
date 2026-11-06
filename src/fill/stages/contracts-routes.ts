@@ -116,6 +116,9 @@ export function createContractsRoutesStage(sources: SnapshotSource): FillStage {
         { capability: 'service-unit', scope: 'repository', freshness: 'current' },
         { capability: 'listener-port', scope: 'repository', freshness: 'current' },
         { capability: 'field', scope: 'repository', freshness: 'current' },
+        // A registration's call site: the handler argument the driver positions the handler edge at.
+        { capability: 'callsite', scope: 'repository', freshness: 'current' },
+        { capability: 'expression', scope: 'repository', freshness: 'current' },
         { capability: 'symbol', scope: 'repository', freshness: 'current' },
         // The resolution stage's own links: a registration it already tied is the same edge, and the
         // graph holds one edge per relation and two ends (decision 0028), so this stage adds only the
@@ -252,16 +255,18 @@ async function executeContractsRoutesUnit(unit: StageUnit, context: StageContext
   const mounts = service === undefined ? [] : await nodesOf(stage, 'code.router-mount', 'service', service);
   const callables = await nodesOf(stage, 'code.callable', 'file', planned.path);
   const symbols = await nodesOf(stage, 'code.symbol', 'file', planned.path);
-  // The file's own expressions: a registration call's handler argument is the expression the driver
-  // positions the handler edge at, and the reader that names the route gives the handler's own span.
+  // The file's own call sites and expressions: a registration call's handler argument is the
+  // expression the driver positions the handler edge at, and the reader that names the route gives
+  // the handler's own span.
+  const calls = await nodesOf(stage, 'code.call', 'file', planned.path);
   const expressions = await nodesOf(stage, 'code.expression', 'file', planned.path);
   // The reference links the resolution stage published for this file: a registration it tied is one
   // edge the graph already holds, and this stage publishes only the ones it left untied.
   const existing = await allPages((page) => stage.edgesByProperty('code.references', 'file', planned.path, page));
   const existingLinks = new Set(existing.map((entry) => `${recordKeyOf(entry.from)}\u0000${recordKeyOf(entry.to)}`));
   const routes = isGo
-    ? await goRoutes(stage, planned.path, read.value as GoFileFacts, { service, ports, auth, mounts, callables, symbols, expressions, repository: planned.repository })
-    : tsRoutes(planned.path, read.value as TsFileFacts, { service, ports, auth, mounts, callables, symbols, expressions, repository: planned.repository });
+    ? await goRoutes(stage, planned.path, read.value as GoFileFacts, { service, ports, auth, mounts, callables, symbols, calls, expressions, repository: planned.repository })
+    : tsRoutes(planned.path, read.value as TsFileFacts, { service, ports, auth, mounts, callables, symbols, calls, expressions, repository: planned.repository });
   const evidence = evidenceAtPlace(source, planned.path);
   const fileKey = fileFactIdOf(planned.repository, planned.path);
   for (const route of routes) {
@@ -317,7 +322,9 @@ function tsRoutes(path: string, facts: TsFileFacts, read: RouteRead): readonly R
  * `httpRegistrationAt`).
  */
 function registrationHandlerSpan(read: RouteRead, routeSpan: SourceSpan, handlerSpan: SourceSpan): SourceSpan {
-  const atCall = read.expressions.filter((node) => {
+  // The call the registration's bytes are: the driver's `code.call` fact for it carries the ids of
+  // the argument expressions, and the handler argument is the one whose span holds the reader's.
+  const atCall = read.calls.filter((node) => {
     const span = spanOfNode(node);
     return span !== undefined && span.path === routeSpan.path && span.byteStart === routeSpan.byteStart && span.byteEnd === routeSpan.byteEnd;
   });
@@ -374,7 +381,9 @@ interface RouteRead {
   readonly mounts: readonly StaticGraphNode[];
   readonly callables: readonly StaticGraphNode[];
   readonly symbols: readonly StaticGraphNode[];
-  /** The file's own expression facts, by id: a registration call and the handler argument it passes. */
+  /** The file's own call sites, by the span of the call: a registration and the arguments it passes. */
+  readonly calls: readonly StaticGraphNode[];
+  /** The file's own expression facts, by record key: the handler argument a registration passes. */
   readonly expressions: readonly StaticGraphNode[];
   readonly repository: string;
 }
