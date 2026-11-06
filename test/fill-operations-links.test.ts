@@ -17,6 +17,7 @@ import { createPGliteDatabaseOwner, type DatabaseOwner } from '../src/adapters/d
 import { createFillOrchestratorService, type FillOrchestratorService, type FillRunResult } from '../src/fill/orchestrator-host.js';
 import { createGraphStore, type GraphStore, type NodeVersionRow } from '../src/graph/index.js';
 import { createStagesFill, type StagesFill } from '../src/product/fill-stages.js';
+import { writeFirstFillWorkflow } from './fill-workflow-fixture.js';
 
 const CONFIG_FILE = 'services/shop/src/config.ts';
 const LOGGER_FILE = 'services/shop/src/logging/logger.ts';
@@ -101,7 +102,8 @@ beforeAll(async () => {
     '',
   ].join('\n'));
   const git = (...args: string[]): void => { execFileSync('git', args, { cwd: product, stdio: ['ignore', 'pipe', 'pipe'] }); };
-  git('init', '-q', '-b', 'main');
+  writeFirstFillWorkflow(product);
+  git('init', '-q', '-b', 'main');  git('init', '-q', '-b', 'main');
   git('config', 'user.name', 'Fixture');
   git('config', 'user.email', 'fixture@example.invalid');
   git('add', '-A');

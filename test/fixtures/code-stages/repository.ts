@@ -13,6 +13,7 @@
 import { execFileSync } from 'node:child_process';
 import { mkdirSync, symlinkSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
+import { writeFirstFillWorkflow } from '../../fill-workflow-fixture.js';
 
 /** One state of a machine the stage must publish: its name, its label and the line it stands on. */
 export interface ExpectedState {
@@ -238,6 +239,7 @@ export function writeProduct(root: string): { readonly product: string; readonly
     '    url: file:///shop',
     '',
   ].join('\n'));
+  writeFirstFillWorkflow(product);
   git(product, ['init', '-q', '-b', 'main']);
   git(product, ['config', 'user.name', 'Code Fixture']);
   git(product, ['config', 'user.email', 'code@example.invalid']);

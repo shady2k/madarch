@@ -21,6 +21,7 @@ import { createPGliteDatabaseOwner, type DatabaseOwner } from '../src/adapters/d
 import { createFillOrchestratorService, type FillRunResult } from '../src/fill/orchestrator-host.js';
 import { createGraphStore, type GraphStore } from '../src/graph/index.js';
 import { createStagesFill, type StagesFill } from '../src/product/fill-stages.js';
+import { writeFirstFillWorkflow } from './fill-workflow-fixture.js';
 
 const GENERATOR = fileURLToPath(new URL('../examples/training-repository/generate.mjs', import.meta.url));
 const KEY = fileURLToPath(new URL('../examples/training-repository/answer-key.json', import.meta.url));
@@ -107,6 +108,7 @@ beforeAll(async () => {
     '',
   ].join('\n'));
   const git = (...args: string[]): void => { execFileSync('git', args, { cwd: product, stdio: ['ignore', 'pipe', 'pipe'] }); };
+  writeFirstFillWorkflow(product);
   git('init', '-q', '-b', 'main');
   git('config', 'user.name', 'Fixture');
   git('config', 'user.email', 'fixture@example.invalid');

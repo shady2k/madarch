@@ -14,6 +14,7 @@
 import { execFileSync } from 'node:child_process';
 import { mkdirSync, symlinkSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
+import { writeFirstFillWorkflow } from '../../fill-workflow-fixture.js';
 
 /** The product's repository name, and the name the fill reads it under. */
 export const UNITS_REPOSITORY = 'units';
@@ -249,6 +250,7 @@ export function writeUnitsProduct(root: string): { readonly product: string; rea
     ...['build-configuration', 'document-index', 'history', 'modules', 'semantic-resolution', 'state-machines', 'syntax'].flatMap((id) => [`    ${id}:`, '      enabled: false']),
     '',
   ].join('\n'));
+  writeFirstFillWorkflow(product);
   git(product, ['init', '-q', '-b', 'main']);
   git(product, ['config', 'user.name', 'Units Fixture']);
   git(product, ['config', 'user.email', 'units@example.invalid']);

@@ -40,6 +40,7 @@ import { createStagesFill, type StagesFill } from '../src/product/fill-stages.js
 import { FileText } from '../src/fill/stages/operations-records.js';
 import { OPERATIONS_STAGE_ID, operationsFamilyOf, operationsRecordsOfFile } from '../src/fill/stages/operations.js';
 import type { StaticGraphNode, StaticStageContext } from '../src/fill/stages/static-context.js';
+import { writeFirstFillWorkflow } from './fill-workflow-fixture.js';
 
 const GENERATOR = fileURLToPath(new URL('../examples/training-repository/generate.mjs', import.meta.url));
 const REPOSITORY = 'training';
@@ -331,6 +332,7 @@ beforeAll(async () => {
     '',
   ].join('\n'));
   const git = (...args: string[]): void => { execFileSync('git', args, { cwd: product, stdio: ['ignore', 'pipe', 'pipe'] }); };
+  writeFirstFillWorkflow(product);
   git('init', '-q', '-b', 'main');
   git('config', 'user.name', 'Fixture');
   git('config', 'user.email', 'fixture@example.invalid');

@@ -87,7 +87,7 @@ import { createStageRegistry } from '../fill/stages/index.js';
 import { sameFolder } from './git.js';
 import { hashFillInput } from './fill-runtime.js';
 import { readProduct, type ProductIdentity } from './manifest.js';
-import { engineFirstFillStages, firstFillStagesOf, type FirstFillRead } from '../knowledge/workflows.js';
+import { engineFirstFillStages, firstFillStagesOf, readWorkflows, type FirstFillRead } from '../knowledge/workflows.js';
 
 /**
  * The process's one connection as this wiring names it: the type the graph store
@@ -256,7 +256,11 @@ export async function createRepositoryFill(options: RepositoryFillOptions): Prom
   await createStageReadSchema(options.database);
   const store: GraphStore = createGraphStore(options.database);
   await ensureGraphSchema(store);
-  const workflow = engineFirstFillStages();
+  // A served checkout that is a product repository holds its own workflow manifest, and the repository is filled by
+  // the workflow it declares; one that is no product has no manifest, and the engine's own `first-fill` — the starter
+  // set `madarch new` writes into a product — is the workflow it runs. Either way the stage set is a workflow's, never
+  // a list written here.
+  const workflow = readWorkflows(folder).present ? firstFillStagesOf(folder) : engineFirstFillStages();
   const wiring: ProductFillWiring = {
     snapshot: () => snapshotOfPins(folder, registry, pin),
     configuration: () => configurationOfWorkflow(workflow, { ok: true, file: workflow.ok ? workflow.file : 'madarch/workflows.yaml', stages: {}, lines: {} }, registry),

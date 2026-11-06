@@ -14,6 +14,7 @@
 import { execFileSync } from 'node:child_process';
 import { mkdirSync, symlinkSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
+import { writeFirstFillWorkflow } from '../../fill-workflow-fixture.js';
 
 /** One file the generator writes: its repository path and its bytes. */
 export interface GeneratedFile {
@@ -134,6 +135,7 @@ export function writeProduct(root: string, count: number): { readonly product: s
     '    url: file:///ring',
     '',
   ].join('\n'));
+  writeFirstFillWorkflow(product);
   git(product, ['init', '-q', '-b', 'main']);
   git(product, ['config', 'user.name', 'Resolution Fixture']);
   git(product, ['config', 'user.email', 'resolution@example.invalid']);

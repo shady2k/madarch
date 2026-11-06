@@ -36,6 +36,7 @@ import { createFillOrchestratorService, type FillRunResult } from '../src/fill/o
 import { createGraphStore, type EdgeEntry, type GraphStore, type NodeVersionRow } from '../src/graph/index.js';
 import { createStagesFill, type StagesFill } from '../src/product/fill-stages.js';
 import { DATA_MODEL_AGGREGATE_STAGE_ID, DATA_MODEL_NODE_KINDS, DATA_MODEL_RELATIONS, DATA_MODEL_STAGE_ID } from '../src/fill/stages/data-model.js';
+import { writeFirstFillWorkflow } from './fill-workflow-fixture.js';
 
 const GENERATOR = fileURLToPath(new URL('../examples/training-repository/generate.mjs', import.meta.url));
 const REPOSITORY = 'training';
@@ -241,6 +242,7 @@ beforeAll(async () => {
     '',
   ].join('\n'));
   const git = (...args: string[]): void => { execFileSync('git', args, { cwd: product, stdio: ['ignore', 'pipe', 'pipe'] }); };
+  writeFirstFillWorkflow(product);
   git('init', '-q', '-b', 'main');
   git('config', 'user.name', 'Fixture');
   git('config', 'user.email', 'fixture@example.invalid');

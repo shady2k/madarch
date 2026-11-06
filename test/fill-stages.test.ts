@@ -23,6 +23,7 @@ import { countPublishedFactsByKind, readUnitFacts } from '../src/fill/fact-store
 import { readUnitPlan } from '../src/fill/orchestrator-store.js';
 import { createFillOrchestratorService, type FillOrchestratorService, type FillRunResult } from '../src/fill/orchestrator-host.js';
 import { createStagesFill, declaredStagesDigest, type StagesFill } from '../src/product/fill-stages.js';
+import { writeFirstFillWorkflow } from './fill-workflow-fixture.js';
 
 /** One product open for a run: the database it fills, its host, and the wiring over the product. */
 interface OpenProduct {
@@ -141,6 +142,7 @@ beforeAll(() => {
   mkdirSync(join(product, 'src'), { recursive: true });
   mkdirSync(join(product, 'docs'), { recursive: true });
   writeFileSync(join(product, 'workspace.yaml'), 'schemaVersion: 1\nid: 8a1c6f2e-4f2b-4b8a-9f7e-1a2b3c4d5e6f\nname: shop\n');
+  writeFirstFillWorkflow(product);
   writeFileSync(join(product, 'package.json'), '{\n  "name": "shop",\n  "version": "1.0.0"\n}\n');
   writeFileSync(join(product, 'src', 'order.ts'), "import { total } from './total.js';\n\nexport function checkout(): number {\n  return total();\n}\n");
   writeFileSync(join(product, 'src', 'total.ts'), 'export function total(): number {\n  return 42;\n}\n');
@@ -277,8 +279,9 @@ describe('two runs over one product', () => {
     for (const kind of ['coverage', 'contains', 'defines', 'directory', 'file', 'import', 'occurrence', 'snapshot', 'symbol']) {
       expect(afterFirst[kind] ?? 0).toBeGreaterThan(0);
     }
-    expect(afterFirst['file']).toBe(5);
-    expect(afterFirst['directory']).toBe(2);
+    // The product's files: its four sources, its workspace.yaml, and the workflows manifest the fill runs.
+    expect(afterFirst['file']).toBe(6);
+    expect(afterFirst['directory']).toBe(3);
     // The snapshot stage's commit node and the history stage's commit node of the same commit:
     // two producers, two nodes, each with its own key (decision 0033's fenced publication).
     expect(afterFirst['snapshot']).toBe(2);
@@ -360,8 +363,8 @@ describe('two runs over one product', () => {
     expect(afterSecond['snapshot']).toBeGreaterThanOrEqual(1);
     // A file is its repository and its path, so the file facts of both runs are
     // the same rows: one row per file of the tree, whatever the commit.
-    expect(afterSecond['file']).toBe(5);
-    expect(afterSecond['directory']).toBe(2);
+    expect(afterSecond['file']).toBe(6);
+    expect(afterSecond['directory']).toBe(3);
   }, 900_000);
 });
 

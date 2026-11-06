@@ -44,6 +44,7 @@ import { PRODUCT_SCOPE_NAME } from '../src/fill/stages/agent-stage.js';
 import { UNIT_TOOL_PATH } from '../src/fill/unit-tools.js';
 import { startServer, type StartedServer } from '../src/server/http.js';
 import { createStagesFill, type StagesFill } from '../src/product/fill-stages.js';
+import { writeFirstFillWorkflow } from './fill-workflow-fixture.js';
 
 const FAKE_AGENT = join(import.meta.dir, 'fixtures', 'acp-fake-agent', 'acp-fake-agent.ts');
 const GENERATOR = fileURLToPath(new URL('../examples/training-repository/agent-stage/generate.mjs', import.meta.url));
