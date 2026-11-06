@@ -553,6 +553,12 @@ class bindings the code-facts walk does not write. With it,
 `payments.events`, publisher `publishPaymentEvent`, key `payment.orderId`,
 span 1688-1752, evidence 1688-1752 and 1011-1068). `inferOutboxPublications`
 and `structuralGrpcDeadline` take plain fact shapes, so a static stage can hand
-them a service's reconstructed facts. The outbox fold and the HTTP/gRPC call
-links are not wired into a stage yet; the change record's report says what each
-needs next.
+them a service's reconstructed facts. The publisher sites are joined to their
+channels by `contracts-links`, with the service's topic constant and event
+kinds; the training repository's payments publisher matches the driver exactly.
+The orders outbox publication is still missing: its chain reaches
+`KafkaPublisher` through the `Publisher` interface declared in `relay.go` and
+implemented in `kafka.go`, and a per-file view has no fan-out across files, so
+the inference never sees the send. The HTTP and gRPC call sites are published
+and joined by the driver's own matching; `calls-remote` still differs and its
+differences have not been read yet. The report says where each stands.
