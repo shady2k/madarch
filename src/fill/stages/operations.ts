@@ -401,7 +401,16 @@ async function recordsOfUnit(stage: StaticStageContext, repository: string, fami
       for (const port of read.read.exposes) {
         if (await publishedElsewhere(stage, file.path, `code.port:${service}/${String(port)}`)) published.push(port);
       }
-      return dockerfileRecords(file, read.read, (port) => published.includes(port));
+      const records = dockerfileRecords(file, read.read, (port) => published.includes(port));
+      // The process the command starts stands at the code file it names, and that file's unit
+      // publishes it (`processRecords`, the code case below). A command that names no source
+      // file this tree holds starts a process the Dockerfile itself declares: the driver gives
+      // that process the Dockerfile's bytes and the `starts` edge, and this unit owns both.
+      const started = await startedProcessOf(read.read, (candidate) => existsInGraph(stage, candidate));
+      if (started === undefined) return records;
+      if (started.mainFile !== null && await existsInGraph(stage, started.mainFile)) return records;
+      const process = processRecords({ file, dockerfile: file, reading: read.read, started, listen: undefined, publishPort: false });
+      return { nodes: [...records.nodes, ...process.nodes], edges: [...records.edges, ...process.edges], gaps: [...records.gaps, ...process.gaps] };
     }
     case 'code':
       return await codeRecords(stage, repository, file);
