@@ -771,7 +771,7 @@ function reportFillStages(product: { readonly name: string; readonly folder: str
   const units = [...result.units].sort((left, right) => byCodePoint(left.unitId, right.unitId));
   const executed = units.filter((unit) => !inherited.has(unit.unitId));
   if (json) {
-    console.log(JSON.stringify({ product, runId: result.runId, state: result.state, settled: result.settled, passes: result.passes, work: result.work, stoppedBecause: result.stoppedBecause, units, inherited: [...inherited].sort(byCodePoint), foundNothing: [...result.foundNothing].sort(byCodePoint), counts, elapsedMs }));
+    console.log(JSON.stringify({ product, runId: result.runId, state: result.state, settled: result.settled, passes: result.passes, work: result.work, stoppedBecause: result.stoppedBecause, retryWaitMs: result.retryWaitMs, units, inherited: [...inherited].sort(byCodePoint), foundNothing: [...result.foundNothing].sort(byCodePoint), counts, elapsedMs }));
     return;
   }
   console.log(`Fill ${result.runId}: ${result.state}${result.settled ? '' : ', not settled'}${result.stoppedBecause === undefined ? '' : ` (${result.stoppedBecause})`}`);
@@ -781,7 +781,7 @@ function reportFillStages(product: { readonly name: string; readonly folder: str
   if (result.foundNothing.length > 0) console.log(`Stages that read their inputs and found nothing: ${[...result.foundNothing].sort(byCodePoint).join(', ')}`);
   console.log(`Facts by kind: ${Object.keys(counts).length === 0 ? 'none' : ''}`);
   for (const kind of Object.keys(counts).sort(byCodePoint)) console.log(`${kind}\t${String(counts[kind])}`);
-  console.log(`Time: ${String(Math.round(elapsedMs / 100) / 10)}s in ${String(result.passes)} passes`);
+  console.log(`Time: ${String(Math.round(elapsedMs / 100) / 10)}s in ${String(result.passes)} passes, ${String(Math.round(result.retryWaitMs / 100) / 10)}s waiting for the run's own retries`);
 }
 
 /**
