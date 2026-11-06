@@ -617,7 +617,7 @@ export async function extractContracts(reader: TreeReader, code?: Extraction, fa
       continue;
     }
   }
-  const outbox = await inferOutboxPublications(facts, code, publications.sites, units);
+  const outbox = await inferOutboxPublications(facts, code, publications.sites, (path) => serviceOfPath(units, path));
   gaps.push(...outbox.gaps);
   for (const site of outbox.sites) {
     if (!channels.includes(site.channel)) continue;

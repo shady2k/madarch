@@ -510,3 +510,49 @@ driver's reading 1.8 s.
 **Measured on the generated training repository** (the comparison with the stages outside this reading disabled, one fill): `entry-points` falls from 17 differences to 5 (four `code.belongs-to`, one `code.starts` for the missing payments process), `containment` from 4 to 0, and `routes` from 15 to 0. `bun run check` exits 0 with no gained architecture entry (`1235` violations, all listed). The families still on `REMAINING` are `channels`, `entry-points`, `calls-remote`, `consumes` and `publishes`; the reasons for the last four stand in the section above.
 
 **What the remaining four families need, measured.** The consumes, publishes and calls-remote links are not facts of one file's bytes: `structuralGoReaders`, `structuralPublishers` and `httpCallUrl` read a tree's whole `CodeFacts` (every file's expressions, bindings, calls, imports, fields and resolution sites) and the outbox inference reads the SQL relay and the unit index besides. A static unit holds one file's facts and bounded graph queries (decision 0033, item 5), and the graph's per-file facts do not carry what those readers need — notably an external import (`import kafka "github.com/segmentio/kafka-go"`) is published by no stage, because the syntax stage publishes an `code.imports` edge only for a specifier it can tie to a file of the repository. Porting those three families means porting the readers onto per-file facts (their own stage), not wiring this one; the channel fold then follows the same per-file consumption facts, because a `code.consumes` edge cannot end at a channel node before that node exists and a channel node has one publisher.
+
+
+## The consumed channels, and the two blockers the port fell on
+
+**The process a shell command starts.** `startedProcessOf` and the driver's own
+`processOf` read a command one argument at a time; a shell `-c` argument is one
+string that runs several words, so its script is split on whitespace and the
+last word the existing script test answers is the script.
+`CMD ["sh","-c","npx prisma migrate deploy && node dist/index.js"]` now starts
+`code.process:services/payments/src/index.ts`, at that file's bytes, in both
+readings, and the operations comparison stays at zero differences. The
+operations comparisons read only their producers; the AsyncAPI channel and its
+containment are the contracts reading's records.
+
+**The Kafka sites of a Go file.** The tree reader of one file now finds the
+reader configuration (`<ns>.ReaderConfig{Topic, GroupID}`), decodes the topic
+through the file's own constants, and associates the reads through a field the
+file declares as `<ns>.Reader`; its answer equals `structuralGoReaders`' on the
+training repository's consumer (channel `payments.events`, group `orders`, one
+read at `FetchMessage`). `contracts-code` publishes it as `code.kafka-site`,
+beside the consumer names of the package (`code.go-consumer`); `contracts`
+folds a channel's `consumerFound`/`consumerStatus` from the sites, one stage
+after them, and `contracts-links` publishes the `code.consumes` edges from the
+same facts. **A bug the fold exposed:** the stage's span reader accepted only a
+provenance place's `startByte`/`endByte` and not a record's `byteStart`/
+`byteEnd`, so every site read and site span was dropped and every edge came out
+`configured` with no span. With both spellings read, the consume family and the
+channel fold compare equal on the training repository.
+
+`test/fill-contracts-training.test.ts` names `calls-remote` and `publishes` as
+remaining; `entry-points`, `consumes` and `channels` are zero (5 pass, 961 s,
+the refill included).
+
+**What still blocks the two families.** `src/fill/stages/contracts-facts.ts`
+rebuilds one file's facts from the graph and answers the driver's publisher
+reader: expression, binding, call and field rows, the call holder the graph
+does not store, the mention fan-out of a `code.inherits` edge, and the type and
+class bindings the code-facts walk does not write. With it,
+`structuralPublishers` reproduces the driver's site for
+`services/payments/src/events/publishers.ts` exactly (channel
+`payments.events`, publisher `publishPaymentEvent`, key `payment.orderId`,
+span 1688-1752, evidence 1688-1752 and 1011-1068). `inferOutboxPublications`
+and `structuralGrpcDeadline` take plain fact shapes, so a static stage can hand
+them a service's reconstructed facts. The outbox fold and the HTTP/gRPC call
+links are not wired into a stage yet; the change record's report says what each
+needs next.

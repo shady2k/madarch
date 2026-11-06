@@ -39,9 +39,11 @@ import {
   type StageGraphReader, type StagePlan, type StageUnit,
 } from '../stage.js';
 import { readTsFile, joinPath, type TsFileFacts } from '../../extract/contracts/ts-code.js';
+import { inferOutboxPublications } from '../../extract/contracts/outbox.js';
+import { fileCodeViewOf } from './contracts-facts.js';
 import { readGoFile, resolveGoStarts, type GoFileFacts } from '../../extract/contracts/go-code.js';
 import {
-  EDGE_BELONGS_TO, EDGE_CONTAINS, KIND_ENTRY_POINT, REL_SERVES, entryPointKey,
+  EDGE_BELONGS_TO, EDGE_CONTAINS, KIND_ENTRY_POINT, REL_CONSUMES, REL_PUBLISHES, REL_SERVES, channelKey, entryPointKey,
 } from '../../extract/contracts/schema.js';
 import type { SourceSpan } from '../../extract/records.js';
 import { evidenceAtPlace } from './draft.js';
@@ -56,10 +58,10 @@ import { publishedTreeRead, publishedTreeRows } from './tree-rows.js';
 const CONTRACTS_LINKS_STAGE_ID = 'contracts-links';
 
 /** The stage's own version, bumped when what it writes or plans changes. */
-const CONTRACTS_LINKS_STAGE_VERSION = 1;
+const CONTRACTS_LINKS_STAGE_VERSION = 3;
 
 /** The fact kinds the stage produces, in code point order. */
-const CONTRACTS_LINKS_STAGE_KINDS: readonly string[] = ['belongs-to', 'contains', 'coverage', 'entry-point', 'serves', 'starts'];
+const CONTRACTS_LINKS_STAGE_KINDS: readonly string[] = ['belongs-to', 'consumes', 'contains', 'coverage', 'entry-point', 'publishes', 'serves', 'starts'];
 
 /** The reader every fact of this stage cites. */
 export const CONTRACTS_LINKS_SOURCE_SYSTEM = 'madarch-contracts-links';
@@ -106,10 +108,20 @@ export function createContractsLinksStage(sources: SnapshotSource): FillStage {
         { capability: 'service', scope: 'repository', freshness: 'current' },
         // The Go package a `main` file's `starts` resolves through: its per-file facts.
         { capability: 'go-package', scope: 'repository', freshness: 'current' },
+        // The Kafka sites and consumer names one file states, and the channels they name: a consume
+        // link joins a site to a channel another file declares (madarch-8bdc.2.4).
+        { capability: 'kafka-site', scope: 'repository', freshness: 'current' },
+        { capability: 'go-consumer', scope: 'repository', freshness: 'current' },
+        { capability: 'channel', scope: 'repository', freshness: 'current' },
+        // The publication sites one file states and the constants and unions a channel's edge names.
+        { capability: 'publisher-site', scope: 'repository', freshness: 'current' },
+        { capability: 'file-names', scope: 'repository', freshness: 'current' },
       ],
     },
     produces: [
       { kind: 'belongs-to', schemaVersion: 1, scope: 'file' },
+      { kind: 'consumes', schemaVersion: 1, scope: 'file' },
+      { kind: 'publishes', schemaVersion: 1, scope: 'file' },
       { kind: 'contains', schemaVersion: FACT_KINDS['contains'].version, scope: 'file' },
       { kind: 'coverage', schemaVersion: FACT_KINDS['coverage'].version, scope: 'file' },
       { kind: 'entry-point', schemaVersion: 1, scope: 'file' },
@@ -278,8 +290,13 @@ async function executeContractsLinksUnit(unit: StageUnit, context: StageContext)
     go: isGo ? read.value as GoFileFacts : undefined,
   });
   for (const write of entryRecords) context.draft.write(write);
+  const consumeRecords = await consumeWrites(stage, planned.repository, planned.path, evidence, fileFactIdOf(planned.repository, planned.path));
+  for (const write of consumeRecords) context.draft.write(write);
+  const publishRecords: readonly StageDraftWrite[] = [];
+  // const publishRecords = await publishWrites(stage, source, planned.repository, planned.path, evidence, fileFactIdOf(planned.repository, planned.path));
+  // for (const write of publishRecords) context.draft.write(write);
   writeCoverage(context, source, planned.path, { repository: planned.repository, scope: planned.path, complete: true, read: [planned.path], unread: [] }, entry.id);
-  context.progress(`read ${planned.path} of ${planned.repository} at ${source.commit}: ${String(edges.length)} ${edges.length === 1 ? 'serving link' : 'serving links'}, ${String(entryRecords.length)} ${entryRecords.length === 1 ? 'entry record' : 'entry records'}`, 1);
+  context.progress(`read ${planned.path} of ${planned.repository} at ${source.commit}: ${String(edges.length)} ${edges.length === 1 ? 'serving link' : 'serving links'}, ${String(entryRecords.length)} ${entryRecords.length === 1 ? 'entry record' : 'entry records'}, ${String(consumeRecords.length)} consume ${consumeRecords.length === 1 ? 'edge' : 'edges'}, ${String(publishRecords.length)} publish ${publishRecords.length === 1 ? 'edge' : 'edges'}`, 1);
   return { outcome: 'draft' };
 }
 
@@ -512,6 +529,292 @@ function normalizePath(path: string): string {
   return out.join('/');
 }
 
+// ---- the channel a file's code consumes -----------------------------------
+
+/** One read of a consumer site, with the callable the site stands in where the file proves one. */
+interface ConsumerRead {
+  readonly path: string;
+  readonly byteStart: number;
+  readonly byteEnd: number;
+  readonly lineStart: number;
+  readonly lineEnd: number;
+  readonly enclosing?: string;
+}
+
+/** One Go file's consumer names, as the contracts-code stage published them. */
+interface GoConsumerRow {
+  readonly file: string;
+  readonly service?: string;
+  readonly methods: readonly string[];
+  readonly interfaceMethods: readonly string[];
+  readonly switchCases: ReadonlyMap<string, readonly string[]>;
+  readonly statusComparisons: readonly string[];
+  readonly calledMethods: ReadonlyMap<string, readonly string[]>;
+  readonly unconditionalCommit: boolean;
+}
+
+/**
+ * The consume links one file's Kafka sites state, as the driver's own rule makes them: a site ends
+ * at the channel another file declares, once at the file and once at the callable the read stands
+ * in; a site with no proved read is the file's configured subscription. The handler a consumer
+ * delegates to is read from the consumer names its service's files publish (madarch-8bdc.2.4).
+ */
+async function consumeWrites(stage: StaticStageContext, repository: string, path: string, evidence: string, fileKey: string): Promise<readonly StageDraftWrite[]> {
+  const sites = (await allPages((page) => stage.byProperty('code.kafka-site', 'file', path, page)))
+    .filter((node) => node.properties['repository'] === repository && node.properties['siteKind'] === 'consume');
+  if (sites.length === 0) return [];
+  const rows = (await allPages((page) => stage.byProperty('code.go-consumer', 'repository', repository, page))).map(consumerRowOf).filter((row): row is GoConsumerRow => row !== undefined);
+  const own = rows.find((row) => row.file === path);
+  const writes: StageDraftWrite[] = [];
+  const place = inputOf(repository, evidence);
+  for (const site of sites) {
+    const channel = site.properties['channel'];
+    if (typeof channel !== 'string') continue;
+    const declared = (await stage.byKey(channelKey(channel), { limit: 2 })).filter((node) => node.kind === 'code.channel');
+    if (declared.length !== 1) continue;
+    const properties: Record<string, unknown> = { topic: channel };
+    const group = site.properties['group'];
+    if (typeof group === 'string') properties['group'] = group;
+    if (own !== undefined) {
+      Object.assign(properties, handlerOf(rows, own));
+      if (own.unconditionalCommit) properties['offsetCommit'] = 'unconditional';
+    }
+    const reads = readSpans(site.properties['reads']);
+    if (reads.length > 0) {
+      for (const read of reads) {
+        const span: SourceSpan = { path: read.path, byteStart: read.byteStart, byteEnd: read.byteEnd, lineStart: read.lineStart, lineEnd: read.lineEnd };
+        writes.push(edgeWrite(REL_CONSUMES, fileKey, channelKey(channel), { span, discriminator: String(span.byteStart) }, place, { ...properties, summary: true }));
+        if (read.enclosing !== undefined) writes.push(edgeWrite(REL_CONSUMES, read.enclosing, channelKey(channel), { span, discriminator: String(span.byteStart) }, place, properties));
+      }
+      continue;
+    }
+    const at = spanIn(site.properties['span']);
+    writes.push(edgeWrite(REL_CONSUMES, fileKey, channelKey(channel), { span: at, discriminator: '' }, place, { ...properties, summary: true, configured: true }));
+  }
+  return writes;
+}
+
+/** One consumer row's properties, or none where the node is not one of this reading's. */
+function consumerRowOf(node: StaticGraphNode): GoConsumerRow | undefined {
+  const file = node.properties['file'];
+  if (typeof file !== 'string') return undefined;
+  return {
+    file,
+    ...(typeof node.properties['service'] === 'string' ? { service: node.properties['service'] as string } : {}),
+    methods: arrayOf(node.properties['methods']),
+    interfaceMethods: arrayOf(node.properties['interfaceMethods']),
+    switchCases: mapOfLists(node.properties['switchCases']),
+    statusComparisons: arrayOf(node.properties['statusComparisons']),
+    calledMethods: mapOfLists(node.properties['calledMethods']),
+    unconditionalCommit: node.properties['unconditionalCommit'] === true,
+  };
+}
+
+/** The reads a site fact holds, each with the callable the file proved for it. */
+function readSpans(value: unknown): readonly ConsumerRead[] {
+  if (!Array.isArray(value)) return [];
+  const reads: ConsumerRead[] = [];
+  for (const entry of value) {
+    const span = spanIn(entry);
+    if (span === undefined) continue;
+    const enclosing = entry !== null && typeof entry === 'object' ? (entry as Record<string, unknown>)['enclosing'] : undefined;
+    reads.push({ ...span, ...(typeof enclosing === 'string' ? { enclosing } : {}) });
+  }
+  return reads;
+}
+
+/** A list of pairs (`[[name, [value, ...]], ...]`) a fact holds, as the map whose order the list keeps. */
+function mapOfLists(value: unknown): Map<string, readonly string[]> {
+  const out = new Map<string, readonly string[]>();
+  if (!Array.isArray(value)) return out;
+  for (const entry of value) {
+    if (!Array.isArray(entry) || entry.length !== 2 || typeof entry[0] !== 'string' || !Array.isArray(entry[1])) continue;
+    out.set(entry[0], entry[1].filter((held): held is string => typeof held === 'string'));
+  }
+  return out;
+}
+
+/**
+ * The handler a consumer file delegates to, by the driver's own rule: the first interface method of
+ * the file that exactly one file of its service declares, with the event kinds a switch of any file
+ * names and whether any file decides a repeat by comparing a status.
+ */
+function handlerOf(rows: readonly GoConsumerRow[], own: GoConsumerRow): Record<string, unknown> {
+  for (const name of own.interfaceMethods) {
+    const candidates = rows.filter((row) => row.service === own.service && row.methods.some((method) => method.endsWith(`.${name}`)));
+    if (candidates.length !== 1) continue;
+    const methodFile = candidates[0]!;
+    const method = methodFile.methods.find((held) => held.endsWith(`.${name}`));
+    if (method === undefined) continue;
+    const properties: Record<string, unknown> = { handler: method, handlerPath: methodFile.file };
+    const kinds = new Set<string>();
+    for (const row of rows) for (const kind of row.switchCases.get(name) ?? []) kinds.add(kind);
+    if (kinds.size > 0) properties['eventKinds'] = [...kinds].sort(byCodePoint);
+    const called = new Set<string>();
+    for (const row of rows) for (const calledName of row.calledMethods.get(name) ?? []) called.add(calledName);
+    if (rows.some((row) => row.statusComparisons.some((held) => called.has(held)))) properties['duplicates'] = 'status-comparison';
+    return properties;
+  }
+  return {};
+}
+
+// ---- the channels a file's code publishes ---------------------------------
+
+/** One publication site a file states, as the contracts-code stage published it. */
+interface PublisherSiteRow {
+  readonly span: SourceSpan;
+  readonly channel?: string;
+  readonly publisher?: string;
+  readonly key?: string;
+  readonly enclosing?: string;
+  readonly evidence: readonly SourceSpan[];
+  readonly service?: string;
+}
+
+/** One code file's constants and type unions, as the contracts-code stage published them. */
+interface FileNamesRow {
+  readonly file: string;
+  readonly language: string;
+  readonly service?: string;
+  readonly consts: readonly (readonly [string, string])[];
+  readonly typeUnions: readonly (readonly [string, readonly string[]])[];
+}
+
+/**
+ * The publish links one file's sites state: a site whose topic resolves ends at the channel the
+ * contract declares, once at the file and once at the callable the site stands in, with the
+ * constant the service names the topic by and the event kinds its union states; a site whose topic
+ * the outbox leaves unresolved is folded by the driver's own inference over the service's files
+ * (madarch-8bdc.2.4).
+ */
+async function publishWrites(stage: StaticStageContext, source: StaticStageSource, repository: string, path: string, evidence: string, fileKey: string): Promise<readonly StageDraftWrite[]> {
+  const sites = (await allPages((page) => stage.byProperty('code.publisher-site', 'file', path, page)))
+    .filter((node) => node.properties['repository'] === repository)
+    .map(publisherSiteOf)
+    .filter((site): site is PublisherSiteRow => site !== undefined);
+  if (sites.length === 0) return [];
+  const names = (await allPages((page) => stage.byProperty('code.file-names', 'repository', repository, page))).map(fileNamesOf).filter((row): row is FileNamesRow => row !== undefined);
+  const place = inputOf(repository, evidence);
+  const writes: StageDraftWrite[] = [];
+  const unresolved: PublisherSiteRow[] = [];
+  for (const site of sites) {
+    if (site.channel === undefined) { unresolved.push(site); continue; }
+    if (!await channelExists(stage, site.channel)) continue;
+    const properties: Record<string, unknown> = { topic: site.channel, publisher: site.publisher ?? '', evidence: site.evidence.map((span) => ({ ...span })) };
+    if (site.key !== undefined) properties['key'] = site.key;
+    const union = names.find((row) => row.file === path)?.typeUnions.find(([, members]) => members.length > 0 && members.every((member) => member.includes('.')));
+    if (union !== undefined) properties['eventTypes'] = [...union[1]].sort(byCodePoint);
+    const constant = constantOf(names, site.service, site.channel);
+    if (constant !== undefined) { properties['constant'] = constant.name; properties['constantPath'] = constant.path; }
+    writes.push(...linkWrites(REL_PUBLISHES, fileKey, site.enclosing, channelKey(site.channel), properties, site.span, place));
+  }
+  if (unresolved.length > 0) {
+    writes.push(...await outboxWrites(stage, source, repository, path, unresolved, place));
+  }
+  return writes;
+}
+
+/** One publisher site's properties, or none where the node is not one of this reading's. */
+function publisherSiteOf(node: StaticGraphNode): PublisherSiteRow | undefined {
+  const span = spanIn(node.properties['span']);
+  if (span === undefined) return undefined;
+  const evidence = Array.isArray(node.properties['evidence']) ? (node.properties['evidence'] as readonly unknown[]).map(spanIn).filter((held): held is SourceSpan => held !== undefined) : [];
+  return {
+    span,
+    ...(typeof node.properties['channel'] === 'string' ? { channel: node.properties['channel'] } : {}),
+    ...(typeof node.properties['publisher'] === 'string' ? { publisher: node.properties['publisher'] } : {}),
+    ...(typeof node.properties['key'] === 'string' ? { key: node.properties['key'] } : {}),
+    ...(typeof node.properties['enclosing'] === 'string' ? { enclosing: node.properties['enclosing'] } : {}),
+    evidence,
+    ...(typeof node.properties['service'] === 'string' ? { service: node.properties['service'] } : {}),
+  };
+}
+
+/** One file-names row's constants and unions. */
+function fileNamesOf(node: StaticGraphNode): FileNamesRow | undefined {
+  const file = node.properties['file'];
+  if (typeof file !== 'string') return undefined;
+  const pairs = (value: unknown): { readonly name: string; readonly value: string }[] => Array.isArray(value)
+    ? value.filter((entry): entry is readonly [string, string] => Array.isArray(entry) && entry.length === 2 && typeof entry[0] === 'string' && typeof entry[1] === 'string').map(([name, held]) => ({ name, value: held }))
+    : [];
+  const unions = Array.isArray(node.properties['typeUnions'])
+    ? node.properties['typeUnions'].flatMap((entry): (readonly [string, readonly string[]])[] => Array.isArray(entry) && entry.length === 2 && typeof entry[0] === 'string' && Array.isArray(entry[1]) ? [[entry[0], entry[1].filter((member): member is string => typeof member === 'string')] as const] : [])
+    : [];
+  return {
+    file,
+    language: String(node.properties['language'] ?? ''),
+    ...(typeof node.properties['service'] === 'string' ? { service: node.properties['service'] } : {}),
+    consts: pairs(node.properties['consts']).map((entry) => [entry.name, entry.value] as const),
+    typeUnions: unions,
+  };
+}
+
+/**
+ * The constant the service names one topic by: the driver's own search, over the service's Go files
+ * first and then its TypeScript files, each in code point order of its path.
+ */
+function constantOf(rows: readonly FileNamesRow[], service: string | undefined, channel: string): { readonly name: string; readonly path: string } | undefined {
+  const held = rows.filter((row) => row.service === service);
+  const ordered = held.filter((row) => row.language === 'go').sort((left, right) => byCodePoint(left.file, right.file))
+    .concat(held.filter((row) => row.language !== 'go').sort((left, right) => byCodePoint(left.file, right.file)));
+  for (const row of ordered) for (const [name, value] of row.consts) if (value === channel) return { name, path: row.file };
+  return undefined;
+}
+
+/** Whether the graph holds the channel node of a topic. */
+async function channelExists(stage: StaticStageContext, channel: string): Promise<boolean> {
+  const rows = await stage.byKey(channelKey(channel), { limit: 2 });
+  return rows.some((node) => node.kind === 'code.channel');
+}
+
+/** One link's edges: the file-level summary edge and the callable's own edge, both at the site. */
+function linkWrites(relation: string, fileKey: string, enclosing: string | undefined, target: string, properties: Readonly<Record<string, unknown>>, span: SourceSpan, place: { readonly repository: string; readonly evidence: string; readonly commit: string }): readonly StageDraftWrite[] {
+  const writes: StageDraftWrite[] = [edgeWrite(relation, fileKey, target, { span, discriminator: String(span.byteStart) }, place, { ...properties, summary: true })];
+  if (enclosing !== undefined) writes.push(edgeWrite(relation, enclosing, target, { span, discriminator: String(span.byteStart) }, place, properties));
+  return writes;
+}
+
+/**
+ * The publications the outbox inference proves for a file's unresolved sites: the driver's own
+ * reading over the facts of the service the file belongs to, rebuilt from the graph one file at a
+ * time. The service's files are the per-file unit facts it declares, never a folder's shape.
+ */
+async function outboxWrites(stage: StaticStageContext, source: StaticStageSource, repository: string, path: string, unresolved: readonly PublisherSiteRow[], place: { readonly repository: string; readonly evidence: string; readonly commit: string }): Promise<readonly StageDraftWrite[]> {
+  const service = unresolved.find((site) => site.service !== undefined)?.service;
+  if (service === undefined) return [];
+  const units = (await allPages((page) => stage.byProperty('code.service-unit', 'name', service, page)))
+    .filter((node) => node.properties['repository'] === repository);
+  const files = [...new Set(units.flatMap((node) => typeof node.properties['file'] === 'string' ? [node.properties['file'] as string] : []))].sort(byCodePoint);
+  const views = [];
+  for (const file of files) {
+    const held = await source.file(file);
+    if (held?.content === undefined) continue;
+    views.push(await fileCodeViewOf(stage, repository, file, held.content));
+  }
+  if (views.length === 0) return [];
+  const facts = {
+    files: views.flatMap((view) => view.facts.files),
+    expressions: views.flatMap((view) => view.facts.expressions),
+    bindings: views.flatMap((view) => view.facts.bindings),
+    calls: views.flatMap((view) => view.facts.calls),
+    symbols: views.flatMap((view) => view.facts.symbols),
+    imports: views.flatMap((view) => view.facts.imports),
+    sites: views.flatMap((view) => view.facts.sites),
+    fields: views.flatMap((view) => view.facts.fields ?? []),
+  };
+  const outbox = await inferOutboxPublications(facts, { edges: views.flatMap((view) => view.code.edges) }, unresolved.map((site) => ({ span: site.span, evidence: site.evidence })), (asked) => files.includes(asked) ? service : undefined);
+  const writes: StageDraftWrite[] = [];
+  const enclosingOf = new Map(unresolved.map((site) => [`${site.span.path}:${String(site.span.byteStart)}:${String(site.span.byteEnd)}`, site.enclosing]));
+  for (const site of outbox.sites) {
+    if (!await channelExists(stage, site.channel)) continue;
+    const properties: Record<string, unknown> = { topic: site.channel, via: 'outbox', evidence: site.evidence.map((span) => ({ ...span })) };
+    if (site.constant !== undefined) { properties['constant'] = site.constant; properties['constantPath'] = site.constantPath ?? ''; }
+    const enclosing = enclosingOf.get(`${site.span.path}:${String(site.span.byteStart)}:${String(site.span.byteEnd)}`);
+    writes.push(...linkWrites(REL_PUBLISHES, fileFactIdOf(repository, site.span.path), enclosing, channelKey(site.channel), properties, site.span, place));
+  }
+  return writes;
+}
+
 // ---- the reads one unit makes ---------------------------------------------
 
 /** Every page of one bounded read. */
@@ -536,6 +839,26 @@ async function serviceOf(stage: StaticStageContext, path: string): Promise<strin
 /** An array property, as the strings it holds. */
 function arrayOf(value: unknown): string[] {
   return Array.isArray(value) ? value.filter((entry): entry is string => typeof entry === 'string') : [];
+}
+
+/** One place property, as a span: a record's `span` or a provenance place's range. */
+function spanIn(value: unknown): SourceSpan | undefined {
+  if (value === null || typeof value !== 'object') return undefined;
+  const held = value as Record<string, unknown>;
+  const range = held['range'] !== undefined && held['range'] !== null && typeof held['range'] === 'object' ? held['range'] as Record<string, unknown> : held;
+  const path = typeof held['path'] === 'string' ? held['path'] : typeof held['file'] === 'string' ? held['file'] : undefined;
+  // A record's own span names `byteStart`/`byteEnd`; a provenance place's range names
+  // `startByte`/`endByte`. Both are the same place, and a reader accepts either.
+  const start = typeof range['startByte'] === 'number' ? range['startByte'] : range['byteStart'];
+  const end = typeof range['endByte'] === 'number' ? range['endByte'] : range['byteEnd'];
+  if (path === undefined || typeof start !== 'number' || typeof end !== 'number') return undefined;
+  return {
+    path,
+    byteStart: start,
+    byteEnd: end,
+    lineStart: typeof range['startLine'] === 'number' ? range['startLine'] : typeof range['lineStart'] === 'number' ? range['lineStart'] : 1,
+    lineEnd: typeof range['endLine'] === 'number' ? range['endLine'] : typeof range['lineEnd'] === 'number' ? range['lineEnd'] : 1,
+  };
 }
 
 /** The byte span a node's place names: the record's own `span`, or the place its provenance names. */

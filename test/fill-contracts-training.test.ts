@@ -50,10 +50,7 @@ const PRODUCT = 'training-shop';
  * still named here, so a ported family is taken off in the commit that ports it.
  */
 const REMAINING: readonly string[] = [
-  'channels',
-  'entry-points',
   'calls-remote',
-  'consumes',
   'publishes',
 ];
 
@@ -236,7 +233,7 @@ beforeAll(async () => {
   symbolKeys = keys;
   const references = await allPages((page) => store!.edgesByProperty('code.references', 'repository', REPOSITORY, page));
   referenceLinks = new Set(references.map((entry) => `${propertiesOf(entry.src)['recordKey']}\u0000${propertiesOf(entry.dst)['recordKey']}`));
-}, 900_000);
+}, 1_800_000);
 
 /**
  * The graph's key for a driver symbol reference (`code.symbol:<path>#<qualified name>`), through the
@@ -312,7 +309,7 @@ function stageRecords(): Reading[] {
 }
 
 /** The per-file facts this reading publishes for later stages, which the extract driver never reads. */
-const INTERNAL_PREFIXES: readonly string[] = ['code.middleware-chain:', 'code.router-mount:', 'code.go-package:'];
+const INTERNAL_PREFIXES: readonly string[] = ['code.middleware-chain:', 'code.router-mount:', 'code.go-package:', 'code.kafka-site:', 'code.go-consumer:', 'code.publisher-site:', 'code.file-names:'];
 
 /** Whether a row is one of the reading's own per-file facts rather than a record of the extractor's. */
 function internal(row: { readonly kind: string; readonly properties: unknown }): boolean {

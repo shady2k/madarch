@@ -14,6 +14,7 @@ import {calleeName, spanOf, stringValue, walkTree} from './walk.js';
 import {decodeStringToken} from '../code/literals.js';
 import type {SourceSpan} from '../../extract/records.js';
 import type {CodeExpressionFact} from '../code/facts.js';
+import type {PublisherExpression, PublisherFacts} from './ts-code.js';
 import type {TreeText} from '../operations/source.js';
 import {libraryRegistry} from '../library-models/validate.js';
 import {messagingTypes} from '../library-models/messaging-models.js';
@@ -47,6 +48,17 @@ export interface RawStart {
 }
 
 /** One Kafka site of a file. */
+/**
+ * What a structural reader of one file's go facts is handed: the facts (one file's, or a closure's),
+ * the gap it records and the place a file stands. `TreeText` answers it as it stands; the fill's
+ * static stage builds the same view from the graph's bounded reads.
+ */
+export interface ReaderSource {
+  readonly facts: PublisherFacts | undefined;
+  factGap(path: string, reason: string): void;
+  spanOfFile(path: string): SourceSpan;
+}
+
 export interface GoKafkaSite {
   readonly kind: 'publish' | 'consume';
   /** For a consume: the topic expression as written, and the group literal. */
@@ -145,6 +157,29 @@ function chainOf(call: SyntaxNode): {names: string[]; auth: boolean} {
   return {names, auth};
 }
 
+/**
+ * The value one key of a Go composite literal names: the second operand of each keyed element, by the
+ * key the element writes. Any element this reader cannot prove to be a keyed pair leaves the answer
+ * unknown, so an unresolved literal stays unresolved rather than a smaller one.
+ */
+function keyedElementValues(node: SyntaxNode): Map<string, SyntaxNode> | undefined {
+  if (node.type !== 'composite_literal') return undefined;
+  const body = node.childForFieldName('body');
+  if (body === null || body.type !== 'literal_value') return undefined;
+  const values = new Map<string, SyntaxNode>();
+  for (let index = 0; index < body.namedChildCount; index += 1) {
+    const entry = body.namedChild(index);
+    if (entry === null || entry.type !== 'keyed_element') return undefined;
+    const operands = entry.namedChildren.filter((child) => child !== null && child.type === 'literal_element');
+    if (operands.length !== 2) return undefined;
+    const key = operands[0]!.namedChild(0);
+    const value = operands[1]!.namedChild(0);
+    if (key === null || value === null) return undefined;
+    values.set(key.text, value);
+  }
+  return values;
+}
+
 /** The handler expression at the bottom of middleware wrappers (`authed(http.HandlerFunc(h))` -> h). */
 function unwrappedHandler(node: SyntaxNode): SyntaxNode {
   let held = node;
@@ -219,6 +254,9 @@ export function readGoFile(path: string, root: SyntaxNode, source?: TreeText): G
   const routes: GoRoute[] = [];
   const kafkaSites: GoKafkaSite[] = [];
   const kafkaReads: {owner: string; field: string; span: SourceSpan}[] = [];
+  // The reader configurations this file writes (`kafka.NewReader(kafka.ReaderConfig{...})`), with the
+  // namespace they are bound from: a consume site's topic, group and place, read from this file only.
+  const consumerConfigs: {span: SourceSpan; namespace: string; values: Map<string, SyntaxNode> | undefined}[] = [];
   const chainBindings = new Map<string, {names: string[]; auth: boolean}>();
   let globalChain: string[] = [];
   let entryPoint = false;
@@ -444,6 +482,18 @@ export function readGoFile(path: string, root: SyntaxNode, source?: TreeText): G
       }
       return;
     }
+    // A Kafka reader configuration: a composite literal of the reader package's own config type, with
+    // the topic and the group it names. Its consuming function is found below, through this file's
+    // proved reader field.
+    if (node.type === 'composite_literal') {
+      const type = node.childForFieldName('type');
+      const namespace = type?.type === 'qualified_type' ? type.childForFieldName('package')?.text : undefined;
+      const name = type?.type === 'qualified_type' ? type.childForFieldName('name')?.text : undefined;
+      if (namespace !== undefined && name === 'ReaderConfig' && consumerNamespaces.has(namespace)) {
+        consumerConfigs.push({span: spanOf(node, path), namespace, values: keyedElementValues(node)});
+      }
+      return;
+    }
     // A consumer read: a call of a method the reader's library data declares,
     // through a field this file declares as a type of that package's namespace.
     if (node.type === 'call_expression') {
@@ -548,6 +598,33 @@ export function readGoFile(path: string, root: SyntaxNode, source?: TreeText): G
     }
   });
 
+  // The consume sites this file states: one per reader configuration whose topic this file's own
+  // literals or constants prove, and the reads through a field this file declares as that reader's
+  // namespace. The topic is decoded from the grammar's token, never matched against source text.
+  for (const config of consumerConfigs) {
+    const topicNode = config.values?.get('Topic');
+    const constant = topicNode?.type === 'identifier' ? consts.get(topicNode.text) : undefined;
+    const channel = topicNode === undefined ? undefined : stringValue(topicNode) ?? constant;
+    if (channel === undefined) continue;
+    const groupNode = config.values?.get('GroupID');
+    const group = groupNode === undefined ? undefined : stringValue(groupNode);
+    const reads: SourceSpan[] = [];
+    for (const read of kafkaReads) {
+      if (fieldTypeOf(read.owner, read.field)?.qualifier !== config.namespace) continue;
+      if (reads.some((held) => held.byteStart === read.span.byteStart && held.byteEnd === read.span.byteEnd)) continue;
+      reads.push(read.span);
+    }
+    reads.sort((left, right) => left.byteStart - right.byteStart || left.byteEnd - right.byteEnd);
+    kafkaSites.push({
+      kind: 'consume',
+      topic: JSON.stringify(channel),
+      channel,
+      ...(group === undefined ? {} : {group}),
+      reads,
+      span: config.span,
+    });
+  }
+
   // Resolve the registrations now that every binding and the global chain are known.
   for (const raw of rawRoutes) {
     let middleware: string[] = [...globalChain];
@@ -635,7 +712,7 @@ export function readGoFile(path: string, root: SyntaxNode, source?: TreeText): G
 }
 
 /** Kafka reader configuration from the shared tree copy. No source text is parsed here. */
-export function structuralGoReaders(source: TreeText, path: string): GoKafkaSite[] {
+export function structuralGoReaders(source: ReaderSource, path: string): GoKafkaSite[] {
   const facts = source.facts;
   const gap = (span: SourceSpan, detail: string): void => source.factGap(path,
     `contracts: line ${span.lineStart}: ${detail} (${path}); bytes ${span.byteStart}-${span.byteEnd}`);
@@ -659,12 +736,12 @@ export function structuralGoReaders(source: TreeText, path: string): GoKafkaSite
   const expressions = index(facts.expressions.filter(node => node.path === path), node => node.id);
   const bindings = index(facts.bindings.filter(binding => binding.path === path), binding => binding.id);
   const imports = index(facts.imports.filter(imported => imported.path === path), imported => imported.id);
-  const expression = (id: string | undefined): CodeExpressionFact | undefined => {
+  const expression = (id: string | undefined): PublisherExpression | undefined => {
     const node = id === undefined ? undefined : expressions.get(id);
     return node !== undefined && node.span.path === path ? node : undefined;
   };
-  const children = (node: CodeExpressionFact): CodeExpressionFact[] | undefined => {
-    const result: CodeExpressionFact[] = []; let end = node.span.byteStart;
+  const children = (node: PublisherExpression): PublisherExpression[] | undefined => {
+    const result: PublisherExpression[] = []; let end = node.span.byteStart;
     for (const id of node.children) {
       const child = expression(id);
       if (child === undefined || !contains(node.span, child.span) || child.span.byteStart < end) return undefined;
@@ -673,13 +750,13 @@ export function structuralGoReaders(source: TreeText, path: string): GoKafkaSite
     }
     return result;
   };
-  const field = (node: CodeExpressionFact, name: string): CodeExpressionFact | undefined => {
+  const field = (node: PublisherExpression, name: string): PublisherExpression | undefined => {
     const child = expression(unique(node.fields[name] ?? []));
     return child !== undefined && node.children.includes(child.id) && contains(node.span, child.span) ? child : undefined;
   };
   const written = new Set<string>();
-  const writeTargets: CodeExpressionFact[] = [];
-  const mark = (node: CodeExpressionFact): void => {
+  const writeTargets: PublisherExpression[] = [];
+  const mark = (node: PublisherExpression): void => {
     if (node.bindingId !== undefined) written.add(node.bindingId);
     writeTargets.push(node);
     for (const child of children(node) ?? []) mark(child);
@@ -697,12 +774,12 @@ export function structuralGoReaders(source: TreeText, path: string): GoKafkaSite
       }
     }
   }
-  const bindingOf = (node: CodeExpressionFact) => {
+  const bindingOf = (node: PublisherExpression) => {
     const binding = node.bindingId === undefined ? undefined : bindings.get(node.bindingId);
     return binding !== undefined && contains(binding.scope, node.span) && !written.has(binding.id) &&
       (binding.kind !== 'local' || binding.span.byteStart <= node.span.byteStart) ? binding : undefined;
   };
-  const unwrap = (raw: CodeExpressionFact, seen = new Set<string>()): CodeExpressionFact | undefined => {
+  const unwrap = (raw: PublisherExpression, seen = new Set<string>()): PublisherExpression | undefined => {
     if (seen.has(raw.id) || seen.size >= 80) return undefined;
     seen.add(raw.id);
     if (['literal_element', 'parenthesized_expression', 'expression_list'].includes(raw.syntaxKind)) {
@@ -718,14 +795,14 @@ export function structuralGoReaders(source: TreeText, path: string): GoKafkaSite
     }
     return raw;
   };
-  const literal = (raw: CodeExpressionFact | undefined): string | undefined => {
+  const literal = (raw: PublisherExpression | undefined): string | undefined => {
     const node = raw === undefined ? undefined : unwrap(raw);
     return node?.literal?.kind === 'string' && typeof node.literal.value === 'string' ? node.literal.value : undefined;
   };
   const readerModel = unique(libraryRegistry.models.filter(model => model.id === 'kafka-go.NewReader' && model.ecosystem === 'go' && model.returnRole === 'message-consumer'));
   // The methods the reader's package declares, from the data that declares them.
   const readerMembers = readerModel === undefined ? undefined : consumerMemberModels.get(readerModel.package);
-  const importedMember = (node: CodeExpressionFact | undefined, member: string): boolean => {
+  const importedMember = (node: PublisherExpression | undefined, member: string): boolean => {
     if (node === undefined || !['qualified_type', 'selector_expression'].includes(node.syntaxKind)) return false;
     const receiver = field(node, node.syntaxKind === 'qualified_type' ? 'package' : 'operand');
     const property = field(node, node.syntaxKind === 'qualified_type' ? 'name' : 'field');
@@ -735,7 +812,7 @@ export function structuralGoReaders(source: TreeText, path: string): GoKafkaSite
       binding?.kind === 'import' && readerModel !== undefined && imported?.specifier === readerModel.package &&
       imported.imported.form === 'namespace' && imported.targetPath === undefined && imported.typeOnly !== true;
   };
-  const entryPair = (entry: CodeExpressionFact): {key: CodeExpressionFact; value: CodeExpressionFact} | undefined => {
+  const entryPair = (entry: PublisherExpression): {key: PublisherExpression; value: PublisherExpression} | undefined => {
     if (entry.syntaxKind !== 'keyed_element') return undefined;
     let key = field(entry, 'key'); let value = field(entry, 'value');
     if (entry.fields.key === undefined && entry.fields.value === undefined) {
@@ -746,7 +823,7 @@ export function structuralGoReaders(source: TreeText, path: string): GoKafkaSite
     if (key?.syntaxKind === 'literal_element') key = unique(children(key) ?? []);
     return key === undefined || value === undefined ? undefined : {key, value};
   };
-  const property = (node: CodeExpressionFact, name: string): CodeExpressionFact | undefined => {
+  const property = (node: PublisherExpression, name: string): PublisherExpression | undefined => {
     const body = field(node, 'body'); const entries = body === undefined ? undefined : children(body);
     if (entries === undefined) return undefined;
     const pairs = entries.map(entryPair);

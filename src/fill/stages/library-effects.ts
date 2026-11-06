@@ -25,7 +25,7 @@
  */
 import { byCodePoint } from '../../model/order.js';
 import { evaluateLibraryModels } from '../../extract/library-models/evaluate.js';
-import type { LibraryDiagnostic, LibraryEffect } from '../../extract/library-models/model.js';
+import type { LibraryDiagnostic, LibraryEffect, LibraryRoleFact } from '../../extract/library-models/model.js';
 import type { ExtractionGap } from '../../extract/records.js';
 import { STATIC_READ_ROW_LIMIT, type StaticGraphNode, type StaticStageContext } from './static-context.js';
 
@@ -130,6 +130,8 @@ export interface FileLibraryEffects {
   readonly allEffects: readonly LibraryEffect[];
   /** The facts the closure holds, so a reader can ask for the binding or the callable another file's effect stands at. */
   readonly closure: LibraryClosure;
+  /** The roles the closure's evaluation proved (a producer, a logger): a publisher's receiver is one of these. */
+  readonly roles: readonly LibraryRoleFact[];
 }
 
 /** The facts one unit's import closure holds, one entry per file the closure read. */
@@ -306,5 +308,6 @@ export async function libraryEffectsOf(context: StaticStageContext, repository: 
     allEffects: [...evaluation.effects].sort((left, right) =>
       byCodePoint(left.span.path, right.span.path) || left.span.byteStart - right.span.byteStart || byCodePoint(left.modelId, right.modelId)),
     closure: { files: [...read].sort(byCodePoint), expressions, bindings, calls, exports: exported, symbols },
+    roles: [...evaluation.roles].sort((left, right) => byCodePoint(left.expression, right.expression) || byCodePoint(left.role, right.role)),
   };
 }

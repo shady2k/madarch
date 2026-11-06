@@ -38,7 +38,9 @@ import {
   type FillStage, type StageContext, type StageDraftSet, type StageDraftWrite, type StageExecutionResult,
   type StageGraphReader, type StagePlan, type StageUnit,
 } from '../stage.js';
-import { readTsFile, type TsFileFacts } from '../../extract/contracts/ts-code.js';
+import { readTsFile, structuralPublishers, type TsFileFacts } from '../../extract/contracts/ts-code.js';
+import { libraryEffectsOf } from './library-effects.js';
+import { fileCodeViewOf } from './contracts-facts.js';
 import { readGoFile, type GoFileFacts } from '../../extract/contracts/go-code.js';
 import {
   EDGE_CONTAINS, inputKey, KIND_INPUT, KIND_SQL_BUILD, KIND_SQL_SINK, REL_FLOWS_INTO, sqlBuildKey, sqlSinkKey,
@@ -46,7 +48,7 @@ import {
 import type { ExtractedNode, SourceSpan } from '../../extract/records.js';
 import { evidenceAtPlace } from './draft.js';
 import { readFileFindings, readSyntaxTree } from './syntax-extract.js';
-import type { StaticStageContext, StaticStageSource } from './static-context.js';
+import type { StaticGraphNode, StaticStageContext, StaticStageSource } from './static-context.js';
 import { checkStaticGraphDraft, graphWritesOf } from './static-graph.js';
 import { fileFactIdOf } from './syntax-facts.js';
 import { fileUnitId, plannedUnit } from './syntax.js';
@@ -59,11 +61,18 @@ export const CONTRACTS_CODE_STAGE_ID = 'contracts-code';
 const CONTRACTS_CODE_STAGE_VERSION = 1;
 
 /** The fact kinds the stage produces, in code point order. */
-const CONTRACTS_CODE_STAGE_KINDS: readonly string[] = ['contains', 'coverage', 'declares', 'flows-into', 'go-package', 'input', 'middleware-chain', 'router-mount', 'sql-build', 'sql-sink'];
+const CONTRACTS_CODE_STAGE_KINDS: readonly string[] = ['contains', 'coverage', 'declares', 'file-names', 'flows-into', 'go-consumer', 'go-package', 'input', 'kafka-site', 'middleware-chain', 'publisher-site', 'router-mount', 'sql-build', 'sql-sink'];
 
 /** The kinds the stage writes beside the extractor's own: the per-file facts the later stages read. */
 const MIDDLEWARE_CHAIN_KIND = 'code.middleware-chain';
 const ROUTER_MOUNT_KIND = 'code.router-mount';
+/** One Kafka site a Go file states, and the names its package answers a consumer's handler with. */
+const KAFKA_SITE_KIND = 'code.kafka-site';
+const GO_CONSUMER_KIND = 'code.go-consumer';
+/** One publication site one file states, linked to a channel by the links stage. */
+const PUBLISHER_SITE_KIND = 'code.publisher-site';
+/** The constant strings and the type unions one code file states, which a publication's edge names. */
+const FILE_NAMES_KIND = 'code.file-names';
 /**
  * What one Go file's package joins answer (`resolveGoStarts`): the file's folder and the constants,
  * server addresses and functions of it, so a `main` file's entry point can be resolved by a later
@@ -101,15 +110,35 @@ export function createContractsCodeStage(sources: SnapshotSource): FillStage {
     id: CONTRACTS_CODE_STAGE_ID,
     version: CONTRACTS_CODE_STAGE_VERSION,
     staticReading: true,
-    consumes: { required: [{ capability: 'file', scope: 'repository', freshness: 'current' }], optional: [] },
+    consumes: {
+      required: [{ capability: 'file', scope: 'repository', freshness: 'current' }],
+      optional: [
+        // The callables a file declares and the syntax stage's symbols for them: a consumer or
+        // publisher site's enclosing function is one of these, and a later stage links the site
+        // from it.
+        { capability: 'callable', scope: 'file', freshness: 'current' },
+        { capability: 'symbol', scope: 'file', freshness: 'current' },
+        // The code-facts stage's per-file facts: the publisher proof, the consumer's reader field
+        // and the Go package joins are read from them, filtered to the unit's own file.
+        { capability: 'expression', scope: 'file', freshness: 'current' },
+        { capability: 'binding', scope: 'file', freshness: 'current' },
+        { capability: 'call', scope: 'file', freshness: 'current' },
+        { capability: 'field', scope: 'file', freshness: 'current' },
+        { capability: 'service-unit', scope: 'file', freshness: 'current' },
+      ],
+    },
     produces: [
       { kind: 'callback', schemaVersion: 1, scope: 'file' },
       { kind: 'contains', schemaVersion: FACT_KINDS['contains'].version, scope: 'file' },
       { kind: 'coverage', schemaVersion: FACT_KINDS['coverage'].version, scope: 'file' },
+      { kind: 'file-names', schemaVersion: 1, scope: 'file' },
       { kind: 'flows-into', schemaVersion: 1, scope: 'file' },
+      { kind: 'go-consumer', schemaVersion: 1, scope: 'file' },
       { kind: 'go-package', schemaVersion: 1, scope: 'file' },
       { kind: 'input', schemaVersion: 1, scope: 'file' },
+      { kind: 'kafka-site', schemaVersion: 1, scope: 'file' },
       { kind: 'middleware-chain', schemaVersion: 1, scope: 'file' },
+      { kind: 'publisher-site', schemaVersion: 1, scope: 'file' },
       { kind: 'router-mount', schemaVersion: 1, scope: 'file' },
       { kind: 'sql-build', schemaVersion: 1, scope: 'file' },
       { kind: 'sql-sink', schemaVersion: 1, scope: 'file' },
@@ -240,7 +269,11 @@ async function executeContractsCodeUnit(unit: StageUnit, context: StageContext):
   const evidence = evidenceAtPlace(source, planned.path);
   const fileKey = fileFactIdOf(planned.repository, planned.path);
   const fileSpan = wholeFileSpan(planned.path, file.content!);
-  for (const write of codeSiteWrites({ repository: planned.repository, path: planned.path, fileKey, evidence, fileSpan, ts, go, service })) context.draft.write(write);
+  const callables = await allPages((page) => stage.byProperty('code.callable', 'file', planned.path, page));
+  const symbols = await allPages((page) => stage.byProperty('code.symbol', 'file', planned.path, page));
+  const enclosing = (span: SourceSpan): string | undefined => enclosingAt(span, callables, symbols);
+  const publications = { sites: [] as readonly { readonly span: SourceSpan; readonly channel?: string; readonly publisher?: string; readonly key?: string; readonly evidence: readonly SourceSpan[] }[], gaps: [] };
+  for (const write of codeSiteWrites({ repository: planned.repository, path: planned.path, fileKey, evidence, fileSpan, ts, go, service, enclosing, publishers: publications.sites })) context.draft.write(write);
   writeCoverage(context, source, planned.path, { repository: planned.repository, scope: planned.path, complete: true, read: [planned.path], unread: [] }, entry.id);
   const inputs = ts?.inputs.length ?? 0;
   const sinks = ts?.sqlSinks.length ?? 0;
@@ -280,6 +313,73 @@ function wholeFileSpan(path: string, bytes: Uint8Array): SourceSpan {
   return { path, byteStart: 0, byteEnd: bytes.byteLength, lineStart: 1, lineEnd: lines };
 }
 
+/** The byte span a node's place names: the record's own `span`, or the place its provenance names. */
+function spanOfNode(node: StaticGraphNode): SourceSpan | undefined {
+  return spanIn(node.properties['span']) ?? spanIn(placeOf(node));
+}
+
+/** The place a node's provenance names, as a property bag. */
+function placeOf(node: StaticGraphNode): unknown {
+  const provenance = node.properties['provenance'];
+  if (provenance === null || typeof provenance !== 'object') return undefined;
+  const place = (provenance as Record<string, unknown>)['place'];
+  return place === null || typeof place !== 'object' ? undefined : place;
+}
+
+/** One record's place, as a span, or none: a place that names no whole byte range names no span. */
+function spanIn(value: unknown): SourceSpan | undefined {
+  if (value === null || typeof value !== 'object') return undefined;
+  const held = value as Record<string, unknown>;
+  const range = held['range'] !== undefined && held['range'] !== null && typeof held['range'] === 'object' ? held['range'] as Record<string, unknown> : held;
+  const path = typeof held['path'] === 'string' ? held['path'] : typeof held['file'] === 'string' ? held['file'] : undefined;
+  // A record's own span names `byteStart`/`byteEnd`; a provenance place's range names
+  // `startByte`/`endByte`. Both are the same place, and a reader accepts either.
+  const start = typeof range['startByte'] === 'number' ? range['startByte'] : range['byteStart'];
+  const end = typeof range['endByte'] === 'number' ? range['endByte'] : range['byteEnd'];
+  if (path === undefined || typeof start !== 'number' || typeof end !== 'number') return undefined;
+  return {
+    path,
+    byteStart: start,
+    byteEnd: end,
+    lineStart: typeof range['startLine'] === 'number' ? range['startLine'] : typeof range['lineStart'] === 'number' ? range['lineStart'] : 1,
+    lineEnd: typeof range['endLine'] === 'number' ? range['endLine'] : typeof range['lineEnd'] === 'number' ? range['lineEnd'] : 1,
+  };
+}
+
+/** The key the graph holds a node under. */
+function recordKeyOf(node: StaticGraphNode): string {
+  const key = node.properties['recordKey'];
+  if (typeof key !== 'string') throw new Error(`the graph answered a ${node.kind} node (${node.id}) with no recordKey (src/fill/stages/contracts-code.ts)`);
+  return key;
+}
+
+/** One span property of a node (a callable's body, say), where it carries one. */
+function spanOfProperty(node: StaticGraphNode, name: string): SourceSpan | undefined {
+  return spanIn(node.properties[name]);
+}
+
+/**
+ * The innermost callable of one file whose span and body hold a place: the function a consumer site
+ * stands in. The record names the syntax stage's node for the declaration, and the callable fact is
+ * the node where the syntax pass keeps none (an inline callback).
+ */
+function enclosingAt(span: SourceSpan, callables: readonly StaticGraphNode[], symbols: readonly StaticGraphNode[]): string | undefined {
+  const held = callables.filter((node) => {
+    const at = spanOfNode(node);
+    const body = spanOfProperty(node, 'bodySpan');
+    return at !== undefined && body !== undefined && at.path === span.path && at.byteStart <= span.byteStart && body.byteStart <= span.byteStart && span.byteEnd <= body.byteEnd;
+  }).sort((left, right) => {
+    const a = spanOfNode(left)!;
+    const b = spanOfNode(right)!;
+    return (a.byteEnd - a.byteStart) - (b.byteEnd - b.byteStart);
+  });
+  if (held.length === 0) return undefined;
+  const chosen = held[0]!;
+  const qualified = chosen.properties['qualifiedName'];
+  const symbol = symbols.filter((node) => node.properties['qualifiedName'] === qualified && node.properties['file'] === span.path);
+  return symbol.length === 1 ? recordKeyOf(symbol[0]!) : recordKeyOf(chosen);
+}
+
 /** A syntax span of one file, as the graph holds a record's place. */
 function spanOf(path: string, span: { readonly startByte: number; readonly endByte: number; readonly startLine: number; readonly endLine: number }): SourceSpan {
   return { path, byteStart: span.startByte, byteEnd: span.endByte, lineStart: span.startLine, lineEnd: span.endLine };
@@ -301,6 +401,10 @@ function codeSiteWrites(input: {
   readonly ts: TsFileFacts | undefined;
   readonly go: GoFileFacts | undefined;
   readonly service: string | undefined;
+  /** The graph key of the innermost callable of this file whose body holds a place. */
+  readonly enclosing: (span: SourceSpan) => string | undefined;
+  /** The publication sites this file's own facts prove. */
+  readonly publishers: readonly {readonly span: SourceSpan; readonly channel?: string; readonly publisher?: string; readonly key?: string; readonly evidence: readonly SourceSpan[]}[];
 }): readonly StageDraftWrite[] {
   const writes: StageDraftWrite[] = [];
   const commit = commitOf(input.evidence);
@@ -408,6 +512,96 @@ function codeSiteWrites(input: {
     for (const route of input.go.routes) for (const name of route.middleware) names.add(name.replace(/\(.*/, ''));
     for (const name of input.go.hs256Functions) hs256.add(name);
   }
+  // The Kafka sites this file states and the names its package answers a consumer's handler with: a
+  // consume edge's topic, group, place and handler are read from these per-file facts by a later stage
+  // (madarch-8bdc.2.4). The site's topic is the channel the file's own bytes name.
+  // The constant strings and the type unions the file states: a publication's `constant` and
+  // `eventTypes` read them from the service's files, as the driver's own per-service search does.
+  declared.push({
+    span: input.fileSpan,
+    node: {
+      key: `${FILE_NAMES_KIND}:${input.repository}:${path}`,
+      kind: FILE_NAMES_KIND,
+      label: path,
+      properties: {
+        file: path,
+        path,
+        language: input.go === undefined ? 'typescript' : 'go',
+        ...(input.service === undefined ? {} : { service: input.service }),
+        consts: input.ts === undefined ? [...(input.go?.consts ?? new Map<string, string>())].map(([name, value]) => [name, value]) : [...input.ts.consts].map(([name, value]) => [name, value]),
+        typeUnions: input.ts === undefined ? [] : [...input.ts.typeUnions].map(([name, members]) => [name, [...members]]),
+      },
+    },
+  });
+  // The publication sites this file's own facts prove: the channel a site names where the
+  // argument resolves, and the topic it leaves to the outbox inference where it does not. The
+  // links stage joins a site to the channel node another file declares (madarch-8bdc.2.4).
+  for (const site of input.publishers) {
+    const enclosing = input.enclosing(site.span);
+    declared.push({
+      span: site.span,
+      node: {
+        key: `${PUBLISHER_SITE_KIND}:${input.repository}:${path}#${String(site.span.byteStart)}`,
+        kind: PUBLISHER_SITE_KIND,
+        label: site.channel ?? site.publisher ?? path,
+        properties: {
+          file: path,
+          path,
+          ...(site.channel === undefined ? {} : { channel: site.channel }),
+          ...(site.publisher === undefined ? {} : { publisher: site.publisher }),
+          ...(site.key === undefined ? {} : { key: site.key }),
+          ...(enclosing === undefined ? {} : { enclosing }),
+          evidence: [...site.evidence],
+          ...(input.service === undefined ? {} : { service: input.service }),
+        },
+      },
+    });
+  }
+  if (input.go !== undefined) {
+    for (const site of input.go.kafkaSites) {
+      if (site.channel === undefined) continue;
+      declared.push({
+        span: site.span,
+        node: {
+          key: `${KAFKA_SITE_KIND}:${input.repository}:${path}#${String(site.span.byteStart)}`,
+          kind: KAFKA_SITE_KIND,
+          label: `${site.kind} ${site.channel}`,
+          properties: {
+            file: path,
+            path,
+            siteKind: site.kind,
+            channel: site.channel,
+            ...(site.topic === undefined ? {} : { topic: site.topic }),
+            ...(site.group === undefined ? {} : { group: site.group }),
+            reads: [...(site.reads ?? [])].map((read) => {
+              const held = input.enclosing(read);
+              return { ...read, ...(held === undefined ? {} : { enclosing: held }) };
+            }),
+            ...(input.service === undefined ? {} : { service: input.service }),
+          },
+        },
+      });
+    }
+    declared.push({
+      span: input.fileSpan,
+      node: {
+        key: `${GO_CONSUMER_KIND}:${input.repository}:${path}`,
+        kind: GO_CONSUMER_KIND,
+        label: path,
+        properties: {
+          file: path,
+          path,
+          ...(input.service === undefined ? {} : { service: input.service }),
+          methods: [...input.go.methods],
+          interfaceMethods: [...input.go.interfaceMethods],
+          switchCases: [...input.go.switchCases].map(([name, kinds]) => [name, [...kinds]]),
+          statusComparisons: [...input.go.statusComparisons],
+          calledMethods: [...input.go.calledMethods].map(([name, called]) => [name, [...called]]),
+          unconditionalCommit: input.go.unconditionalCommit,
+        },
+      },
+    });
+  }
   // The package joins a `main` file's entry point resolves through: its folder and the names the
   // package's other files answer with, as one file's own facts (decision 0033, item 5).
   if (input.go !== undefined) {
@@ -500,6 +694,10 @@ function factKindOf(kind: string): string {
   if (kind === MIDDLEWARE_CHAIN_KIND) return 'middleware-chain';
   if (kind === ROUTER_MOUNT_KIND) return 'router-mount';
   if (kind === GO_PACKAGE_KIND) return 'go-package';
+  if (kind === KAFKA_SITE_KIND) return 'kafka-site';
+  if (kind === GO_CONSUMER_KIND) return 'go-consumer';
+  if (kind === PUBLISHER_SITE_KIND) return 'publisher-site';
+  if (kind === FILE_NAMES_KIND) return 'file-names';
   throw new Error(`the contracts-code stage writes a ${JSON.stringify(kind)} node and names no fact kind for it (src/fill/stages/contracts-code.ts)`);
 }
 

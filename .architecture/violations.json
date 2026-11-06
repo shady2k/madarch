@@ -302,11 +302,6 @@
   {
     "rule": "no-unreachable-code",
     "file": "src/extract/library-models/model.ts",
-    "symbol": "LibraryRoleFact"
-  },
-  {
-    "rule": "no-unreachable-code",
-    "file": "src/extract/library-models/model.ts",
     "symbol": "MetricRegistryMetadata"
   },
   {

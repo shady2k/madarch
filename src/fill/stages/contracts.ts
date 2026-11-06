@@ -28,12 +28,11 @@
  *   (`code.listener-port`, with the port and the service it serves) answers it
  *   by a bounded read by property, by the same rule the driver's
  *   `portsByService` map is built with;
- * - a channel's `consumerFound`/`consumerStatus`: whether a `code.consumes` edge
- *   another file published ends at the channel, read by the topic the edge
- *   carries (`edgesByProperty`). The consumes edges are a code site's, and no
- *   stage on this branch publishes them yet: a channel read before they stand
- *   says `not-found-in-product`, which is the `channels` family the comparison
- *   still lists as remaining (the change record says what the fold needs).
+ * - a channel's `consumerFound`/`consumerStatus`: whether a Kafka site another
+ *   file published consumes the channel, and whether that site's read stands in
+ *   a callable the file proved — the driver's own fold over the consumers' edges,
+ *   read here from the per-file site facts (`byProperty`). The links stage then
+ *   publishes the `code.consumes` edges from the same sites.
  *
  * **What a unit publishes when it cannot read.** A path the pinned commit no
  * longer holds publishes nothing, so the publication retracts what an earlier
@@ -74,7 +73,7 @@ import { publishedTreeRead, publishedTreeRows } from './tree-rows.js';
 const CONTRACTS_STAGE_ID = 'contracts';
 
 /** The stage's own version, bumped when what it writes or plans changes. */
-const CONTRACTS_STAGE_VERSION = 1;
+const CONTRACTS_STAGE_VERSION = 2;
 
 /** The fact kinds the stage produces, in code point order. */
 const CONTRACTS_STAGE_KINDS: readonly string[] = ['carries', 'channel', 'contains', 'contract', 'declares', 'message', 'operation', 'coverage'];
@@ -116,9 +115,9 @@ export function createContractsStage(sources: SnapshotSource): FillStage {
         // resolved from it, and a run that has not published one resolves no service rather
         // than guessing a path.
         { capability: 'listener-port', scope: 'repository', freshness: 'current' },
-        // The consumes edges the contracts-code stage publishes: a channel's consumer fold is a
-        // read of them, and a run that published none reads the fold as not found.
-        { capability: 'consumes', scope: 'repository', freshness: 'current' },
+        // The Kafka sites the contracts-code stage publishes: a channel's consumer fold is a read
+        // of them, and a run that published none reads the fold as not found.
+        { capability: 'kafka-site', scope: 'repository', freshness: 'current' },
       ],
     },
     produces: [
@@ -257,7 +256,7 @@ async function executeContractsUnit(unit: StageUnit, context: StageContext): Pro
     throw new Error(`${planned.path}:1: the contracts stage planned a file it has no format for, and a contract file is one under contracts/openapi, contracts/asyncapi or contracts/proto (src/fill/stages/contracts.ts)`);
   }
   const read = readDocument(format, planned.path, text);
-  const document = await withCrossFileFacts(read, planned.path, text, stage);
+  const document = await withCrossFileFacts(read, planned.path, text, stage, planned.repository);
   const evidence = evidenceAtPlace(source, planned.path);
   const fileKey = fileFactIdOf(planned.repository, planned.path);
   for (const write of documentWrites({ repository: planned.repository, path: planned.path, fileKey, read: document, evidence })) context.draft.write(write);
@@ -365,7 +364,7 @@ function wholeFileSpan(path: string, text: string): SourceSpan {
  * rule, and a channel's consumer fold, read from the consumes edges another file
  * published. Both are bounded reads by property.
  */
-async function withCrossFileFacts(read: DocumentRead, path: string, text: string, stage: StaticStageContext): Promise<DocumentRead> {
+async function withCrossFileFacts(read: DocumentRead, path: string, text: string, stage: StaticStageContext, repository: string): Promise<DocumentRead> {
   const span = wholeFileSpan(path, text);
   const services = new Map<string, string>();
   for (const operation of read.operations) {
@@ -374,9 +373,12 @@ async function withCrossFileFacts(read: DocumentRead, path: string, text: string
   }
   const folds = new Map<string, { readonly consumerFound: boolean; readonly consumerStatus: string }>();
   for (const topic of read.channels) {
-    const edges = await allPages((page) => stage.edgesByProperty('code.consumes', 'topic', topic, page));
-    const consumers = edges.filter((edge) => edge.from.kind === 'code.symbol');
-    folds.set(topic, { consumerFound: consumers.length > 0, consumerStatus: consumers.length > 0 ? 'found-in-product' : edges.length > 0 ? 'configured-consumer-function-not-resolved' : 'not-found-in-product' });
+    const sites = (await allPages((page) => stage.byProperty('code.kafka-site', 'channel', topic, page)))
+      .filter((node) => node.properties['repository'] === repository && node.properties['siteKind'] === 'consume');
+    // The driver's fold: a consumer is found when the read stands in a callable, and a site with no
+    // such read still says the channel is configured.
+    const consumers = sites.filter((node) => Array.isArray(node.properties['reads']) && (node.properties['reads'] as readonly unknown[]).some((read) => read !== null && typeof read === 'object' && typeof (read as Record<string, unknown>)['enclosing'] === 'string'));
+    folds.set(topic, { consumerFound: consumers.length > 0, consumerStatus: consumers.length > 0 ? 'found-in-product' : sites.length > 0 ? 'configured-consumer-function-not-resolved' : 'not-found-in-product' });
   }
   const nodes = read.nodes.map((node) => {
     if (node.kind !== KIND_CHANNEL && node.kind !== KIND_MESSAGE && node.kind !== KIND_CONTRACT) {

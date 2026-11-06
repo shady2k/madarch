@@ -102,6 +102,14 @@ export const STAGE_NODE_KINDS: readonly string[] = [
   // What one Go file's folder and package names answer, so an entry point's `starts` is resolved
   // from the package's per-file facts (the contracts-code stage; madarch-8bdc.2.4).
   'code.go-package',
+  // The Kafka sites one Go file states, and the names its package answers a consumer's handler
+  // with, from which the contracts reading links a channel to the code that consumes it.
+  'code.kafka-site',
+  'code.go-consumer',
+  // One publication site a file states, which the links stage joins to a channel, and the
+  // constant strings and type unions another file's edge names.
+  'code.publisher-site',
+  'code.file-names',
 ];
 
 /**

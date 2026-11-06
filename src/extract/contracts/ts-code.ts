@@ -677,7 +677,160 @@ export interface StructuralPublication {
  * Library identity is data. Lexical identity, parameter substitution and local
  * delegation are structural joins over the immutable shared facts only.
  */
-export function structuralPublishers(source: TreeText): {sites: StructuralPublication[]; gaps: ExtractionGap[]} {
+
+/**
+ * What a publisher site is read from: one file's facts (or a closure of the files its imports
+ * reach), the library roles those facts prove, the resolver's call edges and the bytes a key is
+ * shown from. `TreeText` answers it as it stands; the fill's static stage builds the same view from
+ * the graph's bounded reads, so the reader has one implementation and no whole-tree object.
+ */
+export interface PublisherSource {
+  readonly facts: PublisherFacts | undefined;
+  libraryFacts(): PublisherLibraryFacts | undefined;
+  readonly code?: PublisherCode;
+  readonly tree: {read(path: string): Uint8Array};
+}
+
+/** The library roles a publisher proof asks for, and the expressions they name. */
+interface PublisherLibraryFacts {
+  readonly roles: readonly {readonly expression: string; readonly role: string; readonly origin: {readonly importId: string}}[];
+}
+
+/** The call edges the resolver published: a call's holder and the declaration it reaches. */
+export interface PublisherCode {
+  readonly edges: readonly {readonly type: string; readonly from: string; readonly to: string}[];
+}
+
+/** One file's code facts as the publisher proof reads them; `CodeFacts` answers it as it stands. */
+export interface PublisherFacts {
+  readonly files: readonly {readonly path: string; readonly language?: string; readonly parsed: boolean}[];
+  readonly expressions: readonly PublisherExpression[];
+  readonly bindings: readonly PublisherBinding[];
+  readonly calls: readonly PublisherCall[];
+  readonly symbols: readonly PublisherSymbol[];
+  readonly imports: readonly PublisherImport[];
+  readonly sites: readonly PublisherSite[];
+  readonly fields?: readonly PublisherField[];
+  readonly exports?: readonly unknown[];
+}
+
+/** One expression a walk copied: its grammar, its place and the ids it names. */
+export interface PublisherExpression {
+  readonly id: string;
+  readonly path: string;
+  readonly syntaxKind: string;
+  readonly operator?: string;
+  readonly span: SourceSpan;
+  readonly name?: string;
+  readonly bindingId?: string;
+  readonly receiver?: string;
+  readonly member?: string;
+  readonly callee?: string;
+  readonly arguments?: readonly string[];
+  readonly compositeType?: {
+    readonly shape: 'struct';
+    readonly typeExpression: string;
+    readonly declarationSpan: SourceSpan;
+    readonly bindingId?: string;
+    readonly declarationExpression?: string;
+  };
+  readonly children: readonly string[];
+  readonly fields: Readonly<Record<string, readonly string[]>>;
+  readonly literal?: {readonly kind: string; readonly raw: string; readonly value?: string | number | boolean | null};
+}
+
+/** One binding a walk resolved: the name, its kind and the value it holds. */
+export interface PublisherBinding {
+  readonly id: string;
+  readonly path: string;
+  readonly name: string;
+  readonly kind: 'import' | 'parameter' | 'local' | 'receiver' | 'type';
+  readonly span: SourceSpan;
+  readonly scope: SourceSpan;
+  readonly importId?: string;
+  readonly initializer?: string;
+  readonly typeDeclaration?: {
+    readonly expression: string;
+    readonly nameExpression: string;
+    readonly typeExpression: string;
+    readonly declarationSpan: SourceSpan;
+    readonly scopeExpression: string;
+    readonly scopeStart: number;
+    readonly shape: 'struct' | 'unknown';
+  };
+  readonly declarationSpan?: SourceSpan;
+  readonly goRange?: {
+    readonly clauseExpression: string;
+    readonly collectionExpression: string;
+    readonly ordinal: 0 | 1;
+    readonly role: 'key' | 'value';
+  };
+}
+
+/** One call site a walk copied. */
+export interface PublisherCall {
+  readonly expression: string;
+  readonly path: string;
+  readonly span: SourceSpan;
+  readonly invocationSpan?: SourceSpan;
+  readonly callee: string;
+  readonly arguments: readonly string[];
+  readonly holder: string;
+  readonly construct: boolean;
+}
+
+/** One declaration a call may reach. */
+interface PublisherSymbol {
+  readonly key: string;
+  readonly path: string;
+  readonly name: string;
+  readonly qualifiedName: string;
+  readonly symbolKind: string;
+  readonly callable: boolean;
+  readonly span: SourceSpan;
+  readonly bodySpan?: SourceSpan;
+  readonly bodySyntaxKind?: string;
+}
+
+/** One import a file wrote, and the repository file it answers where one is proved. */
+interface PublisherImport {
+  readonly id: string;
+  readonly path: string;
+  readonly local: string;
+  readonly specifier: string;
+  readonly imported:
+    | {readonly form: 'named'; readonly name: string}
+    | {readonly form: 'default'}
+    | {readonly form: 'namespace'};
+  readonly targetPath?: string;
+  readonly targetExpression?: string;
+  readonly targetChain?: readonly string[];
+  readonly typeOnly?: boolean;
+}
+
+/** One place a file mentions a name the resolver tied to a declaration. */
+interface PublisherSite {
+  readonly path: string;
+  readonly span: SourceSpan;
+  readonly to: string;
+  readonly use: 'call' | 'reference' | 'type' | 'extends' | 'implements';
+  readonly roles: readonly string[];
+  readonly fanOut: readonly string[];
+  readonly holder: string;
+}
+
+/** One struct field a file declares, with the type it names. */
+interface PublisherField {
+  readonly key: string;
+  readonly path: string;
+  readonly name: string;
+  readonly ownerTypeName: string;
+  readonly ownerDeclaration: string;
+  readonly span: SourceSpan;
+  readonly typeExpression: string;
+}
+
+export function structuralPublishers(source: PublisherSource): {sites: StructuralPublication[]; gaps: ExtractionGap[]} {
   const facts = source.facts;
   if (facts === undefined) return {sites: [], gaps: []};
   const unique = <T>(entries: readonly T[]): T | undefined => entries.length === 1 ? entries[0] : undefined;
@@ -698,32 +851,32 @@ export function structuralPublishers(source: TreeText): {sites: StructuralPublic
   const roles = source.libraryFacts()?.roles ?? [];
   const sites: StructuralPublication[] = []; const gaps: ExtractionGap[] = [];
   const reported = new Set<string>();
-  const gap = (call: CodeCallFact, detail: string): void => {
+  const gap = (call: PublisherCall, detail: string): void => {
     const reason = `contracts: line ${call.span.lineStart}: ${detail} (${call.path})`;
     if (!reported.has(reason)) { reported.add(reason); gaps.push({path: call.path, reason}); }
   };
   const parsedPaths = new Set(facts.files.filter(file => file.parsed).map(file => file.path));
-  const expression = (id: string): CodeExpressionFact | undefined => {
+  const expression = (id: string): PublisherExpression | undefined => {
     const value = expressions.get(id);
     return value !== undefined && value.path === value.span.path && parsedPaths.has(value.path) ? value : undefined;
   };
-  const children = (value: CodeExpressionFact): CodeExpressionFact[] => value.children.flatMap(id => {
+  const children = (value: PublisherExpression): PublisherExpression[] => value.children.flatMap(id => {
     const child = expression(id); return child !== undefined && contains(value.span, child.span) && child.syntaxKind !== 'comment' ? [child] : [];
   });
-  const field = (value: CodeExpressionFact, name: string): CodeExpressionFact | undefined => {
+  const field = (value: PublisherExpression, name: string): PublisherExpression | undefined => {
     const id = unique(value.fields[name] ?? []); const child = id === undefined ? undefined : expression(id);
     return child !== undefined && value.children.includes(child.id) && contains(value.span, child.span) ? child : undefined;
   };
   // These joins are reused for every call in a repository. Index copied
   // identities once rather than walking the whole expression set per receiver.
-  const parents = new Map<string, CodeExpressionFact[]>();
-  const declarations = new Map<string, CodeExpressionFact[]>();
-  const lexicalTypes = new Map<string, CodeExpressionFact[]>();
-  const classes = new Map<string, CodeExpressionFact[]>();
-  const functions = new Map<string, CodeExpressionFact[]>();
-  const callsByHolder = new Map<string, CodeCallFact[]>();
+  const parents = new Map<string, PublisherExpression[]>();
+  const declarations = new Map<string, PublisherExpression[]>();
+  const lexicalTypes = new Map<string, PublisherExpression[]>();
+  const classes = new Map<string, PublisherExpression[]>();
+  const functions = new Map<string, PublisherExpression[]>();
+  const callsByHolder = new Map<string, PublisherCall[]>();
   const rolesByExpression = new Map<string, typeof roles[number][]>();
-  const receiverDeclarations = new Map<string, CodeBindingFact[]>();
+  const receiverDeclarations = new Map<string, PublisherBinding[]>();
   const spanKey = (span: SourceSpan): string => JSON.stringify([span.path, span.byteStart, span.byteEnd]);
   for (const binding of bindings.values()) if (binding.kind === 'receiver') {
     const key = spanKey(binding.span); const held = receiverDeclarations.get(key) ?? []; held.push(binding); receiverDeclarations.set(key, held);
@@ -761,7 +914,7 @@ export function structuralPublishers(source: TreeText): {sites: StructuralPublic
   const boundImports = new Set(facts.bindings.filter(binding => binding.kind === 'import' && binding.importId !== undefined).map(binding => binding.importId));
   const importedTargets = new Set(facts.imports.filter(imported => imported.targetPath !== undefined && boundImports.has(imported.id)).map(imported => JSON.stringify([imported.path, imported.targetPath])));
   const written = new Set<string>();
-  const mark = (value: CodeExpressionFact): void => { if (value.bindingId !== undefined) written.add(value.bindingId); for (const child of children(value)) mark(child); };
+  const mark = (value: PublisherExpression): void => { if (value.bindingId !== undefined) written.add(value.bindingId); for (const child of children(value)) mark(child); };
   for (const value of expressions.values()) {
     if (['assignment_expression', 'augmented_assignment_expression', 'assignment_statement'].includes(value.syntaxKind)) for (const id of value.fields.left ?? []) { const target = expression(id); if (target !== undefined) mark(target); }
     if (['update_expression', 'inc_statement', 'dec_statement'].includes(value.syntaxKind)) mark(value);
@@ -774,7 +927,7 @@ export function structuralPublishers(source: TreeText): {sites: StructuralPublic
       }
     }
   }
-  const bindingOf = (value: CodeExpressionFact): CodeBindingFact | undefined => {
+  const bindingOf = (value: PublisherExpression): PublisherBinding | undefined => {
     const binding = value.bindingId === undefined ? undefined : bindings.get(value.bindingId);
     return binding !== undefined && binding.path === value.path && contains(binding.scope, value.span) && !written.has(binding.id) && (binding.kind !== 'local' || binding.span.byteStart <= value.span.byteStart) ? binding : undefined;
   };
@@ -805,7 +958,7 @@ export function structuralPublishers(source: TreeText): {sites: StructuralPublic
     const node = expression(held.id);
     if (node?.syntaxKind !== 'object') return {kind: 'unknown', present: false};
     const next = new Set(seen); next.add(held.id);
-    const entries: CodeExpressionFact[] = [];
+    const entries: PublisherExpression[] = [];
     let end = node.span.byteStart;
     for (const id of node.children) {
       const entry = expression(id);
@@ -847,7 +1000,7 @@ export function structuralPublishers(source: TreeText): {sites: StructuralPublic
   const select = (value: Value, path: readonly string[]): Value | undefined => {
     let held: Value | undefined = value;
     for (const key of path) {
-      held = held === undefined ? undefined : unwrap(held); const node: CodeExpressionFact | undefined = held === undefined ? undefined : expression(held.id);
+      held = held === undefined ? undefined : unwrap(held); const node: PublisherExpression | undefined = held === undefined ? undefined : expression(held.id);
       if (node === undefined || held === undefined) return undefined;
       if (node.syntaxKind === 'object') {
         const selected = objectProperty(held, key);
@@ -855,9 +1008,9 @@ export function structuralPublishers(source: TreeText): {sites: StructuralPublic
         held = selected.value;
         continue;
       }
-      let object: CodeExpressionFact = node;
+      let object: PublisherExpression = node;
       if (node.syntaxKind === 'composite_literal') { const body = field(node, 'body'); if (body === undefined) return undefined; object = body; }
-      const candidates: CodeExpressionFact[] = children(object).flatMap((entry): CodeExpressionFact[] => {
+      const candidates: PublisherExpression[] = children(object).flatMap((entry): PublisherExpression[] => {
         if (entry.syntaxKind === 'shorthand_property_identifier' && entry.name === key) return [entry];
         if (entry.syntaxKind !== 'pair' && entry.syntaxKind !== 'keyed_element') return [];
         let name = field(entry, 'key'); let result = field(entry, 'value');
@@ -873,7 +1026,7 @@ export function structuralPublishers(source: TreeText): {sites: StructuralPublic
         const named = name?.name ?? (typeof name?.literal?.value === 'string' ? name.literal.value : undefined);
         return named === key && result !== undefined ? [result] : [];
       });
-      const chosen: CodeExpressionFact | undefined = unique(candidates); if (chosen === undefined) return undefined;
+      const chosen: PublisherExpression | undefined = unique(candidates); if (chosen === undefined) return undefined;
       held = {id: chosen.id, env: held.env};
     }
     return held;
@@ -887,8 +1040,8 @@ export function structuralPublishers(source: TreeText): {sites: StructuralPublic
     const selected = objectProperty(held, key);
     return selected.kind === 'unknown' && selected.present;
   };
-  const externalType = (raw: CodeExpressionFact): {package: string; path: readonly string[]; pointer: boolean} | undefined => {
-    let node: CodeExpressionFact | undefined = raw; let pointer = false;
+  const externalType = (raw: PublisherExpression): {package: string; path: readonly string[]; pointer: boolean} | undefined => {
+    let node: PublisherExpression | undefined = raw; let pointer = false;
     const visited = new Set<string>();
     while (node !== undefined && ['type_annotation', 'parenthesized_type', 'pointer_type'].includes(node.syntaxKind)) {
       if (visited.has(node.id) || visited.size >= 80) return undefined; visited.add(node.id);
@@ -900,7 +1053,7 @@ export function structuralPublishers(source: TreeText): {sites: StructuralPublic
     while (['nested_type_identifier', 'qualified_type'].includes(node.syntaxKind)) {
       if (visited.has(node.id) || visited.size >= 80) return undefined; visited.add(node.id);
       const name = field(node, 'name');
-      const base: CodeExpressionFact | undefined = field(node, node.syntaxKind === 'qualified_type' ? 'package' : 'module');
+      const base: PublisherExpression | undefined = field(node, node.syntaxKind === 'qualified_type' ? 'package' : 'module');
       if (name?.name === undefined || base === undefined) return undefined;
       path.unshift(name.name); node = base;
     }
@@ -916,8 +1069,8 @@ export function structuralPublishers(source: TreeText): {sites: StructuralPublic
     const exported = imported.imported.form === 'named' ? [imported.imported.name] : imported.imported.form === 'default' ? ['default'] : [];
     return {package: imported.specifier, path: [...exported, ...path], pointer};
   };
-  const parameter = (binding: CodeBindingFact): CodeExpressionFact | undefined => unique(declarations.get(binding.id) ?? []);
-  const producerType = (raw: CodeExpressionFact | undefined): string | undefined => {
+  const parameter = (binding: PublisherBinding): PublisherExpression | undefined => unique(declarations.get(binding.id) ?? []);
+  const producerType = (raw: PublisherExpression | undefined): string | undefined => {
     const type = raw === undefined ? undefined : externalType(raw);
     return type === undefined ? undefined : unique(messagingTypes.filter(model => model.package === type.package && model.pointer === type.pointer && JSON.stringify(model.exportedPath) === JSON.stringify(type.path)))?.package;
   };
@@ -931,9 +1084,10 @@ export function structuralPublishers(source: TreeText): {sites: StructuralPublic
     if (node.receiver === undefined || node.member === undefined) return undefined;
     const base = expression(node.receiver); const owner = base === undefined ? undefined : bindingOf(base);
     if (base?.syntaxKind === 'this' && owner?.kind === 'receiver') {
-      const cls = unique(classes.get(owner.id) ?? []);
-      const body = cls === undefined || !contains(cls.span, base.span) ? undefined : field(cls, 'body'); if (body === undefined) return undefined;
-      const members = children(body); const candidates: CodeExpressionFact[] = [];
+      const clsList = classes.get(owner.id) ?? []; const cls = unique(clsList);
+      const body = cls === undefined || !contains(cls.span, base.span) ? undefined : field(cls, 'body');
+      if (body === undefined) return undefined;
+      const members = children(body); const candidates: PublisherExpression[] = [];
       for (const member of members) {
         if (member.syntaxKind === 'public_field_definition' && field(member, 'name')?.name === node.member) candidates.push(member);
         if (member.syntaxKind !== 'method_definition' || field(member, 'name')?.name !== 'constructor') continue;
@@ -954,19 +1108,19 @@ export function structuralPublishers(source: TreeText): {sites: StructuralPublic
     if (typeBinding?.typeDeclaration?.expression !== declared.ownerDeclaration) return undefined;
     return producerType(expression(declared.typeExpression));
   };
-  const validCall = (call: CodeCallFact): boolean => {
+  const validCall = (call: PublisherCall): boolean => {
     const node = expression(call.expression); const callee = expression(call.callee);
     return node !== undefined && callee !== undefined && same(node.span, call.span) && node.callee === call.callee && node.children.includes(call.callee) && JSON.stringify(node.arguments ?? []) === JSON.stringify(call.arguments) && call.arguments.every(id => { const arg = expression(id); return arg !== undefined && contains(node.span, arg.span); });
   };
-  const callableCache = new Map<string, CodeExpressionFact | undefined>();
-  const callable = (key: string): CodeExpressionFact | undefined => {
+  const callableCache = new Map<string, PublisherExpression | undefined>();
+  const callable = (key: string): PublisherExpression | undefined => {
     if (callableCache.has(key)) return callableCache.get(key);
     const symbol = symbols.get(key);
     const result = symbol?.callable !== true || symbol.bodySpan === undefined ? undefined :
       unique((functions.get(JSON.stringify([symbol.path, symbol.span.byteEnd])) ?? []).filter(node => contains(symbol.span, node.span) && same(field(node, 'body')?.span ?? node.span, symbol.bodySpan!)));
     callableCache.set(key, result); return result;
   };
-  const targets = (call: CodeCallFact): {key: string; fan: boolean}[] => {
+  const targets = (call: PublisherCall): {key: string; fan: boolean}[] => {
     const callee = expression(call.callee); if (callee === undefined) return [];
     const resolved = (callSitesByHolder.get(call.holder) ?? []).filter(site => contains(callee.span, site.span));
     const direct = [...new Set(resolved.map(site => site.to))];
@@ -981,7 +1135,7 @@ export function structuralPublishers(source: TreeText): {sites: StructuralPublic
       return target.path === call.path || importedTargets.has(JSON.stringify([call.path, target.path]));
     }).map(key => ({key, fan: key !== candidate}));
   };
-  const argumentsFor = (target: CodeExpressionFact, call: CodeCallFact, env: ReadonlyMap<string, Value>): ReadonlyMap<string, Value> | undefined => {
+  const argumentsFor = (target: PublisherExpression, call: PublisherCall, env: ReadonlyMap<string, Value>): ReadonlyMap<string, Value> | undefined => {
     const parameters = field(target, 'parameters'); if (parameters === undefined) return undefined;
     const result = new Map<string, Value>();
     for (const [at, param] of children(parameters).entries()) {
@@ -994,7 +1148,7 @@ export function structuralPublishers(source: TreeText): {sites: StructuralPublic
   };
   // Interface fan-out is an implementation possibility. It becomes publisher
   // evidence only when a real factory result reaches that implementation's constructor.
-  const connected = (target: CodeExpressionFact): boolean => {
+  const connected = (target: PublisherExpression): boolean => {
     const cls = [...expressions.values()].filter(node => node.syntaxKind === 'class_declaration' && contains(node.span, target.span)).sort((a,b) => (a.span.byteEnd-a.span.byteStart)-(b.span.byteEnd-b.span.byteStart))[0];
     if (cls === undefined) return false;
     const body = field(cls, 'body'); const ctor = body === undefined ? undefined : unique(children(body).filter(node => node.syntaxKind === 'method_definition' && field(node, 'name')?.name === 'constructor'));
@@ -1004,10 +1158,10 @@ export function structuralPublishers(source: TreeText): {sites: StructuralPublic
     return [...calls.values()].some(call => call.construct && validCall(call) && facts.sites.some(site => site.use === 'call' && contains(expression(call.callee)!.span, site.span) && (site.to === owner?.key || site.to === facts.symbols.find(symbol => symbol.callable && same(symbol.span, ctor!.span))?.key)) && producerIndexes.some(at => { const arg = call.arguments[at]; return arg !== undefined && roles.some(role => role.expression === arg && role.role === 'message-producer'); }));
   };
   const targetCache = new Map<string, ReturnType<typeof targets>>();
-  const targetsOf = (call: CodeCallFact): ReturnType<typeof targets> => {
+  const targetsOf = (call: PublisherCall): ReturnType<typeof targets> => {
     let held = targetCache.get(call.expression); if (held === undefined) { held = targets(call); targetCache.set(call.expression, held); } return held;
   };
-  const directModel = (call: CodeCallFact, env: ReadonlyMap<string, Value>): typeof models[number] | undefined => {
+  const directModel = (call: PublisherCall, env: ReadonlyMap<string, Value>): typeof models[number] | undefined => {
     const callee = expression(call.callee);
     const pkg = callee?.receiver === undefined ? undefined : receiverPackage(callee.receiver, env);
     return unique(models.filter(model => model.target.kind === 'member' && model.target.member === callee?.member && model.package === pkg));
@@ -1015,14 +1169,14 @@ export function structuralPublishers(source: TreeText): {sites: StructuralPublic
   // Publication ownership does not follow reachability. A sender method may
   // adapt its own modeled producer call, but its callers are not sender methods
   // merely because they eventually reach one. Index only directly owned sends.
-  const senderMethods = new Map<string, CodeCallFact[]>();
+  const senderMethods = new Map<string, PublisherCall[]>();
   for (const call of calls.values()) {
     if (!validCall(call) || directModel(call, new Map()) === undefined) continue;
     const body = callable(call.holder);
     if (body !== undefined && ['method_definition', 'method_declaration'].includes(body.syntaxKind)) append(senderMethods, call.holder, call);
   }
   type Found = {channel?: string; evidence: SourceSpan[]};
-  const directPublication = (call: CodeCallFact, env: ReadonlyMap<string, Value>): Found[] => {
+  const directPublication = (call: PublisherCall, env: ReadonlyMap<string, Value>): Found[] => {
     if (!validCall(call)) return [];
     const model = directModel(call, env);
     if (model === undefined) return [];
@@ -1047,7 +1201,7 @@ export function structuralPublishers(source: TreeText): {sites: StructuralPublic
     }
     return result;
   };
-  const analyze = (call: CodeCallFact, env: ReadonlyMap<string, Value>): Found[] => {
+  const analyze = (call: PublisherCall, env: ReadonlyMap<string, Value>): Found[] => {
     if (!validCall(call)) return [];
     if (directModel(call, env) !== undefined) return directPublication(call, env);
     const callee = expression(call.callee);
@@ -1131,7 +1285,7 @@ export interface StructuralGrpcDeadline {
  * test's own value, not the deployed one. When no construction is deployed the
  * deadline is read from the unique construction wherever it stands.
  */
-export function structuralGrpcDeadline(source: TreeText, siteSpan: SourceSpan, model: GrpcDeadlineModel = grpcDeadlineModel): StructuralGrpcDeadline | undefined {
+export function structuralGrpcDeadline(source: PublisherSource, siteSpan: SourceSpan, model: GrpcDeadlineModel = grpcDeadlineModel): StructuralGrpcDeadline | undefined {
   const facts = source.facts;
   if (facts === undefined || source.code === undefined) return undefined;
   const unique = <T>(values: readonly T[]): T | undefined => values.length === 1 ? values[0] : undefined;
@@ -1156,12 +1310,12 @@ export function structuralGrpcDeadline(source: TreeText, siteSpan: SourceSpan, m
   // extractor's own classification of a file, read once here and never guessed
   // from a path in this module: a test's wiring is not the deployed deadline.
   const deployed = new Set(facts.files.filter(file => file.parsed && file.language === 'typescript' && roleOf(file.path) === 'code').map(file => file.path));
-  const expression = (id: string | undefined): CodeExpressionFact | undefined => {
+  const expression = (id: string | undefined): PublisherExpression | undefined => {
     const value = id === undefined ? undefined : expressions.get(id);
     return value !== undefined && value.path === value.span.path && parsed.has(value.path) ? value : undefined;
   };
-  const children = (node: CodeExpressionFact): CodeExpressionFact[] | undefined => {
-    const result: CodeExpressionFact[] = []; let end = node.span.byteStart;
+  const children = (node: PublisherExpression): PublisherExpression[] | undefined => {
+    const result: PublisherExpression[] = []; let end = node.span.byteStart;
     for (const id of node.children) {
       const child = expression(id);
       if (child === undefined || !contains(node.span, child.span) || child.span.byteStart < end) return undefined;
@@ -1170,12 +1324,12 @@ export function structuralGrpcDeadline(source: TreeText, siteSpan: SourceSpan, m
     }
     return result;
   };
-  const field = (node: CodeExpressionFact, name: string): CodeExpressionFact | undefined => {
+  const field = (node: PublisherExpression, name: string): PublisherExpression | undefined => {
     const id = unique(node.fields[name] ?? []); const child = expression(id);
     return child !== undefined && node.children.includes(child.id) && contains(node.span, child.span) ? child : undefined;
   };
   const written = new Set<string>(); const writtenMembers = new Set<string>();
-  const mark = (node: CodeExpressionFact): void => {
+  const mark = (node: PublisherExpression): void => {
     if (node.bindingId !== undefined) written.add(node.bindingId);
     if (node.member !== undefined) {
       writtenMembers.add(node.member);
@@ -1191,12 +1345,12 @@ export function structuralGrpcDeadline(source: TreeText, siteSpan: SourceSpan, m
     }
     if (node.syntaxKind === 'update_expression') mark(node);
   }
-  const bindingOf = (node: CodeExpressionFact): CodeBindingFact | undefined => {
+  const bindingOf = (node: PublisherExpression): PublisherBinding | undefined => {
     const binding = node.bindingId === undefined ? undefined : bindings.get(node.bindingId);
     return binding !== undefined && binding.path === node.path && contains(binding.scope, node.span) && !written.has(binding.id)
       && (binding.kind !== 'local' || binding.span.byteStart <= node.span.byteStart) ? binding : undefined;
   };
-  const unwrap = (raw: CodeExpressionFact | undefined, seen = new Set<string>()): CodeExpressionFact | undefined => {
+  const unwrap = (raw: PublisherExpression | undefined, seen = new Set<string>()): PublisherExpression | undefined => {
     if (raw === undefined || seen.has(raw.id) || seen.size >= 40) return undefined;
     seen.add(raw.id);
     if (raw.bindingId !== undefined) {
@@ -1212,18 +1366,18 @@ export function structuralGrpcDeadline(source: TreeText, siteSpan: SourceSpan, m
     if (raw.syntaxKind === 'parenthesized_expression') return unwrap(unique(children(raw) ?? []), seen);
     return raw;
   };
-  const validCall = (call: CodeCallFact): boolean => {
+  const validCall = (call: PublisherCall): boolean => {
     const node = expression(call.expression); const callee = expression(call.callee);
     return node !== undefined && callee !== undefined && same(node.span, call.span) && node.callee === call.callee
       && node.children.includes(callee.id) && contains(node.span, callee.span)
       && JSON.stringify(node.arguments) === JSON.stringify(call.arguments)
       && call.arguments.every(id => { const argument = expression(id); return argument !== undefined && contains(node.span, argument.span); });
   };
-  const callOf = (node: CodeExpressionFact | undefined): CodeCallFact | undefined => {
+  const callOf = (node: PublisherExpression | undefined): PublisherCall | undefined => {
     const call = node === undefined ? undefined : calls.get(node.id); return call !== undefined && validCall(call) ? call : undefined;
   };
   const callEdges = new Set(source.code.edges.filter(edge => edge.type === 'code.calls').map(edge => JSON.stringify([edge.from, edge.to])));
-  const targetOf = (call: CodeCallFact): string | undefined => {
+  const targetOf = (call: PublisherCall): string | undefined => {
     const callee = expression(call.callee); if (callee === undefined) return undefined;
     const sites = facts.sites.filter(site => site.use === 'call' && site.holder === call.holder && contains(callee.span, site.span));
     const key = unique([...new Set(sites.map(site => site.to))]);
@@ -1236,7 +1390,7 @@ export function structuralGrpcDeadline(source: TreeText, siteSpan: SourceSpan, m
     return symbol.key;
   };
   // Unbound globals are builtins only when no lexical declaration shadows them.
-  const builtin = (node: CodeExpressionFact | undefined, name: string): boolean => {
+  const builtin = (node: PublisherExpression | undefined, name: string): boolean => {
     if (node?.syntaxKind !== 'identifier' || node.name !== name || node.bindingId !== undefined) return false;
     if (facts.bindings.some(binding => binding.name === name && contains(binding.scope, node.span))) return false;
     return !facts.expressions.some(declaration => {
@@ -1247,10 +1401,10 @@ export function structuralGrpcDeadline(source: TreeText, siteSpan: SourceSpan, m
       return scope === undefined || contains(scope.span, node.span);
     });
   };
-  const property = (object: CodeExpressionFact | undefined, key: string): CodeExpressionFact | undefined => {
+  const property = (object: PublisherExpression | undefined, key: string): PublisherExpression | undefined => {
     if (object?.syntaxKind !== 'object' || writtenMembers.has(key)) return undefined;
     const entries = children(object); if (entries === undefined) return undefined;
-    const matches: CodeExpressionFact[] = [];
+    const matches: PublisherExpression[] = [];
     for (const entry of entries) {
       if (entry.syntaxKind === 'shorthand_property_identifier') {
         if (entry.name === key) matches.push(entry);
