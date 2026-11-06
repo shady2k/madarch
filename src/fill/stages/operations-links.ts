@@ -513,6 +513,9 @@ function edgeWrite(relation: string, from: string, to: string, properties: Reado
       relation,
       from: from.startsWith('code.file:') ? { key: fileFactIdOf(repository, from.slice('code.file:'.length)) } : { key: from },
       to: to.startsWith('code.file:') ? { key: fileFactIdOf(repository, to.slice('code.file:'.length)) } : { key: to },
+      // The store keys the edge by the discriminator, so it stands on the draft itself; the
+      // properties keep the record's own copy, which the comparison reads as the driver's answer.
+      ...(discriminator === '' ? {} : { discriminator }),
       properties: { factKind: relation.slice('code.'.length), repository, file: span.path, span, ...(discriminator === '' ? {} : { discriminator }), record: properties },
     },
   };

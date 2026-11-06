@@ -921,6 +921,9 @@ function draftWrites(records: FileRecords, repository: string, path: string, sou
         relation: edge.type,
         from: endOf(edge.from, repository),
         to: endOf(edge.to, repository),
+        // The discriminator stands twice on purpose: the store keys the edge by it, and the
+        // record's own properties keep it for the comparison with the driver's record.
+        ...(edge.discriminator === '' ? {} : { discriminator: edge.discriminator }),
         properties: edgePropertiesOf(edge, repository, path),
       },
     });

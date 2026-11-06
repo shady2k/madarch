@@ -344,17 +344,21 @@ beforeAll(async () => {
   const run = await service.run({ product: fill.product, runId: 'training-one' });
   if (!run.ok) throw new Error(`the first fill was refused: ${run.code}: ${run.reason}`);
   first = run;
-  // A unit the stage could not publish is said here, with the reader's own words: the comparison
-  // below is worth nothing while a file of the stage stands failed (decision 0005).
-  if (run.state !== 'succeeded') {
-    throw new Error(`the first fill did not succeed: state ${run.state}, settled ${String(run.settled)}, stopped ${String(run.stoppedBecause)}, work ${String(run.work)}, passes ${String(run.passes)}`);
-  }
+  // A unit the stage could not publish is said first, with the reader's own words — the unit,
+  // its stage and the file: the comparison below is worth nothing while a file of the stage
+  // stands failed (decision 0005), and a state alone hides which unit it stands over.
   const failed = run.units.filter((unit) => unit.state === 'failed');
   if (failed.length > 0) {
     const { readProgress } = await import('../src/fill/orchestrator-store.js');
     const events = await readProgress(owner, 'training-one', {});
-    const said = events.filter((event) => event.kind === 'unit-failed' && failed.some((unit) => unit.unitId === event.unitId));
-    throw new Error(`the first fill left ${String(failed.length)} unit(s) failed: ${failed.map((unit) => unit.unitId).join(', ')}\n${said.map((event) => event.summary).join('\n')}`);
+    const said = failed.map((unit) => {
+      const refused = events.filter((event) => event.kind === 'unit-failed' && event.unitId === unit.unitId).at(-1);
+      return `${unit.unitId} (stage ${unit.stageId}, ${String(unit.attempts)} attempt${unit.attempts === 1 ? '' : 's'}): ${refused?.summary ?? 'the run recorded no reason'}`;
+    });
+    throw new Error(`the first fill left ${String(failed.length)} unit(s) failed, in state ${run.state}:\n${said.join('\n')}`);
+  }
+  if (run.state !== 'succeeded') {
+    throw new Error(`the first fill did not succeed: state ${run.state}, settled ${String(run.settled)}, stopped ${String(run.stoppedBecause)}, work ${String(run.work)}, passes ${String(run.passes)}`);
   }
   // The driver's own reading of the same tree, at the same commit.
   const paths = committedFiles(repository);

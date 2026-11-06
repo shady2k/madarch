@@ -28,7 +28,7 @@ import { createSnapshotStage } from '../src/fill/stages/snapshot.js';
 import { createSyntaxStage } from '../src/fill/stages/syntax.js';
 import { staticGraphReaderOf, staticStageContext, staticStageSourceOf } from '../src/fill/stages/static-context.js';
 import { createStaticStageReadReader } from '../src/fill/stages/static-reads.js';
-import { CODE_GRAPH_VOCABULARY, staticUnitPublicationOf, type StaticEnd } from '../src/fill/stages/static-graph.js';
+import { CODE_GRAPH_VOCABULARY, checkStaticGraphDraft, staticUnitPublicationOf, type StaticEnd } from '../src/fill/stages/static-graph.js';
 import { nodesOfKind } from './fill-static-drafts.js';
 
 const NOW = 1_700_000_000_000;
@@ -337,6 +337,36 @@ describe('the static stages publish into the 0028 graph', () => {
     }), outerTransactionOf(executor))).catch((error: Error) => error);
     expect((twoEnds as Error).message).toContain('current nodes carry it');
     expect((twoEnds as Error).message).toContain('path edges("file:edge-duplicate")');
+  }, 120_000);
+
+  test('two records of one relation with the same ends stand apart by their discriminator', async () => {
+    const owner = createPGliteDatabaseOwner({ btreeGist: true });
+    owners.push(owner);
+    await createFillStateSchema(owner);
+    await createOrchestratorSchema(owner);
+    const store = createGraphStore(owner);
+    await store.createSchema();
+    await store.registerCodeSchema(CODE_GRAPH_VOCABULARY);
+    const node = (key: string, kind: string): StageDraftWrite => ({ kind: 'node', evidence: 'fixture', value: {
+      key, kind, label: key, properties: { recordKey: key, factKind: kind.slice('code.'.length), repository: REPOSITORY, path: key },
+    } });
+    const use = (discriminator: string): StageDraftWrite => ({ kind: 'edge', evidence: 'fixture', value: {
+      relation: 'code.uses-logger', from: { key: 'code.logger:fixture#logger' }, to: { key: 'code.file:from' },
+      discriminator, properties: { factKind: 'uses-logger', repository: REPOSITORY, discriminator },
+    } });
+    // Two uses of one logger in one file: the draft keeps them apart by the site's starting byte,
+    // and the same site twice is still one edge.
+    expect(checkStaticGraphDraft('operations-links', ['uses-logger'], { writes: [use('10'), use('80')] })).toEqual({ ok: true });
+    const twice = checkStaticGraphDraft('operations-links', ['uses-logger'], { writes: [use('10'), use('10')] });
+    expect(twice.ok).toBe(false);
+    expect(twice.ok ? '' : twice.errors.join('\n')).toContain('one draft names one edge once');
+
+    await owner.transaction('write', async (executor) => await store.publishUnit(staticUnitPublicationOf({
+      unitId: 'operations-links/fixture', stageId: 'operations-links', digest: 'two-uses',
+      writes: [node('code.logger:fixture#logger', 'code.logger'), node('code.file:from', 'code.file'), use('10'), use('80')],
+    }), outerTransactionOf(executor)));
+    const edges = await store.readAll(async (page) => await store.edgesByProperty('code.uses-logger', 'repository', REPOSITORY, page));
+    expect(edges.map((entry) => entry.edge.discriminator).sort()).toEqual(['10', '80']);
   }, 120_000);
 
   test('a unit that names no key, a key two of its nodes carry and a node with an empty key are refused, with file, line, path and full path', async () => {
