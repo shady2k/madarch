@@ -300,10 +300,15 @@ function reranByTheCommit(options: {
     ...folders.map((path) => `inventory/directory:${repository}:${path}`),
     `inventory/file:${repository}:${file}`,
     `syntax/file:${repository}:${file}`,
-    // The code facts of the changed file, and its state machines: both read their own bytes, at the
-    // blob their plans compare.
+    // The code facts of the changed file, its state machines, its data model, its operations reading and the
+    // links that reading makes: each reads its own bytes, at the blob its plan compares, so the file whose
+    // bytes moved is planned by every one of them (the stage's own rule: `planDataModel`, `planOperations`
+    // and `planLinks` name a path whose published coverage stands at another blob).
     `code-facts/file:${repository}:${file}`,
     `state-machines/file:${repository}:${file}`,
+    `data-model/file:${repository}:${file}`,
+    `operations/file:${repository}:${file}`,
+    `operations-links/file:${repository}:${file}`,
     // The later deterministic stages as main runs them: the modules unit stands on the pin, the resolution
     // units on the run's pins, and the history units on the commit it stands on and the one it left.
     `modules/modules:${repository}`,
@@ -357,8 +362,12 @@ describe('a commit, and what it reruns', () => {
     // and the later deterministic stages run as they do on main (each reads the fill's fact store, which holds
     // what they publish and not what the static three publish any more).
     first = await opened.run('run-one');
-    // The snapshot stage published the repository's commit node at run-one's pin, before the commit below.
-    firstTrainingCommit = String((await graphNodes(opened, 'code.commit', 'repository', TRAINING))[0]?.properties['commit']);
+    // The snapshot stage published the repository's commit node at run-one's pin, before the commit below. Its node
+    // is the one with no `subject`: the history stage's copies of the range carry one each, and the two orders of
+    // publication are both valid, so the node is read by its own shape and never by the node ids' order.
+    const snapshots = (await graphNodes(opened, 'code.commit', 'repository', TRAINING)).filter((node) => node.properties['subject'] === undefined);
+    expect(snapshots.length).toBeGreaterThan(0);
+    firstTrainingCommit = String(snapshots[0]?.properties['commit']);
     // The second run plans nothing for the static three and inherits the later stages whose pins did not move.
     second = await opened.run('run-two');
     // The graph node the changed file's unit published: after the commit the same identity is corrected.
@@ -460,12 +469,19 @@ describe('a commit, and what it reruns', () => {
     // The units run-three inherited: the product repository's modules and history, whose pin did not move.
     // The document index names its documents again — its plan compares the blob its own coverage
     // recorded with the tree's — and a document whose reading stands is inherited, not written.
+    // The units run-three named and found already theirs: the product's modules and history, whose pin did
+    // not move; the three documents whose reading stands; and the three data-model units of the code files the
+    // commit did not touch, which the data-model stage's plan names and whose named inputs did not move, so the
+    // run inherits them and writes nothing (the same list stands at d2d1e1a8, checked in a worktree of it).
     expect([...(third?.reused ?? [])].sort()).toEqual([
       `history/${PRODUCT}@${git(product, 'rev-parse', 'HEAD')}`,
       `modules/modules:${PRODUCT}`,
       'document-index/document:training:README.md',
       'document-index/document:training:docs/architecture.md',
       'document-index/document:training:services/orders/README.md',
+      'data-model/file:training:services/checkout/src/checkout.ts',
+      'data-model/file:training:services/orders/src/order.go',
+      'data-model/file:training:services/payments/src/payment.ts',
     ].sort());
   }, 900_000);
 

@@ -289,7 +289,7 @@ export function createStaticStageReadReader(store: GraphStore, executor?: QueryE
           // One repository's data-model coverage: the files the per-file stage read, each with the blob
           // its bytes stood under and the databases it contributed records to.
           const nodes = await all((page) => store.byProperty('code.coverage', 'repository', repository, { ...page, limit: page.limit ?? PLAN_PAGE }, transaction));
-          const rows: { kind: 'coverage'; file: string; blob: string; databases?: readonly { readonly folder: string; readonly name: string }[] }[] = [];
+          const rows: { kind: 'coverage'; file: string; blob: string; databases?: readonly { readonly folder: string; readonly name: string }[]; read?: readonly string[] }[] = [];
           for (const node of nodes) {
             const held = propertiesOf(node);
             if (held['factKind'] !== 'coverage' || sourceSystemOf(held) !== 'madarch-data-model') continue;
@@ -299,7 +299,10 @@ export function createStaticStageReadReader(store: GraphStore, executor?: QueryE
               throw new Error(`the graph answered the coverage node ${node.nodeId} of ${JSON.stringify(repository)} with no scope or blob: the data-model stage's coverage names the file it read and the blob its bytes stood under (src/fill/stages/static-reads.ts)`);
             }
             const databases = Array.isArray(held['databases']) ? (held['databases'] as readonly { readonly folder: string; readonly name: string }[]) : undefined;
-            rows.push({ kind: 'coverage', file, blob, ...(databases === undefined ? {} : { databases }) });
+            // The files the unit's reading stood on, handed on as the coverage wrote them: a plan names the
+            // unit again when one of them moved.
+            const read = Array.isArray(held['read']) && held['read'].every((one) => typeof one === 'string') ? (held['read'] as readonly string[]) : undefined;
+            rows.push({ kind: 'coverage', file, blob, ...(databases === undefined ? {} : { databases }), ...(read === undefined ? {} : { read }) });
           }
           return rows.sort((left, right) => (left.file < right.file ? -1 : left.file > right.file ? 1 : 0));
         }
