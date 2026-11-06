@@ -1710,15 +1710,8 @@ async function publishAttempt(
       return { publication, settled: false };
     });
   } catch (error) {
-    if (isSerializationFailure(error)) {
-      const reason = `the publication of "${unit.unitId}" generation ${unit.generation} lost its snapshot to a concurrent writer (${messageOf(error)}); the attempt is retried against the store as it now stands`;
-      return await retryAttempt(orchestrator, { unit, fence: request.fence, job: request.job, cause: 'validation-problem', reason, summary: reason });
-    }
-    // A publication that raised is this unit's failure, not the run's: decision 0033 (items 18, 19 and 27)
-    // bounds the retries and reports partial coverage, and a unit that cannot publish leaves what the other
-    // units published standing. The attempt retries under the machine's own retry cause, and the last
-    // attempt fails the generation with this reason on its record.
-    const reason = `the publication of "${unit.unitId}" generation ${unit.generation} raised: ${messageOf(error)}`;
+    if (!isSerializationFailure(error)) throw error;
+    const reason = `the publication of "${unit.unitId}" generation ${unit.generation} lost its snapshot to a concurrent writer (${messageOf(error)}); the attempt is retried against the store as it now stands`;
     return await retryAttempt(orchestrator, { unit, fence: request.fence, job: request.job, cause: 'validation-problem', reason, summary: reason });
   }
 
@@ -2430,6 +2423,10 @@ export async function guardStage(orchestrator: FillOrchestrator, options: { read
 // One scheduler pass, and the loop a host runs
 // ---------------------------------------------------------------------------------------------
 
+/** One part of a scheduler pass whose wall time is measured, and the times of every part. */
+type SchedulerPhase = 'read' | 'sweep' | 'evidence' | 'replan' | 'admit' | 'guard' | 'stale' | 'settle';
+type SchedulerPhases = Readonly<Record<SchedulerPhase, number>>;
+
 /** What one scheduler pass did. */
 export interface SchedulerOutcome {
   /** The run as it stands after the pass. */
@@ -2449,6 +2446,12 @@ export interface SchedulerOutcome {
   readonly reused: readonly string[];
   /** The stages whose plan found a producer's inputs but nothing in them, in this pass's wave. */
   readonly foundNothing: readonly string[];
+  /** How many units the run held when the pass began. */
+  readonly units: number;
+  /** The wall time of the whole pass. */
+  readonly ms: number;
+  /** The wall time of each part of the pass. */
+  readonly phases: SchedulerPhases;
 }
 
 /**
@@ -2472,23 +2475,38 @@ function guardKey(stageId: string, units: readonly UnitRecord[]): string {
  */
 export async function schedulerPass(orchestrator: FillOrchestrator, options: { readonly runId: string }): Promise<SchedulerOutcome> {
   const database = orchestrator.database;
+  const startedAt = performance.now();
+  let marked = startedAt;
+  const phases: Record<SchedulerPhase, number> = { read: 0, sweep: 0, evidence: 0, replan: 0, admit: 0, guard: 0, stale: 0, settle: 0 };
+  const tick = (phase: SchedulerPhase): void => { const now = performance.now(); phases[phase] += now - marked; marked = now; };
+  const elapsed = (): number => performance.now() - startedAt;
   let run = await readRun(database, options.runId);
   if (run === null) raise(`no run ${options.runId} is recorded`);
   if (['succeeded', 'completed_partial', 'blocked', 'failed', 'cancelled', 'paused'].includes(run.state)) {
     const settlement = await settleRun(orchestrator, { runId: run.runId });
-    return { run: settlement.run, admitted: 0, swept: 0, stale: 0, settlement, refused: [], moved: false, guarded: [], reused: [], foundNothing: [] };
+    tick('settle');
+    return { run: settlement.run, admitted: 0, swept: 0, stale: 0, settlement, refused: [], moved: false, guarded: [], reused: [], foundNothing: [], units: 0, ms: elapsed(), phases: { ...phases } };
   }
   const control = await orchestrator.control(run.runId);
   if (control === 'stopped') {
     const cancelled = await cancelRun(orchestrator, { runId: run.runId, cause: 'the person stopped the run' });
-    return { run: cancelled.run, admitted: 0, swept: cancelled.cancelledUnits.length, stale: 0, settlement: cancelled.settlement, refused: cancelled.refused, moved: true, guarded: [], reused: [], foundNothing: [] };
+    tick('read');
+    return { run: cancelled.run, admitted: 0, swept: cancelled.cancelledUnits.length, stale: 0, settlement: cancelled.settlement, refused: cancelled.refused, moved: true, guarded: [], reused: [], foundNothing: [], units: 0, ms: elapsed(), phases: { ...phases } };
   }
   if (control === 'paused' && run.state === 'running') {
     const settlement = await pauseRun(orchestrator, { runId: run.runId });
-    return { run: settlement.run, admitted: 0, swept: 0, stale: 0, settlement, refused: [], moved: true, guarded: [], reused: [], foundNothing: [] };
+    tick('read');
+    return { run: settlement.run, admitted: 0, swept: 0, stale: 0, settlement, refused: [], moved: true, guarded: [], reused: [], foundNothing: [], units: 0, ms: elapsed(), phases: { ...phases } };
   }
+  // The run's size, for the pass timing: a count is what tells a pass that costs what it does from one
+  // that costs what the run holds. The index on `fill_unit_generation(run_id)` makes it a small read.
+  const passRunId = run.runId;
+  const counted = await database.run(async (executor) => await executor.query<{ count: string }>('SELECT count(*)::text AS count FROM fill_unit_generation WHERE run_id = $1', [passRunId]));
+  const unitsInRun = Number(counted.rows[0]?.count ?? 0);
+  tick('read');
 
   const swept = await sweepUnits(orchestrator, { runId: run.runId });
+  tick('sweep');
   // A stage that planned no unit and whose producers have published since plans
   // here (madarch-tzte.26.3), before the pass admits anything: the units the
   // re-planning names stand in this pass's admission, in the stage order the
@@ -2499,10 +2517,13 @@ export async function schedulerPass(orchestrator: FillOrchestrator, options: { r
   // its planning left open. A run-level refusal stands in the pass's refusals,
   // so nothing is dropped in silence.
   const quiet = (await runEvidence(orchestrator, run.runId));
+  tick('evidence');
   const wave = quiet.runnable === 0 && quiet.inFlight === 0 && quiet.waiting === 0 || run.state === 'planning'
     ? await replanAfterPublications(orchestrator, { runId: run.runId })
     : { outcome: 'planned' as const, planned: false, run, units: [], reused: [], foundNothing: [] };
+  tick('replan');
   const admission = await admitUnits(orchestrator, { runId: run.runId });
+  tick('admit');
   const refused: UnitRefusal[] = [
     ...swept.refused,
     ...wave.outcome === 'refused' ? [{ unitId: '', code: wave.code, reason: wave.reason }] : [],
@@ -2530,21 +2551,26 @@ export async function schedulerPass(orchestrator: FillOrchestrator, options: { r
       if (verdict.outcome === 'conflict') {
         guarded.push(stageId);
         const blocked = await blockRun(orchestrator, { runId: run.runId, reason: `human-edit-wins: the published output of stage ${stageId} was edited by a person, and the run waits for that review` });
-        return { run: blocked.run, admitted: admission.admittedNow, swept: swept.swept.length, stale: 0, settlement: blocked, refused, moved: true, guarded, reused: waveReused, foundNothing: waveFoundNothing };
+        tick('guard');
+        return { run: blocked.run, admitted: admission.admittedNow, swept: swept.swept.length, stale: 0, settlement: blocked, refused, moved: true, guarded, reused: waveReused, foundNothing: waveFoundNothing, units: unitsInRun, ms: elapsed(), phases: { ...phases } };
       }
     }
   }
+  tick('guard');
 
   // A run that would settle first asks whether what it published still stands: the staleness recheck
   // (a recorded read that moved, an input that moved) runs when nothing else is outstanding, which is
   // the moment its own work is meant to be complete, and its cost is bounded by that.
   const beforeStale = await runEvidence(orchestrator, run.runId);
+  tick('evidence');
   let stale: StaleSweep = { invalidated: [], refused: [] };
   if (beforeStale.runnable === 0 && beforeStale.inFlight === 0 && beforeStale.waiting === 0) {
     stale = await invalidateStaleUnits(orchestrator, { runId: run.runId });
     refused.push(...stale.refused);
   }
+  tick('stale');
   const settlement = await settleRun(orchestrator, { runId: run.runId });
+  tick('settle');
   return {
     run: settlement.run,
     admitted: admission.admittedNow,
@@ -2556,6 +2582,9 @@ export async function schedulerPass(orchestrator: FillOrchestrator, options: { r
     guarded,
     reused: waveReused,
     foundNothing: waveFoundNothing,
+    units: unitsInRun,
+    ms: elapsed(),
+    phases: { ...phases },
   };
 }
 
@@ -2602,6 +2631,9 @@ export async function driveRun(
     passes += 1;
     const pass = await schedulerPass(orchestrator, { runId: run.runId });
     run = pass.run;
+    // Every pass records what it cost and what the run held: a pass whose time grows with the run rather
+    // than with the work due in it is visible in the log beside the store and in the MCP's own progress.
+    await emit(orchestrator, { runId: run.runId, at: orchestrator.clock(), stage: '', unitId: '', generation: null, kind: 'pass-timing', summary: JSON.stringify({ pass: passes, units: pass.units, ms: Math.round(pass.ms), phases: pass.phases }) });
     reused.push(...pass.reused);
     foundNothing.push(...pass.foundNothing);
     // The re-planning's run-level refusals ride out to the caller (madarch-tzte.26.3):

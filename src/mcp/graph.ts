@@ -19,6 +19,7 @@ import { createPGliteDatabaseOwner, type DatabaseOwner } from '../adapters/datab
 import { createFillOrchestratorService } from '../fill/orchestrator-host.js';
 import { createOrchestratorSchema, readProgress } from '../fill/orchestrator-store.js';
 import { createFillStateSchema, readChain, readRun } from '../fill/state-store.js';
+import type { FillLog } from './fill-log.js';
 import { canonicalJsonDigest } from '../model/canonical.js';
 import { declaredStagesDigest } from '../product/fill-stages.js';
 import { createGraphStore, type GraphStore } from '../graph/index.js';
@@ -210,9 +211,12 @@ async function nextRunId(owner: DatabaseOwner, base: string): Promise<string> {
  * The service is stopped before it is dropped: it owns the queue it declared in this database, and the graph's own
  * reader is opened after it, on the same owner.
  */
-async function fillRepositoryGraph(owner: DatabaseOwner, repository: string, folder: string, log: (line: string) => void): Promise<FillOutcome> {
+async function fillRepositoryGraph(owner: DatabaseOwner, repository: string, folder: string, log: (line: string) => void, progress?: FillLog): Promise<FillOutcome> {
   const fill = await createRepositoryFill({ repository, database: owner });
-  const service = createFillOrchestratorService({ home: folder, owner, registry: fill.registry, wiring: () => fill.wiring, workers: 16, maxPasses: 100_000, log });
+  const service = createFillOrchestratorService({
+    home: folder, owner, registry: fill.registry, wiring: () => fill.wiring, workers: 16, maxPasses: 100_000, log,
+    ...(progress === undefined ? {} : { sink: (event) => progress.sink(event) }),
+  });
   // The run's identity names what the run was planned against: the commit, the stages' own versions and the
   // repository's resolved stage settings. A start with another engine or another manifest is a new run on the
   // same chain — decision 0027 plans a run once — and it inherits every published generation whose cache key
@@ -284,6 +288,8 @@ export async function openRepositoryGraph(options: {
   readonly folder?: string | undefined;
   readonly env?: Readonly<Record<string, string | undefined>>;
   readonly log?: (line: string) => void;
+  /** The fill's own log, when the caller keeps one: every durable event reaches it as it is committed. */
+  readonly progress?: FillLog | undefined;
 }): Promise<RepositoryGraph> {
   const repository = resolve(options.repository);
   const folder = resolve(options.folder ?? graphFolder(repository, mcpStateRoot(options.env)));
@@ -333,7 +339,7 @@ export async function openRepositoryGraph(options: {
       }
       log(`madarch mcp: building the graph of ${repository} at ${commit.slice(0, 12)} in ${folder}`);
       const before = performance.now();
-      fill = await fillRepositoryGraph(owner, repository, folder, log);
+      fill = await fillRepositoryGraph(owner, repository, folder, log, options.progress);
       writeFillOutcome(folder, fill);
       const built = await GraphView.open(owner, store);
       const after = performance.now();
