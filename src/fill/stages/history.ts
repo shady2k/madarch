@@ -97,7 +97,7 @@ const execFile = promisify(execFileCallback);
 export const HISTORY_STAGE_ID = 'history';
 
 /** The stage module's own version (decision 0027): bumped when the behaviour it declares changes. */
-export const HISTORY_STAGE_VERSION = 2;
+export const HISTORY_STAGE_VERSION = 3;
 
 /** How many commits of the ancestry one unit reads where the product configures no depth. */
 export const DEFAULT_HISTORY_DEPTH = 1000;
@@ -119,8 +119,14 @@ export const HISTORY_INPUT_CAPABILITY = 'snapshot';
  */
 export const HISTORY_FACT_KINDS = ['commit', 'coverage', 'task-key'] as const;
 
-/** The stage's own configuration: how deep into one repository's ancestry a unit reads. */
-const HISTORY_CONFIG_SCHEMA = Type.Object({ depth: Type.Integer({ minimum: 1 }) });
+/** The stage's own configuration: how deep into one repository's ancestry a unit reads, and which trailer of a commit message names task keys. */
+const HISTORY_CONFIG_SCHEMA = Type.Object({
+  depth: Type.Integer({ minimum: 1 }),
+  /** The trailer the product declares as its task-key source; no name is assumed where it declares none. */
+  trailer: Type.Optional(Type.String({ minLength: 1 })),
+  /** The literal separators the product declares between the keys of one trailer value; required with `trailer`. */
+  separators: Type.Optional(Type.Array(Type.String({ minLength: 1 }), { minItems: 1 })),
+});
 
 // ---- the graph reads ------------------------------------------------------
 
@@ -189,8 +195,14 @@ export interface HistoryCommit {
   readonly author?: string;
   /** The paths the commit changed, from the repository's root, in code point order, each once. */
   readonly files: readonly RepositoryPath[];
-  /** The commit's whole message, the bytes the task keys are read from. */
-  readonly message: string;
+  /** Every trailer git's own parser read from the commit's message, in the order the parser returns them. */
+  readonly trailers: readonly HistoryTrailer[];
+}
+
+/** One trailer git's parser read: the key and the value, exactly as the parser returned them. */
+export interface HistoryTrailer {
+  readonly key: string;
+  readonly value: string;
 }
 
 /** One read of a repository's ancestry at one commit. */
@@ -226,12 +238,15 @@ export const HISTORY_LOG_RECORD = '\x1e';
 export const HISTORY_LOG_FIELD = '\x1f';
 
 /**
- * The log format: `%x1e` opens a commit's record, the fields are joined by
- * `%x1f`, and the message is last so that a message holding the field
- * separator itself still reads (a message holding the record separator is
- * refused by the reader rather than read as two records).
+ * The log format: `%x1e` opens a commit's record and `%x1f` joins its fields.
+ * The commit's trailers are one field of git's own trailer parser, each trailer
+ * as the parser writes it (`key: value`), the items separated by NUL: a commit
+ * message holds no NUL, so the parser's own text stays whole — and what a
+ * trailer means is the product's declaration, never this reader's guess. A
+ * message holding the record separator is refused by the parser rather than
+ * read as two records.
  */
-const HISTORY_LOG_FORMAT = '%x1e%H%x1f%P%x1f%ct%x1f%at%x1f%an%x1f%s%x1f%B%x1f';
+const HISTORY_LOG_FORMAT = '%x1e%H%x1f%P%x1f%ct%x1f%at%x1f%an%x1f%s%x1f%(trailers:only,unfold,separator=%x00)';
 
 /** The most a git call may answer: the whole ancestry of a very large repository, names included. */
 const GIT_MAX_BUFFER = 256 * 1024 * 1024;
@@ -372,12 +387,12 @@ async function sourceVersion(folder: string, signal: AbortSignal | undefined, wh
 
 /**
  * The commits Git listed, newest first as `git log` writes them, each with its
- * parents, its two times, its author, its subject, the message and the paths it
- * changed. Everything a record holds that the format does not promise is
+ * parents, its two times, its author, its subject, the trailers git's own parser
+ * read and the paths it changed. Everything a record holds that the format does not promise is
  * refused by name rather than read past: a record whose first field is no
  * commit, a parent that is no commit, a time that is no whole number of
- * seconds, a record whose fields are followed by something that is no path
- * list, and a path list that does not end with its separator. A message
+ * seconds, a record with no path list, a trailer git's parser did not write as
+ * `key: value`, and a path list that does not end with its separator. A message
  * holding the record separator reaches the reader as a record of its own, which
  * is why these refusals name the repository, the commit and the bytes rather
  * than dropping the record.
@@ -387,31 +402,28 @@ function parseLog(text: string, at: { readonly repository: string; readonly comm
   const commits: HistoryCommit[] = [];
   for (const record of text.split(HISTORY_LOG_RECORD)) {
     if (record === '') continue;
-    const last = record.lastIndexOf(HISTORY_LOG_FIELD);
-    if (last < 0) throw new Error(`${where} holds a record with no field separator: ${JSON.stringify(record.slice(0, 120))}`);
-    const fields = record.slice(0, last).split(HISTORY_LOG_FIELD);
-    const [commit, parents, committed, authored, author, subject] = fields;
-    if (commit === undefined || parents === undefined || committed === undefined || authored === undefined || author === undefined || subject === undefined) {
-      throw new Error(`${where} holds a record with ${fields.length} fields: a record is the commit, its parents, its two times, its author, its subject and its message`);
+    // The path list is the section that opens with a NUL: a newline and the paths where the
+    // commit changed files, and the NUL alone where it changed none. Everything before it is
+    // the record's fields; a commit message holds no NUL, so the parser's trailer text stays whole.
+    const listed = record.indexOf('\x00\n');
+    const pathAt = listed >= 0 ? listed : record.endsWith('\x00') ? record.length - 1 : -1;
+    if (pathAt < 0) throw new Error(`${where} holds a record with no path list: ${JSON.stringify(record.slice(0, 120))}`);
+    const fields = record.slice(0, pathAt).split(HISTORY_LOG_FIELD);
+    const [commit, parents, committed, authored, author, subject, trailerText] = fields;
+    if (commit === undefined || parents === undefined || committed === undefined || authored === undefined || author === undefined || subject === undefined || trailerText === undefined || fields.length !== 7) {
+      throw new Error(`${where} holds a record with ${fields.length} fields: a record is the commit, its parents, its two times, its author, its subject, the trailers git's parser read and its paths`);
     }
     if (!COMMIT_PATTERN.test(commit)) {
       throw new Error(`${where} holds a record whose first field is ${JSON.stringify(commit)}: a commit is 40 lower-case hexadecimal digits, so this record is a message git wrote as one`);
     }
-    const message = fields.slice(6).join(HISTORY_LOG_FIELD);
+    const trailers = parseTrailers(trailerText, commit, where);
     const parentsRead = parents === '' ? [] : parents.split(' ').map((parent) => {
       if (!COMMIT_PATTERN.test(parent)) throw new Error(`${where} names the parent ${JSON.stringify(parent)} of ${commit}: a parent is 40 lower-case hexadecimal digits`);
       return parent;
     });
     const committedAt = isoTimestamp(committed, `the committer time of ${commit}`, where);
     const authoredAt = isoTimestamp(authored, `the author time of ${commit}`, where);
-    // Everything after the record's last field separator is git's path list,
-    // and git opens one with a NUL. Anything else there means the record the
-    // reader is holding was cut in two — a message holding the record separator
-    // — and that is refused here, where the commit it pretended to be is known.
-    const section = record.slice(last + 1);
-    if (section !== '' && !section.startsWith('\x00')) {
-      throw new Error(`${where} holds a record for ${commit} whose fields are followed by ${JSON.stringify(section.slice(0, 120))}, which is no path list: a message holding the record separator reaches the reader as a record of its own`);
-    }
+    const section = record.slice(pathAt);
     commits.push({
       commit,
       parents: parentsRead,
@@ -420,10 +432,25 @@ function parseLog(text: string, at: { readonly repository: string; readonly comm
       subject,
       ...(author === '' ? {} : { author }),
       files: parseFiles(section, commit, where),
-      message,
+      trailers,
     });
   }
   return commits;
+}
+
+/**
+ * The trailers git's parser returned for one commit, in the parser's order:
+ * each item is the parser's own `key: value` text, the items separated by NUL.
+ * The first `": "` is git's separator; a value may hold another. An item the
+ * parser did not write in that form is refused by the commit it belongs to.
+ */
+function parseTrailers(text: string, commit: string, where: string): HistoryTrailer[] {
+  if (text === '') return [];
+  return text.split('\x00').map((item) => {
+    const at = item.indexOf(': ');
+    if (at < 0) throw new Error(`${where} reads the trailer ${JSON.stringify(item)} of ${commit}: git's trailer parser writes each as "key: value"`);
+    return { key: item.slice(0, at), value: item.slice(at + 2) };
+  });
 }
 
 /**
@@ -642,15 +669,23 @@ async function planUnits(sources: SnapshotSource): Promise<StagePlan> {
 // ---- the facts one unit writes --------------------------------------------
 
 /**
- * The task keys a commit message names: the tracker's own rule (the backlog
- * integration's `taskIds`), one or more lines `Task: <id>[, <id> ...]`, read
- * case-insensitively, keys split on commas and whitespace, the case of each key
- * kept as the commit wrote it, each occurring once, in code point order.
+ * The task keys one commit's trailers name: the values of the trailer the
+ * product declares, split on the literal separators the product declares, each
+ * piece once, in code point order. No trailer name and no separator stands in
+ * this module: a product that declares none yields no keys, and one that
+ * declares both says how its own messages read.
  */
-export function taskKeys(message: string): string[] {
+export function taskKeysOf(trailers: readonly HistoryTrailer[], trailer: string, separators: readonly string[]): string[] {
   const keys = new Set<string>();
-  for (const match of message.matchAll(/^Task:\s*(.+)$/gim)) {
-    for (const key of (match[1] ?? '').split(/[\s,]+/u)) if (key !== '') keys.add(key);
+  for (const one of trailers) {
+    if (one.key !== trailer) continue;
+    let pieces = [one.value];
+    for (const separator of separators) {
+      const split: string[] = [];
+      for (const piece of pieces) split.push(...piece.split(separator));
+      pieces = split;
+    }
+    for (const piece of pieces) if (piece !== '') keys.add(piece);
   }
   return [...keys].sort(byCodePoint);
 }
@@ -668,6 +703,7 @@ function commitFact(repository: string, commit: HistoryCommit, source: FactSourc
       ...(commit.author === undefined ? {} : { author: commit.author }),
       parents: commit.parents,
       files: commit.files,
+      ...(commit.trailers.length === 0 ? {} : { trailers: commit.trailers }),
     },
     // The commit a commit fact is read at is the commit itself: the schema
     // refuses a fact whose value and provenance name two commits.
@@ -686,13 +722,19 @@ function taskKeyFact(repository: string, commit: string, from: string, key: stri
   });
 }
 
-/** What the history stage's reader read, in the coverage's own words: the two questions a read answers. */
-const HISTORY_READ: readonly string[] = ['the pinned commit and its ancestry', 'the task keys the commit messages name'];
+/**
+ * What the history stage's reader read, in the coverage's own words: the two
+ * questions a read answers, one of which says the product declared no trailer
+ * rather than leaving the absence unspoken.
+ */
+function historyRead(trailer: string | undefined): readonly string[] {
+  return ['the pinned commit and its ancestry', trailer === undefined ? 'the task keys (none: the product declares no trailer)' : 'the task keys the declared trailer names'];
+}
 
 /** The `coverage` fact of one unit: what its read reached, and every gap it could not. */
-function coverageFact(repository: string, scope: string, ancestry: HistoryAncestry) {
+function coverageFact(repository: string, scope: string, ancestry: HistoryAncestry, trailer: string | undefined) {
   const unread = coverageGaps(ancestry.unread, repository, scope);
-  const value: CoverageValue = { repository, scope, complete: unread.length === 0, read: HISTORY_READ, unread };
+  const value: CoverageValue = { repository, scope, complete: unread.length === 0, read: historyRead(trailer), unread };
   return makeNodeFact({
     kind: 'coverage',
     value,
@@ -822,13 +864,12 @@ function valueFieldsOf(value: object): Record<string, unknown> {
 }
 
 /**
- * The key one task key's node carries: the repository, the commit whose message named it and the
- * key. A node's version belongs to the producer and scope that published it (decision 0033's
- * fenced publication), and each commit's unit is its own scope: two commits that name one key are
- * two nodes, joined to their own commits.
+ * The key one task key's node carries: the repository and the key. A task is one node however
+ * many commits name it, so every commit's `code.tasks` edge joins that one node; the commit
+ * belongs to the edge, never to the node's identity.
  */
-function taskNodeKeyOf(repository: string, commit: string, key: string): string {
-  return `task:${canonicalJsonDigest({ repository, commit, key })}`;
+function taskNodeKeyOf(repository: string, key: string): string {
+  return `task:${canonicalJsonDigest({ repository, key })}`;
 }
 
 /**
@@ -836,8 +877,8 @@ function taskNodeKeyOf(repository: string, commit: string, key: string): string 
  * (the extractors' own kind, `src/extract/history/commits.ts`) and one
  * `code.tasks` edge from the commit's node to it.
  */
-function taskNodeDrafts(repository: string, commit: string, commitKey: string, key: string, evidence: string, nodeWritten: boolean): readonly StageDraftWrite[] {
-  const to = taskNodeKeyOf(repository, commit, key);
+function taskNodeDrafts(repository: string, key: string, commitKey: string, evidence: string, nodeWritten: boolean): readonly StageDraftWrite[] {
+  const to = taskNodeKeyOf(repository, key);
   const writes: StageDraftWrite[] = [];
   if (!nodeWritten) {
     writes.push({ kind: 'node', evidence, value: { key: to, kind: 'code.task', label: key, properties: { factKind: 'task-key', repository, key } } });
@@ -860,6 +901,24 @@ export function historyDepth(config: unknown): number {
 }
 
 /**
+ * The trailer the product declares as its task-key source, with the separators
+ * it declares between the keys of one value. Both are data: a product that
+ * declares neither names no task key, and one that declares one without the
+ * other is refused here rather than guessed at.
+ */
+function historyTrailer(config: unknown): { readonly trailer?: string; readonly separators?: readonly string[] } {
+  const held = typeof config === 'object' && config !== null && !Array.isArray(config) ? (config as { trailer?: unknown; separators?: unknown }) : {};
+  if (held.trailer === undefined && held.separators === undefined) return {};
+  if (typeof held.trailer !== 'string' || held.trailer === '') {
+    throw new Error(`history: config.trailer is ${JSON.stringify(held.trailer)}: a product that reads task keys declares the trailer's name, a non-empty text`);
+  }
+  if (!Array.isArray(held.separators) || held.separators.length === 0 || held.separators.some((one) => typeof one !== 'string' || one === '')) {
+    throw new Error(`history: config.separators is ${JSON.stringify(held.separators)}: a product that reads task keys declares the literal separators between them, at least one non-empty text`);
+  }
+  return { trailer: held.trailer, separators: held.separators as readonly string[] };
+}
+
+/**
  * One unit's work: read what this repository's history already holds, read Git
  * at the pinned commit, and draft the facts of every commit of that ancestry,
  * each commit's task keys after it — oldest first, so a parent's fact always
@@ -878,6 +937,7 @@ export function historyDepth(config: unknown): number {
 async function executeUnit(reader: HistoryReader, unit: StageUnit, context: StageContext): Promise<StageExecutionResult> {
   const { repository, commit } = parseHistoryScope(unit.id);
   const depth = historyDepth(context.config.config);
+  const { trailer, separators } = historyTrailer(context.config.config);
   const what = `history: unit ${unit.id}`;
   if (context.signal.aborted) throw new Error(`${what} was cancelled before it read ${repository} at ${commit}`);
   const graph = staticGraphOf(unit, context);
@@ -907,17 +967,19 @@ async function executeUnit(reader: HistoryReader, unit: StageUnit, context: Stag
       writes.push(write.kind === 'node' ? { ...write, value: { ...write.value, key: commitKey, properties: { ...write.value.properties, range: ancestry.commit } } } : write);
     }
     commitsWritten += 1;
-    for (const key of taskKeys(one.message)) {
-      // One `code.task` node per key in the unit's draft, whatever commits name it: a node's
-      // key stands once in one publication, and each commit's own `code.tasks` edge names it.
-      const node = taskNodeDrafts(repository, one.commit, commitKey, key, evidence, writtenTaskNodes.has(key));
-      if (!writtenTaskNodes.has(key)) writtenTaskNodes.add(key);
-      writes.push(...node);
-      keysWritten += 1;
+    if (trailer !== undefined && separators !== undefined) {
+      for (const key of taskKeysOf(one.trailers, trailer, separators)) {
+        // One `code.task` node per key in the unit's draft, whatever commits name it: a node's
+        // key stands once in one publication, and each commit's own `code.tasks` edge names it.
+        const node = taskNodeDrafts(repository, key, commitKey, evidence, writtenTaskNodes.has(key));
+        if (!writtenTaskNodes.has(key)) writtenTaskNodes.add(key);
+        writes.push(...node);
+        keysWritten += 1;
+      }
     }
   }
 
-  const coverage = coverageFact(repository, unit.scope, ancestry);
+  const coverage = coverageFact(repository, unit.scope, ancestry, trailer);
   const coverageAgreed = heldCoverage !== undefined && canonicalJsonDigest(heldCoverage) === canonicalJsonDigest(valueFieldsOf(coverage.value));
   for (const write of graphWritesOf(coverage, `${repository}@${ancestry.commit}`)) writes.push(write);
 

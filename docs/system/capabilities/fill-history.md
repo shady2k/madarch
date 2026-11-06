@@ -127,33 +127,42 @@ reader's version or the run. No machine path shall reach any fact.
 - When: both facts are built
 - Then: one id, the digest of the fact's own value and provenance, and never of the commit's reader version or of the run
 
-## Requirement: task-keys — A commit's message names the task keys its edges carry
+## Requirement: task-keys — A product's declared trailer names the task keys its edges carry
 
-A unit shall write one `task-key` edge per key a commit message names, read by
-the tracker's own rule (one or more lines beginning `Task:` and naming one key or several, separated by commas or spaces, read
-case-insensitively, keys split on commas and whitespace, the case of each key
-kept as the commit wrote it), each key once, in code point order, directly after
-the commit fact it belongs to, and naming that commit fact as the edge's `from`.
+A unit shall write one `task-key` edge per key the product's declared trailer
+names: the trailer's value as git's own trailer parser returns it, split on the
+literal separators the product declares, each key once, in code point order,
+directly after the commit fact it belongs to, and naming that commit fact as the
+edge's `from`. No trailer name, separator, marker or key shape stands in the
+engine: a product that declares none writes no task key, and the unit's coverage
+fact says none was declared. A key's text is whatever the parser returned,
+including text that looks like prose: nothing tells a task id from a word, so
+nothing is guessed.
 
-### Scenario: one-line-several-keys
-- Given: a commit whose message holds `Task: madarch-xyz.7, madarch-abc.1`
+### Scenario: several-keys
+- Given: a commit whose declared trailer holds `madarch-xyz.7, madarch-abc.1`, and the product declares `","` and `" "` as its separators
 - When: the unit drafts it
 - Then: two edges are written, for `madarch-abc.1` then `madarch-xyz.7`, each naming the commit fact's id
 
 ### Scenario: repeat-once
-- Given: a message naming `madarch-abc.1` on two lines
+- Given: a message whose declared trailer names `madarch-abc.1` twice
 - When: the unit drafts it
 - Then: one edge names it: a key is named once per commit
 
 ### Scenario: case-kept
-- Given: a message whose line reads `task: MADARCH-ABC.1`
+- Given: a trailer value `MADARCH-ABC.1`
 - When: the key is read
-- Then: the key is `MADARCH-ABC.1`, as the commit wrote it
+- Then: the key is `MADARCH-ABC.1`, as the parser returned it
 
-### Scenario: no-task-line
-- Given: a message with no `Task:` line
+### Scenario: no-declaration
+- Given: a product that declares no trailer
+- When: the unit drafts a commit whose message holds trailers
+- Then: the commit fact carries no task-key edge, and its coverage's `read` says the product declares no trailer
+
+### Scenario: no-shape-check
+- Given: a product whose declared trailer holds the value `release-notes`
 - When: the unit drafts it
-- Then: the commit fact carries no task-key edge
+- Then: `release-notes` is a key, because the declaration named the trailer and the parser returned the value: the engine checks no key's shape
 
 ## Requirement: incremental — A unit writes only what the graph does not hold as it would be written
 
