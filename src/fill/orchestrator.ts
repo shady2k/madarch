@@ -1710,8 +1710,15 @@ async function publishAttempt(
       return { publication, settled: false };
     });
   } catch (error) {
-    if (!isSerializationFailure(error)) throw error;
-    const reason = `the publication of "${unit.unitId}" generation ${unit.generation} lost its snapshot to a concurrent writer (${messageOf(error)}); the attempt is retried against the store as it now stands`;
+    if (isSerializationFailure(error)) {
+      const reason = `the publication of "${unit.unitId}" generation ${unit.generation} lost its snapshot to a concurrent writer (${messageOf(error)}); the attempt is retried against the store as it now stands`;
+      return await retryAttempt(orchestrator, { unit, fence: request.fence, job: request.job, cause: 'validation-problem', reason, summary: reason });
+    }
+    // A publication that raised is this unit's failure, not the run's: decision 0033 (items 18, 19 and 27)
+    // bounds the retries and reports partial coverage, and a unit that cannot publish leaves what the other
+    // units published standing. The attempt retries under the machine's own retry cause, and the last
+    // attempt fails the generation with this reason on its record.
+    const reason = `the publication of "${unit.unitId}" generation ${unit.generation} raised: ${messageOf(error)}`;
     return await retryAttempt(orchestrator, { unit, fence: request.fence, job: request.job, cause: 'validation-problem', reason, summary: reason });
   }
 
