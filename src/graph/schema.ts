@@ -156,6 +156,8 @@ const SCHEMA: readonly string[] = [
   // a text extraction over the whole table grows with the graph (measured 25 ms at 42 011 nodes, 0.16 ms with
   // this index). The containment form reads the same values and the index answers it.
   'CREATE INDEX IF NOT EXISTS node_version_properties ON node_version USING gin (properties jsonb_path_ops)',
+  // The publication rechecks a unit's node keys and edge ends in one `= ANY` statement; this is its index.
+  'CREATE INDEX IF NOT EXISTS node_version_record_key_all ON node_version ((properties->>\'recordKey\'))',
   `CREATE INDEX IF NOT EXISTS edge_version_current_src ON edge_version (src_id, relation_type_id) WHERE recorded_to = 'infinity'`,
   `CREATE INDEX IF NOT EXISTS edge_version_current_dst ON edge_version (dst_id, relation_type_id) WHERE recorded_to = 'infinity'`,
   `CREATE INDEX IF NOT EXISTS edge_version_current_edge ON edge_version (edge_id) WHERE recorded_to = 'infinity'`,

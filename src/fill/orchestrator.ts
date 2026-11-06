@@ -1368,15 +1368,23 @@ export interface WorkOutcome {
  */
 export async function workOnce(orchestrator: FillOrchestrator, options: { readonly worker: string }): Promise<WorkOutcome> {
   const database = orchestrator.database;
+  const claimAt = performance.now();
   const claimed = await orchestrator.queue.claim<{ unitId: string; generation: number }>({ queue: orchestrator.queueName, limit: 1 });
+  const claimMs = performance.now() - claimAt;
   const job = claimed[0];
-  if (job === undefined) return { claimed: false, job: 'none' };
+  if (job === undefined) {
+    if (claimMs > 1_000) await emit(orchestrator, { runId: '', at: orchestrator.clock(), stage: '', unitId: '', generation: null, kind: 'work-timing', summary: JSON.stringify({ where: 'claim-empty', ms: Math.round(claimMs) }) });
+    return { claimed: false, job: 'none' };
+  }
   const data = job.data;
   if (data === null || typeof data !== 'object' || typeof data.unitId !== 'string' || !Number.isInteger(data.generation)) {
     await orchestrator.queue.complete(orchestrator.queueName, job, { reason: 'the job carries no unit identity' });
     return { claimed: true, result: 'refused', refusal: { code: 'fill-orchestrator/job-malformed', reason: `fill-orchestrator: the claimed job ${job.id} carries ${JSON.stringify(data)}, which names no unit generation` }, job: 'completed' };
   }
+  const readAt = performance.now();
   const unit = await readUnit(database, data.unitId);
+  const readMs = performance.now() - readAt;
+  if (readMs > 1_000) await emit(orchestrator, { runId: unit?.runId ?? '', at: orchestrator.clock(), stage: unit?.stageId ?? '', unitId: data.unitId, generation: data.generation, kind: 'work-timing', summary: JSON.stringify({ where: 'read', ms: Math.round(readMs) }) });
   if (unit === null) {
     await orchestrator.queue.complete(orchestrator.queueName, job, { reason: 'no such unit' });
     return { claimed: true, unitId: data.unitId, generation: data.generation, result: 'nothing-to-do', summary: 'the unit is not recorded', job: 'completed' };
@@ -1402,7 +1410,13 @@ export async function workOnce(orchestrator: FillOrchestrator, options: { readon
     await emit(orchestrator, { runId: unit.runId, at, stage: unit.stageId, unitId: unit.unitId, generation: unit.generation, kind: 'unit-retried', summary: `${unit.unitId} is runnable again` });
     return await attemptUnit(orchestrator, { worker: options.worker, job, unit: step.record });
   }
-  if (unit.state === 'ready') return await attemptUnit(orchestrator, { worker: options.worker, job, unit });
+  if (unit.state === 'ready') {
+    const attemptAt = performance.now();
+    const outcome = await attemptUnit(orchestrator, { worker: options.worker, job, unit });
+    const attemptMs = performance.now() - attemptAt;
+    if (attemptMs > 1_000) await emit(orchestrator, { runId: unit.runId, at: orchestrator.clock(), stage: unit.stageId, unitId: unit.unitId, generation: unit.generation, kind: 'work-timing', summary: JSON.stringify({ where: 'attempt', ms: Math.round(attemptMs) }) });
+    return outcome;
+  }
   if (unit.state === 'waiting_children') {
     const plan = await planOf(orchestrator, unit);
     const settled = await settleJoin(orchestrator, { unit, plan, runId: unit.runId, at });
@@ -1487,6 +1501,7 @@ async function attemptUnit(
   const database = orchestrator.database;
   const unit = request.unit;
   const stage = stageOf(orchestrator, unit.stageId);
+  const setupAt = performance.now();
   const plan = await planOf(orchestrator, unit);
   const at = orchestrator.clock();
   // The queue's own answer first, before this attempt takes anything: a claim the queue already handed to
@@ -1511,6 +1526,8 @@ async function attemptUnit(
   const writes: StageDraftWrite[] = [];
   const notes: { note: string; fraction: number | null; at: number }[] = [];
   const reader = await orchestrator.graph(unitRef(unit, plan));
+  const setupMs = performance.now() - setupAt;
+  if (setupMs > 1_000) await emit(orchestrator, { runId: unit.runId, at: orchestrator.clock(), stage: unit.stageId, unitId: unit.unitId, generation: unit.generation, kind: 'work-timing', summary: JSON.stringify({ where: 'setup', ms: Math.round(setupMs) }) });
   const draftWriter: StageDraftWriter = {
     write: (entry: StageDraftWrite) => { writes.push(entry); },
     writes: (): StageDraftSet => ({ writes }),
@@ -1602,7 +1619,10 @@ async function attemptUnit(
       },
       signal: controller.signal,
     };
+    const executeAt = performance.now();
     result = await stage.execute({ id: plan.stageUnitId, scope: plan.scope }, context);
+    const executeMs = performance.now() - executeAt;
+    if (executeMs > 1_000) await emit(orchestrator, { runId: unit.runId, at: orchestrator.clock(), stage: unit.stageId, unitId: unit.unitId, generation: unit.generation, kind: 'work-timing', summary: JSON.stringify({ where: 'execute', ms: Math.round(executeMs) }) });
   } catch (error) {
     raised = error as Error;
   } finally {
@@ -1639,7 +1659,10 @@ async function attemptUnit(
   if (!validating.ok) return validating.outcome;
   await emit(orchestrator, { runId: unit.runId, at: orchestrator.clock(), stage: unit.stageId, unitId: unit.unitId, generation: unit.generation, kind: 'unit-validating', summary: `${unit.unitId} validates its draft` });
 
+  const validateAt = performance.now();
   const validation = await stage.validate({ writes }, attemptReader);
+  const validateMs = performance.now() - validateAt;
+  if (validateMs > 1_000) await emit(orchestrator, { runId: unit.runId, at: orchestrator.clock(), stage: unit.stageId, unitId: unit.unitId, generation: unit.generation, kind: 'work-timing', summary: JSON.stringify({ where: 'validate', ms: Math.round(validateMs) }) });
   if (!validation.ok) {
     return await retryAttempt(orchestrator, {
       unit: validating.record, fence, job: request.job, cause: 'validation-problem',
@@ -1647,7 +1670,11 @@ async function attemptUnit(
       summary: `${unit.unitId} was refused by validation: ${validation.errors.join('; ')}`,
     });
   }
-  return await publishAttempt(orchestrator, { unit: validating.record, plan, fence, job: request.job, reader, stage, held: { digest: recorded.digest, writes } });
+  const publishAt = performance.now();
+  const published = await publishAttempt(orchestrator, { unit: validating.record, plan, fence, job: request.job, reader, stage, held: { digest: recorded.digest, writes } });
+  const publishMs = performance.now() - publishAt;
+  if (publishMs > 1_000) await emit(orchestrator, { runId: unit.runId, at: orchestrator.clock(), stage: unit.stageId, unitId: unit.unitId, generation: unit.generation, kind: 'work-timing', summary: JSON.stringify({ where: 'publish', ms: Math.round(publishMs) }) });
+  return published;
 }
 
 /**
@@ -1672,7 +1699,9 @@ async function publishAttempt(
   const database = orchestrator.database;
   const unit = request.unit;
   const at = orchestrator.clock();
+  const draftAt = performance.now();
   const draft = await readUnitDraftHead(database, unit.unitId, unit.generation);
+  const draftMs = performance.now() - draftAt;
   if (draft === null) raise(`unit "${unit.unitId}" generation ${unit.generation} reached validation with no recorded draft set to publish`);
   const digest = publicationDigest({ inputsDigest: unit.inputsDigest, draft: draft.digest, stageId: request.stage.id, stageVersion: request.stage.version });
   // The publication is one snapshot (see `publishUnitIn`), so a writer that got to one of its rows first
@@ -1680,6 +1709,14 @@ async function publishAttempt(
   // refuse what a snapshot refuses. That race is the same event as a read that moved: the attempt is
   // retried against the store as it now stands, its draft retracted, exactly as a stale read is.
   let outcome: { readonly publication: PublicationOutcome; readonly settled: boolean };
+  let revalidateMs = 0;
+  let revalidateReads = 0;
+  let applyMs = 0;
+  const transactionAt = performance.now();
+  const emitTiming = async (): Promise<void> => {
+    const total = performance.now() - transactionAt;
+    if (total > 1_000) await emit(orchestrator, { runId: unit.runId, at: orchestrator.clock(), stage: unit.stageId, unitId: unit.unitId, generation: unit.generation, kind: 'work-timing', summary: JSON.stringify({ where: 'publication', total: Math.round(total), draftMs: Math.round(draftMs), revalidateMs: Math.round(revalidateMs), reads: revalidateReads, applyMs: Math.round(applyMs) }) });
+  };
   try {
     outcome = await ownTransaction(here(), orchestrator, `publishUnit(${unit.unitId}/${unit.generation})`, ['fill_publication', 'fill_unit_read', 'fill_unit_draft', 'fill_unit_draft_part', 'fill_unit_lease', 'fill_unit_generation'], async (transaction) => {
       const publication: PublicationOutcome = await publishUnitIn(transaction, {
@@ -1691,8 +1728,11 @@ async function publishAttempt(
         // The reads are rechecked through the publication's own transaction: the process's owner refuses a
         // second transaction on its connection, so the pinned graph answers from inside this one.
         revalidate: async (read: TrackedRead, executor) => {
+          const readAt = performance.now();
+          revalidateReads += 1;
           const reader = await orchestrator.graph(unitRef(unit, request.plan), executor);
           const answered = await answerNow(reader, recordedReadText(read.query));
+          revalidateMs += performance.now() - readAt;
           // A read the graph cannot answer now — the file a span cited is gone, or shorter than the span — refuses
           // the publication like any other read that moved: the draft stands on bytes nothing holds any more.
           if (answered.kind === 'unanswered') return { membership: `unanswered: ${answered.reason}`, members: 0 };
@@ -1701,7 +1741,12 @@ async function publishAttempt(
           return { membership: answerMembership(read.query, answered.rows), members: answered.rows.length };
         },
         held: request.held,
-        apply: async (executor, writes, digest) => await orchestrator.facts.apply({ executor, unit, plan: request.plan, digest, writes }),
+        apply: async (executor, writes, digest) => {
+          const applyAt = performance.now();
+          const applied = await orchestrator.facts.apply({ executor, unit, plan: request.plan, digest, writes });
+          applyMs += performance.now() - applyAt;
+          return applied;
+        },
       });
       if (publication.outcome === 'published' || publication.outcome === 'replayed') {
         const settled = await orchestrator.queue.complete(orchestrator.queueName, request.job, { publication: { unitId: unit.unitId, generation: unit.generation, digest } }, transaction);
@@ -1710,11 +1755,13 @@ async function publishAttempt(
       return { publication, settled: false };
     });
   } catch (error) {
+    await emitTiming();
     if (!isSerializationFailure(error)) throw error;
     const reason = `the publication of "${unit.unitId}" generation ${unit.generation} lost its snapshot to a concurrent writer (${messageOf(error)}); the attempt is retried against the store as it now stands`;
     return await retryAttempt(orchestrator, { unit, fence: request.fence, job: request.job, cause: 'validation-problem', reason, summary: reason });
   }
 
+  await emitTiming();
   if (outcome.publication.outcome === 'published') {
     // The record's own digest, not the one this attempt computed before the transaction: they are the
     // same publication, and everything the run says about it afterwards names what it really wrote.

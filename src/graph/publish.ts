@@ -21,7 +21,7 @@ import { canonicalJsonDigest } from '../model/canonical.js';
 import { byCodePoint } from '../model/order.js';
 import { claimDigest, nodePayloadDigest, edgePayloadDigest, edgeKeyHash, sha256Hex, type ByteSpan, type ClaimContent, type GraphId } from './digest.js';
 import { GraphError, type GraphOrigin } from './errors.js';
-import { readByKey, resolveLens } from './reads.js';
+import { readByKeys, resolveLens } from './reads.js';
 import { ALL_STATES, checkSpan, compareInstants, instantText, tsText, type Instant, type StateSpan } from './time.js';
 import {
   assertEndpoints, currentEdgeVersions, endEdgeVersion, insertEdgeVersion, insertEdgeVersions, lockNodes, prepareEdgeVersion, reconcileEdges, requireLater, checkId, closeVersion, correctEdgeVersion, correctNodeVersion, currentNodeVersions, edgeIdentity, edgeRow, EDGE_BATCH_SIZE, EDGE_COLUMNS, EDGE_FROM,
@@ -289,14 +289,15 @@ export interface PublishUnitResult {
 /** The nodes and edges a unit's publication repeats, read back once as the keys the graph holds them under. */
 async function heldKeys(ctx: WriteContext, keys: Iterable<string>, where: (key: string) => string): Promise<Map<string, GraphId>> {
   const lens = await resolveLens(ctx.tx, undefined, ctx.now());
+  const list = [...keys];
   const held = new Map<string, GraphId>();
-  for (const key of keys) {
-    const page = await readByKey(ctx.tx, key, lens, { limit: 2 });
-    if (page.rows.length > 1) {
-      throw new GraphError('publish unit', where(key), located(290, `${String(page.rows.length)} current nodes carry it, and one key names one node (the key is ${JSON.stringify(key)}; decision 0028)`));
+  const found = await readByKeys(ctx.tx, list, lens);
+  for (const [key, rows] of found) {
+    if (rows.length > 1) {
+      throw new GraphError('publish unit', where(key), located(290, `${String(rows.length)} current nodes carry it, and one key names one node (the key is ${JSON.stringify(key)}; decision 0028)`));
     }
-    const found = page.rows[0];
-    if (found !== undefined) held.set(key, found.nodeId);
+    const row = rows[0];
+    if (row !== undefined) held.set(key, row.nodeId);
   }
   return held;
 }
