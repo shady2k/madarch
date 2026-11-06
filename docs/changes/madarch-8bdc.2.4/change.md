@@ -570,3 +570,56 @@ did not publish with its stage, state, attempt and the last attempt's reason, so
 never a silent stop. The full comparison names six differences and no others: the orders outbox
 publication (two edges) and the gRPC deadline's four properties. The report quotes them and says
 what each shape needs.
+
+
+## The publisher across files, and the client's deadline (madarch-8bdc.2.4, the contracts worker)
+
+The two families the full comparison still named are published by the stage, and a pruned fixture of
+the training repository's own bytes asserts both against the driver.
+
+**The fixture.** `test/fill-contracts-publishers-fixture.test.ts` generates the training repository,
+keeps the eighteen files the two shapes stand on (the orders relay, its store, domain, application
+and entry point, its manifest; the checkout client, its config and index; the AsyncAPI and proto
+documents), commits the pruned tree, and fills it with seven stages (`snapshot`, `inventory`,
+`syntax`, `code-facts`, `contracts`, `contracts-code`, `contracts-links`) — 50 s a cycle. It first
+asserts that the driver reads both shapes on that tree (two `code.publishes` edges and a
+`calls-remote` edge carrying `deadlineMs`), so a tree that stopped being the driver's shape fails by
+name, and then compares the stage's two relations with the driver's, edge by edge.
+
+**What the facts were missing, one gap at a time.** The chain `Relay.Flush` → `Publisher.Publish` →
+`KafkaPublisher.Publish` → `WriteMessages` and the row it sends needed four facts the static reading
+did not publish, and the deadline needed three more:
+
+- A Go range clause's declared names (`for _, p := range batch`) were bound by no fact, so the row
+  the send carries had no identity. `code-facts` now binds them in the loop's scope and records the
+  driver's own `goRange` (the clause and collection expressions, the ordinal and the role); the
+  collection is read before the names enter scope, so `for _, item := range item` still walks the
+  outer item.
+- A Go import named no package: `store.NewOutboxWriter(…)` in `main.go` reached no declaration, and
+  the topic constant `store.OrdersTopic` reached no binding. `code-facts` resolves a Go import to the
+  package folder its `go.mod`'s module path names (the nearest `go.mod`, read one path at a time),
+  and `contracts-links` joins a member of the imported package to the declaration the target folder
+  answers — a call site where it is called, a reference site where it is named. The syntax stage's
+  symbols are read beside the code-facts callables, so a mention can name a Go constant as well as a
+  function.
+- A Go composite literal carried no declared type, so the row's field (`OutboxWriter.topic`) named no
+  initializer. The file view proves the literal's type declaration from the type's fields the
+  code-facts stage publishes, and the driver's own reader then follows `&OutboxWriter{topic: topic}`
+  into `NewOutboxWriter`.
+- The service's symbols were concatenated once per file, and every view of a service carries the
+  other files' callables for the interface fan-out: the deadline proof indexes symbols as tombstones,
+  so it dropped every declaration as a duplicate of itself. They are one list, one entry per key.
+
+Three smaller shape repairs came with them: a call's empty argument list (the walk writes no
+`arguments` for `Date.now()`, the driver writes `[]`, and a call is recognised by comparing the
+two), one call target for a construction (the driver names the constructor a `new` runs, and the
+class is a reference; two call targets made the construction ambiguous), and a construction of an
+imported class, which names the imported constructor.
+
+**Both families compare equal on the fixture.** `structuralGrpcDeadline` proves `deadlineMs: 8000`
+with the driver's eight evidence spans, and `inferOutboxPublications` publishes the two orders
+outbox edges at the `kafka.go` `WriteMessages` call with the constant `OrdersTopic`, `via: outbox`
+and the driver's seven evidence spans.
+
+`code-facts` is version 3 and `contracts-links` version 4: what they write changed, so a refill
+replaces what an earlier run published.

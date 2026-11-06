@@ -23,7 +23,8 @@
  *
  * **The families not yet ported.** `REMAINING` names, by family, the records
  * this branch does not publish yet. The list may only shrink: a family listed
- * here must still differ, and a family not listed must not.
+ * here must still differ, and a family not listed must not. It is empty: every
+ * family of the driver's contracts reading is published and compared.
  */
 import { afterAll, beforeAll, describe, expect, test } from 'bun:test';
 import { execFileSync } from 'node:child_process';
@@ -49,10 +50,7 @@ const PRODUCT = 'training-shop';
  * shrink: the test refuses a family that reaches zero differences while it is
  * still named here, so a ported family is taken off in the commit that ports it.
  */
-const REMAINING: readonly string[] = [
-  'calls-remote',
-  'publishes',
-];
+const REMAINING: readonly string[] = [];
 
 /** One family: the node kinds and edge relations it is compared by. */
 const FAMILIES: Readonly<Record<string, { readonly kinds: readonly string[]; readonly relations: readonly string[] }>> = {

@@ -10,6 +10,9 @@
  * oracle the stage is compared with. The outbox chain crosses `relay.go` (the `Publisher` interface
  * and `Relay.Flush`), `kafka.go` (`KafkaPublisher.Publish` and its `WriteMessages` send),
  * `outbox.go` (the row and the insert) and `main.go` (the wiring), and a static unit sees one file.
+ *
+ * One cycle is about fifty seconds: the fill plans nine stages over eighteen files, and every other
+ * stage of the registry is switched off in the product's manifest.
  */
 import { afterAll, beforeAll, describe, expect, test } from 'bun:test';
 import { execFileSync } from 'node:child_process';
@@ -19,6 +22,7 @@ import { join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { createPGliteDatabaseOwner, type DatabaseOwner } from '../src/adapters/database-owner.js';
 import { createFillOrchestratorService } from '../src/fill/orchestrator-host.js';
+import { createEngineStageRegistry } from '../src/fill/stages/index.js';
 import { createGraphStore, type EdgeEntry, type GraphStore, type NodeVersionRow } from '../src/graph/index.js';
 import { createStagesFill, type StagesFill } from '../src/product/fill-stages.js';
 import { extractContracts } from '../src/extract/contracts/index.js';
@@ -59,12 +63,12 @@ const KEEP: readonly string[] = [
 /** The stages these records need; every other stage of the registry is switched off in the manifest. */
 const ENABLED: readonly string[] = ['code-facts', 'contracts', 'contracts-code', 'contracts-links', 'inventory', 'snapshot', 'syntax'];
 
-/** Every stage the registry registers, by the id its declaration names (src/fill/stages/index.ts). */
-const STAGES: readonly string[] = [
-  'build-configuration', 'code-facts', 'contracts', 'contracts-code', 'contracts-links', 'contracts-routes',
-  'document-index', 'history', 'inventory', 'modules', 'operations', 'operations-links', 'semantic-resolution',
-  'snapshot', 'state-machines', 'syntax',
-];
+/**
+ * Every stage this madarch knows, by the id its declaration names: the engine's own registry names
+ * them all over a source that answers no repository, so a stage added later is switched off here
+ * without this list knowing its name.
+ */
+const STAGES: readonly string[] = createEngineStageRegistry().all().map((stage) => stage.id);
 
 /** The properties a stage's row carries as its own envelope, never as the record the driver published. */
 const ENVELOPE: ReadonlySet<string> = new Set(['recordKey', 'factKind', 'layer', 'status', 'provenance', 'repository']);
