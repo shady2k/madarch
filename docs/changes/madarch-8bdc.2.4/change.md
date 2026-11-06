@@ -331,9 +331,12 @@ unit stands failed: it names each unit, its stage, its attempts and the
 reader's refusal.
 
 ## Acceptance evidence
-Recorded beside the branch's report (`/work/out/report-8bdc24.md`): the focused
-tests, `bun run check`, the StrykerJS run on the stage's lines, and the peak
-memory of the new test.
+Recorded in the branch's report (`/work/out/report-8bdc24-operations.md`): the
+training comparison (7 pass, 0 fail, 485 s), the focused tests together and
+alone, `bun run check`, the StrykerJS run on the stage's changed lines (71
+mutants, 40 killed, 56.34%; `operations-links` 100%), and the fill's peak
+memory (1 902 MB with 404 units: snapshot 174, code-facts 66, operations 85,
+operations-links 73).
 
 ## DONE WHEN
 The stage publishes the machines, states and moves of every source file that
