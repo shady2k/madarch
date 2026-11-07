@@ -118,6 +118,9 @@ export const STAGE_EDGE_TYPES: readonly { readonly key: string; readonly positio
   { key: 'code.dependency', discriminated: true },
   { key: 'code.document-link', discriminated: true },
   { key: 'code.imports' },
+  // What a type implements (the code pass, decision 0033's "The code pass"): the relation the
+  // extract driver already registers for the same fact, declared here with the same settings.
+  { key: 'code.implements', discriminated: true },
   { key: 'code.mentions', discriminated: true },
   { key: 'code.occurrence', positioned: true },
   // What the resolution stage folds a mention into (decision 0026's stage 4).

@@ -178,9 +178,12 @@ export async function createStagesFill(options: StagesFillOptions): Promise<Stag
   // process's owner: its tables and the extractor vocabulary are created with the rest of the fill's.
   const store: GraphStore = createGraphStore(options.database);
   await ensureGraphSchema(store);
+  // The stages a run of this product enables are its workflow's (decision 0033, item 2): a product that
+  // holds no manifest of its own runs the engine's starter set, as a repository that is no product does.
+  const workflow = workflowOf(folder);
   const wiring: ProductFillWiring = {
     snapshot: () => snapshotOf(identity, registry, repin()),
-    configuration: (): FillStageConfigurationRead => readFillStageConfiguration(folder),
+    configuration: (): FillStageConfigurationRead => configurationOfWorkflow(workflow, readFillStageConfiguration(folder), registry),
     graph: (ref, transaction) => (registry.get(ref.stageId)?.staticReading === true
       ? createStaticStageReadReader(store, transaction)
       : createStageReadReader({
@@ -260,7 +263,7 @@ export async function createRepositoryFill(options: RepositoryFillOptions): Prom
   // the workflow it declares; one that is no product has no manifest, and the engine's own `first-fill` — the starter
   // set `madarch new` writes into a product — is the workflow it runs. Either way the stage set is a workflow's, never
   // a list written here.
-  const workflow = readWorkflows(folder).present ? firstFillStagesOf(folder) : engineFirstFillStages();
+  const workflow = workflowOf(folder);
   const wiring: ProductFillWiring = {
     snapshot: () => snapshotOfPins(folder, registry, pin),
     configuration: () => configurationOfWorkflow(workflow, { ok: true, file: workflow.ok ? workflow.file : 'madarch/workflows.yaml', stages: {}, lines: {} }, registry),
@@ -275,6 +278,16 @@ export async function createRepositoryFill(options: RepositoryFillOptions): Prom
     inputs: (ref) => inputsOf(registry, pins(), ref),
   };
   return { product: { name, folder }, registry, wiring };
+}
+
+/**
+ * The stages a run of one folder enables: the `first-fill` workflow its
+ * `madarch/workflows.yaml` names, or — for a folder that holds no manifest, a
+ * repository that is no product included — the engine's own starter set, which
+ * is the one `madarch new` writes into a product.
+ */
+function workflowOf(folder: string): FirstFillRead {
+  return readWorkflows(folder).present ? firstFillStagesOf(folder) : engineFirstFillStages();
 }
 
 /** The run's snapshot record of one pinned repository, as fill-runtime's shape holds it. */

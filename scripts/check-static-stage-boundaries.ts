@@ -23,8 +23,22 @@ import { pathToFileURL } from 'node:url';
 import { API } from 'typescript/unstable/sync';
 import { SyntaxKind } from 'typescript/unstable/ast';
 
+/**
+ * What one stage may reach beyond the boundary. Decision 0033's "The code pass"
+ * (amended 2026-11-06) names exactly one stage that reads a tree: the code pass,
+ * because the library it runs indexes a tree and not a file. Its allowance is
+ * written here as the modules and the members that decision names and nothing
+ * else; every other stage holds no allowance at all.
+ */
+export interface StaticStageAllowance {
+  /** Source modules whose types this stage may obtain (the snapshot reader, for the code pass). */
+  readonly reads?: readonly string[];
+  /** Member names of `wholeRepositoryMembers` this stage may name. */
+  readonly members?: readonly string[];
+}
+
 export interface StaticStageBoundaryConfig {
-  readonly stages: Readonly<Record<string, Record<string, never>>>;
+  readonly stages: Readonly<Record<string, StaticStageAllowance>>;
   /** Type names a static stage's `execute` may never hold. */
   readonly forbiddenTypes: readonly string[];
   /** Source files or folders a static stage's `execute` may never obtain a type from. */
@@ -55,8 +69,13 @@ export function checkStaticStageBoundaries(options: { readonly root: string; rea
     if (project === undefined) throw new Error(`the static stage boundary check opened no TypeScript project for ${resolve(root, options.tsconfigPath ?? 'tsconfig.json')}: the check needs the repository's project to resolve a stage's types`);
     const failures: StaticStageBoundaryFailure[] = [];
     for (const [stagePath, rule] of Object.entries(config.stages)) {
-      if (rule !== null && typeof rule === 'object' && Object.keys(rule).length > 0) {
-        throw new Error(`the static stage boundary check reads ${resolve(root, options.configPath)} and the stage ${JSON.stringify(stagePath)} holds ${Object.keys(rule).join(', ')}: a static stage has no exception, and a rule is no longer read (decision 0033, item 5)`);
+      // A rule names the modules and the members decision 0033's amendments allow this one
+      // stage to reach, and nothing else: a field this check does not read is refused by name.
+      const allowance: StaticStageAllowance = rule ?? {};
+      for (const key of Object.keys(allowance)) {
+        if (key !== 'reads' && key !== 'members') {
+          throw new Error(`the static stage boundary check reads ${resolve(root, options.configPath)} and the stage ${JSON.stringify(stagePath)} holds the field ${JSON.stringify(key)}: an allowance names only "reads" (the modules decision 0033 names) and "members" (the members it names), and nothing else (decision 0033, item 5)`);
+        }
       }
       const file = project.program.getSourceFile(resolve(root, stagePath));
       if (file === undefined) {
@@ -68,7 +87,7 @@ export function checkStaticStageBoundaries(options: { readonly root: string; rea
         failures.push({ stage: stagePath, file: resolve(root, stagePath), line: 1, column: 1, reached: 'execute', message: 'the configured static stage declares no `execute` function: the boundary check reads what a unit runs, and the stage it was pointed at holds none' });
         continue;
       }
-      visit(stagePath, execute, file, new Set());
+      visit(stagePath, execute, file, new Set(), allowance);
     }
     return failures;
 
@@ -87,42 +106,41 @@ export function checkStaticStageBoundaries(options: { readonly root: string; rea
       return found;
     }
 
-    function visit(stage: string, node: any, file: any, visited: Set<any>): void {
+    function visit(stage: string, node: any, file: any, visited: Set<any>, allowance: StaticStageAllowance): void {
       walkTree(node, (child) => {
         if (child.kind === SyntaxKind.Identifier) {
           const name = child.text as string;
-          if (config.wholeRepositoryMembers.includes(name)) {
+          if (config.wholeRepositoryMembers.includes(name) && !(allowance.members ?? []).includes(name)) {
             refuse(stage, child, name, `the static stage ${JSON.stringify(stage)} names "${name}", which answers a whole repository: a static stage receives one file's bytes and bounded graph queries, and has no whole-tree reader or repository-wide object to call (decision 0033, item 5)`);
           }
           const type = project.checker.getTypeAtLocation(child);
           const forbidden = type === undefined ? undefined : forbiddenOf(type);
-          if (forbidden !== undefined) {
-            refuse(stage, child, forbidden, `the static stage ${JSON.stringify(stage)} obtains ${forbidden}, which its static context does not hand it: a static unit reads one file's bytes and bounded graph queries, never a whole-tree reader or a repository-wide object (decision 0033, item 5)`);
+          const allowed = forbidden !== undefined && (allowance.reads ?? []).some((module) => forbidden.path !== undefined && matchesModule(forbidden.path, module));
+          if (forbidden !== undefined && !allowed) {
+            refuse(stage, child, forbidden.name, `the static stage ${JSON.stringify(stage)} obtains ${forbidden.name}${forbidden.path === undefined ? '' : ` from ${forbidden.path}`}, which its static context does not hand it: a static unit reads one file's bytes and bounded graph queries, never a whole-tree reader or a repository-wide object (decision 0033, item 5)`);
           }
           // A local function the execute calls is walked too: a stage does not clean its hands by calling a helper that holds the reader.
           const symbol = project.checker.getSymbolAtLocation(child);
           const declaration = symbol?.declarations?.[0]?.resolve(project);
           if (declaration !== undefined && !visited.has(declaration)) {
             visited.add(declaration);
-            if (declaration.kind === SyntaxKind.FunctionDeclaration && declaration.body !== undefined) visit(stage, declaration.body, declaration.getSourceFile(), visited);
-            else if (declaration.kind === SyntaxKind.VariableDeclaration && declaration.initializer !== undefined && isFunction(declaration.initializer)) visit(stage, declaration.initializer, declaration.getSourceFile(), visited);
+            if (declaration.kind === SyntaxKind.FunctionDeclaration && declaration.body !== undefined) visit(stage, declaration.body, declaration.getSourceFile(), visited, allowance);
+            else if (declaration.kind === SyntaxKind.VariableDeclaration && declaration.initializer !== undefined && isFunction(declaration.initializer)) visit(stage, declaration.initializer, declaration.getSourceFile(), visited, allowance);
           }
         }
       });
     }
 
-    function forbiddenOf(type: any, depth = 0): string | undefined {
+    function forbiddenOf(type: any, depth = 0): { name: string; path?: string } | undefined {
       if (depth > 8 || type === undefined) return undefined;
       for (const symbol of [type.getSymbol(), type.getAliasSymbol()]) {
         if (symbol === undefined) continue;
-        if (config.forbiddenTypes.includes(symbol.name)) return `"${symbol.name}"`;
-        for (const handle of symbol.declarations ?? []) {
-          const resolved = handle.resolve(project);
-          const path = resolved?.getSourceFile().fileName;
-          if (path === undefined) continue;
-          const module = config.forbiddenModules.find((each) => matchesModule(path, each));
-          if (module !== undefined) return `"${symbol.name}" from ${path}`;
-        }
+        // The declaration's path is found even where the type's own name is what forbids it: an
+        // allowance is written as modules, so a type is allowed or refused by where it is declared.
+        const paths = (symbol.declarations ?? []).map((handle: any) => handle.resolve(project)?.getSourceFile().fileName as string | undefined).filter((path: string | undefined): path is string => path !== undefined);
+        const forbiddenByModule = paths.find((path) => config.forbiddenModules.some((each) => matchesModule(path, each)));
+        if (forbiddenByModule !== undefined) return { name: `"${symbol.name}"`, path: forbiddenByModule };
+        if (config.forbiddenTypes.includes(symbol.name)) return { name: `"${symbol.name}"`, ...(paths[0] === undefined ? {} : { path: paths[0] }) };
       }
       if (type.isUnionType?.() === true || type.isIntersectionType?.() === true) {
         for (const member of type.getTypes()) {

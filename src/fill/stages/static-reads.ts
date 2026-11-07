@@ -19,6 +19,7 @@ import { STATIC_GRAPH_READ, staticEdgeOf, staticNodeOf } from './static-context.
 import { PUBLISHED_COVERAGE_READ, type PublishedCoverageRow } from './syntax.js';
 import { PUBLISHED_RESOLVED_READ, type PublishedResolvedRow } from './semantic-resolution.js';
 import { CODE_FACTS_PUBLISHED_READ } from './code-facts.js';
+import { CODEGRAPH_PUBLISHED_READ, type CodegraphPublishedRow } from './codegraph.js';
 import { PUBLISHED_MACHINES_READ } from './state-machines.js';
 import {
   DATA_MODEL_AGGREGATE_PUBLISHED_READ, DATA_MODEL_DATABASE_INPUTS_READ, DATA_MODEL_PUBLISHED_READ,
@@ -338,6 +339,23 @@ export function createStaticStageReadReader(store: GraphStore, executor?: QueryE
           }
           return rows.sort((left, right) => (`${left.kind} ${String(left.properties['recordKey'] ?? left.id)}` < `${right.kind} ${String(right.properties['recordKey'] ?? right.id)}` ? -1 : `${left.kind} ${String(left.properties['recordKey'] ?? left.id)}` > `${right.kind} ${String(right.properties['recordKey'] ?? right.id)}` ? 1 : 0));
         }
+        case CODEGRAPH_PUBLISHED_READ: {
+          // One repository's code-pass coverage: the commit this stage read the tree at, and the measurement
+          // the run wrote with it. The reader is named, so another stage's coverage of the same repository is
+          // never taken for this one's.
+          const nodes = await all((page) => store.byProperty('code.coverage', 'repository', repository, { ...page, limit: page.limit ?? PLAN_PAGE }, transaction));
+          const rows: CodegraphPublishedRow[] = [];
+          for (const node of nodes) {
+            const held = propertiesOf(node);
+            if (held['factKind'] !== 'coverage' || sourceSystemOf(held) !== 'codegraph') continue;
+            const commit = held['commit'];
+            if (typeof commit !== 'string' || !/^[0-9a-f]{40}$/.test(commit)) {
+              throw new Error(`the graph answered the coverage node ${node.nodeId} of ${JSON.stringify(repository)} with the commit ${JSON.stringify(commit)}: the code pass's coverage names the commit it read (src/fill/stages/static-reads.ts)`);
+            }
+            rows.push({ kind: 'coverage', commit });
+          }
+          return rows.sort((left, right) => (left.commit < right.commit ? -1 : left.commit > right.commit ? 1 : 0));
+        }
         case PUBLISHED_MACHINES_READ: {
           // One repository's state machine coverage: the files the state-machines stage read,
           // each with the blob its bytes stood under. The reader is named, so a coverage of
@@ -452,7 +470,7 @@ export function createStaticStageReadReader(store: GraphStore, executor?: QueryE
           return node === undefined ? [] : [{ kind: 'coverage', value: coverageValueOf(propertiesOf(node)) }];
         }
         default:
-          throw new Error(`the static stage asked the read ${JSON.stringify(document.read)} for ${JSON.stringify(repository)}, and this reader answers ${PUBLISHED_TREE_READ}, ${PUBLISHED_REPOSITORY_READ}, ${PUBLISHED_UNFILED_READ}, ${PUBLISHED_CONTAINMENT_READ}, ${PUBLISHED_COVERAGE_READ}, ${PUBLISHED_RESOLVED_READ}, ${PUBLISHED_GAPS_READ}, ${PUBLISHED_IMPORTS_READ}, ${PUBLISHED_MACHINES_READ}, ${CODE_FACTS_PUBLISHED_READ}, ${DATA_MODEL_PUBLISHED_READ}, ${DATA_MODEL_AGGREGATE_PUBLISHED_READ}, ${DATA_MODEL_DATABASE_INPUTS_READ}, ${PUBLISHED_OPERATIONS_READ}, ${PUBLISHED_LINKS_READ}, ${PUBLISHED_MANIFESTS_READ}, ${PUBLISHED_DOCUMENTS_READ}, ${COMMITS_HELD_READ}, ${HISTORY_COVERAGE_READ}: a static stage has one reading of the graph (src/fill/stages/static-reads.ts)`);
+          throw new Error(`the static stage asked the read ${JSON.stringify(document.read)} for ${JSON.stringify(repository)}, and this reader answers ${PUBLISHED_TREE_READ}, ${PUBLISHED_REPOSITORY_READ}, ${PUBLISHED_UNFILED_READ}, ${PUBLISHED_CONTAINMENT_READ}, ${PUBLISHED_COVERAGE_READ}, ${PUBLISHED_RESOLVED_READ}, ${PUBLISHED_GAPS_READ}, ${PUBLISHED_IMPORTS_READ}, ${PUBLISHED_MACHINES_READ}, ${CODE_FACTS_PUBLISHED_READ}, ${CODEGRAPH_PUBLISHED_READ}, ${DATA_MODEL_PUBLISHED_READ}, ${DATA_MODEL_AGGREGATE_PUBLISHED_READ}, ${DATA_MODEL_DATABASE_INPUTS_READ}, ${PUBLISHED_OPERATIONS_READ}, ${PUBLISHED_LINKS_READ}, ${PUBLISHED_MANIFESTS_READ}, ${PUBLISHED_DOCUMENTS_READ}, ${COMMITS_HELD_READ}, ${HISTORY_COVERAGE_READ}: a static stage has one reading of the graph (src/fill/stages/static-reads.ts)`);
       }
     },
   };

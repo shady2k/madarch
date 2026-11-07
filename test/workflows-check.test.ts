@@ -66,7 +66,7 @@ describe('the workflow check over the starter set', () => {
     const folder = product(text);
     const done = run('--folder', folder);
     expect(done.code).toBe(1);
-    const expected = 'workflow "first-fill" stage "teleport": the engine\'s stage registry holds no stage "teleport" (its stages are boundaries, build-configuration, code-facts, data-model, data-model-aggregate, doc-intent, document-index, history, intent-history, inventory, modules, narrative, operations, operations-links, overview, recovery, semantic-resolution, snapshot, state-machines, syntax, understanding)';
+    const expected = 'workflow "first-fill" stage "teleport": the engine\'s stage registry holds no stage "teleport" (its stages are boundaries, build-configuration, code-facts, codegraph, data-model, data-model-aggregate, doc-intent, document-index, history, intent-history, inventory, modules, narrative, operations, operations-links, overview, recovery, semantic-resolution, snapshot, state-machines, syntax, understanding)';
     expect(done.err.trim()).toBe(`${join(folder, WORKFLOWS_FILE)}:${lineOf(text, '- teleport')}: ${expected}`);
   }, 30_000);
 
@@ -75,8 +75,13 @@ describe('the workflow check over the starter set', () => {
     const folder = product(text);
     const done = run('--folder', folder);
     expect(done.code).toBe(1);
-    const expected = 'workflow "first-fill" stage "modules": modules → symbol → syntax (disabled): the workflow names no stage that produces the input "symbol"';
-    expect(done.err.trim()).toBe(`${join(folder, WORKFLOWS_FILE)}:${lineOf(text, '- modules')}: ${expected}`);
+    // Two stages of this madarch produce a symbol — the per-file pass and the code pass — and this
+    // workflow names neither, so the derivation names both paths.
+    const at = `${join(folder, WORKFLOWS_FILE)}:${lineOf(text, '- modules')}: workflow "first-fill" stage "modules"`;
+    expect(done.err.trim().split('\n')).toEqual([
+      `${at}: modules → symbol → codegraph (disabled): the workflow names no stage that produces the input "symbol"`,
+      `${at}: modules → symbol → syntax (disabled): the workflow names no stage that produces the input "symbol"`,
+    ]);
   }, 30_000);
 
   test('a planned workflow that names stages is checked as an implemented one is, and one of the stages the registry holds passes', () => {
@@ -86,8 +91,11 @@ describe('the workflow check over the starter set', () => {
     const starved = declared('planned', ['modules']);
     const refused = run('--folder', product(starved));
     expect(refused.code).toBe(1);
+    // The snapshot is the only stage that produces a file, and two stages produce a symbol; the
+    // workflow names none of the three, and the derivation names each path.
     expect(refused.err.trim().split('\n')).toEqual([
-      expect.stringContaining(`:${lineOf(starved, '- modules')}: workflow "branch-worktree" stage "modules": modules → file → inventory (disabled)`),
+      expect.stringContaining(`:${lineOf(starved, '- modules')}: workflow "branch-worktree" stage "modules": modules → file → snapshot (disabled)`),
+      expect.stringContaining(`:${lineOf(starved, '- modules')}: workflow "branch-worktree" stage "modules": modules → symbol → codegraph (disabled)`),
       expect.stringContaining(`:${lineOf(starved, '- modules')}: workflow "branch-worktree" stage "modules": modules → symbol → syntax (disabled)`),
     ]);
     // The paired case: the same planned workflow of the stages the registry holds and feeds exits 0.

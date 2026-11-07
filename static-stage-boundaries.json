@@ -12,7 +12,15 @@
     "src/fill/stages/code-facts.ts": {},
     "src/fill/stages/data-model.ts": {},
     "src/fill/stages/operations.ts": {},
-    "src/fill/stages/operations-links.ts": {}
+    "src/fill/stages/operations-links.ts": {},
+    "src/fill/stages/codegraph.ts": {
+      "reads": [
+        "src/fill/snapshot.ts"
+      ],
+      "members": [
+        "entries"
+      ]
+    }
   },
   "forbiddenTypes": [
     "SnapshotSource",

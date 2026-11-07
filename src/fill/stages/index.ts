@@ -15,6 +15,7 @@ import type { AgentStageWiring } from './agent-stage.js';
 import { createBoundariesStage } from './boundaries.js';
 import { createBuildConfigurationStage } from './build-configuration.js';
 import { createCodeFactsStage } from './code-facts.js';
+import { createCodegraphStage } from './codegraph.js';
 import { createDataModelAggregateStage, createDataModelStage } from './data-model.js';
 import { createDocIntentStage } from './doc-intent.js';
 import { createDocumentIndexStage } from './document-index.js';
@@ -95,6 +96,9 @@ export function createStageRegistry(wiring: FillStageWiring): StageRegistry {
     .register(createSyntaxStage(wiring.snapshots))
     .register(createSemanticResolutionStage(wiring.snapshots))
     .register(createCodeFactsStage(wiring.snapshots))
+    // The code pass (decision 0033's "The code pass"): the library's reading of one repository's
+    // tree at the pinned commit, joined to the symbols the per-file passes published.
+    .register(createCodegraphStage(wiring.snapshots))
     .register(createDataModelStage(wiring.snapshots))
     .register(createDataModelAggregateStage(wiring.snapshots))
     .register(createStateMachinesStage(wiring.snapshots))

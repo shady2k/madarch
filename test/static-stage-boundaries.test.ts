@@ -28,7 +28,7 @@ function run(config: string): { readonly code: number; readonly stderr: string }
 }
 
 describe('the static stage boundary check', () => {
-  test('the three static stages of this repository pass, with no exception listed', () => {
+  test('every static stage of this repository passes, and only the code pass names an allowance', () => {
     const checked = run('static-stage-boundaries.json');
     expect(checked.stderr).toBe('');
     expect(checked.code).toBe(0);
@@ -54,7 +54,7 @@ describe('the static stage boundary check', () => {
     expect(checked.stderr).not.toContain('allows');
   }, 60_000);
 
-  test('a configuration that gives a stage an exception is refused', () => {
+  test('an allowance names only the modules and the members decision 0033 names, and an unknown field is refused', () => {
     const folder = mkdtempSync(join(tmpdir(), 'madarch-static-boundary-'));
     const config = join(folder, 'config.json');
     writeFileSync(config, JSON.stringify({
@@ -69,6 +69,6 @@ describe('the static stage boundary check', () => {
     } catch (error) {
       message = String((error as { stderr?: string }).stderr ?? (error as Error).message);
     }
-    expect(message).toContain('no exception');
+    expect(message).toContain('an allowance names only');
   }, 60_000);
 });
