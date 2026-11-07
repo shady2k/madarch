@@ -211,6 +211,26 @@ export type RepositoryFactsView = {
   steps: { tree: boolean; history: boolean };
 };
 
+/** One step of the newest run, as its trace states it. */
+export type FillStepView = {
+  step: string;
+  wallMs: number;
+  peakRssBytes: number;
+  startRssBytes: number;
+  slowest: { name: string; count: number; selfMs: number }[];
+};
+
+/** The newest run's trace: its wall clock, its spans and its steps. */
+export type FillRunView = {
+  runId: string;
+  startedAt: string;
+  finishedAt: string;
+  wallMs: number;
+  spans: number;
+  slowest: { name: string; count: number; selfMs: number }[];
+  steps: FillStepView[];
+};
+
 /** What a running fill has done so far, read from its trace. */
 export type FillProgressView = {
   spans: number;
@@ -247,6 +267,8 @@ export type FillState = {
   progress?: FillProgressView;
   /** The counts the run published: the end state's numbers. */
   counts?: RepositoryCounts;
+  /** The newest run's trace, once the store holds one: its time and its steps. */
+  run?: FillRunView;
   /** Why the run failed, with the file, the line and the path it stands at. */
   error?: FillErrorView;
 };

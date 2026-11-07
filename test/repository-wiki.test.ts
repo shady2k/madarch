@@ -1,7 +1,7 @@
 /**
  * The repository pages of the wiki (madarch-8bdc.2.5, items 2, 3 and 4): an
  * empty product, the press, the progress, the end state, and then the
- * repository, a folder, a file and a commit — over HTTP, the way
+ * repository, a folder, a file, a commit and the run page — over HTTP, the way
  * the app reads them.
  *
  * The products are fixtures this test makes; the generated repository of the
@@ -17,6 +17,8 @@ import { join } from 'node:path';
 import { createPGliteDatabaseOwner } from '../src/adapters/database-owner.js';
 import { runFill } from '../src/fill/run.js';
 import { storeFolderOf } from '../src/knowledge/product.js';
+import type { FillStepView } from '../src/knowledge/model.js';
+import { startKnowledgeFill } from '../src/knowledge/fill-run.js';
 import { startServer, type StartedServer } from '../src/server/http.js';
 import { gitEnv } from './git-env.js';
 import { SAMPLE_IDENTITY, makeProduct } from './knowledge-fixture.js';
@@ -100,12 +102,22 @@ describe('the empty wiki, the press and the end state', () => {
       expect((ended['fill'] as Record<string, unknown>)['state']).toBe('done');
       expect(ended['filled']).toBe(true);
       expect(ended['incomplete']).toBe(false);
-      // The counts: the store's own numbers.
+      // The counts and the time: the store's own numbers, and the run's own wall clock.
       const repositoryFacts = ended['repository'] as Record<string, unknown>;
       expect(repositoryFacts['counts']).toEqual({ files: 4, commits: 2, folders: 3 });
       expect(repositoryFacts['steps']).toEqual({ 'tree': true, 'history': true });
       const fill = ended['fill'] as Record<string, unknown>;
       expect(fill['counts']).toEqual({ files: 4, commits: 2, folders: 3 });
+      const run = fill['run'] as Record<string, unknown>;
+      expect(typeof run['wallMs']).toBe('number');
+      expect((run['wallMs'] as number)).toBeGreaterThan(0);
+      const runSteps = run['steps'] as FillStepView[];
+      expect(runSteps.map((step) => step.step).sort()).toEqual(['repository-history', 'repository-tree']);
+      for (const step of runSteps) {
+        expect(step.wallMs).toBeGreaterThan(0);
+        expect(step.peakRssBytes).toBeGreaterThanOrEqual(step.startRssBytes);
+        expect(step.slowest.length).toBeGreaterThan(0);
+      }
 
       // The repository page, its tree, one file, one commit and the run.
       const repositoryPage = await json(server, 'walk', '/api/k/repository');
@@ -129,6 +141,15 @@ describe('the empty wiki, the press and the end state', () => {
       const commit = await json(server, 'walk', `/api/k/commit?hash=${hash}`);
       expect(commit.status).toBe(200);
       expect((commit.body['commit'] as Record<string, unknown>)['subject']).toBe('the nested file moves');
+      const runPage = await json(server, 'walk', '/api/k/run');
+      expect(runPage.status).toBe(200);
+      const runModel = runPage.body['run'] as Record<string, unknown>;
+      expect(runModel['runId']).toBe(run['runId'] as string);
+      for (const step of runModel['steps'] as Record<string, unknown>[]) {
+        expect(step['wallMs'] as number).toBeGreaterThan(0);
+        expect(step['peakRssBytes'] as number).toBeGreaterThanOrEqual(step['startRssBytes'] as number);
+        expect((step['slowest'] as unknown[]).length).toBeGreaterThan(0);
+      }
     } finally {
       await server.stop();
     }
@@ -167,6 +188,31 @@ describe('the empty wiki, the press and the end state', () => {
       expect(((second.body['folder'] as Record<string, unknown>)['files'] as { path: string }[])[0]!.path).toBe('files/deep/f0100.txt');
     } finally {
       await server.stop();
+    }
+  }, 300_000);
+
+  test('a fill that cannot read its repository fails with its file and line, and the product path', async () => {
+    // A checkout with no commit yet: the fill's first git read refuses it, and the message names
+    // the file and the line it was raised from. The run is started here, not through the status
+    // route: a product's documents cannot be listed for a repository with no commit, which is the
+    // document listing's own refusal and not this step's.
+    const repository = join(root, 'broken-code');
+    mkdirSync(repository, { recursive: true });
+    git(repository, 'init', '-q', '-b', 'main');
+    writeFileSync(join(repository, 'src.ts'), 'export const a = 1;\n');
+    const folder = makeProduct(home, 'broken', repository, 'broken-code');
+    git(folder, 'add', '-A');
+    git(folder, 'commit', '-qm', 'a product whose code folder holds no commit');
+    const owner = createPGliteDatabaseOwner({ btreeGist: true });
+    const store = join(root, 'broken-store');
+    try {
+      const run = await startKnowledgeFill({ productFolder: folder, storeFolder: store, runId: 'broken', database: owner });
+      const result = await run.done;
+      expect(result.ok).toBe(false);
+      // The file, the line and the words: the engine raised it, and the run kept it.
+      expect(result.message).toMatch(/src\/product\/fill-stages\.ts:\d+:\d+: .*git could not read it/u);
+    } finally {
+      await owner.close().catch(() => undefined);
     }
   }, 300_000);
 

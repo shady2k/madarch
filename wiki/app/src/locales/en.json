@@ -52,6 +52,7 @@
         "historyRan": "Its history has been read",
         "historyNotRun": "Its history has not been read",
         "filledAt": "Filled {{when}} in {{wall}}",
+        "runPage": "The run's trace, step by step",
         "gapsTitle": "The fill recorded gaps",
         "notRun": "Nothing is on this page yet: the fill has not read this repository's tree.",
         "folders": "Folders",
@@ -89,7 +90,18 @@
         "errorAt": "{{file}}:{{line}} — {{path}}",
         "errorPath": "{{path}}"
       },
-      "localizedSource": "In the source",
+      "run": {
+        "title": "The run",
+        "totals": "{{wall}} wall clock over {{spans}} spans, from {{from}} to {{to}}",
+        "steps": "Steps",
+        "step": "Step",
+        "wall": "Wall clock",
+        "memory": "Peak memory",
+        "slowest": "Slowest names",
+        "names": "The names that took the most time of their own",
+        "note": "These numbers are the run's trace: each step's own spans, the process's resident memory when they ended, and the time each name took of its own."
+      },
+    "localizedSource": "In the source",
     "title": "{{product}} — knowledge wiki",
     "loading": "Loading…",
     "broken": "broken",

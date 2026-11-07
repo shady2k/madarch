@@ -51,6 +51,8 @@ export interface KnowledgePart {
   file: (request: Request) => Promise<Handled>;
   /** One commit's page: its facts and the paths it changed. */
   commit: (request: Request) => Promise<Handled>;
+  /** The newest run's trace as the run page states it: per step its time, its memory and its names. */
+  run: (request: Request) => Promise<Handled>;
   fill: (request: Request) => Promise<Handled>;
   /** A person's «Пауза»: the page and the commit in progress are finished, and the run ends before the next one. */
   pause: (request: Request) => Promise<Handled>;
@@ -293,6 +295,13 @@ export function createKnowledgePart(
         return refused(404, { field: 'hash', message: `the store holds no commit ${JSON.stringify(hash)} of ${repository.name}` });
       }
       return { response: json(200, { commit: page }) };
+    }),
+    run: guarded('read the run', async (request) => {
+      const query = new URL(request.url).searchParams;
+      const runId = query.get('run');
+      const run = await product.runView(runId === null || runId === '' ? undefined : runId);
+      if (run === null) return refused(404, { message: 'the store holds no trace: a fill writes one, and the run page reads it' });
+      return { response: json(200, { run }) };
     }),
     fill: guarded('start the fill', async (request) => {
       const crossSite = foreign(request);

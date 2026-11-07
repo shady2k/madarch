@@ -23,7 +23,7 @@ import { RunControls, runIsPaused, runIsStopped } from './run-controls.js';
 import { KLink } from './blocks.js';
 import { CataloguePage, DocumentPage, DocumentsPage, EntityPage, EmptyHome, FillCard, KindPage, SourcePage, StatementPage, Overview } from './pages.js';
 import { FillPage } from './fill-page.js';
-import { CommitPage, FilePage, FolderPage, RepositoryPage } from './repository.js';
+import { CommitPage, FilePage, FolderPage, RepositoryPage, RunPage } from './repository.js';
 import { unitName } from './writer.js';
 import { GlossaryContext, GlossaryPage, useGlossary, useGlossaryValue, useTerms } from './glossary.js';
 import { HelpLink, RoleCard, RoleMenu } from './role-ui.js';
@@ -646,7 +646,7 @@ export function SyncButton({ status, refresh }: { status: WikiStatus; refresh: (
 export function Toolbar({ status, route, menu, refresh, products, current }: { status: WikiStatus; route: KRoute; menu: ReactNode; refresh: () => void; products: readonly ProductChoice[]; current: string | null }): ReactElement {
   const { t } = useTranslation();
   const kindName = useKindName();
-  const where = route.name === 'questions' || route.name === 'question' ? t('loop.questionsTitle') : route.name === 'problems' ? t('loop.problemsTitle') : route.name === 'tasks' ? t('loop.tasksTitle') : route.name === 'settings' ? t('settings.title') : route.name === 'journal' ? t('journal.title') : route.name === 'kind' ? kindName(route.kind, 'many') : route.name === 'source' ? t('knowledge.source') : route.name === 'folder' ? t('knowledge.repository.folders') : route.name === 'file' ? t('knowledge.repository.file') : route.name === 'commit' ? t('knowledge.repository.commit') : route.name === 'docs' || route.name === 'doc' ? t('knowledge.documents') : route.name === 'catalogue' ? t('knowledge.catalogue') : route.name === 'glossary' ? t('knowledge.glossary.title') : route.name === 'statement' ? t('knowledge.statement') : route.name === 'entity' ? null : t('knowledge.home');
+  const where = route.name === 'questions' || route.name === 'question' ? t('loop.questionsTitle') : route.name === 'problems' ? t('loop.problemsTitle') : route.name === 'tasks' ? t('loop.tasksTitle') : route.name === 'settings' ? t('settings.title') : route.name === 'journal' ? t('journal.title') : route.name === 'kind' ? kindName(route.kind, 'many') : route.name === 'source' ? t('knowledge.source') : route.name === 'folder' ? t('knowledge.repository.folders') : route.name === 'file' ? t('knowledge.repository.file') : route.name === 'commit' ? t('knowledge.repository.commit') : route.name === 'run' ? t('knowledge.run.title') : route.name === 'docs' || route.name === 'doc' ? t('knowledge.documents') : route.name === 'catalogue' ? t('knowledge.catalogue') : route.name === 'glossary' ? t('knowledge.glossary.title') : route.name === 'statement' ? t('knowledge.statement') : route.name === 'entity' ? null : t('knowledge.home');
   return (
     <header className="shell-toolbar flex min-h-[58px] items-center justify-between gap-3 border-b border-line bg-page px-4 wide:px-[35px]">
       <span className="shell-breadcrumb min-w-0 truncate text-small text-secondary">
@@ -809,6 +809,7 @@ export function KnowledgeApp(): ReactElement {
   else if (route.name === 'folder') view = <FolderPage key={`${route.path}\0${route.after ?? ''}`} path={route.path} after={route.after} version={version} />;
   else if (route.name === 'file') view = <FilePage key={`${route.path}\0${route.after?.walk ?? ''}\0${route.after?.commit ?? ''}`} path={route.path} after={route.after} version={version} />;
   else if (route.name === 'commit') view = <CommitPage key={route.hash} hash={route.hash} version={version} />;
+  else if (route.name === 'run') view = <RunPage key={route.run ?? ''} run={route.run} version={version} />;
   else view = <SourcePage key={`${route.repo ?? ''}:${route.path}`} repo={route.repo} path={route.path} line={route.line} />;
   return (
     <TooltipProvider delayDuration={200} skipDelayDuration={100}>

@@ -1,7 +1,7 @@
 import { appPath } from '../app-base.js';
 import { historyQuery } from './history-context.js';
 import { readJson, RequestError } from '../api.js';
-import type { AgentChoices, AgentOffer, AnswerResult, Block, CommitPageModel, CorrectionResult, CreatedTask, DiagramRenderer, DiagramView, DocumentListing, DocumentPageModel, EntityListing, FilePageModel, FillState, FolderPageModel, Glossary, GraphVerdictBudgets, GraphVerdictFilter, GraphVerdictReport, GraphVerdictRole, GraphVerdictView, ModelRoleId, ModelRoleView, Neighborhood, PageJournal, PageModel, ProblemListing, ProductChoice, ProductSettings, QuestionDetail, QuestionListing, RefreshPreview, SourceFile, StatementModel, TaskDetail, TaskImpact, TaskListing, TaskProposal, TaskRow, TaskScope, UserSettings, WikiStatus, WriterState } from './types.js';
+import type { AgentChoices, AgentOffer, AnswerResult, Block, CommitPageModel, CorrectionResult, CreatedTask, DiagramRenderer, DiagramView, DocumentListing, DocumentPageModel, EntityListing, FilePageModel, FillRunView, FillState, FolderPageModel, Glossary, GraphVerdictBudgets, GraphVerdictFilter, GraphVerdictReport, GraphVerdictRole, GraphVerdictView, ModelRoleId, ModelRoleView, Neighborhood, PageJournal, PageModel, ProblemListing, ProductChoice, ProductSettings, QuestionDetail, QuestionListing, RefreshPreview, SourceFile, StatementModel, TaskDetail, TaskImpact, TaskListing, TaskProposal, TaskRow, TaskScope, UserSettings, WikiStatus, WriterState } from './types.js';
 
 /** The wiki's status: manifest, kinds, repositories, fill. */
 export const getStatus = (signal?: AbortSignal): Promise<WikiStatus> => readJson<WikiStatus>('read the wiki', '/api/k/status', signal);
@@ -136,6 +136,10 @@ export function getFile(path: string, after: { walk: number; commit: string } | 
 /** One commit's page: its facts and the paths it changed. */
 export const getCommit = (hash: string, signal?: AbortSignal): Promise<{ commit: CommitPageModel }> =>
   readJson(`read the commit ${hash}`, `/api/k/commit?hash=${encodeURIComponent(hash)}`, signal);
+
+/** The newest run's trace: per step its wall clock, its peak memory and its slowest names. */
+export const getRun = (run: string | null, signal?: AbortSignal): Promise<{ run: FillRunView }> =>
+  readJson('read the run', `/api/k/run${run === null ? '' : `?run=${encodeURIComponent(run)}`}`, signal);
 
 /** The wiki's one change stream: the server says `change` when a file of the product or a commit of the fill changes what a page shows. */
 export const eventsAddress = (): string => appPath('/api/events');

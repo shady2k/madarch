@@ -11,8 +11,8 @@ import { createElement } from 'react';
 import { createRoot, type Root } from 'react-dom/client';
 import { setWikiLanguage } from '../i18n.js';
 import { FillCard } from './pages.js';
-import { CommitPage, FilePage, FileRows, FolderPage, RepositoryPage, bytesText, instantText, mbText, msText } from './repository.js';
-import type { CommitPageModel, FilePageModel, FolderPageModel, PageHistoryRow, WikiStatus } from './types.js';
+import { CommitPage, FilePage, FileRows, FolderPage, RepositoryPage, RunPage, bytesText, instantText, mbText, msText } from './repository.js';
+import type { CommitPageModel, FilePageModel, FillRunView, FillStepView, FolderPageModel, PageHistoryRow, WikiStatus } from './types.js';
 
 beforeAll(async () => {
   GlobalRegistrator.register({ url: 'http://localhost/' });
@@ -105,6 +105,7 @@ describe('the repository page', () => {
     await until(() => container.querySelector('[data-testid=file-rows]') !== null, 'the root files');
     expect(container.querySelector('[data-testid=repository-url]')!.textContent).toBe('file:///work/code');
     expect(container.textContent).toContain('Files: 4 · Commits: 2 · Folders: 3');
+    expect(container.querySelector('[data-testid=repository-run-link]')!.textContent).toBe("The run's trace, step by step");
     const folders = [...container.querySelectorAll('[data-testid=folder-row]')].map((row) => row.textContent);
     expect(folders).toEqual(['assets/', 'src/']);
     expect(container.querySelector('[data-testid=file-link]')!.textContent).toBe('a.ts');
@@ -179,5 +180,38 @@ describe('a folder and a file', () => {
     expect(links).toEqual(['src/kept.ts']);
     expect(container.textContent).toContain('11:00:00 +03:00');
     expect(container.querySelectorAll('[data-testid=changed-row]').length).toBe(2);
+  });
+});
+
+describe('the run page', () => {
+  test('names each step with its wall clock, its peak memory and its slowest names, read from the trace', async () => {
+    const run: FillRunView = {
+      runId: 'fill-1', startedAt: '2026-11-07T10:00:00.000Z', finishedAt: '2026-11-07T10:00:01.000Z', wallMs: 1000, spans: 42,
+      slowest: [{ name: 'db.transaction', count: 3, selfMs: 200 }, { name: 'process.git', count: 2, selfMs: 150 }],
+      steps: [
+        { step: 'repository-tree', wallMs: 400, peakRssBytes: 200 * 1024 * 1024, startRssBytes: 100 * 1024 * 1024, slowest: [{ name: 'db.INSERT', count: 10, selfMs: 120 }, { name: 'process.git', count: 1, selfMs: 80 }] },
+        { step: 'repository-history', wallMs: 500, peakRssBytes: 220 * 1024 * 1024, startRssBytes: 200 * 1024 * 1024, slowest: [{ name: 'fill.unit', count: 1, selfMs: 300 }] },
+      ],
+    };
+    answer('/api/k/run', { run });
+    const container = into(createElement(RunPage, { run: null, version: 0 }));
+    await until(() => container.querySelector('[data-testid=run-steps]') !== null, 'the steps');
+    const firstStep: FillStepView = run.steps[0]!;
+    expect(firstStep.step).toBe('repository-tree');
+    const steps = [...container.querySelectorAll('[data-testid=run-step]')];
+    expect(steps.map((step) => step.getAttribute('data-step'))).toEqual(['repository-tree', 'repository-history']);
+    const cells = (step: Element): string[] => [...step.querySelectorAll('td')].map((cell) => cell.textContent ?? '');
+    expect(cells(steps[0]!)[1]).toBe('400.0 ms');
+    expect(cells(steps[0]!)[2]).toBe('200.0 MB');
+    expect(cells(steps[0]!)[3]).toContain('db.INSERT');
+    expect(cells(steps[1]!)[1]).toBe('500.0 ms');
+    expect(container.textContent).toContain('1.00 s wall clock over 42 spans');
+  });
+
+  test('a store with no trace says what the page would need, and never draws empty numbers', async () => {
+    (globalThis as { fetch?: unknown }).fetch = async () => new Response(JSON.stringify({ message: 'the store holds no trace' }), { status: 404 });
+    const container = into(createElement(RunPage, { run: null, version: 0 }));
+    await until(() => container.querySelector('[data-testid=repository-refused]') !== null, 'the refusal');
+    expect(container.textContent).toContain('the store holds no trace');
   });
 });

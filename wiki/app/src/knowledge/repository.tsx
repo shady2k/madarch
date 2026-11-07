@@ -14,9 +14,9 @@ import { Badge } from '@/components/ui/badge.js';
 import { KLink } from './blocks.js';
 import { PageSkeleton } from './skeleton.js';
 import { useRead } from './live.js';
-import { getCommit, getFile, getFolder } from './api.js';
-import { addressOfCommit, addressOfFile, addressOfFolder } from './routes.js';
-import type { CommitPageModel, FilePageModel, FolderPageModel, PageFile, RepositoryFactsView, WikiStatus } from './types.js';
+import { getCommit, getFile, getFolder, getRun } from './api.js';
+import { addressOfCommit, addressOfFile, addressOfFolder, addressOfRun, K_RUN } from './routes.js';
+import type { CommitPageModel, FilePageModel, FillRunView, FolderPageModel, PageFile, RepositoryFactsView, WikiStatus } from './types.js';
 
 /** A number of bytes as a reader reads it. */
 export function bytesText(bytes: number): string {
@@ -125,7 +125,8 @@ export function RepositoryPage({ status, version }: { status: WikiStatus; versio
   const language = i18n.resolvedLanguage ?? 'en';
   const repository = status.repository as RepositoryFactsView;
   const { data, error } = useRead<{ folder: FolderPageModel }>('repository-root', version, (signal) => getFolder('', null, signal));
-  const finished = status.fill.finishedAt === undefined ? undefined : new Date(status.fill.finishedAt).toLocaleString(language, { dateStyle: 'medium', timeStyle: 'medium' });
+  const run = status.fill.run;
+  const finished = run === undefined ? undefined : new Date(run.finishedAt).toLocaleString(language, { dateStyle: 'medium', timeStyle: 'medium' });
   return (
     <section data-testid="repository-page" data-repository={repository.name}>
       <header className="mb-6">
@@ -139,8 +140,9 @@ export function RepositoryPage({ status, version }: { status: WikiStatus; versio
           {repository.steps.tree ? t('knowledge.repository.treeRan') : t('knowledge.repository.treeNotRun')}
           {' · '}
           {repository.steps.history ? t('knowledge.repository.historyRan') : t('knowledge.repository.historyNotRun')}
-          {finished === undefined ? '' : ` · ${t('knowledge.repository.filledAt', { when: finished, wall: status.fill.startedAt === undefined ? '—' : msText(new Date(status.fill.finishedAt ?? status.fill.startedAt).getTime() - new Date(status.fill.startedAt).getTime()) })}`}
+          {finished === undefined ? '' : ` · ${t('knowledge.repository.filledAt', { when: finished, wall: msText(run!.wallMs) })}`}
         </p>
+        <p className="mt-2 mb-0 text-small"><KLink href={K_RUN} testId="repository-run-link">{t('knowledge.repository.runPage')}</KLink></p>
       </header>
       <AsIsLine repository={repository.name} commit={repository.asIsCommit} />
       {repository.gaps.length > 0 && (
@@ -357,6 +359,69 @@ export function CommitPage({ hash, version }: { hash: string; version: number })
         </tbody>
       </table>
       </div>
+    </section>
+  );
+}
+
+/** The run page: the newest trace, step by step — its wall clock, its peak memory and its slowest names. */
+export function RunPage({ run: named, version }: { run: string | null; version: number }): React.ReactElement {
+  const { t, i18n } = useTranslation();
+  const language = i18n.resolvedLanguage ?? 'en';
+  const { data, error } = useRead<{ run: FillRunView }>(`run:${named ?? ''}`, version, (signal) => getRun(named, signal));
+  if (data === null && error === null) return <PageSkeleton testId="run-loading" rows />;
+  if (data === null) return <Refusal what={named ?? t('knowledge.run.title')} message={error ?? ''} />;
+  const run = data.run;
+  return (
+    <section data-testid="run-page" data-run={run.runId}>
+      <header className="mb-6">
+        <h1 className="break-all">{t('knowledge.run.title')}</h1>
+        <p className="mb-1 break-all text-small text-muted" data-testid="run-id"><code>{run.runId}</code></p>
+        <p className="mb-0 text-small text-muted" data-testid="run-totals">
+          {t('knowledge.run.totals', {
+            wall: msText(run.wallMs),
+            spans: run.spans,
+            from: new Date(run.startedAt).toLocaleString(language, { timeStyle: 'medium' }),
+            to: new Date(run.finishedAt).toLocaleString(language, { timeStyle: 'medium' }),
+          })}
+        </p>
+      </header>
+      <h2 className="mb-2 mt-0">{t('knowledge.run.steps')}</h2>
+      <div className="table-wrap mb-8">
+      <table className="w-full border-collapse text-small" data-testid="run-steps">
+        <thead>
+          <tr className="border-b border-line text-left text-muted">
+            <th className="py-1 font-normal">{t('knowledge.run.step')}</th>
+            <th className="py-1 text-right font-normal">{t('knowledge.run.wall')}</th>
+            <th className="py-1 text-right font-normal">{t('knowledge.run.memory')}</th>
+            <th className="py-1 font-normal">{t('knowledge.run.slowest')}</th>
+          </tr>
+        </thead>
+        <tbody>
+          {run.steps.map((step) => (
+            <tr key={step.step} className="border-b border-line align-top last:border-b-0" data-testid="run-step" data-step={step.step}>
+              <td className="py-1 pr-3"><code>{step.step}</code></td>
+              <td className="py-1 text-right whitespace-nowrap">{msText(step.wallMs)}</td>
+              <td className="py-1 text-right whitespace-nowrap">{mbText(step.peakRssBytes)}</td>
+              <td className="py-1">
+                <ol className="m-0 list-none p-0" data-testid="run-step-names">
+                  {step.slowest.map((name) => <li key={name.name}><code>{name.name}</code> <span className="text-muted">{msText(name.selfMs)} ×{name.count}</span></li>)}
+                </ol>
+              </td>
+            </tr>
+          ))}
+        </tbody>
+      </table>
+      </div>
+      <h2 className="mb-2 mt-0">{t('knowledge.run.names')}</h2>
+      <ol className="m-0 list-none p-0 text-small" data-testid="run-names">
+        {run.slowest.map((name) => (
+          <li key={name.name} className="border-b border-line py-1 last:border-b-0">
+            <code>{name.name}</code> <span className="text-muted">{msText(name.selfMs)} ×{name.count}</span>
+            <div className="mt-1 h-1 rounded-full bg-[var(--surface-active)]"><div className="h-1 rounded-full bg-ink" style={{ width: `${run.wallMs === 0 ? 0 : Math.min(100, Math.round((name.selfMs / run.wallMs) * 100))}%` }} /></div>
+          </li>
+        ))}
+      </ol>
+      <p className="mt-4 text-small text-muted" data-testid="run-note">{t('knowledge.run.note')}</p>
     </section>
   );
 }

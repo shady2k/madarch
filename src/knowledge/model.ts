@@ -400,6 +400,28 @@ export interface RepositoryFactsView {
   readonly steps: { readonly tree: boolean; readonly history: boolean };
 }
 
+/** One step of the newest run, as its trace states it (madarch-8bdc.2.5, item 4). */
+export interface FillStepView {
+  readonly step: string;
+  readonly wallMs: number;
+  readonly peakRssBytes: number;
+  readonly startRssBytes: number;
+  readonly slowest: readonly { readonly name: string; readonly count: number; readonly selfMs: number }[];
+}
+
+/** The newest run of the store's trace: its wall clock, its spans and its steps. */
+export interface FillRunView {
+  readonly runId: string;
+  /** When the run's first span started and its last ended, as ISO instants. */
+  readonly startedAt: string;
+  readonly finishedAt: string;
+  readonly wallMs: number;
+  readonly spans: number;
+  /** The span names that took the most time of their own, the slowest first. */
+  readonly slowest: readonly { readonly name: string; readonly count: number; readonly selfMs: number }[];
+  readonly steps: readonly FillStepView[];
+}
+
 /** What a running fill has done so far, read from its trace (`src/obs/progress.ts`). */
 export interface FillProgressView {
   readonly spans: number;
@@ -456,6 +478,8 @@ export interface FillState {
   progress?: FillProgressView;
   /** The counts the run published: the end state's numbers. */
   counts?: RepositoryCounts;
+  /** The newest run's trace, once the store holds one: its time and its steps (items 2 and 4). */
+  run?: FillRunView;
   /** Why the run failed, with the file, the line and the path it stands at. */
   error?: FillErrorView;
 }

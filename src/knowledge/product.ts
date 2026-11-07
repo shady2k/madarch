@@ -45,9 +45,10 @@ import { treeReadProducer } from '../extract/driver/index.js';
 import { TREE_EXTRACTORS, HISTORY_EXTRACTOR } from '../extract/driver/extractors.js';
 import { selectHistory, withHistoryLinks, type HistoryContext, type HistorySelection } from './temporal.js';
 import { markdownFilesBelow, readMarkdownEntities, type MarkdownEntity } from './markdown.js';
-import type { AgentOffer, Block, ChangedPage, DocumentListing, DocumentPage, DocumentRef, FillErrorView, FillState, Neighborhood, PageModel, PlannedMarkView, PlannedSectionView, RepositoryFactsView, WikiStatus, WriterState, WriterUnit } from './model.js';
+import type { AgentOffer, Block, ChangedPage, DocumentListing, DocumentPage, DocumentRef, FillErrorView, FillRunView, FillState, Neighborhood, PageModel, PlannedMarkView, PlannedSectionView, RepositoryFactsView, WikiStatus, WriterState, WriterUnit } from './model.js';
 import { commitPage, filePage, folderPage, repositoryOf, repositoryPage, type CommitPageModel, type FilePageModel, type FolderPageModel } from './repository-view.js';
 import { readFillProgressOf } from '../obs/progress.js';
+import { readTraceRun } from '../obs/trace-report.js';
 import { neighborhoodOf } from './diagrams.js';
 import { anchorLines, titleOfAnchor } from './anchors.js';
 import { adapterOf, installAdapter, makeUnitAgent, offers, queryAgentChoices, WRITER_AGENTS, WRITER_BOUNDS } from './agents.js';
@@ -323,7 +324,7 @@ export class KnowledgeProduct {
   /** The run id of the fill under way: the trace it writes is read by that id, never as "the newest file". */
   private fillRunId: string | undefined;
   /** What the last finished run's trace and the store's counts say: the end state's numbers. */
-  private fillExtras: { counts?: FillState['counts']; error?: FillErrorView } = {};
+  private fillExtras: { counts?: FillState['counts']; run?: FillRunView; error?: FillErrorView } = {};
   private stopping = false;
   /** A person asked for a pause: the worker finishes the page and the commit in progress and ends before the next one. */
   private pauseAsked = false;
@@ -2250,6 +2251,28 @@ export class KnowledgeProduct {
     };
   }
 
+  /** The newest run's trace as the run page states it, or null when the store holds no trace. */
+  private runViewOf(runId?: string): FillRunView | null {
+    try {
+      const run = readTraceRun({ store: this.storeFolder(), ...(runId === undefined ? {} : { runId }) });
+      return {
+        runId: run.runId,
+        startedAt: new Date(run.startedAtMs).toISOString(),
+        finishedAt: new Date(run.endedAtMs).toISOString(),
+        wallMs: run.report.wallMs,
+        spans: run.report.spanCount,
+        slowest: run.report.names.slice(0, 5).map((name) => ({ name: name.name, count: name.count, selfMs: name.selfMs })),
+        steps: run.steps.map((step) => ({
+          step: step.step, wallMs: step.wallMs, peakRssBytes: step.peakRssBytes, startRssBytes: step.startRssBytes,
+          slowest: step.slowest,
+        })),
+      };
+    } catch {
+      // A store whose fill never ran holds no trace: nothing is made up for it.
+      return null;
+    }
+  }
+
   /**
    * What a failed run's message names: the file and line the error was raised at, and the path
    * the run was about. The message is the engine's own (`<file>:<line>:<column>: <words>`), so
@@ -2322,7 +2345,10 @@ export class KnowledgeProduct {
     return await commitPage(owner, repository, hash);
   }
 
-
+  /** The newest run of the store's trace, or the named one. */
+  async runView(runId?: string): Promise<FillRunView | null> {
+    return this.runViewOf(runId);
+  }
 
   private async statusNow(): Promise<StatusRead> {
     const product = this.product();
@@ -2346,8 +2372,10 @@ export class KnowledgeProduct {
     // The end state's numbers: the repository the store holds and the run's trace, both read once here,
     // for the same key the body is made for.
     const repository = await this.repositoryView().catch(() => undefined);
+    const run = this.runViewOf();
     this.fillExtras = {
       ...(repository === undefined ? {} : { counts: repository.counts }),
+      ...(run === null ? {} : { run }),
       ...(this.fill.state === 'failed' && this.fill.message !== undefined ? { error: this.errorOf(this.fill.message) } : {}),
     };
     const body: WikiStatus = {
