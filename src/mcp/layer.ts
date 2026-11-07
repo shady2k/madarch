@@ -53,6 +53,7 @@ import { createOperationsLinksStage } from '../fill/stages/operations-links.js';
 import { createOperationsStage } from '../fill/stages/operations.js';
 import { createSemanticResolutionStage } from '../fill/stages/semantic-resolution.js';
 import { createStateMachinesStage } from '../fill/stages/state-machines.js';
+import { createFileFactsCache } from '../fill/stages/file-facts.js';
 import {
   staticGraphReaderOf, STATIC_FILE_BYTE_LIMIT,
   type StaticGraphEdge, type StaticGraphNode, type StaticGraphReader, type StaticStageContext, type StaticStageSource,
@@ -590,6 +591,7 @@ export class WorkingLayer {
       graph: NO_TRACKED_READS as unknown as StageContext['graph'],
       static: {
         repository: source,
+        fileFacts: createFileFactsCache(),
         byKey: (key, options) => reader.byKey(key, options),
         byGlobalName: (name, options) => reader.byGlobalName(name, options),
         byProperty: (kind, field, value, options) => reader.byProperty(kind, field, value, options),

@@ -20,7 +20,7 @@
  * facts write.
  */
 import { byCodePoint } from '../../model/order.js';
-import { STATIC_READ_ROW_LIMIT, type StaticStageContext } from './static-context.js';
+import { parsedFileOf, STATIC_READ_ROW_LIMIT, type StaticStageContext } from './static-context.js';
 
 /** Where a fact stands: the bytes and the 1-based lines every fact of the fill carries. */
 export interface FactSpan {
@@ -168,31 +168,26 @@ export interface CodeFactIndex {
 
 /** One code file's facts, as the observability reading asks them. */
 export async function readCodeFacts(stage: StaticStageContext, repository: string, path: string): Promise<CodeFactIndex> {
-  const [expressionRows, bindingRows, callRows, fieldRows, exportRows, callableRows] = await Promise.all([
-    pagesOfProperty(stage, 'code.expression', 'file', path),
-    pagesOfProperty(stage, 'code.binding', 'file', path),
-    pagesOfProperty(stage, 'code.call', 'file', path),
-    pagesOfProperty(stage, 'code.field', 'file', path),
-    pagesOfProperty(stage, 'code.export', 'file', path),
-    pagesOfProperty(stage, 'code.callable', 'file', path),
-  ]);
-  const mine = (row: Readonly<Record<string, unknown>>): boolean => row['repository'] === repository;
+  // One parse of the file's bytes, through the run's memory (madarch-8bdc.2.5): the facts
+  // this reading asks for used to be graph nodes written by the code-facts stage, and are
+  // now what the file's own bytes say. A second reader of the same file in the same run
+  // answers from the memory instead of parsing again.
+  const parsed = await parsedFileOf(stage, repository, path);
   const expressions = new Map<string, ExpressionNode>();
   const ordered: ExpressionNode[] = [];
   const duplicates = new Set<string>();
-  for (const row of expressionRows.filter(mine)) {
-    const held = row as unknown as ExpressionNode;
+  for (const held of parsed.facts.expressions as unknown as readonly ExpressionNode[]) {
     if (expressions.has(held.id) || duplicates.has(held.id)) { expressions.delete(held.id); duplicates.add(held.id); continue; }
     expressions.set(held.id, held);
     ordered.push(held);
   }
   const bindings = new Map<string, BindingNode>();
-  for (const row of bindingRows.filter(mine)) bindings.set(String(row['id']), row as unknown as BindingNode);
+  for (const row of parsed.facts.bindings as unknown as readonly BindingNode[]) bindings.set(String(row.id), row);
   const calls = new Map<string, CallNode>();
-  for (const row of callRows.filter(mine)) calls.set(String(row['expression']), row as unknown as CallNode);
-  const fields = fieldRows.filter(mine).map((row) => row as unknown as FieldNode).sort((left, right) => left.span.byteStart - right.span.byteStart || byCodePoint(left.name, right.name));
-  const exports = exportRows.filter(mine).map((row) => row as unknown as ExportNode);
-  const callables = callableRows.filter(mine).filter((row) => row['callable'] === true).map((row) => row as unknown as CallableNode).sort((left, right) => byCodePoint(left.key, right.key));
+  for (const row of parsed.facts.calls as unknown as readonly CallNode[]) calls.set(String(row.expression), row);
+  const fields = (parsed.facts.fields as unknown as readonly FieldNode[]).slice().sort((left, right) => left.span.byteStart - right.span.byteStart || byCodePoint(left.name, right.name));
+  const exports = parsed.facts.exports as unknown as readonly ExportNode[];
+  const callables = (parsed.callables as unknown as readonly CallableNode[]).filter((row) => row.callable === true).slice().sort((left, right) => byCodePoint(left.key, right.key));
   const imports = [...bindings.values()].filter((binding) => binding.kind === 'import');
 
   /** The expressions whose own place is the file's: the driver refuses a fact whose two places disagree. */

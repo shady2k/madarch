@@ -21,6 +21,7 @@
 import type { EdgeEntry, GraphStore, NodeVersionRow, PageOptions } from '../../graph/index.js';
 import type { FactSource, RepositoryForm } from '../facts.js';
 import type { SnapshotEntry, SnapshotReader, SnapshotSource } from '../snapshot.js';
+import { createFileFactsCache, type FileFactsCache, type ParsedFileFacts } from './file-facts.js';
 
 /** The most bytes one file's reading holds: 1 MiB, the cap a static unit reads under. */
 export const STATIC_FILE_BYTE_LIMIT = 1_048_576;
@@ -166,9 +167,52 @@ export interface StaticGraphReader {
   neighbourhood(nodeId: string, options: { readonly relations: readonly string[]; readonly direction: 'out' | 'in'; readonly limit?: number; readonly after?: string }): Promise<StaticGraphPage>;
 }
 
-/** What one static unit's context holds: its repository, its graph reads, and nothing wider. */
+/** What one static unit's context holds: its repository, its graph reads, the run's parse memory, and nothing wider. */
 export interface StaticStageContext extends StaticGraphReader {
   readonly repository: StaticStageSource;
+  /**
+   * The run's memory of parsed files (madarch-8bdc.2.5): one parse of a file's
+   * bytes per (repository, commit, path, blob), answered to every stage of the run
+   * that reads the file. It stands beside the graph reads because both are the
+   * unit's inputs: a file's bytes are read path-scoped, one file at a time.
+   */
+  readonly fileFacts: FileFactsCache;
+  /**
+   * The file this unit's own reading is about, where the unit names one (`file:<repository>:<path>`):
+   * a parse of this file is the unit's own work, and a parse of any other file is an input of the
+   * unit, recorded as such (madarch-8bdc.2.5). Absent for a unit that names no file.
+   */
+  readonly ownPath?: string;
+}
+
+/**
+ * One file's facts, parsed through the run's memory and the pinned source: the
+ * one call a stage makes when it needs what a file's bytes say. A path the pinned
+ * tree does not hold, or holds unread, is refused by name here rather than parsed
+ * as something it is not.
+ */
+export async function parsedFileOf(context: StaticStageContext, repository: string, path: string): Promise<ParsedFileFacts> {
+  if (repository !== context.repository.repository) {
+    throw new Error(`a static stage of ${JSON.stringify(context.repository.repository)} asked for ${JSON.stringify(path)} of ${JSON.stringify(repository)}: a unit reads the repository it was planned for (src/fill/stages/static-context.ts)`);
+  }
+  const entry = await context.repository.entry(path);
+  if (entry === undefined) throw new Error(`the pinned tree of ${JSON.stringify(repository)} holds no file at ${JSON.stringify(path)}, and a reading of it names a file the commit holds (src/fill/stages/static-context.ts)`);
+  const file = await context.repository.file(path);
+  if (file === undefined || file.content === undefined) {
+    throw new Error(`the file ${JSON.stringify(path)} of ${JSON.stringify(repository)} is ${file?.unread === 'too-large' ? 'above the static reading cap' : 'not readable bytes'}, so its facts cannot be parsed (src/fill/stages/static-context.ts)`);
+  }
+  // A file another unit published is an input of this one: the coverage the code-facts stage wrote
+  // for it names the blob its facts were read at, and that read is recorded as this unit's dependency,
+  // so a file whose bytes moved re-reads this unit (decision 0027's staleness; madarch-8bdc.2.5).
+  if (context.ownPath !== undefined && path !== context.ownPath) await context.byProperty('code.coverage', 'scope', path, { limit: 16 });
+  return await context.fileFacts.parse({
+    repository,
+    commit: context.repository.commit,
+    path,
+    blob: entry.id,
+    bytes: file.content,
+    exists: async (candidate: string) => (await context.repository.entry(candidate)) !== undefined,
+  });
 }
 
 /** One snapshot entry as the static context hands it out: the path, the form, the object and its size. */
@@ -341,7 +385,7 @@ export function staticGraphReaderOf(store: Pick<GraphStore, 'byKey' | 'byGlobalN
  * a read that would answer more fails rather than handing the stage a window
  * whose edge it cannot see.
  */
-export function staticStageContext(repository: StaticStageSource, graph: StaticGraphReader): StaticStageContext {
+export function staticStageContext(repository: StaticStageSource, graph: StaticGraphReader, fileFacts: FileFactsCache = createFileFactsCache(), ownPath?: string): StaticStageContext {
   const bounded = async <T>(rows: readonly T[], limit: number, what: string): Promise<readonly T[]> => {
     if (rows.length > limit) {
       throw new Error(`the bounded read of the static stage answered ${String(rows.length)} rows where the cap is ${String(limit)} (${what}): a static stage reads a bounded answer, never a repository-wide one (decision 0033; src/fill/stages/static-context.ts)`);
@@ -350,6 +394,8 @@ export function staticStageContext(repository: StaticStageSource, graph: StaticG
   };
   return {
     repository,
+    fileFacts,
+    ...(ownPath === undefined ? {} : { ownPath }),
     async byKey(key: string, options?: { readonly limit?: number }): Promise<readonly StaticGraphNode[]> {
       const limit = staticReadLimit(options?.limit);
       if (key.trim() === '') throw new Error('a graph key is a non-empty key: a node asked for by no key names nothing (src/fill/stages/static-context.ts)');

@@ -27,7 +27,7 @@ import { byCodePoint } from '../../model/order.js';
 import { evaluateLibraryModels } from '../../extract/library-models/evaluate.js';
 import type { LibraryDiagnostic, LibraryEffect } from '../../extract/library-models/model.js';
 import type { ExtractionGap } from '../../extract/records.js';
-import { STATIC_READ_ROW_LIMIT, type StaticGraphNode, type StaticStageContext } from './static-context.js';
+import { parsedFileOf, STATIC_READ_ROW_LIMIT, type StaticStageContext } from './static-context.js';
 
 /** The most files one unit's closure holds, the unit's own included. */
 const LIBRARY_CLOSURE_FILE_LIMIT = 32;
@@ -142,19 +142,11 @@ interface LibraryClosure {
   readonly symbols: readonly CodeSymbolFactShape[];
 }
 
-/** One page of a bounded read by property, followed to the cursor the graph answers. */
-async function pagesOf(context: StaticStageContext, kind: string, field: string, value: string): Promise<readonly StaticGraphNode[]> {
-  const rows: StaticGraphNode[] = [];
-  let after: string | undefined;
-  for (;;) {
-    const page = await context.byProperty(kind, field, value, { limit: STATIC_READ_ROW_LIMIT, ...(after === undefined ? {} : { after }) });
-    rows.push(...page.rows);
-    if (page.next === null) return rows;
-    after = page.next;
-  }
-}
-
-/** One file's own facts, read from the graph by the file they stand in. */
+/**
+ * One file's own facts, parsed from its bytes through the run's memory
+ * (madarch-8bdc.2.5): the closure this reading follows reads several files, and
+ * each one is parsed once per run however many units reach it.
+ */
 async function factsOf(context: StaticStageContext, repository: string, path: string): Promise<{
   readonly expressions: readonly ExpressionFact[];
   readonly bindings: readonly BindingFact[];
@@ -163,20 +155,19 @@ async function factsOf(context: StaticStageContext, repository: string, path: st
   /** The file's callables, so an effect is owned by the callable it stands in and not by the file. */
   readonly symbols: readonly CallableFact[];
 }> {
-  const [expressions, bindings, calls, exports, callables] = await Promise.all([
-    pagesOf(context, 'code.expression', 'file', path),
-    pagesOf(context, 'code.binding', 'file', path),
-    pagesOf(context, 'code.call', 'file', path),
-    pagesOf(context, 'code.export', 'file', path),
-    pagesOf(context, 'code.callable', 'file', path),
-  ]);
-  const held = (node: StaticGraphNode): boolean => node.properties['repository'] === repository;
+  const parsed = await parsedFileOf(context, repository, path);
+  // The parse names a fact's file in its span; the published rows also carried the path as a
+  // field of their own, and the evaluator below reads it there (`entry.path`, `held.path`).
+  const where = <T extends { readonly span: { readonly path: string } }>(fact: T): T & { readonly path: string } => ({ ...fact, path: fact.span.path });
   return {
-    expressions: expressions.filter(held).map((node) => node.properties as unknown as ExpressionFact),
-    bindings: bindings.filter(held).map((node) => node.properties as unknown as BindingFact),
-    calls: calls.filter(held).map((node) => node.properties as unknown as CallFact),
-    exports: exports.filter(held).map((node) => node.properties as unknown as ExportFact),
-    symbols: callables.filter(held).filter((node) => node.properties['callable'] === true).map((node) => node.properties as unknown as CallableFact),
+    expressions: parsed.facts.expressions.map(where) as unknown as readonly ExpressionFact[],
+    bindings: parsed.facts.bindings.map(where) as unknown as readonly BindingFact[],
+    calls: parsed.facts.calls.map(where) as unknown as readonly CallFact[],
+    exports: parsed.facts.exports.map(where) as unknown as readonly ExportFact[],
+    symbols: parsed.callables
+      .filter((callable) => callable.callable === true)
+      .map((callable) => ({ ...callable, symbolKey: callable.key }))
+      .sort((left, right) => byCodePoint(left.symbolKey, right.symbolKey)),
   };
 }
 

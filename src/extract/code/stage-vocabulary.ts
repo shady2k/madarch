@@ -13,9 +13,7 @@
 
 /** Every node kind the fill's static stages write. */
 export const STAGE_NODE_KINDS: readonly string[] = [
-  'code.binding',
-  'code.call',
-  // The data model's own records (madarch-8bdc.2.4): a database, its migrations, tables, columns and
+      // The data model's own records (madarch-8bdc.2.4): a database, its migrations, tables, columns and
   // indexes, and the per-file readings the aggregate stage assembles them from.
   'code.column',
   'code.database',
@@ -36,9 +34,7 @@ export const STAGE_NODE_KINDS: readonly string[] = [
   'code.document-section',
   'code.entry-point',
   'code.env-var',
-  'code.export',
-  'code.expression',
-  'code.field',
+      'code.field',
   'code.file',
   'code.link-target',
   // The names a file mentions, as the file pass writes them (decision 0033, item 14;

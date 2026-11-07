@@ -593,15 +593,11 @@ function totalsOf(table: readonly Row[]): Result['totals'] {
 }
 
 const BY_DESIGN: Readonly<Record<string, string>> = {
-  'code.binding': 'internal: a name a declaration binds',
-  'code.call': 'internal: a call site',
   'code.callable': 'internal: the callables a file declares',
   'code.comment': 'internal: a comment',
   'code.coverage': 'internal: the bytes a stage read',
   'code.deploy-unit': 'internal: a deployment unit of neither Dockerfile nor compose form',
   'code.directory': 'internal: a directory, a containment intermediate',
-  'code.export': 'internal: a name a file exports',
-  'code.expression': 'internal: one expression',
   'code.env-read': 'internal: one place a file reads one variable',
   'code.http-route': 'internal: one registration, from which the endpoint is made',
   'code.link-target': 'internal: what a document link names',

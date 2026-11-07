@@ -40,6 +40,7 @@ import { createStagesFill, type StagesFill } from '../src/product/fill-stages.js
 import { FileText } from '../src/fill/stages/operations-records.js';
 import { OPERATIONS_STAGE_ID, operationsFamilyOf, operationsRecordsOfFile } from '../src/fill/stages/operations.js';
 import type { StaticGraphNode, StaticStageContext } from '../src/fill/stages/static-context.js';
+import { createFileFactsCache } from '../src/fill/stages/file-facts.js';
 import { writeFirstFillWorkflow } from './fill-workflow-fixture.js';
 
 const GENERATOR = fileURLToPath(new URL('../examples/training-repository/generate.mjs', import.meta.url));
@@ -165,13 +166,12 @@ async function graphIdentityOfFact(id: string): Promise<string> {
     return mine.length === 1 ? String(propertiesOf(mine[0]!)['recordKey']) : id;
   }
   if (id.startsWith('code.')) return id;
+  // An export is the one fact the two readings spell by two ids: the driver names it by the
+  // declaration's place (`path:start:end:export:name`), the fill's parse by the name's place
+  // (`code.export:<repository>:<path>#<name>@<byte>`). No graph node carries either spelling
+  // any more (madarch-8bdc.2.5), so both sides are written here as the file and the name.
   const exported = /^(.+):(\d+):(\d+):export:(.+)$/.exec(id);
-  if (exported !== null) {
-    const path = exported[1]!;
-    const name = exported[4]!;
-    const rows = (await store!.byProperty('code.export', 'file', path, { limit: 512 })).rows.filter((row) => propertiesOf(row)['name'] === name);
-    return rows.length === 1 ? String(propertiesOf(rows[0]!)['recordKey']) : id;
-  }
+  if (exported !== null) return `export:${exported[1]}#${exported[4]}`;
   const fact = /^(.+):(\d+):(\d+):(import|binding|[A-Za-z_][A-Za-z0-9_]*)$/.exec(id);
   if (fact === null) return id;
   const path = fact[1]!;
@@ -181,6 +181,21 @@ async function graphIdentityOfFact(id: string): Promise<string> {
   return what === 'import' || what === 'binding'
     ? `code.binding:${REPOSITORY}:${path}@${start}:${end}:binding`
     : `code.expression:${REPOSITORY}:${path}@${start}:${end}:${what}`;
+}
+
+/** The fill's own spelling of an export fact, as the comparison names it: the file and the name. */
+function exportSpelling(value: unknown): unknown {
+  if (typeof value === 'string') {
+    const held = /^code\.export:[^:]+:(.+)#([^@]+)@\d+$/.exec(value);
+    return held === null ? value : `export:${held[1]}#${held[2]}`;
+  }
+  if (Array.isArray(value)) return value.map(exportSpelling);
+  if (value !== null && typeof value === 'object') {
+    const out: Record<string, unknown> = {};
+    for (const [key, item] of Object.entries(value as Record<string, unknown>)) out[key] = exportSpelling(item);
+    return out;
+  }
+  return value;
 }
 
 /** One value with every fact id in it named the graph's way. */
@@ -244,7 +259,7 @@ async function comparePublished(): Promise<Compared> {
   }
   const nodes = rows.map((row) => {
     const held = propertiesOf(row);
-    return { kind: row.kind, key: String(held['recordKey']), text: nodeText(row.kind, String(held['recordKey']), row.label, held['record'], spanText(held['span'] as SourceSpan | undefined)) };
+    return { kind: row.kind, key: String(held['recordKey']), text: nodeText(row.kind, String(held['recordKey']), row.label, exportSpelling(held['record']), spanText(held['span'] as SourceSpan | undefined)) };
   });
   const edges: ComparedRecord[] = [];
   for (const relation of [...new Set((driver?.edges ?? []).map((edge) => edge.kind))].sort()) {
@@ -257,7 +272,7 @@ async function comparePublished(): Promise<Compared> {
       if (held['factKind'] !== relation.slice('code.'.length)) continue;
       const from = recordKeyOf(entry.src);
       const to = recordKeyOf(entry.dst);
-      edges.push({ kind: relation, key: `${from} -> ${to}`, text: edgeText(relation, from, to, String(held['discriminator'] ?? ''), held['record'], spanText(held['span'] as SourceSpan | undefined)) });
+      edges.push({ kind: relation, key: `${from} -> ${to}`, text: edgeText(relation, from, to, String(held['discriminator'] ?? ''), exportSpelling(held['record']), spanText(held['span'] as SourceSpan | undefined)) });
     }
   }
   return {
@@ -490,6 +505,7 @@ function stubContext(files: Readonly<Record<string, string>>): StaticStageContex
   const empty = async (): Promise<readonly StaticGraphNode[]> => [];
   return {
     repository: source,
+    fileFacts: createFileFactsCache(),
     byKey: empty,
     byGlobalName: empty,
     byProperty: async () => ({ rows: [], next: null }),

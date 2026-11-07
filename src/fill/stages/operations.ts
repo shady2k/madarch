@@ -55,7 +55,7 @@ import {
   type StageGraphReader, type StagePlan, type StageUnit,
 } from '../stage.js';
 import { evidenceAtPlace, refuseRow, rowRecord, unknownKeys } from './draft.js';
-import { STATIC_READ_ROW_LIMIT, STATIC_FILE_BYTE_LIMIT, type StaticGraphNode, type StaticStageContext, type StaticStageSource } from './static-context.js';
+import { parsedFileOf, STATIC_READ_ROW_LIMIT, STATIC_FILE_BYTE_LIMIT, type StaticGraphNode, type StaticStageContext, type StaticStageSource } from './static-context.js';
 import { checkStaticGraphDraft, graphWritesOf } from './static-graph.js';
 import { fileFactIdOf } from './syntax-facts.js';
 import { fileUnitId, plannedUnit } from './syntax.js';
@@ -737,19 +737,14 @@ async function readFileText(stage: StaticStageContext, path: string): Promise<Fi
 
 /** The import specifiers one code file's own facts hold, each with the first line it stands on. */
 async function importSpecifiers(stage: StaticStageContext, path: string): Promise<readonly { readonly specifier: string; readonly line: number }[]> {
-  const rows: StaticGraphNode[] = [];
-  let after: string | undefined;
-  for (;;) {
-    const page = await stage.byProperty('code.binding', 'file', path, { limit: STATIC_READ_ROW_LIMIT, ...(after === undefined ? {} : { after }) });
-    rows.push(...page.rows);
-    if (page.next === null) break;
-    after = page.next;
-  }
+  // The file's own parse answers its imports (madarch-8bdc.2.5): the bindings an import
+  // declaration writes, and the line each stands on.
+  const rows = await factsOf(stage, 'code.binding', path);
   const found: { specifier: string; line: number }[] = [];
   for (const row of rows) {
-    if (row.properties['kind'] !== 'import') continue;
-    const specifier = row.properties['specifier'];
-    const span = row.properties['span'] as RecordSpan | undefined;
+    if (row['kind'] !== 'import') continue;
+    const specifier = row['specifier'];
+    const span = row['span'] as RecordSpan | undefined;
     if (typeof specifier !== 'string' || span === undefined) continue;
     found.push({ specifier, line: span.lineStart });
   }
@@ -824,16 +819,15 @@ async function listenAddress(stage: StaticStageContext, file: FileText): Promise
 }
 
 /** Every node of one kind the graph holds for one file, page by page: the file's own facts, bounded. */
-async function factsOf(stage: StaticStageContext, kind: string, path: string): Promise<readonly Readonly<Record<string, unknown>>[]> {
-  const rows: Readonly<Record<string, unknown>>[] = [];
-  let after: string | undefined;
-  for (;;) {
-    const page = await stage.byProperty(kind, 'file', path, { limit: STATIC_READ_ROW_LIMIT, ...(after === undefined ? {} : { after }) });
-    for (const row of page.rows) rows.push(row.properties);
-    if (page.next === null) return rows;
-    after = page.next;
-  }
+async function factsOf(stage: StaticStageContext, kind: 'code.expression' | 'code.binding' | 'code.call', path: string): Promise<readonly Readonly<Record<string, unknown>>[]> {
+  // The file's own parse (madarch-8bdc.2.5): the syntax facts this reading asks for are
+  // no longer graph nodes, and the parse answers them through the run's memory. The kind
+  // names the fact one reader asks for; a kind this file holds none of answers nothing.
+  const parsed = await parsedFileOf(stage, stage.repository.repository, path);
+  const rows = kind === 'code.expression' ? parsed.facts.expressions : kind === 'code.binding' ? parsed.facts.bindings : parsed.facts.calls;
+  return rows as unknown as readonly Readonly<Record<string, unknown>>[];
 }
+
 
 /** Whether the bytes are UTF-8 text: a fatal decode refuses what it cannot read. */
 function isUtf8(bytes: Uint8Array): boolean {

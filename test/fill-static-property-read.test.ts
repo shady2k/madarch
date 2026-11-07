@@ -34,10 +34,10 @@ beforeAll(async () => {
   // More nodes under one file than one page holds: the read is paged, never widened.
   const count = STATIC_READ_ROW_LIMIT * 2 + 7;
   const nodes = Array.from({ length: count }, (_, index) => ({
-    key: `code.expression:${REPOSITORY}:${FILE}@${String(index)}:${String(index + 1)}:identifier`,
-    kind: 'code.expression',
-    label: 'identifier',
-    properties: { recordKey: `code.expression:${REPOSITORY}:${FILE}@${String(index)}:${String(index + 1)}:identifier`, factKind: 'expression', repository: REPOSITORY, file: FILE, index },
+    key: `code.callable:${REPOSITORY}:${FILE}@${String(index)}:${String(index + 1)}:identifier`,
+    kind: 'code.callable',
+    label: 'callable',
+    properties: { recordKey: `code.callable:${REPOSITORY}:${FILE}@${String(index)}:${String(index + 1)}:identifier`, factKind: 'callable', repository: REPOSITORY, file: FILE, index },
   }));
   await store.publishUnit(staticUnitPublicationOf({
     unitId: `file:${REPOSITORY}:${FILE}`,
@@ -52,9 +52,9 @@ beforeAll(async () => {
     stageId: 'contracts',
     digest: 'e'.repeat(64),
     writes: [
-      { kind: 'node' as const, evidence: 'x', value: { key: `code.expression:${REPOSITORY}:src/consumer.ts@0:1:identifier`, kind: 'code.expression', label: 'consume', properties: { recordKey: `code.expression:${REPOSITORY}:src/consumer.ts@0:1:identifier`, factKind: 'expression', repository: REPOSITORY, file: 'src/consumer.ts' } } },
-      { kind: 'node' as const, evidence: 'x', value: { key: `code.expression:${REPOSITORY}:src/consumer.ts@10:11:identifier`, kind: 'code.expression', label: 'orders.events', properties: { recordKey: `code.expression:${REPOSITORY}:src/consumer.ts@10:11:identifier`, factKind: 'expression', repository: REPOSITORY, file: 'src/consumer.ts' } } },
-      { kind: 'edge' as const, evidence: 'x', value: { relation: 'code.references', from: { key: `code.expression:${REPOSITORY}:src/consumer.ts@0:1:identifier` }, to: { key: `code.expression:${REPOSITORY}:src/consumer.ts@10:11:identifier` }, properties: { factKind: 'consumes', repository: REPOSITORY, topic: 'orders.events' } } },
+      { kind: 'node' as const, evidence: 'x', value: { key: `code.callable:${REPOSITORY}:src/consumer.ts@0:1:identifier`, kind: 'code.callable', label: 'consume', properties: { recordKey: `code.callable:${REPOSITORY}:src/consumer.ts@0:1:identifier`, factKind: 'callable', repository: REPOSITORY, file: 'src/consumer.ts' } } },
+      { kind: 'node' as const, evidence: 'x', value: { key: `code.callable:${REPOSITORY}:src/consumer.ts@10:11:identifier`, kind: 'code.callable', label: 'orders.events', properties: { recordKey: `code.callable:${REPOSITORY}:src/consumer.ts@10:11:identifier`, factKind: 'callable', repository: REPOSITORY, file: 'src/consumer.ts' } } },
+      { kind: 'edge' as const, evidence: 'x', value: { relation: 'code.references', from: { key: `code.callable:${REPOSITORY}:src/consumer.ts@0:1:identifier` }, to: { key: `code.callable:${REPOSITORY}:src/consumer.ts@10:11:identifier` }, properties: { factKind: 'consumes', repository: REPOSITORY, topic: 'orders.events' } } },
     ],
   }));
 }, 900_000);
@@ -92,7 +92,7 @@ describe('the bounded read by property', () => {
     const seen: string[] = [];
     let after: string | undefined;
     for (;;) {
-      const text = staticGraphRead({ kind: 'property', value: FILE, nodeKind: 'code.expression', field: 'file', limit: STATIC_READ_ROW_LIMIT, ...(after === undefined ? {} : { after }) });
+      const text = staticGraphRead({ kind: 'property', value: FILE, nodeKind: 'code.callable', field: 'file', limit: STATIC_READ_ROW_LIMIT, ...(after === undefined ? {} : { after }) });
       const page = await reader.query(text) as readonly { readonly id: string }[];
       expect(page.length).toBeLessThanOrEqual(STATIC_READ_ROW_LIMIT);
       if (page.length === 0) break;
@@ -107,9 +107,9 @@ describe('the bounded read by property', () => {
     if (store === undefined) throw new Error('the store was not opened');
     const { staticGraphReaderOf } = await import('../src/fill/stages/static-context.js');
     const graph = staticGraphReaderOf(store);
-    await expect(graph.byProperty('code.expression', 'file', FILE, { limit: STATIC_READ_ROW_LIMIT + 1 })).rejects.toThrow(new RegExp(`a static read answers 1 to ${String(STATIC_READ_ROW_LIMIT)} rows`));
+    await expect(graph.byProperty('code.callable', 'file', FILE, { limit: STATIC_READ_ROW_LIMIT + 1 })).rejects.toThrow(new RegExp(`a static read answers 1 to ${String(STATIC_READ_ROW_LIMIT)} rows`));
     await expect(graph.byProperty('', 'file', FILE)).rejects.toThrow(/names the kind it reads/);
-    await expect(graph.byProperty('code.expression', '', FILE)).rejects.toThrow(/names the field it matches/);
-    await expect(graph.byProperty('code.expression', 'file', '')).rejects.toThrow(/names an empty value/);
+    await expect(graph.byProperty('code.callable', '', FILE)).rejects.toThrow(/names the field it matches/);
+    await expect(graph.byProperty('code.callable', 'file', '')).rejects.toThrow(/names an empty value/);
   }, 300_000);
 });

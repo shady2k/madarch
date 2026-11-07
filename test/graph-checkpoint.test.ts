@@ -37,8 +37,8 @@ describe('the WAL checkpoint', () => {
   test('a publication counts the versions it wrote, and a checkpoint is due at the bound and not before', async () => {
     if (store === undefined) throw new Error('the store was not opened');
     const writes = Array.from({ length: 7 }, (_, index) => {
-      const key = `code.expression:shop:src/c.ts@${String(index)}:${String(index + 1)}:identifier`;
-      return { kind: 'node' as const, evidence: 'e', value: { key, kind: 'code.expression', label: 'identifier', properties: { recordKey: key, file: 'src/c.ts' } } };
+      const key = `code.callable:shop:src/c.ts@${String(index)}:${String(index + 1)}:identifier`;
+      return { kind: 'node' as const, evidence: 'e', value: { key, kind: 'code.callable', label: 'callable', properties: { recordKey: key, file: 'src/c.ts' } } };
     });
     await store.publishUnit(staticUnitPublicationOf({ unitId: 'file:shop:src/c.ts', stageId: 'code-facts', digest: 'd'.repeat(64), writes }));
     // The publication counted its seven versions toward the next checkpoint, which is not due yet.

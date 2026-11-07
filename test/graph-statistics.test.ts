@@ -26,10 +26,10 @@ let store: GraphStore | undefined;
 /** One unit's publication: `nodes` nodes and the first `edges` of them joined from the first. */
 async function publish(target: GraphStore, nodes: number, edges: number, file = FILE): Promise<void> {
   const items = Array.from({ length: nodes }, (_, index) => ({
-    key: `code.expression:${REPOSITORY}:${file}@${String(index)}:${String(index + 1)}:identifier`,
-    kind: 'code.expression',
-    label: 'identifier',
-    properties: { recordKey: `code.expression:${REPOSITORY}:${file}@${String(index)}:${String(index + 1)}:identifier`, factKind: 'expression', repository: REPOSITORY, file },
+    key: `code.callable:${REPOSITORY}:${file}@${String(index)}:${String(index + 1)}:identifier`,
+    kind: 'code.callable',
+    label: 'callable',
+    properties: { recordKey: `code.callable:${REPOSITORY}:${file}@${String(index)}:${String(index + 1)}:identifier`, factKind: 'callable', repository: REPOSITORY, file },
   }));
   await target.publishUnit(staticUnitPublicationOf({
     unitId: `file:${REPOSITORY}:${file}`,
@@ -102,7 +102,7 @@ describe('the rule the fill keeps the statistics by', () => {
     if (store === undefined) throw new Error('the store was not opened');
     await publish(store, 3, 2);
     store.statistics.note(STATISTICS_ROWS);
-    const read = async () => await store!.byProperty('code.expression', 'file', FILE);
+    const read = async () => await store!.byProperty('code.callable', 'file', FILE);
     const before = await read();
     const membership = readMembership(before.rows);
     expect(before.rows.length).toBe(3);

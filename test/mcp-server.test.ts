@@ -188,6 +188,7 @@ describe('the working tree is preferred to the commit', () => {
   test('a symbol added without a commit is found at once, marked uncommitted, and named in the answer\'s source', async () => {
     put('src/store.ts', `${STORE_SOURCE}\n/** Drops one item by name. */\nexport function dropItem(name: string): void {\n  void name;\n}\n`);
     const { isError, answer } = await answerOf('get_symbol', { name: 'dropItem' });
+    if (isError) console.log('MCP ERROR', JSON.stringify(answer));
     expect(isError).toBe(false);
     const source = answer['source'] as Record<string, unknown>;
     expect(source['dirty']).toEqual([{ path: 'src/store.ts', status: 'modified' }]);

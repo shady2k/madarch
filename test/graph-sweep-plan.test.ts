@@ -73,10 +73,10 @@ async function scan(sql: string, params: readonly unknown[]): Promise<Scan> {
 /** A unit's nodes, and the edges between its first node and the others. */
 function unitWrites(unit: number): { readonly key: string; readonly kind: string; readonly label: string; readonly properties: Record<string, unknown> }[] {
   return Array.from({ length: ROWS_PER_UNIT }, (_, index) => ({
-    key: `code.expression:${REPOSITORY}:src/f${String(unit)}.ts@${String(index)}:${String(index + 1)}:identifier`,
-    kind: 'code.expression',
-    label: 'identifier',
-    properties: { recordKey: `code.expression:${REPOSITORY}:src/f${String(unit)}.ts@${String(index)}:${String(index + 1)}:identifier`, factKind: 'expression', repository: REPOSITORY, file: `src/f${String(unit)}.ts` },
+    key: `code.callable:${REPOSITORY}:src/f${String(unit)}.ts@${String(index)}:${String(index + 1)}:identifier`,
+    kind: 'code.callable',
+    label: 'callable',
+    properties: { recordKey: `code.callable:${REPOSITORY}:src/f${String(unit)}.ts@${String(index)}:${String(index + 1)}:identifier`, factKind: 'callable', repository: REPOSITORY, file: `src/f${String(unit)}.ts` },
   }));
 }
 

@@ -117,6 +117,7 @@ import type { QueueService, ClaimedJob } from './queue.js';
 import type { FillStageConfigurationRead } from './config.js';
 import type { FillStage, StagePlan } from './stage.js';
 import { STATIC_GRAPH_READ, staticGraphRead, staticStageContext, type StaticGraphNode, type StaticGraphReader, type StaticStageSource } from './stages/static-context.js';
+import { createFileFactsCache, type FileFactsCache } from './stages/file-facts.js';
 
 // ---------------------------------------------------------------------------------------------
 // The seams a caller passes
@@ -317,6 +318,13 @@ export interface FillOrchestrator {
    * removes it when the attempt ends.
    */
   readonly authority: Map<string, AbortController>;
+  /**
+   * The run's memory of parsed files (madarch-8bdc.2.5): one parse per file a static
+   * unit reads, shared by every stage and unit of this orchestrator's fills. Its bound
+   * is `FILE_FACTS_CACHE_LIMITS` (512 files, 64 MiB of source text); what it answered
+   * is read at the end of a fill (`fileFacts.stats`).
+   */
+  readonly fileFacts: FileFactsCache;
 }
 
 /** Builds the orchestrator, resolving every seam and the limits. */
@@ -349,7 +357,16 @@ export function createOrchestrator(options: OrchestratorOptions): FillOrchestrat
     sink: options.sink,
     log: options.log ?? (() => undefined),
     authority: new Map(),
+    fileFacts: createFileFactsCache(),
   };
+}
+
+/** The file a static unit's own reading is about, where its id names one (`file:<repository>:<path>`). */
+function ownPathOf(stageUnitId: string): string | undefined {
+  if (!stageUnitId.startsWith('file:')) return undefined;
+  const rest = stageUnitId.slice('file:'.length);
+  const at = rest.indexOf(':');
+  return at < 0 ? undefined : rest.slice(at + 1);
 }
 
 /** The key one attempt's authority is registered under. */
@@ -1609,7 +1626,7 @@ async function attemptUnit(
       ...(tools === undefined ? {} : { tools }),
       config,
       graph: attemptReader,
-      ...(staticSource === undefined || trackedStatic === undefined ? {} : { static: staticStageContext(staticSource, trackedStatic) }),
+      ...(staticSource === undefined || trackedStatic === undefined ? {} : { static: staticStageContext(staticSource, trackedStatic, orchestrator.fileFacts, ownPathOf(plan.stageUnitId)) }),
       draft: draftWriter,
       ...(sealedChildren.length === 0 ? {} : { sealedChildren }),
       // A stage reports its progress synchronously; the notes are kept in order and written as the run's

@@ -11,7 +11,7 @@
  * cost a file its facts.
  */
 import { afterAll, beforeAll, describe, expect, test } from 'bun:test';
-import { mkdtempSync, rmSync } from 'node:fs';
+import { existsSync, mkdtempSync, readFileSync, rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { createPGliteDatabaseOwner, type DatabaseOwner } from '../src/adapters/database-owner.js';
@@ -20,11 +20,13 @@ import { readRunPlans } from '../src/fill/orchestrator-store.js';
 import { createGraphStore, type GraphStore, type NodeVersionRow } from '../src/graph/index.js';
 import { createStagesFill, type StagesFill } from '../src/product/fill-stages.js';
 import { CODE_FACTS_STAGE_ID } from '../src/fill/stages/code-facts.js';
+import { parseFileFacts } from '../src/fill/stages/file-facts.js';
 import {
   ORDERS_MAIN, TOOLS_FILE, UNITS_REPOSITORY, WEB_FILE, expectedPortsOf, writeUnitsProduct,
 } from './fixtures/code-stages/service-units.js';
 
 let root = '';
+let writtenRoot = '';
 let owner: DatabaseOwner | undefined;
 let store: GraphStore | undefined;
 let fill: StagesFill | undefined;
@@ -33,6 +35,7 @@ let service: FillOrchestratorService | undefined;
 beforeAll(async () => {
   root = mkdtempSync(join(tmpdir(), 'madarch-listener-ports-'));
   const written = writeUnitsProduct(root);
+  writtenRoot = written.repository;
   owner = createPGliteDatabaseOwner({ btreeGist: true });
   fill = await createStagesFill({ product: written.product, database: owner });
   let at = 1_700_000_000_000;
@@ -98,9 +101,14 @@ describe('the per-file port fact', () => {
   test('reads a file whose code holds a new expression: a grammar field named constructor costs no facts', async () => {
     if (store === undefined) throw new Error('the graph store was not opened');
     const graph = store;
-    const expressions: NodeVersionRow[] = await graph.readAll(async (page) => await graph.byProperty('code.expression', 'file', TOOLS_FILE, page));
-    const mine = expressions.map((node) => propertiesOf(node)).filter((held) => held['repository'] === UNITS_REPOSITORY);
-    expect(mine.some((held) => held['syntaxKind'] === 'new_expression')).toBe(true);
+    // The parse answers the file's expressions, not the graph (madarch-8bdc.2.5): the walk is the
+    // one the stage's facts come from, and a grammar's `constructor` field name must not cost it.
+    const parsed = await parseFileFacts({
+      repository: UNITS_REPOSITORY, commit: '0'.repeat(40), path: TOOLS_FILE, blob: '0'.repeat(40),
+      bytes: readFileSync(join(writtenRoot, TOOLS_FILE)),
+      exists: async (candidate: string) => existsSync(join(writtenRoot, candidate)),
+    });
+    expect(parsed.facts.expressions.some((held) => held.syntaxKind === 'new_expression')).toBe(true);
     // The port stands beside the expression: the reading lost neither.
     expect((await publishedPorts()).get(TOOLS_FILE)!.map((node) => node['port'])).toEqual(['8090']);
     // The file's coverage names what was read: a parsed file is in its `read` list and complete.

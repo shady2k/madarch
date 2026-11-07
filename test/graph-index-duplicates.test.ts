@@ -41,10 +41,10 @@ beforeAll(async () => {
   owner = createPGliteDatabaseOwner({ btreeGist: true });
   store = createGraphStore(owner);
   await ensureGraphSchema(store);
-  key = `code.expression:${REPOSITORY}:${FILE}@7:8:identifier`;
+  key = `code.callable:${REPOSITORY}:${FILE}@7:8:identifier`;
   const writes = Array.from({ length: COUNT }, (_, index) => {
-    const recordKey = `code.expression:${REPOSITORY}:${FILE}@${String(index)}:${String(index + 1)}:identifier`;
-    return { kind: 'node' as const, evidence: `file:${REPOSITORY}:${FILE}`, value: { key: recordKey, kind: 'code.expression', label: 'identifier', properties: { recordKey, factKind: 'expression', repository: REPOSITORY, file: FILE } } };
+    const recordKey = `code.callable:${REPOSITORY}:${FILE}@${String(index)}:${String(index + 1)}:identifier`;
+    return { kind: 'node' as const, evidence: `file:${REPOSITORY}:${FILE}`, value: { key: recordKey, kind: 'code.callable', label: 'callable', properties: { recordKey, factKind: 'callable', repository: REPOSITORY, file: FILE } } };
   });
   await store.publishUnit(staticUnitPublicationOf({ unitId: `file:${REPOSITORY}:${FILE}`, stageId: 'code-facts', digest: 'd'.repeat(64), writes }));
   await store.refreshStatistics();

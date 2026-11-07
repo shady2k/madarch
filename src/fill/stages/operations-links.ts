@@ -34,7 +34,7 @@ import {
   type StageGraphReader, type StagePlan, type StageUnit,
 } from '../stage.js';
 import { evidenceAtPlace } from './draft.js';
-import { STATIC_READ_ROW_LIMIT, type StaticGraphNode, type StaticStageContext, type StaticStageSource } from './static-context.js';
+import { parsedFileOf, STATIC_READ_ROW_LIMIT, type StaticGraphNode, type StaticStageContext, type StaticStageSource } from './static-context.js';
 import { checkStaticGraphDraft, graphWritesOf } from './static-graph.js';
 import { fileFactIdOf } from './syntax-facts.js';
 import { fileUnitId, plannedUnit } from './syntax.js';
@@ -344,10 +344,12 @@ async function serviceWrites(stage: StaticStageContext, repository: string, path
     // driver's own two answers, and neither is a picture of the other.
     for (const held of readPaths) {
       if (!held.endsWith('.go')) continue;
-      for (const node of await pagesOf(stage, 'code.binding', 'file', held)) {
-        if (node.properties['kind'] !== 'import') continue;
-        const specifier = node.properties['specifier'];
-        if (typeof specifier === 'string' && GO_STDLIB_FRAMEWORKS.includes(specifier)) frameworks.add(specifier);
+      // The file's own parse answers the imports it writes (madarch-8bdc.2.5): a binding is no
+      // longer a graph node, and the question is the file's, not another file's.
+      const parsed = await parsedFileOf(stage, repository, held);
+      for (const binding of parsed.facts.bindings) {
+        if (binding.kind !== 'import') continue;
+        if (binding.specifier !== undefined && GO_STDLIB_FRAMEWORKS.includes(binding.specifier)) frameworks.add(binding.specifier);
       }
     }
     const manifest = readGoMod(text);

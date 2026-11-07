@@ -11,7 +11,7 @@
  */
 import { describe, expect, test } from 'bun:test';
 import { readSyntaxTree } from '../src/fill/stages/syntax-extract.js';
-import { collectFileFacts } from '../src/fill/stages/code-facts.js';
+import { collectFileFacts } from '../src/fill/stages/file-facts.js';
 
 /** One file's facts, walked from its bytes by the same reader the stage runs. */
 async function factsOf(path: string, text: string): Promise<ReturnType<typeof collectFileFacts>> {

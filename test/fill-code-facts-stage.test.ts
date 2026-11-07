@@ -9,7 +9,7 @@
  * it makes, read back from the graph by their own properties.
  */
 import { afterAll, beforeAll, describe, expect, test } from 'bun:test';
-import { mkdtempSync, rmSync } from 'node:fs';
+import { existsSync, mkdtempSync, readFileSync, rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { createPGliteDatabaseOwner, type DatabaseOwner } from '../src/adapters/database-owner.js';
@@ -18,6 +18,7 @@ import { readRunPlans } from '../src/fill/orchestrator-store.js';
 import { createGraphStore, type GraphStore, type NodeVersionRow } from '../src/graph/index.js';
 import { createStagesFill, type StagesFill } from '../src/product/fill-stages.js';
 import { CODE_FACTS_STAGE_ID } from '../src/fill/stages/code-facts.js';
+import { parseFileFacts } from '../src/fill/stages/file-facts.js';
 import { APP_FILE, CONFIG_FILE, GO_FILE, LOGGER_FILE, TS_FILE, writeProduct } from './fixtures/code-stages/repository.js';
 
 /** One product open for a run: its wiring, its service, and the graph store over the process's one owner. */
@@ -30,11 +31,13 @@ interface Open {
 }
 
 let root = '';
+let repositoryFolder = '';
 let opened: Open | undefined;
 
 beforeAll(async () => {
   root = mkdtempSync(join(tmpdir(), 'madarch-code-facts-'));
-  const { product } = writeProduct(root);
+  const { product, repository } = writeProduct(root);
+  repositoryFolder = repository;
   const owner = createPGliteDatabaseOwner({ btreeGist: true });
   const fill = await createStagesFill({ product, database: owner });
   let at = 1_700_000_000_000;
@@ -85,7 +88,7 @@ async function fileNodes(o: Open, kind: string, repository: string, file: string
 }
 
 describe('the code-facts stage', () => {
-  test('publishes one file\'s expressions, bindings and calls, with the values its bytes write', async () => {
+  test('publishes the file\'s callables and unit, and keeps the parse out of the graph', async () => {
     if (opened === undefined) throw new Error('the product was not opened');
     const o = opened;
     const first = await run(o, 'run-code-facts-1');
@@ -93,21 +96,25 @@ describe('the code-facts stage', () => {
     if (!first.ok) return;
     expect({ state: first.state, settled: first.settled, failed: (first.units ?? []).filter((unit) => unit.state === 'failed').map((unit) => unit.unitId) })
       .toEqual({ state: 'succeeded', settled: true, failed: [] });
-    const expressions = await fileNodes(o, 'code.expression', 'shop', CONFIG_FILE);
-    expect(expressions.length).toBeGreaterThan(20);
-    const literal = expressions.filter((held) => (held['literal'] as Record<string, unknown> | undefined)?.['value'] === '8080');
+    // The parse is not a graph fact any more (madarch-8bdc.2.5): no producer wrote one expression,
+    // binding, call or export, and the file's own bytes answer them instead.
+    for (const kind of ['code.expression', 'code.binding', 'code.call', 'code.export']) {
+      expect({ kind, nodes: await fileNodes(o, kind, 'shop', CONFIG_FILE) }).toEqual({ kind, nodes: [] });
+    }
+    const parsed = await parseFixture(repositoryFolder, CONFIG_FILE);
+    expect(parsed.facts.expressions.length).toBeGreaterThan(20);
+    const literal = parsed.facts.expressions.filter((held) => held.literal?.value === 8080 || held.literal?.value === '8080');
     expect(literal.length).toBe(1);
-    expect(literal[0]!['syntaxKind']).toBe('string');
-    const bindings = await fileNodes(o, 'code.binding', 'shop', CONFIG_FILE);
-    const port = bindings.filter((held) => held['name'] === 'port');
+    expect(literal[0]!.syntaxKind).toBe('string');
+    const port = parsed.facts.bindings.filter((held) => held.name === 'port');
     expect(port.length).toBe(1);
-    expect(port[0]!['globalName']).toBe(`shop:${CONFIG_FILE}#port`);
-    const initializer = expressions.find((held) => held['recordKey'] === port[0]!['initializer']);
-    expect(initializer?.['syntaxKind']).toBe('call_expression');
-    const calls = await fileNodes(o, 'code.call', 'shop', CONFIG_FILE);
-    expect(calls.length).toBeGreaterThan(0);
-    expect(calls.every((held) => stillUnknown(held))).toBe(false);
-    // Every source file of the fixture was read: three units, one coverage each.
+    const initializer = parsed.facts.expressions.find((held) => held.id === port[0]!.initializer);
+    expect(initializer?.syntaxKind).toBe('call_expression');
+    expect(parsed.facts.calls.length).toBeGreaterThan(0);
+    // What stays published is what a reader asks the graph for: the callables a file declares.
+    const callables = await fileNodes(o, 'code.callable', 'shop', CONFIG_FILE);
+    expect(callables.length).toBeGreaterThan(0);
+    expect(callables.every((held) => typeof held['symbolKey'] === 'string')).toBe(true);
     const coverageNodes: NodeVersionRow[] = await o.store.readAll(async (page) => await o.store.byProperty('code.coverage', 'scope', CONFIG_FILE, page));
     const coverages = coverageNodes.map((node) => propertiesOf(node)).filter((held) => held['repository'] === 'shop'
       && (held['provenance'] as Record<string, unknown> | undefined)?.['source'] !== undefined
@@ -119,8 +126,8 @@ describe('the code-facts stage', () => {
 
   test('one syntax node has one id, and every reference a fact carries names a fact of the same file', async () => {
     if (opened === undefined) throw new Error('the product was not opened');
-    const o = opened;
-    const expressions = await fileNodes(o, 'code.expression', 'shop', CONFIG_FILE);
+    const parsed = await parseFixture(repositoryFolder, CONFIG_FILE);
+    const expressions = parsed.facts.expressions as unknown as readonly Record<string, unknown>[];
     const ids = new Set(expressions.map((held) => String(held['id'])));
     // The walk reaches one syntax node by several paths — its parent's children, a grammar's field,
     // a member's object — and the tree hands out a new object per path: an id memoized on the object
@@ -155,8 +162,8 @@ describe('the code-facts stage', () => {
     const again = await readRunPlans(o.owner, 'run-code-facts-2');
     expect(again.filter((row) => row.stageId === CODE_FACTS_STAGE_ID).map((row) => row.stageUnitId)).toEqual([]);
     // The facts stand as the first run published them: a second run wrote none.
-    const expressions = await fileNodes(o, 'code.expression', 'shop', CONFIG_FILE);
-    expect(expressions.length).toBeGreaterThan(20);
+    const callables = await fileNodes(o, 'code.callable', 'shop', CONFIG_FILE);
+    expect(callables.length).toBeGreaterThan(0);
   }, 900_000);
 });
 
@@ -165,7 +172,7 @@ describe('a source file a string escape with U+0000 in it', () => {
     const escapeRoot = mkdtempSync(join(tmpdir(), 'madarch-code-facts-nul-'));
     const owner = createPGliteDatabaseOwner({ btreeGist: true });
     try {
-      const { product } = writeProduct(escapeRoot, {
+      const { product, repository } = writeProduct(escapeRoot, {
         'services/orders/src/escape.ts': 'export const separator = "left\\0right";\n',
         'services/orders/src/literal.ts': 'export const separator = "left\u0000right";\n',
         'services/orders/src/template.ts': 'export const separator = `left\u0000right`;\n',
@@ -177,11 +184,12 @@ describe('a source file a string escape with U+0000 in it', () => {
         expect(result.ok).toBe(true);
         if (!result.ok) return;
         expect(result.state).toBe('succeeded');
-        const store = createGraphStore(owner);
+        // The parse answers the literal, and the text a fact holds is the escape a reader sees
+        // (madarch-8bdc.2.5: the facts are answered from the bytes, and the store never sees them).
         const held: Record<string, unknown>[] = [];
         for (const file of ['services/orders/src/escape.ts', 'services/orders/src/literal.ts', 'services/orders/src/template.ts']) {
-          const nodes: NodeVersionRow[] = await store.readAll(async (page) => await store.byProperty('code.expression', 'file', file, page));
-          held.push(...nodes.map((node) => propertiesOf(node)).filter((properties) => properties['repository'] === 'shop'));
+          const parsed = await parseFixture(repository, file);
+          for (const expression of parsed.facts.expressions) held.push(expression as unknown as Record<string, unknown>);
         }
         const escaped = held.filter((properties) => String((properties['literal'] as Record<string, unknown> | undefined)?.['value'] ?? '').includes('\\u0000'));
         expect(escaped.length).toBeGreaterThanOrEqual(2);
@@ -236,6 +244,18 @@ describe('two callables of one name in two scopes', () => {
     }
   }, 900_000);
 });
+
+/** One fixture file's facts, parsed from its bytes as a stage parses them (madarch-8bdc.2.5). */
+async function parseFixture(repository: string, path: string): Promise<Awaited<ReturnType<typeof parseFileFacts>>> {
+  return await parseFileFacts({
+    repository: 'shop',
+    commit: '0'.repeat(40),
+    path,
+    blob: '0'.repeat(40),
+    bytes: readFileSync(join(repository, path)),
+    exists: async (candidate: string) => existsSync(join(repository, candidate)),
+  });
+}
 
 /** Every id one expression's fact names as another expression of its file. */
 function referencedIds(held: Record<string, unknown>): readonly string[] {
