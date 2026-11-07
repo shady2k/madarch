@@ -264,7 +264,16 @@ describe('the blocks', () => {
     const container = into(createElement(BlockView, { block, resolutions: {} }));
     await until(() => container.querySelector('[data-testid=source-code]') !== null, 'the code');
     expect([...container.querySelectorAll('.source-number')].map((cell) => cell.textContent)).toEqual(['3', '4', '5']);
-    expect(container.querySelector('.tok-keyword')!.textContent).toBe('export');
+    // The plain scanner draws the lines at once and Shiki's colours replace them when they arrive; the
+    // test reads the line's text and its token once the highlighter has answered, so it does not depend
+    // on which of the two renderers drew the line at the moment it looked (measured: the tok- class is
+    // gone by the time the coloured renderer draws, and a loaded suite saw it replaced first).
+    const code = container.querySelector('[data-testid=source-code]')!;
+    await until(() => code.getAttribute('data-colored') === 'true', 'the highlighter');
+    const first = container.querySelector('[data-line="3"] .source-text')!;
+    // The coloured renderer keeps the line's own line break in its last token.
+    expect(first.textContent!.trimEnd()).toBe('export function charge() {');
+    expect([...first.querySelectorAll('.tok-keyword, .shiki-token')].map((token) => token.textContent)).toContain('export');
     expect(container.querySelector('[data-testid=code-place]')!.closest('a')!.getAttribute('href')).toBe(place.href);
     expect(container.querySelector('[data-testid=source-cut]')!.textContent).toContain('Open the file');
   });
