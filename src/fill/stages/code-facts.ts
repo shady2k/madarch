@@ -1258,7 +1258,29 @@ function factWrites(input: {
     });
     writes.push({ kind: 'edge', evidence: input.evidence, value: { relation: DECLARES_RELATION, from: { key: input.fileKey }, to: { key: portKey }, properties: { factKind: 'declares', repository: input.repository } } });
   }
-  return writes;
+  // No fact a store holds may carry U+0000 or a lone surrogate: PostgreSQL's text and jsonb cannot, and a
+  // source file may hold the byte itself. Each string a write carries is kept as the escape a reader sees.
+  return writes.map((write): StageDraftWrite => {
+    if (write.kind === 'node') {
+      return { ...write, value: { ...write.value, label: storeText(write.value.label), properties: storeDeep(write.value.properties) as Record<string, unknown> } };
+    }
+    if (write.kind === 'edge' && write.value.properties !== undefined) {
+      return { ...write, value: { ...write.value, properties: storeDeep(write.value.properties) as Record<string, unknown> } };
+    }
+    return write;
+  });
+}
+
+/** A value whose strings are storage-safe: U+0000 and lone surrogates as the escapes a reader sees. */
+function storeDeep(value: unknown): unknown {
+  if (typeof value === 'string') return storeText(value);
+  if (Array.isArray(value)) return value.map(storeDeep);
+  if (value !== null && typeof value === 'object') {
+    const out: Record<string, unknown> = {};
+    for (const [key, inner] of Object.entries(value)) out[key] = storeDeep(inner);
+    return out;
+  }
+  return value;
 }
 
 /** The key of one file's service-unit node: the vocabulary's kind, the repository and the file. */

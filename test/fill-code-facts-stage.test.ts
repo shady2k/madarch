@@ -138,7 +138,10 @@ describe('a source file a string escape with U+0000 in it', () => {
     const escapeRoot = mkdtempSync(join(tmpdir(), 'madarch-code-facts-nul-'));
     const owner = createPGliteDatabaseOwner({ btreeGist: true });
     try {
-      const { product } = writeProduct(escapeRoot, { 'services/orders/src/escape.ts': 'export const separator = "left\\0right";\n' });
+      const { product } = writeProduct(escapeRoot, {
+        'services/orders/src/escape.ts': 'export const separator = "left\\0right";\n',
+        'services/orders/src/literal.ts': 'export const separator = "left\u0000right";\n',
+      });
       const fill = await createStagesFill({ product, database: owner });
       const service = createFillOrchestratorService({ home: join(escapeRoot, 'products'), owner, registry: fill.registry, wiring: () => fill.wiring, maxPasses: 100_000 });
       try {
@@ -147,10 +150,13 @@ describe('a source file a string escape with U+0000 in it', () => {
         if (!result.ok) return;
         expect(result.state).toBe('succeeded');
         const store = createGraphStore(owner);
-        const nodes: NodeVersionRow[] = await store.readAll(async (page) => await store.byProperty('code.expression', 'file', 'services/orders/src/escape.ts', page));
-        const held = nodes.map((node) => propertiesOf(node)).filter((properties) => properties['repository'] === 'shop');
-        const literal = held.find((properties) => (properties['literal'] as Record<string, unknown> | undefined)?.['value'] !== undefined);
-        expect(String((literal?.['literal'] as Record<string, unknown>)['value'])).toContain('\\u0000');
+        const held: Record<string, unknown>[] = [];
+        for (const file of ['services/orders/src/escape.ts', 'services/orders/src/literal.ts']) {
+          const nodes: NodeVersionRow[] = await store.readAll(async (page) => await store.byProperty('code.expression', 'file', file, page));
+          held.push(...nodes.map((node) => propertiesOf(node)).filter((properties) => properties['repository'] === 'shop'));
+        }
+        const escaped = held.filter((properties) => String((properties['literal'] as Record<string, unknown> | undefined)?.['value'] ?? '').includes('\\u0000'));
+        expect(escaped.length).toBeGreaterThanOrEqual(2);
         // The stored text holds the six characters a reader sees, never the byte PostgreSQL refuses.
         const holdsNul = (value: unknown): boolean => typeof value === 'string'
           ? value.includes('\u0000')
