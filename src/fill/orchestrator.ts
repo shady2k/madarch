@@ -1712,6 +1712,7 @@ async function publishAttempt(
   let revalidateMs = 0;
   let revalidateReads = 0;
   let applyMs = 0;
+  let publicationReader: UnitGraphReader | undefined;
   const transactionAt = performance.now();
   const emitTiming = async (): Promise<void> => {
     const total = performance.now() - transactionAt;
@@ -1730,8 +1731,10 @@ async function publishAttempt(
         revalidate: async (read: TrackedRead, executor) => {
           const readAt = performance.now();
           revalidateReads += 1;
-          const reader = await orchestrator.graph(unitRef(unit, request.plan), executor);
-          const answered = await answerNow(reader, recordedReadText(read.query));
+          // One reader for the whole publication: the wiring is the same transaction and the same unit,
+          // and building it per read cost a publication tens of reads' worth of setup (measured 224 ms a read).
+          publicationReader ??= await orchestrator.graph(unitRef(unit, request.plan), executor);
+          const answered = await answerNow(publicationReader, recordedReadText(read.query));
           revalidateMs += performance.now() - readAt;
           // A read the graph cannot answer now — the file a span cited is gone, or shorter than the span — refuses
           // the publication like any other read that moved: the draft stands on bytes nothing holds any more.
