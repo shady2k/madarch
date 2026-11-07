@@ -9,12 +9,6 @@
  * and a compose file that sets both. The expectations are those bytes.
  */
 import { afterAll, beforeAll, describe as bunDescribe, expect, test as bunTest } from 'bun:test';
-import { skippedBecauseOutOfWorkflow } from './fill-skip-list.js';
-
-// The cases read a stage out of this step's list: they come back with that stage's step (test/fill-skip-list.ts).
-const skippedSuite = skippedBecauseOutOfWorkflow(import.meta.path);
-const describe = bunDescribe.skipIf(skippedSuite !== undefined);
-const test = bunTest.skipIf(skippedSuite !== undefined);
 import { execFileSync } from 'node:child_process';
 import { mkdirSync, mkdtempSync, rmSync, symlinkSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
@@ -24,6 +18,12 @@ import { createFillOrchestratorService, type FillOrchestratorService, type FillR
 import { createGraphStore, type GraphStore, type NodeVersionRow } from '../src/graph/index.js';
 import { createStagesFill, type StagesFill } from '../src/product/fill-stages.js';
 import { writeFirstFillWorkflow } from './fill-workflow-fixture.js';
+import { skippedBecauseOutOfWorkflow } from './fill-skip-list.js';
+
+// The cases read a stage out of this step's list: they come back with that stage's step (test/fill-skip-list.ts).
+const skippedSuite = skippedBecauseOutOfWorkflow(import.meta.path);
+const describe = bunDescribe.skipIf(skippedSuite !== undefined);
+const test = bunTest.skipIf(skippedSuite !== undefined);
 
 const CONFIG_FILE = 'services/shop/src/config.ts';
 const LOGGER_FILE = 'services/shop/src/logging/logger.ts';

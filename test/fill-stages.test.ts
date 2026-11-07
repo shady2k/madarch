@@ -13,12 +13,6 @@
  * dependants, and the files the commit did not touch are not planned.
  */
 import { afterAll, beforeAll, describe as bunDescribe, expect, test as bunTest } from 'bun:test';
-import { skippedBecauseOutOfWorkflow } from './fill-skip-list.js';
-
-// The cases read a stage out of this step's list: they come back with that stage's step (test/fill-skip-list.ts).
-const skippedSuite = skippedBecauseOutOfWorkflow(import.meta.path);
-const describe = bunDescribe.skipIf(skippedSuite !== undefined);
-const test = bunTest.skipIf(skippedSuite !== undefined);
 import { execFileSync, spawnSync } from 'node:child_process';
 import { mkdirSync, mkdtempSync, rmSync, symlinkSync, unlinkSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
@@ -32,6 +26,12 @@ import { FACT_ID_PATTERN, SYMBOL_KINDS } from '../src/fill/facts.js';
 import { createGraphStore } from '../src/graph/index.js';
 import { createStagesFill, declaredStagesDigest, type StagesFill } from '../src/product/fill-stages.js';
 import { writeFirstFillWorkflow } from './fill-workflow-fixture.js';
+import { skippedBecauseOutOfWorkflow } from './fill-skip-list.js';
+
+// The cases read a stage out of this step's list: they come back with that stage's step (test/fill-skip-list.ts).
+const skippedSuite = skippedBecauseOutOfWorkflow(import.meta.path);
+const describe = bunDescribe.skipIf(skippedSuite !== undefined);
+const test = bunTest.skipIf(skippedSuite !== undefined);
 
 /** One product open for a run: the database it fills, its host, and the wiring over the product. */
 interface OpenProduct {

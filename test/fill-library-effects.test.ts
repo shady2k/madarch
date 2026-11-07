@@ -10,12 +10,6 @@
  * repository writes (`logging/logger.ts` and its callers).
  */
 import { afterAll, beforeAll, describe as bunDescribe, expect, test as bunTest } from 'bun:test';
-import { skippedBecauseOutOfWorkflow } from './fill-skip-list.js';
-
-// The cases read a stage out of this step's list: they come back with that stage's step (test/fill-skip-list.ts).
-const skippedSuite = skippedBecauseOutOfWorkflow(import.meta.path);
-const describe = bunDescribe.skipIf(skippedSuite !== undefined);
-const test = bunTest.skipIf(skippedSuite !== undefined);
 import { mkdtempSync, rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
@@ -27,6 +21,12 @@ import { createGitSnapshotSource } from '../src/fill/snapshot.js';
 import { staticGraphReaderOf, staticStageContext, staticStageSourceOf } from '../src/fill/stages/static-context.js';
 import { libraryEffectsOf } from '../src/fill/stages/library-effects.js';
 import { APP_FILE, LOGGER_FILE, writeProduct } from './fixtures/code-stages/repository.js';
+import { skippedBecauseOutOfWorkflow } from './fill-skip-list.js';
+
+// The cases read a stage out of this step's list: they come back with that stage's step (test/fill-skip-list.ts).
+const skippedSuite = skippedBecauseOutOfWorkflow(import.meta.path);
+const describe = bunDescribe.skipIf(skippedSuite !== undefined);
+const test = bunTest.skipIf(skippedSuite !== undefined);
 
 let root = '';
 let owner: DatabaseOwner | undefined;

@@ -12,12 +12,6 @@
  * bytes did not move.
  */
 import { afterAll, beforeAll, describe as bunDescribe, expect, test as bunTest } from 'bun:test';
-import { skippedBecauseOutOfWorkflow } from './fill-skip-list.js';
-
-// The cases read a stage out of this step's list: they come back with that stage's step (test/fill-skip-list.ts).
-const skippedSuite = skippedBecauseOutOfWorkflow(import.meta.path);
-const describe = bunDescribe.skipIf(skippedSuite !== undefined);
-const test = bunTest.skipIf(skippedSuite !== undefined);
 import { mkdtempSync, rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
@@ -34,6 +28,12 @@ import {
   BOTH_FILE, NAMELESS_FILE, NOMODULE_FILE, UNITS_REPOSITORY, VENDORED_FILE, commitChange,
   expectedUnitByFile, writeUnitsProduct,
 } from './fixtures/code-stages/service-units.js';
+import { skippedBecauseOutOfWorkflow } from './fill-skip-list.js';
+
+// The cases read a stage out of this step's list: they come back with that stage's step (test/fill-skip-list.ts).
+const skippedSuite = skippedBecauseOutOfWorkflow(import.meta.path);
+const describe = bunDescribe.skipIf(skippedSuite !== undefined);
+const test = bunTest.skipIf(skippedSuite !== undefined);
 
 let root = '';
 let repository = '';

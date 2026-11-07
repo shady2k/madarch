@@ -12,12 +12,6 @@
  * unit of this stage, so nothing of it is written twice.
  */
 import { afterAll, beforeAll, describe as bunDescribe, expect, test as bunTest } from 'bun:test';
-import { skippedBecauseOutOfWorkflow } from './fill-skip-list.js';
-
-// The cases read a stage out of this step's list: they come back with that stage's step (test/fill-skip-list.ts).
-const skippedSuite = skippedBecauseOutOfWorkflow(import.meta.path);
-const describe = bunDescribe.skipIf(skippedSuite !== undefined);
-const test = bunTest.skipIf(skippedSuite !== undefined);
 import { execFileSync } from 'node:child_process';
 import { mkdtempSync, rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
@@ -30,6 +24,12 @@ import { createStagesFill, type StagesFill } from '../src/product/fill-stages.js
 import { STATE_MACHINES_STAGE_ID } from '../src/fill/stages/state-machines.js';
 import { fileFactIdOf } from '../src/fill/stages/syntax-facts.js';
 import { APP_FILE, CONFIG_FILE, expectedMachinesOf, GO_FILE, LOGGER_FILE, TS_FILE, writeProduct } from './fixtures/code-stages/repository.js';
+import { skippedBecauseOutOfWorkflow } from './fill-skip-list.js';
+
+// The cases read a stage out of this step's list: they come back with that stage's step (test/fill-skip-list.ts).
+const skippedSuite = skippedBecauseOutOfWorkflow(import.meta.path);
+const describe = bunDescribe.skipIf(skippedSuite !== undefined);
+const test = bunTest.skipIf(skippedSuite !== undefined);
 
 /** One product open for a run: its wiring, its service, and the graph store over the process's one owner. */
 interface Open {

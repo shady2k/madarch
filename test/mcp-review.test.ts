@@ -13,16 +13,16 @@ import { existsSync, mkdirSync, mkdtempSync, rmSync, writeFileSync } from 'node:
 import { tmpdir } from 'node:os';
 import path from 'node:path';
 import { afterAll, beforeAll, beforeEach, describe as bunDescribe, expect, test as bunTest } from 'bun:test';
+import { readJournal, summarize } from '../src/mcp/journal.js';
+import { mcpStoreFolder } from '../src/mcp/graph.js';
+import { RepositorySession } from '../src/mcp/session.js';
+import { answerRepositoryMcpMessage, type PendingRepository } from '../src/mcp/server.js';
 import { skippedBecauseOutOfWorkflow } from './fill-skip-list.js';
 
 // The cases read a stage out of this step's list: they come back with that stage's step (test/fill-skip-list.ts).
 const skippedSuite = skippedBecauseOutOfWorkflow(import.meta.path);
 const describe = bunDescribe.skipIf(skippedSuite !== undefined);
 const test = bunTest.skipIf(skippedSuite !== undefined);
-import { readJournal, summarize } from '../src/mcp/journal.js';
-import { mcpStoreFolder } from '../src/mcp/graph.js';
-import { RepositorySession } from '../src/mcp/session.js';
-import { answerRepositoryMcpMessage, type PendingRepository } from '../src/mcp/server.js';
 
 const PROJECT = path.resolve(import.meta.dir, '..');
 const REPOSITORY = mkdtempSync(path.join(tmpdir(), 'madarch-mcp-review-repo-'));

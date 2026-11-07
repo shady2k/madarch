@@ -12,12 +12,6 @@
  * plans nothing.
  */
 import { describe as bunDescribe, expect, test as bunTest } from 'bun:test';
-import { skippedBecauseOutOfWorkflow } from './fill-skip-list.js';
-
-// The cases read a stage out of this step's list: they come back with that stage's step (test/fill-skip-list.ts).
-const skippedSuite = skippedBecauseOutOfWorkflow(import.meta.path);
-const describe = bunDescribe.skipIf(skippedSuite !== undefined);
-const test = bunTest.skipIf(skippedSuite !== undefined);
 import { execFileSync } from 'node:child_process';
 import { mkdir, mkdtemp, rm, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
@@ -36,6 +30,12 @@ import { publishedGapsRead, publishedImportsRead } from '../src/fill/stages/synt
 import { publishedTreeRead, publishedTreeRows } from '../src/fill/stages/tree-rows.js';
 import { coverageRowsOf, edgesOfRelation, gapRowsOf, importRowsOf, itemsOf, itemsOfKind, nodesOfKind, treeRowsOf } from './fill-static-drafts.js';
 import { fileFactIdOf } from '../src/fill/stages/syntax-facts.js';
+import { skippedBecauseOutOfWorkflow } from './fill-skip-list.js';
+
+// The cases read a stage out of this step's list: they come back with that stage's step (test/fill-skip-list.ts).
+const skippedSuite = skippedBecauseOutOfWorkflow(import.meta.path);
+const describe = bunDescribe.skipIf(skippedSuite !== undefined);
+const test = bunTest.skipIf(skippedSuite !== undefined);
 
 interface Fixture {
   readonly root: string;

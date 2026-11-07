@@ -15,12 +15,6 @@
  * answer, and no test touches a real database.
  */
 import { describe as bunDescribe, expect, test as bunTest } from 'bun:test';
-import { skippedBecauseOutOfWorkflow } from './fill-skip-list.js';
-
-// The cases read a stage out of this step's list: they come back with that stage's step (test/fill-skip-list.ts).
-const skippedSuite = skippedBecauseOutOfWorkflow(import.meta.path);
-const describe = bunDescribe.skipIf(skippedSuite !== undefined);
-const test = bunTest.skipIf(skippedSuite !== undefined);
 import { execFileSync } from 'node:child_process';
 import { mkdir, mkdtemp, rm, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
@@ -35,6 +29,12 @@ import {
   createModulesStage, edgeRows, fileRows, MODULES_STAGE_ID, modulesUnitId, packageRows, publishedFilesRead, publishedPackagesRead,
   publishedSymbolsRead, resolvedEdgesRead, symbolRows, testExercises, type PublishedFileRow, type PublishedSymbolRow, type PublishedTestRow, type ResolvedEdgeRow,
 } from '../src/fill/stages/modules.js';
+import { skippedBecauseOutOfWorkflow } from './fill-skip-list.js';
+
+// The cases read a stage out of this step's list: they come back with that stage's step (test/fill-skip-list.ts).
+const skippedSuite = skippedBecauseOutOfWorkflow(import.meta.path);
+const describe = bunDescribe.skipIf(skippedSuite !== undefined);
+const test = bunTest.skipIf(skippedSuite !== undefined);
 
 // ---- the test's own repository, context and graph ---------------------------
 

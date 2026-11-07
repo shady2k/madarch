@@ -16,17 +16,17 @@ import { tmpdir } from 'node:os';
 import path from 'node:path';
 import { createInterface } from 'node:readline';
 import { afterAll, beforeAll, describe as bunDescribe, expect, test as bunTest } from 'bun:test';
+import { renderQuestion } from '../src/loop/entities.js';
+import { readJournal, summaryLines, summarize } from '../src/mcp/journal.js';
+import { RepositorySession } from '../src/mcp/session.js';
+import { answerRepositoryMcpMessage } from '../src/mcp/server.js';
+import { REPO_TOOL_NAMES } from '../src/mcp/tools.js';
 import { skippedBecauseOutOfWorkflow } from './fill-skip-list.js';
 
 // The cases read a stage out of this step's list: they come back with that stage's step (test/fill-skip-list.ts).
 const skippedSuite = skippedBecauseOutOfWorkflow(import.meta.path);
 const describe = bunDescribe.skipIf(skippedSuite !== undefined);
 const test = bunTest.skipIf(skippedSuite !== undefined);
-import { renderQuestion } from '../src/loop/entities.js';
-import { readJournal, summaryLines, summarize } from '../src/mcp/journal.js';
-import { RepositorySession } from '../src/mcp/session.js';
-import { answerRepositoryMcpMessage } from '../src/mcp/server.js';
-import { REPO_TOOL_NAMES } from '../src/mcp/tools.js';
 
 const PROJECT = path.resolve(import.meta.dir, '..');
 const REPOSITORY = mkdtempSync(path.join(tmpdir(), 'madarch-mcp-repo-'));

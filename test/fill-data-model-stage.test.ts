@@ -10,12 +10,6 @@
  * checkout, and every expectation is the bytes the fixture writes.
  */
 import { afterAll, beforeAll, describe as bunDescribe, expect, test as bunTest } from 'bun:test';
-import { skippedBecauseOutOfWorkflow } from './fill-skip-list.js';
-
-// The cases read a stage out of this step's list: they come back with that stage's step (test/fill-skip-list.ts).
-const skippedSuite = skippedBecauseOutOfWorkflow(import.meta.path);
-const describe = bunDescribe.skipIf(skippedSuite !== undefined);
-const test = bunTest.skipIf(skippedSuite !== undefined);
 import { mkdtempSync, rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
@@ -25,6 +19,12 @@ import { createGraphStore, type EdgeEntry, type GraphStore, type PageOptions } f
 import { createStagesFill, type StagesFill } from '../src/product/fill-stages.js';
 import { DATA_MODEL_AGGREGATE_STAGE_ID, DATA_MODEL_STAGE_ID } from '../src/fill/stages/data-model.js';
 import { FIRST_MIGRATION, MANIFEST, REPOSITORY, SEED, SECOND_MIGRATION, STORE, UNIT, writeProduct } from './fixtures/data-model/repository.js';
+import { skippedBecauseOutOfWorkflow } from './fill-skip-list.js';
+
+// The cases read a stage out of this step's list: they come back with that stage's step (test/fill-skip-list.ts).
+const skippedSuite = skippedBecauseOutOfWorkflow(import.meta.path);
+const describe = bunDescribe.skipIf(skippedSuite !== undefined);
+const test = bunTest.skipIf(skippedSuite !== undefined);
 
 const PRODUCERS = [`fill.${DATA_MODEL_STAGE_ID}`, `fill.${DATA_MODEL_AGGREGATE_STAGE_ID}`];
 
