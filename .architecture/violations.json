@@ -2247,11 +2247,6 @@
   {
     "rule": "no-unreachable-code",
     "file": "src/graph/versions.ts",
-    "symbol": "kindId"
-  },
-  {
-    "rule": "no-unreachable-code",
-    "file": "src/graph/versions.ts",
     "symbol": "loadEdgeVersion"
   },
   {
