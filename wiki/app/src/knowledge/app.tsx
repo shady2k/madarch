@@ -442,7 +442,17 @@ export function FillMenu({ status, refresh }: { status: WikiStatus; refresh: () 
   }
   else if (status.filled) {
     const when = fill.finishedAt === undefined ? null : new Date(fill.finishedAt).toLocaleDateString(language, { day: 'numeric', month: 'short', timeZone: 'UTC' });
-    label = when === null ? t('knowledge.fillDoneNoDate', { count: pages }) : t('knowledge.fillDone', { date: when, count: pages });
+    // Until an agent has written a page, the badge names what the fill did read — the repository's
+    // files and commits, from the same store the pages read — rather than "0 pages", which reads as
+    // if the fill found nothing (madarch-8bdc.2.5, item 3 of the view's rework).
+    const counts = status.repository?.counts;
+    if (pages > 0 || counts === undefined) {
+      label = when === null ? t('knowledge.fillDoneNoDate', { count: pages }) : t('knowledge.fillDone', { date: when, count: pages });
+    } else {
+      label = when === null
+        ? t('knowledge.repository.fillRead', { files: counts.files, commits: counts.commits })
+        : t('knowledge.repository.fillReadAt', { date: when, files: counts.files, commits: counts.commits });
+    }
     if (fill.rebuilt === 'extractors-changed') label = `${t('knowledge.fillRebuiltExtractors')}. ${label}`;
   } else return null;
   const busy = fill.state === 'running' || writer.state === 'running' || writer.state === 'waiting' || starting;

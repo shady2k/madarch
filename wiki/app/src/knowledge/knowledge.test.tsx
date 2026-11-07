@@ -569,6 +569,20 @@ describe('after the run', () => {
     expect(bar.querySelector('[data-testid=fill-chip]')!.getAttribute('aria-label')).toBe('Filled Oct 23, 5 pages');
   });
 
+  test('a filled store no agent has written a page in names the files and commits the fill read', async () => {
+    stubFetch([]);
+    const read = status({
+      kinds: [{ kind: 'domain', source: 'markdown', count: 0, single: false, origins: [] }],
+      writer: { state: 'idle', agent: null, units: [] },
+      repository: { name: 'training', url: 'file:///training', defaultBranch: 'main', asIsCommit: 'a'.repeat(40), counts: { files: 114, commits: 72, folders: 55 }, gaps: [], steps: { tree: true, history: true } },
+    });
+    const bar = into(createElement(FillMenu, { status: read, refresh: () => undefined }));
+    await until(() => bar.querySelector('[data-testid=fill-chip]') !== null, 'the status');
+    // "0 pages" would read as if the fill found nothing: the badge says what it did read, and where it is from.
+    expect(bar.querySelector('[data-testid=fill-chip]')!.textContent).toBe('Filled Oct 23 · Files: 114 · Commits: 72');
+    expect(bar.querySelector('[data-testid=fill-chip]')!.textContent).not.toContain('pages');
+  });
+
   test('a failed run stays on the page until the reader dismisses it', async () => {
     stubFetch([]);
     const failed = status({ writer: { state: 'failed', agent: { id: 'codex', label: 'Codex' }, units: [], message: 'x', finishedAt: '2026-10-23T12:00:00.000Z' } });
