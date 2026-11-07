@@ -663,11 +663,13 @@ async function fileDecision(
       sink: async (event) => {
         if (event.kind === 'unit-published') {
           notifyPages();
-          // The publication committed before this event was emitted, so the planner's statistics are refreshed
-          // here, outside every transaction (`statistics.ts`: due after 50 000 versions written, or once for a
-          // store whose version tables were never analyzed). A fill whose stages land facts only writes no
-          // version, and this call then only asks whether a refresh is due.
-          await graph.refreshStatistics();
+          // The publication committed before this event was emitted, so the store's maintenance runs here,
+          // outside every transaction: the planner's statistics (`statistics.ts`: due after 50 000 versions
+          // written, or once for a store whose version tables were never analyzed) and the WAL checkpoint
+          // (`checkpoint.ts`: due after 20 000 versions, because PGlite's single-user backend runs no
+          // checkpointer and `pg_wal` would otherwise grow until the disk is full). A fill whose stages land
+          // facts only writes no version, and this call then only asks whether either is due.
+          await graph.maintain();
         }
         await options.sink?.(event);
       },

@@ -27,6 +27,7 @@ import {
 } from './reads.js';
 import { registerCodeSchema, registerVocabulary } from './register.js';
 import { createGraphSchema } from './schema.js';
+import { createGraphCheckpoints, type CheckpointRun, type GraphCheckpoints } from './checkpoint.js';
 import { createGraphStatistics, type GraphStatistics, type StatisticsRefresh } from './statistics.js';
 import { instantMicros, microsInstant } from './time.js';
 import {
@@ -62,8 +63,15 @@ export class GraphStore {
    */
   readonly statistics: GraphStatistics;
 
+  /**
+   * The WAL checkpoint the same seam runs (`checkpoint.ts`): PGlite's single-user backend has no
+   * checkpointer, so without it `pg_wal` grows with the graph until the disk is full.
+   */
+  readonly checkpoints: GraphCheckpoints;
+
   constructor(private readonly owner: DatabaseOwner, private readonly options: GraphStoreOptions = {}) {
     this.statistics = createGraphStatistics(owner);
+    this.checkpoints = createGraphCheckpoints(owner);
   }
 
   private reading(): bigint {
@@ -198,9 +206,22 @@ export class GraphStore {
   private async published<T extends PublishResult | PublishUnitResult>(transaction: OuterTransaction | undefined, work: (ctx: WriteContext) => Promise<T>): Promise<T> {
     const result = await this.write(transaction, work);
     const versions: PublishResult = 'publication' in result ? result.publication : result;
-    this.statistics.note(versions.nodeVersionsOpened + versions.edgeVersionsOpened);
-    if (transaction === undefined) await this.statistics.refresh();
+    const written = versions.nodeVersionsOpened + versions.edgeVersionsOpened;
+    this.statistics.note(written);
+    this.checkpoints.note(written);
+    if (transaction === undefined) await this.maintain();
     return result;
+  }
+
+  /**
+   * The store's maintenance after a publication committed: the planner's statistics when the rows
+   * written make them stale (`statistics.ts`) and the WAL checkpoint when they make it due
+   * (`checkpoint.ts`). A caller that published inside its own transaction calls this after it commits.
+   */
+  async maintain(): Promise<{ statistics: StatisticsRefresh | null; checkpoint: CheckpointRun | null }> {
+    const statistics = await this.statistics.refresh();
+    const checkpoint = await this.checkpoints.checkpoint();
+    return { statistics, checkpoint };
   }
 
   /**
