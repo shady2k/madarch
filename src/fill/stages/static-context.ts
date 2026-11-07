@@ -25,8 +25,8 @@ import type { SnapshotEntry, SnapshotReader, SnapshotSource } from '../snapshot.
 /** The most bytes one file's reading holds: 1 MiB, the cap a static unit reads under. */
 export const STATIC_FILE_BYTE_LIMIT = 1_048_576;
 
-/** The most rows one bounded graph read answers. */
-export const STATIC_READ_ROW_LIMIT = 256;
+/** The most rows one bounded graph read answers: one page a static stage holds at once. */
+export const STATIC_READ_ROW_LIMIT = 1_024;
 
 /** The most files one folder-scoped listing answers: a group a static unit reads together, never a repository. */
 const STATIC_FOLDER_FILE_LIMIT = 4096;
