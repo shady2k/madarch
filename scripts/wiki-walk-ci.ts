@@ -19,6 +19,7 @@ import { execFileSync } from 'node:child_process';
 import { existsSync, mkdirSync, rmSync, writeFileSync } from 'node:fs';
 import { join, resolve } from 'node:path';
 import { startServer } from '../src/server/http.js';
+import { STARTER_WORKFLOWS } from '../src/knowledge/starter-workflows.js';
 import { generateTrainingRepository, makeProduct, writeSamplePages } from '../test/knowledge-fixture.js';
 import { FINDING_CLASSES, compareToBaseline, formatBaseline, formatReport, parseBaseline, walkWiki } from './wiki-walk.js';
 
@@ -60,9 +61,14 @@ if (!execFileSync('git', ['remote'], { cwd: repository, encoding: 'utf8' }).incl
 const home = join(work, 'home');
 mkdirSync(home, { recursive: true });
 const shop = makeProduct(home, PRODUCT, repository);
-// The two pages an agent writes, so the walk reads a product a person does,
-// with product-authored bodies and a domain page among the generated ones.
-writeSamplePages(shop);
+// The two pages an agent writes, so the walk reads a product a person does, with
+// product-authored bodies and a domain page among the generated ones — when the
+// product's first fill runs the stage that publishes the symbols such a page names.
+// This step's fill publishes the tree and the history records, and a page whose rows
+// name entities the graph does not hold would only be walked as raw ids; the pages
+// come back with the stage whose step publishes what they resolve against.
+const firstFill = STARTER_WORKFLOWS.find((workflow) => workflow.name === 'first-fill');
+if (firstFill !== undefined && firstFill.stages.includes('syntax')) writeSamplePages(shop);
 // The API answers without the app's built files; the server only needs a
 // folder it can call the app's home.
 const app = join(work, 'app');
