@@ -72,6 +72,7 @@ const gitLinks = lsTreeLines.length - gitFiles;
 const sizes = git(['ls-tree', '-r', '-l', commit]).split('\n').filter((line) => line !== '').map((line) => Number(line.split(/\s+/)[3]));
 const gitBytes = sizes.reduce((sum, size) => sum + (Number.isFinite(size) ? size : 0), 0);
 const gitCommits = Number(git(['rev-list', '--count', commit]).trim());
+const gitDirectories = git(['ls-tree', '-r', '-d', commit]).split('\n').filter((line) => line !== '').length;
 const repositoryFacts = await graph.repositoryFacts(owner, 'madarch');
 const files = await graph.listFiles(owner, { repository: 'madarch', limit: 200_000 });
 const sumFiles = files.rows.reduce((sum, row) => sum + row.bytes, 0);
@@ -108,6 +109,7 @@ const answer = {
     gitlinks: { graph: tree.gitlinks.length, git: gitLinks, equal: tree.gitlinks.length === gitLinks },
     bytes: { graph: sumFiles, git: gitBytes, equal: sumFiles === gitBytes },
     commits: { graph: repositoryFacts?.commitCount ?? 0, git: gitCommits, equal: (repositoryFacts?.commitCount ?? 0) === gitCommits },
+    directories: { graph: repositoryFacts?.directoryCount ?? 0, git: gitDirectories, equal: (repositoryFacts?.directoryCount ?? 0) === gitDirectories },
     gaps: repositoryFacts?.gaps ?? [],
     dates,
     // The two instants written the same way before they are compared: one UTC text, one ISO with

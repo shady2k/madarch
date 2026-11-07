@@ -43,6 +43,7 @@ export const RECORD_TABLES = [
   'author',
   'blob',
   'commit_fact',
+  'directory',
   'edge',
   'file',
   'gap',
@@ -56,7 +57,7 @@ export const RECORD_TABLES = [
 ] as const;
 
 /** The kinds this step writes, in code point order: the engine's own vocabulary under `code.`. */
-export const RECORD_NODE_KINDS = ['author', 'blob', 'commit', 'file', 'gitlink', 'repository'] as const;
+export const RECORD_NODE_KINDS = ['author', 'blob', 'commit', 'directory', 'file', 'gitlink', 'repository'] as const;
 export const RECORD_EDGE_KINDS = ['as-is', 'authored', 'contains', 'parent', 'touched'] as const;
 
 const SCHEMA: readonly string[] = [
@@ -111,6 +112,10 @@ const SCHEMA: readonly string[] = [
     mode text NOT NULL CHECK (mode IN ('100644', '100755', '120000')),
     blob_id bigint NOT NULL REFERENCES blob (id),
     language_id bigint NOT NULL REFERENCES language (id)
+  )`,
+  `CREATE TABLE IF NOT EXISTS directory (
+    node_id bigint PRIMARY KEY REFERENCES node (id),
+    path_id bigint NOT NULL REFERENCES path (id)
   )`,
   `CREATE TABLE IF NOT EXISTS gitlink (
     node_id bigint PRIMARY KEY REFERENCES node (id),
@@ -330,17 +335,14 @@ export async function publishTree(owner: DatabaseOwner, input: TreePublish): Pro
     const kinds = await kindIds(tx);
     const repositoryId = await repositoryScope(tx, input.repository.name);
     let counts: RecordCounts = { inserted: 0, updated: 0, deleted: 0, unchanged: 0 };
-    // The commit vertex and its as-is edge: the tree pass names the commit the tree stands at, and
-    // the history pass fills the commit's own row.
     const commitNode = await nodeOfCommit(tx, kinds, repositoryId, input.commit);
     const asIs = kinds.get('as-is')!;
     const edgeMade = await tx.query('INSERT INTO edge (from_id, to_id, kind_id, position) SELECT $1::bigint, $2::bigint, $3::bigint, 0 WHERE NOT EXISTS (SELECT 1 FROM edge WHERE from_id = $1::bigint AND to_id = $2::bigint AND kind_id = $3::bigint AND position = 0) RETURNING from_id', [repositoryId, commitNode, asIs]);
     if (edgeMade.rows.length > 0) counts = { ...counts, inserted: counts.inserted + 1 }; else counts = { ...counts, unchanged: counts.unchanged + 1 };
-    // A repository is as-is at one commit: the edge to the commit it stood at before is removed.
     const moved = await tx.query('DELETE FROM edge WHERE from_id = $1::bigint AND kind_id = $2::bigint AND to_id <> $3::bigint RETURNING from_id', [repositoryId, asIs, commitNode]);
     if (moved.rows.length > 0) counts = { ...counts, deleted: counts.deleted + moved.rows.length };
     counts = sum(counts, await repositoryFactRow(tx, repositoryId, input.repository));
-    const contains = kinds.get('contains')!;
+
     const paths = await pathIds(tx, input.files.map((file) => file.path));
     const languageIds = new Map<string, string>();
     for (const file of input.files) {
@@ -356,19 +358,20 @@ export async function publishTree(owner: DatabaseOwner, input: TreePublish): Pro
        WHERE n.repository_id = $1::bigint AND k.name = 'file'`, [repositoryId]);
     for (const row of found.rows) held.set(row.key, { nodeId: row.node_id, mode: row.mode, blob: row.hash, language: row.name, candidates: row.candidates, bytes: Number(row.bytes), form: row.form, lines: row.lines === null ? null : Number(row.lines) });
     const seen = new Set(input.files.map((file) => file.path));
+    const fileNodes = new Map<string, string>();
     for (const file of [...input.files].sort((left, right) => (left.path < right.path ? -1 : left.path > right.path ? 1 : 0))) {
       const known = held.get(file.path);
-      if (known !== undefined && sameFile(known, file)) { counts = { ...counts, unchanged: counts.unchanged + 1 }; continue; }
+      if (known !== undefined && sameFile(known, file)) { counts = { ...counts, unchanged: counts.unchanged + 1 }; fileNodes.set(file.path, known.nodeId); continue; }
       const blob = await blobId(tx, file);
       const language = languageIds.get(`${file.language}\u0000${file.candidates.join('\u0000')}`)!;
       if (known === undefined) {
         const made = await tx.query<{ id: string }>('INSERT INTO node (kind_id, repository_id, key) VALUES ($1::bigint, $2::bigint, $3) RETURNING id::text AS id', [kinds.get('file')!, repositoryId, file.path]);
-        const node = made.rows[0]!.id;
-        await tx.query('INSERT INTO file (node_id, path_id, mode, blob_id, language_id) VALUES ($1::bigint, $2::bigint, $3, $4::bigint, $5::bigint)', [node, paths.get(file.path)!, file.mode, blob, language]);
-        await tx.query('INSERT INTO edge (from_id, to_id, kind_id, position) VALUES ($1::bigint, $2::bigint, $3::bigint, 0)', [repositoryId, node, contains]);
+        await tx.query('INSERT INTO file (node_id, path_id, mode, blob_id, language_id) VALUES ($1::bigint, $2::bigint, $3, $4::bigint, $5::bigint)', [made.rows[0]!.id, paths.get(file.path)!, file.mode, blob, language]);
+        fileNodes.set(file.path, made.rows[0]!.id);
         counts = { ...counts, inserted: counts.inserted + 1 };
       } else {
         await tx.query('UPDATE file SET path_id = $2::bigint, mode = $3, blob_id = $4::bigint, language_id = $5::bigint WHERE node_id = $1::bigint', [known.nodeId, paths.get(file.path)!, file.mode, blob, language]);
+        fileNodes.set(file.path, known.nodeId);
         counts = { ...counts, updated: counts.updated + 1 };
       }
     }
@@ -381,22 +384,83 @@ export async function publishTree(owner: DatabaseOwner, input: TreePublish): Pro
     }
     // The gitlinks: a submodule is its own vertex, named by the repository and the commit it stands at.
     const heldLinks = new Set((await tx.query<{ key: string }>(`SELECT n.key FROM node n JOIN kind k ON k.id = n.kind_id WHERE n.repository_id = $1::bigint AND k.name = 'gitlink'`, [repositoryId])).rows.map((row) => row.key));
+    const linkNodes = new Map<string, string>();
     for (const link of input.gitlinks) {
-      const known = heldLinks.has(link.path);
-      if (known) {
+      if (heldLinks.has(link.path)) {
         await tx.query(`UPDATE gitlink g SET other_repository = $2, commit_hash = $3 FROM node n WHERE n.id = g.node_id AND n.repository_id = $4::bigint AND n.key = $1`, [link.path, link.otherRepository, link.commit, repositoryId]);
+        const node = (await tx.query<{ id: string }>('SELECT g.node_id::text AS id FROM gitlink g JOIN node n ON n.id = g.node_id WHERE n.repository_id = $1::bigint AND n.key = $2', [repositoryId, link.path])).rows[0]!;
+        linkNodes.set(link.path, node.id);
         counts = { ...counts, unchanged: counts.unchanged + 1 };
         continue;
       }
       const path = (await pathIds(tx, [link.path])).get(link.path)!;
       const made = await tx.query<{ id: string }>('INSERT INTO node (kind_id, repository_id, key) VALUES ($1::bigint, $2::bigint, $3) RETURNING id::text AS id', [kinds.get('gitlink')!, repositoryId, link.path]);
       await tx.query('INSERT INTO gitlink (node_id, path_id, other_repository, commit_hash) VALUES ($1::bigint, $2::bigint, $3, $4)', [made.rows[0]!.id, path, link.otherRepository, link.commit]);
-      await tx.query('INSERT INTO edge (from_id, to_id, kind_id, position) VALUES ($1::bigint, $2::bigint, $3::bigint, 0)', [repositoryId, made.rows[0]!.id, contains]);
+      linkNodes.set(link.path, made.rows[0]!.id);
       counts = { ...counts, inserted: counts.inserted + 1 };
     }
+    counts = sum(counts, await publishFolders(tx, kinds, repositoryId, new Map([...fileNodes, ...linkNodes])));
     counts = sum(counts, await publishGaps(tx, repositoryId, input.gaps));
     return counts;
   });
+}
+
+/** The folder one path stands in: the path's own text without its last leg, or '' for a top-level path. */
+export function folderOfPath(path: string): string {
+  const at = path.lastIndexOf('/');
+  return at < 0 ? '' : path.slice(0, at);
+}
+
+/**
+ * The folder vertices and the `contains` edges of one repository: one vertex per folder any file
+ * or gitlink stands in, the repository's root being the repository itself, and exactly one parent
+ * for every vertex. A folder that loses its last file goes with its edge. Only what moved is
+ * written: the desired parent of every vertex is compared with the edge the store holds.
+ */
+async function publishFolders(tx: OuterTransaction, kinds: Map<string, string>, repositoryId: string, entities: ReadonlyMap<string, string>): Promise<RecordCounts> {
+  const folders = new Set<string>();
+  for (const path of entities.keys()) {
+    for (let folder = folderOfPath(path); folder !== ''; folder = folderOfPath(folder)) folders.add(folder);
+  }
+  const heldFolders = new Map((await tx.query<{ key: string; node_id: string }>(`SELECT n.key, n.id::text AS node_id FROM node n JOIN kind k ON k.id = n.kind_id WHERE n.repository_id = $1::bigint AND k.name = 'directory'`, [repositoryId])).rows.map((row) => [row.key, row.node_id]));
+  let counts: RecordCounts = { inserted: 0, updated: 0, deleted: 0, unchanged: 0 };
+  const folderNodes = new Map<string, string>();
+  for (const folder of [...folders].sort()) {
+    const known = heldFolders.get(folder);
+    if (known !== undefined) { folderNodes.set(folder, known); counts = { ...counts, unchanged: counts.unchanged + 1 }; continue; }
+    const pathId = (await pathIds(tx, [folder])).get(folder)!;
+    const made = await tx.query<{ id: string }>('INSERT INTO node (kind_id, repository_id, key) VALUES ($1::bigint, $2::bigint, $3) RETURNING id::text AS id', [kinds.get('directory')!, repositoryId, folder]);
+    await tx.query('INSERT INTO directory (node_id, path_id) VALUES ($1::bigint, $2::bigint)', [made.rows[0]!.id, pathId]);
+    folderNodes.set(folder, made.rows[0]!.id);
+    counts = { ...counts, inserted: counts.inserted + 1 };
+  }
+  for (const [folder, node] of heldFolders) {
+    if (folders.has(folder)) continue;
+    await tx.query('DELETE FROM edge WHERE from_id = $1::bigint OR to_id = $1::bigint', [node]);
+    await tx.query('DELETE FROM directory WHERE node_id = $1::bigint', [node]);
+    await tx.query('DELETE FROM node WHERE id = $1::bigint', [node]);
+    counts = { ...counts, deleted: counts.deleted + 1 };
+  }
+  // The parent of every vertex: its folder, or the repository for a top-level one.
+  const desired = new Map<string, string>();
+  for (const [folder, node] of folderNodes) desired.set(node, folderNodes.get(folderOfPath(folder)) ?? repositoryId);
+  for (const [path, node] of entities) desired.set(node, folderNodes.get(folderOfPath(path)) ?? repositoryId);
+  const contains = kinds.get('contains')!;
+  const heldEdges = new Set((await tx.query<{ from_id: string; to_id: string }>(
+    `SELECT e.from_id::text AS from_id, e.to_id::text AS to_id FROM edge e JOIN node n ON n.id = e.to_id WHERE n.repository_id = $1::bigint AND e.kind_id = $2::bigint`, [repositoryId, contains],
+  )).rows.map((row) => `${row.from_id}\u0000${row.to_id}`));
+  for (const [child, parent] of desired) {
+    const key = `${parent}\u0000${child}`;
+    if (heldEdges.has(key)) { heldEdges.delete(key); counts = { ...counts, unchanged: counts.unchanged + 1 }; continue; }
+    await tx.query('INSERT INTO edge (from_id, to_id, kind_id, position) VALUES ($1::bigint, $2::bigint, $3::bigint, 0)', [parent, child, contains]);
+    counts = { ...counts, inserted: counts.inserted + 1 };
+  }
+  for (const stale of heldEdges) {
+    const [from, to] = stale.split('\u0000') as [string, string];
+    await tx.query('DELETE FROM edge WHERE from_id = $1::bigint AND to_id = $2::bigint AND kind_id = $3::bigint AND position = 0', [from, to, contains]);
+    counts = { ...counts, deleted: counts.deleted + 1 };
+  }
+  return counts;
 }
 
 /** The repository's own fact row: its name, its url and its default branch, written once. */
@@ -693,6 +757,22 @@ export async function fileFacts(owner: DatabaseOwner, repository: string, path: 
   });
 }
 
+/** Every folder of one repository, in code point order of the paths, with the parent it hangs from. */
+export async function listDirectories(owner: DatabaseOwner, repository: string): Promise<readonly { readonly path: string; readonly parent: string }[]> {
+  return await owner.transaction('snapshot', async (tx) => {
+    const repositoryId = await repositoryIdOf(tx, repository);
+    const found = await tx.query<{ path: string; parent: string }>(
+      `SELECT p.text AS path, coalesce(pp.text, '') AS parent
+       FROM node n JOIN kind k ON k.id = n.kind_id JOIN directory d ON d.node_id = n.id JOIN path p ON p.id = d.path_id
+       LEFT JOIN edge e ON e.to_id = n.id AND e.kind_id = (SELECT id FROM kind WHERE name = 'contains')
+       LEFT JOIN node pn ON pn.id = e.from_id AND pn.id <> $1::bigint LEFT JOIN path pp ON pp.id = (SELECT d2.path_id FROM directory d2 WHERE d2.node_id = pn.id)
+       WHERE n.repository_id = $1::bigint AND k.name = 'directory' ORDER BY p.text`,
+      [repositoryId],
+    );
+    return found.rows;
+  });
+}
+
 /** One commit with its parents, its author and its dates. */
 export async function commitFacts(owner: DatabaseOwner, repository: string, hash: string): Promise<CommitRecord | null> {
   return await owner.transaction('snapshot', async (tx) => {
@@ -725,7 +805,7 @@ export async function commitFacts(owner: DatabaseOwner, repository: string, hash
 }
 
 /** One repository as a reader sees it: its name, its url, the commit it is as-is at, its counts and its gaps. */
-export async function repositoryFacts(owner: DatabaseOwner, repository: string): Promise<{ readonly name: string; readonly url: string; readonly defaultBranch: string | null; readonly asIsCommit: string | null; readonly fileCount: number; readonly commitCount: number; readonly gaps: readonly { what: string; reason: string }[] } | null> {
+export async function repositoryFacts(owner: DatabaseOwner, repository: string): Promise<{ readonly name: string; readonly url: string; readonly defaultBranch: string | null; readonly asIsCommit: string | null; readonly fileCount: number; readonly commitCount: number; readonly directoryCount: number; readonly gaps: readonly { what: string; reason: string }[] } | null> {
   return await owner.transaction('snapshot', async (tx) => {
     const found = await tx.query<{ id: string; name: string; url: string; default_branch: string | null }>(
       `SELECT n.id::text AS id, r.name, r.url, r.default_branch FROM node n JOIN kind k ON k.id = n.kind_id JOIN repository_fact r ON r.node_id = n.id WHERE k.name = 'repository' AND n.key = $1`,
@@ -737,9 +817,10 @@ export async function repositoryFacts(owner: DatabaseOwner, repository: string):
       `SELECT cn.key FROM edge e JOIN node cn ON cn.id = e.to_id WHERE e.from_id = $1::bigint AND e.kind_id = (SELECT id FROM kind WHERE name = 'as-is') LIMIT 1`,
       [row.id],
     );
-    const counts = await tx.query<{ files: string; commits: string }>(
+    const counts = await tx.query<{ files: string; commits: string; directories: string }>(
       `SELECT (SELECT count(*)::text FROM node n JOIN kind k ON k.id = n.kind_id WHERE n.repository_id = $1::bigint AND k.name = 'file') AS files,
-              (SELECT count(*)::text FROM node n JOIN kind k ON k.id = n.kind_id JOIN commit_fact c ON c.node_id = n.id WHERE n.repository_id = $1::bigint AND k.name = 'commit') AS commits`,
+              (SELECT count(*)::text FROM node n JOIN kind k ON k.id = n.kind_id JOIN commit_fact c ON c.node_id = n.id WHERE n.repository_id = $1::bigint AND k.name = 'commit') AS commits,
+              (SELECT count(*)::text FROM node n JOIN kind k ON k.id = n.kind_id WHERE n.repository_id = $1::bigint AND k.name = 'directory') AS directories`,
       [row.id],
     );
     const gaps = await tx.query<{ what: string; reason: string }>('SELECT what, reason FROM gap WHERE repository_id = $1::bigint ORDER BY what', [row.id]);
@@ -748,6 +829,7 @@ export async function repositoryFacts(owner: DatabaseOwner, repository: string):
       asIsCommit: asIs.rows[0]?.key ?? null,
       fileCount: Number(counts.rows[0]?.files ?? '0'),
       commitCount: Number(counts.rows[0]?.commits ?? '0'),
+      directoryCount: Number(counts.rows[0]?.directories ?? '0'),
       gaps: gaps.rows,
     };
   });

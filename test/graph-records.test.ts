@@ -9,7 +9,7 @@ import { mkdirSync, mkdtempSync, rmSync, symlinkSync, writeFileSync } from 'node
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { createPGliteDatabaseOwner, type DatabaseOwner } from '../src/adapters/database-owner.js';
-import { RECORD_TABLES, createRecordSchema, fileFacts, listFiles, publishHistory, publishTree, recordSizes, repositoryFacts } from '../src/graph/index.js';
+import { RECORD_TABLES, createRecordSchema, fileFacts, listDirectories, listFiles, publishHistory, publishTree, recordSizes, repositoryFacts } from '../src/graph/index.js';
 import { REPOSITORY_HISTORY_STAGE_ID, REPOSITORY_TREE_STAGE_ID, createRepositoryHistoryStage, createRepositoryTreeStage, languageOfPath, readRepositoryHistory, readRepositoryTree, repositoryOfUnit, repositoryUnitId, shallowGapOf, type RepositoryAt } from '../src/fill/stages/repository-facts.js';
 
 let root = '';
@@ -148,6 +148,48 @@ describe('the two passes over one fixture', () => {
     expect(said.length).toBe(2);
     expect(languageOfPath('x.unknown-ext').language).toBe('unknown');
     expect(shallowGapOf(pin(head))).toBeNull();
+  }, 120_000);
+
+  test('give every folder a vertex, one parent each, and no repository-to-nested-file edge', async () => {
+    if (owner === undefined) throw new Error('the store was not opened');
+    const directories = await listDirectories(owner, 'fixture');
+    const byPath = new Map(directories.map((row) => [row.path, row.parent]));
+    expect(byPath.has('src')).toBe(true);
+    expect(byPath.has('docs')).toBe(true);
+    // Exactly one parent each; a top-level folder hangs from the repository ('').
+    expect(byPath.get('src')).toBe('');
+    expect(byPath.get('docs')).toBe('');
+    // The parent of a file is its folder, never the repository.
+    const parents = await owner.transaction('snapshot', async (tx) => await tx.query(
+      `SELECT p.text AS child, coalesce(pp.text, '') AS parent FROM edge e JOIN node n ON n.id = e.to_id JOIN kind k ON k.id = n.kind_id
+       JOIN file f ON f.node_id = n.id JOIN path p ON p.id = f.path_id LEFT JOIN node pn ON pn.id = e.from_id AND pn.id <> n.repository_id
+       LEFT JOIN directory d ON d.node_id = pn.id LEFT JOIN path pp ON pp.id = d.path_id
+       WHERE k.name = 'file' AND e.kind_id = (SELECT id FROM kind WHERE name = 'contains')`,
+    ));
+    for (const row of parents.rows as { child: string; parent: string }[]) {
+      const folder = row.child.includes('/') ? row.child.slice(0, row.child.lastIndexOf('/')) : '';
+      expect({ child: row.child, parent: row.parent }).toEqual({ child: row.child, parent: folder });
+    }
+    const facts = await repositoryFacts(owner, 'fixture');
+    expect(facts?.directoryCount).toBe(directories.length);
+  }, 120_000);
+
+  test('take a folder away when its last file goes', async () => {
+    if (owner === undefined) throw new Error('the store was not opened');
+    mkdirSync(join(repository, 'only', 'deep'), { recursive: true });
+    writeFileSync(join(repository, 'only', 'deep', 'x.txt'), 'x\n');
+    const head = commitAll('four');
+    await publishHistory(owner, await readRepositoryHistory(pin(head)));
+    await publishTree(owner, await readRepositoryTree(pin(head)));
+    expect((await listDirectories(owner, 'fixture')).map((row) => row.path)).toContain('only/deep');
+    git(['rm', '-q', '-r', 'only']);
+    const gone = commitAll('five');
+    await publishHistory(owner, await readRepositoryHistory(pin(gone)));
+    const counts = await publishTree(owner, await readRepositoryTree(pin(gone)));
+    expect(counts.deleted).toBeGreaterThan(1);
+    const again = (await listDirectories(owner, 'fixture')).map((row) => row.path);
+    expect(again).not.toContain('only/deep');
+    expect(again).not.toContain('only');
   }, 120_000);
 
   test('report the bytes of each table and of a row', async () => {
