@@ -4347,11 +4347,6 @@
   {
     "rule": "no-unreachable-code",
     "file": "src/writer/index.ts",
-    "symbol": "AcpAgentOptions"
-  },
-  {
-    "rule": "no-unreachable-code",
-    "file": "src/writer/index.ts",
     "symbol": "AlternativeFlow"
   },
   {
@@ -5806,22 +5801,12 @@
   },
   {
     "rule": "one-fill-entry",
-    "file": "scripts/write-knowledge.ts",
-    "symbol": "src/extract/driver/index.ts:fillGraph"
-  },
-  {
-    "rule": "one-fill-entry",
     "file": "src/product/cli.ts",
     "symbol": "src/fill/orchestrator-host.ts:createFillOrchestratorService"
   },
   {
     "rule": "sql-only-in-storage-layer",
     "file": "scripts/index-knowledge.ts",
-    "symbol": "src/adapters/database-owner.ts"
-  },
-  {
-    "rule": "sql-only-in-storage-layer",
-    "file": "scripts/write-knowledge.ts",
     "symbol": "src/adapters/database-owner.ts"
   },
   {

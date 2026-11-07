@@ -14,7 +14,6 @@ export {
 export { NO_WRITER_STATE, memoryWriterState, writerKindOfStage, type FillWriterStateOptions, type MemoryWriterState, type WriterClock, type WriterState, type WriterUnitRecord } from './graph-state.js';
 export { memoryJournal, journalOfUnit, readJournalFile, JOURNAL_SCHEMA, type Journal, type JournalRecord, type PageJournal } from './journal.js';
 export { ENRICHMENT_FRONT_KEYS, ENRICHMENT_SCHEMA, enrichmentKey, enrichmentPageId, enrichmentPath, enrichmentSource, isAgentPage, parseEnrichment, renderEnrichment, type EnrichmentDraft, type EnrichmentRead } from './enrichment.js';
-export { acpUnitAgent, type AcpAgentOptions } from './acp-agent.js';
 export {
   runEditorialPass, MAX_EDITORIAL_REQUESTS, DEFAULT_EDITORIAL_REQUESTS_PER_PAGE,
   type EditorialFinding, type EditorialFindingKind, type EditorialGraph, type EditorialJudge, type EditorialJudgeAnswer,
