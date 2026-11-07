@@ -151,6 +151,20 @@ describe('the code-facts stage', () => {
     expect(mismatched.map((held) => String(held['id']))).toEqual([]);
   }, 900_000);
 
+  test('publishes a TypeScript type\'s fields beside a Go struct\'s, with the type that declares each', async () => {
+    if (opened === undefined) throw new Error('the product was not opened');
+    const o = opened;
+    const fields = await fileNodes(o, 'code.field', 'shop', CONFIG_FILE);
+    expect(fields.map((held) => `${String(held['ownerTypeName'])}.${String(held['name'])}`).sort())
+      .toEqual(['Handler.retries', 'Request.id', 'Request.totalCents']);
+    // The containment from a type to its fields and members is the modules stage's: it joins the
+    // field nodes this stage publishes to the symbols the syntax stage published.
+    const edges = await o.store.readAll(async (page) => await o.store.edgesByProperty('code.contains', 'repository', 'shop', page));
+    const held = edges.filter((entry) => ['Handler', 'Request'].includes(entry.src.label));
+    expect(held.map((entry) => `${entry.src.label} -> ${entry.dst.label}`).sort())
+      .toEqual(['Handler -> Handler.handle', 'Handler -> retries', 'Request -> id', 'Request -> totalCents']);
+  }, 900_000);
+
   test('plans one unit per source file, and a second run of the same commit plans none', async () => {
     if (opened === undefined) throw new Error('the product was not opened');
     const o = opened;

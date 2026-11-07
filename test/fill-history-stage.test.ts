@@ -220,7 +220,7 @@ interface Recorder {
 }
 
 /** The fake context of one unit: a graph answering the rows the test put there, a draft set and progress. */
-function recorder(unit: StageUnit, options: { readonly config?: unknown; readonly rows?: ReadonlyMap<string, readonly unknown[]>; readonly signal?: AbortSignal } = {}): Recorder {
+function recorder(unit: StageUnit, options: { readonly config?: unknown; readonly rows?: ReadonlyMap<string, readonly unknown[]>; readonly files?: readonly { readonly path: string; readonly key: string }[]; readonly signal?: AbortSignal } = {}): Recorder {
   const reads: string[] = [];
   const writes: StageDraftWrite[] = [];
   const notes: string[] = [];
@@ -255,6 +255,10 @@ function recorder(unit: StageUnit, options: { readonly config?: unknown; readonl
     byGlobalName: async (): Promise<readonly StaticGraphNode[]> => [],
     neighbourhood: async (): Promise<{ readonly rows: readonly StaticGraphNode[]; readonly next: string | null }> => ({ rows: [], next: null }),
     byProperty: async (kind: string, _field: string, _value: string): Promise<{ readonly rows: readonly StaticGraphNode[]; readonly next: string | null }> => {
+      // The tree the snapshot stage published: the paths a commit's `touched` edge may name.
+      if (kind === 'code.file') {
+        return { rows: (options.files ?? []).map((file) => ({ id: file.key, kind: 'code.file', label: file.path, properties: { path: file.path, recordKey: file.key, repository: 'orders-api' }, producer: 'fill.test', scope: '0' })), next: null };
+      }
       const which = kind === 'code.commit' ? 'commit' : 'coverage';
       const held = nodesFor(which);
       if (which === 'coverage' && held.length > 1) return { rows: held.map((row) => nodeOf('coverage', row)), next: null };
@@ -816,7 +820,17 @@ describe('the stage declaration and the draft it judges', () => {
     const stage = stageOver(new Map());
     expect(stage.id).toBe(HISTORY_STAGE_ID);
     expect(stage.version).toBe(HISTORY_STAGE_VERSION);
-    expect(stage.produces).toEqual(HISTORY_FACT_KINDS.map((kind) => ({ kind, schemaVersion: FACT_KINDS[kind].version, scope: 'repository' })));
+    // The commit, the coverage and the task key are fact-schema kinds; the author node and the
+    // three history relations are raw graph items, written at version 1.
+    expect(stage.produces).toEqual([
+      { kind: 'author', schemaVersion: 1, scope: 'repository' },
+      { kind: 'authored', schemaVersion: 1, scope: 'repository' },
+      { kind: 'commit', schemaVersion: FACT_KINDS.commit.version, scope: 'repository' },
+      { kind: 'coverage', schemaVersion: FACT_KINDS.coverage.version, scope: 'repository' },
+      { kind: 'parent', schemaVersion: 1, scope: 'repository' },
+      { kind: 'task-key', schemaVersion: FACT_KINDS['task-key'].version, scope: 'repository' },
+      { kind: 'touched', schemaVersion: 1, scope: 'repository' },
+    ]);
     expect(stage.consumes.required.map((one) => one.capability)).toEqual(['snapshot', 'commit']);
     expect(stage.defaults.config).toEqual({ depth: DEFAULT_HISTORY_DEPTH });
     expect((stage.defaults.config as { depth: number }).depth).toBe(1000);
@@ -906,8 +920,10 @@ describe('the stage declaration and the draft it judges', () => {
       for (const write of run.writes) {
         if (write.kind !== 'node') continue;
         // A task node's key names the key, not the edge's fact: its own identity is the
-        // repository and the key (one node however many commits name it).
-        if (write.value.kind === 'code.task') continue;
+        // repository and the key (one node however many commits name it). An author node is a raw
+        // graph item like the modules stage's rank node: it carries the email it is named by and
+        // no fact-schema kind digests it.
+        if (write.value.kind === 'code.task' || write.value.kind === 'code.author') continue;
         const value = valuesOf([write], String((write.value.properties as Record<string, unknown>)['factKind']))[0]!;
         const properties = write.value.properties as { recordKey: string; provenance: FactProvenance };
         expect(properties.recordKey).toBe(factId({ kind: String((write.value.properties as Record<string, unknown>)['factKind']) as 'commit', value: value as never, provenance: properties.provenance }));
@@ -921,6 +937,7 @@ describe('the stage declaration and the draft it judges', () => {
           if (properties['factKind'] === 'commit') return [`commit ${String(properties['commit'])}`];
           if (properties['factKind'] === 'task-key') return [`task-key ${String(properties['key'])}`];
           if (properties['factKind'] === 'coverage') return [`coverage ${String(properties['scope'])}`];
+          if (properties['factKind'] === 'author') return [`author ${String(properties['email'])}`];
           return [];
         }
         if (write.kind === 'edge') return [`edge ${write.value.relation}`];
@@ -937,11 +954,81 @@ describe('the stage declaration and the draft it judges', () => {
         'edge code.tasks',
         'task-key madarch-xyz.7',
         'edge code.tasks',
+        // The author of the commits, then each commit's history edges: all three commits share the
+        // fixture's one author, and the docket's file read answers no file node here (the fake
+        // context's static graph answers its held coverage rows), so no touched edge stands.
+        'author fixture@example.invalid',
+        'edge code.authored',
+        'edge code.authored',
+        'edge code.parent',
+        'edge code.authored',
+        'edge code.parent',
         `coverage ${historyScope('orders-api', third)}`,
       ]);
       // The commit facts alone, in the fixture's own order: parents before
       // children, whatever the order git lists the ancestry in.
       expect(order.filter((one) => one.startsWith('commit ')).map((one) => one.slice('commit '.length))).toEqual([...fixture.commits]);
+    } finally {
+      await fixture.dispose();
+    }
+  });
+
+  test('two ranges write their own author nodes: a node belongs to the scope that published it', async () => {
+    const fixture = await makeRepository('history-ranges', THREE);
+    try {
+      const [first, , third] = fixture.commits as [string, string, string];
+      const stage = stageOver(new Map([['orders-api', fixture.folder]]));
+      const authorKeys = (writes: readonly StageDraftWrite[]): string[] => writes.flatMap((write) => (write.kind === 'node' && write.value.kind === 'code.author' ? [write.value.key] : []));
+      // The first commit's range and the third commit's range both read the fixture's one author,
+      // and each unit publishes the author under its own range: a node of one publication scope is
+      // not another scope's to write (the second run over a product failed on exactly this).
+      const atFirst = recorder({ id: historyUnitId('orders-api', first), scope: historyScope('orders-api', first) });
+      expect(await stage.execute({ id: historyUnitId('orders-api', first), scope: historyScope('orders-api', first) }, atFirst.context)).toEqual({ outcome: 'draft' });
+      const atThird = recorder({ id: historyUnitId('orders-api', third), scope: historyScope('orders-api', third) });
+      expect(await stage.execute({ id: historyUnitId('orders-api', third), scope: historyScope('orders-api', third) }, atThird.context)).toEqual({ outcome: 'draft' });
+      expect(authorKeys(atFirst.writes)).toHaveLength(1);
+      expect(authorKeys(atThird.writes)).toHaveLength(1);
+      expect(authorKeys(atFirst.writes)[0]).not.toBe(authorKeys(atThird.writes)[0]);
+    } finally {
+      await fixture.dispose();
+    }
+  });
+
+  test('a commit names its author, its first parent and the files it changed, each an edge', async () => {
+    const fixture = await makeRepository('history-links', THREE);
+    try {
+      const [, , third] = fixture.commits as [string, string, string];
+      const stage = stageOver(new Map([['orders-api', fixture.folder]]));
+      const unit = { id: historyUnitId('orders-api', third), scope: historyScope('orders-api', third) };
+      const fileKeys = new Map([['a.txt', 'file:' + '1'.repeat(64)], ['src/b.ts', 'file:' + '2'.repeat(64)], ['c.md', 'file:' + '3'.repeat(64)]]);
+      const run = recorder(unit, { files: [...fileKeys].map(([path, key]) => ({ path, key })) });
+      expect(await stage.execute(unit, run.context)).toEqual({ outcome: 'draft' });
+      // One author node for the fixture's one author, named by the email git records.
+      const authors = run.writes.filter((write) => write.kind === 'node' && write.value.kind === 'code.author');
+      expect(authors.map((write) => (write.kind === 'node' ? write.value.label : ''))).toEqual(['Fixture Author']);
+      const edges = (relation: string) => run.writes.flatMap((write) => {
+        if (write.kind !== 'edge' || write.value.relation !== relation) return [];
+        const from = 'key' in write.value.from ? write.value.from.key : '';
+        const to = 'key' in write.value.to ? write.value.to.key : '';
+        return [`${from} -> ${to}`];
+      });
+      // Every commit is authored by the one author, the first parent is the one the read holds,
+      // and every path the tree holds is a touched edge — three of them, the third commit's two
+      // and its own.
+      expect(edges('code.authored')).toHaveLength(3);
+      expect(edges('code.parent')).toHaveLength(2);
+      // The commit each edge starts at, by the commit the draft's own node states.
+      const keyOf = new Map(run.writes.flatMap((write) => {
+        if (write.kind !== 'node' || write.value.kind !== 'code.commit') return [];
+        return [[String((write.value.properties as Record<string, unknown>)['commit']), write.value.key] as const];
+      }));
+      const touched = (commit: string, file: string): string => `${keyOf.get(commit) as string} -> file:${file.repeat(64)}`;
+      expect(edges('code.touched')).toEqual([
+        touched(fixture.commits[0] as string, '1'),
+        touched(fixture.commits[1] as string, '2'),
+        touched(fixture.commits[2] as string, '3'),
+        touched(fixture.commits[2] as string, '2'),
+      ]);
     } finally {
       await fixture.dispose();
     }
@@ -1013,7 +1100,7 @@ describe('what the wiring, the clock and the graph own rows can do to a read', (
     // author time that is no whole number of seconds is no time, and a call
     // that failed names its own status and words.
     const record = (trailers: string, committed = '1792346906', authored = '1792346806'): string =>
-      `${HISTORY_LOG_RECORD}${commit}${HISTORY_LOG_FIELD}${HISTORY_LOG_FIELD}${committed}${HISTORY_LOG_FIELD}${authored}${HISTORY_LOG_FIELD}Fixture Author${HISTORY_LOG_FIELD}First commit${HISTORY_LOG_FIELD}${trailers}\x00\na.txt\x00`;
+      `${HISTORY_LOG_RECORD}${commit}${HISTORY_LOG_FIELD}${HISTORY_LOG_FIELD}${committed}${HISTORY_LOG_FIELD}${authored}${HISTORY_LOG_FIELD}Fixture Author${HISTORY_LOG_FIELD}fixture@example.invalid${HISTORY_LOG_FIELD}First commit${HISTORY_LOG_FIELD}${trailers}\x00\na.txt\x00`;
     const withMessage = await fakeGit({ log: record(`Ticket: a message ${HISTORY_LOG_RECORD}and this is not a record`) });
     try {
       const stage = stageOver(new Map([['orders-api', withMessage.folder]]), withMessage.reader);

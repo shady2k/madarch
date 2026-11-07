@@ -101,7 +101,7 @@ export function tsText(): string {
   ].join('\n');
 }
 
-/** The configuration file's bytes: an environment read with a default, a call, and a string argument. */
+/** The configuration file's bytes: an environment read with a default, a call, a string argument, a type with its fields and a method. */
 export function configText(): string {
   return [
     'export const port = Number(process.env.PORT ?? "8080");',
@@ -112,6 +112,19 @@ export function configText(): string {
     '',
     'function prefix(name: string): string {',
     '  return `svc-${name}`;',
+    '}',
+    '',
+    'export interface Request {',
+    '  id: string;',
+    '  totalCents: number;',
+    '}',
+    '',
+    'export class Handler {',
+    '  private retries = 3;',
+    '',
+    '  handle(request: Request): string {',
+    '    return label();',
+    '  }',
     '}',
     '',
   ].join('\n');

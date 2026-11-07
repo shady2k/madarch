@@ -13,7 +13,8 @@
 
 /** Every node kind the fill's static stages write. */
 export const STAGE_NODE_KINDS: readonly string[] = [
-      // The data model's own records (madarch-8bdc.2.4): a database, its migrations, tables, columns and
+  'code.author',
+  // The data model's own records (madarch-8bdc.2.4): a database, its migrations, tables, columns and
   // indexes, and the per-file readings the aggregate stage assembles them from.
   'code.column',
   'code.database',
@@ -123,10 +124,17 @@ export const STAGE_EDGE_TYPES: readonly { readonly key: string; readonly positio
   { key: 'code.references', discriminated: true },
   // The task keys a commit or a document names (stages 6 and 7; madarch-8bdc.2.3).
   { key: 'code.tasks', discriminated: true },
+  // What a test exercises (the modules stage): the code a test case's own calls name.
+  { key: 'code.tests', discriminated: true },
   // What a state enters (the state-machines stage).
   { key: 'code.transitions', discriminated: true },
   // The data model's own relations (madarch-8bdc.2.4). Each carries a discriminator: one function can
   // reach one table through two helpers, and a foreign key's constraint tells two keys of one table apart.
+  // The history's own relations (stage 7): the author of a commit, its first parent, and the
+  // files a commit changed (decision 0030; the extractor's history reading).
+  { key: 'code.authored' },
+  { key: 'code.parent' },
+  { key: 'code.touched' },
   { key: 'code.alters', discriminated: true },
   { key: 'code.covers', discriminated: true },
   { key: 'code.creates', discriminated: true },

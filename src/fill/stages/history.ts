@@ -117,7 +117,22 @@ export const HISTORY_INPUT_CAPABILITY = 'snapshot';
  * the kind every stage of the fill reports in (decision 0026), and the other
  * two are stage 7's own.
  */
-export const HISTORY_FACT_KINDS = ['commit', 'coverage', 'task-key'] as const;
+export const HISTORY_FACT_KINDS = ['author', 'authored', 'commit', 'coverage', 'parent', 'task-key', 'touched'] as const;
+
+/**
+ * The schema version each produced kind is written in. The four this stage writes as raw graph
+ * items — the author node and the three history relations — carry the graph's own shape and no
+ * fact-schema kind, so they are declared here at version 1.
+ */
+const HISTORY_PRODUCED_VERSIONS: Readonly<Record<(typeof HISTORY_FACT_KINDS)[number], number>> = {
+  author: 1,
+  authored: 1,
+  commit: FACT_KINDS.commit.version,
+  coverage: FACT_KINDS.coverage.version,
+  parent: 1,
+  'task-key': FACT_KINDS['task-key'].version,
+  touched: 1,
+};
 
 /** The stage's own configuration: how deep into one repository's ancestry a unit reads, and which trailer of a commit message names task keys. */
 const HISTORY_CONFIG_SCHEMA = Type.Object({
@@ -193,6 +208,8 @@ export interface HistoryCommit {
   readonly subject: string;
   /** The name the commit was authored under, as git records it. */
   readonly author?: string;
+  /** The email the commit was authored under: the identity an author node is named by. */
+  readonly authorEmail?: string;
   /** The paths the commit changed, from the repository's root, in code point order, each once. */
   readonly files: readonly RepositoryPath[];
   /** Every trailer git's own parser read from the commit's message, in the order the parser returns them. */
@@ -246,7 +263,7 @@ export const HISTORY_LOG_FIELD = '\x1f';
  * message holding the record separator is refused by the parser rather than
  * read as two records.
  */
-const HISTORY_LOG_FORMAT = '%x1e%H%x1f%P%x1f%ct%x1f%at%x1f%an%x1f%s%x1f%(trailers:only,unfold,separator=%x00)';
+const HISTORY_LOG_FORMAT = '%x1e%H%x1f%P%x1f%ct%x1f%at%x1f%an%x1f%ae%x1f%s%x1f%(trailers:only,unfold,separator=%x00)';
 
 /** The most a git call may answer: the whole ancestry of a very large repository, names included. */
 const GIT_MAX_BUFFER = 256 * 1024 * 1024;
@@ -409,9 +426,9 @@ function parseLog(text: string, at: { readonly repository: string; readonly comm
     const pathAt = listed >= 0 ? listed : record.endsWith('\x00') ? record.length - 1 : -1;
     if (pathAt < 0) throw new Error(`${where} holds a record with no path list: ${JSON.stringify(record.slice(0, 120))}`);
     const fields = record.slice(0, pathAt).split(HISTORY_LOG_FIELD);
-    const [commit, parents, committed, authored, author, subject, trailerText] = fields;
-    if (commit === undefined || parents === undefined || committed === undefined || authored === undefined || author === undefined || subject === undefined || trailerText === undefined || fields.length !== 7) {
-      throw new Error(`${where} holds a record with ${fields.length} fields: a record is the commit, its parents, its two times, its author, its subject, the trailers git's parser read and its paths`);
+    const [commit, parents, committed, authored, author, authorEmail, subject, trailerText] = fields;
+    if (commit === undefined || parents === undefined || committed === undefined || authored === undefined || author === undefined || authorEmail === undefined || subject === undefined || trailerText === undefined || fields.length !== 8) {
+      throw new Error(`${where} holds a record with ${fields.length} fields: a record is the commit, its parents, its two times, its author's name and email, its subject, the trailers git's parser read and its paths`);
     }
     if (!COMMIT_PATTERN.test(commit)) {
       throw new Error(`${where} holds a record whose first field is ${JSON.stringify(commit)}: a commit is 40 lower-case hexadecimal digits, so this record is a message git wrote as one`);
@@ -431,6 +448,7 @@ function parseLog(text: string, at: { readonly repository: string; readonly comm
       authoredAt,
       subject,
       ...(author === '' ? {} : { author }),
+      ...(authorEmail === '' ? {} : { authorEmail }),
       files: parseFiles(section, commit, where),
       trailers,
     });
@@ -835,6 +853,28 @@ function coverageValueOf(properties: Record<string, unknown>): Record<string, un
 }
 
 /** The unit's bounded graph reads, refused by name where the run handed none. */
+/**
+ * The files the repository's tree holds, as the snapshot stage published them: a path and the
+ * recordKey of its node. A commit's changed path is a `code.touched` edge to that node, and a path
+ * the pinned tree does not hold has no node to name — a later tree that holds it moves this read,
+ * and the generation is replaced rather than left with a smaller answer.
+ */
+async function readRepositoryFiles(graph: StaticGraphReader, repository: string): Promise<Map<string, string>> {
+  const files = new Map<string, string>();
+  let after: string | undefined;
+  for (;;) {
+    const page = await graph.byProperty('code.file', 'repository', repository, { limit: STATIC_READ_ROW_LIMIT, ...(after === undefined ? {} : { after }) });
+    for (const node of page.rows) {
+      const path = node.properties['path'];
+      const key = node.properties['recordKey'];
+      if (typeof path === 'string' && typeof key === 'string' && key !== '') files.set(path, key);
+    }
+    if (page.next === null) break;
+    after = page.next;
+  }
+  return files;
+}
+
 function staticGraphOf(unit: StageUnit, context: StageContext): StaticGraphReader {
   const held = context.static;
   if (held === undefined) {
@@ -851,6 +891,17 @@ function staticGraphOf(unit: StageUnit, context: StageContext): StaticGraphReade
  */
 function commitNodeKeyOf(repository: string, range: string, commit: string): string {
   return `commit:${canonicalJsonDigest({ repository, range, commit })}`;
+}
+
+/**
+ * The key one author node carries: the repository, the range the unit read and the email git
+ * records. An author stands in as many ranges as read a commit of theirs, and each range's unit
+ * owns its copy for the same reason a commit's key names its range: a node's version belongs to
+ * the producer and scope that published it (decision 0033's fenced publication), and a second
+ * run at another commit publishes under another scope.
+ */
+function authorNodeKeyOf(repository: string, range: string, email: string): string {
+  return `code.author:${canonicalJsonDigest({ repository, range, email })}`;
 }
 
 /**
@@ -979,6 +1030,42 @@ async function executeUnit(reader: HistoryReader, unit: StageUnit, context: Stag
     }
   }
 
+  // The author of every commit, its first parent and the files it changed: the three relations the
+  // history extractor states beside the commit, and this stage wrote none of them. A file edge names
+  // the file node the snapshot stage published, so only a path the tree read answers is written;
+  // an answer that grows replaces this generation (the read is tracked).
+  const files = await readRepositoryFiles(graph, repository);
+  const authors = new Map<string, { readonly key: string; readonly name: string; readonly email: string }>();
+  for (const one of ancestry.commits) {
+    if (one.authorEmail === undefined || one.authorEmail === '') continue;
+    const key = authorNodeKeyOf(repository, ancestry.commit, one.authorEmail);
+    authors.set(key, { key, name: one.author ?? one.authorEmail, email: one.authorEmail });
+  }
+  for (const author of [...authors.values()].sort((left, right) => byCodePoint(left.key, right.key))) {
+    writes.push({
+      kind: 'node',
+      evidence: `${repository}@${ancestry.commit}`,
+      value: { key: author.key, kind: 'code.author', label: author.name, properties: { factKind: 'author', repository, range: ancestry.commit, email: author.email, name: author.name, recordKey: author.key } },
+    });
+  }
+  const readCommits = new Set(ancestry.commits.map((one) => one.commit));
+  for (const one of ancestry.commits) {
+    const commitKey = commitNodeKeyOf(repository, ancestry.commit, one.commit);
+    const evidence = `${repository}@${one.commit}`;
+    if (one.authorEmail !== undefined && one.authorEmail !== '') {
+      writes.push({ kind: 'edge', evidence, value: { relation: 'code.authored', from: { key: commitKey }, to: { key: authorNodeKeyOf(repository, ancestry.commit, one.authorEmail) }, properties: { factKind: 'authored', repository } } });
+    }
+    const parent = one.parents[0];
+    if (parent !== undefined && readCommits.has(parent)) {
+      writes.push({ kind: 'edge', evidence, value: { relation: 'code.parent', from: { key: commitKey }, to: { key: commitNodeKeyOf(repository, ancestry.commit, parent) }, properties: { factKind: 'parent', repository } } });
+    }
+    for (const path of one.files) {
+      const fileKey = files.get(path);
+      if (fileKey === undefined) continue;
+      writes.push({ kind: 'edge', evidence, value: { relation: 'code.touched', from: { key: commitKey }, to: { key: fileKey }, properties: { factKind: 'touched', repository } } });
+    }
+  }
+
   const coverage = coverageFact(repository, unit.scope, ancestry, trailer);
   const coverageAgreed = heldCoverage !== undefined && canonicalJsonDigest(heldCoverage) === canonicalJsonDigest(valueFieldsOf(coverage.value));
   for (const write of graphWritesOf(coverage, `${repository}@${ancestry.commit}`)) writes.push(write);
@@ -1047,7 +1134,7 @@ export function createHistoryStage(reader: HistoryReader, sources: SnapshotSourc
       ],
       optional: [],
     },
-    produces: HISTORY_FACT_KINDS.map((kind) => ({ kind, schemaVersion: FACT_KINDS[kind].version, scope: 'repository' as const })),
+    produces: HISTORY_FACT_KINDS.map((kind) => ({ kind, schemaVersion: HISTORY_PRODUCED_VERSIONS[kind], scope: 'repository' as const })),
     configSchema: HISTORY_CONFIG_SCHEMA,
     defaults: { enabled: true, concurrency: 1, limits: DEFAULT_STAGE_LIMITS, config: { depth: DEFAULT_HISTORY_DEPTH } },
     plan: () => planUnits(sources),
