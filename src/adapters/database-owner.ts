@@ -33,6 +33,7 @@ import { pathToFileURL } from 'node:url';
 import { PGlite } from '@electric-sql/pglite';
 import { btree_gist } from '@electric-sql/pglite/contrib/btree_gist';
 import { vector } from '@electric-sql/pglite-pgvector';
+import { withSpan } from '../obs/trace.js';
 import type { Pool, PoolConfig } from 'pg';
 import type { OuterTransaction } from '../history/types.js';
 import type { SqlExecutor, SqlQueryDriver, SqlTransactionKind } from '../query/sql-driver.js';
@@ -69,6 +70,46 @@ const btreeGistExtension: typeof btree_gist = insideCompiledBinary(import.meta.u
 
 /** The engine behind an owner, in the vocabulary a database-adapting library uses for it. */
 export type DatabaseBackend = 'pglite' | 'postgres';
+
+/**
+ * What one statement is, for the trace: its verb, the relation it names and a
+ * name a reader can follow. A span records none of the values a statement was
+ * given — the name is the shape of the statement, never its data.
+ */
+function statementOf(sql: string): { operation: string; table: string; name: string } {
+  const operation = (/^\s*(?:\/\*[\s\S]*?\*\/\s*)*([A-Za-z]+)/u.exec(sql)?.[1] ?? 'SQL').toUpperCase();
+  const table = /(?:\bFROM|\bINTO|\bUPDATE|\bTABLE|\bJOIN)\s+(?:IF\s+(?:NOT\s+)?EXISTS\s+)?([A-Za-z_][A-Za-z0-9_.]*)/iu.exec(sql)?.[1] ?? '';
+  return { operation, table, name: `${operation}${table === '' ? '' : ` ${table}`}` };
+}
+
+/** Runs one statement inside its own span: the operation, the rows it answered, its duration; never its values. */
+async function spannedStatement<T extends { readonly rows: readonly unknown[] }>(
+  system: DatabaseBackend,
+  sql: string,
+  values: readonly unknown[] | undefined,
+  run: () => Promise<T>,
+): Promise<T> {
+  const held = statementOf(sql);
+  return await withSpan(`db.${held.operation}`, {
+    'db.system': system,
+    'db.operation': held.operation,
+    'db.table': held.table,
+    'db.name': held.name,
+    'db.params': values?.length ?? 0,
+  }, async (span) => {
+    const answer = await run();
+    span.setAttribute('db.rows', answer.rows.length);
+    return answer;
+  });
+}
+
+/** The executor one span-wrapped statement goes through, with the caller's own executor underneath. */
+function instrumentedExecutor(system: DatabaseBackend, executor: OuterTransaction): OuterTransaction {
+  return {
+    query: async <Row extends object = Record<string, unknown>>(sql: string, values?: readonly unknown[]) =>
+      (await spannedStatement(system, sql, values, async () => await executor.query<Row>(sql, values))) as { rows: Row[] },
+  };
+}
 
 /**
  * The database one process owns, opened once and lent to every adapter that
@@ -227,7 +268,8 @@ class PGliteOwner implements DatabaseOwner {
       return Promise.reject(new Error(`the database owner "${this.location}" was called from inside its own transaction; pass that transaction to the operation instead of opening another, or the call would wait on the transaction that is waiting on it`));
     }
     const result = this.tail.then(async () => {
-      await this.ready;
+      // Opening the database is work of its own: a PGlite data directory is booted here on its first use.
+      await withSpan('db.ready', { 'db.system': 'pglite', 'db.location': this.location }, async () => await this.ready);
       return await this.ownWork.run(true, work);
     });
     this.tail = result.then(() => undefined, () => undefined);
@@ -238,27 +280,46 @@ class PGliteOwner implements DatabaseOwner {
     // PGlite has one connection, so a snapshot and a write are the same
     // transaction here: one at a time, serialized by the owner's own queue
     // rather than by an isolation level.
-    return this.serialize(() => this.database.transaction(async (transaction) => {
-      // PGlite's single connection makes a snapshot and a write the same
-      // shape of transaction, so a snapshot is declared read-only here to
-      // mean what PostgreSQL's `BEGIN … READ ONLY` means: a write inside it
-      // fails loudly instead of landing in a transaction this owner never
-      // probes. It is the first statement, as PostgreSQL requires.
-      if (kind === 'snapshot') await transaction.query('SET TRANSACTION READ ONLY');
-      const value = await work(transaction);
-      if (kind === 'write') await refuseAborted(transaction, this.location);
+    return this.serialize(() => withSpan('db.transaction', { 'db.system': 'pglite', 'db.kind': kind }, async (span) => {
+      let statements = 0;
+      let rows = 0;
+      const counted = (executor: OuterTransaction): OuterTransaction => ({
+        query: async <Row extends object = Record<string, unknown>>(sql: string, values?: readonly unknown[]) => {
+          statements += 1;
+          const answer = (await instrumentedExecutor('pglite', executor).query(sql, values)) as { rows: Row[] };
+          rows += answer.rows.length;
+          return answer;
+        },
+      });
+      const value = await this.database.transaction(async (transaction) => {
+        // PGlite's single connection makes a snapshot and a write the same
+        // shape of transaction, so a snapshot is declared read-only here to
+        // mean what PostgreSQL's `BEGIN … READ ONLY` means: a write inside it
+        // fails loudly instead of landing in a transaction this owner never
+        // probes. It is the first statement, as PostgreSQL requires.
+        if (kind === 'snapshot') await transaction.query('SET TRANSACTION READ ONLY');
+        const held = await work(counted(transaction));
+        if (kind === 'write') await refuseAborted(transaction, this.location);
+        return held;
+      });
+      span.setAttribute('db.statements', statements);
+      span.setAttribute('db.rows', rows);
       return value;
     }));
   }
 
   run<T>(work: (executor: OuterTransaction) => Promise<T>): Promise<T> {
-    return this.serialize(() => work(this.database));
+    return this.serialize(() => withSpan('db.run', { 'db.system': 'pglite' }, async () => await work(instrumentedExecutor('pglite', this.database))));
   }
 
   exec<Row extends object>(text: string): Promise<{ rows: Row[] }[]> {
     return this.serialize(async () => {
       try {
-        return (await this.database.exec(text)).map((result) => ({ rows: result.rows as Row[] }));
+        return await withSpan('db.batch', { 'db.system': 'pglite' }, async (span) => {
+          const results = (await this.database.exec(text)).map((result) => ({ rows: result.rows as Row[] }));
+          span.setAttribute('db.rows', results.reduce((sum, result) => sum + result.rows.length, 0));
+          return results;
+        });
       } catch (error) {
         // PGlite has one connection: a statement that failed inside a
         // `BEGIN … COMMIT` batch leaves it in an aborted transaction, and
@@ -366,9 +427,24 @@ class PostgresOwner implements DatabaseOwner {
         ? 'BEGIN ISOLATION LEVEL REPEATABLE READ READ ONLY'
         : 'BEGIN ISOLATION LEVEL READ COMMITTED';
       await client.query(begin);
-      const value = await this.ownWork.run(true, () => work(client));
-      if (kind === 'write') await refuseAborted(client, this.location);
-      await client.query('COMMIT');
+      const value = await withSpan('db.transaction', { 'db.system': 'postgres', 'db.kind': kind }, async (span) => {
+        let statements = 0;
+        let rows = 0;
+        const counted: OuterTransaction = {
+          query: async <Row extends object = Record<string, unknown>>(sql: string, values?: readonly unknown[]) => {
+            statements += 1;
+            const answer = (await spannedStatement('postgres', sql, values, async () => await client.query(sql, values === undefined ? undefined : [...values]) as { rows: unknown[] })) as { rows: Row[] };
+            rows += answer.rows.length;
+            return answer;
+          },
+        };
+        const held = await this.ownWork.run(true, () => work(counted));
+        if (kind === 'write') await refuseAborted(client, this.location);
+        await client.query('COMMIT');
+        span.setAttribute('db.statements', statements);
+        span.setAttribute('db.rows', rows);
+        return held;
+      });
       return value;
     } catch (error) {
       try {
@@ -388,11 +464,11 @@ class PostgresOwner implements DatabaseOwner {
     await this.ready;
     const executor: OuterTransaction = {
       query: async <Row>(sql: string, values?: readonly unknown[]) => {
-        const result = values === undefined ? await this.pool.query(sql) : await this.pool.query(sql, [...values]);
+        const result = await spannedStatement('postgres', sql, values, async () => values === undefined ? await this.pool.query(sql) : await this.pool.query(sql, [...values]));
         return { rows: result.rows as Row[] };
       },
     };
-    return await this.ownWork.run(true, () => work(executor));
+    return await withSpan('db.run', { 'db.system': 'postgres' }, async () => await this.ownWork.run(true, () => work(executor)));
   }
 
   async exec<Row extends object>(text: string): Promise<{ rows: Row[] }[]> {
@@ -405,9 +481,13 @@ class PostgresOwner implements DatabaseOwner {
       // One client for the whole text: `pg` sends a statement text with no
       // values through the simple protocol, so a `BEGIN … COMMIT` block is
       // one message on one connection and answers one result per statement.
-      const result = await client.query(text);
-      const results = Array.isArray(result) ? result : [result];
-      return results.map((one) => ({ rows: one.rows as Row[] }));
+      return await withSpan('db.batch', { 'db.system': 'postgres' }, async (span) => {
+        const result = await client.query(text);
+        const results = Array.isArray(result) ? result : [result];
+        const answered = results.map((one) => ({ rows: one.rows as Row[] }));
+        span.setAttribute('db.rows', answered.reduce((sum, one) => sum + one.rows.length, 0));
+        return answered;
+      });
     } catch (error) {
       try {
         // The failed statement left this client's transaction open (or

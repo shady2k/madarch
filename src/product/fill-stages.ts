@@ -67,6 +67,7 @@
 import { execFileSync } from 'node:child_process';
 import { basename, resolve } from 'node:path';
 import { byCodePoint } from '../model/order.js';
+import { withSpan } from '../obs/trace.js';
 import { isRepositoryPath } from '../fill/facts.js';
 import { ID_PATTERN } from '../model/schema.js';
 import type { FillStageConfigurationRead } from '../fill/config.js';
@@ -156,7 +157,7 @@ export function declaredStagesDigest(registry: StageRegistry): string {
  */
 export async function createStagesFill(options: StagesFillOptions): Promise<StagesFill> {
   const folder = resolve(options.product);
-  const identity = readIdentity(folder);
+  const identity = await withSpan('fill.identity', { 'madarch.product': folder }, async () => readIdentity(folder));
   const product: FillProduct = { name: identity.name, folder };
   // The pins one run stands on: read when the run plans (`snapshot`, which the
   // orchestrator asks for before it asks any stage to plan), and read by every
@@ -174,11 +175,16 @@ export async function createStagesFill(options: StagesFillOptions): Promise<Stag
     publishTree: (input: Parameters<typeof publishTree>[1]) => publishTree(options.database, input),
     publishHistory: (input: Parameters<typeof publishHistory>[1]) => publishHistory(options.database, input),
   };
-  const registry = createStageRegistry({
-    snapshots,
-    checkoutOf: (repository: string) => rootOf(identity, repository),
-    records,
-    ...(options.agent === undefined ? {} : { agent: options.agent }),
+  // Building the registry loads the stages' own modules and their parsers: one span names what that cost.
+  const registry = await withSpan('fill.registry', { 'madarch.product': identity.name }, async (span) => {
+    const held = createStageRegistry({
+      snapshots,
+      checkoutOf: (repository: string) => rootOf(identity, repository),
+      records,
+      ...(options.agent === undefined ? {} : { agent: options.agent }),
+    });
+    span.setAttribute('madarch.stages', held.all().length);
+    return held;
   });
   // The view a stage's own SQL reads through (the history stage's three queries)
   // stands before any run: it is the store's own schema, and no read may create

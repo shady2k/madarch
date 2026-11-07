@@ -16,7 +16,9 @@ import { answerUnitMcpMessage, serveUnitMcp, type McpToolDefinition } from '../f
 import { runningVersion } from '../product/version.js';
 import { REPO_TOOL_NAMES, REPO_TOOLS, callRepoTool } from './tools.js';
 import { RepositorySession } from './session.js';
-import { FillLog, type FillLogSnapshot } from './fill-log.js';
+import { readLatestFillProgress, type FillProgress } from '../obs/progress.js';
+import { bytesOf } from '../obs/trace.js';
+import { closeTrace, openTrace, runInTrace, withSpan, type TraceRun } from '../obs/trace.js';
 import { graphFolder, mcpStateRoot } from './graph.js';
 import { join } from 'node:path';
 
@@ -32,15 +34,15 @@ export const REPO_MCP_INFO: { readonly name: string; readonly version: string } 
 export interface PendingRepository {
   readonly repository: string;
   readonly ready: Promise<RepositorySession>;
-  /** The fill's state so far, when the caller keeps a log: what the `graph building` answer says. */
-  readonly progress?: () => FillLogSnapshot;
+  /** The fill's state so far, read from its trace: what the `graph building` answer says. */
+  readonly progress?: () => FillProgress;
 }
 
 /** What answers the protocol: a session that is open, or one that is still opening. */
 export type RepositoryProvider = RepositorySession | PendingRepository;
 
 /** The answer a tool call gets while its graph is being built. */
-function buildingAnswer(repository: string, progress?: FillLogSnapshot): Record<string, unknown> {
+function buildingAnswer(repository: string, progress?: FillProgress): Record<string, unknown> {
   return {
     source: {
       repository, commit: null, branch: null, at: new Date().toISOString(), dirty: [], reextracted: [], building: true,
@@ -82,12 +84,22 @@ async function openSession(provider: RepositoryProvider): Promise<Opened> {
 }
 
 /** The result one tool call answers, whether its session is open, opening or failed. */
-async function answerCall(repository: string, provider: RepositoryProvider, tool: string, argumentsValue: unknown): Promise<{ answer: Record<string, unknown>; isError: boolean }> {
-  const opened = await openSession(provider);
-  if ('failure' in opened) return { answer: failedAnswer(repository, opened.failure), isError: true };
-  if ('opening' in opened) return { answer: buildingAnswer(repository, 'ready' in provider ? provider.progress?.() : undefined), isError: false };
-  const answered = await opened.session.call(tool, argumentsValue);
-  return { answer: answered.answer as Record<string, unknown>, isError: answered.isError };
+async function answerCall(repository: string, provider: RepositoryProvider, tool: string, argumentsValue: unknown, traced?: TraceRun): Promise<{ answer: Record<string, unknown>; isError: boolean }> {
+  const answer = async (): Promise<{ answer: Record<string, unknown>; isError: boolean }> => {
+    const opened = await openSession(provider);
+    if ('failure' in opened) return { answer: failedAnswer(repository, opened.failure), isError: true };
+    if ('opening' in opened) return { answer: buildingAnswer(repository, 'ready' in provider ? provider.progress?.() : undefined), isError: false };
+    const answered = await opened.session.call(tool, argumentsValue);
+    return { answer: answered.answer as Record<string, unknown>, isError: answered.isError };
+  };
+  if (traced === undefined) return await answer();
+  // Each tool call is one span of the server's own trace: the tool, whether it answered or failed, and the bytes it said.
+  return await runInTrace(traced, async () => await withSpan('mcp.tool', { 'mcp.tool': tool }, async (span) => {
+    const answered = await answer();
+    span.setAttribute('mcp.isError', answered.isError);
+    span.setAttribute('mcp.answerBytes', bytesOf(answered.answer));
+    return answered;
+  }));
 }
 
 /** What a run of the server reads and writes; the process's own streams unless a test names others. */
@@ -114,9 +126,10 @@ export async function serveRepositoryMcp(options: RepositoryMcpOptions): Promise
   const stderr = options.errorOutput ?? process.stderr;
   const log = (line: string): void => { stderr.write(`${line}\n`); };
   const folder = options.folder ?? graphFolder(options.repository, mcpStateRoot(options.env));
-  // Every durable fill event is written beside the graph as it happens, and the building answer and the
-  // standard error read the same snapshot: a person sees how far the fill is without opening the store.
-  const progress = new FillLog(join(folder, 'fill.log'), log);
+  // The fill's own trace is written beside the graph as it happens, and the building answer reads it: a
+  // person sees how far the fill is without opening the store. The server's own trace holds its tool calls.
+  const progress = (): FillProgress => readLatestFillProgress(join(folder, 'graph'));
+  const sessionTrace = openTrace({ store: join(folder, 'graph'), runId: `mcp-${String(process.pid)}` });
   const ready = RepositorySession.open({
     repository: options.repository,
     folder,
@@ -129,16 +142,17 @@ export async function serveRepositoryMcp(options: RepositoryMcpOptions): Promise
     const revision = session.current;
     log(`madarch mcp: serving ${revision.branch} at ${revision.commit.slice(0, 12)}${revision.dirty.length === 0 ? '' : ` with ${revision.dirty.length} changed file(s)`}; tools: ${REPO_TOOL_NAMES.join(', ')}`);
   }, (error: unknown) => { failure = error; log(error instanceof Error ? error.message : String(error)); });
-  const provider: PendingRepository = { repository: options.repository, ready, progress: () => progress.snapshot() };
+  const provider: PendingRepository = { repository: options.repository, ready, progress };
   try {
     await serveUnitMcp({
       tools: REPO_TOOLS as readonly McpToolDefinition[],
       info: REPO_MCP_INFO,
-      call: (tool, argumentsValue) => answerCall(options.repository, provider, tool, argumentsValue),
+      call: (tool, argumentsValue) => answerCall(options.repository, provider, tool, argumentsValue, sessionTrace),
       streams: { input: options.input ?? process.stdin, write: (text: string) => { (options.output ?? process.stdout).write(text); } },
     });
   } finally {
     await ready.then(async (session) => { await session.close(); }, () => undefined);
+    closeTrace(sessionTrace);
   }
   return failure === undefined ? 0 : 2;
 }

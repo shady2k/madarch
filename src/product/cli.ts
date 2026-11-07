@@ -44,6 +44,7 @@ import { startKnowledgeFill } from '../knowledge/fill-run.js';
 import { createPGliteDatabaseOwner } from '../adapters/database-owner.js';
 import { countPublishedFactsByKind } from '../fill/fact-store.js';
 import { createFillOrchestratorService, fillDatabasePath, type FillOrchestratorService, type FillRunResult } from '../fill/orchestrator-host.js';
+import { readTraceReport, renderTraceReport } from '../obs/trace-report.js';
 import { byCodePoint } from '../model/order.js';
 
 /** The compact command list shown after context-aware first-run guidance. */
@@ -228,6 +229,7 @@ export const HELP = [
   '  repo add   enter one code repository in the manifest and clone it',
   '  bootstrap  clone what the manifest declares into repos/<name>',
   '  fill-stages  run the eight deterministic stages over a product',
+  "  trace      say where one fill run's time went, from its trace",
   '  clone      clone a pushed product into the products home and bootstrap it',
   'options:',
   '  --home <folder>       demo, new, init, list and clone: the products home of this one command, over MADARCH_HOME',
@@ -239,6 +241,7 @@ export const HELP = [
   '  --no-open             print the address but do not open the browser',
   '  --run <id>            fill-stages only: the run to plan (one built from this moment by default)',
   '  --workers <n>         fill-stages only: units the run holds in hand at once (16 by default, 1 through 64)',
+  '  --store <folder>      trace only: the store whose traces to read (the fill store of the products home by default)',
   '  --steps <a,b>         fill-stages only: the steps of the one list to run, by id',
   '                        (repository-tree, repository-history; all of them, in dependency order, when left out)',
 ].join('\n');
@@ -248,7 +251,7 @@ interface CommandSpec {
   /** The positional words it takes, in order, by their label for the refusals. */
   positionals: readonly string[];
   /** The flags it takes, beside the ones they both share. */
-  flags: { home: boolean; product: boolean; port: boolean; open: boolean; branch: boolean; yes: boolean; source?: boolean; mode?: boolean; host?: boolean; run?: boolean; workers?: boolean; steps?: boolean };
+  flags: { home: boolean; product: boolean; port: boolean; open: boolean; branch: boolean; yes: boolean; source?: boolean; mode?: boolean; host?: boolean; run?: boolean; workers?: boolean; steps?: boolean; store?: boolean };
 }
 
 /** The specs the subcommands answer to, whole. */
@@ -270,6 +273,8 @@ export const COMMANDS: Record<string, CommandSpec> = {
   // One product's knowledge store, filled by the one orchestrator (decision 0033, item 1): the same fill the
   // wiki's button starts, over the store the wiki reads. It serves nothing and takes no agent.
   fill: { positionals: [], flags: { home: true, product: true, port: false, open: false, branch: false, yes: false, workers: true } },
+  // Where the time went, read from a run's trace and nothing else (madarch-8bdc.2.5, item 2).
+  trace: { positionals: [], flags: { home: true, product: false, port: false, open: false, branch: false, yes: false, store: true, run: true } },
   demo: { positionals: [], flags: { home: true, product: false, port: true, open: true, branch: false, yes: false, host: true } },
   init: { positionals: [], flags: { home: true, product: false, port: true, open: true, branch: false, yes: false } },
   new: { positionals: [], flags: { home: true, product: false, port: true, open: true, branch: false, yes: false } },
@@ -301,6 +306,7 @@ interface Parsed {
   run: string | undefined;
   workers: number | undefined;
   steps: readonly string[] | undefined;
+  store: string | undefined;
   json: boolean;
 }
 
@@ -318,6 +324,7 @@ function flagNamesFor(flags: CommandSpec['flags']): readonly string[] {
     ...(flags.run ? ['--run'] : []),
     ...(flags.workers ? ['--workers'] : []),
     ...(flags.steps ? ['--steps'] : []),
+    ...(flags.store ? ['--store'] : []),
     ...(flags.yes ? ['--yes'] : []),
   ];
 }
@@ -330,7 +337,7 @@ function flagNamesFor(flags: CommandSpec['flags']): readonly string[] {
  * Returns the parse, or the number of the exit a refusal needs.
  */
 function parse(spec: CommandSpec, given: readonly string[]): Parsed | number {
-  const parsed: Parsed = { words: [], home: undefined, product: undefined, port: undefined, open: true, branch: undefined, yes: false, source: undefined, mode: undefined, host: undefined, run: undefined, workers: undefined, steps: undefined, json: false };
+  const parsed: Parsed = { words: [], home: undefined, product: undefined, port: undefined, open: true, branch: undefined, yes: false, source: undefined, mode: undefined, host: undefined, run: undefined, workers: undefined, steps: undefined, store: undefined, json: false };
   const seen = new Set<string>();
   const flags = flagNamesFor(spec.flags).map((name) => `${name}${name === '--no-open' ? '' : ' <value>'}`).join(', ');
   for (let i = 0; i < given.length; i++) {
@@ -407,6 +414,14 @@ function parse(spec: CommandSpec, given: readonly string[]): Parsed | number {
       const problem = valueProblem('--host', value);
       if (problem !== undefined) { console.error(problem); console.error('run madarch --help for help'); return 2; }
       parsed.host = value!.trim();
+      continue;
+    }
+    if (name === '--store') {
+      if (!spec.flags.store) return unknownOption(arg, flags);
+      const value = flagValue();
+      const problem = valueProblem('--store', value);
+      if (problem !== undefined) { console.error(problem); console.error('run madarch --help for help'); return 2; }
+      parsed.store = value!.trim();
       continue;
     }
     if (name === '--workers') {
@@ -604,12 +619,12 @@ export async function main(args: readonly string[], deps: CliDeps = {}): Promise
     return 0;
   }
   if (command.startsWith('--')) {
-    console.error(`unknown option "${command}" before the subcommand: the subcommands are "new", "init", "demo", "serve", "start", "stop", "status", "list", "rename", "remote", "repo add", "bootstrap", "clone", "fill", "fill-stages", "version" and "upgrade"`);
+    console.error(`unknown option "${command}" before the subcommand: the subcommands are "new", "init", "demo", "serve", "start", "stop", "status", "list", "rename", "remote", "repo add", "bootstrap", "clone", "fill", "fill-stages", "trace", "version" and "upgrade"`);
     console.error('run madarch --help for help');
     return 2;
   }
   if (!(command in COMMANDS)) {
-    console.error(`unknown subcommand "${command}": the subcommands are "new", "init", "demo", "serve", "start", "stop", "status", "list", "rename", "remote", "repo add", "bootstrap", "clone", "fill", "fill-stages", "version" and "upgrade"`);
+    console.error(`unknown subcommand "${command}": the subcommands are "new", "init", "demo", "serve", "start", "stop", "status", "list", "rename", "remote", "repo add", "bootstrap", "clone", "fill", "fill-stages", "trace", "version" and "upgrade"`);
     console.error('run madarch --help for help');
     return 2;
   }
@@ -651,6 +666,7 @@ export async function main(args: readonly string[], deps: CliDeps = {}): Promise
     process.exit(code);
   }
   if (command === 'fill') return await fillCommand(parsed, home, args.slice(1));
+  if (command === 'trace') return traceCommand(parsed, home);
   if (command === 'fill-stages') return await fillStagesCommand(parsed, home);
   if (command === 'init') {
     const result = initLife({ cwd: process.cwd(), home });
@@ -772,6 +788,25 @@ async function fillStagesCommand(parsed: Parsed, home: string | undefined): Prom
     try { await owner.close(); } catch (error) { console.error(`the fill's database could not be closed: ${(error as Error).message}`); }
   }
   return exit;
+}
+
+/**
+ * `madarch trace`: where one run's time went, read from its trace and nothing
+ * else (madarch-8bdc.2.5, item 2). `--run` names the run, `--store` the folder
+ * its trace sits under; without either the newest trace of the products home's
+ * fill store is read.
+ */
+function traceCommand(parsed: Parsed, home: string | undefined): number {
+  const resolvedHome = resolve(productsHome(process.env as DraftEnv, home));
+  const store = resolve(parsed.store ?? fillDatabasePath(resolvedHome));
+  try {
+    const report = readTraceReport({ store, ...(parsed.run === undefined ? {} : { runId: parsed.run }) });
+    process.stdout.write(renderTraceReport(report));
+    return 0;
+  } catch (error) {
+    console.error(error instanceof Error ? error.message : String(error));
+    return 1;
+  }
 }
 
 /** One run's facts, one per line: the run, its units, the stages that found nothing, and the graph's facts by kind. */

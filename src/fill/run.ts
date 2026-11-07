@@ -10,6 +10,9 @@
  */
 import { tmpdir } from 'node:os';
 import { join, resolve } from 'node:path';
+import { closeTrace, openTrace, runInTrace, withSpan } from '../obs/trace.js';
+import { log } from '../obs/log.js';
+import { here } from './fsm-core.js';
 import { createFillOrchestratorService, type FillRunResult, type RefusedFillRun } from './orchestrator-host.js';
 import type { FillStageConfigurationRead } from './config.js';
 import { fillSteps, type RecordPassWiring } from './steps.js';
@@ -31,6 +34,12 @@ export interface RunFillOptions {
   readonly paths?: readonly string[];
   /** The run's id; a second press of one moment is one run. */
   readonly runId?: string;
+  /**
+   * The store the run's trace is kept under (`<store>/traces/<run>.jsonl`); the home
+   * folder when it is left out. A fill run always leaves its trace, whether it
+   * succeeds or fails.
+   */
+  readonly store?: string;
   /** The home folder the host keeps its own files under; a temporary folder when it is left out. */
   readonly home?: string;
   readonly clock?: () => number;
@@ -86,6 +95,34 @@ function narrowed(wiring: Awaited<ReturnType<typeof createStagesFill>>['wiring']
  */
 export async function runFill(options: RunFillOptions): Promise<FillRunResult | RefusedFillRun> {
   const product = resolve(options.product);
+  const runId = options.runId ?? `fill-${String(Date.now())}`;
+  const store = options.store ?? options.home ?? join(tmpdir(), 'madarch-fill-home');
+  const traced = openTrace({ store, runId });
+  const steps = [...(options.steps ?? fillSteps())];
+  try {
+    return await runInTrace(traced, async () => await withSpan('fill.run', {
+      'madarch.run': runId,
+      'madarch.product': product,
+      'madarch.steps': steps,
+      'madarch.workers': options.workers ?? 1,
+    }, async () => {
+      log.info('fill started', { runId, product, steps, store });
+      const answer = await runFillTraced(options, runId);
+      if (answer.ok) log.info('fill ended', { runId, state: answer.state, settled: answer.settled, units: answer.units.length, passes: answer.passes });
+      else log.error('fill was refused', { runId, code: answer.code, path: product }, new Error(answer.reason));
+      return answer;
+    }));
+  } catch (error) {
+    log.error('fill failed', { file: here(), path: product, runId }, error);
+    throw error;
+  } finally {
+    closeTrace(traced);
+  }
+}
+
+/** One fill with its run id settled by `runFill`: the work the trace surrounds. */
+async function runFillTraced(options: RunFillOptions, runId: string): Promise<FillRunResult | RefusedFillRun> {
+  const product = resolve(options.product);
   const wanted = new Set(options.steps ?? fillSteps());
   const held = new Set(fillSteps());
   const unknown = [...wanted].filter((step) => !held.has(step));
@@ -106,7 +143,7 @@ export async function runFill(options: RunFillOptions): Promise<FillRunResult | 
   });
   options.onService?.(service);
   try {
-    return await service.run({ product: fill.product, runId: options.runId ?? `fill-${String(Date.now())}` });
+    return await service.run({ product: fill.product, runId });
   } finally {
     await service.stop();
   }

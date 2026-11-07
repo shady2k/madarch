@@ -9,6 +9,7 @@
  * `/`-separated and relative to the repository root.
  */
 import { execFileSync } from 'node:child_process';
+import { withSpanSync } from '../obs/trace.js';
 import { existsSync, readFileSync } from 'node:fs';
 import { resolve } from 'node:path';
 
@@ -41,7 +42,12 @@ export interface Revision {
 /** Runs one git command in a repository and answers its bytes. */
 function gitBytes(repository: string, args: readonly string[]): Buffer {
   try {
-    return execFileSync('git', [...args], { cwd: repository, maxBuffer: 1 << 28, stdio: ['ignore', 'pipe', 'pipe'], env: { ...process.env, LC_ALL: 'C', GIT_OPTIONAL_LOCKS: '0' } });
+    return withSpanSync('process.git', { 'process.command': 'git', 'process.args': [...args], 'process.cwd': repository }, (span) => {
+      const answer = execFileSync('git', [...args], { cwd: repository, maxBuffer: 1 << 28, stdio: ['ignore', 'pipe', 'pipe'], env: { ...process.env, LC_ALL: 'C', GIT_OPTIONAL_LOCKS: '0' } });
+      span.setAttribute('process.outputBytes', answer.length);
+      span.setAttribute('process.exitCode', 0);
+      return answer;
+    });
   } catch (error) {
     const failure = error as { stderr?: Buffer | string; status?: number };
     const said = (failure.stderr === undefined ? '' : failure.stderr.toString()).trim();

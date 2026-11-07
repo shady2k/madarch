@@ -19,7 +19,8 @@ import { createPGliteDatabaseOwner, type DatabaseOwner } from '../adapters/datab
 import { createFillOrchestratorService } from '../fill/orchestrator-host.js';
 import { createOrchestratorSchema, readProgress } from '../fill/orchestrator-store.js';
 import { createFillStateSchema, readChain, readRun } from '../fill/state-store.js';
-import type { FillLog } from './fill-log.js';
+import type { FillProgress } from '../obs/progress.js';
+import { closeTrace, openTrace, runInTrace, withSpan, currentTrace } from '../obs/trace.js';
 import { canonicalJsonDigest } from '../model/canonical.js';
 import { declaredStagesDigest } from '../product/fill-stages.js';
 import { createGraphStore, type GraphStore } from '../graph/index.js';
@@ -211,11 +212,11 @@ async function nextRunId(owner: DatabaseOwner, base: string): Promise<string> {
  * The service is stopped before it is dropped: it owns the queue it declared in this database, and the graph's own
  * reader is opened after it, on the same owner.
  */
-async function fillRepositoryGraph(owner: DatabaseOwner, repository: string, folder: string, log: (line: string) => void, progress?: FillLog): Promise<FillOutcome> {
+async function fillRepositoryGraph(owner: DatabaseOwner, repository: string, folder: string, log: (line: string) => void, progress?: () => FillProgress): Promise<FillOutcome> {
+  void progress;
   const fill = await createRepositoryFill({ repository, database: owner });
   const service = createFillOrchestratorService({
     home: folder, owner, registry: fill.registry, wiring: () => fill.wiring, workers: 16, maxPasses: 100_000, log,
-    ...(progress === undefined ? {} : { sink: (event) => progress.sink(event) }),
   });
   // The run's identity names what the run was planned against: the commit, the stages' own versions and the
   // repository's resolved stage settings. A start with another engine or another manifest is a new run on the
@@ -245,26 +246,32 @@ async function fillRepositoryGraph(owner: DatabaseOwner, repository: string, fol
   }
   const runId = await nextRunId(owner, base);
   log(`madarch mcp: filling ${repository} as run ${runId}`);
+  // The run's trace is written beside the graph it builds, so the building answer reads what the run has
+  // done and a person can open `madarch trace` on the store after it.
+  const traced = openTrace({ store: join(folder, 'graph'), runId });
   try {
-    const result = await service.run({ product: fill.product, runId });
-    if (!result.ok) throw new Error(`${folder}:1: the fill of ${repository} was refused: ${result.code}: ${result.reason} (src/mcp/graph.ts)`);
-    const failed = result.units.filter((unit) => unit.state !== 'published' && unit.state !== 'superseded');
-    if (!result.settled) {
-      const named = failed.map((unit) => `${unit.unitId} (${unit.state})`);
-      throw new Error(`${folder}:1: the fill of ${repository} ended without settling${result.stoppedBecause === undefined ? '' : ` (${result.stoppedBecause})`}: ${named.length === 0 ? 'no unit names a failure' : named.join(', ')} (src/mcp/graph.ts)`);
-    }
-    // A run that settled short of success is served with what it published: decision 0033 (items 18 and 19)
-    // reports partial coverage, and a unit's failure is its own while the other units' work stands. The
-    // reason a unit did not publish is read from the run's own durable events, never guessed from its state.
-    const reasons = new Map<string, string>();
-    for (const event of await readProgress(owner, result.runId)) {
-      if (event.unitId !== '' && (event.kind === 'unit-failed' || event.kind === 'unit-blocked')) reasons.set(event.unitId, event.summary);
-    }
-    return {
-      state: result.state,
-      failed: failed.map((unit) => ({ unitId: unit.unitId, state: unit.state, reason: reasons.get(unit.unitId) ?? `the unit ended ${unit.state}` })),
-    };
+    return await runInTrace(traced, async () => await withSpan('fill.run', { 'madarch.run': runId, 'madarch.repository': repository, 'madarch.entry': 'mcp' }, async () => {
+      const result = await service.run({ product: fill.product, runId });
+      if (!result.ok) throw new Error(`${folder}:1: the fill of ${repository} was refused: ${result.code}: ${result.reason} (src/mcp/graph.ts)`);
+      const failed = result.units.filter((unit) => unit.state !== 'published' && unit.state !== 'superseded');
+      if (!result.settled) {
+        const named = failed.map((unit) => `${unit.unitId} (${unit.state})`);
+        throw new Error(`${folder}:1: the fill of ${repository} ended without settling${result.stoppedBecause === undefined ? '' : ` (${result.stoppedBecause})`}: ${named.length === 0 ? 'no unit names a failure' : named.join(', ')} (src/mcp/graph.ts)`);
+      }
+      // A run that settled short of success is served with what it published: decision 0033 (items 18 and 19)
+      // reports partial coverage, and a unit's failure is its own while the other units' work stands. The
+      // reason a unit did not publish is read from the run's own durable events, never guessed from its state.
+      const reasons = new Map<string, string>();
+      for (const event of await readProgress(owner, result.runId)) {
+        if (event.unitId !== '' && (event.kind === 'unit-failed' || event.kind === 'unit-blocked')) reasons.set(event.unitId, event.summary);
+      }
+      return {
+        state: result.state,
+        failed: failed.map((unit) => ({ unitId: unit.unitId, state: unit.state, reason: reasons.get(unit.unitId) ?? `the unit ended ${unit.state}` })),
+      };
+    }));
   } finally {
+    closeTrace(traced);
     await service.stop();
   }
 }
@@ -288,8 +295,8 @@ export async function openRepositoryGraph(options: {
   readonly folder?: string | undefined;
   readonly env?: Readonly<Record<string, string | undefined>>;
   readonly log?: (line: string) => void;
-  /** The fill's own log, when the caller keeps one: every durable event reaches it as it is committed. */
-  readonly progress?: FillLog | undefined;
+  /** The fill's own progress, read from its trace by the caller that reports it. */
+  readonly progress?: (() => FillProgress) | undefined;
 }): Promise<RepositoryGraph> {
   const repository = resolve(options.repository);
   const folder = resolve(options.folder ?? graphFolder(repository, mcpStateRoot(options.env)));

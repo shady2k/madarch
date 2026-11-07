@@ -22,6 +22,7 @@ import { mkdir } from 'node:fs/promises';
 import { dirname, join } from 'node:path';
 import { createPGliteDatabaseOwner, type DatabaseOwner } from '../adapters/database-owner.js';
 import { byCodePoint } from '../model/order.js';
+import { withSpan } from '../obs/trace.js';
 import { readProduct } from '../product/manifest.js';
 import { runningVersion } from '../product/version.js';
 import { createPgBossQueue } from '../adapters/pg-boss-queue.js';
@@ -485,18 +486,23 @@ export function createFillOrchestratorService(options: FillOrchestratorServiceOp
       // never inside a publication's transaction (`ensureGraph`).
       const graph = createGraphStore(database);
       graphStore = graph;
-      const queue = options.queueFactory !== undefined
-        ? await options.queueFactory(database)
-        : await createPgBossQueue({ owner: database });
-      // The unit's own accounting carries its retries, so the queue retries nothing itself: a settlement
-      // here says the attempt is over, and a retry is the orchestrator's own enqueue at its own moment.
-      await queue.declare({
-        name: queueName,
-        leaseSeconds: Math.max(1, Math.ceil(limits.leaseMs / 1000)),
-        retries: 0,
-        retryDelaySeconds: 0,
-        retryBackoff: false,
-        singletons: true,
+      // The queue's own tables and its declaration are one span: their statements are the queue adapter's, not
+      // the storage layer's, and this is where a fill pays for them.
+      const queue = await withSpan('fill.queue', { 'madarch.queue': queueName }, async () => {
+        const opened = options.queueFactory !== undefined
+          ? await options.queueFactory(database)
+          : await createPgBossQueue({ owner: database });
+        // The unit's own accounting carries its retries, so the queue retries nothing itself: a settlement
+        // here says the attempt is over, and a retry is the orchestrator's own enqueue at its own moment.
+        await opened.declare({
+          name: queueName,
+          leaseSeconds: Math.max(1, Math.ceil(limits.leaseMs / 1000)),
+          retries: 0,
+          retryDelaySeconds: 0,
+          retryBackoff: false,
+          singletons: true,
+        });
+        return opened;
       });
       return { owner: database, queue, graph, opened: lent === undefined };
     })();
@@ -1028,19 +1034,23 @@ async function fileDecision(
       return await units.call(request);
     },
     async run(request: FillRunRequest): Promise<FillRunResult | RefusedFillRun> {
-      const built = await orchestratorFor(request.product);
+      const built = await withSpan('fill.ready', { 'madarch.product': request.product.name }, async () => await orchestratorFor(request.product));
       if ('ok' in built) return built;
       const orchestrator = built;
       if (request.resume === true) await resumeRun(orchestrator, { runId: request.runId });
-      const started = await startRun(orchestrator, { runId: request.runId });
+      const started = await withSpan('fill.start', { 'madarch.run': request.runId }, async () => await startRun(orchestrator, { runId: request.runId }));
       if (!started.ok) return { ok: false, code: started.code, reason: started.reason };
-      const planned = await planRun(orchestrator, { runId: request.runId });
+      const planned = await withSpan('fill.plan', { 'madarch.run': request.runId }, async (span) => {
+        const held = await planRun(orchestrator, { runId: request.runId });
+        span.setAttribute('madarch.outcome', held.outcome);
+        return held;
+      });
       if (planned.outcome === 'refused') return { ok: false, code: planned.code, reason: planned.reason };
-      const driven = await driveFor(orchestrator, {
+      const driven = await withSpan('fill.drive', { 'madarch.run': request.runId, 'madarch.workers': request.workers ?? options.workers ?? 1 }, async () => await driveFor(orchestrator, {
         runId: request.runId,
         workers: request.workers ?? options.workers ?? 1,
         ...(request.maxPasses === undefined && options.maxPasses === undefined ? {} : { maxPasses: request.maxPasses ?? options.maxPasses }),
-      });
+      }));
       // The pages outbox, after the run settled (0027: a separate idempotent step): every page the run's
       // narrative units published is carried into the product's git here, never inside a publication. A
       // registry without the pages stage — every run without an agent today — carries nothing, and pays

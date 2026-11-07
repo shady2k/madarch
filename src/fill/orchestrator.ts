@@ -44,6 +44,7 @@ import type { DatabaseOwner } from '../adapters/database-owner.js';
 import { canonicalJsonDigest } from '../model/canonical.js';
 import type { SqlExecutor } from '../query/sql-driver.js';
 import { byCodePoint } from '../model/order.js';
+import { annotateSpan, withSpan } from '../obs/trace.js';
 import type { FillControl } from '../product/fill-runtime.js';
 import { hashFillInputs } from '../product/fill-runtime.js';
 import { here, raise, withLocation } from './fsm-core.js';
@@ -834,6 +835,22 @@ async function planStageUnits(
   orchestrator: FillOrchestrator,
   options: { readonly run: RunRecord; readonly graph: DerivedStageGraph; readonly stageId: string; readonly stagePosition: number; readonly at: number },
 ): Promise<StagePlanOutcome & { readonly refusal?: PlanRefusal }> {
+  // One step of the fill is one span: the stage's plan and every unit it recorded, under the step's name.
+  return await withSpan('fill.step', { 'madarch.step': options.stageId, 'madarch.run': options.run.runId }, async (span) => {
+    const answer = await planStageUnitsSpanned(orchestrator, options);
+    span.setAttribute('madarch.units', answer.units.length);
+    span.setAttribute('madarch.reused', answer.reused.length);
+    if (answer.foundNothing) span.setAttribute('madarch.found', 'nothing');
+    if (answer.refusal !== undefined) span.setAttribute('madarch.refusal', answer.refusal.code);
+    return answer;
+  });
+}
+
+/** One stage's planning wave, with the step's span already around it. */
+async function planStageUnitsSpanned(
+  orchestrator: FillOrchestrator,
+  options: { readonly run: RunRecord; readonly graph: DerivedStageGraph; readonly stageId: string; readonly stagePosition: number; readonly at: number },
+): Promise<StagePlanOutcome & { readonly refusal?: PlanRefusal }> {
   const database = orchestrator.database;
   const { run, graph, stageId, stagePosition, at } = options;
   const units: PlannedUnit[] = [];
@@ -1385,23 +1402,15 @@ export interface WorkOutcome {
  */
 export async function workOnce(orchestrator: FillOrchestrator, options: { readonly worker: string }): Promise<WorkOutcome> {
   const database = orchestrator.database;
-  const claimAt = performance.now();
-  const claimed = await orchestrator.queue.claim<{ unitId: string; generation: number }>({ queue: orchestrator.queueName, limit: 1 });
-  const claimMs = performance.now() - claimAt;
+  const claimed = await withSpan('attempt.read', { 'madarch.phase': 'claim' }, async () => await orchestrator.queue.claim<{ unitId: string; generation: number }>({ queue: orchestrator.queueName, limit: 1 }));
   const job = claimed[0];
-  if (job === undefined) {
-    if (claimMs > 1_000) await emit(orchestrator, { runId: '', at: orchestrator.clock(), stage: '', unitId: '', generation: null, kind: 'work-timing', summary: JSON.stringify({ where: 'claim-empty', ms: Math.round(claimMs) }) });
-    return { claimed: false, job: 'none' };
-  }
+  if (job === undefined) return { claimed: false, job: 'none' };
   const data = job.data;
   if (data === null || typeof data !== 'object' || typeof data.unitId !== 'string' || !Number.isInteger(data.generation)) {
     await orchestrator.queue.complete(orchestrator.queueName, job, { reason: 'the job carries no unit identity' });
     return { claimed: true, result: 'refused', refusal: { code: 'fill-orchestrator/job-malformed', reason: `fill-orchestrator: the claimed job ${job.id} carries ${JSON.stringify(data)}, which names no unit generation` }, job: 'completed' };
   }
-  const readAt = performance.now();
-  const unit = await readUnit(database, data.unitId);
-  const readMs = performance.now() - readAt;
-  if (readMs > 1_000) await emit(orchestrator, { runId: unit?.runId ?? '', at: orchestrator.clock(), stage: unit?.stageId ?? '', unitId: data.unitId, generation: data.generation, kind: 'work-timing', summary: JSON.stringify({ where: 'read', ms: Math.round(readMs) }) });
+  const unit = await withSpan('attempt.read', { 'madarch.unit': data.unitId, 'madarch.generation': data.generation }, async () => await readUnit(database, data.unitId));
   if (unit === null) {
     await orchestrator.queue.complete(orchestrator.queueName, job, { reason: 'no such unit' });
     return { claimed: true, unitId: data.unitId, generation: data.generation, result: 'nothing-to-do', summary: 'the unit is not recorded', job: 'completed' };
@@ -1427,13 +1436,7 @@ export async function workOnce(orchestrator: FillOrchestrator, options: { readon
     await emit(orchestrator, { runId: unit.runId, at, stage: unit.stageId, unitId: unit.unitId, generation: unit.generation, kind: 'unit-retried', summary: `${unit.unitId} is runnable again` });
     return await attemptUnit(orchestrator, { worker: options.worker, job, unit: step.record });
   }
-  if (unit.state === 'ready') {
-    const attemptAt = performance.now();
-    const outcome = await attemptUnit(orchestrator, { worker: options.worker, job, unit });
-    const attemptMs = performance.now() - attemptAt;
-    if (attemptMs > 1_000) await emit(orchestrator, { runId: unit.runId, at: orchestrator.clock(), stage: unit.stageId, unitId: unit.unitId, generation: unit.generation, kind: 'work-timing', summary: JSON.stringify({ where: 'attempt', ms: Math.round(attemptMs) }) });
-    return outcome;
-  }
+  if (unit.state === 'ready') return await attemptUnit(orchestrator, { worker: options.worker, job, unit });
   if (unit.state === 'waiting_children') {
     const plan = await planOf(orchestrator, unit);
     const settled = await settleJoin(orchestrator, { unit, plan, runId: unit.runId, at });
@@ -1510,15 +1513,36 @@ async function takeAttemptStep(
   return { ok: false, outcome: await refusedStep(orchestrator, { unit: request.unit, step: request.step, job: request.job, refusal: step.refusal }) };
 }
 
-/** Runs one attempt of a ready unit: lease it, start it, run its stage and follow the outcome. */
+/**
+ * Runs one attempt of a ready unit inside the unit's span: the phases below it
+ * (execute, draft, validate, publish) are its children, and the result the
+ * attempt ended with is the span's own attribute, so the trace says what the
+ * unit did without a second record.
+ */
 async function attemptUnit(
+  orchestrator: FillOrchestrator,
+  request: { readonly worker: string; readonly job: ClaimedJob<{ unitId: string; generation: number }>; readonly unit: UnitRecord },
+): Promise<WorkOutcome> {
+  return await withSpan('fill.unit', {
+    'madarch.unit': request.unit.unitId,
+    'madarch.stage': request.unit.stageId,
+    'madarch.generation': request.unit.generation,
+    'madarch.attempt': request.unit.context.attempt,
+  }, async (span) => {
+    const outcome = await attemptUnitPhases(orchestrator, request);
+    span.setAttribute('madarch.outcome', outcome.result ?? 'none');
+    return outcome;
+  });
+}
+
+/** One attempt's phases, each its own span, under the unit's span. */
+async function attemptUnitPhases(
   orchestrator: FillOrchestrator,
   request: { readonly worker: string; readonly job: ClaimedJob<{ unitId: string; generation: number }>; readonly unit: UnitRecord },
 ): Promise<WorkOutcome> {
   const database = orchestrator.database;
   const unit = request.unit;
   const stage = stageOf(orchestrator, unit.stageId);
-  const setupAt = performance.now();
   const plan = await planOf(orchestrator, unit);
   const at = orchestrator.clock();
   // The queue's own answer first, before this attempt takes anything: a claim the queue already handed to
@@ -1543,8 +1567,6 @@ async function attemptUnit(
   const writes: StageDraftWrite[] = [];
   const notes: { note: string; fraction: number | null; at: number }[] = [];
   const reader = await orchestrator.graph(unitRef(unit, plan));
-  const setupMs = performance.now() - setupAt;
-  if (setupMs > 1_000) await emit(orchestrator, { runId: unit.runId, at: orchestrator.clock(), stage: unit.stageId, unitId: unit.unitId, generation: unit.generation, kind: 'work-timing', summary: JSON.stringify({ where: 'setup', ms: Math.round(setupMs) }) });
   const draftWriter: StageDraftWriter = {
     write: (entry: StageDraftWrite) => { writes.push(entry); },
     writes: (): StageDraftSet => ({ writes }),
@@ -1636,10 +1658,11 @@ async function attemptUnit(
       },
       signal: controller.signal,
     };
-    const executeAt = performance.now();
-    result = await stage.execute({ id: plan.stageUnitId, scope: plan.scope }, context);
-    const executeMs = performance.now() - executeAt;
-    if (executeMs > 1_000) await emit(orchestrator, { runId: unit.runId, at: orchestrator.clock(), stage: unit.stageId, unitId: unit.unitId, generation: unit.generation, kind: 'work-timing', summary: JSON.stringify({ where: 'execute', ms: Math.round(executeMs) }) });
+    result = await withSpan('attempt.execute', { 'madarch.unit': unit.unitId, 'madarch.stage': unit.stageId }, async (executeSpan) => {
+      const answered = await stage.execute({ id: plan.stageUnitId, scope: plan.scope }, context as StageContext);
+      executeSpan.setAttribute('madarch.outcome', answered.outcome);
+      return answered;
+    });
   } catch (error) {
     raised = error as Error;
   } finally {
@@ -1671,7 +1694,11 @@ async function attemptUnit(
   if (!drafted.ok) return drafted.outcome;
   let recorded: Awaited<ReturnType<typeof recordUnitDraft>>;
   try {
-    recorded = await recordUnitDraft(database, { unitId: unit.unitId, generation: unit.generation, writes, at: orchestrator.clock() });
+    recorded = await withSpan('attempt.draft', { 'madarch.unit': unit.unitId, 'madarch.writes': writes.length }, async (draftSpan) => {
+      const held = await recordUnitDraft(database, { unitId: unit.unitId, generation: unit.generation, writes, at: orchestrator.clock() });
+      draftSpan.setAttribute('madarch.writes', held.digest.length === 0 ? 0 : writes.length);
+      return held;
+    });
   } catch (error) {
     // A draft the store could not record is this unit's failure: the run keeps the other units' work and
     // spends this generation's retries (decision 0033, items 18, 19 and 27), never the process.
@@ -1684,16 +1711,17 @@ async function attemptUnit(
   if (!validating.ok) return validating.outcome;
   await emit(orchestrator, { runId: unit.runId, at: orchestrator.clock(), stage: unit.stageId, unitId: unit.unitId, generation: unit.generation, kind: 'unit-validating', summary: `${unit.unitId} validates its draft` });
 
-  const validateAt = performance.now();
   let validation: Awaited<ReturnType<typeof stage.validate>>;
   try {
-    validation = await stage.validate({ writes }, attemptReader);
+    validation = await withSpan('attempt.validate', { 'madarch.unit': unit.unitId, 'madarch.writes': writes.length }, async (validateSpan) => {
+      const held = await stage.validate({ writes }, attemptReader);
+      validateSpan.setAttribute('madarch.valid', held.ok);
+      return held;
+    });
   } catch (error) {
     const reason = `the validation of "${unit.unitId}" generation ${unit.generation} raised: ${messageOf(error)}`;
     return await retryAttempt(orchestrator, { unit, fence, job: request.job, cause: 'validation-problem', reason, summary: reason });
   }
-  const validateMs = performance.now() - validateAt;
-  if (validateMs > 1_000) await emit(orchestrator, { runId: unit.runId, at: orchestrator.clock(), stage: unit.stageId, unitId: unit.unitId, generation: unit.generation, kind: 'work-timing', summary: JSON.stringify({ where: 'validate', ms: Math.round(validateMs) }) });
   if (!validation.ok) {
     return await retryAttempt(orchestrator, {
       unit: validating.record, fence, job: request.job, cause: 'validation-problem',
@@ -1701,11 +1729,11 @@ async function attemptUnit(
       summary: `${unit.unitId} was refused by validation: ${validation.errors.join('; ')}`,
     });
   }
-  const publishAt = performance.now();
-  const published = await publishAttempt(orchestrator, { unit: validating.record, plan, fence, job: request.job, reader, stage, held: { digest: recorded.digest, writes } });
-  const publishMs = performance.now() - publishAt;
-  if (publishMs > 1_000) await emit(orchestrator, { runId: unit.runId, at: orchestrator.clock(), stage: unit.stageId, unitId: unit.unitId, generation: unit.generation, kind: 'work-timing', summary: JSON.stringify({ where: 'publish', ms: Math.round(publishMs) }) });
-  return published;
+  return await withSpan('attempt.publish', { 'madarch.unit': unit.unitId, 'madarch.generation': unit.generation }, async (publishSpan) => {
+    const published = await publishAttempt(orchestrator, { unit: validating.record, plan, fence, job: request.job, reader, stage, held: { digest: recorded.digest, writes } });
+    publishSpan.setAttribute('madarch.outcome', published.result ?? 'none');
+    return published;
+  });
 }
 
 /**
@@ -1744,10 +1772,14 @@ async function publishAttempt(
   let revalidateReads = 0;
   let applyMs = 0;
   let publicationReader: UnitGraphReader | undefined;
-  const transactionAt = performance.now();
-  const emitTiming = async (): Promise<void> => {
-    const total = performance.now() - transactionAt;
-    if (total > 1_000) await emit(orchestrator, { runId: unit.runId, at: orchestrator.clock(), stage: unit.stageId, unitId: unit.unitId, generation: unit.generation, kind: 'work-timing', summary: JSON.stringify({ where: 'publication', total: Math.round(total), draftMs: Math.round(draftMs), revalidateMs: Math.round(revalidateMs), reads: revalidateReads, applyMs: Math.round(applyMs) }) });
+  // What the publication cost, as the publish span's own fields: a statement's time is its own span.
+  const annotatePublication = (): void => {
+    annotateSpan({
+      'madarch.publication.draftMs': Math.round(draftMs),
+      'madarch.publication.revalidateMs': Math.round(revalidateMs),
+      'madarch.publication.reads': revalidateReads,
+      'madarch.publication.applyMs': Math.round(applyMs),
+    });
   };
   try {
     outcome = await ownTransaction(here(), orchestrator, `publishUnit(${unit.unitId}/${unit.generation})`, ['fill_publication', 'fill_unit_read', 'fill_unit_draft', 'fill_unit_draft_part', 'fill_unit_lease', 'fill_unit_generation'], async (transaction) => {
@@ -1789,7 +1821,7 @@ async function publishAttempt(
       return { publication, settled: false };
     });
   } catch (error) {
-    await emitTiming();
+    annotatePublication();
     if (isSerializationFailure(error)) {
       const reason = `the publication of "${unit.unitId}" generation ${unit.generation} lost its snapshot to a concurrent writer (${messageOf(error)}); the attempt is retried against the store as it now stands`;
       return await retryAttempt(orchestrator, { unit, fence: request.fence, job: request.job, cause: 'validation-problem', reason, summary: reason });
@@ -1803,7 +1835,7 @@ async function publishAttempt(
     return await retryAttempt(orchestrator, { unit, fence: request.fence, job: request.job, cause: 'validation-problem', reason, summary: reason });
   }
 
-  await emitTiming();
+  annotatePublication();
   if (outcome.publication.outcome === 'published') {
     // The record's own digest, not the one this attempt computed before the transaction: they are the
     // same publication, and everything the run says about it afterwards names what it really wrote.
@@ -2718,7 +2750,16 @@ export async function driveRun(
   if (run === null) raise(`no run ${options.runId} is recorded`);
   while (passes < maxPasses) {
     passes += 1;
-    const pass = await schedulerPass(orchestrator, { runId: run.runId });
+    // One span per pass of the scheduler: what the pass held, what it admitted and swept, and what its claims cost.
+    const pass = await withSpan('scheduler.pass', { 'madarch.pass': passes }, async (span) => {
+      const held = await schedulerPass(orchestrator, { runId: options.runId });
+      span.setAttribute('madarch.units', held.units);
+      span.setAttribute('madarch.admitted', held.admitted);
+      span.setAttribute('madarch.swept', held.swept);
+      span.setAttribute('madarch.state', held.run.state);
+      for (const [phase, value] of Object.entries(held.phases)) span.setAttribute(`madarch.phase.${phase}`, Math.round(value));
+      return held;
+    });
     run = pass.run;
     reused.push(...pass.reused);
     foundNothing.push(...pass.foundNothing);
@@ -2737,9 +2778,7 @@ export async function driveRun(
       work += 1;
     }
     const workMs = performance.now() - workStarted;
-    // Every pass records what it cost and what the run held: a pass whose time grows with the run rather
-    // than with the work due in it is visible in the log beside the store and in the MCP's own progress.
-    await emit(orchestrator, { runId: run.runId, at: orchestrator.clock(), stage: '', unitId: '', generation: null, kind: 'pass-timing', summary: JSON.stringify({ pass: passes, units: pass.units, ms: Math.round(pass.ms), admitted: pass.admitted, claimed: claimedThisPass, workMs: Math.round(workMs), phases: pass.phases }) });
+    annotateSpan({ 'madarch.claimed': claimedThisPass, 'madarch.workMs': Math.round(workMs) });
     if ((TERMINAL_RUN_STATES as readonly string[]).includes(run.state)) return { run, passes, work, settled: true, reused, foundNothing, refused };
     if (claimedThisPass === 0 && !pass.moved) {
       // A pass that moved nothing while the run still owes work is a run held by a state its own claims cannot

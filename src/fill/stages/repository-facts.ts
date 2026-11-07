@@ -12,8 +12,9 @@
  * each over the whole repository and a unit per file would pay a lease, a work
  * item and a publication for every path of a tree one statement listed.
  */
-import { execFileSync } from 'node:child_process';
+import { StringDecoder } from 'node:string_decoder';
 import * as languages from 'linguist-languages';
+import { withSpan } from '../../obs/trace.js';
 import { Type } from 'typebox';
 import { byCodePoint } from '../../model/order.js';
 import type { SnapshotSource } from '../snapshot.js';
@@ -33,28 +34,86 @@ export interface RepositoryAt {
   readonly defaultBranch?: string;
 }
 
-/** The most bytes one git answer may hold; past it the pass is refused rather than silently cut. */
-const GIT_BUFFER = 512 * 1024 * 1024;
+/** The most bytes of git's standard error one failure may name; the rest is cut and said to be cut. */
+const GIT_ERROR_BYTES = 4_000;
 
-/** Runs one git command in a checkout and answers its bytes, refused by name where git fails. */
-function gitBytes(root: string, args: readonly string[]): Buffer {
-  try {
-    return execFileSync('git', args, { cwd: root, maxBuffer: GIT_BUFFER, stdio: ['ignore', 'pipe', 'pipe'] });
-  } catch (error) {
-    const message = error instanceof Error ? error.message : String(error);
-    throw new Error(`the repository at ${root} could not run "git ${args.join(' ')}": ${message} (src/fill/stages/repository-facts.ts)`);
-  }
+/**
+ * Runs one git command in a checkout and hands its standard output to `onChunk`
+ * as it arrives, so a history of a million entries is read once and never stands
+ * in memory whole. The span names the command, its arguments and the bytes it
+ * answered; it never holds those bytes.
+ */
+async function gitStream(root: string, args: readonly string[], onChunk: (chunk: Uint8Array) => void, options: { readonly input?: string } = {}): Promise<number> {
+  return await withSpan('process.git', {
+    'process.command': 'git',
+    'process.args': [...args],
+    'process.cwd': root,
+  }, async (span) => {
+    let process_: ReturnType<typeof Bun.spawn>;
+    try {
+      process_ = Bun.spawn(['git', ...args], {
+        cwd: root,
+        stdin: options.input === undefined ? 'ignore' : new TextEncoder().encode(options.input),
+        stdout: 'pipe',
+        stderr: 'pipe',
+        env: { ...process.env, LC_ALL: 'C', GIT_OPTIONAL_LOCKS: '0' },
+      });
+    } catch (error) {
+      throw new Error(`the repository at ${root} could not run "git ${args.join(' ')}": ${error instanceof Error ? error.message : String(error)} (src/fill/stages/repository-facts.ts)`);
+    }
+    const errors: Uint8Array[] = [];
+    const drained = (async () => { for await (const chunk of process_.stderr as ReadableStream<Uint8Array>) errors.push(chunk); })();
+    let bytes = 0;
+    for await (const chunk of process_.stdout as ReadableStream<Uint8Array>) {
+      bytes += chunk.byteLength;
+      onChunk(chunk);
+    }
+    await drained;
+    const code = await process_.exited;
+    span.setAttribute('process.outputBytes', bytes);
+    span.setAttribute('process.exitCode', code);
+    if (code !== 0) {
+      const message = Buffer.concat(errors.map((one) => Buffer.from(one))).toString('utf8').trim();
+      throw new Error(`the repository at ${root} could not run "git ${args.join(' ')}": git exited ${String(code)}${message === '' ? '' : `: ${message.slice(0, GIT_ERROR_BYTES)}${message.length > GIT_ERROR_BYTES ? ' (cut)' : ''}`} (src/fill/stages/repository-facts.ts)`);
+    }
+    return bytes;
+  });
 }
 
-/** One git answer as text. */
-function gitText(root: string, args: readonly string[]): string {
-  return gitBytes(root, args).toString('utf8');
+/** One git answer as text, for the small answers (a commit's tree id, a yes or a no). */
+async function gitText(root: string, args: readonly string[]): Promise<string> {
+  const parts: Buffer[] = [];
+  await gitStream(root, args, (chunk) => parts.push(Buffer.from(chunk)));
+  return Buffer.concat(parts).toString('utf8');
+}
+
+/**
+ * A NUL-separated stream, split as it arrives: the decoder keeps a character
+ * that arrived in two chunks whole, and the remainder keeps a record that is
+ * not finished yet.
+ */
+function nullSplit(): { push(chunk: Uint8Array): string[]; done(): string[] } {
+  const decoder = new StringDecoder('utf8');
+  let rest = '';
+  return {
+    push(chunk: Uint8Array): string[] {
+      const text = rest + decoder.write(Buffer.from(chunk));
+      const parts = text.split('\u0000');
+      rest = parts.pop() ?? '';
+      return parts;
+    },
+    done(): string[] {
+      const text = rest + decoder.end();
+      rest = '';
+      return text === '' ? [] : text.split('\u0000');
+    },
+  };
 }
 
 /** The empty tree's id, the base `git diff` compares a commit against: git's own answer, once per process. */
-let emptyTree: string | undefined;
-function emptyTreeOf(root: string): string {
-  emptyTree ??= gitText(root, ['hash-object', '-t', 'tree', '/dev/null']).trim();
+let emptyTree: Promise<string> | undefined;
+function emptyTreeOf(root: string): Promise<string> {
+  emptyTree ??= gitText(root, ['hash-object', '-t', 'tree', '/dev/null']).then((text) => text.trim());
   return emptyTree;
 }
 
@@ -104,11 +163,13 @@ export function languageOfPath(path: string): { language: string; candidates: re
 }
 
 /** The `linguist-language` overrides one tree states, read by git's own attribute parser in one call. */
-function languageOverridesAt(root: string, commit: string, paths: readonly string[]): Map<string, string> {
+async function languageOverridesAt(root: string, commit: string, paths: readonly string[]): Promise<Map<string, string>> {
   const out = new Map<string, string>();
   if (paths.length === 0) return out;
-  const answer = execFileSync('git', ['check-attr', '--stdin', '-z', `--source=${commit}`, 'linguist-language'], { cwd: root, input: `${paths.join('\u0000')}\u0000`, maxBuffer: GIT_BUFFER, stdio: ['pipe', 'pipe', 'pipe'] });
-  const parts = answer.toString('utf8').split('\u0000');
+  const split = nullSplit();
+  const parts: string[] = [];
+  await gitStream(root, ['check-attr', '--stdin', '-z', `--source=${commit}`, 'linguist-language'], (chunk) => { for (const part of split.push(chunk)) parts.push(part); }, { input: `${paths.join('\u0000')}\u0000` });
+  for (const part of split.done()) parts.push(part);
   for (let at = 0; at + 2 < parts.length; at += 3) {
     const path = parts[at]!;
     const value = parts[at + 2]!;
@@ -128,31 +189,47 @@ interface TreeEntry {
   readonly path: string;
 }
 
+/** One entry of `git ls-tree -r -l -z`, or nothing where the record is not one. */
+function treeEntryOf(chunk: string): TreeEntry | undefined {
+  if (chunk === '') return undefined;
+  const tab = chunk.indexOf('\t');
+  if (tab < 0) return undefined;
+  const [mode, type, blob, size] = chunk.slice(0, tab).split(/\s+/);
+  if (mode === undefined || type === undefined || blob === undefined) return undefined;
+  return { mode, type, blob, size: size === '-' || size === undefined ? null : Number(size), path: chunk.slice(tab + 1) };
+}
+
 /** Reads one repository's tree at one commit: `ls-tree -r -l` for the entries, one `diff --numstat` for text, lines and sizes. */
 export async function readRepositoryTree(pin: RepositoryAt): Promise<TreePublish> {
   const gaps: { what: string; reason: 'non-utf8-path' | 'shallow-history' | 'unreadable' }[] = [];
-  const rawTree = gitBytes(pin.root, ['ls-tree', '-r', '-l', '-z', pin.commit]);
   const entries: TreeEntry[] = [];
-  for (const chunk of rawTree.toString('utf8').split('\u0000')) {
-    if (chunk === '') continue;
-    const tab = chunk.indexOf('\t');
-    if (tab < 0) continue;
-    const [mode, type, blob, size] = chunk.slice(0, tab).split(/\s+/);
-    const path = chunk.slice(tab + 1);
-    entries.push({ mode: mode!, type: type!, blob: blob!, size: size === '-' ? null : Number(size), path });
+  const treeSplit = nullSplit();
+  await gitStream(pin.root, ['ls-tree', '-r', '-l', '-z', pin.commit], (chunk) => {
+    for (const part of treeSplit.push(chunk)) {
+      const entry = treeEntryOf(part);
+      if (entry !== undefined) entries.push(entry);
+    }
+  });
+  for (const part of treeSplit.done()) {
+    const entry = treeEntryOf(part);
+    if (entry !== undefined) entries.push(entry);
   }
   // Git's own text-or-binary answer and its line count, in one call over the whole tree against the
   // empty tree: the added count is the file's own line count, and `-` is a blob git calls binary.
-  const numstat = gitBytes(pin.root, ['diff', '--numstat', '--no-renames', '-z', emptyTreeOf(pin.root), pin.commit]);
   const text = new Map<string, { added: number | null; removed: number | null }>();
-  for (const chunk of numstat.toString('utf8').split('\u0000')) {
-    if (chunk === '') continue;
+  const numstatSplit = nullSplit();
+  const takeNumstat = (chunk: string): void => {
+    if (chunk === '') return;
     const parts = chunk.split('\t');
-    if (parts.length < 3) continue;
+    if (parts.length < 3) return;
     text.set(parts[2]!, { added: parts[0] === '-' ? null : Number(parts[0]), removed: parts[1] === '-' ? null : Number(parts[1]) });
-  }
+  };
+  await gitStream(pin.root, ['diff', '--numstat', '--no-renames', '-z', await emptyTreeOf(pin.root), pin.commit], (chunk) => {
+    for (const part of numstatSplit.push(chunk)) takeNumstat(part);
+  });
+  for (const part of numstatSplit.done()) takeNumstat(part);
   const blobs = entries.filter((entry) => entry.type === 'blob');
-  const overrides = languageOverridesAt(pin.root, pin.commit, blobs.map((entry) => entry.path));
+  const overrides = await languageOverridesAt(pin.root, pin.commit, blobs.map((entry) => entry.path));
   const files: TreeFile[] = [];
   const gitlinks: TreeGitlink[] = [];
   for (const entry of entries) {
@@ -182,8 +259,8 @@ export async function readRepositoryTree(pin: RepositoryAt): Promise<TreePublish
 }
 
 /** The shallow-clone gap of one history, read by git's own answer. */
-export function shallowGapOf(pin: RepositoryAt): { what: string; reason: 'shallow-history' } | null {
-  return gitText(pin.root, ['rev-parse', '--is-shallow-repository']).trim() === 'true'
+export async function shallowGapOf(pin: RepositoryAt): Promise<{ what: string; reason: 'shallow-history' } | null> {
+  return (await gitText(pin.root, ['rev-parse', '--is-shallow-repository'])).trim() === 'true'
     ? { what: `${pin.repository} at ${pin.commit}`, reason: 'shallow-history' }
     : null;
 }
@@ -204,21 +281,29 @@ interface LogHeader {
   subject: string;
 }
 
-/** Splits one log stream into its commits: a header block, then the diff entries the next block ends. */
-function streamsOf(answer: Buffer): { header: LogHeader; entries: string[] }[] {
+/**
+ * Splits one log stream into its commits as it arrives: a header block, then the
+ * diff entries the next block ends. The stream is read once — the parser keeps
+ * the commits' headers and entries, never a second copy of git's own bytes.
+ */
+function logStreams(): { push(chunk: Uint8Array): void; done(): { header: LogHeader; entries: string[] }[] } {
+  const split = nullSplit();
   const out: { header: LogHeader; entries: string[] }[] = [];
-  for (const chunk of answer.toString('utf8').split('\u0000')) {
+  const take = (chunk: string): void => {
     const part = chunk.startsWith('\n') ? chunk.slice(1) : chunk;
     if (part.startsWith('\u001f')) {
       const fields = part.slice(1).split('\u001f');
-      if (fields.length < 7) continue;
+      if (fields.length < 7) return;
       out.push({ header: { hash: fields[0]!, parents: fields[1] === '' ? [] : fields[1]!.split(' '), authorName: fields[2]!, authorEmail: fields[3]!, authorDate: fields[4]!, commitDate: fields[5]!, subject: fields[6]! }, entries: [] });
-      continue;
+      return;
     }
-    if (part === '' || out.length === 0) continue;
+    if (part === '' || out.length === 0) return;
     out[out.length - 1]!.entries.push(part);
-  }
-  return out;
+  };
+  return {
+    push(chunk: Uint8Array): void { for (const part of split.push(chunk)) take(part); },
+    done(): { header: LogHeader; entries: string[] }[] { for (const part of split.done()) take(part); return out; },
+  };
 }
 
 /**
@@ -233,10 +318,14 @@ function streamsOf(answer: Buffer): { header: LogHeader; entries: string[] }[] {
 export async function readRepositoryHistory(pin: RepositoryAt): Promise<HistoryPublish> {
   type Touched = HistoryCommit['touched'][number];
   const gaps: { what: string; reason: 'non-utf8-path' | 'shallow-history' | 'unreadable' }[] = [];
-  const shallow = shallowGapOf(pin);
+  const shallow = await shallowGapOf(pin);
   if (shallow !== null) gaps.push(shallow);
-  const statuses = streamsOf(gitBytes(pin.root, ['log', '--diff-merges=first-parent', '--name-status', '-M', '--use-mailmap', '-z', `--format=${LOG_FORMAT}`, pin.commit]));
-  const counts = streamsOf(gitBytes(pin.root, ['log', '--diff-merges=first-parent', '--numstat', '-M', '--use-mailmap', '-z', `--format=${LOG_FORMAT}`, pin.commit]));
+  const statusParser = logStreams();
+  await gitStream(pin.root, ['log', '--diff-merges=first-parent', '--name-status', '-M', '--use-mailmap', '-z', `--format=${LOG_FORMAT}`, pin.commit], (chunk) => statusParser.push(chunk));
+  const statuses = statusParser.done();
+  const countParser = logStreams();
+  await gitStream(pin.root, ['log', '--diff-merges=first-parent', '--numstat', '-M', '--use-mailmap', '-z', `--format=${LOG_FORMAT}`, pin.commit], (chunk) => countParser.push(chunk));
+  const counts = countParser.done();
   const countByKey = new Map<string, { added: number | null; removed: number | null }>();
   for (const stream of counts) {
     for (let at = 0; at < stream.entries.length; at += 1) {

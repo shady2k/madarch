@@ -17,7 +17,7 @@ import { resolve } from 'node:path';
 
 import { readRevision, type Revision } from './git.js';
 import { graphFolder, mcpStateRoot, openRepositoryGraph, type RepositoryGraph } from './graph.js';
-import type { FillLog } from './fill-log.js';
+import type { FillProgress } from '../obs/progress.js';
 import { recordCall } from './journal.js';
 import { RepositoryReads, WorkingLayer } from './layer.js';
 import { RepositoryPages, repositoryQuestions } from './pages.js';
@@ -32,8 +32,8 @@ export interface SessionOptions {
   readonly env?: Readonly<Record<string, string | undefined>>;
   /** Where the session says what it builds and when; standard error by default. */
   readonly log?: (line: string) => void;
-  /** The fill's own log, when the server keeps one: every durable event reaches it as it is committed. */
-  readonly progress?: FillLog | undefined;
+  /** The fill's own progress, read from its trace: what the building answer says while the graph is made. */
+  readonly progress?: (() => FillProgress) | undefined;
 }
 
 /** One open repository, serving the seven tools. */
