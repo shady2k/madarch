@@ -12,6 +12,7 @@
         "@opentelemetry/api": "1.9.0",
         "decode-named-character-reference": "1.2.0",
         "libpg-query": "18.2.1",
+        "linguist-languages": "9.5.0",
         "liquidjs": "10.30.1",
         "pg": "^8.23.1",
         "pg-boss": "12.38.0",
@@ -788,6 +789,8 @@
     "likec4": ["likec4@1.59.4", "", { "dependencies": { "@hpcc-js/wasm-graphviz": "1.22.2", "@likec4/core": "1.59.4", "@likec4/icons": "1.46.4", "@vitejs/plugin-react": "^6.1.1", "bundle-require": "^5.1.0", "chokidar": "^5.0.0", "esbuild": "0.28.2", "fdir": "6.4.0", "immer": "^11.1.18", "nano-spawn": "^2.1.0", "playwright": "1.60.0", "std-env": "^4.1.0", "type-fest": "^4.41.0", "use-sync-external-store": "^1.6.0", "vite": "^8.2.2", "vite-plugin-singlefile": "^2.3.3", "yargs": "17.7.2" }, "peerDependencies": { "@tanstack/ai": "^0.14.0", "@tanstack/ai-anthropic": "^0.8.3", "@tanstack/ai-gemini": "^0.10.0", "@tanstack/ai-ollama": "^0.6.10", "@tanstack/ai-openai": "^0.8.2", "@tanstack/ai-openrouter": "^0.8.2", "react": "^19.2.x", "react-dom": "^19.2.x" }, "optionalPeers": ["@tanstack/ai", "@tanstack/ai-anthropic", "@tanstack/ai-gemini", "@tanstack/ai-ollama", "@tanstack/ai-openai", "@tanstack/ai-openrouter"], "bin": { "likec4": "./bin/likec4.mjs" } }, "sha512-kgVPTlhMr1KeSRnPv2RRXiDF04b4rHANCEDov/nxdGnS/jSQFuNBn8nbUEpHKQxc/kVFHJ+bQuXI28FhmXxSJQ=="],
 
     "lines-and-columns": ["lines-and-columns@1.2.4", "", {}, "sha512-7ylylesZQ/PV29jhEDl3Ufjo6ZX7gCqJr5F7PKrqc93v7fzSymt1BpwEU8nAUXs8qzzvqhbjhK5QZg6Mt/HkBg=="],
+
+    "linguist-languages": ["linguist-languages@9.5.0", "", {}, "sha512-Wtg9O6iHNBYFJQVtPNwWCaWkNEqZqiCGI4gSkeH8TqvgZUyb1IUWmFSa9Z9UhT392/aX6Peoa91bH9sDah1ZVw=="],
 
     "liquidjs": ["liquidjs@10.30.1", "", { "dependencies": { "commander": "^10.0.0" }, "bin": { "liquid": "bin/liquid.js", "liquidjs": "bin/liquid.js" } }, "sha512-P1Iz14WUHZdfbOYwHOIhtl/iAWIOYk1ks5l9rPZlDM6vZo+6BLeYIuWHAPkIz+U8Mm8HKZKITIrjX7DQJO2fqA=="],
 
