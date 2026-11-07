@@ -134,11 +134,20 @@ export async function moduleRootsOf(reader: SnapshotReader): Promise<readonly Mo
   return roots.sort((left, right) => (left.folder < right.folder ? -1 : left.folder > right.folder ? 1 : 0));
 }
 
-/** What one checkout wrote: the files, in code point order, and the symbolic links it did not follow. */
+/** What one checkout wrote: the files, in code point order, the symbolic links it did not follow, and where each line of each file starts. */
 interface Checkout {
   readonly folder: string;
   readonly files: readonly string[];
   readonly links: readonly string[];
+  /** The byte offset each line of a file starts at, from 1; the entry after the last line is the file's own length. */
+  readonly lines: ReadonlyMap<string, readonly number[]>;
+}
+
+/** The byte offset each line of one file starts at, in a `\n`-separated text: what turns a line number into a span. */
+function lineStartsOf(bytes: Uint8Array): number[] {
+  const starts = [0];
+  for (let at = 0; at < bytes.length; at += 1) if (bytes[at] === 0x0a) starts.push(at + 1);
+  return starts;
 }
 
 /**
@@ -152,6 +161,7 @@ async function checkOut(reader: SnapshotReader, folder: string): Promise<Checkou
   mkdirSync(folder, { recursive: true });
   const files: string[] = [];
   const links: string[] = [];
+  const lines = new Map<string, readonly number[]>();
   for (const entry of reader.entries()) {
     const path = String(entry.path);
     if (entry.form === 'commit') continue;
@@ -161,10 +171,12 @@ async function checkOut(reader: SnapshotReader, folder: string): Promise<Checkou
       continue;
     }
     mkdirSync(dirname(target), { recursive: true });
-    writeFileSync(target, await reader.read(path));
+    const bytes = await reader.read(path);
+    writeFileSync(target, bytes);
+    lines.set(path, lineStartsOf(bytes));
     files.push(path);
   }
-  return { folder, files: files.sort(), links: links.sort() };
+  return { folder, files: files.sort(), links: links.sort(), lines };
 }
 
 /** The peak resident memory of this process while the run went on, sampled every 50 ms. */
@@ -254,5 +266,5 @@ export async function indexRepository(reader: SnapshotReader, scratch: Scratch):
     peak = Math.max(peak, run.processPeakRssBytes);
     runs.push(run);
   }
-  return { runs, moduleRoots: roots, wallMs: Date.now() - started, processPeakRssBytes: peak };
+  return { runs, moduleRoots: roots, lines: checkout.lines, wallMs: Date.now() - started, processPeakRssBytes: peak };
 }

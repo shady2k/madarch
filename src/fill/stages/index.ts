@@ -28,7 +28,6 @@ import { createOperationsStage } from './operations.js';
 import { createOperationsLinksStage } from './operations-links.js';
 import { createOverviewStage } from './overview.js';
 import { createRecoveryStage } from './recovery.js';
-import { createSemanticResolutionStage } from './semantic-resolution.js';
 import { createSnapshotStage } from './snapshot.js';
 import { createStateMachinesStage } from './state-machines.js';
 import { createSyntaxStage } from './syntax.js';
@@ -94,7 +93,6 @@ export function createStageRegistry(wiring: FillStageWiring): StageRegistry {
     .register(createInventoryStage(wiring.snapshots))
     .register(createBuildConfigurationStage(wiring.snapshots))
     .register(createSyntaxStage(wiring.snapshots))
-    .register(createSemanticResolutionStage(wiring.snapshots))
     .register(createCodeFactsStage(wiring.snapshots))
     // The code pass (decision 0033's "The code pass"): the library's reading of one repository's
     // tree at the pinned commit, joined to the symbols the per-file passes published.

@@ -167,7 +167,7 @@ describe('the wiring of one product', () => {
       expect(snapshot.repository).toBe(product);
       expect(snapshot.commit).toBe(git(product, 'rev-parse', 'HEAD'));
       expect(opened.fill.registry.all().map((stage) => stage.id)).toEqual([
-        'build-configuration', 'code-facts', 'codegraph', 'data-model', 'data-model-aggregate', 'document-index', 'history', 'inventory', 'modules', 'operations', 'operations-links', 'semantic-resolution', 'snapshot', 'state-machines', 'syntax',
+        'build-configuration', 'code-facts', 'codegraph', 'data-model', 'data-model-aggregate', 'document-index', 'history', 'inventory', 'modules', 'operations', 'operations-links', 'snapshot', 'state-machines', 'syntax',
       ]);
       expect(snapshot.registryHash).toBe(declaredStagesDigest(opened.fill.registry));
       expect(snapshot.registryHash).toMatch(/^[0-9a-f]{64}$/);
@@ -266,7 +266,7 @@ describe('two runs over one product', () => {
     await opened?.close();
   }, 300_000);
 
-  test('the first run publishes what the stages read from the pinned tree', () => {
+  test('the first run publishes what the stages read from the pinned tree', async () => {
     expect(first?.state).toBe('succeeded');
     expect(first?.settled).toBe(true);
     expect(first?.units.length).toBeGreaterThan(0);
@@ -281,6 +281,13 @@ describe('two runs over one product', () => {
     }
     // The product's files: its four sources, its workspace.yaml, and the workflows manifest the fill runs.
     expect(afterFirst['file']).toBe(6);
+    // The code pass runs after the file pass whose symbols it joins: one unit per repository's tree,
+    // and the call `checkout` makes to `total` stands in the graph as its edge.
+    expect(first?.units.map((unit) => unit.unitId)).toContain('codegraph/tree:shop');
+    const calls = await opened!.owner.run(async (tx) => (await tx.query<{ n: string }>(
+      "SELECT count(*)::text AS n FROM edge_version e JOIN relation_type r ON r.id = e.relation_type_id WHERE r.key = 'code.calls' AND e.producer = 'fill.codegraph' AND e.recorded_to = 'infinity' AND e.valid_to = 'infinity'",
+    )).rows[0]!);
+    expect(Number(calls.n)).toBe(1);
     expect(afterFirst['directory']).toBe(3);
     // The snapshot stage's commit node and the history stage's commit node of the same commit:
     // two producers, two nodes, each with its own key (decision 0033's fenced publication).
@@ -291,19 +298,17 @@ describe('two runs over one product', () => {
     const planned = new Set((second?.units ?? []).map((unit) => unit.unitId));
     // The file whose bytes moved, in the stages that read its bytes.
     for (const unitId of [
-      // The file whose bytes moved is the snapshot's unit, and the syntax stage reads it again.
+      // The file whose bytes moved is the snapshot's unit, and the syntax stage reads it again. The code
+      // pass stands on the repository's commit, which moved with it: its one unit plans again.
       'snapshot/file:shop:src/total.ts',
       'syntax/file:shop:src/total.ts',
-      'semantic-resolution/file:shop:src/total.ts',
+      'codegraph/tree:shop',
     ]) {
       expect(planned.has(unitId)).toBe(true);
     }
     // The commit's propagation plans the inventory's unit too, because the inventory consumes the snapshot's
     // `file` kind; its draft is the same containment edge, so the graph opens no new edge version.
     expect(planned.has('inventory/file:shop:src/total.ts')).toBe(true);
-    // Its dependant: src/order.ts imports ./total.js, so the resolution stage
-    // re-resolves it although its own bytes did not move (21.6's own rule).
-    expect(planned.has('semantic-resolution/file:shop:src/order.ts')).toBe(true);
     // The files the commit did not touch are not computed again: their bytes and
     // their resolutions stand as the first run published them.
     expect(['snapshot/file:shop:src/order.ts', 'inventory/file:shop:src/order.ts', 'syntax/file:shop:src/order.ts'].filter((unitId) => planned.has(unitId))).toEqual([]);

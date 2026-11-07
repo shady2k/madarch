@@ -272,10 +272,10 @@ function reran(result: FillRunResult): readonly string[] {
  * file's snapshot, inventory and syntax units, and the inventory units of every
  * folder above it. The repository's own snapshot unit plans again because its
  * commit node moved. The later deterministic stages still run as they do on
- * main: the modules stage's one unit per repository stands on the pin, the
- * resolution stage's units stand on the run's pins (21.8's exception — the
- * changed file's and the three source files the same plan names again), and the
- * history stage plans the commit the run stands on and the commit it left.
+ * main: the modules stage's one unit per repository stands on the pin, the code
+ * pass's one unit per repository's tree stands on its commit (which moved, so it
+ * reads the tree again), and the history stage plans the commit the run stands
+ * on and the commit it left.
  *
  * No agent stage is listed, because none plans a unit on this branch: the three
  * static stages publish into the 0028 graph, and the stages between them and the
@@ -309,12 +309,11 @@ function reranByTheCommit(options: {
     `data-model/file:${repository}:${file}`,
     `operations/file:${repository}:${file}`,
     `operations-links/file:${repository}:${file}`,
-    // The later deterministic stages as main runs them: the modules unit stands on the pin, the resolution
-    // units on the run's pins, and the history units on the commit it stands on and the one it left.
+    // The later deterministic stages as main runs them: the modules unit and the code pass's tree unit stand
+    // on the pin (the commit moved, so the code pass reads the tree again), and the history units on the commit
+    // it stands on and the one it left.
     `modules/modules:${repository}`,
-    `semantic-resolution/file:${repository}:${file}`,
-    ...['services/checkout/src/checkout.ts', 'services/orders/src/order.go', 'services/payments/src/payment.ts']
-      .map((path) => `semantic-resolution/file:${repository}:${path}`),
+    `codegraph/tree:${repository}`,
     `history/${repository}@${commit}`,
     `history/${repository}@${previousCommit}`,
   ].sort();
@@ -423,13 +422,14 @@ describe('a commit, and what it reruns', () => {
     expect(symbols.every((node) => typeof node.properties['globalName'] === 'string')).toBe(true);
 
     // The later deterministic stages still run as they do on main: the modules stage plans one unit per
-    // pinned repository, the resolution stage one per file it must resolve, the history stage one per commit,
-    // and the document index one per document. Their code and their units are unchanged by this task.
+    // pinned repository, the code pass one unit per repository's tree (decision 0033's "The code pass"),
+    // the history stage one per commit, and the document index one per document.
     const ran = new Set((first?.units ?? []).map((unit) => unit.unitId));
     for (const unitId of [
       `modules/modules:${TRAINING}`,
       `modules/modules:${PRODUCT}`,
-      'semantic-resolution/file:training:services/promotions/src/promotions.go',
+      `codegraph/tree:${TRAINING}`,
+      `codegraph/tree:${PRODUCT}`,
       `history/${TRAINING}@${previous}`,
       `history/${PRODUCT}@${git(product, 'rev-parse', 'HEAD')}`,
       'document-index/document:training:README.md',

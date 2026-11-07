@@ -41,6 +41,7 @@ import {
 } from './codegraph-map.js';
 import { indexRepository, scratchFolder } from './codegraph-index.js';
 import { checkStaticGraphDraft } from './static-graph.js';
+import { publishedCoverageRead, publishedCoverageRows } from './syntax.js';
 import { syntaxLanguageOf } from './syntax-extract.js';
 
 /** The stage's id, as it is registered and as its units are named. */
@@ -136,9 +137,20 @@ export function createCodegraphStage(sources: SnapshotSource): FillStage {
 
 /**
  * The units one run fills: a unit per pinned repository this stage has not read
- * at the pinned commit. The tree is listed through the run's own snapshot read,
- * so a run that reads no repository plans nothing rather than failing; the
- * commit that decides is the reader's, the resolved one every fact names.
+ * at the pinned commit, once the per-file pass has read that tree's source files
+ * at the bytes the commit holds.
+ *
+ * **Why the plan waits for the file pass.** The join stands on the symbols the
+ * per-file pass publishes, so a unit that ran before them would write no edge and
+ * report every declaration unresolved. The file pass's own coverage names the
+ * file it read and the blob its bytes stood under, so the plan waits until every
+ * source file of the pinned tree stands in that coverage at the commit's own
+ * blob. A stage whose plan answers no unit is planned again once a producer of
+ * its inputs published (decision 0027's re-planning), which is how this one gets
+ * its turn after the file pass's units.
+ *
+ * A repository whose tree holds no source file a per-file pass can read plans at
+ * once: there is nothing to join to.
  */
 async function planTrees(sources: SnapshotSource, graph: StageGraphReader): Promise<StagePlan> {
   const pins = await sources.pins();
@@ -148,6 +160,21 @@ async function planTrees(sources: SnapshotSource, graph: StageGraphReader): Prom
     const read = codegraphPublishedRead(pin.id);
     const covered = codegraphPublishedRows(await graph.query(read), pin.id, read);
     if (covered.some((row) => row.commit === reader.commit)) continue;
+    const sourceFiles = reader.files()
+      .map((entry) => String(entry.path))
+      .filter((path) => syntaxLanguageOf(path) !== undefined);
+    if (sourceFiles.length > 0) {
+      const coverageRead = publishedCoverageRead(pin.id);
+      const filePass = publishedCoverageRows(await graph.query(coverageRead), pin.id, coverageRead);
+      const readAt = new Map(filePass.map((row) => [row.file, row.blob]));
+      const unread = sourceFiles.filter((path) => readAt.get(path) !== reader.entry(path)?.id);
+      if (unread.length > 0) {
+        // The file pass has not read these files at this commit's bytes yet: this
+        // stage's plan answers nothing, and the run asks it again after the pass
+        // published (src/fill/stages/codegraph.ts).
+        continue;
+      }
+    }
     units.push({ id: treeUnitId(pin.id), scope: pin.id });
   }
   return { units };

@@ -79,15 +79,23 @@ describe('the library vocabulary tied to ours', () => {
 
 describe('the join of the library per-file passes published', () => {
   test('a call joins both ends by place and carries the library mark it was obtained by', () => {
+    // The line table of `src/a.ts`, in bytes: line 6 starts at byte 90 and line 7 at 110.
+    const lines = new Map([['src/a.ts', [0, 10, 30, 50, 70, 90, 110, 130]]]);
     const joined = joinedOf(
-      { runs: [run('', [node('n1', 'function', 'src/a.ts', 1, 'alpha'), node('n2', 'function', 'src/a.ts', 5, 'beta')], [edge('n1', 'n2', 'calls', { resolvedBy: 'exact-match', confidence: 0.9 }, 6)])], moduleRoots: [''], wallMs: 1, processPeakRssBytes: 1 },
+      { runs: [run('', [node('n1', 'function', 'src/a.ts', 1, 'alpha'), node('n2', 'function', 'src/a.ts', 5, 'beta')], [edge('n1', 'n2', 'calls', { resolvedBy: 'exact-match', confidence: 0.9 }, 6)])], moduleRoots: [''], lines, wallMs: 1, processPeakRssBytes: 1 },
       published,
     );
     expect(joined.edges).toEqual([{
       relation: 'code.calls', factKind: 'call', from: 'code.symbol:src/a.ts#alpha', to: 'code.symbol:src/a.ts#beta',
       libraryKind: 'calls', marks: [{ resolvedBy: 'exact-match', confidence: 0.9, count: 1 }], count: 1,
       resolvedBy: 'exact-match', confidence: 0.9, line: 6,
+      // The library names the call's line; the file the fill wrote out turns it into a span.
+      place: { file: 'src/a.ts', line: 6, startByte: 90, endByte: 110 },
     }]);
+    // What the served tools read as the call's site (src/knowledge/graph-read.ts, `spanFromProvenance`).
+    const write = edgeWriteOf(joined.edges[0]!, REPOSITORY, COMMIT, 'evidence');
+    const provenance = (write.value as StaticEdgeDraft).properties!['provenance'] as Record<string, unknown>;
+    expect(provenance['place']).toEqual({ file: 'src/a.ts', range: { startLine: 6, startColumn: 0, endLine: 6, endColumn: 0, startByte: 90, endByte: 110 } });
     expect(joined.nodes).toEqual([]);
   }, 30_000);
 
@@ -105,7 +113,7 @@ describe('the join of the library per-file passes published', () => {
           edge('d', 'c', 'implements', { resolvedBy: 'exact-match', confidence: 0.9 }),
           edge('d', 'b', 'extends', { resolvedBy: 'exact-match', confidence: 0.9 }),
         ])],
-        moduleRoots: [''], wallMs: 1, processPeakRssBytes: 1,
+        moduleRoots: [''], lines: new Map(), wallMs: 1, processPeakRssBytes: 1,
       },
       [...published, symbol('src/b.ts', 'Shape', 8), symbol('src/b.ts', 'Square', 20)],
     );
@@ -119,17 +127,17 @@ describe('the join of the library per-file passes published', () => {
 
   test('an end no published record answers writes no edge, and the gap names how many', () => {
     const joined = joinedOf(
-      { runs: [run('', [node('a', 'function', 'src/a.ts', 1, 'alpha'), node('p', 'property', 'src/a.ts', 12, 'x')], [edge('a', 'p', 'calls', { resolvedBy: 'exact-match', confidence: 0.9 })])], moduleRoots: [''], wallMs: 1, processPeakRssBytes: 1 },
+      { runs: [run('', [node('a', 'function', 'src/a.ts', 1, 'alpha'), node('p', 'property', 'src/a.ts', 12, 'x')], [edge('a', 'p', 'calls', { resolvedBy: 'exact-match', confidence: 0.9 })])], moduleRoots: [''], lines: new Map(), wallMs: 1, processPeakRssBytes: 1 },
       published,
     );
     expect(joined.edges).toEqual([]);
     expect(joined.left).toEqual([{ what: 'calls left without an end: the target is no record of ours', count: 1 }]);
-    expect(gapsOf({ runs: [], moduleRoots: [''], wallMs: 1, processPeakRssBytes: 1 }, joined)).toEqual([{ what: 'calls left without an end: the target is no record of ours (1)', reason: 'unsupported' }]);
+    expect(gapsOf({ runs: [], moduleRoots: [''], lines: new Map(), wallMs: 1, processPeakRssBytes: 1 }, joined)).toEqual([{ what: 'calls left without an end: the target is no record of ours (1)', reason: 'unsupported' }]);
   }, 30_000);
 
   test('a symbol of a file no per-file pass of ours reads becomes a record of ours', () => {
     const joined = joinedOf(
-      { runs: [run('', [node('m', 'function', 'src/app.py', 3, 'handler')], [])], moduleRoots: [''], wallMs: 1, processPeakRssBytes: 1 },
+      { runs: [run('', [node('m', 'function', 'src/app.py', 3, 'handler')], [])], moduleRoots: [''], lines: new Map(), wallMs: 1, processPeakRssBytes: 1 },
       published,
       ['src/app.py'],
     );
@@ -150,7 +158,7 @@ describe('the join of the library per-file passes published', () => {
           run('', [node('root', 'function', 'services/orders/handler.go', 4, 'Serve'), node('outside', 'function', 'cmd/main.go', 3, 'main', )], []),
           run('services/orders', [node('module', 'function', 'handler.go', 4, 'Serve')], []),
         ],
-        moduleRoots: ['', 'services/orders'], wallMs: 1, processPeakRssBytes: 1,
+        moduleRoots: ['', 'services/orders'], lines: new Map(), wallMs: 1, processPeakRssBytes: 1,
       },
       [],
       ['cmd/main.go', 'services/orders/handler.go', 'src/a.ts'],
@@ -164,7 +172,7 @@ describe('the join of the library per-file passes published', () => {
       { runs: [run('', [node('a', 'function', 'src/a.ts', 1, 'alpha'), node('b', 'function', 'src/a.ts', 5, 'beta')], [
         edge('a', 'b', 'calls', { resolvedBy: 'instance-method', confidence: 0.7 }),
         edge('a', 'b', 'calls', { resolvedBy: 'exact-match', confidence: 0.9 }),
-      ])], moduleRoots: [''], wallMs: 1, processPeakRssBytes: 1 },
+      ])], moduleRoots: [''], lines: new Map(), wallMs: 1, processPeakRssBytes: 1 },
       published,
     );
     expect(joined.edges).toHaveLength(1);
@@ -179,7 +187,7 @@ describe('the join of the library per-file passes published', () => {
     const write = edgeWriteOf({
       relation: 'code.calls', factKind: 'call', from: 'code.symbol:src/a.ts#alpha', to: 'code.symbol:src/a.ts#beta',
       libraryKind: 'instantiates', marks: [{ resolvedBy: 'import', confidence: 0.9, count: 2 }], count: 2,
-      resolvedBy: 'import', confidence: 0.9, line: 7,
+      resolvedBy: 'import', confidence: 0.9, line: 7, place: undefined,
     }, REPOSITORY, COMMIT, 'evidence');
     expect(write.kind).toBe('edge');
     const value = write.value as StaticEdgeDraft;
@@ -248,6 +256,58 @@ describe('one unit over a fixture the test commits', () => {
       expect(measurement['linkedEdges']).toBe(edges.length);
       expect(Number(measurement['processPeakRssBytes'])).toBeGreaterThan(0);
       expect((measurement['runs'] as readonly Record<string, unknown>[])[0]!['indexed']).toBe(2);
+    } finally {
+      rmSync(root, { recursive: true, force: true });
+    }
+  }, 120_000);
+
+  test('a Go call across packages resolves when the module is indexed as its own root', async () => {
+    const root = mkdtempSync(pathJoin(tmpdir(), 'madarch-codegraph-go-call-'));
+    const git = (...args: string[]): string => execFileSync('git', args, { cwd: root, encoding: 'utf8' });
+    try {
+      git('init', '-q');
+      git('config', 'user.name', 'Fixture');
+      git('config', 'user.email', 'fixture@example.invalid');
+      mkdirSync(pathJoin(root, 'services', 'orders', 'store'), { recursive: true });
+      writeFileSync(pathJoin(root, 'services', 'orders', 'go.mod'), 'module example/orders\n\ngo 1.22\n');
+      writeFileSync(pathJoin(root, 'services', 'orders', 'main.go'), 'package main\n\nimport "example/orders/store"\n\nfunc run() {\n\tstore.Open()\n}\n');
+      writeFileSync(pathJoin(root, 'services', 'orders', 'store', 'store.go'), 'package store\n\nfunc Open() {}\n');
+      git('add', '-A');
+      git('commit', '-qm', 'one');
+      const commit = git('rev-parse', 'HEAD').trim();
+      const source = createGitSnapshotSource([{ id: REPOSITORY, form: 'code', root, commit }]);
+      const stage = createCodegraphStage(source);
+      const unit: StageUnit = { id: treeUnitId(REPOSITORY), scope: REPOSITORY };
+      const symbols: readonly PublishedSymbol[] = [symbol('services/orders/main.go', 'run', 5, 7), symbol('services/orders/store/store.go', 'Open', 3, 3)];
+      const writes: StageDraftWrite[] = [];
+      const context = {
+        unit,
+        config: { id: 'codegraph', version: 1, enabled: true, concurrency: 1, limits: DEFAULT_STAGE_LIMITS, config: {} },
+        graph: { query: async () => [] },
+        static: {
+          repository: { repository: REPOSITORY, commit, source: { system: 'git', version: '2' }, form: 'code' },
+          byKey: async () => [], byGlobalName: async () => [], neighbourhood: async () => ({ rows: [], next: null }),
+          byProperty: async (kind: string) => ({
+            rows: kind === 'code.symbol' ? symbols.map((held, index): StaticGraphNode => ({
+              id: `n${String(index)}`, kind: 'code.symbol', label: held.qualifiedName,
+              properties: { repository: REPOSITORY, file: held.file, qualifiedName: held.qualifiedName, recordKey: held.key, provenance: { source: { system: 'tree-sitter', version: '1' }, repository: { id: REPOSITORY, commit }, place: { file: held.file, range: { startLine: held.startLine, startColumn: 0, endLine: held.endLine, endColumn: 1 } } } },
+              producer: 'fill.syntax', scope: '0',
+            })) : [],
+            next: null,
+          }),
+          edgesByProperty: async () => ({ rows: [], next: null }),
+        },
+        draft: { write: (entry: StageDraftWrite) => { writes.push(entry); }, writes: () => ({ writes }) },
+        progress: () => undefined,
+        signal: new AbortController().signal,
+      } as unknown as StageContext;
+      expect(await stage.execute(unit, context)).toEqual({ outcome: 'draft' });
+      const calls = writes.filter((write) => write.kind === 'edge').map((write) => write.value as StaticEdgeDraft).filter((held) => held.relation === 'code.calls');
+      // The call `store.Open()` in `run`: a package-qualified call the library resolves only when the
+      // module's own folder is the root it indexes (its `go.mod` is below the repository's root).
+      expect(calls.map((held) => [(held.from as { key: string }).key, (held.to as { key: string }).key, held.properties!['resolvedBy']])).toEqual([
+        ['code.symbol:services/orders/main.go#run', 'code.symbol:services/orders/store/store.go#Open', 'import'],
+      ]);
     } finally {
       rmSync(root, { recursive: true, force: true });
     }

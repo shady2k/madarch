@@ -42,6 +42,10 @@ const FILL_STAGES: readonly string[] = [
   // Dockerfiles, deploy files and code. Each reads one file's bytes and hangs its facts
   // from the file's node, before the resolution reads across files.
   'code-facts',
+  // The code pass (decision 0033's "The code pass", amended 2026-11-06): one unit per repository's
+  // tree at the pinned commit, read by the code library and joined to the symbols the per-file passes
+  // published. It is the one producer of calls, references, implementations and inheritances.
+  'codegraph',
   'state-machines',
   'operations',
   // The links the operations reading makes across files: the variables a repository
@@ -51,7 +55,6 @@ const FILL_STAGES: readonly string[] = [
   // assembled from them, which name the services operations-links published.
   'data-model',
   'data-model-aggregate',
-  'semantic-resolution',
   'modules',
   'boundaries',
   'intent-history',

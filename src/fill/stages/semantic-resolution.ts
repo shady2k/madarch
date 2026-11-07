@@ -1,10 +1,18 @@
 /**
- * Stage 4 of the fill (decision 0026, "semantic resolution"; decision 0033's
- * "The file is the unit of static work"): what a file's names mean. The stage
- * reads the mentions and imports the file pass published, resolves each mention
- * by bounded graph queries, and publishes the `call`, `reference` and
- * `inheritance` edges those mentions fold into, a positioned occurrence per
- * resolved mention, and the file's coverage.
+ * The per-file resolution of what a file's names mean (decision 0026's stage 4;
+ * decision 0033's "The file is the unit of static work"), kept for the one
+ * surface that reads one file at a time: the working-tree layer of a served
+ * graph (`src/mcp/layer.ts`), which re-reads a changed file's bytes and cannot
+ * run a whole-tree index. It is **no stage of the fill any more** (decision
+ * 0033's "The code pass", amended 2026-11-06): the fill's calls, references,
+ * implementations and inheritances are the code pass's, read by the library over
+ * one repository's tree, measured better on both precision and recall, and one
+ * edge has one producer (the graph's own fencing refuses a second).
+ *
+ * The reader itself: it reads the mentions and imports the file pass published,
+ * resolves each mention by bounded graph queries, and answers the `call`,
+ * `reference` and `inheritance` edges those mentions fold into, a positioned
+ * occurrence per resolved mention, and the file's coverage.
  *
  * **The unit reads no bytes.** A mention is the file pass's reading of a place
  * (decision 0033, item 14: "symbols with global names, mentions, imports as

@@ -82,6 +82,8 @@ export interface LibraryIndex {
   readonly runs: readonly LibraryRun[];
   /** The folders that hold a `go.mod` of the tree, from the repository's root, in code point order. */
   readonly moduleRoots: readonly string[];
+  /** Where each line of each file of the tree starts, in bytes: what turns the library's line into a span. */
+  readonly lines: ReadonlyMap<string, readonly number[]>;
   readonly wallMs: number;
   readonly processPeakRssBytes: number;
 }
@@ -187,6 +189,19 @@ export interface PublishedSymbol {
   readonly endLine: number;
 }
 
+/**
+ * The place of one line of one file: the line the library named, and the byte span of
+ * that line in the file the fill wrote out. A line the file does not hold (a library
+ * record past the last line) names no place, and the edge then carries its line alone.
+ */
+function placeOfLine(lines: ReadonlyMap<string, readonly number[]>, path: string, line: number): EdgePlace | undefined {
+  const starts = lines.get(path);
+  if (starts === undefined || !Number.isInteger(line) || line < 1 || line >= starts.length) return undefined;
+  const startByte = starts[line - 1]!;
+  const endByte = starts[line] ?? startByte;
+  return { file: path, line, startByte, endByte: endByte > startByte ? endByte : startByte + 1 };
+}
+
 /** The simple name a qualified name ends with: `A.b` and `A::b` both name `b`. */
 export function simpleNameOf(qualifiedName: string): string {
   const cut = Math.max(qualifiedName.lastIndexOf('.'), qualifiedName.lastIndexOf('::'));
@@ -236,6 +251,16 @@ export interface JoinedEdge {
   readonly confidence: number | undefined;
   /** The line of the first site the library named, where it named one. */
   readonly line: number | undefined;
+  /** The place of that site: the file the source stands in and the byte span of its line. */
+  readonly place: EdgePlace | undefined;
+}
+
+/** One edge's place: the file the library read it at, and the span of its line, in lines and bytes. */
+export interface EdgePlace {
+  readonly file: string;
+  readonly line: number;
+  readonly startByte: number;
+  readonly endByte: number;
 }
 
 /** What one repository's join found: the nodes it adds, the edges it writes, and what it could not tie. */
@@ -330,6 +355,8 @@ export function codegraphJoin(input: JoinInput): JoinResult {
   const symbols = symbolIndexOf(input.published);
   /** The library node's key in our graph, once the join or the gap-fill answered one. */
   const keys = new Map<string, string>();
+  /** The repository path of every library node the owning run holds, by the library's id. */
+  const paths = new Map<string, string>();
   const nodes: JoinedNode[] = [];
   const publishedKeys = new Set(input.published.map((symbol) => symbol.key));
   const left = new Map<string, number>();
@@ -337,12 +364,13 @@ export function codegraphJoin(input: JoinInput): JoinResult {
   let symbolsJoined = 0;
   let symbolsUnresolved = 0;
   const edges: JoinedEdge[] = [];
-  const folded = new Map<string, { relation: string; factKind: string; form?: string; from: string; to: string; libraryKind: string; marks: EdgeMark[]; line: number | undefined }>();
+  const folded = new Map<string, { relation: string; factKind: string; form?: string; from: string; to: string; libraryKind: string; marks: EdgeMark[]; line: number | undefined; sourcePath: string | undefined }>();
 
   for (const run of index.runs) {
     for (const node of run.nodes) {
       const path = repositoryPathOf(node, run.root);
       if (ownerOf(path) !== run.root) continue;
+      paths.set(node.id, path);
       const tie = Object.prototype.hasOwnProperty.call(NODE_TIES, node.kind) ? NODE_TIES[node.kind] : undefined;
       if (tie === undefined) continue;
       const held = joinedSymbol(symbols, node, path);
@@ -420,13 +448,16 @@ export function codegraphJoin(input: JoinInput): JoinResult {
         continue;
       }
       const identity = `${tie.relation}\u0000${from}\u0000${to}\u0000${tie.form ?? ''}`;
-      const held = folded.get(identity) ?? { relation: tie.relation, factKind: tie.factKind, ...(tie.form === undefined ? {} : { form: tie.form }), from, to, libraryKind: edge.kind, marks: [], line: undefined };
+      const held = folded.get(identity) ?? { relation: tie.relation, factKind: tie.factKind, ...(tie.form === undefined ? {} : { form: tie.form }), from, to, libraryKind: edge.kind, marks: [], line: undefined, sourcePath: undefined };
       const resolvedBy = typeof edge.metadata['resolvedBy'] === 'string' ? edge.metadata['resolvedBy'] as string : 'synthesized';
       const confidence = typeof edge.metadata['confidence'] === 'number' ? edge.metadata['confidence'] as number : undefined;
       const at = held.marks.findIndex((candidate) => candidate.resolvedBy === resolvedBy && candidate.confidence === confidence);
       if (at < 0) held.marks.push({ resolvedBy, confidence, count: 1 });
       else held.marks[at] = { ...held.marks[at]!, count: held.marks[at]!.count + 1 };
-      if (held.line === undefined && typeof edge.line === 'number') held.line = edge.line;
+      if (held.line === undefined && typeof edge.line === 'number') {
+        held.line = edge.line;
+        held.sourcePath = paths.get(edge.source);
+      }
       folded.set(identity, held);
     }
   }
@@ -449,6 +480,7 @@ export function codegraphJoin(input: JoinInput): JoinResult {
       resolvedBy: strongest.resolvedBy,
       confidence: strongest.confidence,
       line: held.line,
+      place: held.line === undefined || held.sourcePath === undefined ? undefined : placeOfLine(index.lines, held.sourcePath, held.line),
     });
   }
   const leftRows = [...left.entries()].map(([what, count]) => ({ what, count })).sort((one, other) => byCodePoint(one.what, other.what));
@@ -462,11 +494,12 @@ export function codegraphJoin(input: JoinInput): JoinResult {
 }
 
 /** The provenance every edge of the pass carries: the library, its version and the pass's own name. */
-function edgeProvenanceOf(repository: string, commit: string): Readonly<Record<string, unknown>> {
+function edgeProvenanceOf(repository: string, commit: string, place: EdgePlace | undefined): Readonly<Record<string, unknown>> {
   return {
     source: { system: 'codegraph', version: CODEGRAPH_LIBRARY_VERSION },
     repository: { id: repository, commit },
     pass: 'codegraph',
+    ...(place === undefined ? {} : { place: { file: place.file, range: { startLine: place.line, startColumn: 0, endLine: place.line, endColumn: 0, startByte: place.startByte, endByte: place.endByte } } }),
   };
 }
 
@@ -480,7 +513,7 @@ export function edgeWriteOf(edge: JoinedEdge, repository: string, commit: string
     from: { key: edge.from },
     to: { key: edge.to },
     properties: {
-      provenance: edgeProvenanceOf(repository, commit),
+      provenance: edgeProvenanceOf(repository, commit, edge.place),
       pass: 'codegraph',
       repository,
       factKind: edge.factKind,

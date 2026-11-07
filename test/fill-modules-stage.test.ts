@@ -115,7 +115,7 @@ function contextFor(unit: StageUnit, answer: (read: string) => readonly unknown[
       } satisfies StaticGraphNode;
     });
   };
-  const edgesOf = (relation: string): readonly { readonly id: string; readonly relation: string; readonly from: StaticGraphNode; readonly to: StaticGraphNode; readonly properties: Record<string, unknown> }[] => {
+  const edgesOf = (relation: string): readonly { readonly id: string; readonly relation: string; readonly from: StaticGraphNode; readonly to: StaticGraphNode; readonly properties: Record<string, unknown>; readonly producer: string }[] => {
     const read = resolvedEdgesRead(REPOSITORY);
     recorder.queries.push(read);
     const kind = relation === 'code.calls' ? 'call' : relation === 'code.inherits' ? 'inherits' : relation === 'code.references' ? 'reference' : 'import';
@@ -124,7 +124,10 @@ function contextFor(unit: StageUnit, answer: (read: string) => readonly unknown[
       .filter((row) => (row as Record<string, unknown>)['kind'] === kind)
       .map((row, index) => {
         const held = row as Record<string, unknown>;
-        return { id: `${relation}:${String(index)}`, relation, from: node(String(held['from'])), to: node(String(held['to'])), properties: { count: held['count'] ?? held['weight'] } };
+        // The producer the walk reads: the code pass writes the calls, the inheritances and the
+        // references now (decision 0033's "The code pass"), and the file pass the imports.
+        const producer = relation === 'code.imports' ? 'fill.syntax' : 'fill.codegraph';
+        return { id: `${relation}:${String(index)}`, relation, from: node(String(held['from'])), to: node(String(held['to'])), properties: { count: held['count'] ?? held['weight'] }, producer };
       });
   };
   return {
@@ -334,7 +337,7 @@ describe('the modules stage is registered', () => {
       // The clustering and the rank read stage 1's files, stage 3's symbols and
       // imports and stage 4's resolved edges, and stage 2's packages are its
       // seeds: every producer runs before it.
-      for (const earlier of ['inventory', 'syntax', 'semantic-resolution', 'build-configuration']) {
+      for (const earlier of ['inventory', 'syntax', 'codegraph', 'build-configuration']) {
         expect(read.graph.order.indexOf(earlier)).toBeLessThan(read.graph.order.indexOf(MODULES_STAGE_ID));
       }
       expect(registry.get(MODULES_STAGE_ID)?.produces.map((produced) => produced.kind)).toEqual(['contains', 'coverage', 'module']);

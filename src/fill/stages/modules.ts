@@ -91,7 +91,6 @@ import { evidenceAt, provenanceOf } from './draft.js';
 import { evidenceAtPlace } from './draft.js';
 import { publishedRepositoryRead, publishedRepositoryRows } from './snapshot.js';
 import { STATIC_READ_ROW_LIMIT, type StaticGraphNode, type StaticGraphReader, type StaticStageSource } from './static-context.js';
-import { SEMANTIC_RESOLUTION_STAGE_ID } from './semantic-resolution.js';
 import { SYNTAX_STAGE_ID } from './syntax.js';
 import { checkStaticGraphDraft, graphWritesOf } from './static-graph.js';
 
@@ -498,10 +497,12 @@ async function edgeRowsOf(source: StaticGraphReader, repository: string): Promis
   const rows: ResolvedEdgeRow[] = [];
   // The walk's edges are the resolution's own: a `code.references` relation is also written by the
   // operations reading, whose ends are a build record and a file, and the rank walks symbols.
+  // The links the code pass published are the walk's edges (decision 0033's "The code pass"): it is the
+  // one producer of calls, inheritances and references now, and the imports are still the file pass's.
   for (const [relation, kind, producer] of [
-    ['code.calls', 'call', `fill.${SEMANTIC_RESOLUTION_STAGE_ID}`],
-    ['code.inherits', 'inherits', `fill.${SEMANTIC_RESOLUTION_STAGE_ID}`],
-    ['code.references', 'reference', `fill.${SEMANTIC_RESOLUTION_STAGE_ID}`],
+    ['code.calls', 'call', 'fill.codegraph'],
+    ['code.inherits', 'inherits', 'fill.codegraph'],
+    ['code.references', 'reference', 'fill.codegraph'],
     ['code.imports', 'import', `fill.${SYNTAX_STAGE_ID}`],
   ] as const) {
     let after: string | undefined;
