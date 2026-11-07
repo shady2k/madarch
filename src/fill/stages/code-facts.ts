@@ -1290,7 +1290,7 @@ function storeDeep(value: unknown): unknown {
   if (Array.isArray(value)) return value.map(storeDeep);
   if (value !== null && typeof value === 'object') {
     const out: Record<string, unknown> = {};
-    for (const [key, inner] of Object.entries(value)) out[key] = storeDeep(inner);
+    for (const key of Object.keys(value)) out[key] = storeDeep((value as Record<string, unknown>)[key]);
     return out;
   }
   return value;
