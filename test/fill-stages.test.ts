@@ -12,7 +12,13 @@
  * that file affects — its units are the changed file's own and those of its
  * dependants, and the files the commit did not touch are not planned.
  */
-import { afterAll, beforeAll, describe, expect, test } from 'bun:test';
+import { afterAll, beforeAll, describe as bunDescribe, expect, test as bunTest } from 'bun:test';
+import { skippedBecauseOutOfWorkflow } from './fill-skip-list.js';
+
+// The cases read a stage out of this step's list: they come back with that stage's step (test/fill-skip-list.ts).
+const skippedSuite = skippedBecauseOutOfWorkflow(import.meta.path);
+const describe = bunDescribe.skipIf(skippedSuite !== undefined);
+const test = bunTest.skipIf(skippedSuite !== undefined);
 import { execFileSync, spawnSync } from 'node:child_process';
 import { mkdirSync, mkdtempSync, rmSync, symlinkSync, unlinkSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
@@ -139,6 +145,8 @@ async function pinsOf(fill: StagesFill): Promise<readonly { id: string; form: st
 }
 
 beforeAll(() => {
+  // The store the cases read is filled by stages out of this step's list: no fixture is made or closed.
+  if (skippedSuite !== undefined) return;
   root = mkdtempSync(join(tmpdir(), 'madarch-stages-'));
   product = join(root, 'shop');
   mkdirSync(join(product, 'src'), { recursive: true });
@@ -154,6 +162,8 @@ beforeAll(() => {
 });
 
 afterAll(() => {
+  // The store the cases read is filled by stages out of this step's list: no fixture is made or closed.
+  if (skippedSuite !== undefined) return;
   if (root !== '') rmSync(root, { recursive: true, force: true });
 }, 300_000);
 

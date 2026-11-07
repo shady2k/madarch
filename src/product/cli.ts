@@ -43,7 +43,7 @@ import { MANIFEST_FILE } from './manifest.js';
 import { startKnowledgeFill } from '../knowledge/fill-run.js';
 import { createPGliteDatabaseOwner } from '../adapters/database-owner.js';
 import { countPublishedFactsByKind } from '../fill/fact-store.js';
-import { createFillOrchestratorService, fillDatabasePath, type FillOrchestratorService, type FillRunResult } from '../fill/orchestrator-host.js';
+import { fillDatabasePath, type FillOrchestratorService, type FillRunResult } from '../fill/orchestrator-host.js';
 import { readTraceReport, renderTraceReport } from '../obs/trace-report.js';
 import { byCodePoint } from '../model/order.js';
 

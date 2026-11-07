@@ -5800,11 +5800,6 @@
     "symbol": "Pick"
   },
   {
-    "rule": "one-fill-entry",
-    "file": "src/product/cli.ts",
-    "symbol": "src/fill/orchestrator-host.ts:createFillOrchestratorService"
-  },
-  {
     "rule": "sql-only-in-storage-layer",
     "file": "scripts/index-knowledge.ts",
     "symbol": "src/adapters/database-owner.ts"

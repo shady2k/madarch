@@ -14,7 +14,13 @@
  * this test pins is that the per-file reading of the tree, and the unit a path
  * belongs to, answer what the driver answers.
  */
-import { afterAll, beforeAll, describe, expect, test } from 'bun:test';
+import { afterAll, beforeAll, describe as bunDescribe, expect, test as bunTest } from 'bun:test';
+import { skippedBecauseOutOfWorkflow } from './fill-skip-list.js';
+
+// The cases read a stage out of this step's list: they come back with that stage's step (test/fill-skip-list.ts).
+const skippedSuite = skippedBecauseOutOfWorkflow(import.meta.path);
+const describe = bunDescribe.skipIf(skippedSuite !== undefined);
+const test = bunTest.skipIf(skippedSuite !== undefined);
 import { execFileSync } from 'node:child_process';
 import { mkdtempSync, readFileSync, readdirSync, rmSync, statSync } from 'node:fs';
 import { tmpdir } from 'node:os';
@@ -58,6 +64,8 @@ async function lookup(candidate: string): Promise<ManifestEntry | undefined> {
 }
 
 beforeAll(async () => {
+  // The store the cases read is filled by stages out of this step's list: no fixture is made or closed.
+  if (skippedSuite !== undefined) return;
   root = mkdtempSync(join(tmpdir(), 'madarch-facts-training-'));
   repository = join(root, 'training');
   execFileSync('node', [GENERATOR, repository], { stdio: ['ignore', 'pipe', 'pipe'] });
@@ -81,6 +89,8 @@ beforeAll(async () => {
 }, 300_000);
 
 afterAll(() => {
+  // The store the cases read is filled by stages out of this step's list: no fixture is made or closed.
+  if (skippedSuite !== undefined) return;
   if (root !== '') rmSync(root, { recursive: true, force: true });
 }, 300_000);
 
