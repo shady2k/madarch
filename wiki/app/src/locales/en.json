@@ -36,6 +36,13 @@
     "language": "Choose language"
   },
   "knowledge": {
+      "repository": {
+        "progressCounts": "{{published}} of {{planned}} units",
+        "fillLast": "The last thing the run did: {{last}}",
+        "fillSpans": "The run has written {{spans}} spans of its trace so far",
+        "errorAt": "{{file}}:{{line}} — {{path}}",
+        "errorPath": "{{path}}"
+      },
     "localizedSource": "In the source",
     "title": "{{product}} — knowledge wiki",
     "loading": "Loading…",

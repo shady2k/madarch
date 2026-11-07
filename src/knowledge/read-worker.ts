@@ -11,7 +11,7 @@
 import { mkdirSync } from 'node:fs';
 import { dirname } from 'node:path';
 import { createPGliteDatabaseOwner, type DatabaseOwner, type OuterTransaction } from '../adapters/database-owner.js';
-import { createGraphStore } from '../graph/index.js';
+import { createGraphStore, createRecordSchema } from '../graph/index.js';
 import { decodeWire, encodeWire } from './wire.js';
 
 export type ReadRequest =
@@ -86,6 +86,9 @@ export async function runReadWorker(io: { lines: AsyncIterable<string>; send: (r
         // A store a fill never wrote - an empty folder the home made, or an earlier madarch's - has no tables: they are made
         // when absent on every open (both statements are idempotent), so a first read never fails on a missing relation.
         await createGraphStore(owner).createSchema();
+        // This step's record tables too (madarch-8bdc.2.5): a snapshot of a store the fill has not run on is
+        // read for its repository and its files, and a missing relation would be a failed page, not an empty one.
+        await createRecordSchema(owner);
         await owner.transaction('write', async (tx) => { await tx.query(SCHEMA_TABLE); });
         send({ type: 'ready' });
       } catch (error) {

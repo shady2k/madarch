@@ -28,6 +28,8 @@ interface PassProgress {
 
 /** The fill's state as its trace tells it. */
 export interface FillProgress {
+  /** How many spans the trace holds: a run whose units have not landed still says how far it is. */
+  readonly spans: number;
   readonly planned: number;
   readonly published: number;
   readonly failed: number;
@@ -55,6 +57,8 @@ function fillProgressOf(spans: readonly TraceSpan[]): FillProgress {
   let failed = 0;
   let blocked = 0;
   let last: string | null = null;
+  /** The newest span written, whatever it is: a run whose first unit has not landed still says what it is doing. */
+  let newest: string | null = null;
   let pass: PassProgress | null = null;
   const stageOf = (stage: string) => {
     const held = stages.get(stage) ?? { planned: 0, published: 0, failed: 0, blocked: 0 };
@@ -62,6 +66,8 @@ function fillProgressOf(spans: readonly TraceSpan[]): FillProgress {
     return held;
   };
   for (const span of spans) {
+    // The newest step-level span: the store's own statements are the run's plumbing, not what it did.
+    if (span.name.startsWith('fill.') || span.name.startsWith('scheduler.')) newest = span.name;
     if (span.name === 'fill.step') {
       const step = textOf(span, 'madarch.step');
       const units = numberOf(span, 'madarch.units');
@@ -93,7 +99,7 @@ function fillProgressOf(spans: readonly TraceSpan[]): FillProgress {
   for (const [step, units] of plannedByStep) stageOf(step).planned = units;
   const held: Record<string, StageProgress> = {};
   for (const [stage, progress] of [...stages].sort(([left], [right]) => (left < right ? -1 : left > right ? 1 : 0))) held[stage] = { ...progress };
-  return { planned: [...plannedByStep.values()].reduce((sum, units) => sum + units, 0), published, failed, blocked, stages: held, last, pass };
+  return { spans: spans.length, planned: [...plannedByStep.values()].reduce((sum, units) => sum + units, 0), published, failed, blocked, stages: held, last: last ?? newest, pass };
 }
 
 /** The progress of one trace file. */
@@ -102,7 +108,7 @@ export function readFillProgress(file: string): FillProgress {
 }
 
 /** No run has written a span yet: what a reader sees before the first one is written. */
-const NOTHING: FillProgress = { planned: 0, published: 0, failed: 0, blocked: 0, stages: {}, last: null, pass: null };
+const NOTHING: FillProgress = { spans: 0, planned: 0, published: 0, failed: 0, blocked: 0, stages: {}, last: null, pass: null };
 
 /**
  * The progress of one run in a store, by its run id: a store that also holds

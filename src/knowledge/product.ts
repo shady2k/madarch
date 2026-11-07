@@ -45,7 +45,9 @@ import { treeReadProducer } from '../extract/driver/index.js';
 import { TREE_EXTRACTORS, HISTORY_EXTRACTOR } from '../extract/driver/extractors.js';
 import { selectHistory, withHistoryLinks, type HistoryContext, type HistorySelection } from './temporal.js';
 import { markdownFilesBelow, readMarkdownEntities, type MarkdownEntity } from './markdown.js';
-import type { AgentOffer, Block, ChangedPage, DocumentListing, DocumentPage, DocumentRef, FillState, Neighborhood, PageModel, PlannedMarkView, PlannedSectionView, WikiStatus, WriterState, WriterUnit } from './model.js';
+import type { AgentOffer, Block, ChangedPage, DocumentListing, DocumentPage, DocumentRef, FillErrorView, FillState, Neighborhood, PageModel, PlannedMarkView, PlannedSectionView, RepositoryCounts, WikiStatus, WriterState, WriterUnit } from './model.js';
+import { readFillProgressOf } from '../obs/progress.js';
+import { repositoryFacts } from '../graph/index.js';
 import { neighborhoodOf } from './diagrams.js';
 import { anchorLines, titleOfAnchor } from './anchors.js';
 import { adapterOf, installAdapter, makeUnitAgent, offers, queryAgentChoices, WRITER_AGENTS, WRITER_BOUNDS } from './agents.js';
@@ -318,6 +320,10 @@ export class KnowledgeProduct {
   private running: Promise<void> | undefined;
   /** The fill the store is running now, as its host controls it; undefined between runs. */
   private fillRun: KnowledgeFillRun | undefined;
+  /** The run id of the fill under way: the trace it writes is read by that id, never as "the newest file". */
+  private fillRunId: string | undefined;
+  /** What the last finished run's trace and the store's counts say: the end state's numbers. */
+  private fillExtras: { counts?: FillState['counts']; error?: FillErrorView } = {};
   private stopping = false;
   /** A person asked for a pause: the worker finishes the page and the commit in progress and ends before the next one. */
   private pauseAsked = false;
@@ -884,7 +890,10 @@ export class KnowledgeProduct {
     }
     this.changedPages = undefined;
     this.changedLoaded = true;
-    this.fill = { state: 'running', startedAt, commit: 0, commits: 0, gaps: 0 };
+    // The repository the run reads, as the product declares it: the card says what it is reading
+    // before the run's own trace has a unit to count.
+    this.fill = { state: 'running', startedAt, commit: 0, commits: 0, gaps: 0, ...(repositories[0] === undefined ? {} : { repository: repositories[0].name }) };
+    this.fillExtras = {};
     const chosen = this.chosenAgent();
     const seeded = resuming && this.writer.units.length > 0 ? this.writer : undefined;
     const agent = seeded?.agent ?? chosen;
@@ -927,6 +936,9 @@ export class KnowledgeProduct {
       // The store's owner is opened here, where the process's connection already is (decision 0033, item 3): the fill
       // module is handed it and closes it when the run ends.
       const database = createPGliteDatabaseOwner({ path: join(this.storeFolder(), 'graph'), btreeGist: true });
+      // The trace this run writes is read by its id: a second trace in the store (a server's tool
+      // calls) is never taken for the fill's progress.
+      this.fillRunId = runId;
       run = await startKnowledgeFill({ productFolder: product.folder, storeFolder: this.storeFolder(), runId, database });
     } catch (error) {
       this.fill = { state: 'failed', startedAt: this.fill.startedAt, finishedAt: (this.options.now?.() ?? new Date()).toISOString(), message: error instanceof Error ? error.message : String(error), code: 'store' };
@@ -2219,14 +2231,56 @@ export class KnowledgeProduct {
    * changed belong to the same record and are read with it (madarch-u3vw.2).
    */
   private statusFill(): WikiStatus['fill'] {
+    // A running fill says what its own trace says it has done (madarch-8bdc.2.5, item 2): the
+    // counts are read from the run's file as it is written, never kept as a second count here.
+    if (this.fill.state === 'running') {
+      const progress = this.fillRunId === undefined ? undefined : readFillProgressOf(this.storeFolder(), this.fillRunId);
+      return progress === undefined ? this.fill : { ...this.fill, progress };
+    }
     const incomplete = [...this.pins.values()].some((pin) => pin.filledCommits < pin.commits || pin.commits === 0);
-    if (this.fill.state !== 'idle' || this.pins.size === 0 || incomplete) return this.fill;
+    const ended: WikiStatus['fill'] = { ...this.fill, ...this.fillExtras };
+    if (this.fill.state !== 'idle' || this.pins.size === 0 || incomplete) return ended;
     const last = this.lastFill();
     const changed = this.lastChangedPages();
-    return last === undefined
-      ? { state: 'done', ...(changed === undefined ? {} : { changed }) }
-      : { state: 'done', finishedAt: last.finishedAt, ...(changed === undefined ? {} : { changed }) };
+    return {
+      state: 'done',
+      ...(last?.finishedAt === undefined ? {} : { finishedAt: last.finishedAt }),
+      ...(changed === undefined ? {} : { changed }),
+      ...this.fillExtras,
+    };
   }
+
+  /** The counts the store holds for the product's first declared repository, or nothing before the first fill. */
+  private async declaredCounts(): Promise<RepositoryCounts | undefined> {
+    try {
+      const declared = this.repositories()[0]?.name;
+      if (declared === undefined) return undefined;
+      const facts = await repositoryFacts(await this.open(), declared);
+      return facts === null ? undefined : { files: facts.fileCount, commits: facts.commitCount, folders: facts.directoryCount };
+    } catch {
+      // A store the fill has not written holds no repository: nothing is made up for it.
+      return undefined;
+    }
+  }
+
+  /**
+   * What a failed run's message names: the file and line the error was raised at, and the path
+   * the run was about. The message is the engine's own (`<file>:<line>:<column>: <words>`), so
+   * the three are read from it rather than guessed.
+   */
+  private errorOf(message: string): FillErrorView {
+    let at = message.indexOf(':');
+    while (at > 0) {
+      const line = message.slice(at + 1).split(':');
+      if (line.length >= 2 && /^\d+$/u.test(line[0]!) && /^\d+$/u.test(line[1]!)) {
+        return { message, file: message.slice(0, at), line: Number(line[0]), path: this.options.productFolder };
+      }
+      at = message.indexOf(':', at + 1);
+    }
+    return { message, path: this.options.productFolder };
+  }
+
+
 
   private async statusNow(): Promise<StatusRead> {
     const product = this.product();
@@ -2247,6 +2301,13 @@ export class KnowledgeProduct {
     // The count is the one collected for exactly the inputs this body reads; absent, the answer carries no count at all.
     const problems = await this.openProblems();
     if (problems !== undefined) loop.problemsOpen = problems.count;
+    // The end state's numbers: the counts the store holds for the repository the product declares,
+    // read once here, for the same key the body is made for.
+    const counts = await this.declaredCounts();
+    this.fillExtras = {
+      ...(counts === undefined ? {} : { counts }),
+      ...(this.fill.state === 'failed' && this.fill.message !== undefined ? { error: this.errorOf(this.fill.message) } : {}),
+    };
     const body: WikiStatus = {
       ...common,
       manifest: 'ok',

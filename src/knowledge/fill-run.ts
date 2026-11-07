@@ -20,8 +20,9 @@ import { cpSync, mkdirSync, readdirSync, renameSync, rmSync } from 'node:fs';
 import { join } from 'node:path';
 import { promisify } from 'node:util';
 import { runFill } from '../fill/run.js';
+import { readProgress } from '../fill/orchestrator-store.js';
 import type { FillOrchestratorService } from '../fill/orchestrator-host.js';
-import { listRepositories } from '../graph/index.js';
+import { listRepositories, repositoryFacts } from '../graph/index.js';
 
 const execFileAsync = promisify(execFile);
 
@@ -98,11 +99,19 @@ export interface KnowledgeFillRun {
  * as-is commit and the commit count of every repository, so the pins a reader opens are the
  * facts the fill published and not a second reading of the checkout.
  */
-async function pinsOf(owner: StoreOwner): Promise<{ name: string; scope: string; head: string; commit: string; effectiveTime: string; commits: number; filledCommits: number }[]> {
+async function pinsOf(owner: StoreOwner): Promise<{ name: string; scope: string; head: string; commit: string; effectiveTime: string; commits: number; filledCommits: number; files: number; folders: number }[]> {
   const now = new Date().toISOString();
   const pins = [];
   for (const repository of await listRepositories(owner)) {
-    pins.push({ name: repository.name, scope: repository.name, head: repository.asIsCommit ?? '', commit: repository.asIsCommit ?? '', effectiveTime: now, commits: 0, filledCommits: 0 });
+    // The counts are the store's own: the history pass wrote the commits, and the history pass is
+    // the one that says whether a repository is complete. A repository with a tree and no commit
+    // row is a run that read the tree and not the history, and the page says so.
+    const facts = await repositoryFacts(owner, repository.name);
+    const commits = facts?.commitCount ?? 0;
+    pins.push({
+      name: repository.name, scope: repository.name, head: repository.asIsCommit ?? '', commit: repository.asIsCommit ?? '',
+      effectiveTime: now, commits, filledCommits: commits, files: facts?.fileCount ?? 0, folders: facts?.directoryCount ?? 0,
+    });
   }
   return pins;
 }
@@ -144,7 +153,20 @@ export async function startKnowledgeFill(options: KnowledgeFillOptions): Promise
         });
         if (!result.ok) return { ok: false, state: 'failed', message: `${result.code}: ${result.reason}`, units: 0 };
         if (!result.settled || result.state !== 'succeeded') {
-          return { ok: false, state: result.state, message: `the fill ended ${result.settled ? result.state : 'without settling'}${result.stoppedBecause === undefined ? '' : `: ${result.stoppedBecause}`}`, units: result.units.length };
+          // The run's own durable events name why a unit did not publish: the stage's error, with the
+          // file and line it was raised from, is what an engineer reads first (madarch-8bdc.2.5, item 2).
+          const named: string[] = [];
+          for (const event of await readProgress(owner, result.runId)) {
+            if (event.unitId !== '' && (event.kind === 'unit-failed' || event.kind === 'unit-blocked')) named.push(`${event.unitId}: ${event.summary}`);
+          }
+          const failed = result.units.filter((unit) => unit.state !== 'published' && unit.state !== 'superseded');
+          const why = named.length > 0 ? named.join('; ') : failed.map((unit) => `${unit.unitId} (${unit.stageId}, ${unit.state})`).join(', ');
+          return {
+            ok: false,
+            state: result.state,
+            message: `the fill ended ${result.settled ? result.state : 'without settling'}${result.stoppedBecause === undefined ? '' : `: ${result.stoppedBecause}`}${why === '' ? '' : `; ${why}`}`,
+            units: result.units.length,
+          };
         }
         await owner.run((tx: { query: (text: string, params?: readonly unknown[]) => Promise<unknown> }) => tx.query(`CREATE TABLE IF NOT EXISTS knowledge_fill (
           repo text PRIMARY KEY, scope text NOT NULL, head text NOT NULL, commit_hash text NOT NULL, effective_time text NOT NULL,

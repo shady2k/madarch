@@ -68,6 +68,7 @@ import { execFileSync } from 'node:child_process';
 import { basename, resolve } from 'node:path';
 import { byCodePoint } from '../model/order.js';
 import { withSpan } from '../obs/trace.js';
+import { raise } from '../model/raise.js';
 import { isRepositoryPath } from '../fill/facts.js';
 import { ID_PATTERN } from '../model/schema.js';
 import type { FillStageConfigurationRead } from '../fill/config.js';
@@ -562,7 +563,7 @@ function onePinDigest(pins: readonly RepositoryPin[], repository: string | undef
 function git(root: string, id: string, args: readonly string[]): string {
   const answer = gitQuietly(root, args);
   if (answer === undefined) {
-    throw new Error(`the repository ${JSON.stringify(id)} of the product stands in ${root}, and git could not read it: "git ${args.join(' ')}" failed there, which is no Git checkout or one git cannot read`);
+    raise(`the repository ${JSON.stringify(id)} of the product stands in ${root}, and git could not read it: "git ${args.join(' ')}" failed there, which is no Git checkout or one git cannot read`);
   }
   return answer;
 }

@@ -36,6 +36,13 @@
     "language": "Выбрать язык"
   },
   "knowledge": {
+      "repository": {
+        "progressCounts": "{{published}} из {{planned}} единиц",
+        "fillLast": "Последнее, что сделал запуск: {{last}}",
+        "fillSpans": "Запуск уже записал в трассу спанов: {{spans}}",
+        "errorAt": "{{file}}:{{line}} — {{path}}",
+        "errorPath": "{{path}}"
+      },
     "localizedSource": "В источнике",
     "title": "{{product}} — вики знаний",
     "loading": "Загрузка…",

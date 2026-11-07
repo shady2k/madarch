@@ -378,6 +378,35 @@ export interface ChangedPage {
   title: string;
 }
 
+/** The counts the repository's page states: the store's own answer, never a second reading of the checkout. */
+export interface RepositoryCounts {
+  readonly files: number;
+  readonly commits: number;
+  readonly folders: number;
+}
+
+/** What a running fill has done so far, read from its trace (`src/obs/progress.ts`). */
+export interface FillProgressView {
+  readonly spans: number;
+  readonly planned: number;
+  readonly published: number;
+  readonly failed: number;
+  readonly blocked: number;
+  readonly stages: Readonly<Record<string, { readonly planned: number; readonly published: number; readonly failed: number; readonly blocked: number }>>;
+  readonly last: string | null;
+}
+
+/** A failure of a run, named where it stands: the file, the line and the path an engineer needs. */
+export interface FillErrorView {
+  readonly message: string;
+  /** The file the failure was raised in, when the message names one. */
+  readonly file?: string;
+  /** The line of that file, when the message names one. */
+  readonly line?: number;
+  /** The path the failure is about: the product folder, a checkout, or the file a pass could not read. */
+  readonly path?: string;
+}
+
 export interface FillState {
   /** The index was rebuilt because its deterministic readers changed. */
   rebuilt?: 'extractors-changed';
@@ -408,6 +437,12 @@ export interface FillState {
    * (madarch-u3vw2).
    */
   changed?: ChangedPage[];
+  /** What a running fill has done so far, read from its run's trace (madarch-8bdc.2.5, item 2). */
+  progress?: FillProgressView;
+  /** The counts the run published: the end state's numbers. */
+  counts?: RepositoryCounts;
+  /** Why the run failed, with the file, the line and the path it stands at. */
+  error?: FillErrorView;
 }
 
 /** One agent unit of the writer, as the wiki shows it. */

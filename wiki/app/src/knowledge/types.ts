@@ -197,6 +197,23 @@ export type EntityListing = { kind: string; total: number; rows: EntityRef[]; ne
 /** One page a refresh changed, as the top bar lists it: the page's id and the title its page shows. */
 export type ChangedPage = { id: string; title: string };
 
+/** The counts the repository page states. */
+export type RepositoryCounts = { files: number; commits: number; folders: number };
+
+/** What a running fill has done so far, read from its trace. */
+export type FillProgressView = {
+  spans: number;
+  planned: number;
+  published: number;
+  failed: number;
+  blocked: number;
+  stages: Record<string, { planned: number; published: number; failed: number; blocked: number }>;
+  last: string | null;
+};
+
+/** A failed run's error, with the file, the line and the path it stands at. */
+export type FillErrorView = { message: string; file?: string; line?: number; path?: string };
+
 export type FillState = {
   rebuilt?: 'extractors-changed';
   /** `paused` and `stopped` are a person's press (madarch-m38l.17): a paused run ends at the next page boundary and is
@@ -215,6 +232,12 @@ export type FillState = {
   gaps?: number;
   /** The pages the run changed; absent when it did not say, empty when it changed none (madarch-u3vw2). */
   changed?: ChangedPage[];
+  /** What a running fill has done so far, read from its run's trace (madarch-8bdc.2.5, item 2). */
+  progress?: FillProgressView;
+  /** The counts the run published: the end state's numbers. */
+  counts?: RepositoryCounts;
+  /** Why the run failed, with the file, the line and the path it stands at. */
+  error?: FillErrorView;
 };
 
 export type WriterUnit = {
