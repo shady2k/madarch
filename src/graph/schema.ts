@@ -160,6 +160,11 @@ const SCHEMA: readonly string[] = [
   ...['file', 'globalName', 'path', 'range', 'repository', 'scope'].map((field) =>
     `CREATE INDEX IF NOT EXISTS node_version_prop_${field} ON node_version (kind_id, (properties->>'${field}'), node_id)`),
   'CREATE INDEX IF NOT EXISTS edge_version_prop_repository ON edge_version (relation_type_id, (properties->>\'repository\'), edge_id)',
+  // The sweep of a complete publication (publish.ts) asks for the current versions of one producer and one
+  // scope on every publication, and without an index over those two columns it read every page of the table
+  // (madarch-8bdc.2.5, measured on 2.5 million node versions: 474 830 pages, 964 ms, for one unit's rows).
+  `CREATE INDEX IF NOT EXISTS node_version_producer_scope ON node_version (producer, scope_id) WHERE recorded_to = 'infinity'`,
+  `CREATE INDEX IF NOT EXISTS edge_version_producer_scope ON edge_version (producer, scope_id) WHERE recorded_to = 'infinity'`,
   `CREATE INDEX IF NOT EXISTS edge_version_current_src ON edge_version (src_id, relation_type_id) WHERE recorded_to = 'infinity'`,
   `CREATE INDEX IF NOT EXISTS edge_version_current_dst ON edge_version (dst_id, relation_type_id) WHERE recorded_to = 'infinity'`,
   `CREATE INDEX IF NOT EXISTS edge_version_current_edge ON edge_version (edge_id) WHERE recorded_to = 'infinity'`,

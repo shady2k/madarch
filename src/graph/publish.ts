@@ -797,14 +797,22 @@ async function publishEdge(run: Run, edge: PublishEdge, path: string): Promise<v
   run.result.edgeVersionsOpened += 1;
 }
 
+/**
+ * The nodes a sweep of one producer and scope reads: the current versions it wrote there, in node order,
+ * excluding shared content. One statement, named here because its plan is what keeps a publication's cost
+ * proportional to its own unit rather than to the graph (`node_version_producer_scope`, schema.ts; the plan
+ * is stated in test/graph-sweep-plan.test.ts, madarch-8bdc.2.5).
+ */
+export const SWEEP_NODES_SQL = `SELECT DISTINCT v.node_id::text AS id FROM node_version v JOIN node_kind k ON k.id = v.kind_id
+     WHERE v.producer = $1 AND v.scope_id = $2::bigint AND v.recorded_to = 'infinity' AND v.valid_to > $3::timestamptz AND k.key <> $4 ORDER BY 1`;
+
+/** The edges a sweep of one producer and scope reads: the same rows as `SWEEP_NODES_SQL`, on `edge_version`. */
+export const SWEEP_EDGES_SQL = `SELECT ${EDGE_COLUMNS} FROM ${EDGE_FROM} WHERE e.producer = $1 AND e.scope_id = $2::bigint AND e.recorded_to = 'infinity' AND e.valid_to > $3::timestamptz ORDER BY e.id`;
+
 /** Ends what a complete publication did not repeat: its producer's and scope's current nodes (not shared content), then its edges. */
 async function sweep(run: Run, end: string): Promise<void> {
   const { ctx } = run;
-  const nodes = await ctx.tx.query<{ id: string }>(
-    `SELECT DISTINCT v.node_id::text AS id FROM node_version v JOIN node_kind k ON k.id = v.kind_id
-     WHERE v.producer = $1 AND v.scope_id = $2::bigint AND v.recorded_to = 'infinity' AND v.valid_to > $3::timestamptz AND k.key <> $4 ORDER BY 1`,
-    [run.owner.producer, run.owner.scope, end, CONTENT_KIND],
-  );
+  const nodes = await ctx.tx.query<{ id: string }>(SWEEP_NODES_SQL, [run.owner.producer, run.owner.scope, end, CONTENT_KIND]);
   const nodeTurn = readerTurn();
   for (const [index, row] of nodes.rows.entries()) {
     if (run.writtenNodes.has(row.id) || run.endedNodes.has(row.id)) continue;
@@ -814,10 +822,7 @@ async function sweep(run: Run, end: string): Promise<void> {
     run.result.cascades.push(...done.cascades);
     await yieldBetweenRows(nodeTurn, index + 1);
   }
-  const edges = await ctx.tx.query<Raw>(
-    `SELECT ${EDGE_COLUMNS} FROM ${EDGE_FROM} WHERE e.producer = $1 AND e.scope_id = $2::bigint AND e.recorded_to = 'infinity' AND e.valid_to > $3::timestamptz ORDER BY e.id`,
-    [run.owner.producer, run.owner.scope, end],
-  );
+  const edges = await ctx.tx.query<Raw>(SWEEP_EDGES_SQL, [run.owner.producer, run.owner.scope, end]);
   const edgeTurn = readerTurn();
   for (const [index, raw] of edges.rows.entries()) {
     const edge = edgeRow(raw);
