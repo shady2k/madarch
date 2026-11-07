@@ -45,9 +45,9 @@ import { treeReadProducer } from '../extract/driver/index.js';
 import { TREE_EXTRACTORS, HISTORY_EXTRACTOR } from '../extract/driver/extractors.js';
 import { selectHistory, withHistoryLinks, type HistoryContext, type HistorySelection } from './temporal.js';
 import { markdownFilesBelow, readMarkdownEntities, type MarkdownEntity } from './markdown.js';
-import type { AgentOffer, Block, ChangedPage, DocumentListing, DocumentPage, DocumentRef, FillErrorView, FillState, Neighborhood, PageModel, PlannedMarkView, PlannedSectionView, RepositoryCounts, WikiStatus, WriterState, WriterUnit } from './model.js';
+import type { AgentOffer, Block, ChangedPage, DocumentListing, DocumentPage, DocumentRef, FillErrorView, FillState, Neighborhood, PageModel, PlannedMarkView, PlannedSectionView, RepositoryFactsView, WikiStatus, WriterState, WriterUnit } from './model.js';
+import { commitPage, filePage, folderPage, repositoryOf, repositoryPage, type CommitPageModel, type FilePageModel, type FolderPageModel } from './repository-view.js';
 import { readFillProgressOf } from '../obs/progress.js';
-import { repositoryFacts } from '../graph/index.js';
 import { neighborhoodOf } from './diagrams.js';
 import { anchorLines, titleOfAnchor } from './anchors.js';
 import { adapterOf, installAdapter, makeUnitAgent, offers, queryAgentChoices, WRITER_AGENTS, WRITER_BOUNDS } from './agents.js';
@@ -2250,19 +2250,6 @@ export class KnowledgeProduct {
     };
   }
 
-  /** The counts the store holds for the product's first declared repository, or nothing before the first fill. */
-  private async declaredCounts(): Promise<RepositoryCounts | undefined> {
-    try {
-      const declared = this.repositories()[0]?.name;
-      if (declared === undefined) return undefined;
-      const facts = await repositoryFacts(await this.open(), declared);
-      return facts === null ? undefined : { files: facts.fileCount, commits: facts.commitCount, folders: facts.directoryCount };
-    } catch {
-      // A store the fill has not written holds no repository: nothing is made up for it.
-      return undefined;
-    }
-  }
-
   /**
    * What a failed run's message names: the file and line the error was raised at, and the path
    * the run was about. The message is the engine's own (`<file>:<line>:<column>: <words>`), so
@@ -2278,6 +2265,61 @@ export class KnowledgeProduct {
       at = message.indexOf(':', at + 1);
     }
     return { message, path: this.options.productFolder };
+  }
+
+  /**
+   * The repository a page is about: the one the caller named when the product declares it, the
+   * product's first declared repository otherwise, and any repository the store holds when the
+   * product declares none. A product's own repository is filled beside its code repositories, and
+   * a page about "the repository" is about the code the reader connected, not about the product's
+   * own pages.
+   */
+  private async currentRepository(owner: DatabaseOwner, named: string | null = null): Promise<string | null> {
+    let declared: string[] = [];
+    try {
+      declared = this.repositories().map((repository) => repository.name);
+    } catch {
+      declared = [];
+    }
+    const wanted = named !== null && declared.includes(named) ? named : declared[0] ?? named;
+    return await repositoryOf(owner, wanted);
+  }
+
+  /** The repository the store holds, as a page states it: the named one, else the declared first one. */
+  async repositoryView(named: string | null = null): Promise<RepositoryFactsView | undefined> {
+    const owner = await this.open();
+    const repository = await this.currentRepository(owner, named);
+    if (repository === null) return undefined;
+    const page = await repositoryPage(owner, repository);
+    if (page === null) return undefined;
+    return {
+      name: page.repository, url: page.url, defaultBranch: page.defaultBranch, asIsCommit: page.asIsCommit,
+      counts: page.counts, gaps: page.gaps, steps: page.steps,
+    };
+  }
+
+  /** One folder's page, or null when the store holds no tree, no such folder, and no file inside it. */
+  async folderView(folder: string, after?: string): Promise<FolderPageModel | null> {
+    const owner = await this.open();
+    const repository = await this.currentRepository(owner);
+    if (repository === null) return null;
+    return await folderPage(owner, repository, folder, after);
+  }
+
+  /** One file's page, or null when the store holds no such file. */
+  async fileView(path: string, after?: { readonly walk: number; readonly commit: string }): Promise<FilePageModel | null> {
+    const owner = await this.open();
+    const repository = await this.currentRepository(owner);
+    if (repository === null) return null;
+    return await filePage(owner, repository, path, after);
+  }
+
+  /** One commit's page, or null when the store holds no such commit. */
+  async commitView(hash: string): Promise<CommitPageModel | null> {
+    const owner = await this.open();
+    const repository = await this.currentRepository(owner);
+    if (repository === null) return null;
+    return await commitPage(owner, repository, hash);
   }
 
 
@@ -2301,11 +2343,11 @@ export class KnowledgeProduct {
     // The count is the one collected for exactly the inputs this body reads; absent, the answer carries no count at all.
     const problems = await this.openProblems();
     if (problems !== undefined) loop.problemsOpen = problems.count;
-    // The end state's numbers: the counts the store holds for the repository the product declares,
-    // read once here, for the same key the body is made for.
-    const counts = await this.declaredCounts();
+    // The end state's numbers: the repository the store holds and the run's trace, both read once here,
+    // for the same key the body is made for.
+    const repository = await this.repositoryView().catch(() => undefined);
     this.fillExtras = {
-      ...(counts === undefined ? {} : { counts }),
+      ...(repository === undefined ? {} : { counts: repository.counts }),
       ...(this.fill.state === 'failed' && this.fill.message !== undefined ? { error: this.errorOf(this.fill.message) } : {}),
     };
     const body: WikiStatus = {
@@ -2328,6 +2370,7 @@ export class KnowledgeProduct {
       roles: Object.fromEntries([...context.manifest.roles.values()].map((role) => [role.name, { ...(role.open === undefined ? {} : { open: [...role.open] }), lead: [...role.lead] }])),
       loop,
       starterOffers: this.starterOffers().length,
+      ...(repository === undefined ? {} : { repository }),
     };
     // The key is taken once more after the body is made: a change of the inputs while it was made leaves the count
     // pending rather than carried to the next poll (madarch-u3vw.8).

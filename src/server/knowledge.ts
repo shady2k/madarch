@@ -43,6 +43,14 @@ export interface KnowledgePart {
   view: (request: Request) => Promise<Handled>;
   viewFrame: (request: Request) => Promise<Handled>;
   source: (request: Request) => Promise<Handled>;
+  /** The repository page: its facts, its counts, its gaps and which of the fill's steps have run. */
+  repository: (request: Request) => Promise<Handled>;
+  /** One folder's page: its subfolders and one page of its own files. */
+  folder: (request: Request) => Promise<Handled>;
+  /** One file's page: every fact of the file and one page of its history. */
+  file: (request: Request) => Promise<Handled>;
+  /** One commit's page: its facts and the paths it changed. */
+  commit: (request: Request) => Promise<Handled>;
   fill: (request: Request) => Promise<Handled>;
   /** A person's «Пауза»: the page and the commit in progress are finished, and the run ends before the next one. */
   pause: (request: Request) => Promise<Handled>;
@@ -237,6 +245,54 @@ export function createKnowledgePart(
       if (read === undefined) return refused(404, { field: 'path', message: `the file ${path} is not in ${repo === null || repo === '' ? 'the product repository' : `the repository ${repo}`} at the commit the graph was filled from` });
       if (Buffer.byteLength(read.text) > SOURCE_VIEW_BYTES) return refused(413, { field: 'path', message: `the file ${path} is ${Buffer.byteLength(read.text)} bytes, past the ${SOURCE_VIEW_BYTES} the source view shows` });
       return { response: json(200, { repo: repo === '' ? null : repo, path, language: languageOf(path), commit: read.commit, text: read.text, ...(read.history === undefined ? {} : { history: read.history }) }) };
+    }),
+    repository: guarded('read the repository', async (request) => {
+      const query = new URL(request.url).searchParams;
+      const repo = query.get('repo');
+      const repository = await product.repositoryView(repo === null || repo === '' ? null : repo);
+      if (repository === undefined) return refused(404, { field: 'repo', message: 'the store holds no repository: the step "repository-tree" has not run, so there is no page to show' });
+      return { response: json(200, { repository }) };
+    }),
+    folder: guarded('draw the folder', async (request) => {
+      const query = new URL(request.url).searchParams;
+      const folder = query.get('path') ?? '';
+      if (folder.startsWith('/') || folder.includes('\0') || folder.split('/').includes('..')) return refused(400, { field: 'path', message: `"${folder}" is not a path inside a repository` });
+      const after = query.get('after');
+      const page = await product.folderView(folder, after === null || after === '' ? undefined : after);
+      if (page === null) {
+        const repository = await product.repositoryView().catch(() => undefined);
+        if (repository === undefined || repository.asIsCommit === null) return refused(404, { field: 'path', message: `the step "repository-tree" has not run, so the folder ${folder === '' ? 'at the root' : JSON.stringify(folder)} has no page` });
+        return refused(404, { field: 'path', message: `the repository holds no folder ${JSON.stringify(folder)} at ${repository.asIsCommit}` });
+      }
+      return { response: json(200, { folder: page }) };
+    }),
+    file: guarded('draw the file', async (request) => {
+      const query = new URL(request.url).searchParams;
+      const path = query.get('path');
+      if (path === null || path === '') return refused(400, { field: 'path', message: '"path" is required: the file, relative to its repository' });
+      if (path.startsWith('/') || path.includes('\0') || path.split('/').includes('..')) return refused(400, { field: 'path', message: `"${path}" is not a path inside a repository` });
+      const walk = Number(query.get('walk'));
+      const at = query.get('at');
+      const after = at !== null && at !== '' && Number.isInteger(walk) && walk >= 0 ? { walk, commit: at } : undefined;
+      const page = await product.fileView(path, after);
+      if (page === null) {
+        const repository = await product.repositoryView().catch(() => undefined);
+        if (repository === undefined || repository.asIsCommit === null) return refused(404, { field: 'path', message: `the step "repository-tree" has not run, so the file ${path} has no page` });
+        return refused(404, { field: 'path', message: `the repository holds no file ${path} at ${repository.asIsCommit}` });
+      }
+      return { response: json(200, { file: page }) };
+    }),
+    commit: guarded('draw the commit', async (request) => {
+      const query = new URL(request.url).searchParams;
+      const hash = query.get('hash');
+      if (hash === null || hash === '') return refused(400, { field: 'hash', message: '"hash" is required: the commit whose page is asked for' });
+      const page = await product.commitView(hash);
+      if (page === null) {
+        const repository = await product.repositoryView().catch(() => undefined);
+        if (repository === undefined || !repository.steps.history) return refused(404, { field: 'hash', message: `the step "repository-history" has not run, so the commit ${hash} has no page` });
+        return refused(404, { field: 'hash', message: `the store holds no commit ${JSON.stringify(hash)} of ${repository.name}` });
+      }
+      return { response: json(200, { commit: page }) };
     }),
     fill: guarded('start the fill', async (request) => {
       const crossSite = foreign(request);

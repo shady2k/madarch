@@ -385,6 +385,21 @@ export interface RepositoryCounts {
   readonly folders: number;
 }
 
+/**
+ * The repository this step's graph holds (madarch-8bdc.2.5, item 3): its
+ * identity, the as-is commit every page is true at, the counts the store holds,
+ * the gaps the fill recorded, and which of the fill's steps have run.
+ */
+export interface RepositoryFactsView {
+  readonly name: string;
+  readonly url: string;
+  readonly defaultBranch: string | null;
+  readonly asIsCommit: string | null;
+  readonly counts: RepositoryCounts;
+  readonly gaps: readonly { readonly what: string; readonly reason: string }[];
+  readonly steps: { readonly tree: boolean; readonly history: boolean };
+}
+
 /** What a running fill has done so far, read from its trace (`src/obs/progress.ts`). */
 export interface FillProgressView {
   readonly spans: number;
@@ -573,6 +588,12 @@ export interface WikiStatus {
   loop: { questionsOpen: number; questionsAnswered: number; correctionsOpen: number; tasksOpen: number; problemsOpen?: number };
   /** How many things the current starter set holds that this product's edited manifest lacks (the Problems page offers them). */
   starterOffers: number;
+  /**
+   * The repository this step's graph holds, when the store holds one: the
+   * wiki's home page is the repository's own page while this stands
+   * (madarch-8bdc.2.5, item 3). Absent before the first fill.
+   */
+  repository?: RepositoryFactsView;
 }
 
 /** A Markdown document the wiki shows as a page: of the product repository (`repo` null) or of a connected code repository. */

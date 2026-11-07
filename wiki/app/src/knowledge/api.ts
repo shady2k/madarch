@@ -1,7 +1,7 @@
 import { appPath } from '../app-base.js';
 import { historyQuery } from './history-context.js';
 import { readJson, RequestError } from '../api.js';
-import type { AgentChoices, AgentOffer, AnswerResult, Block, CorrectionResult, CreatedTask, DiagramRenderer, DiagramView, DocumentListing, DocumentPageModel, EntityListing, FillState, Glossary, GraphVerdictBudgets, GraphVerdictFilter, GraphVerdictReport, GraphVerdictRole, GraphVerdictView, ModelRoleId, ModelRoleView, Neighborhood, PageJournal, PageModel, ProblemListing, ProductChoice, ProductSettings, QuestionDetail, QuestionListing, RefreshPreview, SourceFile, StatementModel, TaskDetail, TaskImpact, TaskListing, TaskProposal, TaskRow, TaskScope, UserSettings, WikiStatus, WriterState } from './types.js';
+import type { AgentChoices, AgentOffer, AnswerResult, Block, CommitPageModel, CorrectionResult, CreatedTask, DiagramRenderer, DiagramView, DocumentListing, DocumentPageModel, EntityListing, FilePageModel, FillState, FolderPageModel, Glossary, GraphVerdictBudgets, GraphVerdictFilter, GraphVerdictReport, GraphVerdictRole, GraphVerdictView, ModelRoleId, ModelRoleView, Neighborhood, PageJournal, PageModel, ProblemListing, ProductChoice, ProductSettings, QuestionDetail, QuestionListing, RefreshPreview, SourceFile, StatementModel, TaskDetail, TaskImpact, TaskListing, TaskProposal, TaskRow, TaskScope, UserSettings, WikiStatus, WriterState } from './types.js';
 
 /** The wiki's status: manifest, kinds, repositories, fill. */
 export const getStatus = (signal?: AbortSignal): Promise<WikiStatus> => readJson<WikiStatus>('read the wiki', '/api/k/status', signal);
@@ -115,6 +115,27 @@ export const pauseRun = (): Promise<{ fill: FillState; writer: WriterState }> =>
  * one; the first answer is the server's refusal, naming the pages this run rewrote and that they stay.
  */
 export const stopRun = (): Promise<{ fill: FillState; writer: WriterState }> => post<{ fill: FillState; writer: WriterState }>('stop the run', '/api/k/stop', { confirm: true });
+
+/** One folder's page: its subfolders and one page of its own files. */
+export function getFolder(path: string, after: string | null, signal?: AbortSignal): Promise<{ folder: FolderPageModel }> {
+  const query = new URLSearchParams({ path });
+  if (after !== null) query.set('after', after);
+  return readJson(`read the folder ${path === '' ? 'at the root' : path}`, `/api/k/folder?${query.toString()}`, signal);
+}
+
+/** One file's page: every fact of the file and one page of its history. */
+export function getFile(path: string, after: { walk: number; commit: string } | null, signal?: AbortSignal): Promise<{ file: FilePageModel }> {
+  const query = new URLSearchParams({ path });
+  if (after !== null) {
+    query.set('walk', String(after.walk));
+    query.set('at', after.commit);
+  }
+  return readJson(`read the file ${path}`, `/api/k/file?${query.toString()}`, signal);
+}
+
+/** One commit's page: its facts and the paths it changed. */
+export const getCommit = (hash: string, signal?: AbortSignal): Promise<{ commit: CommitPageModel }> =>
+  readJson(`read the commit ${hash}`, `/api/k/commit?hash=${encodeURIComponent(hash)}`, signal);
 
 /** The wiki's one change stream: the server says `change` when a file of the product or a commit of the fill changes what a page shows. */
 export const eventsAddress = (): string => appPath('/api/events');

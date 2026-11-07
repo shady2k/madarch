@@ -6,6 +6,9 @@ export type KRoute =
   | { name: 'entity'; id: string }
   | { name: 'kind'; kind: string }
   | { name: 'source'; repo: string | null; path: string; line: number | null }
+  | { name: 'folder'; path: string; after: string | null }
+  | { name: 'file'; path: string; after: { walk: number; commit: string } | null }
+  | { name: 'commit'; hash: string }
   | { name: 'docs' }
   | { name: 'doc'; repo: string | null; path: string }
   | { name: 'catalogue' }
@@ -34,6 +37,28 @@ export function addressOfJournal(id: string, run?: string): string {
 /** Where the fill stands, page by page, while it writes and after it ends (madarch-m38l.23). */
 export const K_FILL = '/k/fill';
 export const K_TASKS = '/k/tasks';
+/** Where one folder of the repository stands: its subfolders and one page of its files. */
+export function addressOfFolder(path: string, after?: string): string {
+  const query = new URLSearchParams({ path });
+  if (after !== undefined && after !== '') query.set('after', after);
+  return `/k/folder?${query.toString()}`;
+}
+
+/** Where one file stands: every fact of it and its history, paged by the walk it ended on. */
+export function addressOfFile(path: string, after?: { walk: number; commit: string }): string {
+  const query = new URLSearchParams({ path });
+  if (after !== undefined) {
+    query.set('walk', String(after.walk));
+    query.set('at', after.commit);
+  }
+  return `/k/file?${query.toString()}`;
+}
+
+/** Where one commit stands: its facts and the paths it changed. */
+export function addressOfCommit(hash: string): string {
+  return `/k/commit?${new URLSearchParams({ hash }).toString()}`;
+}
+
 /** Where one task stands: its scope, its impact and the way to fix the pages now (madarch-m38l.14). */
 export const addressOfTask = (id: string): string => `/k/task?${new URLSearchParams({ id }).toString()}`;
 export const addressOfQuestion = (slug: string): string => `/k/questions/${encodeURIComponent(slug)}`;
@@ -111,6 +136,23 @@ export function kRouteOf(pathname: string, search = ''): KRoute | null {
     const file = query.get('path');
     if (file === null || file === '') return { name: 'docs' };
     return { name: 'doc', repo: query.get('repo'), path: file };
+  }
+  if (path === '/k/folder') {
+    const query = new URLSearchParams(search);
+    return { name: 'folder', path: query.get('path') ?? '', after: query.get('after') };
+  }
+  if (path === '/k/file') {
+    const query = new URLSearchParams(search);
+    const file = query.get('path');
+    if (file === null || file === '') return { name: 'home' };
+    const walk = Number(query.get('walk'));
+    const at = query.get('at');
+    return { name: 'file', path: file, after: at !== null && at !== '' && Number.isInteger(walk) && walk >= 0 ? { walk, commit: at } : null };
+  }
+  if (path === '/k/commit') {
+    const query = new URLSearchParams(search);
+    const hash = query.get('hash');
+    return hash === null || hash === '' ? { name: 'home' } : { name: 'commit', hash };
   }
   if (path === '/k/src') {
     const query = new URLSearchParams(search);

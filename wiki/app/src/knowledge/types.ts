@@ -200,6 +200,17 @@ export type ChangedPage = { id: string; title: string };
 /** The counts the repository page states. */
 export type RepositoryCounts = { files: number; commits: number; folders: number };
 
+/** The repository the graph holds, as the wiki's pages state it (madarch-8bdc.2.5, item 3). */
+export type RepositoryFactsView = {
+  name: string;
+  url: string;
+  defaultBranch: string | null;
+  asIsCommit: string | null;
+  counts: RepositoryCounts;
+  gaps: { what: string; reason: string }[];
+  steps: { tree: boolean; history: boolean };
+};
+
 /** What a running fill has done so far, read from its trace. */
 export type FillProgressView = {
   spans: number;
@@ -308,6 +319,62 @@ export type WikiStatus = {
   loop?: { questionsOpen: number; questionsAnswered: number; correctionsOpen: number; tasksOpen?: number; problemsOpen?: number };
   /** What the current starter set holds that this product's edited manifest lacks (the Problems page offers it). */
   starterOffers?: number;
+  /** The repository this step's graph holds: the home page is this repository's page while it stands. */
+  repository?: RepositoryFactsView;
+};
+
+/** One file as the repository pages show it. */
+export type PageFile = {
+  path: string;
+  mode: string;
+  blob: string;
+  bytes: number;
+  lines: number | null;
+  form: 'text' | 'binary';
+  language: string;
+  candidates: string[];
+};
+
+/** One folder's page: its own subfolders and one page of its own files. */
+export type FolderPageModel = {
+  repository: string;
+  asIsCommit: string | null;
+  folder: string;
+  parent: string | null;
+  folders: string[];
+  files: PageFile[];
+  next: string | null;
+};
+
+/** One commit of a file's history. */
+export type PageHistoryRow = { commit: string; change: string; added: number | null; removed: number | null; previousPath: string | null; date: string; subject: string; walk: number };
+
+/** One file's page: every fact of the file and one page of its history. */
+export type FilePageModel = {
+  repository: string;
+  asIsCommit: string | null;
+  file: PageFile;
+  created: { date: string; commit: string; author: string } | null;
+  modified: { date: string; commit: string; author: string } | null;
+  commitCount: number;
+  authors: string[];
+  history: PageHistoryRow[];
+  next: { walk: number; commit: string } | null;
+};
+
+/** One commit's page: its facts and the paths it changed. */
+export type CommitPageModel = {
+  repository: string;
+  asIsCommit: string | null;
+  hash: string;
+  author: { name: string; email: string };
+  authorDate: string;
+  authorOffsetMin: number;
+  commitDate: string;
+  commitOffsetMin: number;
+  subject: string;
+  parents: string[];
+  changed: { path: string; change: string; added: number | null; removed: number | null; previousPath: string | null }[];
 };
 
 export type SourceFile = { history?: HistoryContext; repo: string | null; path: string; language: string; commit: string | null; text: string };
