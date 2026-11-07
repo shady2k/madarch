@@ -1686,16 +1686,6 @@
   },
   {
     "rule": "no-unreachable-code",
-    "file": "src/fill/stages/data-model.ts",
-    "symbol": "createDataModelAggregateStage"
-  },
-  {
-    "rule": "no-unreachable-code",
-    "file": "src/fill/stages/data-model.ts",
-    "symbol": "createDataModelStage"
-  },
-  {
-    "rule": "no-unreachable-code",
     "file": "src/fill/stages/doc-intent.ts",
     "symbol": "DOC_INTENT_STAGE_VERSION"
   },
@@ -1968,16 +1958,6 @@
     "rule": "no-unreachable-code",
     "file": "src/fill/stages/narrative.ts",
     "symbol": "narrativeUnits"
-  },
-  {
-    "rule": "no-unreachable-code",
-    "file": "src/fill/stages/operations-links.ts",
-    "symbol": "createOperationsLinksStage"
-  },
-  {
-    "rule": "no-unreachable-code",
-    "file": "src/fill/stages/operations.ts",
-    "symbol": "createOperationsStage"
   },
   {
     "rule": "no-unreachable-code",

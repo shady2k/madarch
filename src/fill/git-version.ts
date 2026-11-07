@@ -11,7 +11,7 @@
 import { execFileSync } from 'node:child_process';
 
 /** The oldest git a fill reads, as `major.minor`: `check-attr --source` is the option that sets the floor. */
-export const FILL_GIT_MIN = { major: 2, minor: 40 } as const;
+const FILL_GIT_MIN = { major: 2, minor: 40 } as const;
 
 /** The oldest git a fill reads, as a reader says it. */
 export const FILL_GIT_MIN_TEXT = `${String(FILL_GIT_MIN.major)}.${String(FILL_GIT_MIN.minor)}`;
