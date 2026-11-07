@@ -277,7 +277,8 @@ export async function readRepositoryHistory(pin: RepositoryAt): Promise<HistoryP
     }
     commits.push({ ...stream.header, touched });
   }
-  commits.sort((left, right) => byCodePoint(left.hash, right.hash));
+  // The stream's own order: the first commit is the tip, so a commit's index is its walk from the
+  // tip, which is the order `git log --follow` answers a file's history in.
   return { repository: { name: pin.repository }, commits, gaps };
 }
 

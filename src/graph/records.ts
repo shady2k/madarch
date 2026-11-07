@@ -130,7 +130,8 @@ const SCHEMA: readonly string[] = [
     author_offset_min integer NOT NULL,
     commit_date timestamptz NOT NULL,
     commit_offset_min integer NOT NULL,
-    subject text NOT NULL
+    subject text NOT NULL,
+    walk integer NOT NULL CHECK (walk >= 0)
   )`,
   `CREATE TABLE IF NOT EXISTS author (
     node_id bigint PRIMARY KEY REFERENCES node (id),
@@ -513,10 +514,10 @@ export async function publishHistory(owner: DatabaseOwner, input: HistoryPublish
     let counts: RecordCounts = { inserted: 0, updated: 0, deleted: 0, unchanged: 0 };
     const commitIds = new Map<string, string>();
     const authorIds = new Map<string, string>();
-    const heldCommits = new Map((await tx.query<{ key: string; node_id: string; author_date: string; commit_date: string; subject: string; author_offset_min: number; commit_offset_min: number; author_key: string; author_name: string; author_email: string }>(
+    const heldCommits = new Map((await tx.query<{ key: string; node_id: string; author_date: string; commit_date: string; subject: string; author_offset_min: number; commit_offset_min: number; walk: number; author_key: string; author_name: string; author_email: string }>(
       `SELECT n.key, n.id::text AS node_id, to_char(c.author_date AT TIME ZONE 'UTC', 'YYYY-MM-DD"T"HH24:MI:SS"Z"') AS author_date,
               to_char(c.commit_date AT TIME ZONE 'UTC', 'YYYY-MM-DD"T"HH24:MI:SS"Z"') AS commit_date, c.subject,
-              c.author_offset_min, c.commit_offset_min, ''::text AS author_key, ''::text AS author_name, ''::text AS author_email
+              c.author_offset_min, c.commit_offset_min, c.walk, ''::text AS author_key, ''::text AS author_name, ''::text AS author_email
        FROM node n JOIN kind k ON k.id = n.kind_id JOIN commit_fact c ON c.node_id = n.id
        WHERE n.repository_id = $1::bigint AND k.name = 'commit'`, [repositoryId])).rows.map((row) => [row.key, row]));
     const heldTouched = new Map<string, { change: string; added: string | null; removed: string | null; previous: string | null }>();
@@ -552,7 +553,7 @@ export async function publishHistory(owner: DatabaseOwner, input: HistoryPublish
     }
     const authored = kinds.get('authored')!;
     const parent = kinds.get('parent')!;
-    for (const commit of input.commits) {
+    for (const [walk, commit] of input.commits.entries()) {
       const known = heldCommits.get(commit.hash);
       const id = known?.node_id ?? (await tx.query<{ id: string }>('SELECT id::text AS id FROM node WHERE repository_id = $1::bigint AND kind_id = $2::bigint AND key = $3', [repositoryId, kinds.get('commit')!, commit.hash])).rows[0]?.id;
       const node = id ?? (await tx.query<{ id: string }>('INSERT INTO node (kind_id, repository_id, key) VALUES ($1::bigint, $2::bigint, $3) RETURNING id::text AS id', [kinds.get('commit')!, repositoryId, commit.hash])).rows[0]!.id;
@@ -561,14 +562,14 @@ export async function publishHistory(owner: DatabaseOwner, input: HistoryPublish
       const [authorDate, authorOffset] = instantOf(commit.authorDate, 'authorDate', commit.hash);
       const [commitDate, commitOffset] = instantOf(commit.commitDate, 'commitDate', commit.hash);
       if (known === undefined) {
-        await tx.query('INSERT INTO commit_fact (node_id, hash, author_date, author_offset_min, commit_date, commit_offset_min, subject) VALUES ($1::bigint, $2, $3::timestamptz, $4::int, $5::timestamptz, $6::int, $7)', [node, commit.hash, authorDate, authorOffset, commitDate, commitOffset, commit.subject]);
+        await tx.query('INSERT INTO commit_fact (node_id, hash, author_date, author_offset_min, commit_date, commit_offset_min, subject, walk) VALUES ($1::bigint, $2, $3::timestamptz, $4::int, $5::timestamptz, $6::int, $7, $8::int)', [node, commit.hash, authorDate, authorOffset, commitDate, commitOffset, commit.subject, String(walk)]);
         await tx.query('INSERT INTO edge (from_id, to_id, kind_id, position) VALUES ($1::bigint, $2::bigint, $3::bigint, 0) ON CONFLICT DO NOTHING', [authorIds.get(authorKeyOf(commit.authorEmail))!, node, authored]);
         for (const [position, parentHash] of commit.parents.entries()) {
           const parentNode = await nodeOfCommit(tx, kinds, repositoryId, parentHash);
           await tx.query('INSERT INTO edge (from_id, to_id, kind_id, position) VALUES ($1::bigint, $2::bigint, $3::bigint, $4::bigint) ON CONFLICT DO NOTHING', [node, parentNode, parent, String(position)]);
         }
-      } else if (known.subject !== commit.subject || known.author_date !== authorDate.replace(' ', 'T') || known.commit_date !== commitDate.replace(' ', 'T')) {
-        await tx.query('UPDATE commit_fact SET author_date = $2::timestamptz, author_offset_min = $3::int, commit_date = $4::timestamptz, commit_offset_min = $5::int, subject = $6 WHERE node_id = $1::bigint', [node, authorDate, authorOffset, commitDate, commitOffset, commit.subject]);
+      } else if (known.subject !== commit.subject || known.author_date !== authorDate || known.commit_date !== commitDate || known.walk !== walk) {
+        await tx.query('UPDATE commit_fact SET author_date = $2::timestamptz, author_offset_min = $3::int, commit_date = $4::timestamptz, commit_offset_min = $5::int, subject = $6, walk = $7::int WHERE node_id = $1::bigint', [node, authorDate, authorOffset, commitDate, commitOffset, commit.subject, String(walk)]);
         counts = { ...counts, updated: counts.updated + 1 };
       } else {
         counts = { ...counts, unchanged: counts.unchanged + 1 };
@@ -734,17 +735,21 @@ export async function fileFacts(owner: DatabaseOwner, repository: string, path: 
          UNION
          SELECT t.previous_path_id FROM chain c JOIN touched t ON t.path_id = c.path_id WHERE t.previous_path_id IS NOT NULL
        )
-       SELECT n.key AS commit, to_char(c.commit_date AT TIME ZONE 'UTC', 'YYYY-MM-DD"T"HH24:MI:SS"Z"') AS date, coalesce(a.name, '') AS name
+       SELECT n.key AS commit, to_char(c.commit_date AT TIME ZONE 'UTC', 'YYYY-MM-DD"T"HH24:MI:SS"Z"') AS date, coalesce(a.name, '') AS name, c.walk, t.change
        FROM touched t JOIN chain ch ON ch.path_id = t.path_id JOIN node n ON n.id = t.commit_node_id
        JOIN commit_fact c ON c.node_id = n.id
        LEFT JOIN edge e ON e.from_id = n.id AND e.kind_id = (SELECT id FROM kind WHERE name = 'authored')
        LEFT JOIN author a ON a.node_id = e.to_id
-       WHERE n.repository_id = $1::bigint ORDER BY c.commit_date ASC, n.key ASC`,
+       WHERE n.repository_id = $1::bigint ORDER BY c.walk ASC, n.key ASC`,
       [repositoryId, path],
     );
-    const commits = history.rows;
-    const first = commits[0];
-    const last = commits[commits.length - 1];
+    // The order is the history's own, not the clock's: a commit's `walk` is its position in the
+    // stream git prints from the tip, so the deepest commit in the rename chain is the creation and
+    // the shallowest is the last change (madarch-8bdc.2.5: dates are not monotonic).
+    const commits = history.rows as unknown as { commit: string; date: string; name: string; walk: number; change: string }[];
+    const created = commits.reduce((deepest, entry) => (entry.walk > deepest.walk ? entry : deepest), commits[0]!);
+    const first = created;
+    const last = commits[0];
     const distinct = new Map(commits.map((entry) => [entry.commit, entry]));
     const authors = [...new Set(commits.map((entry) => entry.name).filter((name) => name !== ''))].sort();
     return {

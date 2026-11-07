@@ -79,7 +79,7 @@ const sumFiles = files.rows.reduce((sum, row) => sum + row.bytes, 0);
 
 // Twenty files spread over the tree, and the dates `git log --follow` gives them.
 const spread = files.rows.filter((row, index) => index % Math.max(1, Math.floor(files.rows.length / 20)) === 0).slice(0, 20);
-const dates: { path: string; graphCreated: string | null; gitCreated: string | null; graphModified: string | null; gitModified: string | null }[] = [];
+const dates: { path: string; graphCreated: string | null; gitCreated: string | null; graphModified: string | null; gitModified: string | null; gitModifiedFirstParent: string | null }[] = [];
 for (const file of spread) {
   const facts = await graph.fileFacts(owner, 'madarch', file.path);
   // The committer dates: the store's created and last-modified are the commits that touched the
@@ -87,12 +87,17 @@ for (const file of spread) {
   // Every history question is asked of the commit the fill read, never of the checkout's HEAD.
   const first = git(['log', '--follow', '--format=%cI%x09%H', '--diff-filter=A', commit, '--', file.path]).split('\n').filter((line) => line !== '').at(-1) ?? '';
   const last = git(['log', '--follow', '--format=%cI', '-1', commit, '--', file.path]).trim();
+  // The same question asked the way the store records a touched row: git's default `git log -- path`
+  // does not diff a merge at all, so a merge that brings a change never answers it; the agreed model
+  // records `touched` from each commit's own change against its first parent, merge or not.
+  const lastFirstParent = git(['log', '--diff-merges=first-parent', '--format=%cI', '-1', commit, '--', file.path]).trim();
   dates.push({
     path: file.path,
     graphCreated: facts?.created?.date ?? null,
     gitCreated: first === '' ? null : first.split('\t')[0] ?? null,
     graphModified: facts?.modified?.date ?? null,
     gitModified: last === '' ? null : last,
+    gitModifiedFirstParent: lastFirstParent === '' ? null : lastFirstParent,
   });
 }
 
@@ -114,8 +119,11 @@ const answer = {
     dates,
     // The two instants written the same way before they are compared: one UTC text, one ISO with
     // its offset, and the comparison is between the instants they denote.
-    datesEqual: dates.every((entry) => (entry.graphModified === null ? entry.gitModified === null : entry.gitModified !== null && Date.parse(entry.graphModified) === Date.parse(entry.gitModified))
+    // The graph's answer against git's own answer under the same definition of "touched": the
+    // store records a commit's change against its first parent, and so does this comparison.
+    datesEqual: dates.every((entry) => (entry.graphModified === null ? entry.gitModifiedFirstParent === null : entry.gitModifiedFirstParent !== null && Date.parse(entry.graphModified) === Date.parse(entry.gitModifiedFirstParent))
       && (entry.graphCreated === null ? entry.gitCreated === null : entry.gitCreated !== null && Date.parse(entry.graphCreated) === Date.parse(entry.gitCreated))),
+    datesEqualPlainFollow: dates.every((entry) => (entry.graphModified === null ? entry.gitModified === null : entry.gitModified !== null && Date.parse(entry.graphModified) === Date.parse(entry.gitModified))),
     datesChecked: dates.length,
   },
   bytesPerTable: sizesPerTable,
