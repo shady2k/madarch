@@ -128,6 +128,8 @@ export const STAGE_EDGE_TYPES: readonly { readonly key: string; readonly positio
   { key: 'code.references', discriminated: true },
   // The task keys a commit or a document names (stages 6 and 7; madarch-8bdc.2.3).
   { key: 'code.tasks', discriminated: true },
+  // What a test exercises (the modules stage): the code a test case's own calls name.
+  { key: 'code.tests', discriminated: true },
   // What a state enters (the state-machines stage).
   { key: 'code.transitions', discriminated: true },
   // The data model's own relations (madarch-8bdc.2.4). Each carries a discriminator: one function can

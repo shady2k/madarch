@@ -27,7 +27,7 @@ import { staticStageSourceOf, type StaticGraphNode, type StaticStageSource } fro
 import { createStageRegistry } from '../src/fill/stages/index.js';
 import {
   createModulesStage, edgeRows, fileRows, MODULES_STAGE_ID, modulesUnitId, packageRows, publishedFilesRead, publishedPackagesRead,
-  publishedSymbolsRead, resolvedEdgesRead, symbolRows, type PublishedFileRow, type PublishedSymbolRow,
+  publishedSymbolsRead, resolvedEdgesRead, symbolRows, testExercises, type PublishedFileRow, type PublishedSymbolRow, type PublishedTestRow, type ResolvedEdgeRow,
 } from '../src/fill/stages/modules.js';
 
 // ---- the test's own repository, context and graph ---------------------------
@@ -322,6 +322,45 @@ async function executed(source: SnapshotSource, answer: (read: string) => readon
   return recorder;
 }
 
+describe('what a test exercises', () => {
+  const range = (startLine: number, endLine: number) => ({ startLine, startColumn: 0, endLine, endColumn: 0 });
+  const symbol = (file: string, id: string, qualifiedName: string, symbolKind: string, place: { startLine: number; endLine: number }): PublishedSymbolRow =>
+    ({ kind: 'symbol', file, id, value: { qualifiedName, symbolKind } as PublishedSymbolRow['value'], place: range(place.startLine, place.endLine) });
+  const testRow = (file: string, id: string, name: string, place: { startLine: number; endLine: number }): PublishedTestRow =>
+    ({ kind: 'test', file, id, name, place: range(place.startLine, place.endLine) });
+
+  test('a call from the test body is a code.tests edge, and a call of a type is not', () => {
+    const symbols = [
+      symbol('src/a.test.ts', 'symbol:test', 'TestA', 'function', { startLine: 2, endLine: 9 }),
+      symbol('src/a.ts', 'symbol:calc', 'calc', 'function', { startLine: 1, endLine: 3 }),
+      symbol('src/a.ts', 'symbol:type', 'Type', 'struct', { startLine: 5, endLine: 8 }),
+    ];
+    const calls: ResolvedEdgeRow[] = [
+      { kind: 'call', from: 'symbol:test', to: 'symbol:calc', weight: 1 },
+      // A conversion or a type mention is a call edge the code pass reads, and no behavior a test
+      // exercises: only a callable's call is a `code.tests` edge.
+      { kind: 'call', from: 'symbol:test', to: 'symbol:type', weight: 1 },
+    ];
+    const writes = testExercises(REPOSITORY, [testRow('src/a.test.ts', 'test:1', 'TestA', { startLine: 2, endLine: 9 })], symbols, calls);
+    expect(writes.map((entry) => entry.write.kind === 'edge' ? `${String(entry.write.value.relation)} ${String((entry.write.value.from as { key: string }).key)} -> ${String((entry.write.value.to as { key: string }).key)}` : '')).toEqual(['code.tests test:1 -> symbol:calc']);
+    expect(writes[0]?.path).toBe('src/a.test.ts');
+  });
+
+  test('a call outside every test of the file is no edge, and one call is one edge', () => {
+    const symbols = [
+      symbol('src/a.test.ts', 'symbol:test', 'TestA', 'function', { startLine: 2, endLine: 5 }),
+      symbol('src/a.test.ts', 'symbol:helper', 'helper', 'function', { startLine: 12, endLine: 14 }),
+      symbol('src/a.ts', 'symbol:calc', 'calc', 'function', { startLine: 1, endLine: 3 }),
+    ];
+    const calls: ResolvedEdgeRow[] = [
+      { kind: 'call', from: 'symbol:helper', to: 'symbol:calc', weight: 1 },
+      { kind: 'call', from: 'symbol:test', to: 'symbol:calc', weight: 1 },
+    ];
+    const writes = testExercises(REPOSITORY, [testRow('src/a.test.ts', 'test:1', 'TestA', { startLine: 2, endLine: 5 })], symbols, calls);
+    expect(writes.map((entry) => (entry.write.kind === 'edge' ? `${String((entry.write.value.to as { key: string }).key)}` : ''))).toEqual(['symbol:calc']);
+  });
+});
+
 // ---- the registry ----------------------------------------------------------
 
 describe('the modules stage is registered', () => {
@@ -333,14 +372,14 @@ describe('the modules stage is registered', () => {
       const registry = createStageRegistry({ snapshots: sourceAt(f.root, commit) });
       const read = deriveStageGraph(registry);
       if (!read.ok) throw new Error(`the graph did not derive: ${JSON.stringify(read)}`);
-      expect(registry.get(MODULES_STAGE_ID)?.version).toBe(2);
+      expect(registry.get(MODULES_STAGE_ID)?.version).toBe(4);
       // The clustering and the rank read stage 1's files, stage 3's symbols and
       // imports and stage 4's resolved edges, and stage 2's packages are its
       // seeds: every producer runs before it.
       for (const earlier of ['inventory', 'syntax', 'codegraph', 'build-configuration']) {
         expect(read.graph.order.indexOf(earlier)).toBeLessThan(read.graph.order.indexOf(MODULES_STAGE_ID));
       }
-      expect(registry.get(MODULES_STAGE_ID)?.produces.map((produced) => produced.kind)).toEqual(['contains', 'coverage', 'module']);
+      expect(registry.get(MODULES_STAGE_ID)?.produces.map((produced) => produced.kind)).toEqual(['contains', 'coverage', 'module', 'tests']);
       expect(registry.get(MODULES_STAGE_ID)?.consumes.required.map((consume) => consume.capability)).toEqual(['file', 'symbol']);
     } finally {
       await f.dispose();
