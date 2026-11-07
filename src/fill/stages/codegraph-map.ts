@@ -6,9 +6,19 @@
  *
  * **The mapping is data.** `NODE_TIES` and `EDGE_TIES` are the whole of it: a
  * library kind is either tied to one of our kinds or listed as a kind with no
- * honest counterpart, which stays out and is counted in the run's coverage. No
- * pattern of a repository is read here — nothing looks at a path, a name or a
- * framework to decide what a record is.
+ * honest counterpart, which stays out with its reason in the table. No pattern of
+ * a repository is read here — nothing looks at a path, a name or a framework to
+ * decide what a record is.
+ *
+ * **A kind the schema does not hold never fails the tree.** The symbol kinds the
+ * table writes are the schema's own (`SYMBOL_KINDS`, `src/fill/facts.ts`), and
+ * the table's type says so: a value the schema refuses is a compile error here,
+ * and the committed test walks every tied kind through `checkFact`. A kind the
+ * library answers that neither table names, and a declaration the schema refuses
+ * for any other reason, are counted in the run's coverage with the library's kind,
+ * the place and the refusal's own words, and the rest of the tree is written
+ * (madarch-8bdc.2.8). The library's own word always stays in `libraryKind`; the
+ * schema grows for no library's word.
  *
  * **What the stage takes, and what it leaves to the per-file passes.** Measured
  * against the training reference and against a second repository
@@ -30,7 +40,7 @@
  * not written on a guess, and the run's coverage names how many were left.
  */
 import { byCodePoint } from '../../model/order.js';
-import { factId, FACT_KINDS, repositoryPath, type CoverageGap, type SymbolKind } from '../facts.js';
+import { factId, FACT_KINDS, FactSchemaError, repositoryPath, type CoverageGap, type SymbolKind } from '../facts.js';
 import type { StageDraftWrite } from '../stage.js';
 
 /** The library's version, as the stage pins it: what a record's provenance names. */
@@ -95,23 +105,34 @@ export interface LibraryIndex {
 
 /**
  * The library's node kinds, tied to ours: a kind becomes a record of that kind
- * only in a file no per-file pass of ours reads (see the module's header), and
- * a kind with no tie is left out and counted.
+ * only in a file no per-file pass of ours reads (see the module's header). The
+ * `symbolKind` is a kind of the schema's own vocabulary, because this value is
+ * the identity of the symbol fact the stage writes; the library's own word stays
+ * in the node's `libraryKind`. Three of the library's words have no counterpart
+ * and are folded to the closest kind the schema holds (madarch-8bdc.2.8):
+ *
+ * - `component` is a UI component — a Vue, Svelte, Astro or Razor single-file
+ *   component, a Fabric view or an ArkTS `@Component` — a named declaration that
+ *   owns members and is instantiated by the markup or a bridge, so it is a class;
+ * - `protocol` is an Objective-C or Swift protocol, a set of requirements another
+ *   declaration adopts, so it is an interface; the library's `trait` stays a trait;
+ * - `union` is a C, C++, Objective-C or Rust `union`, an aggregate declaration
+ *   with named members — the same shape the schema calls a struct.
  */
-export const NODE_TIES: Readonly<Record<string, { readonly kind: string; readonly symbolKind: string }>> = {
+export const NODE_TIES: Readonly<Record<string, { readonly kind: string; readonly symbolKind: SymbolKind }>> = {
   class: { kind: 'code.symbol', symbolKind: 'class' },
-  component: { kind: 'code.symbol', symbolKind: 'component' },
+  component: { kind: 'code.symbol', symbolKind: 'class' },
   constant: { kind: 'code.symbol', symbolKind: 'constant' },
   enum: { kind: 'code.symbol', symbolKind: 'enum' },
   enum_member: { kind: 'code.symbol', symbolKind: 'enum-member' },
   function: { kind: 'code.symbol', symbolKind: 'function' },
   interface: { kind: 'code.symbol', symbolKind: 'interface' },
   method: { kind: 'code.symbol', symbolKind: 'method' },
-  protocol: { kind: 'code.symbol', symbolKind: 'protocol' },
+  protocol: { kind: 'code.symbol', symbolKind: 'interface' },
   struct: { kind: 'code.symbol', symbolKind: 'struct' },
   trait: { kind: 'code.symbol', symbolKind: 'trait' },
   type_alias: { kind: 'code.symbol', symbolKind: 'type-alias' },
-  union: { kind: 'code.symbol', symbolKind: 'union' },
+  union: { kind: 'code.symbol', symbolKind: 'struct' },
   variable: { kind: 'code.symbol', symbolKind: 'variable' },
 };
 
@@ -197,10 +218,10 @@ export interface PublishedSymbol {
  * repository, the file, the qualified name and the kind of declaration, and nothing of a run, the place
  * or the library's own name for it (decision 0033, item 7; `factId`, `src/fill/facts.ts`).
  */
-function symbolFactId(repository: string, commit: string, path: string, qualifiedName: string, symbolKind: string): string {
+function symbolFactId(repository: string, commit: string, path: string, qualifiedName: string, symbolKind: SymbolKind): string {
   return factId({
     kind: 'symbol',
-    value: { repository, file: repositoryPath(path), qualifiedName, symbolKind: symbolKind as SymbolKind },
+    value: { repository, file: repositoryPath(path), qualifiedName, symbolKind },
     provenance: { source: CODEGRAPH_SYMBOL_SOURCE, repository: { id: repository, commit } },
   });
 }
@@ -391,7 +412,13 @@ export function codegraphJoin(input: JoinInput): JoinResult {
       if (ownerOf(path) !== run.root) continue;
       paths.set(node.id, path);
       const tie = Object.prototype.hasOwnProperty.call(NODE_TIES, node.kind) ? NODE_TIES[node.kind] : undefined;
-      if (tie === undefined) continue;
+      if (tie === undefined) {
+        // A kind neither table names is a kind this stage cannot place, and it is
+        // counted by kind rather than dropped: a library that grows a word is a
+        // smaller answer the run's coverage shows, never a silence.
+        if (!NODE_KINDS_OUT.some((entry) => entry.kind === node.kind)) countLeft(`a node kind of the library no table names: ${node.kind}`, 'unsupported');
+        continue;
+      }
       const held = joinedSymbol(symbols, node, path);
       if (held !== undefined) {
         keys.set(node.id, held.key);
@@ -407,7 +434,18 @@ export function codegraphJoin(input: JoinInput): JoinResult {
         // pass would write for the same declaration, were its grammar to read the
         // file, is this same node (madarch-8bdc.2.8).
         const qualifiedName = qualifiedNameOf(node);
-        const key = symbolFactId(repository, commit, path, qualifiedName, tie.symbolKind);
+        let key: string;
+        try {
+          key = symbolFactId(repository, commit, path, qualifiedName, tie.symbolKind);
+        } catch (error) {
+          // One declaration the schema refuses is the tree's gap, never the tree
+          // unit's failure: the stage goes on and the run's coverage names the
+          // declaration, its place and the refusal's own words. A refusal that is
+          // no schema refusal is a defect of this stage and is thrown.
+          if (!(error instanceof FactSchemaError)) throw error;
+          countLeft(`a ${node.kind} the schema refuses at ${path}:${String(node.startLine)}: ${error.message}`, 'unsupported');
+          continue;
+        }
         if (publishedKeys.has(key)) {
           keys.set(node.id, key);
           symbolsJoined += 1;

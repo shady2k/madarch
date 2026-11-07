@@ -952,11 +952,6 @@
   {
     "rule": "no-unreachable-code",
     "file": "src/fill/facts.ts",
-    "symbol": "SYMBOL_KINDS"
-  },
-  {
-    "rule": "no-unreachable-code",
-    "file": "src/fill/facts.ts",
     "symbol": "SectionValue"
   },
   {

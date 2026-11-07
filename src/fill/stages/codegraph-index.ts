@@ -41,13 +41,6 @@ function silenceTelemetry(): void {
   if (process.env['DO_NOT_TRACK'] === undefined) process.env['DO_NOT_TRACK'] = '1';
 }
 
-/** The node kinds the library can emit, as 1.6.2 declares them: every one is read, and the join decides which are ours. */
-const LIBRARY_NODE_KINDS: readonly string[] = [
-  'class', 'component', 'constant', 'enum', 'enum_member', 'export', 'field', 'file', 'function',
-  'import', 'interface', 'method', 'module', 'namespace', 'parameter', 'property', 'protocol',
-  'route', 'struct', 'trait', 'type_alias', 'union', 'variable',
-];
-
 /** One library node, as the package answers it. */
 interface LibraryNodeAnswer {
   readonly id: string;
@@ -90,10 +83,12 @@ interface OpenProject {
   close(): void;
 }
 
-/** The package's entry: the class the stage opens a project with. */
+/** The package's entry: the class the stage opens a project with, and the node kinds it can emit. */
 interface LibraryModule {
   readonly CodeGraph: { init(root: string, options?: { index?: boolean }): Promise<OpenProject> };
   readonly detectLanguage: (filePath: string) => string;
+  /** The vocabulary 1.6.2 declares: every kind is read, and the join decides which are ours. */
+  readonly NODE_KINDS: readonly string[];
 }
 
 let loading: Promise<LibraryModule> | undefined;
@@ -104,8 +99,8 @@ async function library(): Promise<LibraryModule> {
   loading ??= (async () => {
     const loaded = await import(LIBRARY_PACKAGE) as unknown as Partial<LibraryModule> & { default?: Partial<LibraryModule> };
     const held = loaded.CodeGraph === undefined ? loaded.default : loaded;
-    if (held?.CodeGraph === undefined || held.detectLanguage === undefined) {
-      throw new Error(`the code pass needs the package ${LIBRARY_PACKAGE}, pinned in package.json, and what it loaded holds no CodeGraph class or detectLanguage function: install the pin (bun install) before the fill runs (${import.meta.dir}/codegraph-index.ts)`);
+    if (held?.CodeGraph === undefined || held.detectLanguage === undefined || !Array.isArray(held.NODE_KINDS)) {
+      throw new Error(`the code pass needs the package ${LIBRARY_PACKAGE}, pinned in package.json, and what it loaded holds no CodeGraph class, detectLanguage function or NODE_KINDS vocabulary: install the pin (bun install) before the fill runs (${import.meta.dir}/codegraph-index.ts)`);
     }
     return held as LibraryModule;
   })();
@@ -199,7 +194,9 @@ async function indexOne(root: string, folder: string, module: string | undefined
     const { value: answer, peakBytes } = await peakRssAround(async () => await opened.indexAll(signal === undefined ? {} : { signal }));
     const nodes: LibraryNode[] = [];
     const ids: string[] = [];
-    for (const kind of LIBRARY_NODE_KINDS) {
+    // The library's own vocabulary, not a copy of it: a kind it grows is read here
+    // and counted by the join, so no node of a tree is dropped in silence.
+    for (const kind of modulePath.NODE_KINDS) {
       for (const node of opened.getNodesByKind(kind)) {
         ids.push(node.id);
         nodes.push({

@@ -22,7 +22,7 @@ import { createPGliteDatabaseOwner, type DatabaseOwner } from '../src/adapters/d
 import { countPublishedFactsByKind, readUnitFacts } from '../src/fill/fact-store.js';
 import { readUnitPlan } from '../src/fill/orchestrator-store.js';
 import { createFillOrchestratorService, type FillOrchestratorService, type FillRunResult } from '../src/fill/orchestrator-host.js';
-import { FACT_ID_PATTERN } from '../src/fill/facts.js';
+import { FACT_ID_PATTERN, SYMBOL_KINDS } from '../src/fill/facts.js';
 import { createGraphStore } from '../src/graph/index.js';
 import { createStagesFill, declaredStagesDigest, type StagesFill } from '../src/product/fill-stages.js';
 import { writeFirstFillWorkflow } from './fill-workflow-fixture.js';
@@ -430,6 +430,60 @@ describe('a tree holding a file no grammar of ours reads', () => {
       expect(held(resource)['qualifiedName']).toBe('registry_repository.images');
       expect(resource.producer).toBe('fill.codegraph');
       expect((held(resource)['provenance'] as { place?: { file?: string } }).place?.file).toBe('terraform/images.tf');
+    } finally {
+      await opened.close();
+    }
+  }, 900_000);
+});
+
+describe('a tree holding a Vue single-file component', () => {
+  /**
+   * The defect this case holds (madarch-8bdc.2.8): a repository holding Vue single-file
+   * components failed the code pass on all three attempts — `value.symbolKind: "component"
+   * is no kind of symbol` — so the unit ended failed, the run settled `completed_partial`,
+   * and no `code.calls` edge stood. The library names a .vue file's component with its own
+   * word; the schema's vocabulary is folded to `class`, and the library's word stays a
+   * property of the symbol.
+   */
+  test('its component is a symbol the schema accepts, and the run settles succeeded', async () => {
+    const folder = join(root, 'shop-vue');
+    mkdirSync(join(folder, 'src'), { recursive: true });
+    writeFileSync(join(folder, 'workspace.yaml'), 'schemaVersion: 1\nid: 5c7e2a10-9b3d-4f68-8a21-0d4e6f8a9b1c\nname: shop-vue\n');
+    writeFirstFillWorkflow(folder);
+    writeFileSync(join(folder, 'src', 'App.vue'), [
+      '<script setup lang="ts">',
+      'const title = "Shop";',
+      '</script>',
+      '',
+      '<template>',
+      '  <h1>{{ title }}</h1>',
+      '</template>',
+      '',
+    ].join('\n'));
+    git(folder, 'init', '-q');
+    commitAll(folder, 'one');
+    const opened = await openProduct(folder);
+    try {
+      const run = await opened.run('run-vue');
+      expect({ state: run.state, settled: run.settled, stopped: run.stoppedBecause }).toEqual({ state: 'succeeded', settled: true, stopped: undefined });
+      const codegraph = run.units.find((unit) => unit.unitId === 'codegraph/tree:shop-vue');
+      expect(codegraph?.state).toBe('published');
+      const store = createGraphStore(opened.owner);
+      const symbols = (await store.byProperty('code.symbol', 'repository', 'shop-vue', { limit: 1000 })).rows;
+      const held = (node: (typeof symbols)[number]): Record<string, unknown> => node.properties as Record<string, unknown>;
+      const component = symbols.find((node) => held(node)['globalName'] === 'shop-vue:src/App.vue#App');
+      if (component === undefined) {
+        throw new Error(`the graph holds no symbol for the Vue component: it answered ${symbols.map((node) => String(held(node)['globalName'])).sort().join(', ')}`);
+      }
+      expect(component.producer).toBe('fill.codegraph');
+      expect([held(component)['symbolKind'], held(component)['libraryKind']]).toEqual(['class', 'component']);
+      const key = String(held(component)['recordKey']);
+      expect(FACT_ID_PATTERN.test(key) && key.startsWith('symbol:')).toBe(true);
+      // Every symbol the code pass wrote is a kind the schema accepts. Before the fold, the
+      // component was written as "component" and the run settled completed_partial.
+      const written = symbols.filter((node) => node.producer === 'fill.codegraph');
+      expect(written.length).toBeGreaterThan(0);
+      expect(written.map((node) => held(node)['symbolKind']).filter((kind) => typeof kind !== 'string' || !(SYMBOL_KINDS as readonly string[]).includes(kind))).toEqual([]);
     } finally {
       await opened.close();
     }
