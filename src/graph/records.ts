@@ -380,20 +380,6 @@ export async function publishTree(owner: DatabaseOwner, input: TreePublish): Pro
     if (edgeMade.rows.length > 0) counts = { ...counts, inserted: counts.inserted + 1 }; else counts = { ...counts, unchanged: counts.unchanged + 1 };
     const moved = await tx.query('DELETE FROM edge WHERE from_id = $1::bigint AND kind_id = $2::bigint AND to_id <> $3::bigint RETURNING from_id', [repositoryId, asIs, commitNode]);
     if (moved.rows.length > 0) counts = { ...counts, deleted: counts.deleted + moved.rows.length };
-    if (moved.rows.length > 0) {
-      // The store's as-is commit moved, and the temporal graph still holds the older commit's readings: they are not
-      // this commit's, and no reader may serve them under it (madarch-8bdc.2.5, item 4a). They are closed at the
-      // recorded instant, so the newest instant a view can be opened at is this publication's, and its answers are
-      // the empty ones the new commit has earned. A store without the temporal tables has nothing to close.
-      const held = await tx.query<{ node: string | null; edge: string | null }>("SELECT to_regclass('node_version')::text AS node, to_regclass('edge_version')::text AS edge");
-      if (held.rows[0]?.node != null) {
-        // A version row is append-only: the one change it takes is its recorded closure (`recorded_to`, `closed_by`,
-        // `closed_as`), and its valid span stays as the history it was. `closed_as` names why: a correction.
-        const now = new Date().toISOString();
-        await tx.query(`UPDATE node_version SET recorded_to = $1::timestamptz, closed_by = NULL, closed_as = 'correction' WHERE recorded_to = 'infinity'`, [now]);
-        await tx.query(`UPDATE edge_version SET recorded_to = $1::timestamptz, closed_by = NULL, closed_as = 'correction' WHERE recorded_to = 'infinity'`, [now]);
-      }
-    }
     counts = sum(counts, await repositoryFactRow(tx, repositoryId, input.repository));
 
     const files = [...input.files].sort((left, right) => (left.path < right.path ? -1 : left.path > right.path ? 1 : 0));

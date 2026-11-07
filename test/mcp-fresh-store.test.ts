@@ -94,9 +94,15 @@ describe('a store whose temporal rows are an older commit\'s', () => {
     const scope = await graph.newNode();
     const at = new Date().toISOString();
     await graph.openWorkItem({ producer: 'planted', scope, generation: 1, inputDigest: 'planted', leaseToken: 't1', leaseUntil: new Date(Date.now() + 60_000).toISOString() });
+    const older = git('rev-parse', 'HEAD');
     await graph.publish({
       producer: 'planted', scope, generation: 1, leaseToken: 't1', inputDigest: 'planted',
-      nodes: [{ ref: 'file', kind: 'code.file', label: 'README.md', validFrom: at, properties: { recordKey: 'code.file:README.md', path: 'README.md', blob: 'b'.repeat(40), mode: '100644' } }],
+      nodes: [
+        // The commit the graph is the reading of, and a file of it: what a store the static stages filled at this
+        // commit holds.
+        { ref: 'commit', kind: 'code.commit', label: older, validFrom: at, properties: { recordKey: `code.commit:checkout@${older}`, repository: 'checkout', commit: older } },
+        { ref: 'file', kind: 'code.file', label: 'README.md', validFrom: at, properties: { recordKey: 'code.file:README.md', path: 'README.md', blob: 'b'.repeat(40), mode: '100644' } },
+      ],
     });
     await owner.close();
     // A new commit, and a fill through the record passes: the tree pass moves the as-is commit.
