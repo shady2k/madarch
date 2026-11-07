@@ -627,11 +627,13 @@ export interface DaemonFills {
   stop(): Promise<void>;
 }
 
-/** One store the daemon holds: its owner, and the service of the newest run of it. */
+/** One store the daemon holds: its owner, the service of the newest run of it, and whether a run is working it. */
 interface HeldStore {
   readonly storeFolder: string;
   readonly owner: ReturnType<typeof openFillDatabase>;
   service?: FillOrchestratorService;
+  /** True while one of this store's runs is in flight: the store's fill is one run at a time. */
+  running?: boolean;
 }
 
 /**
@@ -643,67 +645,94 @@ interface HeldStore {
 export function daemonFills(home: string, options: { readonly toolUrl?: () => string | undefined; readonly log?: (line: string) => void } = {}): DaemonFills {
   const knowledgeRoot = knowledgeRootOf(home);
   const stores = new Map<string, HeldStore>();
+  /**
+   * The one opening of each store. Two simultaneous first requests for one product — a person's press and the
+   * update watch, say — must open one owner of the store, not two: one promise per store answers both, and the
+   * second request waits for it rather than opening a second connection (madarch-8bdc.2.5, item 4c).
+   */
+  const opening = new Map<string, Promise<HeldStore>>();
   let stopped = false;
   /** The store of one product, by the one function every caller resolves it with. */
   const storeFolderOfProduct = (productFolder: string): string => productStoreFolder(productFolder, knowledgeRoot);
-  /** The store, when it stands: a read never creates it, so an answer about a never-filled product is the empty one. */
+  /** Opens one store's owner, or answers the opening already under way for it: one owner per store, whichever asks. */
+  const openStore = async (storeFolder: string): Promise<HeldStore> => {
+    const held = stores.get(storeFolder);
+    if (held !== undefined) return held;
+    const pending = opening.get(storeFolder);
+    if (pending !== undefined) return await pending;
+    const made = (async (): Promise<HeldStore> => {
+      mkdirSync(dirname(storeDatabasePath(storeFolder)), { recursive: true });
+      const owner = openFillDatabase(storeDatabasePath(storeFolder));
+      await owner.ready;
+      const one: HeldStore = { storeFolder, owner };
+      stores.set(storeFolder, one);
+      return one;
+    })();
+    opening.set(storeFolder, made);
+    try {
+      return await made;
+    } finally {
+      if (opening.get(storeFolder) === made) opening.delete(storeFolder);
+    }
+  };
+  /** The store, when it stands or is being opened: a read never creates one, so a never-filled product reads empty. */
   const opened = async (productFolder: string): Promise<HeldStore | undefined> => {
     if (stopped) throw new Error("the daemon's fills were stopped, so they read no store (src/product/daemon.ts)");
     const storeFolder = storeFolderOfProduct(productFolder);
-    const held = stores.get(storeFolder);
-    if (held !== undefined) return held;
-    if (!existsSync(storeDatabasePath(storeFolder))) return undefined;
-    const owner = openFillDatabase(storeDatabasePath(storeFolder));
-    await owner.ready;
-    const one: HeldStore = { storeFolder, owner };
-    stores.set(storeFolder, one);
-    return one;
+    if (!existsSync(storeDatabasePath(storeFolder)) && !opening.has(storeFolder)) return undefined;
+    return await openStore(storeFolder);
   };
   /** The store a run writes: opened here, because a run writes what a read may not create. */
   const store = async (productFolder: string): Promise<HeldStore> => {
-    const held = await opened(productFolder);
-    if (held !== undefined) return held;
-    const storeFolder = storeFolderOfProduct(productFolder);
     if (stopped) throw new Error("the daemon's fills were stopped, so a run opens no store (src/product/daemon.ts)");
-    mkdirSync(dirname(storeDatabasePath(storeFolder)), { recursive: true });
-    const owner = openFillDatabase(storeDatabasePath(storeFolder));
-    await owner.ready;
-    const one: HeldStore = { storeFolder, owner };
-    stores.set(storeFolder, one);
-    return one;
+    return await openStore(storeFolderOfProduct(productFolder));
   };
   const withService = async <T>(productFolder: string, work: (service: FillOrchestratorService) => Promise<T>): Promise<T | undefined> => {
     const held = await opened(productFolder);
     if (held?.service === undefined) return undefined;
     return await work(held.service);
   };
+  /** One run of one held store: the previous run's service stops, the fill runs, and a success finishes the store. */
+  const runInStore = async (held: HeldStore, request: FillRunRequest): Promise<FillRunResult | RefusedFillRun> => {
+    // The next run of this store replaces the service the last one left: one service over the store's one owner.
+    if (held.service !== undefined) {
+      const previous = held.service;
+      held.service = undefined;
+      await previous.stop();
+    }
+    const result = await runFill({
+      product: request.product.folder,
+      database: held.owner,
+      runId: request.runId,
+      home: held.storeFolder,
+      store: held.storeFolder,
+      keepService: true,
+      ...(request.workers === undefined ? {} : { workers: request.workers }),
+      ...(request.maxPasses === undefined ? {} : { maxPasses: request.maxPasses }),
+      ...(options.log === undefined ? {} : { log: options.log }),
+      onService: (service: FillOrchestratorService) => { held.service = service; },
+    });
+    // A run that succeeded finishes its store the way the button does: the wiki's reader and `madarch mcp` read the
+    // store this update wrote.
+    if (result.ok && result.settled && result.state === 'succeeded') {
+      await finishKnowledgeStore(held.owner, held.storeFolder);
+    }
+    return result;
+  };
   return {
     async run(request: FillRunRequest): Promise<FillRunResult | RefusedFillRun> {
       const held = await store(request.product.folder);
-      // The next run of this store replaces the service the last one left: one service over the store's one owner.
-      if (held.service !== undefined) {
-        const previous = held.service;
-        held.service = undefined;
-        await previous.stop();
+      // One run of a store at a time: a second start while the first is in flight is the chain's own refusal, and it
+      // must not stop the first run's service or open a second connection (madarch-8bdc.2.5, item 4c).
+      if (held.running === true) {
+        return { ok: false, code: 'fill-orchestrator/chain-active', reason: `fill-orchestrator: the store ${held.storeFolder} is filling, and the run ${JSON.stringify(request.runId)} waits for that fill to end` };
       }
-      const result = await runFill({
-        product: request.product.folder,
-        database: held.owner,
-        runId: request.runId,
-        home: held.storeFolder,
-        store: held.storeFolder,
-        keepService: true,
-        ...(request.workers === undefined ? {} : { workers: request.workers }),
-        ...(request.maxPasses === undefined ? {} : { maxPasses: request.maxPasses }),
-        ...(options.log === undefined ? {} : { log: options.log }),
-        onService: (service: FillOrchestratorService) => { held.service = service; },
-      });
-      // A run that succeeded finishes its store the way the button does: the wiki's reader and `madarch mcp`
-      // read the store this update wrote.
-      if (result.ok && result.settled && result.state === 'succeeded') {
-        await finishKnowledgeStore(held.owner, held.storeFolder);
+      held.running = true;
+      try {
+        return await runInStore(held, request);
+      } finally {
+        held.running = false;
       }
-      return result;
     },
     async status(request: { readonly product: FillProduct; readonly runId: string }): Promise<RunStatus | null> {
       const status = await withService(request.product.folder, async (service) => await service.status({ product: request.product, runId: request.runId })).catch(() => undefined);
@@ -752,6 +781,7 @@ export function daemonFills(home: string, options: { readonly toolUrl?: () => st
         try { await held.owner.close(); } catch (error) { failure ??= error; }
       }
       stores.clear();
+      opening.clear();
       if (failure !== undefined) throw failure;
     },
   };

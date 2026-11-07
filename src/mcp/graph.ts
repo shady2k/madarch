@@ -133,6 +133,20 @@ export function releaseFolderLock(folder: string, held: FolderLock): void {
   } catch { /* a lock that is already gone needs no dropping */ }
 }
 
+/**
+ * The view a store answers at: the graph's own newest instant, or — for a store whose records are this commit's and
+ * whose temporal graph holds no reading yet (a fresh store, or one filled by the record passes before the static
+ * stages' step) — the moment this start read it, at which every answer is the empty one. A store whose readings
+ * belong to another commit was retired by its own as-is move, so no older row stands under this commit.
+ */
+async function viewOf(owner: DatabaseOwner, store: GraphStore): Promise<GraphView> {
+  try {
+    return await GraphView.open(owner, store);
+  } catch {
+    return GraphView.at(owner, store, new Date().toISOString());
+  }
+}
+
 /** The commit the store's records name as-is for one repository, or null where the store holds none. */
 async function asIsCommitOf(owner: DatabaseOwner, repository: string): Promise<string | null> {
   try {
@@ -206,14 +220,14 @@ export async function openRepositoryGraph(options: {
     let filled = false;
     let view: GraphView | null = null;
     if ((await asIsCommitOf(owner, identity.identity.name)) === commit) {
-      try { view = await GraphView.open(owner, createGraphStore(owner)); } catch { view = null; }
+      try { view = await viewOf(owner, createGraphStore(owner)); } catch { view = null; }
     }
     if (view === null) {
       const before = performance.now();
       fill = await fillRepositoryGraph(owner, repository, folder, log);
       writeFillOutcome(folder, fill);
       const store = createGraphStore(owner);
-      view = await GraphView.open(owner, store);
+      view = await viewOf(owner, store);
       filled = true;
       const after = performance.now();
       log(`madarch mcp: graph filled in ${((after - before) / 1000).toFixed(1)} s${fill.failed.length === 0 ? '' : `; ${fill.failed.length} ${fill.failed.length === 1 ? 'unit' : 'units'} did not publish (${fill.state})`}`);

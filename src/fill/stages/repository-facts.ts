@@ -552,10 +552,14 @@ export function createRepositoryTreeStage(wiring: RepositoryPassWiring): FillSta
       const read = await readRepositoryTree(pin);
       // A fill asked for some paths covers those and no others: the tree is read whole (one git
       // call) and the rows written are the ones under the prefixes the caller named.
+      const within = (path: string): boolean => wiring.paths === undefined || wiring.paths.some((prefix) => path === prefix || path.startsWith(prefix.endsWith('/') ? prefix : `${prefix}/`));
       const covered = wiring.paths === undefined ? read : {
         ...read,
-        files: read.files.filter((file) => wiring.paths!.some((prefix) => file.path === prefix || file.path.startsWith(prefix.endsWith('/') ? prefix : `${prefix}/`))),
-        gitlinks: read.gitlinks.filter((link) => wiring.paths!.some((prefix) => link.path === prefix || link.path.startsWith(prefix.endsWith('/') ? prefix : `${prefix}/`))),
+        files: read.files.filter((file) => within(file.path)),
+        gitlinks: read.gitlinks.filter((link) => within(link.path)),
+        // The publication covers these prefixes and no others: a row outside them is not this fill's to delete
+        // (madarch-8bdc.2.5, item 4b: a scoped publication touches its scope only).
+        scope: [...wiring.paths],
       };
       const counts = await wiring.publishTree(covered);
       context.progress(`${pin.repository} at ${pin.commit}: ${String(covered.files.length)} files, ${String(covered.gitlinks.length)} gitlinks, ${String(counts.inserted)} rows written`, 1);
