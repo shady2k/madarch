@@ -749,10 +749,11 @@ async function nodeOfCommit(tx: OuterTransaction, kinds: Map<string, string>, re
 
 /** A `%aI` instant as a timestamp text and its offset in minutes: git's own two numbers, kept apart. */
 export function instantOf(text: string, field: string, hash: string): [string, number] {
-  const match = /^(\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2})([+-])(\d{2}):(\d{2})$/.exec(text.trim());
-  if (match === null) throw new Error(`the commit ${hash} names its ${field} as ${JSON.stringify(text)}, and a git date is YYYY-MM-DDTHH:MM:SS+HH:MM (src/graph/records.ts)`);
-  const sign = match[2] === '-' ? -1 : 1;
-  return [`${match[1]}Z`, sign * (Number(match[3]) * 60 + Number(match[4]))];
+  const match = /^(\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2})(?:(Z)|([+-])(\d{2}):(\d{2}))$/u.exec(text.trim());
+  if (match === null) throw new Error(`the commit ${hash} names its ${field} as ${JSON.stringify(text)}, and a git date is YYYY-MM-DDTHH:MM:SS+HH:MM or YYYY-MM-DDTHH:MM:SSZ (src/graph/records.ts)`);
+  if (match[2] === 'Z') return [`${match[1]}Z`, 0];
+  const sign = match[3] === '-' ? -1 : 1;
+  return [`${match[1]}Z`, sign * (Number(match[4]) * 60 + Number(match[5]))];
 }
 
 // ---- what a reader asks ----------------------------------------------------
