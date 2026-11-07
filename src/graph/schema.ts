@@ -153,6 +153,9 @@ const SCHEMA: readonly string[] = [
   // The wiki finds an entity by its logical key (the extract driver's \`recordKey\` property) on every page it draws.
   `CREATE INDEX IF NOT EXISTS node_version_record_key ON node_version ((properties->>'recordKey')) WHERE recorded_to = 'infinity'`,
   // The publication rechecks a unit's node keys and edge ends in one `= ANY` statement; this is its index.
+  // It is the only index over `recordKey`: a read reaches it through the lens (`recorded_from <= $ AND
+  // $ < recorded_to`), a predicate a partial index on `recorded_to = 'infinity'` does not imply, so a second
+  // index with that predicate was maintained on every write and served no statement (madarch-8bdc.2.5).
   'CREATE INDEX IF NOT EXISTS node_version_record_key_all ON node_version ((properties->>\'recordKey\'))',
   // The static stages ask for one kind's nodes by one property, paged in node id order. Without an index on
   // the property a page walks the whole kind and filters each row, which grows with the graph; these are the
@@ -168,10 +171,17 @@ const SCHEMA: readonly string[] = [
   `CREATE INDEX IF NOT EXISTS edge_version_current_src ON edge_version (src_id, relation_type_id) WHERE recorded_to = 'infinity'`,
   `CREATE INDEX IF NOT EXISTS edge_version_current_dst ON edge_version (dst_id, relation_type_id) WHERE recorded_to = 'infinity'`,
   `CREATE INDEX IF NOT EXISTS edge_version_current_edge ON edge_version (edge_id) WHERE recorded_to = 'infinity'`,
-  // Historical reads: a GiST index over the two time ranges and the states.
-  `CREATE INDEX IF NOT EXISTS node_version_history ON node_version USING gist (node_id, tstzrange(valid_from, valid_to), tstzrange(recorded_from, recorded_to), states)`,
+  // Historical reads: a GiST index over the two time ranges and the states. The node table needs no index of
+  // its own: `node_version_no_overlap` is the same definition, the exclusion constraint's index, and the
+  // planner uses it for a historical read (madarch-8bdc.2.5; stated in test/graph-index-duplicates.test.ts).
   `CREATE INDEX IF NOT EXISTS edge_version_history_src ON edge_version USING gist (src_id, tstzrange(valid_from, valid_to), tstzrange(recorded_from, recorded_to), states)`,
   `CREATE INDEX IF NOT EXISTS edge_version_history_dst ON edge_version USING gist (dst_id, tstzrange(valid_from, valid_to), tstzrange(recorded_from, recorded_to), states)`,
+  // Two indexes this module once declared are gone, and a store that was created with them keeps them otherwise:
+  // `node_version_history` duplicated the no-overlap constraint's index (same GiST definition, 488 MB on a
+  // 2.5-million-version store) and `node_version_record_key` was a partial index no statement could use (above).
+  // Each was maintained on every insert for no read, so the module drops them where they stand.
+  'DROP INDEX IF EXISTS node_version_history',
+  'DROP INDEX IF EXISTS node_version_record_key',
   `CREATE OR REPLACE FUNCTION graph_append_only() RETURNS trigger LANGUAGE plpgsql AS $$
   BEGIN
     IF TG_OP = 'DELETE' THEN

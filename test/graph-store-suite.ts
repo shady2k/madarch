@@ -191,9 +191,11 @@ export function graphStoreTests(label: string, getOwner: () => DatabaseOwner): v
       const current = indexes.filter((i) => /WHERE \(?recorded_to = 'infinity'/.test(i.indexdef)).map((i) => i.indexname).sort();
       // `*_producer_scope` are the sweep's (madarch-8bdc.2.5): a complete publication reads the current versions of
       // its own producer and scope, and without them that read is a sequential scan of the whole table.
-      expect(current).toEqual(['edge_version_current_dst', 'edge_version_current_edge', 'edge_version_current_src', 'edge_version_producer_scope', 'node_version_current', 'node_version_current_kind', 'node_version_producer_scope', 'node_version_record_key']);
-      const historical = indexes.filter((i) => /USING gist/.test(i.indexdef) && /states/.test(i.indexdef) && !/EXCLUDE/.test(i.indexdef)).map((i) => i.indexname).sort();
-      expect(historical).toEqual(['edge_version_history_dst', 'edge_version_history_src', 'node_version_history', 'edge_version_no_overlap', 'node_version_no_overlap'].sort());
+      expect(current).toEqual(['edge_version_current_dst', 'edge_version_current_edge', 'edge_version_current_src', 'edge_version_producer_scope', 'node_version_current', 'node_version_current_kind', 'node_version_producer_scope']);
+      // The node table's historical read uses the no-overlap constraint's own GiST index: the module declares no
+      // second one of that definition (madarch-8bdc.2.5, test/graph-index-duplicates.test.ts).
+      const historical = indexes.filter((i) => /USING gist/.test(i.indexdef) && /states/.test(i.indexdef)).map((i) => i.indexname).sort();
+      expect(historical).toEqual(['edge_version_history_dst', 'edge_version_history_src', 'edge_version_no_overlap', 'node_version_no_overlap'].sort());
       const types = await env.query<{ column_name: string; data_type: string }>(
         `SELECT column_name, data_type FROM information_schema.columns WHERE table_schema = current_schema() AND table_name = 'node_version' AND column_name IN ('valid_from','valid_to','recorded_from','recorded_to','states') ORDER BY column_name`,
       );
