@@ -95,7 +95,7 @@ import { publishedTreeRead, publishedTreeRows } from './tree-rows.js';
 export const CODE_FACTS_STAGE_ID = 'code-facts';
 
 /** The stage's own version, bumped when what it writes or plans changes. */
-const CODE_FACTS_STAGE_VERSION = 5;
+const CODE_FACTS_STAGE_VERSION = 6;
 
 /** The fact kinds the stage produces, in code point order. */
 const CODE_FACTS_STAGE_KINDS: readonly string[] = ['binding', 'callable', 'callsite', 'coverage', 'declares', 'export', 'expression', 'field', 'listener-port', 'service-unit'];
@@ -601,8 +601,21 @@ export function collectFileFacts(repository: string, path: string, text: string,
   const idOf = (syntaxKind: string, span: SourceSpan): string => `${EXPRESSION_KIND}:${repository}:${path}@${String(span.byteStart)}:${String(span.byteEnd)}:${syntaxKind}`;
   const spanOfNode = (node: SyntaxNodeLike): SourceSpan => toSpan(path, spanOf(node as never));
 
-  /** The id of a node, computed once for the walk and reused by its parent, its fields and its own fact. */
-  const idOfNode = (node: SyntaxNodeLike): string => idOf(node.type, spanOfNode(node));
+  // A node's id is its place and syntax kind; a parser can give two nodes one place (an error node and
+  // its child at the same byte), so a second node there takes an ordinal. The node object is the key, so
+  // every reference to one node — its parent's field, its own fact — answers the same id.
+  const nodeIds = new WeakMap<SyntaxNodeLike, string>();
+  const idCounts = new Map<string, number>();
+  const idOfNode = (node: SyntaxNodeLike): string => {
+    const known = nodeIds.get(node);
+    if (known !== undefined) return known;
+    const base = idOf(node.type, spanOfNode(node));
+    const count = idCounts.get(base) ?? 0;
+    idCounts.set(base, count + 1);
+    const id = count === 0 ? base : `${base}#${String(count)}`;
+    nodeIds.set(node, id);
+    return id;
+  };
 
   /** The text a name node holds, without its quotes: a name is written as written. */
   const nameOf = (node: SyntaxNodeLike): string => node.text;
@@ -695,7 +708,7 @@ export function collectFileFacts(repository: string, path: string, text: string,
         bodyStartLine: bodySpan.lineStart, bodyEndLine: bodySpan.lineEnd, bodySyntaxKind: bodyNode.type,
       });
     }
-    const id = idOf(node.type, span);
+    const id = idOfNode(node);
     const children: string[] = [];
     // A grammar's field names are words a file writes (`constructor` is the field of a
     // `new_expression`), and a plain object inherits `constructor` from Object.prototype: the

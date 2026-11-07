@@ -141,6 +141,7 @@ describe('a source file a string escape with U+0000 in it', () => {
       const { product } = writeProduct(escapeRoot, {
         'services/orders/src/escape.ts': 'export const separator = "left\\0right";\n',
         'services/orders/src/literal.ts': 'export const separator = "left\u0000right";\n',
+        'services/orders/src/template.ts': 'export const separator = `left\u0000right`;\n',
       });
       const fill = await createStagesFill({ product, database: owner });
       const service = createFillOrchestratorService({ home: join(escapeRoot, 'products'), owner, registry: fill.registry, wiring: () => fill.wiring, maxPasses: 100_000 });
@@ -151,7 +152,7 @@ describe('a source file a string escape with U+0000 in it', () => {
         expect(result.state).toBe('succeeded');
         const store = createGraphStore(owner);
         const held: Record<string, unknown>[] = [];
-        for (const file of ['services/orders/src/escape.ts', 'services/orders/src/literal.ts']) {
+        for (const file of ['services/orders/src/escape.ts', 'services/orders/src/literal.ts', 'services/orders/src/template.ts']) {
           const nodes: NodeVersionRow[] = await store.readAll(async (page) => await store.byProperty('code.expression', 'file', file, page));
           held.push(...nodes.map((node) => propertiesOf(node)).filter((properties) => properties['repository'] === 'shop'));
         }
