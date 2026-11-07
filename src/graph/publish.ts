@@ -25,10 +25,10 @@ import { readByKeys, resolveLens } from './reads.js';
 import { ALL_STATES, checkSpan, compareInstants, instantText, tsText, type Instant, type StateSpan } from './time.js';
 import {
   assertEndpoints, currentEdgeVersions, endEdgeVersion, insertEdgeVersion, insertEdgeVersions, lockNodes, prepareEdgeVersion, reconcileEdges, requireLater, checkId, closeVersion, correctEdgeVersion, correctNodeVersion, currentNodeVersions, edgeIdentity, edgeRow, EDGE_BATCH_SIZE, EDGE_COLUMNS, EDGE_FROM,
-  edgeIdentities, endNode, newNodeIdentities, newNodeIdentity, openEdgeVersion, openNodeVersion, prefetchNodeSlices, prefetchNodes, reopenEdge, reopenNode, requireNode, resolveEdge, readerTurn, yieldBetweenRows, yieldToReaders,
+  edgeIdentities, endNode, kindId, newNodeIdentities, newNodeIdentity, openEdgeVersion, openNodeVersion, prefetchNodeSlices, prefetchNodes, reopenEdge, reopenNode, requireNode, resolveEdge, readerTurn, yieldBetweenRows, yieldToReaders,
   type EdgeVersionRow, type NodeVersionRow, type PreparedEdgeVersion, type WriteContext,
 } from './versions.js';
-import { CONTENT_KIND } from './vocabulary.js';
+import { CLAIM_KIND, CONTENT_KIND, STATE_KIND } from './vocabulary.js';
 
 type Raw = Record<string, unknown>;
 
@@ -467,7 +467,14 @@ export async function publish(ctx: WriteContext, input: PublishInput): Promise<P
     const nodes = input.nodes ?? [];
     const turn = readerTurn();
     await newNodeIdentities(ctx, nodes.filter((node) => node.id === undefined).length);
+    const simple = nodes
+      .map((node, index) => ({ node, index }))
+      .filter(({ node }) => node.id === undefined && node.content === undefined && node.claim === undefined && node.validTo === undefined && node.states === undefined
+        && node.kind !== CONTENT_KIND && node.kind !== CLAIM_KIND && node.kind !== STATE_KIND);
+    const batched = new Set(simple.map((entry) => entry.node));
+    await publishNewNodes(run, simple);
     for (const [index, node] of nodes.entries()) {
+      if (batched.has(node)) continue;
       await publishNode(run, node, `nodes[${index}]`);
       await yieldBetweenRows(turn, index + 1);
     }
@@ -493,6 +500,48 @@ export async function publish(ctx: WriteContext, input: PublishInput): Promise<P
   }
   await ctx.tx.query(`UPDATE work_item SET published_at = $2::timestamptz, published_digest = $3 WHERE id = $1::bigint`, [item.id, ctx.at, result.publishedDigest]);
   return result;
+}
+
+/**
+ * Opens the simple new nodes of one publication in batches: a node with no identity, no content, no claim,
+ * no end and no state span is one row, and a unit of thousands of them writes them in statements of a few
+ * hundred rather than one statement each. Its summary, its refs and its written set are the same as
+ * `publishNode`'s; anything that is not one of these simple rows goes through `publishNode`.
+ */
+async function publishNewNodes(run: Run, entries: readonly { readonly node: PublishNode; readonly index: number }[]): Promise<void> {
+  if (entries.length === 0) return;
+  const ctx = run.ctx;
+  const rows: { node_id: string; kind_id: string; label: string; valid_from: string; payload_digest: string; properties: Record<string, unknown> }[] = [];
+  for (const { node, index } of entries) {
+    const path = `nodes[${index}]`;
+    refuseForeign(node, run, path);
+    const validFrom = instantText(node.validFrom, OP, `${path}.validFrom`, node.origin);
+    const properties = node.properties ?? {};
+    if (properties === null || typeof properties !== 'object' || Array.isArray(properties)) throw new GraphError(OP, `${path}.properties`, 'properties are a JSON object', node.origin);
+    const kind = await kindId(ctx, node.kind, OP, `${path}.kind`, node.origin);
+    const id = await newNodeIdentity(ctx);
+    const payload = nodePayloadDigest({ kind: node.kind, label: node.label, properties, contentSha256: null, claimDigest: null });
+    run.summary.push({ claimDigest: null, contentSha256: null, id: null, kind: node.kind, label: node.label, payload, ref: node.ref ?? null, states: ALL_STATES, validFrom, validTo: null });
+    run.writtenNodes.add(id);
+    if (node.ref !== undefined) {
+      if (run.refs.has(node.ref)) throw new GraphError(OP, `${path}.ref`, `"${node.ref}" names two nodes of this publication`, node.origin);
+      run.refs.set(node.ref, id);
+    }
+    rows.push({ node_id: id, kind_id: kind, label: node.label, valid_from: validFrom, payload_digest: payload, properties });
+  }
+  for (let at = 0; at < rows.length; at += 500) {
+    const batch = rows.slice(at, at + 500);
+    await ctx.tx.query(
+      `INSERT INTO node_version (node_id, kind_id, label, content, content_sha256, claim_digest, valid_from, valid_to, recorded_from, states,
+                                producer, scope_id, opened_by, payload_digest, properties, state_key)
+       SELECT t.node_id::bigint, t.kind_id::bigint, t.label, NULL, NULL, NULL, t.valid_from::timestamptz, 'infinity'::timestamptz,
+              $2::timestamptz, int8range($3::bigint, $4::bigint), $5, $6::bigint, $7::bigint, t.payload_digest, t.properties, NULL
+       FROM jsonb_to_recordset($1::jsonb) AS t(node_id text, kind_id text, label text, valid_from text, payload_digest text, properties jsonb)`,
+      [JSON.stringify(batch), ctx.at, String(ALL_STATES.from), String(ALL_STATES.to), run.owner.producer, run.owner.scope, run.workItem],
+    );
+    await yieldToReaders();
+  }
+  run.result.nodeVersionsOpened += rows.length;
 }
 
 async function publishNode(run: Run, node: PublishNode, path: string): Promise<void> {
