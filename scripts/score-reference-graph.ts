@@ -35,6 +35,7 @@ import { existsSync, readFileSync, readdirSync, statSync } from 'node:fs';
 import { basename, join, resolve } from 'node:path';
 import { pathToFileURL } from 'node:url';
 import { parse as parseYaml } from 'yaml';
+import { byCodePoint } from '../src/model/order.js';
 import { EXTRACTOR_RELATIONS } from '../src/extract/vocabulary.js';
 import { STAGE_EDGE_TYPES } from '../src/extract/code/stage-vocabulary.js';
 import { GraphReader, type GraphEntity, type RelationEdge } from '../src/knowledge/graph-read.js';
@@ -89,6 +90,8 @@ interface Row {
   readonly reference: number;
   readonly graph: number;
   readonly truePositives: number;
+  /** The graph's records of this row that are no true positive: `graph` is `truePositives + extra`. */
+  readonly extra: number;
   readonly precision: number | null;
   readonly recall: number | null;
   readonly f1: number | null;
@@ -114,6 +117,8 @@ interface Extra {
   readonly key: string;
   readonly label: string;
   readonly place: string;
+  /** For an edge, the table row it counts in: an edge states no reading, so its extra is the row that holds it. */
+  readonly class?: string;
 }
 
 interface Result {
@@ -138,7 +143,7 @@ interface Result {
     readonly direction: 'same' | 'inverse';
   }[];
   readonly totals: Readonly<Record<string, Readonly<Record<string, {
-    reference: number; graph: number; truePositives: number;
+    reference: number; graph: number; truePositives: number; extra: number;
     nameReference: number; nameGraph: number; nameTruePositives: number;
   }>>>>;
 }
@@ -164,7 +169,7 @@ async function main(): Promise<number> {
   return 0;
 }
 
-function readReference(root: string): { nodes: ReferenceNode[]; edges: ReferenceEdgeEntry[]; scoring: Map<string, boolean> } {
+function readReference(root: string): { nodes: ReferenceNode[]; edges: ReferenceEdgeEntry[]; scoring: Map<string, Scoring> } {
   const files: string[] = [];
   const walk = (folder: string): void => {
     for (const name of readdirSync(folder).sort()) {
@@ -271,6 +276,135 @@ function classOf(reading: string): string {
   return reading === 'judgement' ? 'judgement' : 'parsed+declared';
 }
 
+/** An edge of the graph in the comparison's vocabulary, as the table scores one relation of it. */
+export interface GraphEdgeRow {
+  readonly relation: string;
+  readonly class: string;
+  readonly reference: number;
+  readonly graph: number;
+  readonly truePositives: number;
+  readonly extra: number;
+}
+
+/** A reference edge the match scores: its relation and ends in the catalog's vocabulary, and its class. */
+export interface ScoredReferenceEdge {
+  readonly relation: string;
+  readonly from: string;
+  readonly to: string;
+  readonly class: string;
+}
+
+/** The graph edges the table does not count in any row, by the kind they touch. */
+export interface EdgeApart {
+  readonly kind: string;
+  readonly count: number;
+}
+
+/**
+ * Splits the graph's edges at the kinds the reference scores. An edge with an end
+ * whose kind the reference keeps apart (it states no entry of that kind) is
+ * reported in `apart` and is never in scope: it counts in neither side of a
+ * relation, which is what its kind's own absence means. The edges in scope are
+ * distinct by relation and ends.
+ */
+export function classifyEdges(
+  edges: readonly CanonicalEdge[],
+  kindOf: ReadonlyMap<string, string>,
+  referenceKinds: ReadonlySet<string>,
+): { readonly inScope: readonly CanonicalEdge[]; readonly apart: readonly EdgeApart[] } {
+  const inScope: CanonicalEdge[] = [];
+  const seen = new Set<string>();
+  const apart = new Map<string, number>();
+  for (const edge of edges) {
+    const fromKind = kindOf.get(edge.from) ?? '';
+    const toKind = kindOf.get(edge.to) ?? '';
+    if (!referenceKinds.has(fromKind) || !referenceKinds.has(toKind)) {
+      const kind = !referenceKinds.has(fromKind) ? fromKind : toKind;
+      apart.set(kind === '' ? '—' : kind, (apart.get(kind === '' ? '—' : kind) ?? 0) + 1);
+      continue;
+    }
+    const key = `${edge.relation}\u0000${edge.from}\u0000${edge.to}`;
+    if (seen.has(key)) continue;
+    seen.add(key);
+    inScope.push(edge);
+  }
+  return {
+    inScope,
+    apart: [...apart.entries()].map(([kind, count]) => ({ kind, count })).sort((left, right) => byCodePoint(left.kind, right.kind)),
+  };
+}
+
+/** One graph edge no reference edge of its relation explains, and the table row it counts in. */
+export interface ExtraEdge extends CanonicalEdge {
+  readonly class: string;
+}
+
+/**
+ * The table's relation rows, and the graph edges no reference edge explains.
+ *
+ * A graph edge is a true positive when both of its ends are records the match
+ * paired with reference entries and the reference states that edge: the first
+ * such graph edge in code point order is the reference edge's witness, and a
+ * second one that names the same reference edge is an extra, since one reference
+ * fact has one witness. Every other edge in scope is an extra: the reference
+ * states no edge between its ends.
+ *
+ * An edge states no reading of its own (a record of the graph carries none), so
+ * an extra counts in the parsed+declared row when the relation has one there,
+ * and in the judgement row when the reference states the relation only as a
+ * judgement. A row's graph is therefore its true positives plus its extras, and
+ * an edge the reference keeps apart is in neither: `classifyEdges` never puts it
+ * in scope.
+ */
+export function edgeRowCounts(input: {
+  readonly inScope: readonly CanonicalEdge[];
+  readonly relations: readonly string[];
+  readonly referenceEdges: readonly ScoredReferenceEdge[];
+  readonly matched: ReadonlySet<string>;
+  readonly recordToEntry: ReadonlyMap<string, string>;
+}): { readonly rows: readonly GraphEdgeRow[]; readonly extras: readonly ExtraEdge[] } {
+  const keyOf = (edge: CanonicalEdge): string => `${edge.relation}\u0000${edge.from}\u0000${edge.to}`;
+  const sorted = [...input.inScope].sort((left, right) => byCodePoint(left.relation, right.relation) || byCodePoint(left.from, right.from) || byCodePoint(left.to, right.to));
+  const classOfReference = new Map<string, string>();
+  const hasParsed = new Map<string, boolean>();
+  for (const edge of input.referenceEdges) {
+    const key = keyOf(edge);
+    if (!classOfReference.has(key)) classOfReference.set(key, edge.class);
+    hasParsed.set(edge.relation, (hasParsed.get(edge.relation) ?? false) || edge.class === 'parsed+declared');
+  }
+  const witnesses = new Set<string>();
+  const witnessClass = new Map<string, string>();
+  const extras: ExtraEdge[] = [];
+  for (const edge of sorted) {
+    const key = keyOf(edge);
+    const from = input.recordToEntry.get(edge.from);
+    const to = input.recordToEntry.get(edge.to);
+    const reference = from === undefined || to === undefined ? undefined : `${edge.relation}\u0000${from}\u0000${to}`;
+    const held = reference === undefined ? undefined : classOfReference.get(reference);
+    if (reference !== undefined && held !== undefined && input.matched.has(reference) && !witnesses.has(reference)) {
+      witnesses.add(reference);
+      witnessClass.set(key, held);
+      continue;
+    }
+    extras.push({ ...edge, class: hasParsed.get(edge.relation) === true ? 'parsed+declared' : 'judgement' });
+  }
+  const rows: GraphEdgeRow[] = [];
+  for (const relation of [...input.relations].sort(byCodePoint)) {
+    const held = sorted.filter((edge) => edge.relation === relation);
+    const mine = extras.filter((edge) => edge.relation === relation);
+    for (const className of ['parsed+declared', 'judgement']) {
+      const truePositives = held.filter((edge) => witnessClass.get(keyOf(edge)) === className).length;
+      const extra = mine.filter((edge) => edge.class === className).length;
+      rows.push({
+        relation, class: className,
+        reference: input.referenceEdges.filter((edge) => edge.relation === relation && edge.class === className).length,
+        graph: truePositives + extra, truePositives, extra,
+      });
+    }
+  }
+  return { rows, extras };
+}
+
 /** Whether an edge is scored at all: not `scored: false`, and its scope direct or absent. */
 function scoredEdge(edge: ReferenceEdge): boolean {
   return edge.scored !== false && (edge.scope === undefined || edge.scope === 'direct');
@@ -362,26 +496,10 @@ async function score(referenceRoot: string, repositoryFolder: string, database: 
     // design is reported apart, like the record itself.
     const referenceKindsForEdges = new Set(matchEntries.map((entry) => entry.kind).filter((kind) => !outOfScopeKinds.has(kind)));
     const kindOfKey = new Map<string, string>(records.map((record) => [record.key, record.kind]));
-    const rawInScope = rawGraphEdges.filter((edge) => {
-      if (outOfScopeRelations.has(graphEdgeOf(edge).relation)) return false;
-      return referenceKindsForEdges.has(kindOfKey.get(edge.from) ?? '') && referenceKindsForEdges.has(kindOfKey.get(edge.to) ?? '');
-    });
-    const inScope: CanonicalEdge[] = [];
-    const inScopeSeen = new Set<string>();
-    for (const edge of rawInScope) {
-      const held = graphEdgeOf(edge);
-      const key = `${held.relation}\u0000${held.from}\u0000${held.to}`;
-      if (inScopeSeen.has(key)) continue;
-      inScopeSeen.add(key);
-      inScope.push(held);
-    }
-    const keepsApart = new Map<string, number>();
-    for (const edge of rawGraphEdges) {
-      if (rawInScope.includes(edge)) continue;
-      if (outOfScopeRelations.has(graphEdgeOf(edge).relation)) continue;
-      const kind = !referenceKindsForEdges.has(kindOfKey.get(edge.from) ?? '') ? kindOfKey.get(edge.from) ?? '—' : kindOfKey.get(edge.to) ?? '—';
-      keepsApart.set(kind, (keepsApart.get(kind) ?? 0) + 1);
-    }
+    const comparable = rawGraphEdges
+      .filter((edge) => !outOfScopeRelations.has(graphEdgeOf(edge).relation))
+      .map((edge) => graphEdgeOf(edge));
+    const { inScope, apart: edgesApart } = classifyEdges(comparable, kindOfKey, referenceKindsForEdges);
     // An edge that touches an entry `scored: false` leaves every count too.
     const unscoredNodes = new Set(reference.nodes.filter((node) => node.scored === false).map((node) => node.id));
     const unscoredEdges = new Set(reference.edges.filter((edge) => edge.scored === false || unscoredNodes.has(edge.from) || unscoredNodes.has(edge.to)));
@@ -392,6 +510,17 @@ async function score(referenceRoot: string, repositoryFolder: string, database: 
       inScope,
       match.recordToEntry,
     );
+    // The rows' own accounting: a relation's graph is its true positives and its
+    // extras, and an edge the reference keeps apart (`edgesApart`) is in neither.
+    const accounting = edgeRowCounts({
+      inScope,
+      relations: [...new Set(canonicalReferenceEdges.map((edge) => edge.relation))].filter((relation) => !outOfScopeRelations.has(relation)),
+      referenceEdges: canonicalReferenceEdges
+        .filter((edge) => scoredEdge(edge.original))
+        .map((edge) => ({ relation: edge.relation, from: edge.from, to: edge.to, class: classOf(edge.original.reading) })),
+      matched: edgeMatch.matched,
+      recordToEntry: match.recordToEntry,
+    });
 
     // The name-only match, for comparison: the natural id of a record against the
     // entry's id, grouped in the catalog's vocabulary.
@@ -416,12 +545,11 @@ async function score(referenceRoot: string, repositoryFolder: string, database: 
       if (namesByKind.get(node.kind)?.has(node.id) === true) nameFound.add(node.id);
     }
     const nameEdgesHeld = new Set<string>();
-    for (const edge of rawInScope) {
+    for (const edge of inScope) {
       const from = nameKey.get(edge.from);
       const to = nameKey.get(edge.to);
       if (from === undefined || to === undefined) continue;
-      const held = graphEdgeOf(edge);
-      nameEdgesHeld.add(`${held.relation}\u0000${from}\u0000${to}`);
+      nameEdgesHeld.add(`${edge.relation}\u0000${from}\u0000${to}`);
     }
     const originalKindsOf = (catalog: string): string[] => [...new Set(reference.nodes.map((node) => node.kind).concat(entities.map((entity) => entity.kind)).filter((kind) => catalogKindOf(kind) === catalog))];
 
@@ -453,7 +581,7 @@ async function score(referenceRoot: string, repositoryFolder: string, database: 
         const recall = share(tp, wanted.length);
         table.push({
           name: kind, kind: 'node', class: className,
-          reference: wanted.length, graph: held.length, truePositives: tp,
+          reference: wanted.length, graph: held.length, truePositives: tp, extra: held.length - tp,
           precision, recall, f1: f1Of(precision, recall),
           nameReference: wanted.length, nameGraph: names, nameTruePositives: tpName,
           namePrecision: share(tpName, names), nameRecall: share(tpName, wanted.length),
@@ -478,17 +606,22 @@ async function score(referenceRoot: string, repositoryFolder: string, database: 
     // Relations, by relation and by class, in the catalog's vocabulary.
     const referenceRelations = new Set(canonicalReferenceEdges.map((edge) => edge.relation).filter((relation) => !outOfScopeRelations.has(relation)));
     const relationsHeld = [...referenceRelations].sort();
+    const extraCount = new Map<string, number>();
+    for (const entry of accounting.extras) {
+      const key = `${entry.relation}\u0000${entry.class}`;
+      extraCount.set(key, (extraCount.get(key) ?? 0) + 1);
+    }
     for (const relation of relationsHeld) {
-      const held = inScope.filter((edge) => edge.relation === relation);
       for (const className of ['parsed+declared', 'judgement']) {
         const edges = canonicalReferenceEdges.filter((edge) => edge.relation === relation && scoredEdge(edge.original) && classOf(edge.original.reading) === className);
-        const tp = edges.filter((edge) => edgeMatch.matched.has(`${edge.relation}\u0000${edge.from}\u0000${edge.to}`)).length;
+        const row = accounting.rows.find((held) => held.relation === relation && held.class === className);
+        if (row === undefined) continue;
         const tpName = edges.filter((edge) => nameEdgesHeld.has(`${edge.relation}\u0000${edge.from}\u0000${edge.to}`)).length;
-        const precision = share(tp, held.length);
-        const recall = share(tp, edges.length);
+        const precision = share(row.truePositives, row.graph);
+        const recall = share(row.truePositives, edges.length);
         table.push({
           name: relation, kind: 'edge', class: className,
-          reference: edges.length, graph: held.length, truePositives: tp,
+          reference: edges.length, graph: row.graph, truePositives: row.truePositives, extra: row.extra,
           precision, recall, f1: f1Of(precision, recall),
           nameReference: edges.length,
           nameGraph: [...nameEdgesHeld].filter((key) => key.startsWith(`${relation}\u0000`)).length,
@@ -504,12 +637,10 @@ async function score(referenceRoot: string, repositoryFolder: string, database: 
           }
         }
       }
-      for (const key of edgeMatch.extra) {
-        const [heldRelation, from, to] = key.split('\u0000') as [string, string, string];
-        if (heldRelation !== relation) continue;
-        const row = graphEdgeRows.get(`${relation}\u0000${from}\u0000${to}`);
-        extra.push({ kind: relation, key: `${from} -> ${to}`, label: '', place: row === undefined ? '—' : edgePlace(row) });
-      }
+    }
+    for (const entry of accounting.extras) {
+      const row = graphEdgeRows.get(`${entry.relation}\u0000${entry.from}\u0000${entry.to}`);
+      extra.push({ kind: entry.relation, key: `${entry.from} -> ${entry.to}`, label: '', place: row === undefined ? '—' : edgePlace(row), class: entry.class });
     }
 
     // Kinds the graph holds that the reference leaves out by design.
@@ -549,7 +680,6 @@ async function score(referenceRoot: string, repositoryFolder: string, database: 
     const identity = Object.entries(IDENTITY_KINDS).map(([kind, held]) => ({ kind, property: held.property, why: held.why, matched: match.identity.get(kind) ?? 0 }));
     const scopedApart = [...edgeMatch.scopedApart.entries()].map(([heldScope, count]) => ({ scope: heldScope, count })).sort((left, right) => (left.scope < right.scope ? -1 : 1));
     const unscored = { nodes: unscoredNodes.size, edges: unscoredEdges.size };
-    const edgesApart = [...keepsApart.entries()].map(([kind, count]) => ({ kind, count })).sort((left, right) => (left.kind < right.kind ? -1 : 1));
 
     // Which mappings the comparison used, as a list: every key either side names
     // that the mapping ties, with its catalog name and direction.
@@ -574,7 +704,7 @@ async function score(referenceRoot: string, repositoryFolder: string, database: 
 }
 
 function totalsOf(table: readonly Row[]): Result['totals'] {
-  const out: Record<string, Record<string, { reference: number; graph: number; truePositives: number; nameReference: number; nameGraph: number; nameTruePositives: number }>> = {};
+  const out: Record<string, Record<string, { reference: number; graph: number; truePositives: number; extra: number; nameReference: number; nameGraph: number; nameTruePositives: number }>> = {};
   for (const kind of ['node', 'edge'] as const) {
     out[kind] = {};
     for (const className of ['parsed+declared', 'judgement']) {
@@ -583,6 +713,7 @@ function totalsOf(table: readonly Row[]): Result['totals'] {
         reference: rows.reduce((sum, row) => sum + row.reference, 0),
         graph: rows.reduce((sum, row) => sum + row.graph, 0),
         truePositives: rows.reduce((sum, row) => sum + row.truePositives, 0),
+        extra: rows.reduce((sum, row) => sum + row.extra, 0),
         nameReference: rows.reduce((sum, row) => sum + row.nameReference, 0),
         nameGraph: rows.reduce((sum, row) => sum + row.nameGraph, 0),
         nameTruePositives: rows.reduce((sum, row) => sum + row.nameTruePositives, 0),
@@ -636,15 +767,15 @@ function report(result: Result): void {
   for (const kind of ['node', 'edge'] as const) {
     for (const className of ['parsed+declared', 'judgement']) {
       const held = result.totals[kind]![className]!;
-      console.log(`TOTAL ${kind} ${className}: place ref ${String(held.reference)} graph ${String(held.graph)} tp ${String(held.truePositives)}; name ref ${String(held.nameReference)} tp ${String(held.nameTruePositives)}`);
+      console.log(`TOTAL ${kind} ${className}: place ref ${String(held.reference)} graph ${String(held.graph)} tp ${String(held.truePositives)} extra ${String(held.extra)}; name ref ${String(held.nameReference)} tp ${String(held.nameTruePositives)}`);
     }
   }
   console.log('');
   console.log(`Missing: ${String(result.missing.length)} reference entries the graph does not hold at their place.`);
   for (const entry of result.missing) console.log(`MISSING\t${entry.kind}\t${entry.id}\t${entry.reading}\t${places(entry.evidence)}`);
   console.log('');
-  console.log(`Extra: ${String(result.extra.length)} graph records no reference entry stands at.`);
-  for (const entry of result.extra) console.log(`EXTRA\t${entry.kind}\t${entry.key}\t${entry.place}`);
+  console.log(`Extra: ${String(result.extra.length)} graph records no reference entry stands at. An edge's last field is the table row it counts in.`);
+  for (const entry of result.extra) console.log(`EXTRA\t${entry.kind}\t${entry.key}\t${entry.place}\t${entry.class ?? ''}`);
   console.log('');
   console.log(`Excluded: ${String(result.excluded.length)} kinds and ${String(result.excludedRelations.length)} relations the reference leaves out by design.`);
   for (const entry of result.excluded) console.log(`EXCLUDED\t${entry.kind}\t${String(entry.count)}\t${entry.reason}`);
@@ -674,12 +805,14 @@ function report(result: Result): void {
   for (const entry of result.mappings) console.log(`MAPPING\t${entry.sort}\t${entry.extractor}\t${entry.catalog}\t${entry.direction}`);
 }
 
-try {
-  process.exit(await main());
-} catch (error) {
-  if (error instanceof UsageError) {
-    console.error(`${resolve(process.argv[1] ?? 'scripts/score-reference-graph.ts')}: ${error.message}`);
-    process.exit(2);
+if (import.meta.main) {
+  try {
+    process.exit(await main());
+  } catch (error) {
+    if (error instanceof UsageError) {
+      console.error(`${resolve(process.argv[1] ?? 'scripts/score-reference-graph.ts')}: ${error.message}`);
+      process.exit(2);
+    }
+    throw error;
   }
-  throw error;
 }
