@@ -38,6 +38,7 @@ import { WORKFLOWS_FILE } from './workflows.js';
 import { linesOf } from './lines.js';
 import { applyReset, planReset, type ResetPlan } from './reset.js';
 import { startKnowledgeFill, type KnowledgeFillRun } from './fill-run.js';
+import { fillWritesPages } from '../fill/steps.js';
 import { snapshotNumbers } from './fill-run.js';
 import { locationOf, type RenderContext } from './blocks.js';
 import { GraphReader } from './graph-read.js';
@@ -888,9 +889,13 @@ export class KnowledgeProduct {
     const chosen = this.chosenAgent();
     const seeded = resuming && this.writer.units.length > 0 ? this.writer : undefined;
     const agent = seeded?.agent ?? chosen;
+    // A writer waits for the agent stage's units, and only a stage with tools writes a page: a fill
+    // whose steps hold none of them starts no writer, so a person is not told "the agent is writing"
+    // for a run that could never write (madarch-8bdc.2.5; the chosen agent is kept for that step).
+    const writes = agent !== null && fillWritesPages();
     this.writer = seeded === undefined
-      ? agent === null ? { state: 'idle', agent: null, units: [] } : { state: 'waiting', agent, units: [] }
-      : { ...seeded, state: agent === null ? 'idle' : 'waiting', current: undefined };
+      ? { state: writes ? 'waiting' : 'idle', agent, units: [] }
+      : { ...seeded, state: writes ? 'waiting' : 'idle', current: undefined };
     this.currentRun = {
       language: wanted,
       languageChanged,
@@ -954,6 +959,8 @@ export class KnowledgeProduct {
     // work, and no agent stage runs in this step), so the answer is the empty list unless the store
     // kept a record of pages the run changed — never an absent field a reader would take for "unknown".
     this.changedLoaded = false;
+    // A writer that waited for units the run never planned has nothing to wait for: the run ended.
+    if (this.writer.state === 'waiting' && this.writer.units.length === 0) this.writer = { ...this.writer, state: 'idle' };
     this.fill = {
       state: 'done', startedAt: this.fill.startedAt, finishedAt: (this.options.now?.() ?? new Date()).toISOString(), gaps: 0,
       changed: this.lastChangedPages() ?? [],

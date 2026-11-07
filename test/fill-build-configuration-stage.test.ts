@@ -338,14 +338,16 @@ describe('a go.mod and a Cargo.toml', () => {
   test('each names its package and its declared dependencies', async () => {
     const f = await fixture();
     try {
-      await f.write('go.mod', 'module example.com/orders\n\ngo 1.22\n\nrequire (\n\tgithub.com/segmentio/kafka-go v0.4.47\n)\n');
+      // The dependency's module is an example host: a test's fixture names no real repository
+      // (test/neutral-repository-names.test.ts scans this tree for exactly that).
+      await f.write('go.mod', 'module example.com/orders\n\ngo 1.22\n\nrequire (\n\texample.com/kafka-go v0.4.47\n)\n');
       await f.write('Cargo.toml', '[package]\nname = "orders"\nversion = "0.1.0"\n\n[dependencies]\nserde = "1"\n\n[[bin]]\nname = "orders-cli"\n\n[lib]\nname = "orders_lib"\n');
       const commit = f.commit();
       const stage = stageOver(f.root, commit);
       const go = await executed(stage, f.root, commit, 'manifest:orders-api:go.mod');
       expect(itemsOfKind(go.writes, 'package').map((item) => [item.value['name'], item.value['ecosystem']])).toEqual([['example.com/orders', 'go']]);
       expect(itemsOfKind(go.writes, 'dependency').filter((item) => typeof item.value['name'] === 'string').map((item) => [item.value['name'], item.value['group'], item.value['version']])).toEqual([
-        ['github.com/segmentio/kafka-go', 'require', 'v0.4.47'],
+        ['example.com/kafka-go', 'require', 'v0.4.47'],
       ]);
       const cargo = await executed(stage, f.root, commit, 'manifest:orders-api:Cargo.toml');
       expect(itemsOfKind(cargo.writes, 'package').map((item) => [item.value['name'], item.value['ecosystem'], item.value['version']])).toEqual([['orders', 'cargo', '0.1.0']]);

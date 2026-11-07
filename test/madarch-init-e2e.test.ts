@@ -104,7 +104,10 @@ describe('madarch init', () => {
     const status = await get('api/k/status');
     expect(status.body).toMatchObject({ manifest: 'ok', filled: false, home: null, chosenAgent: null, writer: { state: 'idle' }, repositories: [{ name: 'training-shop', filled: false }] });
     const agents = await get('api/k/agents');
-    expect(agents.body.agents.map((offer: { id: string; installed: boolean }) => [offer.id, offer.installed])).toEqual([['claude-code', true], ['codex', false], ['opencode', false], ['omp', false], ['prime-agent', false]]);
+    // The wiki offers every adapter, and the one the fixture installs on the PATH is installed. Whether another
+    // adapter is installed is the machine's own state (a developer's box may hold one), never this case's.
+    expect(agents.body.agents.map((offer: { id: string; installed: boolean }) => offer.id)).toEqual(['claude-code', 'codex', 'opencode', 'omp', 'prime-agent']);
+    expect(agents.body.agents.find((offer: { id: string }) => offer.id === 'claude-code')).toMatchObject({ installed: true });
     // The first read of a product opens its store (a PGlite of about two seconds) and asks which adapters stand on the
     // PATH: the case names its own bound, as every case whose work is long does (madarch-tzte.36), so a run of several
     // files — where the preload's default reaches no file — does not stop it at five seconds.

@@ -1,8 +1,8 @@
 /**
  * `madarch mcp` on the store the one fill writes (madarch-8bdc.2.5, item 4a): a fresh store holds the tree pass's
- * records and no graph reading, and the server must start and answer — every answer the empty one, naming the
- * commit the store's records name. An older store's temporal rows are a different commit's and must not be served
- * under the new one.
+ * records and no graph reading, and the server must start and answer — the five tools from the records, the seven
+ * naming the step that has not run, every answer naming the commit the store's records name. An older store's
+ * temporal rows are a different commit's and must not be served under the new one.
  *
  * The fixture is a throwaway checkout the test makes and commits here, and a store under its own madarch home.
  */
@@ -50,7 +50,7 @@ function sourceOf(answer: Record<string, unknown>): Record<string, unknown> {
 }
 
 describe('a fresh store', () => {
-  test('starts, answers the empty reading, and names the commit its records are at', async () => {
+  test('starts, answers from the records it holds, names the step it does not reach, and names the commit its records are at', async () => {
     const head = git('rev-parse', 'HEAD');
     const store = repositoryStoreFolder(REPOSITORY, ENV);
     mkdirSync(dirname(storeDatabasePath(store)), { recursive: true });
@@ -67,15 +67,21 @@ describe('a fresh store', () => {
     const session = await RepositorySession.open({ repository: REPOSITORY, env: ENV });
     try {
       expect(session.filledCommit).toBe(head);
+      // The tree pass publishes the record tables and no graph reading: a tool of a later step says that
+      // its step has not run and names it, rather than answering an empty page from a reading that is
+      // not there (madarch-8bdc.2.5, item 1). Every answer still names the commit the records are at.
       const symbol = await session.call('get_symbol', { name: 'one' });
       expect(symbol.isError).toBe(true);
-      expect(JSON.stringify(symbol.answer)).toContain('no-such-symbol');
+      expect((symbol.answer as Record<string, unknown>)['error']).toMatchObject({ code: 'step-not-run', step: 'syntax' });
       expect(sourceOf(symbol.answer as Record<string, unknown>)['commit']).toBe(head);
-      // No document is listed either: the tree pass publishes records, and the graph holds no reading.
       const pages = await session.call('search_pages', { text: 'Saves items' });
-      expect(pages.isError).toBe(false);
-      expect((pages.answer as Record<string, unknown>)['pages']).toEqual([]);
-      expect(typeof sourceOf(pages.answer as Record<string, unknown>)['at']).toBe('string');
+      expect(pages.isError).toBe(true);
+      expect((pages.answer as Record<string, unknown>)['error']).toMatchObject({ code: 'step-not-run', step: 'document-index' });
+      expect(sourceOf(pages.answer as Record<string, unknown>)['commit']).toBe(head);
+      // The five tools of this step answer from the records the fill wrote.
+      const files = await session.call('list_files', { prefix: 'src/' });
+      expect(files.isError).toBe(false);
+      expect(((files.answer as Record<string, unknown>)['files'] as { path: string }[]).map((file) => file.path)).toEqual(['src/a.ts']);
     } finally {
       await session.close();
     }
@@ -83,7 +89,7 @@ describe('a fresh store', () => {
 });
 
 describe('a store whose temporal rows are an older commit\'s', () => {
-  test('the rows are not served under the new commit, and the answers are the new commit\'s empty ones', async () => {
+  test('the rows are not served under the new commit, and its tools name the step instead of reading them', async () => {
     const store = repositoryStoreFolder(REPOSITORY, ENV);
     // What a store filled by the static stages at this commit holds: a file node at the instant of its publication.
     mkdirSync(dirname(storeDatabasePath(store)), { recursive: true });
@@ -111,11 +117,16 @@ describe('a store whose temporal rows are an older commit\'s', () => {
     const session = await RepositorySession.open({ repository: REPOSITORY, env: ENV });
     try {
       expect(session.filledCommit).toBe(head);
+      // The file node planted at the older commit is not this commit's reading, so no view of it stands
+      // under the new commit: the tool names its step instead of reading the older rows (madarch-8bdc.2.5,
+      // item 1), and the answer names the new commit the records are at.
       const pages = await session.call('search_pages', { text: 'Saves items' });
-      expect(pages.isError).toBe(false);
-      // The file node planted at the older commit is not this commit's, so no page stands on it.
-      expect((pages.answer as Record<string, unknown>)['pages']).toEqual([]);
+      expect(pages.isError).toBe(true);
+      expect((pages.answer as Record<string, unknown>)['error']).toMatchObject({ code: 'step-not-run' });
       expect(sourceOf(pages.answer as Record<string, unknown>)['commit']).toBe(head);
+      // The older reading is not served under the new commit's name even to a tool that would read it.
+      const symbol = await session.call('get_symbol', { name: 'one' });
+      expect((symbol.answer as Record<string, unknown>)['error']).toMatchObject({ code: 'step-not-run', step: 'syntax' });
     } finally {
       await session.close();
     }

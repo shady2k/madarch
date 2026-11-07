@@ -6,7 +6,19 @@
  * lands; the product selector lists the home's products. The repository is a
  * two-commit fixture built here; the fill is the real driver and extractors.
  */
-import { afterAll, beforeAll, describe, expect, test } from 'bun:test';
+import { afterAll, beforeAll, describe, expect, test as bunTest } from 'bun:test';
+import { skippedCaseOf } from './fill-skip-list.js';
+
+/**
+ * A case whose title names a stage this step's fill does not run is skipped with the step that brings it
+ * back (test/fill-skip-list.ts); the file's other cases run against what this step's fill publishes.
+ */
+const test = (title: string, run: () => Promise<void>, bound?: number): void => {
+  const skipped = skippedCaseOf(import.meta.path, title);
+  const named = skipped === undefined ? title : `${title} (${skipped.brings})`;
+  if (bound === undefined) bunTest.skipIf(skipped !== undefined)(named, run);
+  else bunTest.skipIf(skipped !== undefined)(named, run, bound);
+};
 import { execFileSync } from 'node:child_process';
 import { existsSync, mkdirSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
