@@ -579,8 +579,12 @@ describe('after the run', () => {
     const bar = into(createElement(FillMenu, { status: read, refresh: () => undefined }));
     await until(() => bar.querySelector('[data-testid=fill-chip]') !== null, 'the status');
     // "0 pages" would read as if the fill found nothing: the badge says what it did read, and where it is from.
-    expect(bar.querySelector('[data-testid=fill-chip]')!.textContent).toBe('Filled Oct 23 · Files: 114 · Commits: 72');
-    expect(bar.querySelector('[data-testid=fill-chip]')!.textContent).not.toContain('pages');
+    const chip = bar.querySelector('[data-testid=fill-chip]')!;
+    expect(chip.querySelector('.fill-chip-words')!.textContent).toBe('Filled Oct 23 · Files: 114 · Commits: 72');
+    // A phone keeps the same numbers without the date, as every other form of the badge keeps its count there.
+    expect(chip.querySelector('.fill-chip-count-narrow')!.textContent).toBe('Files: 114 · Commits: 72');
+    expect(chip.getAttribute('aria-label')).toBe('Filled Oct 23 · Files: 114 · Commits: 72');
+    expect(chip.textContent).not.toContain('pages');
   });
 
   test('a failed run stays on the page until the reader dismisses it', async () => {

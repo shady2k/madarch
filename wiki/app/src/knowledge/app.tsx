@@ -431,6 +431,8 @@ export function FillMenu({ status, refresh }: { status: WikiStatus; refresh: () 
   const currentName = current === undefined ? null : unitName(current, status.kinds, language);
   let label: string;
   let solid = false;
+  /** The badge's phone-width form, when the whole sentence does not fit there; null keeps the sentence alone. */
+  let narrow: string | null = null;
   const pagesTotal = writer.total;
   if (paused) label = pagesTotal === undefined ? t('knowledge.fillPage.paused') : t('knowledge.fillPage.pausedCount', { done: written, total: pagesTotal });
   else if (stopped) label = pagesTotal === undefined ? t('knowledge.fillPage.stopped') : t('knowledge.fillPage.stoppedCount', { done: written, total: pagesTotal });
@@ -452,6 +454,8 @@ export function FillMenu({ status, refresh }: { status: WikiStatus; refresh: () 
       label = when === null
         ? t('knowledge.repository.fillRead', { files: counts.files, commits: counts.commits })
         : t('knowledge.repository.fillReadAt', { date: when, files: counts.files, commits: counts.commits });
+      // The badge keeps its count on a phone, as every other form of it does: the same numbers without the date.
+      narrow = t('knowledge.repository.fillReadNarrow', { files: counts.files, commits: counts.commits });
     }
     if (fill.rebuilt === 'extractors-changed') label = `${t('knowledge.fillRebuiltExtractors')}. ${label}`;
   } else return null;
@@ -517,7 +521,9 @@ export function FillMenu({ status, refresh }: { status: WikiStatus; refresh: () 
               ? <><span className="fill-chip-words">{t('knowledge.fillWriting')} · </span><span className="fill-chip-count">{count}</span></>
               : held
                 ? <><span className="fill-chip-words">{label}</span><span className="fill-chip-count fill-chip-count-narrow">{count}</span></>
-                : label}
+                : narrow === null
+                  ? label
+                  : <><span className="fill-chip-words">{label}</span><span className="fill-chip-count fill-chip-count-narrow">{narrow}</span></>}
           </span>
         </Badge>
       </button>
@@ -614,7 +620,7 @@ export function SyncButton({ status, refresh }: { status: WikiStatus; refresh: (
   };
   const changed = fill.changed;
   return (
-    <span className="relative flex items-center">
+    <span className="sync-control relative flex items-center">
       {/* Below a phone's width the name is its icon, and the whole sentence stays the button's name and its tooltip. */}
       <Button variant="default" size="default" className="sync-button" disabled={busy} onClick={press} aria-label={busy ? t('knowledge.syncRunning') : t('knowledge.sync')} title={t('knowledge.syncHint')} data-testid="sync">
         <RefreshCwIcon aria-hidden="true" className="sync-icon size-4" data-testid="sync-icon" />

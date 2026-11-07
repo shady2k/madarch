@@ -434,6 +434,7 @@ export function RunPage({ run: named, version }: { run: string | null; version: 
         ))}
       </ol>
       <p className="mt-4 text-small text-muted" data-testid="run-note">{t('knowledge.run.note')}</p>
+      <p className="mb-0 mt-1 text-small text-muted" data-testid="run-memory-note">{t('knowledge.run.memoryNote')}</p>
     </section>
   );
 }

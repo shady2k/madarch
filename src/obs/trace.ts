@@ -26,11 +26,25 @@ import { BasicTracerProvider, type ReadableSpan, type SpanProcessor } from '@ope
 export type SpanAttributes = Readonly<Record<string, AttributeValue>>;
 
 /** One trace of one run: its file, its log beside it, and its buffer of lines not yet written. */
+/** One reading of the process's memory, at a moment of the run's own clock (`performance.now()`). */
+interface MemorySample {
+  readonly at: number;
+  readonly rss: number;
+  readonly heap: number;
+}
+
+/** How often a run samples the process's resident memory: fine enough to meet the peaks of a step. */
+const MEMORY_SAMPLE_MS = 20;
+
 export interface TraceRun {
   readonly runId: string;
   readonly store: string;
   readonly file: string;
   readonly logFile: string;
+  /** The process's memory over the run, one reading every `MEMORY_SAMPLE_MS`: what a span's peak is read from. */
+  readonly samples: MemorySample[];
+  /** The sampler, while the run is open. */
+  timer?: ReturnType<typeof setInterval>;
   /** The moment the run's trace was opened, in epoch milliseconds. */
   readonly startedAt: number;
   /** Whether log lines are printed to the process's own streams as they are written. */
@@ -47,10 +61,32 @@ const spanStorage = new AsyncLocalStorage<Span>();
 /** The run a span was started under, so a span that outlives a nested run still lands in its own file. */
 const spanRuns = new WeakMap<object, TraceRun>();
 /** The process's memory when a span started: its end is read when it ends, whoever started it. */
-const spanStartMemory = new WeakMap<object, { rss: number; heap: number }>();
+const spanStartMemory = new WeakMap<object, { rss: number; heap: number; at: number }>();
 
 /** The latest trace opened: the fallback for a span whose start was never seen (a span of a library). */
 let latest: TraceRun | undefined;
+
+/** One memory reading now, as the run's own clock states it. */
+function sampleNow(): MemorySample {
+  const used = process.memoryUsage();
+  return { at: performance.now(), rss: used.rss, heap: used.heapUsed };
+}
+
+/**
+ * The highest resident memory the process reached between two moments of the run, as the run's
+ * samples state it. A span whose end no sample falls inside keeps the reading at the boundary it
+ * did reach, so a short span still answers with a measured number.
+ */
+function peakBetween(samples: readonly MemorySample[], from: number, to: number): number {
+  let peak = 0;
+  for (let at = samples.length - 1; at >= 0; at -= 1) {
+    const sample = samples[at]!;
+    if (sample.at > to) continue;
+    if (sample.at < from) break;
+    if (sample.rss > peak) peak = sample.rss;
+  }
+  return peak;
+}
 
 /**
  * Whether spans are made at all. `MADARCH_TRACE=off` turns the layer off so the
@@ -110,7 +146,7 @@ function otlpValue(value: AttributeValue): Record<string, unknown> {
 }
 
 /** One span in OTLP's JSON field names, as one JSON line. */
-function otlpLine(span: ReadableSpan, run: TraceRun, startMemory: { rss: number; heap: number } | undefined, endMemory: { rss: number; heap: number }): string {
+function otlpLine(span: ReadableSpan, run: TraceRun, startMemory: { rss: number; heap: number; at: number } | undefined, endMemory: { rss: number; heap: number }, peak: number | undefined): string {
   const parent = (span as unknown as { parentSpanContext?: { spanId?: string } }).parentSpanContext?.spanId;
   const nano = (time: readonly [number, number]): string => String(BigInt(time[0]) * 1_000_000_000n + BigInt(time[1]));
   const status = span.status;
@@ -129,6 +165,9 @@ function otlpLine(span: ReadableSpan, run: TraceRun, startMemory: { rss: number;
       { key: 'process.heap.start', value: { intValue: String(startMemory?.heap ?? endMemory.heap) } },
       { key: 'process.rss.end', value: { intValue: String(endMemory.rss) } },
       { key: 'process.heap.end', value: { intValue: String(endMemory.heap) } },
+      // The highest resident memory the process reached while the span was open, sampled by the run: the
+      // number a reader looks for when asking where the memory went (madarch-8bdc.2.5, item 4).
+      { key: 'process.rss.peak', value: { intValue: String(peak ?? endMemory.rss) } },
     ],
     ...(span.events.length === 0 ? {} : { events: span.events.map((event) => ({ name: event.name, timeUnixNano: nano(event.time), ...(event.attributes === undefined ? {} : { attributes: Object.entries(event.attributes).map(([key, value]) => ({ key, value: otlpValue(value ?? '') })) }) })) }),
     ...(status.code === SpanStatusCode.UNSET ? {} : { status: { code: status.code === SpanStatusCode.OK ? 'STATUS_CODE_OK' : 'STATUS_CODE_ERROR', ...(status.message === undefined ? {} : { message: status.message }) } }),
@@ -141,13 +180,17 @@ class JsonlSpanProcessor implements SpanProcessor {
   onStart(span: Span): void {
     const run = runStorage.getStore() ?? latest;
     if (run !== undefined && !run.closed) spanRuns.set(span, run);
-    spanStartMemory.set(span, memory());
+    spanStartMemory.set(span, { ...memory(), at: performance.now() });
   }
 
   onEnd(span: ReadableSpan): void {
     const run = spanRuns.get(span as unknown as object) ?? runStorage.getStore() ?? latest;
     if (run === undefined || run.closed) return;
-    pushLine(run, otlpLine(span, run, spanStartMemory.get(span as unknown as object), memory()));
+    const started = spanStartMemory.get(span as unknown as object);
+    // The span's own window, read from the run's samples: a span whose start this processor never saw
+    // (a library's) states the reading at its end alone.
+    const peak = started === undefined ? undefined : Math.max(started.rss, peakBetween(run.samples, started.at, performance.now()));
+    pushLine(run, otlpLine(span, run, started, memory(), peak));
   }
 
   forceFlush(): Promise<void> {
@@ -185,7 +228,17 @@ export function openTrace(options: { readonly store: string; readonly runId: str
   // A trace is this run's own record: a second start of one run id replaces the first, never appends to it.
   writeFileSync(file, '', 'utf8');
   writeFileSync(logFile, '', 'utf8');
-  const run: TraceRun = { runId: options.runId, store: options.store, file, logFile, startedAt: Date.now(), console: options.console === true, buffer: [], lines: 0, closed: !enabled };
+  const run: TraceRun = {
+    runId: options.runId, store: options.store, file, logFile, startedAt: Date.now(), console: options.console === true,
+    buffer: [], lines: 0, closed: !enabled, samples: [],
+  };
+  if (enabled) {
+    // The run samples the process's memory as it goes: a span's peak is the highest reading of its
+    // own window, never the two readings at its ends, which miss what a step reached in between.
+    run.samples.push(sampleNow());
+    run.timer = setInterval(() => { run.samples.push(sampleNow()); }, MEMORY_SAMPLE_MS);
+    run.timer.unref?.();
+  }
   latest = enabled ? run : undefined;
   return run;
 }
@@ -197,6 +250,7 @@ export function runInTrace<T>(run: TraceRun, work: () => Promise<T>): Promise<T>
 
 /** Ends a run's trace: what is buffered is written, and later spans of the run are dropped rather than written after its end. */
 export function closeTrace(run: TraceRun): void {
+  if (run.timer !== undefined) { clearInterval(run.timer); run.timer = undefined; }
   flushRun(run);
   run.closed = true;
   if (latest === run) latest = undefined;

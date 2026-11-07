@@ -272,7 +272,12 @@ export function stepReportsOf(spans: readonly TraceSpan[]): StepReport[] {
       .slice(0, STEP_NAMES);
     const start = Math.min(...held.spans.map((one) => one.start));
     const end = Math.max(...held.spans.map((one) => one.end));
-    const rss = held.spans.map((one) => (typeof one.attributes['process.rss.end'] === 'number' ? one.attributes['process.rss.end'] : 0));
+    // A span states the highest resident memory of its own window (`process.rss.peak`, sampled while
+    // it ran), so the step's peak is the highest of its spans'. A trace written before the spans
+    // sampled falls back to the readings at their ends, which is the smaller number and is said so.
+    const peaks = held.spans.map((one) => (typeof one.attributes['process.rss.peak'] === 'number' ? one.attributes['process.rss.peak'] as number : 0));
+    const ends = held.spans.map((one) => (typeof one.attributes['process.rss.end'] === 'number' ? one.attributes['process.rss.end'] : 0));
+    const rss = peaks.some((one) => one > 0) ? peaks : ends;
     const first = held.spans.find((one) => one.start === start);
     const startRss = typeof first?.attributes['process.rss.start'] === 'number' ? first.attributes['process.rss.start'] as number : 0;
     reports.push({

@@ -1766,6 +1766,13 @@ a.graph-diagram-element-label:hover {
   max-inline-size: min(60vw, 22rem);
 }
 
+/* The toolbar lets every control shrink; a control that cannot is the one whose content is an icon alone.
+   The badge truncates or keeps a short count instead, so it takes the squeeze the sync control cannot. */
+.shell-toolbar > span:last-child > .sync-control {
+  flex: 0 0 auto;
+  min-inline-size: auto;
+}
+
 .fill-chip .ui-badge {
   max-inline-size: 100%;
   overflow: hidden;

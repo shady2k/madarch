@@ -215,6 +215,8 @@ describe('the run page', () => {
     expect(cells(steps[0]!)[3]).toContain('db.INSERT');
     expect(cells(steps[1]!)[1]).toBe('500.0 ms');
     expect(container.textContent).toContain('1.00 s wall clock over 42 spans');
+    // The memory column says what it measures: the highest resident memory the process reached while the step ran.
+    expect(container.querySelector('[data-testid=run-memory-note]')!.textContent).toContain('highest resident memory the process reached while the step ran');
   });
 
   test('a store with no trace says what the page would need, and never draws empty numbers', async () => {

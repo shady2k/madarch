@@ -90,6 +90,44 @@ describe('madarch trace', () => {
     }
   }, 900_000);
 
+  test('a span states the highest memory it reached while it ran, not only its two ends', async () => {
+    const root = mkdtempSync(join(tmpdir(), 'madarch-trace-peak-'));
+    try {
+      const store = join(root, 'store');
+      const traced = openTrace({ store, runId: 'peak' });
+      // A hundred megabytes touched inside the span, held until after it ends: the process's memory
+      // grows while the span runs, and the sampler must see it before the span's end reading.
+      let held: Uint8Array[] = [];
+      await runInTrace(traced, async () => await withSpan('fill.step', { 'madarch.step': 'memory-probe' }, async () => {
+        await withSpan('planted.grow', {}, async () => {
+          for (let block = 0; block < 100; block++) {
+            const bytes = new Uint8Array(1024 * 1024);
+            bytes[0] = 1;
+            bytes[bytes.length - 1] = 1;
+            held.push(bytes);
+          }
+          await Bun.sleep(120);
+        });
+      }));
+      closeTrace(traced);
+      const spans = readTraceSpans(join(store, 'traces', 'peak.jsonl'));
+      const grown = spans.find((span) => span.name === 'planted.grow')!;
+      const peak = grown.attributes['process.rss.peak'] as number;
+      const start = grown.attributes['process.rss.start'] as number;
+      expect(typeof peak).toBe('number');
+      expect(peak).toBeGreaterThan(40 * 1024 * 1024);
+      expect(peak).toBeGreaterThanOrEqual(start);
+      // The step that holds it states the same peak, so the run page's column is the sampled one.
+      const step = stepReportsOf(spans).find((one) => one.step === 'memory-probe')!;
+      expect(step.peakRssBytes).toBe(peak);
+      expect(step.peakRssBytes).toBeGreaterThan(40 * 1024 * 1024);
+      held = [];
+      Bun.gc(true);
+    } finally {
+      rmSync(root, { recursive: true, force: true });
+    }
+  }, 60_000);
+
   test('a fixture fill leaves under 5% of its wall clock covered by no span', async () => {
     const root = mkdtempSync(join(tmpdir(), 'madarch-trace-uncovered-'));
     const owner = createPGliteDatabaseOwner({ btreeGist: true });
