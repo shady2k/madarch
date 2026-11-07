@@ -289,6 +289,8 @@ export interface RepositoryPassWiring {
   readonly sources: SnapshotSource;
   readonly publishTree: (input: TreePublish) => Promise<RecordCounts>;
   readonly publishHistory: (input: HistoryPublish) => Promise<RecordCounts>;
+  /** The repository paths this fill covers, as prefixes (`src/` covers everything under it); the whole tree when left out. */
+  readonly paths?: readonly string[];
 }
 
 /** The unit id of one repository's pass: `repository:<name>`, the same for both passes of it. */
@@ -330,8 +332,15 @@ export function createRepositoryTreeStage(wiring: RepositoryPassWiring): FillSta
     execute: async (unit: StageUnit, context): Promise<StageExecutionResult> => {
       const pin = await pinOf(wiring.sources, repositoryOfUnit(unit.id));
       const read = await readRepositoryTree(pin);
-      const counts = await wiring.publishTree(read);
-      context.progress(`${pin.repository} at ${pin.commit}: ${String(read.files.length)} files, ${String(read.gitlinks.length)} gitlinks, ${String(counts.inserted)} rows written`, 1);
+      // A fill asked for some paths covers those and no others: the tree is read whole (one git
+      // call) and the rows written are the ones under the prefixes the caller named.
+      const covered = wiring.paths === undefined ? read : {
+        ...read,
+        files: read.files.filter((file) => wiring.paths!.some((prefix) => file.path === prefix || file.path.startsWith(prefix.endsWith('/') ? prefix : `${prefix}/`))),
+        gitlinks: read.gitlinks.filter((link) => wiring.paths!.some((prefix) => link.path === prefix || link.path.startsWith(prefix.endsWith('/') ? prefix : `${prefix}/`))),
+      };
+      const counts = await wiring.publishTree(covered);
+      context.progress(`${pin.repository} at ${pin.commit}: ${String(covered.files.length)} files, ${String(covered.gitlinks.length)} gitlinks, ${String(counts.inserted)} rows written`, 1);
       return { outcome: 'draft' };
     },
     validate: () => ({ ok: true }),

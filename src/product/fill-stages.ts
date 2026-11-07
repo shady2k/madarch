@@ -71,7 +71,7 @@ import { isRepositoryPath } from '../fill/facts.js';
 import { ID_PATTERN } from '../model/schema.js';
 import type { FillStageConfigurationRead } from '../fill/config.js';
 import { readFillStageConfiguration } from '../fill/config.js';
-import { createGraphStore, type GraphStore } from '../graph/index.js';
+import { createGraphStore, createRecordSchema, publishHistory, publishTree, type GraphStore } from '../graph/index.js';
 import type { FillProduct, ProductFillWiring } from '../fill/orchestrator-host.js';
 import type { UnitRef } from '../fill/orchestrator.js';
 import type { RunSnapshot } from '../fill/orchestrator-store.js';
@@ -116,6 +116,8 @@ export interface StagesFillOptions {
    * planned — a run with no agent never plans work it cannot run.
    */
   readonly agent?: Omit<AgentStageWiring, 'snapshots'>;
+  /** What this step's two passes publish through; the store over this owner when it is left out. */
+  readonly records?: import('../fill/steps.js').RecordPassWiring;
 }
 
 /** What one repository's stages fill is built from: the checkout a served graph reads, and the owner it publishes through. */
@@ -165,9 +167,17 @@ export async function createStagesFill(options: StagesFillOptions): Promise<Stag
   const snapshots = createGitSnapshotSource(pins);
   /** Reads the pins again, for the run about to plan (`snapshot`): see the module doc. */
   const repin = (): readonly RepositoryPin[] => (pinned = pinsOf(identity));
+  // The record store this step's passes publish through: the process's one owner, so what the
+  // wiki's button fills is what `madarch mcp` reads (madarch-8bdc.2.5, item 6).
+  await createRecordSchema(options.database);
+  const records = options.records ?? {
+    publishTree: (input: Parameters<typeof publishTree>[1]) => publishTree(options.database, input),
+    publishHistory: (input: Parameters<typeof publishHistory>[1]) => publishHistory(options.database, input),
+  };
   const registry = createStageRegistry({
     snapshots,
     checkoutOf: (repository: string) => rootOf(identity, repository),
+    records,
     ...(options.agent === undefined ? {} : { agent: options.agent }),
   });
   // The view a stage's own SQL reads through (the history stage's three queries)
@@ -255,7 +265,15 @@ export async function createRepositoryFill(options: RepositoryFillOptions): Prom
   const pin: RepositoryPin = { id: name, form: 'code', root: folder, commit: git(folder, name, ['rev-parse', 'HEAD']), ...(branchOf(folder, name) === undefined ? {} : { defaultBranch: branchOf(folder, name)! }) };
   const pins = (): readonly RepositoryPin[] => [pin];
   const snapshots = createGitSnapshotSource(pins);
-  const registry = createStageRegistry({ snapshots, checkoutOf: () => folder });
+  await createRecordSchema(options.database);
+  const registry = createStageRegistry({
+    snapshots,
+    checkoutOf: () => folder,
+    records: {
+      publishTree: (input) => publishTree(options.database, input),
+      publishHistory: (input) => publishHistory(options.database, input),
+    },
+  });
   await createStageReadSchema(options.database);
   const store: GraphStore = createGraphStore(options.database);
   await ensureGraphSchema(store);

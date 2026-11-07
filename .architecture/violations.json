@@ -1706,6 +1706,11 @@
   },
   {
     "rule": "no-unreachable-code",
+    "file": "src/fill/stages/data-model.ts",
+    "symbol": "createDataModelAggregateStage"
+  },
+  {
+    "rule": "no-unreachable-code",
     "file": "src/fill/stages/doc-intent.ts",
     "symbol": "DOC_INTENT_STAGE_VERSION"
   },

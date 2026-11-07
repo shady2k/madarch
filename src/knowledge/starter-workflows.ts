@@ -30,39 +30,10 @@ export interface StarterWorkflow {
  * A test holds the list to the registry's own stages.
  */
 const FILL_STAGES: readonly string[] = [
-  'snapshot',
-  'history',
-  'inventory',
-  'build-configuration',
-  'document-index',
-  'syntax',
-  // The per-file readings of a file's own code (madarch-8bdc.2.4): the facts the
-  // operations, contracts and data-model readings ask of it, the state machines its
-  // transition tables write down, and the operations reading of its manifests,
-  // Dockerfiles, deploy files and code. Each reads one file's bytes and hangs its facts
-  // from the file's node, before the resolution reads across files.
-  'code-facts',
-  // The code pass (decision 0033's "The code pass", amended 2026-11-06): one unit per repository's
-  // tree at the pinned commit, read by the code library and joined to the symbols the per-file passes
-  // published. It is the one producer of calls, references, implementations and inheritances.
-  'codegraph',
-  'state-machines',
-  'operations',
-  // The links the operations reading makes across files: the variables a repository
-  // reads and sets, and the services their code reads them for (madarch-8bdc.2.4).
-  'operations-links',
-  // The data model of the code (madarch-8bdc.2.4): the per-file records, and the databases
-  // assembled from them, which name the services operations-links published.
-  'data-model',
-  'data-model-aggregate',
-  'modules',
-  'boundaries',
-  'intent-history',
-  'overview',
-  'understanding',
-  'recovery',
-  'doc-intent',
-  'narrative',
+  // This step's fill and nothing else (madarch-8bdc.2.5, item 6): the tree and the history of
+  // a repository. A later step adds its stage here, and to `FILL_STEP_IDS`, in one commit.
+  'repository-tree',
+  'repository-history',
 ];
 
 /**
