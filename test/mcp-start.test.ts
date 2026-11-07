@@ -20,7 +20,6 @@ import { RepositorySession } from '../src/mcp/session.js';
 import { answerRepositoryMcpMessage, type PendingRepository } from '../src/mcp/server.js';
 
 const REPOSITORY = mkdtempSync(path.join(tmpdir(), 'madarch-mcp-start-repo-'));
-const STATE = mkdtempSync(path.join(tmpdir(), 'madarch-mcp-start-state-'));
 const HOME = mkdtempSync(path.join(tmpdir(), 'madarch-mcp-start-home-'));
 const GIT_ENV = { ...process.env, GIT_AUTHOR_NAME: 'Ada Example', GIT_AUTHOR_EMAIL: 'ada@example.test', GIT_COMMITTER_NAME: 'Ada Example', GIT_COMMITTER_EMAIL: 'ada@example.test', TZ: 'UTC', LC_ALL: 'C' };
 
@@ -53,7 +52,6 @@ afterAll(() => {
   // The store the cases read is filled by stages out of this step's list: no fixture is made or closed.
   if (skippedSuite !== undefined) return;
   rmSync(REPOSITORY, { recursive: true, force: true });
-  rmSync(STATE, { recursive: true, force: true });
   rmSync(HOME, { recursive: true, force: true });
 });
 

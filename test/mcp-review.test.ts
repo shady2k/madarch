@@ -9,7 +9,7 @@
  * an OpenAPI document.
  */
 import { execFileSync } from 'node:child_process';
-import { cpSync, existsSync, mkdirSync, mkdtempSync, rmSync, symlinkSync, unlinkSync, writeFileSync } from 'node:fs';
+import { existsSync, mkdirSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import path from 'node:path';
 import { afterAll, beforeAll, beforeEach, describe as bunDescribe, expect, test as bunTest } from 'bun:test';
@@ -19,19 +19,14 @@ import { skippedBecauseOutOfWorkflow } from './fill-skip-list.js';
 const skippedSuite = skippedBecauseOutOfWorkflow(import.meta.path);
 const describe = bunDescribe.skipIf(skippedSuite !== undefined);
 const test = bunTest.skipIf(skippedSuite !== undefined);
-import { createPGliteDatabaseOwner } from '../src/adapters/database-owner.js';
-import { fillGraph } from '../src/extract/driver/index.js';
-import { TREE_EXTRACTORS } from '../src/extract/driver/extractors.js';
-import { createGraphStore } from '../src/graph/index.js';
 import { readJournal, summarize } from '../src/mcp/journal.js';
+import { mcpStoreFolder } from '../src/mcp/graph.js';
 import { RepositorySession } from '../src/mcp/session.js';
 import { answerRepositoryMcpMessage, type PendingRepository } from '../src/mcp/server.js';
 
 const PROJECT = path.resolve(import.meta.dir, '..');
 const REPOSITORY = mkdtempSync(path.join(tmpdir(), 'madarch-mcp-review-repo-'));
-const STATE = mkdtempSync(path.join(tmpdir(), 'madarch-mcp-review-state-'));
 const HOME = mkdtempSync(path.join(tmpdir(), 'madarch-mcp-review-home-'));
-const STORE = path.join(STATE, 'graph');
 const COMMIT_ENV = { ...process.env, GIT_AUTHOR_NAME: 'Ada Example', GIT_AUTHOR_EMAIL: 'ada@example.test', GIT_COMMITTER_NAME: 'Ada Example', GIT_COMMITTER_EMAIL: 'ada@example.test', TZ: 'UTC', LC_ALL: 'C' };
 
 const git = (...args: string[]): string => execFileSync('git', args, { cwd: REPOSITORY, encoding: 'utf8', env: COMMIT_ENV });
@@ -68,7 +63,6 @@ afterAll(async () => {
   if (skippedSuite !== undefined) return;
   await session.close();
   rmSync(REPOSITORY, { recursive: true, force: true });
-  rmSync(STATE, { recursive: true, force: true });
   rmSync(HOME, { recursive: true, force: true });
 });
 
@@ -88,66 +82,49 @@ beforeEach(() => {
   git('clean', '-fdq');
 });
 
-describe('a caller edited alone keeps calling the file it did not change', () => {
-  test('trace_flow from a function added to the edited caller reaches the unchanged callee', async () => {
+describe('a file the working tree changed is named, and the facts stay the filled commit\'s', () => {
+  test('a function added to a file without a commit is not a fact of the store, and the trace from the committed caller stands', async () => {
     put('src/a.ts', `${A_SOURCE}\n/** Calls f from the new function. */\nexport function h(): number {\n  return f();\n}\n`);
     const added = await answerOf('get_symbol', { name: 'h' });
-    expect(added.isError).toBe(false);
-    expect(added.answer['selected']).toMatchObject({ key: 'code.symbol:src/a.ts#h' });
-    const traced = await answerOf('trace_flow', { entry: 'h' });
-    expect(traced.isError).toBe(false);
-    expect(traced.answer['steps']).toContainEqual(expect.objectContaining({ relation: 'code.calls', to: expect.objectContaining({ key: 'code.symbol:src/b.ts#f' }) }));
-    // The caller that was there before the edit keeps its call too: the edit must not take the base graph's edge away.
+    // The store is the fill's at the commit: an edit is not read by a second extraction.
+    expect(added.isError).toBe(true);
+    expect(json(added.answer)).toContain('no-such-symbol');
+    expect((added.answer['source'] as Record<string, unknown>)['dirty']).toEqual([{ path: 'src/a.ts', status: 'modified' }]);
+    // The caller the commit holds keeps its call: its facts did not move, and no edit takes them away.
     const kept = await answerOf('trace_flow', { entry: 'g' });
     expect(kept.isError).toBe(false);
     expect(kept.answer['steps']).toContainEqual(expect.objectContaining({ relation: 'code.calls', to: expect.objectContaining({ key: 'code.symbol:src/b.ts#f' }) }));
     restore('src/a.ts');
   }, 120_000);
-});
 
-describe('a callee deleted from the working tree is no caller\'s callee', () => {
-  test('get_symbol of the unchanged caller names no callee the file on disk no longer declares', async () => {
+  test('a callee deleted from the working tree is still the committed caller\'s callee, and the deletion is named', async () => {
     rmSync(path.join(REPOSITORY, 'src/b.ts'));
-    const answered = await answerOf('get_symbol', { name: 'g' });
-    expect(answered.isError).toBe(false);
-    expect(json(answered.answer['callees'])).not.toContain('code.symbol:src/b.ts#f');
     const traced = await answerOf('trace_flow', { entry: 'g' });
     expect(traced.isError).toBe(false);
-    expect(json(traced.answer['steps'])).not.toContain('code.symbol:src/b.ts#f');
+    expect(json(traced.answer['steps'])).toContain('code.symbol:src/b.ts#f');
+    expect((traced.answer['source'] as Record<string, unknown>)['dirty']).toContainEqual({ path: 'src/b.ts', status: 'deleted' });
     git('checkout', '--', 'src/b.ts');
   }, 120_000);
-});
 
-describe('the producers that are not code are read again when their files change', () => {
-  test('an uncommitted migration shows its table, and a dropped table stops answering', async () => {
+  test('a migration added without a commit is a changed path, not a table of the store', async () => {
     put('db/migrations/0002-orders.sql', 'CREATE TABLE saved_orders (\n  id TEXT PRIMARY KEY\n);\n');
     const fresh = await answerOf('get_context', { entity: 'code.table:review-kit/public.saved_orders', purpose: 'domain' });
-    expect(fresh.isError).toBe(false);
-    expect(fresh.answer['entity']).toMatchObject({ key: 'code.table:review-kit/public.saved_orders' });
+    expect(fresh.isError).toBe(true);
+    expect((fresh.answer['source'] as Record<string, unknown>)['dirty']).toContainEqual({ path: 'db/migrations/0002-orders.sql', status: 'untracked' });
     rmSync(path.join(REPOSITORY, 'db/migrations/0002-orders.sql'));
-    // The table the working tree no longer declares is hidden by the provenance of the migration that declared it.
-    put('db/migrations/0001-init.sql', 'CREATE TABLE archived_items (\n  id TEXT PRIMARY KEY,\n  name TEXT NOT NULL\n);\n');
-    const gone = await answerOf('get_context', { entity: 'code.table:review-kit/public.saved_items', purpose: 'domain' });
-    expect(gone.isError).toBe(true);
-    expect(json(gone.answer['error'])).toContain('saved_items');
-    restore('db/migrations/0001-init.sql');
-  }, 180_000);
-});
+  }, 120_000);
 
-describe('a migration that alters a table an unchanged migration declares', () => {
-  test('an added ALTER resolves the table of the migration it does not touch, and the column it adds answers', async () => {
-    // The recheck's input: `items` stands in the committed 0001, and 0002 arrives without a commit.
+  test('a migration that alters a table an unchanged migration declares is named, never applied', async () => {
     put('db/migrations/0002-note.sql', 'ALTER TABLE items ADD COLUMN note text;\n');
     const table = await answerOf('get_context', { entity: 'code.table:review-kit/public.items', purpose: 'domain' });
     expect(table.isError).toBe(false);
     expect(table.answer['entity']).toMatchObject({ key: 'code.table:review-kit/public.items' });
-    expect(json(table.answer)).toContain('note');
+    // The commit's columns stand: the added column is not a fact of the store.
+    expect(json(table.answer)).toContain('name');
+    expect(json(table.answer)).not.toContain('note');
     const column = await answerOf('get_context', { entity: 'code.table:review-kit/public.items/note', purpose: 'domain' });
-    expect(column.isError).toBe(false);
-    expect(column.answer['entity']).toMatchObject({ key: 'code.table:review-kit/public.items/note', kind: 'code.column' });
-    // The table the unchanged migration declares keeps the columns it declared there.
-    const held = await answerOf('get_context', { entity: 'code.table:review-kit/public.items', purpose: 'domain' });
-    expect(json(held.answer)).toContain('name');
+    expect(column.isError).toBe(true);
+    expect((column.answer['source'] as Record<string, unknown>)['dirty']).toContainEqual({ path: 'db/migrations/0002-note.sql', status: 'untracked' });
     restore('db/migrations/0001-init.sql');
     rmSync(path.join(REPOSITORY, 'db/migrations/0002-note.sql'));
   }, 120_000);
@@ -190,20 +167,18 @@ describe('the journal separates what it measured from what it estimated', () => 
   }, 120_000);
 });
 
-describe('a refresh that fails answers that request and keeps serving', () => {
-  test('a dirty symlink to a directory is an error of the call, and the next call answers', async () => {
-    symlinkSync(REPOSITORY, path.join(REPOSITORY, 'src/loop.ts'));
-    const failed = await session.call('get_symbol', { name: 'g' });
-    expect(failed.isError).toBe(true);
-    expect(json(failed.answer)).toContain('src/loop.ts');
-    // The protocol layer answers the same failure as a tool result, never by ending the stream.
-    const overProtocol = await answerRepositoryMcpMessage({ jsonrpc: '2.0', id: 9, method: 'tools/call', params: { name: 'get_symbol', arguments: { name: 'g' } } }, session);
-    expect((overProtocol?.['result'] as Record<string, unknown>)['isError']).toBe(true);
-    unlinkSync(path.join(REPOSITORY, 'src/loop.ts'));
-    const after = await answerOf('get_symbol', { name: 'g' });
-    expect(after.isError).toBe(false);
-    expect(after.answer['selected']).toMatchObject({ key: 'code.symbol:src/a.ts#g' });
-  }, 120_000);
+describe('a commit that moves HEAD moves the store through the one fill', () => {
+  test('a symbol the new commit adds answers at once, and the answer names the new as-is commit', async () => {
+    put('src/fresh.ts', '/** The number two. */\nexport function two(): number {\n  return 2;\n}\n');
+    git('add', '-A');
+    git('-c', 'user.name=Review', '-c', 'user.email=review@example.invalid', '-c', 'commit.gpgsign=false', 'commit', '-qm', 'review-kit: add two');
+    const head = git('rev-parse', 'HEAD').trim();
+    const answered = await answerOf('get_symbol', { name: 'two' });
+    expect(answered.isError).toBe(false);
+    expect(answered.answer['selected']).toMatchObject({ key: 'code.symbol:src/fresh.ts#two' });
+    expect((answered.answer['source'] as Record<string, unknown>)['commit']).toBe(head);
+    expect((answered.answer['source'] as Record<string, unknown>)['dirty']).toEqual([]);
+  }, 180_000);
 });
 
 describe('the server answers before its graph is built', () => {
@@ -227,23 +202,26 @@ describe('the server answers before its graph is built', () => {
   }, 60_000);
 });
 
-describe('a graph madarch already holds for the commit is reused, not rebuilt', () => {
-  test('a product store at HEAD in the madarch home serves a fresh MCP folder without extracting', async () => {
-    const head = git('rev-parse', 'HEAD').trim();
-    const productStore = path.join(HOME, 'products', '.madarch', 'knowledge', 'review-product', 'graph');
-    mkdirSync(path.dirname(productStore), { recursive: true });
-    const owner = createPGliteDatabaseOwner({ path: productStore, btreeGist: true, relaxedDurability: true });
-    const store = createGraphStore(owner);
-    await store.createSchema();
-    await fillGraph({ owner, store, repository: REPOSITORY, extractors: TREE_EXTRACTORS });
-    await owner.run((tx) => tx.query('CREATE TABLE IF NOT EXISTS knowledge_fill (repo text PRIMARY KEY, scope text NOT NULL, head text NOT NULL, commit_hash text NOT NULL, effective_time text NOT NULL, commits int NOT NULL, filled_commits int NOT NULL)'));
-    await owner.run((tx) => tx.query('INSERT INTO knowledge_fill (repo, scope, head, commit_hash, effective_time, commits, filled_commits) VALUES ($1, $2, $3, $4, $5, 1, 1)', [path.basename(REPOSITORY), 'review', head, head, new Date().toISOString()]));
-    await owner.close();
-    const lines: string[] = [];
-    const reused = await RepositorySession.open({ repository: REPOSITORY, env: { ...process.env, MADARCH_HOME: HOME }, log: (line) => { lines.push(line); } });
+describe('the store the button fills is read, not filled twice', () => {
+  test('a second server at the same commit opens the store the first one filled, and fills nothing', async () => {
+    const env = { ...process.env, MADARCH_HOME: HOME };
+    const store = mcpStoreFolder(REPOSITORY, env);
+    const first: string[] = [];
+    const filled = await RepositorySession.open({ repository: REPOSITORY, env, log: (line) => { first.push(line); } });
     try {
-      expect(lines.join('\n')).toContain('reusing the graph');
-      expect(existsSync(path.join(STATE, 'reused', 'graph'))).toBe(true);
+      expect(first.join('\n')).toContain('filling');
+      expect(existsSync(path.join(store, 'graph'))).toBe(true);
+      const answered = await filled.call('get_symbol', { name: 'f' });
+      expect(answered.isError).toBe(false);
+    } finally {
+      await filled.close();
+    }
+    const second: string[] = [];
+    const reused = await RepositorySession.open({ repository: REPOSITORY, env, log: (line) => { second.push(line); } });
+    try {
+      // The store holds this commit: the start reads it, and the one fill is not run again.
+      expect(store).toBe(mcpStoreFolder(REPOSITORY, env));
+      expect(second.join('\n')).not.toContain('filling');
       const answered = await reused.call('get_symbol', { name: 'f' });
       expect(answered.isError).toBe(false);
       expect((answered.answer as Record<string, unknown>)['selected']).toMatchObject({ key: 'code.symbol:src/b.ts#f' });

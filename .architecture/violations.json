@@ -1681,8 +1681,18 @@
   },
   {
     "rule": "no-unreachable-code",
+    "file": "src/fill/stages/build-configuration.ts",
+    "symbol": "manifestUnitId"
+  },
+  {
+    "rule": "no-unreachable-code",
     "file": "src/fill/stages/data-model.ts",
     "symbol": "createDataModelAggregateStage"
+  },
+  {
+    "rule": "no-unreachable-code",
+    "file": "src/fill/stages/data-model.ts",
+    "symbol": "createDataModelStage"
   },
   {
     "rule": "no-unreachable-code",
@@ -1958,6 +1968,16 @@
     "rule": "no-unreachable-code",
     "file": "src/fill/stages/narrative.ts",
     "symbol": "narrativeUnits"
+  },
+  {
+    "rule": "no-unreachable-code",
+    "file": "src/fill/stages/operations-links.ts",
+    "symbol": "createOperationsLinksStage"
+  },
+  {
+    "rule": "no-unreachable-code",
+    "file": "src/fill/stages/operations.ts",
+    "symbol": "createOperationsStage"
   },
   {
     "rule": "no-unreachable-code",
@@ -3253,11 +3273,6 @@
     "rule": "no-unreachable-code",
     "file": "src/mcp/server.ts",
     "symbol": "REPO_MCP_INFO"
-  },
-  {
-    "rule": "no-unreachable-code",
-    "file": "src/mcp/session.ts",
-    "symbol": "markUncommitted"
   },
   {
     "rule": "no-unreachable-code",

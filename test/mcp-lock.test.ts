@@ -46,10 +46,11 @@ describe('the folder lock', () => {
     const env = { ...process.env, MADARCH_HOME: FOLDER };
     const folder = mcpStoreFolder(REPOSITORY, env);
     const graph = await openRepositoryGraph({ repository: REPOSITORY, env, log: () => undefined });
+    expect(graph.folder).toBe(folder);
     expect(existsSync(path.join(folder, 'server.lock'))).toBe(true);
     const closing = graph.close();
     // Closing begins with the database: the lock is still the server's while that runs, so no second server can enter
-    // a folder whose database is mid-close.
+    // a store whose database is mid-close.
     expect(existsSync(path.join(folder, 'server.lock'))).toBe(true);
     await closing;
     expect(existsSync(path.join(folder, 'server.lock'))).toBe(false);

@@ -1,14 +1,14 @@
 /**
- * `madarch mcp` (madarch-ztyq.10): the seven tools of decision 0032 served over
- * the Model Context Protocol from a checkout's own graph, read-only, with the
- * working tree's uncommitted edits preferred to the commit's facts and every
- * answer naming the revision it was read at.
+ * `madarch mcp` (madarch-ztyq.10; madarch-8bdc.2.5, item 3): the seven tools of decision
+ * 0032 served over the Model Context Protocol from the store the one fill published,
+ * read-only, and every answer naming the as-is commit the store was filled from and the
+ * paths the working tree changed since it.
  *
  * The cases run on a throwaway repository with neutral names, built here and
- * committed here: the tool listing, one answer of each tool, a query right after
- * an uncommitted edit (which must show the edit), a query after a deleted file
- * (which must not show it), the journal's counts, and one end-to-end run of the
- * command as a client spawns it and speaks to it over standard input and output.
+ * committed here: the tool listing, one answer of each tool, the source an edit and a
+ * deletion name (the facts stay the filled commit's, and the changed path is said), the
+ * journal's counts, and one end-to-end run of the command as a client spawns it and
+ * speaks to it over standard input and output.
  */
 import { execFileSync, spawn } from 'node:child_process';
 import { mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
@@ -23,7 +23,7 @@ const skippedSuite = skippedBecauseOutOfWorkflow(import.meta.path);
 const describe = bunDescribe.skipIf(skippedSuite !== undefined);
 const test = bunTest.skipIf(skippedSuite !== undefined);
 import { renderQuestion } from '../src/loop/entities.js';
-import { readJournal, summarize } from '../src/mcp/journal.js';
+import { readJournal, summaryLines, summarize } from '../src/mcp/journal.js';
 import { RepositorySession } from '../src/mcp/session.js';
 import { answerRepositoryMcpMessage } from '../src/mcp/server.js';
 import { REPO_TOOL_NAMES } from '../src/mcp/tools.js';
@@ -31,7 +31,6 @@ import { REPO_TOOL_NAMES } from '../src/mcp/tools.js';
 const PROJECT = path.resolve(import.meta.dir, '..');
 const REPOSITORY = mkdtempSync(path.join(tmpdir(), 'madarch-mcp-repo-'));
 const STATE = mkdtempSync(path.join(tmpdir(), 'madarch-mcp-state-'));
-const STORE = path.join(STATE, 'graph');
 const COMMIT_ENV = { ...process.env, GIT_AUTHOR_NAME: 'Ada Example', GIT_AUTHOR_EMAIL: 'ada@example.test', GIT_COMMITTER_NAME: 'Ada Example', GIT_COMMITTER_EMAIL: 'ada@example.test', TZ: 'UTC', LC_ALL: 'C' };
 
 const git = (...args: string[]): string => execFileSync('git', args, { cwd: REPOSITORY, encoding: 'utf8', env: COMMIT_ENV });
@@ -194,60 +193,60 @@ describe('each tool answers from the checkout', () => {
   }, 60_000);
 });
 
-describe('the working tree is preferred to the commit', () => {
-  test('a symbol added without a commit is found at once, marked uncommitted, and named in the answer\'s source', async () => {
+describe('the checkout is named, and the facts stay the filled commit\'s', () => {
+  test('a symbol added without a commit is not a fact of the store, and the answer names the changed path', async () => {
     put('src/store.ts', `${STORE_SOURCE}\n/** Drops one item by name. */\nexport function dropItem(name: string): void {\n  void name;\n}\n`);
     const { isError, answer } = await answerOf('get_symbol', { name: 'dropItem' });
-    if (isError) console.log('MCP ERROR', JSON.stringify(answer));
-    expect(isError).toBe(false);
+    // The store is the fill's at the commit: a file the working tree changed is not re-extracted by a second path.
+    expect(isError).toBe(true);
+    expect(json(answer)).toContain('no-such-symbol');
     const source = answer['source'] as Record<string, unknown>;
+    expect(source['commit']).toBe(git('rev-parse', 'HEAD').trim());
     expect(source['dirty']).toEqual([{ path: 'src/store.ts', status: 'modified' }]);
-    expect(source['reextracted']).toEqual(['src/store.ts']);
-    expect(answer['selected']).toMatchObject({ key: 'code.symbol:src/store.ts#dropItem', uncommitted: true });
-    // The code the answer quotes is the working tree's text, which the commit does not hold.
-    expect(json(answer['selected'])).toContain('export function dropItem(name: string): void {');
-    // The journal keeps what the call cost: the file the layer read again, and the file reads the answer saved.
+    expect(source['reextracted']).toBeUndefined();
+    // The journal keeps what the call cost: no file was re-extracted, and the file reads the answer saved are counted.
     const entry = readJournal(session.stateFolder).at(-1)!;
-    expect(entry.reextracted).toEqual(['src/store.ts']);
-    expect(entry.readsAvoided).toBeGreaterThan(0);
-    expect(entry.answerBytes).toBeGreaterThan(100);
+    expect(entry.tool).toBe('get_symbol');
+    expect(entry.answerBytes).toBeGreaterThan(50);
   }, 60_000);
 
-  test('an edit to a symbol\'s own body is read from the working tree, not from the commit', async () => {
-    // A rename of the parameter is read from the working tree's bytes: the signature the answer quotes is the
-    // working tree's line, and the commit's line names the old parameter.
+  test('an edit to a symbol\'s own body is not read: the answer quotes the commit, and names the file as changed', async () => {
     put('src/store.ts', STORE_SOURCE.replace('saveItem(item: Item)', 'saveItem(entry: Item)'));
     const { isError, answer } = await answerOf('get_symbol', { name: 'saveItem' });
     expect(isError).toBe(false);
-    expect(json(answer['selected'])).toContain('export function saveItem(entry: Item): string {');
-    expect((answer['source'] as Record<string, unknown>)['reextracted']).toEqual(['src/store.ts']);
+    // The commit's line is the fact; the working tree's line is not served by a second extraction.
+    expect(json(answer['selected'])).toContain('export function saveItem(item: Item): string {');
+    expect(json(answer['selected'])).not.toContain('saveItem(entry: Item)');
+    expect((answer['source'] as Record<string, unknown>)['dirty']).toEqual([{ path: 'src/store.ts', status: 'modified' }]);
+    git('checkout', '--', 'src/store.ts');
   }, 60_000);
 
-  test('a file deleted without a commit is gone from the answers of its symbols', async () => {
+  test('a file deleted without a commit is still the commit\'s fact, and the deletion is named', async () => {
     rmSync(path.join(REPOSITORY, 'src/list.ts'));
     const { isError, answer } = await answerOf('get_symbol', { name: 'saveAll' });
-    expect(isError).toBe(true);
-    expect(json(answer)).toContain('no-such-symbol');
-    // The commit still holds the symbol; the answer must not.
+    expect(isError).toBe(false);
+    expect(json(answer['selected'])).toContain('code.symbol:src/list.ts#saveAll');
+    expect((answer['source'] as Record<string, unknown>)['dirty']).toContainEqual({ path: 'src/list.ts', status: 'deleted' });
     git('checkout', '--', 'src/list.ts');
     const back = await answerOf('get_symbol', { name: 'saveAll' });
     expect(back.isError).toBe(false);
   }, 60_000);
 
-  test('a document edited without a commit is read as edited, and the answers say so', async () => {
+  test('a document edited without a commit keeps the commit\'s words, and the answer names the file as changed', async () => {
     put('README.md', '# Atlas kit\n\nSaves items, counts them and trims their names.\n');
     const { isError, answer } = await answerOf('search_pages', { text: 'trims their names' });
+    // The edit is not in the store: the answer finds nothing, and says which file the working tree changed.
     expect(isError).toBe(false);
-    expect((answer['pages'] as { path: string }[]).map((page) => page.path)).toEqual(['README.md']);
+    expect(answer['pages']).toEqual([]);
     expect((answer['source'] as Record<string, unknown>)['dirty']).toContainEqual({ path: 'README.md', status: 'modified' });
     put('README.md', '# Atlas kit\n\nSaves items and counts them.\n');
   }, 60_000);
 });
 
 describe('the journal', () => {
-  test('keeps one line per call, with the tool, its arguments, the answer\'s size and the files it re-extracted', async () => {
-    // A call first, so the source this journal test reads is the one the served revision answers with.
+  test('keeps one line per call, with the tool, its arguments, the answer\'s size and the reads it saved', async () => {
     const warmed = await answerOf('get_page', { page: 'README.md' });
+    expect(warmed.isError).toBe(false);
     const before = readJournal(session.stateFolder).length;
     await answerOf('get_symbol', { name: 'saveItem' });
     const entries = readJournal(session.stateFolder);
@@ -256,16 +255,14 @@ describe('the journal', () => {
     expect(last.tool).toBe('get_symbol');
     expect(last.arguments).toEqual({ name: 'saveItem' });
     expect(last.answerBytes).toBeGreaterThan(100);
-    // A file the layer read again is one the answer's source named as changed.
-    const dirty = (warmed.answer['source'] as Record<string, unknown>)['dirty'] as { path: string }[];
-    expect([...last.reextracted].every((file) => dirty.some((one) => one.path === file))).toBe(true);
     expect(last.readsAvoided).toBeGreaterThan(0);
+    // The entry names the commit the store is the graph of; no file is re-extracted, because the store is the facts.
+    expect(last.revision.commit).toBe(git('rev-parse', 'HEAD').trim());
+    expect((last as unknown as Record<string, unknown>)['reextracted']).toBeUndefined();
     const summary = summarize(session.stateFolder);
     expect(summary.calls).toBe(entries.length);
     expect(summary.tools.find((one) => one.tool === 'get_symbol')!.calls).toBeGreaterThan(0);
-    // The re-extractions a freshness call made are counted where they happened.
-    expect(summary.reextractions).toBe(entries.reduce((sum, entry) => sum + entry.reextracted.length, 0));
-    expect(entries.filter((entry) => entry.reextracted.length > 0).length).toBeGreaterThan(0);
+    expect(summaryLines(summary).join('\n')).toContain('file reads avoided');
   }, 60_000);
 });
 
