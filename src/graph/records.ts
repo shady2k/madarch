@@ -762,6 +762,19 @@ export async function fileFacts(owner: DatabaseOwner, repository: string, path: 
   });
 }
 
+/** Every repository the store holds, in code point order of the names. */
+export async function listRepositories(owner: DatabaseOwner): Promise<readonly { readonly name: string; readonly url: string; readonly defaultBranch: string | null; readonly asIsCommit: string | null }[]> {
+  return await owner.transaction('snapshot', async (tx) => {
+    const found = await tx.query<{ name: string; url: string; default_branch: string | null; as_is: string | null }>(
+      `SELECT r.name, r.url, r.default_branch, a.key AS as_is
+       FROM node n JOIN kind k ON k.id = n.kind_id JOIN repository_fact r ON r.node_id = n.id
+       LEFT JOIN edge e ON e.from_id = n.id AND e.kind_id = (SELECT id FROM kind WHERE name = 'as-is')
+       LEFT JOIN node a ON a.id = e.to_id WHERE k.name = 'repository' ORDER BY r.name`,
+    );
+    return found.rows.map((row) => ({ name: row.name, url: row.url, defaultBranch: row.default_branch, asIsCommit: row.as_is }));
+  });
+}
+
 /** Every folder of one repository, in code point order of the paths, with the parent it hangs from. */
 export async function listDirectories(owner: DatabaseOwner, repository: string): Promise<readonly { readonly path: string; readonly parent: string }[]> {
   return await owner.transaction('snapshot', async (tx) => {

@@ -19,8 +19,9 @@ import { execFile } from 'node:child_process';
 import { cpSync, mkdirSync, readdirSync, renameSync, rmSync } from 'node:fs';
 import { join } from 'node:path';
 import { promisify } from 'node:util';
-import { createFillOrchestratorService, type FillOrchestratorService } from '../fill/orchestrator-host.js';
-import { createStagesFill } from '../product/fill-stages.js';
+import { runFill } from '../fill/run.js';
+import type { FillOrchestratorService } from '../fill/orchestrator-host.js';
+import { listRepositories } from '../graph/index.js';
 
 const execFileAsync = promisify(execFile);
 
@@ -28,7 +29,7 @@ const execFileAsync = promisify(execFile);
  * The store's owner, as the orchestrator host names it: the type is derived from the host's own options, so this module
  * never imports a connection (decision 0033, item 3).
  */
-type StoreOwner = NonNullable<Parameters<typeof createFillOrchestratorService>[0]['owner']>;
+type StoreOwner = NonNullable<Parameters<typeof import('../fill/orchestrator-host.js').createFillOrchestratorService>[0]['owner']>;
 
 /** The numbers of the snapshots already in `readRoot`, so a new one never reuses one. */
 export function snapshotNumbers(readRoot: string): number[] {
@@ -92,14 +93,17 @@ export interface KnowledgeFillRun {
   close(): Promise<void>;
 }
 
-/** One repository the product pins, as the store's pins name it. */
-async function pinsOf(productFolder: string, repositories: readonly { readonly name: string; readonly path: string }[]): Promise<{ name: string; scope: string; head: string; commit: string; effectiveTime: string; commits: number; filledCommits: number }[]> {
-  const pins: { name: string; scope: string; head: string; commit: string; effectiveTime: string; commits: number; filledCommits: number }[] = [];
-  for (const repository of repositories) {
-    const head = (await execFileAsync('git', ['rev-parse', 'HEAD'], { cwd: repository.path, encoding: 'utf8' })).stdout.trim();
-    pins.push({ name: repository.name, scope: repository.name, head, commit: head, effectiveTime: new Date().toISOString(), commits: 0, filledCommits: 0 });
+/**
+ * The repositories the run filled, as the store it wrote says: the record tables carry the
+ * as-is commit and the commit count of every repository, so the pins a reader opens are the
+ * facts the fill published and not a second reading of the checkout.
+ */
+async function pinsOf(owner: StoreOwner): Promise<{ name: string; scope: string; head: string; commit: string; effectiveTime: string; commits: number; filledCommits: number }[]> {
+  const now = new Date().toISOString();
+  const pins = [];
+  for (const repository of await listRepositories(owner)) {
+    pins.push({ name: repository.name, scope: repository.name, head: repository.asIsCommit ?? '', commit: repository.asIsCommit ?? '', effectiveTime: now, commits: 0, filledCommits: 0 });
   }
-  void productFolder;
   return pins;
 }
 
@@ -125,28 +129,28 @@ export async function startKnowledgeFill(options: KnowledgeFillOptions): Promise
     await owner.close().catch(() => undefined);
   };
   try {
-    const fill = await createStagesFill({ product: options.productFolder, database: owner });
-    service = createFillOrchestratorService({
-      home: options.storeFolder,
-      owner,
-      registry: fill.registry,
-      wiring: () => fill.wiring,
-      workers: options.workers ?? 16,
-      maxPasses: 100_000,
-    });
-    const repositories = fill.wiring.source === undefined ? [] : (await (await fill.wiring.source()).pins());
     const done = (async (): Promise<KnowledgeFillResult> => {
       try {
-        const result = await service!.run({ product: fill.product, runId: options.runId });
+        // One fill, through the one runner: the button, `madarch fill`, the daemon and `madarch mcp`
+        // all start it here (madarch-8bdc.2.5, item 6).
+        const result = await runFill({
+          product: options.productFolder,
+          database: owner,
+          runId: options.runId,
+          home: options.storeFolder,
+          workers: options.workers ?? 16,
+          maxPasses: 100_000,
+          onService: (started) => { service = started; },
+        });
         if (!result.ok) return { ok: false, state: 'failed', message: `${result.code}: ${result.reason}`, units: 0 };
         if (!result.settled || result.state !== 'succeeded') {
           return { ok: false, state: result.state, message: `the fill ended ${result.settled ? result.state : 'without settling'}${result.stoppedBecause === undefined ? '' : `: ${result.stoppedBecause}`}`, units: result.units.length };
         }
-        await owner.run((tx) => tx.query(`CREATE TABLE IF NOT EXISTS knowledge_fill (
+        await owner.run((tx: { query: (text: string, params?: readonly unknown[]) => Promise<unknown> }) => tx.query(`CREATE TABLE IF NOT EXISTS knowledge_fill (
           repo text PRIMARY KEY, scope text NOT NULL, head text NOT NULL, commit_hash text NOT NULL, effective_time text NOT NULL,
           commits int NOT NULL, filled_commits int NOT NULL)`));
-        for (const pin of await pinsOf(options.productFolder, repositories.map((one) => ({ name: one.id, path: one.root })))) {
-          await owner.run((tx) => tx.query(
+        for (const pin of await pinsOf(owner)) {
+          await owner.run((tx: { query: (text: string, params?: readonly unknown[]) => Promise<unknown> }) => tx.query(
             `INSERT INTO knowledge_fill (repo, scope, head, commit_hash, effective_time, commits, filled_commits) VALUES ($1, $2, $3, $4, $5, $6::int, $7::int)
              ON CONFLICT (repo) DO UPDATE SET scope = $2, head = $3, commit_hash = $4, effective_time = $5, commits = $6::int, filled_commits = $7::int`,
             [pin.name, pin.scope, pin.head, pin.commit, pin.effectiveTime, String(pin.commits), String(pin.filledCommits)],
@@ -164,7 +168,8 @@ export async function startKnowledgeFill(options: KnowledgeFillOptions): Promise
       runId: options.runId,
       done,
       async control(action) {
-        const answer = await service!.control({ productFolder: options.productFolder, runId: options.runId, action });
+        if (service === undefined) return { ok: false, message: `the run ${JSON.stringify(options.runId)} has not started yet: nothing was ${action === 'pause' ? 'paused' : 'stopped'}` };
+        const answer = await service.control({ productFolder: options.productFolder, runId: options.runId, action });
         if (answer === null) return { ok: false, message: `the run ${JSON.stringify(options.runId)} is not one this store drives: nothing was ${action === 'pause' ? 'paused' : 'stopped'}` };
         if (!answer.ok) return { ok: false, message: answer.reason };
         return { ok: true, state: answer.state };

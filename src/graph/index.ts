@@ -41,7 +41,7 @@ import { GraphClockBehind } from './errors.js';
 export type { GraphOrigin } from './errors.js';
 export { GRAPH_TABLES } from './schema.js';
 export {
-  RECORD_EDGE_KINDS, RECORD_NODE_KINDS, RECORD_TABLES, RecordGap, authorKeyOf, commitFacts, createRecordSchema, fileFacts, fileHistory, folderOfPath, instantOf, listDirectories, listFiles, publishHistory, publishTree, recordSizes, repositoryFacts,
+  RECORD_EDGE_KINDS, RECORD_NODE_KINDS, RECORD_TABLES, RecordGap, authorKeyOf, commitFacts, createRecordSchema, fileFacts, fileHistory, folderOfPath, instantOf, listDirectories, listFiles, listRepositories, publishHistory, publishTree, recordSizes, repositoryFacts,
   type CommitRecord, type FileRecord, type HistoryCommit, type HistoryPublish, type RecordCounts, type TreeFile, type TreeGitlink, type TreePublish,
 } from './records.js';
 export { ALL_STATES, plusMicrosecond, type Instant, type StateSpan } from './time.js';

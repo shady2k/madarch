@@ -37,6 +37,14 @@ export interface RunFillOptions {
   readonly limits?: Parameters<typeof createFillOrchestratorService>[0]['limits'];
   readonly log?: (line: string) => void;
   readonly sink?: Parameters<typeof createFillOrchestratorService>[0]['sink'];
+  readonly workers?: number;
+  readonly maxPasses?: number;
+  /**
+   * The service the run is driven by, handed over once it stands: a caller that keeps a
+   * person's pause and stop (the wiki's button) needs the handle while the run lasts. The
+   * runner stops the service when the run answers, whether it succeeded or not.
+   */
+  readonly onService?: (service: ReturnType<typeof createFillOrchestratorService>) => void;
 }
 
 /** The record wiring one fill publishes through: the process's one owner, and the paths it covers. */
@@ -93,7 +101,10 @@ export async function runFill(options: RunFillOptions): Promise<FillRunResult | 
     ...(options.limits === undefined ? {} : { limits: options.limits }),
     ...(options.log === undefined ? {} : { log: options.log }),
     ...(options.sink === undefined ? {} : { sink: options.sink }),
+    ...(options.workers === undefined ? {} : { workers: options.workers }),
+    ...(options.maxPasses === undefined ? {} : { maxPasses: options.maxPasses }),
   });
+  options.onService?.(service);
   try {
     return await service.run({ product: fill.product, runId: options.runId ?? `fill-${String(Date.now())}` });
   } finally {
