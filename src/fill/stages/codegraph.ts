@@ -75,7 +75,7 @@ export interface CodegraphPublishedRow {
 }
 
 /** The read's rows, read: each names the commit it covered, and nothing else is a row of this read. */
-export function codegraphPublishedRows(rows: readonly unknown[], repository: string, read: string): readonly CodegraphPublishedRow[] {
+function codegraphPublishedRows(rows: readonly unknown[], repository: string, read: string): readonly CodegraphPublishedRow[] {
   return rows.map((row, index) => {
     const at = `the read ${read} answered row ${String(index + 1)} for the repository ${JSON.stringify(repository)}, and`;
     if (row === null || typeof row !== 'object' || Array.isArray(row)) throw new Error(`${at} ${JSON.stringify(row)} is no row: a row is an object naming its kind and the commit it covered (${import.meta.dir}/codegraph.ts)`);

@@ -256,7 +256,7 @@ export interface JoinedEdge {
 }
 
 /** One edge's place: the file the library read it at, and the span of its line, in lines and bytes. */
-export interface EdgePlace {
+interface EdgePlace {
   readonly file: string;
   readonly line: number;
   readonly startByte: number;
