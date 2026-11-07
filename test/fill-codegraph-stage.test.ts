@@ -24,7 +24,8 @@ import {
   type LibraryEdge, type LibraryIndex, type LibraryNode, type LibraryRun, type PublishedSymbol,
 } from '../src/fill/stages/codegraph-map.js';
 import { moduleRootsOf } from '../src/fill/stages/codegraph-index.js';
-import type { StaticGraphNode } from '../src/fill/stages/static-context.js';
+import { checkFact, factId, FACT_ID_PATTERN, FACT_KINDS, repositoryPath, SYMBOL_KINDS } from '../src/fill/facts.js';
+import type { StaticGraphEdge, StaticGraphNode } from '../src/fill/stages/static-context.js';
 import type { StaticEdgeDraft, StaticNodeDraft } from '../src/fill/stages/static-graph.js';
 
 const REPOSITORY = 'orders-api';
@@ -57,23 +58,81 @@ function joinedOf(index: LibraryIndex, published: readonly PublishedSymbol[], un
 
 const published = [symbol('src/a.ts', 'alpha', 1), symbol('src/a.ts', 'beta', 5, 9), symbol('src/b.ts', 'Gamma', 2)];
 
+/** The declaration edges the file pass records for one set of published symbols: one positioned occurrence per symbol. */
+function declarations(symbols: readonly PublishedSymbol[]): { rows: readonly StaticGraphEdge[]; next: null } {
+  const node = (held: PublishedSymbol, index: number): StaticGraphNode => ({
+    id: `n${String(index)}`, kind: 'code.symbol', label: held.qualifiedName,
+    properties: { repository: REPOSITORY, file: held.file, qualifiedName: held.qualifiedName, recordKey: held.key, provenance: { source: { system: 'tree-sitter', version: '1' }, repository: { id: REPOSITORY, commit: COMMIT }, place: { file: held.file, range: { startLine: held.startLine, startColumn: 0, endLine: held.endLine, endColumn: 1 } } } },
+    producer: 'fill.syntax', scope: '0',
+  });
+  return {
+    rows: symbols.map((held, index): StaticGraphEdge => ({
+      id: `e${String(index)}`,
+      relation: 'code.occurrence',
+      from: { id: `f${String(index)}`, kind: 'code.file', label: held.file, properties: { file: held.file }, producer: 'fill.syntax', scope: '0' },
+      to: node(held, index),
+      properties: { repository: REPOSITORY, file: held.file, symbol: held.key, roles: ['definition'], factKind: 'occurrence' },
+      producer: 'fill.syntax',
+    })),
+    next: null,
+  };
+}
+
 describe('the library vocabulary tied to ours', () => {
   test('the simple name of a qualified name is its last leg, under "." or "::"', () => {
     expect(['A.b', 'A::b', 'b', 'A.B.c'].map(simpleNameOf)).toEqual(['b', 'b', 'b', 'c']);
   });
 
-  test('every node kind and every relation of the library is either tied or named as left out', () => {
-    // The two tables together cover the library's own vocabulary: a kind that is neither
-    // tied nor named would be dropped in silence, which is what the decision forbids.
+  test('every node kind and every relation of the library is either tied or named as left out', async () => {
+    // The two tables together cover the library's own vocabulary, as the pinned package
+    // declares it: a kind that is neither tied nor named would be dropped in silence,
+    // which is what the decision forbids.
+    const { EDGE_KINDS, NODE_KINDS } = await import('@colbymchenry/codegraph');
     const tied = Object.keys(NODE_TIES);
-    expect(Object.keys(EDGE_TIES)).toEqual(['calls', 'extends', 'implements', 'instantiates', 'references']);
-    expect(EDGE_KINDS_OUT.map((entry) => entry.kind)).toEqual(['contains', 'decorates', 'exports', 'imports', 'navigates', 'overrides', 'returns', 'type_of']);
-    expect(NODE_KINDS_OUT.map((entry) => entry.kind)).toEqual(['export', 'field', 'file', 'import', 'module', 'namespace', 'parameter', 'property', 'route']);
-    expect([...tied, ...NODE_KINDS_OUT.map((entry) => entry.kind)].sort()).toEqual([
-      'class', 'component', 'constant', 'enum', 'enum_member', 'export', 'field', 'file', 'function', 'import',
-      'interface', 'method', 'module', 'namespace', 'parameter', 'property', 'protocol', 'route', 'struct',
-      'trait', 'type_alias', 'union', 'variable',
-    ]);
+    expect([...tied, ...NODE_KINDS_OUT.map((entry) => entry.kind)].sort()).toEqual([...NODE_KINDS].sort());
+    expect([...Object.keys(EDGE_TIES), ...EDGE_KINDS_OUT.map((entry) => entry.kind)].sort()).toEqual([...EDGE_KINDS].sort());
+  });
+
+  test('every kind the table ties writes a symbol kind the schema accepts', async () => {
+    // The defect this case walks out (madarch-8bdc.2.8): the table wrote the library's own
+    // words — "component", "protocol", "union" — into `symbolKind`, which is the identity
+    // of the symbol fact the stage writes, so one declaration failed the whole tree unit
+    // on all three attempts. Every tied kind is now read against the schema's own judge,
+    // and the library's word stays in `libraryKind`.
+    const { NODE_KINDS } = await import('@colbymchenry/codegraph');
+    const problems: string[] = [];
+    const walked: string[] = [];
+    for (const [libraryKind, tie] of Object.entries(NODE_TIES)) {
+      walked.push(libraryKind);
+      if (!(SYMBOL_KINDS as readonly string[]).includes(tie.symbolKind)) {
+        problems.push(`${libraryKind} -> ${tie.symbolKind}: not one of the schema's symbol kinds (${SYMBOL_KINDS.join(', ')})`);
+        continue;
+      }
+      const file = repositoryPath(`src/${libraryKind}.source`);
+      const provenance = {
+        source: { system: 'codegraph', version: '1.6.2' },
+        repository: { id: REPOSITORY, commit: COMMIT },
+        place: { file, range: { startLine: 1, startColumn: 0, endLine: 1, endColumn: 1 } },
+      } as const;
+      const value = {
+        repository: REPOSITORY,
+        file,
+        qualifiedName: 'Thing',
+        symbolKind: tie.symbolKind,
+      };
+      try {
+        const id = factId({ kind: 'symbol', value, provenance });
+        for (const problem of checkFact({ kind: 'symbol', schemaVersion: FACT_KINDS['symbol'].version, id, provenance, layer: 'extracted', status: 'proposed', value })) {
+          problems.push(`${libraryKind} -> ${tie.symbolKind}: ${problem.path === '' ? problem.message : `${problem.path}: ${problem.message}`}`);
+        }
+      } catch (error) {
+        problems.push(`${libraryKind} -> ${tie.symbolKind}: ${(error as Error).message}`);
+      }
+    }
+    expect(problems).toEqual([]);
+    // The walk is the table's own list, so a kind added to the table is walked too.
+    expect(walked.sort()).toEqual(Object.keys(NODE_TIES).sort());
+    expect(Object.keys(NODE_TIES).sort()).toEqual([...NODE_KINDS].filter((kind) => Object.hasOwn(NODE_TIES, kind)).sort());
   });
 });
 
@@ -143,12 +202,58 @@ describe('the join of the library per-file passes published', () => {
     );
     expect(joined.nodes).toHaveLength(1);
     const held = joined.nodes[0]!;
-    expect(held.key).toBe('code.symbol:src/app.py#handler');
+    // A symbol fact's id: the kind, a colon and the digest of what the symbol is about, which is what every
+    // reader of `code.symbol` names a symbol by (madarch-8bdc.2.8).
+    expect(FACT_ID_PATTERN.test(held.key) && held.key.startsWith('symbol:')).toBe(true);
     expect(held.kind).toBe('code.symbol');
     const properties = held.properties as Record<string, unknown>;
-    expect([properties['file'], properties['qualifiedName'], properties['symbolKind'], properties['globalName'], properties['factKind']]).toEqual(['src/app.py', 'handler', 'function', `${REPOSITORY}:src/app.py#handler`, 'symbol']);
+    expect([properties['recordKey'], properties['file'], properties['qualifiedName'], properties['symbolKind'], properties['globalName'], properties['factKind']]).toEqual([held.key, 'src/app.py', 'handler', 'function', `${REPOSITORY}:src/app.py#handler`, 'symbol']);
     // Not a file the per-file pass can read, so no unresolved declaration is counted for it.
     expect(joined.symbolsUnresolved).toBe(0);
+  }, 30_000);
+
+  test('every tied kind becomes a symbol of the schema\'s kind, with the library\'s own word kept', () => {
+    const kinds = Object.keys(NODE_TIES);
+    const nodes = kinds.map((kind) => node(`n-${kind}`, kind, `src/${kind}.source`, 1, 'Thing'));
+    const joined = joinedOf(
+      { runs: [run('', nodes, [])], moduleRoots: [''], lines: new Map(), wallMs: 1, processPeakRssBytes: 1 },
+      [],
+      kinds.map((kind) => `src/${kind}.source`),
+    );
+    expect(joined.nodes).toHaveLength(kinds.length);
+    for (const [libraryKind, tie] of Object.entries(NODE_TIES)) {
+      const held = joined.nodes.find((candidate) => (candidate.properties as Record<string, unknown>)['file'] === `src/${libraryKind}.source`);
+      if (held === undefined) throw new Error(`the join wrote no record for the library's ${libraryKind} at src/${libraryKind}.source`);
+      const properties = held.properties as Record<string, unknown>;
+      expect([properties['symbolKind'], properties['libraryKind']]).toEqual([tie.symbolKind, libraryKind]);
+    }
+  }, 30_000);
+
+  test('a declaration the schema refuses is the tree\'s gap, and the rest of the tree is still written', () => {
+    // `qualifiedNameOf` answers the library's own empty name for this declaration: the schema
+    // refuses an empty identity part, and the refusal names the file and line without failing
+    // the whole tree unit (madarch-8bdc.2.8).
+    const joined = joinedOf(
+      { runs: [run('', [node('good', 'component', 'src/Good.vue', 1, 'Good'), node('anon', 'component', 'src/Anonymous.vue', 7, '')], [])], moduleRoots: [''], lines: new Map(), wallMs: 1, processPeakRssBytes: 1 },
+      [],
+      ['src/Good.vue', 'src/Anonymous.vue'],
+    );
+    expect(joined.nodes.map((candidate) => (candidate.properties as Record<string, unknown>)['globalName'])).toEqual([`${REPOSITORY}:src/Good.vue#Good`]);
+    expect(joined.left).toEqual([{
+      what: 'a component the schema refuses at src/Anonymous.vue:7: value.qualifiedName: the symbol fact has an empty "qualifiedName": an empty part names a node nothing can join or show',
+      count: 1,
+      reason: 'unsupported',
+    }]);
+  }, 30_000);
+
+  test('a node kind neither table names is counted by kind, and the tree\'s other declarations are written', () => {
+    const joined = joinedOf(
+      { runs: [run('', [node('a', 'component', 'src/App.vue', 1, 'App'), node('q', 'quantum-widget', 'src/Widget.qw', 1, 'Widget')], [])], moduleRoots: [''], lines: new Map(), wallMs: 1, processPeakRssBytes: 1 },
+      [],
+      ['src/App.vue', 'src/Widget.qw'],
+    );
+    expect(joined.nodes.map((candidate) => (candidate.properties as Record<string, unknown>)['libraryKind'])).toEqual(['component']);
+    expect(joined.left).toEqual([{ what: 'a node kind of the library no table names: quantum-widget', count: 1, reason: 'unsupported' }]);
   }, 30_000);
 
   test('a symbol the stage adds to a file no per-file pass reads is a kind its own validation accepts', () => {
@@ -157,7 +262,7 @@ describe('the join of the library per-file passes published', () => {
       kind: 'node',
       evidence: 'evidence',
       value: {
-        key: 'code.symbol:src/app.py#handler', kind: 'code.symbol', label: 'handler',
+        key: `symbol:${'a'.repeat(64)}`, kind: 'code.symbol', label: 'handler',
         properties: { factKind: 'symbol', repository: REPOSITORY, file: 'src/app.py', qualifiedName: 'handler', symbolKind: 'function' },
       },
     };
@@ -177,7 +282,9 @@ describe('the join of the library per-file passes published', () => {
       ['cmd/main.go', 'services/orders/handler.go', 'src/a.ts'],
     );
     // Both runs name the same declaration; only the module's run is its source.
-    expect(joined.nodes.map((held) => held.key)).toEqual(['code.symbol:cmd/main.go#main', 'code.symbol:services/orders/handler.go#Serve']);
+    expect(joined.nodes.map((held) => (held.properties as Record<string, unknown>)['globalName'])).toEqual([
+      `${REPOSITORY}:cmd/main.go#main`, `${REPOSITORY}:services/orders/handler.go#Serve`,
+    ]);
   }, 30_000);
 
   test('an edge of two marks keeps both, and the strongest names the edge', () => {
@@ -252,15 +359,9 @@ describe('one unit over a fixture the test commits', () => {
           byKey: async () => [],
           byGlobalName: async () => [],
           neighbourhood: async () => ({ rows: [], next: null }),
-          byProperty: async (kind: string) => ({
-            rows: kind === 'code.symbol' ? symbols.map((held, index): StaticGraphNode => ({
-              id: `n${String(index)}`, kind: 'code.symbol', label: held.qualifiedName,
-              properties: { repository: REPOSITORY, file: held.file, qualifiedName: held.qualifiedName, recordKey: held.key, provenance: { source: { system: 'tree-sitter', version: '1' }, repository: { id: REPOSITORY, commit }, place: { file: held.file, range: { startLine: held.startLine, startColumn: 0, endLine: held.endLine, endColumn: 1 } } } },
-              producer: 'fill.syntax', scope: '0',
-            })) : [],
-            next: null,
-          }),
-          edgesByProperty: async () => ({ rows: [], next: null }),
+          byProperty: async () => ({ rows: [], next: null }),
+          // The join reads the declarations the file pass recorded, not the repository's symbol nodes.
+          edgesByProperty: async (relation: string) => (relation === 'code.occurrence' ? declarations(symbols) : { rows: [], next: null }),
         },
         draft: { write: (entry: StageDraftWrite) => { writes.push(entry); }, writes: () => ({ writes }) },
         progress: (note: string) => { notes.push(note); },
@@ -310,15 +411,9 @@ describe('one unit over a fixture the test commits', () => {
         static: {
           repository: { repository: REPOSITORY, commit, source: { system: 'git', version: '2' }, form: 'code' },
           byKey: async () => [], byGlobalName: async () => [], neighbourhood: async () => ({ rows: [], next: null }),
-          byProperty: async (kind: string) => ({
-            rows: kind === 'code.symbol' ? symbols.map((held, index): StaticGraphNode => ({
-              id: `n${String(index)}`, kind: 'code.symbol', label: held.qualifiedName,
-              properties: { repository: REPOSITORY, file: held.file, qualifiedName: held.qualifiedName, recordKey: held.key, provenance: { source: { system: 'tree-sitter', version: '1' }, repository: { id: REPOSITORY, commit }, place: { file: held.file, range: { startLine: held.startLine, startColumn: 0, endLine: held.endLine, endColumn: 1 } } } },
-              producer: 'fill.syntax', scope: '0',
-            })) : [],
-            next: null,
-          }),
-          edgesByProperty: async () => ({ rows: [], next: null }),
+          byProperty: async () => ({ rows: [], next: null }),
+          // The join reads the declarations the file pass recorded, not the repository's symbol nodes.
+          edgesByProperty: async (relation: string) => (relation === 'code.occurrence' ? declarations(symbols) : { rows: [], next: null }),
         },
         draft: { write: (entry: StageDraftWrite) => { writes.push(entry); }, writes: () => ({ writes }) },
         progress: () => undefined,
