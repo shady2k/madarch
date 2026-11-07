@@ -178,28 +178,34 @@ describe('the refusals of the workflow check', () => {
   });
 
   test('a stage whose input no earlier stage produces is refused by the derivation\'s own path', () => {
-    // Modules reads `symbol`, and syntax is the stage that produces it: a workflow that leaves syntax out starves modules.
+    // Modules reads `symbol`, and two stages of this madarch produce it — the file pass and the code
+    // pass: a workflow that leaves both out starves modules, and the derivation names both paths.
     const text = stagesOf('first-fill', ['snapshot', 'inventory', 'modules']);
     const read = readText(text);
-    expect(read.findings).toEqual([{
-      file: FILE,
-      line: lineOf(text, '- modules'),
-      message: 'workflow "first-fill" stage "modules": modules → symbol → syntax (disabled): the workflow names no stage that produces the input "symbol"',
-    }]);
+    expect(read.findings.map((finding) => finding.message)).toEqual([
+      'workflow "first-fill" stage "modules": modules → symbol → codegraph (disabled): the workflow names no stage that produces the input "symbol"',
+      'workflow "first-fill" stage "modules": modules → symbol → syntax (disabled): the workflow names no stage that produces the input "symbol"',
+    ]);
+    expect(read.findings.map((finding) => [finding.file, finding.line])).toEqual([
+      [FILE, lineOf(text, '- modules')], [FILE, lineOf(text, '- modules')],
+    ]);
     expect(read.workflows.has('first-fill')).toBe(false);
     expect(read.workflows.size).toBe(3);
   });
 
   test('a workflow that names stages is checked whatever its status says: a planned one is exempt from neither refusal', () => {
     const workflow = (status: string): string => ['workflows:', '  branch-worktree:', `    status: ${status}`, '    stages:', '      - modules', ''].join('\n');
+    // Two stages produce a symbol — the file pass and the code pass — and the snapshot is the one
+    // that produces a file; the workflow names none of the three, and the derivation names each path.
     const both = [
       'workflow "branch-worktree" stage "modules": modules → file → snapshot (disabled): the workflow names no stage that produces the input "file"',
+      'workflow "branch-worktree" stage "modules": modules → symbol → codegraph (disabled): the workflow names no stage that produces the input "symbol"',
       'workflow "branch-worktree" stage "modules": modules → symbol → syntax (disabled): the workflow names no stage that produces the input "symbol"',
     ];
     expect(readText(workflow('implemented')).findings.map((finding) => finding.message)).toEqual(both);
     // Decision 0033, item 2 names no exception for a planned workflow: the stage it names is refused at its own line.
     const planned = readText(workflow('planned'));
-    expect(planned.findings.map((finding) => [finding.line, finding.message])).toEqual([[5, both[0]!], [5, both[1]!]]);
+    expect(planned.findings.map((finding) => [finding.line, finding.message])).toEqual(both.map((message) => [5, message]));
     expect(planned.workflows.size).toBe(0);
     // The paired case: a planned workflow of the stages the registry holds and feeds reads with no finding.
     const sound = readText('workflows:\n  branch-worktree:\n    status: planned\n    stages: [snapshot, inventory, syntax, modules]\n');

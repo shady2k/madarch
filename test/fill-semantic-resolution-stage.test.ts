@@ -358,25 +358,20 @@ const B_TS = [
   '',
 ].join('\n');
 
-describe('the resolution stage of the registry', () => {
-  test('it is the static stage the graph runs after the syntax stage, on that stage\'s mentions and symbols', () => {
+describe('the resolution reader', () => {
+  test('it reads one file\'s mentions and symbols, and it is no stage of the fill any more', () => {
     const stage = createSemanticResolutionStage(createGitSnapshotSource(() => []));
     expect(stage.id).toBe(SEMANTIC_RESOLUTION_STAGE_ID);
     expect(stage.staticReading).toBe(true);
     expect(stage.consumes.required.map((consume) => consume.capability).sort()).toEqual(['file', 'import', 'mention', 'symbol']);
-    expect(createStageRegistry({ snapshots: createGitSnapshotSource(() => []) }).get(SEMANTIC_RESOLUTION_STAGE_ID)).toBeDefined();
+    // Decision 0033's "The code pass" (amended 2026-11-06): the fill's calls are the code pass's, and
+    // this reader is kept for the working-tree layer alone, so the registry holds no such stage.
+    expect(createStageRegistry({ snapshots: createGitSnapshotSource(() => []) }).get(SEMANTIC_RESOLUTION_STAGE_ID)).toBeUndefined();
     const read = deriveStageGraph(createStageRegistry({ snapshots: createGitSnapshotSource(() => []) }), undefined);
     expect(read.ok).toBe(true);
     if (!read.ok) return;
-    // The graph orders the resolution after the stage that writes its mentions and its symbols.
-    const into = read.graph.edges.filter((edge) => edge.to === SEMANTIC_RESOLUTION_STAGE_ID).map((edge) => [edge.from, edge.via]).sort();
-    expect(into).toEqual([
-      ['snapshot', 'file'],
-      ['syntax', 'import'],
-      ['syntax', 'mention'],
-      ['syntax', 'symbol'],
-    ].sort());
-    expect(read.graph.order.indexOf('syntax')).toBeLessThan(read.graph.order.indexOf(SEMANTIC_RESOLUTION_STAGE_ID));
+    expect(read.graph.order).not.toContain(SEMANTIC_RESOLUTION_STAGE_ID);
+    expect(createStageRegistry({ snapshots: createGitSnapshotSource(() => []) }).get('codegraph')).toBeDefined();
   });
 });
 
