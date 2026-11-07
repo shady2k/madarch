@@ -95,7 +95,7 @@ import { publishedTreeRead, publishedTreeRows } from './tree-rows.js';
 export const CODE_FACTS_STAGE_ID = 'code-facts';
 
 /** The stage's own version, bumped when what it writes or plans changes. */
-const CODE_FACTS_STAGE_VERSION = 6;
+const CODE_FACTS_STAGE_VERSION = 7;
 
 /** The fact kinds the stage produces, in code point order. */
 const CODE_FACTS_STAGE_KINDS: readonly string[] = ['binding', 'callable', 'callsite', 'coverage', 'declares', 'export', 'expression', 'field', 'listener-port', 'service-unit'];
@@ -602,18 +602,20 @@ export function collectFileFacts(repository: string, path: string, text: string,
   const spanOfNode = (node: SyntaxNodeLike): SourceSpan => toSpan(path, spanOf(node as never));
 
   // A node's id is its place and syntax kind; a parser can give two nodes one place (an error node and
-  // its child at the same byte), so a second node there takes an ordinal. The node object is the key, so
-  // every reference to one node — its parent's field, its own fact — answers the same id.
-  const nodeIds = new WeakMap<SyntaxNodeLike, string>();
+  // its child at the same byte), so a second node there takes an ordinal. The parser's own node id is the
+  // key — the tree hands out a new object per access, so `namedChildren[0]` and `child(0)` are one node
+  // under two objects — and every reference to one node (its parent's field, its own fact) answers the
+  // same id.
+  const nodeIds = new Map<number, string>();
   const idCounts = new Map<string, number>();
   const idOfNode = (node: SyntaxNodeLike): string => {
-    const known = nodeIds.get(node);
+    const known = nodeIds.get(node.id);
     if (known !== undefined) return known;
     const base = idOf(node.type, spanOfNode(node));
     const count = idCounts.get(base) ?? 0;
     idCounts.set(base, count + 1);
     const id = count === 0 ? base : `${base}#${String(count)}`;
-    nodeIds.set(node, id);
+    nodeIds.set(node.id, id);
     return id;
   };
 

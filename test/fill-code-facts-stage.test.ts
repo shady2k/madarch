@@ -117,6 +117,33 @@ describe('the code-facts stage', () => {
     expect(coverages[0]!['read']).toEqual([CONFIG_FILE]);
   }, 900_000);
 
+  test('one syntax node has one id, and every reference a fact carries names a fact of the same file', async () => {
+    if (opened === undefined) throw new Error('the product was not opened');
+    const o = opened;
+    const expressions = await fileNodes(o, 'code.expression', 'shop', CONFIG_FILE);
+    const ids = new Set(expressions.map((held) => String(held['id'])));
+    // The walk reaches one syntax node by several paths — its parent's children, a grammar's field,
+    // a member's object — and the tree hands out a new object per path: an id memoized on the object
+    // is a different id per path, and every reference that disagrees with the fact it names is a
+    // reading that silently sees no node (`src/fill/stages/code-facts.ts`, `idOfNode`).
+    const dangling: string[] = [];
+    for (const held of expressions) {
+      for (const id of referencedIds(held)) if (!ids.has(id)) dangling.push(`${String(held['id'])} names ${id}`);
+    }
+    expect(dangling).toEqual([]);
+    // The two paths a reader pairs: a member's receiver is the object its own field names, and a
+    // call's callee is the function its own field names.
+    const mismatched = expressions.filter((held) => {
+      const fields = (held['fields'] ?? {}) as Record<string, readonly string[]>;
+      const receiver = held['receiver'];
+      const callee = held['callee'];
+      if (typeof receiver === 'string' && receiver !== (fields['object'] ?? fields['operand'] ?? [])[0]) return true;
+      if (typeof callee === 'string' && callee !== (fields['function'] ?? fields['constructor'] ?? [])[0]) return true;
+      return false;
+    });
+    expect(mismatched.map((held) => String(held['id']))).toEqual([]);
+  }, 900_000);
+
   test('plans one unit per source file, and a second run of the same commit plans none', async () => {
     if (opened === undefined) throw new Error('the product was not opened');
     const o = opened;
@@ -209,6 +236,15 @@ describe('two callables of one name in two scopes', () => {
     }
   }, 900_000);
 });
+
+/** Every id one expression's fact names as another expression of its file. */
+function referencedIds(held: Record<string, unknown>): readonly string[] {
+  const named: string[] = [...((held['children'] ?? []) as readonly string[])];
+  for (const ids of Object.values((held['fields'] ?? {}) as Record<string, readonly string[]>)) named.push(...ids);
+  for (const single of [held['receiver'], held['callee']]) if (typeof single === 'string') named.push(single);
+  named.push(...((held['arguments'] ?? []) as readonly string[]));
+  return named;
+}
 
 /** Whether a fact carries the empty value a draft would hold if the walk had lost it. */
 function stillUnknown(held: Record<string, unknown>): boolean {
