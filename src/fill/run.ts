@@ -16,6 +16,7 @@ import { here } from './fsm-core.js';
 import { createFillOrchestratorService, type FillRunResult, type RefusedFillRun } from './orchestrator-host.js';
 import type { FillStageConfigurationRead } from './config.js';
 import { fillSteps, type RecordPassWiring } from './steps.js';
+import { assertFillGitVersion } from './git-version.js';
 
 export { fillSteps };
 import type { StageRegistry } from './registry.js';
@@ -100,6 +101,9 @@ function narrowed(wiring: Awaited<ReturnType<typeof createStagesFill>>['wiring']
  * the caller's to report: this function never turns a failure into a smaller success.
  */
 export async function runFill(options: RunFillOptions): Promise<FillRunResult | RefusedFillRun> {
+  // The fill reads git, and the passes use options older versions do not have: a machine's git is named here, before
+  // the run stands up, so an older one is refused with the version found and the one needed (item 6).
+  assertFillGitVersion();
   const product = resolve(options.product);
   const runId = options.runId ?? `fill-${String(Date.now())}`;
   const store = options.store ?? options.home ?? join(tmpdir(), 'madarch-fill-home');
