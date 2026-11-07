@@ -155,7 +155,7 @@ describe('the page set of a product', () => {
       const folder = join(home, 'product');
       await mkdir(folder, { recursive: true });
       await writeFile(join(folder, 'workspace.yaml'), `schemaVersion: 1\nid: 3f6d2dc8-b16e-4bf0-9d3a-2c9c00b5287d\nname: ${PRODUCT}\n`);
-      const service = createFillOrchestratorService({ home, registry: new StageRegistry() });
+      const service = createFillOrchestratorService({ registry: new StageRegistry() });
       const set = await service.pages(folder).pageSet();
       expect(set.pages).toEqual([]);
       expect(set.total).toBe(0);
@@ -431,7 +431,7 @@ describe('a fact another product still holds', () => {
       const folder = join(home, 'product');
       await mkdir(folder, { recursive: true });
       await writeFile(join(folder, 'workspace.yaml'), `schemaVersion: 1\nid: 3f6d2dc8-b16e-4bf0-9d3a-2c9c00b5287d\nname: ${PRODUCT}\n`);
-      const service = createFillOrchestratorService({ home, registry: new StageRegistry() });
+      const service = createFillOrchestratorService({ registry: new StageRegistry() });
       const pages = service.pages(folder);
       await service.stop();
       await expect(pages.pageSet()).rejects.toThrow(/the fill service was stopped/);

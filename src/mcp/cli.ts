@@ -16,7 +16,7 @@
  */
 import { resolve } from 'node:path';
 import { readRevision } from './git.js';
-import { mcpStoreFolder } from './graph.js';
+import { repositoryStoreFolder } from './graph.js';
 import { summarize, summaryLines } from './journal.js';
 import { serveRepositoryMcp } from './server.js';
 
@@ -99,7 +99,7 @@ export async function mcpCommand(args: readonly string[], options: {
   let folder: string;
   try {
     // The store is named by the checkout's product id (or its folder's name): a folder that names no store is refused by name.
-    folder = mcpStoreFolder(parsed.repository, env);
+    folder = repositoryStoreFolder(parsed.repository, env);
   } catch (error) {
     stderr.write(`${error instanceof Error ? error.message : String(error)}\n`);
     return 2;

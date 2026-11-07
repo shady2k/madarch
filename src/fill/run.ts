@@ -136,7 +136,6 @@ async function runFillTraced(options: RunFillOptions, runId: string): Promise<Fi
   const fill = await createStagesFill({ product, database: options.database, records: recordsOf(options) });
   const wiring = fill.registry.all().every((stage) => wanted.has(stage.id)) ? fill.wiring : narrowed(fill.wiring, wanted, fill.registry);
   const service = createFillOrchestratorService({
-    home: options.home ?? join(tmpdir(), 'madarch-fill-home'),
     owner: options.database as never,
     registry: fill.registry,
     wiring: () => wiring,

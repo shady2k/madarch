@@ -120,7 +120,7 @@ beforeAll(async () => {
   fill = await createStagesFill({ product, database: owner });
   let at = 1_700_000_000_000;
   service = createFillOrchestratorService({
-    home: join(root, 'products'), owner, registry: fill.registry, wiring: () => fill!.wiring,
+    owner, registry: fill.registry, wiring: () => fill!.wiring,
     clock: () => (at += 1_000), limits: { leaseMs: 86_400_000 }, maxPasses: 100_000,
   });
   store = createGraphStore(owner);

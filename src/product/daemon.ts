@@ -22,7 +22,6 @@ import { ensureBuilt } from '../product-wiki/app.js';
 import type { ServeEnv } from '../product-wiki/serve.js';
 import { startServer } from '../server/http.js';
 import {
-  fillDatabasePath,
   fillProgressOf,
   openFillDatabase,
   type FillActivity,
@@ -37,6 +36,8 @@ import {
 } from '../fill/orchestrator-host.js';
 import type { RunStatus } from '../fill/orchestrator.js';
 import { readChain, readRun } from '../fill/state-store.js';
+import { finishKnowledgeStore } from '../knowledge/fill-run.js';
+import { knowledgeRootOf, productStoreFolder, storeDatabasePath } from './store.js';
 import { createUpdateWatch, type UpdateWatch } from './fill-updates.js';
 import { UNIT_TOOL_PATH, type UnitToolAnswer, type UnitToolCall } from '../fill/unit-tools.js';
 import { selfCommand } from './self-command.js';
@@ -597,15 +598,17 @@ export function daemonStatus(options: { home?: string }): number {
 }
 
 /**
- * The daemon's fills (madarch-8bdc.2.5, item 6): every run of the background server's
- * products goes through `runFill`, the same runner the wiki's button, `madarch fill` and
- * `madarch fill-stages` use. The daemon owns the process's fill database — one owner for
- * the lifetime of the server, opened when a run or a store read is first asked for — and
- * hands it to each run; it registers no stage and wires no product of its own.
+ * The daemon's fills (madarch-8bdc.2.5, items 6 and 7): every run of the background server's
+ * products goes through `runFill` into the product's one store, the same store the wiki's button
+ * fills and `madarch mcp` reads. The store is resolved by the one function every caller uses
+ * (`productStoreFolder`); the daemon holds one owner per store it fills, and its progress,
+ * control and update watch read that store.
  *
- * The service of the newest run is kept open after the run answers (`runFill`'s
- * `keepService`), because the daemon answers that run's progress, its control and its
- * units' tool calls through it; the next run stops it and takes its place.
+ * A run that succeeds finishes its store the way the button does (`finishKnowledgeStore`): the
+ * pins the run published and the numbered snapshot the wiki's reader opens. The service of the
+ * newest run is kept open (`runFill`'s `keepService`), because the daemon answers that run's
+ * progress, its control and its units' tool calls through it; the next run of the same store
+ * stops it and takes its place.
  */
 export interface DaemonFills {
   /** Runs one product's fill through `runFill` and answers what the host answered. */
@@ -614,107 +617,141 @@ export interface DaemonFills {
   status(request: { readonly product: FillProduct; readonly runId: string }): Promise<RunStatus | null>;
   /** The product's newest run as the fill progress reads it, or null when it never ran. */
   progress(folder: string): Promise<FillProgressAnswer | null>;
-  /** Whether a product fills now, read from the store's chain (asked before an update is started). */
+  /** Whether a product fills now, read from its store's chain (asked before an update is started). */
   activity(request: { readonly product: FillProduct }): Promise<FillActivity>;
   /** A person's pause or stop of one run, or null when the store holds no such run. */
   control(request: { readonly productFolder: string; readonly runId: string; readonly action: FillRunControl; readonly product?: string }): Promise<FillRunControlAnswer | null>;
-  /** Answers one unit's tool call from the run this process drives, or null when it holds no such session. */
+  /** Answers one unit's tool call from a run this process drives, or null when it holds no such session. */
   unitTool(request: UnitToolCall): Promise<UnitToolAnswer | null>;
-  /** Stops the kept service and closes the store; safe to call twice. */
+  /** Stops the kept services and closes the stores; safe to call twice. */
   stop(): Promise<void>;
 }
 
+/** One store the daemon holds: its owner, and the service of the newest run of it. */
+interface HeldStore {
+  readonly storeFolder: string;
+  readonly owner: ReturnType<typeof openFillDatabase>;
+  service?: FillOrchestratorService;
+}
+
 /**
- * The fills the background server owns: one fill store under its home, and every run
- * through `runFill` over the owner this process holds (decision 0027's one owner, one
- * writer). Nothing is opened before a run is asked for or a run record is read, so a
- * server that serves wikis pays nothing for a fill nobody started.
+ * The fills the background server owns: one store per product, and every run through `runFill`
+ * over that store's owner (decision 0027's one owner per store, one writer). Nothing is opened
+ * before a run is asked for or a run record is read, so a server that serves wikis pays nothing
+ * for a fill nobody started.
  */
 export function daemonFills(home: string, options: { readonly toolUrl?: () => string | undefined; readonly log?: (line: string) => void } = {}): DaemonFills {
-  const databasePath = fillDatabasePath(home);
-  let owner: ReturnType<typeof openFillDatabase> | undefined;
-  let current: FillOrchestratorService | undefined;
+  const knowledgeRoot = knowledgeRootOf(home);
+  const stores = new Map<string, HeldStore>();
   let stopped = false;
-  /** The store, when it stands: a read never creates it, so an answer about a never-filled home is the empty one. */
-  const opened = async (): Promise<ReturnType<typeof openFillDatabase> | undefined> => {
+  /** The store of one product, by the one function every caller resolves it with. */
+  const storeFolderOfProduct = (productFolder: string): string => productStoreFolder(productFolder, knowledgeRoot);
+  /** The store, when it stands: a read never creates it, so an answer about a never-filled product is the empty one. */
+  const opened = async (productFolder: string): Promise<HeldStore | undefined> => {
     if (stopped) throw new Error("the daemon's fills were stopped, so they read no store (src/product/daemon.ts)");
-    if (owner === undefined) {
-      if (!existsSync(databasePath)) return undefined;
-      owner = openFillDatabase(databasePath);
-      await owner.ready;
-    }
-    return owner;
+    const storeFolder = storeFolderOfProduct(productFolder);
+    const held = stores.get(storeFolder);
+    if (held !== undefined) return held;
+    if (!existsSync(storeDatabasePath(storeFolder))) return undefined;
+    const owner = openFillDatabase(storeDatabasePath(storeFolder));
+    await owner.ready;
+    const one: HeldStore = { storeFolder, owner };
+    stores.set(storeFolder, one);
+    return one;
   };
   /** The store a run writes: opened here, because a run writes what a read may not create. */
-  const store = async (): Promise<ReturnType<typeof openFillDatabase>> => {
-    const held = await opened();
+  const store = async (productFolder: string): Promise<HeldStore> => {
+    const held = await opened(productFolder);
     if (held !== undefined) return held;
+    const storeFolder = storeFolderOfProduct(productFolder);
     if (stopped) throw new Error("the daemon's fills were stopped, so a run opens no store (src/product/daemon.ts)");
-    mkdirSync(dirname(databasePath), { recursive: true });
-    owner = openFillDatabase(databasePath);
+    mkdirSync(dirname(storeDatabasePath(storeFolder)), { recursive: true });
+    const owner = openFillDatabase(storeDatabasePath(storeFolder));
     await owner.ready;
-    return owner;
+    const one: HeldStore = { storeFolder, owner };
+    stores.set(storeFolder, one);
+    return one;
+  };
+  const withService = async <T>(productFolder: string, work: (service: FillOrchestratorService) => Promise<T>): Promise<T | undefined> => {
+    const held = await opened(productFolder);
+    if (held?.service === undefined) return undefined;
+    return await work(held.service);
   };
   return {
     async run(request: FillRunRequest): Promise<FillRunResult | RefusedFillRun> {
-      const database = await store();
-      // The next run replaces the service the last one left: one service over the process's one owner at a time.
-      if (current !== undefined) {
-        const previous = current;
-        current = undefined;
+      const held = await store(request.product.folder);
+      // The next run of this store replaces the service the last one left: one service over the store's one owner.
+      if (held.service !== undefined) {
+        const previous = held.service;
+        held.service = undefined;
         await previous.stop();
       }
-      return await runFill({
+      const result = await runFill({
         product: request.product.folder,
-        database,
+        database: held.owner,
         runId: request.runId,
-        home,
+        home: held.storeFolder,
+        store: held.storeFolder,
         keepService: true,
         ...(request.workers === undefined ? {} : { workers: request.workers }),
         ...(request.maxPasses === undefined ? {} : { maxPasses: request.maxPasses }),
         ...(options.log === undefined ? {} : { log: options.log }),
-        onService: (service: FillOrchestratorService) => { current = service; },
+        onService: (service: FillOrchestratorService) => { held.service = service; },
       });
+      // A run that succeeded finishes its store the way the button does: the wiki's reader and `madarch mcp`
+      // read the store this update wrote.
+      if (result.ok && result.settled && result.state === 'succeeded') {
+        await finishKnowledgeStore(held.owner, held.storeFolder);
+      }
+      return result;
     },
     async status(request: { readonly product: FillProduct; readonly runId: string }): Promise<RunStatus | null> {
-      if (current !== undefined) return await current.status({ product: request.product, runId: request.runId });
-      if (await opened() === undefined) return null;
-      return null;
+      const status = await withService(request.product.folder, async (service) => await service.status({ product: request.product, runId: request.runId })).catch(() => undefined);
+      return status ?? null;
     },
     async progress(folder: string): Promise<FillProgressAnswer | null> {
-      if (current !== undefined) return await current.progress(folder);
-      const database = await opened();
-      if (database === undefined) return null;
+      const held = await opened(folder);
+      if (held === undefined) return null;
+      if (held.service !== undefined) return await held.service.progress(folder);
       const read = readProduct(resolve(folder));
       if (!read.ok) throw new Error(`the fill progress of ${folder} cannot name its product: ${read.file}:${String(read.line)}: ${read.message}`);
-      return await fillProgressOf(database, read.product.name);
+      return await fillProgressOf(held.owner, read.product.name);
     },
     async activity(request: { readonly product: FillProduct }): Promise<FillActivity> {
-      if (current !== undefined) return await current.activity({ product: request.product });
-      const database = await opened();
-      if (database === undefined) return { state: 'idle', activeRunId: null, activeRunState: null };
-      const chain = await readChain(database, request.product.name);
+      const held = await opened(request.product.folder);
+      if (held === undefined) return { state: 'idle', activeRunId: null, activeRunState: null };
+      if (held.service !== undefined) return await held.service.activity({ product: request.product });
+      const chain = await readChain(held.owner, request.product.name);
       if (chain === null) return { state: 'idle', activeRunId: null, activeRunState: null };
       const activeRunId = chain.context.activeRunId ?? null;
-      const active = activeRunId === null ? null : await readRun(database, activeRunId);
+      const active = activeRunId === null ? null : await readRun(held.owner, activeRunId);
       return { state: chain.state, activeRunId, activeRunState: active?.state ?? null };
     },
     async control(request: { readonly productFolder: string; readonly runId: string; readonly action: FillRunControl; readonly product?: string }): Promise<FillRunControlAnswer | null> {
-      if (current !== undefined) return await current.control(request);
-      return null;
+      const answer = await withService(request.productFolder, async (service) => await service.control(request)).catch(() => undefined);
+      return answer ?? null;
     },
     async unitTool(request: UnitToolCall): Promise<UnitToolAnswer | null> {
-      return current === undefined ? null : await current.unitTool(request);
+      for (const held of stores.values()) {
+        if (held.service === undefined) continue;
+        const answer = await held.service.unitTool(request);
+        if (answer !== null) return answer;
+      }
+      return null;
     },
     async stop(): Promise<void> {
       if (stopped) return;
       stopped = true;
-      const held = current;
-      current = undefined;
       let failure: unknown;
-      try { await held?.stop(); } catch (error) { failure ??= error; }
-      try { await owner?.close(); } catch (error) { failure ??= error; }
-      owner = undefined;
+      for (const held of stores.values()) {
+        if (held.service !== undefined) {
+          const service = held.service;
+          held.service = undefined;
+          try { await service.stop(); } catch (error) { failure ??= error; }
+        }
+        try { await held.owner.close(); } catch (error) { failure ??= error; }
+      }
+      stores.clear();
       if (failure !== undefined) throw failure;
     },
   };

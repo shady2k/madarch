@@ -12,8 +12,11 @@
  */
 import { afterAll, beforeAll, describe, expect, test } from 'bun:test';
 import { runGit } from '../src/product/git.js';
-import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs';
-import { fillStatePaths } from '../src/product/fill-runtime.js';
+import { mkdirSync, mkdtempSync, readdirSync, rmSync, writeFileSync } from 'node:fs';
+import { createPGliteDatabaseOwner } from '../src/adapters/database-owner.js';
+import { repositoryFacts } from '../src/graph/index.js';
+import { readProduct } from '../src/product/manifest.js';
+import { knowledgeRootOf, productStoreFolder, storeSnapshotsFolder } from '../src/product/store.js';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import type { FillRunResult } from '../src/fill/orchestrator-host.js';
@@ -143,6 +146,26 @@ describe('the update a default-branch commit starts', () => {
     mkdirSync(other, { recursive: true });
     writeFileSync(join(other, 'workspace.yaml'), 'schemaVersion: 1\nid: 1b2c3d4e-5f60-4a1b-8c9d-0e1f2a3b4c5d\nname: other\n');
     expect(await service!.progress(other)).toBeNull();
+  }, 900_000);
+
+  test('the update reaches the store the wiki reads: the newest snapshot names the commit the daemon filled', async () => {
+    const read = readProduct(product);
+    if (!read.ok) throw new Error(`${read.file}:${read.line}: ${read.message}`);
+    // The one store of this product, resolved by the function the button, `madarch fill-stages` and `madarch mcp` use.
+    const store = productStoreFolder(product, knowledgeRootOf(home));
+    const snapshots = readdirSync(storeSnapshotsFolder(store)).filter((name) => /^\d+$/.test(name)).map(Number).sort((left, right) => left - right);
+    // The first fill and the update each finished a snapshot for the reader.
+    expect(snapshots.length).toBeGreaterThanOrEqual(2);
+    const newest = snapshots.at(-1)!;
+    const owner = createPGliteDatabaseOwner({ path: join(storeSnapshotsFolder(store), String(newest)), btreeGist: true });
+    await owner.ready;
+    try {
+      const pins = await owner.run((tx) => tx.query<{ repo: string; commit_hash: string }>('SELECT repo, commit_hash FROM knowledge_fill ORDER BY repo'));
+      expect(pins.rows).toContainEqual({ repo: read.product.name, commit_hash: commit });
+      expect((await repositoryFacts(owner, read.product.name))?.asIsCommit).toBe(commit);
+    } finally {
+      await owner.close();
+    }
   }, 900_000);
 
 });

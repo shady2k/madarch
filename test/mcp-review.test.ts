@@ -14,7 +14,7 @@ import { tmpdir } from 'node:os';
 import path from 'node:path';
 import { afterAll, beforeAll, beforeEach, describe as bunDescribe, expect, test as bunTest } from 'bun:test';
 import { readJournal, summarize } from '../src/mcp/journal.js';
-import { mcpStoreFolder } from '../src/mcp/graph.js';
+import { repositoryStoreFolder } from '../src/mcp/graph.js';
 import { RepositorySession } from '../src/mcp/session.js';
 import { answerRepositoryMcpMessage, type PendingRepository } from '../src/mcp/server.js';
 import { skippedBecauseOutOfWorkflow } from './fill-skip-list.js';
@@ -205,7 +205,7 @@ describe('the server answers before its graph is built', () => {
 describe('the store the button fills is read, not filled twice', () => {
   test('a second server at the same commit opens the store the first one filled, and fills nothing', async () => {
     const env = { ...process.env, MADARCH_HOME: HOME };
-    const store = mcpStoreFolder(REPOSITORY, env);
+    const store = repositoryStoreFolder(REPOSITORY, env);
     const first: string[] = [];
     const filled = await RepositorySession.open({ repository: REPOSITORY, env, log: (line) => { first.push(line); } });
     try {
@@ -220,7 +220,7 @@ describe('the store the button fills is read, not filled twice', () => {
     const reused = await RepositorySession.open({ repository: REPOSITORY, env, log: (line) => { second.push(line); } });
     try {
       // The store holds this commit: the start reads it, and the one fill is not run again.
-      expect(store).toBe(mcpStoreFolder(REPOSITORY, env));
+      expect(store).toBe(repositoryStoreFolder(REPOSITORY, env));
       expect(second.join('\n')).not.toContain('filling');
       const answered = await reused.call('get_symbol', { name: 'f' });
       expect(answered.isError).toBe(false);

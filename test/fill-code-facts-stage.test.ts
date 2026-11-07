@@ -50,7 +50,6 @@ beforeAll(async () => {
   const fill = await createStagesFill({ product, database: owner });
   let at = 1_700_000_000_000;
   const service = createFillOrchestratorService({
-    home: join(root, 'products'),
     owner,
     registry: fill.registry,
     wiring: () => fill.wiring,
@@ -202,7 +201,7 @@ describe('a source file a string escape with U+0000 in it', () => {
         'services/orders/src/template.ts': 'export const separator = `left\u0000right`;\n',
       });
       const fill = await createStagesFill({ product, database: owner });
-      const service = createFillOrchestratorService({ home: join(escapeRoot, 'products'), owner, registry: fill.registry, wiring: () => fill.wiring, maxPasses: 100_000 });
+      const service = createFillOrchestratorService({ owner, registry: fill.registry, wiring: () => fill.wiring, maxPasses: 100_000 });
       try {
         const result = await service.run({ product: fill.product, runId: 'run-code-facts-escape' });
         expect(result.ok).toBe(true);
@@ -245,7 +244,7 @@ describe('two callables of one name in two scopes', () => {
         'services/orders/src/scopes.ts': 'export function row(): number {\n  return 1;\n}\n\n{\n  function row(): number {\n    return 2;\n  }\n}\n\nexport function useRow(): number {\n  return row();\n}\n',
       });
       const fill = await createStagesFill({ product, database: owner });
-      const service = createFillOrchestratorService({ home: join(root, 'products'), owner, registry: fill.registry, wiring: () => fill.wiring, maxPasses: 100_000 });
+      const service = createFillOrchestratorService({ owner, registry: fill.registry, wiring: () => fill.wiring, maxPasses: 100_000 });
       try {
         const result = await service.run({ product: fill.product, runId: 'run-code-facts-scopes' });
         expect(result.ok).toBe(true);

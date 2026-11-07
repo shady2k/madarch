@@ -19,7 +19,7 @@ import { RepositorySession } from './session.js';
 import { readLatestFillProgress, type FillProgress } from '../obs/progress.js';
 import { bytesOf } from '../obs/trace.js';
 import { closeTrace, openTrace, runInTrace, withSpan, type TraceRun } from '../obs/trace.js';
-import { mcpStoreFolder } from './graph.js';
+import { repositoryStoreFolder } from './graph.js';
 import { join } from 'node:path';
 
 /** What this server calls itself in `initialize`, after the protocol's own fields. */
@@ -123,7 +123,7 @@ export interface RepositoryMcpOptions {
 export async function serveRepositoryMcp(options: RepositoryMcpOptions): Promise<number> {
   const stderr = options.errorOutput ?? process.stderr;
   const log = (line: string): void => { stderr.write(`${line}\n`); };
-  const store = mcpStoreFolder(options.repository, options.env);
+  const store = repositoryStoreFolder(options.repository, options.env);
   // The fill's own trace is written beside the graph as it happens, and the building answer reads it: a
   // person sees how far the fill is without opening the store. The server's own trace holds its tool calls.
   const progress = (): FillProgress => readLatestFillProgress(join(store, 'graph'));

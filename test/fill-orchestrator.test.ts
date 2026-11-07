@@ -69,7 +69,7 @@ import { createFillOrchestratorService } from '../src/fill/orchestrator-host.js'
 import { createPGliteQueryDatabase } from '../src/adapters/pglite-query-database.js';
 import { startServer } from '../src/server/http.js';
 import { daemonFills } from '../src/product/daemon.js';
-import { existsSync } from 'node:fs';
+import { existsSync, readdirSync } from 'node:fs';
 import { mkdtemp, rm } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
@@ -1344,7 +1344,7 @@ describe('the service the background server owns', () => {
   test('a service with nothing wired refuses a run and names what is missing, and opens nothing', async () => {
     const home = await mkdtemp(join(tmpdir(), 'madarch-fill-host-'));
     try {
-      const service = createFillOrchestratorService({ home, registry: basicRegistry() });
+      const service = createFillOrchestratorService({ registry: basicRegistry() });
       const refused = await service.run({ product: { name: 'fixture-product', folder: home }, runId: 'run-1' });
       expect(refused.ok).toBe(false);
       if (refused.ok) return;
@@ -1369,13 +1369,15 @@ describe('the service the background server owns', () => {
     }
   });
 
-  test('a wired service opens the process\'s database once, runs a fill to its end and closes what it opened', async () => {
+  test('a wired service opens the store it is given, runs a fill to its end and closes what it opened', async () => {
     const home = await mkdtemp(join(tmpdir(), 'madarch-fill-host-'));
+    // The store is the caller's: a service is given the product's store, never a home to guess one from.
+    const databasePath = join(home, 'store', 'graph');
     try {
       const graph = fakeGraph();
       const applied: string[] = [];
       const service = createFillOrchestratorService({
-        home,
+        databasePath,
         registry: basicRegistry(),
         wiring: () => ({
           snapshot: () => SNAPSHOT,
@@ -1385,6 +1387,7 @@ describe('the service the background server owns', () => {
           facts: { apply: async ({ unit, writes }) => { applied.push(unit.unitId); return writes.length; } },
         }),
       });
+      expect(existsSync(databasePath)).toBe(false);
       const result = await service.run({ product: { name: 'fixture-product', folder: home }, runId: 'run-host-1', workers: 2 });
       expect(result.ok).toBe(true);
       if (!result.ok) return;
@@ -1392,7 +1395,7 @@ describe('the service the background server owns', () => {
       expect(result.state).toBe('succeeded');
       expect(result.units.every((unit) => unit.state === 'published')).toBe(true);
       expect(applied).toHaveLength(4);
-      expect(existsSync(join(home, '.madarch', 'fill', 'state.db'))).toBe(true);
+      expect(existsSync(databasePath)).toBe(true);
 
       // The status of the run is readable while the service is open, and the second run of the same
       // product reuses what the first one opened.
@@ -1402,6 +1405,31 @@ describe('the service the background server owns', () => {
       expect(again.ok).toBe(true);
       if (!again.ok) return;
       expect(again.state).toBe('succeeded');
+      await service.stop();
+      // Closed with the service: another owner can take the store.
+      const reopened = createPGliteDatabaseOwner({ path: databasePath, btreeGist: true });
+      await reopened.ready;
+      await reopened.close();
+    } finally {
+      await rm(home, { recursive: true, force: true });
+    }
+  });
+
+  test('a service given no store refuses a run by name and opens nothing', async () => {
+    const home = await mkdtemp(join(tmpdir(), 'madarch-fill-nostore-'));
+    try {
+      const service = createFillOrchestratorService({
+        registry: basicRegistry(),
+        wiring: () => ({ snapshot: () => SNAPSHOT, configuration: () => undefined, graph: () => fakeGraph().reader, inputs: () => ({ commit: 'a1b2c3d4' }) }),
+      });
+      const refused = await service.run({ product: { name: 'fixture-product', folder: home }, runId: 'run-nostore' });
+      expect(refused.ok).toBe(false);
+      if (refused.ok) return;
+      expect(refused.code).toBe('fill-orchestrator/no-store');
+      expect(refused.reason).toContain('was given no store');
+      expect(refused.reason).toContain('src/fill/orchestrator-host.ts');
+      expect(existsSync(home)).toBe(true);
+      expect(readdirSync(home)).toEqual([]);
       await service.stop();
     } finally {
       await rm(home, { recursive: true, force: true });

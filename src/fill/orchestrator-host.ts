@@ -19,7 +19,7 @@
  */
 import { existsSync } from 'node:fs';
 import { mkdir } from 'node:fs/promises';
-import { dirname, join } from 'node:path';
+import { dirname } from 'node:path';
 import { createPGliteDatabaseOwner, type DatabaseOwner } from '../adapters/database-owner.js';
 import { byCodePoint } from '../model/order.js';
 import { withSpan } from '../obs/trace.js';
@@ -325,8 +325,6 @@ export interface FillOrchestratorService {
 }
 
 export interface FillOrchestratorServiceOptions {
-  /** The products home the process's fill database lives under. */
-  readonly home: string;
   /**
    * The address this process answers a unit's tool calls at — `${server.url}/api/fill/unit/tool`
    * (`src/server/http.ts`, `UNIT_TOOL_PATH`) — read when a unit's tools are opened,
@@ -347,15 +345,14 @@ export interface FillOrchestratorServiceOptions {
    */
   readonly wiring?: (product: FillProduct, context: { readonly owner: DatabaseOwner }) => Promise<ProductFillWiring | ProductFill> | ProductFillWiring | ProductFill;
   /**
-   * The process's own database owner, when the host already holds one (decision
-   * 0027's one owner per process, which is what lets a publication's facts and
-   * the orchestrator's record share a transaction): the service borrows it for
-   * the fill's tables and the queue and never closes it. Left out, the service
-   * opens its own PGlite under the home on the first run asked for and closes it
-   * with everything else it opened.
+   * The store's own owner, when the host already holds one (decision 0027's one owner per store, which
+   * is what lets a publication's facts and the orchestrator's record share a transaction): the service
+   * borrows it for the fill's tables and the queue and never closes it. Left out, the service opens
+   * its own PGlite at `databasePath` on the first run asked for and closes it with everything else it
+   * opened — so a service is given the product's store, never a home to guess one from.
    */
   readonly owner?: DatabaseOwner;
-  /** The process's database's data directory; `<home>/.madarch/fill/state.db` when it is left out. */
+  /** The store's database path (`<store>/graph`, `storeDatabasePath`), required when no owner is lent. */
   readonly databasePath?: string;
   /** The units' queue's name; `fill-units` when it is left out. */
   readonly queueName?: string;
@@ -451,10 +448,6 @@ async function driveFor(orchestrator: FillOrchestrator, request: { readonly runI
   return { ...driven, retryWaitMs: waited };
 }
 
-export function fillDatabasePath(home: string): string {
-  return join(home, '.madarch', 'fill', 'state.db');
-}
-
 /**
  * Opens one fill database owner at a path, for a host that lends its own owner to a
  * run and closes it (src/product/daemon.ts, src/mcp/graph.ts). The owner is the
@@ -505,7 +498,7 @@ export async function fillProgressOf(database: DatabaseOwner, product: string): 
  * owner, the tables and the queue are created when a run is first asked for.
  */
 export function createFillOrchestratorService(options: FillOrchestratorServiceOptions): FillOrchestratorService {
-  const databasePath = options.databasePath ?? fillDatabasePath(options.home);
+  const databasePath = options.databasePath;
   const queueName = options.queueName ?? DEFAULT_FILL_QUEUE;
   const limits = { ...DEFAULT_ORCHESTRATOR_LIMITS, ...options.limits };
   let opening: Promise<{ owner: DatabaseOwner; queue: QueueService; graph: GraphStore; opened: boolean }> | undefined;
@@ -518,8 +511,13 @@ export function createFillOrchestratorService(options: FillOrchestratorServiceOp
       // PGlite opens a data directory, and the state folder it stands in may not be there yet: the
       // process's own folder under the products home is made on the first run asked for.
       const lent = options.owner;
-      if (lent === undefined) await mkdir(dirname(databasePath), { recursive: true });
-      const database = lent ?? createPGliteDatabaseOwner({ path: databasePath, btreeGist: true });
+      if (lent === undefined) {
+        if (databasePath === undefined) {
+          throw new Error("fill-orchestrator: this service was given no store: name the product's owner or its database path (src/fill/orchestrator-host.ts)");
+        }
+        await mkdir(dirname(databasePath), { recursive: true });
+      }
+      const database = lent ?? createPGliteDatabaseOwner({ path: databasePath!, btreeGist: true });
       await createFillStateSchema(database);
       await createOrchestratorSchema(database);
       // The store a published fact set lands in is the fill's own (`fact-store.ts`): its tables are
@@ -865,7 +863,7 @@ async function fileDecision(
     // A stopped service reads nothing, and says so: answering the empty page set here would claim the product's
     // graph holds nothing, which is a statement about the store this service no longer reads.
     if (stopped) throw new Error('fill-orchestrator: the fill service was stopped, so it reads no graph: the pages are served while the service that owns the database runs');
-    if (options.owner === undefined && existsSync(databasePath) === false) return undefined;
+    if (options.owner === undefined && (databasePath === undefined || existsSync(databasePath) === false)) return undefined;
     return (await open()).owner;
   }
 
@@ -1051,6 +1049,11 @@ async function fileDecision(
       return await units.call(request);
     },
     async run(request: FillRunRequest): Promise<FillRunResult | RefusedFillRun> {
+      // A service is given the product's store (its owner or its database path): one that names none refuses the run
+      // by name, rather than guessing a store from a home no product owns.
+      if (options.wiring !== undefined && options.owner === undefined && databasePath === undefined) {
+        return { ok: false, code: 'fill-orchestrator/no-store', reason: `fill-orchestrator: this service was given no store for ${JSON.stringify(request.product.name)}: name the product's owner or its database path (src/fill/orchestrator-host.ts)` };
+      }
       const built = await withSpan('fill.ready', { 'madarch.product': request.product.name }, async () => await orchestratorFor(request.product));
       if ('ok' in built) return built;
       const orchestrator = built;

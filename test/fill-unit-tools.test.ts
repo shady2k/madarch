@@ -232,7 +232,6 @@ async function openWorld(): Promise<World> {
     source: () => snapshot,
   };
   const service = createFillOrchestratorService({
-    home: join(root!, 'products'),
     registry: new StageRegistry(),
     owner,
     queueFactory: async () => queue,

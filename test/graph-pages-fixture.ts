@@ -240,7 +240,6 @@ export async function openGraphFixture(options: {
   const registry = (options.registry ?? new StageRegistry()).register(graphStage({ drafts: options.drafts }));
   for (const stage of options.extraStages ?? []) registry.register(stage);
   const service = createFillOrchestratorService({
-    home,
     owner,
     registry,
     wiring: () => ({

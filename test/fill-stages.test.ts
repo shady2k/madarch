@@ -117,7 +117,7 @@ async function openProduct(folder: string): Promise<OpenProduct> {
   const owner: DatabaseOwner = createPGliteDatabaseOwner({ btreeGist: true });
   const fill = await createStagesFill({ product: folder, database: owner });
   const home = mkdtempSync(join(tmpdir(), 'madarch-stages-home-'));
-  const service = createFillOrchestratorService({ home, owner, registry: fill.registry, wiring: () => fill.wiring });
+  const service = createFillOrchestratorService({ owner, registry: fill.registry, wiring: () => fill.wiring });
   return {
     fill,
     owner,

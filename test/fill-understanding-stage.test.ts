@@ -237,7 +237,6 @@ async function openWorld(options: WorldOptions): Promise<World> {
 
   let server: StartedServer | undefined;
   const service = createFillOrchestratorService({
-    home: join(folder, 'products'),
     registry,
     owner,
     wiring: () => wiring,

@@ -19,10 +19,9 @@ import { readProgress } from '../fill/orchestrator-store.js';
 import { runFill } from '../fill/run.js';
 import type { FillProgress } from '../obs/progress.js';
 import { createGraphStore, repositoryFacts, type GraphStore } from '../graph/index.js';
-import { defaultKnowledgeRoot, storeFolderOf } from '../knowledge/product.js';
-import { fillFolderIdentity } from '../product/fill-stages.js';
+import { fillFolderIdentity } from '../product/identity.js';
 import { productsHome, type DraftEnv } from '../product/home.js';
-import { MANIFEST_FILE } from '../product/manifest.js';
+import { knowledgeRootOf, productStoreFolder, storeDatabasePath } from '../product/store.js';
 import { GraphView } from '../writer/view.js';
 import { headCommit } from './git.js';
 
@@ -70,13 +69,12 @@ export interface RepositoryGraph {
 }
 
 /**
- * The store one checkout is served from: the store the wiki's button fills, named by the
- * checkout's product id — or, for a checkout that is no product, by its folder's name,
- * which is the name the fill reads its facts under too.
+ * The store one checkout is served from: the one store the wiki's button fills, resolved by
+ * the one function every caller uses (`productStoreFolder`) under the products home's
+ * knowledge root.
  */
-export function mcpStoreFolder(repository: string, env: Readonly<Record<string, string | undefined>> = process.env): string {
-  const identity = fillFolderIdentity(resolve(repository));
-  return storeFolderOf(defaultKnowledgeRoot(productsHome(env as DraftEnv)), identity.identity.id, join(resolve(repository), MANIFEST_FILE));
+export function repositoryStoreFolder(repository: string, env: Readonly<Record<string, string | undefined>> = process.env): string {
+  return productStoreFolder(resolve(repository), knowledgeRootOf(productsHome(env as DraftEnv)));
 }
 
 /** A lock a live process holds on a store: the PGlite directory serves one writer at a time. */
@@ -194,11 +192,11 @@ export async function openRepositoryGraph(options: {
   const repository = resolve(options.repository);
   const env = options.env ?? process.env;
   const identity = fillFolderIdentity(repository);
-  const folder = mcpStoreFolder(repository, env);
+  const folder = repositoryStoreFolder(repository, env);
   mkdirSync(folder, { recursive: true });
   const log = options.log ?? (() => {});
   const held = acquireFolderLock(folder);
-  const databasePath = join(folder, 'graph');
+  const databasePath = storeDatabasePath(folder);
   const commit = headCommit(repository);
   let owner: DatabaseOwner | undefined;
   try {

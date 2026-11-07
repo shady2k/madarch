@@ -19,7 +19,7 @@ import {truthShotKey,verifyTruthShotSet,closeWalkResources,walkConcurrent} from 
 import { chmodSync, mkdirSync, readdirSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
 import { execFileSync } from 'node:child_process';
 import { join, resolve } from 'node:path';
-import {defaultKnowledgeRoot} from '../src/knowledge/product.js';
+import {knowledgeRootOf} from '../src/product/store.js';
 import {readProduct} from '../src/product/manifest.js';
 import puppeteer, { type Browser, type BrowserContext, type Page } from 'puppeteer';
 import { resolveBrowserExecutable } from './chromium.js';
@@ -571,7 +571,7 @@ if (only === 'truth') {
   const product = '/products/shop';
   // Rebuild progress is a reader-visible surface, not inferred from a final graph screenshot.
   const identity=readProduct(shop);if(!identity.ok)throw new Error(`cannot read shop identity: ${identity.message}`);
-  const manifest=join(defaultKnowledgeRoot(home),identity.product.id,'graph','extractors.json');
+  const manifest=join(knowledgeRootOf(home),identity.product.id,'graph','extractors.json');
   if(!existsSync(manifest))throw new Error(`missing persistent extractor manifest ${manifest}`);
   writeFileSync(manifest,'{}');
   const progressPages:{page:Page;name:string;language:string;scheme:'light'|'dark'}[]=[];

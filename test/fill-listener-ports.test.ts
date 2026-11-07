@@ -48,7 +48,6 @@ beforeAll(async () => {
   fill = await createStagesFill({ product: written.product, database: owner });
   let at = 1_700_000_000_000;
   service = createFillOrchestratorService({
-    home: join(root, 'products'),
     owner,
     registry: fill.registry,
     wiring: () => fill!.wiring,
