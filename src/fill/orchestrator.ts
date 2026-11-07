@@ -1790,8 +1790,16 @@ async function publishAttempt(
     });
   } catch (error) {
     await emitTiming();
-    if (!isSerializationFailure(error)) throw error;
-    const reason = `the publication of "${unit.unitId}" generation ${unit.generation} lost its snapshot to a concurrent writer (${messageOf(error)}); the attempt is retried against the store as it now stands`;
+    if (isSerializationFailure(error)) {
+      const reason = `the publication of "${unit.unitId}" generation ${unit.generation} lost its snapshot to a concurrent writer (${messageOf(error)}); the attempt is retried against the store as it now stands`;
+      return await retryAttempt(orchestrator, { unit, fence: request.fence, job: request.job, cause: 'validation-problem', reason, summary: reason });
+    }
+    // A publication that raised is this unit's failure, not the run's: decision 0033 (items 18, 19 and 27)
+    // bounds the retries and reports partial coverage, and a unit that cannot publish leaves what the other
+    // units published standing. The attempt retries under the machine's own retry cause, and the last
+    // attempt fails the generation with this reason on its record (c40e53d0, lost by ee2fcd40 and restored
+    // here; it is what took a whole fill down over one unit's refused publication).
+    const reason = `the publication of "${unit.unitId}" generation ${unit.generation} raised: ${messageOf(error)}`;
     return await retryAttempt(orchestrator, { unit, fence: request.fence, job: request.job, cause: 'validation-problem', reason, summary: reason });
   }
 
