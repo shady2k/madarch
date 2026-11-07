@@ -173,10 +173,12 @@ async function planTrees(sources: SnapshotSource, graph: StageGraphReader): Prom
       const readAt = new Map(filePass.map((row) => [row.file, row.blob]));
       const unread = sourceFiles.filter((path) => readAt.get(path) !== reader.entry(path)?.id);
       if (unread.length > 0) {
-        // The file pass has not read these files at this commit's bytes yet: this
-        // stage's plan answers nothing, and the run asks it again after the pass
-        // published (src/fill/stages/codegraph.ts).
-        continue;
+        // The file pass has not read these files at this commit's bytes yet: this stage names no unit
+        // at all — not even the repositories whose tree the file pass already read, because decision
+        // 0027 plans a stage again only while its last attempt named none — and the run asks it again
+        // once the pass published (src/fill/stages/codegraph.ts). The other repositories wait with
+        // it, and every one of them is planned by that one answer.
+        return { units: [] };
       }
     }
     units.push({ id: treeUnitId(pin.id), scope: pin.id });
