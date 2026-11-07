@@ -50,6 +50,9 @@ const SKIPPED_FILL_SUITES: readonly SkippedFillSuite[] = [
   // tree and the history, so a run with an agent chosen plans no page at all — and `fillWritesPages()` says so.
   { file: 'test/loop-training.test.ts', brings: 'the agent stages 8 to 13 of 0026 and the narrative stage', because: 'its cases read the pages, questions and tasks those stages write' },
   { file: 'test/knowledge-sync.test.ts', brings: 'the agent stages 8 to 13 of 0026 and the narrative stage', because: 'its case reads the pages a run with an agent writes' },
+  // The wiki's whole page model: a page's blocks are drawn from the symbols, resolved calls, operations, documents
+  // and commit history the static stages publish, and from the pages the agent stages write.
+  { file: 'test/knowledge-vertical.test.ts', brings: 'syntax, semantic-resolution, operations, document-index, modules, the temporal history stage and the agent stages', because: 'its cases read the entity index and the page blocks those stages publish' },
   // The answer key's items are read back from the temporal graph the build-configuration, document-index,
   // modules and history stages publish; this step's fill publishes the tree and the history records.
   { file: 'test/fill-build-configuration-training.test.ts', brings: 'build-configuration, document-index, modules and the temporal history stage', because: 'it reads the answer key\'s manifest, document, module and history items back from the graph' },
