@@ -31,6 +31,11 @@ interface FillRunner {
 const FILL_RUNNERS: readonly FillRunner[] = [
   { module: 'src/extract/driver/index.ts', runners: ['fillGraph'] },
   { module: 'src/fill/orchestrator.ts', runners: ['driveRun'] },
+  // madarch-8bdc.2.5, item 6: a fill is started through `runFill` and by nothing else. These two are
+  // what `runFill` builds on, so a module that reaches for either one is a second wiring or a second
+  // runner — the same defect as a second call of the host.
+  { module: 'src/fill/orchestrator-host.ts', runners: ['createFillOrchestratorService'] },
+  { module: 'src/product/fill-stages.ts', runners: ['createStagesFill', 'createRepositoryFill'] },
 ];
 
 /** The one module that starts a fill: the orchestrator host of a process. */
@@ -47,7 +52,8 @@ const WHOLE_RUNNER_MODULE = '*';
 export function fillEntryViolations(root: string, modules: ModuleSet = moduleSet(root)): ArchitectureViolation[] {
   const violations: ArchitectureViolation[] = [];
   for (const file of modules.modules) {
-    if (file === FILL_HOST) continue;
+    // The host and the one runner may name a runner: everyone else goes through `runFill`.
+    if (file === FILL_HOST || file === 'src/fill/run.ts') continue;
     for (const statement of importStatementsOf(root, file)) {
       const target = resolveModuleSpecifier(modules, file, statement.specifier);
       if (target === null) continue;

@@ -5271,6 +5271,11 @@
   },
   {
     "rule": "no-unreachable-code",
+    "file": "test/fill-skip-list.ts",
+    "symbol": null
+  },
+  {
+    "rule": "no-unreachable-code",
     "file": "test/graph-pages-fixture.ts",
     "symbol": "COMMIT"
   },
@@ -5823,6 +5828,31 @@
     "rule": "one-fill-entry",
     "file": "scripts/write-knowledge.ts",
     "symbol": "src/extract/driver/index.ts:fillGraph"
+  },
+  {
+    "rule": "one-fill-entry",
+    "file": "src/mcp/graph.ts",
+    "symbol": "src/fill/orchestrator-host.ts:createFillOrchestratorService"
+  },
+  {
+    "rule": "one-fill-entry",
+    "file": "src/mcp/graph.ts",
+    "symbol": "src/product/fill-stages.ts:createRepositoryFill"
+  },
+  {
+    "rule": "one-fill-entry",
+    "file": "src/product/cli.ts",
+    "symbol": "src/fill/orchestrator-host.ts:createFillOrchestratorService"
+  },
+  {
+    "rule": "one-fill-entry",
+    "file": "src/product/daemon.ts",
+    "symbol": "src/fill/orchestrator-host.ts:createFillOrchestratorService"
+  },
+  {
+    "rule": "one-fill-entry",
+    "file": "src/product/daemon.ts",
+    "symbol": "src/product/fill-stages.ts:createStagesFill"
   },
   {
     "rule": "sql-only-in-storage-layer",
