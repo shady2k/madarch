@@ -19,7 +19,7 @@ import { RepositorySession } from './session.js';
 import { readLatestFillProgress, type FillProgress } from '../obs/progress.js';
 import { bytesOf } from '../obs/trace.js';
 import { closeTrace, openTrace, runInTrace, withSpan, type TraceRun } from '../obs/trace.js';
-import { graphFolder, mcpStateRoot } from './graph.js';
+import { mcpStoreFolder } from './graph.js';
 import { join } from 'node:path';
 
 /** What this server calls itself in `initialize`, after the protocol's own fields. */
@@ -106,8 +106,6 @@ async function answerCall(repository: string, provider: RepositoryProvider, tool
 export interface RepositoryMcpOptions {
   /** The checkout to serve. */
   readonly repository: string;
-  /** The folder the graph and the journal are kept in. */
-  readonly folder?: string | undefined;
   readonly env?: Readonly<Record<string, string | undefined>>;
   readonly input?: AsyncIterable<string | Uint8Array>;
   readonly output?: { write(text: string): void };
@@ -125,14 +123,13 @@ export interface RepositoryMcpOptions {
 export async function serveRepositoryMcp(options: RepositoryMcpOptions): Promise<number> {
   const stderr = options.errorOutput ?? process.stderr;
   const log = (line: string): void => { stderr.write(`${line}\n`); };
-  const folder = options.folder ?? graphFolder(options.repository, mcpStateRoot(options.env));
+  const store = mcpStoreFolder(options.repository, options.env);
   // The fill's own trace is written beside the graph as it happens, and the building answer reads it: a
   // person sees how far the fill is without opening the store. The server's own trace holds its tool calls.
-  const progress = (): FillProgress => readLatestFillProgress(join(folder, 'graph'));
-  const sessionTrace = openTrace({ store: join(folder, 'graph'), runId: `mcp-${String(process.pid)}` });
+  const progress = (): FillProgress => readLatestFillProgress(join(store, 'graph'));
+  const sessionTrace = openTrace({ store, runId: `server-${String(process.pid)}` });
   const ready = RepositorySession.open({
     repository: options.repository,
-    folder,
     ...(options.env === undefined ? {} : { env: options.env }),
     log,
     progress,

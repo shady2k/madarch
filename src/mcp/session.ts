@@ -16,7 +16,7 @@
 import { resolve } from 'node:path';
 
 import { readRevision, type Revision } from './git.js';
-import { graphFolder, mcpStateRoot, openRepositoryGraph, type RepositoryGraph } from './graph.js';
+import { openRepositoryGraph, type RepositoryGraph } from './graph.js';
 import type { FillProgress } from '../obs/progress.js';
 import { recordCall } from './journal.js';
 import { RepositoryReads, WorkingLayer } from './layer.js';
@@ -27,8 +27,6 @@ import { callRepoTool, type RepoToolAnswer } from './tools.js';
 export interface SessionOptions {
   /** The checkout to serve. */
   readonly repository: string;
-  /** The folder the graph is kept in; the state root's own folder for this repository when absent. */
-  readonly folder?: string | undefined;
   readonly env?: Readonly<Record<string, string | undefined>>;
   /** Where the session says what it builds and when; standard error by default. */
   readonly log?: (line: string) => void;
@@ -59,11 +57,10 @@ export class RepositorySession {
   static async open(options: SessionOptions): Promise<RepositorySession> {
     const absolute = resolve(options.repository);
     const env = options.env ?? process.env;
-    const folder = resolve(options.folder ?? graphFolder(absolute, mcpStateRoot(env)));
     const log = options.log ?? (() => {});
     const revision = readRevision(absolute);
-    const graph = await openRepositoryGraph({ repository: absolute, folder, env, log, progress: options.progress });
-    return new RepositorySession(absolute, folder, env, log, graph, revision);
+    const graph = await openRepositoryGraph({ repository: absolute, env, log, progress: options.progress });
+    return new RepositorySession(absolute, graph.folder, env, log, graph, revision);
   }
 
   /** The folder the journal and the graph live in. */
@@ -83,7 +80,7 @@ export class RepositorySession {
       // the way the driver moves one (it reads the commits since its tip).
       this.log(`madarch mcp: HEAD moved to ${revision.commit.slice(0, 12)}; moving the graph`);
       await this.graph.close();
-      this.graph = await openRepositoryGraph({ repository: this.absolute, folder: this.folder, env: this.env, log: this.log });
+      this.graph = await openRepositoryGraph({ repository: this.absolute, env: this.env, log: this.log });
     }
     this.revision = revision;
     const refreshed = await this.walkLayer.refresh(revision);

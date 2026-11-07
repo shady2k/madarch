@@ -35,7 +35,7 @@ const FILL_RUNNERS: readonly FillRunner[] = [
   // what `runFill` builds on, so a module that reaches for either one is a second wiring or a second
   // runner — the same defect as a second call of the host.
   { module: 'src/fill/orchestrator-host.ts', runners: ['createFillOrchestratorService'] },
-  { module: 'src/product/fill-stages.ts', runners: ['createStagesFill', 'createRepositoryFill'] },
+  { module: 'src/product/fill-stages.ts', runners: ['createStagesFill'] },
 ];
 
 /** The one module that starts a fill: the orchestrator host of a process. */

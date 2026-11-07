@@ -14,7 +14,7 @@ export interface SkippedFillSuite {
   readonly because: string;
 }
 
-export const SKIPPED_FILL_SUITES: readonly SkippedFillSuite[] = [
+const SKIPPED_FILL_SUITES: readonly SkippedFillSuite[] = [
   { file: 'test/fill-stages.test.ts', brings: 'snapshot, inventory, syntax, resolution, modules, documents', because: 'its cases assert the facts of the stages out of the list' },
   { file: 'test/fill-operations-training.test.ts', brings: 'operations, operations-links', because: 'it compares the operations reading against the extract driver' },
   { file: 'test/fill-operations-links.test.ts', brings: 'operations-links', because: 'it reads the variables and services the links stage publishes' },
@@ -31,9 +31,20 @@ export const SKIPPED_FILL_SUITES: readonly SkippedFillSuite[] = [
   { file: 'test/fill-static-heap.test.ts', brings: 'the static stages', because: 'it reads their memory bound over a fill' },
   { file: 'test/fill-code-facts-training.test.ts', brings: 'code-facts', because: 'it compares the code facts against the extract driver' },
   { file: 'test/fill-operations-fixture.test.ts', brings: 'operations', because: 'it reads the operations records of a folder' },
+  // madarch-8bdc.2.5, items 2 and 3: `madarch mcp` reads the store the one fill publishes, and this step's fill is
+  // the tree and the history passes. The seven tools read the temporal graph the static stages publish, so a case
+  // that asks one is named here until those stages' steps come; the code they read is the fill's, unchanged.
+  { file: 'test/mcp-server.test.ts', brings: 'the static stages that publish the temporal graph', because: 'its cases read symbols, documents and pages the static stages publish' },
+  { file: 'test/mcp-review.test.ts', brings: 'the static stages that publish the temporal graph', because: 'its cases read symbols, migrations, documents and edges of the temporal graph' },
+  { file: 'test/mcp-start.test.ts', brings: 'the static stages that publish the temporal graph', because: 'its cases read the contract and symbol facts a served store answers' },
+  { file: 'test/mcp-lock.test.ts', brings: 'the static stages that publish the temporal graph', because: 'its case opens a served store, which holds no graph until those stages publish one' },
 ];
 
-/** Whether a test file starts a fill of a stage this step does not run. */
+/**
+ * Whether a test file starts a fill of a stage this step does not run. The file is
+ * matched by the tail of its path, so a run from any folder names the same suite.
+ */
 export function skippedBecauseOutOfWorkflow(file: string): SkippedFillSuite | undefined {
-  return SKIPPED_FILL_SUITES.find((entry) => entry.file === file);
+  const normalized = file.split('\\').join('/');
+  return SKIPPED_FILL_SUITES.find((entry) => normalized === entry.file || normalized.endsWith(`/${entry.file}`));
 }

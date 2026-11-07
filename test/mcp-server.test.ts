@@ -15,7 +15,13 @@ import { mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'nod
 import { tmpdir } from 'node:os';
 import path from 'node:path';
 import { createInterface } from 'node:readline';
-import { afterAll, beforeAll, describe, expect, test } from 'bun:test';
+import { afterAll, beforeAll, describe as bunDescribe, expect, test as bunTest } from 'bun:test';
+import { skippedBecauseOutOfWorkflow } from './fill-skip-list.js';
+
+// The cases read a stage out of this step's list: they come back with that stage's step (test/fill-skip-list.ts).
+const skippedSuite = skippedBecauseOutOfWorkflow(import.meta.path);
+const describe = bunDescribe.skipIf(skippedSuite !== undefined);
+const test = bunTest.skipIf(skippedSuite !== undefined);
 import { renderQuestion } from '../src/loop/entities.js';
 import { readJournal, summarize } from '../src/mcp/journal.js';
 import { RepositorySession } from '../src/mcp/session.js';
@@ -80,6 +86,8 @@ const QUESTION = renderQuestion({
 let session: RepositorySession;
 
 beforeAll(async () => {
+  // The store the cases read is filled by stages out of this step's list: no fixture is made or closed.
+  if (skippedSuite !== undefined) return;
   git('init', '-q', '-b', 'main');
   put('package.json', `${JSON.stringify({ name: 'atlas-kit', version: '1.0.0', type: 'module' }, null, 2)}\n`);
   put('src/store.ts', STORE_SOURCE);
@@ -89,10 +97,12 @@ beforeAll(async () => {
   put('docs/questions/saved-items.md', QUESTION);
   git('add', '-A');
   git('commit', '-q', '-m', 'atlas-kit: save items');
-  session = await RepositorySession.open({ repository: REPOSITORY, folder: STORE });
+  session = await RepositorySession.open({ repository: REPOSITORY });
 }, 180_000);
 
 afterAll(async () => {
+  // The store the cases read is filled by stages out of this step's list: no fixture is made or closed.
+  if (skippedSuite !== undefined) return;
   await session.close();
   rmSync(REPOSITORY, { recursive: true, force: true });
   rmSync(STATE, { recursive: true, force: true });
@@ -261,9 +271,10 @@ describe('the journal', () => {
 
 describe('the command as a client starts it', () => {
   test('answers initialize, tools/list and a tool call over standard input and output, and exits 0 at the end of the input', async () => {
-    const child = spawn(process.execPath, ['scripts/madarch.ts', 'mcp', '--repo', REPOSITORY, '--store', path.join(STATE, 'e2e')], {
+    const child = spawn(process.execPath, ['scripts/madarch.ts', 'mcp', '--repo', REPOSITORY], {
       cwd: PROJECT,
-      env: { ...process.env, XDG_STATE_HOME: STATE },
+      // The store the button fills lives under the madarch home: this run's own, so it never reads another.
+      env: { ...process.env, MADARCH_HOME: path.join(STATE, 'madarch') },
       stdio: ['pipe', 'pipe', 'pipe'],
     });
     const lines = createInterface({ input: child.stdout! });

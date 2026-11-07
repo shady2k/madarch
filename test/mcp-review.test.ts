@@ -12,7 +12,13 @@ import { execFileSync } from 'node:child_process';
 import { cpSync, existsSync, mkdirSync, mkdtempSync, rmSync, symlinkSync, unlinkSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import path from 'node:path';
-import { afterAll, beforeAll, beforeEach, describe, expect, test } from 'bun:test';
+import { afterAll, beforeAll, beforeEach, describe as bunDescribe, expect, test as bunTest } from 'bun:test';
+import { skippedBecauseOutOfWorkflow } from './fill-skip-list.js';
+
+// The cases read a stage out of this step's list: they come back with that stage's step (test/fill-skip-list.ts).
+const skippedSuite = skippedBecauseOutOfWorkflow(import.meta.path);
+const describe = bunDescribe.skipIf(skippedSuite !== undefined);
+const test = bunTest.skipIf(skippedSuite !== undefined);
 import { createPGliteDatabaseOwner } from '../src/adapters/database-owner.js';
 import { fillGraph } from '../src/extract/driver/index.js';
 import { TREE_EXTRACTORS } from '../src/extract/driver/extractors.js';
@@ -42,6 +48,8 @@ const INIT_SQL = 'CREATE TABLE saved_items (\n  id TEXT PRIMARY KEY,\n  name TEX
 let session: RepositorySession;
 
 beforeAll(async () => {
+  // The store the cases read is filled by stages out of this step's list: no fixture is made or closed.
+  if (skippedSuite !== undefined) return;
   git('init', '-q', '-b', 'main');
   put('package.json', `${JSON.stringify({ name: 'review-kit', version: '1.0.0', type: 'module' }, null, 2)}\n`);
   put('src/a.ts', A_SOURCE);
@@ -52,10 +60,12 @@ beforeAll(async () => {
   put('contracts/openapi/orders.yaml', 'openapi: 3.1.0\ninfo:\n  title: Orders\n  version: 1.0.0\npaths:\n  /orders:\n    get:\n      operationId: listOrders\n      responses:\n        \'200\':\n          description: the orders\n');
   git('add', '-A');
   git('commit', '-q', '-m', 'review-kit: a caller and a callee, a migration, a contract');
-  session = await RepositorySession.open({ repository: REPOSITORY, folder: STORE });
+  session = await RepositorySession.open({ repository: REPOSITORY });
 }, 180_000);
 
 afterAll(async () => {
+  // The store the cases read is filled by stages out of this step's list: no fixture is made or closed.
+  if (skippedSuite !== undefined) return;
   await session.close();
   rmSync(REPOSITORY, { recursive: true, force: true });
   rmSync(STATE, { recursive: true, force: true });
@@ -71,6 +81,8 @@ const json = (value: unknown): string => JSON.stringify(value);
 const restore = (...paths: string[]): void => { git('checkout', '--', ...paths); };
 
 beforeEach(() => {
+  // The store the cases read is filled by stages out of this step's list: no fixture is made or closed.
+  if (skippedSuite !== undefined) return;
   // Each case reads its own working tree: the checkout is restored and whatever a case left untracked is removed.
   git('checkout', '--', '.');
   git('clean', '-fdq');
@@ -228,7 +240,7 @@ describe('a graph madarch already holds for the commit is reused, not rebuilt', 
     await owner.run((tx) => tx.query('INSERT INTO knowledge_fill (repo, scope, head, commit_hash, effective_time, commits, filled_commits) VALUES ($1, $2, $3, $4, $5, 1, 1)', [path.basename(REPOSITORY), 'review', head, head, new Date().toISOString()]));
     await owner.close();
     const lines: string[] = [];
-    const reused = await RepositorySession.open({ repository: REPOSITORY, folder: path.join(STATE, 'reused'), env: { ...process.env, MADARCH_HOME: HOME }, log: (line) => { lines.push(line); } });
+    const reused = await RepositorySession.open({ repository: REPOSITORY, env: { ...process.env, MADARCH_HOME: HOME }, log: (line) => { lines.push(line); } });
     try {
       expect(lines.join('\n')).toContain('reusing the graph');
       expect(existsSync(path.join(STATE, 'reused', 'graph'))).toBe(true);

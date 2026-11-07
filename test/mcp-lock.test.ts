@@ -8,7 +8,12 @@ import { existsSync, mkdirSync, mkdtempSync, rmSync, writeFileSync } from 'node:
 import { tmpdir } from 'node:os';
 import path from 'node:path';
 import { afterAll, describe, expect, test } from 'bun:test';
-import { acquireFolderLock, openRepositoryGraph, releaseFolderLock } from '../src/mcp/graph.js';
+import { skippedBecauseOutOfWorkflow } from './fill-skip-list.js';
+
+// A store is filled through the one fill, and this step's fill publishes the tree and the history records and no
+// temporal graph: the case that opens a served store comes back with the static stages' step (test/fill-skip-list.ts).
+const storeIsServable = skippedBecauseOutOfWorkflow(import.meta.path) === undefined;
+import { acquireFolderLock, mcpStoreFolder, openRepositoryGraph, releaseFolderLock } from '../src/mcp/graph.js';
 
 const FOLDER = mkdtempSync(path.join(tmpdir(), 'madarch-mcp-lock-'));
 const REPOSITORY = mkdtempSync(path.join(tmpdir(), 'madarch-mcp-lock-repo-'));
@@ -37,9 +42,10 @@ describe('the folder lock', () => {
     releaseFolderLock(FOLDER, again);
   });
 
-  test('the lock outlives the database it guards: it is dropped only once the database is closed', async () => {
-    const folder = path.join(FOLDER, 'served');
-    const graph = await openRepositoryGraph({ repository: REPOSITORY, folder, log: () => undefined });
+  test.skipIf(!storeIsServable)('the lock outlives the database it guards: it is dropped only once the database is closed', async () => {
+    const env = { ...process.env, MADARCH_HOME: FOLDER };
+    const folder = mcpStoreFolder(REPOSITORY, env);
+    const graph = await openRepositoryGraph({ repository: REPOSITORY, env, log: () => undefined });
     expect(existsSync(path.join(folder, 'server.lock'))).toBe(true);
     const closing = graph.close();
     // Closing begins with the database: the lock is still the server's while that runs, so no second server can enter

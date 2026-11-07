@@ -9,7 +9,13 @@ import { execFileSync } from 'node:child_process';
 import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import path from 'node:path';
-import { afterAll, beforeAll, describe, expect, test } from 'bun:test';
+import { afterAll, beforeAll, describe as bunDescribe, expect, test as bunTest } from 'bun:test';
+import { skippedBecauseOutOfWorkflow } from './fill-skip-list.js';
+
+// The cases read a stage out of this step's list: they come back with that stage's step (test/fill-skip-list.ts).
+const skippedSuite = skippedBecauseOutOfWorkflow(import.meta.path);
+const describe = bunDescribe.skipIf(skippedSuite !== undefined);
+const test = bunTest.skipIf(skippedSuite !== undefined);
 import { RepositorySession } from '../src/mcp/session.js';
 import { answerRepositoryMcpMessage, type PendingRepository } from '../src/mcp/server.js';
 
@@ -27,6 +33,8 @@ const put = (relativePath: string, text: string): void => {
 const CODE_FILES = 6;
 
 beforeAll(() => {
+  // The store the cases read is filled by stages out of this step's list: no fixture is made or closed.
+  if (skippedSuite !== undefined) return;
   const git = (...args: string[]): void => { execFileSync('git', args, { cwd: REPOSITORY, env: GIT_ENV }); };
   git('init', '-q', '-b', 'main');
   put('package.json', `${JSON.stringify({ name: 'start-kit', version: '1.0.0', type: 'module' }, null, 2)}\n`);
@@ -42,6 +50,8 @@ beforeAll(() => {
 }, 120_000);
 
 afterAll(() => {
+  // The store the cases read is filled by stages out of this step's list: no fixture is made or closed.
+  if (skippedSuite !== undefined) return;
   rmSync(REPOSITORY, { recursive: true, force: true });
   rmSync(STATE, { recursive: true, force: true });
   rmSync(HOME, { recursive: true, force: true });
@@ -49,7 +59,7 @@ afterAll(() => {
 
 describe('a served checkout', () => {
   test('opens and answers its own symbol', async () => {
-    const session = await RepositorySession.open({ repository: REPOSITORY, folder: path.join(STATE, 'graph'), env: { ...process.env, MADARCH_HOME: HOME } });
+    const session = await RepositorySession.open({ repository: REPOSITORY, env: { ...process.env, MADARCH_HOME: HOME } });
     try {
       const answer = await session.call('get_symbol', { name: 'f000' });
       expect(answer.isError).toBe(false);
@@ -62,7 +72,7 @@ describe('a served checkout', () => {
   }, 300_000);
 
   test('serves through the protocol, and a contract answer is the graph own, never a startup failure', async () => {
-    const ready = RepositorySession.open({ repository: REPOSITORY, folder: path.join(STATE, 'protocol'), env: { ...process.env, MADARCH_HOME: HOME } });
+    const ready = RepositorySession.open({ repository: REPOSITORY, env: { ...process.env, MADARCH_HOME: HOME } });
     const pending: PendingRepository = { repository: REPOSITORY, ready };
     try {
       const initialized = await answerRepositoryMcpMessage({ jsonrpc: '2.0', id: 1, method: 'initialize', params: { protocolVersion: '2025-06-18' } }, pending);
