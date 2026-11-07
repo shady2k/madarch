@@ -53,10 +53,9 @@ const USAGE = 'usage: bun scripts/score-reference-graph.ts <reference folder> <r
 
 /**
  * The database owner and the graph's reader, loaded by a path the import graph
- * does not resolve: a scorer is a one-off measurement of a database file, like
- * `scripts/extract-truth-audit.ts`, and the architecture rule keeps a
- * connection out of every module the product serves — this script serves
- * nothing.
+ * does not resolve: a scorer is a one-off measurement of a database file, and the
+ * architecture rule keeps a connection out of every module the product serves —
+ * this script serves nothing.
  */
 const engine = join(import.meta.dir, '..');
 const load = async (path: string) => await import(pathToFileURL(join(engine, path)).href);

@@ -17,8 +17,9 @@
  * rule reads what each module imports from a runner module and reports the names
  * that are runners.
  */
-import { importStatementsOf } from './imports.js';
+import { moduleNamesOf } from './imports.js';
 import { moduleSet, resolveModuleSpecifier, type ModuleSet } from './sources.js';
+import { posix } from 'node:path';
 import { orderedViolations, type ArchitectureViolation } from './violation.js';
 
 /** A runner module and the names in it that start a fill. */
@@ -54,13 +55,22 @@ export function fillEntryViolations(root: string, modules: ModuleSet = moduleSet
   for (const file of modules.modules) {
     // The host and the one runner may name a runner: everyone else goes through `runFill`.
     if (file === FILL_HOST || file === 'src/fill/run.ts') continue;
-    for (const statement of importStatementsOf(root, file)) {
+    const held = moduleNamesOf(root, file);
+    for (const statement of held.imports) {
       const target = resolveModuleSpecifier(modules, file, statement.specifier);
       if (target === null) continue;
       const runner = FILL_RUNNERS.find((candidate) => candidate.module === target);
       if (runner === undefined) continue;
       const names = statement.wholeModule ? [WHOLE_RUNNER_MODULE] : statement.names.filter((name) => runner.runners.includes(name));
       for (const name of names) violations.push({ rule: 'one-fill-entry', file, line: statement.line, symbol: `${target}:${name}` });
+    }
+    // A call handed a module's name as a string literal — a local `load(path)` that imports what it names — takes
+    // that module as a whole: the parse says which module the literal names, and a runner's name is a second entry.
+    for (const call of held.literalCalls) {
+      const target = moduleNamed(modules, file, call.value);
+      if (target === null) continue;
+      if (!FILL_RUNNERS.some((candidate) => candidate.module === target)) continue;
+      violations.push({ rule: 'one-fill-entry', file, line: call.line, symbol: `${target}:${WHOLE_RUNNER_MODULE}` });
     }
   }
   return unique(orderedViolations(violations));
@@ -75,4 +85,18 @@ function unique(violations: readonly ArchitectureViolation[]): ArchitectureViola
     if (held === undefined || violation.line < held.line) byIdentity.set(identity, violation);
   }
   return orderedViolations([...byIdentity.values()]);
+}
+
+/**
+ * The module one string literal names, as a path from the repository root: a relative specifier a module writes
+ * (`'./fill-stages.js'`), or a path from the root itself (`'src/product/fill-stages.ts'`) — which is the form a
+ * `load(path)` helper takes. Anything else names no module of this repository.
+ */
+function moduleNamed(modules: ModuleSet, file: string, value: string): string | null {
+  const relative = resolveModuleSpecifier(modules, file, value);
+  if (relative !== null) return relative;
+  if (value.startsWith('.') || value.startsWith('/')) return null;
+  const named = posix.normalize(value);
+  if (named === '..' || named.startsWith('../')) return null;
+  return modules.known.has(named) ? named : null;
 }

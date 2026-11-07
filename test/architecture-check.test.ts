@@ -284,6 +284,9 @@ describe('the architecture check', () => {
       '',
       "export const pick = async (): Promise<unknown> => import('./product/fill-stages.js');",
       'export const whole = driver;',
+      'const load = async (path: string): Promise<unknown> => await import(path);',
+      "export const loaded = await load('src/fill/orchestrator-host.ts');",
+      "export const elsewhere = await load('src/writer/view.ts');",
     ];
     writeModule(root, 'src/rogue-imports.ts', plant);
 
@@ -291,10 +294,12 @@ describe('the architecture check', () => {
     expect(planted.comparison.unlisted.map((violation) => [violation.line, violation.symbol])).toEqual([
       [lineOf(plant, "import * as driver"), 'src/extract/driver/index.ts:*'],
       [lineOf(plant, 'export { fillGraph }'), 'src/extract/driver/index.ts:fillGraph'],
+      // A local loader handed a runner's path takes the module as a whole; a module that is no runner is not an entry.
+      [lineOf(plant, "load('src/fill/orchestrator-host.ts')"), 'src/fill/orchestrator-host.ts:*'],
       [lineOf(plant, 'export * from'), 'src/fill/orchestrator.ts:*'],
       [lineOf(plant, "import('./product/fill-stages.js')"), 'src/product/fill-stages.ts:*'],
     ]);
-    expect(architectureProblemLines(planted).length).toBe(4);
+    expect(architectureProblemLines(planted).length).toBe(5);
 
     rmSync(join(root, 'src', 'rogue-imports.ts'));
     expect(architectureProblemLines(await architectureCheck({ root, rules: ['one-fill-entry'] }))).toEqual([]);
