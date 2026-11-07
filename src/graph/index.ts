@@ -27,6 +27,7 @@ import {
 } from './reads.js';
 import { registerCodeSchema, registerVocabulary } from './register.js';
 import { createGraphSchema } from './schema.js';
+import { createGraphStatistics, type GraphStatistics, type StatisticsRefresh } from './statistics.js';
 import { instantMicros, microsInstant } from './time.js';
 import {
   closeVersion, removeNodeVersion, correctEdgeVersion, correctNodeVersion, endEdgeVersion, endNode, newNodeIdentity, openEdgeVersion, openNodeVersion, writeMemo,
@@ -55,7 +56,15 @@ export class GraphStore {
   /** The last recorded instant this store handed out, in microseconds since the epoch. */
   private last = 0n;
 
-  constructor(private readonly owner: DatabaseOwner, private readonly options: GraphStoreOptions = {}) {}
+  /**
+   * The planner's statistics of the version tables (`statistics.ts`): every publication counts the versions
+   * it wrote, and `refreshStatistics` runs `ANALYZE` when enough of them did.
+   */
+  readonly statistics: GraphStatistics;
+
+  constructor(private readonly owner: DatabaseOwner, private readonly options: GraphStoreOptions = {}) {
+    this.statistics = createGraphStatistics(owner);
+  }
 
   private reading(): bigint {
     return BigInt((this.options.now ?? (() => new Date()))().getTime()) * 1000n;
@@ -167,7 +176,7 @@ export class GraphStore {
 
   /** Publishes a unit's result in one transaction; see `publish.ts` for the fencing it enforces. */
   publish(input: PublishInput, transaction?: OuterTransaction): Promise<PublishResult> {
-    return this.write(transaction, (ctx) => publish(ctx, input));
+    return this.published(transaction, (ctx) => publish(ctx, input));
   }
 
   /**
@@ -177,7 +186,31 @@ export class GraphStore {
    * decision 0033, item 3). See `publishUnit` in `publish.ts`.
    */
   publishUnit(input: PublishUnitInput, transaction?: OuterTransaction): Promise<PublishUnitResult> {
-    return this.write(transaction, (ctx) => publishUnit(ctx, input));
+    return this.published(transaction, (ctx) => publishUnit(ctx, input));
+  }
+
+  /**
+   * Runs one publication, counts the versions it wrote towards the next statistics refresh, and — when this
+   * store owns the transaction, so it has committed by the time `write` answers — refreshes them at once. A
+   * publication inside a caller's transaction leaves the refresh to the caller, which knows when it committed
+   * (`refreshStatistics`; the fill calls it when a unit's publication lands).
+   */
+  private async published<T extends PublishResult | PublishUnitResult>(transaction: OuterTransaction | undefined, work: (ctx: WriteContext) => Promise<T>): Promise<T> {
+    const result = await this.write(transaction, work);
+    const versions: PublishResult = 'publication' in result ? result.publication : result;
+    this.statistics.note(versions.nodeVersionsOpened + versions.edgeVersionsOpened);
+    if (transaction === undefined) await this.statistics.refresh();
+    return result;
+  }
+
+  /**
+   * `ANALYZE` of the version tables when the rows published since the last one make it due (`statistics.ts`),
+   * or when a table that holds rows was never analyzed; null when nothing was due. A caller that published
+   * inside its own transaction calls this after it commits, so the planner's estimates cover the rows that
+   * publication wrote.
+   */
+  refreshStatistics(): Promise<StatisticsRefresh | null> {
+    return this.statistics.refresh();
   }
 
   /** One node as the lens sees it, or null. */

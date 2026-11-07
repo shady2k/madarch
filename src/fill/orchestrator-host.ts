@@ -661,7 +661,14 @@ async function fileDecision(
       // subscribers ask the store which pages the publication touched (`fill_page_change`), and a publication
       // that touched no page wakes a stream that then writes nothing.
       sink: async (event) => {
-        if (event.kind === 'unit-published') notifyPages();
+        if (event.kind === 'unit-published') {
+          notifyPages();
+          // The publication committed before this event was emitted, so the planner's statistics are refreshed
+          // here, outside every transaction (`statistics.ts`: due after 50 000 versions written, or once for a
+          // store whose version tables were never analyzed). A fill whose stages land facts only writes no
+          // version, and this call then only asks whether a refresh is due.
+          await graph.refreshStatistics();
+        }
         await options.sink?.(event);
       },
       limits,
