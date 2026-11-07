@@ -1,0 +1,22 @@
+
+import { execFileSync } from 'node:child_process';
+import { mkdirSync, mkdtempSync, symlinkSync, writeFileSync } from 'node:fs';
+import { tmpdir } from 'node:os';
+import { join } from 'node:path';
+const root = mkdtempSync(join(tmpdir(), 'cli-steps-'));
+const repository = join(root, 'repo');
+mkdirSync(join(repository, 'src'), { recursive: true });
+writeFileSync(join(repository, 'src', 'a.ts'), 'export const a = 1;\n');
+const git = (cwd: string, ...args: string[]) => execFileSync('git', args, { cwd, stdio: ['ignore','pipe','pipe'] });
+git(repository, 'init', '-q', '-b', 'main'); git(repository, 'add', '-A');
+git(repository, '-c', 'user.name=F', '-c', 'user.email=f@example.invalid', 'commit', '-qm', 'one');
+const product = join(root, 'product');
+mkdirSync(join(product, 'repos'), { recursive: true });
+symlinkSync(repository, join(product, 'repos', 'repo'), 'dir');
+writeFileSync(join(product, 'workspace.yaml'), 'schemaVersion: 1\nid: 5c2e8a52-9c3e-4f7a-8b21-6d2e9c0a5b41\nname: cli-product\nrepos:\n  - name: repo\n    url: file:///repo\n');
+mkdirSync(join(product, 'madarch'), { recursive: true });
+writeFileSync(join(product, 'madarch', 'workflows.yaml'), 'workflows:\n  first-fill:\n    status: implemented\n    stages:\n      - repository-tree\n      - repository-history\n');
+git(product, 'init', '-q'); git(product, '-c', 'user.name=F', '-c', 'user.email=f@example.invalid', 'add', '-A'); git(product, '-c', 'user.name=F', '-c', 'user.email=f@example.invalid', 'commit', '-qm', 'p');
+const home = join(root, 'home');
+mkdirSync(join(home, '.madarch', 'fill'), { recursive: true });
+console.log('PRODUCT', product, 'HOME', home);

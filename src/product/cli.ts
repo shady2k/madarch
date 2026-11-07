@@ -37,7 +37,7 @@ import {
 } from './lifecycle.js';
 import { readProduct } from './manifest.js';
 import { runGit } from './git.js';
-import { createStagesFill } from './fill-stages.js';
+import { runFill } from '../fill/run.js';
 import { productsHome, type DraftEnv } from './draft.js';
 import { MANIFEST_FILE } from './manifest.js';
 import { startKnowledgeFill } from '../knowledge/fill-run.js';
@@ -239,6 +239,8 @@ export const HELP = [
   '  --no-open             print the address but do not open the browser',
   '  --run <id>            fill-stages only: the run to plan (one built from this moment by default)',
   '  --workers <n>         fill-stages only: units the run holds in hand at once (16 by default, 1 through 64)',
+  '  --steps <a,b>         fill-stages only: the steps of the one list to run, by id',
+  '                        (repository-tree, repository-history; all of them, in dependency order, when left out)',
 ].join('\n');
 
 /** One subcommand's argument surface, whole: what it takes, and nothing else. */
@@ -246,7 +248,7 @@ interface CommandSpec {
   /** The positional words it takes, in order, by their label for the refusals. */
   positionals: readonly string[];
   /** The flags it takes, beside the ones they both share. */
-  flags: { home: boolean; product: boolean; port: boolean; open: boolean; branch: boolean; yes: boolean; source?: boolean; mode?: boolean; host?: boolean; run?: boolean; workers?: boolean };
+  flags: { home: boolean; product: boolean; port: boolean; open: boolean; branch: boolean; yes: boolean; source?: boolean; mode?: boolean; host?: boolean; run?: boolean; workers?: boolean; steps?: boolean };
 }
 
 /** The specs the subcommands answer to, whole. */
@@ -264,7 +266,7 @@ export const COMMANDS: Record<string, CommandSpec> = {
   // The deterministic fill (decision 0026's stages 0 to 7, started by madarch-tzte.21.8): it runs
   // the eight stages over one product and prints what the graph holds afterwards. It serves nothing
   // and takes no agent, so it carries no port and no open.
-  'fill-stages': { positionals: [], flags: { home: true, product: true, port: false, open: false, branch: false, yes: false, run: true, workers: true } },
+  'fill-stages': { positionals: [], flags: { home: true, product: true, port: false, open: false, branch: false, yes: false, run: true, workers: true, steps: true } },
   // One product's knowledge store, filled by the one orchestrator (decision 0033, item 1): the same fill the
   // wiki's button starts, over the store the wiki reads. It serves nothing and takes no agent.
   fill: { positionals: [], flags: { home: true, product: true, port: false, open: false, branch: false, yes: false, workers: true } },
@@ -298,6 +300,7 @@ interface Parsed {
   host: string | undefined;
   run: string | undefined;
   workers: number | undefined;
+  steps: readonly string[] | undefined;
   json: boolean;
 }
 
@@ -314,6 +317,7 @@ function flagNamesFor(flags: CommandSpec['flags']): readonly string[] {
     ...(flags.mode ? ['--mode'] : []),
     ...(flags.run ? ['--run'] : []),
     ...(flags.workers ? ['--workers'] : []),
+    ...(flags.steps ? ['--steps'] : []),
     ...(flags.yes ? ['--yes'] : []),
   ];
 }
@@ -326,7 +330,7 @@ function flagNamesFor(flags: CommandSpec['flags']): readonly string[] {
  * Returns the parse, or the number of the exit a refusal needs.
  */
 function parse(spec: CommandSpec, given: readonly string[]): Parsed | number {
-  const parsed: Parsed = { words: [], home: undefined, product: undefined, port: undefined, open: true, branch: undefined, yes: false, source: undefined, mode: undefined, host: undefined, run: undefined, workers: undefined, json: false };
+  const parsed: Parsed = { words: [], home: undefined, product: undefined, port: undefined, open: true, branch: undefined, yes: false, source: undefined, mode: undefined, host: undefined, run: undefined, workers: undefined, steps: undefined, json: false };
   const seen = new Set<string>();
   const flags = flagNamesFor(spec.flags).map((name) => `${name}${name === '--no-open' ? '' : ' <value>'}`).join(', ');
   for (let i = 0; i < given.length; i++) {
@@ -423,6 +427,14 @@ function parse(spec: CommandSpec, given: readonly string[]): Parsed | number {
       const problem = valueProblem('--run', value);
       if (problem !== undefined) { console.error(problem); console.error('run madarch --help for help'); return 2; }
       parsed.run = value!.trim();
+      continue;
+    }
+    if (name === '--steps') {
+      if (!spec.flags.steps) return unknownOption(arg, flags);
+      const value = flagValue();
+      const problem = valueProblem('--steps', value);
+      if (problem !== undefined) { console.error(problem); console.error('run madarch --help for help'); return 2; }
+      parsed.steps = value!.split(',').map((step) => step.trim()).filter((step) => step !== '');
       continue;
     }
     if (name === '--port') {
@@ -723,24 +735,27 @@ async function fillStagesCommand(parsed: Parsed, home: string | undefined): Prom
   let service: FillOrchestratorService | undefined;
   let exit = 0;
   try {
-    const fill = await createStagesFill({ product: folder, database: owner });
+    const product = { name: basename(folder), folder };
     // The deterministic stages' units are short and a pass is not free: the run
     // holds sixteen in hand and claims sixteen per pass (`workers`), which is
     // what makes a repository of a few thousand files minutes rather than hours
     // (the walk measured one unit and 26.8 s of a 27.6 s unit in the admission of
     // a single-slot run, and 1.7-3.4 s per read of the run's unit list). The
     // stages' own concurrency (one unit each) still bounds what runs at once.
-    service = createFillOrchestratorService({
-      home: resolvedHome, owner, registry: fill.registry, wiring: () => fill.wiring,
-      limits: { maxInFlight: workers }, workers, maxPasses: 100_000,
-    });
     const started = Date.now();
-    const result = await service.run({ product: fill.product, runId });
+    // One fill, through the one runner (madarch-8bdc.2.5, item 6): the steps the caller named, or
+    // the whole one list in the order the stages' declarations derive.
+    const result = await runFill({
+      product: folder, database: owner, runId, home: resolvedHome,
+      limits: { maxInFlight: workers }, workers, maxPasses: 100_000,
+      ...(parsed.steps === undefined ? {} : { steps: parsed.steps }),
+      onService: (started) => { service = started; },
+    });
     if (!result.ok) {
       console.error(`${result.code}: ${result.reason}`);
       exit = 1;
     } else {
-      reportFillStages(fill.product, result, await countPublishedFactsByKind(owner), Date.now() - started, parsed.json);
+      reportFillStages(product, result, await countPublishedFactsByKind(owner), Date.now() - started, parsed.json);
       // A run that did not settle, or settled without its coverage, is not a
       // fill a caller may treat as done: the exit code says so, and the line
       // names what the run ended as.
