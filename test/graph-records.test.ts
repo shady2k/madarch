@@ -147,7 +147,7 @@ describe('the two passes over one fixture', () => {
     expect(await historyStage.execute({ id: repositoryUnitId('fixture'), scope: 'fixture' }, context)).toEqual({ outcome: 'draft' });
     expect(said.length).toBe(2);
     expect(languageOfPath('x.unknown-ext').language).toBe('unknown');
-    expect(shallowGapOf(pin(head))).toBeNull();
+    expect(await shallowGapOf(pin(head))).toBeNull();
   }, 120_000);
 
   test('give every folder a vertex, one parent each, and no repository-to-nested-file edge', async () => {

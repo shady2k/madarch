@@ -18,17 +18,21 @@ import { join, resolve } from 'node:path';
 import { pathToFileURL } from 'node:url';
 import { readRepositoryHistory, readRepositoryTree, type RepositoryAt } from '../src/fill/stages/repository-facts.js';
 import { log } from '../src/obs/log.js';
-import { closeTrace, openTrace, runInTrace, withSpan } from '../src/obs/trace.js';
+import { closeTrace, openTrace, runInTrace, withSpan, withSpanSync } from '../src/obs/trace.js';
 
 const engine = join(import.meta.dir, '..');
 const load = async (path: string) => await import(pathToFileURL(join(engine, path)).href);
 const graph = await load('src/graph/index.ts') as typeof import('../src/graph/index.js');
 const { createPGliteDatabaseOwner } = await load('src/adapters/database-owner.ts') as typeof import('../src/adapters/database-owner.js');
-/** git's own answer for the checks against git: not the fill's read, so it gets no span. */
+/** git's own answer for the checks against git: a child process of the run, so a span of its own. */
 function gitTextOf(root: string, args: readonly string[]): string {
-  const answer = Bun.spawnSync(['git', ...args], { cwd: root, env: { ...process.env, LC_ALL: 'C' } });
-  if (answer.exitCode !== 0) throw new Error(`git ${args.join(' ')} failed in ${root}: ${answer.stderr.toString()}`);
-  return answer.stdout.toString();
+  return withSpanSync('process.git', { 'process.command': 'git', 'process.args': [...args], 'process.cwd': root, 'madarch.check': 'against-git' }, (span) => {
+    const answer = Bun.spawnSync(['git', ...args], { cwd: root, env: { ...process.env, LC_ALL: 'C' } });
+    span.setAttribute('process.outputBytes', answer.stdout.length);
+    span.setAttribute('process.exitCode', answer.exitCode ?? 1);
+    if (answer.exitCode !== 0) throw new Error(`git ${args.join(' ')} failed in ${root}: ${answer.stderr.toString()}`);
+    return answer.stdout.toString();
+  });
 }
 
 function argument(name: string): string {
@@ -119,7 +123,8 @@ const answer = await runInTrace(traced, async () => await withSpan('fill.run', {
     // The same question asked the way the store records a touched row: git's default `git log -- path`
     // does not diff a merge at all, so a merge that brings a change never answers it; the agreed model
     // records `touched` from each commit's own change against its first parent, merge or not.
-    const lastFirstParent = gitTextOf(repository, ['log', '--diff-merges=first-parent', '--format=%cI', '-1', commit, '--', file.path]).trim();
+    // `--no-patch`: `--diff-merges=first-parent` alone prints a merge's own diff, which is not a date.
+    const lastFirstParent = gitTextOf(repository, ['log', '--diff-merges=first-parent', '--no-patch', '--format=%cI', '-1', commit, '--', file.path]).trim();
     dates.push({
       path: file.path,
       graphCreated: facts?.created?.date ?? null,
@@ -159,8 +164,6 @@ const answer = await runInTrace(traced, async () => await withSpan('fill.run', {
     bytesPerRow: { files: filesRows === 0 ? 0 : Object.values(sizesPerTable).reduce((sum, held) => sum + held.bytes, 0) / filesRows, commits: gitCommits === 0 ? 0 : Object.values(sizesPerTable).reduce((sum, held) => sum + held.bytes, 0) / gitCommits },
   };
 }));
-closeTrace(traced);
-writeFileSync(out, `${JSON.stringify(answer, null, 2)}\n`);
 log.info('step 1 fill ended', {
   runId,
   files: answer.againstGit.files.graph,
@@ -172,5 +175,8 @@ log.info('step 1 fill ended', {
   treeMs: Math.round(answer.pass.tree.wallMs),
   historyMs: Math.round(answer.pass.history.wallMs),
   peakRssMb: Math.max(peak.tree, peak.history),
+  datesEqual: answer.againstGit.datesEqual,
 });
+closeTrace(traced);
+writeFileSync(out, `${JSON.stringify(answer, null, 2)}\n`);
 await owner.close();
