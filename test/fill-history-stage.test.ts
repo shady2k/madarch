@@ -46,8 +46,9 @@ import {
   historyScope,
   historyUnitId,
   parseHistoryScope,
-  taskKeys,
+  taskKeysOf,
   validateDraft,
+  type HistoryTrailer,
   type HistoryReader,
 } from '../src/fill/stages/history.js';
 import { createStageRegistry } from '../src/fill/stages/index.js';
@@ -267,7 +268,7 @@ function recorder(unit: StageUnit, options: { readonly config?: unknown; readonl
     enabled: true,
     concurrency: 1,
     limits: DEFAULT_STAGE_LIMITS,
-    config: options.config ?? { depth: DEFAULT_HISTORY_DEPTH },
+    config: options.config ?? { depth: DEFAULT_HISTORY_DEPTH, trailer: 'Ticket', separators: [',', ' '] },
   };
   return {
     reads,
@@ -343,8 +344,8 @@ function stageOver(checkouts: ReadonlyMap<string, string>, reader?: HistoryReade
 /** The three commits every ancestry test reads: a root, a second, and a tip whose message names two tasks. */
 const THREE: readonly FixtureCommit[] = [
   { message: 'First commit', files: { 'a.txt': 'one\n' } },
-  { message: 'Second commit\n\nTask: madarch-abc.1', files: { 'src/b.ts': 'export const b = 1;\n' } },
-  { message: 'Third commit\n\nTask: madarch-xyz.7, madarch-abc.1', files: { 'c.md': '# doc\n', 'src/b.ts': 'export const b = 2;\n' } },
+  { message: 'Second commit\n\nTicket: madarch-abc.1', files: { 'src/b.ts': 'export const b = 1;\n' } },
+  { message: 'Third commit\n\nTicket: madarch-xyz.7, madarch-abc.1', files: { 'c.md': '# doc\n', 'src/b.ts': 'export const b = 2;\n' } },
 ];
 
 describe('the ancestry one unit writes', () => {
@@ -398,7 +399,7 @@ describe('the ancestry one unit writes', () => {
         repository: 'orders-api',
         scope: historyScope('orders-api', third),
         complete: true,
-        read: ['the pinned commit and its ancestry', 'the task keys the commit messages name'],
+        read: ['the pinned commit and its ancestry', 'the task keys the declared trailer names'],
         unread: [],
       }]);
       // The unit reads the graph through its static context: no tracked read text is asked for.
@@ -414,7 +415,7 @@ describe('the ancestry one unit writes', () => {
 
   test('the task keys a commit message names become task-key edges, in code point order, each once', async () => {
     const fixture = await makeRepository('keys', [
-      { message: 'Place an order\n\nTask: madarch-xyz.7, madarch-abc.1\nTask: madarch-abc.1\n\nbody\n', files: { 'order.md': '# an order\n' } },
+      { message: 'Place an order\n\nbody\n\nTicket: madarch-xyz.7, madarch-abc.1\nTicket: madarch-abc.1\n', files: { 'order.md': '# an order\n' } },
     ]);
     try {
       const [only] = fixture.commits as [string];
@@ -431,13 +432,74 @@ describe('the ancestry one unit writes', () => {
       const tasks = run.writes.filter((write) => write.kind === 'edge' && write.value.relation === 'code.tasks');
       expect(tasks.map((write) => (write.kind === 'edge' && 'key' in write.value.from ? write.value.from.key : ''))).toEqual([commitNodes[0]!.kind === 'node' ? commitNodes[0]!.value.key : '', commitNodes[0]!.kind === 'node' ? commitNodes[0]!.value.key : '']);
       expect(run.writes.filter((write) => write.kind === 'node' && write.value.kind === 'code.task').map((write) => (write.kind === 'node' ? write.value.label : ''))).toEqual(['madarch-abc.1', 'madarch-xyz.7']);
-      // The task keys are the tracker's own rule, read from the message.
-      expect(taskKeys('Place an order\n\nTask: madarch-xyz.7, madarch-abc.1\nTask: madarch-abc.1\n')).toEqual(['madarch-abc.1', 'madarch-xyz.7']);
-      expect(taskKeys('No task line here')).toEqual([]);
-      expect(taskKeys('task: madarch-abc.1 madarch-def.2')).toEqual(['madarch-abc.1', 'madarch-def.2']);
-      // The case of a key is the commit's own: the tracker's rule is read
-      // case-insensitively, and the key is written as the message wrote it.
-      expect(taskKeys('TASK: Madarch-ABC.1')).toEqual(['Madarch-ABC.1']);
+      // The keys are the values of the declared trailer, split on the declared
+      // separators; a trailer the product did not declare names none, and the
+      // case of a key is the value's own.
+      const trailers: HistoryTrailer[] = [
+        { key: 'Ticket', value: 'madarch-xyz.7, madarch-abc.1' },
+        { key: 'Ticket', value: 'madarch-abc.1' },
+        { key: 'Signed-off-by', value: 'A Person <a@example.test>' },
+      ];
+      expect(taskKeysOf(trailers, 'Ticket', [',', ' '])).toEqual(['madarch-abc.1', 'madarch-xyz.7']);
+      expect(taskKeysOf(trailers, 'Signed-off-by', [',', ' '])).toEqual(['<a@example.test>', 'A', 'Person']);
+      expect(taskKeysOf(trailers, 'Other', [',', ' '])).toEqual([]);
+      expect(taskKeysOf([{ key: 'Ticket', value: 'Madarch-ABC.1' }], 'Ticket', [',', ' '])).toEqual(['Madarch-ABC.1']);
+    } finally {
+      await fixture.dispose();
+    }
+  });
+
+  test('two commits that name one task write one node, and every task edge names a node of the draft', async () => {
+    const fixture = await makeRepository('shared-task', THREE);
+    try {
+      const [, , third] = fixture.commits as [string, string, string];
+      const stage = stageOver(new Map([['orders-api', fixture.folder]]));
+      const unit = { id: historyUnitId('orders-api', third), scope: historyScope('orders-api', third) };
+      const run = recorder(unit);
+      await stage.execute(unit, run.context);
+
+      const taskNodes = run.writes.filter((write) => write.kind === 'node' && write.value.kind === 'code.task');
+      const labels = taskNodes.map((write) => (write.kind === 'node' ? write.value.label : '')).sort();
+      expect(labels).toEqual(['madarch-abc.1', 'madarch-xyz.7']);
+      const labelByKey = new Map(taskNodes.map((write) => [write.kind === 'node' ? write.value.key : '', write.kind === 'node' ? write.value.label : '']));
+      const edges = run.writes.filter((write) => write.kind === 'edge' && write.value.relation === 'code.tasks');
+      // The second and the third commit both name madarch-abc.1: each edge names the one node of
+      // that key, and no edge names a key no node of the draft carries.
+      expect(edges.map((write) => (write.kind === 'edge' && 'key' in write.value.to ? labelByKey.get(write.value.to.key) : undefined)).sort()).toEqual(['madarch-abc.1', 'madarch-abc.1', 'madarch-xyz.7']);
+      expect(validateDraft({ writes: run.writes })).toEqual({ ok: true });
+    } finally {
+      await fixture.dispose();
+    }
+  });
+
+  test('a product that declares no trailer writes no task key, and its coverage says so', async () => {
+    const fixture = await makeRepository('no-trailer', THREE);
+    try {
+      const [, , third] = fixture.commits as [string, string, string];
+      const stage = stageOver(new Map([['orders-api', fixture.folder]]));
+      const unit = { id: historyUnitId('orders-api', third), scope: historyScope('orders-api', third) };
+      const run = recorder(unit, { config: { depth: DEFAULT_HISTORY_DEPTH } });
+      await stage.execute(unit, run.context);
+      expect(run.writes.filter((write) => write.kind === 'node' && write.value.kind === 'code.task')).toEqual([]);
+      expect(run.writes.filter((write) => write.kind === 'edge' && write.value.relation === 'code.tasks')).toEqual([]);
+      const coverage = valuesOf(run.writes, 'coverage')[0] as Record<string, unknown>;
+      expect(coverage['read']).toContain('the task keys (none: the product declares no trailer)');
+    } finally {
+      await fixture.dispose();
+    }
+  });
+
+  test("the reader records every trailer git's parser returns, not only a declared one", async () => {
+    const fixture = await makeRepository('all-trailers', [
+      { message: 'Subject\n\nTicket: A-1\nSigned-off-by: A Person <a@example.test>\n', files: { 'a.txt': 'x\n' } },
+    ]);
+    try {
+      const [first] = fixture.commits as [string];
+      const ancestry = await createGitHistoryReader(() => fixture.folder).read({ repository: 'orders-api', commit: first, depth: 1 });
+      expect(ancestry.commits[0]?.trailers).toEqual([
+        { key: 'Ticket', value: 'A-1' },
+        { key: 'Signed-off-by', value: 'A Person <a@example.test>' },
+      ]);
     } finally {
       await fixture.dispose();
     }
@@ -446,7 +508,7 @@ describe('the ancestry one unit writes', () => {
   test('a commit that changed no file writes a fact with no files and no edges', async () => {
     const fixture = await makeRepository('empty', [
       { message: 'First commit', files: { 'a.txt': 'one\n' } },
-      { message: 'An empty commit\n\nTask: madarch-abc.1', files: {} },
+      { message: 'An empty commit\n\nTicket: madarch-abc.1', files: {} },
     ]);
     try {
       const [first, second] = fixture.commits as [string, string];
@@ -506,7 +568,7 @@ describe('the set one run writes, and what it does with what the graph holds', (
       const heldValue = (kind: string): { readonly commit: string; readonly value: unknown }[] =>
         valuesOf(firstRun.writes, kind).map((value) => ({ commit: String(value['commit']), value }));
 
-      const fourth = await fixture.commit({ message: 'Fourth commit\n\nTask: madarch-new.4', files: { 'd.txt': 'x\n' } });
+      const fourth = await fixture.commit({ message: 'Fourth commit\n\nTicket: madarch-new.4', files: { 'd.txt': 'x\n' } });
       const unit = { id: historyUnitId('orders-api', fourth), scope: historyScope('orders-api', fourth) };
       const run = recorder(unit, {
         rows: rowsFor({ held: [['orders-api', heldValue('commit')]], coverage: [] }),
@@ -950,18 +1012,18 @@ describe('what the wiring, the clock and the graph own rows can do to a read', (
     // holding the record separator reaches the reader as a second record, an
     // author time that is no whole number of seconds is no time, and a call
     // that failed names its own status and words.
-    const record = (message: string, committed = '1792346906', authored = '1792346806'): string =>
-      `${HISTORY_LOG_RECORD}${commit}${HISTORY_LOG_FIELD}${HISTORY_LOG_FIELD}${committed}${HISTORY_LOG_FIELD}${authored}${HISTORY_LOG_FIELD}Fixture Author${HISTORY_LOG_FIELD}First commit${HISTORY_LOG_FIELD}${message}${HISTORY_LOG_FIELD}\x00\na.txt\x00`;
-    const withMessage = await fakeGit({ log: record(`a message ${HISTORY_LOG_RECORD}and this is not a record`) });
+    const record = (trailers: string, committed = '1792346906', authored = '1792346806'): string =>
+      `${HISTORY_LOG_RECORD}${commit}${HISTORY_LOG_FIELD}${HISTORY_LOG_FIELD}${committed}${HISTORY_LOG_FIELD}${authored}${HISTORY_LOG_FIELD}Fixture Author${HISTORY_LOG_FIELD}First commit${HISTORY_LOG_FIELD}${trailers}\x00\na.txt\x00`;
+    const withMessage = await fakeGit({ log: record(`Ticket: a message ${HISTORY_LOG_RECORD}and this is not a record`) });
     try {
       const stage = stageOver(new Map([['orders-api', withMessage.folder]]), withMessage.reader);
       const run = recorder(unit);
-      await expect(stage.execute(unit, run.context)).rejects.toThrow(/holds a record for .* which is no path list/u);
+      await expect(stage.execute(unit, run.context)).rejects.toThrow(/holds a record with no path list/u);
       expect(run.writes).toEqual([]);
     } finally {
       await withMessage.dispose();
     }
-    const withTime = await fakeGit({ log: record('First commit', 'yesterday') });
+    const withTime = await fakeGit({ log: record('', 'yesterday') });
     try {
       const stage = stageOver(new Map([['orders-api', withTime.folder]]), withTime.reader);
       await expect(stage.execute(unit, recorder(unit).context)).rejects.toThrow(new RegExp(`reads the committer time of ${commit}`));
@@ -970,7 +1032,7 @@ describe('what the wiring, the clock and the graph own rows can do to a read', (
     }
     // A time before 1970 is a time: git counts seconds from the epoch and its
     // count may be negative there, and the fact carries the instant.
-    const before1970 = await fakeGit({ log: record('First commit', '-1000000000', '-1000000000') });
+    const before1970 = await fakeGit({ log: record('', '-1000000000', '-1000000000') });
     try {
       const stage = stageOver(new Map([['orders-api', before1970.folder]]), before1970.reader);
       const run = recorder(unit);
@@ -983,7 +1045,7 @@ describe('what the wiring, the clock and the graph own rows can do to a read', (
     }
     // And a time ISO 8601 cannot hold is refused with the commit and what the
     // read made of it, never as a bare runtime error.
-    const beyond = await fakeGit({ log: record('First commit', '90000000000000', '90000000000000') });
+    const beyond = await fakeGit({ log: record('', '90000000000000', '90000000000000') });
     try {
       const stage = stageOver(new Map([['orders-api', beyond.folder]]), beyond.reader);
       await expect(stage.execute(unit, recorder(unit).context)).rejects.toThrow(new RegExp(`reads the committer time of ${commit} as "90000000000000"`));

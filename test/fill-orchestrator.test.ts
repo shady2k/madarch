@@ -1061,27 +1061,51 @@ describe('publication: exactly once per generation', () => {
     expect(await readPublications(opened.owner, 'snapshot/src')).toHaveLength(1);
   });
 
-  test('the facts, the state and the queue\'s settlement are one transaction: a failure rolls back all of them', async () => {
+  test('a publication the store refuses is a retried unit, and the next attempt publishes', async () => {
     const registry = new StageRegistry().register(draftingStage('snapshot', { units: ['src'], produces: ['file-facts'] }));
     let applied = 0;
     const { world: opened, runId } = await plannedWorld({
       registry,
+      limits: { retryDelayMs: 0 },
       apply: async ({ writes }) => {
         applied += 1;
-        if (applied === 1) throw new Error('the fact store refused the write');
+        if (applied === 1) throw new Error('the graph refused the write');
         return writes.length;
       },
     });
     await admitUnits(opened.orchestrator, { runId });
-    const caught = await workOnce(opened.orchestrator, { worker: 'worker-1' }).catch((error: Error) => error);
-    expect((caught as Error).message).toContain('the fact store refused the write');
-    // Nothing of the failed publication stands: no record, no fact, and the generation is still validating.
+    // A refused publication spends one attempt and leaves the other units' work standing: the failure is
+    // the unit's, and the run's next pass carries it.
+    const refused = await workOnce(opened.orchestrator, { worker: 'worker-1' });
+    expect(refused.result).toBe('retried');
+    expect((await readUnit(opened.owner, 'snapshot/src'))?.state).toBe('retry_wait');
     expect(await readPublications(opened.owner, 'snapshot/src')).toEqual([]);
-    expect((await readUnit(opened.owner, 'snapshot/src'))?.state).toBe('validating');
-    // The job was not settled by the rolled-back transaction: the attempt that held it never settled it,
-    // so nothing of the failed publication is left behind in the queue either.
-    expect(await readPublications(opened.owner, 'snapshot/src')).toEqual([]);
-    expect((await runEvidence(opened.orchestrator, runId)).pendingPublications).toBe(1);
+    expect((await runEvidence(opened.orchestrator, runId)).pendingPublications).toBe(0);
+    const swept = await sweepUnits(opened.orchestrator, { runId });
+    expect(swept.swept.map((unit) => unit.outcome)).toEqual(['woken']);
+    const published = await workOnce(opened.orchestrator, { worker: 'worker-2' });
+    expect(published.result).toBe('published');
+  });
+
+  test('a publication that fails every attempt names the unit failed and leaves the run partial', async () => {
+    const registry = new StageRegistry().register(draftingStage('snapshot', { units: ['src'], produces: ['file-facts'] }));
+    const { world: opened, runId } = await plannedWorld({
+      registry,
+      limits: { retryDelayMs: 0, retries: 1 },
+      apply: async () => { throw new Error('the graph refused the write'); },
+    });
+    await admitUnits(opened.orchestrator, { runId });
+    expect((await workOnce(opened.orchestrator, { worker: 'worker-1' })).result).toBe('retried');
+    await sweepUnits(opened.orchestrator, { runId });
+    const failed = await workOnce(opened.orchestrator, { worker: 'worker-2' });
+    expect(failed.result).toBe('failed');
+    expect((await readUnit(opened.owner, 'snapshot/src'))?.state).toBe('failed');
+    const events = await readProgress(opened.owner, runId);
+    const named = events.filter((event) => event.kind === 'unit-failed');
+    expect(named).toHaveLength(1);
+    expect(named[0]?.summary).toContain('the graph refused the write');
+    const settlement = await schedulerPass(opened.orchestrator, { runId });
+    expect(settlement.run.state).toBe('completed_partial');
   });
 
   test('a cancellation intent that lands while a publication is under way is refused by the publication itself', async () => {

@@ -1802,11 +1802,6 @@
   {
     "rule": "no-unreachable-code",
     "file": "src/fill/stages/document-index.ts",
-    "symbol": "taskKeysOf"
-  },
-  {
-    "rule": "no-unreachable-code",
-    "file": "src/fill/stages/document-index.ts",
     "symbol": "textOf"
   },
   {
@@ -2248,11 +2243,6 @@
     "rule": "no-unreachable-code",
     "file": "src/graph/versions.ts",
     "symbol": "guarded"
-  },
-  {
-    "rule": "no-unreachable-code",
-    "file": "src/graph/versions.ts",
-    "symbol": "kindId"
   },
   {
     "rule": "no-unreachable-code",
@@ -3273,11 +3263,6 @@
     "rule": "no-unreachable-code",
     "file": "src/mcp/git.ts",
     "symbol": "headBranch"
-  },
-  {
-    "rule": "no-unreachable-code",
-    "file": "src/mcp/graph.ts",
-    "symbol": "COLD_BUILD_CODE_FILES"
   },
   {
     "rule": "no-unreachable-code",

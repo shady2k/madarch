@@ -199,7 +199,7 @@ function git(folder: string, args: readonly string[]): string {
 }
 
 /** Writes the fixture repository into `folder` and commits it, answering the commit it stands on. */
-export function writeRepository(folder: string): string {
+export function writeRepository(folder: string, extraFiles: Readonly<Record<string, string>> = {}): string {
   mkdirSync(folder, { recursive: true });
   git(folder, ['init', '-q', '-b', 'main']);
   git(folder, ['config', 'user.name', 'Code Fixture']);
@@ -213,7 +213,7 @@ export function writeRepository(folder: string): string {
     { path: 'README.md', text: '# Orders\n\nA shop that sells things.\n' },
     { path: 'data/orders.csv', text: 'id,total\n1,10\n' },
   ];
-  for (const file of files) {
+  for (const file of [...files, ...Object.entries(extraFiles).map(([path, text]) => ({ path, text }))]) {
     mkdirSync(join(folder, file.path, '..'), { recursive: true });
     writeFileSync(join(folder, file.path), file.text);
   }
@@ -223,11 +223,11 @@ export function writeRepository(folder: string): string {
 }
 
 /** The product the fill runs on: one code repository connected under `repos/`, and the product repository itself. */
-export function writeProduct(root: string): { readonly product: string; readonly repository: string; readonly repositoryName: string } {
+export function writeProduct(root: string, extraFiles: Readonly<Record<string, string>> = {}): { readonly product: string; readonly repository: string; readonly repositoryName: string } {
   const product = join(root, 'product');
   const repository = join(root, 'shop');
   const repositoryName = 'shop';
-  writeRepository(repository);
+  writeRepository(repository, extraFiles);
   mkdirSync(join(product, 'repos'), { recursive: true });
   symlinkSync(repository, join(product, 'repos', repositoryName), 'dir');
   writeFileSync(join(product, 'workspace.yaml'), [

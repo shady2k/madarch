@@ -136,7 +136,7 @@ describe('three bounded graph reads', () => {
       expect((await context.neighbourhood('1', { relations: ['code.contains'], direction: 'out' })).rows).toHaveLength(1);
       expect(asked).toEqual([
         'key:file:abc:3',
-        'global:orders-api:src/a.ts#a:256',
+        `global:orders-api:src/a.ts#a:${String(STATIC_READ_ROW_LIMIT)}`,
         'near:1:code.contains:out:first',
       ]);
       // More rows than the cap is a refusal, never a cut window.

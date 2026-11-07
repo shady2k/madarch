@@ -843,6 +843,18 @@ export interface CommitValue {
    * and a rename is the path it left and the path it took.
    */
   readonly files: readonly RepositoryPath[];
+  /**
+   * Every trailer git's own parser read from the message, in the parser's
+   * order: its key and its value, exactly as the parser returned them. What a
+   * trailer means is the product's declaration, never this schema's.
+   */
+  readonly trailers?: readonly CommitTrailer[];
+}
+
+/** One trailer git's parser read: its key and its value. */
+interface CommitTrailer {
+  readonly key: string;
+  readonly value: string;
 }
 
 /**
@@ -1558,7 +1570,9 @@ export const FACT_KINDS: { readonly [K in FactKind]: FactKindDefinition<K> } = {
     stages: ['7-history'],
     place: 'optional',
     layers: ['extracted'],
-    version: FACTS_SCHEMA_VERSION,
+    // 2 for the trailers git's own parser read (madarch-8bdc.2.5): the value
+    // gained the parser's own records, and its identity still names the commit.
+    version: 2,
     identityValue: (value) => [['repository', value.repository], ['commit', value.commit]],
   },
 
@@ -1774,13 +1788,10 @@ export const FACT_KINDS: { readonly [K in FactKind]: FactKindDefinition<K> } = {
   'task-key': {
     kind: 'task-key',
     shape: 'edge',
-    // Stage 7 reads the keys a commit message names and stage 6 the keys a
-    // document names. The kind is one and the key is written as the tracker
-    // writes it; the two readers differ in what they read a marker from — a
-    // commit message's `Task:` line is a key list and nothing else, while a
-    // document's line carries the sentence the marker stands in — so each
-    // stage's own rule says which tokens of its text are keys (see
-    // `src/fill/stages/history.ts` and `src/fill/stages/document-index.ts`).
+    // Stage 7 reads the values of the trailer a product declares and stage 6
+    // the values of the front-matter field a product declares. No trailer name,
+    // field name or key shape stands in the engine: both readers take the
+    // product's declaration, and a product that declares none writes no key.
     stages: ['6-documents', '7-history'],
     place: 'optional',
     layers: ['extracted'],
@@ -2191,7 +2202,7 @@ const VALUE_FIELDS: { readonly [K in FactKind]: readonly (keyof FactValueOf<K> &
   'module': ['repository', 'name', 'parent', 'seed', 'members', 'importance', 'proposal'],
   'document': ['repository', 'path', 'mediaType', 'title', 'bytes', 'blob'],
   'section': ['repository', 'document', 'anchor', 'heading', 'level', 'startByte', 'endByte'],
-  'commit': ['repository', 'commit', 'committedAt', 'authoredAt', 'subject', 'author', 'parents', 'files'],
+  'commit': ['repository', 'commit', 'committedAt', 'authoredAt', 'subject', 'author', 'parents', 'files', 'trailers'],
   'claim': ['subject', 'predicate', 'object', 'text', 'confidence'],
   'entity-proposal': ['repository', 'proposed', 'name', 'summary', 'aliases'],
   'rule': ['statement', 'subject', 'form'],
@@ -2613,6 +2624,28 @@ export function checkFact(fact: unknown): FactProblem[] {
           const message = partIn(closed.values, closed.what)(held);
           if (message !== undefined) add(`value.${field}`, message);
         }
+        continue;
+      }
+      // A commit's trailers are git's own records, in the parser's order: a key
+      // and a value each, and a key may repeat (two `Task:` lines are two
+      // trailers). No name of a trailer and no shape of a key is read here.
+      if (kind === 'commit' && field === 'trailers') {
+        if (!Array.isArray(held)) {
+          add(`value.${field}`, `${shown(held)} is no list of trailers: this field holds the records git's trailer parser returned, in its order`);
+          continue;
+        }
+        held.forEach((entry, index) => {
+          if (typeof entry !== 'object' || entry === null || Array.isArray(entry)) {
+            add(`value.${field}[${index}]`, `a trailer is a record with a key and a value, not ${shown(entry)}`);
+            return;
+          }
+          const trailer = entry as Record<string, unknown>;
+          const unknownTrailer = unknownKeyProblem(trailer, ['key', 'value']);
+          if (unknownTrailer !== undefined) add(`value.${field}[${index}]`, unknownTrailer);
+          for (const part of ['key', 'value']) {
+            if (typeof trailer[part] !== 'string') add(`value.${field}[${index}].${part}`, `a trailer's ${part} is the text git's parser returned, not ${shown(trailer[part])}`);
+          }
+        });
         continue;
       }
       // The shape decides the branch, never the content: a name list is read as

@@ -17,6 +17,7 @@ import { resolve } from 'node:path';
 
 import { readRevision, type Revision } from './git.js';
 import { graphFolder, mcpStateRoot, openRepositoryGraph, type RepositoryGraph } from './graph.js';
+import type { FillLog } from './fill-log.js';
 import { recordCall } from './journal.js';
 import { RepositoryReads, WorkingLayer } from './layer.js';
 import { RepositoryPages, repositoryQuestions } from './pages.js';
@@ -31,6 +32,8 @@ export interface SessionOptions {
   readonly env?: Readonly<Record<string, string | undefined>>;
   /** Where the session says what it builds and when; standard error by default. */
   readonly log?: (line: string) => void;
+  /** The fill's own log, when the server keeps one: every durable event reaches it as it is committed. */
+  readonly progress?: FillLog | undefined;
 }
 
 /** One open repository, serving the seven tools. */
@@ -59,7 +62,7 @@ export class RepositorySession {
     const folder = resolve(options.folder ?? graphFolder(absolute, mcpStateRoot(env)));
     const log = options.log ?? (() => {});
     const revision = readRevision(absolute);
-    const graph = await openRepositoryGraph({ repository: absolute, folder, env, log });
+    const graph = await openRepositoryGraph({ repository: absolute, folder, env, log, progress: options.progress });
     return new RepositorySession(absolute, folder, env, log, graph, revision);
   }
 
@@ -102,14 +105,20 @@ export class RepositorySession {
     const started = performance.now();
     let revision = this.revision;
     let reextracted: string[] = [];
-    const source = (): Record<string, unknown> => ({
-      repository: this.absolute,
-      commit: revision.commit,
-      branch: revision.branch,
-      at: this.graph.view.at,
-      dirty: revision.dirty.map((one) => ({ path: one.path, status: one.status })),
-      reextracted: [...reextracted],
-    });
+    const source = (): Record<string, unknown> => {
+      const fill = this.graph.fill;
+      return {
+        repository: this.absolute,
+        commit: revision.commit,
+        branch: revision.branch,
+        at: this.graph.view.at,
+        dirty: revision.dirty.map((one) => ({ path: one.path, status: one.status })),
+        reextracted: [...reextracted],
+        // What the fill that built this graph left out is named on every answer: a reader must never take a
+        // partial graph for the whole one (decision 0033, items 18 and 19).
+        ...(fill === undefined || fill.failed.length === 0 ? {} : { fill: { state: fill.state, failed: fill.failed } }),
+      };
+    };
     let answered: RepoToolAnswer;
     let questionsAnswered = 0;
     try {

@@ -1368,15 +1368,23 @@ export interface WorkOutcome {
  */
 export async function workOnce(orchestrator: FillOrchestrator, options: { readonly worker: string }): Promise<WorkOutcome> {
   const database = orchestrator.database;
+  const claimAt = performance.now();
   const claimed = await orchestrator.queue.claim<{ unitId: string; generation: number }>({ queue: orchestrator.queueName, limit: 1 });
+  const claimMs = performance.now() - claimAt;
   const job = claimed[0];
-  if (job === undefined) return { claimed: false, job: 'none' };
+  if (job === undefined) {
+    if (claimMs > 1_000) await emit(orchestrator, { runId: '', at: orchestrator.clock(), stage: '', unitId: '', generation: null, kind: 'work-timing', summary: JSON.stringify({ where: 'claim-empty', ms: Math.round(claimMs) }) });
+    return { claimed: false, job: 'none' };
+  }
   const data = job.data;
   if (data === null || typeof data !== 'object' || typeof data.unitId !== 'string' || !Number.isInteger(data.generation)) {
     await orchestrator.queue.complete(orchestrator.queueName, job, { reason: 'the job carries no unit identity' });
     return { claimed: true, result: 'refused', refusal: { code: 'fill-orchestrator/job-malformed', reason: `fill-orchestrator: the claimed job ${job.id} carries ${JSON.stringify(data)}, which names no unit generation` }, job: 'completed' };
   }
+  const readAt = performance.now();
   const unit = await readUnit(database, data.unitId);
+  const readMs = performance.now() - readAt;
+  if (readMs > 1_000) await emit(orchestrator, { runId: unit?.runId ?? '', at: orchestrator.clock(), stage: unit?.stageId ?? '', unitId: data.unitId, generation: data.generation, kind: 'work-timing', summary: JSON.stringify({ where: 'read', ms: Math.round(readMs) }) });
   if (unit === null) {
     await orchestrator.queue.complete(orchestrator.queueName, job, { reason: 'no such unit' });
     return { claimed: true, unitId: data.unitId, generation: data.generation, result: 'nothing-to-do', summary: 'the unit is not recorded', job: 'completed' };
@@ -1402,7 +1410,13 @@ export async function workOnce(orchestrator: FillOrchestrator, options: { readon
     await emit(orchestrator, { runId: unit.runId, at, stage: unit.stageId, unitId: unit.unitId, generation: unit.generation, kind: 'unit-retried', summary: `${unit.unitId} is runnable again` });
     return await attemptUnit(orchestrator, { worker: options.worker, job, unit: step.record });
   }
-  if (unit.state === 'ready') return await attemptUnit(orchestrator, { worker: options.worker, job, unit });
+  if (unit.state === 'ready') {
+    const attemptAt = performance.now();
+    const outcome = await attemptUnit(orchestrator, { worker: options.worker, job, unit });
+    const attemptMs = performance.now() - attemptAt;
+    if (attemptMs > 1_000) await emit(orchestrator, { runId: unit.runId, at: orchestrator.clock(), stage: unit.stageId, unitId: unit.unitId, generation: unit.generation, kind: 'work-timing', summary: JSON.stringify({ where: 'attempt', ms: Math.round(attemptMs) }) });
+    return outcome;
+  }
   if (unit.state === 'waiting_children') {
     const plan = await planOf(orchestrator, unit);
     const settled = await settleJoin(orchestrator, { unit, plan, runId: unit.runId, at });
@@ -1487,6 +1501,7 @@ async function attemptUnit(
   const database = orchestrator.database;
   const unit = request.unit;
   const stage = stageOf(orchestrator, unit.stageId);
+  const setupAt = performance.now();
   const plan = await planOf(orchestrator, unit);
   const at = orchestrator.clock();
   // The queue's own answer first, before this attempt takes anything: a claim the queue already handed to
@@ -1511,6 +1526,8 @@ async function attemptUnit(
   const writes: StageDraftWrite[] = [];
   const notes: { note: string; fraction: number | null; at: number }[] = [];
   const reader = await orchestrator.graph(unitRef(unit, plan));
+  const setupMs = performance.now() - setupAt;
+  if (setupMs > 1_000) await emit(orchestrator, { runId: unit.runId, at: orchestrator.clock(), stage: unit.stageId, unitId: unit.unitId, generation: unit.generation, kind: 'work-timing', summary: JSON.stringify({ where: 'setup', ms: Math.round(setupMs) }) });
   const draftWriter: StageDraftWriter = {
     write: (entry: StageDraftWrite) => { writes.push(entry); },
     writes: (): StageDraftSet => ({ writes }),
@@ -1602,7 +1619,10 @@ async function attemptUnit(
       },
       signal: controller.signal,
     };
+    const executeAt = performance.now();
     result = await stage.execute({ id: plan.stageUnitId, scope: plan.scope }, context);
+    const executeMs = performance.now() - executeAt;
+    if (executeMs > 1_000) await emit(orchestrator, { runId: unit.runId, at: orchestrator.clock(), stage: unit.stageId, unitId: unit.unitId, generation: unit.generation, kind: 'work-timing', summary: JSON.stringify({ where: 'execute', ms: Math.round(executeMs) }) });
   } catch (error) {
     raised = error as Error;
   } finally {
@@ -1632,14 +1652,31 @@ async function attemptUnit(
   // The draft: the machine's own `submit-draft` step, then the effect that records what was written.
   const drafted = await takeAttemptStep(orchestrator, { unit, step: 'submit-draft', job: request.job, event: { type: 'submit-draft', at: orchestrator.clock(), generation: unit.generation, fence } });
   if (!drafted.ok) return drafted.outcome;
-  const recorded = await recordUnitDraft(database, { unitId: unit.unitId, generation: unit.generation, writes, at: orchestrator.clock() });
+  let recorded: Awaited<ReturnType<typeof recordUnitDraft>>;
+  try {
+    recorded = await recordUnitDraft(database, { unitId: unit.unitId, generation: unit.generation, writes, at: orchestrator.clock() });
+  } catch (error) {
+    // A draft the store could not record is this unit's failure: the run keeps the other units' work and
+    // spends this generation's retries (decision 0033, items 18, 19 and 27), never the process.
+    const reason = `recording the draft of "${unit.unitId}" generation ${unit.generation} raised: ${messageOf(error)}`;
+    return await retryAttempt(orchestrator, { unit, fence, job: request.job, cause: 'transient-failure', reason, summary: reason });
+  }
   await emit(orchestrator, { runId: unit.runId, at: orchestrator.clock(), stage: unit.stageId, unitId: unit.unitId, generation: unit.generation, kind: 'unit-drafted', summary: `${unit.unitId} drafted ${writes.length} ${writes.length === 1 ? 'write' : 'writes'}` });
 
   const validating = await takeAttemptStep(orchestrator, { unit, step: 'validate-draft', job: request.job, event: { type: 'validate-draft', at: orchestrator.clock(), generation: unit.generation, fence } });
   if (!validating.ok) return validating.outcome;
   await emit(orchestrator, { runId: unit.runId, at: orchestrator.clock(), stage: unit.stageId, unitId: unit.unitId, generation: unit.generation, kind: 'unit-validating', summary: `${unit.unitId} validates its draft` });
 
-  const validation = await stage.validate({ writes }, attemptReader);
+  const validateAt = performance.now();
+  let validation: Awaited<ReturnType<typeof stage.validate>>;
+  try {
+    validation = await stage.validate({ writes }, attemptReader);
+  } catch (error) {
+    const reason = `the validation of "${unit.unitId}" generation ${unit.generation} raised: ${messageOf(error)}`;
+    return await retryAttempt(orchestrator, { unit, fence, job: request.job, cause: 'validation-problem', reason, summary: reason });
+  }
+  const validateMs = performance.now() - validateAt;
+  if (validateMs > 1_000) await emit(orchestrator, { runId: unit.runId, at: orchestrator.clock(), stage: unit.stageId, unitId: unit.unitId, generation: unit.generation, kind: 'work-timing', summary: JSON.stringify({ where: 'validate', ms: Math.round(validateMs) }) });
   if (!validation.ok) {
     return await retryAttempt(orchestrator, {
       unit: validating.record, fence, job: request.job, cause: 'validation-problem',
@@ -1647,7 +1684,11 @@ async function attemptUnit(
       summary: `${unit.unitId} was refused by validation: ${validation.errors.join('; ')}`,
     });
   }
-  return await publishAttempt(orchestrator, { unit: validating.record, plan, fence, job: request.job, reader, stage, held: { digest: recorded.digest, writes } });
+  const publishAt = performance.now();
+  const published = await publishAttempt(orchestrator, { unit: validating.record, plan, fence, job: request.job, reader, stage, held: { digest: recorded.digest, writes } });
+  const publishMs = performance.now() - publishAt;
+  if (publishMs > 1_000) await emit(orchestrator, { runId: unit.runId, at: orchestrator.clock(), stage: unit.stageId, unitId: unit.unitId, generation: unit.generation, kind: 'work-timing', summary: JSON.stringify({ where: 'publish', ms: Math.round(publishMs) }) });
+  return published;
 }
 
 /**
@@ -1672,7 +1713,9 @@ async function publishAttempt(
   const database = orchestrator.database;
   const unit = request.unit;
   const at = orchestrator.clock();
+  const draftAt = performance.now();
   const draft = await readUnitDraftHead(database, unit.unitId, unit.generation);
+  const draftMs = performance.now() - draftAt;
   if (draft === null) raise(`unit "${unit.unitId}" generation ${unit.generation} reached validation with no recorded draft set to publish`);
   const digest = publicationDigest({ inputsDigest: unit.inputsDigest, draft: draft.digest, stageId: request.stage.id, stageVersion: request.stage.version });
   // The publication is one snapshot (see `publishUnitIn`), so a writer that got to one of its rows first
@@ -1680,6 +1723,15 @@ async function publishAttempt(
   // refuse what a snapshot refuses. That race is the same event as a read that moved: the attempt is
   // retried against the store as it now stands, its draft retracted, exactly as a stale read is.
   let outcome: { readonly publication: PublicationOutcome; readonly settled: boolean };
+  let revalidateMs = 0;
+  let revalidateReads = 0;
+  let applyMs = 0;
+  let publicationReader: UnitGraphReader | undefined;
+  const transactionAt = performance.now();
+  const emitTiming = async (): Promise<void> => {
+    const total = performance.now() - transactionAt;
+    if (total > 1_000) await emit(orchestrator, { runId: unit.runId, at: orchestrator.clock(), stage: unit.stageId, unitId: unit.unitId, generation: unit.generation, kind: 'work-timing', summary: JSON.stringify({ where: 'publication', total: Math.round(total), draftMs: Math.round(draftMs), revalidateMs: Math.round(revalidateMs), reads: revalidateReads, applyMs: Math.round(applyMs) }) });
+  };
   try {
     outcome = await ownTransaction(here(), orchestrator, `publishUnit(${unit.unitId}/${unit.generation})`, ['fill_publication', 'fill_unit_read', 'fill_unit_draft', 'fill_unit_draft_part', 'fill_unit_lease', 'fill_unit_generation'], async (transaction) => {
       const publication: PublicationOutcome = await publishUnitIn(transaction, {
@@ -1691,8 +1743,13 @@ async function publishAttempt(
         // The reads are rechecked through the publication's own transaction: the process's owner refuses a
         // second transaction on its connection, so the pinned graph answers from inside this one.
         revalidate: async (read: TrackedRead, executor) => {
-          const reader = await orchestrator.graph(unitRef(unit, request.plan), executor);
-          const answered = await answerNow(reader, recordedReadText(read.query));
+          const readAt = performance.now();
+          revalidateReads += 1;
+          // One reader for the whole publication: the wiring is the same transaction and the same unit,
+          // and building it per read cost a publication tens of reads' worth of setup (measured 224 ms a read).
+          publicationReader ??= await orchestrator.graph(unitRef(unit, request.plan), executor);
+          const answered = await answerNow(publicationReader, recordedReadText(read.query));
+          revalidateMs += performance.now() - readAt;
           // A read the graph cannot answer now — the file a span cited is gone, or shorter than the span — refuses
           // the publication like any other read that moved: the draft stands on bytes nothing holds any more.
           if (answered.kind === 'unanswered') return { membership: `unanswered: ${answered.reason}`, members: 0 };
@@ -1701,7 +1758,12 @@ async function publishAttempt(
           return { membership: answerMembership(read.query, answered.rows), members: answered.rows.length };
         },
         held: request.held,
-        apply: async (executor, writes, digest) => await orchestrator.facts.apply({ executor, unit, plan: request.plan, digest, writes }),
+        apply: async (executor, writes, digest) => {
+          const applyAt = performance.now();
+          const applied = await orchestrator.facts.apply({ executor, unit, plan: request.plan, digest, writes });
+          applyMs += performance.now() - applyAt;
+          return applied;
+        },
       });
       if (publication.outcome === 'published' || publication.outcome === 'replayed') {
         const settled = await orchestrator.queue.complete(orchestrator.queueName, request.job, { publication: { unitId: unit.unitId, generation: unit.generation, digest } }, transaction);
@@ -1710,11 +1772,13 @@ async function publishAttempt(
       return { publication, settled: false };
     });
   } catch (error) {
+    await emitTiming();
     if (!isSerializationFailure(error)) throw error;
     const reason = `the publication of "${unit.unitId}" generation ${unit.generation} lost its snapshot to a concurrent writer (${messageOf(error)}); the attempt is retried against the store as it now stands`;
     return await retryAttempt(orchestrator, { unit, fence: request.fence, job: request.job, cause: 'validation-problem', reason, summary: reason });
   }
 
+  await emitTiming();
   if (outcome.publication.outcome === 'published') {
     // The record's own digest, not the one this attempt computed before the transaction: they are the
     // same publication, and everything the run says about it afterwards names what it really wrote.
@@ -2423,6 +2487,10 @@ export async function guardStage(orchestrator: FillOrchestrator, options: { read
 // One scheduler pass, and the loop a host runs
 // ---------------------------------------------------------------------------------------------
 
+/** One part of a scheduler pass whose wall time is measured, and the times of every part. */
+type SchedulerPhase = 'read' | 'sweep' | 'evidence' | 'replan' | 'admit' | 'guard' | 'stale' | 'settle';
+type SchedulerPhases = Readonly<Record<SchedulerPhase, number>>;
+
 /** What one scheduler pass did. */
 export interface SchedulerOutcome {
   /** The run as it stands after the pass. */
@@ -2442,6 +2510,12 @@ export interface SchedulerOutcome {
   readonly reused: readonly string[];
   /** The stages whose plan found a producer's inputs but nothing in them, in this pass's wave. */
   readonly foundNothing: readonly string[];
+  /** How many units the run held when the pass began. */
+  readonly units: number;
+  /** The wall time of the whole pass. */
+  readonly ms: number;
+  /** The wall time of each part of the pass. */
+  readonly phases: SchedulerPhases;
 }
 
 /**
@@ -2465,23 +2539,38 @@ function guardKey(stageId: string, units: readonly UnitRecord[]): string {
  */
 export async function schedulerPass(orchestrator: FillOrchestrator, options: { readonly runId: string }): Promise<SchedulerOutcome> {
   const database = orchestrator.database;
+  const startedAt = performance.now();
+  let marked = startedAt;
+  const phases: Record<SchedulerPhase, number> = { read: 0, sweep: 0, evidence: 0, replan: 0, admit: 0, guard: 0, stale: 0, settle: 0 };
+  const tick = (phase: SchedulerPhase): void => { const now = performance.now(); phases[phase] += now - marked; marked = now; };
+  const elapsed = (): number => performance.now() - startedAt;
   let run = await readRun(database, options.runId);
   if (run === null) raise(`no run ${options.runId} is recorded`);
   if (['succeeded', 'completed_partial', 'blocked', 'failed', 'cancelled', 'paused'].includes(run.state)) {
     const settlement = await settleRun(orchestrator, { runId: run.runId });
-    return { run: settlement.run, admitted: 0, swept: 0, stale: 0, settlement, refused: [], moved: false, guarded: [], reused: [], foundNothing: [] };
+    tick('settle');
+    return { run: settlement.run, admitted: 0, swept: 0, stale: 0, settlement, refused: [], moved: false, guarded: [], reused: [], foundNothing: [], units: 0, ms: elapsed(), phases: { ...phases } };
   }
   const control = await orchestrator.control(run.runId);
   if (control === 'stopped') {
     const cancelled = await cancelRun(orchestrator, { runId: run.runId, cause: 'the person stopped the run' });
-    return { run: cancelled.run, admitted: 0, swept: cancelled.cancelledUnits.length, stale: 0, settlement: cancelled.settlement, refused: cancelled.refused, moved: true, guarded: [], reused: [], foundNothing: [] };
+    tick('read');
+    return { run: cancelled.run, admitted: 0, swept: cancelled.cancelledUnits.length, stale: 0, settlement: cancelled.settlement, refused: cancelled.refused, moved: true, guarded: [], reused: [], foundNothing: [], units: 0, ms: elapsed(), phases: { ...phases } };
   }
   if (control === 'paused' && run.state === 'running') {
     const settlement = await pauseRun(orchestrator, { runId: run.runId });
-    return { run: settlement.run, admitted: 0, swept: 0, stale: 0, settlement, refused: [], moved: true, guarded: [], reused: [], foundNothing: [] };
+    tick('read');
+    return { run: settlement.run, admitted: 0, swept: 0, stale: 0, settlement, refused: [], moved: true, guarded: [], reused: [], foundNothing: [], units: 0, ms: elapsed(), phases: { ...phases } };
   }
+  // The run's size, for the pass timing: a count is what tells a pass that costs what it does from one
+  // that costs what the run holds. The index on `fill_unit_generation(run_id)` makes it a small read.
+  const passRunId = run.runId;
+  const counted = await database.run(async (executor) => await executor.query<{ count: string }>('SELECT count(*)::text AS count FROM fill_unit_generation WHERE run_id = $1', [passRunId]));
+  const unitsInRun = Number(counted.rows[0]?.count ?? 0);
+  tick('read');
 
   const swept = await sweepUnits(orchestrator, { runId: run.runId });
+  tick('sweep');
   // A stage that planned no unit and whose producers have published since plans
   // here (madarch-tzte.26.3), before the pass admits anything: the units the
   // re-planning names stand in this pass's admission, in the stage order the
@@ -2492,10 +2581,13 @@ export async function schedulerPass(orchestrator: FillOrchestrator, options: { r
   // its planning left open. A run-level refusal stands in the pass's refusals,
   // so nothing is dropped in silence.
   const quiet = (await runEvidence(orchestrator, run.runId));
+  tick('evidence');
   const wave = quiet.runnable === 0 && quiet.inFlight === 0 && quiet.waiting === 0 || run.state === 'planning'
     ? await replanAfterPublications(orchestrator, { runId: run.runId })
     : { outcome: 'planned' as const, planned: false, run, units: [], reused: [], foundNothing: [] };
+  tick('replan');
   const admission = await admitUnits(orchestrator, { runId: run.runId });
+  tick('admit');
   const refused: UnitRefusal[] = [
     ...swept.refused,
     ...wave.outcome === 'refused' ? [{ unitId: '', code: wave.code, reason: wave.reason }] : [],
@@ -2523,21 +2615,26 @@ export async function schedulerPass(orchestrator: FillOrchestrator, options: { r
       if (verdict.outcome === 'conflict') {
         guarded.push(stageId);
         const blocked = await blockRun(orchestrator, { runId: run.runId, reason: `human-edit-wins: the published output of stage ${stageId} was edited by a person, and the run waits for that review` });
-        return { run: blocked.run, admitted: admission.admittedNow, swept: swept.swept.length, stale: 0, settlement: blocked, refused, moved: true, guarded, reused: waveReused, foundNothing: waveFoundNothing };
+        tick('guard');
+        return { run: blocked.run, admitted: admission.admittedNow, swept: swept.swept.length, stale: 0, settlement: blocked, refused, moved: true, guarded, reused: waveReused, foundNothing: waveFoundNothing, units: unitsInRun, ms: elapsed(), phases: { ...phases } };
       }
     }
   }
+  tick('guard');
 
   // A run that would settle first asks whether what it published still stands: the staleness recheck
   // (a recorded read that moved, an input that moved) runs when nothing else is outstanding, which is
   // the moment its own work is meant to be complete, and its cost is bounded by that.
   const beforeStale = await runEvidence(orchestrator, run.runId);
+  tick('evidence');
   let stale: StaleSweep = { invalidated: [], refused: [] };
   if (beforeStale.runnable === 0 && beforeStale.inFlight === 0 && beforeStale.waiting === 0) {
     stale = await invalidateStaleUnits(orchestrator, { runId: run.runId });
     refused.push(...stale.refused);
   }
+  tick('stale');
   const settlement = await settleRun(orchestrator, { runId: run.runId });
+  tick('settle');
   return {
     run: settlement.run,
     admitted: admission.admittedNow,
@@ -2549,6 +2646,9 @@ export async function schedulerPass(orchestrator: FillOrchestrator, options: { r
     guarded,
     reused: waveReused,
     foundNothing: waveFoundNothing,
+    units: unitsInRun,
+    ms: elapsed(),
+    phases: { ...phases },
   };
 }
 
@@ -2603,6 +2703,7 @@ export async function driveRun(
     for (const refusal of pass.refused) {
       if (refusal.unitId === '' && !refused.some((held) => held.code === refusal.code && held.reason === refusal.reason)) refused.push({ code: refusal.code, reason: refusal.reason });
     }
+    const workStarted = performance.now();
     let claimedThisPass = 0;
     for (let worker = 0; worker < workers; worker += 1) {
       const outcome = await workOnce(orchestrator, { worker: `worker-${worker + 1}` });
@@ -2610,8 +2711,15 @@ export async function driveRun(
       claimedThisPass += 1;
       work += 1;
     }
+    const workMs = performance.now() - workStarted;
+    // Every pass records what it cost and what the run held: a pass whose time grows with the run rather
+    // than with the work due in it is visible in the log beside the store and in the MCP's own progress.
+    await emit(orchestrator, { runId: run.runId, at: orchestrator.clock(), stage: '', unitId: '', generation: null, kind: 'pass-timing', summary: JSON.stringify({ pass: passes, units: pass.units, ms: Math.round(pass.ms), admitted: pass.admitted, claimed: claimedThisPass, workMs: Math.round(workMs), phases: pass.phases }) });
     if ((TERMINAL_RUN_STATES as readonly string[]).includes(run.state)) return { run, passes, work, settled: true, reused, foundNothing, refused };
     if (claimedThisPass === 0 && !pass.moved) {
+      // A pass that moved nothing while the run still owes work is a run held by a state its own claims cannot
+      // reach: name the counts the loop waited on, so the 5 s wait that follows is not a silence.
+      await emit(orchestrator, { runId: run.runId, at: orchestrator.clock(), stage: '', unitId: '', generation: null, kind: 'run-waiting', summary: JSON.stringify({ pass: passes, units: pass.units, admitted: pass.admitted, swept: pass.swept, stale: pass.stale, settlement: pass.settlement.outcome, evidence: pass.settlement.evidence }) });
       return { run, passes, work, settled: false, stoppedBecause: 'a pass and its claims together changed nothing', reused, foundNothing, refused };
     }
   }

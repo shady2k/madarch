@@ -315,7 +315,7 @@ export interface FillOrchestratorService {
    * `.madarch/fill` — answers `null` so its own control answers for it; a step a
    * run's machine refuses answers a refusal in the machine's own words.
    */
-  control(request: { readonly productFolder: string; readonly runId: string; readonly action: FillRunControl }): Promise<FillRunControlAnswer | null>;
+  control(request: { readonly productFolder: string; readonly runId: string; readonly action: FillRunControl; readonly product?: string }): Promise<FillRunControlAnswer | null>;
   /**
    * Stops the queue and closes the database this service opened; safe to call
    * twice and safe to call before anything was opened.
@@ -950,8 +950,10 @@ async function fileDecision(
       const active = activeRunId === null ? null : await readRun(database, activeRunId);
       return { state: chain.state, activeRunId, activeRunState: active?.state ?? null };
     },
-    async control(request: { readonly productFolder: string; readonly runId: string; readonly action: FillRunControl }): Promise<FillRunControlAnswer | null> {
-      const product: FillProduct = { name: productNameOf(request.productFolder), folder: request.productFolder };
+    async control(request: { readonly productFolder: string; readonly runId: string; readonly action: FillRunControl; readonly product?: string }): Promise<FillRunControlAnswer | null> {
+      // A caller that already holds the product's name (a served checkout, which is no product repository) hands
+      // it in; everyone else reads it from the manifest, as before.
+      const product: FillProduct = { name: request.product ?? productNameOf(request.productFolder), folder: request.productFolder };
       const built = await orchestratorFor(product);
       if ('ok' in built) return { ok: false, code: built.code, reason: built.reason };
       // A run the store does not hold is the landed fill's, which keeps its own state file: `null` hands the

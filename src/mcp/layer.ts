@@ -324,7 +324,10 @@ class OverlayReader implements StaticGraphReader {
 
   async byProperty(kind: string, field: string, value: string, options?: { readonly limit?: number; readonly after?: string }): Promise<{ readonly rows: readonly StaticGraphNode[]; readonly next: string | null }> {
     const after = options?.after ?? '';
-    const page = await this.base.byProperty(kind, field, value, { limit: options?.limit ?? 256, ...(options?.after === undefined ? {} : { after: options.after }) });
+    // A page cursor is either a stored node's id (a decimal) or an overlay node's id (`overlay:<key>`); the
+    // graph reader only knows the first, so an overlay cursor asks the base for its first page and filters here.
+    const decimal = /^[0-9]+$/u.test(after);
+    const page = await this.base.byProperty(kind, field, value, { limit: options?.limit ?? 256, ...(decimal ? { after } : {}) });
     const rows = [...this.nodes.values()]
       .filter((node) => node.kind === kind && String(node.properties[field] ?? '') === value && node.id > after)
       .sort((left, right) => byCodePoint(left.id, right.id));
@@ -342,7 +345,9 @@ class OverlayReader implements StaticGraphReader {
   }
 
   async edgesByProperty(relation: string, field: string, value: string, options?: { readonly limit?: number; readonly after?: string }): Promise<{ readonly rows: readonly StaticGraphEdge[]; readonly next: string | null }> {
-    const page = await this.base.edgesByProperty(relation, field, value, options);
+    const after = options?.after ?? '';
+    const decimal = /^[0-9]+$/u.test(after);
+    const page = await this.base.edgesByProperty(relation, field, value, { limit: options?.limit ?? 256, ...(decimal ? { after } : {}) });
     const rows = this.edges
       .filter((edge) => edge.type === relation && String(edge.properties[field] ?? '') === value)
       .map((edge) => ({

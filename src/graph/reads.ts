@@ -127,6 +127,26 @@ export function readByProperty(tx: OuterTransaction, kind: string, field: string
 }
 
 /**
+ * The current nodes many record keys name, in one statement: the publication rechecks every node key and
+ * every edge end of a unit, and one query per key costs the unit's draft rather than the keys it repeats.
+ * A key two current nodes carry is answered with both, so the caller refuses the corrupt graph by name.
+ */
+export async function readByKeys(tx: OuterTransaction, keys: readonly string[], lens: ResolvedLens): Promise<Map<string, NodeVersionRow[]>> {
+  const found = new Map<string, NodeVersionRow[]>();
+  if (keys.length === 0) return found;
+  const rows = await tx.query<Raw>(
+    `SELECT ${NODE_COLUMNS}, v.properties->>'recordKey' AS record_key FROM ${NODE_FROM}
+     WHERE ${vis('v')} AND v.properties->>'recordKey' = ANY($4::text[])`,
+    [lens.valid, lens.known, String(lens.state), [...new Set(keys)]],
+  );
+  for (const row of rows.rows) {
+    const key = String(row['record_key']);
+    found.set(key, [...(found.get(key) ?? []), nodeRow(row)]);
+  }
+  return found;
+}
+
+/**
  * The architecture states seen at a valid and a known time, one entry per
  * state, in chain (key) order. Where `engine:state-after` edges exist (a state
  * is after the one it points to) the chain must be the single path they draw

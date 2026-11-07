@@ -95,7 +95,7 @@ import { publishedTreeRead, publishedTreeRows } from './tree-rows.js';
 export const CODE_FACTS_STAGE_ID = 'code-facts';
 
 /** The stage's own version, bumped when what it writes or plans changes. */
-const CODE_FACTS_STAGE_VERSION = 2;
+const CODE_FACTS_STAGE_VERSION = 6;
 
 /** The fact kinds the stage produces, in code point order. */
 const CODE_FACTS_STAGE_KINDS: readonly string[] = ['binding', 'callable', 'callsite', 'coverage', 'declares', 'export', 'expression', 'field', 'listener-port', 'service-unit'];
@@ -546,7 +546,15 @@ export async function callablesOfFile(path: string, bytes: Uint8Array, findings:
       }),
     });
   }
-  return callables.sort((left, right) => byCodePoint(left.key, right.key));
+  // Two declarations of one name in two scopes are two callables, and the extract reading names
+  // both `code.symbol:<path>#<name>`. A key that repeats takes its own place in the file, so one
+  // draft names one node by one key; a name written once keeps the reading's key unchanged.
+  const counts = new Map<string, number>();
+  for (const callable of callables) counts.set(callable.qualifiedName, (counts.get(callable.qualifiedName) ?? 0) + 1);
+  const keyed = callables.map((callable) => (counts.get(callable.qualifiedName) ?? 0) > 1
+    ? { ...callable, key: `code.symbol:${path}#${callable.qualifiedName}#${String(callable.span.byteStart)}` }
+    : callable);
+  return keyed.sort((left, right) => byCodePoint(left.key, right.key));
 }
 
 /** One syntax span as the graph's own span. */
@@ -593,8 +601,21 @@ export function collectFileFacts(repository: string, path: string, text: string,
   const idOf = (syntaxKind: string, span: SourceSpan): string => `${EXPRESSION_KIND}:${repository}:${path}@${String(span.byteStart)}:${String(span.byteEnd)}:${syntaxKind}`;
   const spanOfNode = (node: SyntaxNodeLike): SourceSpan => toSpan(path, spanOf(node as never));
 
-  /** The id of a node, computed once for the walk and reused by its parent, its fields and its own fact. */
-  const idOfNode = (node: SyntaxNodeLike): string => idOf(node.type, spanOfNode(node));
+  // A node's id is its place and syntax kind; a parser can give two nodes one place (an error node and
+  // its child at the same byte), so a second node there takes an ordinal. The node object is the key, so
+  // every reference to one node — its parent's field, its own fact — answers the same id.
+  const nodeIds = new WeakMap<SyntaxNodeLike, string>();
+  const idCounts = new Map<string, number>();
+  const idOfNode = (node: SyntaxNodeLike): string => {
+    const known = nodeIds.get(node);
+    if (known !== undefined) return known;
+    const base = idOf(node.type, spanOfNode(node));
+    const count = idCounts.get(base) ?? 0;
+    idCounts.set(base, count + 1);
+    const id = count === 0 ? base : `${base}#${String(count)}`;
+    nodeIds.set(node, id);
+    return id;
+  };
 
   /** The text a name node holds, without its quotes: a name is written as written. */
   const nameOf = (node: SyntaxNodeLike): string => node.text;
@@ -620,7 +641,7 @@ export function collectFileFacts(repository: string, path: string, text: string,
     const quoted = raw.startsWith('`') && raw.endsWith('`') && node.type === 'template_string' ? raw.slice(1, -1) : undefined;
     // A template with an interpolation holds code, not one value: its raw text stands and no value is claimed.
     if (node.type === 'template_string' && node.namedChildren.some((child) => child !== null && child.type !== 'string_fragment')) return { kind, raw };
-    const decoded = quoted ?? decodeQuoted(raw);
+    const decoded = quoted === undefined ? decodeQuoted(raw) : storeText(quoted);
     return decoded === undefined ? { kind, raw } : { kind, raw, value: decoded };
   };
 
@@ -687,7 +708,7 @@ export function collectFileFacts(repository: string, path: string, text: string,
         bodyStartLine: bodySpan.lineStart, bodyEndLine: bodySpan.lineEnd, bodySyntaxKind: bodyNode.type,
       });
     }
-    const id = idOf(node.type, span);
+    const id = idOfNode(node);
     const children: string[] = [];
     // A grammar's field names are words a file writes (`constructor` is the field of a
     // `new_expression`), and a plain object inherits `constructor` from Object.prototype: the
@@ -1022,6 +1043,30 @@ function decodeQuoted(raw: string): string | undefined {
     } else if (next === '\n') { /* a line continuation holds nothing */ }
     else out += next;
   }
+  return storeText(out);
+}
+
+/**
+ * The text a fact can hold: a JSON string and PostgreSQL's text cannot carry
+ * U+0000 or a lone surrogate, so each is kept as the escape a reader sees
+ * written (`\u0000`, `\ud800`) instead of disappearing or failing the
+ * publication. The source's own escape stays visible, and the fact keeps its
+ * place in the graph.
+ */
+function storeText(text: string): string {
+  let out = '';
+  for (let at = 0; at < text.length; at += 1) {
+    const code = text.charCodeAt(at);
+    if (code === 0) { out += '\\u0000'; continue; }
+    if (code >= 0xd800 && code <= 0xdbff) {
+      const next = text.charCodeAt(at + 1);
+      if (next >= 0xdc00 && next <= 0xdfff) { out += text[at]! + text[at + 1]!; at += 1; continue; }
+      out += `\\u${code.toString(16).padStart(4, '0')}`;
+      continue;
+    }
+    if (code >= 0xdc00 && code <= 0xdfff) { out += `\\u${code.toString(16).padStart(4, '0')}`; continue; }
+    out += text[at]!;
+  }
   return out;
 }
 
@@ -1085,7 +1130,11 @@ function factWrites(input: {
     writes.push({ kind: 'edge', evidence: input.evidence, value: { relation: DECLARES_RELATION, from: { key: input.fileKey }, to: { key: binding.id }, properties: { factKind: 'declares', repository: input.repository } } });
   }
   for (const callable of input.callables) {
-    const id = `${CALLABLE_KIND}:${input.repository}:${input.path}#${callable.qualifiedName}`;
+    // The callable's own key, with the reading's prefix replaced by this stage's: a name two scopes repeat
+    // carries its start byte, so the two callables are two nodes.
+    const id = callable.key.startsWith('code.symbol:')
+      ? `${CALLABLE_KIND}:${input.repository}:${callable.key.slice('code.symbol:'.length)}`
+      : `${CALLABLE_KIND}:${input.repository}:${input.path}#${callable.qualifiedName}`;
     writes.push({
       kind: 'node',
       evidence: input.evidence,
@@ -1222,7 +1271,29 @@ function factWrites(input: {
     });
     writes.push({ kind: 'edge', evidence: input.evidence, value: { relation: DECLARES_RELATION, from: { key: input.fileKey }, to: { key: portKey }, properties: { factKind: 'declares', repository: input.repository } } });
   }
-  return writes;
+  // No fact a store holds may carry U+0000 or a lone surrogate: PostgreSQL's text and jsonb cannot, and a
+  // source file may hold the byte itself. Each string a write carries is kept as the escape a reader sees.
+  return writes.map((write): StageDraftWrite => {
+    if (write.kind === 'node') {
+      return { ...write, value: { ...write.value, label: storeText(write.value.label), properties: storeDeep(write.value.properties) as Record<string, unknown> } };
+    }
+    if (write.kind === 'edge' && write.value.properties !== undefined) {
+      return { ...write, value: { ...write.value, properties: storeDeep(write.value.properties) as Record<string, unknown> } };
+    }
+    return write;
+  });
+}
+
+/** A value whose strings are storage-safe: U+0000 and lone surrogates as the escapes a reader sees. */
+function storeDeep(value: unknown): unknown {
+  if (typeof value === 'string') return storeText(value);
+  if (Array.isArray(value)) return value.map(storeDeep);
+  if (value !== null && typeof value === 'object') {
+    const out: Record<string, unknown> = {};
+    for (const key of Object.keys(value)) out[key] = storeDeep((value as Record<string, unknown>)[key]);
+    return out;
+  }
+  return value;
 }
 
 /** The key of one file's service-unit node: the vocabulary's kind, the repository and the file. */

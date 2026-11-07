@@ -16,15 +16,45 @@ import { closeSync, cpSync, existsSync, mkdirSync, openSync, readFileSync, readd
 import { basename, join, resolve } from 'node:path';
 import { homedir } from 'node:os';
 import { createPGliteDatabaseOwner, type DatabaseOwner } from '../adapters/database-owner.js';
-import { codeLanguageOf } from '../extract/code/source.js';
 import { createFillOrchestratorService } from '../fill/orchestrator-host.js';
+import { createOrchestratorSchema, readProgress } from '../fill/orchestrator-store.js';
+import { createFillStateSchema, readChain, readRun } from '../fill/state-store.js';
+import type { FillLog } from './fill-log.js';
+import { canonicalJsonDigest } from '../model/canonical.js';
+import { declaredStagesDigest } from '../product/fill-stages.js';
 import { createGraphStore, type GraphStore } from '../graph/index.js';
 import { sha256Hex } from '../graph/digest.js';
 import { defaultKnowledgeRoot } from '../knowledge/product.js';
 import { createRepositoryFill } from '../product/fill-stages.js';
 import { productsHome, type DraftEnv } from '../product/home.js';
 import { GraphView } from '../writer/view.js';
-import { headCommit, workingTree } from './git.js';
+import { headCommit } from './git.js';
+
+/** What one start's fill left: the state it settled in, and every unit that did not publish, with its reason. */
+interface FillOutcome {
+  readonly state: string;
+  readonly failed: readonly { readonly unitId: string; readonly state: string; readonly reason: string }[];
+}
+
+/** The file a graph folder keeps its last fill's outcome in, read again by a start that reuses the graph. */
+const FILL_OUTCOME_FILE = 'fill.json';
+
+/** The outcome a graph folder records, or undefined where it records none this start can trust. */
+function readFillOutcome(folder: string): FillOutcome | undefined {
+  try {
+    const held = JSON.parse(readFileSync(join(folder, FILL_OUTCOME_FILE), 'utf8')) as Partial<FillOutcome>;
+    if (typeof held.state !== 'string' || !Array.isArray(held.failed)) return undefined;
+    const failed = held.failed.filter((one): one is FillOutcome['failed'][number] => typeof one === 'object' && one !== null && typeof (one as { unitId?: unknown }).unitId === 'string' && typeof (one as { state?: unknown }).state === 'string' && typeof (one as { reason?: unknown }).reason === 'string');
+    return { state: held.state, failed };
+  } catch {
+    return undefined;
+  }
+}
+
+/** Records the outcome this start's fill left, so a start that reuses the graph reports it too. */
+function writeFillOutcome(folder: string, outcome: FillOutcome): void {
+  writeFileSync(join(folder, FILL_OUTCOME_FILE), JSON.stringify(outcome), 'utf8');
+}
 
 /** One opened base graph: what the session answers from, and where it lives. */
 export interface RepositoryGraph {
@@ -38,6 +68,8 @@ export interface RepositoryGraph {
   /** Whether this start built or moved the graph, and how long that took. */
   readonly filled: boolean;
   readonly fillMs: number;
+  /** What the fill that built this graph left: the state, and the units that did not publish. */
+  readonly fill: FillOutcome | undefined;
   close(): Promise<void>;
 }
 
@@ -122,18 +154,6 @@ async function markerOf(owner: DatabaseOwner, repository: string): Promise<strin
 }
 
 /**
- * The code files a cold build may have. A cold build runs **every** producer the fill runs — the code, the files,
- * the operations, the contracts and the data model — because a graph missing a contract's operations or a
- * migration's tables answers refusals for entities that exist, and that is worse than no graph at all
- * (madarch-ztyq.10 recheck). The contract and data-model extractors read the tree's expression facts, which are what
- * a cold build cannot bound: measured on this 6 GB machine, 300 code files with the facts peak at 2 145 MB, the fact
- * view of 898 files took the process past 3 GB, and the full checkout's 1 041 files were killed at 3 164 MB anon-rss.
- * So a tree above this bound is refused, with the count, the bound, those measurements and what to serve instead.
- * The number is the measurement, not a guess: a tree up to this size fits the facts in about 2 GB.
- */
-export const COLD_BUILD_CODE_FILES = 400;
-
-/**
  * The graph a product fill already holds for this repository and commit, when the madarch home has one. A product's
  * knowledge store is filled from the same extraction (decision 0026), so copying it costs a file copy where a cold
  * build costs the whole extraction — which is the difference the review asked for (madarch-ztyq.10 review).
@@ -164,6 +184,23 @@ async function reusableStore(repository: string, commit: string, env: DraftEnv):
 }
 
 
+/** The states a run ends in: nothing further happens to it (decision 0027's run machine). */
+const TERMINAL_RUN_STATES: readonly string[] = ['succeeded', 'completed_partial', 'blocked', 'failed', 'cancelled'];
+
+/**
+ * The run id a start asks for: the base while no run of that id reached a terminal state, and a numbered
+ * successor where one did. A terminal run is never replanned (decision 0027: the next attempt is a new run on
+ * the same chain), and a new run inherits the published generations whose cache keys stand.
+ */
+async function nextRunId(owner: DatabaseOwner, base: string): Promise<string> {
+  for (let attempt = 1; ; attempt += 1) {
+    const id = attempt === 1 ? base : `${base}-${attempt}`;
+    const held = await readRun(owner, id);
+    if (held === null) return id;
+    if (!TERMINAL_RUN_STATES.includes(held.state)) return id;
+  }
+}
+
 /**
  * Fills one repository's graph through the one fill entry (decision 0033, item 1): the wiring of the repository's
  * static stages (`createRepositoryFill`) driven by the orchestrator host over the owner this server holds. The stages
@@ -174,16 +211,59 @@ async function reusableStore(repository: string, commit: string, env: DraftEnv):
  * The service is stopped before it is dropped: it owns the queue it declared in this database, and the graph's own
  * reader is opened after it, on the same owner.
  */
-async function fillRepositoryGraph(owner: DatabaseOwner, repository: string, folder: string, log: (line: string) => void): Promise<void> {
+async function fillRepositoryGraph(owner: DatabaseOwner, repository: string, folder: string, log: (line: string) => void, progress?: FillLog): Promise<FillOutcome> {
   const fill = await createRepositoryFill({ repository, database: owner });
-  const service = createFillOrchestratorService({ home: folder, owner, registry: fill.registry, wiring: () => fill.wiring, workers: 16, maxPasses: 100_000, log });
-  try {
-    const result = await service.run({ product: fill.product, runId: `mcp-${headCommit(repository).slice(0, 12)}` });
-    if (!result.ok) throw new Error(`${folder}:1: the fill of ${repository} was refused: ${result.code}: ${result.reason} (src/mcp/graph.ts)`);
-    if (!result.settled || result.state !== 'succeeded') {
-      const failed = result.units.filter((unit) => unit.state !== 'published' && unit.state !== 'superseded').map((unit) => `${unit.unitId} (${unit.state})`);
-      throw new Error(`${folder}:1: the fill of ${repository} ended ${result.settled ? result.state : 'without settling'}${result.stoppedBecause === undefined ? '' : ` (${result.stoppedBecause})`}: ${failed.length === 0 ? 'no unit names a failure' : failed.join(', ')} (src/mcp/graph.ts)`);
+  const service = createFillOrchestratorService({
+    home: folder, owner, registry: fill.registry, wiring: () => fill.wiring, workers: 16, maxPasses: 100_000, log,
+    ...(progress === undefined ? {} : { sink: (event) => progress.sink(event) }),
+  });
+  // The run's identity names what the run was planned against: the commit, the stages' own versions and the
+  // repository's resolved stage settings. A start with another engine or another manifest is a new run on the
+  // same chain — decision 0027 plans a run once — and it inherits every published generation whose cache key
+  // stands, so a code change costs the changed stages and never the published work of the others.
+  // The store's own tables stand before the chain is read: a fresh folder holds no fill_chain yet, and the
+  // service creates them on its first run, after this start must know which run it is starting.
+  await createFillStateSchema(owner);
+  await createOrchestratorSchema(owner);
+  const configuration = await fill.wiring.configuration();
+  const planned = `${headCommit(repository).slice(0, 12)}-${declaredStagesDigest(fill.registry).slice(0, 12)}-${canonicalJsonDigest(configuration).slice(0, 12)}`;
+  const base = `mcp-${planned}`;
+  // The folder lock says no other process serves this graph, so a non-terminal run that another configuration
+  // planned is a start whose process ended. It is stopped — decision 0027's next attempt is a new run on the
+  // same chain — and its published generations are inherited by the new run where their cache keys stand.
+  const chain = await readChain(owner, fill.product.name);
+  const activeId = chain?.state === 'active' ? chain.context.activeRunId : null;
+  if (activeId !== null && activeId !== undefined && activeId !== base) {
+    const active = await readRun(owner, activeId);
+    if (active !== null && !TERMINAL_RUN_STATES.includes(active.state)) {
+      const stopped = await service.control({ productFolder: repository, runId: activeId, action: 'stop', product: fill.product.name });
+      if (stopped === null || !stopped.ok) {
+        throw new Error(`${folder}:1: the fill of ${repository} holds the dead start's run ${activeId} (${active.state}) and could not stop it: ${stopped === null ? 'the store does not hold it' : `${stopped.code}: ${stopped.reason}`} (src/mcp/graph.ts)`);
+      }
+      log(`madarch mcp: stopped the dead start's run ${activeId} (${active.state}); its published work is inherited`);
     }
+  }
+  const runId = await nextRunId(owner, base);
+  log(`madarch mcp: filling ${repository} as run ${runId}`);
+  try {
+    const result = await service.run({ product: fill.product, runId });
+    if (!result.ok) throw new Error(`${folder}:1: the fill of ${repository} was refused: ${result.code}: ${result.reason} (src/mcp/graph.ts)`);
+    const failed = result.units.filter((unit) => unit.state !== 'published' && unit.state !== 'superseded');
+    if (!result.settled) {
+      const named = failed.map((unit) => `${unit.unitId} (${unit.state})`);
+      throw new Error(`${folder}:1: the fill of ${repository} ended without settling${result.stoppedBecause === undefined ? '' : ` (${result.stoppedBecause})`}: ${named.length === 0 ? 'no unit names a failure' : named.join(', ')} (src/mcp/graph.ts)`);
+    }
+    // A run that settled short of success is served with what it published: decision 0033 (items 18 and 19)
+    // reports partial coverage, and a unit's failure is its own while the other units' work stands. The
+    // reason a unit did not publish is read from the run's own durable events, never guessed from its state.
+    const reasons = new Map<string, string>();
+    for (const event of await readProgress(owner, result.runId)) {
+      if (event.unitId !== '' && (event.kind === 'unit-failed' || event.kind === 'unit-blocked')) reasons.set(event.unitId, event.summary);
+    }
+    return {
+      state: result.state,
+      failed: failed.map((unit) => ({ unitId: unit.unitId, state: unit.state, reason: reasons.get(unit.unitId) ?? `the unit ended ${unit.state}` })),
+    };
   } finally {
     await service.stop();
   }
@@ -194,18 +274,22 @@ async function fillRepositoryGraph(owner: DatabaseOwner, repository: string, fol
  * folder holds no graph of this commit. `store` names the folder a caller keeps
  * the graph in; without one it is under the state root, per repository.
  *
- * A cold build runs every producer and is bounded (madarch-ztyq.10 recheck): the
- * graph of a tree whose code files exceed `COLD_BUILD_CODE_FILES` is refused with
- * the count, the bound and what to serve instead, never built without the contract
- * and data-model producers the tree's facts pay for. A product fill's own graph for
- * the same commit is copied instead of built whenever the madarch home holds one,
- * which is the cheap path for a checkout someone has already filled.
+ * A cold build runs every producer the fill runs — the code, the files, the
+ * operations, the contracts and the data model — so a graph it answers holds what
+ * the tree does, never a silently smaller reading. There is no file count above
+ * which it refuses: the fill is the path that must hold any repository, and a
+ * machine that runs out of memory is a fill defect to fix, not a reason to leave
+ * a repository unserved. A product fill's own graph for the same commit is copied
+ * instead of built whenever the madarch home holds one, which is the cheap path
+ * for a checkout someone has already filled.
  */
 export async function openRepositoryGraph(options: {
   readonly repository: string;
   readonly folder?: string | undefined;
   readonly env?: Readonly<Record<string, string | undefined>>;
   readonly log?: (line: string) => void;
+  /** The fill's own log, when the caller keeps one: every durable event reaches it as it is committed. */
+  readonly progress?: FillLog | undefined;
 }): Promise<RepositoryGraph> {
   const repository = resolve(options.repository);
   const folder = resolve(options.folder ?? graphFolder(repository, mcpStateRoot(options.env)));
@@ -220,6 +304,9 @@ export async function openRepositoryGraph(options: {
     await owner.exec(MARKER);
     const started = performance.now();
     let filled = false;
+    // The outcome the folder's last fill recorded, read before this start decides whether to build: a start that
+    // reuses the graph still answers what it is missing.
+    let fill = readFillOutcome(folder);
     const marked = await markerOf(owner, repository);
     let view: GraphView | null = null;
     if (marked === commit) {
@@ -239,30 +326,31 @@ export async function openRepositoryGraph(options: {
         const built = await GraphView.open(again, copied);
         await again.run((tx) => tx.query('INSERT INTO mcp_base (repository, head, filled_at) VALUES ($1, $2, $3) ON CONFLICT (repository) DO UPDATE SET head = $2, filled_at = $3', [repository, commit, new Date().toISOString()]));
         filled = true;
+        // A copied product store is a fill's own graph, and its coverage is the fill's: the copy is served as a
+        // complete graph only when the product's own run said it succeeded. A store that recorded no such run says
+        // nothing, and a start that cannot read it does not claim more than it knows.
+        fill = { state: 'succeeded', failed: [] };
+        writeFillOutcome(folder, fill);
         log(`madarch mcp: graph reused in ${((performance.now() - started) / 1000).toFixed(1)} s`);
         return {
-          owner: again, store: copied, view: built, folder, commit, filled, fillMs: performance.now() - started,
+          owner: again, store: copied, view: built, folder, commit, filled, fillMs: performance.now() - started, fill,
           close: async () => { await again.close(); releaseFolderLock(folder, held); },
         };
       }
-      const tree = workingTree(repository);
-      const codeFiles = tree.paths.filter((path) => codeLanguageOf(path) !== undefined).length;
-      if (codeFiles > COLD_BUILD_CODE_FILES) {
-        throw new Error(`${folder}:1: the graph of ${repository} would read ${codeFiles} code files, and a cold build here is bounded to ${COLD_BUILD_CODE_FILES} because a cold build runs every producer and their facts do not fit this machine's memory (measured: 300 files with the facts peak at 2 145 MB, 898 files took the process past 3 GB, and the full checkout's 1 041 files were killed at 3 164 MB on this 6 GB machine); serve a graph that exists instead — name the folder a fill built with --store, or fill this repository with \`madarch fill\` so its product store is reused (src/mcp/graph.ts)`);
-      }
-      log(`madarch mcp: building the graph of ${repository} at ${commit.slice(0, 12)} in ${folder} (${codeFiles} code files)`);
+      log(`madarch mcp: building the graph of ${repository} at ${commit.slice(0, 12)} in ${folder}`);
       const before = performance.now();
-      await fillRepositoryGraph(owner, repository, folder, log);
+      fill = await fillRepositoryGraph(owner, repository, folder, log, options.progress);
+      writeFillOutcome(folder, fill);
       const built = await GraphView.open(owner, store);
       const after = performance.now();
       await owner.run((tx) => tx.query('INSERT INTO mcp_base (repository, head, filled_at) VALUES ($1, $2, $3) ON CONFLICT (repository) DO UPDATE SET head = $2, filled_at = $3', [repository, commit, new Date().toISOString()]));
       view = built;
       filled = true;
-      log(`madarch mcp: graph built in ${((after - before) / 1000).toFixed(1)} s`);
+      log(`madarch mcp: graph built in ${((after - before) / 1000).toFixed(1)} s${fill.failed.length === 0 ? '' : `; ${fill.failed.length} ${fill.failed.length === 1 ? 'unit' : 'units'} did not publish (${fill.state})`}`);
     }
     const opened = filled ? 0 : performance.now() - started;
     return {
-      owner, store, view, folder, commit, filled,
+      owner, store, view, folder, commit, filled, fill,
       fillMs: filled ? performance.now() - started : opened,
       // The lock is dropped after the database is closed, never before: a second process that took the folder while
       // this one was mid-close would open a database another is still shutting down (madarch-ztyq.10 recheck).

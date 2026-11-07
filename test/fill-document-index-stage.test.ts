@@ -86,10 +86,11 @@ async function contextFor(unit: StageUnit, source: SnapshotSource, answer: (read
     controller,
     context: {
       unit,
-      config: { id: 'document-index', version: 2, enabled: true, concurrency: 1, limits: DEFAULT_STAGE_LIMITS, config: {} },
+      config: { id: 'document-index', version: 3, enabled: true, concurrency: 1, limits: DEFAULT_STAGE_LIMITS, config: { taskField: 'Ticket' } },
       graph: { query: async (read: string) => { recorder.queries.push(read); return answer(read); } },
       static: staticStageContext(pinned, {
-        byKey: async () => [],
+        // The target document's own unit published its node: a link to it resolves to that node.
+        byKey: async (key: string) => (key.startsWith('document:') ? [{ id: key, kind: 'code.document', label: 'document', properties: {} } as never] : []),
         byGlobalName: async () => [],
         neighbourhood: async () => ({ rows: [], next: null }),
         byProperty: async () => ({ rows: [], next: null }),
@@ -233,7 +234,7 @@ describe('one document', () => {
   test('its node, its sections and their anchors, its links, its task keys and its coverage', async () => {
     const f = await fixture();
     try {
-      await f.write('docs/a.md', '# A\n\n## B\n\nSee [C](c.md) and [out](https://example.test/x) and [gone](missing.md).\n\nTask: madarch-tzte.21.4\n');
+      await f.write('docs/a.md', '---\nTicket:\n  - madarch-tzte.21.4\n---\n# A\n\n## B\n\nSee [C](c.md) and [out](https://example.test/x) and [gone](missing.md).\n');
       await f.write('docs/c.md', '# C\n');
       const commit = f.commit();
       const source = sourceOf(f, commit);
@@ -375,14 +376,14 @@ describe('the plan', () => {
 });
 
 describe('what a reader of the document sees', () => {
-  test('a link or a task key inside a code span or a fence is no link and no key', async () => {
+  test('a key written in running prose is no key, and only the declared front-matter field is read', async () => {
     const f = await fixture();
     try {
-      await f.write('docs/a.md', '# A\n\n`[C](c.md)`\n\n```\n[C](c.md)\nTask: madarch-x1\n```\n');
+      await f.write('docs/a.md', '---\nTicket:\n  - declared-1\nOther:\n  - not-declared-2\n---\n# A\n\n`[C](c.md)`\n\n```\n[C](c.md)\nTicket: prose-1\n```\n\nTicket: prose-2\n');
       const commit = f.commit();
       const { writes } = await runUnit(sourceOf(f, commit), unitOf('orders-api', 'docs/a.md'));
       expect(edgesOf(writes, 'code.document-link')).toEqual([]);
-      expect(edgesOf(writes, 'code.tasks')).toEqual([]);
+      expect(edgesOf(writes, 'code.tasks').map((key) => key.value['key'])).toEqual(['declared-1']);
     } finally {
       await f.dispose();
     }

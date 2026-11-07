@@ -16,6 +16,9 @@ import { answerUnitMcpMessage, serveUnitMcp, type McpToolDefinition } from '../f
 import { runningVersion } from '../product/version.js';
 import { REPO_TOOL_NAMES, REPO_TOOLS, callRepoTool } from './tools.js';
 import { RepositorySession } from './session.js';
+import { FillLog, type FillLogSnapshot } from './fill-log.js';
+import { graphFolder, mcpStateRoot } from './graph.js';
+import { join } from 'node:path';
 
 /** What this server calls itself in `initialize`, after the protocol's own fields. */
 export const REPO_MCP_INFO: { readonly name: string; readonly version: string } = { name: 'madarch', version: runningVersion() };
@@ -29,24 +32,28 @@ export const REPO_MCP_INFO: { readonly name: string; readonly version: string } 
 export interface PendingRepository {
   readonly repository: string;
   readonly ready: Promise<RepositorySession>;
+  /** The fill's state so far, when the caller keeps a log: what the `graph building` answer says. */
+  readonly progress?: () => FillLogSnapshot;
 }
 
 /** What answers the protocol: a session that is open, or one that is still opening. */
 export type RepositoryProvider = RepositorySession | PendingRepository;
 
 /** The answer a tool call gets while its graph is being built. */
-function buildingAnswer(repository: string): Record<string, unknown> {
+function buildingAnswer(repository: string, progress?: FillLogSnapshot): Record<string, unknown> {
   return {
-    source: { repository, commit: null, branch: null, at: new Date().toISOString(), dirty: [], reextracted: [], building: true },
+    source: {
+      repository, commit: null, branch: null, at: new Date().toISOString(), dirty: [], reextracted: [], building: true,
+      ...(progress === undefined ? {} : { progress }),
+    },
     error: { code: 'graph-building', message: 'graph building: the graph of this repository is still being built; call the tool again in a moment' },
   };
 }
 
 /**
  * The answer a tool call gets once the start has failed for good: the failure is kept and reported on every call,
- * with the reason the start gave — a count, a bound, what to serve instead — rather than a progress note a client
- * would keep retrying (madarch-ztyq.10 recheck). A tree too large to build cold, with no graph to reuse, never
- * becomes servable by waiting.
+ * with the reason the start gave rather than a progress note a client would keep retrying (madarch-ztyq.10
+ * recheck). A start that failed does not become servable by waiting.
  */
 function failedAnswer(repository: string, failure: unknown): Record<string, unknown> {
   const message = failure instanceof Error ? failure.message : String(failure);
@@ -78,7 +85,7 @@ async function openSession(provider: RepositoryProvider): Promise<Opened> {
 async function answerCall(repository: string, provider: RepositoryProvider, tool: string, argumentsValue: unknown): Promise<{ answer: Record<string, unknown>; isError: boolean }> {
   const opened = await openSession(provider);
   if ('failure' in opened) return { answer: failedAnswer(repository, opened.failure), isError: true };
-  if ('opening' in opened) return { answer: buildingAnswer(repository), isError: false };
+  if ('opening' in opened) return { answer: buildingAnswer(repository, 'ready' in provider ? provider.progress?.() : undefined), isError: false };
   const answered = await opened.session.call(tool, argumentsValue);
   return { answer: answered.answer as Record<string, unknown>, isError: answered.isError };
 }
@@ -106,18 +113,23 @@ export interface RepositoryMcpOptions {
 export async function serveRepositoryMcp(options: RepositoryMcpOptions): Promise<number> {
   const stderr = options.errorOutput ?? process.stderr;
   const log = (line: string): void => { stderr.write(`${line}\n`); };
+  const folder = options.folder ?? graphFolder(options.repository, mcpStateRoot(options.env));
+  // Every durable fill event is written beside the graph as it happens, and the building answer and the
+  // standard error read the same snapshot: a person sees how far the fill is without opening the store.
+  const progress = new FillLog(join(folder, 'fill.log'), log);
   const ready = RepositorySession.open({
     repository: options.repository,
-    ...(options.folder === undefined ? {} : { folder: options.folder }),
+    folder,
     ...(options.env === undefined ? {} : { env: options.env }),
     log,
+    progress,
   });
   let failure: unknown;
   ready.then((session) => {
     const revision = session.current;
     log(`madarch mcp: serving ${revision.branch} at ${revision.commit.slice(0, 12)}${revision.dirty.length === 0 ? '' : ` with ${revision.dirty.length} changed file(s)`}; tools: ${REPO_TOOL_NAMES.join(', ')}`);
   }, (error: unknown) => { failure = error; log(error instanceof Error ? error.message : String(error)); });
-  const provider: PendingRepository = { repository: options.repository, ready };
+  const provider: PendingRepository = { repository: options.repository, ready, progress: () => progress.snapshot() };
   try {
     await serveUnitMcp({
       tools: REPO_TOOLS as readonly McpToolDefinition[],
