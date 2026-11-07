@@ -1,7 +1,7 @@
 /**
- * The wiki's fill button and the pages it publishes (decision 0033, item 1; the owner's item 3): a small product is
- * filled through the route the button calls, over HTTP, and its pages are then read over HTTP — the graph the pages
- * show is the one this path published.
+ * The wiki's fill button and the pages it publishes (madarch-8bdc.2.5, items 2 and 3): a small product is filled
+ * through the route the button calls, over HTTP, and its pages are then read over HTTP — the repository, its tree and
+ * one file, from the store this path published.
  *
  * The product is a fixture this test makes: its manifest, its workflow manifest (the starter set's first fill), one
  * code repository with one source file. No model runs: the fill is the static stages, and the pages that a model would
@@ -82,13 +82,21 @@ test('the button fills the store and the pages read the graph it published', asy
     await new Promise((resolve) => setTimeout(resolve, 250));
   }
   expect({ state, message: (filledAt['fill'] as { message?: string } | undefined)?.message }).toEqual({ state: 'done', message: undefined });
-  // The graph the pages read is the one this fill published: the fixture's file, symbol and the repository stand in it.
-  const files = await json('/products/walk/api/k/entities?kind=code.file&limit=100');
-  expect(files.status).toBe(200);
-  expect(JSON.stringify(files.body)).toContain('src/slice.ts');
-  const symbols = await json('/products/walk/api/k/entities?kind=code.symbol&limit=100');
-  expect(symbols.status).toBe(200);
-  expect(JSON.stringify(symbols.body)).toContain('halvesOf');
-  // The status names the repository the fill pinned, read from the store's own `knowledge_fill` rows.
+  // The pages read the store this fill published: the repository's own page, its tree, and the file
+  // page with the facts of the fixture's file (madarch-8bdc.2.5, items 2 and 3). The old entity index
+  // of the agent stage is not what this step's fill writes, and no page is drawn from it here.
   expect(JSON.stringify(filledAt)).toContain('walk-code');
+  expect((filledAt['repository'] as Record<string, unknown>)['steps']).toEqual({ 'tree': true, 'history': true });
+  const repository = await json('/products/walk/api/k/repository');
+  expect(repository.status).toBe(200);
+  expect(JSON.stringify(repository.body)).toContain('walk-code');
+  const root = await json('/products/walk/api/k/folder?path=');
+  expect(root.status).toBe(200);
+  expect(((root.body['folder'] as Record<string, unknown>)['folders'] as string[])).toContain('src');
+  const file = await json('/products/walk/api/k/file?path=src%2Fslice.ts');
+  expect(file.status).toBe(200);
+  const model = file.body['file'] as Record<string, unknown>;
+  expect((model['file'] as Record<string, unknown>)['path']).toBe('src/slice.ts');
+  expect(model['created']).not.toBeNull();
+  expect((model['history'] as unknown[]).length).toBe(1);
 }, 240_000);
