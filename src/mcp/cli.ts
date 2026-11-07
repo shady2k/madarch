@@ -96,7 +96,14 @@ export async function mcpCommand(args: readonly string[], options: {
     stdout.write(`${MCP_USAGE}\n`);
     return 0;
   }
-  const folder = mcpStoreFolder(parsed.repository, env);
+  let folder: string;
+  try {
+    // The store is named by the checkout's product id (or its folder's name): a folder that names no store is refused by name.
+    folder = mcpStoreFolder(parsed.repository, env);
+  } catch (error) {
+    stderr.write(`${error instanceof Error ? error.message : String(error)}\n`);
+    return 2;
+  }
   if (parsed.journal) {
     for (const line of summaryLines(summarize(folder))) stdout.write(`${line}\n`);
     return 0;
@@ -107,11 +114,16 @@ export async function mcpCommand(args: readonly string[], options: {
     stderr.write(`${error instanceof Error ? error.message : String(error)}\n`);
     return 2;
   }
-  return await serveRepositoryMcp({
-    repository: parsed.repository,
-    env,
-    ...(options.input === undefined ? {} : { input: options.input }),
-    output: stdout,
-    errorOutput: stderr,
-  });
+  try {
+    return await serveRepositoryMcp({
+      repository: parsed.repository,
+      env,
+      ...(options.input === undefined ? {} : { input: options.input }),
+      output: stdout,
+      errorOutput: stderr,
+    });
+  } catch (error) {
+    stderr.write(`${error instanceof Error ? error.message : String(error)}\n`);
+    return 2;
+  }
 }
