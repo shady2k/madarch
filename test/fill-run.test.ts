@@ -101,4 +101,35 @@ describe('the one fill', () => {
     if (owner === undefined) throw new Error('the store was not opened');
     await expect(runFill({ product, database: owner, steps: ['nope'], home: join(root, 'home') })).rejects.toThrow(/is not a step of this fill/);
   }, 300_000);
+
+  test('a scoped fill after a full one leaves every file outside its paths standing', async () => {
+    const store = createPGliteDatabaseOwner({ btreeGist: true });
+    const code = join(root, 'repo');
+    const inCode = (...args: string[]): void => { execFileSync('git', ['-C', code, ...args], { stdio: ['ignore', 'pipe', 'pipe'] }); };
+    try {
+      const full = await runFill({ product, database: store, runId: 'full-tree', home: join(root, 'home') });
+      expect(full.ok).toBe(true);
+      if (!full.ok) return;
+      expect(full.state).toBe('succeeded');
+      const before = (await listFiles(store, { repository: 'repo', limit: 100 })).rows;
+      expect(before.map((file) => file.path).sort()).toEqual(['docs/readme.md', 'src/a.ts']);
+      const docsBlob = before.find((file) => file.path === 'docs/readme.md')!.blob;
+      const oldBlob = before.find((file) => file.path === 'src/a.ts')!.blob;
+      // A commit inside the scope moves one file; the fill of `src/` covers that path and no other.
+      writeFileSync(join(code, 'src', 'a.ts'), 'export const a = 2;\n');
+      inCode('add', '-A');
+      inCode('-c', 'user.name=Fixture', '-c', 'user.email=fixture@example.invalid', 'commit', '-qm', 'two');
+      const scoped = await runFill({ product, database: store, steps: ['repository-tree'], paths: ['src/'], runId: 'scoped-tree', home: join(root, 'home') });
+      expect(scoped.ok).toBe(true);
+      if (!scoped.ok) return;
+      expect(scoped.state).toBe('succeeded');
+      const after = (await listFiles(store, { repository: 'repo', limit: 100 })).rows;
+      // The file outside the scope stands with the blob it had: a scoped publication touches its scope only.
+      expect(after.map((file) => file.path).sort()).toEqual(['docs/readme.md', 'src/a.ts']);
+      expect(after.find((file) => file.path === 'docs/readme.md')!.blob).toBe(docsBlob);
+      expect(after.find((file) => file.path === 'src/a.ts')!.blob).not.toBe(oldBlob);
+    } finally {
+      await store.close();
+    }
+  }, 300_000);
 });

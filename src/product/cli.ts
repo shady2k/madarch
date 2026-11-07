@@ -85,6 +85,22 @@ export const SHORT_HELP = [
 function commandHelp(command: string): string {
   const spec = COMMANDS[command];
   if (spec === undefined) return `madarch ${command} is a command group.\nUse madarch repo add --help for its command.`;
+  if (command === 'fill') {
+    // The fill's own usage: the probe is part of it, and it takes no agent of its own (the product's fill runs the
+    // stages its workflow names; an agent's choice belongs to the wiki's wizard).
+    return [
+      'usage: madarch fill [--product <folder>] [--home <folder>] [--workers <n>] [--json] [--probe-acp]',
+      '',
+      'Options:',
+      '  --home <folder>       Products home',
+      '  --product <folder>    Product folder',
+      '  --workers <n>         Units the run holds in hand at once (16 by default)',
+      '  --json                Print one object of machine-readable facts',
+      '  --probe-acp           Report the agents on this machine that speak the Agent Client Protocol, and fill nothing',
+      '',
+      'Example: madarch fill',
+    ].join('\n');
+  }
   const positionals = command === 'repo' ? ' add <name> <url>' : spec.positionals.length === 0 ? '' : ` ${spec.positionals.map((word) => `<${word}>`).join(' ')}`;
   const flags: string[] = [];
   if (spec.flags.home) flags.push('  --home <folder>       Products home');
@@ -104,7 +120,7 @@ function commandHelp(command: string): string {
   if (spec.flags.run) flags.push('  --run <id>            The run to plan (one built from this moment by default)');
   if (spec.flags.workers) flags.push('  --workers <n>         Units the run holds in hand at once (16 by default, 1 through 64)');
   if (spec.flags.yes) flags.push('  --yes                 Confirm without prompting');
-  if (['new', 'init', 'list', 'fill-stages'].includes(command)) flags.push('  --json                Print machine-readable facts');
+  if (['new', 'init', 'list', 'fill', 'fill-stages'].includes(command)) flags.push('  --json                Print machine-readable facts');
   const usage = `madarch ${command}${positionals}${command === 'repo' ? ' [--source <path>] [--mode <link|move|clone>] [--branch <name>] [--product <folder>]' : ''}`;
   return [`usage: ${usage}`, '', ...(flags.length ? ['Options:', ...flags] : []), '', `Example: ${usage.split(' [')[0]}`].join('\n');
 }
@@ -250,7 +266,7 @@ interface CommandSpec {
   /** The positional words it takes, in order, by their label for the refusals. */
   positionals: readonly string[];
   /** The flags it takes, beside the ones they both share. */
-  flags: { home: boolean; product: boolean; port: boolean; open: boolean; branch: boolean; yes: boolean; source?: boolean; mode?: boolean; host?: boolean; run?: boolean; workers?: boolean; steps?: boolean; store?: boolean };
+  flags: { home: boolean; product: boolean; port: boolean; open: boolean; branch: boolean; yes: boolean; source?: boolean; mode?: boolean; host?: boolean; run?: boolean; workers?: boolean; steps?: boolean; store?: boolean; probe?: boolean; agent?: boolean };
 }
 
 /** The specs the subcommands answer to, whole. */
@@ -271,7 +287,7 @@ export const COMMANDS: Record<string, CommandSpec> = {
   'fill-stages': { positionals: [], flags: { home: true, product: true, port: false, open: false, branch: false, yes: false, run: true, workers: true, steps: true } },
   // One product's knowledge store, filled by the one orchestrator (decision 0033, item 1): the same fill the
   // wiki's button starts, over the store the wiki reads. It serves nothing and takes no agent.
-  fill: { positionals: [], flags: { home: true, product: true, port: false, open: false, branch: false, yes: false, workers: true } },
+  fill: { positionals: [], flags: { home: true, product: true, port: false, open: false, branch: false, yes: false, workers: true, probe: true, agent: true } },
   // Where the time went, read from a run's trace and nothing else (madarch-8bdc.2.5, item 2).
   trace: { positionals: [], flags: { home: true, product: false, port: false, open: false, branch: false, yes: false, store: true, run: true } },
   demo: { positionals: [], flags: { home: true, product: false, port: true, open: true, branch: false, yes: false, host: true } },
@@ -306,6 +322,8 @@ interface Parsed {
   workers: number | undefined;
   steps: readonly string[] | undefined;
   store: string | undefined;
+  probe: boolean;
+  agent: string | undefined;
   json: boolean;
 }
 
@@ -324,6 +342,8 @@ function flagNamesFor(flags: CommandSpec['flags']): readonly string[] {
     ...(flags.workers ? ['--workers'] : []),
     ...(flags.steps ? ['--steps'] : []),
     ...(flags.store ? ['--store'] : []),
+    ...(flags.probe ? ['--probe-acp'] : []),
+    ...(flags.agent ? ['--agent'] : []),
     ...(flags.yes ? ['--yes'] : []),
   ];
 }
@@ -336,7 +356,7 @@ function flagNamesFor(flags: CommandSpec['flags']): readonly string[] {
  * Returns the parse, or the number of the exit a refusal needs.
  */
 function parse(spec: CommandSpec, given: readonly string[]): Parsed | number {
-  const parsed: Parsed = { words: [], home: undefined, product: undefined, port: undefined, open: true, branch: undefined, yes: false, source: undefined, mode: undefined, host: undefined, run: undefined, workers: undefined, steps: undefined, store: undefined, json: false };
+  const parsed: Parsed = { words: [], home: undefined, product: undefined, port: undefined, open: true, branch: undefined, yes: false, source: undefined, mode: undefined, host: undefined, run: undefined, workers: undefined, steps: undefined, store: undefined, probe: false, agent: undefined, json: false };
   const seen = new Set<string>();
   const flags = flagNamesFor(spec.flags).map((name) => `${name}${name === '--no-open' ? '' : ' <value>'}`).join(', ');
   for (let i = 0; i < given.length; i++) {
@@ -397,6 +417,16 @@ function parse(spec: CommandSpec, given: readonly string[]): Parsed | number {
       parsed.yes = true;
       continue;
     }
+    if (name === '--probe-acp') {
+      if (!spec.flags.probe) return unknownOption(arg, flags);
+      if (arg.includes('=')) {
+        console.error('the --probe-acp flag takes no value: it reports the agents on this machine');
+        console.error('run madarch --help for help');
+        return 2;
+      }
+      parsed.probe = true;
+      continue;
+    }
     if (name === '--no-open') {
       if (!spec.flags.open) return unknownOption(arg, flags);
       if (arg.includes('=')) {
@@ -441,6 +471,14 @@ function parse(spec: CommandSpec, given: readonly string[]): Parsed | number {
       const problem = valueProblem('--run', value);
       if (problem !== undefined) { console.error(problem); console.error('run madarch --help for help'); return 2; }
       parsed.run = value!.trim();
+      continue;
+    }
+    if (name === '--agent') {
+      if (!spec.flags.agent) return unknownOption(arg, flags);
+      const value = flagValue();
+      const problem = valueProblem('--agent', value);
+      if (problem !== undefined) { console.error(problem); console.error('run madarch --help for help'); return 2; }
+      parsed.agent = value!.trim();
       continue;
     }
     if (name === '--steps') {
@@ -664,7 +702,7 @@ export async function main(args: readonly string[], deps: CliDeps = {}): Promise
     await new Promise<void>((done) => { process.stdout.write('', () => done()); });
     process.exit(code);
   }
-  if (command === 'fill') return await fillCommand(parsed, home, args.slice(1));
+  if (command === 'fill') return await fillCommand(parsed, home);
   if (command === 'trace') return traceCommand(parsed, home);
   if (command === 'fill-stages') return await fillStagesCommand(parsed, home);
   if (command === 'init') {
@@ -866,14 +904,16 @@ function reportFillStages(product: { readonly name: string; readonly folder: str
  * the wiki reads (`<home>/.madarch/knowledge/<product id>`) — and it writes no page: a page is an agent's work and a
  * later stage's. `--probe-acp` reports the agents this machine speaks to, and fills nothing.
  */
-async function fillCommand(parsed: Parsed, home: string | undefined, args: readonly string[]): Promise<number> {
-  let probe = false;
-  let json = parsed.json === true;
-  for (const arg of args) {
-    if (arg === '--probe-acp') { probe = true; continue; }
-    if (arg === '--json') { json = true; continue; }
-    if (arg === '--help' || arg === '-h') { console.log(FILL_USAGE); return 0; }
-    console.error(`${JSON.stringify(arg)} is no option of madarch fill: ${FILL_USAGE}`);
+async function fillCommand(parsed: Parsed, home: string | undefined): Promise<number> {
+  const probe = parsed.probe;
+  const json = parsed.json === true;
+  // A probe reports what this machine can connect and fills nothing: an agent named beside it has nothing to drive.
+  if (probe && parsed.agent !== undefined) {
+    console.error('--probe-acp reports the agents on this machine and fills nothing: drop --agent');
+    return 2;
+  }
+  if (parsed.agent !== undefined) {
+    console.error(`--agent is no option of madarch fill: a product's fill runs the stages its workflow names, and an agent is chosen in its wiki (${FILL_USAGE})`);
     return 2;
   }
   if (probe) {

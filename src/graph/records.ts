@@ -202,6 +202,12 @@ export interface TreePublish {
   readonly commit: string;
   readonly files: readonly TreeFile[];
   readonly gitlinks: readonly TreeGitlink[];
+  /**
+   * The repository paths this publication covers, as prefixes; the whole tree when it is left out. A scoped
+   * publication touches its scope only: a file or folder outside it is not this publication's to delete, and a
+   * row it holds stands (madarch-8bdc.2.5, item 4b).
+   */
+  readonly scope?: readonly string[];
   readonly gaps: readonly { readonly what: string; readonly reason: 'non-utf8-path' | 'shallow-history' | 'unreadable' }[];
 }
 
@@ -363,6 +369,9 @@ async function blobIdsOf(tx: OuterTransaction, files: readonly TreeFile[]): Prom
  * names the tens of thousands of statements one tree used to make.
  */
 export async function publishTree(owner: DatabaseOwner, input: TreePublish): Promise<RecordCounts> {
+  const scope = input.scope;
+  /** Whether one repository path stands inside the publication's scope: the whole tree when it names none. */
+  const within = (path: string): boolean => scope === undefined || scope.some((prefix) => path === prefix || path.startsWith(prefix.endsWith('/') ? prefix : `${prefix}/`));
   return await write(owner, async (tx) => {
     const kinds = await kindIds(tx);
     const repositoryId = await repositoryScope(tx, input.repository.name);
@@ -428,6 +437,8 @@ export async function publishTree(owner: DatabaseOwner, input: TreePublish): Pro
     }
     for (const [path, known] of held) {
       if (seen.has(path)) continue;
+      // A scoped publication covers its prefixes and no others: a file outside them is not its row to delete.
+      if (!within(path)) continue;
       await tx.query('DELETE FROM edge WHERE (from_id = $1::bigint OR to_id = $1::bigint)', [known.nodeId]);
       await tx.query('DELETE FROM file WHERE node_id = $1::bigint', [known.nodeId]);
       await tx.query('DELETE FROM node WHERE id = $1::bigint', [known.nodeId]);
@@ -449,7 +460,10 @@ export async function publishTree(owner: DatabaseOwner, input: TreePublish): Pro
       linkNodes.set(link.path, made.rows[0]!.id);
       counts = { ...counts, inserted: counts.inserted + 1 };
     }
-    counts = sum(counts, await publishFolders(tx, kinds, repositoryId, new Map([...fileNodes, ...linkNodes]), paths));
+    counts = sum(counts, await publishFolders(tx, kinds, repositoryId, new Map([...fileNodes, ...linkNodes]), paths, within));
+    // The tree pass retracts only the gaps it can produce: a tree published after a history used to delete
+    // the history's shallow-history gap, and every answer afterwards dropped it (madarch-8bdc.2.5, item 1).
+    // The scope is the one both sides need: only the folders inside the paths this fill covers are touched.
     counts = sum(counts, await publishGaps(tx, repositoryId, input.gaps, TREE_GAP_REASONS));
     return counts;
   });
@@ -467,7 +481,7 @@ export function folderOfPath(path: string): string {
  * for every vertex. A folder that loses its last file goes with its edge. Only what moved is
  * written: the desired parent of every vertex is compared with the edge the store holds.
  */
-async function publishFolders(tx: OuterTransaction, kinds: Map<string, string>, repositoryId: string, entities: ReadonlyMap<string, string>, paths: ReadonlyMap<string, string>): Promise<RecordCounts> {
+async function publishFolders(tx: OuterTransaction, kinds: Map<string, string>, repositoryId: string, entities: ReadonlyMap<string, string>, paths: ReadonlyMap<string, string>, within: (path: string) => boolean = () => true): Promise<RecordCounts> {
   const folders = new Set<string>();
   for (const path of entities.keys()) {
     for (let folder = folderOfPath(path); folder !== ''; folder = folderOfPath(folder)) folders.add(folder);
@@ -489,6 +503,8 @@ async function publishFolders(tx: OuterTransaction, kinds: Map<string, string>, 
   counts = { ...counts, inserted: counts.inserted + missing.length, unchanged: counts.unchanged + (folders.size - missing.length) };
   for (const [folder, node] of heldFolders) {
     if (folders.has(folder)) continue;
+    // A folder outside a scoped publication's prefixes is not that publication's to remove.
+    if (!within(folder)) continue;
     await tx.query('DELETE FROM edge WHERE from_id = $1::bigint OR to_id = $1::bigint', [node]);
     await tx.query('DELETE FROM directory WHERE node_id = $1::bigint', [node]);
     await tx.query('DELETE FROM node WHERE id = $1::bigint', [node]);
@@ -499,9 +515,11 @@ async function publishFolders(tx: OuterTransaction, kinds: Map<string, string>, 
   for (const [folder, node] of folderNodes) desired.set(node, folderNodes.get(folderOfPath(folder)) ?? repositoryId);
   for (const [path, node] of entities) desired.set(node, folderNodes.get(folderOfPath(path)) ?? repositoryId);
   const contains = kinds.get('contains')!;
-  const heldEdges = new Set((await tx.query<{ from_id: string; to_id: string }>(
-    `SELECT e.from_id::text AS from_id, e.to_id::text AS to_id FROM edge e JOIN node n ON n.id = e.to_id WHERE n.repository_id = $1::bigint AND e.kind_id = $2::bigint`, [repositoryId, contains],
-  )).rows.map((row) => `${row.from_id}\u0000${row.to_id}`));
+  // The `contains` edges this publication reconciles are the ones whose child stands in its scope: an edge to a
+  // file or folder outside the prefixes is not this publication's to re-parent or to delete.
+  const heldEdges = new Set((await tx.query<{ from_id: string; to_id: string; key: string }>(
+    `SELECT e.from_id::text AS from_id, e.to_id::text AS to_id, n.key FROM edge e JOIN node n ON n.id = e.to_id WHERE n.repository_id = $1::bigint AND e.kind_id = $2::bigint`, [repositoryId, contains],
+  )).rows.filter((row) => within(row.key)).map((row) => `${row.from_id}\u0000${row.to_id}`));
   const writes: { parent: string; child: string }[] = [];
   for (const [child, parent] of desired) {
     const key = `${parent}\u0000${child}`;
@@ -765,12 +783,20 @@ async function nodeOfCommit(tx: OuterTransaction, kinds: Map<string, string>, re
   return made.rows[0]!.id;
 }
 
-/** A `%aI` instant as a timestamp text and its offset in minutes: git's own two numbers, kept apart. */
+/**
+ * A `%aI` instant as a timestamp text and its offset in minutes: git's own two numbers, kept apart.
+ *
+ * Git writes the offset as `+HH:MM` or `-HH:MM`, and — from the version whose dates are strict ISO 8601 with a
+ * zero offset — as the bare `Z` every reader of `+00:00` also means (measured: git 2.43 writes `+00:00`, a newer
+ * git writes `Z` for the same commit). Both are one statement of the same zero minutes east of UTC, so both are
+ * read here; anything else is refused by name.
+ */
 export function instantOf(text: string, field: string, hash: string): [string, number] {
-  const match = /^(\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2})([+-])(\d{2}):(\d{2})$/.exec(text.trim());
-  if (match === null) raise(`the commit ${hash} names its ${field} as ${JSON.stringify(text)}, and a git date is YYYY-MM-DDTHH:MM:SS+HH:MM`);
-  const sign = match[2] === '-' ? -1 : 1;
-  return [`${match[1]}Z`, sign * (Number(match[3]) * 60 + Number(match[4]))];
+  const match = /^(\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2})(?:(Z)|([+-])(\d{2}):(\d{2}))$/u.exec(text.trim());
+  if (match === null) raise(`the commit ${hash} names its ${field} as ${JSON.stringify(text)}, and a git date is YYYY-MM-DDTHH:MM:SS+HH:MM or YYYY-MM-DDTHH:MM:SSZ`);
+  if (match[2] === 'Z') return [`${match[1]}Z`, 0];
+  const sign = match[3] === '-' ? -1 : 1;
+  return [`${match[1]}Z`, sign * (Number(match[4]) * 60 + Number(match[5]))];
 }
 
 // ---- what a reader asks ----------------------------------------------------

@@ -198,3 +198,71 @@ describe('a merge commit', () => {
     expect(history.gaps).toEqual([]);
   }, 120_000);
 });
+
+describe('a filename that begins with a newline', () => {
+  let folder = '';
+
+  beforeAll(() => {
+    folder = repositoryAt('newline-path');
+    // git separates the records of one entry with NUL; the newline it writes in front of a status is no part of a path.
+    writeFileSync(Buffer.concat([Buffer.from(folder), Buffer.from('/\nleading.ts')]), 'export const leading = 1;\n');
+    writeFileSync(join(folder, 'plain.txt'), 'plain\n');
+    gitBytes(folder, ['add', '-A']);
+    gitBytes(folder, ['-c', 'user.name=Newline', '-c', 'user.email=newline@example.invalid', 'commit', '-qm', 'a leading newline']);
+  }, 120_000);
+
+  test('the tree and the history name the path exactly as git states it', async () => {
+    const at = pin(folder);
+    const stated = gitBytes(folder, ['ls-tree', '-r', '-z', at.commit]).toString('latin1').split('\u0000').filter((row) => row !== '');
+    expect(stated.some((row) => row.slice(row.indexOf('\t') + 1) === '\nleading.ts')).toBe(true);
+    const tree = await readRepositoryTree(at);
+    expect(tree.files.map((file) => file.path)).toContain('\nleading.ts');
+    const history = await readRepositoryHistory(at);
+    const commit = history.commits.find((one) => one.hash === at.commit)!;
+    expect(commit.touched.map((touched) => touched.path)).toContain('\nleading.ts');
+    expect(history.gaps).toEqual([]);
+  }, 120_000);
+});
+
+describe('a subject holding the header separator', () => {
+  test('the subject is the whole subject, never truncated at the 0x1f git separates fields with', async () => {
+    const folder = repositoryAt('separator-subject');
+    writeFileSync(join(folder, 'a.txt'), 'a\n');
+    git(folder, 'add', '-A');
+    // A commit object written by hand, so its subject holds 0x1f exactly as git states it.
+    const tree = git(folder, 'write-tree');
+    const object = Buffer.concat([
+      Buffer.from(`tree ${tree}\nauthor Ada Example <ada@example.test> 1577836800 +0000\ncommitter Ada Example <ada@example.test> 1577836800 +0000\n\nsubject with unit`),
+      Buffer.from([0x1f]),
+      Buffer.from('separator\n'),
+    ]);
+    const commit = gitBytes(folder, ['hash-object', '-w', '-t', 'commit', '--stdin'], object).toString('utf8').trim();
+    git(folder, 'update-ref', 'refs/heads/main', commit);
+    const history = await readRepositoryHistory(pin(folder));
+    expect(history.commits[0]!.subject).toBe('subject with unit\u001fseparator');
+    expect('subject with unit\u001fseparator'.split('\u001f')).toHaveLength(2);
+    expect(history.gaps).toEqual([]);
+  }, 120_000);
+});
+
+describe('a sha256 repository beside a sha1 one', () => {
+  test('each object format is read against its own empty tree, so both trees answer git\u0027s line counts', async () => {
+    const sha1 = repositoryAt('format-sha1');
+    writeFileSync(join(sha1, 'two.ts'), 'export const a = 1;\nexport const b = 2;\n');
+    git(sha1, 'add', '-A');
+    git(sha1, 'commit', '-qm', 'sha1: two lines');
+    const first = await readRepositoryTree(pin(sha1));
+    expect(first.files.map((file) => [file.path, file.lines])).toEqual([['two.ts', 2]]);
+
+    const sha256 = join(ROOT, 'format-sha256');
+    mkdirSync(sha256, { recursive: true });
+    execFileSync('git', ['init', '-q', '-b', 'main', '--object-format=sha256'], { cwd: sha256, env: { ...process.env, ...IDENTITY } });
+    writeFileSync(join(sha256, 'three.ts'), 'export const a = 1;\nexport const b = 2;\nexport const c = 3;\n');
+    git(sha256, 'add', '-A');
+    git(sha256, 'commit', '-qm', 'sha256: three lines');
+    expect(git(sha256, 'rev-parse', '--show-object-format')).toBe('sha256');
+    // The second format must not be diffed against the first format's empty tree.
+    const second = await readRepositoryTree(pin(sha256, 'format-sha256'));
+    expect(second.files.map((file) => [file.path, file.lines])).toEqual([['three.ts', 3]]);
+  }, 120_000);
+});

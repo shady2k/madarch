@@ -141,6 +141,39 @@ export function releaseFolderLock(folder: string, held: FolderLock): void {
   } catch { /* a lock that is already gone needs no dropping */ }
 }
 
+/**
+ * Whether the store's temporal graph is the reading of this commit: the snapshot stage publishes the commit's own
+ * `code.commit` node, and a graph that holds none for it (a fresh store, or one filled by the record passes before
+ * the static stages' step) is not this commit's reading and must not answer with another commit's rows.
+ */
+async function graphReadsCommit(owner: DatabaseOwner, repository: string, commit: string): Promise<boolean> {
+  try {
+    const found = await owner.run((tx) => tx.query<{ one: number }>(
+      `SELECT 1 AS one FROM node_version v JOIN node_kind k ON k.id = v.kind_id
+       WHERE k.key = 'code.commit' AND v.recorded_to = 'infinity'
+         AND v.properties->>'commit' = $1 AND v.properties->>'repository' = $2 LIMIT 1`,
+      [commit, repository],
+    ));
+    return found.rows.length > 0;
+  } catch {
+    // A store without the temporal tables holds no reading of any commit.
+    return false;
+  }
+}
+
+/**
+ * The view a store answers at: the graph's own newest instant when the graph is this commit's reading, and — for a
+ * store whose records are this commit's and whose temporal graph holds no reading of it (a fresh store, or one
+ * filled by the record passes before the static stages' step) — the moment this start read it, at which every
+ * answer is the empty one. An older commit's rows are never served under this commit.
+ */
+async function viewOf(owner: DatabaseOwner, store: GraphStore, repository: string, commit: string): Promise<GraphView> {
+  // No reading of this commit: the view stands before any reading the store can hold, so every answer is the empty
+  // one. (An instant of "now" would serve whatever an older commit left open, which is exactly what must not be.)
+  if (!(await graphReadsCommit(owner, repository, commit))) return GraphView.at(owner, store, '1970-01-01T00:00:00Z');
+  return await GraphView.open(owner, store);
+}
+
 /** The commit the store's records name as-is for one repository, or null where the store holds none. */
 async function asIsCommitOf(owner: DatabaseOwner, repository: string): Promise<string | null> {
   try {
@@ -212,26 +245,35 @@ export async function openRepositoryGraph(options: {
   let owner: DatabaseOwner | undefined;
   try {
     owner = createPGliteDatabaseOwner({ path: databasePath, btreeGist: true, relaxedDurability: true });
+    const openedOwner = owner;
     const started = performance.now();
     let fill = readFillOutcome(folder);
     let filled = false;
     let view: GraphView | null = null;
-    const heldCommit = await asIsCommitOf(owner, identity.identity.name);
+    const heldCommit = await asIsCommitOf(openedOwner, identity.identity.name);
+    const store = createGraphStore(openedOwner);
+    /**
+     * The temporal view this store answers at, or null when the store holds no reading of this commit.
+     *
+     * The surfaces branch served an empty view at 1970 for a store whose records are this commit's and whose
+     * temporal graph holds none: an answer would then be the empty one. This step's fill publishes the record
+     * tables and no temporal node, and the seven tools of decision 0032 must say that their step has not run
+     * rather than answer nothing (madarch-8bdc.2.5, item 1), so a store without a reading of this commit is
+     * served with no view at all. A store a static stage filled has one, and the seven tools read it.
+     */
+    const readingOf = async (): Promise<GraphView | null> => {
+      if (!(await graphReadsCommit(openedOwner, identity.identity.name, commit))) return null;
+      try { return await GraphView.open(openedOwner, store); } catch { return null; }
+    };
     if (heldCommit === commit) {
-      // The store holds the graph of this commit already. A temporal view stands only when the static
-      // stages published one; this step's fill publishes the record tables, and the five tools read
-      // them, so a store without a view is served rather than filled a second time (madarch-8bdc.2.5,
-      // item 1: a second fill of one commit would be refused by the run's own id).
-      try { view = await GraphView.open(owner, createGraphStore(owner)); } catch { view = null; }
-    }
-    if (heldCommit !== commit) {
+      // The store holds the graph of this commit already: it is served, never filled a second time (a
+      // second fill of one commit is refused by the run's own id).
+      view = await readingOf();
+    } else {
       const before = performance.now();
       fill = await fillRepositoryGraph(owner, repository, folder, commit, log);
       writeFillOutcome(folder, fill);
-      const store = createGraphStore(owner);
-      // A store this fill wrote holds the record tables and no temporal node: the view is absent, and
-      // the tools that read it answer that their step has not run. The five record tools do not need it.
-      try { view = await GraphView.open(owner, store); } catch { view = null; }
+      view = await readingOf();
       filled = true;
       const after = performance.now();
       log(`madarch mcp: graph filled in ${((after - before) / 1000).toFixed(1)} s${fill.failed.length === 0 ? '' : `; ${fill.failed.length} ${fill.failed.length === 1 ? 'unit' : 'units'} did not publish (${fill.state})`}`);
@@ -241,7 +283,6 @@ export async function openRepositoryGraph(options: {
       throw new Error(`${databasePath}:1: the fill of ${repository} left the store at ${asIs === null ? 'no commit' : asIs}, and the checkout stands at ${commit}: a graph of another commit is not served (src/mcp/graph.ts)`);
     }
     const opened = filled ? 0 : performance.now() - started;
-    const openedOwner = owner;
     return {
       owner: openedOwner,
       store: createGraphStore(openedOwner),

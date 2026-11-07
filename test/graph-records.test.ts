@@ -9,7 +9,8 @@ import { mkdirSync, mkdtempSync, rmSync, symlinkSync, writeFileSync } from 'node
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { createPGliteDatabaseOwner, type DatabaseOwner } from '../src/adapters/database-owner.js';
-import { RECORD_TABLES, createRecordSchema, fileFacts, listDirectories, listFiles, publishHistory, publishTree, recordSizes, repositoryFacts } from '../src/graph/index.js';
+import { RECORD_TABLES, commitFacts, createRecordSchema, fileFacts, listDirectories, listFiles, publishHistory, publishTree, recordSizes, repositoryFacts } from '../src/graph/index.js';
+import { instantOf } from '../src/graph/records.js';
 import { REPOSITORY_HISTORY_STAGE_ID, REPOSITORY_TREE_STAGE_ID, createRepositoryHistoryStage, createRepositoryTreeStage, languageOfPath, readRepositoryHistory, readRepositoryTree, repositoryOfUnit, repositoryUnitId, shallowGapOf, type RepositoryAt } from '../src/fill/stages/repository-facts.js';
 
 let root = '';
@@ -197,5 +198,57 @@ describe('the two passes over one fixture', () => {
     const sizes = await recordSizes(owner);
     for (const table of RECORD_TABLES) expect(sizes[table]?.bytes).toBeGreaterThan(0);
     expect(sizes['file']!.rows).toBeGreaterThan(3);
+  }, 120_000);
+});
+
+describe('a git date of a zero or a negative offset', () => {
+  test('instantOf reads the offset git writes, and the Z a newer git writes for zero minutes', () => {
+    expect(instantOf('2026-11-07T20:38:26+03:00', 'authorDate', 'h')).toEqual(['2026-11-07T20:38:26Z', 180]);
+    expect(instantOf('2026-11-07T20:38:26-05:00', 'authorDate', 'h')).toEqual(['2026-11-07T20:38:26Z', -300]);
+    // A newer git states a zero offset as `Z` (measured: git 2.43 writes `+00:00` for the same commit).
+    expect(instantOf('2026-11-07T20:38:26Z', 'authorDate', 'h')).toEqual(['2026-11-07T20:38:26Z', 0]);
+    expect(instantOf('2026-11-07T20:38:26+00:00', 'authorDate', 'h')).toEqual(['2026-11-07T20:38:26Z', 0]);
+    expect(() => instantOf('2026-11-07 20:38:26', 'authorDate', 'h')).toThrow(/2026-11-07 20:38:26/);
+    expect(() => instantOf('2026-11-07T20:38:26+0000', 'authorDate', 'h')).toThrow(/a git date is/);
+  }, 60_000);
+
+  test('a commit at +00:00 and one at -05:00 keep git\'s instant and each one\'s own offset', async () => {
+    if (owner === undefined) throw new Error('the store was not opened');
+    const offsets = join(root, 'offsets');
+    mkdirSync(offsets, { recursive: true });
+    execFileSync('git', ['init', '-q', '-b', 'main'], { cwd: offsets });
+    writeFileSync(join(offsets, 'a.txt'), 'a\n');
+    execFileSync('git', ['add', '-A'], { cwd: offsets });
+    const commitAt = (offset: string, message: string): string => {
+      execFileSync('git', ['-c', 'user.name=Offset', '-c', 'user.email=offset@example.invalid', 'commit', '-qm', message], {
+        cwd: offsets,
+        env: { ...process.env, GIT_AUTHOR_DATE: `2026-11-07T20:38:26 ${offset}`, GIT_COMMITTER_DATE: `2026-11-07T20:38:26 ${offset}` },
+      });
+      return execFileSync('git', ['rev-parse', 'HEAD'], { cwd: offsets }).toString().trim();
+    };
+    const zero = commitAt('+0000', 'zero');
+    writeFileSync(join(offsets, 'b.txt'), 'b\n');
+    execFileSync('git', ['add', '-A'], { cwd: offsets });
+    const negative = commitAt('-0500', 'negative');
+    const at = { repository: 'offsets', root: offsets, commit: negative, url: `file://${offsets}` };
+    await publishHistory(owner, await readRepositoryHistory(at));
+    // git states 20:38:26 at +00:00, and 20:38:26 at -05:00, which is 01:38:26 UTC the next day.
+    expect(await commitFacts(owner, 'offsets', zero)).toMatchObject({ authorDate: '2026-11-07T20:38:26Z', authorOffsetMin: 0, commitDate: '2026-11-07T20:38:26Z', commitOffsetMin: 0 });
+    expect(await commitFacts(owner, 'offsets', negative)).toMatchObject({ authorDate: '2026-11-08T01:38:26Z', authorOffsetMin: -300, commitDate: '2026-11-08T01:38:26Z', commitOffsetMin: -300 });
+  }, 120_000);
+
+  test('a history whose dates git states with Z publishes with a zero offset', async () => {
+    if (owner === undefined) throw new Error('the store was not opened');
+    // The form a newer git writes for a zero offset, exactly as `%aI` answers it.
+    const history = {
+      repository: { name: 'z-dates' },
+      commits: [{
+        hash: 'b'.repeat(40), parents: [], authorName: 'Zero Offset', authorEmail: 'zero@example.invalid',
+        authorDate: '2026-11-07T20:38:26Z', commitDate: '2026-11-07T20:38:26Z', subject: 'a zero offset', touched: [],
+      }],
+      gaps: [],
+    };
+    await publishHistory(owner, history);
+    expect(await commitFacts(owner, 'z-dates', 'b'.repeat(40))).toMatchObject({ authorDate: '2026-11-07T20:38:26Z', authorOffsetMin: 0, commitDate: '2026-11-07T20:38:26Z', commitOffsetMin: 0 });
   }, 120_000);
 });

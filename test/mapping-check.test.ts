@@ -242,7 +242,20 @@ describe('the mapping ties the extractors\' vocabulary to the catalog', () => {
       expect([...read1.mapping!.kinds.keys()]).toEqual([...EXTRACTOR_KINDS.keys()]);
       expect([...read1.mapping!.relations.keys()]).toEqual([...EXTRACTOR_RELATIONS.keys()]);
       const rows = [...read1.mapping!.kinds.values(), ...read1.mapping!.relations.values()];
-      expect(rows.filter((row) => row.tie === 'internal').map((row) => row.key)).toEqual(['code.facet', 'code.alters', 'code.authored', 'code.backed-by', 'code.changed-with', 'code.covers', 'code.cycle-member', 'code.defined-in', 'code.describes-file', 'code.exposes', 'code.exposes-metric', 'code.facet-of', 'code.flows-into', 'code.listens-on', 'code.logical-reference', 'code.occurrence', 'code.parent', 'code.reads', 'code.reads-env', 'code.references', 'code.renamed-to', 'code.resolves', 'code.runs', 'code.starts', 'code.targets', 'code.tasks', 'code.touched', 'code.updates-metric', 'code.writes']);
+      // The rows the catalog calls internal, in code point order — the kinds and the relations alike. (The list is
+      // the catalog's, which grows as the extractors' vocabulary grows; the mapping's own row order is no assertion
+      // here, so both sides are sorted before they are compared.)
+      expect(rows.filter((row) => row.tie === 'internal').map((row) => row.key).sort()).toEqual([
+        'code.alters', 'code.authored', 'code.backed-by', 'code.callable', 'code.changed-with', 'code.comment',
+        'code.coverage', 'code.covers', 'code.cycle-member', 'code.defined-in', 'code.deploy-unit',
+        'code.describes-file', 'code.document-link', 'code.env-read', 'code.exposes', 'code.exposes-metric',
+        'code.facet', 'code.facet-of', 'code.flows-into', 'code.http-route', 'code.link-target',
+        'code.listener-port', 'code.listens-on', 'code.logger-use', 'code.logical-reference', 'code.mention',
+        'code.mentions', 'code.metric-exposition', 'code.occurrence', 'code.parent', 'code.rank', 'code.reads',
+        'code.reads-env', 'code.references', 'code.renamed-to', 'code.resolves', 'code.runs',
+        'code.schema-reading', 'code.service-unit', 'code.starts', 'code.storage-evidence', 'code.targets',
+        'code.tasks', 'code.touched', 'code.transitions', 'code.updates-metric', 'code.writes',
+      ]);
       // Every tied relation says which way it runs, and the ones the extractors read backwards are marked.
       expect([...read1.mapping!.relations.values()].filter((row) => row.tie === 'relation').every((row) => row.direction === 'same' || row.direction === 'inverse')).toBe(true);
       expect([...read1.mapping!.relations.values()].filter((row) => row.direction === 'inverse').map((row) => row.key)).toEqual(['code.built-by', 'code.configured-by', 'code.handled-by', 'code.manifest-of', 'code.served-by', 'code.tests']);

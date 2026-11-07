@@ -108,6 +108,8 @@ import {
   readUnitGeneration,
   readProductUnits,
   replaceStaleGeneration,
+  retryGeneration,
+  RETRYABLE_UNIT_STATES,
   revokeUnitLease,
   type ChainRecord,
   type RunRecord,
@@ -906,11 +908,29 @@ async function planStageUnitsSpanned(
           await emit(orchestrator, { runId: run.runId, at, stage: stageId, unitId, generation: replaced.record.generation, kind: 'unit-planned', summary: `planned ${unitId} (${scope.scope}) as generation ${replaced.record.generation}, replacing the stale generation ${answer.generation} this unit stood on` });
           continue;
         }
+        // A generation that published nothing, of a run that has ended, is the unit's last attempt: a new fill retries
+        // it with a fresh budget rather than refusing forever. Only a generation of a run that has not ended — a unit
+        // another run is working — is refused, which is what "a unit is worked by one run at a time" says.
+        const owner = await readRun(database, answer.runId);
+        const ended = owner === null || ENDED_RUN_STATES.includes(owner.state);
+        if (ended && RETRYABLE_UNIT_STATES.includes(answer.state)) {
+          const retried = await retryGeneration(database, { unitId, runId: run.runId, inputsDigest: digest, retries: orchestrator.limits.retries, at });
+          if (!retried.ok) {
+            return { stageId, units, reused, foundNothing, refusal: { code: retried.refusal.code, reason: `fill-orchestrator: unit "${unitId}" could not be retried for run "${run.runId}": ${retried.refusal.reason}` } };
+          }
+          await recordUnitPlan(database, {
+            unitId, generation: retried.record.generation, runId: run.runId, stageId, stageUnitId: scope.id,
+            scope: scope.scope, stagePosition, planPosition, at, cacheVersions: stageCacheVersions(stage),
+          });
+          units.push({ unitId, stageId, stageUnitId: scope.id, scope: scope.scope, generation: retried.record.generation, stagePosition, planPosition, state: retried.record.state, created: true });
+          await emit(orchestrator, { runId: run.runId, at, stage: stageId, unitId, generation: retried.record.generation, kind: 'unit-planned', summary: `planned ${unitId} (${scope.scope}) as generation ${retried.record.generation}, retrying the ${answer.state} generation ${answer.generation} run "${answer.runId}" left` });
+          continue;
+        }
         return {
           stageId, units, reused, foundNothing,
           refusal: {
             code: 'fill-orchestrator/unit-in-another-run',
-            reason: `fill-orchestrator: unit "${unitId}" stands ${answer.state} in run "${answer.runId}", and run "${run.runId}" plans it: a unit is worked by one run at a time, so finish or cancel that run before this one plans the unit`,
+            reason: `fill-orchestrator: unit "${unitId}" stands ${answer.state} in run "${answer.runId}"${owner === null ? '' : `, which stands ${owner.state}`}, and run "${run.runId}" plans it: a unit is worked by one run at a time, so finish or cancel that run before this one plans the unit`,
           },
         };
       }
@@ -2711,6 +2731,12 @@ export async function schedulerPass(orchestrator: FillOrchestrator, options: { r
 
 /** The states a run ended in: nothing further happens to it. */
 const TERMINAL_RUN_STATES = ['succeeded', 'completed_partial', 'blocked', 'failed', 'cancelled', 'paused'] as const;
+
+/**
+ * The run states a unit of which a later run may take up again: the run ended and nothing of it is in flight. A
+ * `paused` run is not one of them — it is resumed as it was, so its units stay its own.
+ */
+const ENDED_RUN_STATES: readonly string[] = ['succeeded', 'completed_partial', 'blocked', 'failed', 'cancelled'];
 
 /** What one driven run ended as. */
 export interface DriveOutcome {

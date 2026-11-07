@@ -38,6 +38,7 @@ import { ensureBuilt } from '../src/product-wiki/app.js';
 import { GIT_LEAKS } from '../src/product/git.js';
 import { createHash } from 'node:crypto';
 import { manifestWithRepo } from '../src/product/manifest.js';
+import { STARTER_WORKFLOWS } from '../src/knowledge/starter-workflows.js';
 
 const USAGE = 'usage: bun scripts/build-binary.ts --version <x.y.z> [--os linux|darwin|windows] [--arch x64|arm64] [--out <folder>]';
 
@@ -301,6 +302,14 @@ async function createsAndServes(outfile: string, products: string, port: number,
         // madarch's own wiki came out of the copy the binary carries, with no network asked for.
         const listed = await fetch(new URL('/api/products', facts.url));
         if (!listed.ok || !(await listed.text()).includes('"own":true')) return `the built binary did not serve madarch's own wiki beside the draft (GET /api/products answered ${listed.status})${daemonLog(products)}`;
+        // The archify frame draws a service's diagram, from the `code.service` and `code.symbol` nodes the static
+        // stages publish. This step's fill publishes the tree and the history records, so the frame is read when the
+        // product's first-fill workflow names the stage whose step publishes what the diagram is drawn from.
+        const firstFill = STARTER_WORKFLOWS.find((workflow) => workflow.name === 'first-fill');
+        if (firstFill === undefined || !firstFill.stages.includes('syntax')) {
+          console.log('binary smoke: the archify frame is not read, because this fill publishes no graph reading of a service');
+          return undefined;
+        }
         return await smokeArchify(facts, products, env);
       }
     } catch { /* the product's API is still coming up */ }

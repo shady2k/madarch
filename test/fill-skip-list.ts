@@ -31,10 +31,19 @@ const SKIPPED_FILL_SUITES: readonly SkippedFillSuite[] = [
   { file: 'test/fill-static-heap.test.ts', brings: 'the static stages', because: 'it reads their memory bound over a fill' },
   { file: 'test/fill-code-facts-training.test.ts', brings: 'code-facts', because: 'it compares the code facts against the extract driver' },
   { file: 'test/fill-operations-fixture.test.ts', brings: 'operations', because: 'it reads the operations records of a folder' },
+  { file: 'test/fill-impact.test.ts', brings: 'snapshot, inventory, syntax and the agent stages', because: 'its run reads the snapshot stage\'s commit nodes and the agent stages\' reruns' },
+  { file: 'test/fill-resolution-graph.test.ts', brings: 'resolution and its static stages', because: 'it reads the calls, references and inheritance edges the resolution stage publishes' },
+  // The wiki's pages are drawn from the temporal graph the static stages publish; this step's fill publishes the
+  // tree and the history records, and the pages return with those stages' steps. The reader itself works: it opens
+  // the store and reads its pins (test/fill-one-store.test.ts, test/wiki-readers.test.ts).
+  { file: 'test/knowledge-home-page.test.ts', brings: 'the history and static stages that publish the temporal graph', because: 'its page blocks read the commits and files those stages publish' },
+  { file: 'test/knowledge-diagrams.test.ts', brings: 'the static stages that publish the temporal graph', because: 'its diagrams are drawn from the graph\'s symbols, operations and tables' },
+  { file: 'test/writer-journal.test.ts', brings: 'the static stages that publish the temporal graph', because: 'its journal is read per page the graph holds' },
   // madarch-8bdc.2.5, items 1 to 3: `madarch mcp` reads the store the one fill publishes, and this step's fill is
   // the tree and the history passes. The four mcp suites are not named here: their cases read the five tools of
-  // this step from the store (and the seven tools' step-not-run answers), so they run. A case that asked the seven
-  // tools for facts of the temporal graph would be named here until those stages' steps come.
+  // this step from the store (and the seven tools' step-not-run answers), so they run. `test/wiki-fill-button-walk`
+  // reads the repository pages this step publishes, so it runs too. A case that asked the seven tools for facts of
+  // the temporal graph would be named here until those stages' steps come.
 ];
 
 /**

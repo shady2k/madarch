@@ -79,7 +79,15 @@ export const FILL_STATE_TABLES = ['fill_chain', 'fill_run', 'fill_unit', 'fill_u
 export const FILL_STORE_STEPS = {
   createUnit: 'fill-store/unit--create-->planned',
   openGeneration: 'fill-store/generation--open-->planned',
+  retryGeneration: 'fill-store/generation--retry-->planned',
 } as const;
+
+/**
+ * The unit states a new run may take up again: the generation published nothing, so there is no work to inherit,
+ * and the run that spent its attempts has ended. A published generation is replaced only when its cache key moved
+ * (`replaceStaleGeneration`), and a generation of a run that has not ended is another run's, not a retry.
+ */
+export const RETRYABLE_UNIT_STATES: readonly UnitState[] = ['failed', 'blocked', 'cancelled'];
 
 const SCHEMA: readonly string[] = [
   `CREATE TABLE IF NOT EXISTS fill_chain (
@@ -869,6 +877,57 @@ export async function replaceStaleGeneration(database: FillStateDatabase, option
     return {
       ok: true,
       transition: FILL_STORE_STEPS.openGeneration,
+      effects: [],
+      record: { ...current, generation, runId: options.runId, state: 'planned', inputsDigest: options.inputsDigest, context, publishedAt: null, staleAt: null, updatedAt: options.at, lease: null },
+    } as const;
+  }, 'write');
+}
+
+/**
+ * Opens the next generation of a unit whose last generation published nothing and whose run has ended: a failed
+ * fill is retried by the next fill, never inherited and never trapping the product. The failed generation stays as
+ * its own row and its own transition; the new one starts `planned` with a fresh retry budget and this run's id,
+ * exactly as a stale generation's replacement does. Only a generation of a live run — or a published one — is
+ * refused by name.
+ */
+export async function retryGeneration(database: FillStateDatabase, options: {
+  readonly unitId: string;
+  readonly runId: string;
+  readonly inputsDigest: string;
+  readonly retries: number;
+  readonly at: number;
+}): Promise<StoreStep<UnitRecord, UnitState>> {
+  const at = here();
+  return run(at, database, `retryGeneration(${options.unitId})`, ['fill_unit', 'fill_unit_generation', 'fill_transition'], async (executor) => {
+    const snapshot = await loadUnit(executor, options.unitId, true);
+    if (snapshot === null) raise(`table fill_unit: no unit ${options.unitId}`);
+    const current = snapshot.record;
+    if (!RETRYABLE_UNIT_STATES.includes(current.state)) {
+      return {
+        ok: false,
+        record: current,
+        refusal: {
+          code: 'fill-store/unit-not-retryable',
+          reason: `fill-unit: unit "${current.unitId}" stands ${current.state}; a generation is retried only from ${RETRYABLE_UNIT_STATES.join(', ')}, and a ${current.state} one stays as its record`,
+          state: current.state,
+          event: 'retry-generation',
+          guard: null,
+          guards: [],
+          transitions: [],
+        },
+      } as const;
+    }
+    const generation = current.generation + 1;
+    const context = newUnitContext({ generation, retries: options.retries, fence: current.context.fence });
+    await executor.query(
+      'INSERT INTO fill_unit_generation (unit_id, generation, run_id, state, inputs_digest, fence, context, updated_at) VALUES ($1, $2, $3, $4, $5, $6, $7::jsonb, $8)',
+      [options.unitId, generation, options.runId, 'planned', options.inputsDigest, context.fence, json(context), options.at],
+    );
+    await executor.query('UPDATE fill_unit SET generation = $2 WHERE unit_id = $1', [options.unitId, generation]);
+    await recordTransition(executor, { subjectKind: 'unit', subjectId: options.unitId, generation, transitionId: FILL_STORE_STEPS.retryGeneration, from: current.state, to: 'planned', event: 'retry-generation', fence: context.fence, at: options.at });
+    return {
+      ok: true,
+      transition: FILL_STORE_STEPS.retryGeneration,
       effects: [],
       record: { ...current, generation, runId: options.runId, state: 'planned', inputsDigest: options.inputsDigest, context, publishedAt: null, staleAt: null, updatedAt: options.at, lease: null },
     } as const;
