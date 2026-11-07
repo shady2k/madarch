@@ -6,7 +6,7 @@
  * **One unit is one repository at one pinned commit.** The stage writes that
  * commit's tree into a throwaway folder outside the checkout, indexes it with
  * `@colbymchenry/codegraph` through its library API, reads the library's nodes
- * and edges, joins their ends to the records the per-file passes published, and
+ * and edges, joins their ends to the declarations the file pass recorded, and
  * writes the links through the ordinary draft and publication. The unit's id is
  * `tree:<repository>` and its scope is the repository, so a later commit is the
  * same unit at another input and its publication replaces what the earlier
@@ -29,8 +29,19 @@
  * and one coverage node per commit, naming what was read, what was left out and
  * what the run cost in wall clock and memory. The mapping and the join are in
  * `codegraph-map.ts`; the tree and the library run are in `codegraph-index.ts`.
+ *
+ * **What it reads the join through.** The declarations the file pass recorded —
+ * one positioned `code.occurrence` per declaration, at the name it defines — and
+ * not the repository's `code.symbol` nodes, because this stage writes symbols
+ * too: a read of every symbol of the repository would answer the stage's own
+ * publication, so every repository where it wrote one would go stale once and
+ * its replacement would read those nodes as published records (madarch-8bdc.2.8,
+ * `publishedSymbols`). The symbols it writes into a file no per-file pass reads
+ * carry their record key like every static symbol node, so a reader of
+ * `code.symbol` — the modules stage's walk among them — reads them as symbols.
  */
 import { Type } from 'typebox';
+import { byCodePoint } from '../../model/order.js';
 import { factId, type CoverageGap, type FactProvenance, type FactSource, type SnapshotValue } from '../facts.js';
 import type { SnapshotSource } from '../snapshot.js';
 import {
@@ -52,7 +63,13 @@ import { syntaxLanguageOf } from './syntax-extract.js';
 const CODEGRAPH_STAGE_ID = 'codegraph';
 
 /** The stage's own version, bumped when what it writes or plans changes. */
-const CODEGRAPH_STAGE_VERSION = 2;
+const CODEGRAPH_STAGE_VERSION = 3;
+
+/** The relation the file pass records a declaration by: one positioned occurrence per declaration, at its name. */
+const DECLARATION_RELATION = 'code.occurrence';
+
+/** The role an occurrence carries at the name a declaration defines. */
+const DEFINITION_ROLE = 'definition';
 
 /** The fact kinds the stage produces, in code point order: the links, its coverage and the symbols of a file no per-file pass reads. */
 const CODEGRAPH_STAGE_KINDS: readonly string[] = [...CODEGRAPH_EDGE_FACT_KINDS, 'coverage', 'symbol'];
@@ -119,16 +136,19 @@ export function createCodegraphStage(sources: SnapshotSource): FillStage {
     id: CODEGRAPH_STAGE_ID,
     version: CODEGRAPH_STAGE_VERSION,
     staticReading: true,
-    // The published symbols are the join's other half: the stage stands after
-    // the pass that writes them, and after the inventory and the file pass that
-    // state the records it reads. Nothing else is needed — the tree comes from
-    // the pin and no fact of another stage is corrected here.
+    // The declarations are the join's other half: the stage stands after the
+    // file pass that records them and after the inventory that states the files,
+    // and it reads no symbol of its own writing — the stage writes symbols, so a
+    // read of the repository's `code.symbol` nodes would answer its own
+    // publication (madarch-8bdc.2.8; `publishedSymbols`). Nothing else is needed:
+    // the tree comes from the pin and no fact of another stage is corrected here.
     consumes: {
-      required: [
-        { capability: 'file', scope: 'repository', freshness: 'current' },
-        { capability: 'symbol', scope: 'repository', freshness: 'current' },
-      ],
-      optional: [],
+      required: [{ capability: 'file', scope: 'repository', freshness: 'current' }],
+      // Optional, as the join's other half is: a repository whose tree holds no file a per-file
+      // pass reads has no declaration to join to, and the stage still writes the library's symbols
+      // of it — a smaller answer, not a missing one. A workflow that reads no file pass therefore
+      // arms this stage with nothing to join and plans it no unit, rather than starving the run.
+      optional: [{ capability: 'occurrence', scope: 'repository', freshness: 'current' }],
     },
     produces: codegraphProduces(),
     configSchema: Type.Object({}),
@@ -249,14 +269,30 @@ async function executeTreeUnit(sources: SnapshotSource, unit: StageUnit, context
   return { outcome: 'draft' };
 }
 
-/** Every symbol the per-file passes published for one repository, read page by page. */
+/**
+ * Every symbol the per-file passes declared in one repository, read from the declarations they recorded,
+ * page by page: one positioned `code.occurrence` per declaration, at the name it defines, whose end is the
+ * symbol's own node.
+ *
+ * **Why the declarations, and not the repository's `code.symbol` nodes.** The code pass writes a symbol
+ * itself where no per-file pass of ours reads the file, so a read of every `code.symbol` of the repository
+ * answers the stage's own publication: the generation that published then goes stale by its own writes, on
+ * every repository where it wrote one, and its replacement reads those nodes as published records. The
+ * declarations belong to the file pass — this stage writes no occurrence — so the read answers what it
+ * answered whatever this stage publishes (decision 0027's staleness from tracked reads; madarch-8bdc.2.8).
+ * A symbol a later stage publishes for a file it reads is no declaration of that file, and a declaration no
+ * published record answers stays the unresolved count its coverage names.
+ */
 async function publishedSymbols(context: StageContext, repository: string): Promise<readonly PublishedSymbol[]> {
   const graph = context.static!;
-  const symbols: PublishedSymbol[] = [];
+  const symbols = new Map<string, PublishedSymbol>();
   let after: string | undefined;
   for (;;) {
-    const page = await graph.byProperty('code.symbol', 'repository', repository, { limit: 256, ...(after === undefined ? {} : { after }) });
-    for (const node of page.rows) {
+    const page = await graph.edgesByProperty(DECLARATION_RELATION, 'repository', repository, { limit: 256, ...(after === undefined ? {} : { after }) });
+    for (const edge of page.rows) {
+      const roles = edge.properties['roles'];
+      if (!Array.isArray(roles) || !roles.includes(DEFINITION_ROLE)) continue;
+      const node = edge.to;
       const properties = node.properties as Record<string, unknown>;
       const provenance = properties['provenance'];
       const place = provenance !== null && typeof provenance === 'object' ? (provenance as Record<string, unknown>)['place'] : undefined;
@@ -264,20 +300,20 @@ async function publishedSymbols(context: StageContext, repository: string): Prom
       const file = place !== null && typeof place === 'object' ? (place as Record<string, unknown>)['file'] : undefined;
       const key = properties['recordKey'];
       const qualifiedName = properties['qualifiedName'];
-      if (typeof key !== 'string' || typeof file !== 'string' || typeof qualifiedName !== 'string' || range === null || typeof range !== 'object') {
-        throw new Error(`the graph answered the symbol node ${node.id} of ${JSON.stringify(repository)} without the key, the file, the name or the span a symbol carries: the code pass joins the library's declarations to exactly those records (${import.meta.dir}/codegraph.ts)`);
+      if (node.kind !== 'code.symbol' || typeof key !== 'string' || typeof file !== 'string' || typeof qualifiedName !== 'string' || range === null || typeof range !== 'object') {
+        throw new Error(`the graph answered the declaration edge ${edge.id} of ${JSON.stringify(repository)} with ${JSON.stringify(node.kind)}, a node of ${node.id} that carries no key, file, name or span, and the code pass joins the library's declarations to exactly the records a declaration names (src/fill/stages/codegraph.ts, ${import.meta.dir}/codegraph.ts)`);
       }
       const startLine = Number((range as Record<string, unknown>)['startLine']);
       const endLine = Number((range as Record<string, unknown>)['endLine']);
       if (!Number.isInteger(startLine) || !Number.isInteger(endLine)) {
-        throw new Error(`the graph answered the symbol node ${node.id} of ${JSON.stringify(repository)} with the span ${JSON.stringify(range)}, which is no line range: the code pass joins by the place the per-file pass read (${import.meta.dir}/codegraph.ts)`);
+        throw new Error(`the graph answered the declaration edge ${edge.id} of ${JSON.stringify(repository)} with the span ${JSON.stringify(range)}, which is no line range: the code pass joins by the place the per-file pass read (src/fill/stages/codegraph.ts, ${import.meta.dir}/codegraph.ts)`);
       }
-      symbols.push({ key, file, qualifiedName, startLine, endLine });
+      if (!symbols.has(key)) symbols.set(key, { key, file, qualifiedName, startLine, endLine });
     }
     if (page.next === null) break;
     after = page.next;
   }
-  return symbols;
+  return [...symbols.values()].sort((left, right) => byCodePoint(left.key, right.key));
 }
 
 /** The unit's coverage node: the commit, what was read, what was left out, and what the run cost. */

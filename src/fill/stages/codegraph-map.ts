@@ -30,11 +30,14 @@
  * not written on a guess, and the run's coverage names how many were left.
  */
 import { byCodePoint } from '../../model/order.js';
-import { FACT_KINDS, type CoverageGap } from '../facts.js';
+import { factId, FACT_KINDS, repositoryPath, type CoverageGap, type SymbolKind } from '../facts.js';
 import type { StageDraftWrite } from '../stage.js';
 
 /** The library's version, as the stage pins it: what a record's provenance names. */
 export const CODEGRAPH_LIBRARY_VERSION = '1.6.2';
+
+/** The reader the symbols this stage writes cite: the library, and the version the stage pins. */
+const CODEGRAPH_SYMBOL_SOURCE = { system: 'codegraph', version: CODEGRAPH_LIBRARY_VERSION } as const;
 
 // ---- the library's own records -------------------------------------------
 
@@ -180,13 +183,26 @@ export function codegraphProduces(): readonly { readonly kind: string; readonly 
 
 // ---- the published records the join stands on -----------------------------
 
-/** One symbol the per-file passes published, as the join reads it: its key, its place and its name. */
+/** One symbol a per-file pass declared, as the join reads it from the declaration that recorded it: its key, its place and its name. */
 export interface PublishedSymbol {
   readonly key: string;
   readonly file: string;
   readonly qualifiedName: string;
   readonly startLine: number;
   readonly endLine: number;
+}
+
+/**
+ * The id of the symbol fact one declaration of a file is, as the schema digests it: the kind, the
+ * repository, the file, the qualified name and the kind of declaration, and nothing of a run, the place
+ * or the library's own name for it (decision 0033, item 7; `factId`, `src/fill/facts.ts`).
+ */
+function symbolFactId(repository: string, commit: string, path: string, qualifiedName: string, symbolKind: string): string {
+  return factId({
+    kind: 'symbol',
+    value: { repository, file: repositoryPath(path), qualifiedName, symbolKind: symbolKind as SymbolKind },
+    provenance: { source: CODEGRAPH_SYMBOL_SOURCE, repository: { id: repository, commit } },
+  });
 }
 
 /**
@@ -384,9 +400,14 @@ export function codegraphJoin(input: JoinInput): JoinResult {
       }
       if (!input.readByFill(path)) {
         // A file no per-file pass of ours can read: this is the one record the
-        // stage writes as a node (see the module's header).
+        // stage writes as a node (see the module's header). It is a symbol fact of
+        // the schema, keyed and record-keyed by the id the schema digests (a kind,
+        // a colon and the digest of what the symbol is about), so a reader of
+        // `code.symbol` names it as it names any other, and the fact a per-file
+        // pass would write for the same declaration, were its grammar to read the
+        // file, is this same node (madarch-8bdc.2.8).
         const qualifiedName = qualifiedNameOf(node);
-        const key = `code.symbol:${path}#${qualifiedName}`;
+        const key = symbolFactId(repository, commit, path, qualifiedName, tie.symbolKind);
         if (publishedKeys.has(key)) {
           keys.set(node.id, key);
           symbolsJoined += 1;
@@ -399,6 +420,10 @@ export function codegraphJoin(input: JoinInput): JoinResult {
           label: qualifiedName,
           file: path,
           properties: {
+            // The node carries what every static symbol node carries, its record key among it: a reader of
+            // `code.symbol` names a symbol by the key it was written under (the modules stage's walk, the
+            // graph's page reads), and a node without one is no symbol to them (madarch-8bdc.2.8).
+            recordKey: key,
             repository,
             file: path,
             qualifiedName,

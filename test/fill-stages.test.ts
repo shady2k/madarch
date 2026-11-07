@@ -22,6 +22,8 @@ import { createPGliteDatabaseOwner, type DatabaseOwner } from '../src/adapters/d
 import { countPublishedFactsByKind, readUnitFacts } from '../src/fill/fact-store.js';
 import { readUnitPlan } from '../src/fill/orchestrator-store.js';
 import { createFillOrchestratorService, type FillOrchestratorService, type FillRunResult } from '../src/fill/orchestrator-host.js';
+import { FACT_ID_PATTERN } from '../src/fill/facts.js';
+import { createGraphStore } from '../src/graph/index.js';
 import { createStagesFill, declaredStagesDigest, type StagesFill } from '../src/product/fill-stages.js';
 import { writeFirstFillWorkflow } from './fill-workflow-fixture.js';
 
@@ -370,6 +372,67 @@ describe('two runs over one product', () => {
     // the same rows: one row per file of the tree, whatever the commit.
     expect(afterSecond['file']).toBe(6);
     expect(afterSecond['directory']).toBe(3);
+  }, 900_000);
+});
+
+describe('a tree holding a file no grammar of ours reads', () => {
+  /**
+   * The defect this case holds (madarch-8bdc.2.8): the code pass writes a symbol for a declaration it reads
+   * in a file no per-file pass of ours can read, and its own read of the repository's symbols then answers
+   * the symbol it just wrote. The run went stale once on every repository where it wrote a symbol, and the
+   * replacement generation raised on the node it had written itself. The fixture holds a Terraform resource
+   * beside a TypeScript function: the library reads both, one grammar of ours reads the TypeScript alone.
+   */
+  test('the code pass writes the resource and settles in its first generation, and the run succeeds', async () => {
+    const folder = join(root, 'shop-terraform');
+    mkdirSync(join(folder, 'src'), { recursive: true });
+    mkdirSync(join(folder, 'terraform'), { recursive: true });
+    writeFileSync(join(folder, 'workspace.yaml'), 'schemaVersion: 1\nid: 2f6d1e8a-3b4c-4d5e-8f90-1a2b3c4d5e6f\nname: shop-terraform\n');
+    writeFirstFillWorkflow(folder);
+    writeFileSync(join(folder, 'src', 'total.ts'), 'export function total(): number {\n  return 42;\n}\n');
+    writeFileSync(join(folder, 'terraform', 'images.tf'), [
+      'resource "registry_repository" "images" {',
+      '  location      = "europe-west1"',
+      '  repository_id = "images"',
+      '  format        = "DOCKER"',
+      '}',
+      '',
+    ].join('\n'));
+    git(folder, 'init', '-q');
+    commitAll(folder, 'one');
+    const opened = await openProduct(folder);
+    try {
+      const run = await opened.run('run-terraform');
+      // One generation, not two: the code pass's read of the symbols answers no symbol it wrote itself.
+      expect({ state: run.state, settled: run.settled }).toEqual({ state: 'succeeded', settled: true });
+      // The code pass publishes in its first generation: its read of the file pass's declarations
+      // answers what it answered before it wrote its symbol. The modules stage reads the repository's
+      // symbols, and the code pass plans no unit in the run's first wave (it waits for the file pass), so
+      // nothing holds the modules unit back: it reads the symbols before the code pass published one,
+      // goes stale once by that publication, and stands published in the generation that replaces it.
+      const codegraph = run.units.find((unit) => unit.unitId === 'codegraph/tree:shop-terraform');
+      const modules = run.units.find((unit) => unit.unitId === 'modules/modules:shop-terraform');
+      expect({ codegraph: [codegraph?.state, codegraph?.generation], modules: modules?.state }).toEqual({
+        codegraph: ['published', 1],
+        modules: 'published',
+      });
+      // The resource is a record of ours, readable where every reader of a symbol reads it, with its key.
+      const store = createGraphStore(opened.owner);
+      const symbols = (await store.byProperty('code.symbol', 'repository', 'shop-terraform', { limit: 1000 })).rows;
+      const held = (node: (typeof symbols)[number]): Record<string, unknown> => node.properties as Record<string, unknown>;
+      const resource = symbols.find((node) => held(node)['globalName'] === 'shop-terraform:terraform/images.tf#registry_repository.images');
+      if (resource === undefined) throw new Error(`the graph holds no symbol for the Terraform resource: it answered ${symbols.map((node) => String(held(node)['globalName'])).sort().join(', ')}`);
+      // The node carries a symbol fact's id — a kind, a colon and the digest of what the symbol is about —
+      // and the graph answers it by that key: a reader names it as it names every other symbol.
+      const key = String(held(resource)['recordKey']);
+      expect(FACT_ID_PATTERN.test(key) && key.startsWith('symbol:')).toBe(true);
+      expect((await store.byKey(key, { limit: 2 })).rows.map((node) => node.nodeId)).toEqual([resource.nodeId]);
+      expect(held(resource)['qualifiedName']).toBe('registry_repository.images');
+      expect(resource.producer).toBe('fill.codegraph');
+      expect((held(resource)['provenance'] as { place?: { file?: string } }).place?.file).toBe('terraform/images.tf');
+    } finally {
+      await opened.close();
+    }
   }, 900_000);
 });
 

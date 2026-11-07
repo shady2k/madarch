@@ -24,7 +24,8 @@ import {
   type LibraryEdge, type LibraryIndex, type LibraryNode, type LibraryRun, type PublishedSymbol,
 } from '../src/fill/stages/codegraph-map.js';
 import { moduleRootsOf } from '../src/fill/stages/codegraph-index.js';
-import type { StaticGraphNode } from '../src/fill/stages/static-context.js';
+import { FACT_ID_PATTERN } from '../src/fill/facts.js';
+import type { StaticGraphEdge, StaticGraphNode } from '../src/fill/stages/static-context.js';
 import type { StaticEdgeDraft, StaticNodeDraft } from '../src/fill/stages/static-graph.js';
 
 const REPOSITORY = 'orders-api';
@@ -56,6 +57,26 @@ function joinedOf(index: LibraryIndex, published: readonly PublishedSymbol[], un
 }
 
 const published = [symbol('src/a.ts', 'alpha', 1), symbol('src/a.ts', 'beta', 5, 9), symbol('src/b.ts', 'Gamma', 2)];
+
+/** The declaration edges the file pass records for one set of published symbols: one positioned occurrence per symbol. */
+function declarations(symbols: readonly PublishedSymbol[]): { rows: readonly StaticGraphEdge[]; next: null } {
+  const node = (held: PublishedSymbol, index: number): StaticGraphNode => ({
+    id: `n${String(index)}`, kind: 'code.symbol', label: held.qualifiedName,
+    properties: { repository: REPOSITORY, file: held.file, qualifiedName: held.qualifiedName, recordKey: held.key, provenance: { source: { system: 'tree-sitter', version: '1' }, repository: { id: REPOSITORY, commit: COMMIT }, place: { file: held.file, range: { startLine: held.startLine, startColumn: 0, endLine: held.endLine, endColumn: 1 } } } },
+    producer: 'fill.syntax', scope: '0',
+  });
+  return {
+    rows: symbols.map((held, index): StaticGraphEdge => ({
+      id: `e${String(index)}`,
+      relation: 'code.occurrence',
+      from: { id: `f${String(index)}`, kind: 'code.file', label: held.file, properties: { file: held.file }, producer: 'fill.syntax', scope: '0' },
+      to: node(held, index),
+      properties: { repository: REPOSITORY, file: held.file, symbol: held.key, roles: ['definition'], factKind: 'occurrence' },
+      producer: 'fill.syntax',
+    })),
+    next: null,
+  };
+}
 
 describe('the library vocabulary tied to ours', () => {
   test('the simple name of a qualified name is its last leg, under "." or "::"', () => {
@@ -143,10 +164,12 @@ describe('the join of the library per-file passes published', () => {
     );
     expect(joined.nodes).toHaveLength(1);
     const held = joined.nodes[0]!;
-    expect(held.key).toBe('code.symbol:src/app.py#handler');
+    // A symbol fact's id: the kind, a colon and the digest of what the symbol is about, which is what every
+    // reader of `code.symbol` names a symbol by (madarch-8bdc.2.8).
+    expect(FACT_ID_PATTERN.test(held.key) && held.key.startsWith('symbol:')).toBe(true);
     expect(held.kind).toBe('code.symbol');
     const properties = held.properties as Record<string, unknown>;
-    expect([properties['file'], properties['qualifiedName'], properties['symbolKind'], properties['globalName'], properties['factKind']]).toEqual(['src/app.py', 'handler', 'function', `${REPOSITORY}:src/app.py#handler`, 'symbol']);
+    expect([properties['recordKey'], properties['file'], properties['qualifiedName'], properties['symbolKind'], properties['globalName'], properties['factKind']]).toEqual([held.key, 'src/app.py', 'handler', 'function', `${REPOSITORY}:src/app.py#handler`, 'symbol']);
     // Not a file the per-file pass can read, so no unresolved declaration is counted for it.
     expect(joined.symbolsUnresolved).toBe(0);
   }, 30_000);
@@ -157,7 +180,7 @@ describe('the join of the library per-file passes published', () => {
       kind: 'node',
       evidence: 'evidence',
       value: {
-        key: 'code.symbol:src/app.py#handler', kind: 'code.symbol', label: 'handler',
+        key: `symbol:${'a'.repeat(64)}`, kind: 'code.symbol', label: 'handler',
         properties: { factKind: 'symbol', repository: REPOSITORY, file: 'src/app.py', qualifiedName: 'handler', symbolKind: 'function' },
       },
     };
@@ -177,7 +200,9 @@ describe('the join of the library per-file passes published', () => {
       ['cmd/main.go', 'services/orders/handler.go', 'src/a.ts'],
     );
     // Both runs name the same declaration; only the module's run is its source.
-    expect(joined.nodes.map((held) => held.key)).toEqual(['code.symbol:cmd/main.go#main', 'code.symbol:services/orders/handler.go#Serve']);
+    expect(joined.nodes.map((held) => (held.properties as Record<string, unknown>)['globalName'])).toEqual([
+      `${REPOSITORY}:cmd/main.go#main`, `${REPOSITORY}:services/orders/handler.go#Serve`,
+    ]);
   }, 30_000);
 
   test('an edge of two marks keeps both, and the strongest names the edge', () => {
@@ -252,15 +277,9 @@ describe('one unit over a fixture the test commits', () => {
           byKey: async () => [],
           byGlobalName: async () => [],
           neighbourhood: async () => ({ rows: [], next: null }),
-          byProperty: async (kind: string) => ({
-            rows: kind === 'code.symbol' ? symbols.map((held, index): StaticGraphNode => ({
-              id: `n${String(index)}`, kind: 'code.symbol', label: held.qualifiedName,
-              properties: { repository: REPOSITORY, file: held.file, qualifiedName: held.qualifiedName, recordKey: held.key, provenance: { source: { system: 'tree-sitter', version: '1' }, repository: { id: REPOSITORY, commit }, place: { file: held.file, range: { startLine: held.startLine, startColumn: 0, endLine: held.endLine, endColumn: 1 } } } },
-              producer: 'fill.syntax', scope: '0',
-            })) : [],
-            next: null,
-          }),
-          edgesByProperty: async () => ({ rows: [], next: null }),
+          byProperty: async () => ({ rows: [], next: null }),
+          // The join reads the declarations the file pass recorded, not the repository's symbol nodes.
+          edgesByProperty: async (relation: string) => (relation === 'code.occurrence' ? declarations(symbols) : { rows: [], next: null }),
         },
         draft: { write: (entry: StageDraftWrite) => { writes.push(entry); }, writes: () => ({ writes }) },
         progress: (note: string) => { notes.push(note); },
@@ -310,15 +329,9 @@ describe('one unit over a fixture the test commits', () => {
         static: {
           repository: { repository: REPOSITORY, commit, source: { system: 'git', version: '2' }, form: 'code' },
           byKey: async () => [], byGlobalName: async () => [], neighbourhood: async () => ({ rows: [], next: null }),
-          byProperty: async (kind: string) => ({
-            rows: kind === 'code.symbol' ? symbols.map((held, index): StaticGraphNode => ({
-              id: `n${String(index)}`, kind: 'code.symbol', label: held.qualifiedName,
-              properties: { repository: REPOSITORY, file: held.file, qualifiedName: held.qualifiedName, recordKey: held.key, provenance: { source: { system: 'tree-sitter', version: '1' }, repository: { id: REPOSITORY, commit }, place: { file: held.file, range: { startLine: held.startLine, startColumn: 0, endLine: held.endLine, endColumn: 1 } } } },
-              producer: 'fill.syntax', scope: '0',
-            })) : [],
-            next: null,
-          }),
-          edgesByProperty: async () => ({ rows: [], next: null }),
+          byProperty: async () => ({ rows: [], next: null }),
+          // The join reads the declarations the file pass recorded, not the repository's symbol nodes.
+          edgesByProperty: async (relation: string) => (relation === 'code.occurrence' ? declarations(symbols) : { rows: [], next: null }),
         },
         draft: { write: (entry: StageDraftWrite) => { writes.push(entry); }, writes: () => ({ writes }) },
         progress: () => undefined,
