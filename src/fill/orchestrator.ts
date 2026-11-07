@@ -1652,7 +1652,15 @@ async function attemptUnit(
   // The draft: the machine's own `submit-draft` step, then the effect that records what was written.
   const drafted = await takeAttemptStep(orchestrator, { unit, step: 'submit-draft', job: request.job, event: { type: 'submit-draft', at: orchestrator.clock(), generation: unit.generation, fence } });
   if (!drafted.ok) return drafted.outcome;
-  const recorded = await recordUnitDraft(database, { unitId: unit.unitId, generation: unit.generation, writes, at: orchestrator.clock() });
+  let recorded: Awaited<ReturnType<typeof recordUnitDraft>>;
+  try {
+    recorded = await recordUnitDraft(database, { unitId: unit.unitId, generation: unit.generation, writes, at: orchestrator.clock() });
+  } catch (error) {
+    // A draft the store could not record is this unit's failure: the run keeps the other units' work and
+    // spends this generation's retries (decision 0033, items 18, 19 and 27), never the process.
+    const reason = `recording the draft of "${unit.unitId}" generation ${unit.generation} raised: ${messageOf(error)}`;
+    return await retryAttempt(orchestrator, { unit, fence, job: request.job, cause: 'transient-failure', reason, summary: reason });
+  }
   await emit(orchestrator, { runId: unit.runId, at: orchestrator.clock(), stage: unit.stageId, unitId: unit.unitId, generation: unit.generation, kind: 'unit-drafted', summary: `${unit.unitId} drafted ${writes.length} ${writes.length === 1 ? 'write' : 'writes'}` });
 
   const validating = await takeAttemptStep(orchestrator, { unit, step: 'validate-draft', job: request.job, event: { type: 'validate-draft', at: orchestrator.clock(), generation: unit.generation, fence } });
@@ -1660,7 +1668,13 @@ async function attemptUnit(
   await emit(orchestrator, { runId: unit.runId, at: orchestrator.clock(), stage: unit.stageId, unitId: unit.unitId, generation: unit.generation, kind: 'unit-validating', summary: `${unit.unitId} validates its draft` });
 
   const validateAt = performance.now();
-  const validation = await stage.validate({ writes }, attemptReader);
+  let validation: Awaited<ReturnType<typeof stage.validate>>;
+  try {
+    validation = await stage.validate({ writes }, attemptReader);
+  } catch (error) {
+    const reason = `the validation of "${unit.unitId}" generation ${unit.generation} raised: ${messageOf(error)}`;
+    return await retryAttempt(orchestrator, { unit, fence, job: request.job, cause: 'validation-problem', reason, summary: reason });
+  }
   const validateMs = performance.now() - validateAt;
   if (validateMs > 1_000) await emit(orchestrator, { runId: unit.runId, at: orchestrator.clock(), stage: unit.stageId, unitId: unit.unitId, generation: unit.generation, kind: 'work-timing', summary: JSON.stringify({ where: 'validate', ms: Math.round(validateMs) }) });
   if (!validation.ok) {
