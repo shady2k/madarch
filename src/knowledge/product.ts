@@ -957,6 +957,7 @@ export class KnowledgeProduct {
     this.fill = {
       state: 'done', startedAt: this.fill.startedAt, finishedAt: (this.options.now?.() ?? new Date()).toISOString(), gaps: 0,
       changed: this.lastChangedPages() ?? [],
+      ...(result.unread === undefined || result.unread.length === 0 ? {} : { unread: [...result.unread] }),
     };
     this.notify();
     this.lastUse = Date.now();
@@ -2015,6 +2016,14 @@ export class KnowledgeProduct {
     }
     for (const repo of this.repositories().filter((candidate) => candidate.present)) {
       const commit = this.pins.get(repo.name)?.commit;
+      // A checkout that holds no commit has no documents: it is named with its path, and nothing is
+      // read of it. A repository added before its first commit must not fail the product's wiki.
+      if (commit === undefined || commit === '') {
+        if (headCommitOf(repo.path) === undefined) {
+          findings.push({ file: repo.path, line: 1, message: `the repository ${JSON.stringify(repo.name)} holds no commit yet: nothing is read from it until it does`, source: repo.path });
+          continue;
+        }
+      }
       const at = commit === undefined || commit === '' ? 'HEAD' : commit;
       const key = `${repo.name}@${at}@${manifest.excludeDocuments.join(',')}`;
       let held = this.repoDocs.get(key);

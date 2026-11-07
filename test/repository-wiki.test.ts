@@ -11,14 +11,14 @@
  */
 import { afterAll, beforeAll, describe, expect, test } from 'bun:test';
 import { execFileSync } from 'node:child_process';
-import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs';
+import { mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
+import { symlinkSync } from 'node:fs';
 import { createPGliteDatabaseOwner } from '../src/adapters/database-owner.js';
 import { runFill } from '../src/fill/run.js';
 import { knowledgeRootOf, productStoreFolder } from '../src/product/store.js';
 import type { FillStepView } from '../src/knowledge/model.js';
-import { startKnowledgeFill } from '../src/knowledge/fill-run.js';
 import { startServer, type StartedServer } from '../src/server/http.js';
 import { gitEnv } from './git-env.js';
 import { SAMPLE_IDENTITY, makeProduct } from './knowledge-fixture.js';
@@ -191,28 +191,49 @@ describe('the empty wiki, the press and the end state', () => {
     }
   }, 300_000);
 
-  test('a fill that cannot read its repository fails with its file and line, and the product path', async () => {
-    // A checkout with no commit yet: the fill's first git read refuses it, and the message names
-    // the file and the line it was raised from. The run is started here, not through the status
-    // route: a product's documents cannot be listed for a repository with no commit, which is the
-    // document listing's own refusal and not this step's.
-    const repository = join(root, 'broken-code');
-    mkdirSync(repository, { recursive: true });
-    git(repository, 'init', '-q', '-b', 'main');
-    writeFileSync(join(repository, 'src.ts'), 'export const a = 1;\n');
-    const folder = makeProduct(home, 'broken', repository, 'broken-code');
+  test('a declared repository with no commit does not break the wiki: the status names it, and the fill says what it did for it', async () => {
+    // A checkout with no commit yet: it is a repository the product declares, and nothing is read
+    // of it. The wiki answers, names it with its path, and the fill reads the other repository and
+    // says what it did for this one (madarch-8bdc.2.5, item 2 of the view's rework).
+    const empty = join(root, 'empty-code');
+    mkdirSync(empty, { recursive: true });
+    git(empty, 'init', '-q', '-b', 'main');
+    writeFileSync(join(empty, 'README.md'), '# Nothing committed\n');
+    const committed = join(root, 'committed-code');
+    mkdirSync(join(committed, 'src'), { recursive: true });
+    git(committed, 'init', '-q', '-b', 'main');
+    writeFileSync(join(committed, 'src', 'a.ts'), 'export const a = 1;\n');
+    git(committed, 'add', '-A');
+    git(committed, 'commit', '-qm', 'the committed repository');
+    const folder = makeProduct(home, 'half', committed, 'committed-code');
+    // The manifest declares the empty checkout beside the committed one.
+    const manifest = join(folder, 'workspace.yaml');
+    writeFileSync(manifest, `${readFileSync(manifest, 'utf8').replace(/(\n\s+- name: committed-code[\s\S]*)$/u, '$1  - name: empty-code\n    url: file:///empty-code\n')}`);
+    symlinkSync(empty, join(folder, 'repos', 'empty-code'), 'dir');
     git(folder, 'add', '-A');
-    git(folder, 'commit', '-qm', 'a product whose code folder holds no commit');
-    const owner = createPGliteDatabaseOwner({ btreeGist: true });
-    const store = join(root, 'broken-store');
+    git(folder, 'commit', '-qm', 'a product with one repository that holds no commit');
+    const server = await startServer({ productHome: home, appFolder: app, port: 0, log: () => undefined, errorLog: () => undefined });
     try {
-      const run = await startKnowledgeFill({ productFolder: folder, storeFolder: store, runId: 'broken', database: owner });
-      const result = await run.done;
-      expect(result.ok).toBe(false);
-      // The file, the line and the words: the engine raised it, and the run kept it.
-      expect(result.message).toMatch(/src\/product\/fill-stages\.ts:\d+:\d+: .*git could not read it/u);
+      // The empty wiki answers: no 500, the repository listed, and a finding that names its path.
+      const emptyStatus = await json(server, 'half', '/api/k/status');
+      expect(emptyStatus.status).toBe(200);
+      expect(JSON.stringify(emptyStatus.body['repositories'])).toContain('empty-code');
+      expect(JSON.stringify(emptyStatus.body['findings'])).toContain('holds no commit yet');
+      expect(JSON.stringify(emptyStatus.body['findings'])).toContain(join(folder, 'repos', 'empty-code'));
+      // The fill reads the committed repository and says what it did for the empty one.
+      const ended = await press(server, 'half');
+      const fill = ended['fill'] as Record<string, unknown>;
+      expect(fill['state']).toBe('done');
+      expect(fill['unread']).toEqual([{ repository: 'empty-code', path: join(folder, 'repos', 'empty-code'), reason: 'the checkout holds no commit yet' }]);
+      const counts = (ended['repository'] as Record<string, unknown>)['counts'] as Record<string, unknown>;
+      expect(counts['files']).toBe(1);
+      // The pages of the committed repository answer; the product's wiki stands.
+      const file = await json(server, 'half', '/api/k/file?path=src%2Fa.ts');
+      expect(file.status).toBe(200);
+      const after = await json(server, 'half', '/api/k/status');
+      expect(after.status).toBe(200);
     } finally {
-      await owner.close().catch(() => undefined);
+      await server.stop();
     }
   }, 300_000);
 

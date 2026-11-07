@@ -123,6 +123,15 @@ describe('the repository page', () => {
     expect(container.querySelector('[data-testid=repository-gap]')!.textContent).toBe('code at abc — shallow-history');
   });
 
+  test('a repository the fill could not read is named with its path and its reason', async () => {
+    const folder: FolderPageModel = { repository: 'code', asIsCommit: 'b'.repeat(40), folder: '', parent: null, folders: [], files: [], next: null };
+    answer('/api/k/folder', { folder });
+    const held = status({ fill: { state: 'done', unread: [{ repository: 'empty-code', path: '/work/products/shop/repos/empty-code', reason: 'the checkout holds no commit yet' }] } });
+    const container = into(createElement(RepositoryPage, { status: held, version: 0 }));
+    await until(() => container.querySelector('[data-testid=repository-unread]') !== null, 'the unread note');
+    expect(container.querySelector('[data-testid=repository-unread-row]')!.textContent).toBe('empty-code (/work/products/shop/repos/empty-code) — the checkout holds no commit yet');
+  });
+
   test('a store whose tree has not run says so and draws no list', async () => {
     const held = status();
     const container = into(createElement(RepositoryPage, { status: status({ repository: { ...held.repository!, asIsCommit: null, counts: { files: 0, commits: 0, folders: 0 }, steps: { tree: false, history: false } } }), version: 0 }));

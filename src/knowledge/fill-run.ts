@@ -82,6 +82,8 @@ interface KnowledgeFillResult {
   readonly units: number;
   /** The snapshot the reader opens for this fill, when the run ended and one was made. */
   readonly snapshot?: number;
+  /** The declared repositories the run could not read, each with its path and the state it is in. */
+  readonly unread?: readonly { readonly repository: string; readonly path: string; readonly reason: string }[];
 }
 
 /** One fill of a knowledge store, as the host drives it and a person controls it. */
@@ -196,7 +198,10 @@ export async function startKnowledgeFill(options: KnowledgeFillOptions): Promise
           };
         }
         const finished = await finishKnowledgeStore(owner, options.storeFolder);
-        return { ok: true, state: result.state, units: result.units.length, snapshot: finished.snapshot };
+        return {
+          ok: true, state: result.state, units: result.units.length, snapshot: finished.snapshot,
+          ...(result.unread === undefined || result.unread.length === 0 ? {} : { unread: [...result.unread] }),
+        };
       } catch (error) {
         return { ok: false, state: 'failed', message: error instanceof Error ? error.message : String(error), units: 0 };
       } finally {

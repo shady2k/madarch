@@ -83,6 +83,7 @@
         "path": "Path",
         "file": "File",
         "fillReadingOnly": "Reading {{repository}}",
+    "unreadTitle": "Nothing was read of these repositories",
     "fillSpans": "The run has written {{spans}} spans of its trace so far",
     "progressCounts": "{{published}} of {{planned}} units",
         "fillLast": "The last thing the run did: {{last}}",

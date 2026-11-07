@@ -107,21 +107,27 @@ describe('the fill states', () => {
   }, 300_000);
 
   test('a fill that cannot read its repository fails with its file and line, and the product path', async () => {
-    // A checkout with no commit yet: the fill's first git read refuses it, and the message names
-    // the file and the line it was raised from.
-    const repository = join(root, 'broken-code');
-    mkdirSync(repository, { recursive: true });
+    // A declared repository that is no Git checkout: the product's pins refuse it by name, and the
+    // message names the file and the line it was raised from. (A checkout that holds no commit is
+    // not a failure: the run reads the other repositories and says what it did for it.)
+    const repository = join(root, 'lost-code');
+    mkdirSync(join(repository, 'src'), { recursive: true });
     git(repository, 'init', '-q', '-b', 'main');
     writeFileSync(join(repository, 'src.ts'), 'export const a = 1;\n');
-    const folder = makeProduct(home, 'broken', repository, 'broken-code');
+    git(repository, 'add', '-A');
+    git(repository, 'commit', '-qm', 'a repository the product connects');
+    const folder = makeProduct(home, 'lost', repository, 'lost-code');
     git(folder, 'add', '-A');
-    git(folder, 'commit', '-qm', 'a product whose code folder holds no commit');
+    git(folder, 'commit', '-qm', 'a product whose checkout is replaced');
+    // The connected checkout is replaced by a plain folder: it is no Git checkout any more.
+    rmSync(join(folder, 'repos', 'lost-code'));
+    mkdirSync(join(folder, 'repos', 'lost-code'), { recursive: true });
     const owner = createPGliteDatabaseOwner({ btreeGist: true });
     try {
-      const run = await startKnowledgeFill({ productFolder: folder, storeFolder: join(root, 'broken-store'), runId: 'broken', database: owner });
+      const run = await startKnowledgeFill({ productFolder: folder, storeFolder: join(root, 'lost-store'), runId: 'lost', database: owner });
       const result = await run.done;
       expect(result.ok).toBe(false);
-      expect(result.message).toMatch(/src\/product\/fill-stages\.ts:\d+:\d+: .*git could not read it/u);
+      expect(result.message).toMatch(/src\/product\/fill-stages\.ts:\d+:\d+: .*is no Git checkout of its own/u);
     } finally {
       await owner.close().catch(() => undefined);
     }

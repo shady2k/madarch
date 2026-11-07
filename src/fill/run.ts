@@ -19,7 +19,7 @@ import { fillSteps, type RecordPassWiring } from './steps.js';
 
 export { fillSteps };
 import type { StageRegistry } from './registry.js';
-import { createStagesFill, type StagesFillOptions } from '../product/fill-stages.js';
+import { createStagesFill, type StagesFillOptions, type UnreadRepository } from '../product/fill-stages.js';
 import { publishHistory, publishTree } from '../graph/index.js';
 
 /** What one fill is asked for. */
@@ -62,6 +62,17 @@ export interface RunFillOptions {
   readonly keepService?: boolean;
 }
 
+/** What one fill answered: the host's result, and the repositories it named as unread (a checkout with no commit). */
+export type FillRunAnswer =
+  | (FillRunResult & {
+    /**
+     * The declared repositories this run could not read, each with its path and the state it is
+     * in. Absent for a run that pinned everything.
+     */
+    readonly unread?: readonly UnreadRepository[];
+  })
+  | RefusedFillRun;
+
 /** The record wiring one fill publishes through: the process's one owner, and the paths it covers. */
 function recordsOf(options: RunFillOptions): RecordPassWiring {
   return {
@@ -99,7 +110,7 @@ function narrowed(wiring: Awaited<ReturnType<typeof createStagesFill>>['wiring']
  * Runs one fill and answers what the host answered. A refused, failed or blocked run is
  * the caller's to report: this function never turns a failure into a smaller success.
  */
-export async function runFill(options: RunFillOptions): Promise<FillRunResult | RefusedFillRun> {
+export async function runFill(options: RunFillOptions): Promise<FillRunAnswer> {
   const product = resolve(options.product);
   const runId = options.runId ?? `fill-${String(Date.now())}`;
   const store = options.store ?? options.home ?? join(tmpdir(), 'madarch-fill-home');
@@ -127,7 +138,7 @@ export async function runFill(options: RunFillOptions): Promise<FillRunResult | 
 }
 
 /** One fill with its run id settled by `runFill`: the work the trace surrounds. */
-async function runFillTraced(options: RunFillOptions, runId: string): Promise<FillRunResult | RefusedFillRun> {
+async function runFillTraced(options: RunFillOptions, runId: string): Promise<FillRunAnswer> {
   const product = resolve(options.product);
   const wanted = new Set(options.steps ?? fillSteps());
   const held = new Set(fillSteps());
@@ -135,6 +146,9 @@ async function runFillTraced(options: RunFillOptions, runId: string): Promise<Fi
   if (unknown.length > 0) throw new Error(`runFill: ${unknown.map((step) => JSON.stringify(step)).join(', ')} is not a step of this fill; its steps are ${[...held].sort().join(', ')} (src/fill/run.ts)`);
   const fill = await createStagesFill({ product, database: options.database, records: recordsOf(options) });
   const wiring = fill.registry.all().every((stage) => wanted.has(stage.id)) ? fill.wiring : narrowed(fill.wiring, wanted, fill.registry);
+  // Reading the pins is what names a checkout with no commit: the answer says what the run did for
+  // it once the run has settled, and a run of this product still reads every other repository.
+  await fill.wiring.snapshot();
   const service = createFillOrchestratorService({
     owner: options.database as never,
     registry: fill.registry,
@@ -148,7 +162,10 @@ async function runFillTraced(options: RunFillOptions, runId: string): Promise<Fi
   });
   options.onService?.(service);
   try {
-    return await service.run({ product: fill.product, runId });
+    const result = await service.run({ product: fill.product, runId });
+    const unread = fill.unread();
+    if (unread.length === 0) return result;
+    return result.ok ? { ...result, unread: [...unread] } : result;
   } finally {
     if (options.keepService !== true) await service.stop();
   }

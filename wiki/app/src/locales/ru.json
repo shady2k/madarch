@@ -83,6 +83,7 @@
         "path": "Путь",
         "file": "Файл",
         "fillReadingOnly": "Читаю {{repository}}",
+    "unreadTitle": "Из этих репозиториев ничего не прочитано",
     "fillSpans": "Запуск уже записал в трассу спанов: {{spans}}",
     "progressCounts": "{{published}} из {{planned}} единиц",
         "fillLast": "Последнее, что сделал запуск: {{last}}",

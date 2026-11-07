@@ -271,6 +271,8 @@ export type FillState = {
   run?: FillRunView;
   /** Why the run failed, with the file, the line and the path it stands at. */
   error?: FillErrorView;
+  /** The declared repositories this run could not read, each with its path and the state it is in. */
+  unread?: { repository: string; path: string; reason: string }[];
 };
 
 export type WriterUnit = {

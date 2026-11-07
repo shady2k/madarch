@@ -145,6 +145,18 @@ export function RepositoryPage({ status, version }: { status: WikiStatus; versio
         <p className="mt-2 mb-0 text-small"><KLink href={K_RUN} testId="repository-run-link">{t('knowledge.repository.runPage')}</KLink></p>
       </header>
       <AsIsLine repository={repository.name} commit={repository.asIsCommit} />
+      {(status.fill.unread ?? []).length > 0 && (
+        <Alert className="mb-6" data-testid="repository-unread">
+          <AlertTitle>{t('knowledge.repository.unreadTitle')}</AlertTitle>
+          <AlertDescription>
+            <ul className="mb-0 mt-1">
+              {(status.fill.unread ?? []).map((one) => (
+                <li key={one.repository} data-testid="repository-unread-row"><code className="break-all">{one.repository}</code> (<code className="break-all">{one.path}</code>) — {one.reason}</li>
+              ))}
+            </ul>
+          </AlertDescription>
+        </Alert>
+      )}
       {repository.gaps.length > 0 && (
         <Alert className="mb-6" data-testid="repository-gaps">
           <AlertTitle>{t('knowledge.repository.gapsTitle')}</AlertTitle>

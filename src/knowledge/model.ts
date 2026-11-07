@@ -482,6 +482,12 @@ export interface FillState {
   run?: FillRunView;
   /** Why the run failed, with the file, the line and the path it stands at. */
   error?: FillErrorView;
+  /**
+   * The declared repositories this run could not read, each with its path and the state it is in
+   * (a checkout that holds no commit yet). A run reads the repositories it can, and says what it
+   * did for these rather than refusing the product.
+   */
+  unread?: { repository: string; path: string; reason: string }[];
 }
 
 /** One agent unit of the writer, as the wiki shows it. */
