@@ -15,6 +15,7 @@
  */
 import { readFileSync } from 'node:fs';
 import { join } from 'node:path';
+import { raise } from '../model/raise.js';
 import { traceFiles } from './trace.js';
 
 /** One span as a trace line states it: OTLP's names, times in milliseconds. */
@@ -198,9 +199,128 @@ export function traceReportOf(spans: readonly TraceSpan[], file: string): TraceR
   };
 }
 
+/** One step of a run, as the spans that name it state it. */
+export interface StepReport {
+  readonly step: string;
+  /** The step's plan span, when the trace holds one. */
+  readonly spanId: string;
+  /** The step's wall clock: its first span's start to its last span's end. */
+  readonly wallMs: number;
+  /** The process's resident memory when the step's highest span ended, and when its first began. */
+  readonly peakRssBytes: number;
+  readonly startRssBytes: number;
+  /** The names that took the most time of their own under the step, the slowest first. */
+  readonly slowest: readonly { readonly name: string; readonly count: number; readonly selfMs: number }[];
+}
+
+/** How many span names a step's report names as its slowest. */
+const STEP_NAMES = 5;
+
+/**
+ * The steps of one run, in the order their work started. A span belongs to a
+ * step when it says so — the plan's `fill.step` span names `madarch.step`, a
+ * unit's `fill.unit` span names `madarch.stage` — and everything under such a
+ * span belongs to the same step. A step's wall clock runs from its first span
+ * to its last, its peak memory is the highest resident memory of anything it
+ * ran, and its slowest names are ranked by the time each took of its own. The
+ * numbers are the spans' own: nothing here reads a store or a second record.
+ */
+export function stepReportsOf(spans: readonly TraceSpan[]): StepReport[] {
+  const children = new Map<string, TraceSpan[]>();
+  for (const span of spans) {
+    if (span.parentSpanId === undefined || !spans.some((one) => one.spanId === span.parentSpanId)) continue;
+    children.set(span.parentSpanId, [...(children.get(span.parentSpanId) ?? []), span]);
+  }
+  const stepOf = (span: TraceSpan): string | undefined => {
+    const named = span.attributes['madarch.step'] ?? span.attributes['madarch.stage'];
+    return typeof named === 'string' && named !== '' ? named : undefined;
+  };
+  const subtree = (root: TraceSpan): TraceSpan[] => {
+    const out: TraceSpan[] = [];
+    const seen = new Set<string>();
+    const walk = (span: TraceSpan): void => {
+      if (seen.has(span.spanId)) return;
+      seen.add(span.spanId);
+      out.push(span);
+      for (const child of children.get(span.spanId) ?? []) walk(child);
+    };
+    walk(root);
+    return out;
+  };
+  // One entry per step, in the order the trace first names it.
+  const steps = new Map<string, { spans: TraceSpan[]; plan: TraceSpan | undefined }>();
+  for (const span of spans) {
+    const step = stepOf(span);
+    if (step === undefined) continue;
+    const held = steps.get(step) ?? { spans: [], plan: undefined };
+    for (const one of subtree(span)) if (!held.spans.includes(one)) held.spans.push(one);
+    if (span.name === 'fill.step' && held.plan === undefined) held.plan = span;
+    steps.set(step, held);
+  }
+  const reports: StepReport[] = [];
+  for (const [step, held] of steps) {
+    const selfBy = new Map<string, { count: number; selfMs: number }>();
+    for (const one of held.spans) {
+      const childMs = coveredMs((children.get(one.spanId) ?? []).map((child) => ({ start: child.start, end: child.end })));
+      const selfMs = Math.max(0, one.end - one.start - childMs);
+      const known = selfBy.get(one.name) ?? { count: 0, selfMs: 0 };
+      selfBy.set(one.name, { count: known.count + 1, selfMs: known.selfMs + selfMs });
+    }
+    const slowest = [...selfBy.entries()]
+      .map(([name, known]) => ({ name, count: known.count, selfMs: known.selfMs }))
+      .sort((left, right) => right.selfMs - left.selfMs || (left.name < right.name ? -1 : 1))
+      .slice(0, STEP_NAMES);
+    const start = Math.min(...held.spans.map((one) => one.start));
+    const end = Math.max(...held.spans.map((one) => one.end));
+    const rss = held.spans.map((one) => (typeof one.attributes['process.rss.end'] === 'number' ? one.attributes['process.rss.end'] : 0));
+    const first = held.spans.find((one) => one.start === start);
+    const startRss = typeof first?.attributes['process.rss.start'] === 'number' ? first.attributes['process.rss.start'] as number : 0;
+    reports.push({
+      step,
+      spanId: held.plan?.spanId ?? '',
+      wallMs: Math.max(0, end - start),
+      peakRssBytes: Math.max(startRss, ...rss),
+      startRssBytes: startRss,
+      slowest,
+    });
+  }
+  const startOf = new Map(reports.map((report) => [report.step, Math.min(...(steps.get(report.step)?.spans ?? []).map((one) => one.start))]));
+  return reports.sort((left, right) => (startOf.get(left.step) ?? 0) - (startOf.get(right.step) ?? 0) || (left.step < right.step ? -1 : left.step > right.step ? 1 : 0));
+}
+
 /** How a run id becomes a trace file name: every character a path would read as a separator is one dash. */
 function traceFileNameOf(runId: string): string {
   return `${runId.replace(/[^A-Za-z0-9._-]/gu, '-')}.jsonl`;
+}
+
+/** One run's trace as the run page and the report read it: the spans' report and their steps, from one read of the file. */
+export interface TraceRunReport {
+  readonly file: string;
+  readonly runId: string;
+  readonly report: TraceReport;
+  readonly steps: readonly StepReport[];
+  /** When the run's first span started and its last ended, in epoch milliseconds. */
+  readonly startedAtMs: number;
+  readonly endedAtMs: number;
+}
+
+/** One run of a store's trace: the named run, or the newest. The file is read once for both reports. */
+export function readTraceRun(options: { readonly store: string; readonly runId?: string }): TraceRunReport {
+  const files = traceFiles(options.store);
+  if (files.length === 0) raise(`the store holds no trace: its traces are one JSON lines file per run in ${join(options.store, 'traces')}, and a fill writes one`);
+  const chosen = options.runId === undefined ? files[0]! : files.find((one) => one.runId === options.runId || one.file.endsWith(`/${traceFileNameOf(options.runId!)}`));
+  if (chosen === undefined) raise(`the store holds no trace of run ${JSON.stringify(options.runId)}; its runs are ${files.map((one) => JSON.stringify(one.runId)).join(', ')}`);
+  const spans = readTraceSpans(chosen.file);
+  const startedAt = spans.length === 0 ? 0 : Math.min(...spans.map((span) => span.start));
+  const endedAt = spans.length === 0 ? 0 : Math.max(...spans.map((span) => span.end));
+  return {
+    file: chosen.file,
+    runId: chosen.runId,
+    report: traceReportOf(spans, chosen.file),
+    steps: stepReportsOf(spans),
+    startedAtMs: startedAt,
+    endedAtMs: endedAt,
+  };
 }
 
 /** The report of one store's trace: `--run` names it, and the newest one is read when it does not. */

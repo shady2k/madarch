@@ -9,6 +9,7 @@ import { tmpdir } from 'node:os';
 import path from 'node:path';
 import { afterAll, describe, expect, test } from 'bun:test';
 import { acquireFolderLock, openRepositoryGraph, releaseFolderLock } from '../src/mcp/graph.js';
+import { writeDriverGraph } from './mcp-prefill.js';
 
 const FOLDER = mkdtempSync(path.join(tmpdir(), 'madarch-mcp-lock-'));
 const REPOSITORY = mkdtempSync(path.join(tmpdir(), 'madarch-mcp-lock-repo-'));
@@ -39,6 +40,9 @@ describe('the folder lock', () => {
 
   test('the lock outlives the database it guards: it is dropped only once the database is closed', async () => {
     const folder = path.join(FOLDER, 'served');
+    // A base graph the driver wrote: the served checkout's record fill publishes no symbols, and the
+    // session still opens the view over what the store holds.
+    await writeDriverGraph(folder, REPOSITORY);
     const graph = await openRepositoryGraph({ repository: REPOSITORY, folder, log: () => undefined });
     expect(existsSync(path.join(folder, 'server.lock'))).toBe(true);
     const closing = graph.close();

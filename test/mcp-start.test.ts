@@ -12,6 +12,7 @@ import path from 'node:path';
 import { afterAll, beforeAll, describe, expect, test } from 'bun:test';
 import { RepositorySession } from '../src/mcp/session.js';
 import { answerRepositoryMcpMessage, type PendingRepository } from '../src/mcp/server.js';
+import { writeDriverGraph } from './mcp-prefill.js';
 
 const REPOSITORY = mkdtempSync(path.join(tmpdir(), 'madarch-mcp-start-repo-'));
 const STATE = mkdtempSync(path.join(tmpdir(), 'madarch-mcp-start-state-'));
@@ -49,6 +50,7 @@ afterAll(() => {
 
 describe('a served checkout', () => {
   test('opens and answers its own symbol', async () => {
+    await writeDriverGraph(path.join(STATE, 'graph'), REPOSITORY);
     const session = await RepositorySession.open({ repository: REPOSITORY, folder: path.join(STATE, 'graph'), env: { ...process.env, MADARCH_HOME: HOME } });
     try {
       const answer = await session.call('get_symbol', { name: 'f000' });
@@ -62,6 +64,7 @@ describe('a served checkout', () => {
   }, 300_000);
 
   test('serves through the protocol, and a contract answer is the graph own, never a startup failure', async () => {
+    await writeDriverGraph(path.join(STATE, 'protocol'), REPOSITORY);
     const ready = RepositorySession.open({ repository: REPOSITORY, folder: path.join(STATE, 'protocol'), env: { ...process.env, MADARCH_HOME: HOME } });
     const pending: PendingRepository = { repository: REPOSITORY, ready };
     try {

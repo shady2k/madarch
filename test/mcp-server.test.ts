@@ -20,7 +20,8 @@ import { renderQuestion } from '../src/loop/entities.js';
 import { readJournal, summarize } from '../src/mcp/journal.js';
 import { RepositorySession } from '../src/mcp/session.js';
 import { answerRepositoryMcpMessage } from '../src/mcp/server.js';
-import { REPO_TOOL_NAMES } from '../src/mcp/tools.js';
+import { SERVED_TOOL_NAMES } from '../src/mcp/server.js';
+import { writeDriverGraph } from './mcp-prefill.js';
 
 const PROJECT = path.resolve(import.meta.dir, '..');
 const REPOSITORY = mkdtempSync(path.join(tmpdir(), 'madarch-mcp-repo-'));
@@ -89,6 +90,9 @@ beforeAll(async () => {
   put('docs/questions/saved-items.md', QUESTION);
   git('add', '-A');
   git('commit', '-q', '-m', 'atlas-kit: save items');
+  // The seven tools of decision 0032 read a graph the driver wrote; the served path of this step
+  // answers from the record store and says those steps have not run (test/mcp-records.test.ts).
+  await writeDriverGraph(STORE, REPOSITORY);
   session = await RepositorySession.open({ repository: REPOSITORY, folder: STORE });
 }, 180_000);
 
@@ -107,10 +111,10 @@ async function answerOf(tool: string, args: Record<string, unknown>): Promise<{ 
 const json = (value: unknown): string => JSON.stringify(value);
 
 describe('the served tool surface', () => {
-  test('lists the seven tools of decision 0032, in the decision\'s order, each with the writer\'s own schema', async () => {
+  test('lists this step\'s five tools and the seven of decision 0032, in the served order, each with its own schema', async () => {
     const listed = await answerRepositoryMcpMessage({ jsonrpc: '2.0', id: 1, method: 'tools/list', params: {} }, session);
     const tools = ((listed?.['result'] as Record<string, unknown>)['tools'] ?? []) as { name: string; description: string; inputSchema: Record<string, unknown> }[];
-    expect(tools.map((tool) => tool.name)).toEqual([...REPO_TOOL_NAMES]);
+    expect(tools.map((tool) => tool.name)).toEqual([...SERVED_TOOL_NAMES]);
     for (const tool of tools) {
       expect(tool.description.length).toBeGreaterThan(20);
       expect(tool.inputSchema['type']).toBe('object');
@@ -284,12 +288,12 @@ describe('the command as a client starts it', () => {
     expect((initialized['result'] as Record<string, unknown>)['serverInfo']).toMatchObject({ name: 'madarch' });
     child.stdin.write(`${JSON.stringify({ jsonrpc: '2.0', id: 2, method: 'tools/list', params: {} })}\n`);
     const listed = await nextLine();
-    expect(((listed['result'] as Record<string, unknown>)['tools'] as { name: string }[]).map((tool) => tool.name)).toEqual([...REPO_TOOL_NAMES]);
+    expect(((listed['result'] as Record<string, unknown>)['tools'] as { name: string }[]).map((tool) => tool.name)).toEqual([...SERVED_TOOL_NAMES]);
     // A client that asks while the graph is building is told so and asks again (madarch-ztyq.10 review): the server
     // answers its handshake at once and builds in the background.
     let body: Record<string, unknown> = {};
     for (let attempt = 0; attempt < 120; attempt++) {
-      child.stdin.write(`${JSON.stringify({ jsonrpc: '2.0', id: 3 + attempt, method: 'tools/call', params: { name: 'get_symbol', arguments: { name: 'saveItem' } } })}\n`);
+      child.stdin.write(`${JSON.stringify({ jsonrpc: '2.0', id: 3 + attempt, method: 'tools/call', params: { name: 'get_file', arguments: { path: 'src/store.ts' } } })}\n`);
       const called = await nextLine();
       const content = (called['result'] as Record<string, unknown>)['content'] as { type: string; text: string }[];
       expect(content[0]!.type).toBe('text');
@@ -299,7 +303,13 @@ describe('the command as a client starts it', () => {
     }
     expect(body['error']).toBeUndefined();
     expect((body['source'] as Record<string, unknown>)['repository']).toBe(REPOSITORY);
-    expect(body['selected']).toMatchObject({ key: 'code.symbol:src/store.ts#saveItem' });
+    expect(body).toMatchObject({ path: 'src/store.ts', form: 'text', mode: '100644' });
+    // The seven tools of decision 0032 name the step that has not run, rather than an empty answer.
+    child.stdin.write(`${JSON.stringify({ jsonrpc: '2.0', id: 200, method: 'tools/call', params: { name: 'get_symbol', arguments: { name: 'saveItem' } } })}\n`);
+    const later = await nextLine();
+    const laterBody = JSON.parse(((later['result'] as Record<string, unknown>)['content'] as { text: string }[])[0]!.text) as Record<string, unknown>;
+    expect((laterBody['error'] as Record<string, unknown>)['code']).toBe('step-not-run');
+    expect((laterBody['error'] as Record<string, unknown>)['step']).toBe('syntax');
     const exited = new Promise<number | null>((resolve) => child.on('exit', (code) => resolve(code)));
     child.stdin.end();
     expect(await exited).toBe(0);

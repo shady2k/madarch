@@ -127,6 +127,12 @@ export interface RepositoryFillOptions {
   readonly repository: string;
   /** The database the run's units, reads and publications stand in; the caller opens and closes it. */
   readonly database: FillDatabase;
+  /**
+   * What this step's two passes publish through, and the paths a fill covers; the record store
+   * over this owner when it is left out. The one runner hands its own wiring here, so a served
+   * checkout and a product fill publish through the same functions.
+   */
+  readonly records?: import('../fill/steps.js').RecordPassWiring;
 }
 
 /** One product's stages fill: the registry the run derives its stage graph from, and the wiring the host drives it with. */
@@ -272,13 +278,14 @@ export async function createRepositoryFill(options: RepositoryFillOptions): Prom
   const pins = (): readonly RepositoryPin[] => [pin];
   const snapshots = createGitSnapshotSource(pins);
   await createRecordSchema(options.database);
+  const records = options.records ?? {
+    publishTree: (input: Parameters<typeof publishTree>[1]) => publishTree(options.database, input),
+    publishHistory: (input: Parameters<typeof publishHistory>[1]) => publishHistory(options.database, input),
+  };
   const registry = createStageRegistry({
     snapshots,
     checkoutOf: () => folder,
-    records: {
-      publishTree: (input) => publishTree(options.database, input),
-      publishHistory: (input) => publishHistory(options.database, input),
-    },
+    records,
   });
   await createStageReadSchema(options.database);
   const store: GraphStore = createGraphStore(options.database);

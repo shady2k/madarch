@@ -101,14 +101,17 @@ export function readFillProgress(file: string): FillProgress {
   return fillProgressOf(readTraceSpans(file));
 }
 
+/** No run has written a span yet: what a reader sees before the first one is written. */
+const NOTHING: FillProgress = { planned: 0, published: 0, failed: 0, blocked: 0, stages: {}, last: null, pass: null };
+
 /**
- * The progress of the newest trace in a store: a store a fill is writing into
- * holds the run's trace from its start, so a reader between two spans still
- * sees what the run has done.
+ * The progress of one run in a store, by its run id: a store that also holds
+ * another run's trace (a server's own, a fill of another commit) answers the
+ * run asked for and never the newest file that happens to be there.
  */
-export function readLatestFillProgress(store: string): FillProgress {
-  const files = traceFiles(store);
-  if (files.length === 0) return { planned: 0, published: 0, failed: 0, blocked: 0, stages: {}, last: null, pass: null };
-  return readFillProgress(files[0]!.file);
+export function readFillProgressOf(store: string, runId: string): FillProgress {
+  const file = traceFiles(store).find((one) => one.runId === runId);
+  return file === undefined ? NOTHING : readFillProgress(file.file);
 }
+
 

@@ -15,6 +15,7 @@
 import { StringDecoder } from 'node:string_decoder';
 import * as languages from 'linguist-languages';
 import { withSpan } from '../../obs/trace.js';
+import { raise } from '../../model/raise.js';
 import { Type } from 'typebox';
 import { byCodePoint } from '../../model/order.js';
 import type { SnapshotSource } from '../snapshot.js';
@@ -59,7 +60,7 @@ async function gitStream(root: string, args: readonly string[], onChunk: (chunk:
         env: { ...process.env, LC_ALL: 'C', GIT_OPTIONAL_LOCKS: '0' },
       });
     } catch (error) {
-      throw new Error(`the repository at ${root} could not run "git ${args.join(' ')}": ${error instanceof Error ? error.message : String(error)} (src/fill/stages/repository-facts.ts)`);
+      raise(`the repository at ${root} could not run "git ${args.join(' ')}": ${error instanceof Error ? error.message : String(error)}`);
     }
     const errors: Uint8Array[] = [];
     const drained = (async () => { for await (const chunk of process_.stderr as ReadableStream<Uint8Array>) errors.push(chunk); })();
@@ -74,7 +75,7 @@ async function gitStream(root: string, args: readonly string[], onChunk: (chunk:
     span.setAttribute('process.exitCode', code);
     if (code !== 0) {
       const message = Buffer.concat(errors.map((one) => Buffer.from(one))).toString('utf8').trim();
-      throw new Error(`the repository at ${root} could not run "git ${args.join(' ')}": git exited ${String(code)}${message === '' ? '' : `: ${message.slice(0, GIT_ERROR_BYTES)}${message.length > GIT_ERROR_BYTES ? ' (cut)' : ''}`} (src/fill/stages/repository-facts.ts)`);
+      raise(`the repository at ${root} could not run "git ${args.join(' ')}": git exited ${String(code)}${message === '' ? '' : `: ${message.slice(0, GIT_ERROR_BYTES)}${message.length > GIT_ERROR_BYTES ? ' (cut)' : ''}`}`);
     }
     return bytes;
   });
@@ -390,7 +391,7 @@ export function repositoryUnitId(repository: string): string {
 /** The repository a unit id names, refused by name where it names none. */
 export function repositoryOfUnit(unitId: string): string {
   const match = /^repository:(.+)$/.exec(unitId);
-  if (match === null || match[1] === '') throw new Error(`the unit id ${JSON.stringify(unitId)} is not one of the repository passes, which are "repository:<name>" (src/fill/stages/repository-facts.ts)`);
+  if (match === null || match[1] === '') raise(`the unit id ${JSON.stringify(unitId)} is not one of the repository passes, which are "repository:<name>"`);
   return match[1]!;
 }
 
@@ -398,7 +399,7 @@ export function repositoryOfUnit(unitId: string): string {
 async function pinOf(sources: SnapshotSource, repository: string): Promise<RepositoryAt> {
   const pins = await sources.pins();
   const pin = pins.find((entry) => entry.id === repository);
-  if (pin === undefined) throw new Error(`the run pins no repository ${JSON.stringify(repository)}: its pins are ${pins.map((entry) => JSON.stringify(entry.id)).join(', ') || 'none'} (src/fill/stages/repository-facts.ts)`);
+  if (pin === undefined) raise(`the run pins no repository ${JSON.stringify(repository)}: its pins are ${pins.map((entry) => JSON.stringify(entry.id)).join(', ') || 'none'}`);
   return { repository: pin.id, root: pin.root, commit: pin.commit, url: `file://${pin.root}`, ...(pin.defaultBranch === undefined ? {} : { defaultBranch: pin.defaultBranch }) };
 }
 
