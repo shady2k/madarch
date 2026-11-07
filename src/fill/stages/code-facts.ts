@@ -95,7 +95,7 @@ import { publishedTreeRead, publishedTreeRows } from './tree-rows.js';
 export const CODE_FACTS_STAGE_ID = 'code-facts';
 
 /** The stage's own version, bumped when what it writes or plans changes. */
-const CODE_FACTS_STAGE_VERSION = 7;
+const CODE_FACTS_STAGE_VERSION = 8;
 
 /** The fact kinds the stage produces, in code point order. */
 const CODE_FACTS_STAGE_KINDS: readonly string[] = ['binding', 'callable', 'callsite', 'coverage', 'declares', 'export', 'expression', 'field', 'listener-port', 'service-unit'];
@@ -364,6 +364,23 @@ const TS_BINDING_DECLARATIONS: ReadonlySet<string> = new Set(['variable_declarat
 
 /** The node types that declare a name in Go. */
 const GO_BINDING_DECLARATIONS: ReadonlySet<string> = new Set(['const_spec', 'short_var_declaration', 'var_spec']);
+
+/**
+ * The node types that declare a field or a property of a type in TypeScript and
+ * JavaScript: a class's field, and an interface's or a type alias's member. A
+ * member of an anonymous type literal belongs to no named type and is no field
+ * of this file (`ownerTypeNameOf` answers the empty name for it).
+ */
+const TS_FIELD_DECLARATIONS: ReadonlySet<string> = new Set(['field_definition', 'property_signature', 'public_field_definition']);
+
+/** The declarations a TypeScript field's owner stands in, by the body its members are written in. */
+const TS_FIELD_OWNERS: ReadonlySet<string> = new Set(['abstract_class_declaration', 'class_declaration', 'interface_declaration', 'type_alias_declaration']);
+
+/** The parameter node types that declare a field of a class when the constructor writes a modifier on them. */
+const TS_PARAMETER_DECLARATIONS: ReadonlySet<string> = new Set(['optional_parameter', 'required_parameter']);
+
+/** The symbol kinds that hold members: a type a reader reads its fields and methods on. */
+const MEMBER_HOLDER_KINDS: ReadonlySet<string> = new Set(['class', 'enum', 'interface', 'namespace', 'struct', 'type-alias']);
 
 /** The grammar's callable nodes, by both spellings: the nodes whose `body` field is a callable's body. */
 const CALLABLE_NODES: ReadonlySet<string> = new Set([
@@ -825,14 +842,34 @@ export function collectFileFacts(repository: string, path: string, text: string,
         construct: node.type === 'new_expression',
       });
     }
-    if (language === 'go' && node.type === 'field_declaration') {
-      const nameNode = node.childForFieldName('name');
+    if ((language === 'go' && node.type === 'field_declaration') || (language !== 'go' && TS_FIELD_DECLARATIONS.has(node.type))) {
+      // A Go field may be embedded: it declares no name, and the type it writes is the name it is
+      // read by (`http.ResponseWriter`). A TypeScript member of an anonymous type literal belongs
+      // to no named type of the file, and no field of this stage names it.
+      const nameNode = node.childForFieldName('name') ?? node.childForFieldName('property') ?? (language === 'go' ? node.childForFieldName('type') : null);
       const typeNode = node.childForFieldName('type');
-      if (nameNode !== null) {
+      const ownerTypeName = ownerTypeNameOf(node, language);
+      if (nameNode !== null && nameNode.text !== '' && (language === 'go' || ownerTypeName !== '')) {
         fields.push({
           id: `${FIELD_KIND}:${repository}:${path}@${String(span.byteStart)}:${String(span.byteEnd)}`,
           name: nameNode.text,
-          ownerTypeName: ownerTypeNameOf(node),
+          ownerTypeName,
+          span,
+          ...(typeNode === null ? {} : { typeExpression: idOfNode(typeNode) }),
+        });
+      }
+    } else if (language !== 'go' && TS_PARAMETER_DECLARATIONS.has(node.type) && declaresParameterField(node)) {
+      // A constructor's parameter with `readonly` or an accessibility modifier is a field of the
+      // class it constructs: the class writes the field nowhere else, and a reader of the type
+      // reads the parameter as the field it declares.
+      const nameNode = node.childForFieldName('name') ?? node.namedChildren.find((child): child is SyntaxNodeLike => child !== null && (child.type === 'identifier' || child.type === 'private_property_identifier')) ?? null;
+      const typeNode = node.childForFieldName('type');
+      const ownerTypeName = constructorOwnerNameOf(node);
+      if (nameNode !== null && ownerTypeName !== '') {
+        fields.push({
+          id: `${FIELD_KIND}:${repository}:${path}@${String(span.byteStart)}:${String(span.byteEnd)}`,
+          name: nameNode.text,
+          ownerTypeName,
           span,
           ...(typeNode === null ? {} : { typeExpression: idOfNode(typeNode) }),
         });
@@ -979,21 +1016,66 @@ function constantDeclaration(node: SyntaxNodeLike): boolean {
   return node.type === 'const_spec' || node.type === 'const_declaration';
 }
 
-/** The type a Go struct field belongs to: the struct type's declaration name, where the walk stands inside one. */
-function ownerTypeNameOf(node: SyntaxNodeLike): string {
+/**
+ * The type a field belongs to: the declaration its holder belongs to. A Go struct
+ * field walks up to the `type_spec` that names the struct; a TypeScript member
+ * names the class, the interface or the type alias whose body holds it, and a
+ * member of an anonymous type literal (a parameter's own object type) belongs to
+ * no named type of the file and answers the empty name.
+ */
+function ownerTypeNameOf(node: SyntaxNodeLike, language: SyntaxLanguage | null): string {
+  const parentOf = (held: SyntaxNodeLike): SyntaxNodeLike | null => (held as unknown as { parent?: SyntaxNodeLike | null }).parent ?? null;
+  if (language !== 'go') {
+    const holder = parentOf(node);
+    if (holder === null || !['class_body', 'enum_body', 'interface_body', 'object_type'].includes(holder.type)) return '';
+    const owner = parentOf(holder);
+    if (owner === null || !TS_FIELD_OWNERS.has(owner.type)) return '';
+    const name = owner.childForFieldName('name');
+    return name === null ? '' : name.text;
+  }
   // The grammar gives no parent link in this binding's public shape, so the walk records the
   // field with the type name its enclosing shape names where it has one; an unnamed struct
   // holds none, and the field keeps the empty name a reader sees as unknown.
-  const owner = (node as unknown as { parent?: SyntaxNodeLike | null }).parent;
-  let held: SyntaxNodeLike | null | undefined = owner ?? null;
+  let held: SyntaxNodeLike | null | undefined = parentOf(node);
   while (held !== null && held !== undefined) {
     if (held.type === 'type_declaration' || held.type === 'type_spec') {
       const name = held.childForFieldName('name');
       if (name !== null) return name.text;
     }
-    held = (held as unknown as { parent?: SyntaxNodeLike | null }).parent ?? null;
+    held = parentOf(held);
   }
   return '';
+}
+
+/**
+ * Whether a constructor parameter declares a field: the grammar writes `readonly` and an
+ * accessibility modifier as its own nodes, and a parameter without either is a parameter alone.
+ */
+function declaresParameterField(node: SyntaxNodeLike): boolean {
+  for (let index = 0; index < node.childCount; index += 1) {
+    const child = node.child(index);
+    if (child === null) continue;
+    if (child.type === 'accessibility_modifier') return true;
+    if (!child.isNamed && child.text === 'readonly') return true;
+  }
+  return false;
+}
+
+/** The class whose constructor declares the parameter as a field, or the empty name where it declares none. */
+function constructorOwnerNameOf(node: SyntaxNodeLike): string {
+  const parentOf = (held: SyntaxNodeLike): SyntaxNodeLike | null => (held as unknown as { parent?: SyntaxNodeLike | null }).parent ?? null;
+  const parameters = parentOf(node);
+  if (parameters === null || parameters.type !== 'formal_parameters') return '';
+  const method = parentOf(parameters);
+  if (method === null || method.type !== 'method_definition') return '';
+  const name = method.childForFieldName('name');
+  if (name === null || name.text !== 'constructor') return '';
+  const body = parentOf(method);
+  if (body === null || body.type !== 'class_body') return '';
+  const owner = parentOf(body);
+  if (owner === null || !['abstract_class_declaration', 'class_declaration', 'class'].includes(owner.type)) return '';
+  const ownerName = owner.childForFieldName('name');
+  return ownerName === null ? '' : ownerName.text;
 }
 
 /** One node's span: the bytes and lines a reader counts. */

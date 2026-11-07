@@ -84,7 +84,7 @@ import {
 import type { SnapshotReader, SnapshotSource } from '../snapshot.js';
 import {
   DEFAULT_STAGE_DEFAULTS,
-  type FillStage, type StageContext, type StageDraftSet, type StageExecutionResult,
+  type FillStage, type StageContext, type StageDraftSet, type StageDraftWrite, type StageExecutionResult,
   type StageGraphReader, type StagePlan, type StageUnit,
 } from '../stage.js';
 import { evidenceAt, provenanceOf } from './draft.js';
@@ -98,7 +98,7 @@ import { checkStaticGraphDraft, graphWritesOf } from './static-graph.js';
 export const MODULES_STAGE_ID = 'modules';
 
 /** The stage's own version, bumped when what it reads, plans or writes changes. */
-export const MODULES_STAGE_VERSION = 2;
+export const MODULES_STAGE_VERSION = 3;
 
 /**
  * The fact kinds a unit of this stage writes, in code point order: the modules,
@@ -241,6 +241,18 @@ export interface PublishedSymbolRow {
   /** The fact's own place: the declaration's range in its file. */
   readonly place: FactRange;
 }
+
+/** One field row: the `code.field` node the code-facts stage published, and the type that declares it. */
+export interface PublishedFieldRow {
+  readonly kind: 'field';
+  readonly file: string;
+  readonly ownerTypeName: string;
+  /** The id the field fact digests to: the node a `contains` edge names. */
+  readonly id: string;
+}
+
+/** The symbol kinds that hold members: a type a reader reads its fields and methods on. */
+const MEMBER_HOLDER_KINDS: ReadonlySet<string> = new Set(['class', 'enum', 'interface', 'namespace', 'struct', 'type-alias']);
 
 /** One row of the edges read: a resolved edge between two nodes of the repository, with the weight it carries. */
 export interface ResolvedEdgeRow {
@@ -400,6 +412,11 @@ async function executeModulesUnit(unit: StageUnit, context: StageContext): Promi
   const packages = await graphRows(graph, 'code.package', repository, packageOfNode);
   const files = await graphRows(graph, 'code.file', repository, fileOfNode);
   const symbols = await graphRows(graph, 'code.symbol', repository, symbolOfNode);
+  // The fields the per-file code pass published: a type's fields are the type's members, and the
+  // containment tree this stage writes ends at them (a struct's field, an interface's property).
+  // The read is recorded like the others, so a unit that read no field because the code pass had
+  // not published one is replaced once its own read answers one.
+  const fields = await graphRows(graph, 'code.field', repository, fieldOfNode);
   const edges = await edgeRowsOf(graph, repository);
   refuseWhenCancelled(unit, context);
   // The stage's own reader, not the bytes' (see `MODULES_SOURCE`): what it read is the graph.
@@ -416,6 +433,10 @@ async function executeModulesUnit(unit: StageUnit, context: StageContext): Promi
   }
   const written = writeClustering({ repository, repositoryKey, reader: source, provenance, files, symbols, clustered, ranks });
   for (const entry of written.facts) for (const write of graphWritesOf(entry.fact, evidenceAtPlace(source, entry.path))) context.draft.write(write);
+  // What a type holds: its fields and its members, the one containment the tree above cannot name
+  // because both ends are inside one file. A field's own `ownerTypeName` names the type that
+  // declares it, and a member's qualified name names the declaration it stands in.
+  for (const entry of memberContainment(repository, symbols, fields)) context.draft.write({ ...entry.write, evidence: evidenceAtPlace(source, entry.path) });
   // The ranks the walk measured: one `code.rank` node about each file and symbol, written by this
   // stage because a node another stage owns cannot carry a version of this one's (decision 0033).
   for (const rank of written.ranks) {
@@ -431,7 +452,7 @@ async function executeModulesUnit(unit: StageUnit, context: StageContext): Promi
     });
   }
   context.progress(
-    `clustered ${repository} at ${source.commit}: ${written.modules} ${written.modules === 1 ? 'module' : 'modules'} over ${files.length} ${files.length === 1 ? 'file' : 'files'} and ${symbols.length} ${symbols.length === 1 ? 'symbol' : 'symbols'}, ranked over ${edges.length} ${edges.length === 1 ? 'edge' : 'edges'}, ${written.gaps} ${written.gaps === 1 ? 'gap' : 'gaps'}`,
+    `clustered ${repository} at ${source.commit}: ${written.modules} ${written.modules === 1 ? 'module' : 'modules'} over ${files.length} ${files.length === 1 ? 'file' : 'files'} and ${symbols.length} ${symbols.length === 1 ? 'symbol' : 'symbols'} with ${fields.length} ${fields.length === 1 ? 'field' : 'fields'}, ranked over ${edges.length} ${edges.length === 1 ? 'edge' : 'edges'}, ${written.gaps} ${written.gaps === 1 ? 'gap' : 'gaps'}`,
     1,
   );
   return { outcome: 'draft' };
@@ -478,6 +499,12 @@ function fileOfNode(node: StaticGraphNode): PublishedFileRow {
 /** One symbol row, as the syntax stage's symbol node holds it. */
 function symbolOfNode(node: StaticGraphNode): PublishedSymbolRow {
   return { kind: 'symbol', file: String(propertiesOfNode(node)['file']), id: nodeKeyOf(node), value: nodeValueOf(node) as unknown as PublishedSymbolRow['value'], place: nodePlaceOf(node) };
+}
+
+/** One field node, as the code-facts stage published it: its file, the type that declares it and its id. */
+function fieldOfNode(node: StaticGraphNode): PublishedFieldRow {
+  const value = propertiesOfNode(node);
+  return { kind: 'field', file: String(value['file']), ownerTypeName: String(value['ownerTypeName'] ?? ''), id: nodeKeyOf(node) };
 }
 
 /** Every page of one node read, in node id order. */
@@ -1196,6 +1223,53 @@ interface ClusteringInput {
  * repository. Every fact is written in code point order of its id, so two runs of
  * one graph write one draft in one order, and a fact about a file cites that file.
  */
+/**
+ * The containment a type's declaration holds: the fields of the type and the members written in
+ * its qualified name. A field node names its owner in `ownerTypeName`; a member symbol's qualified
+ * name is the owner's and its own name with one dot between them, and only a type-like symbol
+ * holds members. An edge whose two ends are not both published is not written: the read that
+ * missed one is recorded, and the run replaces the generation once it answers both.
+ */
+function memberContainment(repository: string, symbols: readonly PublishedSymbolRow[], fields: readonly PublishedFieldRow[]): readonly { readonly write: StageDraftWrite; readonly path: string }[] {
+  const writes: { write: StageDraftWrite; path: string }[] = [];
+  const byFile = new Map<string, PublishedSymbolRow[]>();
+  for (const symbol of symbols) {
+    const held = byFile.get(symbol.file) ?? [];
+    held.push(symbol);
+    byFile.set(symbol.file, held);
+  }
+  const seen = new Set<string>();
+  const add = (from: string, to: string, path: string): void => {
+    const key = `${from}\u0000${to}`;
+    if (seen.has(key)) return;
+    seen.add(key);
+    writes.push({
+      path,
+      write: {
+        kind: 'edge',
+        evidence: `${path}:1`,
+        value: { relation: 'code.contains', from: { key: from }, to: { key: to }, properties: { factKind: 'contains', repository } },
+      },
+    });
+  };
+  for (const field of fields) {
+    if (field.ownerTypeName === '') continue;
+    const owner = (byFile.get(field.file) ?? []).find((symbol) => symbol.value.qualifiedName === field.ownerTypeName);
+    if (owner !== undefined) add(owner.id, field.id, field.file);
+  }
+  for (const [path, declared] of byFile) {
+    const byName = new Map(declared.map((symbol) => [symbol.value.qualifiedName, symbol]));
+    for (const symbol of declared) {
+      const dot = symbol.value.qualifiedName.lastIndexOf('.');
+      if (dot < 0 || symbol.value.symbolKind === 'field' || symbol.value.symbolKind === 'property') continue;
+      const owner = byName.get(symbol.value.qualifiedName.slice(0, dot));
+      if (owner === undefined || !MEMBER_HOLDER_KINDS.has(owner.value.symbolKind)) continue;
+      add(owner.id, symbol.id, path);
+    }
+  }
+  return writes.sort((left, right) => byCodePoint(`${String((left.write.value as { from: { key: string } }).from.key)}\u0000${String((left.write.value as { to: { key: string } }).to.key)}`, `${String((right.write.value as { from: { key: string } }).from.key)}\u0000${String((right.write.value as { to: { key: string } }).to.key)}`));
+}
+
 function writeClustering(input: ClusteringInput): ClusteringWrite {
   const facts: ClusteringFact[] = [];
   const symbolsOf = new Map<string, PublishedSymbolRow[]>();
