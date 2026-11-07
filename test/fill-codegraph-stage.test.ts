@@ -18,7 +18,7 @@ import { tmpdir } from 'node:os';
 import { join as pathJoin } from 'node:path';
 import { createGitSnapshotSource } from '../src/fill/snapshot.js';
 import { DEFAULT_STAGE_LIMITS, type StageContext, type StageDraftWrite, type StageUnit } from '../src/fill/stage.js';
-import { createCodegraphStage, CODEGRAPH_PUBLISHED_READ, codegraphPublishedRows, treeUnitId } from '../src/fill/stages/codegraph.js';
+import { createCodegraphStage, CODEGRAPH_PUBLISHED_READ, treeUnitId } from '../src/fill/stages/codegraph.js';
 import {
   codegraphJoin, EDGE_KINDS_OUT, EDGE_TIES, edgeWriteOf, gapsOf, NODE_KINDS_OUT, NODE_TIES, simpleNameOf,
   type LibraryEdge, type LibraryIndex, type LibraryNode, type LibraryRun, type PublishedSymbol,
@@ -131,8 +131,8 @@ describe('the join of the library per-file passes published', () => {
       published,
     );
     expect(joined.edges).toEqual([]);
-    expect(joined.left).toEqual([{ what: 'calls left without an end: the target is no record of ours', count: 1 }]);
-    expect(gapsOf({ runs: [], moduleRoots: [''], lines: new Map(), wallMs: 1, processPeakRssBytes: 1 }, joined)).toEqual([{ what: 'calls left without an end: the target is no record of ours (1)', reason: 'unsupported' }]);
+    expect(joined.left).toEqual([{ what: 'calls left without an end: the target is no record of ours', count: 1, reason: 'inaccessible' }]);
+    expect(gapsOf({ runs: [], moduleRoots: [''], lines: new Map(), wallMs: 1, processPeakRssBytes: 1 }, joined)).toEqual([{ what: 'calls left without an end: the target is no record of ours (1)', reason: 'inaccessible' }]);
   }, 30_000);
 
   test('a symbol of a file no per-file pass of ours reads becomes a record of ours', () => {
@@ -215,8 +215,18 @@ describe('one unit over a fixture the test commits', () => {
       const source = createGitSnapshotSource([{ id: REPOSITORY, form: 'code', root, commit }]);
       const stage = createCodegraphStage(source);
       const unit: StageUnit = { id: treeUnitId(REPOSITORY), scope: REPOSITORY };
-      const plan = await stage.plan({ query: async () => [] });
-      expect(plan.units).toEqual([{ id: treeUnitId(REPOSITORY), scope: REPOSITORY }]);
+      // The plan waits for the file pass: it answers this stage's own coverage (none yet) and the file
+      // pass's coverage of the tree's source files at the commit's blobs.
+      const reader = await source.open(REPOSITORY);
+      const filePass = ['src/order.ts', 'src/total.ts'].map((path) => ({ kind: 'coverage', file: path, blob: reader.entry(path)!.id }));
+      const answer = async (read: string): Promise<readonly unknown[]> => {
+        const asked = JSON.parse(read) as { read?: string };
+        if (asked.read === CODEGRAPH_PUBLISHED_READ) return [];
+        return filePass;
+      };
+      expect((await stage.plan({ query: answer })).units).toEqual([{ id: treeUnitId(REPOSITORY), scope: REPOSITORY }]);
+      // A plan while the file pass still has one file unread names no unit: the join would stand on nothing.
+      expect((await stage.plan({ query: async (read) => JSON.parse(read).read === CODEGRAPH_PUBLISHED_READ ? [] : filePass.slice(0, 1) })).units).toEqual([]);
       const symbols: readonly PublishedSymbol[] = [symbol('src/order.ts', 'checkout', 3, 5), symbol('src/total.ts', 'total', 1, 3)];
       const writes: StageDraftWrite[] = [];
       const notes: string[] = [];

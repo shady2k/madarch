@@ -267,8 +267,8 @@ export interface EdgePlace {
 export interface JoinResult {
   readonly nodes: readonly JoinedNode[];
   readonly edges: readonly JoinedEdge[];
-  /** The library's records by the reason they were left out, in code point order of the reason. */
-  readonly left: readonly { readonly what: string; readonly count: number }[];
+  /** The library's records by the reason they were left out, in code point order of the words. */
+  readonly left: readonly { readonly what: string; readonly count: number; readonly reason: 'unsupported' | 'inaccessible' }[];
   readonly symbolsJoined: number;
   readonly symbolsUnresolved: number;
 }
@@ -359,8 +359,11 @@ export function codegraphJoin(input: JoinInput): JoinResult {
   const paths = new Map<string, string>();
   const nodes: JoinedNode[] = [];
   const publishedKeys = new Set(input.published.map((symbol) => symbol.key));
-  const left = new Map<string, number>();
-  const countLeft = (what: string): void => { left.set(what, (left.get(what) ?? 0) + 1); };
+  const left = new Map<string, { count: number; reason: 'unsupported' | 'inaccessible' }>();
+  const countLeft = (what: string, reason: 'unsupported' | 'inaccessible'): void => {
+    const held = left.get(what) ?? { count: 0, reason };
+    left.set(what, { count: held.count + 1, reason });
+  };
   let symbolsJoined = 0;
   let symbolsUnresolved = 0;
   const edges: JoinedEdge[] = [];
@@ -426,25 +429,29 @@ export function codegraphJoin(input: JoinInput): JoinResult {
         continue;
       }
       symbolsUnresolved += 1;
-      countLeft(`a ${node.kind} no published record stands at: ${path}`);
+      countLeft(`a ${node.kind} no published record stands at: ${path}`, 'inaccessible');
     }
     for (const edge of run.edges) {
+      // A run lists the edges of every file it indexes, and a file a deeper module run owns is
+      // indexed by both. Its edge stands once, from the run that owns it: the other run's copy is
+      // no gap, and counting it as one would report a smaller result than the graph holds.
+      if (!paths.has(edge.source)) continue;
       const synthesized = typeof edge.metadata['synthesizedBy'] === 'string' ? edge.metadata['synthesizedBy'] as string : undefined;
       if (synthesized === 'http-client' || edge.metadata['channel'] === 'http') {
-        countLeft('an http-client link from a client call to a server route');
+        countLeft('an http-client link from a client call to a server route', 'unsupported');
         continue;
       }
       const tie = synthesized === 'interface-impl'
         ? { relation: 'code.implements', factKind: 'inherits' as const, form: 'implements' as const }
         : (Object.prototype.hasOwnProperty.call(EDGE_TIES, edge.kind) ? EDGE_TIES[edge.kind] : undefined);
       if (tie === undefined) {
-        countLeft(`a relation of the library no relation of ours states: ${edge.kind}`);
+        countLeft(`a relation of the library no relation of ours states: ${edge.kind}`, 'unsupported');
         continue;
       }
       const from = keys.get(edge.source);
       const to = keys.get(edge.target);
       if (from === undefined || to === undefined) {
-        countLeft(`${edge.kind} left without an end: ${from === undefined ? 'the source' : 'the target'} is no record of ours`);
+        countLeft(`${edge.kind} left without an end: ${from === undefined ? 'the source' : 'the target'} is no record of ours`, 'inaccessible');
         continue;
       }
       const identity = `${tie.relation}\u0000${from}\u0000${to}\u0000${tie.form ?? ''}`;
@@ -483,7 +490,7 @@ export function codegraphJoin(input: JoinInput): JoinResult {
       place: held.line === undefined || held.sourcePath === undefined ? undefined : placeOfLine(index.lines, held.sourcePath, held.line),
     });
   }
-  const leftRows = [...left.entries()].map(([what, count]) => ({ what, count })).sort((one, other) => byCodePoint(one.what, other.what));
+  const leftRows = [...left.entries()].map(([what, held]) => ({ what, ...held })).sort((one, other) => byCodePoint(one.what, other.what));
   return {
     nodes: nodes.sort((one, other) => byCodePoint(one.key, other.key)),
     edges: edges.sort((one, other) => byCodePoint(`${one.relation} ${one.from} ${one.to}`, `${other.relation} ${other.from} ${other.to}`)),
@@ -537,7 +544,7 @@ export function gapsOf(index: LibraryIndex, joined: JoinResult): readonly Covera
       gaps.push({ what: `${skipped.path}: ${skipped.why}`, reason: skipped.why === 'unsupported' ? 'unsupported' : 'inaccessible' });
     }
   }
-  for (const left of joined.left) gaps.push({ what: `${left.what} (${String(left.count)})`, reason: 'unsupported' });
+  for (const left of joined.left) gaps.push({ what: `${left.what} (${String(left.count)})`, reason: left.reason });
   if (joined.symbolsUnresolved > 0) gaps.push({ what: `${String(joined.symbolsUnresolved)} declarations of the library no published record stands at`, reason: 'inaccessible' });
   return gaps.sort((one, other) => byCodePoint(one.what, other.what) || byCodePoint(one.reason, other.reason));
 }

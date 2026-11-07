@@ -48,7 +48,7 @@ import { syntaxLanguageOf } from './syntax-extract.js';
 const CODEGRAPH_STAGE_ID = 'codegraph';
 
 /** The stage's own version, bumped when what it writes or plans changes. */
-const CODEGRAPH_STAGE_VERSION = 1;
+const CODEGRAPH_STAGE_VERSION = 2;
 
 /** The fact kinds the stage produces, in code point order: the links and the coverage. */
 const CODEGRAPH_STAGE_KINDS: readonly string[] = [...CODEGRAPH_EDGE_FACT_KINDS, 'coverage'];
