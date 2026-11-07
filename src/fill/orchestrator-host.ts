@@ -456,6 +456,51 @@ export function fillDatabasePath(home: string): string {
 }
 
 /**
+ * Opens one fill database owner at a path, for a host that lends its own owner to a
+ * run and closes it (src/product/daemon.ts, src/mcp/graph.ts). The owner is the
+ * process's own connection to the store, and closing it is the caller's.
+ */
+export function openFillDatabase(path: string): DatabaseOwner {
+  return createPGliteDatabaseOwner({ path, btreeGist: true });
+}
+
+/**
+ * One product's newest run in the shape a watching person reads (madarch-tzte.26.2),
+ * read from the store alone: the run, its units and its durable events, in order. The
+ * daemon's own answers and the service's `progress` read this one shape.
+ */
+export async function fillProgressOf(database: DatabaseOwner, product: string): Promise<FillProgressAnswer | null> {
+  const latest = await readLatestRun(database, product);
+  if (latest === null) return null;
+  const units = await readRunUnits(database, latest.runId);
+  const events = await readProgress(database, latest.runId);
+  return {
+    run: {
+      id: latest.runId,
+      status: latest.state,
+      createdAt: new Date(latest.createdAt).toISOString(),
+      updatedAt: new Date(latest.updatedAt).toISOString(),
+      product,
+    },
+    units: units.map((unit) => ({
+      unitId: unit.unitId,
+      stage: unit.stageId,
+      status: unit.state,
+      generation: unit.generation,
+      attempts: unit.context.attempt,
+    })),
+    events: events.map((event) => ({
+      seq: event.seq,
+      at: new Date(event.at).toISOString(),
+      stage: event.stage,
+      unitId: event.unitId,
+      type: event.kind,
+      summary: event.summary,
+    })),
+  };
+}
+
+/**
  * Builds the service the background server owns. Nothing is opened here: the
  * owner, the tables and the queue are created when a run is first asked for.
  */
@@ -997,35 +1042,7 @@ async function fileDecision(
     async progress(folder: string): Promise<FillProgressAnswer | null> {
       const database = await pageDatabase();
       if (database === undefined) return null;
-      const product = productNameOf(folder);
-      const latest = await readLatestRun(database, product);
-      if (latest === null) return null;
-      const units = await readRunUnits(database, latest.runId);
-      const events = await readProgress(database, latest.runId);
-      return {
-        run: {
-          id: latest.runId,
-          status: latest.state,
-          createdAt: new Date(latest.createdAt).toISOString(),
-          updatedAt: new Date(latest.updatedAt).toISOString(),
-          product,
-        },
-        units: units.map((unit) => ({
-          unitId: unit.unitId,
-          stage: unit.stageId,
-          status: unit.state,
-          generation: unit.generation,
-          attempts: unit.context.attempt,
-        })),
-        events: events.map((event) => ({
-          seq: event.seq,
-          at: new Date(event.at).toISOString(),
-          stage: event.stage,
-          unitId: event.unitId,
-          type: event.kind,
-          summary: event.summary,
-        })),
-      };
+      return await fillProgressOf(database, productNameOf(folder));
     },
     async unitTools(request: UnitToolsRequest): Promise<UnitToolsHandle> {
       return await openUnitTools(request);

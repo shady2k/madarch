@@ -1277,31 +1277,6 @@
   {
     "rule": "no-unreachable-code",
     "file": "src/fill/orchestrator-host.ts",
-    "symbol": "FillActivity"
-  },
-  {
-    "rule": "no-unreachable-code",
-    "file": "src/fill/orchestrator-host.ts",
-    "symbol": "FillProgressAnswer"
-  },
-  {
-    "rule": "no-unreachable-code",
-    "file": "src/fill/orchestrator-host.ts",
-    "symbol": "FillRunControl"
-  },
-  {
-    "rule": "no-unreachable-code",
-    "file": "src/fill/orchestrator-host.ts",
-    "symbol": "FillRunControlAnswer"
-  },
-  {
-    "rule": "no-unreachable-code",
-    "file": "src/fill/orchestrator-host.ts",
-    "symbol": "FillRunRequest"
-  },
-  {
-    "rule": "no-unreachable-code",
-    "file": "src/fill/orchestrator-host.ts",
     "symbol": "ProductFill"
   },
   {
@@ -5843,16 +5818,6 @@
     "rule": "one-fill-entry",
     "file": "src/product/cli.ts",
     "symbol": "src/fill/orchestrator-host.ts:createFillOrchestratorService"
-  },
-  {
-    "rule": "one-fill-entry",
-    "file": "src/product/daemon.ts",
-    "symbol": "src/fill/orchestrator-host.ts:createFillOrchestratorService"
-  },
-  {
-    "rule": "one-fill-entry",
-    "file": "src/product/daemon.ts",
-    "symbol": "src/product/fill-stages.ts:createStagesFill"
   },
   {
     "rule": "sql-only-in-storage-layer",

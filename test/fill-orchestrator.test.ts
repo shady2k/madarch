@@ -68,7 +68,7 @@ import { GraphReadRefusal, readText, recordedReadText } from '../src/fill/graph-
 import { createFillOrchestratorService } from '../src/fill/orchestrator-host.js';
 import { createPGliteQueryDatabase } from '../src/adapters/pglite-query-database.js';
 import { startServer } from '../src/server/http.js';
-import { daemonFillOrchestrator } from '../src/product/daemon.js';
+import { daemonFills } from '../src/product/daemon.js';
 import { existsSync } from 'node:fs';
 import { mkdtemp, rm } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
@@ -1358,11 +1358,11 @@ describe('the service the background server owns', () => {
     }
   });
 
-  test('daemon wiring opens no database before a run, and stops cleanly', async () => {
+  test('the daemon\'s own fills open no database before a run, and stop cleanly', async () => {
     const home = await mkdtemp(join(tmpdir(), 'madarch-fill-daemon-'));
     try {
-      const service = daemonFillOrchestrator(home);
-      await service.stop();
+      const fills = daemonFills(home);
+      await fills.stop();
       expect(existsSync(join(home, '.madarch'))).toBe(false);
     } finally {
       await rm(home, { recursive: true, force: true });

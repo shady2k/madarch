@@ -54,6 +54,12 @@ export interface RunFillOptions {
    * runner stops the service when the run answers, whether it succeeded or not.
    */
   readonly onService?: (service: ReturnType<typeof createFillOrchestratorService>) => void;
+  /**
+   * Keeps the service open after the run answers, for a caller that reads the run's store
+   * through it afterwards (the daemon's progress, control and unit tools). The caller stops
+   * it; left out, the runner stops the service when the run answers.
+   */
+  readonly keepService?: boolean;
 }
 
 /** The record wiring one fill publishes through: the process's one owner, and the paths it covers. */
@@ -145,6 +151,6 @@ async function runFillTraced(options: RunFillOptions, runId: string): Promise<Fi
   try {
     return await service.run({ product: fill.product, runId });
   } finally {
-    await service.stop();
+    if (options.keepService !== true) await service.stop();
   }
 }

@@ -14,21 +14,35 @@
 import { existsSync, openSync, readFileSync, unlinkSync, mkdirSync, writeFileSync, statSync } from 'node:fs';
 import { connect as netConnect, createServer as netServer } from 'node:net';
 import { homedir } from 'node:os';
-import { join, resolve } from 'node:path';
+import { dirname, join, resolve } from 'node:path';
 import { spawn, spawnSync } from 'node:child_process';
 import { productsHome, type DraftEnv } from './draft.js';
 import { listProducts } from './list.js';
 import { ensureBuilt } from '../product-wiki/app.js';
 import type { ServeEnv } from '../product-wiki/serve.js';
 import { startServer } from '../server/http.js';
-import { createFillOrchestratorService, type FillOrchestratorService, type FillOrchestratorServiceOptions } from '../fill/orchestrator-host.js';
-import { createStagesFill } from './fill-stages.js';
-import { fillStatePaths, readFillJson } from './fill-runtime.js';
+import {
+  fillDatabasePath,
+  fillProgressOf,
+  openFillDatabase,
+  type FillActivity,
+  type FillOrchestratorService,
+  type FillProduct,
+  type FillProgressAnswer,
+  type FillRunControl,
+  type FillRunControlAnswer,
+  type FillRunRequest,
+  type FillRunResult,
+  type RefusedFillRun,
+} from '../fill/orchestrator-host.js';
+import type { RunStatus } from '../fill/orchestrator.js';
+import { readChain, readRun } from '../fill/state-store.js';
 import { createUpdateWatch, type UpdateWatch } from './fill-updates.js';
-import { UNIT_TOOL_PATH } from '../fill/unit-tools.js';
+import { UNIT_TOOL_PATH, type UnitToolAnswer, type UnitToolCall } from '../fill/unit-tools.js';
 import { selfCommand } from './self-command.js';
-import { StageRegistry } from '../fill/registry.js';
+import { readProduct } from './manifest.js';
 import { runningVersion } from './version.js';
+import { runFill } from '../fill/run.js';
 import { installOwnWiki, ownWikiOff, refreshOwnWiki } from './own-wiki.js';
 
 interface DaemonState { pid: number; port: number; startedAt: number; home: string; token: string; /** The madarch version the server runs; a record written before versions were kept names none. */ version?: string; }
@@ -583,40 +597,139 @@ export function daemonStatus(options: { home?: string }): number {
 }
 
 /**
- * The fill orchestrator the daemon owns (decision 0027, "the background server
- * owns the orchestrator"): one service per server process, over the server's own
- * products home. It opens the process's fill database and its queue only when a
- * run is first asked for, so a server that serves wikis pays nothing for a fill
- * nobody started. The fill's own stages are registered by the tasks that write
- * them (madarch-tzte.19.6 registers the first ones, madarch-tzte.21.8 wires the
- * eight deterministic ones), and a product whose stages cannot be built is
- * refused with what is missing rather than publishing nothing.
+ * The daemon's fills (madarch-8bdc.2.5, item 6): every run of the background server's
+ * products goes through `runFill`, the same runner the wiki's button, `madarch fill` and
+ * `madarch fill-stages` use. The daemon owns the process's fill database — one owner for
+ * the lifetime of the server, opened when a run or a store read is first asked for — and
+ * hands it to each run; it registers no stage and wires no product of its own.
+ *
+ * The service of the newest run is kept open after the run answers (`runFill`'s
+ * `keepService`), because the daemon answers that run's progress, its control and its
+ * units' tool calls through it; the next run stops it and takes its place.
  */
-export function daemonFillOrchestrator(home: string, options: Omit<FillOrchestratorServiceOptions, 'home' | 'registry' | 'wiring'> & { readonly registry?: StageRegistry; readonly wiring?: FillOrchestratorServiceOptions['wiring'] } = {}): FillOrchestratorService {
-  // The registry and the wiring are taken out before the rest is spread: a caller that leaves them out gets
-  // this daemon's own, never the `undefined` a spread would put back.
-  const { registry, wiring, ...rest } = options;
-  return createFillOrchestratorService({
-    home,
-    registry: registry ?? new StageRegistry(),
-    // A product's fill is the declared stages over its own repositories (madarch-tzte.21.8's wiring), built when
-    // a run is first asked for and over the database this service already opened: the process keeps one database
-    // owner (decision 0027), and a registry is built per product because its pins are that product's checkouts.
-    wiring: wiring ?? (async (product, context) => await createStagesFill({ product: product.folder, database: context.owner })),
-    ...rest,
-  });
+export interface DaemonFills {
+  /** Runs one product's fill through `runFill` and answers what the host answered. */
+  run(request: FillRunRequest): Promise<FillRunResult | RefusedFillRun>;
+  /** One run's status, or null when the store holds no such run. */
+  status(request: { readonly product: FillProduct; readonly runId: string }): Promise<RunStatus | null>;
+  /** The product's newest run as the fill progress reads it, or null when it never ran. */
+  progress(folder: string): Promise<FillProgressAnswer | null>;
+  /** Whether a product fills now, read from the store's chain (asked before an update is started). */
+  activity(request: { readonly product: FillProduct }): Promise<FillActivity>;
+  /** A person's pause or stop of one run, or null when the store holds no such run. */
+  control(request: { readonly productFolder: string; readonly runId: string; readonly action: FillRunControl; readonly product?: string }): Promise<FillRunControlAnswer | null>;
+  /** Answers one unit's tool call from the run this process drives, or null when it holds no such session. */
+  unitTool(request: UnitToolCall): Promise<UnitToolAnswer | null>;
+  /** Stops the kept service and closes the store; safe to call twice. */
+  stop(): Promise<void>;
+}
+
+/**
+ * The fills the background server owns: one fill store under its home, and every run
+ * through `runFill` over the owner this process holds (decision 0027's one owner, one
+ * writer). Nothing is opened before a run is asked for or a run record is read, so a
+ * server that serves wikis pays nothing for a fill nobody started.
+ */
+export function daemonFills(home: string, options: { readonly toolUrl?: () => string | undefined; readonly log?: (line: string) => void } = {}): DaemonFills {
+  const databasePath = fillDatabasePath(home);
+  let owner: ReturnType<typeof openFillDatabase> | undefined;
+  let current: FillOrchestratorService | undefined;
+  let stopped = false;
+  /** The store, when it stands: a read never creates it, so an answer about a never-filled home is the empty one. */
+  const opened = async (): Promise<ReturnType<typeof openFillDatabase> | undefined> => {
+    if (stopped) throw new Error("the daemon's fills were stopped, so they read no store (src/product/daemon.ts)");
+    if (owner === undefined) {
+      if (!existsSync(databasePath)) return undefined;
+      owner = openFillDatabase(databasePath);
+      await owner.ready;
+    }
+    return owner;
+  };
+  /** The store a run writes: opened here, because a run writes what a read may not create. */
+  const store = async (): Promise<ReturnType<typeof openFillDatabase>> => {
+    const held = await opened();
+    if (held !== undefined) return held;
+    if (stopped) throw new Error("the daemon's fills were stopped, so a run opens no store (src/product/daemon.ts)");
+    mkdirSync(dirname(databasePath), { recursive: true });
+    owner = openFillDatabase(databasePath);
+    await owner.ready;
+    return owner;
+  };
+  return {
+    async run(request: FillRunRequest): Promise<FillRunResult | RefusedFillRun> {
+      const database = await store();
+      // The next run replaces the service the last one left: one service over the process's one owner at a time.
+      if (current !== undefined) {
+        const previous = current;
+        current = undefined;
+        await previous.stop();
+      }
+      return await runFill({
+        product: request.product.folder,
+        database,
+        runId: request.runId,
+        home,
+        keepService: true,
+        ...(request.workers === undefined ? {} : { workers: request.workers }),
+        ...(request.maxPasses === undefined ? {} : { maxPasses: request.maxPasses }),
+        ...(options.log === undefined ? {} : { log: options.log }),
+        onService: (service: FillOrchestratorService) => { current = service; },
+      });
+    },
+    async status(request: { readonly product: FillProduct; readonly runId: string }): Promise<RunStatus | null> {
+      if (current !== undefined) return await current.status({ product: request.product, runId: request.runId });
+      if (await opened() === undefined) return null;
+      return null;
+    },
+    async progress(folder: string): Promise<FillProgressAnswer | null> {
+      if (current !== undefined) return await current.progress(folder);
+      const database = await opened();
+      if (database === undefined) return null;
+      const read = readProduct(resolve(folder));
+      if (!read.ok) throw new Error(`the fill progress of ${folder} cannot name its product: ${read.file}:${String(read.line)}: ${read.message}`);
+      return await fillProgressOf(database, read.product.name);
+    },
+    async activity(request: { readonly product: FillProduct }): Promise<FillActivity> {
+      if (current !== undefined) return await current.activity({ product: request.product });
+      const database = await opened();
+      if (database === undefined) return { state: 'idle', activeRunId: null, activeRunState: null };
+      const chain = await readChain(database, request.product.name);
+      if (chain === null) return { state: 'idle', activeRunId: null, activeRunState: null };
+      const activeRunId = chain.context.activeRunId ?? null;
+      const active = activeRunId === null ? null : await readRun(database, activeRunId);
+      return { state: chain.state, activeRunId, activeRunState: active?.state ?? null };
+    },
+    async control(request: { readonly productFolder: string; readonly runId: string; readonly action: FillRunControl; readonly product?: string }): Promise<FillRunControlAnswer | null> {
+      if (current !== undefined) return await current.control(request);
+      return null;
+    },
+    async unitTool(request: UnitToolCall): Promise<UnitToolAnswer | null> {
+      return current === undefined ? null : await current.unitTool(request);
+    },
+    async stop(): Promise<void> {
+      if (stopped) return;
+      stopped = true;
+      const held = current;
+      current = undefined;
+      let failure: unknown;
+      try { await held?.stop(); } catch (error) { failure ??= error; }
+      try { await owner?.close(); } catch (error) { failure ??= error; }
+      owner = undefined;
+      if (failure !== undefined) throw failure;
+    },
+  };
 }
 
 /**
  * The update after commits to a product's default branch (madarch-tzte.26.2;
  * decision 0026, "Updates"): the watcher of the server's own products home, which
- * starts one debounced run of a product whose default branch moved. A start is the
- * fill service's own run, so it faces the product's chain of runs (`startRun`): the
- * fill in progress refuses it, and the watcher leaves the commit waiting for the
- * next pass. The run is named after its product and commit, so one commit never
- * starts two runs, and its progress is what the fill progress answers.
+ * starts one debounced run of a product whose default branch moved. A start is a
+ * `runFill` of the product, so it faces the product's chain of runs (`startRun`): the
+ * fill in progress refuses it, and the watcher leaves the commit waiting for the next
+ * pass. The run is named after its product and commit, so one commit never starts two
+ * runs, and its progress is what the fill progress answers.
  */
-export function daemonUpdateWatch(home: string, service: FillOrchestratorService, options: { readonly debounceMs?: number; readonly intervalMs?: number; readonly log?: (line: string) => void; readonly enabled?: () => Promise<boolean> | boolean } = {}): UpdateWatch {
+export function daemonUpdateWatch(home: string, fills: Pick<DaemonFills, 'activity' | 'run'>, options: { readonly debounceMs?: number; readonly intervalMs?: number; readonly log?: (line: string) => void; readonly enabled?: () => Promise<boolean> | boolean } = {}): UpdateWatch {
   return createUpdateWatch({
     home,
     ...(options.debounceMs === undefined ? {} : { debounceMs: options.debounceMs }),
@@ -626,11 +739,11 @@ export function daemonUpdateWatch(home: string, service: FillOrchestratorService
     start: async (request) => {
       // A product that fills now is asked nothing: the store's chain says so before any run record is written, so a
       // commit that waits for a fill leaves none behind. `run`'s own rule still governs the race.
-      const active = await service.activity({ product: request.product });
+      const active = await fills.activity({ product: request.product });
       if (active.state === 'active' && active.activeRunState !== null && !['succeeded', 'completed_partial', 'blocked', 'failed', 'cancelled'].includes(active.activeRunState)) {
         return { started: false, deferred: true, reason: `the product ${JSON.stringify(request.product.name)} already runs ${String(active.activeRunId)}, which stands ${active.activeRunState}` };
       }
-      const answer = await service.run({ product: request.product, runId: request.runId });
+      const answer = await fills.run({ product: request.product, runId: request.runId });
       if (answer.ok) return { started: true };
       // A fill of the product is in progress: the store's own rule (`startRun`) says so, and the commit waits.
       if (answer.code === 'fill-orchestrator/chain-active' || answer.code === 'fill-orchestrator/chain-held') return { started: false, deferred: true, reason: answer.reason };
@@ -646,7 +759,9 @@ export async function serveDaemon(options: { home?: string; port: number }): Pro
   // started server is this process's own: read when a unit's tools are opened, because the server knows its
   // address only once it listens.
   let address: string | undefined;
-  const orchestrator = daemonFillOrchestrator(home, { toolUrl: () => (address === undefined ? undefined : `${address}${UNIT_TOOL_PATH}`) });
+  // One fill store, every run through `runFill` (madarch-8bdc.2.5, item 6): the address a unit's tools answer at is
+  // this process's own, read when they are opened because the server knows its address only once it listens.
+  const fills = daemonFills(home, { toolUrl: () => (address === undefined ? undefined : `${address}${UNIT_TOOL_PATH}`) });
   // madarch's own wiki (decision 0031): installed from the copy the program carries, so a clean machine opens it with no
   // network; a failure is told and the server runs without it.
   const ownInstall = ownWikiOff() ? undefined : installOwnWiki({ env: process.env });
@@ -659,8 +774,8 @@ export async function serveDaemon(options: { home?: string; port: number }): Pro
       port: options.port,
       host: '127.0.0.1',
       orchestrator: {
-        stop: () => orchestrator.stop(),
-        unitTool: (call) => orchestrator.unitTool(call),
+        stop: () => fills.stop(),
+        unitTool: (call) => fills.unitTool(call),
       },
     });
     address = server.url;
@@ -673,7 +788,7 @@ export async function serveDaemon(options: { home?: string; port: number }): Pro
     let watch: UpdateWatch | undefined;
     let watching: Promise<void> = Promise.resolve();
     try {
-      watch = daemonUpdateWatch(home, orchestrator);
+      watch = daemonUpdateWatch(home, fills);
       const started = watch;
       watching = started.outset().then(() => undefined, (error: unknown) => {
         console.error(`the updates after commits to a default branch of the products home ${home} could not be watched, so no commit starts one: ${(error as Error).message}`);
@@ -696,7 +811,7 @@ export async function serveDaemon(options: { home?: string; port: number }): Pro
     await server.stop();
     return 0;
   } catch (error) {
-    await orchestrator.stop().catch(() => undefined);
+    await fills.stop().catch(() => undefined);
     console.error(`the products server could not start: ${(error as Error).message}`);
     return 1;
   }
