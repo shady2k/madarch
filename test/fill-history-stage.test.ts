@@ -973,6 +973,27 @@ describe('the stage declaration and the draft it judges', () => {
     }
   });
 
+  test('two ranges write their own author nodes: a node belongs to the scope that published it', async () => {
+    const fixture = await makeRepository('history-ranges', THREE);
+    try {
+      const [first, , third] = fixture.commits as [string, string, string];
+      const stage = stageOver(new Map([['orders-api', fixture.folder]]));
+      const authorKeys = (writes: readonly StageDraftWrite[]): string[] => writes.flatMap((write) => (write.kind === 'node' && write.value.kind === 'code.author' ? [write.value.key] : []));
+      // The first commit's range and the third commit's range both read the fixture's one author,
+      // and each unit publishes the author under its own range: a node of one publication scope is
+      // not another scope's to write (the second run over a product failed on exactly this).
+      const atFirst = recorder({ id: historyUnitId('orders-api', first), scope: historyScope('orders-api', first) });
+      expect(await stage.execute({ id: historyUnitId('orders-api', first), scope: historyScope('orders-api', first) }, atFirst.context)).toEqual({ outcome: 'draft' });
+      const atThird = recorder({ id: historyUnitId('orders-api', third), scope: historyScope('orders-api', third) });
+      expect(await stage.execute({ id: historyUnitId('orders-api', third), scope: historyScope('orders-api', third) }, atThird.context)).toEqual({ outcome: 'draft' });
+      expect(authorKeys(atFirst.writes)).toHaveLength(1);
+      expect(authorKeys(atThird.writes)).toHaveLength(1);
+      expect(authorKeys(atFirst.writes)[0]).not.toBe(authorKeys(atThird.writes)[0]);
+    } finally {
+      await fixture.dispose();
+    }
+  });
+
   test('a commit names its author, its first parent and the files it changed, each an edge', async () => {
     const fixture = await makeRepository('history-links', THREE);
     try {

@@ -894,6 +894,17 @@ function commitNodeKeyOf(repository: string, range: string, commit: string): str
 }
 
 /**
+ * The key one author node carries: the repository, the range the unit read and the email git
+ * records. An author stands in as many ranges as read a commit of theirs, and each range's unit
+ * owns its copy for the same reason a commit's key names its range: a node's version belongs to
+ * the producer and scope that published it (decision 0033's fenced publication), and a second
+ * run at another commit publishes under another scope.
+ */
+function authorNodeKeyOf(repository: string, range: string, email: string): string {
+  return `code.author:${canonicalJsonDigest({ repository, range, email })}`;
+}
+
+/**
  * The value a fact holds, as the graph's node carries it: the fact's own fields and none of what
  * this stage's node carries beside them — the graph's bookkeeping and the `range` the node names.
  */
@@ -1027,14 +1038,14 @@ async function executeUnit(reader: HistoryReader, unit: StageUnit, context: Stag
   const authors = new Map<string, { readonly key: string; readonly name: string; readonly email: string }>();
   for (const one of ancestry.commits) {
     if (one.authorEmail === undefined || one.authorEmail === '') continue;
-    const key = `code.author:${repository}:${one.authorEmail}`;
+    const key = authorNodeKeyOf(repository, ancestry.commit, one.authorEmail);
     authors.set(key, { key, name: one.author ?? one.authorEmail, email: one.authorEmail });
   }
   for (const author of [...authors.values()].sort((left, right) => byCodePoint(left.key, right.key))) {
     writes.push({
       kind: 'node',
       evidence: `${repository}@${ancestry.commit}`,
-      value: { key: author.key, kind: 'code.author', label: author.name, properties: { factKind: 'author', repository, email: author.email, name: author.name, recordKey: author.key } },
+      value: { key: author.key, kind: 'code.author', label: author.name, properties: { factKind: 'author', repository, range: ancestry.commit, email: author.email, name: author.name, recordKey: author.key } },
     });
   }
   const readCommits = new Set(ancestry.commits.map((one) => one.commit));
@@ -1042,7 +1053,7 @@ async function executeUnit(reader: HistoryReader, unit: StageUnit, context: Stag
     const commitKey = commitNodeKeyOf(repository, ancestry.commit, one.commit);
     const evidence = `${repository}@${one.commit}`;
     if (one.authorEmail !== undefined && one.authorEmail !== '') {
-      writes.push({ kind: 'edge', evidence, value: { relation: 'code.authored', from: { key: commitKey }, to: { key: `code.author:${repository}:${one.authorEmail}` }, properties: { factKind: 'authored', repository } } });
+      writes.push({ kind: 'edge', evidence, value: { relation: 'code.authored', from: { key: commitKey }, to: { key: authorNodeKeyOf(repository, ancestry.commit, one.authorEmail) }, properties: { factKind: 'authored', repository } } });
     }
     const parent = one.parents[0];
     if (parent !== undefined && readCommits.has(parent)) {
