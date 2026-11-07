@@ -12,10 +12,11 @@
  * folder stays here, so a store kept by another owner (a PostgreSQL server with one data folder
  * per store) changes this module and no caller.
  */
-import { join, resolve } from 'node:path';
+import { existsSync } from 'node:fs';
+import { basename, join, resolve } from 'node:path';
 import { WikiReadError } from '../knowledge/read-error.js';
-import { MANIFEST_FILE } from './manifest.js';
-import { fillFolderIdentity } from './identity.js';
+import { ID_PATTERN } from '../model/schema.js';
+import { MANIFEST_FILE, readProduct } from './manifest.js';
 
 /** The knowledge root under one products home: `<products home>/.madarch/knowledge`. */
 export function knowledgeRootOf(productsHome: string): string {
@@ -35,13 +36,24 @@ export function storeFolderOf(knowledgeRoot: string, id: string, manifest: strin
 
 /**
  * The one store of one product, or of a checkout that is no product: its id's folder under the
- * knowledge root. A folder that names no store is refused with the manifest's own file and line,
- * or with the folder's name where it holds no manifest.
+ * knowledge root. The store is named by the product's *id* — the one field a manifest keeps for
+ * its life — so a product whose display name is no repository name (a name a fill would refuse
+ * as a repository's) still has its store, and its readers read it. A manifest that does not read
+ * is refused with its own file and line; a folder that holds no manifest is named by its folder's
+ * name, which is the name its fill reads it under too.
  */
 export function productStoreFolder(productFolder: string, knowledgeRoot: string): string {
   const folder = resolve(productFolder);
-  const read = fillFolderIdentity(folder);
-  return storeFolderOf(knowledgeRoot, read.identity.id, join(folder, MANIFEST_FILE));
+  if (!existsSync(join(folder, MANIFEST_FILE))) {
+    const name = basename(folder.replace(/[/\\]+$/u, ''));
+    if (!ID_PATTERN.test(name)) {
+      throw new WikiReadError(`${folder}: the folder holds no ${MANIFEST_FILE} and is named ${JSON.stringify(name)}, which cannot name a store (letters, digits, dots, hyphens and underscores only): nothing is kept for it`);
+    }
+    return storeFolderOf(knowledgeRoot, name, join(folder, MANIFEST_FILE));
+  }
+  const read = readProduct(folder);
+  if (!read.ok) throw new Error(`${read.file}:${read.line}: ${read.message}`);
+  return storeFolderOf(knowledgeRoot, read.product.id, join(folder, MANIFEST_FILE));
 }
 
 /** The database a store's fill writes and its readers read: `<store>/graph`. */

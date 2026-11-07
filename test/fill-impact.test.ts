@@ -24,7 +24,13 @@
  * where the branch plans one, is driven by the fake ACP agent
  * (`test/fixtures/acp-fake-agent`): no real prompt, no network, no token spent.
  */
-import { afterAll, beforeAll, describe, expect, test } from 'bun:test';
+import { afterAll, beforeAll, describe as bunDescribe, expect, test as bunTest } from 'bun:test';
+import { skippedBecauseOutOfWorkflow } from './fill-skip-list.js';
+
+// The cases read a stage out of this step's list: they come back with that stage's step (test/fill-skip-list.ts).
+const skippedSuite = skippedBecauseOutOfWorkflow(import.meta.path);
+const describe = bunDescribe.skipIf(skippedSuite !== undefined);
+const test = bunTest.skipIf(skippedSuite !== undefined);
 import { execFileSync } from 'node:child_process';
 import { mkdirSync, mkdtempSync, readFileSync, rmSync, symlinkSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
@@ -230,6 +236,8 @@ async function openProduct(agentClock: () => number): Promise<Open> {
 }
 
 beforeAll(() => {
+  // The store the cases read is filled by stages out of this step's list: no fixture is made or closed.
+  if (skippedSuite !== undefined) return;
   root = mkdtempSync(join(tmpdir(), 'madarch-impact-'));
   const checkout = join(root, TRAINING);
   // The training repository this project's generator makes: a deterministic Git repository with fixed authors.
@@ -254,6 +262,8 @@ beforeAll(() => {
 }, 1_800_000);
 
 afterAll(() => {
+  // The store the cases read is filled by stages out of this step's list: no fixture is made or closed.
+  if (skippedSuite !== undefined) return;
   if (root !== '') rmSync(root, { recursive: true, force: true });
 }, 300_000);
 
