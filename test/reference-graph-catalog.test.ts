@@ -32,6 +32,9 @@ describe('the mapping resolves a key', () => {
     expect(catalogRelationOf('code.contains')).toBe('contains');
     expect(catalogRelationOf('code.calls')).toBe('uses');
     expect(catalogRelationOf('code.uses-type')).toBe('uses');
+    // A declared library is what a code file depends on: the dependency kind's own relation is
+    // dependsOn, and `uses` is a plain verb no standard names.
+    expect(catalogRelationOf('code.uses-dependency')).toBe('dependsOn');
     expect(catalogRelationOf('code.depends-on')).toBe('dependsOn');
     expect(catalogRelationOf('code.imports')).toBe('dependsOn');
     expect(catalogRelationOf('code.mentions')).toBe('code.mentions');

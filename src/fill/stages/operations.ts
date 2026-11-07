@@ -76,7 +76,7 @@ import {
 export const OPERATIONS_STAGE_ID = 'operations';
 
 /** The stage's own version, bumped when what it reads, plans or writes changes. */
-const OPERATIONS_STAGE_VERSION = 1;
+const OPERATIONS_STAGE_VERSION = 2;
 
 /** The fact kinds the stage produces, in code point order: one per record kind it writes today. */
 const OPERATIONS_STAGE_KINDS: readonly string[] = [
@@ -944,6 +944,10 @@ function draftWrites(records: FileRecords, repository: string, path: string, sou
     // bookkeeping, read by the links stage and never a record of the reading: no file holds them
     // (madarch-8bdc.2.4's second stage).
     if (node.kind === 'code.env-read' || node.kind === ROUTE_FACT_KIND || node.kind === EXPOSITION_FACT_KIND || node.kind === LOGGER_USE_FACT_KIND) continue;
+    // A manifest's dependency is declared by the manifest, and the manifest's node holds that
+    // declaration (`code.declares-dependency`): a `contains` edge from the file would state the
+    // same fact a second time, on the wrong end and under another relation.
+    if (node.kind === 'code.dependency') continue;
     if (node.span === undefined || node.span.path !== path) continue;
     writes.push({
       kind: 'edge',

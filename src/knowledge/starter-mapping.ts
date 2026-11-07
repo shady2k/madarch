@@ -174,7 +174,9 @@ export const MAPPING_RELATION_ROWS: readonly CatalogMappingRow[] = [
   { key: 'code.transitions', internal: 'the state a state machine\'s move enters, drawn as the transition it is' },
   { key: 'code.updates-metric', internal: 'the code that updates a metric, an instrumentation fact' },
   { key: 'code.uses-database', relation: 'uses', direction: 'same' },
-  { key: 'code.uses-dependency', relation: 'uses', direction: 'same' },
+  // A file importing a library its manifest declares is the catalog's `dependsOn`: the dependency
+  // kind declares that relation for its own edges, and `uses` is a plain verb no standard names.
+  { key: 'code.uses-dependency', relation: 'dependsOn', direction: 'same' },
   { key: 'code.uses-logger', relation: 'usesTool', direction: 'same' },
   { key: 'code.uses-type', relation: 'uses', direction: 'same' },
   { key: 'code.writes', internal: 'a field is written at a use site, an occurrence-level fact' },

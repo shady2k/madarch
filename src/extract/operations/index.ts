@@ -40,6 +40,10 @@ export function extractOperations(tree: TreeReader, code?: Extraction, facts?: C
     extractNewcomer(t, records, targets);
     for (const node of [...records.nodes]) {
       if (node.kind === 'code.file' || node.span === undefined || !t.has(node.span.path)) continue;
+      // A dependency is declared by the manifest that names it, and that declaration is the
+      // manifest's own edge (`code.declares-dependency`): a containment from the file would state
+      // the same fact a second time, on another end and under another relation.
+      if (node.kind === 'code.dependency') continue;
       records.edge(REL_CONTAINS, records.file(node.span.path), node.key, {}, node.span);
     }
   } catch (error) {
