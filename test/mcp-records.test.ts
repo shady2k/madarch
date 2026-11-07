@@ -14,13 +14,14 @@ import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import path from 'node:path';
 import { afterAll, beforeAll, describe, expect, test } from 'bun:test';
-import { RepositoryRecordSession } from '../src/mcp/record-session.js';
+import { RepositorySession } from '../src/mcp/session.js';
 import { answerRepositoryMcpMessage, SERVED_TOOL_NAMES } from '../src/mcp/server.js';
 import { RECORD_FILE_LIMIT } from '../src/mcp/records.js';
 
 const REPOSITORY = mkdtempSync(path.join(tmpdir(), 'madarch-mcp-records-'));
-const STATE = mkdtempSync(path.join(tmpdir(), 'madarch-mcp-records-state-'));
-const SHALLOW_STATE = mkdtempSync(path.join(tmpdir(), 'madarch-mcp-records-shallow-'));
+/** The products home whose one knowledge store the served checkout is filled into. */
+const HOME = mkdtempSync(path.join(tmpdir(), 'madarch-mcp-records-home-'));
+const SHALLOW_HOME = mkdtempSync(path.join(tmpdir(), 'madarch-mcp-records-shallow-home-'));
 const SHALLOW = mkdtempSync(path.join(tmpdir(), 'madarch-mcp-records-shallow-repo-'));
 const COMMIT_ENV = {
   ...process.env,
@@ -41,7 +42,7 @@ let first = '';
 let second = '';
 let third = '';
 
-let session: RepositoryRecordSession;
+let session: RepositorySession;
 
 beforeAll(async () => {
   git(REPOSITORY, 'init', '-q', '-b', 'main');
@@ -62,20 +63,20 @@ beforeAll(async () => {
   git(REPOSITORY, 'add', '-A');
   git(REPOSITORY, 'commit', '-qm', 'the nested file and one export grow');
   third = git(REPOSITORY, 'rev-parse', 'HEAD');
-  session = await RepositoryRecordSession.open({ repository: REPOSITORY, folder: path.join(STATE, 'state') });
+  session = await RepositorySession.open({ repository: REPOSITORY, env: { ...process.env, MADARCH_HOME: HOME } });
 
   // A shallow clone of the same commits: its history pass records the gap a reader must see stated.
   const clone = path.join(SHALLOW, 'kit');
   execFileSync('git', ['clone', '-q', '--depth', '1', `file://${REPOSITORY}`, clone], { env: COMMIT_ENV });
-  shallow = await RepositoryRecordSession.open({ repository: clone, folder: path.join(SHALLOW_STATE, 'state') });
+  shallow = await RepositorySession.open({ repository: clone, env: { ...process.env, MADARCH_HOME: SHALLOW_HOME } });
 }, 120_000);
 
-let shallow: RepositoryRecordSession;
+let shallow: RepositorySession;
 
 afterAll(async () => {
   await session?.close();
   await shallow?.close();
-  for (const folder of [REPOSITORY, STATE, SHALLOW_STATE, SHALLOW]) rmSync(folder, { recursive: true, force: true });
+  for (const folder of [REPOSITORY, HOME, SHALLOW_HOME, SHALLOW]) rmSync(folder, { recursive: true, force: true });
 });
 
 type Answer = { isError: boolean; answer: Record<string, unknown> };

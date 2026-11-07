@@ -154,7 +154,6 @@ async function hostRun(options: { readonly facts?: FactApplication }): Promise<{
   const database = createPGliteDatabaseOwner();
   const fact = scenarioFacts().moduleA;
   const service = createFillOrchestratorService({
-    home,
     owner: database,
     registry: new StageRegistry().register(factStage('modules', fact)),
     wiring: () => ({

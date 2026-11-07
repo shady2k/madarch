@@ -82,10 +82,9 @@ export function createStageRegistry(wiring: FillStageWiring): StageRegistry {
   // This step's fill: the two passes, and nothing else. Every other stage stays in the code,
   // out of the fill's path, and comes back by a line in `FILL_STEP_IDS` when its step comes
   // (madarch-8bdc.2.5, item 6); the agent machinery is untouched and simply not registered.
-  const records = wiring.records;
-  if (records === undefined) {
-    throw new Error('the fill registry needs the record pass wiring: the two passes of this step publish through src/graph/records.ts (src/fill/stages/index.ts)');
-  }
+  // A wiring that names no record store still registers the two stages — a caller reading their
+  // declarations never runs a pass — and a unit that runs without one refuses by name.
+  const records = wiring.records ?? {};
   return new StageRegistry()
     .register(createRepositoryTreeStage({ sources: wiring.snapshots, ...records }))
     .register(createRepositoryHistoryStage({ sources: wiring.snapshots, ...records }));

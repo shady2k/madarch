@@ -24,7 +24,7 @@
  * kinds off the list in the same commit; the list only shrinks, and the last
  * commit that empties it is the port's DONE WHEN.
  */
-import { afterAll, beforeAll, describe, expect, test } from 'bun:test';
+import { afterAll, beforeAll, describe as bunDescribe, expect, test as bunTest } from 'bun:test';
 import { execFileSync } from 'node:child_process';
 import { mkdirSync, mkdtempSync, readFileSync, rmSync, symlinkSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
@@ -42,6 +42,12 @@ import { OPERATIONS_STAGE_ID, operationsFamilyOf, operationsRecordsOfFile } from
 import type { StaticGraphNode, StaticStageContext } from '../src/fill/stages/static-context.js';
 import { createFileFactsCache } from '../src/fill/stages/file-facts.js';
 import { writeFirstFillWorkflow } from './fill-workflow-fixture.js';
+import { skippedBecauseOutOfWorkflow } from './fill-skip-list.js';
+
+// The cases read a stage out of this step's list: they come back with that stage's step (test/fill-skip-list.ts).
+const skippedSuite = skippedBecauseOutOfWorkflow(import.meta.path);
+const describe = bunDescribe.skipIf(skippedSuite !== undefined);
+const test = bunTest.skipIf(skippedSuite !== undefined);
 
 const GENERATOR = fileURLToPath(new URL('../examples/training-repository/generate.mjs', import.meta.url));
 const REPOSITORY = 'training';
@@ -325,6 +331,8 @@ function committedFiles(repository: string): string[] {
 }
 
 beforeAll(async () => {
+  // The store the cases read is filled by stages out of this step's list: no fixture is made or closed.
+  if (skippedSuite !== undefined) return;
   root = mkdtempSync(join(tmpdir(), 'madarch-operations-training-'));
   const repository = join(root, 'training');
   execFileSync(process.execPath, [GENERATOR, repository], { stdio: ['ignore', 'pipe', 'pipe'] });
@@ -357,7 +365,7 @@ beforeAll(async () => {
   fill = await createStagesFill({ product, database: owner });
   let at = 1_700_000_000_000;
   service = createFillOrchestratorService({
-    home: join(root, 'products'), owner, registry: fill.registry, wiring: () => fill!.wiring,
+    owner, registry: fill.registry, wiring: () => fill!.wiring,
     clock: () => (at += 1_000), limits: { leaseMs: 86_400_000 }, maxPasses: 100_000,
   });
   store = createGraphStore(owner);
@@ -402,6 +410,8 @@ beforeAll(async () => {
 }, 900_000);
 
 afterAll(async () => {
+  // The store the cases read is filled by stages out of this step's list: no fixture is made or closed.
+  if (skippedSuite !== undefined) return;
   await service?.stop();
   await owner?.close();
   if (root !== '') rmSync(root, { recursive: true, force: true });

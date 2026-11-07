@@ -9,7 +9,7 @@
  * The fixture is `test/fixtures/data-model/repository.ts`'s own: no outside
  * checkout, and every expectation is the bytes the fixture writes.
  */
-import { afterAll, beforeAll, describe, expect, test } from 'bun:test';
+import { afterAll, beforeAll, describe as bunDescribe, expect, test as bunTest } from 'bun:test';
 import { mkdtempSync, rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
@@ -19,6 +19,12 @@ import { createGraphStore, type EdgeEntry, type GraphStore, type PageOptions } f
 import { createStagesFill, type StagesFill } from '../src/product/fill-stages.js';
 import { DATA_MODEL_AGGREGATE_STAGE_ID, DATA_MODEL_STAGE_ID } from '../src/fill/stages/data-model.js';
 import { FIRST_MIGRATION, MANIFEST, REPOSITORY, SEED, SECOND_MIGRATION, STORE, UNIT, writeProduct } from './fixtures/data-model/repository.js';
+import { skippedBecauseOutOfWorkflow } from './fill-skip-list.js';
+
+// The cases read a stage out of this step's list: they come back with that stage's step (test/fill-skip-list.ts).
+const skippedSuite = skippedBecauseOutOfWorkflow(import.meta.path);
+const describe = bunDescribe.skipIf(skippedSuite !== undefined);
+const test = bunTest.skipIf(skippedSuite !== undefined);
 
 const PRODUCERS = [`fill.${DATA_MODEL_STAGE_ID}`, `fill.${DATA_MODEL_AGGREGATE_STAGE_ID}`];
 
@@ -75,13 +81,15 @@ function keyOf(node: { readonly nodeId: string; readonly properties: unknown }):
 }
 
 beforeAll(async () => {
+  // The store the cases read is filled by stages out of this step's list: no fixture is made or closed.
+  if (skippedSuite !== undefined) return;
   root = mkdtempSync(join(tmpdir(), 'madarch-data-model-stage-'));
   const { product } = writeProduct(root);
   owner = createPGliteDatabaseOwner({ btreeGist: true });
   fill = await createStagesFill({ product, database: owner });
   let at = 1_700_000_000_000;
   service = createFillOrchestratorService({
-    home: join(root, 'products'), owner, registry: fill.registry, wiring: () => fill!.wiring,
+    owner, registry: fill.registry, wiring: () => fill!.wiring,
     clock: () => (at += 1_000), limits: { leaseMs: 86_400_000 }, maxPasses: 100_000,
   });
   store = createGraphStore(owner);
@@ -91,6 +99,8 @@ beforeAll(async () => {
 }, 900_000);
 
 afterAll(async () => {
+  // The store the cases read is filled by stages out of this step's list: no fixture is made or closed.
+  if (skippedSuite !== undefined) return;
   await service?.stop();
   await owner?.close();
   if (root !== '') rmSync(root, { recursive: true, force: true });

@@ -12,20 +12,23 @@
  */
 import { afterAll, beforeAll, describe, expect, test } from 'bun:test';
 import { runGit } from '../src/product/git.js';
-import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs';
-import { fillStatePaths } from '../src/product/fill-runtime.js';
+import { mkdirSync, mkdtempSync, readdirSync, rmSync, writeFileSync } from 'node:fs';
+import { createPGliteDatabaseOwner } from '../src/adapters/database-owner.js';
+import { repositoryFacts } from '../src/graph/index.js';
+import { readProduct } from '../src/product/manifest.js';
+import { knowledgeRootOf, productStoreFolder, storeSnapshotsFolder } from '../src/product/store.js';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
-import type { FillOrchestratorService, FillRunResult } from '../src/fill/orchestrator-host.js';
+import type { FillRunResult } from '../src/fill/orchestrator-host.js';
 import type { RunStatus } from '../src/fill/orchestrator.js';
-import { daemonFillOrchestrator, daemonUpdateWatch } from '../src/product/daemon.js';
+import { daemonFills, daemonUpdateWatch, type DaemonFills } from '../src/product/daemon.js';
 import type { UpdateWatch } from '../src/product/fill-updates.js';
 
 let root = '';
 /** The products home: the server's own, where its fill database and its update state stand. */
 let home = '';
 let product = '';
-let service: FillOrchestratorService | undefined;
+let service: DaemonFills | undefined;
 let watch: UpdateWatch | undefined;
 let first: FillRunResult | undefined;
 let update: RunStatus | undefined;
@@ -65,13 +68,14 @@ beforeAll(async () => {
   commitAll(product, 'one');
 
 
-  service = daemonFillOrchestrator(home);
-  const filled = await service.run({ product: { name: 'shop', folder: product }, runId: 'first-fill' });
+  const fills = daemonFills(home);
+  service = fills;
+  const filled = await fills.run({ product: { name: 'shop', folder: product }, runId: 'first-fill' });
   if (!filled.ok) throw new Error(`the first fill was refused: ${filled.code}: ${filled.reason}`);
   first = filled;
   // The gate reads the person's own home for the wizard's agent choice, which a test does not set: it names its own,
   // and the gate itself is `test/fill-updates.test.ts`'s subject.
-  watch = daemonUpdateWatch(home, service, { debounceMs: 40, intervalMs: 0, log: (line) => lines.push(line), enabled: () => true });
+  watch = daemonUpdateWatch(home, fills, { debounceMs: 40, intervalMs: 0, log: (line) => lines.push(line), enabled: () => true });
   await watch.outset();
   // One commit on the default branch of the product repository, after the watcher read its baseline. The pass that
   // reads the commit keeps it waiting for the debounce, and the timer that ends the debounce runs the pass that
@@ -83,7 +87,7 @@ beforeAll(async () => {
   const deadline = Date.now() + 120_000;
   while (Date.now() < deadline) {
     await pause(250);
-    const status = await service.status({ product: { name: 'shop', folder: product }, runId: lastRequest });
+    const status = await fills.status({ product: { name: 'shop', folder: product }, runId: lastRequest });
     if (status !== null && ['succeeded', 'completed_partial', 'blocked', 'failed', 'cancelled'].includes(status.run.state)) {
       update = status;
       break;
@@ -111,14 +115,12 @@ describe('the update a default-branch commit starts', () => {
     expect(lines.some((line) => line.includes(`started as ${lastRequest}`))).toBe(true);
   }, 900_000);
 
-  test('the update recomputes the units the commit touched and inherits the rest', () => {
-    const planned = new Set((update?.units ?? []).map((unit) => unit.unitId));
-    // The file whose bytes moved is read again by every stage that reads its bytes.
-    expect(planned.has('inventory/file:shop:src/total.ts')).toBe(true);
-    expect(planned.has('syntax/file:shop:src/total.ts')).toBe(true);
-    // The file the commit did not touch is inherited: the update is not a full refill.
-    expect(planned.has('inventory/file:shop:src/order.ts')).toBe(false);
-    expect(planned.has('syntax/file:shop:src/order.ts')).toBe(false);
+  test('the update is the person\'s fill again on the new commit: both repository passes run for it', () => {
+    const planned = (update?.units ?? []).map((unit) => ({ unitId: unit.unitId, stage: unit.stageId, state: unit.state }));
+    // This step's fill is the two repository passes, one unit each; the update republishes both on the commit.
+    expect([...new Set(planned.map((unit) => unit.stage))].sort()).toEqual(['repository-history', 'repository-tree']);
+    expect(planned.map((unit) => unit.unitId).sort()).toEqual(['repository-history/repository:shop', 'repository-tree/repository:shop']);
+    expect(planned.every((unit) => unit.state === 'published')).toBe(true);
   }, 900_000);
 
   test('the person finds it in the fill progress: the newest run, its units and its events', async () => {
@@ -132,7 +134,7 @@ describe('the update a default-branch commit starts', () => {
     for (const kind of ['run-started', 'run-planned', 'unit-published', 'run-completed']) expect(kinds.has(kind)).toBe(true);
     expect((progress?.events ?? []).length).toBeGreaterThan(0);
     expect(progress?.events.every((event) => Number.isFinite(event.seq) && !Number.isNaN(Date.parse(event.at)))).toBe(true);
-    expect((progress?.units ?? []).map((unit) => unit.stage)).toContain('inventory');
+    expect((progress?.units ?? []).map((unit) => unit.stage)).toContain('repository-tree');
     expect(progress?.units.every((unit) => unit.status === 'published')).toBe(true);
     // The answer's own fields are the panel's: one run, its units and its events in order, and no unit left unnamed.
     expect((progress?.units ?? []).every((unit) => unit.unitId !== '' && unit.stage !== '')).toBe(true);
@@ -144,6 +146,26 @@ describe('the update a default-branch commit starts', () => {
     mkdirSync(other, { recursive: true });
     writeFileSync(join(other, 'workspace.yaml'), 'schemaVersion: 1\nid: 1b2c3d4e-5f60-4a1b-8c9d-0e1f2a3b4c5d\nname: other\n');
     expect(await service!.progress(other)).toBeNull();
+  }, 900_000);
+
+  test('the update reaches the store the wiki reads: the newest snapshot names the commit the daemon filled', async () => {
+    const read = readProduct(product);
+    if (!read.ok) throw new Error(`${read.file}:${read.line}: ${read.message}`);
+    // The one store of this product, resolved by the function the button, `madarch fill-stages` and `madarch mcp` use.
+    const store = productStoreFolder(product, knowledgeRootOf(home));
+    const snapshots = readdirSync(storeSnapshotsFolder(store)).filter((name) => /^\d+$/.test(name)).map(Number).sort((left, right) => left - right);
+    // The first fill and the update each finished a snapshot for the reader.
+    expect(snapshots.length).toBeGreaterThanOrEqual(2);
+    const newest = snapshots.at(-1)!;
+    const owner = createPGliteDatabaseOwner({ path: join(storeSnapshotsFolder(store), String(newest)), btreeGist: true });
+    await owner.ready;
+    try {
+      const pins = await owner.run((tx) => tx.query<{ repo: string; commit_hash: string }>('SELECT repo, commit_hash FROM knowledge_fill ORDER BY repo'));
+      expect(pins.rows).toContainEqual({ repo: read.product.name, commit_hash: commit });
+      expect((await repositoryFacts(owner, read.product.name))?.asIsCommit).toBe(commit);
+    } finally {
+      await owner.close();
+    }
   }, 900_000);
 
 });

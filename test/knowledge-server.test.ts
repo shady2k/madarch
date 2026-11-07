@@ -180,8 +180,10 @@ describe('the fill the reader watches', () => {
     done = true;
     await reader.cancel();
     await listen.catch(() => undefined);
-    // The revision moved at the start, after each of the two commits and at the end, and the stream told it each time: each notice a different revision.
-    expect(revisions.length - opened).toBeGreaterThanOrEqual(3);
+    // The revision moved at the start (the run stands) and at the end (the snapshot the pages read),
+    // and the stream told it each time: each notice a different revision. This step's fill reads a
+    // repository in two passes, not a commit at a time, so its two moments are the two notices.
+    expect(revisions.length - opened).toBeGreaterThanOrEqual(2);
     expect(new Set(revisions).size).toBe(revisions.length);
     expect(revisions[revisions.length - 1]).toMatch(/\+\d+$/);
 

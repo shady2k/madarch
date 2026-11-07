@@ -185,7 +185,6 @@ async function openProduct(agentClock: () => number): Promise<Open> {
   let server: StartedServer | undefined;
   const clock = runClock();
   const service = createFillOrchestratorService({
-    home: join(world, 'products'),
     owner,
     registry: fill.registry,
     wiring: () => fill.wiring,

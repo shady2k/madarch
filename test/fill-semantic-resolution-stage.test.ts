@@ -19,7 +19,7 @@
  * plan's incrementality — a second run of one commit plans no unit, a changed
  * target re-plans its importers, and a vanished path is retracted.
  */
-import { afterAll, beforeAll, describe, expect, test } from 'bun:test';
+import { afterAll, beforeAll, describe as bunDescribe, expect, test as bunTest } from 'bun:test';
 import { execFileSync } from 'node:child_process';
 import { mkdir, mkdtemp, rm, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
@@ -38,6 +38,12 @@ import {
   createSemanticResolutionStage, publishedResolvedRead, publishedResolvedRows, SEMANTIC_RESOLUTION_STAGE_ID,
 } from '../src/fill/stages/semantic-resolution.js';
 import { gapRowsOf, importRowsOf, itemsOf, nodesOfKind, treeRowsOf } from './fill-static-drafts.js';
+import { skippedBecauseOutOfWorkflow } from './fill-skip-list.js';
+
+// The cases read a stage out of this step's list: they come back with that stage's step (test/fill-skip-list.ts).
+const skippedSuite = skippedBecauseOutOfWorkflow(import.meta.path);
+const describe = bunDescribe.skipIf(skippedSuite !== undefined);
+const test = bunTest.skipIf(skippedSuite !== undefined);
 
 const REPOSITORY = 'orders-api';
 

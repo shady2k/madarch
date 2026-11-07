@@ -14,7 +14,7 @@ export interface SkippedFillSuite {
   readonly because: string;
 }
 
-export const SKIPPED_FILL_SUITES: readonly SkippedFillSuite[] = [
+const SKIPPED_FILL_SUITES: readonly SkippedFillSuite[] = [
   { file: 'test/fill-stages.test.ts', brings: 'snapshot, inventory, syntax, resolution, modules, documents', because: 'its cases assert the facts of the stages out of the list' },
   { file: 'test/fill-operations-training.test.ts', brings: 'operations, operations-links', because: 'it compares the operations reading against the extract driver' },
   { file: 'test/fill-operations-links.test.ts', brings: 'operations-links', because: 'it reads the variables and services the links stage publishes' },
@@ -31,9 +31,17 @@ export const SKIPPED_FILL_SUITES: readonly SkippedFillSuite[] = [
   { file: 'test/fill-static-heap.test.ts', brings: 'the static stages', because: 'it reads their memory bound over a fill' },
   { file: 'test/fill-code-facts-training.test.ts', brings: 'code-facts', because: 'it compares the code facts against the extract driver' },
   { file: 'test/fill-operations-fixture.test.ts', brings: 'operations', because: 'it reads the operations records of a folder' },
+  // madarch-8bdc.2.5, items 1 to 3: `madarch mcp` reads the store the one fill publishes, and this step's fill is
+  // the tree and the history passes. The four mcp suites are not named here: their cases read the five tools of
+  // this step from the store (and the seven tools' step-not-run answers), so they run. A case that asked the seven
+  // tools for facts of the temporal graph would be named here until those stages' steps come.
 ];
 
-/** Whether a test file starts a fill of a stage this step does not run. */
+/**
+ * Whether a test file starts a fill of a stage this step does not run. The file is
+ * matched by the tail of its path, so a run from any folder names the same suite.
+ */
 export function skippedBecauseOutOfWorkflow(file: string): SkippedFillSuite | undefined {
-  return SKIPPED_FILL_SUITES.find((entry) => entry.file === file);
+  const normalized = file.split('\\').join('/');
+  return SKIPPED_FILL_SUITES.find((entry) => normalized === entry.file || normalized.endsWith(`/${entry.file}`));
 }

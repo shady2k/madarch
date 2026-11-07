@@ -16,7 +16,7 @@ import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { createPGliteDatabaseOwner } from '../src/adapters/database-owner.js';
 import { runFill } from '../src/fill/run.js';
-import { storeFolderOf } from '../src/knowledge/product.js';
+import { knowledgeRootOf, productStoreFolder } from '../src/product/store.js';
 import type { FillStepView } from '../src/knowledge/model.js';
 import { startKnowledgeFill } from '../src/knowledge/fill-run.js';
 import { startServer, type StartedServer } from '../src/server/http.js';
@@ -223,11 +223,9 @@ describe('the empty wiki, the press and the end state', () => {
       git(repository, 'add', '-A');
       git(repository, 'commit', '-qm', 'one commit');
     });
-    // The store the product reads, filled by the tree pass alone: the history step did not run.
-    const manifest = join(folder, 'workspace.yaml');
-    const id = /^id: (.+)$/mu.exec(execFileSync('cat', [manifest], { encoding: 'utf8' }))?.[1];
-    expect(typeof id).toBe('string');
-    const store = storeFolderOf(join(home, '.madarch', 'knowledge'), id!, manifest);
+    // The store the product reads, filled by the tree pass alone: the history step did not run. It is
+    // the one store every surface resolves (`productStoreFolder`), under the home's knowledge root.
+    const store = productStoreFolder(folder, knowledgeRootOf(home));
     mkdirSync(join(store, 'graph'), { recursive: true });
     const owner = createPGliteDatabaseOwner({ path: join(store, 'graph'), btreeGist: true });
     try {

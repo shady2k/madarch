@@ -8,8 +8,7 @@ import { existsSync, mkdirSync, mkdtempSync, rmSync, writeFileSync } from 'node:
 import { tmpdir } from 'node:os';
 import path from 'node:path';
 import { afterAll, describe, expect, test } from 'bun:test';
-import { acquireFolderLock, openRepositoryGraph, releaseFolderLock } from '../src/mcp/graph.js';
-import { writeDriverGraph } from './mcp-prefill.js';
+import { acquireFolderLock, repositoryStoreFolder, openRepositoryGraph, releaseFolderLock } from '../src/mcp/graph.js';
 
 const FOLDER = mkdtempSync(path.join(tmpdir(), 'madarch-mcp-lock-'));
 const REPOSITORY = mkdtempSync(path.join(tmpdir(), 'madarch-mcp-lock-repo-'));
@@ -39,15 +38,17 @@ describe('the folder lock', () => {
   });
 
   test('the lock outlives the database it guards: it is dropped only once the database is closed', async () => {
-    const folder = path.join(FOLDER, 'served');
-    // A base graph the driver wrote: the served checkout's record fill publishes no symbols, and the
-    // session still opens the view over what the store holds.
-    await writeDriverGraph(folder, REPOSITORY);
-    const graph = await openRepositoryGraph({ repository: REPOSITORY, folder, log: () => undefined });
+    // No pre-filled graph: the store is the one the one fill publishes (a checkout's own), and the
+    // server opens it with no temporal view until the static stages' step publishes one. The lock is
+    // taken before the fill and dropped after the database closes, whatever the store holds.
+    const env = { ...process.env, MADARCH_HOME: FOLDER };
+    const folder = repositoryStoreFolder(REPOSITORY, env);
+    const graph = await openRepositoryGraph({ repository: REPOSITORY, env, log: () => undefined });
+    expect(graph.folder).toBe(folder);
     expect(existsSync(path.join(folder, 'server.lock'))).toBe(true);
     const closing = graph.close();
     // Closing begins with the database: the lock is still the server's while that runs, so no second server can enter
-    // a folder whose database is mid-close.
+    // a store whose database is mid-close.
     expect(existsSync(path.join(folder, 'server.lock'))).toBe(true);
     await closing;
     expect(existsSync(path.join(folder, 'server.lock'))).toBe(false);

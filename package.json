@@ -10,14 +10,12 @@
     "check:workflows": "bun scripts/check-workflows.ts",
     "check:architecture-base": "bun scripts/check-architecture.ts --base-guard",
     "test": "bun test test/",
-    "answer-key:check": "bun scripts/answer-key-check-training.ts",
     "schemas": "bun scripts/generate-schemas.ts",
     "views": "bun scripts/render-views.ts",
     "views:check": "bun scripts/check-views.ts",
     "contract:check": "bun scripts/check-contract.ts",
     "wiki:demo": "cd wiki/app && bun install --frozen-lockfile && bun run build && cd ../.. && bun scripts/madarch.ts serve --product wiki/demo",
-    "wiki:shots": "bun scripts/wiki-shots.ts",
-    "graph-verdicts": "bun scripts/graph-verdicts.ts"
+    "wiki:shots": "bun scripts/wiki-shots.ts"
   },
   "dependencies": {
     "@agentclientprotocol/sdk": "1.9.0",

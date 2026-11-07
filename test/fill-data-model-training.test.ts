@@ -24,7 +24,7 @@
  * listed fails (the port may not add a difference), and a listed family that no
  * longer differs fails too (the list is stale and must shrink).
  */
-import { afterAll, beforeAll, describe, expect, test } from 'bun:test';
+import { afterAll, beforeAll, describe as bunDescribe, expect, test as bunTest } from 'bun:test';
 import { execFileSync } from 'node:child_process';
 import { mkdirSync, mkdtempSync, readFileSync, readdirSync, rmSync, statSync, symlinkSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
@@ -37,6 +37,12 @@ import { createGraphStore, type EdgeEntry, type GraphStore, type NodeVersionRow 
 import { createStagesFill, type StagesFill } from '../src/product/fill-stages.js';
 import { DATA_MODEL_AGGREGATE_STAGE_ID, DATA_MODEL_NODE_KINDS, DATA_MODEL_RELATIONS, DATA_MODEL_STAGE_ID } from '../src/fill/stages/data-model.js';
 import { writeFirstFillWorkflow } from './fill-workflow-fixture.js';
+import { skippedBecauseOutOfWorkflow } from './fill-skip-list.js';
+
+// The cases read a stage out of this step's list: they come back with that stage's step (test/fill-skip-list.ts).
+const skippedSuite = skippedBecauseOutOfWorkflow(import.meta.path);
+const describe = bunDescribe.skipIf(skippedSuite !== undefined);
+const test = bunTest.skipIf(skippedSuite !== undefined);
 
 const GENERATOR = fileURLToPath(new URL('../examples/training-repository/generate.mjs', import.meta.url));
 const REPOSITORY = 'training';
@@ -226,6 +232,8 @@ function recordKeyOf(node: NodeVersionRow): string {
 }
 
 beforeAll(async () => {
+  // The store the cases read is filled by stages out of this step's list: no fixture is made or closed.
+  if (skippedSuite !== undefined) return;
   root = mkdtempSync(join(tmpdir(), 'madarch-data-model-training-'));
   const repository = join(root, REPOSITORY);
   execFileSync(process.execPath, [GENERATOR, repository], { stdio: ['ignore', 'pipe', 'pipe'] });
@@ -252,7 +260,7 @@ beforeAll(async () => {
   fill = await createStagesFill({ product, database: owner });
   let at = 1_700_000_000_000;
   service = createFillOrchestratorService({
-    home: join(root, 'products'), owner, registry: fill.registry, wiring: () => fill!.wiring,
+    owner, registry: fill.registry, wiring: () => fill!.wiring,
     clock: () => (at += 1_000), limits: { leaseMs: 86_400_000 }, maxPasses: 100_000,
   });
   store = createGraphStore(owner);
@@ -378,6 +386,8 @@ beforeAll(async () => {
 }, 1_800_000);
 
 afterAll(async () => {
+  // The store the cases read is filled by stages out of this step's list: no fixture is made or closed.
+  if (skippedSuite !== undefined) return;
   await service?.stop();
   await owner?.close();
   if (root !== '') rmSync(root, { recursive: true, force: true });

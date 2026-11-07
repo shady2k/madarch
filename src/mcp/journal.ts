@@ -1,8 +1,7 @@
 /**
  * The journal of one served repository (madarch-ztyq.10): one line per tool
- * call, what it was asked, how large its answer was, which files the layer
- * re-extracted for it, and how many files its answer covered — the files a
- * reader would otherwise have opened. `madarch mcp --journal` prints the
+ * call, what it was asked, how large its answer was, and how many files its answer
+ * covered — the files a reader would otherwise have opened. `madarch mcp --journal` prints the
  * summary, so a person can see what the serving cost and what it saved.
  *
  * The file is the state folder's own (`journal.jsonl`), beside the graph, and
@@ -20,8 +19,6 @@ export interface JournalEntry {
   readonly arguments: unknown;
   /** The answer's JSON size in bytes, as the agent reads it. */
   readonly answerBytes: number;
-  /** The files this call made the layer read again. */
-  readonly reextracted: readonly string[];
   /** The files the answer shows or stands on: what a reader would have opened instead. */
   readonly covered: readonly string[];
   /** The reads the tool measured it avoided: the reads it did not have to make, counted per call. */
@@ -42,7 +39,6 @@ export interface JournalToolSummary {
   readonly tool: string;
   readonly calls: number;
   readonly answerBytes: number;
-  readonly reextracted: number;
   /** Distinct `(tool, arguments)` calls: the second of two identical calls saved nothing new. */
   readonly uniqueCalls: number;
   readonly readsAvoided: number;
@@ -55,7 +51,6 @@ export interface JournalSummary {
   readonly file: string;
   readonly calls: number;
   readonly answerBytes: number;
-  readonly reextractions: number;
   readonly uniqueCalls: number;
   readonly readsAvoided: number;
   readonly questionsAnswered: number;
@@ -105,9 +100,8 @@ export function readJournal(folder: string): JournalEntry[] {
 export function summarize(folder: string): JournalSummary {
   const entries = readJournal(folder);
   const seen = new Set<string>();
-  const byTool = new Map<string, { calls: number; answerBytes: number; reextracted: number; uniqueCalls: number; readsAvoided: number; questionsAnswered: number; evidenceFiles: number }>();
+  const byTool = new Map<string, { calls: number; answerBytes: number; uniqueCalls: number; readsAvoided: number; questionsAnswered: number; evidenceFiles: number }>();
   let answerBytes = 0;
-  let reextractions = 0;
   let readsAvoided = 0;
   let questionsAnswered = 0;
   let evidenceFiles = 0;
@@ -116,10 +110,9 @@ export function summarize(folder: string): JournalSummary {
     const identity = `${entry.tool}\u0000${JSON.stringify(entry.arguments)}`;
     const first = !seen.has(identity);
     if (first) seen.add(identity);
-    const held = byTool.get(entry.tool) ?? { calls: 0, answerBytes: 0, reextracted: 0, uniqueCalls: 0, readsAvoided: 0, questionsAnswered: 0, evidenceFiles: 0 };
+    const held = byTool.get(entry.tool) ?? { calls: 0, answerBytes: 0, uniqueCalls: 0, readsAvoided: 0, questionsAnswered: 0, evidenceFiles: 0 };
     held.calls += 1;
     held.answerBytes += entry.answerBytes;
-    held.reextracted += entry.reextracted.length;
     held.questionsAnswered += entry.questionsAnswered;
     if (first) {
       held.uniqueCalls += 1;
@@ -131,13 +124,12 @@ export function summarize(folder: string): JournalSummary {
     }
     byTool.set(entry.tool, held);
     answerBytes += entry.answerBytes;
-    reextractions += entry.reextracted.length;
     questionsAnswered += entry.questionsAnswered;
   }
   const tools = [...byTool.entries()]
     .map(([tool, held]) => ({ tool, ...held }))
     .sort((left, right) => byCodePoint(left.tool, right.tool));
-  return { file: journalFile(folder), calls: entries.length, uniqueCalls, answerBytes, reextractions, readsAvoided, questionsAnswered, evidenceFiles, tools, last: entries.at(-1) ?? null };
+  return { file: journalFile(folder), calls: entries.length, uniqueCalls, answerBytes, readsAvoided, questionsAnswered, evidenceFiles, tools, last: entries.at(-1) ?? null };
 }
 
 /** The summary as a person reads it, one line per tool. */
@@ -145,9 +137,9 @@ export function summaryLines(summary: JournalSummary): string[] {
   if (summary.calls === 0) return [`madarch mcp: no call is journaled in ${summary.file}`];
   const lines = [`madarch mcp: ${summary.calls} calls journaled in ${summary.file}`];
   for (const tool of summary.tools) {
-    lines.push(`  ${tool.tool}: ${tool.calls} calls (${tool.uniqueCalls} distinct), ${tool.reextracted} files re-extracted, ${tool.answerBytes} answer bytes, ${tool.readsAvoided} file reads avoided, ${tool.questionsAnswered} questions answered, ${tool.evidenceFiles} evidence files (estimate)`);
+    lines.push(`  ${tool.tool}: ${tool.calls} calls (${tool.uniqueCalls} distinct), ${tool.answerBytes} answer bytes, ${tool.readsAvoided} file reads avoided, ${tool.questionsAnswered} questions answered, ${tool.evidenceFiles} evidence files (estimate)`);
   }
-  lines.push(`total: ${summary.calls} calls (${summary.uniqueCalls} distinct), ${summary.reextractions} file re-extractions, ${summary.answerBytes} answer bytes, ${summary.readsAvoided} file reads avoided, ${summary.questionsAnswered} questions answered, ${summary.evidenceFiles} evidence files (estimate)`);
+  lines.push(`total: ${summary.calls} calls (${summary.uniqueCalls} distinct), ${summary.answerBytes} answer bytes, ${summary.readsAvoided} file reads avoided, ${summary.questionsAnswered} questions answered, ${summary.evidenceFiles} evidence files (estimate)`);
   if (summary.last !== null) lines.push(`last call: ${summary.last.at} ${summary.last.tool} at ${summary.last.revision.commit.slice(0, 12)}`);
   return lines;
 }

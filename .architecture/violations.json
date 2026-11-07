@@ -1277,31 +1277,6 @@
   {
     "rule": "no-unreachable-code",
     "file": "src/fill/orchestrator-host.ts",
-    "symbol": "FillActivity"
-  },
-  {
-    "rule": "no-unreachable-code",
-    "file": "src/fill/orchestrator-host.ts",
-    "symbol": "FillProgressAnswer"
-  },
-  {
-    "rule": "no-unreachable-code",
-    "file": "src/fill/orchestrator-host.ts",
-    "symbol": "FillRunControl"
-  },
-  {
-    "rule": "no-unreachable-code",
-    "file": "src/fill/orchestrator-host.ts",
-    "symbol": "FillRunControlAnswer"
-  },
-  {
-    "rule": "no-unreachable-code",
-    "file": "src/fill/orchestrator-host.ts",
-    "symbol": "FillRunRequest"
-  },
-  {
-    "rule": "no-unreachable-code",
-    "file": "src/fill/orchestrator-host.ts",
     "symbol": "ProductFill"
   },
   {
@@ -1706,8 +1681,18 @@
   },
   {
     "rule": "no-unreachable-code",
+    "file": "src/fill/stages/build-configuration.ts",
+    "symbol": "manifestUnitId"
+  },
+  {
+    "rule": "no-unreachable-code",
     "file": "src/fill/stages/data-model.ts",
     "symbol": "createDataModelAggregateStage"
+  },
+  {
+    "rule": "no-unreachable-code",
+    "file": "src/fill/stages/data-model.ts",
+    "symbol": "createDataModelStage"
   },
   {
     "rule": "no-unreachable-code",
@@ -1983,6 +1968,16 @@
     "rule": "no-unreachable-code",
     "file": "src/fill/stages/narrative.ts",
     "symbol": "narrativeUnits"
+  },
+  {
+    "rule": "no-unreachable-code",
+    "file": "src/fill/stages/operations-links.ts",
+    "symbol": "createOperationsLinksStage"
+  },
+  {
+    "rule": "no-unreachable-code",
+    "file": "src/fill/stages/operations.ts",
+    "symbol": "createOperationsStage"
   },
   {
     "rule": "no-unreachable-code",
@@ -3281,11 +3276,6 @@
   },
   {
     "rule": "no-unreachable-code",
-    "file": "src/mcp/session.ts",
-    "symbol": "markUncommitted"
-  },
-  {
-    "rule": "no-unreachable-code",
     "file": "src/mcp/tools.ts",
     "symbol": "RepoToolName"
   },
@@ -3867,11 +3857,6 @@
   {
     "rule": "no-unreachable-code",
     "file": "src/product/manifest.ts",
-    "symbol": "PRODUCT_SCHEMA_VERSION"
-  },
-  {
-    "rule": "no-unreachable-code",
-    "file": "src/product/manifest.ts",
     "symbol": "ProductSkills"
   },
   {
@@ -4358,11 +4343,6 @@
     "rule": "no-unreachable-code",
     "file": "src/writer/home-page.ts",
     "symbol": "HomeShape"
-  },
-  {
-    "rule": "no-unreachable-code",
-    "file": "src/writer/index.ts",
-    "symbol": "AcpAgentOptions"
   },
   {
     "rule": "no-unreachable-code",
@@ -5271,11 +5251,6 @@
   },
   {
     "rule": "no-unreachable-code",
-    "file": "test/fill-skip-list.ts",
-    "symbol": null
-  },
-  {
-    "rule": "no-unreachable-code",
     "file": "test/graph-pages-fixture.ts",
     "symbol": "COMMIT"
   },
@@ -5825,43 +5800,8 @@
     "symbol": "Pick"
   },
   {
-    "rule": "one-fill-entry",
-    "file": "scripts/write-knowledge.ts",
-    "symbol": "src/extract/driver/index.ts:fillGraph"
-  },
-  {
-    "rule": "one-fill-entry",
-    "file": "src/mcp/graph.ts",
-    "symbol": "src/fill/orchestrator-host.ts:createFillOrchestratorService"
-  },
-  {
-    "rule": "one-fill-entry",
-    "file": "src/mcp/graph.ts",
-    "symbol": "src/product/fill-stages.ts:createRepositoryFill"
-  },
-  {
-    "rule": "one-fill-entry",
-    "file": "src/product/cli.ts",
-    "symbol": "src/fill/orchestrator-host.ts:createFillOrchestratorService"
-  },
-  {
-    "rule": "one-fill-entry",
-    "file": "src/product/daemon.ts",
-    "symbol": "src/fill/orchestrator-host.ts:createFillOrchestratorService"
-  },
-  {
-    "rule": "one-fill-entry",
-    "file": "src/product/daemon.ts",
-    "symbol": "src/product/fill-stages.ts:createStagesFill"
-  },
-  {
     "rule": "sql-only-in-storage-layer",
     "file": "scripts/index-knowledge.ts",
-    "symbol": "src/adapters/database-owner.ts"
-  },
-  {
-    "rule": "sql-only-in-storage-layer",
-    "file": "scripts/write-knowledge.ts",
     "symbol": "src/adapters/database-owner.ts"
   },
   {

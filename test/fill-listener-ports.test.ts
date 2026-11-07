@@ -10,7 +10,7 @@
  * expression beside one of them: a grammar's `constructor` field name must not
  * cost a file its facts.
  */
-import { afterAll, beforeAll, describe, expect, test } from 'bun:test';
+import { afterAll, beforeAll, describe as bunDescribe, expect, test as bunTest } from 'bun:test';
 import { existsSync, mkdtempSync, readFileSync, rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
@@ -24,6 +24,12 @@ import { parseFileFacts } from '../src/fill/stages/file-facts.js';
 import {
   ORDERS_MAIN, TOOLS_FILE, UNITS_REPOSITORY, WEB_FILE, expectedPortsOf, writeUnitsProduct,
 } from './fixtures/code-stages/service-units.js';
+import { skippedBecauseOutOfWorkflow } from './fill-skip-list.js';
+
+// The cases read a stage out of this step's list: they come back with that stage's step (test/fill-skip-list.ts).
+const skippedSuite = skippedBecauseOutOfWorkflow(import.meta.path);
+const describe = bunDescribe.skipIf(skippedSuite !== undefined);
+const test = bunTest.skipIf(skippedSuite !== undefined);
 
 let root = '';
 let writtenRoot = '';
@@ -33,6 +39,8 @@ let fill: StagesFill | undefined;
 let service: FillOrchestratorService | undefined;
 
 beforeAll(async () => {
+  // The store the cases read is filled by stages out of this step's list: no fixture is made or closed.
+  if (skippedSuite !== undefined) return;
   root = mkdtempSync(join(tmpdir(), 'madarch-listener-ports-'));
   const written = writeUnitsProduct(root);
   writtenRoot = written.repository;
@@ -40,7 +48,6 @@ beforeAll(async () => {
   fill = await createStagesFill({ product: written.product, database: owner });
   let at = 1_700_000_000_000;
   service = createFillOrchestratorService({
-    home: join(root, 'products'),
     owner,
     registry: fill.registry,
     wiring: () => fill!.wiring,
@@ -54,6 +61,8 @@ beforeAll(async () => {
 }, 900_000);
 
 afterAll(async () => {
+  // The store the cases read is filled by stages out of this step's list: no fixture is made or closed.
+  if (skippedSuite !== undefined) return;
   await service?.stop();
   await owner?.close();
   if (root !== '') rmSync(root, { recursive: true, force: true });

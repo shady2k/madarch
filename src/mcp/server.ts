@@ -16,11 +16,11 @@ import { answerUnitMcpMessage, serveUnitMcp, type McpToolDefinition } from '../f
 import { runningVersion } from '../product/version.js';
 import { REPO_TOOLS, type RepoToolAnswer } from './tools.js';
 import { RECORD_TOOLS } from './records.js';
-import { RepositoryRecordSession } from './record-session.js';
-import { readFillProgressOf, type FillProgress } from '../obs/progress.js';
+import { RepositorySession } from './session.js';
+import { readLatestFillProgress, type FillProgress } from '../obs/progress.js';
 import { bytesOf } from '../obs/trace.js';
 import { closeTrace, openTrace, runInTrace, withSpan, type TraceRun } from '../obs/trace.js';
-import { graphFolder, mcpStateRoot } from './graph.js';
+import { repositoryStoreFolder } from './graph.js';
 import { readRevision } from './git.js';
 import { join } from 'node:path';
 
@@ -125,8 +125,6 @@ async function answerCall(repository: string, provider: RepositoryProvider, tool
 export interface RepositoryMcpOptions {
   /** The checkout to serve. */
   readonly repository: string;
-  /** The folder the graph and the journal are kept in. */
-  readonly folder?: string | undefined;
   readonly env?: Readonly<Record<string, string | undefined>>;
   readonly input?: AsyncIterable<string | Uint8Array>;
   readonly output?: { write(text: string): void };
@@ -144,19 +142,17 @@ export interface RepositoryMcpOptions {
 export async function serveRepositoryMcp(options: RepositoryMcpOptions): Promise<number> {
   const stderr = options.errorOutput ?? process.stderr;
   const log = (line: string): void => { stderr.write(`${line}\n`); };
-  const folder = options.folder ?? graphFolder(options.repository, mcpStateRoot(options.env));
+  // The store the one fill publishes, resolved by the one resolver every surface uses
+  // (`repositoryStoreFolder`): the wiki's button fills it, `madarch mcp` reads it.
+  const store = repositoryStoreFolder(options.repository, options.env);
   // The fill's own trace is written beside the store as it happens, and the building answer reads
-  // that run's file by its id: a person sees how far the fill is without opening the store, and the
-  // server's own trace (its tool calls) cannot be mistaken for the fill's. A checkout that is
-  // already filled writes no run, and the answer then carries no progress.
-  const head = readRevision(options.repository).commit.slice(0, 12);
-  const progress = (): FillProgress => readFillProgressOf(folder, `mcp-${head}`);
-  const sessionTrace = openTrace({ store: folder, runId: `mcp-${String(process.pid)}` });
-  // The served store is this step's record store, filled by the one runner: the five tools answer
-  // from it, and the tools of the later steps say their step has not run.
-  const ready = RepositoryRecordSession.open({
+  // the newest one: while a fill runs its trace is the newest in the store, and it is the only
+  // moment this answer is read. The server's own trace (its tool calls) is written beside it.
+  const progress = (): FillProgress => readLatestFillProgress(store);
+  const sessionTrace = openTrace({ store, runId: `server-${String(process.pid)}` });
+  const ready = RepositorySession.open({
     repository: options.repository,
-    folder,
+    ...(options.env === undefined ? {} : { env: options.env }),
     log,
   });
   let failure: unknown;

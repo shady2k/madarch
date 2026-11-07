@@ -20,7 +20,7 @@ import { listProducts, type ProductList } from './list.js';
 import { runningVersion } from './version.js';
 import { startDaemon, stopDaemon, daemonStatus, serveDaemon, ensureDaemon, daemonUrl } from './daemon.js';
 import { applyReset, planReset, type ResetPlan } from '../knowledge/reset.js';
-import { defaultKnowledgeRoot, storeFolderOf } from '../knowledge/product.js';
+import { knowledgeRootOf, productStoreFolder, storeDatabasePath } from '../product/store.js';
 import { upgrade, type UpgradeOptions } from './upgrade.js';
 import { serveWiki, machineOpener, type Opener, type ServeEnv, type ServeOptions } from '../product-wiki/serve.js';
 import {
@@ -39,11 +39,10 @@ import { readProduct } from './manifest.js';
 import { runGit } from './git.js';
 import { runFill } from '../fill/run.js';
 import { productsHome, type DraftEnv } from './draft.js';
-import { MANIFEST_FILE } from './manifest.js';
-import { startKnowledgeFill } from '../knowledge/fill-run.js';
+import { finishKnowledgeStore, startKnowledgeFill, type FinishedKnowledgeStore } from '../knowledge/fill-run.js';
 import { createPGliteDatabaseOwner } from '../adapters/database-owner.js';
 import { countPublishedFactsByKind } from '../fill/fact-store.js';
-import { createFillOrchestratorService, fillDatabasePath, type FillOrchestratorService, type FillRunResult } from '../fill/orchestrator-host.js';
+import type { FillOrchestratorService, FillRunResult } from '../fill/orchestrator-host.js';
 import { readTraceReport, renderTraceReport } from '../obs/trace-report.js';
 import { byCodePoint } from '../model/order.js';
 
@@ -740,14 +739,24 @@ export async function main(args: readonly string[], deps: CliDeps = {}): Promise
 async function fillStagesCommand(parsed: Parsed, home: string | undefined): Promise<number> {
   const folder = resolve(parsed.product ?? process.cwd());
   const resolvedHome = resolve(productsHome(process.env as DraftEnv, home));
+  // The one store of this product, resolved by the function the button, `madarch fill`, the daemon and
+  // `madarch mcp` use: a command-line fill writes what the wiki and the MCP server read.
+  let storeFolder: string;
+  try {
+    storeFolder = productStoreFolder(folder, knowledgeRootOf(resolvedHome));
+  } catch (error) {
+    console.error(error instanceof Error ? error.message : String(error));
+    return 1;
+  }
   // The milliseconds are kept: two runs asked for inside one second are two
   // runs, and a run id that already stands is one this command may not plan.
   const runId = parsed.run ?? `stages-${new Date().toISOString().replace(/[-:.]/gu, '').replace(/Z$/u, 'Z')}`;
-  // PGlite opens a data directory, and the products home may not hold the fill's
-  // own folder yet (the host would make it; this command opens the owner itself).
-  await mkdir(dirname(fillDatabasePath(resolvedHome)), { recursive: true });
+  // PGlite opens a data directory, and the product's store may not stand yet (the host would make it;
+  // this command opens the owner itself).
+  const databasePath = storeDatabasePath(storeFolder);
+  await mkdir(dirname(databasePath), { recursive: true });
   const workers = parsed.workers ?? 16;
-  const owner = createPGliteDatabaseOwner({ path: fillDatabasePath(resolvedHome), btreeGist: true });
+  const owner = createPGliteDatabaseOwner({ path: databasePath, btreeGist: true });
   let service: FillOrchestratorService | undefined;
   let exit = 0;
   try {
@@ -762,7 +771,7 @@ async function fillStagesCommand(parsed: Parsed, home: string | undefined): Prom
     // One fill, through the one runner (madarch-8bdc.2.5, item 6): the steps the caller named, or
     // the whole one list in the order the stages' declarations derive.
     const result = await runFill({
-      product: folder, database: owner, runId, home: resolvedHome,
+      product: folder, database: owner, runId, home: storeFolder, store: storeFolder,
       limits: { maxInFlight: workers }, workers, maxPasses: 100_000,
       ...(parsed.steps === undefined ? {} : { steps: parsed.steps }),
       onService: (started) => { service = started; },
@@ -771,7 +780,12 @@ async function fillStagesCommand(parsed: Parsed, home: string | undefined): Prom
       console.error(`${result.code}: ${result.reason}`);
       exit = 1;
     } else {
-      reportFillStages(product, result, await countPublishedFactsByKind(owner), Date.now() - started, parsed.json);
+      // The store is finished the way the button finishes it: the pins the run published, and the numbered
+      // snapshot the wiki's reader opens. A run that did not succeed writes neither.
+      const finished = result.settled && result.state === 'succeeded'
+        ? await finishKnowledgeStore(owner, storeFolder)
+        : undefined;
+      reportFillStages(product, storeFolder, result, await countPublishedFactsByKind(owner), finished, Date.now() - started, parsed.json);
       // A run that did not settle, or settled without its coverage, is not a
       // fill a caller may treat as done: the exit code says so, and the line
       // names what the run ended as.
@@ -792,13 +806,23 @@ async function fillStagesCommand(parsed: Parsed, home: string | undefined): Prom
 
 /**
  * `madarch trace`: where one run's time went, read from its trace and nothing
- * else (madarch-8bdc.2.5, item 2). `--run` names the run, `--store` the folder
- * its trace sits under; without either the newest trace of the products home's
- * fill store is read.
+ * else (madarch-8bdc.2.5, item 2). `--run` names the run, `--store` the store
+ * whose traces are read; without either the current folder's product store is
+ * read, which is the one store its fill writes.
  */
 function traceCommand(parsed: Parsed, home: string | undefined): number {
   const resolvedHome = resolve(productsHome(process.env as DraftEnv, home));
-  const store = resolve(parsed.store ?? fillDatabasePath(resolvedHome));
+  let store: string;
+  if (parsed.store !== undefined) {
+    store = resolve(parsed.store);
+  } else {
+    try {
+      store = productStoreFolder(process.cwd(), knowledgeRootOf(resolvedHome));
+    } catch (error) {
+      console.error(error instanceof Error ? error.message : String(error));
+      return 1;
+    }
+  }
   try {
     const report = readTraceReport({ store, ...(parsed.run === undefined ? {} : { runId: parsed.run }) });
     process.stdout.write(renderTraceReport(report));
@@ -809,17 +833,18 @@ function traceCommand(parsed: Parsed, home: string | undefined): number {
   }
 }
 
-/** One run's facts, one per line: the run, its units, the stages that found nothing, and the graph's facts by kind. */
-function reportFillStages(product: { readonly name: string; readonly folder: string }, result: FillRunResult, counts: Readonly<Record<string, number>>, elapsedMs: number, json: boolean): void {
+/** One run's facts, one per line: the store it wrote, the run, its units, the stages that found nothing, and the facts by kind. */
+function reportFillStages(product: { readonly name: string; readonly folder: string }, storeFolder: string, result: FillRunResult, counts: Readonly<Record<string, number>>, finished: FinishedKnowledgeStore | undefined, elapsedMs: number, json: boolean): void {
   const inherited = new Set(result.reused);
   const units = [...result.units].sort((left, right) => byCodePoint(left.unitId, right.unitId));
   const executed = units.filter((unit) => !inherited.has(unit.unitId));
   if (json) {
-    console.log(JSON.stringify({ product, runId: result.runId, state: result.state, settled: result.settled, passes: result.passes, work: result.work, stoppedBecause: result.stoppedBecause, retryWaitMs: result.retryWaitMs, units, inherited: [...inherited].sort(byCodePoint), foundNothing: [...result.foundNothing].sort(byCodePoint), counts, elapsedMs }));
+    console.log(JSON.stringify({ product, store: storeFolder, runId: result.runId, state: result.state, settled: result.settled, passes: result.passes, work: result.work, stoppedBecause: result.stoppedBecause, retryWaitMs: result.retryWaitMs, units, inherited: [...inherited].sort(byCodePoint), foundNothing: [...result.foundNothing].sort(byCodePoint), counts, snapshot: finished?.snapshot, elapsedMs }));
     return;
   }
   console.log(`Fill ${result.runId}: ${result.state}${result.settled ? '' : ', not settled'}${result.stoppedBecause === undefined ? '' : ` (${result.stoppedBecause})`}`);
   console.log(`Product: ${product.name} in ${displayPath(product.folder)}`);
+  console.log(`Store: ${displayPath(storeFolder)}${finished === undefined ? ' (no snapshot: the run did not succeed)' : `, snapshot ${String(finished.snapshot)}`}`);
   console.log(`Units: ${String(units.length)} in the run, ${String(executed.length)} executed and ${String(inherited.size)} inherited`);
   for (const unit of units) console.log(`${unit.unitId}\t${unit.state}\tgeneration ${String(unit.generation)}\t${inherited.has(unit.unitId) ? 'inherited' : 'executed'}`);
   if (result.foundNothing.length > 0) console.log(`Stages that read their inputs and found nothing: ${[...result.foundNothing].sort(byCodePoint).join(', ')}`);
@@ -864,11 +889,11 @@ async function fillCommand(parsed: Parsed, home: string | undefined, args: reado
   const identity = readProduct(folder);
   if (!identity.ok) { console.error(`${identity.file}:${identity.line}: ${identity.message}`); return 1; }
   const resolvedHome = resolve(productsHome(process.env as DraftEnv, home));
-  const storeFolder = storeFolderOf(defaultKnowledgeRoot(resolvedHome), identity.product.id, join(folder, MANIFEST_FILE));
+  const storeFolder = productStoreFolder(folder, knowledgeRootOf(resolvedHome));
   const runId = `fill-${new Date().toISOString().replace(/[-:.]/gu, '').replace(/Z$/u, 'Z')}`;
   let run;
   try {
-    run = await startKnowledgeFill({ productFolder: folder, storeFolder, runId, database: createPGliteDatabaseOwner({ path: join(storeFolder, 'graph'), btreeGist: true }), ...(parsed.workers === undefined ? {} : { workers: parsed.workers }) });
+    run = await startKnowledgeFill({ productFolder: folder, storeFolder, runId, database: createPGliteDatabaseOwner({ path: storeDatabasePath(storeFolder), btreeGist: true }), ...(parsed.workers === undefined ? {} : { workers: parsed.workers }) });
   } catch (error) {
     console.error((error as Error).message);
     return 1;
@@ -1040,8 +1065,8 @@ async function resetCommand(name: string | undefined, homeOption: string | undef
       if (!answer.ok) throw new Error(`the background server at ${server} answered ${answer.status}: ${await answer.text()}`);
       plan = (await answer.json()) as ResetPlan;
     } else {
-      const knowledge = defaultKnowledgeRoot(root);
-      plan = planReset(folder, storeFolderOf(knowledge, read.product.id, join(folder, 'workspace.yaml')), knowledge);
+      const knowledge = knowledgeRootOf(root);
+      plan = planReset(folder, productStoreFolder(folder, knowledge), knowledge);
     }
   } catch (error) {
     console.error(error instanceof Error ? error.message : String(error));

@@ -12,7 +12,7 @@
  * that file affects — its units are the changed file's own and those of its
  * dependants, and the files the commit did not touch are not planned.
  */
-import { afterAll, beforeAll, describe, expect, test } from 'bun:test';
+import { afterAll, beforeAll, describe as bunDescribe, expect, test as bunTest } from 'bun:test';
 import { execFileSync, spawnSync } from 'node:child_process';
 import { mkdirSync, mkdtempSync, rmSync, symlinkSync, unlinkSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
@@ -26,6 +26,12 @@ import { FACT_ID_PATTERN, SYMBOL_KINDS } from '../src/fill/facts.js';
 import { createGraphStore } from '../src/graph/index.js';
 import { createStagesFill, declaredStagesDigest, type StagesFill } from '../src/product/fill-stages.js';
 import { writeFirstFillWorkflow } from './fill-workflow-fixture.js';
+import { skippedBecauseOutOfWorkflow } from './fill-skip-list.js';
+
+// The cases read a stage out of this step's list: they come back with that stage's step (test/fill-skip-list.ts).
+const skippedSuite = skippedBecauseOutOfWorkflow(import.meta.path);
+const describe = bunDescribe.skipIf(skippedSuite !== undefined);
+const test = bunTest.skipIf(skippedSuite !== undefined);
 
 /** One product open for a run: the database it fills, its host, and the wiring over the product. */
 interface OpenProduct {
@@ -111,7 +117,7 @@ async function openProduct(folder: string): Promise<OpenProduct> {
   const owner: DatabaseOwner = createPGliteDatabaseOwner({ btreeGist: true });
   const fill = await createStagesFill({ product: folder, database: owner });
   const home = mkdtempSync(join(tmpdir(), 'madarch-stages-home-'));
-  const service = createFillOrchestratorService({ home, owner, registry: fill.registry, wiring: () => fill.wiring });
+  const service = createFillOrchestratorService({ owner, registry: fill.registry, wiring: () => fill.wiring });
   return {
     fill,
     owner,
@@ -139,6 +145,8 @@ async function pinsOf(fill: StagesFill): Promise<readonly { id: string; form: st
 }
 
 beforeAll(() => {
+  // The store the cases read is filled by stages out of this step's list: no fixture is made or closed.
+  if (skippedSuite !== undefined) return;
   root = mkdtempSync(join(tmpdir(), 'madarch-stages-'));
   product = join(root, 'shop');
   mkdirSync(join(product, 'src'), { recursive: true });
@@ -154,6 +162,8 @@ beforeAll(() => {
 });
 
 afterAll(() => {
+  // The store the cases read is filled by stages out of this step's list: no fixture is made or closed.
+  if (skippedSuite !== undefined) return;
   if (root !== '') rmSync(root, { recursive: true, force: true });
 }, 300_000);
 

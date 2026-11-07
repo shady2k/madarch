@@ -24,13 +24,13 @@ export const RECORD_FILE_LIMIT = 200;
 const RECORD_HISTORY_LIMIT = 100;
 
 /** One path the working tree changed, as `git status` names it. */
-export interface ChangedPath {
+interface ChangedPath {
   readonly path: string;
   readonly status: string;
 }
 
 /** What every answer names: where it was read, at which commit, and what differs from that commit. */
-export interface RecordSource {
+interface RecordSource {
   /** The repository's full path, as the server was pointed at it. */
   readonly repository: string;
   /** The as-is commit the answer is true at; null when the tree pass has not run. */
@@ -297,7 +297,7 @@ function afterArgument(value: unknown): { value: { walk: number; commit: string 
  * step is one of these answers that the step has not run, naming it, rather
  * than an empty answer a client would take for "nothing there".
  */
-export const LATER_TOOL_STEPS: Readonly<Record<string, string>> = {
+const LATER_TOOL_STEPS: Readonly<Record<string, string>> = {
   get_symbol: 'syntax',
   get_context: 'syntax',
   trace_flow: 'semantic-resolution',

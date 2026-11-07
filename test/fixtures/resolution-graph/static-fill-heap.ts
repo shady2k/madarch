@@ -44,7 +44,6 @@ try {
   const fill = await createStagesFill({ product, database: owner });
   let at = 1_700_000_000_000;
   const service = createFillOrchestratorService({
-    home: join(root, 'products'),
     owner,
     registry: fill.registry,
     wiring: () => fill.wiring,

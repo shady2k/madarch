@@ -101,6 +101,8 @@ import { planRefresh, type RefreshPlan } from '../loop/plan.js';
 import { listQuestions, listTasks, openTasks, questionDetail, taskDetail, type ProblemListing, type QuestionDetail, type QuestionListing, type TaskDetail, type TaskListing, type TaskRow } from '../loop/views.js';
 import { collectProblems, openProblemsOf } from '../problems/index.js';
 import { defaultSettings } from '../problems/types.js';
+import { WikiReadError } from './read-error.js';
+import { productStoreFolder, storeDatabasePath, storeSnapshotsFolder } from '../product/store.js';
 import { readProblemDismissals, writeProblemDismissal } from '../loop/problem-files.js';
 
 const execFileAsync = promisify(execFile);
@@ -121,19 +123,7 @@ const dedupeScopes = (scopes: readonly TaskScope[]): TaskScope[] => {
  * The page an archify frame answers when the renderer could not draw: one sentence in the reader's language, and a
  * message to the app, which then shows the same view under a renderer that did draw.
  */
-/** A read the wiki cannot make and can say why: its message is for the reader, who sees it in place of the page. */
-export class WikiReadError extends Error {}
-
-/**
- * The folder a product's knowledge is kept in: named by the product's id under the knowledge root. An id with a
- * separator or a dot segment would name another place, so it names none.
- */
-export function storeFolderOf(storeRoot: string, id: string, manifest: string): string {
-  if (!/^[A-Za-z0-9][A-Za-z0-9._-]*$/.test(id) || id.includes('..')) {
-    throw new WikiReadError(`${manifest}: the product id ${JSON.stringify(id)} cannot name a folder (letters, digits, dots, hyphens and underscores only): the wiki keeps nothing for it`);
-  }
-  return join(storeRoot, id);
-}
+export { WikiReadError } from './read-error.js';
 
 /** How long the server keeps the previous snapshot open after a newer one is read, so a request in flight on it ends. */
 const SNAPSHOT_KEEP_MS = 3_000;
@@ -390,17 +380,17 @@ export class KnowledgeProduct {
   private storeFolder(): string {
     const product = this.product();
     if ('message' in product) throw new WikiReadError(product.message);
-    return storeFolderOf(this.options.storeRoot, product.id, join(this.options.productFolder, 'workspace.yaml'));
+    return productStoreFolder(this.options.productFolder, this.options.storeRoot);
   }
 
   /** The primary store: the fill worker's alone while it runs. */
   private graphPath(): string {
-    return join(this.storeFolder(), 'graph');
+    return storeDatabasePath(this.storeFolder());
   }
 
   /** The folder the snapshots of the primary store are made in, one numbered folder each. */
   private readRoot(): string {
-    return join(this.storeFolder(), 'read');
+    return storeSnapshotsFolder(this.storeFolder());
   }
 
   /**
@@ -960,7 +950,14 @@ export class KnowledgeProduct {
         this.options.errorLog?.(`the knowledge wiki could not read the snapshot ${result.snapshot} of ${this.readRoot()}: ${error instanceof Error ? error.message : String(error)}`);
       });
     }
-    this.fill = { state: 'done', startedAt: this.fill.startedAt, finishedAt: (this.options.now?.() ?? new Date()).toISOString(), gaps: 0 };
+    // A run that ended says which pages it changed: this fill writes no page (a page is an agent's
+    // work, and no agent stage runs in this step), so the answer is the empty list unless the store
+    // kept a record of pages the run changed — never an absent field a reader would take for "unknown".
+    this.changedLoaded = false;
+    this.fill = {
+      state: 'done', startedAt: this.fill.startedAt, finishedAt: (this.options.now?.() ?? new Date()).toISOString(), gaps: 0,
+      changed: this.lastChangedPages() ?? [],
+    };
     this.notify();
     this.lastUse = Date.now();
     // The rules and the judge read the snapshot as soon as the fill ends (madarch-mwhd.1 finding 6): a reader who
@@ -3352,11 +3349,6 @@ export interface RepositoryPin {
   effectiveTime: string;
   commits: number;
   filledCommits: number;
-}
-
-/** The folder a products home keeps its knowledge stores in. */
-export function defaultKnowledgeRoot(home: string): string {
-  return join(home, '.madarch', 'knowledge');
 }
 
 /** The products home's knowledge wikis: one per product folder, created when first asked for. */

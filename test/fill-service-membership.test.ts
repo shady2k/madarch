@@ -11,7 +11,7 @@
  * name moves re-reads the file whose unit it declares, although the file's own
  * bytes did not move.
  */
-import { afterAll, beforeAll, describe, expect, test } from 'bun:test';
+import { afterAll, beforeAll, describe as bunDescribe, expect, test as bunTest } from 'bun:test';
 import { mkdtempSync, rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
@@ -28,6 +28,12 @@ import {
   BOTH_FILE, NAMELESS_FILE, NOMODULE_FILE, UNITS_REPOSITORY, VENDORED_FILE, commitChange,
   expectedUnitByFile, writeUnitsProduct,
 } from './fixtures/code-stages/service-units.js';
+import { skippedBecauseOutOfWorkflow } from './fill-skip-list.js';
+
+// The cases read a stage out of this step's list: they come back with that stage's step (test/fill-skip-list.ts).
+const skippedSuite = skippedBecauseOutOfWorkflow(import.meta.path);
+const describe = bunDescribe.skipIf(skippedSuite !== undefined);
+const test = bunTest.skipIf(skippedSuite !== undefined);
 
 let root = '';
 let repository = '';
@@ -37,6 +43,8 @@ let fill: StagesFill | undefined;
 let service: FillOrchestratorService | undefined;
 
 beforeAll(async () => {
+  // The store the cases read is filled by stages out of this step's list: no fixture is made or closed.
+  if (skippedSuite !== undefined) return;
   root = mkdtempSync(join(tmpdir(), 'madarch-service-membership-'));
   const written = writeUnitsProduct(root);
   repository = written.repository;
@@ -44,7 +52,6 @@ beforeAll(async () => {
   fill = await createStagesFill({ product: written.product, database: owner });
   let at = 1_700_000_000_000;
   service = createFillOrchestratorService({
-    home: join(root, 'products'),
     owner,
     registry: fill.registry,
     wiring: () => fill!.wiring,
@@ -58,6 +65,8 @@ beforeAll(async () => {
 }, 900_000);
 
 afterAll(async () => {
+  // The store the cases read is filled by stages out of this step's list: no fixture is made or closed.
+  if (skippedSuite !== undefined) return;
   await service?.stop();
   await owner?.close();
   if (root !== '') rmSync(root, { recursive: true, force: true });

@@ -89,26 +89,61 @@ async function gitText(root: string, args: readonly string[]): Promise<string> {
 }
 
 /**
- * A NUL-separated stream, split as it arrives: the decoder keeps a character
- * that arrived in two chunks whole, and the remainder keeps a record that is
- * not finished yet.
+ * A NUL-separated byte stream, split as it arrives: the records are the bytes between
+ * two NULs. A record is decoded only where it is text, so a path or a subject git wrote
+ * in bytes that are no UTF-8 is seen as the bytes it is, never as a replacement character
+ * nothing can tell from a real one.
  */
-function nullSplit(): { push(chunk: Uint8Array): string[]; done(): string[] } {
-  const decoder = new StringDecoder('utf8');
-  let rest = '';
+function byteSplit(): { push(chunk: Uint8Array): Buffer[]; done(): Buffer[] } {
+  let rest = Buffer.alloc(0);
   return {
-    push(chunk: Uint8Array): string[] {
-      const text = rest + decoder.write(Buffer.from(chunk));
-      const parts = text.split('\u0000');
-      rest = parts.pop() ?? '';
+    push(chunk: Uint8Array): Buffer[] {
+      const all = rest.length === 0 ? Buffer.from(chunk) : Buffer.concat([rest, Buffer.from(chunk)]);
+      const parts: Buffer[] = [];
+      let from = 0;
+      for (;;) {
+        const at = all.indexOf(0, from);
+        if (at < 0) break;
+        parts.push(all.subarray(from, at));
+        from = at + 1;
+      }
+      rest = Buffer.from(all.subarray(from));
       return parts;
     },
-    done(): string[] {
-      const text = rest + decoder.end();
-      rest = '';
-      return text === '' ? [] : text.split('\u0000');
+    done(): Buffer[] {
+      const held = rest;
+      rest = Buffer.alloc(0);
+      return held.length === 0 ? [] : [held];
     },
   };
+}
+
+/** One UTF-8 decoder that refuses invalid bytes: a byte sequence no text can hold is no text. */
+const UTF8 = new TextDecoder('utf-8', { fatal: true });
+
+/** One record as text, or undefined where its bytes are not UTF-8: nothing is replaced in silence. */
+function textOf(bytes: Uint8Array): string | undefined {
+  try {
+    return UTF8.decode(bytes);
+  } catch {
+    return undefined;
+  }
+}
+
+/**
+ * One record's bytes as a text a reader can read back exactly: printable ASCII stands,
+ * and every other byte is written `\xNN` (a backslash is doubled, so the form is
+ * unambiguous). A path or subject that is no UTF-8 is named this way in a gap row,
+ * never dropped in silence and never replaced by a character no byte named.
+ */
+function escapedOf(bytes: Uint8Array): string {
+  let out = '';
+  for (const byte of bytes) {
+    if (byte === 0x5c) out += '\\\\';
+    else if (byte >= 0x20 && byte < 0x7f) out += String.fromCharCode(byte);
+    else out += `\\x${byte.toString(16).padStart(2, '0')}`;
+  }
+  return out;
 }
 
 /** The empty tree's id, the base `git diff` compares a commit against: git's own answer, once per process. */
@@ -167,14 +202,15 @@ export function languageOfPath(path: string): { language: string; candidates: re
 async function languageOverridesAt(root: string, commit: string, paths: readonly string[]): Promise<Map<string, string>> {
   const out = new Map<string, string>();
   if (paths.length === 0) return out;
-  const split = nullSplit();
-  const parts: string[] = [];
+  const split = byteSplit();
+  const parts: Buffer[] = [];
   await gitStream(root, ['check-attr', '--stdin', '-z', `--source=${commit}`, 'linguist-language'], (chunk) => { for (const part of split.push(chunk)) parts.push(part); }, { input: `${paths.join('\u0000')}\u0000` });
   for (const part of split.done()) parts.push(part);
   for (let at = 0; at + 2 < parts.length; at += 3) {
-    const path = parts[at]!;
-    const value = parts[at + 2]!;
-    if (path !== '' && value !== 'unspecified' && value !== 'unset') out.set(path, value);
+    const path = textOf(parts[at]!);
+    const value = textOf(parts[at + 2]!);
+    if (path === undefined || value === undefined || path === '') continue;
+    if (value !== 'unspecified' && value !== 'unset') out.set(path, value);
   }
   return out;
 }
@@ -190,45 +226,76 @@ interface TreeEntry {
   readonly path: string;
 }
 
-/** One entry of `git ls-tree -r -l -z`, or nothing where the record is not one. */
-function treeEntryOf(chunk: string): TreeEntry | undefined {
-  if (chunk === '') return undefined;
-  const tab = chunk.indexOf('\t');
+/** One record of `git ls-tree -r -l -z`, or a path this reader cannot name: git wrote bytes that are no UTF-8. */
+type TreeRecord = { readonly entry: TreeEntry } | { readonly unreadable: string };
+
+/** One record of `git ls-tree -r -l -z`: its meta fields, and the path the record's bytes name. */
+function treeRecordOf(record: Buffer): TreeRecord | undefined {
+  if (record.length === 0) return undefined;
+  const tab = record.indexOf(0x09);
   if (tab < 0) return undefined;
-  const [mode, type, blob, size] = chunk.slice(0, tab).split(/\s+/);
+  const meta = record.subarray(0, tab).toString('latin1');
+  const pathBytes = record.subarray(tab + 1);
+  const path = textOf(pathBytes);
+  if (path === undefined) return { unreadable: escapedOf(pathBytes) };
+  const [mode, type, blob, size] = meta.split(/\s+/);
   if (mode === undefined || type === undefined || blob === undefined) return undefined;
-  return { mode, type, blob, size: size === '-' || size === undefined ? null : Number(size), path: chunk.slice(tab + 1) };
+  return { entry: { mode, type, blob, size: size === '-' || size === undefined ? null : Number(size), path } };
 }
 
 /** Reads one repository's tree at one commit: `ls-tree -r -l` for the entries, one `diff --numstat` for text, lines and sizes. */
 export async function readRepositoryTree(pin: RepositoryAt): Promise<TreePublish> {
   const gaps: { what: string; reason: 'non-utf8-path' | 'shallow-history' | 'unreadable' }[] = [];
   const entries: TreeEntry[] = [];
-  const treeSplit = nullSplit();
-  await gitStream(pin.root, ['ls-tree', '-r', '-l', '-z', pin.commit], (chunk) => {
-    for (const part of treeSplit.push(chunk)) {
-      const entry = treeEntryOf(part);
-      if (entry !== undefined) entries.push(entry);
+  const treeSplit = byteSplit();
+  const takeTree = (record: Buffer): void => {
+    const held = treeRecordOf(record);
+    if (held === undefined) return;
+    if ('unreadable' in held) {
+      gaps.push({ what: `path ${held.unreadable}`, reason: 'non-utf8-path' });
+      return;
     }
+    entries.push(held.entry);
+  };
+  await gitStream(pin.root, ['ls-tree', '-r', '-l', '-z', pin.commit], (chunk) => {
+    for (const record of treeSplit.push(chunk)) takeTree(record);
   });
-  for (const part of treeSplit.done()) {
-    const entry = treeEntryOf(part);
-    if (entry !== undefined) entries.push(entry);
-  }
+  for (const record of treeSplit.done()) takeTree(record);
   // Git's own text-or-binary answer and its line count, in one call over the whole tree against the
   // empty tree: the added count is the file's own line count, and `-` is a blob git calls binary.
-  const text = new Map<string, { added: number | null; removed: number | null }>();
-  const numstatSplit = nullSplit();
-  const takeNumstat = (chunk: string): void => {
-    if (chunk === '') return;
-    const parts = chunk.split('\t');
-    if (parts.length < 3) return;
-    text.set(parts[2]!, { added: parts[0] === '-' ? null : Number(parts[0]), removed: parts[1] === '-' ? null : Number(parts[1]) });
+  const countsByKey = new Map<string, { added: number | null; removed: number | null }>();
+  /** The key a numstat record names: the path's text, or the bytes no text can hold (which no file row holds either). */
+  const keyOf = (pathBytes: Uint8Array): string => textOf(pathBytes) ?? `\u0000${escapedOf(pathBytes)}`;
+  /** One `added\tremoved\tpath` record's counts, or undefined where the record is no such line. */
+  const countsOf = (record: Buffer): { added: number | null; removed: number | null; pathBytes: Buffer } | undefined => {
+    if (record.length === 0) return undefined;
+    const line = record.toString('latin1');
+    const first = line.indexOf('\t');
+    const second = first < 0 ? -1 : line.indexOf('\t', first + 1);
+    if (second < 0) return undefined;
+    const added = line.slice(0, first);
+    const removed = line.slice(first + 1, second);
+    return { added: added === '-' ? null : Number(added), removed: removed === '-' ? null : Number(removed), pathBytes: record.subarray(second + 1) };
   };
+  const numstatRecords: Buffer[] = [];
+  const numstatSplit = byteSplit();
   await gitStream(pin.root, ['diff', '--numstat', '--no-renames', '-z', await emptyTreeOf(pin.root), pin.commit], (chunk) => {
-    for (const part of numstatSplit.push(chunk)) takeNumstat(part);
+    for (const record of numstatSplit.push(chunk)) numstatRecords.push(record);
   });
-  for (const part of numstatSplit.done()) takeNumstat(part);
+  for (const record of numstatSplit.done()) numstatRecords.push(record);
+  for (let at = 0; at < numstatRecords.length; at += 1) {
+    const held = countsOf(numstatRecords[at]!);
+    if (held === undefined) continue;
+    if (held.pathBytes.length > 0) {
+      countsByKey.set(keyOf(held.pathBytes), { added: held.added, removed: held.removed });
+      continue;
+    }
+    // A rename's numstat names no path on its own line and the old and new paths in the next two records;
+    // only the new one carries the counts.
+    const newPath = numstatRecords[at + 2];
+    if (newPath !== undefined && newPath.length > 0) countsByKey.set(keyOf(newPath), { added: held.added, removed: held.removed });
+    at += 2;
+  }
   const blobs = entries.filter((entry) => entry.type === 'blob');
   const overrides = await languageOverridesAt(pin.root, pin.commit, blobs.map((entry) => entry.path));
   const files: TreeFile[] = [];
@@ -240,7 +307,7 @@ export async function readRepositoryTree(pin: RepositoryAt): Promise<TreePublish
       continue;
     }
     if (entry.type !== 'blob') continue;
-    const held = text.get(entry.path);
+    const held = countsByKey.get(entry.path);
     const form = held?.added === null || held?.added === undefined ? 'binary' : 'text';
     const language = overrides.get(entry.path) ?? languageOfPath(entry.path);
     files.push({
@@ -282,28 +349,67 @@ interface LogHeader {
   subject: string;
 }
 
+/** One gap one pass names: what it could not read, and why. */
+type RepositoryGap = { what: string; reason: 'non-utf8-path' | 'shallow-history' | 'unreadable' };
+
+/** The bytes between two occurrences of a separator, in order; none where the separator is absent. */
+function splitBytes(bytes: Buffer, separator: number): Buffer[] {
+  const parts: Buffer[] = [];
+  let from = 0;
+  for (;;) {
+    const at = bytes.indexOf(separator, from);
+    if (at < 0) break;
+    parts.push(bytes.subarray(from, at));
+    from = at + 1;
+  }
+  parts.push(bytes.subarray(from));
+  return parts;
+}
+
 /**
- * Splits one log stream into its commits as it arrives: a header block, then the
- * diff entries the next block ends. The stream is read once — the parser keeps
- * the commits' headers and entries, never a second copy of git's own bytes.
+ * Splits one log stream into its commits as it arrives: a header record, then the diff
+ * entries the next header ends. The records are bytes; a field or a path git wrote in
+ * bytes no UTF-8 can hold is escaped into its field and named in a gap, so a reader sees
+ * the exact bytes and never a replacement character that hides them.
  */
-function logStreams(): { push(chunk: Uint8Array): void; done(): { header: LogHeader; entries: string[] }[] } {
-  const split = nullSplit();
-  const out: { header: LogHeader; entries: string[] }[] = [];
-  const take = (chunk: string): void => {
-    const part = chunk.startsWith('\n') ? chunk.slice(1) : chunk;
-    if (part.startsWith('\u001f')) {
-      const fields = part.slice(1).split('\u001f');
+function logStreams(gaps: RepositoryGap[]): { push(chunk: Uint8Array): void; done(): { header: LogHeader; entries: Buffer[] }[] } {
+  const split = byteSplit();
+  const out: { header: LogHeader; entries: Buffer[] }[] = [];
+  const take = (record: Buffer): void => {
+    const bytes = record[0] === 0x0a ? record.subarray(1) : record;
+    if (bytes[0] === 0x1f) {
+      const fields = splitBytes(bytes.subarray(1), 0x1f);
       if (fields.length < 7) return;
-      out.push({ header: { hash: fields[0]!, parents: fields[1] === '' ? [] : fields[1]!.split(' '), authorName: fields[2]!, authorEmail: fields[3]!, authorDate: fields[4]!, commitDate: fields[5]!, subject: fields[6]! }, entries: [] });
+      const hash = textOf(fields[0]!) ?? escapedOf(fields[0]!);
+      const field = (value: Buffer, name: string): string => {
+        const text = textOf(value);
+        if (text !== undefined) return text;
+        // A field git wrote in bytes no UTF-8 can hold: its bytes are escaped into the field, and a gap names them,
+        // so the commit stands with what git states and no character stands in for a byte nothing read.
+        gaps.push({ what: `commit ${hash} ${name} ${escapedOf(value)}`, reason: 'unreadable' });
+        return escapedOf(value);
+      };
+      const parents = field(fields[1]!, 'parents');
+      out.push({
+        header: {
+          hash,
+          parents: parents.trim() === '' ? [] : parents.split(' ').filter((one) => one !== ''),
+          authorName: field(fields[2]!, 'author name'),
+          authorEmail: field(fields[3]!, 'author email'),
+          authorDate: field(fields[4]!, 'author date'),
+          commitDate: field(fields[5]!, 'commit date'),
+          subject: field(fields[6]!, 'subject'),
+        },
+        entries: [],
+      });
       return;
     }
-    if (part === '' || out.length === 0) return;
-    out[out.length - 1]!.entries.push(part);
+    if (bytes.length === 0 || out.length === 0) return;
+    out[out.length - 1]!.entries.push(bytes);
   };
   return {
-    push(chunk: Uint8Array): void { for (const part of split.push(chunk)) take(part); },
-    done(): { header: LogHeader; entries: string[] }[] { for (const part of split.done()) take(part); return out; },
+    push(chunk: Uint8Array): void { for (const record of split.push(chunk)) take(record); },
+    done(): { header: LogHeader; entries: Buffer[] }[] { for (const record of split.done()) take(record); return out; },
   };
 }
 
@@ -318,29 +424,41 @@ function logStreams(): { push(chunk: Uint8Array): void; done(): { header: LogHea
  */
 export async function readRepositoryHistory(pin: RepositoryAt): Promise<HistoryPublish> {
   type Touched = HistoryCommit['touched'][number];
-  const gaps: { what: string; reason: 'non-utf8-path' | 'shallow-history' | 'unreadable' }[] = [];
+  const gaps: RepositoryGap[] = [];
   const shallow = await shallowGapOf(pin);
   if (shallow !== null) gaps.push(shallow);
-  const statusParser = logStreams();
+  const statusParser = logStreams(gaps);
   await gitStream(pin.root, ['log', '--diff-merges=first-parent', '--name-status', '-M', '--use-mailmap', '-z', `--format=${LOG_FORMAT}`, pin.commit], (chunk) => statusParser.push(chunk));
   const statuses = statusParser.done();
-  const countParser = logStreams();
+  // The counts stream repeats the headers the status stream already read: its own gaps are the status stream's.
+  const countParser = logStreams([]);
   await gitStream(pin.root, ['log', '--diff-merges=first-parent', '--numstat', '-M', '--use-mailmap', '-z', `--format=${LOG_FORMAT}`, pin.commit], (chunk) => countParser.push(chunk));
   const counts = countParser.done();
   const countByKey = new Map<string, { added: number | null; removed: number | null }>();
+  /** The key a record names: the path's text, or a marker no touched row holds where the path is no text. */
+  const keyOf = (pathBytes: Uint8Array): string => textOf(pathBytes) ?? `\u0000${escapedOf(pathBytes)}`;
+  /** One `added\tremoved\tpath` record's counts, and the bytes after its second tab. */
+  const countsOf = (record: Buffer): { added: number | null; removed: number | null; pathBytes: Buffer } | undefined => {
+    if (record.length === 0) return undefined;
+    const line = record.toString('latin1');
+    const first = line.indexOf('\t');
+    const second = first < 0 ? -1 : line.indexOf('\t', first + 1);
+    if (second < 0) return undefined;
+    const added = line.slice(0, first);
+    const removed = line.slice(first + 1, second);
+    return { added: added === '-' ? null : Number(added), removed: removed === '-' ? null : Number(removed), pathBytes: record.subarray(second + 1) };
+  };
   for (const stream of counts) {
     for (let at = 0; at < stream.entries.length; at += 1) {
-      const entry = stream.entries[at]!;
-      const match = /^(\d+|-)\t(\d+|-)\t([\s\S]*)$/.exec(entry);
-      if (match === null) continue;
-      const added = match[1] === '-' ? null : Number(match[1]);
-      const removed = match[2] === '-' ? null : Number(match[2]);
-      if (match[3] !== '') { countByKey.set(`${stream.header.hash}\u0000${match[3]}`, { added, removed }); continue; }
+      const held = countsOf(stream.entries[at]!);
+      if (held === undefined) continue;
+      if (held.pathBytes.length > 0) {
+        countByKey.set(`${stream.header.hash}\u0000${keyOf(held.pathBytes)}`, { added: held.added, removed: held.removed });
+        continue;
+      }
       // A rename's numstat names the old path and the new one in the next two entries.
-      const oldPath = stream.entries[at + 1] ?? '';
-      const newPath = stream.entries[at + 2] ?? '';
-      countByKey.set(`${stream.header.hash}\u0000${newPath}`, { added, removed });
-      void oldPath;
+      const newPath = stream.entries[at + 2];
+      if (newPath !== undefined && newPath.length > 0) countByKey.set(`${stream.header.hash}\u0000${keyOf(newPath)}`, { added: held.added, removed: held.removed });
       at += 2;
     }
   }
@@ -349,19 +467,30 @@ export async function readRepositoryHistory(pin: RepositoryAt): Promise<HistoryP
     const touched: Touched[] = [];
     for (let at = 0; at < stream.entries.length; at += 1) {
       const entry = stream.entries[at]!;
-      const status = /^([ACDMRT])(\d*)$/.exec(entry);
+      const status = /^([ACDMRT])(\d*)$/.exec(entry.toString('latin1'));
       if (status === null) continue;
       const change = (status[1] === 'A' ? 'added' : status[1] === 'D' ? 'deleted' : status[1] === 'R' ? 'renamed' : 'modified') as Touched['change'];
       if (change === 'renamed') {
-        const previousPath = stream.entries[at + 1] ?? '';
-        const path = stream.entries[at + 2] ?? '';
+        const previousBytes = stream.entries[at + 1] ?? Buffer.alloc(0);
+        const pathBytes = stream.entries[at + 2] ?? Buffer.alloc(0);
         at += 2;
+        const path = textOf(pathBytes);
+        const previousPath = textOf(previousBytes);
+        if (path === undefined || previousPath === undefined) {
+          gaps.push({ what: `commit ${stream.header.hash} path ${escapedOf(path === undefined ? pathBytes : previousBytes)}`, reason: 'non-utf8-path' });
+          continue;
+        }
         const held = countByKey.get(`${stream.header.hash}\u0000${path}`) ?? { added: null, removed: null };
         touched.push({ path, change, added: held.added, removed: held.removed, previousPath });
         continue;
       }
-      const path = stream.entries[at + 1] ?? '';
+      const pathBytes = stream.entries[at + 1] ?? Buffer.alloc(0);
       at += 1;
+      const path = textOf(pathBytes);
+      if (path === undefined) {
+        gaps.push({ what: `commit ${stream.header.hash} path ${escapedOf(pathBytes)}`, reason: 'non-utf8-path' });
+        continue;
+      }
       const held = countByKey.get(`${stream.header.hash}\u0000${path}`) ?? { added: null, removed: null };
       touched.push({ path, change, added: held.added, removed: held.removed });
     }
@@ -377,8 +506,13 @@ export async function readRepositoryHistory(pin: RepositoryAt): Promise<HistoryP
 /** What a stage needs to publish one pass's answer: the storage module's own write, given by the wiring. */
 export interface RepositoryPassWiring {
   readonly sources: SnapshotSource;
-  readonly publishTree: (input: TreePublish) => Promise<RecordCounts>;
-  readonly publishHistory: (input: HistoryPublish) => Promise<RecordCounts>;
+  /**
+   * What the tree pass publishes through. A caller that registers the stages to read their
+   * declarations (the engine's registry, a test of a stage's shape) hands none, and a unit that
+   * then runs refuses by name rather than publishing nowhere.
+   */
+  readonly publishTree?: (input: TreePublish) => Promise<RecordCounts>;
+  readonly publishHistory?: (input: HistoryPublish) => Promise<RecordCounts>;
   /** The repository paths this fill covers, as prefixes (`src/` covers everything under it); the whole tree when left out. */
   readonly paths?: readonly string[];
 }
@@ -429,6 +563,7 @@ export function createRepositoryTreeStage(wiring: RepositoryPassWiring): FillSta
         files: read.files.filter((file) => wiring.paths!.some((prefix) => file.path === prefix || file.path.startsWith(prefix.endsWith('/') ? prefix : `${prefix}/`))),
         gitlinks: read.gitlinks.filter((link) => wiring.paths!.some((prefix) => link.path === prefix || link.path.startsWith(prefix.endsWith('/') ? prefix : `${prefix}/`))),
       };
+      if (wiring.publishTree === undefined) raise(`the tree pass of ${pin.repository} was asked to run, and the run that registered it wired no record store: its publisher is the record pass of src/graph/records.ts (src/fill/stages/repository-facts.ts)`);
       const counts = await wiring.publishTree(covered);
       context.progress(`${pin.repository} at ${pin.commit}: ${String(covered.files.length)} files, ${String(covered.gitlinks.length)} gitlinks, ${String(counts.inserted)} rows written`, 1);
       return { outcome: 'draft' };
@@ -453,6 +588,7 @@ export function createRepositoryHistoryStage(wiring: RepositoryPassWiring): Fill
     execute: async (unit: StageUnit, context): Promise<StageExecutionResult> => {
       const pin = await pinOf(wiring.sources, repositoryOfUnit(unit.id));
       const read = await readRepositoryHistory(pin);
+      if (wiring.publishHistory === undefined) raise(`the history pass of ${pin.repository} was asked to run, and the run that registered it wired no record store: its publisher is the record pass of src/graph/records.ts (src/fill/stages/repository-facts.ts)`);
       const counts = await wiring.publishHistory(read);
       context.progress(`${pin.repository}: ${String(read.commits.length)} commits, ${String(counts.inserted)} rows written`, 1);
       return { outcome: 'draft' };

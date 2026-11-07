@@ -23,6 +23,7 @@ import { runFill } from '../fill/run.js';
 import { readProgress } from '../fill/orchestrator-store.js';
 import type { FillOrchestratorService } from '../fill/orchestrator-host.js';
 import { listRepositories, repositoryFacts } from '../graph/index.js';
+import { storeDatabasePath, storeSnapshotsFolder } from '../product/store.js';
 
 const execFileAsync = promisify(execFile);
 
@@ -116,16 +117,42 @@ async function pinsOf(owner: StoreOwner): Promise<{ name: string; scope: string;
   return pins;
 }
 
+/** What finishing one store wrote: how many pins of the run's repositories, and the snapshot a reader opens. */
+export interface FinishedKnowledgeStore {
+  readonly pins: number;
+  readonly snapshot: number;
+}
+
+/**
+ * Finishes one store after a run that settled: the `knowledge_fill` rows that name the repositories the
+ * run published, and the numbered snapshot a reader opens. Every caller that fills the store — the
+ * button, `madarch fill`, `madarch fill-stages`, the daemon's updates and `madarch mcp` — finishes it
+ * here, so a run of any of them is read by the same reader, in the same snapshot layout.
+ */
+export async function finishKnowledgeStore(owner: StoreOwner, storeFolder: string): Promise<FinishedKnowledgeStore> {
+  await owner.run((tx: { query: (text: string, params?: readonly unknown[]) => Promise<unknown> }) => tx.query(`CREATE TABLE IF NOT EXISTS knowledge_fill (
+    repo text PRIMARY KEY, scope text NOT NULL, head text NOT NULL, commit_hash text NOT NULL, effective_time text NOT NULL,
+    commits int NOT NULL, filled_commits int NOT NULL)`));
+  const pins = await pinsOf(owner);
+  for (const pin of pins) {
+    await owner.run((tx: { query: (text: string, params?: readonly unknown[]) => Promise<unknown> }) => tx.query(
+      `INSERT INTO knowledge_fill (repo, scope, head, commit_hash, effective_time, commits, filled_commits) VALUES ($1, $2, $3, $4, $5, $6::int, $7::int)
+       ON CONFLICT (repo) DO UPDATE SET scope = $2, head = $3, commit_hash = $4, effective_time = $5, commits = $6::int, filled_commits = $7::int`,
+      [pin.name, pin.scope, pin.head, pin.commit, pin.effectiveTime, String(pin.commits), String(pin.filledCommits)],
+    ));
+  }
+  const snapshot = await takeSnapshot(owner, storeDatabasePath(storeFolder), storeSnapshotsFolder(storeFolder));
+  return { pins: pins.length, snapshot };
+}
+
 /**
  * Starts one product's fill of its knowledge store: the store's owner, the
  * workflow's stages, the run — returned at once, with `done` carrying the end.
  * A run that ends takes a snapshot for the reader and records the pins of the
- * repositories it filled in the store's own `knowledge_fill` table, which is
- * what a reader's pins are read from.
+ * repositories it filled (`finishKnowledgeStore`), which is what a reader's
+ * pins are read from.
  */
 export async function startKnowledgeFill(options: KnowledgeFillOptions): Promise<KnowledgeFillRun> {
-  const graphPath = join(options.storeFolder, 'graph');
-  const readRoot = join(options.storeFolder, 'read');
   mkdirSync(options.storeFolder, { recursive: true });
   const owner = options.database;
   await owner.ready;
@@ -168,18 +195,8 @@ export async function startKnowledgeFill(options: KnowledgeFillOptions): Promise
             units: result.units.length,
           };
         }
-        await owner.run((tx: { query: (text: string, params?: readonly unknown[]) => Promise<unknown> }) => tx.query(`CREATE TABLE IF NOT EXISTS knowledge_fill (
-          repo text PRIMARY KEY, scope text NOT NULL, head text NOT NULL, commit_hash text NOT NULL, effective_time text NOT NULL,
-          commits int NOT NULL, filled_commits int NOT NULL)`));
-        for (const pin of await pinsOf(owner)) {
-          await owner.run((tx: { query: (text: string, params?: readonly unknown[]) => Promise<unknown> }) => tx.query(
-            `INSERT INTO knowledge_fill (repo, scope, head, commit_hash, effective_time, commits, filled_commits) VALUES ($1, $2, $3, $4, $5, $6::int, $7::int)
-             ON CONFLICT (repo) DO UPDATE SET scope = $2, head = $3, commit_hash = $4, effective_time = $5, commits = $6::int, filled_commits = $7::int`,
-            [pin.name, pin.scope, pin.head, pin.commit, pin.effectiveTime, String(pin.commits), String(pin.filledCommits)],
-          ));
-        }
-        const snapshot = await takeSnapshot(owner, graphPath, readRoot);
-        return { ok: true, state: result.state, units: result.units.length, snapshot };
+        const finished = await finishKnowledgeStore(owner, options.storeFolder);
+        return { ok: true, state: result.state, units: result.units.length, snapshot: finished.snapshot };
       } catch (error) {
         return { ok: false, state: 'failed', message: error instanceof Error ? error.message : String(error), units: 0 };
       } finally {

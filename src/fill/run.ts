@@ -8,7 +8,6 @@
  * There is no other code path for a subset — a later "update by commit" or "the files
  * the working tree changed" is this function with other arguments.
  */
-import { existsSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join, resolve } from 'node:path';
 import { closeTrace, openTrace, runInTrace, withSpan } from '../obs/trace.js';
@@ -17,20 +16,15 @@ import { here } from './fsm-core.js';
 import { createFillOrchestratorService, type FillRunResult, type RefusedFillRun } from './orchestrator-host.js';
 import type { FillStageConfigurationRead } from './config.js';
 import { fillSteps, type RecordPassWiring } from './steps.js';
-import { MANIFEST_FILE } from '../product/manifest.js';
 
 export { fillSteps };
 import type { StageRegistry } from './registry.js';
-import { createRepositoryFill, createStagesFill, type StagesFillOptions } from '../product/fill-stages.js';
+import { createStagesFill, type StagesFillOptions } from '../product/fill-stages.js';
 import { publishHistory, publishTree } from '../graph/index.js';
 
 /** What one fill is asked for. */
 export interface RunFillOptions {
-  /**
-   * The product's folder: its manifest and the repositories it pins. A folder that holds no
-   * product manifest is a checkout served on its own (`madarch mcp`), and the fill reads it as
-   * the one repository it is; the same two passes, the same store, the same trace.
-   */
+  /** The product's folder: its manifest and the repositories it pins. */
   readonly product: string;
   /** The process's one database owner. */
   readonly database: StagesFillOptions['database'];
@@ -60,6 +54,12 @@ export interface RunFillOptions {
    * runner stops the service when the run answers, whether it succeeded or not.
    */
   readonly onService?: (service: ReturnType<typeof createFillOrchestratorService>) => void;
+  /**
+   * Keeps the service open after the run answers, for a caller that reads the run's store
+   * through it afterwards (the daemon's progress, control and unit tools). The caller stops
+   * it; left out, the runner stops the service when the run answers.
+   */
+  readonly keepService?: boolean;
 }
 
 /** The record wiring one fill publishes through: the process's one owner, and the paths it covers. */
@@ -133,15 +133,9 @@ async function runFillTraced(options: RunFillOptions, runId: string): Promise<Fi
   const held = new Set(fillSteps());
   const unknown = [...wanted].filter((step) => !held.has(step));
   if (unknown.length > 0) throw new Error(`runFill: ${unknown.map((step) => JSON.stringify(step)).join(', ')} is not a step of this fill; its steps are ${[...held].sort().join(', ')} (src/fill/run.ts)`);
-  // One fill, one store: a product's manifest names the repositories it pins, and a folder that
-  // holds no manifest is the checkout itself. Which of the two it is comes from the folder, never
-  // from a caller's flag, so the same command serves both cases.
-  const fill = existsSync(join(product, MANIFEST_FILE))
-    ? await createStagesFill({ product, database: options.database, records: recordsOf(options) })
-    : await createRepositoryFill({ repository: product, database: options.database, records: recordsOf(options) });
+  const fill = await createStagesFill({ product, database: options.database, records: recordsOf(options) });
   const wiring = fill.registry.all().every((stage) => wanted.has(stage.id)) ? fill.wiring : narrowed(fill.wiring, wanted, fill.registry);
   const service = createFillOrchestratorService({
-    home: options.home ?? join(tmpdir(), 'madarch-fill-home'),
     owner: options.database as never,
     registry: fill.registry,
     wiring: () => wiring,
@@ -156,6 +150,6 @@ async function runFillTraced(options: RunFillOptions, runId: string): Promise<Fi
   try {
     return await service.run({ product: fill.product, runId });
   } finally {
-    await service.stop();
+    if (options.keepService !== true) await service.stop();
   }
 }

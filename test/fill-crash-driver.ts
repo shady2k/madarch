@@ -758,7 +758,6 @@ async function phaseResubmit(world: World, phase: Extract<DriverPhase, { kind: '
  */
 async function phaseService(world: World, phase: Extract<DriverPhase, { kind: 'service' }>): Promise<void> {
   const service = createFillOrchestratorService({
-    home: world.spec.productFolder,
     registry: world.registry,
     owner: world.owner,
     queueName: world.spec.runId,

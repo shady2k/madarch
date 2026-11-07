@@ -8,7 +8,7 @@
  * configuration file's environment read, the constant it declares and the call
  * it makes, read back from the graph by their own properties.
  */
-import { afterAll, beforeAll, describe, expect, test } from 'bun:test';
+import { afterAll, beforeAll, describe as bunDescribe, expect, test as bunTest } from 'bun:test';
 import { existsSync, mkdtempSync, readFileSync, rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
@@ -20,6 +20,12 @@ import { createStagesFill, type StagesFill } from '../src/product/fill-stages.js
 import { CODE_FACTS_STAGE_ID } from '../src/fill/stages/code-facts.js';
 import { parseFileFacts } from '../src/fill/stages/file-facts.js';
 import { APP_FILE, CONFIG_FILE, GO_FILE, LOGGER_FILE, TS_FILE, writeProduct } from './fixtures/code-stages/repository.js';
+import { skippedBecauseOutOfWorkflow } from './fill-skip-list.js';
+
+// The cases read a stage out of this step's list: they come back with that stage's step (test/fill-skip-list.ts).
+const skippedSuite = skippedBecauseOutOfWorkflow(import.meta.path);
+const describe = bunDescribe.skipIf(skippedSuite !== undefined);
+const test = bunTest.skipIf(skippedSuite !== undefined);
 
 /** One product open for a run: its wiring, its service, and the graph store over the process's one owner. */
 interface Open {
@@ -35,6 +41,8 @@ let repositoryFolder = '';
 let opened: Open | undefined;
 
 beforeAll(async () => {
+  // The store the cases read is filled by stages out of this step's list: no fixture is made or closed.
+  if (skippedSuite !== undefined) return;
   root = mkdtempSync(join(tmpdir(), 'madarch-code-facts-'));
   const { product, repository } = writeProduct(root);
   repositoryFolder = repository;
@@ -42,7 +50,6 @@ beforeAll(async () => {
   const fill = await createStagesFill({ product, database: owner });
   let at = 1_700_000_000_000;
   const service = createFillOrchestratorService({
-    home: join(root, 'products'),
     owner,
     registry: fill.registry,
     wiring: () => fill.wiring,
@@ -63,6 +70,8 @@ beforeAll(async () => {
 }, 900_000);
 
 afterAll(async () => {
+  // The store the cases read is filled by stages out of this step's list: no fixture is made or closed.
+  if (skippedSuite !== undefined) return;
   await opened?.close();
   if (root !== '') rmSync(root, { recursive: true, force: true });
 }, 300_000);
@@ -192,7 +201,7 @@ describe('a source file a string escape with U+0000 in it', () => {
         'services/orders/src/template.ts': 'export const separator = `left\u0000right`;\n',
       });
       const fill = await createStagesFill({ product, database: owner });
-      const service = createFillOrchestratorService({ home: join(escapeRoot, 'products'), owner, registry: fill.registry, wiring: () => fill.wiring, maxPasses: 100_000 });
+      const service = createFillOrchestratorService({ owner, registry: fill.registry, wiring: () => fill.wiring, maxPasses: 100_000 });
       try {
         const result = await service.run({ product: fill.product, runId: 'run-code-facts-escape' });
         expect(result.ok).toBe(true);
@@ -235,7 +244,7 @@ describe('two callables of one name in two scopes', () => {
         'services/orders/src/scopes.ts': 'export function row(): number {\n  return 1;\n}\n\n{\n  function row(): number {\n    return 2;\n  }\n}\n\nexport function useRow(): number {\n  return row();\n}\n',
       });
       const fill = await createStagesFill({ product, database: owner });
-      const service = createFillOrchestratorService({ home: join(root, 'products'), owner, registry: fill.registry, wiring: () => fill.wiring, maxPasses: 100_000 });
+      const service = createFillOrchestratorService({ owner, registry: fill.registry, wiring: () => fill.wiring, maxPasses: 100_000 });
       try {
         const result = await service.run({ product: fill.product, runId: 'run-code-facts-scopes' });
         expect(result.ok).toBe(true);
