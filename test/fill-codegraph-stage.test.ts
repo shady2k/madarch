@@ -151,6 +151,19 @@ describe('the join of the library per-file passes published', () => {
     expect(joined.symbolsUnresolved).toBe(0);
   }, 30_000);
 
+  test('a symbol the stage adds to a file no per-file pass reads is a kind its own validation accepts', () => {
+    const stage = createCodegraphStage(createGitSnapshotSource([]));
+    const write: StageDraftWrite = {
+      kind: 'node',
+      evidence: 'evidence',
+      value: {
+        key: 'code.symbol:src/app.py#handler', kind: 'code.symbol', label: 'handler',
+        properties: { factKind: 'symbol', repository: REPOSITORY, file: 'src/app.py', qualifiedName: 'handler', symbolKind: 'function' },
+      },
+    };
+    expect(stage.validate({ writes: [write] }, { query: async () => [] })).toEqual({ ok: true });
+  }, 30_000);
+
   test('one source per file: a file a module root holds is taken from that root alone', () => {
     const joined = joinedOf(
       {

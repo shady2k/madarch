@@ -82,7 +82,7 @@ interface IndexAnswer {
 
 /** The part of one open project this module asks: no method it does not use is named. */
 interface OpenProject {
-  indexAll(options?: { readonly onProgress?: (progress: { readonly phase: string }) => void }): Promise<IndexAnswer>;
+  indexAll(options?: { readonly onProgress?: (progress: { readonly phase: string }) => void; readonly signal?: AbortSignal }): Promise<IndexAnswer>;
   getNodesByKind(kind: string): readonly LibraryNodeAnswer[];
   getOutgoingEdgesFrom(ids: readonly string[]): readonly LibraryEdgeAnswer[];
   getFile(path: string): unknown;
@@ -191,12 +191,12 @@ function peakRssAround<T>(work: () => Promise<T>): Promise<{ readonly value: T; 
 }
 
 /** One index run at one root, its records read before its own index folder is removed. */
-async function indexOne(root: string, folder: string, module: string | undefined, checkout: Checkout): Promise<LibraryRun> {
+async function indexOne(root: string, folder: string, module: string | undefined, checkout: Checkout, signal: AbortSignal | undefined): Promise<LibraryRun> {
   const modulePath = await library();
   const started = Date.now();
   const opened = await modulePath.CodeGraph.init(root, { index: false });
   try {
-    const { value: answer, peakBytes } = await peakRssAround(async () => await opened.indexAll());
+    const { value: answer, peakBytes } = await peakRssAround(async () => await opened.indexAll(signal === undefined ? {} : { signal }));
     const nodes: LibraryNode[] = [];
     const ids: string[] = [];
     for (const kind of LIBRARY_NODE_KINDS) {
@@ -254,7 +254,7 @@ export function scratchFolder(): Scratch {
  * root indexed, then every folder that holds a `go.mod` indexed as its own root,
  * and the whole run measured.
  */
-export async function indexRepository(reader: SnapshotReader, scratch: Scratch): Promise<LibraryIndex> {
+export async function indexRepository(reader: SnapshotReader, scratch: Scratch, options: { readonly signal?: AbortSignal } = {}): Promise<LibraryIndex> {
   const started = Date.now();
   const checkout = await checkOut(reader, join(scratch.folder, 'tree'));
   const modules = await moduleRootsOf(reader);
@@ -262,7 +262,7 @@ export async function indexRepository(reader: SnapshotReader, scratch: Scratch):
   const roots = ['', ...modules.map((root) => root.folder).filter((folder) => folder !== '')];
   let peak = 0;
   for (const folder of roots) {
-    const run = await indexOne(join(checkout.folder, ...(folder === '' ? [] : folder.split('/'))), folder, modules.find((root) => root.folder === folder)?.module, checkout);
+    const run = await indexOne(join(checkout.folder, ...(folder === '' ? [] : folder.split('/'))), folder, modules.find((root) => root.folder === folder)?.module, checkout, options.signal);
     peak = Math.max(peak, run.processPeakRssBytes);
     runs.push(run);
   }

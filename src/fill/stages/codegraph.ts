@@ -12,11 +12,15 @@
  * same unit at another input and its publication replaces what the earlier
  * commit wrote there. The folder is removed whatever happened.
  *
- * **The plan reads its own coverage.** A unit stands for a repository this
- * stage has not read at the pinned commit: the coverage node of the last run
- * names the commit, and a run that finds the same commit names no unit. The
- * orchestrator's own input for the unit is the repository's commit, so a commit
- * that moved plans the unit again even where the plan is not asked.
+ * **The plan reads its own coverage, and waits for the file pass.** A unit stands
+ * for a repository this stage has not read at the pinned commit: the coverage
+ * node of the last run names the commit, and a run that finds the same commit
+ * names no unit. And a unit stands only once every source file of the pinned
+ * tree stands in the file pass's own coverage at the commit's blob, because the
+ * join has nothing to stand on before that; the run plans the stage again when
+ * the file pass published (decision 0027's re-planning). The orchestrator's own
+ * input for the unit is the repository's commit, so a commit that moved plans
+ * the unit again even where the plan is not asked.
  *
  * **What it writes.** Calls (a constructor call among them, as the reference
  * states it), references, implementations and inheritances, each with the
@@ -50,8 +54,8 @@ const CODEGRAPH_STAGE_ID = 'codegraph';
 /** The stage's own version, bumped when what it writes or plans changes. */
 const CODEGRAPH_STAGE_VERSION = 2;
 
-/** The fact kinds the stage produces, in code point order: the links and the coverage. */
-const CODEGRAPH_STAGE_KINDS: readonly string[] = [...CODEGRAPH_EDGE_FACT_KINDS, 'coverage'];
+/** The fact kinds the stage produces, in code point order: the links, its coverage and the symbols of a file no per-file pass reads. */
+const CODEGRAPH_STAGE_KINDS: readonly string[] = [...CODEGRAPH_EDGE_FACT_KINDS, 'coverage', 'symbol'];
 
 /** The reader every record of this stage cites. */
 const CODEGRAPH_SOURCE: FactSource = { system: 'codegraph', version: CODEGRAPH_LIBRARY_VERSION };
@@ -201,7 +205,7 @@ async function executeTreeUnit(sources: SnapshotSource, unit: StageUnit, context
   const scratch = scratchFolder();
   let index: LibraryIndex;
   try {
-    index = await indexRepository(reader, scratch);
+    index = await indexRepository(reader, scratch, { signal: context.signal });
   } finally {
     scratch.close();
   }
