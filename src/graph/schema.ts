@@ -154,6 +154,12 @@ const SCHEMA: readonly string[] = [
   `CREATE INDEX IF NOT EXISTS node_version_record_key ON node_version ((properties->>'recordKey')) WHERE recorded_to = 'infinity'`,
   // The publication rechecks a unit's node keys and edge ends in one `= ANY` statement; this is its index.
   'CREATE INDEX IF NOT EXISTS node_version_record_key_all ON node_version ((properties->>\'recordKey\'))',
+  // The static stages ask for one kind's nodes by one property, paged in node id order. Without an index on
+  // the property a page walks the whole kind and filters each row, which grows with the graph; these are the
+  // fields the stages ask by. They are schema fields, never product data.
+  ...['file', 'globalName', 'path', 'range', 'repository', 'scope'].map((field) =>
+    `CREATE INDEX IF NOT EXISTS node_version_prop_${field} ON node_version (kind_id, (properties->>'${field}'), node_id)`),
+  'CREATE INDEX IF NOT EXISTS edge_version_prop_repository ON edge_version (relation_type_id, (properties->>\'repository\'), edge_id)',
   `CREATE INDEX IF NOT EXISTS edge_version_current_src ON edge_version (src_id, relation_type_id) WHERE recorded_to = 'infinity'`,
   `CREATE INDEX IF NOT EXISTS edge_version_current_dst ON edge_version (dst_id, relation_type_id) WHERE recorded_to = 'infinity'`,
   `CREATE INDEX IF NOT EXISTS edge_version_current_edge ON edge_version (edge_id) WHERE recorded_to = 'infinity'`,
