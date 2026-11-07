@@ -1607,6 +1607,39 @@ describe('what the review found, kept as tests', () => {
     expect(generations.rows).toEqual([{ generation: 1, state: 'blocked' }, { generation: 2, state: 'published' }]);
   });
 
+  test('a unit a finished run left failed is retried too: a failed fill does not trap the product', async () => {
+    // The first attempt raises, and the run's retry budget is one more: the unit ends failed and the run failed.
+    let attempts = 0;
+    let failing = true;
+    const flaky = new StageRegistry().register(fakeStage('flaky-stage', {
+      produces: [{ kind: 'other-facts', schemaVersion: 1, scope: 'repository' }],
+      plan: () => ({ units: [{ id: 'src', scope: 'src' }], coverage: 'planned' }),
+      execute: () => {
+        attempts += 1;
+        if (failing) throw new Error('the reader failed');
+        return { outcome: 'draft' };
+      },
+    }));
+    const opened = await world({ registry: flaky, product: 'other-product', limits: { retries: 1, retryDelayMs: 0 } });
+    await startRun(opened.orchestrator, { runId: 'run-failed' });
+    expect((await planRun(opened.orchestrator, { runId: 'run-failed' })).outcome).toBe('planned');
+    // A run whose unit failed settles short of its coverage: `completed_partial`, and the unit stands failed.
+    const first = await driveRun(opened.orchestrator, { runId: 'run-failed', workers: 1 });
+    expect(first.run.state).toBe('completed_partial');
+    expect((await readUnit(opened.owner, 'flaky-stage/src'))?.state).toBe('failed');
+
+    failing = false;
+    expect((await startRun(opened.orchestrator, { runId: 'run-after-failure' })).ok).toBe(true);
+    const planned = await planRun(opened.orchestrator, { runId: 'run-after-failure' });
+    expect(planned.outcome).toBe('planned');
+    if (planned.outcome !== 'planned') return;
+    expect(planned.units.map((unit) => `${unit.unitId}:${unit.generation}`)).toEqual(['flaky-stage/src:2']);
+    const driven = await driveRun(opened.orchestrator, { runId: 'run-after-failure', workers: 1 });
+    expect(driven.run.state).toBe('succeeded');
+    expect(await readUnit(opened.owner, 'flaky-stage/src')).toMatchObject({ state: 'published', generation: 2 });
+    expect(attempts).toBe(3);
+  });
+
   test('the scheduler rechecks what went stale before it lets a run finish', async () => {
     const query = 'SELECT module FROM clusters';
     const registry = new StageRegistry().register(fakeStage('snapshot', {
