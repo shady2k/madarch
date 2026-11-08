@@ -64,6 +64,23 @@ function boundWords(status: WikiStatus, t: (key: string, options?: Record<string
   return t('knowledge.writer.bound', { ...unitLimitWords(status.bounds, t), domains: status.bounds.maxDomains });
 }
 
+/**
+ * The sentence under an agent's name: what is installed, its version and where, or plainly what madarch does not know.
+ * A bundled program is never described with a package, a version or a folder madarch would install it into.
+ */
+export function agentOfferNote(t: (key: string, options?: Record<string, unknown>) => string, agent: AgentOffer): string {
+  if (agent.installed) {
+    if (agent.where === null) return t('knowledge.writer.installed');
+    return agent.version === null
+      ? t('knowledge.writer.installedUnknownVersion', { where: agent.where })
+      : t('knowledge.writer.installedAt', { where: agent.where, version: agent.version });
+  }
+  const install = agent.install;
+  if (install === null) return t('knowledge.writer.installUnknown', { agent: agent.label });
+  if (install.kind === 'bundled') return t('knowledge.writer.notInstalledBundled', { program: install.program });
+  return t('knowledge.writer.notInstalled', { package: install.package, version: install.version, size: install.size, folder: install.folder });
+}
+
 /** The choice of the agent, the cost of each in plain words and the bound; the press that follows is the consent. */
 export function AgentChoice({ status, choice }: { status: WikiStatus; choice: ReturnType<typeof useAgentChoice> }): ReactElement {
   const { t } = useTranslation();
@@ -73,7 +90,7 @@ export function AgentChoice({ status, choice }: { status: WikiStatus; choice: Re
       id: agent.id,
       label: agent.label,
       note: [
-        agent.installed ? t('knowledge.writer.installed') : t('knowledge.writer.notInstalled', { package: agent.install?.package ?? agent.label, version: agent.install?.version ?? '', size: agent.install?.size ?? '', folder: agent.install?.folder ?? '' }),
+        agentOfferNote(t, agent),
         agent.login === 'signed-in' ? t('knowledge.writer.signedIn') : agent.login === 'not-signed-in' ? t('knowledge.writer.notSignedIn', { agent: agent.label }) : '',
       ].filter((part) => part !== '').join(' '),
     })),
