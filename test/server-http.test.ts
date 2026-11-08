@@ -8,7 +8,7 @@ import { createGraphs } from '../src/server/graphs.js';
 import { createHandler } from '../src/server/http.js';
 import { createSourceStores, type SourceStores } from '../src/server/sources.js';
 import { canonicalJsonDigest } from '../src/model/canonical.js';
-import { createTestDatabaseOwner, openRawHistory } from './test-database.js';
+import { createTestDatabaseOwner, openRawHistory, testStoreServer } from './test-database.js';
 import { createQueryDatabase } from '../src/adapters/query-database.js';
 
 const DAY = (day: number) => Date.UTC(2026, 8, day); // September 2026
@@ -924,7 +924,7 @@ describe('concurrent model and view requests', () => {
     const dataFolder = mkdtempSync(join(tmpdir(), 'madarch-server-http-race-'));
     let now = DAY(10);
     const clock = { now: () => now };
-    const realSources = await createSourceStores({ dataFolder, clock, log: () => {} });
+    const realSources = await createSourceStores({ dataFolder, clock, log: () => {}, server: await testStoreServer() });
     let releaseStore!: () => void;
     const storeGate = new Promise<void>((resolve) => { releaseStore = resolve; });
     let signalStored!: () => void;

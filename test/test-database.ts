@@ -18,7 +18,8 @@
  * `store`, and pays for that store's own cluster.
  */
 import { createDatabaseOwner, type DatabaseOwner } from '../src/adapters/database-owner.js';
-import { clusterQuery } from '../src/adapters/postgres-cluster.js';
+import { clusterQuery, CLUSTER_PORT } from '../src/adapters/postgres-cluster.js';
+import { historyDatabaseOf } from '../src/adapters/store-histories.js';
 import { ensureRunPostgres } from './run-postgres.js';
 import { createQueryDatabase } from '../src/adapters/query-database.js';
 import { createHistoryStore } from '../src/adapters/sql-history.js';
@@ -44,6 +45,18 @@ export function noteTestServerFailure(error: Error): void {
   serverFailure = error;
 }
 
+/**
+ * Drops every history database a store folder made on the run's server (madarch-8bdc.2.5): a case's folder names its
+ * databases, and the folder's own removal does not reach them.
+ */
+export async function dropTestStoreDatabases(folder: string): Promise<void> {
+  const socketDir = testServerSocket();
+  const prefix = `${historyDatabaseOf('', folder).slice(0, 'h_'.length + 11)}`;
+  const cluster = { dataDir: socketDir, socketDir, port: CLUSTER_PORT, user: 'postgres', startedIt: false, bin: '', stop: async () => await Promise.resolve() };
+  const held = await clusterQuery<{ datname: string }>(cluster, 'postgres', 'SELECT datname FROM pg_database WHERE datname LIKE $1', [`${prefix.replace(/_/gu, '\\_')}%`]).catch(() => []);
+  for (const row of held) await clusterQuery(cluster, 'postgres', `DROP DATABASE IF EXISTS "${row.datname.replace(/"/gu, '""')}" WITH (FORCE)`).catch(() => undefined);
+}
+
 /** The run server's socket folder, or a failure naming what starts it when the preload did not. */
 function testServerSocket(): string {
   const held = process.env[TEST_SERVER_VARIABLE]?.trim();
@@ -52,6 +65,17 @@ function testServerSocket(): string {
     throw new Error(`test/test-database.ts:1: ${TEST_SERVER_VARIABLE} names no server: the suite's server is started by test/run-scratch.ts, which bunfig.toml declares as a preload — run the suite from the repository root (bun test test/), or start a server and name its socket folder in ${TEST_SERVER_VARIABLE}`);
   }
   return held;
+}
+
+/**
+ * The run's one server, as the cluster a case's store stands on (madarch-8bdc.2.5): the store's histories are databases
+ * on it, and a case pays a database (about 30 ms) instead of a cluster of its own (initdb and a start: about 1 s on the
+ * pod, measured 2026-10-20, madarch-cznn). A case about a store's own cluster passes no server and pays that cluster.
+ */
+export async function testStoreServer(): Promise<{ readonly socketDir: string; readonly port: number; readonly user: string }> {
+  // The run's server starts on the first case that opens a database; naming it waits for that start.
+  await ensureRunPostgres();
+  return { socketDir: testServerSocket(), port: CLUSTER_PORT, user: 'postgres' };
 }
 
 /** What a case asks the run's server for: a fresh database, or a store folder's own cluster. */
@@ -84,7 +108,10 @@ export async function createTestDatabaseOwner(options: TestDatabaseOptions = {})
   await ensureRunPostgres();
   const socketDir = options.socket ?? testServerSocket();
   made += 1;
-  const database = `t_${String(process.pid)}_${String(made)}`;
+  // A database the case names is the case's (a store's history database it reopens across seams); one it does not name is
+  // this owner's own fresh one, dropped when the owner closes.
+  const database = options.database ?? `t_${String(process.pid)}_${String(made)}`;
+  const own = options.database === undefined;
   const owner = await createDatabaseOwner({ cluster: { socketDir }, database, ...(options.btreeGist === true ? { btreeGist: true } : {}) });
   let closed: Promise<void> | undefined;
   return {
@@ -98,7 +125,7 @@ export async function createTestDatabaseOwner(options: TestDatabaseOptions = {})
     close: () => {
       closed ??= (async () => {
         await owner.close();
-        await dropDatabase(socketDir, database);
+        if (own) await dropDatabase(socketDir, database);
       })();
       // A close a case provokes on purpose (from inside the owner's own
       // transaction, say) rejects; this handler keeps that rejection from

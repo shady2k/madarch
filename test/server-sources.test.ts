@@ -4,7 +4,7 @@ import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import type { CommitRecord } from '../src/history/types.js';
 import { createSourceStores, sourceNameProblem, type Clock, type CompiledElement, type CompiledModel, type CompiledRelation, type HistoryStore, type StoreInput } from '../src/index.js';
-import { createTestDatabaseOwner, createTestHistory } from './test-database.js';
+import { createTestDatabaseOwner, createTestHistory, dropTestStoreDatabases, testStoreServer } from './test-database.js';
 import { createHistoryStore } from '../src/adapters/sql-history.js';
 import { historyDatabaseOf, openStoreHistories } from '../src/adapters/store-histories.js';
 
@@ -50,14 +50,19 @@ function storeInput(source: string, commit: string, committedAt: number, element
  * server.
  */
 async function emptyHistory(dir: string, stem: string): Promise<void> {
-  await (await createHistoryStore({ store: dir, database: historyDatabaseOf(stem), clock: fakeClock(DAY(1)) })).close();
+  await (await createHistoryStore({ store: dir, cluster: await testStoreServer(), database: historyDatabaseOf(stem, dir), clock: fakeClock(DAY(1)) })).close();
+}
+
+/** The stores of a folder on the run's one server: each case pays a database, not a cluster (madarch-8bdc.2.5). */
+async function testSources(dir: string, clock: { now: () => number }) {
+  return await createSourceStores({ dataFolder: dir, clock, server: await testStoreServer() });
 }
 
 /** Whether the folder holds the history of this stem: its server answers whether the database is there. */
 async function hasHistory(dir: string, stem: string): Promise<boolean> {
-  const seam = await openStoreHistories({ store: dir, clock: fakeClock(DAY(1)) });
+  const seam = await openStoreHistories({ store: dir, clock: fakeClock(DAY(1)), server: await testStoreServer() });
   try {
-    return seam.databases.includes(historyDatabaseOf(stem));
+    return seam.databases.includes(seam.databaseOf(stem));
   } finally {
     await seam.close();
   }
@@ -65,7 +70,7 @@ async function hasHistory(dir: string, stem: string): Promise<boolean> {
 
 /** A history database of the folder opened for raw statements: the rows a sidecar or a repair case writes by hand. */
 async function rawHistory(dir: string, stem: string): Promise<{ query<Row extends Record<string, unknown>>(sql: string, values?: readonly unknown[]): Promise<{ rows: Row[] }>; exec(sql: string): Promise<void>; close(): Promise<void> }> {
-  const owner = await createTestDatabaseOwner({ store: dir, database: historyDatabaseOf(stem) });
+  const owner = await createTestDatabaseOwner({ socket: (await testStoreServer()).socketDir, database: historyDatabaseOf(stem, dir) });
   return {
     query: async <Row extends Record<string, unknown>>(sql: string, values?: readonly unknown[]) => await owner.run(async (tx) => await tx.query<Row>(sql, values)),
     exec: async (sql: string) => { await owner.exec(sql); },
@@ -75,8 +80,9 @@ async function rawHistory(dir: string, stem: string): Promise<{ query<Row extend
 
 let folder: string;
 
-afterEach(() => {
+afterEach(async () => {
   if (folder !== undefined) {
+    await dropTestStoreDatabases(folder);
     rmSync(folder, { recursive: true, force: true });
     folder = undefined as unknown as string;
   }
@@ -91,7 +97,7 @@ describe('source names become file names', () => {
   test('a source with path separators is stored inside the folder only, never outside it', async () => {
     const dir = scratchFolder();
     const clock = fakeClock(DAY(2));
-    const sources = await createSourceStores({ dataFolder: dir, clock });
+    const sources = await testSources(dir, clock);
 
     await sources.store(storeInput('../../etc/passwd', 'c1', DAY(1), [element('a')]));
     await sources.close();
@@ -103,7 +109,7 @@ describe('source names become file names', () => {
   test('two names that only differ in encoding shape never share a file', async () => {
     const dir = scratchFolder();
     const clock = fakeClock(DAY(2));
-    const sources = await createSourceStores({ dataFolder: dir, clock });
+    const sources = await testSources(dir, clock);
 
     await sources.store(storeInput('a/b', 'c1', DAY(1), [element('a')]));
     await sources.store(storeInput('a%2Fb', 'c1', DAY(1), [element('a')]));
@@ -116,7 +122,7 @@ describe('source names become file names', () => {
   test('two names that differ only in case get file names that differ lower-cased, so one file cannot shadow the other', async () => {
     const dir = scratchFolder();
     const clock = fakeClock(DAY(2));
-    const sources = await createSourceStores({ dataFolder: dir, clock });
+    const sources = await testSources(dir, clock);
 
     await sources.store(storeInput('Acme/Shop', 'c1', DAY(1), [element('a')]));
     await sources.store(storeInput('acme/shop', 'c1', DAY(1), [element('a')]));
@@ -136,7 +142,7 @@ describe('source names become file names', () => {
     const dir = scratchFolder();
     await emptyHistory(dir, 'Acme%2FShop');
     writeFileSync(join(dir, 'Acme%2FShop.json'), JSON.stringify({ source: 'Acme/Shop', commit: 'c1', committedAt: 1, storedAt: 2 }));
-    await expect(createSourceStores({ dataFolder: dir, clock: fakeClock(DAY(1)) })).rejects.toThrow(/Acme%2FShop\.json/);
+    await expect(testSources(dir, fakeClock(DAY(1)))).rejects.toThrow(/Acme%2FShop\.json/);
   });
 
   test('a name holding a control character is refused naming the field', async () => {
@@ -195,7 +201,7 @@ describe('heads', () => {
   test('a stored source is listed with its commit, commit time and storing moment, in code point order', async () => {
     const dir = scratchFolder();
     const clock = fakeClock(DAY(10));
-    const sources = await createSourceStores({ dataFolder: dir, clock });
+    const sources = await testSources(dir, clock);
 
     clock.set(DAY(11));
     await sources.store(storeInput('zeta', 'c1', DAY(1), [element('a')]));
@@ -212,7 +218,7 @@ describe('heads', () => {
   test('the head is the newest commit by commit time, not the latest arrival', async () => {
     const dir = scratchFolder();
     const clock = fakeClock(DAY(10));
-    const sources = await createSourceStores({ dataFolder: dir, clock });
+    const sources = await testSources(dir, clock);
 
     await sources.store(storeInput('shop', 'c3', DAY(3), [element('c3')]));
     await sources.store(storeInput('shop', 'c1', DAY(1), [element('c1')])); // arrives later, is older
@@ -224,7 +230,7 @@ describe('heads', () => {
   test('commits at the same time are ordered by the commit id in code point order', async () => {
     const dir = scratchFolder();
     const clock = fakeClock(DAY(10));
-    const sources = await createSourceStores({ dataFolder: dir, clock });
+    const sources = await testSources(dir, clock);
 
     await sources.store(storeInput('shop', 'zzz', DAY(1), [element('a')]));
     await sources.store(storeInput('shop', 'aaa', DAY(1), [element('b')]));
@@ -236,7 +242,7 @@ describe('heads', () => {
   test('the first-stored commit of a tie is superseded by the bigger id, not kept', async () => {
     const dir = scratchFolder();
     const clock = fakeClock(DAY(10));
-    const sources = await createSourceStores({ dataFolder: dir, clock });
+    const sources = await testSources(dir, clock);
 
     await sources.store(storeInput('shop', 'aaa', DAY(1), [element('a')]));
     await sources.store(storeInput('shop', 'zzz', DAY(1), [element('b')]));
@@ -250,7 +256,7 @@ describe('heads', () => {
   test('a later commit time wins even when the older commit sorts the other way', async () => {
     const dir = scratchFolder();
     const clock = fakeClock(DAY(10));
-    const sources = await createSourceStores({ dataFolder: dir, clock });
+    const sources = await testSources(dir, clock);
 
     await sources.store(storeInput('shop', 'a9', DAY(2), [element('a')]));
     await sources.store(storeInput('shop', 'z9', DAY(1), [element('b')])); // older, though its id sorts higher
@@ -262,7 +268,7 @@ describe('heads', () => {
   test('a sidecar write that fails after the commit was stored is healed by retrying the same commit', async () => {
     const dir = scratchFolder();
     const clock = fakeClock(DAY(10));
-    const sources = await createSourceStores({ dataFolder: dir, clock });
+    const sources = await testSources(dir, clock);
     await sources.store(storeInput('shop', 'c1', DAY(1), [element('a')]));
 
     // Sabotage at the file-system boundary: the sidecar's own temporary
@@ -286,7 +292,7 @@ describe('heads', () => {
   });
   test('retrying the first send after a sidecar failure keeps the committed registry id', async () => {
     const dir = scratchFolder();
-    const sources = await createSourceStores({ dataFolder: dir, clock: fakeClock(DAY(10)) });
+    const sources = await testSources(dir, fakeClock(DAY(10)));
     mkdirSync(join(dir, 'shop.json.tmp'));
     const input = storeInput('shop', 'c1', DAY(1), [element('a')]);
     await expect(sources.store(input)).rejects.toThrow();
@@ -301,7 +307,7 @@ describe('heads', () => {
   });
   test('a registry write failure rolls back the commit that needs that identity', async () => {
     const dir = scratchFolder();
-    const seeded = await createSourceStores({ dataFolder: dir, clock: fakeClock(DAY(10)) });
+    const seeded = await testSources(dir, fakeClock(DAY(10)));
     await seeded.store(storeInput('shop', 'c1', DAY(1), [element('a')]));
     await seeded.close();
     const database = await rawHistory(dir, 'shop');
@@ -311,7 +317,7 @@ describe('heads', () => {
     await database.exec(`CREATE FUNCTION fail_registry_write() RETURNS trigger LANGUAGE plpgsql AS $$ BEGIN RAISE EXCEPTION 'registry write failed'; END $$;
       CREATE TRIGGER fail_registry_write BEFORE UPDATE ON source_registry FOR EACH ROW EXECUTE FUNCTION fail_registry_write()`);
     await database.close();
-    const sources = await createSourceStores({ dataFolder: dir, clock: fakeClock(DAY(10)) });
+    const sources = await testSources(dir, fakeClock(DAY(10)));
     const history = sources.historyOf('shop');
 
     const result = await sources.store(storeInput('shop', 'c2', DAY(2), [element('b')]));
@@ -325,7 +331,7 @@ describe('heads', () => {
   test('a store reads the commit\'s own row, never the source\'s whole history', async () => {
     const dir = scratchFolder();
     const clock = fakeClock(DAY(10));
-    const sources = await createSourceStores({ dataFolder: dir, clock });
+    const sources = await testSources(dir, clock);
     await sources.store(storeInput('shop', 'c1', DAY(1), [element('a')]));
     await sources.store(storeInput('shop', 'c2', DAY(2), [element('b')]));
     const history = sources.historyOf('shop');
@@ -352,7 +358,7 @@ describe('heads', () => {
   test('a repeat store changes nothing', async () => {
     const dir = scratchFolder();
     const clock = fakeClock(DAY(10));
-    const sources = await createSourceStores({ dataFolder: dir, clock });
+    const sources = await testSources(dir, clock);
 
     await sources.store(storeInput('shop', 'c1', DAY(1), [element('a')]));
     const before = sources.heads();
@@ -366,7 +372,7 @@ describe('heads', () => {
 
   test('close waits for a store already in flight before closing its history', async () => {
     const dir = scratchFolder();
-    const sources = await createSourceStores({ dataFolder: dir, clock: fakeClock(DAY(10)) });
+    const sources = await testSources(dir, fakeClock(DAY(10)));
     const history = sources.historyOf('shop');
     const originalStore = history.store.bind(history);
     let started!: () => void;
@@ -391,7 +397,7 @@ describe('heads', () => {
 
   test('concurrent repeats of one commit are serialized: only the first reports it new', async () => {
     const dir = scratchFolder();
-    const sources = await createSourceStores({ dataFolder: dir, clock: fakeClock(DAY(10)) });
+    const sources = await testSources(dir, fakeClock(DAY(10)));
     const input = storeInput('shop', 'c1', DAY(1), [element('a')]);
 
     const results = await Promise.all([sources.store(input), sources.store(input)]);
@@ -405,7 +411,7 @@ describe('heads', () => {
 
   test('store reports whether the commit was new', async () => {
     const dir = scratchFolder();
-    const sources = await createSourceStores({ dataFolder: dir, clock: fakeClock(DAY(10)) });
+    const sources = await testSources(dir, fakeClock(DAY(10)));
     const first = await sources.store(storeInput('shop', 'c1', DAY(1), [element('a')]));
     await sources.close();
     expect(first.wasNew).toBe(true);
@@ -416,13 +422,13 @@ describe('restart on the same data folder', () => {
   test('the sources are known again with the same heads', async () => {
     const dir = scratchFolder();
     const clock = fakeClock(DAY(10));
-    const first = await createSourceStores({ dataFolder: dir, clock });
+    const first = await testSources(dir, clock);
     await first.store(storeInput('github.com/acme/shop', 'c1', DAY(1), [element('a')]));
     await first.store(storeInput('github.com/acme/shop', 'c2', DAY(2), [element('b')]));
     const before = first.heads();
     await first.close();
 
-    const second = await createSourceStores({ dataFolder: dir, clock });
+    const second = await testSources(dir, clock);
     const after = second.heads();
     await second.close();
 
@@ -432,11 +438,11 @@ describe('restart on the same data folder', () => {
   test('a history keeps storing after the restart', async () => {
     const dir = scratchFolder();
     const clock = fakeClock(DAY(10));
-    const first = await createSourceStores({ dataFolder: dir, clock });
+    const first = await testSources(dir, clock);
     await first.store(storeInput('shop', 'c1', DAY(1), [element('a')]));
     await first.close();
 
-    const second = await createSourceStores({ dataFolder: dir, clock });
+    const second = await testSources(dir, clock);
     const store = await second.store(storeInput('shop', 'c2', DAY(2), [element('a'), element('b')]));
     expect(store.wasNew).toBe(true);
     expect(second.heads()).toEqual([{ id: expect.any(String), source: 'shop', commit: 'c2', committedAt: DAY(2), storedAt: DAY(10) }]);
@@ -450,14 +456,14 @@ describe('restart on the same data folder', () => {
 
   test('a missing sidecar is rebuilt from history without changing identity or retired names', async () => {
     const dir = scratchFolder();
-    const first = await createSourceStores({ dataFolder: dir, clock: fakeClock(DAY(10)) });
+    const first = await testSources(dir, fakeClock(DAY(10)));
     await first.store(storeInput('shop', 'c1', DAY(1), [element('a')]));
     const id = first.heads()[0]!.id;
     await first.rename(id, 'renamed');
     await first.close();
     rmSync(join(dir, 'renamed.json'));
 
-    const second = await createSourceStores({ dataFolder: dir, clock: fakeClock(DAY(10)) });
+    const second = await testSources(dir, fakeClock(DAY(10)));
     expect(second.heads()).toEqual([{ id, source: 'renamed', commit: 'c1', committedAt: DAY(1), storedAt: DAY(10) }]);
     expect(second.retiredHead('shop')?.id).toBe(id);
     await expect(second.store(storeInput('shop', 'c2', DAY(2), [element('b')]))).rejects.toThrow(/renamed/);
@@ -465,7 +471,7 @@ describe('restart on the same data folder', () => {
   });
   test('two missing sidecars rebuild distinct persisted identities at startup', async () => {
     const dir = scratchFolder();
-    const first = await createSourceStores({ dataFolder: dir, clock: fakeClock(DAY(10)) });
+    const first = await testSources(dir, fakeClock(DAY(10)));
     await first.store(storeInput('alpha', 'c1', DAY(1), [element('a')]));
     await first.store(storeInput('beta', 'c1', DAY(1), [element('b')]));
     const before = first.heads();
@@ -473,7 +479,7 @@ describe('restart on the same data folder', () => {
     rmSync(join(dir, 'alpha.json'));
     rmSync(join(dir, 'beta.json'));
 
-    const second = await createSourceStores({ dataFolder: dir, clock: fakeClock(DAY(10)) });
+    const second = await testSources(dir, fakeClock(DAY(10)));
     expect(second.heads()).toEqual(before);
     expect(second.heads()[0]?.id).not.toBe(second.heads()[1]?.id);
     await second.close();
@@ -481,7 +487,7 @@ describe('restart on the same data folder', () => {
 
   test('a restart repairs a stale sidecar from the history, and logs it', async () => {
     const dir = scratchFolder();
-    const first = await createSourceStores({ dataFolder: dir, clock: fakeClock(DAY(10)) });
+    const first = await testSources(dir, fakeClock(DAY(10)));
     await first.store(storeInput('shop', 'c1', DAY(1), [element('a')]));
     mkdirSync(join(dir, 'shop.json.tmp')); // the sidecar write for c2 fails
     await expect(first.store(storeInput('shop', 'c2', DAY(2), [element('b')]))).rejects.toThrow();
@@ -489,7 +495,7 @@ describe('restart on the same data folder', () => {
     await first.close(); // the sidecar on disk still names c1
 
     const lines: string[] = [];
-    const second = await createSourceStores({ dataFolder: dir, clock: fakeClock(DAY(10)), log: (line) => lines.push(line) });
+    const second = await createSourceStores({ dataFolder: dir, clock: fakeClock(DAY(10)), log: (line) => lines.push(line), server: await testStoreServer() });
     expect(second.heads()).toEqual([{ id: expect.any(String), source: 'shop', commit: 'c2', committedAt: DAY(2), storedAt: DAY(10) + 1 }]);
     expect(lines.join('\n')).toContain('repaired');
     await second.close();
@@ -497,13 +503,13 @@ describe('restart on the same data folder', () => {
 
   test('a sidecar whose storing moment disagrees is repaired, even when the commit and its time agree', async () => {
     const dir = scratchFolder();
-    const first = await createSourceStores({ dataFolder: dir, clock: fakeClock(DAY(10)) });
+    const first = await testSources(dir, fakeClock(DAY(10)));
     await first.store(storeInput('shop', 'c1', DAY(1), [element('a')]));
     await first.close();
     writeFileSync(join(dir, 'shop.json'), JSON.stringify({ source: 'shop', commit: 'c1', committedAt: DAY(1), storedAt: DAY(9) }));
 
     const lines: string[] = [];
-    const second = await createSourceStores({ dataFolder: dir, clock: fakeClock(DAY(10)), log: (line) => lines.push(line) });
+    const second = await createSourceStores({ dataFolder: dir, clock: fakeClock(DAY(10)), log: (line) => lines.push(line), server: await testStoreServer() });
     const sidecar = JSON.parse(readFileSync(join(dir, 'shop.json'), 'utf8')) as { storedAt: number };
     expect(sidecar.storedAt).toBe(DAY(10));
     expect(lines.join('\n')).toContain('repaired');
@@ -512,7 +518,7 @@ describe('restart on the same data folder', () => {
 
   test('a sidecar naming another commit is repaired, even when the storing moment agrees', async () => {
     const dir = scratchFolder();
-    const first = await createSourceStores({ dataFolder: dir, clock: fakeClock(DAY(10)) });
+    const first = await testSources(dir, fakeClock(DAY(10)));
     await first.store(storeInput('shop', 'c1', DAY(1), [element('a')]));
     // c2 asserts what c1 already had, so it opens no row and is recorded
     // at the same frozen moment: the two commits share their storedAt.
@@ -521,7 +527,7 @@ describe('restart on the same data folder', () => {
     writeFileSync(join(dir, 'shop.json'), JSON.stringify({ source: 'shop', commit: 'c1', committedAt: DAY(1), storedAt: DAY(10) }));
 
     const lines: string[] = [];
-    const second = await createSourceStores({ dataFolder: dir, clock: fakeClock(DAY(10)), log: (line) => lines.push(line) });
+    const second = await createSourceStores({ dataFolder: dir, clock: fakeClock(DAY(10)), log: (line) => lines.push(line), server: await testStoreServer() });
     const sidecar = JSON.parse(readFileSync(join(dir, 'shop.json'), 'utf8')) as { commit: string };
     expect(sidecar.commit).toBe('c2');
     expect(lines.join('\n')).toContain('repaired');
@@ -529,7 +535,7 @@ describe('restart on the same data folder', () => {
   });
   test('a stale sidecar formerNames list is repaired from the registry', async () => {
     const dir = scratchFolder();
-    const first = await createSourceStores({ dataFolder: dir, clock: fakeClock(DAY(10)) });
+    const first = await testSources(dir, fakeClock(DAY(10)));
     await first.store(storeInput('shop', 'c1', DAY(1), [element('a')]));
     await first.rename(first.heads()[0]!.id, 'renamed');
     await first.close();
@@ -537,7 +543,7 @@ describe('restart on the same data folder', () => {
     sidecar.formerNames = [];
     writeFileSync(join(dir, 'renamed.json'), JSON.stringify(sidecar));
 
-    const second = await createSourceStores({ dataFolder: dir, clock: fakeClock(DAY(10)) });
+    const second = await testSources(dir, fakeClock(DAY(10)));
 
     expect(JSON.parse(readFileSync(join(dir, 'renamed.json'), 'utf8')).formerNames).toEqual(['shop']);
     expect(second.retiredHead('shop')?.source).toBe('renamed');
@@ -546,13 +552,13 @@ describe('restart on the same data folder', () => {
 
   test('a sidecar whose commit time disagrees is repaired, even when the commit and its storing moment agree', async () => {
     const dir = scratchFolder();
-    const first = await createSourceStores({ dataFolder: dir, clock: fakeClock(DAY(10)) });
+    const first = await testSources(dir, fakeClock(DAY(10)));
     await first.store(storeInput('shop', 'c1', DAY(1), [element('a')]));
     await first.close();
     writeFileSync(join(dir, 'shop.json'), JSON.stringify({ source: 'shop', commit: 'c1', committedAt: DAY(5), storedAt: DAY(10) }));
 
     const lines: string[] = [];
-    const second = await createSourceStores({ dataFolder: dir, clock: fakeClock(DAY(10)), log: (line) => lines.push(line) });
+    const second = await createSourceStores({ dataFolder: dir, clock: fakeClock(DAY(10)), log: (line) => lines.push(line), server: await testStoreServer() });
     const sidecar = JSON.parse(readFileSync(join(dir, 'shop.json'), 'utf8')) as { committedAt: number };
     expect(sidecar.committedAt).toBe(DAY(1));
     expect(lines.join('\n')).toContain('repaired');
@@ -561,12 +567,12 @@ describe('restart on the same data folder', () => {
 
   test('a restart with an agreeing sidecar changes nothing and logs no repair', async () => {
     const dir = scratchFolder();
-    const first = await createSourceStores({ dataFolder: dir, clock: fakeClock(DAY(10)) });
+    const first = await testSources(dir, fakeClock(DAY(10)));
     await first.store(storeInput('shop', 'c1', DAY(1), [element('a')]));
     await first.close();
 
     const lines: string[] = [];
-    const second = await createSourceStores({ dataFolder: dir, clock: fakeClock(DAY(10)), log: (line) => lines.push(line) });
+    const second = await createSourceStores({ dataFolder: dir, clock: fakeClock(DAY(10)), log: (line) => lines.push(line), server: await testStoreServer() });
     expect(second.heads()).toEqual([{ id: expect.any(String), source: 'shop', commit: 'c1', committedAt: DAY(1), storedAt: DAY(10) }]);
     expect(lines.join('\n')).not.toContain('repaired');
     await second.close();
@@ -576,7 +582,7 @@ describe('restart on the same data folder', () => {
 describe('source ids', () => {
   test('the first send assigns the source an id, and the name plays no part in it', async () => {
     const dir = scratchFolder();
-    const sources = await createSourceStores({ dataFolder: dir, clock: fakeClock(DAY(10)) });
+    const sources = await testSources(dir, fakeClock(DAY(10)));
 
     await sources.store(storeInput('github.com/acme/shop', 'c1', DAY(1), [element('a')]));
     const head = sources.heads()[0]!;
@@ -590,7 +596,7 @@ describe('source ids', () => {
 
   test('further sends of the same source keep its id', async () => {
     const dir = scratchFolder();
-    const sources = await createSourceStores({ dataFolder: dir, clock: fakeClock(DAY(10)) });
+    const sources = await testSources(dir, fakeClock(DAY(10)));
     await sources.store(storeInput('shop', 'c1', DAY(1), [element('a')]));
     const first = sources.heads()[0]!.id;
 
@@ -604,7 +610,7 @@ describe('source ids', () => {
 
   test('a restart on the same data folder keeps the id, which the sidecar beside the history holds', async () => {
     const dir = scratchFolder();
-    const first = await createSourceStores({ dataFolder: dir, clock: fakeClock(DAY(10)) });
+    const first = await testSources(dir, fakeClock(DAY(10)));
     await first.store(storeInput('shop', 'c1', DAY(1), [element('a')]));
     const id = first.heads()[0]!.id;
     await first.close();
@@ -612,14 +618,14 @@ describe('source ids', () => {
     const sidecar = JSON.parse(readFileSync(join(dir, 'shop.json'), 'utf8')) as { id: unknown };
     expect(sidecar.id).toBe(id);
 
-    const second = await createSourceStores({ dataFolder: dir, clock: fakeClock(DAY(10)) });
+    const second = await testSources(dir, fakeClock(DAY(10)));
     expect(second.heads()[0]!.id).toBe(id);
     await second.close();
   });
 
   test('two different sources hold different ids', async () => {
     const dir = scratchFolder();
-    const sources = await createSourceStores({ dataFolder: dir, clock: fakeClock(DAY(10)) });
+    const sources = await testSources(dir, fakeClock(DAY(10)));
     await sources.store(storeInput('github.com/acme/first', 'c1', DAY(1), [element('a')]));
     await sources.store(storeInput('github.com/acme/second', 'c1', DAY(1), [element('a')]));
     const heads = sources.heads();
@@ -630,7 +636,7 @@ describe('source ids', () => {
 
   test('a data folder from before the ids existed: every source gets an id at start, and no stored answer changes', async () => {
     const dir = scratchFolder();
-    const first = await createSourceStores({ dataFolder: dir, clock: fakeClock(DAY(10)) });
+    const first = await testSources(dir, fakeClock(DAY(10)));
     await first.store(storeInput('github.com/acme/shop', 'c2', DAY(2), [element('b')]));
     await first.store(storeInput('shop', 'c1', DAY(1), [element('a')]));
     const before = first.heads().map(({ id: _id, ...rest }) => rest);
@@ -647,7 +653,7 @@ describe('source ids', () => {
     }
 
     const lines: string[] = [];
-    const second = await createSourceStores({ dataFolder: dir, clock: fakeClock(DAY(10)), log: (line) => lines.push(line) });
+    const second = await createSourceStores({ dataFolder: dir, clock: fakeClock(DAY(10)), log: (line) => lines.push(line), server: await testStoreServer() });
     const heads = second.heads();
     expect(heads.map(({ id: _id, ...rest }) => rest)).toEqual(before);
     for (const head of heads) {
@@ -662,7 +668,7 @@ describe('source ids', () => {
 
   test('a restart that repairs a stale sidecar keeps the id the sidecar held', async () => {
     const dir = scratchFolder();
-    const first = await createSourceStores({ dataFolder: dir, clock: fakeClock(DAY(10)) });
+    const first = await testSources(dir, fakeClock(DAY(10)));
     await first.store(storeInput('shop', 'c1', DAY(1), [element('a')]));
     await first.store(storeInput('shop', 'c2', DAY(2), [element('a')]));
     const id = first.heads()[0]!.id;
@@ -670,7 +676,7 @@ describe('source ids', () => {
     // The sidecar an interrupted write left behind: the older head, the id included.
     writeFileSync(join(dir, 'shop.json'), JSON.stringify({ source: 'shop', commit: 'c1', committedAt: DAY(1), storedAt: DAY(10), id }));
 
-    const second = await createSourceStores({ dataFolder: dir, clock: fakeClock(DAY(10)) });
+    const second = await testSources(dir, fakeClock(DAY(10)));
     const head = second.heads()[0]!;
     expect(head.commit).toBe('c2');
     expect(head.id).toBe(id);
@@ -680,12 +686,12 @@ describe('source ids', () => {
   test('a sidecar whose id is not a non-empty string refuses to open, naming the file and the field', async () => {
     for (const bad of [7, '']) {
       const dir = scratchFolder();
-      const first = await createSourceStores({ dataFolder: dir, clock: fakeClock(DAY(10)) });
+      const first = await testSources(dir, fakeClock(DAY(10)));
       await first.store(storeInput('shop', 'c1', DAY(1), [element('a')]));
       await first.close();
       writeFileSync(join(dir, 'shop.json'), JSON.stringify({ source: 'shop', commit: 'c1', committedAt: DAY(1), storedAt: DAY(10), id: bad }));
 
-      await expect(createSourceStores({ dataFolder: dir, clock: fakeClock(DAY(10)) })).rejects.toThrow(new RegExp(`shop\\.json[\\s\\S]*"id"[\\s\\S]*non-empty string`));
+      await expect(testSources(dir, fakeClock(DAY(10)))).rejects.toThrow(new RegExp(`shop\\.json[\\s\\S]*"id"[\\s\\S]*non-empty string`));
     }
   });
 });
@@ -693,7 +699,7 @@ describe('source ids', () => {
 describe('a rename claim on the stores', () => {
   test('the id, the head and the history survive the rename; the files move to the new name', async () => {
     const dir = scratchFolder();
-    const sources = await createSourceStores({ dataFolder: dir, clock: fakeClock(DAY(10)) });
+    const sources = await testSources(dir, fakeClock(DAY(10)));
     await sources.store(storeInput('shop', 'c1', DAY(1), [element('a')]));
     await sources.store(storeInput('shop', 'c2', DAY(2), [element('b')]));
     const id = sources.heads()[0]!.id;
@@ -718,7 +724,7 @@ describe('a rename claim on the stores', () => {
 
   test('the old name is retired: a store reached with it is a caller defect naming the rename, and retiredHead answers the new head', async () => {
     const dir = scratchFolder();
-    const sources = await createSourceStores({ dataFolder: dir, clock: fakeClock(DAY(10)) });
+    const sources = await testSources(dir, fakeClock(DAY(10)));
     await sources.store(storeInput('shop', 'c1', DAY(1), [element('a')]));
     const id = sources.heads()[0]!.id;
     await sources.rename(id, 'moved');
@@ -731,7 +737,7 @@ describe('a rename claim on the stores', () => {
 
   test('a rename to a name another source holds is refused naming both, and nothing moves', async () => {
     const dir = scratchFolder();
-    const sources = await createSourceStores({ dataFolder: dir, clock: fakeClock(DAY(10)) });
+    const sources = await testSources(dir, fakeClock(DAY(10)));
     await sources.store(storeInput('shop', 'c1', DAY(1), [element('a')]));
     await sources.store(storeInput('other', 'c1', DAY(1), [element('b')]));
     const shopId = sources.heads().find((head) => head.source === 'shop')!.id;
@@ -745,14 +751,14 @@ describe('a rename claim on the stores', () => {
 
   test('a rename reached with an id no source holds is a caller defect naming it', async () => {
     const dir = scratchFolder();
-    const sources = await createSourceStores({ dataFolder: dir, clock: fakeClock(DAY(10)) });
+    const sources = await testSources(dir, fakeClock(DAY(10)));
     await expect(sources.rename('no-such-id', 'x')).rejects.toThrow(/no-such-id/);
     await sources.close();
   });
 
   test('former names are kept in the sidecar, sorted, and a restart retires them again', async () => {
     const dir = scratchFolder();
-    const sources = await createSourceStores({ dataFolder: dir, clock: fakeClock(DAY(10)) });
+    const sources = await testSources(dir, fakeClock(DAY(10)));
     await sources.store(storeInput('shop', 'c1', DAY(1), [element('a')]));
     const id = sources.heads()[0]!.id;
     await sources.rename(id, 'bbb');
@@ -762,7 +768,7 @@ describe('a rename claim on the stores', () => {
     const sidecar = JSON.parse(readFileSync(join(dir, 'aaa.json'), 'utf8')) as { formerNames: unknown };
     expect(sidecar.formerNames).toEqual(['bbb', 'shop']);
 
-    const second = await createSourceStores({ dataFolder: dir, clock: fakeClock(DAY(10)) });
+    const second = await testSources(dir, fakeClock(DAY(10)));
     expect(second.heads()).toEqual([{ id, source: 'aaa', commit: 'c1', committedAt: DAY(1), storedAt: DAY(10) }]);
     expect(second.retiredHead('shop')?.source).toBe('aaa');
     expect(second.retiredHead('bbb')?.source).toBe('aaa');
@@ -772,7 +778,7 @@ describe('a rename claim on the stores', () => {
 
   test('renaming back to a former name retires the middle names and keeps every former name explained', async () => {
     const dir = scratchFolder();
-    const sources = await createSourceStores({ dataFolder: dir, clock: fakeClock(DAY(10)) });
+    const sources = await testSources(dir, fakeClock(DAY(10)));
     await sources.store(storeInput('shop', 'c1', DAY(1), [element('a')]));
     const id = sources.heads()[0]!.id;
     await sources.rename(id, 'bbb');
@@ -791,7 +797,7 @@ describe('a rename claim on the stores', () => {
   });
   test('a failed registry row rename restores the original sidecar and old history name', async () => {
     const dir = scratchFolder();
-    const sources = await createSourceStores({ dataFolder: dir, clock: fakeClock(DAY(10)) });
+    const sources = await testSources(dir, fakeClock(DAY(10)));
     await sources.store(storeInput('shop', 'c1', DAY(1), [element('a')]));
     const id = sources.heads()[0]!.id;
     const originalSidecar = readFileSync(join(dir, 'shop.json'));
@@ -800,7 +806,7 @@ describe('a rename claim on the stores', () => {
     await database.exec(`CREATE FUNCTION fail_source_rename() RETURNS trigger LANGUAGE plpgsql AS $$ BEGIN RAISE EXCEPTION 'rename failed'; END $$;
       CREATE TRIGGER fail_source_rename BEFORE UPDATE OF source ON source_commits FOR EACH ROW EXECUTE FUNCTION fail_source_rename()`);
     await database.close();
-    const restarted = await createSourceStores({ dataFolder: dir, clock: fakeClock(DAY(10)) });
+    const restarted = await testSources(dir, fakeClock(DAY(10)));
 
     await expect(restarted.rename(id, 'renamed')).rejects.toThrow(/rename failed/);
 
@@ -813,7 +819,7 @@ describe('a rename claim on the stores', () => {
   });
   test('a sidecar failure after rename commits keeps the identity through retry and restart', async () => {
     const dir = scratchFolder();
-    const sources = await createSourceStores({ dataFolder: dir, clock: fakeClock(DAY(10)) });
+    const sources = await testSources(dir, fakeClock(DAY(10)));
     await sources.store(storeInput('shop', 'c1', DAY(1), [element('a')]));
     const id = sources.heads()[0]!.id;
     mkdirSync(join(dir, 'renamed.json.tmp'));
@@ -828,7 +834,7 @@ describe('a rename claim on the stores', () => {
     expect(sources.heads()).toEqual([{ id, source: 'renamed', commit: 'c2', committedAt: DAY(2), storedAt: DAY(10) + 1 }]);
     await sources.close();
 
-    const restarted = await createSourceStores({ dataFolder: dir, clock: fakeClock(DAY(10)) });
+    const restarted = await testSources(dir, fakeClock(DAY(10)));
     expect(restarted.heads()[0]?.id).toBe(id);
     expect(restarted.retiredHead('shop')?.source).toBe('renamed');
     expect(restarted.heads()).toHaveLength(1);
@@ -841,7 +847,7 @@ describe('a rename claim on the stores', () => {
       try {
         await emptyHistory(dir, 'shop');
         writeFileSync(join(dir, 'shop.json'), JSON.stringify({ source: 'shop', commit: 'c1', committedAt: 1, storedAt: 2, formerNames }));
-        await expect(createSourceStores({ dataFolder: dir, clock: fakeClock(DAY(1)) }), JSON.stringify(formerNames)).rejects.toThrow(
+        await expect(testSources(dir, fakeClock(DAY(1))), JSON.stringify(formerNames)).rejects.toThrow(
           new RegExp(`shop\\.json[\\s\\S]*"formerNames"`),
         );
       } finally {
@@ -854,12 +860,12 @@ describe('a rename claim on the stores', () => {
     const dir = scratchFolder();
     await emptyHistory(dir, 'shop');
     writeFileSync(join(dir, 'shop.json'), JSON.stringify({ source: 'shop', commit: 'c1', committedAt: 1, storedAt: 2, formerNames: ['shop'] }));
-    await expect(createSourceStores({ dataFolder: dir, clock: fakeClock(DAY(1)) })).rejects.toThrow(/shop\.json[\s\S]*"formerNames"[\s\S]*"shop"/);
+    await expect(testSources(dir, fakeClock(DAY(1)))).rejects.toThrow(/shop\.json[\s\S]*"formerNames"[\s\S]*"shop"/);
   });
 
   /** A real one-source history planted in the folder under a stem, as only this server writes them. */
   async function plantedHistory(dir: string, stem: string, source: string): Promise<void> {
-    const built = await createHistoryStore({ store: dir, database: historyDatabaseOf(stem), clock: fakeClock(DAY(10)) });
+    const built = await createHistoryStore({ store: dir, cluster: await testStoreServer(), database: historyDatabaseOf(stem, dir), clock: fakeClock(DAY(10)) });
     await built.store(storeInput(source, 'c1', DAY(1), [element('a')]));
     await built.close();
   }
@@ -870,7 +876,7 @@ describe('a rename claim on the stores', () => {
     await plantedHistory(dir, 'taken', 'taken');
     writeFileSync(join(dir, 'aaa.json'), JSON.stringify({ source: 'aaa', commit: 'c1', committedAt: 1, storedAt: 2, formerNames: ['taken'] }));
     writeFileSync(join(dir, 'taken.json'), JSON.stringify({ source: 'taken', commit: 'c1', committedAt: 1, storedAt: 2 }));
-    await expect(createSourceStores({ dataFolder: dir, clock: fakeClock(DAY(1)) })).rejects.toThrow(
+    await expect(testSources(dir, fakeClock(DAY(1)))).rejects.toThrow(
       /"formerNames" naming "taken"[\s\S]*is the current name of the source beside it/,
     );
   });
@@ -881,11 +887,11 @@ describe('a rename claim on the stores', () => {
     await plantedHistory(dir, 'bbb', 'bbb');
     writeFileSync(join(dir, 'aaa.json'), JSON.stringify({ source: 'aaa', commit: 'c1', committedAt: 1, storedAt: 2, formerNames: ['gone'] }));
     writeFileSync(join(dir, 'bbb.json'), JSON.stringify({ source: 'bbb', commit: 'c1', committedAt: 1, storedAt: 2, formerNames: ['gone'] }));
-    await expect(createSourceStores({ dataFolder: dir, clock: fakeClock(DAY(1)) })).rejects.toThrow(/"aaa"[\s\S]*"bbb"[\s\S]*"gone"[\s\S]*"formerNames"/);
+    await expect(testSources(dir, fakeClock(DAY(1)))).rejects.toThrow(/"aaa"[\s\S]*"bbb"[\s\S]*"gone"[\s\S]*"formerNames"/);
   });
   test('duplicate stale sidecar ids do not override distinct persisted registry ids', async () => {
     const dir = scratchFolder();
-    const first = await createSourceStores({ dataFolder: dir, clock: fakeClock(DAY(10)) });
+    const first = await testSources(dir, fakeClock(DAY(10)));
     await first.store(storeInput('alpha', 'c1', DAY(1), [element('a')]));
     await first.store(storeInput('beta', 'c1', DAY(1), [element('b')]));
     const before = first.heads();
@@ -895,7 +901,7 @@ describe('a rename claim on the stores', () => {
     beta.id = alpha.id;
     writeFileSync(join(dir, 'beta.json'), JSON.stringify(beta));
 
-    const second = await createSourceStores({ dataFolder: dir, clock: fakeClock(DAY(10)) });
+    const second = await testSources(dir, fakeClock(DAY(10)));
 
     expect(second.heads()).toEqual(before);
     expect(JSON.parse(readFileSync(join(dir, 'beta.json'), 'utf8')).id).toBe(before.find((head) => head.source === 'beta')?.id);
@@ -906,7 +912,7 @@ describe('a rename claim on the stores', () => {
 describe('a corrupt data folder refuses to open, naming the file', () => {
   test('a registry id with a non-string value refuses before rewriting the sidecar', async () => {
     const dir = scratchFolder();
-    const first = await createSourceStores({ dataFolder: dir, clock: fakeClock(DAY(10)) });
+    const first = await testSources(dir, fakeClock(DAY(10)));
     await first.store(storeInput('shop', 'c1', DAY(1), [element('a')]));
     await first.close();
     const sidecar = readFileSync(join(dir, 'shop.json'));
@@ -916,12 +922,12 @@ describe('a corrupt data folder refuses to open, naming the file', () => {
 
     let thrown: unknown;
     try {
-      await createSourceStores({ dataFolder: dir, clock: fakeClock(DAY(10)) });
+      await testSources(dir, fakeClock(DAY(10)));
     } catch (error) {
       thrown = error;
     }
     const message = (thrown as Error).message;
-    expect(message).toContain(historyDatabaseOf('shop'));
+    expect(message).toContain(historyDatabaseOf('shop', dir));
     expect(message).toContain(dir);
     expect(message).toContain('source_registry.id');
     expect(message).toContain('value');
@@ -930,7 +936,7 @@ describe('a corrupt data folder refuses to open, naming the file', () => {
 
   test('registry formerNames containing its current source refuses before rewriting the sidecar', async () => {
     const dir = scratchFolder();
-    const first = await createSourceStores({ dataFolder: dir, clock: fakeClock(DAY(10)) });
+    const first = await testSources(dir, fakeClock(DAY(10)));
     await first.store(storeInput('shop', 'c1', DAY(1), [element('a')]));
     await first.close();
     const sidecar = readFileSync(join(dir, 'shop.json'));
@@ -940,12 +946,12 @@ describe('a corrupt data folder refuses to open, naming the file', () => {
 
     let thrown: unknown;
     try {
-      await createSourceStores({ dataFolder: dir, clock: fakeClock(DAY(10)) });
+      await testSources(dir, fakeClock(DAY(10)));
     } catch (error) {
       thrown = error;
     }
     const message = (thrown as Error).message;
-    expect(message).toContain(historyDatabaseOf('shop'));
+    expect(message).toContain(historyDatabaseOf('shop', dir));
     expect(message).toContain(dir);
     expect(message).toContain('source_registry.former_names');
     expect(message).toContain('"shop"');
@@ -957,7 +963,7 @@ describe('a corrupt data folder refuses to open, naming the file', () => {
     writeFileSync(join(dir, 'lonely.json'), JSON.stringify({ source: 'lonely', commit: 'c1', committedAt: 1, storedAt: 2 }));
     let thrown: unknown;
     try {
-      await createSourceStores({ dataFolder: dir, clock: fakeClock(DAY(1)) });
+      await testSources(dir, fakeClock(DAY(1)));
     } catch (error) {
       thrown = error;
     }
@@ -969,29 +975,29 @@ describe('a corrupt data folder refuses to open, naming the file', () => {
 
   test('a history holding more than one source cannot be named by one file and is refused naming it', async () => {
     const dir = scratchFolder();
-    const built = await createHistoryStore({ store: dir, database: historyDatabaseOf('multi'), clock: fakeClock(DAY(10)) });
+    const built = await createHistoryStore({ store: dir, cluster: await testStoreServer(), database: historyDatabaseOf('multi', dir), clock: fakeClock(DAY(10)) });
     await built.store(storeInput('shop', 'c1', DAY(1), [element('a')]));
     await built.store(storeInput('other', 'c1', DAY(1), [element('b')]));
     await built.close();
 
-    await expect(createSourceStores({ dataFolder: dir, clock: fakeClock(DAY(1)) })).rejects.toThrow(/holds the sources (shop, other|other, shop): a history one sidecar is to name must hold exactly that one source/);
+    await expect(testSources(dir, fakeClock(DAY(1)))).rejects.toThrow(/holds the sources (shop, other|other, shop): a history one sidecar is to name must hold exactly that one source/);
   });
 
   test('a sidecar naming a source its history does not hold is refused naming both files', async () => {
     const dir = scratchFolder();
-    const built = await createHistoryStore({ store: dir, database: historyDatabaseOf('shop'), clock: fakeClock(DAY(10)) });
+    const built = await createHistoryStore({ store: dir, cluster: await testStoreServer(), database: historyDatabaseOf('shop', dir), clock: fakeClock(DAY(10)) });
     await built.store(storeInput('other', 'c1', DAY(1), [element('b')]));
     await built.close();
     writeFileSync(join(dir, 'shop.json'), JSON.stringify({ source: 'shop', commit: 'c1', committedAt: 1, storedAt: 2 }));
 
-    await expect(createSourceStores({ dataFolder: dir, clock: fakeClock(DAY(1)) })).rejects.toThrow(/holds the sources other, but its sidecar ".*shop\.json" names "shop"/);
+    await expect(testSources(dir, fakeClock(DAY(1)))).rejects.toThrow(/holds the sources other, but its sidecar ".*shop\.json" names "shop"/);
   });
 
   test('the refusal about an unreadable folder carries the file-system error as its cause', async () => {
     const dir = join(scratchFolder(), 'missing');
     let thrown: unknown;
     try {
-      await createSourceStores({ dataFolder: dir, clock: fakeClock(DAY(1)) });
+      await testSources(dir, fakeClock(DAY(1)));
     } catch (error) {
       thrown = error;
     }
@@ -1007,7 +1013,7 @@ describe('a corrupt data folder refuses to open, naming the file', () => {
     writeFileSync(join(dir, 'shop.json'), '{not json');
     let thrown: unknown;
     try {
-      await createSourceStores({ dataFolder: dir, clock: fakeClock(DAY(1)) });
+      await testSources(dir, fakeClock(DAY(1)));
     } catch (error) {
       thrown = error;
     }
@@ -1026,11 +1032,11 @@ describe('a corrupt data folder refuses to open, naming the file', () => {
     writeFileSync(join(dir, 'shop.json'), JSON.stringify({ source: 'shop', commit: 'c1', committedAt: 1, storedAt: 2 }));
     let thrown: unknown;
     try {
-      await createSourceStores({ dataFolder: dir, clock: fakeClock(DAY(1)) });
+      await testSources(dir, fakeClock(DAY(1)));
     } catch (error) {
       thrown = error;
     }
-    expect((thrown as Error).message).toContain(historyDatabaseOf('shop'));
+    expect((thrown as Error).message).toContain(historyDatabaseOf('shop', dir));
     expect((thrown as Error).message).toContain(dir);
     expect((thrown as Error & { cause?: unknown }).cause).toBeInstanceOf(Error);
   });
@@ -1038,28 +1044,28 @@ describe('a corrupt data folder refuses to open, naming the file', () => {
   test('a history file without its sidecar', async () => {
     const dir = scratchFolder();
     await emptyHistory(dir, 'bare');
-    await expect(createSourceStores({ dataFolder: dir, clock: fakeClock(DAY(1)) })).rejects.toThrow(/no source it could be named from/);
+    await expect(testSources(dir, fakeClock(DAY(1)))).rejects.toThrow(/no source it could be named from/);
   });
 
   test('a sidecar that is not valid JSON', async () => {
     const dir = scratchFolder();
     await emptyHistory(dir, 'shop');
     writeFileSync(join(dir, 'shop.json'), '{not json');
-    await expect(createSourceStores({ dataFolder: dir, clock: fakeClock(DAY(1)) })).rejects.toThrow(/shop\.json/);
+    await expect(testSources(dir, fakeClock(DAY(1)))).rejects.toThrow(/shop\.json/);
   });
 
   test('a sidecar whose source does not match its file name', async () => {
     const dir = scratchFolder();
     await emptyHistory(dir, 'shop');
     writeFileSync(join(dir, 'shop.json'), JSON.stringify({ source: 'other', commit: 'c1', committedAt: 1, storedAt: 2 }));
-    await expect(createSourceStores({ dataFolder: dir, clock: fakeClock(DAY(1)) })).rejects.toThrow(/its file name decodes to "shop"/);
+    await expect(testSources(dir, fakeClock(DAY(1)))).rejects.toThrow(/its file name decodes to "shop"/);
   });
 
   test('a sidecar missing a field', async () => {
     const dir = scratchFolder();
     await emptyHistory(dir, 'shop');
     writeFileSync(join(dir, 'shop.json'), JSON.stringify({ source: 'shop', commit: 'c1', storedAt: 2 }));
-    await expect(createSourceStores({ dataFolder: dir, clock: fakeClock(DAY(1)) })).rejects.toThrow(/shop\.json/);
+    await expect(testSources(dir, fakeClock(DAY(1)))).rejects.toThrow(/shop\.json/);
   });
 
   test('a sidecar holding a field of the wrong shape is refused naming its file and the field', async () => {
@@ -1078,7 +1084,7 @@ describe('a corrupt data folder refuses to open, naming the file', () => {
       try {
         await emptyHistory(dir, 'shop');
         writeFileSync(join(dir, 'shop.json'), JSON.stringify(sidecar));
-        await expect(createSourceStores({ dataFolder: dir, clock: fakeClock(DAY(1)) }), name).rejects.toThrow(problem);
+        await expect(testSources(dir, fakeClock(DAY(1))), name).rejects.toThrow(problem);
       } finally {
         rmSync(dir, { recursive: true, force: true });
       }
@@ -1099,7 +1105,7 @@ describe('a corrupt data folder refuses to open, naming the file', () => {
       try {
         await emptyHistory(dir, stem);
         writeFileSync(join(dir, `${stem}.json`), JSON.stringify({ source, commit: 'c1', committedAt: 1, storedAt: 2 }));
-        await expect(createSourceStores({ dataFolder: dir, clock: fakeClock(DAY(1)) }), stem).rejects.toThrow(/does not decode to a source name/);
+        await expect(testSources(dir, fakeClock(DAY(1))), stem).rejects.toThrow(/does not decode to a source name/);
       } finally {
         rmSync(dir, { recursive: true, force: true });
       }
@@ -1110,7 +1116,7 @@ describe('a corrupt data folder refuses to open, naming the file', () => {
     const dir = scratchFolder();
     await emptyHistory(dir, 'shop'); // a valid, empty history
     writeFileSync(join(dir, 'shop.json'), JSON.stringify({ source: 'shop', commit: 'c1', committedAt: 1, storedAt: 2 }));
-    await expect(createSourceStores({ dataFolder: dir, clock: fakeClock(DAY(1)) })).rejects.toThrow(/holds no source, but its sidecar ".*shop\.json" names "shop"/);
+    await expect(testSources(dir, fakeClock(DAY(1)))).rejects.toThrow(/holds no source, but its sidecar ".*shop\.json" names "shop"/);
   });
 
   test('a sidecar naming one source of a two-source history is refused naming both', async () => {
@@ -1120,13 +1126,13 @@ describe('a corrupt data folder refuses to open, naming the file', () => {
     for (const named of ['shop', 'other']) {
       const dir = mkdtempSync(join(tmpdir(), 'madarch-server-sources-two-'));
       try {
-        const built = await createHistoryStore({ store: dir, database: historyDatabaseOf(named), clock: fakeClock(DAY(10)) });
+        const built = await createHistoryStore({ store: dir, cluster: await testStoreServer(), database: historyDatabaseOf(named, dir), clock: fakeClock(DAY(10)) });
         await built.store(storeInput('shop', 'c1', DAY(1), [element('a')]));
         await built.store(storeInput('other', 'c1', DAY(1), [element('b')]));
         await built.close();
         writeFileSync(join(dir, `${named}.json`), JSON.stringify({ source: named, commit: 'c1', committedAt: 1, storedAt: 2 }));
 
-        await expect(createSourceStores({ dataFolder: dir, clock: fakeClock(DAY(1)) }), named).rejects.toThrow(/holds the sources (shop, other|other, shop), but its sidecar/);
+        await expect(testSources(dir, fakeClock(DAY(1))), named).rejects.toThrow(/holds the sources (shop, other|other, shop), but its sidecar/);
       } finally {
         rmSync(dir, { recursive: true, force: true });
       }
@@ -1140,10 +1146,10 @@ describe('a corrupt data folder refuses to open, naming the file', () => {
     for (const stem of ['Shop', 'other']) {
       const dir = mkdtempSync(join(tmpdir(), 'madarch-server-sources-'));
       try {
-        const built = await createHistoryStore({ store: dir, database: historyDatabaseOf('other'), clock: fakeClock(DAY(10)) });
+        const built = await createHistoryStore({ store: dir, cluster: await testStoreServer(), database: historyDatabaseOf('other', dir), clock: fakeClock(DAY(10)) });
         await built.store(storeInput('shop', 'c1', DAY(1), [element('a')]));
         await built.close();
-        await expect(createSourceStores({ dataFolder: dir, clock: fakeClock(DAY(1)) }), stem).rejects.toThrow(/the folder was not written by this server/);
+        await expect(testSources(dir, fakeClock(DAY(1))), stem).rejects.toThrow(/the folder was not written by this server/);
       } finally {
         rmSync(dir, { recursive: true, force: true });
       }
@@ -1154,27 +1160,27 @@ describe('a corrupt data folder refuses to open, naming the file', () => {
 describe('the data folder itself', () => {
   test('a folder that does not exist is refused, naming the path', async () => {
     const dir = join(scratchFolder(), 'missing');
-    await expect(createSourceStores({ dataFolder: dir, clock: fakeClock(DAY(1)) })).rejects.toThrow(/missing/);
+    await expect(testSources(dir, fakeClock(DAY(1)))).rejects.toThrow(/missing/);
   });
 
   test('a path that is a file, not a folder, is refused naming the path', async () => {
     const dir = scratchFolder();
     const filePath = join(dir, 'afile');
     writeFileSync(filePath, '');
-    await expect(createSourceStores({ dataFolder: filePath, clock: fakeClock(DAY(1)) })).rejects.toThrow(/afile.*is not a folder|is not a folder.*afile/s);
+    await expect(createSourceStores({ dataFolder: filePath, clock: fakeClock(DAY(1)), server: await testStoreServer() })).rejects.toThrow(/afile.*is not a folder|is not a folder.*afile/s);
   });
 
   test('a legacy SQLite history is refused instead of being silently ignored', async () => {
     const dir = scratchFolder();
     writeFileSync(join(dir, 'shop.sqlite'), 'legacy history');
-    await expect(createSourceStores({ dataFolder: dir, clock: fakeClock(DAY(1)) })).rejects.toThrow(/SQLite histories are not migrated.*sending its source models again/);
+    await expect(testSources(dir, fakeClock(DAY(1)))).rejects.toThrow(/SQLite histories are not migrated.*sending its source models again/);
   });
 
   test('stray files that are not histories or sidecars are ignored', async () => {
     const dir = scratchFolder();
     writeFileSync(join(dir, 'README.md'), 'notes');
     writeFileSync(join(dir, 'shop.json.tmp'), 'leftover');
-    const sources = await createSourceStores({ dataFolder: dir, clock: fakeClock(DAY(10)) });
+    const sources = await testSources(dir, fakeClock(DAY(10)));
     expect(sources.heads()).toEqual([]);
     await sources.close();
   });
@@ -1183,7 +1189,7 @@ describe('the data folder itself', () => {
 describe('the history behind a source', () => {
   test('one history per source, reused across calls', async () => {
     const dir = scratchFolder();
-    const sources = await createSourceStores({ dataFolder: dir, clock: fakeClock(DAY(10)) });
+    const sources = await testSources(dir, fakeClock(DAY(10)));
     const first = sources.historyOf('shop');
     const second = sources.historyOf('shop');
     expect(first).toBe(second);
@@ -1194,14 +1200,14 @@ describe('the history behind a source', () => {
 
   test('a source that was never sent is not in the heads', async () => {
     const dir = scratchFolder();
-    const sources = await createSourceStores({ dataFolder: dir, clock: fakeClock(DAY(10)) });
+    const sources = await testSources(dir, fakeClock(DAY(10)));
     expect(sources.heads()).toEqual([]);
     await sources.close();
   });
 
   test('a refused store leaves the head alone', async () => {
     const dir = scratchFolder();
-    const sources = await createSourceStores({ dataFolder: dir, clock: fakeClock(DAY(10)) });
+    const sources = await testSources(dir, fakeClock(DAY(10)));
     await sources.store(storeInput('shop', 'c1', DAY(1), [element('a')]));
     const before = sources.heads();
 
@@ -1215,7 +1221,7 @@ describe('the history behind a source', () => {
 
   test('a store reached with a name that must be refused first throws as a caller defect', async () => {
     const dir = scratchFolder();
-    const sources = await createSourceStores({ dataFolder: dir, clock: fakeClock(DAY(10)) });
+    const sources = await testSources(dir, fakeClock(DAY(10)));
     await expect(sources.store(storeInput('a\nb', 'c1', DAY(1), [element('a')]))).rejects.toThrow(/refused first/);
     await sources.close();
   });
@@ -1223,14 +1229,14 @@ describe('the history behind a source', () => {
   test('a model with no assertions at all still stores, and the restart reads its sidecar', async () => {
     const dir = scratchFolder();
     const clock = fakeClock(DAY(10));
-    const sources = await createSourceStores({ dataFolder: dir, clock });
+    const sources = await testSources(dir, clock);
 
     const stored = await sources.store({ source: 'shop', commit: 'c1', committedAt: DAY(1), model: { ...model([]), states: [] } });
     expect(stored.result.errors).toEqual([]);
     expect(stored.result.opened).toEqual([]);
     await sources.close();
 
-    const second = await createSourceStores({ dataFolder: dir, clock });
+    const second = await testSources(dir, clock);
     expect(second.heads()).toEqual([{ id: expect.any(String), source: 'shop', commit: 'c1', committedAt: DAY(1), storedAt: DAY(10) }]);
     await second.close();
   });
