@@ -2337,16 +2337,6 @@
   {
     "rule": "no-unreachable-code",
     "file": "src/knowledge/blocks.ts",
-    "symbol": "SOURCE_BLOCK_LINES"
-  },
-  {
-    "rule": "no-unreachable-code",
-    "file": "src/knowledge/blocks.ts",
-    "symbol": "detailRows"
-  },
-  {
-    "rule": "no-unreachable-code",
-    "file": "src/knowledge/blocks.ts",
     "symbol": "relationWord"
   },
   {

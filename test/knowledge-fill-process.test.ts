@@ -35,6 +35,13 @@ let app = '';
 
 /** The files the fixture repository holds, in code-point order. */
 const FILES = ['README.md', 'docs/note.md', 'src/a.ts', 'src/nested/b.ts'];
+/** Their text, as the fixture writes it: what a file's page shows of it. */
+const FILES_TEXT: Readonly<Record<string, string>> = {
+  'README.md': '# Walk\n\nA fixture.',
+  'docs/note.md': '# Note\n\nA note.',
+  'src/a.ts': 'export const a = 1;',
+  'src/nested/b.ts': 'export const b = 2;',
+};
 
 const json = async (server: StartedServer, product: string, path: string): Promise<{ status: number; body: Record<string, unknown> }> => {
   const answer = await fetch(`${server.url}/products/${product}${path}`, { headers: { accept: 'application/json' } });
@@ -171,6 +178,32 @@ describe('the store a fill wrote', () => {
       expect([200, 404]).toContain(symbol.status);
       expect((await json(server, 'walk', '/api/k/status')).status).toBe(200);
       expect(errors).toEqual([]);
+    } finally {
+      await server.stop();
+    }
+  }, 120_000);
+
+  test('every file the listing names answers a page, in each interface language', async () => {
+    const server = await startServer({ productHome: home, appFolder: app, port: 0, log: () => undefined, errorLog: () => undefined });
+    try {
+      const listing = await json(server, 'walk', '/api/k/entities?kind=code.file&limit=100');
+      const rows = (listing.body as { rows: { id: string; label: string }[] }).rows;
+      expect(rows.map((row) => row.label)).toEqual(FILES);
+      // A listing names no entity without a page: the walk of the wiki reads every row's page in every interface language.
+      for (const row of rows) {
+        for (const lang of ['en', 'ru']) {
+          const page = await json(server, 'walk', `/api/k/page?id=${encodeURIComponent(row.id)}&lang=${lang}&full=1`);
+          expect(page.status, `${row.id} at ${lang}`).toBe(200);
+          const model = page.body as { id: string; kind: string; title: string; blocks: { type: string; rows?: { name: string }[]; text?: string }[] };
+          expect(model.id).toBe(row.id);
+          expect(model.kind).toBe('code.file');
+          expect(model.title).toBe(row.label);
+          // The properties are the ones the manifest declares for the kind, and the source is the file at the as-is commit.
+          expect((model.blocks[0]?.rows ?? []).map((property) => property.name)).toEqual(['lines', 'commitCount', 'authors']);
+          expect(model.blocks[1]?.type).toBe('source');
+          expect(model.blocks[1]?.text).toBe(FILES_TEXT[row.label]);
+        }
+      }
     } finally {
       await server.stop();
     }

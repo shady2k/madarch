@@ -48,7 +48,7 @@ import { TREE_EXTRACTORS, HISTORY_EXTRACTOR } from '../extract/driver/extractors
 import { selectHistory, withHistoryLinks, type HistoryContext, type HistorySelection } from './temporal.js';
 import { markdownFilesBelow, readMarkdownEntities, type MarkdownEntity } from './markdown.js';
 import type { AgentOffer, Block, ChangedPage, DocumentListing, DocumentPage, DocumentRef, FillErrorView, FillRunView, FillState, Neighborhood, PageModel, PlannedMarkView, PlannedSectionView, RepositoryFactsView, WikiStatus, WriterState, WriterUnit } from './model.js';
-import { commitPage, filePage, folderPage, recordedFileCount, recordedFiles, repositoryOf, repositoryPage, type CommitPageModel, type FilePageModel, type FolderPageModel } from './repository-view.js';
+import { commitPage, filePage, folderPage, recordedFileCount, recordedFileFacts, recordedFiles, repositoryOf, repositoryPage, type CommitPageModel, type FilePageFacts, type FilePageModel, type FolderPageModel } from './repository-view.js';
 import { readFillProgressOf } from '../obs/progress.js';
 import { readTraceRun } from '../obs/trace-report.js';
 import { neighborhoodOf } from './diagrams.js';
@@ -63,7 +63,7 @@ import { fileJournal, journalFolder, journalOfUnit, newRunId, NO_COUNTERS, readJ
 import { productSlug, PRODUCT_PATH, type ToolAnswer, type ToolClient, type UnitAgent } from '../writer/index.js';
 import { CONTENT_LANGUAGES } from '../writer/prompts.js';
 import type { DraftEnv } from '../product/home.js';
-import { documentTitleOf, findSubject, graphTitleOf, kindSummaries, markdownTitleOf, productTitleOf, renderPage, listEntities, type PageResult } from './render.js';
+import { documentTitleOf, findSubject, graphTitleOf, kindSummaries, markdownTitleOf, productTitleOf, recordFilePage, renderPage, listEntities, type PageResult } from './render.js';
 import { indexCounts, statementsRelyingOn } from './index/queries.js';
 import { PAGE_KIND, STATEMENT_OF } from './index/vocabulary.js';
 import { ACTIVE_FILL_FILE, CHANGED_PAGES_FILE, DOCUMENT_PAGES_FILE, invalidateInterruptedRun, readChangedPages, readDocumentPages } from './changed-pages.js';
@@ -2616,6 +2616,19 @@ export class KnowledgeProduct {
     return { questionsOpen: questions.open, questionsAnswered: questions.answered, correctionsOpen, tasksOpen, problemsOpen: correctionsOpen };
   }
 
+  /**
+   * The facts of one file the store holds, by the page id the kind `code.file` names it with (`code.file:<path>`), or
+   * `undefined` when the id names no file of the repository the wiki's repository pages show. The record tables are
+   * read on the reader's own snapshot, the way the repository pages read them.
+   */
+  private async recordedFileFacts(id: string): Promise<FilePageFacts | undefined> {
+    if (!id.startsWith('code.file:')) return undefined;
+    const owner = await this.open();
+    const repository = await repositoryOf(owner, this.repositories()[0]?.name ?? null);
+    if (repository === null) return undefined;
+    return await recordedFileFacts(owner, repository, id);
+  }
+
   private readonly readSnapshotHistory = createSnapshotHistoryReader();
 
   async historyAt(selection: HistorySelection): Promise<HistoryContext> {
@@ -2642,6 +2655,9 @@ export class KnowledgeProduct {
     // These operations can open their own snapshots; finish them before holding the reader pipe.
     const historyNavigation = history === undefined && id.startsWith('code.') ? await Promise.all([...this.pins.keys()].sort(byCodePoint).map(async (repo) => { const indexed = await this.historyAt({ repo, at: '?' }); return { repo, points: indexed.points, ...(indexed.landmarks === undefined ? {} : { landmarks: indexed.landmarks }) }; })) : undefined;
     const planned = history === undefined ? await this.plannedForPage(id) : undefined;
+    // A file the store holds has its page from the record tables, read before the page's own transaction: a record read
+    // opens a transaction of its own, and the page's transaction is one it cannot nest in.
+    const fileFacts = history === undefined ? await this.recordedFileFacts(id).catch(() => undefined) : undefined;
     const owner = await this.open();
     // A newer snapshot may replace this one while the page is being rendered (a fill swaps readers under open reads).
     // The rendered owner is still a store, so its page keeps its Problems badge.
@@ -2652,7 +2668,12 @@ export class KnowledgeProduct {
       const context = await this.context(history, { owner, transaction, validAt, pins });
       if ('absent' in context) return { ok: false, status: 404, message: `the product has no ${context.file}: the wiki shows the kinds that file declares` };
       if (history !== undefined && await findSubject(context.ctx, id) === undefined) return { ok: true, page: { id, kind: id.slice(0, id.indexOf(':')), title: id, trail: [], blocks: [], resolutions: {}, findings: [], notes: [], history, historicalAbsent: true } };
-      const result = await renderPage(context.ctx, id, lang, history === undefined ? options : { ...options, defer: false });
+      // A file the store holds is a record, and its page states the record's facts: the reader the kind's catalogue
+      // lists is the one that answers here (`render.ts`), so a listing never names a file whose page the wiki cannot draw.
+      const recorded = fileFacts === undefined ? undefined : await recordFilePage(context.ctx, fileFacts, id, lang);
+      const result: PageResult = recorded === undefined
+        ? await renderPage(context.ctx, id, lang, history === undefined ? options : { ...options, defer: false })
+        : { ok: true, page: recorded };
       if (!result.ok) return result;
       const page = history === undefined ? result.page : withHistoryLinks(result.page, history);
       // Which runs of the journal hold this page, so the page says «Как агент писал эту страницу» only where it can be read.
