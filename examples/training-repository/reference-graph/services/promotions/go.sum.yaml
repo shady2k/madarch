@@ -1,0 +1,48 @@
+path: 'services/promotions/go.sum'
+nodes:
+  - id: 'code.file:services/promotions/go.sum'
+    kind: 'code.file'
+    label: 'go.sum'
+    evidence:
+      - path: 'services/promotions/go.sum'
+        startLine: 1
+        endLine: 1
+        quote: 'github.com/lib/pq v1.10.9 h1:YXG7RB+JIjhP29X+OtkiDnYaXQwpS4JEWq7dtCCRUEw='
+    reading: 'parsed'
+  - id: 'code.lockfile:services/promotions/go.sum'
+    kind: 'code.lockfile'
+    label: 'go.sum (1 modules pinned)'
+    evidence:
+      - path: 'services/promotions/go.sum'
+        startLine: 1
+        endLine: 1
+        quote: 'github.com/lib/pq v1.10.9 h1:YXG7RB+JIjhP29X+OtkiDnYaXQwpS4JEWq7dtCCRUEw='
+    reading: 'parsed'
+edges:
+  - relation: 'code.belongs-to'
+    from: 'code.lockfile:services/promotions/go.sum'
+    to: 'code.package:services/promotions'
+    evidence:
+      - path: 'services/promotions/go.sum'
+        startLine: 1
+        endLine: 1
+        quote: 'github.com/lib/pq v1.10.9 h1:YXG7RB+JIjhP29X+OtkiDnYaXQwpS4JEWq7dtCCRUEw='
+    reading: 'parsed'
+  - relation: 'code.resolves'
+    from: 'code.lockfile:services/promotions/go.sum'
+    to: 'code.dependency:services/promotions/go.mod#github.com/lib/pq'
+    evidence:
+      - path: 'services/promotions/go.sum'
+        startLine: 1
+        endLine: 1
+        quote: 'github.com/lib/pq v1.10.9 h1:YXG7RB+JIjhP29X+OtkiDnYaXQwpS4JEWq7dtCCRUEw='
+    reading: 'parsed'
+  - relation: 'code.resolves'
+    from: 'code.lockfile:services/promotions/go.sum'
+    to: 'code.manifest:services/promotions/go.mod'
+    evidence:
+      - path: 'services/promotions/go.sum'
+        startLine: 1
+        endLine: 1
+        quote: 'github.com/lib/pq v1.10.9 h1:YXG7RB+JIjhP29X+OtkiDnYaXQwpS4JEWq7dtCCRUEw='
+    reading: 'parsed'

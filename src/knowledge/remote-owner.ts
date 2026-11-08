@@ -11,6 +11,7 @@ import { linesOf } from './lines.js';
 import type { ReadReply, ReadRequest } from './read-worker.js';
 import { decodeWire, encodeWire } from './wire.js';
 import { selfCommand } from '../product/self-command.js';
+import { setPriority } from 'node:os';
 
 /** A started read worker: lines in, lines out. */
 export interface ReadWorkerProcess {
@@ -19,6 +20,8 @@ export interface ReadWorkerProcess {
   readonly exited: Promise<number>;
   stderr(): string;
   kill(): void;
+  /** Sets the worker's scheduling priority (a niceness, 0 being the process that forked it). */
+  priority(niceness: number): void;
 }
 
 export type ReadWorkerFactory = () => ReadWorkerProcess;
@@ -43,8 +46,12 @@ export function spawnReadWorker(): ReadWorkerProcess {
     exited: child.exited,
     stderr: () => tail,
     kill: () => { try { child.kill(); } catch { /* already gone */ } },
+    priority: (niceness) => { try { setPriority(child.pid, niceness); } catch { /* the platform refuses: the worker runs at the priority it has */ } },
   };
 }
+
+/** The niceness a read worker boots at, before it answers for the pages (see the constructor). */
+const BOOT_PRIORITY = 10;
 
 /** How many distinct statements are kept to warm a successor with. */
 const RECENT_STATEMENTS = 300;
@@ -67,6 +74,11 @@ export class RemoteOwner implements DatabaseOwner {
   constructor(readonly location: string, options: { create: boolean; factory?: ReadWorkerFactory }) {
     const proc = (options.factory ?? spawnReadWorker)();
     this.process = proc;
+    // A worker opening a store is the heaviest reader on its cores (a PGlite boots it there), and the reader it will
+    // replace keeps answering the pages meanwhile: it therefore boots at a lower priority, and takes its share of the
+    // machine only once it is ready to answer. This is what "the old reader answers until the new one is ready" means
+    // where two cores are shared by four processes.
+    proc.priority(BOOT_PRIORITY);
     let opened!: () => void;
     let refused!: (error: Error) => void;
     this.ready = new Promise<void>((resolve, reject) => { opened = resolve; refused = reject; });
@@ -75,7 +87,7 @@ export class RemoteOwner implements DatabaseOwner {
       try {
         for await (const line of proc.lines) {
           const reply = decodeWire<ReadReply>(line);
-          if (reply.type === 'ready') opened();
+          if (reply.type === 'ready') { proc.priority(0); opened(); }
           else if (reply.type === 'failed') { this.failure = new Error(reply.message); refused(this.failure); }
           else if (reply.type === 'ended') this.ending.get(reply.tx)?.(reply);
           else {

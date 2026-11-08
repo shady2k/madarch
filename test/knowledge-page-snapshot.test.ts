@@ -17,7 +17,9 @@ function ownerFixture() {
     if (!active) throw new Error('statement outside snapshot');
     statements.push({ sql, values });
     if (fail) { fail = false; throw new Error('test query failed'); }
-    if (sql.includes("v.properties->>'recordKey' = $2")) return { rows: [{ node_id: '2', scope_id: '1', kind: 'code.symbol', label: 'example', producer: 'code', properties: { recordKey: id, symbolKind: 'function' } }] };
+    // The reader asks for a key through the presented-key expression (`presentedKeySql`, decision 0033 item 7): a
+    // record key or a path, one row. The fixture answers that question, whichever shape the expression has.
+    if (sql.includes('recordKey') && sql.includes('= $2')) return { rows: [{ node_id: '2', scope_id: '1', kind: 'code.symbol', label: 'example', producer: 'code', properties: { recordKey: id, symbolKind: 'function' } }] };
     return { rows: [] };
   } } as unknown as OuterTransaction;
   const owner = {

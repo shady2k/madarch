@@ -8,7 +8,13 @@
  * runs, no model does. Nothing here names a script of the checkout besides the
  * `madarch` entry the test runs as the command.
  */
-import { afterAll, beforeAll, describe, expect, test } from 'bun:test';
+import { afterAll, beforeAll, describe, describe as bunDescribe, expect, test } from 'bun:test';
+import { skippedBecauseOutOfWorkflow } from './fill-skip-list.js';
+
+// The press's cases read the pages the agent stages write; the empty wiki's cases read what this fill publishes and
+// keep running (test/fill-skip-list.ts names the stages that bring the press back).
+const agentSuite = skippedBecauseOutOfWorkflow(import.meta.path);
+const agentDescribe = bunDescribe.skipIf(agentSuite !== undefined);
 import { spawnSync } from 'node:child_process';
 import { chmodSync, existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
 import { createServer } from 'node:net';
@@ -104,14 +110,17 @@ describe('madarch init', () => {
     const status = await get('api/k/status');
     expect(status.body).toMatchObject({ manifest: 'ok', filled: false, home: null, chosenAgent: null, writer: { state: 'idle' }, repositories: [{ name: 'training-shop', filled: false }] });
     const agents = await get('api/k/agents');
-    expect(agents.body.agents.map((offer: { id: string; installed: boolean }) => [offer.id, offer.installed])).toEqual([['claude-code', true], ['codex', false], ['opencode', false], ['omp', false], ['prime-agent', false]]);
+    // The wiki offers every adapter, and the one the fixture installs on the PATH is installed. Whether another
+    // adapter is installed is the machine's own state (a developer's box may hold one), never this case's.
+    expect(agents.body.agents.map((offer: { id: string; installed: boolean }) => offer.id)).toEqual(['claude-code', 'codex', 'opencode', 'omp', 'prime-agent']);
+    expect(agents.body.agents.find((offer: { id: string }) => offer.id === 'claude-code')).toMatchObject({ installed: true });
     // The first read of a product opens its store (a PGlite of about two seconds) and asks which adapters stand on the
     // PATH: the case names its own bound, as every case whose work is long does (madarch-tzte.36), so a run of several
     // files — where the preload's default reaches no file — does not stop it at five seconds.
   }, 60_000);
 });
 
-describe('the one press', () => {
+agentDescribe('the one press', () => {
   test('chooses the agent, fills the graph and the agent writes the product page and a page per domain, served with their grounds resolved', async () => {
     expect((await post('api/k/agent', { agent: 'claude-code', install: false })).status).toBe(200);
     expect((await post('api/k/fill')).status).toBe(202);

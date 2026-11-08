@@ -92,7 +92,7 @@ export interface UnitAgent {
  * A run that a person paused or stopped: thrown before a page is taken up, so the page in progress is finished and the
  * page after it is never started. The message says which page was left as it was and which was not begun.
  */
-export class WriterHalted extends Error {
+class WriterHalted extends Error {
   constructor(readonly how: 'pause' | 'stop', message: string) {
     super(message);
     this.name = 'WriterHalted';

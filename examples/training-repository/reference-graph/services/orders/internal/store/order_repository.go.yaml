@@ -1,0 +1,777 @@
+path: 'services/orders/internal/store/order_repository.go'
+nodes:
+  - id: 'code.field:services/orders/internal/store/order_repository.go#OrderRepository.db'
+    kind: 'code.field'
+    label: 'OrderRepository.db'
+    evidence:
+      - path: 'services/orders/internal/store/order_repository.go'
+        startLine: 19
+        endLine: 19
+        quote: '	db *sql.DB'
+    reading: 'parsed'
+  - id: 'code.field:services/orders/internal/store/order_repository.go#OrderRepository.outbox'
+    kind: 'code.field'
+    label: 'OrderRepository.outbox'
+    evidence:
+      - path: 'services/orders/internal/store/order_repository.go'
+        startLine: 21
+        endLine: 21
+        quote: '	outbox *OutboxWriter'
+    reading: 'parsed'
+  - id: 'code.file:services/orders/internal/store/order_repository.go'
+    kind: 'code.file'
+    label: 'order_repository.go'
+    evidence:
+      - path: 'services/orders/internal/store/order_repository.go'
+        startLine: 1
+        endLine: 1
+        quote: 'package store'
+    reading: 'parsed'
+  - id: 'code.symbol:services/orders/internal/store/order_repository.go#NewOrderRepository'
+    kind: 'code.symbol'
+    label: 'NewOrderRepository'
+    evidence:
+      - path: 'services/orders/internal/store/order_repository.go'
+        startLine: 25
+        endLine: 25
+        quote: 'func NewOrderRepository(db *sql.DB, outbox *OutboxWriter) *OrderRepository {'
+    reading: 'parsed'
+  - id: 'code.symbol:services/orders/internal/store/order_repository.go#OrderRepository'
+    kind: 'code.symbol'
+    label: 'OrderRepository'
+    evidence:
+      - path: 'services/orders/internal/store/order_repository.go'
+        startLine: 17
+        endLine: 17
+        quote: 'type OrderRepository struct {'
+    reading: 'parsed'
+  - id: 'code.symbol:services/orders/internal/store/order_repository.go#OrderRepository.Create'
+    kind: 'code.symbol'
+    label: 'OrderRepository.Create'
+    evidence:
+      - path: 'services/orders/internal/store/order_repository.go'
+        startLine: 43
+        endLine: 43
+        quote: 'func (r *OrderRepository) Create(ctx context.Context, order domain.Order) error {'
+    reading: 'parsed'
+  - id: 'code.symbol:services/orders/internal/store/order_repository.go#OrderRepository.CustomerExists'
+    kind: 'code.symbol'
+    label: 'OrderRepository.CustomerExists'
+    evidence:
+      - path: 'services/orders/internal/store/order_repository.go'
+        startLine: 205
+        endLine: 205
+        quote: 'func (r *OrderRepository) CustomerExists(ctx context.Context, id string) (bool, error) {'
+    reading: 'parsed'
+  - id: 'code.symbol:services/orders/internal/store/order_repository.go#OrderRepository.Delete'
+    kind: 'code.symbol'
+    label: 'OrderRepository.Delete'
+    evidence:
+      - path: 'services/orders/internal/store/order_repository.go'
+        startLine: 233
+        endLine: 233
+        quote: 'func (r *OrderRepository) Delete(ctx context.Context, ids []string) error {'
+    reading: 'parsed'
+  - id: 'code.symbol:services/orders/internal/store/order_repository.go#OrderRepository.FindByRequestID'
+    kind: 'code.symbol'
+    label: 'OrderRepository.FindByRequestID'
+    evidence:
+      - path: 'services/orders/internal/store/order_repository.go'
+        startLine: 188
+        endLine: 188
+        quote: 'func (r *OrderRepository) FindByRequestID(ctx context.Context, customerID, requestID string) (domain.Order, error) {'
+    reading: 'parsed'
+  - id: 'code.symbol:services/orders/internal/store/order_repository.go#OrderRepository.Get'
+    kind: 'code.symbol'
+    label: 'OrderRepository.Get'
+    evidence:
+      - path: 'services/orders/internal/store/order_repository.go'
+        startLine: 103
+        endLine: 103
+        quote: 'func (r *OrderRepository) Get(ctx context.Context, id string) (domain.Order, error) {'
+    reading: 'parsed'
+  - id: 'code.symbol:services/orders/internal/store/order_repository.go#OrderRepository.List'
+    kind: 'code.symbol'
+    label: 'OrderRepository.List'
+    evidence:
+      - path: 'services/orders/internal/store/order_repository.go'
+        startLine: 120
+        endLine: 120
+        quote: 'func (r *OrderRepository) List(ctx context.Context, filter application.ListFilter) ([]domain.Order, error) {'
+    reading: 'parsed'
+  - id: 'code.symbol:services/orders/internal/store/order_repository.go#OrderRepository.ListCreatedBefore'
+    kind: 'code.symbol'
+    label: 'OrderRepository.ListCreatedBefore'
+    evidence:
+      - path: 'services/orders/internal/store/order_repository.go'
+        startLine: 213
+        endLine: 213
+        quote: 'func (r *OrderRepository) ListCreatedBefore(ctx context.Context, cutoff time.Time, limit int) ([]domain.Order, error) {'
+    reading: 'parsed'
+  - id: 'code.symbol:services/orders/internal/store/order_repository.go#OrderRepository.Save'
+    kind: 'code.symbol'
+    label: 'OrderRepository.Save'
+    evidence:
+      - path: 'services/orders/internal/store/order_repository.go'
+        startLine: 56
+        endLine: 56
+        quote: 'func (r *OrderRepository) Save(ctx context.Context, order domain.Order) error {'
+    reading: 'parsed'
+  - id: 'code.symbol:services/orders/internal/store/order_repository.go#OrderRepository.attachItems'
+    kind: 'code.symbol'
+    label: 'OrderRepository.attachItems'
+    evidence:
+      - path: 'services/orders/internal/store/order_repository.go'
+        startLine: 161
+        endLine: 161
+        quote: 'func (r *OrderRepository) attachItems(ctx context.Context, orders []domain.Order) error {'
+    reading: 'parsed'
+  - id: 'code.symbol:services/orders/internal/store/order_repository.go#OrderRepository.collect'
+    kind: 'code.symbol'
+    label: 'OrderRepository.collect'
+    evidence:
+      - path: 'services/orders/internal/store/order_repository.go'
+        startLine: 141
+        endLine: 141
+        quote: 'func (r *OrderRepository) collect(ctx context.Context, rows *sql.Rows) ([]domain.Order, error) {'
+    reading: 'parsed'
+  - id: 'code.symbol:services/orders/internal/store/order_repository.go#OrderRepository.inTx'
+    kind: 'code.symbol'
+    label: 'OrderRepository.inTx'
+    evidence:
+      - path: 'services/orders/internal/store/order_repository.go'
+        startLine: 30
+        endLine: 30
+        quote: 'func (r *OrderRepository) inTx(ctx context.Context, fn func(tx *sql.Tx) error) error {'
+    reading: 'parsed'
+  - id: 'code.symbol:services/orders/internal/store/order_repository.go#insertItems'
+    kind: 'code.symbol'
+    label: 'insertItems'
+    evidence:
+      - path: 'services/orders/internal/store/order_repository.go'
+        startLine: 77
+        endLine: 77
+        quote: 'func insertItems(ctx context.Context, tx *sql.Tx, o domain.Order) error {'
+    reading: 'parsed'
+  - id: 'code.symbol:services/orders/internal/store/order_repository.go#insertOrder'
+    kind: 'code.symbol'
+    label: 'insertOrder'
+    evidence:
+      - path: 'services/orders/internal/store/order_repository.go'
+        startLine: 70
+        endLine: 70
+        quote: 'func insertOrder(ctx context.Context, tx *sql.Tx, o domain.Order) error {'
+    reading: 'parsed'
+  - id: 'code.symbol:services/orders/internal/store/order_repository.go#orderColumns'
+    kind: 'code.symbol'
+    label: 'orderColumns'
+    evidence:
+      - path: 'services/orders/internal/store/order_repository.go'
+        startLine: 92
+        endLine: 92
+        quote: 'const orderColumns = `id, customer_id, status, subtotal_cents, discount_cents, tax_cents, total_cents, COALESCE(request_id, ''''), COALESCE(cancel_reason, ''''), created_at, updated_at`'
+    reading: 'parsed'
+  - id: 'code.symbol:services/orders/internal/store/order_repository.go#rowScanner'
+    kind: 'code.symbol'
+    label: 'rowScanner'
+    evidence:
+      - path: 'services/orders/internal/store/order_repository.go'
+        startLine: 88
+        endLine: 88
+        quote: 'type rowScanner interface {'
+    reading: 'parsed'
+  - id: 'code.symbol:services/orders/internal/store/order_repository.go#rowScanner.Scan'
+    kind: 'code.symbol'
+    label: 'rowScanner.Scan'
+    evidence:
+      - path: 'services/orders/internal/store/order_repository.go'
+        startLine: 89
+        endLine: 89
+        quote: '	Scan(dest ...any) error'
+    reading: 'parsed'
+  - id: 'code.symbol:services/orders/internal/store/order_repository.go#scanOrder'
+    kind: 'code.symbol'
+    label: 'scanOrder'
+    evidence:
+      - path: 'services/orders/internal/store/order_repository.go'
+        startLine: 94
+        endLine: 94
+        quote: 'func scanOrder(row rowScanner) (domain.Order, error) {'
+    reading: 'parsed'
+edges:
+  - relation: 'code.calls'
+    from: 'code.symbol:services/orders/internal/store/order_repository.go#OrderRepository.Create'
+    to: 'code.symbol:services/orders/internal/store/order_repository.go#OrderRepository.inTx'
+    evidence:
+      - path: 'services/orders/internal/store/order_repository.go'
+        startLine: 44
+        endLine: 44
+        quote: '	return r.inTx(ctx, func(tx *sql.Tx) error {'
+    reading: 'parsed'
+  - relation: 'code.calls'
+    from: 'code.symbol:services/orders/internal/store/order_repository.go#OrderRepository.Create'
+    to: 'code.symbol:services/orders/internal/store/order_repository.go#insertItems'
+    evidence:
+      - path: 'services/orders/internal/store/order_repository.go'
+        startLine: 48
+        endLine: 48
+        quote: '		if err := insertItems(ctx, tx, order); err != nil {'
+    reading: 'parsed'
+  - relation: 'code.calls'
+    from: 'code.symbol:services/orders/internal/store/order_repository.go#OrderRepository.Create'
+    to: 'code.symbol:services/orders/internal/store/order_repository.go#insertOrder'
+    evidence:
+      - path: 'services/orders/internal/store/order_repository.go'
+        startLine: 45
+        endLine: 45
+        quote: '		if err := insertOrder(ctx, tx, order); err != nil {'
+    reading: 'parsed'
+  - relation: 'code.calls'
+    from: 'code.symbol:services/orders/internal/store/order_repository.go#OrderRepository.Create'
+    to: 'code.symbol:services/orders/internal/store/outbox.go#OutboxWriter.Write'
+    evidence:
+      - path: 'services/orders/internal/store/order_repository.go'
+        startLine: 51
+        endLine: 51
+        quote: '		return r.outbox.Write(ctx, tx, changeOf(order))'
+    reading: 'parsed'
+  - relation: 'code.calls'
+    from: 'code.symbol:services/orders/internal/store/order_repository.go#OrderRepository.Create'
+    to: 'code.symbol:services/orders/internal/store/outbox.go#changeOf'
+    evidence:
+      - path: 'services/orders/internal/store/order_repository.go'
+        startLine: 51
+        endLine: 51
+        quote: '		return r.outbox.Write(ctx, tx, changeOf(order))'
+    reading: 'parsed'
+  - relation: 'code.calls'
+    from: 'code.symbol:services/orders/internal/store/order_repository.go#OrderRepository.Delete'
+    to: 'code.symbol:services/orders/internal/store/order_repository.go#OrderRepository.inTx'
+    evidence:
+      - path: 'services/orders/internal/store/order_repository.go'
+        startLine: 237
+        endLine: 237
+        quote: '	return r.inTx(ctx, func(tx *sql.Tx) error {'
+    reading: 'parsed'
+  - relation: 'code.calls'
+    from: 'code.symbol:services/orders/internal/store/order_repository.go#OrderRepository.Delete'
+    to: 'code.symbol:services/orders/internal/store/outbox.go#OutboxWriter.Write'
+    evidence:
+      - path: 'services/orders/internal/store/order_repository.go'
+        startLine: 244
+        endLine: 244
+        quote: '			if err := r.outbox.Write(ctx, tx, change); err != nil {'
+    reading: 'parsed'
+  - relation: 'code.calls'
+    from: 'code.symbol:services/orders/internal/store/order_repository.go#OrderRepository.FindByRequestID'
+    to: 'code.symbol:services/orders/internal/store/order_repository.go#OrderRepository.attachItems'
+    evidence:
+      - path: 'services/orders/internal/store/order_repository.go'
+        startLine: 198
+        endLine: 198
+        quote: '	if err := r.attachItems(ctx, orders); err != nil {'
+    reading: 'parsed'
+  - relation: 'code.calls'
+    from: 'code.symbol:services/orders/internal/store/order_repository.go#OrderRepository.FindByRequestID'
+    to: 'code.symbol:services/orders/internal/store/order_repository.go#scanOrder'
+    evidence:
+      - path: 'services/orders/internal/store/order_repository.go'
+        startLine: 189
+        endLine: 189
+        quote: '	order, err := scanOrder(r.db.QueryRowContext(ctx,'
+    reading: 'parsed'
+  - relation: 'code.calls'
+    from: 'code.symbol:services/orders/internal/store/order_repository.go#OrderRepository.Get'
+    to: 'code.symbol:services/orders/internal/store/order_repository.go#OrderRepository.attachItems'
+    evidence:
+      - path: 'services/orders/internal/store/order_repository.go'
+        startLine: 112
+        endLine: 112
+        quote: '	if err := r.attachItems(ctx, orders); err != nil {'
+    reading: 'parsed'
+  - relation: 'code.calls'
+    from: 'code.symbol:services/orders/internal/store/order_repository.go#OrderRepository.Get'
+    to: 'code.symbol:services/orders/internal/store/order_repository.go#scanOrder'
+    evidence:
+      - path: 'services/orders/internal/store/order_repository.go'
+        startLine: 104
+        endLine: 104
+        quote: '	order, err := scanOrder(r.db.QueryRowContext(ctx, `SELECT `+orderColumns+` FROM orders WHERE id = $1`, id))'
+    reading: 'parsed'
+  - relation: 'code.calls'
+    from: 'code.symbol:services/orders/internal/store/order_repository.go#OrderRepository.List'
+    to: 'code.symbol:services/orders/internal/store/order_repository.go#OrderRepository.collect'
+    evidence:
+      - path: 'services/orders/internal/store/order_repository.go'
+        startLine: 137
+        endLine: 137
+        quote: '	return r.collect(ctx, rows)'
+    reading: 'parsed'
+  - relation: 'code.calls'
+    from: 'code.symbol:services/orders/internal/store/order_repository.go#OrderRepository.ListCreatedBefore'
+    to: 'code.symbol:services/orders/internal/store/order_repository.go#scanOrder'
+    evidence:
+      - path: 'services/orders/internal/store/order_repository.go'
+        startLine: 222
+        endLine: 222
+        quote: '		order, err := scanOrder(rows)'
+    reading: 'parsed'
+  - relation: 'code.calls'
+    from: 'code.symbol:services/orders/internal/store/order_repository.go#OrderRepository.Save'
+    to: 'code.symbol:services/orders/internal/store/order_repository.go#OrderRepository.inTx'
+    evidence:
+      - path: 'services/orders/internal/store/order_repository.go'
+        startLine: 57
+        endLine: 57
+        quote: '	return r.inTx(ctx, func(tx *sql.Tx) error {'
+    reading: 'parsed'
+  - relation: 'code.calls'
+    from: 'code.symbol:services/orders/internal/store/order_repository.go#OrderRepository.Save'
+    to: 'code.symbol:services/orders/internal/store/outbox.go#OutboxWriter.Write'
+    evidence:
+      - path: 'services/orders/internal/store/order_repository.go'
+        startLine: 66
+        endLine: 66
+        quote: '		return r.outbox.Write(ctx, tx, changeOf(order))'
+    reading: 'parsed'
+  - relation: 'code.calls'
+    from: 'code.symbol:services/orders/internal/store/order_repository.go#OrderRepository.Save'
+    to: 'code.symbol:services/orders/internal/store/outbox.go#changeOf'
+    evidence:
+      - path: 'services/orders/internal/store/order_repository.go'
+        startLine: 66
+        endLine: 66
+        quote: '		return r.outbox.Write(ctx, tx, changeOf(order))'
+    reading: 'parsed'
+  - relation: 'code.calls'
+    from: 'code.symbol:services/orders/internal/store/order_repository.go#OrderRepository.collect'
+    to: 'code.symbol:services/orders/internal/store/order_repository.go#OrderRepository.attachItems'
+    evidence:
+      - path: 'services/orders/internal/store/order_repository.go'
+        startLine: 154
+        endLine: 154
+        quote: '	if err := r.attachItems(ctx, orders); err != nil {'
+    reading: 'parsed'
+  - relation: 'code.calls'
+    from: 'code.symbol:services/orders/internal/store/order_repository.go#OrderRepository.collect'
+    to: 'code.symbol:services/orders/internal/store/order_repository.go#scanOrder'
+    evidence:
+      - path: 'services/orders/internal/store/order_repository.go'
+        startLine: 145
+        endLine: 145
+        quote: '		order, err := scanOrder(rows)'
+    reading: 'parsed'
+  - relation: 'code.calls'
+    from: 'code.symbol:services/orders/internal/store/order_repository.go#scanOrder'
+    to: 'code.symbol:services/orders/internal/store/order_repository.go#rowScanner.Scan'
+    evidence:
+      - path: 'services/orders/internal/store/order_repository.go'
+        startLine: 97
+        endLine: 97
+        quote: '	err := row.Scan(&o.ID, &o.CustomerID, &status, &o.Subtotal, &o.Discount, &o.Tax, &o.Total, &o.RequestID, &o.CancelReason, &o.CreatedAt, &o.UpdatedAt)'
+    reading: 'parsed'
+  - relation: 'code.contains'
+    from: 'code.file:services/orders/internal/store/order_repository.go'
+    to: 'code.symbol:services/orders/internal/store/order_repository.go#NewOrderRepository'
+    evidence:
+      - path: 'services/orders/internal/store/order_repository.go'
+        startLine: 25
+        endLine: 25
+        quote: 'func NewOrderRepository(db *sql.DB, outbox *OutboxWriter) *OrderRepository {'
+    reading: 'parsed'
+  - relation: 'code.contains'
+    from: 'code.file:services/orders/internal/store/order_repository.go'
+    to: 'code.symbol:services/orders/internal/store/order_repository.go#OrderRepository'
+    evidence:
+      - path: 'services/orders/internal/store/order_repository.go'
+        startLine: 17
+        endLine: 17
+        quote: 'type OrderRepository struct {'
+    reading: 'parsed'
+  - relation: 'code.contains'
+    from: 'code.file:services/orders/internal/store/order_repository.go'
+    to: 'code.symbol:services/orders/internal/store/order_repository.go#OrderRepository.Create'
+    evidence:
+      - path: 'services/orders/internal/store/order_repository.go'
+        startLine: 43
+        endLine: 43
+        quote: 'func (r *OrderRepository) Create(ctx context.Context, order domain.Order) error {'
+    reading: 'parsed'
+  - relation: 'code.contains'
+    from: 'code.file:services/orders/internal/store/order_repository.go'
+    to: 'code.symbol:services/orders/internal/store/order_repository.go#OrderRepository.CustomerExists'
+    evidence:
+      - path: 'services/orders/internal/store/order_repository.go'
+        startLine: 205
+        endLine: 205
+        quote: 'func (r *OrderRepository) CustomerExists(ctx context.Context, id string) (bool, error) {'
+    reading: 'parsed'
+  - relation: 'code.contains'
+    from: 'code.file:services/orders/internal/store/order_repository.go'
+    to: 'code.symbol:services/orders/internal/store/order_repository.go#OrderRepository.Delete'
+    evidence:
+      - path: 'services/orders/internal/store/order_repository.go'
+        startLine: 233
+        endLine: 233
+        quote: 'func (r *OrderRepository) Delete(ctx context.Context, ids []string) error {'
+    reading: 'parsed'
+  - relation: 'code.contains'
+    from: 'code.file:services/orders/internal/store/order_repository.go'
+    to: 'code.symbol:services/orders/internal/store/order_repository.go#OrderRepository.FindByRequestID'
+    evidence:
+      - path: 'services/orders/internal/store/order_repository.go'
+        startLine: 188
+        endLine: 188
+        quote: 'func (r *OrderRepository) FindByRequestID(ctx context.Context, customerID, requestID string) (domain.Order, error) {'
+    reading: 'parsed'
+  - relation: 'code.contains'
+    from: 'code.file:services/orders/internal/store/order_repository.go'
+    to: 'code.symbol:services/orders/internal/store/order_repository.go#OrderRepository.Get'
+    evidence:
+      - path: 'services/orders/internal/store/order_repository.go'
+        startLine: 103
+        endLine: 103
+        quote: 'func (r *OrderRepository) Get(ctx context.Context, id string) (domain.Order, error) {'
+    reading: 'parsed'
+  - relation: 'code.contains'
+    from: 'code.file:services/orders/internal/store/order_repository.go'
+    to: 'code.symbol:services/orders/internal/store/order_repository.go#OrderRepository.List'
+    evidence:
+      - path: 'services/orders/internal/store/order_repository.go'
+        startLine: 120
+        endLine: 120
+        quote: 'func (r *OrderRepository) List(ctx context.Context, filter application.ListFilter) ([]domain.Order, error) {'
+    reading: 'parsed'
+  - relation: 'code.contains'
+    from: 'code.file:services/orders/internal/store/order_repository.go'
+    to: 'code.symbol:services/orders/internal/store/order_repository.go#OrderRepository.ListCreatedBefore'
+    evidence:
+      - path: 'services/orders/internal/store/order_repository.go'
+        startLine: 213
+        endLine: 213
+        quote: 'func (r *OrderRepository) ListCreatedBefore(ctx context.Context, cutoff time.Time, limit int) ([]domain.Order, error) {'
+    reading: 'parsed'
+  - relation: 'code.contains'
+    from: 'code.file:services/orders/internal/store/order_repository.go'
+    to: 'code.symbol:services/orders/internal/store/order_repository.go#OrderRepository.Save'
+    evidence:
+      - path: 'services/orders/internal/store/order_repository.go'
+        startLine: 56
+        endLine: 56
+        quote: 'func (r *OrderRepository) Save(ctx context.Context, order domain.Order) error {'
+    reading: 'parsed'
+  - relation: 'code.contains'
+    from: 'code.file:services/orders/internal/store/order_repository.go'
+    to: 'code.symbol:services/orders/internal/store/order_repository.go#OrderRepository.attachItems'
+    evidence:
+      - path: 'services/orders/internal/store/order_repository.go'
+        startLine: 161
+        endLine: 161
+        quote: 'func (r *OrderRepository) attachItems(ctx context.Context, orders []domain.Order) error {'
+    reading: 'parsed'
+  - relation: 'code.contains'
+    from: 'code.file:services/orders/internal/store/order_repository.go'
+    to: 'code.symbol:services/orders/internal/store/order_repository.go#OrderRepository.collect'
+    evidence:
+      - path: 'services/orders/internal/store/order_repository.go'
+        startLine: 141
+        endLine: 141
+        quote: 'func (r *OrderRepository) collect(ctx context.Context, rows *sql.Rows) ([]domain.Order, error) {'
+    reading: 'parsed'
+  - relation: 'code.contains'
+    from: 'code.file:services/orders/internal/store/order_repository.go'
+    to: 'code.symbol:services/orders/internal/store/order_repository.go#OrderRepository.inTx'
+    evidence:
+      - path: 'services/orders/internal/store/order_repository.go'
+        startLine: 30
+        endLine: 30
+        quote: 'func (r *OrderRepository) inTx(ctx context.Context, fn func(tx *sql.Tx) error) error {'
+    reading: 'parsed'
+  - relation: 'code.contains'
+    from: 'code.file:services/orders/internal/store/order_repository.go'
+    to: 'code.symbol:services/orders/internal/store/order_repository.go#insertItems'
+    evidence:
+      - path: 'services/orders/internal/store/order_repository.go'
+        startLine: 77
+        endLine: 77
+        quote: 'func insertItems(ctx context.Context, tx *sql.Tx, o domain.Order) error {'
+    reading: 'parsed'
+  - relation: 'code.contains'
+    from: 'code.file:services/orders/internal/store/order_repository.go'
+    to: 'code.symbol:services/orders/internal/store/order_repository.go#insertOrder'
+    evidence:
+      - path: 'services/orders/internal/store/order_repository.go'
+        startLine: 70
+        endLine: 70
+        quote: 'func insertOrder(ctx context.Context, tx *sql.Tx, o domain.Order) error {'
+    reading: 'parsed'
+  - relation: 'code.contains'
+    from: 'code.file:services/orders/internal/store/order_repository.go'
+    to: 'code.symbol:services/orders/internal/store/order_repository.go#orderColumns'
+    evidence:
+      - path: 'services/orders/internal/store/order_repository.go'
+        startLine: 92
+        endLine: 92
+        quote: 'const orderColumns = `id, customer_id, status, subtotal_cents, discount_cents, tax_cents, total_cents, COALESCE(request_id, ''''), COALESCE(cancel_reason, ''''), created_at, updated_at`'
+    reading: 'parsed'
+  - relation: 'code.contains'
+    from: 'code.file:services/orders/internal/store/order_repository.go'
+    to: 'code.symbol:services/orders/internal/store/order_repository.go#rowScanner'
+    evidence:
+      - path: 'services/orders/internal/store/order_repository.go'
+        startLine: 88
+        endLine: 88
+        quote: 'type rowScanner interface {'
+    reading: 'parsed'
+  - relation: 'code.contains'
+    from: 'code.file:services/orders/internal/store/order_repository.go'
+    to: 'code.symbol:services/orders/internal/store/order_repository.go#rowScanner.Scan'
+    evidence:
+      - path: 'services/orders/internal/store/order_repository.go'
+        startLine: 89
+        endLine: 89
+        quote: '	Scan(dest ...any) error'
+    reading: 'parsed'
+  - relation: 'code.contains'
+    from: 'code.file:services/orders/internal/store/order_repository.go'
+    to: 'code.symbol:services/orders/internal/store/order_repository.go#scanOrder'
+    evidence:
+      - path: 'services/orders/internal/store/order_repository.go'
+        startLine: 94
+        endLine: 94
+        quote: 'func scanOrder(row rowScanner) (domain.Order, error) {'
+    reading: 'parsed'
+  - relation: 'code.contains'
+    from: 'code.module:services/orders/internal/store'
+    to: 'code.file:services/orders/internal/store/order_repository.go'
+    evidence:
+      - path: 'services/orders/internal/store/order_repository.go'
+        startLine: 1
+        endLine: 1
+        quote: 'package store'
+    reading: 'parsed'
+  - relation: 'code.contains'
+    from: 'code.symbol:services/orders/internal/store/order_repository.go#OrderRepository'
+    to: 'code.field:services/orders/internal/store/order_repository.go#OrderRepository.db'
+    evidence:
+      - path: 'services/orders/internal/store/order_repository.go'
+        startLine: 19
+        endLine: 19
+        quote: '	db *sql.DB'
+    reading: 'parsed'
+  - relation: 'code.contains'
+    from: 'code.symbol:services/orders/internal/store/order_repository.go#OrderRepository'
+    to: 'code.field:services/orders/internal/store/order_repository.go#OrderRepository.outbox'
+    evidence:
+      - path: 'services/orders/internal/store/order_repository.go'
+        startLine: 21
+        endLine: 21
+        quote: '	outbox *OutboxWriter'
+    reading: 'parsed'
+  - relation: 'code.contains'
+    from: 'code.symbol:services/orders/internal/store/order_repository.go#rowScanner'
+    to: 'code.symbol:services/orders/internal/store/order_repository.go#rowScanner.Scan'
+    evidence:
+      - path: 'services/orders/internal/store/order_repository.go'
+        startLine: 89
+        endLine: 89
+        quote: '	Scan(dest ...any) error'
+    reading: 'parsed'
+  - relation: 'code.imports'
+    from: 'code.file:services/orders/internal/store/order_repository.go'
+    to: 'code.dependency:services/orders/go.mod#github.com/lib/pq'
+    evidence:
+      - path: 'services/orders/internal/store/order_repository.go'
+        startLine: 10
+        endLine: 10
+        quote: '	"github.com/lib/pq"'
+    reading: 'parsed'
+  - relation: 'code.imports'
+    from: 'code.file:services/orders/internal/store/order_repository.go'
+    to: 'code.module:services/orders/internal/application'
+    evidence:
+      - path: 'services/orders/internal/store/order_repository.go'
+        startLine: 12
+        endLine: 12
+        quote: '	"training.example/orders/internal/application"'
+    reading: 'parsed'
+  - relation: 'code.imports'
+    from: 'code.file:services/orders/internal/store/order_repository.go'
+    to: 'code.module:services/orders/internal/domain'
+    evidence:
+      - path: 'services/orders/internal/store/order_repository.go'
+        startLine: 13
+        endLine: 13
+        quote: '	"training.example/orders/internal/domain"'
+    reading: 'parsed'
+  - relation: 'code.reads-table'
+    from: 'code.file:services/orders/internal/store/order_repository.go'
+    to: 'code.table:orders.customers'
+    evidence:
+      - path: 'services/orders/internal/store/order_repository.go'
+        startLine: 207
+        endLine: 207
+        quote: '	err := r.db.QueryRowContext(ctx, `SELECT EXISTS (SELECT 1 FROM customers WHERE id = $1)`, id).Scan(&exists)'
+    reading: 'judgement'
+  - relation: 'code.reads-table'
+    from: 'code.file:services/orders/internal/store/order_repository.go'
+    to: 'code.table:orders.order_items'
+    evidence:
+      - path: 'services/orders/internal/store/order_repository.go'
+        startLine: 171
+        endLine: 171
+        quote: '	rows, err := r.db.QueryContext(ctx, `SELECT order_id, sku, quantity, price_cents, zero_rated FROM order_items WHERE order_id = ANY($1) ORDER BY id`, pq.Array(ids))'
+    reading: 'judgement'
+  - relation: 'code.reads-table'
+    from: 'code.file:services/orders/internal/store/order_repository.go'
+    to: 'code.table:orders.orders'
+    evidence:
+      - path: 'services/orders/internal/store/order_repository.go'
+        startLine: 104
+        endLine: 104
+        quote: '	order, err := scanOrder(r.db.QueryRowContext(ctx, `SELECT `+orderColumns+` FROM orders WHERE id = $1`, id))'
+    reading: 'judgement'
+  - relation: 'code.reads-table'
+    from: 'code.file:services/orders/internal/store/order_repository.go'
+    to: 'code.table:orders.schema_migrations'
+    evidence:
+      - path: 'services/orders/internal/store/order_repository.go'
+        startLine: 48
+        endLine: 48
+        quote: '		if err := insertItems(ctx, tx, order); err != nil {'
+    reading: 'judgement'
+  - relation: 'code.uses-type'
+    from: 'code.symbol:services/orders/internal/store/order_repository.go#NewOrderRepository'
+    to: 'code.symbol:services/orders/internal/store/order_repository.go#OrderRepository'
+    evidence:
+      - path: 'services/orders/internal/store/order_repository.go'
+        startLine: 25
+        endLine: 25
+        quote: 'func NewOrderRepository(db *sql.DB, outbox *OutboxWriter) *OrderRepository {'
+    reading: 'parsed'
+  - relation: 'code.uses-type'
+    from: 'code.symbol:services/orders/internal/store/order_repository.go#NewOrderRepository'
+    to: 'code.symbol:services/orders/internal/store/outbox.go#OutboxWriter'
+    evidence:
+      - path: 'services/orders/internal/store/order_repository.go'
+        startLine: 25
+        endLine: 25
+        quote: 'func NewOrderRepository(db *sql.DB, outbox *OutboxWriter) *OrderRepository {'
+    reading: 'parsed'
+  - relation: 'code.uses-type'
+    from: 'code.symbol:services/orders/internal/store/order_repository.go#OrderRepository'
+    to: 'code.symbol:services/orders/internal/store/outbox.go#OutboxWriter'
+    evidence:
+      - path: 'services/orders/internal/store/order_repository.go'
+        startLine: 21
+        endLine: 21
+        quote: '	outbox *OutboxWriter'
+    reading: 'parsed'
+  - relation: 'code.uses-type'
+    from: 'code.symbol:services/orders/internal/store/order_repository.go#OrderRepository.Create'
+    to: 'code.symbol:services/orders/internal/domain/order.go#Order'
+    evidence:
+      - path: 'services/orders/internal/store/order_repository.go'
+        startLine: 43
+        endLine: 43
+        quote: 'func (r *OrderRepository) Create(ctx context.Context, order domain.Order) error {'
+    reading: 'parsed'
+  - relation: 'code.uses-type'
+    from: 'code.symbol:services/orders/internal/store/order_repository.go#OrderRepository.FindByRequestID'
+    to: 'code.symbol:services/orders/internal/domain/order.go#Order'
+    evidence:
+      - path: 'services/orders/internal/store/order_repository.go'
+        startLine: 188
+        endLine: 188
+        quote: 'func (r *OrderRepository) FindByRequestID(ctx context.Context, customerID, requestID string) (domain.Order, error) {'
+    reading: 'parsed'
+  - relation: 'code.uses-type'
+    from: 'code.symbol:services/orders/internal/store/order_repository.go#OrderRepository.Get'
+    to: 'code.symbol:services/orders/internal/domain/order.go#Order'
+    evidence:
+      - path: 'services/orders/internal/store/order_repository.go'
+        startLine: 103
+        endLine: 103
+        quote: 'func (r *OrderRepository) Get(ctx context.Context, id string) (domain.Order, error) {'
+    reading: 'parsed'
+  - relation: 'code.uses-type'
+    from: 'code.symbol:services/orders/internal/store/order_repository.go#OrderRepository.List'
+    to: 'code.symbol:services/orders/internal/application/order_service.go#ListFilter'
+    evidence:
+      - path: 'services/orders/internal/store/order_repository.go'
+        startLine: 120
+        endLine: 120
+        quote: 'func (r *OrderRepository) List(ctx context.Context, filter application.ListFilter) ([]domain.Order, error) {'
+    reading: 'parsed'
+  - relation: 'code.uses-type'
+    from: 'code.symbol:services/orders/internal/store/order_repository.go#OrderRepository.Save'
+    to: 'code.symbol:services/orders/internal/domain/order.go#Order'
+    evidence:
+      - path: 'services/orders/internal/store/order_repository.go'
+        startLine: 56
+        endLine: 56
+        quote: 'func (r *OrderRepository) Save(ctx context.Context, order domain.Order) error {'
+    reading: 'parsed'
+  - relation: 'code.uses-type'
+    from: 'code.symbol:services/orders/internal/store/order_repository.go#insertItems'
+    to: 'code.symbol:services/orders/internal/domain/order.go#Order'
+    evidence:
+      - path: 'services/orders/internal/store/order_repository.go'
+        startLine: 77
+        endLine: 77
+        quote: 'func insertItems(ctx context.Context, tx *sql.Tx, o domain.Order) error {'
+    reading: 'parsed'
+  - relation: 'code.uses-type'
+    from: 'code.symbol:services/orders/internal/store/order_repository.go#insertOrder'
+    to: 'code.symbol:services/orders/internal/domain/order.go#Order'
+    evidence:
+      - path: 'services/orders/internal/store/order_repository.go'
+        startLine: 70
+        endLine: 70
+        quote: 'func insertOrder(ctx context.Context, tx *sql.Tx, o domain.Order) error {'
+    reading: 'parsed'
+  - relation: 'code.uses-type'
+    from: 'code.symbol:services/orders/internal/store/order_repository.go#scanOrder'
+    to: 'code.symbol:services/orders/internal/domain/order.go#Order'
+    evidence:
+      - path: 'services/orders/internal/store/order_repository.go'
+        startLine: 94
+        endLine: 94
+        quote: 'func scanOrder(row rowScanner) (domain.Order, error) {'
+    reading: 'parsed'
+  - relation: 'code.uses-type'
+    from: 'code.symbol:services/orders/internal/store/order_repository.go#scanOrder'
+    to: 'code.symbol:services/orders/internal/domain/order.go#Status'
+    evidence:
+      - path: 'services/orders/internal/store/order_repository.go'
+        startLine: 98
+        endLine: 98
+        quote: '	o.Status = domain.Status(status)'
+    reading: 'parsed'
+  - relation: 'code.uses-type'
+    from: 'code.symbol:services/orders/internal/store/order_repository.go#scanOrder'
+    to: 'code.symbol:services/orders/internal/store/order_repository.go#rowScanner'
+    evidence:
+      - path: 'services/orders/internal/store/order_repository.go'
+        startLine: 94
+        endLine: 94
+        quote: 'func scanOrder(row rowScanner) (domain.Order, error) {'
+    reading: 'parsed'
+  - relation: 'code.writes-table'
+    from: 'code.file:services/orders/internal/store/order_repository.go'
+    to: 'code.table:orders.order_items'
+    evidence:
+      - path: 'services/orders/internal/store/order_repository.go'
+        startLine: 79
+        endLine: 79
+        quote: '		if _, err := tx.ExecContext(ctx, `INSERT INTO order_items (order_id, sku, quantity, price_cents, zero_rated) VALUES ($1, $2, $3, $4, $5)`,'
+    reading: 'judgement'
+  - relation: 'code.writes-table'
+    from: 'code.file:services/orders/internal/store/order_repository.go'
+    to: 'code.table:orders.orders'
+    evidence:
+      - path: 'services/orders/internal/store/order_repository.go'
+        startLine: 58
+        endLine: 58
+        quote: '		result, err := tx.ExecContext(ctx, `UPDATE orders SET status = $2, cancel_reason = NULLIF($3, ''''), updated_at = $4 WHERE id = $1`,'
+    reading: 'judgement'

@@ -6,7 +6,13 @@
  * The bound counts the rows of every block the page holds after its overview, whatever the block is, so a block that
  * comes back to the home page without a bound is caught here rather than in a screenshot.
  */
-import { afterAll, beforeAll, describe, expect, test } from 'bun:test';
+import { afterAll, beforeAll, describe as bunDescribe, expect, test as bunTest } from 'bun:test';
+import { skippedBecauseOutOfWorkflow } from './fill-skip-list.js';
+
+// The cases read a stage out of this step's list: they come back with that stage's step (test/fill-skip-list.ts).
+const skippedSuite = skippedBecauseOutOfWorkflow(import.meta.path);
+const describe = bunDescribe.skipIf(skippedSuite !== undefined);
+const test = bunTest.skipIf(skippedSuite !== undefined);
 import { mkdirSync, mkdtempSync, rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
@@ -24,6 +30,8 @@ let work: string;
 let product: KnowledgeProduct;
 
 beforeAll(async () => {
+  // The store the cases read is filled by stages out of this step's list: no fixture is made or closed.
+  if (skippedSuite !== undefined) return;
   work = mkdtempSync(join(tmpdir(), 'madarch-home-page-'));
   const repository = generateTrainingRepository(join(work, 'repo'));
   mkdirSync(join(work, 'home'));
@@ -36,6 +44,8 @@ beforeAll(async () => {
 }, 900_000);
 
 afterAll(async () => {
+  // The store the cases read is filled by stages out of this step's list: no fixture is made or closed.
+  if (skippedSuite !== undefined) return;
   await product.close();
   rmSync(work, { recursive: true, force: true });
 });

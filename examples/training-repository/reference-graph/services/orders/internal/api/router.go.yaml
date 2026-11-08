@@ -1,0 +1,474 @@
+path: 'services/orders/internal/api/router.go'
+nodes:
+  - id: 'code.field:services/orders/internal/api/router.go#Deps.JWTSecret'
+    kind: 'code.field'
+    label: 'Deps.JWTSecret'
+    evidence:
+      - path: 'services/orders/internal/api/router.go'
+        startLine: 18
+        endLine: 18
+        quote: '	JWTSecret string'
+    reading: 'parsed'
+  - id: 'code.field:services/orders/internal/api/router.go#Deps.Log'
+    kind: 'code.field'
+    label: 'Deps.Log'
+    evidence:
+      - path: 'services/orders/internal/api/router.go'
+        startLine: 16
+        endLine: 16
+        quote: '	Log *slog.Logger'
+    reading: 'parsed'
+  - id: 'code.field:services/orders/internal/api/router.go#Deps.Metrics'
+    kind: 'code.field'
+    label: 'Deps.Metrics'
+    evidence:
+      - path: 'services/orders/internal/api/router.go'
+        startLine: 20
+        endLine: 20
+        quote: '	Metrics *Metrics'
+    reading: 'parsed'
+  - id: 'code.field:services/orders/internal/api/router.go#Deps.Orders'
+    kind: 'code.field'
+    label: 'Deps.Orders'
+    evidence:
+      - path: 'services/orders/internal/api/router.go'
+        startLine: 14
+        endLine: 14
+        quote: '	Orders *OrderHandlers'
+    reading: 'parsed'
+  - id: 'code.file:services/orders/internal/api/router.go'
+    kind: 'code.file'
+    label: 'router.go'
+    evidence:
+      - path: 'services/orders/internal/api/router.go'
+        startLine: 1
+        endLine: 1
+        quote: '// Package api is the HTTP layer of the orders service: routes, the middleware'
+    reading: 'parsed'
+  - id: 'code.health-endpoint:orders:/healthz'
+    kind: 'code.health-endpoint'
+    label: 'GET /healthz'
+    evidence:
+      - path: 'services/orders/internal/api/router.go'
+        startLine: 42
+        endLine: 42
+        quote: '	mux.HandleFunc("GET /healthz", Health)'
+    reading: 'parsed'
+  - id: 'code.route:orders:GET /healthz'
+    kind: 'code.route'
+    label: 'GET /healthz'
+    evidence:
+      - path: 'services/orders/internal/api/router.go'
+        startLine: 42
+        endLine: 42
+        quote: '	mux.HandleFunc("GET /healthz", Health)'
+    reading: 'parsed'
+  - id: 'code.route:orders:GET /metrics'
+    kind: 'code.route'
+    label: 'GET /metrics'
+    evidence:
+      - path: 'services/orders/internal/api/router.go'
+        startLine: 43
+        endLine: 43
+        quote: '	mux.Handle("GET /metrics", deps.Metrics)'
+    reading: 'parsed'
+  - id: 'code.route:orders:GET /orders'
+    kind: 'code.route'
+    label: 'GET /orders'
+    evidence:
+      - path: 'services/orders/internal/api/router.go'
+        startLine: 33
+        endLine: 33
+        quote: '	mux.Handle("GET /orders", authed(http.HandlerFunc(deps.Orders.List)))'
+    reading: 'parsed'
+  - id: 'code.route:orders:GET /orders/export'
+    kind: 'code.route'
+    label: 'GET /orders/export'
+    evidence:
+      - path: 'services/orders/internal/api/router.go'
+        startLine: 40
+        endLine: 40
+        quote: '	mux.HandleFunc("GET /orders/export", deps.Orders.Export)'
+    reading: 'parsed'
+  - id: 'code.route:orders:GET /orders/{id}'
+    kind: 'code.route'
+    label: 'GET /orders/{id}'
+    evidence:
+      - path: 'services/orders/internal/api/router.go'
+        startLine: 34
+        endLine: 34
+        quote: '	mux.Handle("GET /orders/{id}", authed(http.HandlerFunc(deps.Orders.Get)))'
+    reading: 'parsed'
+  - id: 'code.route:orders:POST /orders'
+    kind: 'code.route'
+    label: 'POST /orders'
+    evidence:
+      - path: 'services/orders/internal/api/router.go'
+        startLine: 32
+        endLine: 32
+        quote: '	mux.Handle("POST /orders", authed(http.HandlerFunc(deps.Orders.Create)))'
+    reading: 'parsed'
+  - id: 'code.route:orders:POST /orders/{id}/cancel'
+    kind: 'code.route'
+    label: 'POST /orders/{id}/cancel'
+    evidence:
+      - path: 'services/orders/internal/api/router.go'
+        startLine: 35
+        endLine: 35
+        quote: '	mux.Handle("POST /orders/{id}/cancel", authed(http.HandlerFunc(deps.Orders.Cancel)))'
+    reading: 'parsed'
+  - id: 'code.route:orders:POST /orders/{id}/ship'
+    kind: 'code.route'
+    label: 'POST /orders/{id}/ship'
+    evidence:
+      - path: 'services/orders/internal/api/router.go'
+        startLine: 36
+        endLine: 36
+        quote: '	mux.Handle("POST /orders/{id}/ship", support(http.HandlerFunc(deps.Orders.Ship)))'
+    reading: 'parsed'
+  - id: 'code.symbol:services/orders/internal/api/router.go#Deps'
+    kind: 'code.symbol'
+    label: 'Deps'
+    evidence:
+      - path: 'services/orders/internal/api/router.go'
+        startLine: 12
+        endLine: 12
+        quote: 'type Deps struct {'
+    reading: 'parsed'
+  - id: 'code.symbol:services/orders/internal/api/router.go#Health'
+    kind: 'code.symbol'
+    label: 'Health'
+    evidence:
+      - path: 'services/orders/internal/api/router.go'
+        startLine: 49
+        endLine: 49
+        quote: 'func Health(w http.ResponseWriter, _ *http.Request) {'
+    reading: 'parsed'
+  - id: 'code.symbol:services/orders/internal/api/router.go#NewRouter'
+    kind: 'code.symbol'
+    label: 'NewRouter'
+    evidence:
+      - path: 'services/orders/internal/api/router.go'
+        startLine: 25
+        endLine: 25
+        quote: 'func NewRouter(deps Deps) http.Handler {'
+    reading: 'parsed'
+edges:
+  - relation: 'code.belongs-to'
+    from: 'code.route:orders:GET /healthz'
+    to: 'code.service:orders'
+    evidence:
+      - path: 'services/orders/internal/api/router.go'
+        startLine: 42
+        endLine: 42
+        quote: '	mux.HandleFunc("GET /healthz", Health)'
+    reading: 'parsed'
+  - relation: 'code.belongs-to'
+    from: 'code.route:orders:GET /metrics'
+    to: 'code.service:orders'
+    evidence:
+      - path: 'services/orders/internal/api/router.go'
+        startLine: 43
+        endLine: 43
+        quote: '	mux.Handle("GET /metrics", deps.Metrics)'
+    reading: 'parsed'
+  - relation: 'code.belongs-to'
+    from: 'code.route:orders:GET /orders'
+    to: 'code.service:orders'
+    evidence:
+      - path: 'services/orders/internal/api/router.go'
+        startLine: 33
+        endLine: 33
+        quote: '	mux.Handle("GET /orders", authed(http.HandlerFunc(deps.Orders.List)))'
+    reading: 'parsed'
+  - relation: 'code.belongs-to'
+    from: 'code.route:orders:GET /orders/export'
+    to: 'code.service:orders'
+    evidence:
+      - path: 'services/orders/internal/api/router.go'
+        startLine: 40
+        endLine: 40
+        quote: '	mux.HandleFunc("GET /orders/export", deps.Orders.Export)'
+    reading: 'parsed'
+  - relation: 'code.belongs-to'
+    from: 'code.route:orders:GET /orders/{id}'
+    to: 'code.service:orders'
+    evidence:
+      - path: 'services/orders/internal/api/router.go'
+        startLine: 34
+        endLine: 34
+        quote: '	mux.Handle("GET /orders/{id}", authed(http.HandlerFunc(deps.Orders.Get)))'
+    reading: 'parsed'
+  - relation: 'code.belongs-to'
+    from: 'code.route:orders:POST /orders'
+    to: 'code.service:orders'
+    evidence:
+      - path: 'services/orders/internal/api/router.go'
+        startLine: 32
+        endLine: 32
+        quote: '	mux.Handle("POST /orders", authed(http.HandlerFunc(deps.Orders.Create)))'
+    reading: 'parsed'
+  - relation: 'code.belongs-to'
+    from: 'code.route:orders:POST /orders/{id}/cancel'
+    to: 'code.service:orders'
+    evidence:
+      - path: 'services/orders/internal/api/router.go'
+        startLine: 35
+        endLine: 35
+        quote: '	mux.Handle("POST /orders/{id}/cancel", authed(http.HandlerFunc(deps.Orders.Cancel)))'
+    reading: 'parsed'
+  - relation: 'code.belongs-to'
+    from: 'code.route:orders:POST /orders/{id}/ship'
+    to: 'code.service:orders'
+    evidence:
+      - path: 'services/orders/internal/api/router.go'
+        startLine: 36
+        endLine: 36
+        quote: '	mux.Handle("POST /orders/{id}/ship", support(http.HandlerFunc(deps.Orders.Ship)))'
+    reading: 'parsed'
+  - relation: 'code.calls'
+    from: 'code.symbol:services/orders/internal/api/router.go#Health'
+    to: 'code.symbol:services/orders/internal/api/handlers.go#writeJSON'
+    evidence:
+      - path: 'services/orders/internal/api/router.go'
+        startLine: 50
+        endLine: 50
+        quote: '	writeJSON(w, http.StatusOK, map[string]string{"status": "ok"})'
+    reading: 'parsed'
+  - relation: 'code.calls'
+    from: 'code.symbol:services/orders/internal/api/router.go#NewRouter'
+    to: 'code.symbol:services/orders/internal/api/middleware.go#Chain'
+    evidence:
+      - path: 'services/orders/internal/api/router.go'
+        startLine: 29
+        endLine: 29
+        quote: '	authed := Chain(RequireAuth(deps.JWTSecret))'
+      - path: 'services/orders/internal/api/router.go'
+        startLine: 30
+        endLine: 30
+        quote: '	support := Chain(RequireAuth(deps.JWTSecret), RequireRole("support"))'
+      - path: 'services/orders/internal/api/router.go'
+        startLine: 45
+        endLine: 45
+        quote: '	return Chain(RequestLogger(deps.Log), RecoverPanics(deps.Log), deps.Metrics.Count)(mux)'
+    reading: 'parsed'
+  - relation: 'code.calls'
+    from: 'code.symbol:services/orders/internal/api/router.go#NewRouter'
+    to: 'code.symbol:services/orders/internal/api/middleware.go#RecoverPanics'
+    evidence:
+      - path: 'services/orders/internal/api/router.go'
+        startLine: 45
+        endLine: 45
+        quote: '	return Chain(RequestLogger(deps.Log), RecoverPanics(deps.Log), deps.Metrics.Count)(mux)'
+    reading: 'parsed'
+  - relation: 'code.calls'
+    from: 'code.symbol:services/orders/internal/api/router.go#NewRouter'
+    to: 'code.symbol:services/orders/internal/api/middleware.go#RequestLogger'
+    evidence:
+      - path: 'services/orders/internal/api/router.go'
+        startLine: 45
+        endLine: 45
+        quote: '	return Chain(RequestLogger(deps.Log), RecoverPanics(deps.Log), deps.Metrics.Count)(mux)'
+    reading: 'parsed'
+  - relation: 'code.calls'
+    from: 'code.symbol:services/orders/internal/api/router.go#NewRouter'
+    to: 'code.symbol:services/orders/internal/api/middleware.go#RequireAuth'
+    evidence:
+      - path: 'services/orders/internal/api/router.go'
+        startLine: 29
+        endLine: 29
+        quote: '	authed := Chain(RequireAuth(deps.JWTSecret))'
+      - path: 'services/orders/internal/api/router.go'
+        startLine: 30
+        endLine: 30
+        quote: '	support := Chain(RequireAuth(deps.JWTSecret), RequireRole("support"))'
+    reading: 'parsed'
+  - relation: 'code.calls'
+    from: 'code.symbol:services/orders/internal/api/router.go#NewRouter'
+    to: 'code.symbol:services/orders/internal/api/middleware.go#RequireRole'
+    evidence:
+      - path: 'services/orders/internal/api/router.go'
+        startLine: 30
+        endLine: 30
+        quote: '	support := Chain(RequireAuth(deps.JWTSecret), RequireRole("support"))'
+    reading: 'parsed'
+  - relation: 'code.contains'
+    from: 'code.file:services/orders/internal/api/router.go'
+    to: 'code.symbol:services/orders/internal/api/router.go#Deps'
+    evidence:
+      - path: 'services/orders/internal/api/router.go'
+        startLine: 12
+        endLine: 12
+        quote: 'type Deps struct {'
+    reading: 'parsed'
+  - relation: 'code.contains'
+    from: 'code.file:services/orders/internal/api/router.go'
+    to: 'code.symbol:services/orders/internal/api/router.go#Health'
+    evidence:
+      - path: 'services/orders/internal/api/router.go'
+        startLine: 49
+        endLine: 49
+        quote: 'func Health(w http.ResponseWriter, _ *http.Request) {'
+    reading: 'parsed'
+  - relation: 'code.contains'
+    from: 'code.file:services/orders/internal/api/router.go'
+    to: 'code.symbol:services/orders/internal/api/router.go#NewRouter'
+    evidence:
+      - path: 'services/orders/internal/api/router.go'
+        startLine: 25
+        endLine: 25
+        quote: 'func NewRouter(deps Deps) http.Handler {'
+    reading: 'parsed'
+  - relation: 'code.contains'
+    from: 'code.module:services/orders/internal/api'
+    to: 'code.file:services/orders/internal/api/router.go'
+    evidence:
+      - path: 'services/orders/internal/api/router.go'
+        startLine: 3
+        endLine: 3
+        quote: 'package api'
+    reading: 'parsed'
+  - relation: 'code.contains'
+    from: 'code.symbol:services/orders/internal/api/router.go#Deps'
+    to: 'code.field:services/orders/internal/api/router.go#Deps.JWTSecret'
+    evidence:
+      - path: 'services/orders/internal/api/router.go'
+        startLine: 18
+        endLine: 18
+        quote: '	JWTSecret string'
+    reading: 'parsed'
+  - relation: 'code.contains'
+    from: 'code.symbol:services/orders/internal/api/router.go#Deps'
+    to: 'code.field:services/orders/internal/api/router.go#Deps.Log'
+    evidence:
+      - path: 'services/orders/internal/api/router.go'
+        startLine: 16
+        endLine: 16
+        quote: '	Log *slog.Logger'
+    reading: 'parsed'
+  - relation: 'code.contains'
+    from: 'code.symbol:services/orders/internal/api/router.go#Deps'
+    to: 'code.field:services/orders/internal/api/router.go#Deps.Metrics'
+    evidence:
+      - path: 'services/orders/internal/api/router.go'
+        startLine: 20
+        endLine: 20
+        quote: '	Metrics *Metrics'
+    reading: 'parsed'
+  - relation: 'code.contains'
+    from: 'code.symbol:services/orders/internal/api/router.go#Deps'
+    to: 'code.field:services/orders/internal/api/router.go#Deps.Orders'
+    evidence:
+      - path: 'services/orders/internal/api/router.go'
+        startLine: 14
+        endLine: 14
+        quote: '	Orders *OrderHandlers'
+    reading: 'parsed'
+  - relation: 'code.served-by'
+    from: 'code.health-endpoint:orders:/healthz'
+    to: 'code.symbol:services/orders/internal/api/router.go#Health'
+    evidence:
+      - path: 'services/orders/internal/api/router.go'
+        startLine: 42
+        endLine: 42
+        quote: '	mux.HandleFunc("GET /healthz", Health)'
+    reading: 'parsed'
+  - relation: 'code.served-by'
+    from: 'code.route:orders:GET /healthz'
+    to: 'code.symbol:services/orders/internal/api/router.go#Health'
+    evidence:
+      - path: 'services/orders/internal/api/router.go'
+        startLine: 42
+        endLine: 42
+        quote: '	mux.HandleFunc("GET /healthz", Health)'
+    reading: 'parsed'
+  - relation: 'code.served-by'
+    from: 'code.route:orders:GET /metrics'
+    to: 'code.symbol:services/orders/internal/api/metrics.go#Metrics.ServeHTTP'
+    evidence:
+      - path: 'services/orders/internal/api/router.go'
+        startLine: 43
+        endLine: 43
+        quote: '	mux.Handle("GET /metrics", deps.Metrics)'
+    reading: 'parsed'
+  - relation: 'code.served-by'
+    from: 'code.route:orders:GET /orders'
+    to: 'code.symbol:services/orders/internal/api/handlers.go#OrderHandlers.List'
+    evidence:
+      - path: 'services/orders/internal/api/router.go'
+        startLine: 33
+        endLine: 33
+        quote: '	mux.Handle("GET /orders", authed(http.HandlerFunc(deps.Orders.List)))'
+    reading: 'parsed'
+  - relation: 'code.served-by'
+    from: 'code.route:orders:GET /orders/export'
+    to: 'code.symbol:services/orders/internal/api/export.go#OrderHandlers.Export'
+    evidence:
+      - path: 'services/orders/internal/api/router.go'
+        startLine: 40
+        endLine: 40
+        quote: '	mux.HandleFunc("GET /orders/export", deps.Orders.Export)'
+    reading: 'parsed'
+  - relation: 'code.served-by'
+    from: 'code.route:orders:GET /orders/{id}'
+    to: 'code.symbol:services/orders/internal/api/handlers.go#OrderHandlers.Get'
+    evidence:
+      - path: 'services/orders/internal/api/router.go'
+        startLine: 34
+        endLine: 34
+        quote: '	mux.Handle("GET /orders/{id}", authed(http.HandlerFunc(deps.Orders.Get)))'
+    reading: 'parsed'
+  - relation: 'code.served-by'
+    from: 'code.route:orders:POST /orders'
+    to: 'code.symbol:services/orders/internal/api/handlers.go#OrderHandlers.Create'
+    evidence:
+      - path: 'services/orders/internal/api/router.go'
+        startLine: 32
+        endLine: 32
+        quote: '	mux.Handle("POST /orders", authed(http.HandlerFunc(deps.Orders.Create)))'
+    reading: 'parsed'
+  - relation: 'code.served-by'
+    from: 'code.route:orders:POST /orders/{id}/cancel'
+    to: 'code.symbol:services/orders/internal/api/handlers.go#OrderHandlers.Cancel'
+    evidence:
+      - path: 'services/orders/internal/api/router.go'
+        startLine: 35
+        endLine: 35
+        quote: '	mux.Handle("POST /orders/{id}/cancel", authed(http.HandlerFunc(deps.Orders.Cancel)))'
+    reading: 'parsed'
+  - relation: 'code.served-by'
+    from: 'code.route:orders:POST /orders/{id}/ship'
+    to: 'code.symbol:services/orders/internal/api/handlers.go#OrderHandlers.Ship'
+    evidence:
+      - path: 'services/orders/internal/api/router.go'
+        startLine: 36
+        endLine: 36
+        quote: '	mux.Handle("POST /orders/{id}/ship", support(http.HandlerFunc(deps.Orders.Ship)))'
+    reading: 'parsed'
+  - relation: 'code.uses-type'
+    from: 'code.symbol:services/orders/internal/api/router.go#Deps'
+    to: 'code.symbol:services/orders/internal/api/handlers.go#OrderHandlers'
+    evidence:
+      - path: 'services/orders/internal/api/router.go'
+        startLine: 14
+        endLine: 14
+        quote: '	Orders *OrderHandlers'
+    reading: 'parsed'
+  - relation: 'code.uses-type'
+    from: 'code.symbol:services/orders/internal/api/router.go#Deps'
+    to: 'code.symbol:services/orders/internal/api/metrics.go#Metrics'
+    evidence:
+      - path: 'services/orders/internal/api/router.go'
+        startLine: 20
+        endLine: 20
+        quote: '	Metrics *Metrics'
+    reading: 'parsed'
+  - relation: 'code.uses-type'
+    from: 'code.symbol:services/orders/internal/api/router.go#NewRouter'
+    to: 'code.symbol:services/orders/internal/api/router.go#Deps'
+    evidence:
+      - path: 'services/orders/internal/api/router.go'
+        startLine: 25
+        endLine: 25
+        quote: 'func NewRouter(deps Deps) http.Handler {'
+    reading: 'parsed'

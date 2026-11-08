@@ -1,0 +1,83 @@
+path: 'services/payments/test/factory.test.ts'
+nodes:
+  - id: 'code.file:services/payments/test/factory.test.ts'
+    kind: 'code.file'
+    label: 'factory.test.ts'
+    evidence:
+      - path: 'services/payments/test/factory.test.ts'
+        startLine: 1
+        endLine: 1
+        quote: 'import { Cardnet } from ''../src/providers/cardnet'';'
+    reading: 'parsed'
+  - id: 'code.test-case:services/payments/test/factory.test.ts#builds the cardnet adapter for "cardnet"'
+    kind: 'code.test-case'
+    label: 'builds the cardnet adapter for "cardnet"'
+    evidence:
+      - path: 'services/payments/test/factory.test.ts'
+        startLine: 6
+        endLine: 6
+        quote: '  it(''builds the cardnet adapter for "cardnet"'', () => {'
+    reading: 'parsed'
+  - id: 'code.test-case:services/payments/test/factory.test.ts#builds the deferred adapter for "deferred"'
+    kind: 'code.test-case'
+    label: 'builds the deferred adapter for "deferred"'
+    evidence:
+      - path: 'services/payments/test/factory.test.ts'
+        startLine: 12
+        endLine: 12
+        quote: '  it(''builds the deferred adapter for "deferred"'', () => {'
+    reading: 'parsed'
+  - id: 'code.test-case:services/payments/test/factory.test.ts#refuses a provider name it does not know'
+    kind: 'code.test-case'
+    label: 'refuses a provider name it does not know'
+    evidence:
+      - path: 'services/payments/test/factory.test.ts'
+        startLine: 18
+        endLine: 18
+        quote: '  it(''refuses a provider name it does not know'', () => {'
+    reading: 'parsed'
+edges:
+  - relation: 'code.calls'
+    from: 'code.file:services/payments/test/factory.test.ts'
+    to: 'code.symbol:services/payments/src/providers/factory.ts#PaymentClientFactory.create'
+    evidence:
+      - path: 'services/payments/test/factory.test.ts'
+        startLine: 7
+        endLine: 7
+        quote: '    const provider = PaymentClientFactory.create(''cardnet'');'
+      - path: 'services/payments/test/factory.test.ts'
+        startLine: 13
+        endLine: 13
+        quote: '    const provider = PaymentClientFactory.create(''deferred'');'
+      - path: 'services/payments/test/factory.test.ts'
+        startLine: 19
+        endLine: 19
+        quote: '    expect(() => PaymentClientFactory.create(''stripe'')).toThrow(''unknown payment provider "stripe"'');'
+    reading: 'parsed'
+  - relation: 'code.imports'
+    from: 'code.file:services/payments/test/factory.test.ts'
+    to: 'code.file:services/payments/src/providers/cardnet.ts'
+    evidence:
+      - path: 'services/payments/test/factory.test.ts'
+        startLine: 1
+        endLine: 1
+        quote: 'import { Cardnet } from ''../src/providers/cardnet'';'
+    reading: 'parsed'
+  - relation: 'code.imports'
+    from: 'code.file:services/payments/test/factory.test.ts'
+    to: 'code.file:services/payments/src/providers/deferred.ts'
+    evidence:
+      - path: 'services/payments/test/factory.test.ts'
+        startLine: 2
+        endLine: 2
+        quote: 'import { Deferred } from ''../src/providers/deferred'';'
+    reading: 'parsed'
+  - relation: 'code.imports'
+    from: 'code.file:services/payments/test/factory.test.ts'
+    to: 'code.file:services/payments/src/providers/factory.ts'
+    evidence:
+      - path: 'services/payments/test/factory.test.ts'
+        startLine: 3
+        endLine: 3
+        quote: 'import { PaymentClientFactory } from ''../src/providers/factory'';'
+    reading: 'parsed'

@@ -1,0 +1,304 @@
+path: 'services/checkout/src/payments-client.ts'
+nodes:
+  - id: 'code.field:services/checkout/src/payments-client.ts#AuthorizeResult.declineReason'
+    kind: 'code.field'
+    label: 'AuthorizeResult.declineReason'
+    evidence:
+      - path: 'services/checkout/src/payments-client.ts'
+        startLine: 11
+        endLine: 11
+        quote: '  declineReason: string;'
+    reading: 'parsed'
+  - id: 'code.field:services/checkout/src/payments-client.ts#AuthorizeResult.paymentId'
+    kind: 'code.field'
+    label: 'AuthorizeResult.paymentId'
+    evidence:
+      - path: 'services/checkout/src/payments-client.ts'
+        startLine: 9
+        endLine: 9
+        quote: '  paymentId: string;'
+    reading: 'parsed'
+  - id: 'code.field:services/checkout/src/payments-client.ts#AuthorizeResult.status'
+    kind: 'code.field'
+    label: 'AuthorizeResult.status'
+    evidence:
+      - path: 'services/checkout/src/payments-client.ts'
+        startLine: 10
+        endLine: 10
+        quote: '  status: string;'
+    reading: 'parsed'
+  - id: 'code.field:services/checkout/src/payments-client.ts#PaymentsClient.deadlineMs'
+    kind: 'code.field'
+    label: 'PaymentsClient.deadlineMs'
+    evidence:
+      - path: 'services/checkout/src/payments-client.ts'
+        startLine: 28
+        endLine: 28
+        quote: '    private readonly deadlineMs: number,'
+    reading: 'parsed'
+  - id: 'code.field:services/checkout/src/payments-client.ts#PaymentsClient.stub'
+    kind: 'code.field'
+    label: 'PaymentsClient.stub'
+    evidence:
+      - path: 'services/checkout/src/payments-client.ts'
+        startLine: 24
+        endLine: 24
+        quote: '  private readonly stub: PaymentsStub;'
+    reading: 'parsed'
+  - id: 'code.file:services/checkout/src/payments-client.ts'
+    kind: 'code.file'
+    label: 'payments-client.ts'
+    evidence:
+      - path: 'services/checkout/src/payments-client.ts'
+        startLine: 1
+        endLine: 1
+        quote: 'import path from ''node:path'';'
+    reading: 'parsed'
+  - id: 'code.symbol:services/checkout/src/payments-client.ts#AuthorizeResult'
+    kind: 'code.symbol'
+    label: 'AuthorizeResult'
+    evidence:
+      - path: 'services/checkout/src/payments-client.ts'
+        startLine: 8
+        endLine: 8
+        quote: 'export interface AuthorizeResult {'
+    reading: 'parsed'
+  - id: 'code.symbol:services/checkout/src/payments-client.ts#PROTO_PATH'
+    kind: 'code.symbol'
+    label: 'PROTO_PATH'
+    evidence:
+      - path: 'services/checkout/src/payments-client.ts'
+        startLine: 6
+        endLine: 6
+        quote: 'const PROTO_PATH = path.resolve(__dirname, ''../../../contracts/proto/payments.proto'');'
+    reading: 'parsed'
+  - id: 'code.symbol:services/checkout/src/payments-client.ts#PaymentsClient'
+    kind: 'code.symbol'
+    label: 'PaymentsClient'
+    evidence:
+      - path: 'services/checkout/src/payments-client.ts'
+        startLine: 23
+        endLine: 23
+        quote: 'export class PaymentsClient {'
+    reading: 'parsed'
+  - id: 'code.symbol:services/checkout/src/payments-client.ts#PaymentsClient.authorize'
+    kind: 'code.symbol'
+    label: 'PaymentsClient.authorize'
+    evidence:
+      - path: 'services/checkout/src/payments-client.ts'
+        startLine: 38
+        endLine: 38
+        quote: '  authorize(orderId: string, amountCents: number, currency: string, cardToken: string, idempotencyKey: string): Promise<AuthorizeResult> {'
+    reading: 'parsed'
+  - id: 'code.symbol:services/checkout/src/payments-client.ts#PaymentsClient.close'
+    kind: 'code.symbol'
+    label: 'PaymentsClient.close'
+    evidence:
+      - path: 'services/checkout/src/payments-client.ts'
+        startLine: 51
+        endLine: 51
+        quote: '  close(): void {'
+    reading: 'parsed'
+  - id: 'code.symbol:services/checkout/src/payments-client.ts#PaymentsClient.constructor'
+    kind: 'code.symbol'
+    label: 'PaymentsClient.constructor'
+    evidence:
+      - path: 'services/checkout/src/payments-client.ts'
+        startLine: 26
+        endLine: 26
+        quote: '  constructor('
+    reading: 'parsed'
+  - id: 'code.symbol:services/checkout/src/payments-client.ts#PaymentsStub'
+    kind: 'code.symbol'
+    label: 'PaymentsStub'
+    evidence:
+      - path: 'services/checkout/src/payments-client.ts'
+        startLine: 14
+        endLine: 14
+        quote: 'interface PaymentsStub extends grpc.Client {'
+    reading: 'parsed'
+  - id: 'code.symbol:services/checkout/src/payments-client.ts#PaymentsStub.authorize'
+    kind: 'code.symbol'
+    label: 'PaymentsStub.authorize'
+    evidence:
+      - path: 'services/checkout/src/payments-client.ts'
+        startLine: 15
+        endLine: 15
+        quote: '  authorize('
+    reading: 'parsed'
+edges:
+  - relation: 'code.calls'
+    from: 'code.symbol:services/checkout/src/payments-client.ts#PaymentsClient.authorize'
+    to: 'code.symbol:services/checkout/src/payments-client.ts#PaymentsStub.authorize'
+    evidence:
+      - path: 'services/checkout/src/payments-client.ts'
+        startLine: 41
+        endLine: 41
+        quote: '      this.stub.authorize({ orderId, amountCents, currency, cardToken, idempotencyKey }, { deadline }, (error, reply) => {'
+    reading: 'parsed'
+  - relation: 'code.calls-remote'
+    from: 'code.symbol:services/checkout/src/payments-client.ts#PaymentsClient.authorize'
+    to: 'code.operation:contracts/proto/payments.proto#Authorize'
+    evidence:
+      - path: 'services/checkout/src/payments-client.ts'
+        startLine: 39
+        endLine: 39
+        quote: '    const deadline = new Date(Date.now() + this.deadlineMs);'
+      - path: 'services/checkout/src/payments-client.ts'
+        startLine: 41
+        endLine: 41
+        quote: '      this.stub.authorize({ orderId, amountCents, currency, cardToken, idempotencyKey }, { deadline }, (error, reply) => {'
+    reading: 'parsed'
+  - relation: 'code.contains'
+    from: 'code.file:services/checkout/src/payments-client.ts'
+    to: 'code.symbol:services/checkout/src/payments-client.ts#AuthorizeResult'
+    evidence:
+      - path: 'services/checkout/src/payments-client.ts'
+        startLine: 8
+        endLine: 8
+        quote: 'export interface AuthorizeResult {'
+    reading: 'parsed'
+  - relation: 'code.contains'
+    from: 'code.file:services/checkout/src/payments-client.ts'
+    to: 'code.symbol:services/checkout/src/payments-client.ts#PROTO_PATH'
+    evidence:
+      - path: 'services/checkout/src/payments-client.ts'
+        startLine: 6
+        endLine: 6
+        quote: 'const PROTO_PATH = path.resolve(__dirname, ''../../../contracts/proto/payments.proto'');'
+    reading: 'parsed'
+  - relation: 'code.contains'
+    from: 'code.file:services/checkout/src/payments-client.ts'
+    to: 'code.symbol:services/checkout/src/payments-client.ts#PaymentsClient'
+    evidence:
+      - path: 'services/checkout/src/payments-client.ts'
+        startLine: 23
+        endLine: 23
+        quote: 'export class PaymentsClient {'
+    reading: 'parsed'
+  - relation: 'code.contains'
+    from: 'code.file:services/checkout/src/payments-client.ts'
+    to: 'code.symbol:services/checkout/src/payments-client.ts#PaymentsStub'
+    evidence:
+      - path: 'services/checkout/src/payments-client.ts'
+        startLine: 14
+        endLine: 14
+        quote: 'interface PaymentsStub extends grpc.Client {'
+    reading: 'parsed'
+  - relation: 'code.contains'
+    from: 'code.symbol:services/checkout/src/payments-client.ts#AuthorizeResult'
+    to: 'code.field:services/checkout/src/payments-client.ts#AuthorizeResult.declineReason'
+    evidence:
+      - path: 'services/checkout/src/payments-client.ts'
+        startLine: 11
+        endLine: 11
+        quote: '  declineReason: string;'
+    reading: 'parsed'
+  - relation: 'code.contains'
+    from: 'code.symbol:services/checkout/src/payments-client.ts#AuthorizeResult'
+    to: 'code.field:services/checkout/src/payments-client.ts#AuthorizeResult.paymentId'
+    evidence:
+      - path: 'services/checkout/src/payments-client.ts'
+        startLine: 9
+        endLine: 9
+        quote: '  paymentId: string;'
+    reading: 'parsed'
+  - relation: 'code.contains'
+    from: 'code.symbol:services/checkout/src/payments-client.ts#AuthorizeResult'
+    to: 'code.field:services/checkout/src/payments-client.ts#AuthorizeResult.status'
+    evidence:
+      - path: 'services/checkout/src/payments-client.ts'
+        startLine: 10
+        endLine: 10
+        quote: '  status: string;'
+    reading: 'parsed'
+  - relation: 'code.contains'
+    from: 'code.symbol:services/checkout/src/payments-client.ts#PaymentsClient'
+    to: 'code.field:services/checkout/src/payments-client.ts#PaymentsClient.deadlineMs'
+    evidence:
+      - path: 'services/checkout/src/payments-client.ts'
+        startLine: 28
+        endLine: 28
+        quote: '    private readonly deadlineMs: number,'
+    reading: 'parsed'
+  - relation: 'code.contains'
+    from: 'code.symbol:services/checkout/src/payments-client.ts#PaymentsClient'
+    to: 'code.field:services/checkout/src/payments-client.ts#PaymentsClient.stub'
+    evidence:
+      - path: 'services/checkout/src/payments-client.ts'
+        startLine: 24
+        endLine: 24
+        quote: '  private readonly stub: PaymentsStub;'
+    reading: 'parsed'
+  - relation: 'code.contains'
+    from: 'code.symbol:services/checkout/src/payments-client.ts#PaymentsClient'
+    to: 'code.symbol:services/checkout/src/payments-client.ts#PaymentsClient.authorize'
+    evidence:
+      - path: 'services/checkout/src/payments-client.ts'
+        startLine: 38
+        endLine: 38
+        quote: '  authorize(orderId: string, amountCents: number, currency: string, cardToken: string, idempotencyKey: string): Promise<AuthorizeResult> {'
+    reading: 'parsed'
+  - relation: 'code.contains'
+    from: 'code.symbol:services/checkout/src/payments-client.ts#PaymentsClient'
+    to: 'code.symbol:services/checkout/src/payments-client.ts#PaymentsClient.close'
+    evidence:
+      - path: 'services/checkout/src/payments-client.ts'
+        startLine: 51
+        endLine: 51
+        quote: '  close(): void {'
+    reading: 'parsed'
+  - relation: 'code.contains'
+    from: 'code.symbol:services/checkout/src/payments-client.ts#PaymentsClient'
+    to: 'code.symbol:services/checkout/src/payments-client.ts#PaymentsClient.constructor'
+    evidence:
+      - path: 'services/checkout/src/payments-client.ts'
+        startLine: 26
+        endLine: 26
+        quote: '  constructor('
+    reading: 'parsed'
+  - relation: 'code.contains'
+    from: 'code.symbol:services/checkout/src/payments-client.ts#PaymentsStub'
+    to: 'code.symbol:services/checkout/src/payments-client.ts#PaymentsStub.authorize'
+    evidence:
+      - path: 'services/checkout/src/payments-client.ts'
+        startLine: 15
+        endLine: 15
+        quote: '  authorize('
+    reading: 'parsed'
+  - relation: 'code.depends-on'
+    from: 'code.file:services/checkout/src/payments-client.ts'
+    to: 'code.contract:contracts/proto/payments.proto'
+    evidence:
+      - path: 'services/checkout/src/payments-client.ts'
+        startLine: 6
+        endLine: 6
+        quote: 'const PROTO_PATH = path.resolve(__dirname, ''../../../contracts/proto/payments.proto'');'
+    reading: 'parsed'
+  - relation: 'code.imports'
+    from: 'code.file:services/checkout/src/payments-client.ts'
+    to: 'code.dependency:services/checkout/package.json#@grpc/grpc-js'
+    evidence:
+      - path: 'services/checkout/src/payments-client.ts'
+        startLine: 2
+        endLine: 2
+        quote: 'import * as grpc from ''@grpc/grpc-js'';'
+    reading: 'parsed'
+  - relation: 'code.imports'
+    from: 'code.file:services/checkout/src/payments-client.ts'
+    to: 'code.dependency:services/checkout/package.json#@grpc/proto-loader'
+    evidence:
+      - path: 'services/checkout/src/payments-client.ts'
+        startLine: 3
+        endLine: 3
+        quote: 'import * as protoLoader from ''@grpc/proto-loader'';'
+    reading: 'parsed'
+  - relation: 'code.uses-type'
+    from: 'code.field:services/checkout/src/payments-client.ts#PaymentsClient.stub'
+    to: 'code.symbol:services/checkout/src/payments-client.ts#PaymentsStub'
+    evidence:
+      - path: 'services/checkout/src/payments-client.ts'
+        startLine: 24
+        endLine: 24
+        quote: '  private readonly stub: PaymentsStub;'
+    reading: 'parsed'

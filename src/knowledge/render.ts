@@ -25,7 +25,9 @@ import { readBody } from './markdown.js';
 import { entityAtAddress, type DocEntity } from './doc-entities.js';
 import type { MarkdownEntity } from './markdown.js';
 import type { Block, EntityListing, EntityRef, KindSummary, PageModel } from './model.js';
-import { documentAddress, noEntityMessage, type Resolution } from './resolve.js';
+import { documentAddress, noEntityMessage, sourceAddress, type Resolution } from './resolve.js';
+import { SOURCE_BLOCK_LINES, detailRows, languageOf } from './blocks.js';
+import type { FilePageFacts } from './repository-view.js';
 import { renderLiquidPage } from './liquid.js';
 import { blockIdentity, foldLanguageParams, parseTemplate, substitute } from './template.js';
 import { termLinks } from './glossary.js';
@@ -307,6 +309,57 @@ async function trailOf(ctx: RenderContext, subject: Subject): Promise<EntityRef[
   return page === undefined ? [] : [refOfMarkdown(ctx, page)];
 }
 
+/** The engine's words for the blocks a file's page draws, in the interface language the page was asked in. */
+const RECORD_PAGE_WORDS = {
+  details: { en: 'Details', ru: 'Сведения' },
+  source: { en: 'Source', ru: 'Исходный текст' },
+} as const;
+
+/**
+ * The page of one file the store holds (madarch-8bdc.2.5, item 3): the facts the repository's own file page states —
+ * the properties the manifest's `details:` names for the kind, in the manifest's words for this language — and the
+ * file's text at the as-is commit. A kind whose entities are records holds no versioned graph, so this page draws no
+ * relations, history or diagrams rather than empty sections of them, and the repository's own pages stand beside it.
+ *
+ * The facts come from the store's records and from nothing else (`repository-view.ts`), which is the reader the
+ * catalogue and the repository pages use: a listing never names a file whose page this is not.
+ */
+export async function recordFilePage(ctx: RenderContext, held: FilePageFacts, id: string, lang?: string): Promise<PageModel | undefined> {
+  const kind = id.slice(0, id.indexOf(':'));
+  const decl = ctx.manifest.kinds.get(kind);
+  // A kind the manifest does not declare has no page, as it has none from the graph: the caller's 404 says so.
+  if (decl === undefined) return undefined;
+  const language = lang ?? ctx.language;
+  const words = (entry: { readonly en: string; readonly ru: string }): string => (language === 'ru' ? entry.ru : entry.en);
+  const rows = detailRows({
+    properties: {
+      path: held.path, language: held.language, size: held.bytes,
+      lines: held.lines ?? undefined, commitCount: held.commitCount, authors: [...held.authors],
+    },
+  }, decl.details, ctx.manifest.properties, language);
+  const blocks: Block[] = [];
+  if (rows.length > 0) blocks.push({ type: 'properties', title: words(RECORD_PAGE_WORDS.details), rows });
+  // A binary holds no lines to draw, and a file the checkout cannot read has none either: the page then states its
+  // facts and no source, rather than a section drawn with nothing in it.
+  const text = held.form === 'binary' ? undefined : await ctx.readSource(held.repository, held.path);
+  if (text !== undefined && text.trim() !== '') {
+    const lines = text.split('\n');
+    if (lines[lines.length - 1] === '') lines.pop();
+    const end = lines.length;
+    const stop = Math.min(end, SOURCE_BLOCK_LINES);
+    const web = ctx.webOf?.(held.repository, held.path, 1, end);
+    blocks.push({
+      type: 'source',
+      title: words(RECORD_PAGE_WORDS.source),
+      location: { repo: held.repository, path: held.path, lineStart: 1, lineEnd: end, href: sourceAddress(held.repository, held.path, 1), ...(web === undefined ? {} : { web }) },
+      language: languageOf(held.path),
+      text: lines.slice(0, stop).join('\n'),
+      truncated: stop < end,
+    });
+  }
+  return { id, kind, title: held.path, trail: [], blocks, resolutions: {}, findings: [], notes: [] };
+}
+
 // ---- listings ---------------------------------------------------------------------------------
 
 /** The origins of a kind's entities: the manifest's word, else what the kind's source tells. */
@@ -321,6 +374,9 @@ function originsOf(ctx: RenderContext, decl: { name: string; source: 'graph' | '
 
 export async function kindSummaries(ctx: RenderContext): Promise<KindSummary[]> {
   const counts = new Map((await ctx.graph.kindCounts()).map((entry) => [entry.kind, entry.count]));
+  // The record store's files are the kind `code.file`'s entities in a store this fill wrote (madarch-8bdc.2.5): the
+  // count the navigation and the listing show is the store's own, so the two never disagree about where the files are.
+  if (ctx.records !== undefined) counts.set('code.file', await ctx.records.files.count());
   const statements = new Map((await ctx.index?.counts() ?? []).map((entry) => [entry.kind, entry.statements]));
   return [...ctx.manifest.kinds.values()].filter((decl) => decl.member === undefined).map((decl) => ({
     kind: decl.name,
@@ -346,6 +402,24 @@ export async function kindSummaries(ctx: RenderContext): Promise<KindSummary[]> 
 export async function listEntities(ctx: RenderContext, kind: string, options: { q?: string; after?: string; limit: number }): Promise<EntityListing | undefined> {
   const decl = ctx.manifest.kinds.get(kind);
   if (decl === undefined || decl.member !== undefined) return undefined;
+  // A file of the store this fill wrote is a record, not a version of the temporal graph: the kind `code.file` lists the
+  // record tables' paths, in code-point order, one bounded page at a time, and its page is the repository's file page.
+  if (kind === 'code.file' && ctx.records !== undefined) {
+    const filter = options.q?.trim() ?? '';
+    const page = await ctx.records.files.page({ limit: options.limit, ...(options.after === undefined ? {} : { after: options.after }), ...(filter === '' ? {} : { prefix: filter }) });
+    return {
+      kind, total: page.total, next: page.next,
+      rows: page.rows.map((file) => {
+        const web = ctx.webOf?.(file.repository, file.path, 1, 1);
+        return {
+          id: `code.file:${file.path}`, kind, label: file.path,
+          // A file's page is the repository's own (`/k/file`), the only page this step draws of one.
+          href: `/k/file?${new URLSearchParams({ path: file.path }).toString()}`,
+          location: { repo: file.repository, path: file.path, lineStart: 1, lineEnd: 1, href: sourceAddress(file.repository, file.path, 1), ...(web === undefined ? {} : { web }) },
+        };
+      }),
+    };
+  }
   if (decl.source === 'markdown' || decl.source === 'document') {
     const text = options.q?.trim().toLowerCase() ?? '';
     const pool: (MarkdownEntity | DocEntity)[] = decl.source === 'markdown' ? [...ctx.markdown.values()] : [...ctx.docEntities.values()];

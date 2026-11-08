@@ -1,0 +1,58 @@
+path: 'services/payments/prisma/schema.prisma'
+notes: 'the Prisma schema of the payments database; its models are the table nodes declared by the migrations, and no kind holds a Prisma field annotation.'
+nodes:
+  - id: 'code.file:services/payments/prisma/schema.prisma'
+    kind: 'code.file'
+    label: 'schema.prisma'
+    evidence:
+      - path: 'services/payments/prisma/schema.prisma'
+        startLine: 1
+        endLine: 1
+        quote: 'generator client {'
+    reading: 'parsed'
+edges:
+  - relation: 'code.declares'
+    from: 'code.file:services/payments/prisma/schema.prisma'
+    to: 'code.table:payments.payments'
+    evidence:
+      - path: 'services/payments/prisma/schema.prisma'
+        startLine: 10
+        endLine: 10
+        quote: 'model Payment {'
+    reading: 'declared'
+  - relation: 'code.declares'
+    from: 'code.file:services/payments/prisma/schema.prisma'
+    to: 'code.table:payments.refunds'
+    evidence:
+      - path: 'services/payments/prisma/schema.prisma'
+        startLine: 29
+        endLine: 29
+        quote: 'model Refund {'
+    reading: 'declared'
+  - relation: 'code.foreign-key'
+    from: 'code.column:payments.refunds.payment_id'
+    to: 'code.column:payments.payments.id'
+    evidence:
+      - path: 'services/payments/prisma/schema.prisma'
+        startLine: 32
+        endLine: 32
+        quote: '  payment     Payment  @relation(fields: [paymentId], references: [id])'
+    reading: 'declared'
+  - relation: 'code.logical-reference'
+    from: 'code.column:payments.payments.order_id'
+    to: 'code.column:orders.orders.id'
+    evidence:
+      - path: 'services/payments/prisma/schema.prisma'
+        startLine: 12
+        endLine: 12
+        quote: '  // orderId is a logical reference to the orders service. There is no relation'
+    reading: 'judgement'
+  - relation: 'code.reads-env'
+    from: 'code.file:services/payments/prisma/schema.prisma'
+    to: 'code.env-var:DATABASE_URL'
+    evidence:
+      - path: 'services/payments/prisma/schema.prisma'
+        startLine: 7
+        endLine: 7
+        quote: '  url      = env("DATABASE_URL")'
+    reading: 'parsed'

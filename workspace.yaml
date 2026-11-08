@@ -1,0 +1,13 @@
+# This repository's own settings, read as data (decision 0021's manifest).
+schemaVersion: 1
+id: madarch
+name: madarch
+fill:
+  stages:
+    history:
+      # The trailer this repository's commit messages use for task ids, and the
+      # literal separators between the ids of one trailer value.
+      trailer: Task
+      separators:
+        - ","
+        - " "

@@ -6,8 +6,9 @@
  * anchor, its heading, its depth, the lines it covers and the bytes it spans),
  * one `document-link` edge per link end a section names (to another document, to
  * a code path, to an address outside the repositories, or unresolved with the
- * place the link stands at), one `task-key` edge per task key a section names,
- * and one `coverage` node saying what the read could not read.
+ * place the link stands at), one `task-key` edge per task key the document
+ * declares in its front matter, and one `coverage` node saying what the read
+ * could not read.
  *
  * **The bytes come through the snapshot reader** (stage 0, madarch-tzte.21.1):
  * a unit opens its repository's reader and reads its own document's bytes there,
@@ -37,9 +38,10 @@
  *
  * **What a reader of the page sees.** A line inside a fenced code block or
  * inside an HTML comment is an example, not content, and neither opens a section
- * nor holds a link or a task key. An inline code span's content is not read
- * either: the spans' backticks are masked before a line's links and task keys
- * are read, so a link written inside one is no link of the document. The marking
+ * nor holds a link. An inline code span's content is not read either: the
+ * spans' backticks are masked before a line's links are read, so a link written
+ * inside one is no link of the document. A task key is never read from a line:
+ * it is read only from the front-matter field the product declares. The marking
  * is the wiki's own (`src/product-wiki/documents.ts` reads a product page's body
  * the same way), and a link's target is resolved by the wiki's own resolver: a
  * relative path is read from the document's folder (`.` kept, `..` popping,
@@ -76,26 +78,31 @@
  * fact's own path and place.
  */
 import { Type } from 'typebox';
+import { LineCounter, isMap, isScalar, isSeq, parseDocument } from 'yaml';
+import { canonicalJsonDigest } from '../../model/canonical.js';
 import { byCodePoint } from '../../model/order.js';
 import { ID_PATTERN } from '../../model/schema.js';
 import { resolveBodyLink } from '../../product-wiki/documents.js';
 import {
   type CoverageGap, type CoverageValue, FACT_KINDS, type Fact, type FactPlace, type FactRange,
-  type FactTerm, factId, isRepositoryPath, makeEdgeFact, makeNodeFact, repositoryPath, type RepositoryPath,
+  type FactSource, type FactTerm, factId, isRepositoryPath, makeEdgeFact, makeNodeFact, repositoryPath, type RepositoryPath,
 } from '../facts.js';
-import type { SnapshotEntry, SnapshotReader, SnapshotSource } from '../snapshot.js';
+import type { SnapshotSource } from '../snapshot.js';
+import { evidenceAtPlace, provenanceOfPlace } from './draft.js';
+import type { StaticStageSource } from './static-context.js';
+import { checkStaticGraphDraft, graphWritesOf } from './static-graph.js';
+import { publishedTreeRead, publishedTreeRows } from './tree-rows.js';
 import {
   DEFAULT_STAGE_DEFAULTS, type FillStage, type StageContext, type StageDraftSet, type StageDraftWrite,
   type StageExecutionResult, type StageGraphReader, type StagePlan, type StageUnit, type StageValidation,
 } from '../stage.js';
-import { checkFactDraft, evidenceAt, provenanceOf } from './draft.js';
 import { wholeFileRange } from './inventory.js';
 
 /** The stage's id, as it is registered; decision 0026's stage 6, named by what it reads. */
 export const DOCUMENT_INDEX_STAGE_ID = 'document-index';
 
 /** The stage's own version, bumped when what it writes or plans changes. */
-export const DOCUMENT_INDEX_STAGE_VERSION = 1;
+export const DOCUMENT_INDEX_STAGE_VERSION = 4;
 
 /**
  * The fact kinds the stage produces, in code point order: what the read could
@@ -108,6 +115,17 @@ export const DOCUMENT_INDEX_STAGE_KINDS: readonly string[] = ['coverage', 'docum
 export const PUBLISHED_DOCUMENTS_READ = 'stage-6-published-documents';
 
 /**
+ * The reader every fact of this stage cites: its own reading of a document's
+ * bytes. The coverage's identity carries the reader, so this stage's coverage of
+ * a path is its own, and the plan's read of what it published is scoped by this
+ * name.
+ */
+export const DOCUMENT_INDEX_SOURCE_SYSTEM = 'madarch-document-index';
+
+/** The reader this stage's facts cite, at the stage's own version. */
+const DOCUMENT_INDEX_SOURCE: FactSource = { system: DOCUMENT_INDEX_SOURCE_SYSTEM, version: '2' };
+
+/**
  * The one tracked read the plan makes: the `document` facts the graph already
  * holds for one repository's stage-6 index, with the blob each document's bytes
  * stand under. The text is a JSON document, so a wiring reads it as data and not
@@ -118,7 +136,7 @@ export function publishedDocumentsRead(repository: string): string {
 }
 
 /** One row of that read: a `document` fact, as the graph holds it. */
-export interface PublishedDocumentRow {
+interface PublishedDocumentRow {
   readonly kind: 'document';
   readonly repository: string;
   readonly path: string;
@@ -359,72 +377,78 @@ export function linksOf(line: DocumentLine): LineLink[] {
   return links;
 }
 
-/** One task key a line names: the key as written, and the columns it covers. */
+/** One task key a document declares: the key a parser yielded, the line it stands on, and the columns its source covers. */
 export interface LineTaskKey {
   readonly key: string;
+  readonly line: number;
   readonly startColumn: number;
   readonly endColumn: number;
 }
 
-/** The marker a document writes a task key after: the tracker's own `Task:`, and the header's `Tasks:`. */
-const TASK_KEY_MARKER = /\btasks?:/giu;
-
-/** One token of a key list: the run of characters between the commas and the whitespace a reader splits on. */
-const KEY_TOKEN = /[^\s,]+/gu;
-
-/** What surrounds a key and is not part of it: a bracket, a quote, a sentence's full stop or comma. */
-const SURROUNDING_PUNCTUATION = /^[^A-Za-z0-9]+|[^A-Za-z0-9]+$/gu;
+/** What a document's front matter declared, and the problem that kept a declared field from being read, where one did. */
+interface FrontMatterKeys {
+  readonly keys: readonly LineTaskKey[];
+  readonly problem?: { readonly line: number; readonly message: string };
+}
 
 /**
- * The shape a tracker's id has, whole: a letter first (so a date, a version or a
- * number is no key), then one or more `-`- or `.`-separated parts of letters and
- * digits (`madarch-tzte.21.4`, `madarch-1xq`), and nothing else.
+ * The task keys one document declares in its YAML front matter: the field the
+ * product names, read by a YAML parser, each value once, in the order the
+ * document writes them. No field name stands here: a product that names none
+ * reads no key, and a key written in running prose is never read.
  */
-const TRACKER_KEY = /^[A-Za-z][A-Za-z0-9]*(?:[-.][A-Za-z0-9]+)+$/u;
-
-/**
- * The task keys one line names: after a `Task:` or `Tasks:` marker
- * (case-insensitive — the tracker's own rule for a commit message is `Task:`, and
- * the project's change records write the header `Tasks:`), the run of tokens
- * that read as a tracker's id, ending at the first token that does not. The
- * tracker's own reader splits a key list on commas and whitespace, so a key is a
- * whole token; a key a document writes in a sentence carries a full stop, a
- * comma or a bracket around it, which is not part of the key, and the run ends
- * at the first word of the sentence, which is what keeps a document's prose and
- * the file names further along the line out of the graph. A token is a key when
- * what remains of it is shaped as a tracker's id: a letter first, then one or
- * more `-`- or `.`-separated parts of letters and digits, and nothing else — so a
- * date, a time and a bare number are no keys. A token that opens a bracket ends
- * the run with them, since a bracket opens the sentence's own aside. The shape is
- * all the rule has: a hyphenated word inside the run reads as a key, since
- * nothing tells `release-notes` from `madarch-1xq`. Each key is written once per
- * line, at the columns it stands at.
- */
-export function taskKeysOf(line: DocumentLine): LineTaskKey[] {
-  if (!line.content) return [];
-  const masked = line.text.replace(CODE_SPAN, (span) => ' '.repeat(span.length));
-  const keys: LineTaskKey[] = [];
-  const seen = new Set<string>();
-  for (const marker of masked.matchAll(TASK_KEY_MARKER)) {
-    const after = (marker.index ?? 0) + marker[0].length;
-    const rest = masked.slice(after);
-    for (const token of rest.matchAll(KEY_TOKEN)) {
-      const raw = token[0];
-      // The list ends at the first token that opens a bracket or is no key: a
-      // key list is a run, and what follows it is the sentence the marker
-      // stands in — a bracket opens that sentence's aside, and a word with no
-      // separator is its prose.
-      if (raw.startsWith('(') || raw.startsWith('[')) break;
-      const bare = raw.replace(SURROUNDING_PUNCTUATION, '');
-      if (!TRACKER_KEY.test(bare)) break;
-      if (seen.has(bare)) continue;
-      seen.add(bare);
-      const start = after + (token.index ?? 0) + (raw.length - raw.replace(/^[^A-Za-z0-9]+/u, '').length);
-      keys.push({ key: bare, startColumn: start, endColumn: start + bare.length });
+function frontMatterKeys(lines: readonly DocumentLine[], field: string | undefined): FrontMatterKeys {
+  if (field === undefined || lines.length === 0) return { keys: [] };
+  if ((lines[0] as DocumentLine).text.trim() !== '---') return { keys: [] };
+  let close = -1;
+  for (let index = 1; index < lines.length; index += 1) {
+    if ((lines[index] as DocumentLine).text.trim() === '---') {
+      close = index;
+      break;
     }
   }
-  return keys.sort((left, right) => left.startColumn - right.startColumn);
+  if (close < 0) return { keys: [] };
+  const body = lines.slice(1, close).map((line) => line.text).join('\n');
+  const counter = new LineCounter();
+  const doc = parseDocument(body, { lineCounter: counter, uniqueKeys: true });
+  const first = doc.errors[0];
+  if (first !== undefined) {
+    return { keys: [], problem: { line: (first.linePos?.[0]?.line ?? 1) + 1, message: `the front matter is no YAML: ${first.message.split('\n')[0] ?? first.message}` } };
+  }
+  if (!isMap(doc.contents)) {
+    return { keys: [], problem: { line: 1, message: 'the front matter is no mapping, so the field it names stands nowhere' } };
+  }
+  let value: unknown;
+  let fieldLine = 1;
+  for (const pair of doc.contents.items) {
+    if (!isScalar(pair.key) || pair.key.value !== field) continue;
+    value = pair.value;
+    fieldLine = pair.key.range === undefined ? 1 : counter.linePos(pair.key.range[0]).line + 1;
+  }
+  if (value === null || value === undefined) return { keys: [] };
+  const items: readonly unknown[] = isSeq(value) ? [...value.items] : [value];
+  const keys: LineTaskKey[] = [];
+  for (let index = 0; index < items.length; index += 1) {
+    const item = items[index];
+    if (!isScalar(item) || typeof item.value !== 'string') {
+      return { keys: [], problem: { line: fieldLine, message: `the "${field}" field's entry ${index + 1} is no text key` } };
+    }
+    const range = item.range;
+    if (range === undefined || range === null) {
+      return { keys: [], problem: { line: fieldLine, message: `the "${field}" field's entry ${index + 1} has no source range` } };
+    }
+    const start = counter.linePos(range[0]);
+    const end = counter.linePos(range[1]);
+    keys.push({
+      key: item.value,
+      line: start.line + 1,
+      startColumn: start.col - 1,
+      endColumn: end.line === start.line ? end.col - 1 : start.col - 1 + item.value.length,
+    });
+  }
+  return { keys };
 }
+
 
 /** The anchor one heading's words name: lower case, punctuation dropped, each run of whitespace one `-`. */
 export function anchorOf(heading: string): string {
@@ -445,23 +469,87 @@ export function anchorOf(heading: string): string {
  * are in code point order of their ids, so two runs of one commit plan the same
  * units in the same order.
  */
+/**
+ * The links between the documents one plan will read: for each document its
+ * targets that are other documents of the same commit. The bytes are read one
+ * document at a time, through the run's own reader, and never held as a tree.
+ */
+async function documentDependencies(sources: SnapshotSource, repository: string, paths: readonly string[], present: ReadonlySet<string>): Promise<Map<string, ReadonlySet<string>>> {
+  const dependencies = new Map<string, ReadonlySet<string>>();
+  if (paths.length === 0) return dependencies;
+  const reader = await sources.open(repository);
+  const wanted = new Set(paths);
+  for (const path of paths) {
+    const entry = reader.entry(path);
+    if (entry === undefined || entry.form !== 'blob') continue;
+    let bytes: Uint8Array;
+    try {
+      bytes = await reader.read(path);
+    } catch {
+      continue;
+    }
+    const targets = new Set<string>();
+    for (const line of linesOfBytes(bytes)) {
+      for (const link of linksOf(line)) {
+        let resolved: string | undefined;
+        try {
+          resolved = resolveBodyLink(path, link.target, ANY_PATH);
+        } catch {
+          resolved = undefined;
+        }
+        if (resolved === undefined || resolved === path || !present.has(resolved)) continue;
+        if (markdownMediaType(resolved) === undefined) continue;
+        if (wanted.has(resolved)) targets.add(resolved);
+      }
+    }
+    if (targets.size > 0) dependencies.set(path, targets);
+  }
+  return dependencies;
+}
+
+/** The paths in an order where every document stands after the documents it links to; a cycle keeps code point order. */
+function orderDocuments(paths: readonly string[], dependencies: ReadonlyMap<string, ReadonlySet<string>>): readonly string[] {
+  const remaining = new Set(paths);
+  const ordered: string[] = [];
+  while (remaining.size > 0) {
+    const ready = [...remaining]
+      .filter((path) => ![...(dependencies.get(path) ?? [])].some((target) => remaining.has(target)))
+      .sort(byCodePoint);
+    if (ready.length === 0) {
+      ordered.push(...[...remaining].sort(byCodePoint));
+      break;
+    }
+    for (const path of ready) {
+      ordered.push(path);
+      remaining.delete(path);
+    }
+  }
+  return ordered;
+}
+
 async function planDocuments(sources: SnapshotSource, graph: StageGraphReader): Promise<StagePlan> {
   const pins = await sources.pins();
   const units: { id: string; scope: string }[] = [];
   let anyDocument = false;
   for (const pin of pins) {
-    const reader = await sources.open(pin.id);
     const read = publishedDocumentsRead(pin.id);
     const published = publishedDocuments(await graph.query(read), pin.id, read);
-    const standing = markdownEntriesOf(reader);
-    // A tree whose every entry is unfiled held entries too: it is not a
-    // repository that found nothing, and stage 0's coverage names the gap.
-    anyDocument = anyDocument || standing.length > 0 || reader.unfiled().length > 0;
-    const held = new Set(standing.map((entry) => String(entry.path)));
-    for (const entry of standing) {
-      if (published.get(entry.path) === entry.id) continue;
-      units.push({ id: documentUnitId(pin.id, entry.path), scope: documentScope(pin.id, entry.path) });
-    }
+    // The documents the pinned commit holds, read from the graph the snapshot and
+    // inventory stages published: a Markdown name's blob, and a published one whose blob
+    // moved or that the commit no longer holds.
+    const treeRead = publishedTreeRead(pin.id);
+    const tree = publishedTreeRows(await graph.query(treeRead), pin.id, treeRead);
+    const standing = [...tree.files.entries()].filter(([path]) => markdownMediaType(path) !== undefined);
+    anyDocument = anyDocument || standing.length > 0;
+    const held = new Set(standing.map(([path]) => path));
+    // The documents this plan will read, in the order their own links allow: a unit that links to a
+    // document of the same commit waits for that document's unit, so the edge joins a node that exists.
+    // A cycle has no such order; the unit's own graph check writes the cycle's forward links as their
+    // own unresolved nodes, and the plan keeps a code point order within the cycle.
+    const planned = standing.filter(([path, blob]) => published.get(path) !== blob).map(([path]) => path);
+    const deps = await documentDependencies(sources, pin.id, planned, held);
+    const ordered = orderDocuments(planned, deps);
+    for (const path of ordered) units.push({ id: documentUnitId(pin.id, path), scope: documentScope(pin.id, path) });
     for (const path of published.keys()) {
       if (held.has(path)) continue;
       units.push({ id: documentUnitId(pin.id, path), scope: documentScope(pin.id, path) });
@@ -471,38 +559,15 @@ async function planDocuments(sources: SnapshotSource, graph: StageGraphReader): 
   return { units, coverage: anyDocument ? 'planned' : 'nothing-found' };
 }
 
-/**
- * The Markdown documents of one repository's pinned tree, in code point order of
- * their paths: the tree's entries whose bytes this repository holds and whose
- * name ends in a Markdown extension. A submodule's commit holds no bytes of this
- * repository and a symbolic link's bytes are the path it points at, so neither
- * is a document here.
- */
-export function markdownEntriesOf(reader: SnapshotReader): SnapshotEntry[] {
-  return reader.entries().filter((entry) => entry.form === 'blob' && markdownMediaType(String(entry.path)) !== undefined);
-}
-
-/**
- * The paths one reader's tree holds, and the Markdown documents among them,
- * worked out once per reader: the tree of a commit never changes, so a unit's
- * link lookup costs one map read instead of one walk of the whole tree, and a
- * repository of any size costs what it holds and not its square (0026 asks the
- * fill to be complete on any size). The reader is held by the source across a
- * run's units, so this is one walk and not one per document.
- */
-export function treePathsOf(reader: SnapshotReader): { readonly held: ReadonlySet<string>; readonly markdown: ReadonlySet<string> } {
-  const known = TREE_PATHS.get(reader);
-  if (known !== undefined) return known;
-  const paths = {
-    held: new Set(reader.entries().map((entry) => String(entry.path))),
-    markdown: new Set(markdownEntriesOf(reader).map((entry) => String(entry.path))),
-  };
-  TREE_PATHS.set(reader, paths);
-  return paths;
-}
-
-/** One reader's own paths, as `treePathsOf` memoises them. */
-const TREE_PATHS = new WeakMap<SnapshotReader, { readonly held: ReadonlySet<string>; readonly markdown: ReadonlySet<string> }>();
+const ANY_PATH: ReadonlySet<string> = {
+  has: () => true,
+  size: 0,
+  forEach: () => undefined,
+  entries: () => [][Symbol.iterator](),
+  keys: () => [][Symbol.iterator](),
+  values: () => [][Symbol.iterator](),
+  [Symbol.iterator]: () => [][Symbol.iterator](),
+} as unknown as ReadonlySet<string>;
 
 /**
  * The read's rows, read: each row names the repository it was read for, the
@@ -559,10 +624,33 @@ export interface DocumentReading {
   readonly range: FactRange;
   /** How many sections the document opened. */
   readonly sections: number;
-  /** How many links the document holds: one edge per end and section, however many times it names it. */
-  readonly links: number;
-  /** How many task keys the document names. */
-  readonly keys: number;
+  /** The links the document holds: one per end and section, however many times it names it. */
+  readonly links: readonly ReadingLink[];
+  /** The task keys the document's front matter declares, one per key and place. */
+  readonly keys: readonly ReadingKey[];
+}
+
+/** One link of a document, before it is written as a graph edge: where it stands and what it names. */
+interface ReadingLink {
+  /** The document or section node the link stands in, by its key. */
+  readonly from: string;
+  /** The node the target names, the address it writes, or the text an unresolved target keeps. */
+  readonly end: FactTerm;
+  /** The target as the document wrote it. */
+  readonly written: string;
+  readonly line: number;
+  readonly startColumn: number;
+  readonly endColumn: number;
+}
+
+/** One task key of a document, before it is written as a graph edge. */
+interface ReadingKey {
+  /** The document or section node the key stands in, by its key. */
+  readonly from: string;
+  readonly key: string;
+  readonly line: number;
+  readonly startColumn: number;
+  readonly endColumn: number;
 }
 
 /** One section of a document, as the reading found it: what it is, where its lines stand and its node's fact id. */
@@ -583,7 +671,7 @@ function placeAt(path: RepositoryPath, range: FactRange): FactPlace {
  * (its media type, its title where it has one, the bytes it spans and the blob
  * its bytes stand under), one section node per heading a reader sees, one
  * `document-link` edge per end a section names, and one `task-key` edge per key
- * a section names. The order is the order above: the document, its sections as a reader
+ * the document's front matter declares. The order is the order above: the document, its sections as a reader
  * meets them, then the links and the keys in the order they stand. An edge is
  * folded by its identity (the section it stands in and the end), so one end named
  * twice under one section is one edge, at the first place.
@@ -594,9 +682,9 @@ function placeAt(path: RepositoryPath, range: FactRange): FactPlace {
  * all), are not facts of a smaller reading: the heading is named in the gaps,
  * and the link is written unresolved with its place.
  */
-export function readDocument(reader: SnapshotReader, path: RepositoryPath, bytes: Uint8Array): DocumentReading {
-  const repository = reader.repository;
-  const provenance = provenanceOf(reader);
+export async function readDocument(pinned: StaticStageSource, path: RepositoryPath, bytes: Uint8Array, options: { readonly taskField?: string; readonly published?: (key: string) => Promise<boolean> } = {}): Promise<DocumentReading> {
+  const repository = pinned.repository;
+  const provenance = provenanceOfPlace(pinned);
   const lines = markExamples(linesOfBytes(bytes));
   const text = textOf(lines);
   const headings = headingsOf(lines);
@@ -614,7 +702,7 @@ export function readDocument(reader: SnapshotReader, path: RepositoryPath, bytes
       path,
       mediaType: markdownMediaType(path) ?? 'text/markdown',
       bytes: bytes.length,
-      blob: String(reader.requireEntry(path).id),
+      blob: String((await pinned.entry(path))?.id ?? ''),
       ...(title === undefined ? {} : { title }),
     },
     provenance: { ...provenance, place: placeAt(path, documentRange) },
@@ -670,49 +758,38 @@ export function readDocument(reader: SnapshotReader, path: RepositoryPath, bytes
     facts.push(section);
   });
 
-  // The links: one edge per end and section, at the first place the document
-  // names it, from the section the link stands in where a section holds its line.
-  const { held, markdown } = treePathsOf(reader);
-  // A link's identity is the node it stands in and the end it names: the same
-  // end named twice in one section is one edge, and the same end named in two
-  // sections is two — each at its own place.
+  // The links: one item per end and section, at the first place the document names it,
+  // from the section the link stands in where a section holds its line. A link's identity
+  // is the node it stands in and the end it names: the same end named twice in one section
+  // is one link, and in two sections two — each at its own place. The items are written as
+  // the graph's own edges by `linkDrafts`/`keyDrafts`, since a link to a path the commit
+  // holds names a node and a link to an address names no node at all.
   const linkEnds = new Set<string>();
-  let links = 0;
+  const links: ReadingLink[] = [];
   for (const line of lines) {
     for (const link of linksOf(line)) {
-      const end = linkTerm(reader, path, link.target, held, markdown, sections);
+      const end = await linkTerm(pinned, path, link.target, sections, options.published);
       const from = sectionAt(sections, line.line) ?? document.id;
       const key = `${from}\u0000${JSON.stringify(end)}`;
       if (linkEnds.has(key)) continue;
       linkEnds.add(key);
-      links += 1;
-      facts.push(makeEdgeFact({
-        kind: 'document-link',
-        value: { from, to: end },
-        provenance: { ...provenance, place: placeAt(path, { startLine: line.line, startColumn: link.startColumn, endLine: line.line, endColumn: link.endColumn }) },
-        layer: 'extracted',
-      }));
+      links.push({ from, end, written: link.target, line: line.line, startColumn: link.startColumn, endColumn: link.endColumn });
     }
   }
 
-  // A task key's identity is the node it stands in and the key: the same key
-  // named twice in one section is one edge, and in two sections two of them.
+  // A task key's identity is the node it stands in and the key: the same key named twice
+  // in one section is one item, and in two sections two of them. The keys are the ones the
+  // document declares in its front matter; no key is read from running prose.
+  const declared = frontMatterKeys(lines, options.taskField);
+  if (declared.problem !== undefined) gaps.push({ what: `${path}:${declared.problem.line} ${declared.problem.message}`, reason: 'unsupported' });
   const keyEnds = new Set<string>();
-  let keys = 0;
-  for (const line of lines) {
-    for (const named of taskKeysOf(line)) {
-      const from = sectionAt(sections, line.line) ?? document.id;
-      const namedKey = `${from}\u0000${named.key}`;
-      if (keyEnds.has(namedKey)) continue;
-      keyEnds.add(namedKey);
-      keys += 1;
-      facts.push(makeEdgeFact({
-        kind: 'task-key',
-        value: { from, key: named.key },
-        provenance: { ...provenance, place: placeAt(path, { startLine: line.line, startColumn: named.startColumn, endLine: line.line, endColumn: named.endColumn }) },
-        layer: 'extracted',
-      }));
-    }
+  const keys: ReadingKey[] = [];
+  for (const named of declared.keys) {
+    const from = sectionAt(sections, named.line) ?? document.id;
+    const namedKey = `${from}\u0000${named.key}`;
+    if (keyEnds.has(namedKey)) continue;
+    keyEnds.add(namedKey);
+    keys.push({ from, key: named.key, line: named.line, startColumn: named.startColumn, endColumn: named.endColumn });
   }
 
   return { facts, gaps: documentGaps(gaps, repository, path), range: documentRange, sections: sections.length, links, keys };
@@ -741,14 +818,13 @@ function titleOf(headings: readonly DocumentHeading[]): string | undefined {
  * document wrote it, which is how an unresolved link keeps its place instead of
  * being dropped.
  */
-function linkTerm(
-  reader: SnapshotReader,
+async function linkTerm(
+  pinned: StaticStageSource,
   path: RepositoryPath,
   written: string,
-  held: ReadonlySet<string>,
-  markdown: ReadonlySet<string>,
   sections: readonly ReadingSection[],
-): FactTerm {
+  published?: (key: string) => Promise<boolean>,
+): Promise<FactTerm> {
   const literal = (): FactTerm => ({ form: 'literal', text: written });
   if (written === '') return literal();
   if (written.startsWith('#')) {
@@ -759,11 +835,19 @@ function linkTerm(
     return named === undefined ? literal() : { form: 'node', id: named.id };
   }
   if (/^[a-z][a-z0-9+.-]*:/iu.test(written)) return { form: 'external', url: written };
-  const resolved = resolveBodyLink(path, written, held);
+  // The wiki's own resolver, over a set that answers every path: it resolves the target's
+  // path arithmetically, and whether the pinned commit holds it is this stage's own
+  // path-scoped lookup, one path and no tree walk (decision 0033, item 5).
+  const resolved = resolveBodyLink(path, written, ANY_PATH);
   if (resolved === undefined) return literal();
-  const entry = reader.entry(resolved);
+  const entry = await pinned.entry(resolved);
   if (entry === undefined || entry.form === 'commit') return literal();
-  return { form: 'node', id: pathNodeId(reader, markdown.has(resolved) ? 'document' : 'file', repositoryPath(resolved)) };
+  const node = pathNodeId(pinned, markdownMediaType(resolved) === undefined ? 'file' : 'document', repositoryPath(resolved));
+  // A link to a document another unit publishes is resolved only when that node stands in the graph: a unit
+  // that links to a document the run has not published yet writes the target as its own unresolved node, so
+  // the edge joins a node that exists (decision 0028) and the link keeps its place.
+  if (markdownMediaType(resolved) !== undefined && published !== undefined && !(await published(node))) return literal();
+  return { form: 'node', id: node };
 }
 
 /**
@@ -772,9 +856,9 @@ function linkTerm(
  * and nothing else, so the id is the one the owning stage publishes — this unit
  * names it without writing it.
  */
-export function pathNodeId(reader: SnapshotReader, kind: 'document' | 'file', path: RepositoryPath): string {
-  const provenance = provenanceOf(reader);
-  const repository = reader.repository;
+export function pathNodeId(pinned: { readonly repository: string; readonly commit: string; readonly source: FactSource }, kind: 'document' | 'file', path: RepositoryPath): string {
+  const provenance = provenanceOfPlace(pinned);
+  const repository = pinned.repository;
   if (kind === 'document') return factId({ kind, value: { repository, path, mediaType: markdownMediaType(path) ?? 'text/markdown' }, provenance });
   // Only the identity's parts are read for the id (the repository and the path),
   // so the rest of the value is the smallest one the kind's own shape holds.
@@ -828,7 +912,7 @@ function documentGaps(gaps: readonly CoverageGap[], repository: string, path: Re
  * a line's end are not among them), the sections its headings open and the task
  * keys its text names.
  */
-const DOCUMENT_READ: readonly string[] = ['the inline links a line holds', 'the sections the headings open', 'the task keys the text names'];
+const DOCUMENT_READ: readonly string[] = ['the inline links a line holds', 'the sections the headings open', 'the task keys the front matter declares'];
 
 // ---- one unit's work ------------------------------------------------------
 
@@ -838,21 +922,21 @@ const DOCUMENT_READ: readonly string[] = ['the inline links a line holds', 'the 
  * publication that attributes a unit's facts by their place can retract this one
  * with them (madarch-tzte.20.2 and 21.8).
  */
-function coverageFact(reader: SnapshotReader, path: RepositoryPath, range: FactRange, gaps: readonly CoverageGap[]): Fact {
+function coverageFact(pinned: StaticStageSource, path: RepositoryPath, range: FactRange, gaps: readonly CoverageGap[]): Fact {
   const value: CoverageValue = {
-    repository: reader.repository,
-    scope: documentScope(reader.repository, path),
+    repository: pinned.repository,
+    scope: documentScope(pinned.repository, path),
     complete: gaps.length === 0,
     read: [...DOCUMENT_READ],
     unread: [...gaps],
   };
-  return makeNodeFact({ kind: 'coverage', value, provenance: { ...provenanceOf(reader), place: placeAt(path, range) }, layer: 'extracted' });
+  return makeNodeFact({ kind: 'coverage', value, provenance: { ...provenanceOfPlace(pinned), place: placeAt(path, range) }, layer: 'extracted' });
 }
 
 /**
  * One unit's work: read the pinned commit's bytes of the unit's own document
  * through the repository's reader, and draft what they hold — the document, its
- * sections, its links, the task keys it names, and the coverage of the read. A
+ * sections, its links, the task keys its front matter declares, and the coverage of the read. A
  * path the pinned commit does not hold, holds a submodule or a link at, or does
  * not hold as a Markdown document writes nothing, and a unit that writes nothing
  * is how this stage asks for a retraction: the publication that replaces a
@@ -860,25 +944,161 @@ function coverageFact(reader: SnapshotReader, path: RepositoryPath, range: FactR
  * it (madarch-tzte.20.2's publication semantics; this change states the request,
  * not the mechanism).
  */
-async function executeUnit(sources: SnapshotSource, unit: StageUnit, context: StageContext): Promise<StageExecutionResult> {
+async function executeUnit(unit: StageUnit, context: StageContext): Promise<StageExecutionResult> {
   refuseWhenCancelled(unit, context);
   const place = parseDocumentScope(unit.scope);
-  const reader = await sources.open(place.repository);
+  const pinned = staticSourceOf(unit, context);
   refuseWhenCancelled(unit, context);
-  const entry = reader.entry(place.path);
+  const entry = await pinned.entry(place.path);
   if (entry === undefined || entry.form !== 'blob' || markdownMediaType(place.path) === undefined) {
-    context.progress(`the path ${place.path} holds no Markdown document of ${place.repository} at ${reader.commit}: this unit publishes nothing, and what an earlier run wrote there is retracted`, 1);
+    context.progress(`the path ${place.path} holds no Markdown document of ${place.repository} at ${pinned.commit}: this unit publishes nothing, and what an earlier run wrote there is retracted`, 1);
     return { outcome: 'draft' };
   }
-  const bytes = await reader.read(place.path);
-  const reading = readDocument(reader, place.path, bytes);
-  const evidence = evidenceAt(reader, place.path);
-  for (const fact of [...reading.facts, coverageFact(reader, place.path, reading.range, reading.gaps)]) {
-    context.draft.write({ kind: 'fact', evidence, value: fact });
+  const file = await pinned.file(place.path);
+  if (file === undefined) {
+    context.progress(`the path ${place.path} holds no Markdown document of ${place.repository} at ${pinned.commit}: this unit publishes nothing, and what an earlier run wrote there is retracted`, 1);
+    return { outcome: 'draft' };
   }
+  const evidence = evidenceAtPlace(pinned, place.path);
+  if (file.unread !== undefined) {
+    // A document above the static reading cap is a named gap, never a page read from the
+    // bytes the stage did not hold (decision 0033, "Capability boundaries").
+    const gap = makeNodeFact({
+      kind: 'coverage',
+      value: { repository: pinned.repository, scope: documentScope(pinned.repository, place.path), complete: false, read: [], unread: [{ what: `${place.path}:1 the document is above the static reading cap, and this stage reads no part of it`, reason: 'unsupported' }] },
+      provenance: provenanceOfPlace(pinned),
+      layer: 'extracted',
+    });
+    for (const write of graphWritesOf(gap, evidence)) context.draft.write(write);
+    context.progress(`${place.path} of ${place.repository} is above the static reading cap: the document is published as a too-large coverage gap and not read`, 1);
+    return { outcome: 'draft' };
+  }
+  const taskField = typeof context.config.config === 'object' && context.config.config !== null && !Array.isArray(context.config.config)
+    ? (context.config.config as { taskField?: unknown }).taskField
+    : undefined;
+  if (taskField !== undefined && typeof taskField !== 'string') {
+    throw new Error(`document-index: config.taskField is ${JSON.stringify(taskField)}: a product that reads task keys declares the front-matter field's name, a non-empty text`);
+  }
+  const graph = context.static;
+  const reading = await readDocument(pinned, place.path, file.content!, {
+    ...(taskField === undefined ? {} : { taskField }),
+    published: async (key: string) => graph === undefined || (await graph.byKey(key, { limit: 1 })).length > 0,
+  });
+  for (const fact of [...reading.facts, coverageFact(pinned, place.path, reading.range, reading.gaps)]) {
+    for (const write of graphWritesOf(fact, evidence)) {
+      // The blob the plan compares against the pinned commit stands on the coverage node:
+      // the file node's blob is every reading's, and this one says which reading of the
+      // document this unit stands on.
+      context.draft.write(write.kind === 'node' && write.value.kind === 'code.coverage'
+        ? { ...write, value: { ...write.value, properties: { ...write.value.properties, blob: String(entry.id) } } }
+        : write);
+    }
+  }
+  // The links and the task keys are edges whose end may be no node of the graph: a link to an
+  // address, to a path the commit does not hold, or a key no document declares stands as a
+  // `code.link-target` or `code.task` node of its own, and the edge names it (madarch-8bdc.2.3).
+  for (const write of linkDrafts(pinned, place.path, reading.links)) context.draft.write(write);
+  for (const write of keyDrafts(pinned, place.path, reading.keys)) context.draft.write(write);
   const gapNote = reading.gaps.length === 0 ? '' : `, and could not anchor ${reading.gaps.length} ${reading.gaps.length === 1 ? 'heading' : 'headings'}`;
-  context.progress(`read ${place.path} of ${place.repository} at ${reader.commit}: ${reading.sections} ${reading.sections === 1 ? 'section' : 'sections'}, ${reading.links} ${reading.links === 1 ? 'link' : 'links'}, ${reading.keys} task ${reading.keys === 1 ? 'key' : 'keys'}${gapNote}`, 1);
+  const links = reading.links.length;
+  const keys = reading.keys.length;
+  context.progress(`read ${place.path} of ${place.repository} at ${pinned.commit}: ${reading.sections} ${reading.sections === 1 ? 'section' : 'sections'}, ${links} ${links === 1 ? 'link' : 'links'}, ${keys} task ${keys === 1 ? 'key' : 'keys'}${gapNote}`, 1);
   return { outcome: 'draft' };
+}
+
+/** The unit's static repository, refused by name where the run handed none. */
+function staticSourceOf(unit: StageUnit, context: StageContext): StaticStageSource {
+  const held = context.static?.repository;
+  if (held === undefined) {
+    throw new Error(`the unit "${unit.id}" runs the document index stage's static reading, and its context holds no pinned repository: a run hands a static stage its repository's path-scoped answers (src/fill/stages/document-index.ts, decision 0033)`);
+  }
+  return held;
+}
+
+/** The key one link target's node carries when the target names no node of the graph. */
+function linkTargetKeyOf(repository: string, path: string, written: string): string {
+  return `link-target:${canonicalJsonDigest({ repository, file: path, target: written })}`;
+}
+
+/**
+ * The key one task key's node carries: the repository, the document whose unit is its scope and the
+ * key. A node's version belongs to the producer and scope that published it (decision 0033's fenced
+ * publication), so two documents naming one key are two nodes, each joined to its own document.
+ */
+function taskKeyOf(repository: string, path: string, key: string): string {
+  return `task:${canonicalJsonDigest({ repository, file: path, key })}`;
+}
+
+/**
+ * The graph items one document's links make: a `code.document-link` edge from the section
+ * or document the link stands in to the node its target names, and — where the target
+ * names no node — a `code.link-target` node holding the target as written, so a link to an
+ * address or to a path the commit does not hold keeps its place instead of being dropped.
+ * A fragment's target is a section of this document, and its node is the section's.
+ */
+function linkDrafts(pinned: StaticStageSource, path: RepositoryPath, links: readonly ReadingLink[]): readonly StageDraftWrite[] {
+  const writes: StageDraftWrite[] = [];
+  for (const link of links) {
+    const evidence = `${pinned.repository}@${pinned.commit}:${path}`;
+    let to: string;
+    if (link.end.form === 'node') {
+      to = link.end.id;
+    } else {
+      to = linkTargetKeyOf(pinned.repository, path, link.written);
+      writes.push({
+        kind: 'node',
+        evidence,
+        value: {
+          key: to,
+          kind: 'code.link-target',
+          label: link.written,
+          properties: {
+            factKind: 'document-link',
+            repository: pinned.repository,
+            file: path,
+            target: link.written,
+            ...(link.end.form === 'external' ? { address: link.end.url } : {}),
+          },
+        },
+      });
+    }
+    writes.push({
+      kind: 'edge',
+      evidence,
+      value: {
+        relation: 'code.document-link',
+        from: { key: link.from },
+        to: { key: to },
+        properties: { factKind: 'document-link', repository: pinned.repository, file: path, line: link.line, startColumn: link.startColumn, endColumn: link.endColumn, target: link.written },
+      },
+    });
+  }
+  return writes;
+}
+
+/** The graph items one document's task keys make: a `code.task` node per key, and one `code.tasks` edge from where it stands. */
+function keyDrafts(pinned: StaticStageSource, path: RepositoryPath, keys: readonly ReadingKey[]): readonly StageDraftWrite[] {
+  const writes: StageDraftWrite[] = [];
+  for (const key of keys) {
+    const evidence = `${pinned.repository}@${pinned.commit}:${path}`;
+    const to = taskKeyOf(pinned.repository, path, key.key);
+    writes.push({
+      kind: 'node',
+      evidence,
+      value: { key: to, kind: 'code.task', label: key.key, properties: { factKind: 'task-key', repository: pinned.repository, file: path, key: key.key } },
+    });
+    writes.push({
+      kind: 'edge',
+      evidence,
+      value: {
+        relation: 'code.tasks',
+        from: { key: key.from },
+        to: { key: to },
+        properties: { factKind: 'task-key', repository: pinned.repository, file: path, line: key.line, startColumn: key.startColumn, endColumn: key.endColumn, key: key.key },
+      },
+    });
+  }
+  return writes;
 }
 
 /**
@@ -906,65 +1126,43 @@ function refuseWhenCancelled(unit: StageUnit, context: StageContext): void {
  * vanished document asks for.
  */
 export function validateDraft(draft: StageDraftSet): StageValidation {
-  const checked = checkFactDraft(DOCUMENT_INDEX_STAGE_ID, DOCUMENT_INDEX_STAGE_KINDS, draft);
+  const checked = checkStaticGraphDraft(DOCUMENT_INDEX_STAGE_ID, DOCUMENT_INDEX_STAGE_KINDS, draft);
   const errors: string[] = checked.ok ? [] : [...checked.errors];
+  // The graph's validator reads each item's key, kind, ends and position; these are the
+  // document's own rules over the same draft: a section stands in the document the unit
+  // wrote, and an edge starts at a document or a section of this draft and, where it
+  // names a section of this document, names one the draft writes.
   const documents = new Set<string>();
   const nodes = new Set<string>();
   const sections = new Set<string>();
-  const edges: { readonly index: number; readonly evidence: string; readonly value: Record<string, unknown> }[] = [];
   draft.writes.forEach((write: StageDraftWrite, index: number) => {
-    if (write.kind !== 'fact') return;
-    const fact = write.value;
-    if (typeof fact !== 'object' || fact === null || Array.isArray(fact)) return;
-    const held = fact as { readonly kind?: unknown; readonly id?: unknown; readonly value?: unknown };
-    const value = typeof held.value === 'object' && held.value !== null && !Array.isArray(held.value) ? held.value as Record<string, unknown> : undefined;
-    if (typeof held.kind !== 'string' || value === undefined) return;
-    if (held.kind === 'document' && typeof held.id === 'string') {
-      documents.add(String(value['repository']) + '\u0000' + String(value['path']));
-      nodes.add(held.id);
-      if (typeof value['mediaType'] !== 'string' || typeof value['bytes'] !== 'number' || typeof value['blob'] !== 'string') {
-        errors.push(`write ${index + 1} (${write.evidence}) is a document fact that names no media type, no byte span or no blob: a document fact carries the bytes the document spans at its commit`);
+    if (write.kind !== 'node') return;
+    const properties = write.value.properties as Record<string, unknown>;
+    if (write.value.kind === 'code.document') {
+      documents.add(`${String(properties['repository'])}\u0000${String(properties['path'])}`);
+      nodes.add(write.value.key);
+      return;
+    }
+    if (write.value.kind === 'code.document-section') {
+      sections.add(write.value.key);
+      nodes.add(write.value.key);
+      const where = `${String(properties['repository'])}\u0000${String(properties['document'])}`;
+      if (!documents.has(where)) {
+        errors.push(`write ${index + 1} (${write.evidence}) is a section of ${JSON.stringify(String(properties['document']))}: a section stands in a document, and this draft writes no document node of that path`);
       }
-      return;
-    }
-    if (held.kind === 'section' && typeof held.id === 'string') {
-      sections.add(held.id);
-      nodes.add(held.id);
-      return;
-    }
-    if (held.kind === 'document-link' || held.kind === 'task-key') {
-      edges.push({ index, evidence: write.evidence, value });
-      return;
     }
   });
   draft.writes.forEach((write: StageDraftWrite, index: number) => {
-    if (write.kind !== 'fact') return;
-    const fact = write.value as { readonly kind?: unknown; readonly value?: unknown };
-    // A write the schema already refused (no value at all, a value that is no
-    // object) is named by `checkFactDraft`; any check here would read the value
-    // it did not read.
-    if (typeof fact !== 'object' || fact === null || Array.isArray(fact)) return;
-    if (fact.kind !== 'section') return;
-    const value = typeof fact.value === 'object' && fact.value !== null && !Array.isArray(fact.value) ? fact.value as Record<string, unknown> : undefined;
-    if (value === undefined) return;
-    const where = `${String(value['repository'])}\u0000${String(value['document'])}`;
-    if (!documents.has(where)) {
-      errors.push(`write ${index + 1} (${write.evidence}) is a section of ${JSON.stringify(String(value['document']))}: a section stands in a document, and this draft writes no document fact of that path`);
+    if (write.kind !== 'edge' || write.value.relation !== 'code.document-link') return;
+    const from = 'key' in write.value.from ? write.value.from.key : write.value.from.id;
+    if (!nodes.has(from)) {
+      errors.push(`write ${index + 1} (${write.evidence}) is a link from ${JSON.stringify(from)}: a link stands in a document or a section of it, and this draft writes no node of that key`);
+    }
+    const to = 'key' in write.value.to ? write.value.to.key : undefined;
+    if (to !== undefined && to.startsWith('section:') && !sections.has(to)) {
+      errors.push(`write ${index + 1} (${write.evidence}) names the section ${JSON.stringify(to)}, which this draft writes no section node for: a fragment names a section of the document the link stands in`);
     }
   });
-  for (const edge of edges) {
-    const from = edge.value['from'];
-    if (typeof from !== 'string' || !nodes.has(from)) {
-      errors.push(`write ${edge.index + 1} (${edge.evidence}) is an edge of ${JSON.stringify(from)}: an edge names a node that exists, and this draft writes no document or section fact of that id`);
-    }
-    const to = edge.value['to'];
-    if (typeof to === 'object' && to !== null && !Array.isArray(to) && (to as { form?: unknown }).form === 'node') {
-      const id = (to as { id?: unknown }).id;
-      if (typeof id === 'string' && id.startsWith('section:') && !sections.has(id)) {
-        errors.push(`write ${edge.index + 1} (${edge.evidence}) names the section ${JSON.stringify(id)}, which this draft writes no section fact for: a fragment names a section of the document the link stands in`);
-      }
-    }
-  }
   return errors.length === 0 ? { ok: true } : { ok: false, errors };
 }
 
@@ -983,6 +1181,8 @@ export function createDocumentIndexStage(sources: SnapshotSource): FillStage {
   return {
     id: DOCUMENT_INDEX_STAGE_ID,
     version: DOCUMENT_INDEX_STAGE_VERSION,
+    // One document's bytes and no reader of the tree (decision 0033, item 5).
+    staticReading: true,
     consumes: {
       required: [
         { capability: 'document', scope: 'file', freshness: 'current' },
@@ -992,10 +1192,11 @@ export function createDocumentIndexStage(sources: SnapshotSource): FillStage {
       optional: [],
     },
     produces: DOCUMENT_INDEX_STAGE_KINDS.map((kind) => ({ kind, schemaVersion: FACT_KINDS[kind as 'document'].version, scope: 'file' as const })),
-    configSchema: Type.Object({}),
+    // The field a document declares its task keys in, named by the product; no field name is assumed.
+    configSchema: Type.Object({ taskField: Type.Optional(Type.String({ minLength: 1 })) }),
     defaults: { ...DEFAULT_STAGE_DEFAULTS, config: {} },
     plan: (graph) => planDocuments(sources, graph),
-    execute: (unit, context) => executeUnit(sources, unit, context),
+    execute: (unit, context) => executeUnit(unit, context),
     validate: (draft) => validateDraft(draft),
   };
 }

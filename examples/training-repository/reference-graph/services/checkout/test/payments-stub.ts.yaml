@@ -1,0 +1,57 @@
+path: 'services/checkout/test/payments-stub.ts'
+nodes:
+  - id: 'code.file:services/checkout/test/payments-stub.ts'
+    kind: 'code.file'
+    label: 'payments-stub.ts'
+    evidence:
+      - path: 'services/checkout/test/payments-stub.ts'
+        startLine: 1
+        endLine: 1
+        quote: 'import * as grpc from ''@grpc/grpc-js'';'
+    reading: 'parsed'
+  - id: 'code.symbol:services/checkout/test/payments-stub.ts#loadServiceDefinition'
+    kind: 'code.symbol'
+    label: 'loadServiceDefinition'
+    evidence:
+      - path: 'services/checkout/test/payments-stub.ts'
+        startLine: 6
+        endLine: 6
+        quote: 'export function loadServiceDefinition(): grpc.ServiceDefinition {'
+    reading: 'parsed'
+edges:
+  - relation: 'code.contains'
+    from: 'code.file:services/checkout/test/payments-stub.ts'
+    to: 'code.symbol:services/checkout/test/payments-stub.ts#loadServiceDefinition'
+    evidence:
+      - path: 'services/checkout/test/payments-stub.ts'
+        startLine: 6
+        endLine: 6
+        quote: 'export function loadServiceDefinition(): grpc.ServiceDefinition {'
+    reading: 'parsed'
+  - relation: 'code.depends-on'
+    from: 'code.file:services/checkout/test/payments-stub.ts'
+    to: 'code.contract:contracts/proto/payments.proto'
+    evidence:
+      - path: 'services/checkout/test/payments-stub.ts'
+        startLine: 7
+        endLine: 7
+        quote: '  const definition = protoLoader.loadSync(path.resolve(__dirname, ''../../../contracts/proto/payments.proto''), {'
+    reading: 'parsed'
+  - relation: 'code.imports'
+    from: 'code.file:services/checkout/test/payments-stub.ts'
+    to: 'code.dependency:services/checkout/package.json#@grpc/grpc-js'
+    evidence:
+      - path: 'services/checkout/test/payments-stub.ts'
+        startLine: 1
+        endLine: 1
+        quote: 'import * as grpc from ''@grpc/grpc-js'';'
+    reading: 'parsed'
+  - relation: 'code.imports'
+    from: 'code.file:services/checkout/test/payments-stub.ts'
+    to: 'code.dependency:services/checkout/package.json#@grpc/proto-loader'
+    evidence:
+      - path: 'services/checkout/test/payments-stub.ts'
+        startLine: 2
+        endLine: 2
+        quote: 'import * as protoLoader from ''@grpc/proto-loader'';'
+    reading: 'parsed'

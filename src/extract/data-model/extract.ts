@@ -49,6 +49,14 @@ import {isMap, isScalar, LineCounter, parseDocument} from 'yaml';
 const READS = 'code.reads-table' as const;
 const WRITES = 'code.writes-table' as const;
 
+/**
+ * The import specifiers that are positive evidence of a database: the driver's
+ * own rule, named once so the fill's data-model stage reads the same packages
+ * the driver does (madarch-8bdc.2.4). A specifier matches whole: `pg` is a
+ * driver, `pg-extra` is not.
+ */
+export const STORAGE_DRIVER_IMPORT = /^(?:pg|postgres|mysql2?|better-sqlite3|sqlite3|@prisma\/client|github\.com\/(?:jackc\/pgx(?:\/.*)?|lib\/pq|go-sql-driver\/mysql)|modernc\.org\/sqlite)$/;
+
 interface MigrationFile {
   readonly database: string;
   readonly name: string;
@@ -56,7 +64,7 @@ interface MigrationFile {
   readonly prisma: boolean;
 }
 
-interface MergedColumn {
+export interface MergedColumn {
   readonly name: string;
   type: string;
   nullable: boolean;
@@ -84,7 +92,7 @@ interface MergedIndex {
   readonly span?: SourceSpan;
 }
 
-interface MergedTable {
+export interface MergedTable {
   readonly name: string;
   readonly schema: string;
   readonly columns: Map<string, MergedColumn>;
@@ -94,7 +102,7 @@ interface MergedTable {
   span?: SourceSpan;
 }
 
-interface MergedDatabase {
+export interface MergedDatabase {
   readonly name: string;
   readonly tables: Map<string, MergedTable>;
   readonly migrations: MigrationFile[];
@@ -702,7 +710,7 @@ function within(call: ResolvedCall, region: FunctionRegion): boolean {
 }
 
 /** One migration the registry's series declare: its name, and the folder index the series stands at. */
-interface MigrationPlace {
+export interface MigrationPlace {
   readonly series: (typeof repositoryConventions.migrationSeries)[number];
   readonly name: string;
   /** The index of the series' folder among the path's segments. */
@@ -710,7 +718,7 @@ interface MigrationPlace {
 }
 
 /** The series one path belongs to, read from the registry's entries: folder, parent, file and suffix. */
-function migrationSeriesOf(segments: readonly string[], file: string): MigrationPlace | undefined {
+export function migrationSeriesOf(segments: readonly string[], file: string): MigrationPlace | undefined {
   // The most specific series first: prisma's `<name>/migration.sql` stands inside a `migrations`
   // folder too, and the folder that names its parent is the one that declares it.
   const ordered = [...repositoryConventions.migrationSeries].sort((left, right) => Number(right.parent !== null) - Number(left.parent !== null));
@@ -735,11 +743,22 @@ function migrationSeriesOf(segments: readonly string[], file: string): Migration
 async function declaresTables(path: string, tree: TreeReader): Promise<{kind: 'schema'} | {kind: 'script'}> {
   const read = readUtf8(tree, path);
   if (!read.ok) return {kind: 'script'};
+  return await declaresTablesOfText(path, read.text);
+}
+
+/**
+ * Whether one `.sql` file's text declares tables, decided by the SQL parser's
+ * own statement kinds (`repositoryConventions.schemaScripts`): a file that
+ * creates, alters or indexes a table is a schema wherever it stands; a file
+ * that only writes rows is a seed. The fill's data-model stage reads one file's
+ * text and asks the same question (madarch-8bdc.2.4).
+ */
+export async function declaresTablesOfText(path: string, text: string): Promise<{kind: 'schema'} | {kind: 'script'}> {
   const kinds = new Set(repositoryConventions.schemaScripts.flatMap((entry) => (path.endsWith(entry.fileSuffix) ? entry.declaresTables : [])));
   if (kinds.size === 0) return {kind: 'script'};
   let parsed: ParseResult;
   try {
-    parsed = await parsePostgres(read.text);
+    parsed = await parsePostgres(text);
   } catch {
     // The script reader reports the parse failure with its own line, once: this reader only classifies.
     return {kind: 'script'};
@@ -765,7 +784,7 @@ function languageOf(path: string): string | null {
   return ['.go', '.ts', '.tsx', '.js', '.mjs', '.cjs', '.jsx'].includes(extension) ? extension.slice(1) : null;
 }
 
-function databaseOf(databases: Map<string, MergedDatabase>, name: string): MergedDatabase {
+export function databaseOf(databases: Map<string, MergedDatabase>, name: string): MergedDatabase {
   const held = databases.get(name);
   if (held !== undefined) return held;
   const created: MergedDatabase = {name, tables: new Map(), migrations: [], evidence: []};
@@ -773,7 +792,7 @@ function databaseOf(databases: Map<string, MergedDatabase>, name: string): Merge
   return created;
 }
 
-function tableOf(database: MergedDatabase, name: string, schema = 'public'): MergedTable {
+export function tableOf(database: MergedDatabase, name: string, schema = 'public'): MergedTable {
   // Keyed by the table's own name: the code names tables without their schema,
   // and a database of one service holds one table of a name.
   const held = database.tables.get(name);
@@ -827,7 +846,7 @@ async function collectStorageEvidence(tree: TreeReader, units: UnitIndex, databa
     if (!read.ok) { gaps.push({path, reason: read.reason}); continue; }
     const text = read.text;
     if (service !== undefined && source) {
-      const driver = /^(?:pg|postgres|mysql2?|better-sqlite3|sqlite3|@prisma\/client|github\.com\/(?:jackc\/pgx(?:\/.*)?|lib\/pq|go-sql-driver\/mysql)|modernc\.org\/sqlite)$/;
+      const driver = STORAGE_DRIVER_IMPORT;
       if (codeSource) {
         const syntax = await extractFileSyntax(path, tree.read(path));
         for (const imported of syntax.imports) if (driver.test(imported.specifier)) add(service, 'driver', {
@@ -997,7 +1016,7 @@ function readUtf8(tree: TreeReader, path: string): TextOrGap {
   }
 }
 
-function applyStatements(database: MergedDatabase, statements: readonly SqlStatement[], gaps: ExtractionGap[]): void {
+export function applyStatements(database: MergedDatabase, statements: readonly SqlStatement[], gaps: ExtractionGap[]): void {
   for (const statement of statements) {
     if (statement.kind === 'create-table') {
       applyTable(database, statement.table);
@@ -1068,11 +1087,11 @@ function applyIndex(table: MergedTable, declaration: SqlIndexDecl): void {
 }
 
 /** The property name a Prisma client answers a model by (`Payment` is `payment`). */
-function modelPropertyOf(model: string): string {
+export function modelPropertyOf(model: string): string {
   return model.charAt(0).toLowerCase() + model.slice(1);
 }
 
-function applyPrismaModel(
+export function applyPrismaModel(
   table: MergedTable,
   model: PrismaModel,
   modelTables: ReadonlyMap<string, string>,
@@ -1150,14 +1169,14 @@ interface ScriptWrite {
   readonly span: SourceSpan;
 }
 
-interface ScriptWrites {
+export interface ScriptWrites {
   readonly writes: readonly ScriptWrite[];
   readonly recognized: boolean;
   readonly gap?: ExtractionGap;
 }
 
 /** PostgreSQL owns statement boundaries, identifiers and UTF-8 byte offsets. */
-async function scanScriptWrites(path: string, text: string): Promise<ScriptWrites> {
+export async function scanScriptWrites(path: string, text: string): Promise<ScriptWrites> {
   if (text.trim() === '') return {writes: [], recognized: false};
   const bytes = new ByteText(text);
   let parsed: ParseResult;

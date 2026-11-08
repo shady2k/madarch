@@ -1,8 +1,8 @@
 /**
  * The extractors' vocabulary and the catalog, tied by a versioned mapping (decision 0033, item 7): the
- * extractors keep their own code-structure vocabulary, the product's kinds are the catalog's, and
- * `mapping:` in `madarch/kinds.yaml` ties every node kind and relation type the extractors emit to a catalog
- * kind or relation, or declares it internal to extraction with the reason.
+ * extractors and the fill's static stages keep their own code-structure vocabulary, the product's kinds are
+ * the catalog's, and `mapping:` in `madarch/kinds.yaml` ties every node kind and relation type they emit to a
+ * catalog kind or relation, or declares it internal to extraction with the reason.
  *
  * The engine holds no kind and no relation of the extractors: the emitted keys come from the extractors'
  * declared vocabulary (`src/extract/vocabulary.ts`), and the targets are the product's own catalog and its

@@ -1,0 +1,120 @@
+path: 'services/orders/migrations/0001_customers.sql'
+nodes:
+  - id: 'code.column:orders.customers.created_at'
+    kind: 'code.column'
+    label: 'created_at'
+    evidence:
+      - path: 'services/orders/migrations/0001_customers.sql'
+        startLine: 7
+        endLine: 7
+        quote: '    created_at TIMESTAMPTZ NOT NULL DEFAULT now()'
+    reading: 'parsed'
+  - id: 'code.column:orders.customers.email'
+    kind: 'code.column'
+    label: 'email'
+    evidence:
+      - path: 'services/orders/migrations/0001_customers.sql'
+        startLine: 4
+        endLine: 4
+        quote: '    email      TEXT NOT NULL UNIQUE,'
+    reading: 'parsed'
+  - id: 'code.column:orders.customers.id'
+    kind: 'code.column'
+    label: 'id'
+    evidence:
+      - path: 'services/orders/migrations/0001_customers.sql'
+        startLine: 3
+        endLine: 3
+        quote: '    id         TEXT PRIMARY KEY,'
+    reading: 'parsed'
+  - id: 'code.column:orders.customers.name'
+    kind: 'code.column'
+    label: 'name'
+    evidence:
+      - path: 'services/orders/migrations/0001_customers.sql'
+        startLine: 6
+        endLine: 6
+        quote: '    name       TEXT,'
+    reading: 'parsed'
+  - id: 'code.file:services/orders/migrations/0001_customers.sql'
+    kind: 'code.file'
+    label: '0001_customers.sql'
+    evidence:
+      - path: 'services/orders/migrations/0001_customers.sql'
+        startLine: 1
+        endLine: 1
+        quote: '-- Customers of the shop. Orders reference them; payments and checkout only know the id.'
+    reading: 'parsed'
+  - id: 'code.migration:services/orders/migrations/0001_customers.sql'
+    kind: 'code.migration'
+    label: '0001_customers.sql'
+    evidence:
+      - path: 'services/orders/migrations/0001_customers.sql'
+        startLine: 1
+        endLine: 1
+        quote: '-- Customers of the shop. Orders reference them; payments and checkout only know the id.'
+    reading: 'parsed'
+  - id: 'code.table:orders.customers'
+    kind: 'code.table'
+    label: 'customers'
+    evidence:
+      - path: 'services/orders/migrations/0001_customers.sql'
+        startLine: 2
+        endLine: 2
+        quote: 'CREATE TABLE customers ('
+    reading: 'parsed'
+edges:
+  - relation: 'code.belongs-to'
+    from: 'code.migration:services/orders/migrations/0001_customers.sql'
+    to: 'code.package:services/orders'
+    evidence:
+      - path: 'services/orders/migrations/0001_customers.sql'
+        startLine: 1
+        endLine: 1
+        quote: '-- Customers of the shop. Orders reference them; payments and checkout only know the id.'
+    reading: 'parsed'
+  - relation: 'code.contains'
+    from: 'code.table:orders.customers'
+    to: 'code.column:orders.customers.created_at'
+    evidence:
+      - path: 'services/orders/migrations/0001_customers.sql'
+        startLine: 7
+        endLine: 7
+        quote: '    created_at TIMESTAMPTZ NOT NULL DEFAULT now()'
+    reading: 'parsed'
+  - relation: 'code.contains'
+    from: 'code.table:orders.customers'
+    to: 'code.column:orders.customers.email'
+    evidence:
+      - path: 'services/orders/migrations/0001_customers.sql'
+        startLine: 4
+        endLine: 4
+        quote: '    email      TEXT NOT NULL UNIQUE,'
+    reading: 'parsed'
+  - relation: 'code.contains'
+    from: 'code.table:orders.customers'
+    to: 'code.column:orders.customers.id'
+    evidence:
+      - path: 'services/orders/migrations/0001_customers.sql'
+        startLine: 3
+        endLine: 3
+        quote: '    id         TEXT PRIMARY KEY,'
+    reading: 'parsed'
+  - relation: 'code.contains'
+    from: 'code.table:orders.customers'
+    to: 'code.column:orders.customers.name'
+    evidence:
+      - path: 'services/orders/migrations/0001_customers.sql'
+        startLine: 6
+        endLine: 6
+        quote: '    name       TEXT,'
+    reading: 'parsed'
+  - relation: 'code.creates'
+    from: 'code.migration:services/orders/migrations/0001_customers.sql'
+    to: 'code.table:orders.customers'
+    evidence:
+      - path: 'services/orders/migrations/0001_customers.sql'
+        startLine: 2
+        endLine: 2
+        quote: 'CREATE TABLE customers ('
+    reading: 'parsed'

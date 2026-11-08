@@ -1,0 +1,210 @@
+path: 'services/payments/src/providers/cardnet.ts'
+nodes:
+  - id: 'code.field:services/payments/src/providers/cardnet.ts#Cardnet.name'
+    kind: 'code.field'
+    label: 'Cardnet.name'
+    evidence:
+      - path: 'services/payments/src/providers/cardnet.ts'
+        startLine: 6
+        endLine: 6
+        quote: '  readonly name = ''cardnet'';'
+    reading: 'parsed'
+  - id: 'code.file:services/payments/src/providers/cardnet.ts'
+    kind: 'code.file'
+    label: 'cardnet.ts'
+    evidence:
+      - path: 'services/payments/src/providers/cardnet.ts'
+        startLine: 1
+        endLine: 1
+        quote: 'import { request } from ''../http-client'';'
+    reading: 'parsed'
+  - id: 'code.symbol:services/payments/src/providers/cardnet.ts#Cardnet'
+    kind: 'code.symbol'
+    label: 'Cardnet'
+    evidence:
+      - path: 'services/payments/src/providers/cardnet.ts'
+        startLine: 5
+        endLine: 5
+        quote: 'export class Cardnet extends BaseProvider implements PaymentProvider {'
+    reading: 'parsed'
+  - id: 'code.symbol:services/payments/src/providers/cardnet.ts#Cardnet.constructor'
+    kind: 'code.symbol'
+    label: 'Cardnet.constructor'
+    evidence:
+      - path: 'services/payments/src/providers/cardnet.ts'
+        startLine: 8
+        endLine: 8
+        quote: '  constructor(private readonly baseUrl = ''https://api.cardnet.example/v2'') {'
+    reading: 'parsed'
+  - id: 'code.symbol:services/payments/src/providers/cardnet.ts#Cardnet.post'
+    kind: 'code.symbol'
+    label: 'Cardnet.post'
+    evidence:
+      - path: 'services/payments/src/providers/cardnet.ts'
+        startLine: 37
+        endLine: 37
+        quote: '  private async post(path: string, body: unknown) {'
+    reading: 'parsed'
+  - id: 'code.symbol:services/payments/src/providers/cardnet.ts#Cardnet.submit'
+    kind: 'code.symbol'
+    label: 'Cardnet.submit'
+    evidence:
+      - path: 'services/payments/src/providers/cardnet.ts'
+        startLine: 12
+        endLine: 12
+        quote: '  protected async submit(charge: ChargeRequest): Promise<ChargeResult> {'
+    reading: 'parsed'
+  - id: 'code.symbol:services/payments/src/providers/cardnet.ts#Cardnet.submitRefund'
+    kind: 'code.symbol'
+    label: 'Cardnet.submitRefund'
+    evidence:
+      - path: 'services/payments/src/providers/cardnet.ts'
+        startLine: 30
+        endLine: 30
+        quote: '  protected async submitRefund(providerReference: string, amountCents: number): Promise<void> {'
+    reading: 'parsed'
+edges:
+  - relation: 'code.calls'
+    from: 'code.symbol:services/payments/src/providers/cardnet.ts#Cardnet.post'
+    to: 'code.symbol:services/payments/src/http-client.ts#request'
+    evidence:
+      - path: 'services/payments/src/providers/cardnet.ts'
+        startLine: 39
+        endLine: 39
+        quote: '      return await request(`${this.baseUrl}${path}`, {'
+    reading: 'parsed'
+  - relation: 'code.calls'
+    from: 'code.symbol:services/payments/src/providers/cardnet.ts#Cardnet.post'
+    to: 'code.symbol:services/payments/src/providers/provider.ts#ProviderUnavailableError'
+    evidence:
+      - path: 'services/payments/src/providers/cardnet.ts'
+        startLine: 45
+        endLine: 45
+        quote: '      throw new ProviderUnavailableError(`cardnet is unreachable: ${(error as Error).message}`);'
+    reading: 'parsed'
+  - relation: 'code.calls'
+    from: 'code.symbol:services/payments/src/providers/cardnet.ts#Cardnet.submit'
+    to: 'code.symbol:services/payments/src/providers/cardnet.ts#Cardnet.post'
+    evidence:
+      - path: 'services/payments/src/providers/cardnet.ts'
+        startLine: 13
+        endLine: 13
+        quote: '    const response = await this.post(''/charges'', {'
+    reading: 'parsed'
+  - relation: 'code.calls'
+    from: 'code.symbol:services/payments/src/providers/cardnet.ts#Cardnet.submit'
+    to: 'code.symbol:services/payments/src/providers/provider.ts#ProviderDeclinedError'
+    evidence:
+      - path: 'services/payments/src/providers/cardnet.ts'
+        startLine: 21
+        endLine: 21
+        quote: '      throw new ProviderDeclinedError(body.reason ?? ''card refused'');'
+    reading: 'parsed'
+  - relation: 'code.calls'
+    from: 'code.symbol:services/payments/src/providers/cardnet.ts#Cardnet.submit'
+    to: 'code.symbol:services/payments/src/providers/provider.ts#ProviderUnavailableError'
+    evidence:
+      - path: 'services/payments/src/providers/cardnet.ts'
+        startLine: 24
+        endLine: 24
+        quote: '      throw new ProviderUnavailableError(`cardnet answered ${response.status}`);'
+    reading: 'parsed'
+  - relation: 'code.calls'
+    from: 'code.symbol:services/payments/src/providers/cardnet.ts#Cardnet.submitRefund'
+    to: 'code.symbol:services/payments/src/providers/cardnet.ts#Cardnet.post'
+    evidence:
+      - path: 'services/payments/src/providers/cardnet.ts'
+        startLine: 31
+        endLine: 31
+        quote: '    const response = await this.post(`/charges/${providerReference}/refunds`, { amount: amountCents });'
+    reading: 'parsed'
+  - relation: 'code.calls'
+    from: 'code.symbol:services/payments/src/providers/cardnet.ts#Cardnet.submitRefund'
+    to: 'code.symbol:services/payments/src/providers/provider.ts#ProviderUnavailableError'
+    evidence:
+      - path: 'services/payments/src/providers/cardnet.ts'
+        startLine: 33
+        endLine: 33
+        quote: '      throw new ProviderUnavailableError(`cardnet refused the refund with ${response.status}`);'
+    reading: 'parsed'
+  - relation: 'code.contains'
+    from: 'code.file:services/payments/src/providers/cardnet.ts'
+    to: 'code.symbol:services/payments/src/providers/cardnet.ts#Cardnet'
+    evidence:
+      - path: 'services/payments/src/providers/cardnet.ts'
+        startLine: 5
+        endLine: 5
+        quote: 'export class Cardnet extends BaseProvider implements PaymentProvider {'
+    reading: 'parsed'
+  - relation: 'code.contains'
+    from: 'code.symbol:services/payments/src/providers/cardnet.ts#Cardnet'
+    to: 'code.field:services/payments/src/providers/cardnet.ts#Cardnet.name'
+    evidence:
+      - path: 'services/payments/src/providers/cardnet.ts'
+        startLine: 6
+        endLine: 6
+        quote: '  readonly name = ''cardnet'';'
+    reading: 'parsed'
+  - relation: 'code.contains'
+    from: 'code.symbol:services/payments/src/providers/cardnet.ts#Cardnet'
+    to: 'code.symbol:services/payments/src/providers/cardnet.ts#Cardnet.constructor'
+    evidence:
+      - path: 'services/payments/src/providers/cardnet.ts'
+        startLine: 8
+        endLine: 8
+        quote: '  constructor(private readonly baseUrl = ''https://api.cardnet.example/v2'') {'
+    reading: 'parsed'
+  - relation: 'code.contains'
+    from: 'code.symbol:services/payments/src/providers/cardnet.ts#Cardnet'
+    to: 'code.symbol:services/payments/src/providers/cardnet.ts#Cardnet.post'
+    evidence:
+      - path: 'services/payments/src/providers/cardnet.ts'
+        startLine: 37
+        endLine: 37
+        quote: '  private async post(path: string, body: unknown) {'
+    reading: 'parsed'
+  - relation: 'code.contains'
+    from: 'code.symbol:services/payments/src/providers/cardnet.ts#Cardnet'
+    to: 'code.symbol:services/payments/src/providers/cardnet.ts#Cardnet.submit'
+    evidence:
+      - path: 'services/payments/src/providers/cardnet.ts'
+        startLine: 12
+        endLine: 12
+        quote: '  protected async submit(charge: ChargeRequest): Promise<ChargeResult> {'
+    reading: 'parsed'
+  - relation: 'code.contains'
+    from: 'code.symbol:services/payments/src/providers/cardnet.ts#Cardnet'
+    to: 'code.symbol:services/payments/src/providers/cardnet.ts#Cardnet.submitRefund'
+    evidence:
+      - path: 'services/payments/src/providers/cardnet.ts'
+        startLine: 30
+        endLine: 30
+        quote: '  protected async submitRefund(providerReference: string, amountCents: number): Promise<void> {'
+    reading: 'parsed'
+  - relation: 'code.implements'
+    from: 'code.symbol:services/payments/src/providers/cardnet.ts#Cardnet'
+    to: 'code.symbol:services/payments/src/providers/provider.ts#PaymentProvider'
+    evidence:
+      - path: 'services/payments/src/providers/cardnet.ts'
+        startLine: 5
+        endLine: 5
+        quote: 'export class Cardnet extends BaseProvider implements PaymentProvider {'
+    reading: 'parsed'
+  - relation: 'code.imports'
+    from: 'code.file:services/payments/src/providers/cardnet.ts'
+    to: 'code.file:services/payments/src/http-client.ts'
+    evidence:
+      - path: 'services/payments/src/providers/cardnet.ts'
+        startLine: 1
+        endLine: 1
+        quote: 'import { request } from ''../http-client'';'
+    reading: 'parsed'
+  - relation: 'code.imports'
+    from: 'code.file:services/payments/src/providers/cardnet.ts'
+    to: 'code.file:services/payments/src/providers/provider.ts'
+    evidence:
+      - path: 'services/payments/src/providers/cardnet.ts'
+        startLine: 2
+        endLine: 2
+        quote: 'import { BaseProvider, ChargeRequest, ChargeResult, PaymentProvider, ProviderDeclinedError, ProviderUnavailableError } from ''./provider'';'
+    reading: 'parsed'

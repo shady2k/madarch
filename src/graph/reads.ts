@@ -96,6 +96,56 @@ export interface StateEntry {
   label: string;
 }
 
+/** One page of nodes whose current version answers a property predicate, by keyset on the node id. */
+async function nodesByProperty(tx: OuterTransaction, lens: ResolvedLens, where: string, params: readonly unknown[], page: PageOptions | undefined, operation: string): Promise<Page<NodeVersionRow>> {
+  const limit = pageLimit(page, operation);
+  const after = pageAfter(page, operation);
+  const found = await tx.query<Raw>(
+    `SELECT ${NODE_COLUMNS} FROM ${NODE_FROM}
+     WHERE ${vis('v')} AND ${where} AND v.node_id > $4::bigint
+     ORDER BY v.node_id LIMIT $5::bigint`,
+    [lens.valid, lens.known, String(lens.state), after, String(limit + 1), ...params],
+  );
+  const nodes = found.rows.map(nodeRow);
+  const more = nodes.length > limit;
+  const shown = more ? nodes.slice(0, limit) : nodes;
+  return { rows: shown, next: more ? shown[shown.length - 1]!.nodeId : null };
+}
+
+/**
+ * The nodes whose current version carries `key` as its `recordKey` (decision
+ * 0033: a static stage queries the graph by key, and the key is the fact id its
+ * own vocabulary gives the node). A bounded page, never a whole table.
+ */
+export function readByKey(tx: OuterTransaction, key: string, lens: ResolvedLens, options?: PageOptions): Promise<Page<NodeVersionRow>> {
+  return nodesByProperty(tx, lens, "v.properties->>'recordKey' = $6", [key], options, 'read by key');
+}
+
+/** The nodes of one kind whose current version carries `value` in the property `field`: a bounded page. */
+export function readByProperty(tx: OuterTransaction, kind: string, field: string, value: string, lens: ResolvedLens, options?: PageOptions): Promise<Page<NodeVersionRow>> {
+  return nodesByProperty(tx, lens, 'k.key = $6 AND v.properties->>$7 = $8', [kind, field, value], options, 'read by property');
+}
+
+/**
+ * The current nodes many record keys name, in one statement: the publication rechecks every node key and
+ * every edge end of a unit, and one query per key costs the unit's draft rather than the keys it repeats.
+ * A key two current nodes carry is answered with both, so the caller refuses the corrupt graph by name.
+ */
+export async function readByKeys(tx: OuterTransaction, keys: readonly string[], lens: ResolvedLens): Promise<Map<string, NodeVersionRow[]>> {
+  const found = new Map<string, NodeVersionRow[]>();
+  if (keys.length === 0) return found;
+  const rows = await tx.query<Raw>(
+    `SELECT ${NODE_COLUMNS}, v.properties->>'recordKey' AS record_key FROM ${NODE_FROM}
+     WHERE ${vis('v')} AND v.properties->>'recordKey' = ANY($4::text[])`,
+    [lens.valid, lens.known, String(lens.state), [...new Set(keys)]],
+  );
+  for (const row of rows.rows) {
+    const key = String(row['record_key']);
+    found.set(key, [...(found.get(key) ?? []), nodeRow(row)]);
+  }
+  return found;
+}
+
 /**
  * The architecture states seen at a valid and a known time, one entry per
  * state, in chain (key) order. Where `engine:state-after` edges exist (a state
@@ -174,6 +224,16 @@ export function readCallers(tx: OuterTransaction, node: GraphId, lens: ResolvedL
 /** What the node calls: the edges of `relation` that start at it. */
 export function readCallees(tx: OuterTransaction, node: GraphId, lens: ResolvedLens, options?: PageOptions & { relation?: string }): Promise<Page<EdgeEntry>> {
   return seenEdges(tx, lens, { where: 'e.src_id = $6::bigint AND r.key = $7', params: [checkId(node, 'read callees', 'node'), options?.relation ?? CALLS] }, options, 'read callees');
+}
+
+/**
+ * The edges of one relation whose current version carries `value` in the
+ * property `field`, both ends seen at the lens: one bounded page. A static
+ * stage's plan reads the imports of a repository by the repository the edge
+ * names, without walking the containment of a tree another stage draws.
+ */
+export function readEdgesByProperty(tx: OuterTransaction, relation: string, field: string, value: string, lens: ResolvedLens, options?: PageOptions): Promise<Page<EdgeEntry>> {
+  return seenEdges(tx, lens, { where: 'r.key = $6 AND e.properties->>$7 = $8', params: [relation, field, value] }, options, 'read edges by property');
 }
 
 /**

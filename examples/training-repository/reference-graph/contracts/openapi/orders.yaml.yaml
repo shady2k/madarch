@@ -1,0 +1,273 @@
+path: 'contracts/openapi/orders.yaml'
+nodes:
+  - id: 'code.contract:contracts/openapi/orders.yaml'
+    kind: 'code.contract'
+    label: 'orders.yaml'
+    evidence:
+      - path: 'contracts/openapi/orders.yaml'
+        startLine: 1
+        endLine: 1
+        quote: 'openapi: 3.0.3'
+    reading: 'parsed'
+  - id: 'code.file:contracts/openapi/orders.yaml'
+    kind: 'code.file'
+    label: 'orders.yaml'
+    evidence:
+      - path: 'contracts/openapi/orders.yaml'
+        startLine: 1
+        endLine: 1
+        quote: 'openapi: 3.0.3'
+    reading: 'parsed'
+  - id: 'code.operation:contracts/openapi/orders.yaml#cancelOrder'
+    kind: 'code.operation'
+    label: 'cancelOrder'
+    evidence:
+      - path: 'contracts/openapi/orders.yaml'
+        startLine: 87
+        endLine: 87
+        quote: '      operationId: cancelOrder'
+    reading: 'parsed'
+  - id: 'code.operation:contracts/openapi/orders.yaml#createOrder'
+    kind: 'code.operation'
+    label: 'createOrder'
+    evidence:
+      - path: 'contracts/openapi/orders.yaml'
+        startLine: 16
+        endLine: 16
+        quote: '      operationId: createOrder'
+    reading: 'parsed'
+  - id: 'code.operation:contracts/openapi/orders.yaml#exportOrders'
+    kind: 'code.operation'
+    label: 'exportOrders'
+    evidence:
+      - path: 'contracts/openapi/orders.yaml'
+        startLine: 128
+        endLine: 128
+        quote: '      operationId: exportOrders'
+    reading: 'parsed'
+  - id: 'code.operation:contracts/openapi/orders.yaml#getOrder'
+    kind: 'code.operation'
+    label: 'getOrder'
+    evidence:
+      - path: 'contracts/openapi/orders.yaml'
+        startLine: 72
+        endLine: 72
+        quote: '      operationId: getOrder'
+    reading: 'parsed'
+  - id: 'code.operation:contracts/openapi/orders.yaml#health'
+    kind: 'code.operation'
+    label: 'health'
+    evidence:
+      - path: 'contracts/openapi/orders.yaml'
+        startLine: 140
+        endLine: 140
+        quote: '      operationId: health'
+    reading: 'parsed'
+  - id: 'code.operation:contracts/openapi/orders.yaml#listOrders'
+    kind: 'code.operation'
+    label: 'listOrders'
+    evidence:
+      - path: 'contracts/openapi/orders.yaml'
+        startLine: 50
+        endLine: 50
+        quote: '      operationId: listOrders'
+    reading: 'parsed'
+  - id: 'code.operation:contracts/openapi/orders.yaml#shipOrder'
+    kind: 'code.operation'
+    label: 'shipOrder'
+    evidence:
+      - path: 'contracts/openapi/orders.yaml'
+        startLine: 111
+        endLine: 111
+        quote: '      operationId: shipOrder'
+    reading: 'parsed'
+edges:
+  - relation: 'code.belongs-to'
+    from: 'code.operation:contracts/openapi/orders.yaml#cancelOrder'
+    to: 'code.contract:contracts/openapi/orders.yaml'
+    evidence:
+      - path: 'contracts/openapi/orders.yaml'
+        startLine: 87
+        endLine: 87
+        quote: '      operationId: cancelOrder'
+    reading: 'parsed'
+  - relation: 'code.belongs-to'
+    from: 'code.operation:contracts/openapi/orders.yaml#createOrder'
+    to: 'code.contract:contracts/openapi/orders.yaml'
+    evidence:
+      - path: 'contracts/openapi/orders.yaml'
+        startLine: 16
+        endLine: 16
+        quote: '      operationId: createOrder'
+    reading: 'parsed'
+  - relation: 'code.belongs-to'
+    from: 'code.operation:contracts/openapi/orders.yaml#exportOrders'
+    to: 'code.contract:contracts/openapi/orders.yaml'
+    evidence:
+      - path: 'contracts/openapi/orders.yaml'
+        startLine: 128
+        endLine: 128
+        quote: '      operationId: exportOrders'
+    reading: 'parsed'
+  - relation: 'code.belongs-to'
+    from: 'code.operation:contracts/openapi/orders.yaml#getOrder'
+    to: 'code.contract:contracts/openapi/orders.yaml'
+    evidence:
+      - path: 'contracts/openapi/orders.yaml'
+        startLine: 72
+        endLine: 72
+        quote: '      operationId: getOrder'
+    reading: 'parsed'
+  - relation: 'code.belongs-to'
+    from: 'code.operation:contracts/openapi/orders.yaml#health'
+    to: 'code.contract:contracts/openapi/orders.yaml'
+    evidence:
+      - path: 'contracts/openapi/orders.yaml'
+        startLine: 140
+        endLine: 140
+        quote: '      operationId: health'
+    reading: 'parsed'
+  - relation: 'code.belongs-to'
+    from: 'code.operation:contracts/openapi/orders.yaml#listOrders'
+    to: 'code.contract:contracts/openapi/orders.yaml'
+    evidence:
+      - path: 'contracts/openapi/orders.yaml'
+        startLine: 50
+        endLine: 50
+        quote: '      operationId: listOrders'
+    reading: 'parsed'
+  - relation: 'code.belongs-to'
+    from: 'code.operation:contracts/openapi/orders.yaml#shipOrder'
+    to: 'code.contract:contracts/openapi/orders.yaml'
+    evidence:
+      - path: 'contracts/openapi/orders.yaml'
+        startLine: 111
+        endLine: 111
+        quote: '      operationId: shipOrder'
+    reading: 'parsed'
+  - relation: 'code.contains'
+    from: 'code.contract:contracts/openapi/orders.yaml'
+    to: 'code.operation:contracts/openapi/orders.yaml#cancelOrder'
+    evidence:
+      - path: 'contracts/openapi/orders.yaml'
+        startLine: 87
+        endLine: 87
+        quote: '      operationId: cancelOrder'
+    reading: 'parsed'
+  - relation: 'code.contains'
+    from: 'code.contract:contracts/openapi/orders.yaml'
+    to: 'code.operation:contracts/openapi/orders.yaml#createOrder'
+    evidence:
+      - path: 'contracts/openapi/orders.yaml'
+        startLine: 16
+        endLine: 16
+        quote: '      operationId: createOrder'
+    reading: 'parsed'
+  - relation: 'code.contains'
+    from: 'code.contract:contracts/openapi/orders.yaml'
+    to: 'code.operation:contracts/openapi/orders.yaml#exportOrders'
+    evidence:
+      - path: 'contracts/openapi/orders.yaml'
+        startLine: 128
+        endLine: 128
+        quote: '      operationId: exportOrders'
+    reading: 'parsed'
+  - relation: 'code.contains'
+    from: 'code.contract:contracts/openapi/orders.yaml'
+    to: 'code.operation:contracts/openapi/orders.yaml#getOrder'
+    evidence:
+      - path: 'contracts/openapi/orders.yaml'
+        startLine: 72
+        endLine: 72
+        quote: '      operationId: getOrder'
+    reading: 'parsed'
+  - relation: 'code.contains'
+    from: 'code.contract:contracts/openapi/orders.yaml'
+    to: 'code.operation:contracts/openapi/orders.yaml#health'
+    evidence:
+      - path: 'contracts/openapi/orders.yaml'
+        startLine: 140
+        endLine: 140
+        quote: '      operationId: health'
+    reading: 'parsed'
+  - relation: 'code.contains'
+    from: 'code.contract:contracts/openapi/orders.yaml'
+    to: 'code.operation:contracts/openapi/orders.yaml#listOrders'
+    evidence:
+      - path: 'contracts/openapi/orders.yaml'
+        startLine: 50
+        endLine: 50
+        quote: '      operationId: listOrders'
+    reading: 'parsed'
+  - relation: 'code.contains'
+    from: 'code.contract:contracts/openapi/orders.yaml'
+    to: 'code.operation:contracts/openapi/orders.yaml#shipOrder'
+    evidence:
+      - path: 'contracts/openapi/orders.yaml'
+        startLine: 111
+        endLine: 111
+        quote: '      operationId: shipOrder'
+    reading: 'parsed'
+  - relation: 'code.served-by'
+    from: 'code.operation:contracts/openapi/orders.yaml#cancelOrder'
+    to: 'code.route:orders:POST /orders/{id}/cancel'
+    evidence:
+      - path: 'contracts/openapi/orders.yaml'
+        startLine: 87
+        endLine: 87
+        quote: '      operationId: cancelOrder'
+    reading: 'parsed'
+  - relation: 'code.served-by'
+    from: 'code.operation:contracts/openapi/orders.yaml#createOrder'
+    to: 'code.route:orders:POST /orders'
+    evidence:
+      - path: 'contracts/openapi/orders.yaml'
+        startLine: 16
+        endLine: 16
+        quote: '      operationId: createOrder'
+    reading: 'parsed'
+  - relation: 'code.served-by'
+    from: 'code.operation:contracts/openapi/orders.yaml#exportOrders'
+    to: 'code.route:orders:GET /orders/export'
+    evidence:
+      - path: 'contracts/openapi/orders.yaml'
+        startLine: 128
+        endLine: 128
+        quote: '      operationId: exportOrders'
+    reading: 'parsed'
+  - relation: 'code.served-by'
+    from: 'code.operation:contracts/openapi/orders.yaml#getOrder'
+    to: 'code.route:orders:GET /orders/{id}'
+    evidence:
+      - path: 'contracts/openapi/orders.yaml'
+        startLine: 72
+        endLine: 72
+        quote: '      operationId: getOrder'
+    reading: 'parsed'
+  - relation: 'code.served-by'
+    from: 'code.operation:contracts/openapi/orders.yaml#health'
+    to: 'code.route:orders:GET /healthz'
+    evidence:
+      - path: 'contracts/openapi/orders.yaml'
+        startLine: 140
+        endLine: 140
+        quote: '      operationId: health'
+    reading: 'parsed'
+  - relation: 'code.served-by'
+    from: 'code.operation:contracts/openapi/orders.yaml#listOrders'
+    to: 'code.route:orders:GET /orders'
+    evidence:
+      - path: 'contracts/openapi/orders.yaml'
+        startLine: 50
+        endLine: 50
+        quote: '      operationId: listOrders'
+    reading: 'parsed'
+  - relation: 'code.served-by'
+    from: 'code.operation:contracts/openapi/orders.yaml#shipOrder'
+    to: 'code.route:orders:POST /orders/{id}/ship'
+    evidence:
+      - path: 'contracts/openapi/orders.yaml'
+        startLine: 111
+        endLine: 111
+        quote: '      operationId: shipOrder'
+    reading: 'parsed'

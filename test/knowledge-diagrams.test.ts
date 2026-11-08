@@ -4,7 +4,13 @@
  * outbox.*, modules.*, payments.cycle.*, database.*, interaction.* and hotspot items) and the generated repository's own
  * files, never the engine's output.
  */
-import { afterAll, beforeAll, describe, expect, test } from 'bun:test';
+import { afterAll, beforeAll, describe as bunDescribe, expect, test as bunTest } from 'bun:test';
+import { skippedBecauseOutOfWorkflow } from './fill-skip-list.js';
+
+// The cases read a stage out of this step's list: they come back with that stage's step (test/fill-skip-list.ts).
+const skippedSuite = skippedBecauseOutOfWorkflow(import.meta.path);
+const describe = bunDescribe.skipIf(skippedSuite !== undefined);
+const test = bunTest.skipIf(skippedSuite !== undefined);
 import { mkdirSync, mkdtempSync, readFileSync, rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
@@ -14,6 +20,13 @@ import type { ViewPayload } from '../src/knowledge/views.js';
 import { stateMachinesOf } from '../src/knowledge/state-machines.js';
 import { ROOT, generateTrainingRepository, makeProduct, recordKey, writeSamplePages } from './knowledge-fixture.js';
 
+/**
+ * A full static fill of the training repository is 10 to 15 minutes: the cases are skipped under
+ * `MADARCH_SKIP_PERF=1` like the other training-scale acceptance (`test/fill-resolution-graph.test.ts`), and the
+ * ordinary suite keeps the diagram blocks' own unit tests.
+ */
+const skip = process.env['MADARCH_SKIP_PERF'] !== undefined;
+
 const KEY = JSON.parse(readFileSync(join(ROOT, 'examples/training-repository/answer-key.json'), 'utf8')) as { items: { id: string }[] };
 const hasItem = (id: string): boolean => KEY.items.some((entry) => entry.id === id);
 
@@ -21,6 +34,9 @@ let work: string;
 let product: KnowledgeProduct;
 
 beforeAll(async () => {
+  // The store the cases read is filled by stages out of this step's list: no fixture is made or closed.
+  if (skippedSuite !== undefined) return;
+  if (skip) return;
   work = mkdtempSync(join(tmpdir(), 'madarch-knowledge-diagrams-'));
   const repository = generateTrainingRepository(join(work, 'repo'));
   mkdirSync(join(work, 'home'));
@@ -33,6 +49,9 @@ beforeAll(async () => {
 }, 900_000);
 
 afterAll(async () => {
+  // The store the cases read is filled by stages out of this step's list: no fixture is made or closed.
+  if (skippedSuite !== undefined) return;
+  if (skip) return;
   await product.close();
   rmSync(work, { recursive: true, force: true });
 });
@@ -64,7 +83,7 @@ const lanes = (chain: Chain): string[] => chain.lanes;
 const route = (path: string, signature: string): string => recordKey('code.route', `${path}#${signature}`);
 
 describe('the end-to-end chains match the answer key\'s flows', () => {
-  test('POST /orders: route, middleware, handler, use case, domain, repository, tables and the outbox (flow.orders.*)', async () => {
+  test.skipIf(skip)('POST /orders: route, middleware, handler, use case, domain, repository, tables and the outbox (flow.orders.*)', async () => {
     expect(['flow.orders.route', 'flow.orders.middleware', 'flow.orders.handler', 'flow.orders.service', 'flow.orders.domain', 'flow.orders.repository', 'flow.orders.table'].every(hasItem)).toBe(true);
     const chain = await chainOf(route('services/orders/internal/api/router.go', 'POST:/orders'));
     const steps = labels(chain);
@@ -82,7 +101,7 @@ describe('the end-to-end chains match the answer key\'s flows', () => {
     expect(chain.steps.every((step) => step.href !== undefined)).toBe(true);
   });
 
-  test('the outbox row is read later by the relay that publishes it, and the graph holds no order for that: the step is unordered (outbox.chain)', async () => {
+  test.skipIf(skip)('the outbox row is read later by the relay that publishes it, and the graph holds no order for that: the step is unordered (outbox.chain)', async () => {
     expect(hasItem('outbox.chain')).toBe(true);
     const chain = await chainOf(route('services/orders/internal/api/router.go', 'POST:/orders'));
     const unordered = chain.steps.filter((step) => step.order === 'unordered');
@@ -94,7 +113,7 @@ describe('the end-to-end chains match the answer key\'s flows', () => {
     expect(chain.notes.join(' ')).toContain('holds no order');
   });
 
-  test('POST /payments: route, handler, PaymentService.pay, repository and table, then the topic and its consumer in orders (flow.payments.chain, interaction.*)', async () => {
+  test.skipIf(skip)('POST /payments: route, handler, PaymentService.pay, repository and table, then the topic and its consumer in orders (flow.payments.chain, interaction.*)', async () => {
     expect(['flow.payments.chain', 'interaction.payments-events', 'interaction.orders-consumes-payments'].every(hasItem)).toBe(true);
     const chain = await chainOf(route('services/payments/src/api/routes.ts', 'POST:/payments'));
     const steps = labels(chain);
@@ -108,7 +127,7 @@ describe('the end-to-end chains match the answer key\'s flows', () => {
     expect(chain.lanes).toEqual(expect.arrayContaining(['broker', 'orders', 'payments']));
   });
 
-  test('POST /checkout crosses to promotions and orders over HTTP and to payments over gRPC, each call a step into the route or handler that serves it (checkout.sequence)', async () => {
+  test.skipIf(skip)('POST /checkout crosses to promotions and orders over HTTP and to payments over gRPC, each call a step into the route or handler that serves it (checkout.sequence)', async () => {
     expect(['checkout.sequence', 'flow.checkout.chain'].every(hasItem)).toBe(true);
     const chain = await chainOf(route('services/checkout/src/api/routes.ts', 'POST:/checkout'));
     const kinds = chain.steps.map((step) => [step.kind, step.label]);
@@ -123,7 +142,7 @@ describe('the end-to-end chains match the answer key\'s flows', () => {
     expect(at('http', 'POST /orders')).toBeLessThan(at('grpc'));
   });
 
-  test('a function page reaches the route above it, a domain page the routes of its functions, and a function no route reaches starts at itself', async () => {
+  test.skipIf(skip)('a function page reaches the route above it, a domain page the routes of its functions, and a function no route reaches starts at itself', async () => {
     const pay = recordKey('code.symbol', 'services/payments/src/domain/payment-service.ts#PaymentService.pay');
     expect(ofType(await page(pay), 'sequence')[0]!.label).toBe('POST /payments');
     expect(ofType(await page('domain:payment'), 'sequence').map((view) => view.label)).toContain('POST /payments');
@@ -133,7 +152,7 @@ describe('the end-to-end chains match the answer key\'s flows', () => {
 });
 
 describe('the diagrams a page leaves to be read on their own', () => {
-  test('a page asked for with defer answers a place for each diagram, and the block route draws one by the identity of its name and parameters, so the page answers at once', async () => {
+  test.skipIf(skip)('a page asked for with defer answers a place for each diagram, and the block route draws one by the identity of its name and parameters, so the page answers at once', async () => {
     const pay = recordKey('code.symbol', 'services/payments/src/domain/payment-service.ts#PaymentService.pay');
     const answered = await product.page(pay, 'en', { defer: true });
     if (!answered.ok) throw new Error(answered.message);
@@ -148,7 +167,7 @@ describe('the diagrams a page leaves to be read on their own', () => {
 });
 
 describe('the neighbourhood', () => {
-  test('a function shows its callers and callees as edges in and out with the relation filter, every node linked to its page', async () => {
+  test.skipIf(skip)('a function shows its callers and callees as edges in and out with the relation filter, every node linked to its page', async () => {
     const pay = recordKey('code.symbol', 'services/payments/src/domain/payment-service.ts#PaymentService.pay');
     const hood = block(await page(pay), 'graph').neighborhood;
     expect(hood.center).toBe(pay);
@@ -171,7 +190,7 @@ describe('the neighbourhood', () => {
     expect(hood.nodes.filter((node) => node.href === null && node.kind === 'code.symbol')).toEqual([]);
   });
 
-  test('a service shows the services it calls and is called by, its database and its topic, from the links between services', async () => {
+  test.skipIf(skip)('a service shows the services it calls and is called by, its database and its topic, from the links between services', async () => {
     const hood = block(await page('code.service:payments'), 'graph').neighborhood;
     const rel = (relation: string, direction: 'in' | 'out') => hood.relations.find((entry) => entry.relation === relation && entry.direction === direction);
     expect(rel('calls-grpc', 'in')).toBeDefined();
@@ -180,14 +199,14 @@ describe('the neighbourhood', () => {
     expect(hood.nodes.map((node) => node.label)).toEqual(expect.arrayContaining(['checkout', 'payments.events']));
   });
 
-  test('a route shows the handler it hands the request to, a table the code that reads and writes it', async () => {
+  test.skipIf(skip)('a route shows the handler it hands the request to, a table the code that reads and writes it', async () => {
     const orders = block(await page(route('services/orders/internal/api/router.go', 'POST:/orders')), 'graph').neighborhood;
     expect(orders.edges.some((edge) => edge.relation === 'handled-by' && edge.to.endsWith('#OrderHandlers.Create'))).toBe(true);
     const table = block(await page(recordKey('code.table', 'orders/public.orders')), 'graph').neighborhood;
     expect(table.relations.map((entry) => entry.relation)).toEqual(expect.arrayContaining(['code.reads-table', 'code.writes-table', 'code.foreign-key']));
   });
 
-  test('the route a diagram opens answers one hop of a node, optionally one relation, with what it left out counted', async () => {
+  test.skipIf(skip)('the route a diagram opens answers one hop of a node, optionally one relation, with what it left out counted', async () => {
     const pay = recordKey('code.symbol', 'services/payments/src/domain/payment-service.ts#PaymentService.pay');
     const all = await product.neighborhood(pay, { limit: 3 });
     if (!all.ok) throw new Error(all.message);
@@ -202,14 +221,14 @@ describe('the neighbourhood', () => {
 });
 
 describe('reading explicit transition tables only', () => {
-  test('ignores transition-looking text in comments and ordinary Go nested maps', async () => {
+  test.skipIf(skip)('ignores transition-looking text in comments and ordinary Go nested maps', async () => {
     expect(await stateMachinesOf('src/order.ts', `/* const transitions = { pending: { paid: 'confirmed' } }; */\nconst permissions = { admin: { scope: 'all' } };`)).toEqual([]);
     expect(await stateMachinesOf('order.go', `var permissions = map[string]map[string]string{\n  "admin": { "scope": "all" },\n}`)).toEqual([]);
   });
 });
 
 describe('the drawn views: C4, components, ER, state and deployment, and the hotspot treemap', () => {
-  test('the home page draws the context and the containers: four services, their databases and the topics with HTTP, gRPC, SQL and event links (interaction.*, database.*)', async () => {
+  test.skipIf(skip)('the home page draws the context and the containers: four services, their databases and the topics with HTTP, gRPC, SQL and event links (interaction.*, database.*)', async () => {
     const home = await page('product:shop');
     const [context] = ofType(home, 'c4-context');
     expect(context!.elements.map((element) => element.kind)).toEqual(expect.arrayContaining(['person', 'product']));
@@ -254,7 +273,7 @@ describe('the drawn views: C4, components, ER, state and deployment, and the hot
     }
   });
 
-  test('the deployment view draws the compose services and the Kubernetes deployments, and dashes what is matched by name only', async () => {
+  test.skipIf(skip)('the deployment view draws the compose services and the Kubernetes deployments, and dashes what is matched by name only', async () => {
     const [deployment] = ofType(await page('product:shop'), 'deployment');
     expect(deployment).toBeDefined();
     const names = deployment!.elements.map((element) => element.label);
@@ -264,7 +283,7 @@ describe('the drawn views: C4, components, ER, state and deployment, and the hot
     expect(deployment!.edges.filter((edge) => edge.dashed).every((edge) => edge.why !== undefined)).toBe(true);
   });
 
-  test('the payments service shows the import cycle between domain and events as a cycle of components (payments.cycle.*)', async () => {
+  test.skipIf(skip)('the payments service shows the import cycle between domain and events as a cycle of components (payments.cycle.*)', async () => {
     expect(['payments.cycle.domain-to-events', 'payments.cycle.events-to-domain'].every(hasItem)).toBe(true);
     const [components] = ofType(await page('code.service:payments'), 'c4-component');
     const domain = recordKey('code.module', 'services/payments/src/domain');
@@ -275,7 +294,7 @@ describe('the drawn views: C4, components, ER, state and deployment, and the hot
     expect(components!.up).toMatchObject({ spec: { type: 'c4-container' } });
   });
 
-  test('the database page draws its tables with the foreign keys between them and links each table (database.orders)', async () => {
+  test.skipIf(skip)('the database page draws its tables with the foreign keys between them and links each table (database.orders)', async () => {
     const [er] = ofType(await page(recordKey('code.database', 'orders')), 'er');
     // Mermaid's ER syntax: an entity per table with a row per column, and one relationship line per foreign key.
     expect(er!.mermaidSource.split('\n')[0]).toBe('erDiagram');
@@ -291,7 +310,7 @@ describe('the drawn views: C4, components, ER, state and deployment, and the hot
     expect(er!.renderers).toEqual(['mermaid']);
   });
 
-  test('the order status machine of the orders domain is read from its transition table: states, events, and the line each is written at', async () => {
+  test.skipIf(skip)('the order status machine of the orders domain is read from its transition table: states, events, and the line each is written at', async () => {
     const file = await page(recordKey('code.file', 'services/orders/internal/domain/order.go'));
     const [machine] = ofType(file, 'state');
     expect(machine).toBeDefined();
@@ -303,7 +322,7 @@ describe('the drawn views: C4, components, ER, state and deployment, and the hot
     expect(machine!.edges.every((edge) => !edge.dashed)).toBe(true);
   });
 
-  test('a domain page draws its services (dashed: the agent\'s reading), their data, neighbouring domains and the use cases the text names', async () => {
+  test.skipIf(skip)('a domain page draws its services (dashed: the agent\'s reading), their data, neighbouring domains and the use cases the text names', async () => {
     const [domain] = ofType(await page('domain:payment'), 'domain');
     expect(domain).toBeDefined();
     expect(domain!.elements.some((element) => element.id === 'code.service:payments')).toBe(true);
@@ -312,7 +331,7 @@ describe('the drawn views: C4, components, ER, state and deployment, and the hot
     expect(domain!.up).toMatchObject({ spec: { type: 'domain-map' } });
   });
 
-  test('a service page is where its treemap lives: the files it holds with their lines and their churn from history, order_service.go its hotspot, its lock file left out and said (hotspot, large-file)', async () => {
+  test.skipIf(skip)('a service page is where its treemap lives: the files it holds with their lines and their churn from history, order_service.go its hotspot, its lock file left out and said (hotspot, large-file)', async () => {
     expect(hasItem('hotspot')).toBe(true);
     const treemap = block(await page('code.service:orders'), 'treemap');
     expect(treemap.scope).toBe('services/orders');

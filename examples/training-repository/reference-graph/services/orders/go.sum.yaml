@@ -1,0 +1,84 @@
+path: 'services/orders/go.sum'
+nodes:
+  - id: 'code.file:services/orders/go.sum'
+    kind: 'code.file'
+    label: 'go.sum'
+    evidence:
+      - path: 'services/orders/go.sum'
+        startLine: 1
+        endLine: 1
+        quote: 'github.com/davecgh/go-spew v1.1.0/go.mod h1:J7Y8YcW2NihsgmVo/mv3lAwl/skON4iLHjSsI+c5H38='
+    reading: 'parsed'
+  - id: 'code.lockfile:services/orders/go.sum'
+    kind: 'code.lockfile'
+    label: 'go.sum (24 modules pinned)'
+    evidence:
+      - path: 'services/orders/go.sum'
+        startLine: 1
+        endLine: 1
+        quote: 'github.com/davecgh/go-spew v1.1.0/go.mod h1:J7Y8YcW2NihsgmVo/mv3lAwl/skON4iLHjSsI+c5H38='
+    reading: 'parsed'
+edges:
+  - relation: 'code.belongs-to'
+    from: 'code.lockfile:services/orders/go.sum'
+    to: 'code.package:services/orders'
+    evidence:
+      - path: 'services/orders/go.sum'
+        startLine: 1
+        endLine: 1
+        quote: 'github.com/davecgh/go-spew v1.1.0/go.mod h1:J7Y8YcW2NihsgmVo/mv3lAwl/skON4iLHjSsI+c5H38='
+    reading: 'parsed'
+  - relation: 'code.resolves'
+    from: 'code.lockfile:services/orders/go.sum'
+    to: 'code.dependency:services/orders/go.mod#github.com/golang-jwt/jwt/v5'
+    evidence:
+      - path: 'services/orders/go.sum'
+        startLine: 4
+        endLine: 4
+        quote: 'github.com/golang-jwt/jwt/v5 v5.2.1 h1:OuVbFODueb089Lh128TAcimifWaLhJwVflnrgM17wHk='
+    reading: 'parsed'
+  - relation: 'code.resolves'
+    from: 'code.lockfile:services/orders/go.sum'
+    to: 'code.dependency:services/orders/go.mod#github.com/klauspost/compress'
+    evidence:
+      - path: 'services/orders/go.sum'
+        startLine: 6
+        endLine: 6
+        quote: 'github.com/klauspost/compress v1.15.9 h1:wKRjX6JRtDdrE9qwa4b/Cip7ACOshUI4smpCQanqjSY='
+    reading: 'parsed'
+  - relation: 'code.resolves'
+    from: 'code.lockfile:services/orders/go.sum'
+    to: 'code.dependency:services/orders/go.mod#github.com/lib/pq'
+    evidence:
+      - path: 'services/orders/go.sum'
+        startLine: 8
+        endLine: 8
+        quote: 'github.com/lib/pq v1.10.9 h1:YXG7RB+JIjhP29X+OtkiDnYaXQwpS4JEWq7dtCCRUEw='
+    reading: 'parsed'
+  - relation: 'code.resolves'
+    from: 'code.lockfile:services/orders/go.sum'
+    to: 'code.dependency:services/orders/go.mod#github.com/pierrec/lz4/v4'
+    evidence:
+      - path: 'services/orders/go.sum'
+        startLine: 10
+        endLine: 10
+        quote: 'github.com/pierrec/lz4/v4 v4.1.15 h1:MO0/ucJhngq7299dKLwIMtgTfbkoSPF6AoMYDd8Q4q0='
+    reading: 'parsed'
+  - relation: 'code.resolves'
+    from: 'code.lockfile:services/orders/go.sum'
+    to: 'code.dependency:services/orders/go.mod#github.com/segmentio/kafka-go'
+    evidence:
+      - path: 'services/orders/go.sum'
+        startLine: 14
+        endLine: 14
+        quote: 'github.com/segmentio/kafka-go v0.4.47 h1:IqziR4pA3vrZq7YdRxaT3w1/5fvIH5qpCwstUanQQB0='
+    reading: 'parsed'
+  - relation: 'code.resolves'
+    from: 'code.lockfile:services/orders/go.sum'
+    to: 'code.manifest:services/orders/go.mod'
+    evidence:
+      - path: 'services/orders/go.sum'
+        startLine: 1
+        endLine: 1
+        quote: 'github.com/davecgh/go-spew v1.1.0/go.mod h1:J7Y8YcW2NihsgmVo/mv3lAwl/skON4iLHjSsI+c5H38='
+    reading: 'parsed'

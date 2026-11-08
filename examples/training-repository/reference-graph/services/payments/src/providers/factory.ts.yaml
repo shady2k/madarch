@@ -1,0 +1,93 @@
+path: 'services/payments/src/providers/factory.ts'
+nodes:
+  - id: 'code.file:services/payments/src/providers/factory.ts'
+    kind: 'code.file'
+    label: 'factory.ts'
+    evidence:
+      - path: 'services/payments/src/providers/factory.ts'
+        startLine: 1
+        endLine: 1
+        quote: 'import { Cardnet } from ''./cardnet'';'
+    reading: 'parsed'
+  - id: 'code.symbol:services/payments/src/providers/factory.ts#PaymentClientFactory'
+    kind: 'code.symbol'
+    label: 'PaymentClientFactory'
+    evidence:
+      - path: 'services/payments/src/providers/factory.ts'
+        startLine: 6
+        endLine: 6
+        quote: 'export class PaymentClientFactory {'
+    reading: 'parsed'
+  - id: 'code.symbol:services/payments/src/providers/factory.ts#PaymentClientFactory.create'
+    kind: 'code.symbol'
+    label: 'PaymentClientFactory.create'
+    evidence:
+      - path: 'services/payments/src/providers/factory.ts'
+        startLine: 7
+        endLine: 7
+        quote: '  static create(name: string): PaymentProvider {'
+    reading: 'parsed'
+edges:
+  - relation: 'code.calls'
+    from: 'code.symbol:services/payments/src/providers/factory.ts#PaymentClientFactory.create'
+    to: 'code.symbol:services/payments/src/providers/cardnet.ts#Cardnet'
+    evidence:
+      - path: 'services/payments/src/providers/factory.ts'
+        startLine: 10
+        endLine: 10
+        quote: '        return new Cardnet();'
+    reading: 'parsed'
+  - relation: 'code.calls'
+    from: 'code.symbol:services/payments/src/providers/factory.ts#PaymentClientFactory.create'
+    to: 'code.symbol:services/payments/src/providers/deferred.ts#Deferred'
+    evidence:
+      - path: 'services/payments/src/providers/factory.ts'
+        startLine: 12
+        endLine: 12
+        quote: '        return new Deferred();'
+    reading: 'parsed'
+  - relation: 'code.contains'
+    from: 'code.file:services/payments/src/providers/factory.ts'
+    to: 'code.symbol:services/payments/src/providers/factory.ts#PaymentClientFactory'
+    evidence:
+      - path: 'services/payments/src/providers/factory.ts'
+        startLine: 6
+        endLine: 6
+        quote: 'export class PaymentClientFactory {'
+    reading: 'parsed'
+  - relation: 'code.contains'
+    from: 'code.symbol:services/payments/src/providers/factory.ts#PaymentClientFactory'
+    to: 'code.symbol:services/payments/src/providers/factory.ts#PaymentClientFactory.create'
+    evidence:
+      - path: 'services/payments/src/providers/factory.ts'
+        startLine: 7
+        endLine: 7
+        quote: '  static create(name: string): PaymentProvider {'
+    reading: 'parsed'
+  - relation: 'code.imports'
+    from: 'code.file:services/payments/src/providers/factory.ts'
+    to: 'code.file:services/payments/src/providers/cardnet.ts'
+    evidence:
+      - path: 'services/payments/src/providers/factory.ts'
+        startLine: 1
+        endLine: 1
+        quote: 'import { Cardnet } from ''./cardnet'';'
+    reading: 'parsed'
+  - relation: 'code.imports'
+    from: 'code.file:services/payments/src/providers/factory.ts'
+    to: 'code.file:services/payments/src/providers/deferred.ts'
+    evidence:
+      - path: 'services/payments/src/providers/factory.ts'
+        startLine: 2
+        endLine: 2
+        quote: 'import { Deferred } from ''./deferred'';'
+    reading: 'parsed'
+  - relation: 'code.imports'
+    from: 'code.file:services/payments/src/providers/factory.ts'
+    to: 'code.file:services/payments/src/providers/provider.ts'
+    evidence:
+      - path: 'services/payments/src/providers/factory.ts'
+        startLine: 3
+        endLine: 3
+        quote: 'import { PaymentProvider } from ''./provider'';'
+    reading: 'parsed'

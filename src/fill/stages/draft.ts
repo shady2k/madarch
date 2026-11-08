@@ -19,15 +19,20 @@
  * stage writes nothing the schema has not read.
  */
 import { byCodePoint } from '../../model/order.js';
-import { FACT_ID_PATTERN, checkFact, type FactProvenance } from '../facts.js';
+import { FACT_ID_PATTERN, checkFact, type FactProvenance, type FactSource } from '../facts.js';
 import type { SnapshotReader } from '../snapshot.js';
 import type { StageDraftSet, StageDraftWrite, StageValidation } from '../stage.js';
 
 /** The provenance of a fact read from a pinned repository: git, the version it runs, and the commit. */
 export function provenanceOf(reader: SnapshotReader): FactProvenance {
+  return provenanceOfPlace({ repository: reader.repository, commit: reader.commit, source: reader.source });
+}
+
+/** The provenance of a fact read through a static stage's context: git, its version, the pinned commit. */
+export function provenanceOfPlace(place: { readonly repository: string; readonly commit: string; readonly source: FactSource }): FactProvenance {
   return {
-    source: { system: reader.source.system, version: reader.source.version },
-    repository: { id: reader.repository, commit: reader.commit },
+    source: { system: place.source.system, version: place.source.version },
+    repository: { id: place.repository, commit: place.commit },
   };
 }
 
@@ -38,7 +43,12 @@ export function provenanceOf(reader: SnapshotReader): FactProvenance {
  * write was read from at the commit it names.
  */
 export function evidenceAt(reader: SnapshotReader, path?: string): string {
-  const at = `${reader.repository}@${reader.commit}`;
+  return evidenceAtPlace({ repository: reader.repository, commit: reader.commit }, path);
+}
+
+/** The evidence of a write read through a static stage's context: the repository, the commit and, where it stands at a place, that path. */
+export function evidenceAtPlace(place: { readonly repository: string; readonly commit: string }, path?: string): string {
+  const at = `${place.repository}@${place.commit}`;
   return path === undefined ? at : `${at}:${path}`;
 }
 

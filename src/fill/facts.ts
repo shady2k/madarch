@@ -197,6 +197,15 @@ export interface FactRange {
   readonly endLine: number;
   /** The offset just past the last character in `endLine`, 0-based; equal to `startColumn` when the range is empty. */
   readonly endColumn: number;
+  /**
+   * The range's first byte in the file's own bytes, when the reader knows it
+   * (the syntax stage's own spans do). It is not part of a place's identity:
+   * the line and column are, and a byte offset is how the graph store positions
+   * an occurrence edge (decision 0028, `code.occurrence`).
+   */
+  readonly startByte?: number;
+  /** The byte just past the range's last byte; present exactly when `startByte` is. */
+  readonly endByte?: number;
 }
 
 /** Where in a repository a fact was read: the file, and the range inside it. */
@@ -656,6 +665,14 @@ export interface SymbolValue {
   readonly scipKind?: string;
   /** The name a reader sees (`create`), where the qualified name reads worse. */
   readonly displayName?: string;
+  /**
+   * The symbol's name across the product (decision 0033, "The file is the unit
+   * of static work"): `<repository>:<path>#<qualifiedName>`, the name a reader
+   * of another file queries the graph by. The qualified name is the symbol's
+   * place in its file; the global name adds the file's place in the product, so
+   * two files' `create` are two names and one file's `create` is one.
+   */
+  readonly globalName?: string;
   /** The signature as the resolver rendered it (`create(order: Order): Promise<void>`). */
   readonly signature?: string;
   /**
@@ -826,6 +843,18 @@ export interface CommitValue {
    * and a rename is the path it left and the path it took.
    */
   readonly files: readonly RepositoryPath[];
+  /**
+   * Every trailer git's own parser read from the message, in the parser's
+   * order: its key and its value, exactly as the parser returned them. What a
+   * trailer means is the product's declaration, never this schema's.
+   */
+  readonly trailers?: readonly CommitTrailer[];
+}
+
+/** One trailer git's parser read: its key and its value. */
+interface CommitTrailer {
+  readonly key: string;
+  readonly value: string;
 }
 
 /**
@@ -1447,8 +1476,9 @@ export const FACT_KINDS: { readonly [K in FactKind]: FactKindDefinition<K> } = {
     place: 'required',
     layers: ['extracted'],
     // 1: the name, kind and disambiguator stage 3 declares. 2: the importance
-    // stage 5's PageRank gives it, in [0, 1] (its own move).
-    version: 2,
+    // stage 5's PageRank gives it, in [0, 1] (its own move). 3: the global name
+    // stage 3 gives it, so another file resolves it by query (decision 0033).
+    version: 3,
     identityValue: (value) => [
       ['repository', value.repository],
       ['file', value.file],
@@ -1540,7 +1570,9 @@ export const FACT_KINDS: { readonly [K in FactKind]: FactKindDefinition<K> } = {
     stages: ['7-history'],
     place: 'optional',
     layers: ['extracted'],
-    version: FACTS_SCHEMA_VERSION,
+    // 2 for the trailers git's own parser read (madarch-8bdc.2.5): the value
+    // gained the parser's own records, and its identity still names the commit.
+    version: 2,
     identityValue: (value) => [['repository', value.repository], ['commit', value.commit]],
   },
 
@@ -1756,13 +1788,10 @@ export const FACT_KINDS: { readonly [K in FactKind]: FactKindDefinition<K> } = {
   'task-key': {
     kind: 'task-key',
     shape: 'edge',
-    // Stage 7 reads the keys a commit message names and stage 6 the keys a
-    // document names. The kind is one and the key is written as the tracker
-    // writes it; the two readers differ in what they read a marker from — a
-    // commit message's `Task:` line is a key list and nothing else, while a
-    // document's line carries the sentence the marker stands in — so each
-    // stage's own rule says which tokens of its text are keys (see
-    // `src/fill/stages/history.ts` and `src/fill/stages/document-index.ts`).
+    // Stage 7 reads the values of the trailer a product declares and stage 6
+    // the values of the front-matter field a product declares. No trailer name,
+    // field name or key shape stands in the engine: both readers take the
+    // product's declaration, and a product that declares none writes no key.
     stages: ['6-documents', '7-history'],
     place: 'optional',
     layers: ['extracted'],
@@ -2165,7 +2194,7 @@ const VALUE_FIELDS: { readonly [K in FactKind]: readonly (keyof FactValueOf<K> &
   'table': ['repository', 'name', 'engine'],
   'column': ['repository', 'table', 'name', 'dataType'],
   'environment-variable': ['name'],
-  'symbol': ['repository', 'file', 'qualifiedName', 'symbolKind', 'disambiguator', 'scipKind', 'displayName', 'signature', 'importance'],
+  'symbol': ['repository', 'file', 'qualifiedName', 'symbolKind', 'disambiguator', 'scipKind', 'displayName', 'globalName', 'signature', 'importance'],
   'occurrence': ['symbol', 'roles'],
   'entry-point': ['repository', 'file', 'name', 'form'],
   'comment': ['text', 'form'],
@@ -2173,7 +2202,7 @@ const VALUE_FIELDS: { readonly [K in FactKind]: readonly (keyof FactValueOf<K> &
   'module': ['repository', 'name', 'parent', 'seed', 'members', 'importance', 'proposal'],
   'document': ['repository', 'path', 'mediaType', 'title', 'bytes', 'blob'],
   'section': ['repository', 'document', 'anchor', 'heading', 'level', 'startByte', 'endByte'],
-  'commit': ['repository', 'commit', 'committedAt', 'authoredAt', 'subject', 'author', 'parents', 'files'],
+  'commit': ['repository', 'commit', 'committedAt', 'authoredAt', 'subject', 'author', 'parents', 'files', 'trailers'],
   'claim': ['subject', 'predicate', 'object', 'text', 'confidence'],
   'entity-proposal': ['repository', 'proposed', 'name', 'summary', 'aliases'],
   'rule': ['statement', 'subject', 'form'],
@@ -2204,7 +2233,7 @@ const PROVENANCE_FIELDS: readonly string[] = ['place', 'repository', 'source'];
 const SOURCE_FIELDS: readonly string[] = ['system', 'version'];
 const REPOSITORY_FIELDS: readonly string[] = ['commit', 'id'];
 const PLACE_FIELDS: readonly string[] = ['file', 'range'];
-const RANGE_FIELDS: readonly string[] = ['endColumn', 'endLine', 'startColumn', 'startLine'];
+const RANGE_FIELDS: readonly string[] = ['endByte', 'endColumn', 'endLine', 'startByte', 'startColumn', 'startLine'];
 const TERM_FIELDS: Readonly<Record<string, readonly string[]>> = {
   external: ['form', 'url'],
   literal: ['form', 'text'],
@@ -2367,6 +2396,22 @@ function placeProblemsOf(place: unknown): FactProblem[] {
   }
   if (startLine !== undefined && startColumn !== undefined && endLine !== undefined && endColumn !== undefined && endLine === startLine && endColumn < startColumn) {
     problems.push({ path: 'provenance.place.range.endColumn', message: `${endColumn} ends the range before column ${startColumn} starts it` });
+  }
+  // A byte span is both ends or neither: half a span positions no occurrence.
+  const startByte = fields['startByte'];
+  const endByte = fields['endByte'];
+  if ((startByte === undefined) !== (endByte === undefined)) {
+    problems.push({ path: 'provenance.place.range', message: 'a range names its byte span as both startByte and endByte, or neither' });
+  } else if (startByte !== undefined && endByte !== undefined) {
+    if (typeof startByte !== 'number' || !Number.isInteger(startByte) || startByte < 0) {
+      problems.push({ path: 'provenance.place.range.startByte', message: `${shown(startByte)} is no byte offset: a span starts at a whole byte from zero` });
+    }
+    if (typeof endByte !== 'number' || !Number.isInteger(endByte)) {
+      problems.push({ path: 'provenance.place.range.endByte', message: `${shown(endByte)} is no byte offset: a span ends at a whole byte` });
+    }
+    if (typeof startByte === 'number' && typeof endByte === 'number' && endByte <= startByte) {
+      problems.push({ path: 'provenance.place.range.endByte', message: `the byte span [${startByte}, ${endByte}) ends before it starts: a position covers at least one byte` });
+    }
   }
   return problems;
 }
@@ -2579,6 +2624,28 @@ export function checkFact(fact: unknown): FactProblem[] {
           const message = partIn(closed.values, closed.what)(held);
           if (message !== undefined) add(`value.${field}`, message);
         }
+        continue;
+      }
+      // A commit's trailers are git's own records, in the parser's order: a key
+      // and a value each, and a key may repeat (two `Task:` lines are two
+      // trailers). No name of a trailer and no shape of a key is read here.
+      if (kind === 'commit' && field === 'trailers') {
+        if (!Array.isArray(held)) {
+          add(`value.${field}`, `${shown(held)} is no list of trailers: this field holds the records git's trailer parser returned, in its order`);
+          continue;
+        }
+        held.forEach((entry, index) => {
+          if (typeof entry !== 'object' || entry === null || Array.isArray(entry)) {
+            add(`value.${field}[${index}]`, `a trailer is a record with a key and a value, not ${shown(entry)}`);
+            return;
+          }
+          const trailer = entry as Record<string, unknown>;
+          const unknownTrailer = unknownKeyProblem(trailer, ['key', 'value']);
+          if (unknownTrailer !== undefined) add(`value.${field}[${index}]`, unknownTrailer);
+          for (const part of ['key', 'value']) {
+            if (typeof trailer[part] !== 'string') add(`value.${field}[${index}].${part}`, `a trailer's ${part} is the text git's parser returned, not ${shown(trailer[part])}`);
+          }
+        });
         continue;
       }
       // The shape decides the branch, never the content: a name list is read as

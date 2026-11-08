@@ -1,38 +1,35 @@
 /**
- * The snapshot and inventory stages (madarch-tzte.21.1, decision 0026 stages 0
- * and 1) through their own `plan` and `execute` with a fake context: the
- * orchestrator (madarch-tzte.19.5) is not needed and not used.
+ * The snapshot and inventory stages (madarch-tzte.21.1; decision 0026 stages 0
+ * and 1; decision 0033's per-file units) through their own `plan` and `execute`
+ * with a fake context. The orchestrator is not used: the test reads the graph
+ * drafts the stages write and answers their plans from those drafts.
  *
- * Every expectation comes from the task and the decisions, never from the
- * module: stage 0 writes one `snapshot`, one `repository` and one `coverage`
- * fact per pinned repository at the commit it was read at; stage 1 writes a
- * `file` fact per file (its roles, its language, its bytes and the blob its
- * bytes stand under), a `directory` fact per folder, and a `contains` edge from
- * each node's container; a second run after a one-file commit plans that file's
- * unit and its folders' and nothing else; and a renamed file leaves no stale
- * fact behind because the vanished path's unit publishes nothing.
- *
- * The graph is the test's own: the reads a plan makes are answered from the
- * facts an earlier run's draft set held, which is what a fact store would
- * answer, and no test touches a real database. Every repository is one the test
- * makes in a temporary folder and removes.
+ * The expectations come from the decisions: the snapshot publishes one
+ * `code.file` node per file from one file's bytes, one `code.directory` node
+ * per folder, one `code.repository` and one `code.commit` node per repository,
+ * and a `code.coverage` node for a path it could not read. The inventory draws
+ * the containment: one `code.contains` edge from each node's container, and a
+ * second run of an unchanged tree plans nothing.
  */
 import { describe, expect, test } from 'bun:test';
 import { execFileSync } from 'node:child_process';
 import { mkdir, mkdtemp, rm, symlink, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
-import { checkFact } from '../src/fill/facts.js';
 import { deriveStageGraph } from '../src/fill/registry.js';
 import { createGitSnapshotSource } from '../src/fill/snapshot.js';
 import { DEFAULT_STAGE_LIMITS, type StageContext, type StageDraftWrite, type StageUnit } from '../src/fill/stage.js';
 import { createStageRegistry } from '../src/fill/stages/index.js';
-import { createInventoryStage, publishedTreeRead, rolesFor, type PublishedTreeRow } from '../src/fill/stages/inventory.js';
-import { createSnapshotStage } from '../src/fill/stages/snapshot.js';
+import {
+  createInventoryStage, directoriesOf, languageFor, publishedContainmentRead, publishedContainmentRows, publishedTreeRead,
+  publishedTreeRows, rolesFor,
+} from '../src/fill/stages/inventory.js';
+import { createSnapshotStage, publishedRepositoryRead } from '../src/fill/stages/snapshot.js';
+import { staticStageContext, staticStageSourceOf } from '../src/fill/stages/static-context.js';
+import { containmentRowsOf, edgesOfRelation, itemsOf, nodesOfKind, treeRowsOf } from './fill-static-drafts.js';
 
 // ---- the test's own repository, context and graph ---------------------------
 
-/** A throwaway repository the test commits into by hand. */
 interface Fixture {
   readonly root: string;
   commit(): string;
@@ -65,84 +62,45 @@ async function fixture(): Promise<Fixture> {
   };
 }
 
-/** What a stage recorded while it ran. */
 interface Recorder {
   readonly writes: StageDraftWrite[];
   readonly notes: string[];
   readonly queries: string[];
 }
 
+let testSource: ReturnType<typeof createGitSnapshotSource> | undefined;
+
+function snapshotSource(...args: Parameters<typeof createGitSnapshotSource>): ReturnType<typeof createGitSnapshotSource> {
+  const source = createGitSnapshotSource(...args);
+  testSource = source;
+  return source;
+}
+
+function repositoryOfScope(scope: string): string {
+  const at = scope.indexOf(':');
+  return at < 0 ? scope : scope.slice(0, at);
+}
+
 /** One unit's context: the reads answered by the test, the draft collected here, and a signal the test holds. */
-function contextFor(unit: StageUnit, answer: (read: string) => readonly unknown[] = () => []): { context: StageContext; recorder: Recorder; controller: AbortController } {
+async function contextFor(unit: StageUnit, answer: (read: string) => readonly unknown[] = () => [], source = testSource, controller = new AbortController()): Promise<{ context: StageContext; recorder: Recorder; controller: AbortController }> {
   const recorder: Recorder = { writes: [], notes: [], queries: [] };
-  const controller = new AbortController();
+  const graph = { query: async (read: string) => { recorder.queries.push(read); return answer(read); } };
+  const repository = source === undefined ? undefined : await staticStageSourceOf(source, repositoryOfScope(unit.scope));
   return {
     recorder,
     controller,
     context: {
       unit,
       config: { id: 'test', version: 1, enabled: true, concurrency: 1, limits: DEFAULT_STAGE_LIMITS, config: {} },
-      graph: {
-        query: async (read: string) => {
-          recorder.queries.push(read);
-          return answer(read);
-        },
-      },
-      draft: {
-        write: (entry: StageDraftWrite) => { recorder.writes.push(entry); },
-        writes: () => ({ writes: recorder.writes }),
-      },
+      graph,
+      ...(repository === undefined ? {} : { static: staticStageContext(repository, { byKey: async () => [], byGlobalName: async () => [], byProperty: async () => ({ rows: [], next: null }), edgesByProperty: async () => ({ rows: [], next: null }), neighbourhood: async () => ({ rows: [], next: null }) }) }),
+      draft: { write: (entry: StageDraftWrite) => { recorder.writes.push(entry); }, writes: () => ({ writes: recorder.writes }) },
       progress: (note: string) => { recorder.notes.push(note); },
       signal: controller.signal,
     },
   };
 }
 
-/** One fact of a draft set, as the fact store would hold it. */
-interface DraftFact {
-  readonly kind: string;
-  readonly id: string;
-  readonly value: Record<string, unknown>;
-  readonly provenance: {
-    readonly repository: { readonly id: string; readonly commit: string };
-    readonly place?: { readonly file: string; readonly range: { readonly startLine: number; readonly startColumn: number; readonly endLine: number; readonly endColumn: number } };
-  };
-}
-
-/** The facts one draft set holds, in the order they were written; a write that is no fact is left out. */
-function factsOf(writes: readonly StageDraftWrite[]): readonly DraftFact[] {
-  const facts: DraftFact[] = [];
-  for (const write of writes) {
-    if (write.kind !== 'fact') continue;
-    facts.push(write.value as DraftFact);
-  }
-  return facts;
-}
-
-/** One write's fact envelope, for a test that reads a draft back. */
-function factOf(write: StageDraftWrite): unknown {
-  if (write.kind !== 'fact') throw new Error(`the stage wrote a ${write.kind}, and this test reads facts`);
-  return write.value;
-}
-
-/** The kinds of the facts one draft set holds, in the order they were written. */
-function kindsOf(writes: readonly StageDraftWrite[]): string[] {
-  return factsOf(writes).map((fact) => fact.kind);
-}
-
-/** WHAT a fact store would answer for one repository's stage-1 tree: the file and directory facts a draft set holds. */
-function publishedRows(writes: readonly StageDraftWrite[], repository: string): readonly PublishedTreeRow[] {
-  const rows: PublishedTreeRow[] = [];
-  for (const fact of factsOf(writes)) {
-    if (fact.kind !== 'file' && fact.kind !== 'directory') continue;
-    const path = String(fact.value['path']);
-    const blob = fact.value['blob'];
-    rows.push({ kind: fact.kind, repository, path, ...(typeof blob === 'string' ? { blob } : {}) });
-  }
-  return rows;
-}
-
-/** What a call refused with, so a test can read what it names; `answered` when it did not refuse. */
 async function refusedBy(call: () => unknown): Promise<string> {
   try {
     await call();
@@ -152,62 +110,49 @@ async function refusedBy(call: () => unknown): Promise<string> {
   }
 }
 
-/** The units one plan named, by id. */
 function unitIds(plan: { units: readonly { id: string }[] }): string[] {
   return plan.units.map((unit) => unit.id);
+}
+
+/** Runs one stage's units over a source, collecting the drafts. */
+async function runStage(stage: ReturnType<typeof createSnapshotStage> | ReturnType<typeof createInventoryStage>, answer: (read: string) => readonly unknown[] = () => []): Promise<{ plan: { units: readonly { id: string; scope: string }[] }; writes: StageDraftWrite[] }> {
+  const plan = await stage.plan({ query: async (read: string) => answer(read) });
+  const writes: StageDraftWrite[] = [];
+  for (const unit of plan.units) {
+    const run = await contextFor(unit, answer);
+    await stage.execute(unit, run.context);
+    writes.push(...run.recorder.writes);
+  }
+  return { plan, writes };
+}
+
+/** The graph one inventory plan reads: the snapshot's published tree and repository, and its own containment. */
+function planGraph(tree: readonly StageDraftWrite[], repository: string, containment: readonly unknown[] = []): (read: string) => Promise<readonly unknown[]> {
+  return async (read: string) => {
+    if (read === publishedTreeRead(repository)) return treeRowsOf(tree, repository);
+    if (read === publishedRepositoryRead(repository)) return [{ kind: 'repository', repository }];
+    if (read === publishedContainmentRead(repository)) return containment;
+    return [];
+  };
 }
 
 // ---- the registry ----------------------------------------------------------
 
 describe('the stages are registered', () => {
-  test('the stages register and the derived graph runs the snapshot before the history, the inventory, the build and configuration, the document index and the syntax stage', async () => {
+  test('the derived graph runs the snapshot before the stages that read its files, and the inventory after it', async () => {
     const f = await fixture();
     try {
       await f.write('src/a.ts', 'export const a = 1;\n');
       const commit = f.commit();
-      const registry = createStageRegistry({ snapshots: createGitSnapshotSource([{ id: 'orders-api', form: 'code', root: f.root, commit }]) });
+      const registry = createStageRegistry({ snapshots: snapshotSource([{ id: 'orders-api', form: 'code', root: f.root, commit }]) });
       const read = deriveStageGraph(registry);
       expect(read.ok).toBe(true);
       if (!read.ok) return;
-      // The build and configuration stage (madarch-tzte.21.5) and the semantic
-      // resolution stage (madarch-tzte.21.6) are registered beside them too: the
-      // history reads the snapshot and is ordered between the two by code point,
-      // the inventory, the build and configuration, the syntax stage, the
-      // document index and the resolution all read the inventory's `file` facts
-      // (and the build and configuration, the document index and the history the
-      // snapshot), and the resolution reads the syntax stage's symbols and
-      // imports, so it runs after it. The graph is the one every registered
-      // stage derives.
-      expect(read.graph.order).toEqual(['snapshot', 'history', 'inventory', 'build-configuration', 'document-index', 'syntax', 'semantic-resolution', 'modules']);
-      // The inventory reads the repository node and the snapshot; the history
-      // reads the snapshot alone; the syntax stage reads the inventory's file
-      // facts; the document index reads the snapshot and a link's `file` node,
-      // and its own `document` facts, which draw no edge from itself to itself;
-      // the resolution reads the syntax stage's symbols and imports.
-      expect(read.graph.edges).toEqual([
-        { from: 'build-configuration', to: 'modules', via: 'package' },
-        { from: 'inventory', to: 'build-configuration', via: 'file' },
-        { from: 'inventory', to: 'document-index', via: 'file' },
-        { from: 'inventory', to: 'modules', via: 'file' },
-        { from: 'inventory', to: 'semantic-resolution', via: 'file' },
-        { from: 'inventory', to: 'syntax', via: 'file' },
-        { from: 'semantic-resolution', to: 'modules', via: 'call' },
-        { from: 'semantic-resolution', to: 'modules', via: 'inherits' },
-        { from: 'semantic-resolution', to: 'modules', via: 'reference' },
-        { from: 'snapshot', to: 'build-configuration', via: 'snapshot' },
-        { from: 'snapshot', to: 'document-index', via: 'snapshot' },
-        { from: 'snapshot', to: 'history', via: 'snapshot' },
-        { from: 'snapshot', to: 'inventory', via: 'repository' },
-        { from: 'snapshot', to: 'inventory', via: 'snapshot' },
-        { from: 'syntax', to: 'modules', via: 'import' },
-        { from: 'syntax', to: 'modules', via: 'symbol' },
-        { from: 'syntax', to: 'semantic-resolution', via: 'import' },
-        { from: 'syntax', to: 'semantic-resolution', via: 'symbol' },
-      ]);
-      expect(registry.get('history')?.produces.map((produced) => produced.kind)).toEqual(['commit', 'coverage', 'task-key']);
-      expect(registry.get('snapshot')?.produces.map((produced) => produced.kind)).toEqual(['coverage', 'repository', 'snapshot']);
-      expect(registry.get('inventory')?.produces.map((produced) => produced.kind)).toEqual(['contains', 'directory', 'file']);
-      expect(registry.get('document-index')?.produces.map((produced) => produced.kind)).toEqual(['coverage', 'document', 'document-link', 'section', 'task-key']);
+      expect(read.graph.order.indexOf('snapshot')).toBeLessThan(read.graph.order.indexOf('inventory'));
+      expect(read.graph.order.indexOf('inventory')).toBeLessThan(read.graph.order.indexOf('syntax'));
+      expect(read.graph.order.indexOf('snapshot')).toBeLessThan(read.graph.order.indexOf('syntax'));
+      expect(registry.get('snapshot')?.produces.map((produced) => produced.kind)).toEqual(['coverage', 'directory', 'file', 'repository', 'snapshot']);
+      expect(registry.get('inventory')?.produces.map((produced) => produced.kind)).toEqual(['contains']);
     } finally {
       await f.dispose();
     }
@@ -217,174 +162,91 @@ describe('the stages are registered', () => {
 // ---- stage 0: the snapshot --------------------------------------------------
 
 describe('the snapshot stage', () => {
-  test('plans one unit per pinned repository, in code point order, and none for a run that pins nothing', async () => {
+  test('plans one unit per file, per folder and one for the repository, in code point order', async () => {
     const f = await fixture();
     try {
+      await f.write('README.md', '# Fixture\n');
       await f.write('src/a.ts', 'export const a = 1;\n');
+      await f.write('src/b.ts', 'export const b = 2;\n');
       const commit = f.commit();
-      const source = createGitSnapshotSource([
-        { id: 'web', form: 'code', root: f.root, commit },
-        { id: 'catalog-api', form: 'product', root: f.root, commit, defaultBranch: 'main' },
+      const stage = createSnapshotStage(snapshotSource([{ id: 'orders-api', form: 'code', root: f.root, commit }]));
+      expect(unitIds(await stage.plan({ query: async () => [] }))).toEqual([
+        'directory:orders-api:src',
+        'file:orders-api:README.md',
+        'file:orders-api:src/a.ts',
+        'file:orders-api:src/b.ts',
+        'repository:orders-api',
       ]);
-      const stage = createSnapshotStage(source);
-      const plan = await stage.plan({ query: async () => [] });
-      expect(unitIds(plan)).toEqual(['catalog-api', 'web']);
-      expect(plan.coverage).toBe('planned');
-      expect(plan.units.map((unit) => unit.scope)).toEqual(['catalog-api', 'web']);
-      // A run that pins nothing plans nothing, and says so: the fill is not starved.
-      const empty = createSnapshotStage(createGitSnapshotSource([]));
+      const empty = createSnapshotStage(snapshotSource([]));
       expect(await empty.plan({ query: async () => [] })).toEqual({ units: [], coverage: 'nothing-found' });
     } finally {
       await f.dispose();
     }
   });
 
-  test('writes one snapshot, one repository and one coverage fact at the pinned commit', async () => {
+  test('a file unit publishes one code.file node with the roles, language, bytes and blob of that file', async () => {
     const f = await fixture();
     try {
       await f.write('src/a.ts', 'export const a = 1;\n');
-      await f.write('README.md', '# fixture\n');
       const commit = f.commit();
-      const tree = f.git('rev-parse', `${commit}^{tree}`).trim();
-      const stage = createSnapshotStage(createGitSnapshotSource([{ id: 'orders-api', form: 'code', root: f.root, commit }]));
-      const { context, recorder } = contextFor({ id: 'orders-api', scope: 'orders-api' });
-      expect(await stage.execute({ id: 'orders-api', scope: 'orders-api' }, context)).toEqual({ outcome: 'draft' });
-      expect(kindsOf(recorder.writes)).toEqual(['coverage', 'repository', 'snapshot']);
-      // Every write is a fact the schema reads.
-      for (const write of recorder.writes) expect(checkFact(factOf(write))).toEqual([]);
-      const [coverage, repository, snapshot] = factsOf(recorder.writes);
-      expect(snapshot?.value).toEqual({
-        repository: 'orders-api',
-        commit,
-        tree,
-        fileCount: 2,
-        byteCount: 'export const a = 1;\n'.length + '# fixture\n'.length,
-      });
-      expect(repository?.value).toEqual({ repository: 'orders-api', form: 'code' });
-      // One node per repository across commits: the same id at another commit.
-      expect(snapshot?.provenance.repository).toEqual({ id: 'orders-api', commit });
-      // The coverage covers the repository node it was read for and found no
-      // gap; a folder holds no bytes of its own, so the kinds it names are the
-      // kinds of file the tree held.
-      expect(coverage?.value).toEqual({ repository: 'orders-api', scope: repository!.id, complete: true, read: ['file'], unread: [] });
-      // The evidence a reader can check the write against: the repository and the commit.
-      for (const write of recorder.writes) expect(write.evidence).toBe(`orders-api@${commit}`);
-      expect(recorder.notes).toHaveLength(1);
-      expect(await stage.validate({ writes: recorder.writes }, { query: async () => [] })).toEqual({ ok: true });
+      const stage = createSnapshotStage(snapshotSource([{ id: 'orders-api', form: 'code', root: f.root, commit }]));
+      const writes = await runStage(stage);
+      const files = nodesOfKind(writes.writes, 'code.file');
+      expect(files).toHaveLength(1);
+      const a = files.find((node) => node.properties['path'] === 'src/a.ts')!;
+      expect(a.properties).toMatchObject({ repository: 'orders-api', path: 'src/a.ts', roles: ['source'], language: 'typescript', blob: f.git('rev-parse', `${commit}:src/a.ts`).trim() });
+      expect(a.properties['bytes']).toBe('export const a = 1;\n'.length);
+      expect(itemsOf(writes.writes).filter((item) => item.kind === 'directory').map((item) => item.value['path']).sort()).toEqual(['src']);
+      expect(itemsOf(writes.writes).filter((item) => item.kind === 'repository')).toHaveLength(1);
+      expect(itemsOf(writes.writes).filter((item) => item.kind === 'snapshot').map((item) => item.value['commit'])).toEqual([commit]);
     } finally {
       await f.dispose();
     }
   });
 
-  test('a submodule the tree holds is coverage, named with its path, and never a silent gap', async () => {
+  test('a file above the cap keeps its node and is named as a too-large coverage gap', async () => {
     const f = await fixture();
     try {
-      await f.write('src/a.ts', 'export const a = 1;\n');
-      const first = f.commit();
-      // A submodule's tree entry: put in the index after the worktree was
-      // staged, since `git add -A` would drop an entry with no folder on disk.
-      f.git('update-index', '--add', '--cacheinfo', `160000,${first},sub`);
-      f.git('commit', '-qm', 'submodule');
-      const second = f.git('rev-parse', 'HEAD').trim();
-      const stage = createSnapshotStage(createGitSnapshotSource([{ id: 'orders-api', form: 'code', root: f.root, commit: second }]));
-      const { context, recorder } = contextFor({ id: 'orders-api', scope: 'orders-api' });
-      await stage.execute({ id: 'orders-api', scope: 'orders-api' }, context);
-      const coverage = factsOf(recorder.writes).find((fact) => fact.kind === 'coverage');
-      expect(coverage?.value['complete']).toBe(false);
-      expect(coverage?.value['unread']).toEqual([{ what: 'sub', reason: 'unsupported' }]);
-      expect(checkFact(factOf(recorder.writes[0]!))).toEqual([]);
+      await f.write('big.ts', 'a'.repeat(1_048_577));
+      const commit = f.commit();
+      const stage = createSnapshotStage(snapshotSource([{ id: 'orders-api', form: 'code', root: f.root, commit }]));
+      const writes = await runStage(stage);
+      const big = nodesOfKind(writes.writes, 'code.file').find((node) => node.properties['path'] === 'big.ts')!;
+      expect(big.properties['bytes']).toBe(1_048_577);
+      const coverage = nodesOfKind(writes.writes, 'code.coverage');
+      expect(coverage).toHaveLength(1);
+      expect(coverage[0]!.properties).toMatchObject({ scope: 'big.ts', complete: false, read: [], unread: [{ what: 'big.ts', reason: 'too-large' }] });
     } finally {
       await f.dispose();
     }
   });
 
-  test('a symbolic link is a file of the tree: it is counted, and the coverage names its kind', async () => {
+  test('a symbolic link is a file of the tree and a submodule is a named coverage gap', async () => {
     const f = await fixture();
     try {
       await f.write('src/a.ts', 'export const a = 1;\n');
       await symlink('src/a.ts', join(f.root, 'link.ts'));
       const commit = f.commit();
-      const stage = createSnapshotStage(createGitSnapshotSource([{ id: 'orders-api', form: 'code', root: f.root, commit }]));
-      const { context, recorder } = contextFor({ id: 'orders-api', scope: 'orders-api' });
-      await stage.execute({ id: 'orders-api', scope: 'orders-api' }, context);
-      const [coverage, , snapshot] = factsOf(recorder.writes);
-      // A link's bytes are the path it points at, so the tree holds two files
-      // and the coverage says which kinds they are.
-      expect(snapshot?.value['fileCount']).toBe(2);
-      expect(coverage?.value['read']).toEqual(['file', 'symbolic-link']);
-      expect(coverage?.value['complete']).toBe(true);
-      expect(checkFact(factOf(recorder.writes[0]!))).toEqual([]);
+      const stage = createSnapshotStage(snapshotSource([{ id: 'orders-api', form: 'code', root: f.root, commit }]));
+      const writes = await runStage(stage);
+      const files = nodesOfKind(writes.writes, 'code.file').map((node) => String(node.properties['path'])).sort();
+      expect(files).toEqual(['link.ts', 'src/a.ts']);
     } finally {
       await f.dispose();
     }
   });
 
-  test('a tree path the fill cannot name is coverage, named with its path, and no fact is written for it', async () => {
-    const f = await fixture();
-    try {
-      await f.write('plain.ts', 'export const a = 1;\n');
-      await f.write('a\\b.txt', 'the backslash file\n');
-      await f.write('C:/inside.txt', 'the drive-shaped file\n');
-      const commit = f.commit();
-      const stage = createSnapshotStage(createGitSnapshotSource([{ id: 'orders-api', form: 'code', root: f.root, commit }]));
-      const { context, recorder } = contextFor({ id: 'orders-api', scope: 'orders-api' });
-      await stage.execute({ id: 'orders-api', scope: 'orders-api' }, context);
-      const coverage = factsOf(recorder.writes).find((fact) => fact.kind === 'coverage');
-      expect(coverage?.value['complete']).toBe(false);
-      expect(coverage?.value['unread']).toEqual([
-        { what: 'C:/inside.txt', reason: 'unsupported' },
-        { what: 'a\\b.txt', reason: 'unsupported' },
-      ]);
-      // Only the file the fill can name is read: two files were not read, and
-      // the coverage is what says so rather than a silence.
-      expect(coverage?.value['read']).toEqual(['file']);
-      expect(factsOf(recorder.writes).find((fact) => fact.kind === 'snapshot')?.value['fileCount']).toBe(1);
-      expect(checkFact(factOf(recorder.writes[0]!))).toEqual([]);
-    } finally {
-      await f.dispose();
-    }
-  });
-
-  test('a cancelled unit raises after the reader opened too, and writes nothing', async () => {
+  test('a cancelled unit raises and writes nothing', async () => {
     const f = await fixture();
     try {
       await f.write('src/a.ts', 'export const a = 1;\n');
       const commit = f.commit();
-      const real = createGitSnapshotSource([{ id: 'orders-api', form: 'code', root: f.root, commit }]);
-      const { context, recorder, controller } = contextFor({ id: 'orders-api', scope: 'orders-api' });
-      // A source that cancels in the moment the reader is handed over: the
-      // check after the open is what this proves.
-      const stage = createSnapshotStage({
-        pins: () => real.pins(),
-        open: async (repository) => {
-          const reader = await real.open(repository);
-          controller.abort();
-          return reader;
-        },
-      });
-      await expect(stage.execute({ id: 'orders-api', scope: 'orders-api' }, context)).rejects.toThrow('was cancelled');
-      expect(recorder.writes).toEqual([]);
-    } finally {
-      await f.dispose();
-    }
-  });
-
-  test('the same reading twice is the same facts, and a cancelled unit publishes nothing', async () => {
-    const f = await fixture();
-    try {
-      await f.write('src/a.ts', 'export const a = 1;\n');
-      const commit = f.commit();
-      const stage = createSnapshotStage(createGitSnapshotSource([{ id: 'orders-api', form: 'code', root: f.root, commit }]));
-      const once = contextFor({ id: 'orders-api', scope: 'orders-api' });
-      const twice = contextFor({ id: 'orders-api', scope: 'orders-api' });
-      await stage.execute({ id: 'orders-api', scope: 'orders-api' }, once.context);
-      await stage.execute({ id: 'orders-api', scope: 'orders-api' }, twice.context);
-      expect(factsOf(twice.recorder.writes).map((fact) => fact.id)).toEqual(factsOf(once.recorder.writes).map((fact) => fact.id));
-      // A cancelled unit raises rather than draft an empty set, which would retract what it wrote before.
-      const cancelled = contextFor({ id: 'orders-api', scope: 'orders-api' });
-      cancelled.controller.abort();
-      await expect(stage.execute({ id: 'orders-api', scope: 'orders-api' }, cancelled.context)).rejects.toThrow('was cancelled');
-      expect(cancelled.recorder.writes).toEqual([]);
+      const stage = createSnapshotStage(snapshotSource([{ id: 'orders-api', form: 'code', root: f.root, commit }]));
+      const controller = new AbortController();
+      controller.abort();
+      const run = await contextFor({ id: 'file:orders-api:src/a.ts', scope: 'orders-api:src/a.ts' }, () => [], undefined, controller);
+      await expect(stage.execute({ id: 'file:orders-api:src/a.ts', scope: 'orders-api:src/a.ts' }, run.context)).rejects.toThrow('was cancelled');
+      expect(run.recorder.writes).toEqual([]);
     } finally {
       await f.dispose();
     }
@@ -394,97 +256,174 @@ describe('the snapshot stage', () => {
 // ---- stage 1: the inventory -------------------------------------------------
 
 describe('the inventory stage', () => {
-  test('plans a unit per file and per folder, in code point order', async () => {
+  test('a first run plans one unit per file and per folder, in code point order', async () => {
     const f = await fixture();
     try {
-      await f.write('README.md', '# fixture\n');
+      await f.write('README.md', '# Fixture\n');
       await f.write('src/a.ts', 'export const a = 1;\n');
-      await f.write('src/nested/b.go', 'package b\n');
       const commit = f.commit();
-      const stage = createInventoryStage(createGitSnapshotSource([{ id: 'orders-api', form: 'code', root: f.root, commit }]));
-      const plan = await stage.plan({ query: async (read) => { expect(read).toBe(publishedTreeRead('orders-api')); return []; } });
-      expect(unitIds(plan)).toEqual([
+      const source = snapshotSource([{ id: 'orders-api', form: 'code', root: f.root, commit }]);
+      const snapshot = await runStage(createSnapshotStage(source));
+      const stage = createInventoryStage(source);
+      expect(unitIds(await stage.plan({ query: planGraph(snapshot.writes, 'orders-api') }))).toEqual([
         'directory:orders-api:src',
-        'directory:orders-api:src/nested',
         'file:orders-api:README.md',
         'file:orders-api:src/a.ts',
-        'file:orders-api:src/nested/b.go',
       ]);
-      expect(plan.coverage).toBe('planned');
-      expect(plan.units[0]?.scope).toBe('orders-api:src');
-      // A tree with no file plans nothing, and says so rather than planning an empty repository.
-      const bare = await fixture();
-      try {
-        // A repository whose commit holds no file at all: `git commit
-        // --allow-empty`, since git stages no empty tree otherwise.
-        bare.git('commit', '--allow-empty', '-qm', 'empty');
-        const empty = bare.git('rev-parse', 'HEAD').trim();
-        const emptyStage = createInventoryStage(createGitSnapshotSource([{ id: 'orders-api', form: 'code', root: bare.root, commit: empty }]));
-        expect(await emptyStage.plan({ query: async () => [] })).toEqual({ units: [], coverage: 'nothing-found' });
-      } finally {
-        await bare.dispose();
-      }
     } finally {
       await f.dispose();
     }
   });
 
-  test('a file unit writes the file’s roles, language, bytes and blob, and the edge from its folder', async () => {
+  test('a file unit draws the edge from its folder, and a root file from the repository', async () => {
+    const f = await fixture();
+    try {
+      await f.write('README.md', '# Fixture\n');
+      await f.write('src/a.ts', 'export const a = 1;\n');
+      const commit = f.commit();
+      const source = snapshotSource([{ id: 'orders-api', form: 'code', root: f.root, commit }]);
+      const snapshot = await runStage(createSnapshotStage(source));
+      const inventory = createInventoryStage(source);
+      const inventoryWrites: StageDraftWrite[] = [];
+      for (const unit of (await inventory.plan({ query: planGraph(snapshot.writes, 'orders-api') })).units) {
+        const run = await contextFor(unit);
+        await inventory.execute(unit, run.context);
+        inventoryWrites.push(...run.recorder.writes);
+      }
+      const rows = containmentRowsOf([...snapshot.writes, ...inventoryWrites], 'orders-api');
+      expect([...rows].sort((left, right) => (left.to < right.to ? -1 : 1))).toEqual([
+        { kind: 'contains', child: 'file', from: '', to: 'README.md' },
+        { kind: 'contains', child: 'directory', from: '', to: 'src' },
+        { kind: 'contains', child: 'file', from: 'src', to: 'src/a.ts' },
+      ]);
+    } finally {
+      await f.dispose();
+    }
+  });
+
+  test('an unchanged tree and a moved file: the edge is replanned only when the container moved', async () => {
     const f = await fixture();
     try {
       await f.write('src/a.ts', 'export const a = 1;\n');
-      await f.write('test/a.test.ts', 'export const test = 1;\n');
-      await f.write('README.md', '# fixture\n');
-      const commit = f.commit();
-      const blob = f.git('rev-parse', `${commit}:src/a.ts`).trim();
-      const source = createGitSnapshotSource([{ id: 'orders-api', form: 'code', root: f.root, commit }]);
-      const stage = createInventoryStage(source);
-      const { context, recorder } = contextFor({ id: 'file:orders-api:src/a.ts', scope: 'orders-api:src/a.ts' });
-      expect(await stage.execute({ id: 'file:orders-api:src/a.ts', scope: 'orders-api:src/a.ts' }, context)).toEqual({ outcome: 'draft' });
-      expect(kindsOf(recorder.writes)).toEqual(['file', 'contains']);
-      for (const write of recorder.writes) expect(checkFact(factOf(write))).toEqual([]);
-      const [file, contains] = factsOf(recorder.writes);
-      expect(file?.value).toEqual({
-        repository: 'orders-api',
-        path: 'src/a.ts',
-        roles: ['source'],
-        language: 'typescript',
-        bytes: 'export const a = 1;\n'.length,
-        blob,
-      });
-      // A file fact's place is the whole file: the first line's first character
-      // to the last line's end.
-      expect(file?.provenance.place).toEqual({
-        file: 'src/a.ts',
-        range: { startLine: 1, startColumn: 0, endLine: 1, endColumn: 'export const a = 1;'.length },
-      });
-      // The container of a file inside a folder is that folder's node.
-      expect(contains?.value['to']).toBe(file!.id);
-      expect(contains?.value['from']).toBe(
-        factsOf(await drafted({ id: 'directory:orders-api:src', scope: 'orders-api:src' }, stage))[0]?.id,
-      );
-      expect(recorder.writes.every((write) => write.evidence === `orders-api@${commit}:src/a.ts`)).toBe(true);
-      expect(await stage.validate({ writes: recorder.writes }, { query: async () => [] })).toEqual({ ok: true });
-
-      // A file at the repository's root stands in the repository node stage 0 published.
-      const rootUnit = contextFor({ id: 'file:orders-api:README.md', scope: 'orders-api:README.md' });
-      await stage.execute({ id: 'file:orders-api:README.md', scope: 'orders-api:README.md' }, rootUnit.context);
-      const repositoryNode = factsOf(await drafted({ id: 'orders-api', scope: 'orders-api' }, createSnapshotStage(source)))
-        .find((fact) => fact.kind === 'repository');
-      expect(factsOf(rootUnit.recorder.writes)[1]?.value['from']).toBe(repositoryNode?.id);
-
-      // A top-level folder stands in the repository node too.
-      const folderUnit = contextFor({ id: 'directory:orders-api:src', scope: 'orders-api:src' });
-      await stage.execute({ id: 'directory:orders-api:src', scope: 'orders-api:src' }, folderUnit.context);
-      expect(kindsOf(folderUnit.recorder.writes)).toEqual(['directory', 'contains']);
-      expect(factsOf(folderUnit.recorder.writes)[1]?.value['from']).toBe(repositoryNode?.id);
+      const first = f.commit();
+      const source = snapshotSource([{ id: 'orders-api', form: 'code', root: f.root, commit: first }]);
+      const snapshot = await runStage(createSnapshotStage(source));
+      const inventory = createInventoryStage(source);
+      const inventoryWrites: StageDraftWrite[] = [];
+      for (const unit of (await inventory.plan({ query: planGraph(snapshot.writes, 'orders-api') })).units) {
+        const run = await contextFor(unit);
+        await inventory.execute(unit, run.context);
+        inventoryWrites.push(...run.recorder.writes);
+      }
+      const previous = containmentRowsOf([...snapshot.writes, ...inventoryWrites], 'orders-api');
+      // A second run of the same tree: every child already stands in its container.
+      expect(unitIds(await inventory.plan({ query: planGraph(snapshot.writes, 'orders-api', previous) }))).toEqual([]);
+      // A file that moves to another folder is planned again, and so is the untracked path's child.
+      f.git('mv', 'src/a.ts', 'a.ts');
+      const second = f.commit();
+      const moved = snapshotSource([{ id: 'orders-api', form: 'code', root: f.root, commit: second }]);
+      const movedSnapshot = await runStage(createSnapshotStage(moved));
+      const movedInventory = createInventoryStage(moved);
+      const planned = unitIds(await movedInventory.plan({ query: planGraph(movedSnapshot.writes, 'orders-api', previous) }));
+      expect(planned).toContain('file:orders-api:a.ts');
+      expect(planned).toContain('file:orders-api:src/a.ts');
     } finally {
       await f.dispose();
     }
   });
 
-  test('the roles and the language a path carries, as the inventory reads them', () => {
-    // From the change record's table: a source file, a test, a document, a configuration, a fixture, and nothing placed.
+  test('a folder the commit no longer holds is planned as a unit that publishes nothing', async () => {
+    const f = await fixture();
+    try {
+      await f.write('src/nested/b.go', 'package main\n');
+      const first = f.commit();
+      const source = snapshotSource([{ id: 'orders-api', form: 'code', root: f.root, commit: first }]);
+      const snapshot = await runStage(createSnapshotStage(source));
+      const inventory = createInventoryStage(source);
+      const inventoryWrites: StageDraftWrite[] = [];
+      for (const unit of (await inventory.plan({ query: planGraph(snapshot.writes, 'orders-api') })).units) {
+        const run = await contextFor(unit);
+        await inventory.execute(unit, run.context);
+        inventoryWrites.push(...run.recorder.writes);
+      }
+      const previous = containmentRowsOf([...snapshot.writes, ...inventoryWrites], 'orders-api');
+      f.git('rm', '-q', 'src/nested/b.go');
+      const second = f.commit();
+      const gone = createInventoryStage(snapshotSource([{ id: 'orders-api', form: 'code', root: f.root, commit: second }]));
+      const planned = unitIds(await gone.plan({ query: planGraph(snapshot.writes, 'orders-api', previous) }));
+      expect(planned).toContain('directory:orders-api:src/nested');
+      expect(planned).toContain('file:orders-api:src/nested/b.go');
+      // The vanished file's unit publishes nothing, which ends its edge.
+      const run = await contextFor({ id: 'file:orders-api:src/nested/b.go', scope: 'orders-api:src/nested/b.go' }, () => [], snapshotSource([{ id: 'orders-api', form: 'code', root: f.root, commit: second }]));
+      await gone.execute({ id: 'file:orders-api:src/nested/b.go', scope: 'orders-api:src/nested/b.go' }, run.context);
+      expect(run.recorder.writes).toEqual([]);
+    } finally {
+      await f.dispose();
+    }
+  });
+
+  test('a containment row that names no file or folder is refused, naming the read and the row', async () => {
+    const f = await fixture();
+    try {
+      await f.write('src/a.ts', 'export const a = 1;\n');
+      const commit = f.commit();
+      const stage = createInventoryStage(snapshotSource([{ id: 'orders-api', form: 'code', root: f.root, commit }]));
+      const snapshot = await runStage(createSnapshotStage(snapshotSource([{ id: 'orders-api', form: 'code', root: f.root, commit }])));
+      const message = await refusedBy(() => stage.plan({ query: planGraph(snapshot.writes, 'orders-api', [{ kind: 'contains', child: 'symbol', from: '', to: 'src/a.ts' }]) }));
+      expect(message).toContain(publishedContainmentRead('orders-api'));
+      expect(message).toContain('"symbol"');
+    } finally {
+      await f.dispose();
+    }
+  });
+
+  test('a unit this stage never plans and a cancelled unit are refused by name', async () => {
+    const f = await fixture();
+    try {
+      await f.write('src/a.ts', 'export const a = 1;\n');
+      const commit = f.commit();
+      const source = snapshotSource([{ id: 'orders-api', form: 'code', root: f.root, commit }]);
+      const stage = createInventoryStage(source);
+      const run = await contextFor({ id: 'symbol:orders-api:src/a.ts', scope: 'orders-api:src/a.ts' });
+      expect(await refusedBy(() => stage.execute({ id: 'symbol:orders-api:src/a.ts', scope: 'orders-api:src/a.ts' }, run.context))).toContain('is not one this stage plans');
+      const controller = new AbortController();
+      controller.abort();
+      const aborted = await contextFor({ id: 'file:orders-api:src/a.ts', scope: 'orders-api:src/a.ts' }, () => [], source, controller);
+      expect(await refusedBy(() => stage.execute({ id: 'file:orders-api:src/a.ts', scope: 'orders-api:src/a.ts' }, aborted.context))).toContain('was cancelled');
+    } finally {
+      await f.dispose();
+    }
+  });
+
+  test('validate refuses a write that is no graph item and a node of a kind the stage does not produce', async () => {
+    const f = await fixture();
+    try {
+      await f.write('src/a.ts', 'export const a = 1;\n');
+      const commit = f.commit();
+      const stage = createInventoryStage(snapshotSource([{ id: 'orders-api', form: 'code', root: f.root, commit }]));
+      const run = await contextFor({ id: 'file:orders-api:src/a.ts', scope: 'orders-api:src/a.ts' });
+      await stage.execute({ id: 'file:orders-api:src/a.ts', scope: 'orders-api:src/a.ts' }, run.context);
+      const good = run.recorder.writes[0]!;
+      const refused = await stage.validate({ writes: [
+        ...run.recorder.writes,
+        { kind: 'fact', evidence: `orders-api@${commit}`, value: { kind: 'contains' } },
+        { kind: 'node', evidence: `orders-api@${commit}`, value: { key: 'file:x', kind: 'code.file', label: 'x', properties: { factKind: 'file' } } },
+      ] }, { query: async () => [] });
+      expect(refused.ok).toBe(false);
+      if (refused.ok) return;
+      expect(refused.errors.join('\n')).toContain('writes graph nodes and edges');
+      expect(refused.errors.join('\n')).toContain('does not produce a "file" fact');
+      expect(good.kind).toBe('edge');
+    } finally {
+      await f.dispose();
+    }
+  });
+});
+
+// ---- the roles and the language a path carries -----------------------------
+
+describe('the roles and the language a path carries', () => {
+  test('a path names its roles in code point order, and its language where a grammar reads it', () => {
     expect(rolesFor('src/order.ts')).toEqual(['source']);
     expect(rolesFor('test/order.test.ts')).toEqual(['source', 'test']);
     expect(rolesFor('test/fixtures/order.json')).toEqual(['config', 'fixture', 'test']);
@@ -495,209 +434,8 @@ describe('the inventory stage', () => {
     expect(rolesFor('LICENSE')).toEqual(['document']);
     expect(rolesFor('scripts/data.weird')).toEqual(['asset']);
     expect(rolesFor('scripts/run.py')).toEqual(['source']);
-    expect(rolesFor('src/order.ts').length).toBeGreaterThan(0);
-  });
-
-  test('incremental: after a one-file commit only that file’s unit and its folders’ are planned', async () => {
-    const f = await fixture();
-    try {
-      await f.write('README.md', '# fixture\n');
-      await f.write('src/a.ts', 'export const a = 1;\n');
-      await f.write('src/b.ts', 'export const b = 1;\n');
-      const first = f.commit();
-      let commit = first;
-      const source = createGitSnapshotSource(() => [{ id: 'orders-api', form: 'code', root: f.root, commit }]);
-      const stage = createInventoryStage(source);
-      // The first run: nothing is published, so every path is planned and written.
-      const firstPlan = await stage.plan({ query: async () => [] });
-      const published: StageDraftWrite[] = [];
-      for (const unit of firstPlan.units) {
-        const run = contextFor(unit);
-        await stage.execute(unit, run.context);
-        published.push(...run.recorder.writes);
-      }
-      // Three files and the one folder they stand in.
-      expect(firstPlan.units).toHaveLength(4);
-      // A second run of the same commit has nothing to do.
-      const again = await stage.plan({ query: async () => publishedRows(published, 'orders-api') });
-      expect(unitIds(again)).toEqual([]);
-      expect(again.coverage).toBe('planned');
-      // One file's bytes change: that file's unit and the folders it stands in.
-      await f.write('src/a.ts', 'export const a = 2;\n');
-      commit = f.commit();
-      const second = await stage.plan({ query: async () => publishedRows(published, 'orders-api') });
-      expect(unitIds(second)).toEqual(['directory:orders-api:src', 'file:orders-api:src/a.ts']);
-      const run = contextFor(second.units[1]!);
-      await stage.execute(second.units[1]!, run.context);
-      const written = factsOf(run.recorder.writes);
-      expect(written.map((fact) => fact.kind)).toEqual(['file', 'contains']);
-      expect(written[0]?.value['path']).toBe('src/a.ts');
-      expect(written[0]?.value['blob']).toBe(f.git('rev-parse', `${commit}:src/a.ts`).trim());
-      expect(written[0]?.provenance.repository.commit).toBe(commit);
-      // No other file's fact is in the draft.
-      expect(JSON.stringify(run.recorder.writes)).not.toContain('src/b.ts');
-    } finally {
-      await f.dispose();
-    }
-  });
-
-  test('a renamed file plans its new path and a retraction, which publishes nothing', async () => {
-    const f = await fixture();
-    try {
-      await f.write('src/a.ts', 'export const a = 1;\n');
-      const first = f.commit();
-      let commit = first;
-      const source = createGitSnapshotSource(() => [{ id: 'orders-api', form: 'code', root: f.root, commit }]);
-      const stage = createInventoryStage(source);
-      const firstPlan = await stage.plan({ query: async () => [] });
-      const published: StageDraftWrite[] = [];
-      for (const unit of firstPlan.units) {
-        const run = contextFor(unit);
-        await stage.execute(unit, run.context);
-        published.push(...run.recorder.writes);
-      }
-      const oldFile = factsOf(published).find((fact) => fact.kind === 'file');
-      expect(oldFile?.value['path']).toBe('src/a.ts');
-      // Rename the file and commit: the old path is gone from the pinned tree.
-      f.git('mv', 'src/a.ts', 'src/b.ts');
-      commit = f.commit();
-      const plan = await stage.plan({ query: async () => publishedRows(published, 'orders-api') });
-      expect(unitIds(plan)).toEqual(['directory:orders-api:src', 'file:orders-api:src/a.ts', 'file:orders-api:src/b.ts']);
-      // The vanished path's unit publishes nothing: the publication retracts what the first run wrote there.
-      const retraction = contextFor({ id: 'file:orders-api:src/a.ts', scope: 'orders-api:src/a.ts' });
-      await stage.execute({ id: 'file:orders-api:src/a.ts', scope: 'orders-api:src/a.ts' }, retraction.context);
-      expect(retraction.recorder.writes).toEqual([]);
-      expect(retraction.recorder.notes[0]).toContain('publishes nothing');
-      // The new path's fact is its own: another id, and no path of the old one.
-      const moved = contextFor({ id: 'file:orders-api:src/b.ts', scope: 'orders-api:src/b.ts' });
-      await stage.execute({ id: 'file:orders-api:src/b.ts', scope: 'orders-api:src/b.ts' }, moved.context);
-      const newFile = factsOf(moved.recorder.writes).find((fact) => fact.kind === 'file');
-      expect(newFile?.value['path']).toBe('src/b.ts');
-      expect(newFile?.id).not.toBe(oldFile?.id);
-      expect(JSON.stringify(moved.recorder.writes)).not.toContain('src/a.ts');
-      // Nothing of the old path is left for a reader: no write in the run names it.
-      expect(JSON.stringify([...retraction.recorder.writes, ...moved.recorder.writes])).not.toContain('"src/a.ts"');
-    } finally {
-      await f.dispose();
-    }
-  });
-
-  test('a folder the commit no longer holds is planned as a unit that publishes nothing', async () => {
-    const f = await fixture();
-    try {
-      await f.write('src/nested/b.go', 'package b\n');
-      await f.write('keep.ts', 'export const k = 1;\n');
-      const first = f.commit();
-      let commit = first;
-      const source = createGitSnapshotSource(() => [{ id: 'orders-api', form: 'code', root: f.root, commit }]);
-      const stage = createInventoryStage(source);
-      const firstPlan = await stage.plan({ query: async () => [] });
-      const published: StageDraftWrite[] = [];
-      for (const unit of firstPlan.units) {
-        const run = contextFor(unit);
-        await stage.execute(unit, run.context);
-        published.push(...run.recorder.writes);
-      }
-      expect(unitIds(firstPlan)).toEqual([
-        'directory:orders-api:src',
-        'directory:orders-api:src/nested',
-        'file:orders-api:keep.ts',
-        'file:orders-api:src/nested/b.go',
-      ]);
-      // The one file standing in `src/nested` goes: the folder goes with it.
-      f.git('rm', '-q', 'src/nested/b.go');
-      commit = f.commit();
-      const plan = await stage.plan({ query: async () => publishedRows(published, 'orders-api') });
-      // The file's unit is a retraction, and so is every folder that held it and
-      // holds nothing now: `src/nested` and `src` both stop standing in the tree.
-      expect(unitIds(plan)).toEqual([
-        'directory:orders-api:src',
-        'directory:orders-api:src/nested',
-        'file:orders-api:src/nested/b.go',
-      ]);
-      for (const id of ['directory:orders-api:src', 'directory:orders-api:src/nested']) {
-        const folder = contextFor({ id, scope: id.slice('directory:'.length) });
-        await stage.execute({ id, scope: id.slice('directory:'.length) }, folder.context);
-        expect(folder.recorder.writes).toEqual([]);
-        expect(folder.recorder.notes[0]).toContain('publishes nothing');
-      }
-      // A folder no file stands in is not planned when it was never published.
-      expect(unitIds(plan)).not.toContain('file:orders-api:keep.ts');
-    } finally {
-      await f.dispose();
-    }
-  });
-
-  test('a unit the stage never plans, a row a read misreads and a cancelled unit are all refused', async () => {
-    const f = await fixture();
-    try {
-      await f.write('src/a.ts', 'export const a = 1;\n');
-      const commit = f.commit();
-      const stage = createInventoryStage(createGitSnapshotSource([{ id: 'orders-api', form: 'code', root: f.root, commit }]));
-      const unplanned = contextFor({ id: 'src/a.ts', scope: 'orders-api:src/a.ts' });
-      await expect(stage.execute({ id: 'src/a.ts', scope: 'orders-api:src/a.ts' }, unplanned.context)).rejects.toThrow('is not one this stage plans');
-      // A read that answers a row for another repository, a kind the stage does
-      // not hold, a path that is no path, a blob that is no blob, a key the read
-      // does not name, a folder carrying a blob, or one path twice.
-      const good = { kind: 'file', repository: 'orders-api', path: 'src/a.ts', blob: 'a'.repeat(40) };
-      for (const rows of [
-        [{ kind: 'file', repository: 'catalog-api', path: 'src/a.ts' }],
-        [{ kind: 'package', repository: 'orders-api', path: 'src/a.ts' }],
-        [{ kind: 'file', repository: 'orders-api', path: '/etc/passwd' }],
-        [{ kind: 'file', repository: 'orders-api', path: 'src/a.ts', blob: 'not-a-blob' }],
-        [{ kind: 'file', repository: 'orders-api', path: 'src/a.ts', runId: 'run-7' }],
-        [{ kind: 'directory', repository: 'orders-api', path: 'src', blob: 'a'.repeat(40) }],
-        [good, { ...good, blob: 'b'.repeat(40) }],
-      ]) {
-        const message = await refusedBy(() => stage.plan({ query: async () => rows }));
-        expect(message).not.toBe('answered');
-        expect(String(message)).toContain(publishedTreeRead('orders-api'));
-        expect(String(message)).toContain('row ');
-        if (rows.length > 1) expect(String(message)).toContain('row 2');
-        else expect(String(message)).toContain('row 1');
-      }
-      const cancelled = contextFor({ id: 'file:orders-api:src/a.ts', scope: 'orders-api:src/a.ts' });
-      cancelled.controller.abort();
-      await expect(stage.execute({ id: 'file:orders-api:src/a.ts', scope: 'orders-api:src/a.ts' }, cancelled.context)).rejects.toThrow('was cancelled');
-      expect(cancelled.recorder.writes).toEqual([]);
-    } finally {
-      await f.dispose();
-    }
-  });
-
-  test('validate refuses a write that is no fact, a kind the stage does not produce and a fact the schema does not read', async () => {
-    const f = await fixture();
-    try {
-      await f.write('src/a.ts', 'export const a = 1;\n');
-      const commit = f.commit();
-      const stage = createInventoryStage(createGitSnapshotSource([{ id: 'orders-api', form: 'code', root: f.root, commit }]));
-      const run = contextFor({ id: 'file:orders-api:src/a.ts', scope: 'orders-api:src/a.ts' });
-      await stage.execute({ id: 'file:orders-api:src/a.ts', scope: 'orders-api:src/a.ts' }, run.context);
-      const [file, contains] = factsOf(run.recorder.writes) as [DraftFact, DraftFact];
-      const broken = await stage.validate({
-        writes: [
-          ...run.recorder.writes,
-          // A link write carries the edge fact it writes (the contains edge above): the stage refuses it
-          // because it writes "fact" writes and nothing else.
-          { kind: 'link', evidence: 'orders-api@' + commit, value: contains },
-          { kind: 'fact', evidence: 'orders-api@' + commit, value: { ...contains, kind: 'symbol' } },
-          { kind: 'fact', evidence: 'orders-api@' + commit, value: { ...file, id: 'file:' + '0'.repeat(64), value: { ...file.value, path: '/etc/passwd' } } },
-        ],
-      }, { query: async () => [] });
-      expect(broken.ok).toBe(false);
-      if (broken.ok) return;
-      expect(broken.errors.some((error) => error.includes('a "link" write is not one'))).toBe(true);
-      expect(broken.errors.some((error) => error.includes('does not produce a "symbol" fact'))).toBe(true);
-      expect(broken.errors.some((error) => error.includes('value.path'))).toBe(true);
-    } finally {
-      await f.dispose();
-    }
+    expect(languageFor('src/a.ts')).toBe('typescript');
+    expect(languageFor('src/a.go')).toBe('go');
+    expect(languageFor('src/a.md')).toBeUndefined();
   });
 });
-
-/** What one unit's draft set held, for a test that reads it back. */
-async function drafted(unit: StageUnit, stage: { execute: (unit: StageUnit, context: StageContext) => unknown }): Promise<readonly StageDraftWrite[]> {
-  const run = contextFor(unit);
-  await stage.execute(unit, run.context);
-  return run.recorder.writes;
-}

@@ -1,0 +1,2162 @@
+path: 'services/payments/src/api/legacy-report.ts'
+nodes:
+  - id: 'code.debt:services/payments/src/api/legacy-report.ts:168'
+    kind: 'code.debt'
+    label: 'FIXME'
+    evidence:
+      - path: 'services/payments/src/api/legacy-report.ts'
+        startLine: 168
+        endLine: 168
+        quote: ' * FIXME: parameterize these queries before the endpoint leaves the internal network.'
+    reading: 'parsed'
+  - id: 'code.field:services/payments/src/api/legacy-report.ts#ReportColumn.format'
+    kind: 'code.field'
+    label: 'ReportColumn.format'
+    evidence:
+      - path: 'services/payments/src/api/legacy-report.ts'
+        startLine: 40
+        endLine: 40
+        quote: '  format?: (value: unknown, row: Row) => string;'
+    reading: 'parsed'
+  - id: 'code.field:services/payments/src/api/legacy-report.ts#ReportColumn.key'
+    kind: 'code.field'
+    label: 'ReportColumn.key'
+    evidence:
+      - path: 'services/payments/src/api/legacy-report.ts'
+        startLine: 37
+        endLine: 37
+        quote: '  key: string;'
+    reading: 'parsed'
+  - id: 'code.field:services/payments/src/api/legacy-report.ts#ReportColumn.title'
+    kind: 'code.field'
+    label: 'ReportColumn.title'
+    evidence:
+      - path: 'services/payments/src/api/legacy-report.ts'
+        startLine: 38
+        endLine: 38
+        quote: '  title: string;'
+    reading: 'parsed'
+  - id: 'code.field:services/payments/src/api/legacy-report.ts#ReportFilters.currency'
+    kind: 'code.field'
+    label: 'ReportFilters.currency'
+    evidence:
+      - path: 'services/payments/src/api/legacy-report.ts'
+        startLine: 56
+        endLine: 56
+        quote: '  currency?: string;'
+    reading: 'parsed'
+  - id: 'code.field:services/payments/src/api/legacy-report.ts#ReportFilters.from'
+    kind: 'code.field'
+    label: 'ReportFilters.from'
+    evidence:
+      - path: 'services/payments/src/api/legacy-report.ts'
+        startLine: 53
+        endLine: 53
+        quote: '  from?: string;'
+    reading: 'parsed'
+  - id: 'code.field:services/payments/src/api/legacy-report.ts#ReportFilters.limit'
+    kind: 'code.field'
+    label: 'ReportFilters.limit'
+    evidence:
+      - path: 'services/payments/src/api/legacy-report.ts'
+        startLine: 60
+        endLine: 60
+        quote: '  limit: number;'
+    reading: 'parsed'
+  - id: 'code.field:services/payments/src/api/legacy-report.ts#ReportFilters.order'
+    kind: 'code.field'
+    label: 'ReportFilters.order'
+    evidence:
+      - path: 'services/payments/src/api/legacy-report.ts'
+        startLine: 57
+        endLine: 57
+        quote: '  order?: string;'
+    reading: 'parsed'
+  - id: 'code.field:services/payments/src/api/legacy-report.ts#ReportFilters.provider'
+    kind: 'code.field'
+    label: 'ReportFilters.provider'
+    evidence:
+      - path: 'services/payments/src/api/legacy-report.ts'
+        startLine: 58
+        endLine: 58
+        quote: '  provider?: string;'
+    reading: 'parsed'
+  - id: 'code.field:services/payments/src/api/legacy-report.ts#ReportFilters.sort'
+    kind: 'code.field'
+    label: 'ReportFilters.sort'
+    evidence:
+      - path: 'services/payments/src/api/legacy-report.ts'
+        startLine: 59
+        endLine: 59
+        quote: '  sort?: string;'
+    reading: 'parsed'
+  - id: 'code.field:services/payments/src/api/legacy-report.ts#ReportFilters.status'
+    kind: 'code.field'
+    label: 'ReportFilters.status'
+    evidence:
+      - path: 'services/payments/src/api/legacy-report.ts'
+        startLine: 55
+        endLine: 55
+        quote: '  status?: string;'
+    reading: 'parsed'
+  - id: 'code.field:services/payments/src/api/legacy-report.ts#ReportFilters.to'
+    kind: 'code.field'
+    label: 'ReportFilters.to'
+    evidence:
+      - path: 'services/payments/src/api/legacy-report.ts'
+        startLine: 54
+        endLine: 54
+        quote: '  to?: string;'
+    reading: 'parsed'
+  - id: 'code.field:services/payments/src/api/legacy-report.ts#ReportResult.columns'
+    kind: 'code.field'
+    label: 'ReportResult.columns'
+    evidence:
+      - path: 'services/payments/src/api/legacy-report.ts'
+        startLine: 46
+        endLine: 46
+        quote: '  columns: ReportColumn[];'
+    reading: 'parsed'
+  - id: 'code.field:services/payments/src/api/legacy-report.ts#ReportResult.name'
+    kind: 'code.field'
+    label: 'ReportResult.name'
+    evidence:
+      - path: 'services/payments/src/api/legacy-report.ts'
+        startLine: 44
+        endLine: 44
+        quote: '  name: string;'
+    reading: 'parsed'
+  - id: 'code.field:services/payments/src/api/legacy-report.ts#ReportResult.rows'
+    kind: 'code.field'
+    label: 'ReportResult.rows'
+    evidence:
+      - path: 'services/payments/src/api/legacy-report.ts'
+        startLine: 47
+        endLine: 47
+        quote: '  rows: Row[];'
+    reading: 'parsed'
+  - id: 'code.field:services/payments/src/api/legacy-report.ts#ReportResult.title'
+    kind: 'code.field'
+    label: 'ReportResult.title'
+    evidence:
+      - path: 'services/payments/src/api/legacy-report.ts'
+        startLine: 45
+        endLine: 45
+        quote: '  title: string;'
+    reading: 'parsed'
+  - id: 'code.field:services/payments/src/api/legacy-report.ts#ReportResult.totals'
+    kind: 'code.field'
+    label: 'ReportResult.totals'
+    evidence:
+      - path: 'services/payments/src/api/legacy-report.ts'
+        startLine: 49
+        endLine: 49
+        quote: '  totals?: Row;'
+    reading: 'parsed'
+  - id: 'code.file:services/payments/src/api/legacy-report.ts'
+    kind: 'code.file'
+    label: 'legacy-report.ts'
+    evidence:
+      - path: 'services/payments/src/api/legacy-report.ts'
+        startLine: 1
+        endLine: 1
+        quote: '/*'
+    reading: 'parsed'
+  - id: 'code.input:services/payments/src/api/legacy-report.ts#currency'
+    kind: 'code.input'
+    label: 'currency'
+    evidence:
+      - path: 'services/payments/src/api/legacy-report.ts'
+        startLine: 157
+        endLine: 157
+        quote: '    currency: first(req.query.currency),'
+    reading: 'parsed'
+  - id: 'code.input:services/payments/src/api/legacy-report.ts#format'
+    kind: 'code.input'
+    label: 'format'
+    evidence:
+      - path: 'services/payments/src/api/legacy-report.ts'
+        startLine: 755
+        endLine: 755
+        quote: '  const format = first(req.query.format) ?? ''json'';'
+    reading: 'parsed'
+  - id: 'code.input:services/payments/src/api/legacy-report.ts#from'
+    kind: 'code.input'
+    label: 'from'
+    evidence:
+      - path: 'services/payments/src/api/legacy-report.ts'
+        startLine: 154
+        endLine: 154
+        quote: '    from: first(req.query.from),'
+    reading: 'parsed'
+  - id: 'code.input:services/payments/src/api/legacy-report.ts#limit'
+    kind: 'code.input'
+    label: 'limit'
+    evidence:
+      - path: 'services/payments/src/api/legacy-report.ts'
+        startLine: 152
+        endLine: 152
+        quote: '  const limit = Number(first(req.query.limit));'
+    reading: 'parsed'
+  - id: 'code.input:services/payments/src/api/legacy-report.ts#order'
+    kind: 'code.input'
+    label: 'order'
+    evidence:
+      - path: 'services/payments/src/api/legacy-report.ts'
+        startLine: 158
+        endLine: 158
+        quote: '    order: first(req.query.order),'
+    reading: 'parsed'
+  - id: 'code.input:services/payments/src/api/legacy-report.ts#provider'
+    kind: 'code.input'
+    label: 'provider'
+    evidence:
+      - path: 'services/payments/src/api/legacy-report.ts'
+        startLine: 159
+        endLine: 159
+        quote: '    provider: first(req.query.provider),'
+    reading: 'parsed'
+  - id: 'code.input:services/payments/src/api/legacy-report.ts#report'
+    kind: 'code.input'
+    label: 'report'
+    evidence:
+      - path: 'services/payments/src/api/legacy-report.ts'
+        startLine: 754
+        endLine: 754
+        quote: '  const name = first(req.query.report) ?? ''daily-settlement'';'
+    reading: 'parsed'
+  - id: 'code.input:services/payments/src/api/legacy-report.ts#sort'
+    kind: 'code.input'
+    label: 'sort'
+    evidence:
+      - path: 'services/payments/src/api/legacy-report.ts'
+        startLine: 160
+        endLine: 160
+        quote: '    sort: first(req.query.sort),'
+    reading: 'parsed'
+  - id: 'code.input:services/payments/src/api/legacy-report.ts#status'
+    kind: 'code.input'
+    label: 'status'
+    evidence:
+      - path: 'services/payments/src/api/legacy-report.ts'
+        startLine: 156
+        endLine: 156
+        quote: '    status: first(req.query.status),'
+    reading: 'parsed'
+  - id: 'code.input:services/payments/src/api/legacy-report.ts#to'
+    kind: 'code.input'
+    label: 'to'
+    evidence:
+      - path: 'services/payments/src/api/legacy-report.ts'
+        startLine: 155
+        endLine: 155
+        quote: '    to: first(req.query.to),'
+    reading: 'parsed'
+  - id: 'code.sql-build:services/payments/src/api/legacy-report.ts#aging'
+    kind: 'code.sql-build'
+    label: 'aging'
+    evidence:
+      - path: 'services/payments/src/api/legacy-report.ts'
+        startLine: 356
+        endLine: 356
+        quote: 'const aging: ReportBuilder = async (prisma, filters) => {'
+    reading: 'parsed'
+  - id: 'code.sql-build:services/payments/src/api/legacy-report.ts#currencySummary'
+    kind: 'code.sql-build'
+    label: 'currencySummary'
+    evidence:
+      - path: 'services/payments/src/api/legacy-report.ts'
+        startLine: 443
+        endLine: 443
+        quote: 'const currencySummary: ReportBuilder = async (prisma, filters) => {'
+    reading: 'parsed'
+  - id: 'code.sql-build:services/payments/src/api/legacy-report.ts#dailySettlement'
+    kind: 'code.sql-build'
+    label: 'dailySettlement'
+    evidence:
+      - path: 'services/payments/src/api/legacy-report.ts'
+        startLine: 216
+        endLine: 216
+        quote: 'const dailySettlement: ReportBuilder = async (prisma, filters) => {'
+    reading: 'parsed'
+  - id: 'code.sql-build:services/payments/src/api/legacy-report.ts#declines'
+    kind: 'code.sql-build'
+    label: 'declines'
+    evidence:
+      - path: 'services/payments/src/api/legacy-report.ts'
+        startLine: 307
+        endLine: 307
+        quote: 'const declines: ReportBuilder = async (prisma, filters) => {'
+    reading: 'parsed'
+  - id: 'code.sql-build:services/payments/src/api/legacy-report.ts#invoiceLines'
+    kind: 'code.sql-build'
+    label: 'invoiceLines'
+    evidence:
+      - path: 'services/payments/src/api/legacy-report.ts'
+        startLine: 488
+        endLine: 488
+        quote: 'const invoiceLines: ReportBuilder = async (prisma, filters) => {'
+    reading: 'parsed'
+  - id: 'code.sql-build:services/payments/src/api/legacy-report.ts#limitClause'
+    kind: 'code.sql-build'
+    label: 'limitClause'
+    evidence:
+      - path: 'services/payments/src/api/legacy-report.ts'
+        startLine: 203
+        endLine: 203
+        quote: 'function limitClause(filters: ReportFilters): string {'
+    reading: 'parsed'
+  - id: 'code.sql-build:services/payments/src/api/legacy-report.ts#orderBy'
+    kind: 'code.sql-build'
+    label: 'orderBy'
+    evidence:
+      - path: 'services/payments/src/api/legacy-report.ts'
+        startLine: 196
+        endLine: 196
+        quote: 'function orderBy(filters: ReportFilters, allowed: string[], fallback: string): string {'
+    reading: 'parsed'
+  - id: 'code.sql-build:services/payments/src/api/legacy-report.ts#orderLedger'
+    kind: 'code.sql-build'
+    label: 'orderLedger'
+    evidence:
+      - path: 'services/payments/src/api/legacy-report.ts'
+        startLine: 525
+        endLine: 525
+        quote: 'const orderLedger: ReportBuilder = async (prisma, filters) => {'
+    reading: 'parsed'
+  - id: 'code.sql-build:services/payments/src/api/legacy-report.ts#providerSplit'
+    kind: 'code.sql-build'
+    label: 'providerSplit'
+    evidence:
+      - path: 'services/payments/src/api/legacy-report.ts'
+        startLine: 402
+        endLine: 402
+        quote: 'const providerSplit: ReportBuilder = async (prisma, filters) => {'
+    reading: 'parsed'
+  - id: 'code.sql-build:services/payments/src/api/legacy-report.ts#reconciliation'
+    kind: 'code.sql-build'
+    label: 'reconciliation'
+    evidence:
+      - path: 'services/payments/src/api/legacy-report.ts'
+        startLine: 590
+        endLine: 590
+        quote: 'const reconciliation: ReportBuilder = async (prisma, filters) => {'
+    reading: 'parsed'
+  - id: 'code.sql-build:services/payments/src/api/legacy-report.ts#refundRegister'
+    kind: 'code.sql-build'
+    label: 'refundRegister'
+    evidence:
+      - path: 'services/payments/src/api/legacy-report.ts'
+        startLine: 265
+        endLine: 265
+        quote: 'const refundRegister: ReportBuilder = async (prisma, filters) => {'
+    reading: 'parsed'
+  - id: 'code.sql-build:services/payments/src/api/legacy-report.ts#whereClause'
+    kind: 'code.sql-build'
+    label: 'whereClause'
+    evidence:
+      - path: 'services/payments/src/api/legacy-report.ts'
+        startLine: 170
+        endLine: 170
+        quote: 'function whereClause(filters: ReportFilters, alias = ''p''): string {'
+    reading: 'parsed'
+  - id: 'code.sql-sink:services/payments/src/api/legacy-report.ts#query'
+    kind: 'code.sql-sink'
+    label: 'query'
+    evidence:
+      - path: 'services/payments/src/api/legacy-report.ts'
+        startLine: 208
+        endLine: 208
+        quote: '  return (await prisma.$queryRawUnsafe(sql)) as Row[];'
+    reading: 'parsed'
+  - id: 'code.symbol:services/payments/src/api/legacy-report.ts#AGING_BUCKETS'
+    kind: 'code.symbol'
+    label: 'AGING_BUCKETS'
+    evidence:
+      - path: 'services/payments/src/api/legacy-report.ts'
+        startLine: 349
+        endLine: 349
+        quote: 'const AGING_BUCKETS: Array<{ label: string; minMinutes: number; maxMinutes: number }> = ['
+    reading: 'parsed'
+  - id: 'code.symbol:services/payments/src/api/legacy-report.ts#BUILDERS'
+    kind: 'code.symbol'
+    label: 'BUILDERS'
+    evidence:
+      - path: 'services/payments/src/api/legacy-report.ts'
+        startLine: 633
+        endLine: 633
+        quote: 'const BUILDERS: Record<string, ReportBuilder> = {'
+    reading: 'parsed'
+  - id: 'code.symbol:services/payments/src/api/legacy-report.ts#DEFAULT_LIMIT'
+    kind: 'code.symbol'
+    label: 'DEFAULT_LIMIT'
+    evidence:
+      - path: 'services/payments/src/api/legacy-report.ts'
+        startLine: 65
+        endLine: 65
+        quote: 'const DEFAULT_LIMIT = 5000;'
+    reading: 'parsed'
+  - id: 'code.symbol:services/payments/src/api/legacy-report.ts#FORMATS'
+    kind: 'code.symbol'
+    label: 'FORMATS'
+    evidence:
+      - path: 'services/payments/src/api/legacy-report.ts'
+        startLine: 66
+        endLine: 66
+        quote: 'const FORMATS = [''json'', ''csv'', ''html'', ''xml''];'
+    reading: 'parsed'
+  - id: 'code.symbol:services/payments/src/api/legacy-report.ts#RENDERERS'
+    kind: 'code.symbol'
+    label: 'RENDERERS'
+    evidence:
+      - path: 'services/payments/src/api/legacy-report.ts'
+        startLine: 735
+        endLine: 735
+        quote: 'const RENDERERS: Record<string, { contentType: string; extension: string; render: (report: ReportResult) => string }> = {'
+    reading: 'parsed'
+  - id: 'code.symbol:services/payments/src/api/legacy-report.ts#ReportBuilder'
+    kind: 'code.symbol'
+    label: 'ReportBuilder'
+    evidence:
+      - path: 'services/payments/src/api/legacy-report.ts'
+        startLine: 63
+        endLine: 63
+        quote: 'type ReportBuilder = (prisma: PrismaClient, filters: ReportFilters) => Promise<ReportResult>;'
+    reading: 'parsed'
+  - id: 'code.symbol:services/payments/src/api/legacy-report.ts#ReportColumn'
+    kind: 'code.symbol'
+    label: 'ReportColumn'
+    evidence:
+      - path: 'services/payments/src/api/legacy-report.ts'
+        startLine: 36
+        endLine: 36
+        quote: 'interface ReportColumn {'
+    reading: 'parsed'
+  - id: 'code.symbol:services/payments/src/api/legacy-report.ts#ReportFilters'
+    kind: 'code.symbol'
+    label: 'ReportFilters'
+    evidence:
+      - path: 'services/payments/src/api/legacy-report.ts'
+        startLine: 52
+        endLine: 52
+        quote: 'interface ReportFilters {'
+    reading: 'parsed'
+  - id: 'code.symbol:services/payments/src/api/legacy-report.ts#ReportResult'
+    kind: 'code.symbol'
+    label: 'ReportResult'
+    evidence:
+      - path: 'services/payments/src/api/legacy-report.ts'
+        startLine: 43
+        endLine: 43
+        quote: 'interface ReportResult {'
+    reading: 'parsed'
+  - id: 'code.symbol:services/payments/src/api/legacy-report.ts#Row'
+    kind: 'code.symbol'
+    label: 'Row'
+    evidence:
+      - path: 'services/payments/src/api/legacy-report.ts'
+        startLine: 34
+        endLine: 34
+        quote: 'type Row = Record<string, unknown>;'
+    reading: 'parsed'
+  - id: 'code.symbol:services/payments/src/api/legacy-report.ts#aging'
+    kind: 'code.symbol'
+    label: 'aging'
+    evidence:
+      - path: 'services/payments/src/api/legacy-report.ts'
+        startLine: 356
+        endLine: 356
+        quote: 'const aging: ReportBuilder = async (prisma, filters) => {'
+    reading: 'parsed'
+  - id: 'code.symbol:services/payments/src/api/legacy-report.ts#asDate'
+    kind: 'code.symbol'
+    label: 'asDate'
+    evidence:
+      - path: 'services/payments/src/api/legacy-report.ts'
+        startLine: 84
+        endLine: 84
+        quote: 'function asDate(value: unknown): Date | undefined {'
+    reading: 'parsed'
+  - id: 'code.symbol:services/payments/src/api/legacy-report.ts#asNumber'
+    kind: 'code.symbol'
+    label: 'asNumber'
+    evidence:
+      - path: 'services/payments/src/api/legacy-report.ts'
+        startLine: 95
+        endLine: 95
+        quote: 'function asNumber(value: unknown): number {'
+    reading: 'parsed'
+  - id: 'code.symbol:services/payments/src/api/legacy-report.ts#cell'
+    kind: 'code.symbol'
+    label: 'cell'
+    evidence:
+      - path: 'services/payments/src/api/legacy-report.ts'
+        startLine: 131
+        endLine: 131
+        quote: 'function cell(column: ReportColumn, row: Row): string {'
+    reading: 'parsed'
+  - id: 'code.symbol:services/payments/src/api/legacy-report.ts#csvCell'
+    kind: 'code.symbol'
+    label: 'csvCell'
+    evidence:
+      - path: 'services/payments/src/api/legacy-report.ts'
+        startLine: 112
+        endLine: 112
+        quote: 'function csvCell(value: string): string {'
+    reading: 'parsed'
+  - id: 'code.symbol:services/payments/src/api/legacy-report.ts#currencySummary'
+    kind: 'code.symbol'
+    label: 'currencySummary'
+    evidence:
+      - path: 'services/payments/src/api/legacy-report.ts'
+        startLine: 443
+        endLine: 443
+        quote: 'const currencySummary: ReportBuilder = async (prisma, filters) => {'
+    reading: 'parsed'
+  - id: 'code.symbol:services/payments/src/api/legacy-report.ts#dailySettlement'
+    kind: 'code.symbol'
+    label: 'dailySettlement'
+    evidence:
+      - path: 'services/payments/src/api/legacy-report.ts'
+        startLine: 216
+        endLine: 216
+        quote: 'const dailySettlement: ReportBuilder = async (prisma, filters) => {'
+    reading: 'parsed'
+  - id: 'code.symbol:services/payments/src/api/legacy-report.ts#declines'
+    kind: 'code.symbol'
+    label: 'declines'
+    evidence:
+      - path: 'services/payments/src/api/legacy-report.ts'
+        startLine: 307
+        endLine: 307
+        quote: 'const declines: ReportBuilder = async (prisma, filters) => {'
+    reading: 'parsed'
+  - id: 'code.symbol:services/payments/src/api/legacy-report.ts#first'
+    kind: 'code.symbol'
+    label: 'first'
+    evidence:
+      - path: 'services/payments/src/api/legacy-report.ts'
+        startLine: 104
+        endLine: 104
+        quote: 'function first(value: unknown): string | undefined {'
+    reading: 'parsed'
+  - id: 'code.symbol:services/payments/src/api/legacy-report.ts#handleReport'
+    kind: 'code.symbol'
+    label: 'handleReport'
+    evidence:
+      - path: 'services/payments/src/api/legacy-report.ts'
+        startLine: 753
+        endLine: 753
+        quote: 'async function handleReport(prisma: PrismaClient, req: Request, res: Response): Promise<void> {'
+    reading: 'parsed'
+  - id: 'code.symbol:services/payments/src/api/legacy-report.ts#htmlEscape'
+    kind: 'code.symbol'
+    label: 'htmlEscape'
+    evidence:
+      - path: 'services/payments/src/api/legacy-report.ts'
+        startLine: 119
+        endLine: 119
+        quote: 'function htmlEscape(value: string): string {'
+    reading: 'parsed'
+  - id: 'code.symbol:services/payments/src/api/legacy-report.ts#invoiceLines'
+    kind: 'code.symbol'
+    label: 'invoiceLines'
+    evidence:
+      - path: 'services/payments/src/api/legacy-report.ts'
+        startLine: 488
+        endLine: 488
+        quote: 'const invoiceLines: ReportBuilder = async (prisma, filters) => {'
+    reading: 'parsed'
+  - id: 'code.symbol:services/payments/src/api/legacy-report.ts#isoDay'
+    kind: 'code.symbol'
+    label: 'isoDay'
+    evidence:
+      - path: 'services/payments/src/api/legacy-report.ts'
+        startLine: 76
+        endLine: 76
+        quote: 'function isoDay(d: Date): string {'
+    reading: 'parsed'
+  - id: 'code.symbol:services/payments/src/api/legacy-report.ts#isoStamp'
+    kind: 'code.symbol'
+    label: 'isoStamp'
+    evidence:
+      - path: 'services/payments/src/api/legacy-report.ts'
+        startLine: 80
+        endLine: 80
+        quote: 'function isoStamp(d: Date): string {'
+    reading: 'parsed'
+  - id: 'code.symbol:services/payments/src/api/legacy-report.ts#legacyReportRoutes'
+    kind: 'code.symbol'
+    label: 'legacyReportRoutes'
+    evidence:
+      - path: 'services/payments/src/api/legacy-report.ts'
+        startLine: 790
+        endLine: 790
+        quote: 'export function legacyReportRoutes(prisma: PrismaClient): Router {'
+    reading: 'parsed'
+  - id: 'code.symbol:services/payments/src/api/legacy-report.ts#limitClause'
+    kind: 'code.symbol'
+    label: 'limitClause'
+    evidence:
+      - path: 'services/payments/src/api/legacy-report.ts'
+        startLine: 203
+        endLine: 203
+        quote: 'function limitClause(filters: ReportFilters): string {'
+    reading: 'parsed'
+  - id: 'code.symbol:services/payments/src/api/legacy-report.ts#money'
+    kind: 'code.symbol'
+    label: 'money'
+    evidence:
+      - path: 'services/payments/src/api/legacy-report.ts'
+        startLine: 145
+        endLine: 145
+        quote: 'const money: ReportColumn[''format''] = (value, row) => formatMoney(asNumber(value), String(row.currency ?? ''EUR''));'
+    reading: 'parsed'
+  - id: 'code.symbol:services/payments/src/api/legacy-report.ts#orderBy'
+    kind: 'code.symbol'
+    label: 'orderBy'
+    evidence:
+      - path: 'services/payments/src/api/legacy-report.ts'
+        startLine: 196
+        endLine: 196
+        quote: 'function orderBy(filters: ReportFilters, allowed: string[], fallback: string): string {'
+    reading: 'parsed'
+  - id: 'code.symbol:services/payments/src/api/legacy-report.ts#orderLedger'
+    kind: 'code.symbol'
+    label: 'orderLedger'
+    evidence:
+      - path: 'services/payments/src/api/legacy-report.ts'
+        startLine: 525
+        endLine: 525
+        quote: 'const orderLedger: ReportBuilder = async (prisma, filters) => {'
+    reading: 'parsed'
+  - id: 'code.symbol:services/payments/src/api/legacy-report.ts#pad2'
+    kind: 'code.symbol'
+    label: 'pad2'
+    evidence:
+      - path: 'services/payments/src/api/legacy-report.ts'
+        startLine: 72
+        endLine: 72
+        quote: 'function pad2(n: number): string {'
+    reading: 'parsed'
+  - id: 'code.symbol:services/payments/src/api/legacy-report.ts#providerSplit'
+    kind: 'code.symbol'
+    label: 'providerSplit'
+    evidence:
+      - path: 'services/payments/src/api/legacy-report.ts'
+        startLine: 402
+        endLine: 402
+        quote: 'const providerSplit: ReportBuilder = async (prisma, filters) => {'
+    reading: 'parsed'
+  - id: 'code.symbol:services/payments/src/api/legacy-report.ts#query'
+    kind: 'code.symbol'
+    label: 'query'
+    evidence:
+      - path: 'services/payments/src/api/legacy-report.ts'
+        startLine: 207
+        endLine: 207
+        quote: 'async function query(prisma: PrismaClient, sql: string): Promise<Row[]> {'
+    reading: 'parsed'
+  - id: 'code.symbol:services/payments/src/api/legacy-report.ts#readFilters'
+    kind: 'code.symbol'
+    label: 'readFilters'
+    evidence:
+      - path: 'services/payments/src/api/legacy-report.ts'
+        startLine: 151
+        endLine: 151
+        quote: 'function readFilters(req: Request): ReportFilters {'
+    reading: 'parsed'
+  - id: 'code.symbol:services/payments/src/api/legacy-report.ts#reconciliation'
+    kind: 'code.symbol'
+    label: 'reconciliation'
+    evidence:
+      - path: 'services/payments/src/api/legacy-report.ts'
+        startLine: 590
+        endLine: 590
+        quote: 'const reconciliation: ReportBuilder = async (prisma, filters) => {'
+    reading: 'parsed'
+  - id: 'code.symbol:services/payments/src/api/legacy-report.ts#refundRegister'
+    kind: 'code.symbol'
+    label: 'refundRegister'
+    evidence:
+      - path: 'services/payments/src/api/legacy-report.ts'
+        startLine: 265
+        endLine: 265
+        quote: 'const refundRegister: ReportBuilder = async (prisma, filters) => {'
+    reading: 'parsed'
+  - id: 'code.symbol:services/payments/src/api/legacy-report.ts#renderCsv'
+    kind: 'code.symbol'
+    label: 'renderCsv'
+    evidence:
+      - path: 'services/payments/src/api/legacy-report.ts'
+        startLine: 664
+        endLine: 664
+        quote: 'function renderCsv(report: ReportResult): string {'
+    reading: 'parsed'
+  - id: 'code.symbol:services/payments/src/api/legacy-report.ts#renderHtml'
+    kind: 'code.symbol'
+    label: 'renderHtml'
+    evidence:
+      - path: 'services/payments/src/api/legacy-report.ts'
+        startLine: 678
+        endLine: 678
+        quote: 'function renderHtml(report: ReportResult): string {'
+    reading: 'parsed'
+  - id: 'code.symbol:services/payments/src/api/legacy-report.ts#renderJson'
+    kind: 'code.symbol'
+    label: 'renderJson'
+    evidence:
+      - path: 'services/payments/src/api/legacy-report.ts'
+        startLine: 649
+        endLine: 649
+        quote: 'function renderJson(report: ReportResult): string {'
+    reading: 'parsed'
+  - id: 'code.symbol:services/payments/src/api/legacy-report.ts#renderXml'
+    kind: 'code.symbol'
+    label: 'renderXml'
+    evidence:
+      - path: 'services/payments/src/api/legacy-report.ts'
+        startLine: 718
+        endLine: 718
+        quote: 'function renderXml(report: ReportResult): string {'
+    reading: 'parsed'
+  - id: 'code.symbol:services/payments/src/api/legacy-report.ts#validateDay'
+    kind: 'code.symbol'
+    label: 'validateDay'
+    evidence:
+      - path: 'services/payments/src/api/legacy-report.ts'
+        startLine: 746
+        endLine: 746
+        quote: 'function validateDay(name: string, value: string | undefined): string | undefined {'
+    reading: 'parsed'
+  - id: 'code.symbol:services/payments/src/api/legacy-report.ts#whereClause'
+    kind: 'code.symbol'
+    label: 'whereClause'
+    evidence:
+      - path: 'services/payments/src/api/legacy-report.ts'
+        startLine: 170
+        endLine: 170
+        quote: 'function whereClause(filters: ReportFilters, alias = ''p''): string {'
+    reading: 'parsed'
+  - id: 'code.symbol:services/payments/src/api/legacy-report.ts#xmlEscape'
+    kind: 'code.symbol'
+    label: 'xmlEscape'
+    evidence:
+      - path: 'services/payments/src/api/legacy-report.ts'
+        startLine: 127
+        endLine: 127
+        quote: 'function xmlEscape(value: string): string {'
+    reading: 'parsed'
+edges:
+  - relation: 'code.calls'
+    from: 'code.symbol:services/payments/src/api/legacy-report.ts#aging'
+    to: 'code.symbol:services/payments/src/api/legacy-report.ts#asNumber'
+    evidence:
+      - path: 'services/payments/src/api/legacy-report.ts'
+        startLine: 371
+        endLine: 371
+        quote: '      const minutes = asNumber(r.age_minutes);'
+      - path: 'services/payments/src/api/legacy-report.ts'
+        startLine: 377
+        endLine: 377
+        quote: '      amount_cents: _.sumBy(inBucket, (r) => asNumber(r.amount_cents)),'
+      - path: 'services/payments/src/api/legacy-report.ts'
+        startLine: 392
+        endLine: 392
+        quote: '    totals: { bucket: ''total'', payments: rows.length, amount_cents: _.sumBy(rows, (r) => asNumber(r.amount_cents)) },'
+    reading: 'parsed'
+  - relation: 'code.calls'
+    from: 'code.symbol:services/payments/src/api/legacy-report.ts#aging'
+    to: 'code.symbol:services/payments/src/api/legacy-report.ts#limitClause'
+    evidence:
+      - path: 'services/payments/src/api/legacy-report.ts'
+        startLine: 366
+        endLine: 366
+        quote: '    limitClause(filters);'
+    reading: 'parsed'
+  - relation: 'code.calls'
+    from: 'code.symbol:services/payments/src/api/legacy-report.ts#aging'
+    to: 'code.symbol:services/payments/src/api/legacy-report.ts#orderBy'
+    evidence:
+      - path: 'services/payments/src/api/legacy-report.ts'
+        startLine: 365
+        endLine: 365
+        quote: '    orderBy(filters, [''created_at'', ''amount_cents'', ''order_id''], ''created_at'') +'
+    reading: 'parsed'
+  - relation: 'code.calls'
+    from: 'code.symbol:services/payments/src/api/legacy-report.ts#aging'
+    to: 'code.symbol:services/payments/src/api/legacy-report.ts#query'
+    evidence:
+      - path: 'services/payments/src/api/legacy-report.ts'
+        startLine: 367
+        endLine: 367
+        quote: '  const rows = await query(prisma, sql);'
+    reading: 'parsed'
+  - relation: 'code.calls'
+    from: 'code.symbol:services/payments/src/api/legacy-report.ts#aging'
+    to: 'code.symbol:services/payments/src/api/legacy-report.ts#whereClause'
+    evidence:
+      - path: 'services/payments/src/api/legacy-report.ts'
+        startLine: 358
+        endLine: 358
+        quote: '  const where = whereClause(scoped);'
+    reading: 'parsed'
+  - relation: 'code.calls'
+    from: 'code.symbol:services/payments/src/api/legacy-report.ts#cell'
+    to: 'code.symbol:services/payments/src/api/legacy-report.ts#isoStamp'
+    evidence:
+      - path: 'services/payments/src/api/legacy-report.ts'
+        startLine: 140
+        endLine: 140
+        quote: '    return isoStamp(value);'
+    reading: 'parsed'
+  - relation: 'code.calls'
+    from: 'code.symbol:services/payments/src/api/legacy-report.ts#currencySummary'
+    to: 'code.symbol:services/payments/src/api/legacy-report.ts#asNumber'
+    evidence:
+      - path: 'services/payments/src/api/legacy-report.ts'
+        startLine: 455
+        endLine: 455
+        quote: '    payments: _.sumBy(group, (r) => asNumber(r.payments)),'
+      - path: 'services/payments/src/api/legacy-report.ts'
+        startLine: 456
+        endLine: 456
+        quote: '    amount_cents: _.sumBy(group, (r) => asNumber(r.amount_cents)),'
+    reading: 'parsed'
+  - relation: 'code.calls'
+    from: 'code.symbol:services/payments/src/api/legacy-report.ts#currencySummary'
+    to: 'code.symbol:services/payments/src/api/legacy-report.ts#limitClause'
+    evidence:
+      - path: 'services/payments/src/api/legacy-report.ts'
+        startLine: 451
+        endLine: 451
+        quote: '    limitClause(filters);'
+    reading: 'parsed'
+  - relation: 'code.calls'
+    from: 'code.symbol:services/payments/src/api/legacy-report.ts#currencySummary'
+    to: 'code.symbol:services/payments/src/api/legacy-report.ts#orderBy'
+    evidence:
+      - path: 'services/payments/src/api/legacy-report.ts'
+        startLine: 450
+        endLine: 450
+        quote: '    orderBy(filters, [''currency'', ''status'', ''payments'', ''amount_cents''], ''currency'') +'
+    reading: 'parsed'
+  - relation: 'code.calls'
+    from: 'code.symbol:services/payments/src/api/legacy-report.ts#currencySummary'
+    to: 'code.symbol:services/payments/src/api/legacy-report.ts#query'
+    evidence:
+      - path: 'services/payments/src/api/legacy-report.ts'
+        startLine: 452
+        endLine: 452
+        quote: '  const rows = await query(prisma, sql);'
+    reading: 'parsed'
+  - relation: 'code.calls'
+    from: 'code.symbol:services/payments/src/api/legacy-report.ts#currencySummary'
+    to: 'code.symbol:services/payments/src/api/legacy-report.ts#whereClause'
+    evidence:
+      - path: 'services/payments/src/api/legacy-report.ts'
+        startLine: 444
+        endLine: 444
+        quote: '  const where = whereClause(filters);'
+    reading: 'parsed'
+  - relation: 'code.calls'
+    from: 'code.symbol:services/payments/src/api/legacy-report.ts#dailySettlement'
+    to: 'code.symbol:services/payments/src/api/legacy-report.ts#asDate'
+    evidence:
+      - path: 'services/payments/src/api/legacy-report.ts'
+        startLine: 232
+        endLine: 232
+        quote: '    day: isoDay(asDate(row.day) ?? new Date(0)),'
+    reading: 'parsed'
+  - relation: 'code.calls'
+    from: 'code.symbol:services/payments/src/api/legacy-report.ts#dailySettlement'
+    to: 'code.symbol:services/payments/src/api/legacy-report.ts#asNumber'
+    evidence:
+      - path: 'services/payments/src/api/legacy-report.ts'
+        startLine: 233
+        endLine: 233
+        quote: '    net_cents: asNumber(row.captured_cents) - asNumber(row.refunded_cents),'
+      - path: 'services/payments/src/api/legacy-report.ts'
+        startLine: 239
+        endLine: 239
+        quote: '    payments: _.sumBy(rows, (r) => asNumber(r.payments)),'
+      - path: 'services/payments/src/api/legacy-report.ts'
+        startLine: 240
+        endLine: 240
+        quote: '    captured_cents: _.sumBy(rows, (r) => asNumber(r.captured_cents)),'
+      - path: 'services/payments/src/api/legacy-report.ts'
+        startLine: 241
+        endLine: 241
+        quote: '    refunded_cents: _.sumBy(rows, (r) => asNumber(r.refunded_cents)),'
+      - path: 'services/payments/src/api/legacy-report.ts'
+        startLine: 242
+        endLine: 242
+        quote: '    net_cents: _.sumBy(rows, (r) => asNumber(r.net_cents)),'
+    reading: 'parsed'
+  - relation: 'code.calls'
+    from: 'code.symbol:services/payments/src/api/legacy-report.ts#dailySettlement'
+    to: 'code.symbol:services/payments/src/api/legacy-report.ts#isoDay'
+    evidence:
+      - path: 'services/payments/src/api/legacy-report.ts'
+        startLine: 232
+        endLine: 232
+        quote: '    day: isoDay(asDate(row.day) ?? new Date(0)),'
+    reading: 'parsed'
+  - relation: 'code.calls'
+    from: 'code.symbol:services/payments/src/api/legacy-report.ts#dailySettlement'
+    to: 'code.symbol:services/payments/src/api/legacy-report.ts#limitClause'
+    evidence:
+      - path: 'services/payments/src/api/legacy-report.ts'
+        startLine: 229
+        endLine: 229
+        quote: '    limitClause(filters);'
+    reading: 'parsed'
+  - relation: 'code.calls'
+    from: 'code.symbol:services/payments/src/api/legacy-report.ts#dailySettlement'
+    to: 'code.symbol:services/payments/src/api/legacy-report.ts#orderBy'
+    evidence:
+      - path: 'services/payments/src/api/legacy-report.ts'
+        startLine: 228
+        endLine: 228
+        quote: '    orderBy(filters, [''day'', ''currency'', ''payments'', ''captured_cents'', ''refunded_cents''], ''day'') +'
+    reading: 'parsed'
+  - relation: 'code.calls'
+    from: 'code.symbol:services/payments/src/api/legacy-report.ts#dailySettlement'
+    to: 'code.symbol:services/payments/src/api/legacy-report.ts#query'
+    evidence:
+      - path: 'services/payments/src/api/legacy-report.ts'
+        startLine: 230
+        endLine: 230
+        quote: '  const rows: Row[] = (await query(prisma, sql)).map((row) => ({'
+    reading: 'parsed'
+  - relation: 'code.calls'
+    from: 'code.symbol:services/payments/src/api/legacy-report.ts#dailySettlement'
+    to: 'code.symbol:services/payments/src/api/legacy-report.ts#whereClause'
+    evidence:
+      - path: 'services/payments/src/api/legacy-report.ts'
+        startLine: 217
+        endLine: 217
+        quote: '  const where = whereClause(filters);'
+    reading: 'parsed'
+  - relation: 'code.calls'
+    from: 'code.symbol:services/payments/src/api/legacy-report.ts#declines'
+    to: 'code.symbol:services/payments/src/api/legacy-report.ts#asNumber'
+    evidence:
+      - path: 'services/payments/src/api/legacy-report.ts'
+        startLine: 320
+        endLine: 320
+        quote: '  const total = _.sumBy(rows, (r) => asNumber(r.declines));'
+      - path: 'services/payments/src/api/legacy-report.ts'
+        startLine: 336
+        endLine: 336
+        quote: '      share: total === 0 ? ''0%'' : `${Math.round((asNumber(r.declines) / total) * 100)}%`,'
+      - path: 'services/payments/src/api/legacy-report.ts'
+        startLine: 338
+        endLine: 338
+        quote: '    totals: { reason: ''total'', declines: total, lost_cents: _.sumBy(rows, (r) => asNumber(r.lost_cents)) },'
+    reading: 'parsed'
+  - relation: 'code.calls'
+    from: 'code.symbol:services/payments/src/api/legacy-report.ts#declines'
+    to: 'code.symbol:services/payments/src/api/legacy-report.ts#limitClause'
+    evidence:
+      - path: 'services/payments/src/api/legacy-report.ts'
+        startLine: 318
+        endLine: 318
+        quote: '    limitClause(filters);'
+    reading: 'parsed'
+  - relation: 'code.calls'
+    from: 'code.symbol:services/payments/src/api/legacy-report.ts#declines'
+    to: 'code.symbol:services/payments/src/api/legacy-report.ts#orderBy'
+    evidence:
+      - path: 'services/payments/src/api/legacy-report.ts'
+        startLine: 317
+        endLine: 317
+        quote: '    orderBy(filters, [''reason'', ''declines'', ''lost_cents'', ''first_seen'', ''last_seen''], ''-declines'') +'
+    reading: 'parsed'
+  - relation: 'code.calls'
+    from: 'code.symbol:services/payments/src/api/legacy-report.ts#declines'
+    to: 'code.symbol:services/payments/src/api/legacy-report.ts#query'
+    evidence:
+      - path: 'services/payments/src/api/legacy-report.ts'
+        startLine: 319
+        endLine: 319
+        quote: '  const rows = await query(prisma, sql);'
+    reading: 'parsed'
+  - relation: 'code.calls'
+    from: 'code.symbol:services/payments/src/api/legacy-report.ts#declines'
+    to: 'code.symbol:services/payments/src/api/legacy-report.ts#whereClause'
+    evidence:
+      - path: 'services/payments/src/api/legacy-report.ts'
+        startLine: 309
+        endLine: 309
+        quote: '  const where = whereClause(scoped);'
+    reading: 'parsed'
+  - relation: 'code.calls'
+    from: 'code.symbol:services/payments/src/api/legacy-report.ts#handleReport'
+    to: 'code.sql-sink:services/payments/src/api/legacy-report.ts#query'
+    evidence:
+      - path: 'services/payments/src/api/legacy-report.ts'
+        startLine: 208
+        endLine: 208
+        quote: '  return (await prisma.$queryRawUnsafe(sql)) as Row[];'
+    reading: 'parsed'
+  - relation: 'code.calls'
+    from: 'code.symbol:services/payments/src/api/legacy-report.ts#handleReport'
+    to: 'code.symbol:services/payments/src/api/legacy-report.ts#first'
+    evidence:
+      - path: 'services/payments/src/api/legacy-report.ts'
+        startLine: 754
+        endLine: 754
+        quote: '  const name = first(req.query.report) ?? ''daily-settlement'';'
+      - path: 'services/payments/src/api/legacy-report.ts'
+        startLine: 755
+        endLine: 755
+        quote: '  const format = first(req.query.format) ?? ''json'';'
+    reading: 'parsed'
+  - relation: 'code.calls'
+    from: 'code.symbol:services/payments/src/api/legacy-report.ts#handleReport'
+    to: 'code.symbol:services/payments/src/api/legacy-report.ts#isoDay'
+    evidence:
+      - path: 'services/payments/src/api/legacy-report.ts'
+        startLine: 780
+        endLine: 780
+        quote: '      res.setHeader(''Content-Disposition'', `attachment; filename="${report.name}-${isoDay(new Date())}.${renderer.extension}"`);'
+    reading: 'parsed'
+  - relation: 'code.calls'
+    from: 'code.symbol:services/payments/src/api/legacy-report.ts#handleReport'
+    to: 'code.symbol:services/payments/src/api/legacy-report.ts#readFilters'
+    evidence:
+      - path: 'services/payments/src/api/legacy-report.ts'
+        startLine: 767
+        endLine: 767
+        quote: '  const filters = readFilters(req);'
+    reading: 'parsed'
+  - relation: 'code.calls'
+    from: 'code.symbol:services/payments/src/api/legacy-report.ts#handleReport'
+    to: 'code.symbol:services/payments/src/api/legacy-report.ts#validateDay'
+    evidence:
+      - path: 'services/payments/src/api/legacy-report.ts'
+        startLine: 769
+        endLine: 769
+        quote: '  const problem = validateDay(''from'', filters.from) ?? validateDay(''to'', filters.to);'
+    reading: 'parsed'
+  - relation: 'code.calls'
+    from: 'code.symbol:services/payments/src/api/legacy-report.ts#invoiceLines'
+    to: 'code.symbol:services/payments/src/api/legacy-report.ts#asNumber'
+    evidence:
+      - path: 'services/payments/src/api/legacy-report.ts'
+        startLine: 500
+        endLine: 500
+        quote: '    invoice_amount: formatMoney(asNumber(r.amount_cents), String(r.currency)),'
+    reading: 'parsed'
+  - relation: 'code.calls'
+    from: 'code.symbol:services/payments/src/api/legacy-report.ts#invoiceLines'
+    to: 'code.symbol:services/payments/src/api/legacy-report.ts#limitClause'
+    evidence:
+      - path: 'services/payments/src/api/legacy-report.ts'
+        startLine: 496
+        endLine: 496
+        quote: '    limitClause(filters);'
+    reading: 'parsed'
+  - relation: 'code.calls'
+    from: 'code.symbol:services/payments/src/api/legacy-report.ts#invoiceLines'
+    to: 'code.symbol:services/payments/src/api/legacy-report.ts#orderBy'
+    evidence:
+      - path: 'services/payments/src/api/legacy-report.ts'
+        startLine: 495
+        endLine: 495
+        quote: '    orderBy(filters, [''captured_at'', ''order_id'', ''amount_cents''], ''captured_at'') +'
+    reading: 'parsed'
+  - relation: 'code.calls'
+    from: 'code.symbol:services/payments/src/api/legacy-report.ts#invoiceLines'
+    to: 'code.symbol:services/payments/src/api/legacy-report.ts#query'
+    evidence:
+      - path: 'services/payments/src/api/legacy-report.ts'
+        startLine: 497
+        endLine: 497
+        quote: '  const rows = (await query(prisma, sql)).map((r, index) => ({'
+    reading: 'parsed'
+  - relation: 'code.calls'
+    from: 'code.symbol:services/payments/src/api/legacy-report.ts#invoiceLines'
+    to: 'code.symbol:services/payments/src/api/legacy-report.ts#whereClause'
+    evidence:
+      - path: 'services/payments/src/api/legacy-report.ts'
+        startLine: 489
+        endLine: 489
+        quote: '  const where = whereClause({ ...filters, status: filters.status ?? ''captured'' });'
+    reading: 'parsed'
+  - relation: 'code.calls'
+    from: 'code.symbol:services/payments/src/api/legacy-report.ts#invoiceLines'
+    to: 'code.symbol:services/payments/src/format.ts#formatMoney'
+    evidence:
+      - path: 'services/payments/src/api/legacy-report.ts'
+        startLine: 500
+        endLine: 500
+        quote: '    invoice_amount: formatMoney(asNumber(r.amount_cents), String(r.currency)),'
+    reading: 'parsed'
+  - relation: 'code.calls'
+    from: 'code.symbol:services/payments/src/api/legacy-report.ts#isoDay'
+    to: 'code.symbol:services/payments/src/api/legacy-report.ts#pad2'
+    evidence:
+      - path: 'services/payments/src/api/legacy-report.ts'
+        startLine: 77
+        endLine: 77
+        quote: '  return `${d.getUTCFullYear()}-${pad2(d.getUTCMonth() + 1)}-${pad2(d.getUTCDate())}`;'
+    reading: 'parsed'
+  - relation: 'code.calls'
+    from: 'code.symbol:services/payments/src/api/legacy-report.ts#isoStamp'
+    to: 'code.symbol:services/payments/src/api/legacy-report.ts#isoDay'
+    evidence:
+      - path: 'services/payments/src/api/legacy-report.ts'
+        startLine: 81
+        endLine: 81
+        quote: '  return `${isoDay(d)} ${pad2(d.getUTCHours())}:${pad2(d.getUTCMinutes())}:${pad2(d.getUTCSeconds())}`;'
+    reading: 'parsed'
+  - relation: 'code.calls'
+    from: 'code.symbol:services/payments/src/api/legacy-report.ts#isoStamp'
+    to: 'code.symbol:services/payments/src/api/legacy-report.ts#pad2'
+    evidence:
+      - path: 'services/payments/src/api/legacy-report.ts'
+        startLine: 81
+        endLine: 81
+        quote: '  return `${isoDay(d)} ${pad2(d.getUTCHours())}:${pad2(d.getUTCMinutes())}:${pad2(d.getUTCSeconds())}`;'
+    reading: 'parsed'
+  - relation: 'code.calls'
+    from: 'code.symbol:services/payments/src/api/legacy-report.ts#legacyReportRoutes'
+    to: 'code.symbol:services/payments/src/api/legacy-report.ts#handleReport'
+    evidence:
+      - path: 'services/payments/src/api/legacy-report.ts'
+        startLine: 793
+        endLine: 793
+        quote: '    void handleReport(prisma, req, res);'
+    reading: 'parsed'
+  - relation: 'code.calls'
+    from: 'code.symbol:services/payments/src/api/legacy-report.ts#money'
+    to: 'code.symbol:services/payments/src/api/legacy-report.ts#asNumber'
+    evidence:
+      - path: 'services/payments/src/api/legacy-report.ts'
+        startLine: 145
+        endLine: 145
+        quote: 'const money: ReportColumn[''format''] = (value, row) => formatMoney(asNumber(value), String(row.currency ?? ''EUR''));'
+    reading: 'parsed'
+  - relation: 'code.calls'
+    from: 'code.symbol:services/payments/src/api/legacy-report.ts#money'
+    to: 'code.symbol:services/payments/src/format.ts#formatMoney'
+    evidence:
+      - path: 'services/payments/src/api/legacy-report.ts'
+        startLine: 145
+        endLine: 145
+        quote: 'const money: ReportColumn[''format''] = (value, row) => formatMoney(asNumber(value), String(row.currency ?? ''EUR''));'
+    reading: 'parsed'
+  - relation: 'code.calls'
+    from: 'code.symbol:services/payments/src/api/legacy-report.ts#orderLedger'
+    to: 'code.symbol:services/payments/src/api/legacy-report.ts#asDate'
+    evidence:
+      - path: 'services/payments/src/api/legacy-report.ts'
+        startLine: 547
+        endLine: 547
+        quote: '      at: asDate(c.at) ?? new Date(0),'
+      - path: 'services/payments/src/api/legacy-report.ts'
+        startLine: 554
+        endLine: 554
+        quote: '      at: asDate(r.at) ?? new Date(0),'
+    reading: 'parsed'
+  - relation: 'code.calls'
+    from: 'code.symbol:services/payments/src/api/legacy-report.ts#orderLedger'
+    to: 'code.symbol:services/payments/src/api/legacy-report.ts#asNumber'
+    evidence:
+      - path: 'services/payments/src/api/legacy-report.ts'
+        startLine: 551
+        endLine: 551
+        quote: '      delta_cents: c.status === ''captured'' || c.status === ''refunded'' ? asNumber(c.amount_cents) : 0,'
+      - path: 'services/payments/src/api/legacy-report.ts'
+        startLine: 558
+        endLine: 558
+        quote: '      delta_cents: -asNumber(r.amount_cents),'
+      - path: 'services/payments/src/api/legacy-report.ts'
+        startLine: 564
+        endLine: 564
+        quote: '    balance += asNumber(entry.delta_cents);'
+    reading: 'parsed'
+  - relation: 'code.calls'
+    from: 'code.symbol:services/payments/src/api/legacy-report.ts#orderLedger'
+    to: 'code.symbol:services/payments/src/api/legacy-report.ts#query'
+    evidence:
+      - path: 'services/payments/src/api/legacy-report.ts'
+        startLine: 530
+        endLine: 530
+        quote: '  const charges = await query('
+      - path: 'services/payments/src/api/legacy-report.ts'
+        startLine: 537
+        endLine: 537
+        quote: '  const refundRows = await query('
+    reading: 'parsed'
+  - relation: 'code.calls'
+    from: 'code.symbol:services/payments/src/api/legacy-report.ts#orderLedger'
+    to: 'code.symbol:services/payments/src/api/legacy-report.ts#whereClause'
+    evidence:
+      - path: 'services/payments/src/api/legacy-report.ts'
+        startLine: 529
+        endLine: 529
+        quote: '  const where = whereClause(filters);'
+      - path: 'services/payments/src/api/legacy-report.ts'
+        startLine: 541
+        endLine: 541
+        quote: '      whereClause(filters) +'
+    reading: 'parsed'
+  - relation: 'code.calls'
+    from: 'code.symbol:services/payments/src/api/legacy-report.ts#providerSplit'
+    to: 'code.symbol:services/payments/src/api/legacy-report.ts#asNumber'
+    evidence:
+      - path: 'services/payments/src/api/legacy-report.ts'
+        startLine: 413
+        endLine: 413
+        quote: '  const rows: Row[] = (await query(prisma, sql)).map((r) => ({ ...r, average_cents: Math.round(asNumber(r.average_cents)) }));'
+      - path: 'services/payments/src/api/legacy-report.ts'
+        startLine: 419
+        endLine: 419
+        quote: '      .map((name) => `${name}: ${_.sumBy(grouped[name], (r) => asNumber(r.payments))}`)'
+      - path: 'services/payments/src/api/legacy-report.ts'
+        startLine: 421
+        endLine: 421
+        quote: '    payments: _.sumBy(rows, (r) => asNumber(r.payments)),'
+    reading: 'parsed'
+  - relation: 'code.calls'
+    from: 'code.symbol:services/payments/src/api/legacy-report.ts#providerSplit'
+    to: 'code.symbol:services/payments/src/api/legacy-report.ts#limitClause'
+    evidence:
+      - path: 'services/payments/src/api/legacy-report.ts'
+        startLine: 412
+        endLine: 412
+        quote: '    limitClause(filters);'
+    reading: 'parsed'
+  - relation: 'code.calls'
+    from: 'code.symbol:services/payments/src/api/legacy-report.ts#providerSplit'
+    to: 'code.symbol:services/payments/src/api/legacy-report.ts#orderBy'
+    evidence:
+      - path: 'services/payments/src/api/legacy-report.ts'
+        startLine: 411
+        endLine: 411
+        quote: '    orderBy(filters, [''provider'', ''currency'', ''payments'', ''amount_cents'', ''average_cents''], ''provider'') +'
+    reading: 'parsed'
+  - relation: 'code.calls'
+    from: 'code.symbol:services/payments/src/api/legacy-report.ts#providerSplit'
+    to: 'code.symbol:services/payments/src/api/legacy-report.ts#query'
+    evidence:
+      - path: 'services/payments/src/api/legacy-report.ts'
+        startLine: 413
+        endLine: 413
+        quote: '  const rows: Row[] = (await query(prisma, sql)).map((r) => ({ ...r, average_cents: Math.round(asNumber(r.average_cents)) }));'
+    reading: 'parsed'
+  - relation: 'code.calls'
+    from: 'code.symbol:services/payments/src/api/legacy-report.ts#providerSplit'
+    to: 'code.symbol:services/payments/src/api/legacy-report.ts#whereClause'
+    evidence:
+      - path: 'services/payments/src/api/legacy-report.ts'
+        startLine: 403
+        endLine: 403
+        quote: '  const where = whereClause({ ...filters, status: filters.status ?? ''captured'' });'
+    reading: 'parsed'
+  - relation: 'code.calls'
+    from: 'code.symbol:services/payments/src/api/legacy-report.ts#readFilters'
+    to: 'code.symbol:services/payments/src/api/legacy-report.ts#first'
+    evidence:
+      - path: 'services/payments/src/api/legacy-report.ts'
+        startLine: 152
+        endLine: 152
+        quote: '  const limit = Number(first(req.query.limit));'
+      - path: 'services/payments/src/api/legacy-report.ts'
+        startLine: 154
+        endLine: 154
+        quote: '    from: first(req.query.from),'
+      - path: 'services/payments/src/api/legacy-report.ts'
+        startLine: 155
+        endLine: 155
+        quote: '    to: first(req.query.to),'
+      - path: 'services/payments/src/api/legacy-report.ts'
+        startLine: 156
+        endLine: 156
+        quote: '    status: first(req.query.status),'
+      - path: 'services/payments/src/api/legacy-report.ts'
+        startLine: 157
+        endLine: 157
+        quote: '    currency: first(req.query.currency),'
+      - path: 'services/payments/src/api/legacy-report.ts'
+        startLine: 158
+        endLine: 158
+        quote: '    order: first(req.query.order),'
+      - path: 'services/payments/src/api/legacy-report.ts'
+        startLine: 159
+        endLine: 159
+        quote: '    provider: first(req.query.provider),'
+      - path: 'services/payments/src/api/legacy-report.ts'
+        startLine: 160
+        endLine: 160
+        quote: '    sort: first(req.query.sort),'
+    reading: 'parsed'
+  - relation: 'code.calls'
+    from: 'code.symbol:services/payments/src/api/legacy-report.ts#reconciliation'
+    to: 'code.symbol:services/payments/src/api/legacy-report.ts#limitClause'
+    evidence:
+      - path: 'services/payments/src/api/legacy-report.ts'
+        startLine: 598
+        endLine: 598
+        quote: '      limitClause(filters),'
+      - path: 'services/payments/src/api/legacy-report.ts'
+        startLine: 607
+        endLine: 607
+        quote: '      limitClause(filters),'
+      - path: 'services/payments/src/api/legacy-report.ts'
+        startLine: 615
+        endLine: 615
+        quote: '      limitClause(filters),'
+    reading: 'parsed'
+  - relation: 'code.calls'
+    from: 'code.symbol:services/payments/src/api/legacy-report.ts#reconciliation'
+    to: 'code.symbol:services/payments/src/api/legacy-report.ts#query'
+    evidence:
+      - path: 'services/payments/src/api/legacy-report.ts'
+        startLine: 592
+        endLine: 592
+        quote: '  const noReference = await query('
+      - path: 'services/payments/src/api/legacy-report.ts'
+        startLine: 600
+        endLine: 600
+        quote: '  const overRefunded = await query('
+      - path: 'services/payments/src/api/legacy-report.ts'
+        startLine: 609
+        endLine: 609
+        quote: '  const pendingWithReference = await query('
+    reading: 'parsed'
+  - relation: 'code.calls'
+    from: 'code.symbol:services/payments/src/api/legacy-report.ts#reconciliation'
+    to: 'code.symbol:services/payments/src/api/legacy-report.ts#whereClause'
+    evidence:
+      - path: 'services/payments/src/api/legacy-report.ts'
+        startLine: 591
+        endLine: 591
+        quote: '  const where = whereClause(filters);'
+    reading: 'parsed'
+  - relation: 'code.calls'
+    from: 'code.symbol:services/payments/src/api/legacy-report.ts#refundRegister'
+    to: 'code.symbol:services/payments/src/api/legacy-report.ts#asNumber'
+    evidence:
+      - path: 'services/payments/src/api/legacy-report.ts'
+        startLine: 280
+        endLine: 280
+        quote: '    amount_cents: _.sumBy(rows, (r) => asNumber(r.amount_cents)),'
+    reading: 'parsed'
+  - relation: 'code.calls'
+    from: 'code.symbol:services/payments/src/api/legacy-report.ts#refundRegister'
+    to: 'code.symbol:services/payments/src/api/legacy-report.ts#limitClause'
+    evidence:
+      - path: 'services/payments/src/api/legacy-report.ts'
+        startLine: 274
+        endLine: 274
+        quote: '    limitClause(filters);'
+    reading: 'parsed'
+  - relation: 'code.calls'
+    from: 'code.symbol:services/payments/src/api/legacy-report.ts#refundRegister'
+    to: 'code.symbol:services/payments/src/api/legacy-report.ts#orderBy'
+    evidence:
+      - path: 'services/payments/src/api/legacy-report.ts'
+        startLine: 273
+        endLine: 273
+        quote: '    orderBy(filters, [''refunded_at'', ''amount_cents'', ''order_id'', ''currency''], ''-refunded_at'') +'
+    reading: 'parsed'
+  - relation: 'code.calls'
+    from: 'code.symbol:services/payments/src/api/legacy-report.ts#refundRegister'
+    to: 'code.symbol:services/payments/src/api/legacy-report.ts#query'
+    evidence:
+      - path: 'services/payments/src/api/legacy-report.ts'
+        startLine: 275
+        endLine: 275
+        quote: '  const rows = await query(prisma, sql);'
+    reading: 'parsed'
+  - relation: 'code.calls'
+    from: 'code.symbol:services/payments/src/api/legacy-report.ts#refundRegister'
+    to: 'code.symbol:services/payments/src/api/legacy-report.ts#whereClause'
+    evidence:
+      - path: 'services/payments/src/api/legacy-report.ts'
+        startLine: 266
+        endLine: 266
+        quote: '  const where = whereClause(filters);'
+    reading: 'parsed'
+  - relation: 'code.calls'
+    from: 'code.symbol:services/payments/src/api/legacy-report.ts#renderCsv'
+    to: 'code.symbol:services/payments/src/api/legacy-report.ts#cell'
+    evidence:
+      - path: 'services/payments/src/api/legacy-report.ts'
+        startLine: 669
+        endLine: 669
+        quote: '    lines.push(report.columns.map((c) => csvCell(cell(c, row))).join('',''));'
+      - path: 'services/payments/src/api/legacy-report.ts'
+        startLine: 673
+        endLine: 673
+        quote: '    lines.push(report.columns.map((c) => csvCell(cell(c, totals))).join('',''));'
+    reading: 'parsed'
+  - relation: 'code.calls'
+    from: 'code.symbol:services/payments/src/api/legacy-report.ts#renderCsv'
+    to: 'code.symbol:services/payments/src/api/legacy-report.ts#csvCell'
+    evidence:
+      - path: 'services/payments/src/api/legacy-report.ts'
+        startLine: 667
+        endLine: 667
+        quote: '  lines.push(report.columns.map((c) => csvCell(c.title)).join('',''));'
+      - path: 'services/payments/src/api/legacy-report.ts'
+        startLine: 669
+        endLine: 669
+        quote: '    lines.push(report.columns.map((c) => csvCell(cell(c, row))).join('',''));'
+      - path: 'services/payments/src/api/legacy-report.ts'
+        startLine: 673
+        endLine: 673
+        quote: '    lines.push(report.columns.map((c) => csvCell(cell(c, totals))).join('',''));'
+    reading: 'parsed'
+  - relation: 'code.calls'
+    from: 'code.symbol:services/payments/src/api/legacy-report.ts#renderHtml'
+    to: 'code.symbol:services/payments/src/api/legacy-report.ts#cell'
+    evidence:
+      - path: 'services/payments/src/api/legacy-report.ts'
+        startLine: 682
+        endLine: 682
+        quote: '      const cells = report.columns.map((c) => `<td>${htmlEscape(cell(c, row))}</td>`).join('''');'
+      - path: 'services/payments/src/api/legacy-report.ts'
+        startLine: 689
+        endLine: 689
+        quote: '    footer = `<tfoot><tr>${report.columns.map((c) => `<th>${htmlEscape(cell(c, totals))}</th>`).join('''')}</tr></tfoot>`;'
+    reading: 'parsed'
+  - relation: 'code.calls'
+    from: 'code.symbol:services/payments/src/api/legacy-report.ts#renderHtml'
+    to: 'code.symbol:services/payments/src/api/legacy-report.ts#htmlEscape'
+    evidence:
+      - path: 'services/payments/src/api/legacy-report.ts'
+        startLine: 679
+        endLine: 679
+        quote: '  const head = report.columns.map((c) => `<th>${htmlEscape(c.title)}</th>`).join('''');'
+      - path: 'services/payments/src/api/legacy-report.ts'
+        startLine: 682
+        endLine: 682
+        quote: '      const cells = report.columns.map((c) => `<td>${htmlEscape(cell(c, row))}</td>`).join('''');'
+      - path: 'services/payments/src/api/legacy-report.ts'
+        startLine: 689
+        endLine: 689
+        quote: '    footer = `<tfoot><tr>${report.columns.map((c) => `<th>${htmlEscape(cell(c, totals))}</th>`).join('''')}</tr></tfoot>`;'
+      - path: 'services/payments/src/api/legacy-report.ts'
+        startLine: 696
+        endLine: 696
+        quote: '    `<title>${htmlEscape(report.title)}</title>`,'
+      - path: 'services/payments/src/api/legacy-report.ts'
+        startLine: 707
+        endLine: 707
+        quote: '    `<h1>${htmlEscape(report.title)}</h1>`,'
+    reading: 'parsed'
+  - relation: 'code.calls'
+    from: 'code.symbol:services/payments/src/api/legacy-report.ts#renderHtml'
+    to: 'code.symbol:services/payments/src/api/legacy-report.ts#isoStamp'
+    evidence:
+      - path: 'services/payments/src/api/legacy-report.ts'
+        startLine: 708
+        endLine: 708
+        quote: '    `<p>Generated ${isoStamp(new Date())} UTC, ${report.rows.length} rows.</p>`,'
+    reading: 'parsed'
+  - relation: 'code.calls'
+    from: 'code.symbol:services/payments/src/api/legacy-report.ts#renderJson'
+    to: 'code.symbol:services/payments/src/api/legacy-report.ts#isoStamp'
+    evidence:
+      - path: 'services/payments/src/api/legacy-report.ts'
+        startLine: 654
+        endLine: 654
+        quote: '      generatedAt: isoStamp(new Date()),'
+    reading: 'parsed'
+  - relation: 'code.calls'
+    from: 'code.symbol:services/payments/src/api/legacy-report.ts#renderXml'
+    to: 'code.symbol:services/payments/src/api/legacy-report.ts#cell'
+    evidence:
+      - path: 'services/payments/src/api/legacy-report.ts'
+        startLine: 722
+        endLine: 722
+        quote: '      const fields = report.columns.map((c) => `    <${c.key}>${xmlEscape(cell(c, row))}</${c.key}>`).join(''\n'');'
+      - path: 'services/payments/src/api/legacy-report.ts'
+        startLine: 729
+        endLine: 729
+        quote: '    const fields = report.columns.map((c) => `    <${c.key}>${xmlEscape(cell(c, t))}</${c.key}>`).join(''\n'');'
+    reading: 'parsed'
+  - relation: 'code.calls'
+    from: 'code.symbol:services/payments/src/api/legacy-report.ts#renderXml'
+    to: 'code.symbol:services/payments/src/api/legacy-report.ts#isoStamp'
+    evidence:
+      - path: 'services/payments/src/api/legacy-report.ts'
+        startLine: 732
+        endLine: 732
+        quote: '  return `<?xml version="1.0" encoding="UTF-8"?>\n<report name="${report.name}" generated="${isoStamp(new Date())}">\n${rows}${totals}\n</report>\n`;'
+    reading: 'parsed'
+  - relation: 'code.calls'
+    from: 'code.symbol:services/payments/src/api/legacy-report.ts#renderXml'
+    to: 'code.symbol:services/payments/src/api/legacy-report.ts#xmlEscape'
+    evidence:
+      - path: 'services/payments/src/api/legacy-report.ts'
+        startLine: 722
+        endLine: 722
+        quote: '      const fields = report.columns.map((c) => `    <${c.key}>${xmlEscape(cell(c, row))}</${c.key}>`).join(''\n'');'
+      - path: 'services/payments/src/api/legacy-report.ts'
+        startLine: 729
+        endLine: 729
+        quote: '    const fields = report.columns.map((c) => `    <${c.key}>${xmlEscape(cell(c, t))}</${c.key}>`).join(''\n'');'
+    reading: 'parsed'
+  - relation: 'code.contains'
+    from: 'code.file:services/payments/src/api/legacy-report.ts'
+    to: 'code.symbol:services/payments/src/api/legacy-report.ts#AGING_BUCKETS'
+    evidence:
+      - path: 'services/payments/src/api/legacy-report.ts'
+        startLine: 349
+        endLine: 349
+        quote: 'const AGING_BUCKETS: Array<{ label: string; minMinutes: number; maxMinutes: number }> = ['
+    reading: 'parsed'
+  - relation: 'code.contains'
+    from: 'code.file:services/payments/src/api/legacy-report.ts'
+    to: 'code.symbol:services/payments/src/api/legacy-report.ts#BUILDERS'
+    evidence:
+      - path: 'services/payments/src/api/legacy-report.ts'
+        startLine: 633
+        endLine: 633
+        quote: 'const BUILDERS: Record<string, ReportBuilder> = {'
+    reading: 'parsed'
+  - relation: 'code.contains'
+    from: 'code.file:services/payments/src/api/legacy-report.ts'
+    to: 'code.symbol:services/payments/src/api/legacy-report.ts#DEFAULT_LIMIT'
+    evidence:
+      - path: 'services/payments/src/api/legacy-report.ts'
+        startLine: 65
+        endLine: 65
+        quote: 'const DEFAULT_LIMIT = 5000;'
+    reading: 'parsed'
+  - relation: 'code.contains'
+    from: 'code.file:services/payments/src/api/legacy-report.ts'
+    to: 'code.symbol:services/payments/src/api/legacy-report.ts#FORMATS'
+    evidence:
+      - path: 'services/payments/src/api/legacy-report.ts'
+        startLine: 66
+        endLine: 66
+        quote: 'const FORMATS = [''json'', ''csv'', ''html'', ''xml''];'
+    reading: 'parsed'
+  - relation: 'code.contains'
+    from: 'code.file:services/payments/src/api/legacy-report.ts'
+    to: 'code.symbol:services/payments/src/api/legacy-report.ts#RENDERERS'
+    evidence:
+      - path: 'services/payments/src/api/legacy-report.ts'
+        startLine: 735
+        endLine: 735
+        quote: 'const RENDERERS: Record<string, { contentType: string; extension: string; render: (report: ReportResult) => string }> = {'
+    reading: 'parsed'
+  - relation: 'code.contains'
+    from: 'code.file:services/payments/src/api/legacy-report.ts'
+    to: 'code.symbol:services/payments/src/api/legacy-report.ts#ReportBuilder'
+    evidence:
+      - path: 'services/payments/src/api/legacy-report.ts'
+        startLine: 63
+        endLine: 63
+        quote: 'type ReportBuilder = (prisma: PrismaClient, filters: ReportFilters) => Promise<ReportResult>;'
+    reading: 'parsed'
+  - relation: 'code.contains'
+    from: 'code.file:services/payments/src/api/legacy-report.ts'
+    to: 'code.symbol:services/payments/src/api/legacy-report.ts#ReportColumn'
+    evidence:
+      - path: 'services/payments/src/api/legacy-report.ts'
+        startLine: 36
+        endLine: 36
+        quote: 'interface ReportColumn {'
+    reading: 'parsed'
+  - relation: 'code.contains'
+    from: 'code.file:services/payments/src/api/legacy-report.ts'
+    to: 'code.symbol:services/payments/src/api/legacy-report.ts#ReportFilters'
+    evidence:
+      - path: 'services/payments/src/api/legacy-report.ts'
+        startLine: 52
+        endLine: 52
+        quote: 'interface ReportFilters {'
+    reading: 'parsed'
+  - relation: 'code.contains'
+    from: 'code.file:services/payments/src/api/legacy-report.ts'
+    to: 'code.symbol:services/payments/src/api/legacy-report.ts#ReportResult'
+    evidence:
+      - path: 'services/payments/src/api/legacy-report.ts'
+        startLine: 43
+        endLine: 43
+        quote: 'interface ReportResult {'
+    reading: 'parsed'
+  - relation: 'code.contains'
+    from: 'code.file:services/payments/src/api/legacy-report.ts'
+    to: 'code.symbol:services/payments/src/api/legacy-report.ts#Row'
+    evidence:
+      - path: 'services/payments/src/api/legacy-report.ts'
+        startLine: 34
+        endLine: 34
+        quote: 'type Row = Record<string, unknown>;'
+    reading: 'parsed'
+  - relation: 'code.contains'
+    from: 'code.file:services/payments/src/api/legacy-report.ts'
+    to: 'code.symbol:services/payments/src/api/legacy-report.ts#aging'
+    evidence:
+      - path: 'services/payments/src/api/legacy-report.ts'
+        startLine: 356
+        endLine: 356
+        quote: 'const aging: ReportBuilder = async (prisma, filters) => {'
+    reading: 'parsed'
+  - relation: 'code.contains'
+    from: 'code.file:services/payments/src/api/legacy-report.ts'
+    to: 'code.symbol:services/payments/src/api/legacy-report.ts#asDate'
+    evidence:
+      - path: 'services/payments/src/api/legacy-report.ts'
+        startLine: 84
+        endLine: 84
+        quote: 'function asDate(value: unknown): Date | undefined {'
+    reading: 'parsed'
+  - relation: 'code.contains'
+    from: 'code.file:services/payments/src/api/legacy-report.ts'
+    to: 'code.symbol:services/payments/src/api/legacy-report.ts#asNumber'
+    evidence:
+      - path: 'services/payments/src/api/legacy-report.ts'
+        startLine: 95
+        endLine: 95
+        quote: 'function asNumber(value: unknown): number {'
+    reading: 'parsed'
+  - relation: 'code.contains'
+    from: 'code.file:services/payments/src/api/legacy-report.ts'
+    to: 'code.symbol:services/payments/src/api/legacy-report.ts#cell'
+    evidence:
+      - path: 'services/payments/src/api/legacy-report.ts'
+        startLine: 131
+        endLine: 131
+        quote: 'function cell(column: ReportColumn, row: Row): string {'
+    reading: 'parsed'
+  - relation: 'code.contains'
+    from: 'code.file:services/payments/src/api/legacy-report.ts'
+    to: 'code.symbol:services/payments/src/api/legacy-report.ts#csvCell'
+    evidence:
+      - path: 'services/payments/src/api/legacy-report.ts'
+        startLine: 112
+        endLine: 112
+        quote: 'function csvCell(value: string): string {'
+    reading: 'parsed'
+  - relation: 'code.contains'
+    from: 'code.file:services/payments/src/api/legacy-report.ts'
+    to: 'code.symbol:services/payments/src/api/legacy-report.ts#currencySummary'
+    evidence:
+      - path: 'services/payments/src/api/legacy-report.ts'
+        startLine: 443
+        endLine: 443
+        quote: 'const currencySummary: ReportBuilder = async (prisma, filters) => {'
+    reading: 'parsed'
+  - relation: 'code.contains'
+    from: 'code.file:services/payments/src/api/legacy-report.ts'
+    to: 'code.symbol:services/payments/src/api/legacy-report.ts#dailySettlement'
+    evidence:
+      - path: 'services/payments/src/api/legacy-report.ts'
+        startLine: 216
+        endLine: 216
+        quote: 'const dailySettlement: ReportBuilder = async (prisma, filters) => {'
+    reading: 'parsed'
+  - relation: 'code.contains'
+    from: 'code.file:services/payments/src/api/legacy-report.ts'
+    to: 'code.symbol:services/payments/src/api/legacy-report.ts#declines'
+    evidence:
+      - path: 'services/payments/src/api/legacy-report.ts'
+        startLine: 307
+        endLine: 307
+        quote: 'const declines: ReportBuilder = async (prisma, filters) => {'
+    reading: 'parsed'
+  - relation: 'code.contains'
+    from: 'code.file:services/payments/src/api/legacy-report.ts'
+    to: 'code.symbol:services/payments/src/api/legacy-report.ts#first'
+    evidence:
+      - path: 'services/payments/src/api/legacy-report.ts'
+        startLine: 104
+        endLine: 104
+        quote: 'function first(value: unknown): string | undefined {'
+    reading: 'parsed'
+  - relation: 'code.contains'
+    from: 'code.file:services/payments/src/api/legacy-report.ts'
+    to: 'code.symbol:services/payments/src/api/legacy-report.ts#handleReport'
+    evidence:
+      - path: 'services/payments/src/api/legacy-report.ts'
+        startLine: 753
+        endLine: 753
+        quote: 'async function handleReport(prisma: PrismaClient, req: Request, res: Response): Promise<void> {'
+    reading: 'parsed'
+  - relation: 'code.contains'
+    from: 'code.file:services/payments/src/api/legacy-report.ts'
+    to: 'code.symbol:services/payments/src/api/legacy-report.ts#htmlEscape'
+    evidence:
+      - path: 'services/payments/src/api/legacy-report.ts'
+        startLine: 119
+        endLine: 119
+        quote: 'function htmlEscape(value: string): string {'
+    reading: 'parsed'
+  - relation: 'code.contains'
+    from: 'code.file:services/payments/src/api/legacy-report.ts'
+    to: 'code.symbol:services/payments/src/api/legacy-report.ts#invoiceLines'
+    evidence:
+      - path: 'services/payments/src/api/legacy-report.ts'
+        startLine: 488
+        endLine: 488
+        quote: 'const invoiceLines: ReportBuilder = async (prisma, filters) => {'
+    reading: 'parsed'
+  - relation: 'code.contains'
+    from: 'code.file:services/payments/src/api/legacy-report.ts'
+    to: 'code.symbol:services/payments/src/api/legacy-report.ts#isoDay'
+    evidence:
+      - path: 'services/payments/src/api/legacy-report.ts'
+        startLine: 76
+        endLine: 76
+        quote: 'function isoDay(d: Date): string {'
+    reading: 'parsed'
+  - relation: 'code.contains'
+    from: 'code.file:services/payments/src/api/legacy-report.ts'
+    to: 'code.symbol:services/payments/src/api/legacy-report.ts#isoStamp'
+    evidence:
+      - path: 'services/payments/src/api/legacy-report.ts'
+        startLine: 80
+        endLine: 80
+        quote: 'function isoStamp(d: Date): string {'
+    reading: 'parsed'
+  - relation: 'code.contains'
+    from: 'code.file:services/payments/src/api/legacy-report.ts'
+    to: 'code.symbol:services/payments/src/api/legacy-report.ts#legacyReportRoutes'
+    evidence:
+      - path: 'services/payments/src/api/legacy-report.ts'
+        startLine: 790
+        endLine: 790
+        quote: 'export function legacyReportRoutes(prisma: PrismaClient): Router {'
+    reading: 'parsed'
+  - relation: 'code.contains'
+    from: 'code.file:services/payments/src/api/legacy-report.ts'
+    to: 'code.symbol:services/payments/src/api/legacy-report.ts#limitClause'
+    evidence:
+      - path: 'services/payments/src/api/legacy-report.ts'
+        startLine: 203
+        endLine: 203
+        quote: 'function limitClause(filters: ReportFilters): string {'
+    reading: 'parsed'
+  - relation: 'code.contains'
+    from: 'code.file:services/payments/src/api/legacy-report.ts'
+    to: 'code.symbol:services/payments/src/api/legacy-report.ts#money'
+    evidence:
+      - path: 'services/payments/src/api/legacy-report.ts'
+        startLine: 145
+        endLine: 145
+        quote: 'const money: ReportColumn[''format''] = (value, row) => formatMoney(asNumber(value), String(row.currency ?? ''EUR''));'
+    reading: 'parsed'
+  - relation: 'code.contains'
+    from: 'code.file:services/payments/src/api/legacy-report.ts'
+    to: 'code.symbol:services/payments/src/api/legacy-report.ts#orderBy'
+    evidence:
+      - path: 'services/payments/src/api/legacy-report.ts'
+        startLine: 196
+        endLine: 196
+        quote: 'function orderBy(filters: ReportFilters, allowed: string[], fallback: string): string {'
+    reading: 'parsed'
+  - relation: 'code.contains'
+    from: 'code.file:services/payments/src/api/legacy-report.ts'
+    to: 'code.symbol:services/payments/src/api/legacy-report.ts#orderLedger'
+    evidence:
+      - path: 'services/payments/src/api/legacy-report.ts'
+        startLine: 525
+        endLine: 525
+        quote: 'const orderLedger: ReportBuilder = async (prisma, filters) => {'
+    reading: 'parsed'
+  - relation: 'code.contains'
+    from: 'code.file:services/payments/src/api/legacy-report.ts'
+    to: 'code.symbol:services/payments/src/api/legacy-report.ts#pad2'
+    evidence:
+      - path: 'services/payments/src/api/legacy-report.ts'
+        startLine: 72
+        endLine: 72
+        quote: 'function pad2(n: number): string {'
+    reading: 'parsed'
+  - relation: 'code.contains'
+    from: 'code.file:services/payments/src/api/legacy-report.ts'
+    to: 'code.symbol:services/payments/src/api/legacy-report.ts#providerSplit'
+    evidence:
+      - path: 'services/payments/src/api/legacy-report.ts'
+        startLine: 402
+        endLine: 402
+        quote: 'const providerSplit: ReportBuilder = async (prisma, filters) => {'
+    reading: 'parsed'
+  - relation: 'code.contains'
+    from: 'code.file:services/payments/src/api/legacy-report.ts'
+    to: 'code.symbol:services/payments/src/api/legacy-report.ts#query'
+    evidence:
+      - path: 'services/payments/src/api/legacy-report.ts'
+        startLine: 207
+        endLine: 207
+        quote: 'async function query(prisma: PrismaClient, sql: string): Promise<Row[]> {'
+    reading: 'parsed'
+  - relation: 'code.contains'
+    from: 'code.file:services/payments/src/api/legacy-report.ts'
+    to: 'code.symbol:services/payments/src/api/legacy-report.ts#readFilters'
+    evidence:
+      - path: 'services/payments/src/api/legacy-report.ts'
+        startLine: 151
+        endLine: 151
+        quote: 'function readFilters(req: Request): ReportFilters {'
+    reading: 'parsed'
+  - relation: 'code.contains'
+    from: 'code.file:services/payments/src/api/legacy-report.ts'
+    to: 'code.symbol:services/payments/src/api/legacy-report.ts#reconciliation'
+    evidence:
+      - path: 'services/payments/src/api/legacy-report.ts'
+        startLine: 590
+        endLine: 590
+        quote: 'const reconciliation: ReportBuilder = async (prisma, filters) => {'
+    reading: 'parsed'
+  - relation: 'code.contains'
+    from: 'code.file:services/payments/src/api/legacy-report.ts'
+    to: 'code.symbol:services/payments/src/api/legacy-report.ts#refundRegister'
+    evidence:
+      - path: 'services/payments/src/api/legacy-report.ts'
+        startLine: 265
+        endLine: 265
+        quote: 'const refundRegister: ReportBuilder = async (prisma, filters) => {'
+    reading: 'parsed'
+  - relation: 'code.contains'
+    from: 'code.file:services/payments/src/api/legacy-report.ts'
+    to: 'code.symbol:services/payments/src/api/legacy-report.ts#renderCsv'
+    evidence:
+      - path: 'services/payments/src/api/legacy-report.ts'
+        startLine: 664
+        endLine: 664
+        quote: 'function renderCsv(report: ReportResult): string {'
+    reading: 'parsed'
+  - relation: 'code.contains'
+    from: 'code.file:services/payments/src/api/legacy-report.ts'
+    to: 'code.symbol:services/payments/src/api/legacy-report.ts#renderHtml'
+    evidence:
+      - path: 'services/payments/src/api/legacy-report.ts'
+        startLine: 678
+        endLine: 678
+        quote: 'function renderHtml(report: ReportResult): string {'
+    reading: 'parsed'
+  - relation: 'code.contains'
+    from: 'code.file:services/payments/src/api/legacy-report.ts'
+    to: 'code.symbol:services/payments/src/api/legacy-report.ts#renderJson'
+    evidence:
+      - path: 'services/payments/src/api/legacy-report.ts'
+        startLine: 649
+        endLine: 649
+        quote: 'function renderJson(report: ReportResult): string {'
+    reading: 'parsed'
+  - relation: 'code.contains'
+    from: 'code.file:services/payments/src/api/legacy-report.ts'
+    to: 'code.symbol:services/payments/src/api/legacy-report.ts#renderXml'
+    evidence:
+      - path: 'services/payments/src/api/legacy-report.ts'
+        startLine: 718
+        endLine: 718
+        quote: 'function renderXml(report: ReportResult): string {'
+    reading: 'parsed'
+  - relation: 'code.contains'
+    from: 'code.file:services/payments/src/api/legacy-report.ts'
+    to: 'code.symbol:services/payments/src/api/legacy-report.ts#validateDay'
+    evidence:
+      - path: 'services/payments/src/api/legacy-report.ts'
+        startLine: 746
+        endLine: 746
+        quote: 'function validateDay(name: string, value: string | undefined): string | undefined {'
+    reading: 'parsed'
+  - relation: 'code.contains'
+    from: 'code.file:services/payments/src/api/legacy-report.ts'
+    to: 'code.symbol:services/payments/src/api/legacy-report.ts#whereClause'
+    evidence:
+      - path: 'services/payments/src/api/legacy-report.ts'
+        startLine: 170
+        endLine: 170
+        quote: 'function whereClause(filters: ReportFilters, alias = ''p''): string {'
+    reading: 'parsed'
+  - relation: 'code.contains'
+    from: 'code.file:services/payments/src/api/legacy-report.ts'
+    to: 'code.symbol:services/payments/src/api/legacy-report.ts#xmlEscape'
+    evidence:
+      - path: 'services/payments/src/api/legacy-report.ts'
+        startLine: 127
+        endLine: 127
+        quote: 'function xmlEscape(value: string): string {'
+    reading: 'parsed'
+  - relation: 'code.contains'
+    from: 'code.symbol:services/payments/src/api/legacy-report.ts#ReportColumn'
+    to: 'code.field:services/payments/src/api/legacy-report.ts#ReportColumn.format'
+    evidence:
+      - path: 'services/payments/src/api/legacy-report.ts'
+        startLine: 40
+        endLine: 40
+        quote: '  format?: (value: unknown, row: Row) => string;'
+    reading: 'parsed'
+  - relation: 'code.contains'
+    from: 'code.symbol:services/payments/src/api/legacy-report.ts#ReportColumn'
+    to: 'code.field:services/payments/src/api/legacy-report.ts#ReportColumn.key'
+    evidence:
+      - path: 'services/payments/src/api/legacy-report.ts'
+        startLine: 37
+        endLine: 37
+        quote: '  key: string;'
+    reading: 'parsed'
+  - relation: 'code.contains'
+    from: 'code.symbol:services/payments/src/api/legacy-report.ts#ReportColumn'
+    to: 'code.field:services/payments/src/api/legacy-report.ts#ReportColumn.title'
+    evidence:
+      - path: 'services/payments/src/api/legacy-report.ts'
+        startLine: 38
+        endLine: 38
+        quote: '  title: string;'
+    reading: 'parsed'
+  - relation: 'code.contains'
+    from: 'code.symbol:services/payments/src/api/legacy-report.ts#ReportFilters'
+    to: 'code.field:services/payments/src/api/legacy-report.ts#ReportFilters.currency'
+    evidence:
+      - path: 'services/payments/src/api/legacy-report.ts'
+        startLine: 56
+        endLine: 56
+        quote: '  currency?: string;'
+    reading: 'parsed'
+  - relation: 'code.contains'
+    from: 'code.symbol:services/payments/src/api/legacy-report.ts#ReportFilters'
+    to: 'code.field:services/payments/src/api/legacy-report.ts#ReportFilters.from'
+    evidence:
+      - path: 'services/payments/src/api/legacy-report.ts'
+        startLine: 53
+        endLine: 53
+        quote: '  from?: string;'
+    reading: 'parsed'
+  - relation: 'code.contains'
+    from: 'code.symbol:services/payments/src/api/legacy-report.ts#ReportFilters'
+    to: 'code.field:services/payments/src/api/legacy-report.ts#ReportFilters.limit'
+    evidence:
+      - path: 'services/payments/src/api/legacy-report.ts'
+        startLine: 60
+        endLine: 60
+        quote: '  limit: number;'
+    reading: 'parsed'
+  - relation: 'code.contains'
+    from: 'code.symbol:services/payments/src/api/legacy-report.ts#ReportFilters'
+    to: 'code.field:services/payments/src/api/legacy-report.ts#ReportFilters.order'
+    evidence:
+      - path: 'services/payments/src/api/legacy-report.ts'
+        startLine: 57
+        endLine: 57
+        quote: '  order?: string;'
+    reading: 'parsed'
+  - relation: 'code.contains'
+    from: 'code.symbol:services/payments/src/api/legacy-report.ts#ReportFilters'
+    to: 'code.field:services/payments/src/api/legacy-report.ts#ReportFilters.provider'
+    evidence:
+      - path: 'services/payments/src/api/legacy-report.ts'
+        startLine: 58
+        endLine: 58
+        quote: '  provider?: string;'
+    reading: 'parsed'
+  - relation: 'code.contains'
+    from: 'code.symbol:services/payments/src/api/legacy-report.ts#ReportFilters'
+    to: 'code.field:services/payments/src/api/legacy-report.ts#ReportFilters.sort'
+    evidence:
+      - path: 'services/payments/src/api/legacy-report.ts'
+        startLine: 59
+        endLine: 59
+        quote: '  sort?: string;'
+    reading: 'parsed'
+  - relation: 'code.contains'
+    from: 'code.symbol:services/payments/src/api/legacy-report.ts#ReportFilters'
+    to: 'code.field:services/payments/src/api/legacy-report.ts#ReportFilters.status'
+    evidence:
+      - path: 'services/payments/src/api/legacy-report.ts'
+        startLine: 55
+        endLine: 55
+        quote: '  status?: string;'
+    reading: 'parsed'
+  - relation: 'code.contains'
+    from: 'code.symbol:services/payments/src/api/legacy-report.ts#ReportFilters'
+    to: 'code.field:services/payments/src/api/legacy-report.ts#ReportFilters.to'
+    evidence:
+      - path: 'services/payments/src/api/legacy-report.ts'
+        startLine: 54
+        endLine: 54
+        quote: '  to?: string;'
+    reading: 'parsed'
+  - relation: 'code.contains'
+    from: 'code.symbol:services/payments/src/api/legacy-report.ts#ReportResult'
+    to: 'code.field:services/payments/src/api/legacy-report.ts#ReportResult.columns'
+    evidence:
+      - path: 'services/payments/src/api/legacy-report.ts'
+        startLine: 46
+        endLine: 46
+        quote: '  columns: ReportColumn[];'
+    reading: 'parsed'
+  - relation: 'code.contains'
+    from: 'code.symbol:services/payments/src/api/legacy-report.ts#ReportResult'
+    to: 'code.field:services/payments/src/api/legacy-report.ts#ReportResult.name'
+    evidence:
+      - path: 'services/payments/src/api/legacy-report.ts'
+        startLine: 44
+        endLine: 44
+        quote: '  name: string;'
+    reading: 'parsed'
+  - relation: 'code.contains'
+    from: 'code.symbol:services/payments/src/api/legacy-report.ts#ReportResult'
+    to: 'code.field:services/payments/src/api/legacy-report.ts#ReportResult.rows'
+    evidence:
+      - path: 'services/payments/src/api/legacy-report.ts'
+        startLine: 47
+        endLine: 47
+        quote: '  rows: Row[];'
+    reading: 'parsed'
+  - relation: 'code.contains'
+    from: 'code.symbol:services/payments/src/api/legacy-report.ts#ReportResult'
+    to: 'code.field:services/payments/src/api/legacy-report.ts#ReportResult.title'
+    evidence:
+      - path: 'services/payments/src/api/legacy-report.ts'
+        startLine: 45
+        endLine: 45
+        quote: '  title: string;'
+    reading: 'parsed'
+  - relation: 'code.contains'
+    from: 'code.symbol:services/payments/src/api/legacy-report.ts#ReportResult'
+    to: 'code.field:services/payments/src/api/legacy-report.ts#ReportResult.totals'
+    evidence:
+      - path: 'services/payments/src/api/legacy-report.ts'
+        startLine: 49
+        endLine: 49
+        quote: '  totals?: Row;'
+    reading: 'parsed'
+  - relation: 'code.flows-into'
+    from: 'code.input:services/payments/src/api/legacy-report.ts#order'
+    to: 'code.sql-sink:services/payments/src/api/legacy-report.ts#query'
+    evidence:
+      - path: 'services/payments/src/api/legacy-report.ts'
+        startLine: 186
+        endLine: 186
+        quote: '    where += ` AND ${alias}.order_id = ''` + filters.order + `''`;'
+    reading: 'judgement'
+  - relation: 'code.imports'
+    from: 'code.file:services/payments/src/api/legacy-report.ts'
+    to: 'code.dependency:services/payments/package.json#@prisma/client'
+    evidence:
+      - path: 'services/payments/src/api/legacy-report.ts'
+        startLine: 26
+        endLine: 26
+        quote: 'import { PrismaClient } from ''@prisma/client'';'
+    reading: 'parsed'
+  - relation: 'code.imports'
+    from: 'code.file:services/payments/src/api/legacy-report.ts'
+    to: 'code.dependency:services/payments/package.json#express'
+    evidence:
+      - path: 'services/payments/src/api/legacy-report.ts'
+        startLine: 25
+        endLine: 25
+        quote: 'import { Request, Response, Router } from ''express'';'
+    reading: 'parsed'
+  - relation: 'code.imports'
+    from: 'code.file:services/payments/src/api/legacy-report.ts'
+    to: 'code.dependency:services/payments/package.json#lodash'
+    evidence:
+      - path: 'services/payments/src/api/legacy-report.ts'
+        startLine: 27
+        endLine: 27
+        quote: 'import _ from ''lodash'';'
+    reading: 'parsed'
+  - relation: 'code.imports'
+    from: 'code.file:services/payments/src/api/legacy-report.ts'
+    to: 'code.file:services/payments/src/format.ts'
+    evidence:
+      - path: 'services/payments/src/api/legacy-report.ts'
+        startLine: 28
+        endLine: 28
+        quote: 'import { formatMoney } from ''../format'';'
+    reading: 'parsed'
+  - relation: 'code.reads-table'
+    from: 'code.file:services/payments/src/api/legacy-report.ts'
+    to: 'code.table:payments.payments'
+    evidence:
+      - path: 'services/payments/src/api/legacy-report.ts'
+        startLine: 219
+        endLine: 219
+        quote: '    ''SELECT date(p.created_at) AS day, p.currency AS currency,'' +'
+    reading: 'judgement'
+  - relation: 'code.reads-table'
+    from: 'code.file:services/payments/src/api/legacy-report.ts'
+    to: 'code.table:payments.refunds'
+    evidence:
+      - path: 'services/payments/src/api/legacy-report.ts'
+        startLine: 224
+        endLine: 224
+        quote: '    '' LEFT JOIN (SELECT payment_id, SUM(amount_cents) AS refunded_cents FROM refunds GROUP BY payment_id) r'' +'
+    reading: 'judgement'
+  - relation: 'code.uses-type'
+    from: 'code.symbol:services/payments/src/api/legacy-report.ts#cell'
+    to: 'code.symbol:services/payments/src/api/legacy-report.ts#ReportColumn'
+    evidence:
+      - path: 'services/payments/src/api/legacy-report.ts'
+        startLine: 131
+        endLine: 131
+        quote: 'function cell(column: ReportColumn, row: Row): string {'
+    reading: 'parsed'
+  - relation: 'code.uses-type'
+    from: 'code.symbol:services/payments/src/api/legacy-report.ts#limitClause'
+    to: 'code.symbol:services/payments/src/api/legacy-report.ts#ReportFilters'
+    evidence:
+      - path: 'services/payments/src/api/legacy-report.ts'
+        startLine: 203
+        endLine: 203
+        quote: 'function limitClause(filters: ReportFilters): string {'
+    reading: 'parsed'
+  - relation: 'code.uses-type'
+    from: 'code.symbol:services/payments/src/api/legacy-report.ts#orderBy'
+    to: 'code.symbol:services/payments/src/api/legacy-report.ts#ReportFilters'
+    evidence:
+      - path: 'services/payments/src/api/legacy-report.ts'
+        startLine: 196
+        endLine: 196
+        quote: 'function orderBy(filters: ReportFilters, allowed: string[], fallback: string): string {'
+    reading: 'parsed'
+  - relation: 'code.uses-type'
+    from: 'code.symbol:services/payments/src/api/legacy-report.ts#renderCsv'
+    to: 'code.symbol:services/payments/src/api/legacy-report.ts#ReportResult'
+    evidence:
+      - path: 'services/payments/src/api/legacy-report.ts'
+        startLine: 664
+        endLine: 664
+        quote: 'function renderCsv(report: ReportResult): string {'
+    reading: 'parsed'
+  - relation: 'code.uses-type'
+    from: 'code.symbol:services/payments/src/api/legacy-report.ts#renderHtml'
+    to: 'code.symbol:services/payments/src/api/legacy-report.ts#ReportResult'
+    evidence:
+      - path: 'services/payments/src/api/legacy-report.ts'
+        startLine: 678
+        endLine: 678
+        quote: 'function renderHtml(report: ReportResult): string {'
+    reading: 'parsed'
+  - relation: 'code.uses-type'
+    from: 'code.symbol:services/payments/src/api/legacy-report.ts#renderJson'
+    to: 'code.symbol:services/payments/src/api/legacy-report.ts#ReportResult'
+    evidence:
+      - path: 'services/payments/src/api/legacy-report.ts'
+        startLine: 649
+        endLine: 649
+        quote: 'function renderJson(report: ReportResult): string {'
+    reading: 'parsed'
+  - relation: 'code.uses-type'
+    from: 'code.symbol:services/payments/src/api/legacy-report.ts#renderXml'
+    to: 'code.symbol:services/payments/src/api/legacy-report.ts#ReportResult'
+    evidence:
+      - path: 'services/payments/src/api/legacy-report.ts'
+        startLine: 718
+        endLine: 718
+        quote: 'function renderXml(report: ReportResult): string {'
+    reading: 'parsed'
+  - relation: 'code.uses-type'
+    from: 'code.symbol:services/payments/src/api/legacy-report.ts#whereClause'
+    to: 'code.symbol:services/payments/src/api/legacy-report.ts#ReportFilters'
+    evidence:
+      - path: 'services/payments/src/api/legacy-report.ts'
+        startLine: 170
+        endLine: 170
+        quote: 'function whereClause(filters: ReportFilters, alias = ''p''): string {'
+    reading: 'parsed'

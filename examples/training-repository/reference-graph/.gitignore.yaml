@@ -1,0 +1,13 @@
+path: '.gitignore'
+notes: 'a git ignore list; no kind holds an ignore rule.'
+nodes:
+  - id: 'code.file:.gitignore'
+    kind: 'code.file'
+    label: '.gitignore'
+    evidence:
+      - path: '.gitignore'
+        startLine: 1
+        endLine: 1
+        quote: '.env'
+    reading: 'parsed'
+edges: []

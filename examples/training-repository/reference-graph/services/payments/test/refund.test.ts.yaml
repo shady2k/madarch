@@ -1,0 +1,237 @@
+path: 'services/payments/test/refund.test.ts'
+nodes:
+  - id: 'code.file:services/payments/test/refund.test.ts'
+    kind: 'code.file'
+    label: 'refund.test.ts'
+    evidence:
+      - path: 'services/payments/test/refund.test.ts'
+        startLine: 1
+        endLine: 1
+        quote: 'import { Payment, PaymentStatus } from ''../src/domain/payment'';'
+    reading: 'parsed'
+  - id: 'code.symbol:services/payments/test/refund.test.ts#captured'
+    kind: 'code.symbol'
+    label: 'captured'
+    evidence:
+      - path: 'services/payments/test/refund.test.ts'
+        startLine: 6
+        endLine: 6
+        quote: 'function captured(overrides: Partial<Payment> = {}): Payment {'
+    reading: 'parsed'
+  - id: 'code.symbol:services/payments/test/refund.test.ts#capturedAt'
+    kind: 'code.symbol'
+    label: 'capturedAt'
+    evidence:
+      - path: 'services/payments/test/refund.test.ts'
+        startLine: 4
+        endLine: 4
+        quote: 'const capturedAt = new Date(''2026-07-01T10:00:00Z'');'
+    reading: 'parsed'
+  - id: 'code.symbol:services/payments/test/refund.test.ts#daysAfter'
+    kind: 'code.symbol'
+    label: 'daysAfter'
+    evidence:
+      - path: 'services/payments/test/refund.test.ts'
+        startLine: 20
+        endLine: 20
+        quote: 'function daysAfter(days: number): Date {'
+    reading: 'parsed'
+  - id: 'code.test-case:services/payments/test/refund.test.ts#accepts a partial refund inside the window'
+    kind: 'code.test-case'
+    label: 'accepts a partial refund inside the window'
+    evidence:
+      - path: 'services/payments/test/refund.test.ts'
+        startLine: 25
+        endLine: 25
+        quote: '  it(''accepts a partial refund inside the window'', () => {'
+    reading: 'parsed'
+  - id: 'code.test-case:services/payments/test/refund.test.ts#accepts the rest of the amount after an earlier partial refund'
+    kind: 'code.test-case'
+    label: 'accepts the rest of the amount after an earlier partial refund'
+    evidence:
+      - path: 'services/payments/test/refund.test.ts'
+        startLine: 29
+        endLine: 29
+        quote: '  it(''accepts the rest of the amount after an earlier partial refund'', () => {'
+    reading: 'parsed'
+  - id: 'code.test-case:services/payments/test/refund.test.ts#refunds through the vault sandbox'
+    kind: 'code.test-case'
+    label: 'refunds through the vault sandbox'
+    evidence:
+      - path: 'services/payments/test/refund.test.ts'
+        startLine: 51
+        endLine: 51
+        quote: '  it.skip(''refunds through the vault sandbox'', () => {'
+    reading: 'parsed'
+  - id: 'code.test-case:services/payments/test/refund.test.ts#rejects a payment that was not captured'
+    kind: 'code.test-case'
+    label: 'rejects a payment that was not captured'
+    evidence:
+      - path: 'services/payments/test/refund.test.ts'
+        startLine: 33
+        endLine: 33
+        quote: '  it(''rejects a payment that was not captured'', () => {'
+    reading: 'parsed'
+  - id: 'code.test-case:services/payments/test/refund.test.ts#rejects a refund after the 30-day window, counted from the capture'
+    kind: 'code.test-case'
+    label: 'rejects a refund after the 30-day window, counted from the capture'
+    evidence:
+      - path: 'services/payments/test/refund.test.ts'
+        startLine: 46
+        endLine: 46
+        quote: '  it(''rejects a refund after the 30-day window, counted from the capture'', () => {'
+    reading: 'parsed'
+  - id: 'code.test-case:services/payments/test/refund.test.ts#rejects refunds that exceed what was captured in total'
+    kind: 'code.test-case'
+    label: 'rejects refunds that exceed what was captured in total'
+    evidence:
+      - path: 'services/payments/test/refund.test.ts'
+        startLine: 42
+        endLine: 42
+        quote: '  it(''rejects refunds that exceed what was captured in total'', () => {'
+    reading: 'parsed'
+edges:
+  - relation: 'code.calls'
+    from: 'code.file:services/payments/test/refund.test.ts'
+    to: 'code.symbol:services/payments/src/domain/refund.ts#checkRefund'
+    evidence:
+      - path: 'services/payments/test/refund.test.ts'
+        startLine: 26
+        endLine: 26
+        quote: '    expect(() => checkRefund(captured(), 2000, 0, daysAfter(3))).not.toThrow();'
+      - path: 'services/payments/test/refund.test.ts'
+        startLine: 30
+        endLine: 30
+        quote: '    expect(() => checkRefund(captured(), 3000, 2000, daysAfter(3))).not.toThrow();'
+      - path: 'services/payments/test/refund.test.ts'
+        startLine: 35
+        endLine: 35
+        quote: '    expect(() => checkRefund(declined, 100, 0, daysAfter(1))).toThrow(RefundRejected);'
+      - path: 'services/payments/test/refund.test.ts'
+        startLine: 39
+        endLine: 39
+        quote: '    expect(() => checkRefund(captured(), amount, 0, daysAfter(1))).toThrow(expect.objectContaining({ code: ''invalid-amount'' }));'
+      - path: 'services/payments/test/refund.test.ts'
+        startLine: 43
+        endLine: 43
+        quote: '    expect(() => checkRefund(captured(), 3001, 2000, daysAfter(1))).toThrow(expect.objectContaining({ code: ''exceeds-captured'' }));'
+      - path: 'services/payments/test/refund.test.ts'
+        startLine: 47
+        endLine: 47
+        quote: '    expect(() => checkRefund(captured(), 100, 0, daysAfter(31))).toThrow(expect.objectContaining({ code: ''window-closed'' }));'
+      - path: 'services/payments/test/refund.test.ts'
+        startLine: 48
+        endLine: 48
+        quote: '    expect(() => checkRefund(captured(), 100, 0, daysAfter(30))).not.toThrow();'
+    reading: 'parsed'
+  - relation: 'code.calls'
+    from: 'code.file:services/payments/test/refund.test.ts'
+    to: 'code.symbol:services/payments/test/refund.test.ts#captured'
+    evidence:
+      - path: 'services/payments/test/refund.test.ts'
+        startLine: 26
+        endLine: 26
+        quote: '    expect(() => checkRefund(captured(), 2000, 0, daysAfter(3))).not.toThrow();'
+      - path: 'services/payments/test/refund.test.ts'
+        startLine: 30
+        endLine: 30
+        quote: '    expect(() => checkRefund(captured(), 3000, 2000, daysAfter(3))).not.toThrow();'
+      - path: 'services/payments/test/refund.test.ts'
+        startLine: 34
+        endLine: 34
+        quote: '    const declined = captured({ status: PaymentStatus.Declined });'
+      - path: 'services/payments/test/refund.test.ts'
+        startLine: 39
+        endLine: 39
+        quote: '    expect(() => checkRefund(captured(), amount, 0, daysAfter(1))).toThrow(expect.objectContaining({ code: ''invalid-amount'' }));'
+      - path: 'services/payments/test/refund.test.ts'
+        startLine: 43
+        endLine: 43
+        quote: '    expect(() => checkRefund(captured(), 3001, 2000, daysAfter(1))).toThrow(expect.objectContaining({ code: ''exceeds-captured'' }));'
+      - path: 'services/payments/test/refund.test.ts'
+        startLine: 47
+        endLine: 47
+        quote: '    expect(() => checkRefund(captured(), 100, 0, daysAfter(31))).toThrow(expect.objectContaining({ code: ''window-closed'' }));'
+      - path: 'services/payments/test/refund.test.ts'
+        startLine: 48
+        endLine: 48
+        quote: '    expect(() => checkRefund(captured(), 100, 0, daysAfter(30))).not.toThrow();'
+    reading: 'parsed'
+  - relation: 'code.calls'
+    from: 'code.file:services/payments/test/refund.test.ts'
+    to: 'code.symbol:services/payments/test/refund.test.ts#daysAfter'
+    evidence:
+      - path: 'services/payments/test/refund.test.ts'
+        startLine: 26
+        endLine: 26
+        quote: '    expect(() => checkRefund(captured(), 2000, 0, daysAfter(3))).not.toThrow();'
+      - path: 'services/payments/test/refund.test.ts'
+        startLine: 30
+        endLine: 30
+        quote: '    expect(() => checkRefund(captured(), 3000, 2000, daysAfter(3))).not.toThrow();'
+      - path: 'services/payments/test/refund.test.ts'
+        startLine: 35
+        endLine: 35
+        quote: '    expect(() => checkRefund(declined, 100, 0, daysAfter(1))).toThrow(RefundRejected);'
+      - path: 'services/payments/test/refund.test.ts'
+        startLine: 39
+        endLine: 39
+        quote: '    expect(() => checkRefund(captured(), amount, 0, daysAfter(1))).toThrow(expect.objectContaining({ code: ''invalid-amount'' }));'
+      - path: 'services/payments/test/refund.test.ts'
+        startLine: 43
+        endLine: 43
+        quote: '    expect(() => checkRefund(captured(), 3001, 2000, daysAfter(1))).toThrow(expect.objectContaining({ code: ''exceeds-captured'' }));'
+      - path: 'services/payments/test/refund.test.ts'
+        startLine: 47
+        endLine: 47
+        quote: '    expect(() => checkRefund(captured(), 100, 0, daysAfter(31))).toThrow(expect.objectContaining({ code: ''window-closed'' }));'
+      - path: 'services/payments/test/refund.test.ts'
+        startLine: 48
+        endLine: 48
+        quote: '    expect(() => checkRefund(captured(), 100, 0, daysAfter(30))).not.toThrow();'
+    reading: 'parsed'
+  - relation: 'code.contains'
+    from: 'code.file:services/payments/test/refund.test.ts'
+    to: 'code.symbol:services/payments/test/refund.test.ts#captured'
+    evidence:
+      - path: 'services/payments/test/refund.test.ts'
+        startLine: 6
+        endLine: 6
+        quote: 'function captured(overrides: Partial<Payment> = {}): Payment {'
+    reading: 'parsed'
+  - relation: 'code.contains'
+    from: 'code.file:services/payments/test/refund.test.ts'
+    to: 'code.symbol:services/payments/test/refund.test.ts#capturedAt'
+    evidence:
+      - path: 'services/payments/test/refund.test.ts'
+        startLine: 4
+        endLine: 4
+        quote: 'const capturedAt = new Date(''2026-07-01T10:00:00Z'');'
+    reading: 'parsed'
+  - relation: 'code.contains'
+    from: 'code.file:services/payments/test/refund.test.ts'
+    to: 'code.symbol:services/payments/test/refund.test.ts#daysAfter'
+    evidence:
+      - path: 'services/payments/test/refund.test.ts'
+        startLine: 20
+        endLine: 20
+        quote: 'function daysAfter(days: number): Date {'
+    reading: 'parsed'
+  - relation: 'code.imports'
+    from: 'code.file:services/payments/test/refund.test.ts'
+    to: 'code.file:services/payments/src/domain/payment.ts'
+    evidence:
+      - path: 'services/payments/test/refund.test.ts'
+        startLine: 1
+        endLine: 1
+        quote: 'import { Payment, PaymentStatus } from ''../src/domain/payment'';'
+    reading: 'parsed'
+  - relation: 'code.imports'
+    from: 'code.file:services/payments/test/refund.test.ts'
+    to: 'code.file:services/payments/src/domain/refund.ts'
+    evidence:
+      - path: 'services/payments/test/refund.test.ts'
+        startLine: 2
+        endLine: 2
+        quote: 'import { checkRefund, RefundRejected } from ''../src/domain/refund'';'
+    reading: 'parsed'

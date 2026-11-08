@@ -68,8 +68,8 @@ import { GraphReadRefusal, readText, recordedReadText } from '../src/fill/graph-
 import { createFillOrchestratorService } from '../src/fill/orchestrator-host.js';
 import { createPGliteQueryDatabase } from '../src/adapters/pglite-query-database.js';
 import { startServer } from '../src/server/http.js';
-import { daemonFillOrchestrator } from '../src/product/daemon.js';
-import { existsSync } from 'node:fs';
+import { daemonFills } from '../src/product/daemon.js';
+import { existsSync, readdirSync } from 'node:fs';
 import { mkdtemp, rm } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
@@ -1061,27 +1061,51 @@ describe('publication: exactly once per generation', () => {
     expect(await readPublications(opened.owner, 'snapshot/src')).toHaveLength(1);
   });
 
-  test('the facts, the state and the queue\'s settlement are one transaction: a failure rolls back all of them', async () => {
+  test('a publication the store refuses is a retried unit, and the next attempt publishes', async () => {
     const registry = new StageRegistry().register(draftingStage('snapshot', { units: ['src'], produces: ['file-facts'] }));
     let applied = 0;
     const { world: opened, runId } = await plannedWorld({
       registry,
+      limits: { retryDelayMs: 0 },
       apply: async ({ writes }) => {
         applied += 1;
-        if (applied === 1) throw new Error('the fact store refused the write');
+        if (applied === 1) throw new Error('the graph refused the write');
         return writes.length;
       },
     });
     await admitUnits(opened.orchestrator, { runId });
-    const caught = await workOnce(opened.orchestrator, { worker: 'worker-1' }).catch((error: Error) => error);
-    expect((caught as Error).message).toContain('the fact store refused the write');
-    // Nothing of the failed publication stands: no record, no fact, and the generation is still validating.
+    // A refused publication spends one attempt and leaves the other units' work standing: the failure is
+    // the unit's, and the run's next pass carries it.
+    const refused = await workOnce(opened.orchestrator, { worker: 'worker-1' });
+    expect(refused.result).toBe('retried');
+    expect((await readUnit(opened.owner, 'snapshot/src'))?.state).toBe('retry_wait');
     expect(await readPublications(opened.owner, 'snapshot/src')).toEqual([]);
-    expect((await readUnit(opened.owner, 'snapshot/src'))?.state).toBe('validating');
-    // The job was not settled by the rolled-back transaction: the attempt that held it never settled it,
-    // so nothing of the failed publication is left behind in the queue either.
-    expect(await readPublications(opened.owner, 'snapshot/src')).toEqual([]);
-    expect((await runEvidence(opened.orchestrator, runId)).pendingPublications).toBe(1);
+    expect((await runEvidence(opened.orchestrator, runId)).pendingPublications).toBe(0);
+    const swept = await sweepUnits(opened.orchestrator, { runId });
+    expect(swept.swept.map((unit) => unit.outcome)).toEqual(['woken']);
+    const published = await workOnce(opened.orchestrator, { worker: 'worker-2' });
+    expect(published.result).toBe('published');
+  });
+
+  test('a publication that fails every attempt names the unit failed and leaves the run partial', async () => {
+    const registry = new StageRegistry().register(draftingStage('snapshot', { units: ['src'], produces: ['file-facts'] }));
+    const { world: opened, runId } = await plannedWorld({
+      registry,
+      limits: { retryDelayMs: 0, retries: 1 },
+      apply: async () => { throw new Error('the graph refused the write'); },
+    });
+    await admitUnits(opened.orchestrator, { runId });
+    expect((await workOnce(opened.orchestrator, { worker: 'worker-1' })).result).toBe('retried');
+    await sweepUnits(opened.orchestrator, { runId });
+    const failed = await workOnce(opened.orchestrator, { worker: 'worker-2' });
+    expect(failed.result).toBe('failed');
+    expect((await readUnit(opened.owner, 'snapshot/src'))?.state).toBe('failed');
+    const events = await readProgress(opened.owner, runId);
+    const named = events.filter((event) => event.kind === 'unit-failed');
+    expect(named).toHaveLength(1);
+    expect(named[0]?.summary).toContain('the graph refused the write');
+    const settlement = await schedulerPass(opened.orchestrator, { runId });
+    expect(settlement.run.state).toBe('completed_partial');
   });
 
   test('a cancellation intent that lands while a publication is under way is refused by the publication itself', async () => {
@@ -1320,7 +1344,7 @@ describe('the service the background server owns', () => {
   test('a service with nothing wired refuses a run and names what is missing, and opens nothing', async () => {
     const home = await mkdtemp(join(tmpdir(), 'madarch-fill-host-'));
     try {
-      const service = createFillOrchestratorService({ home, registry: basicRegistry() });
+      const service = createFillOrchestratorService({ registry: basicRegistry() });
       const refused = await service.run({ product: { name: 'fixture-product', folder: home }, runId: 'run-1' });
       expect(refused.ok).toBe(false);
       if (refused.ok) return;
@@ -1334,24 +1358,26 @@ describe('the service the background server owns', () => {
     }
   });
 
-  test('daemon wiring opens no database before a run, and stops cleanly', async () => {
+  test('the daemon\'s own fills open no database before a run, and stop cleanly', async () => {
     const home = await mkdtemp(join(tmpdir(), 'madarch-fill-daemon-'));
     try {
-      const service = daemonFillOrchestrator(home);
-      await service.stop();
+      const fills = daemonFills(home);
+      await fills.stop();
       expect(existsSync(join(home, '.madarch'))).toBe(false);
     } finally {
       await rm(home, { recursive: true, force: true });
     }
   });
 
-  test('a wired service opens the process\'s database once, runs a fill to its end and closes what it opened', async () => {
+  test('a wired service opens the store it is given, runs a fill to its end and closes what it opened', async () => {
     const home = await mkdtemp(join(tmpdir(), 'madarch-fill-host-'));
+    // The store is the caller's: a service is given the product's store, never a home to guess one from.
+    const databasePath = join(home, 'store', 'graph');
     try {
       const graph = fakeGraph();
       const applied: string[] = [];
       const service = createFillOrchestratorService({
-        home,
+        databasePath,
         registry: basicRegistry(),
         wiring: () => ({
           snapshot: () => SNAPSHOT,
@@ -1361,6 +1387,7 @@ describe('the service the background server owns', () => {
           facts: { apply: async ({ unit, writes }) => { applied.push(unit.unitId); return writes.length; } },
         }),
       });
+      expect(existsSync(databasePath)).toBe(false);
       const result = await service.run({ product: { name: 'fixture-product', folder: home }, runId: 'run-host-1', workers: 2 });
       expect(result.ok).toBe(true);
       if (!result.ok) return;
@@ -1368,7 +1395,7 @@ describe('the service the background server owns', () => {
       expect(result.state).toBe('succeeded');
       expect(result.units.every((unit) => unit.state === 'published')).toBe(true);
       expect(applied).toHaveLength(4);
-      expect(existsSync(join(home, '.madarch', 'fill', 'state.db'))).toBe(true);
+      expect(existsSync(databasePath)).toBe(true);
 
       // The status of the run is readable while the service is open, and the second run of the same
       // product reuses what the first one opened.
@@ -1378,6 +1405,31 @@ describe('the service the background server owns', () => {
       expect(again.ok).toBe(true);
       if (!again.ok) return;
       expect(again.state).toBe('succeeded');
+      await service.stop();
+      // Closed with the service: another owner can take the store.
+      const reopened = createPGliteDatabaseOwner({ path: databasePath, btreeGist: true });
+      await reopened.ready;
+      await reopened.close();
+    } finally {
+      await rm(home, { recursive: true, force: true });
+    }
+  });
+
+  test('a service given no store refuses a run by name and opens nothing', async () => {
+    const home = await mkdtemp(join(tmpdir(), 'madarch-fill-nostore-'));
+    try {
+      const service = createFillOrchestratorService({
+        registry: basicRegistry(),
+        wiring: () => ({ snapshot: () => SNAPSHOT, configuration: () => undefined, graph: () => fakeGraph().reader, inputs: () => ({ commit: 'a1b2c3d4' }) }),
+      });
+      const refused = await service.run({ product: { name: 'fixture-product', folder: home }, runId: 'run-nostore' });
+      expect(refused.ok).toBe(false);
+      if (refused.ok) return;
+      expect(refused.code).toBe('fill-orchestrator/no-store');
+      expect(refused.reason).toContain('was given no store');
+      expect(refused.reason).toContain('src/fill/orchestrator-host.ts');
+      expect(existsSync(home)).toBe(true);
+      expect(readdirSync(home)).toEqual([]);
       await service.stop();
     } finally {
       await rm(home, { recursive: true, force: true });
@@ -1519,24 +1571,73 @@ describe('what the review found, kept as tests', () => {
     expect(await readPublications(opened.owner, 'snapshot/src')).toHaveLength(1);
   });
 
-  test('a unit another run left behind is refused by name, never reused in silence', async () => {
-    const blocking = new StageRegistry().register(fakeStage('blocked-stage', {
+  test('a unit a finished run left blocked is retried by the next run, never inherited and never trapping the product', async () => {
+    // The work blocks on its first attempt and drafts on the next: the first run ends completed_partial, and a
+    // second fill of the same product must be able to work the unit again. The refusal for a unit another run
+    // holds names a unit *worked by one run at a time*, and a completed_partial run has ended.
+    let attempts = 0;
+    const retrying = new StageRegistry().register(fakeStage('blocked-stage', {
       produces: [{ kind: 'other-facts', schemaVersion: 1, scope: 'repository' }],
       plan: () => ({ units: [{ id: 'src', scope: 'src' }], coverage: 'planned' }),
-      execute: () => ({ outcome: 'blocked', reason: 'a person must look at this' }),
+      execute: () => {
+        attempts += 1;
+        return attempts === 1 ? { outcome: 'blocked', reason: 'a person must look at this' } : { outcome: 'draft' };
+      },
     }));
-    const opened = await world({ registry: blocking, product: 'other-product' });
+    const opened = await world({ registry: retrying, product: 'other-product' });
     await startRun(opened.orchestrator, { runId: 'run-a' });
     expect((await planRun(opened.orchestrator, { runId: 'run-a' })).outcome).toBe('planned');
     await admitUnits(opened.orchestrator, { runId: 'run-a' });
     expect((await workOnce(opened.orchestrator, { worker: 'worker-1' })).result).toBe('blocked');
     expect((await driveRun(opened.orchestrator, { runId: 'run-a', workers: 1 })).run.state).toBe('completed_partial');
+    expect((await readUnit(opened.owner, 'blocked-stage/src'))?.state).toBe('blocked');
 
+    // The next fill of the product plans the unit again, as generation 2 under its own run, and publishes it.
     expect((await startRun(opened.orchestrator, { runId: 'run-b' })).ok).toBe(true);
-    const refused = await planRun(opened.orchestrator, { runId: 'run-b' });
-    expect(refused.outcome).toBe('refused');
-    expect(refused.outcome === 'refused' ? refused.code : '').toBe('fill-orchestrator/unit-in-another-run');
-    expect(refused.outcome === 'refused' ? refused.reason : '').toContain('stands blocked in run "run-a"');
+    const planned = await planRun(opened.orchestrator, { runId: 'run-b' });
+    expect(planned.outcome).toBe('planned');
+    if (planned.outcome !== 'planned') return;
+    expect(planned.units.map((unit) => `${unit.unitId}:${unit.generation}`)).toEqual(['blocked-stage/src:2']);
+    const driven = await driveRun(opened.orchestrator, { runId: 'run-b', workers: 1 });
+    expect(driven.run.state).toBe('succeeded');
+    const unit = await readUnit(opened.owner, 'blocked-stage/src');
+    expect(unit).toMatchObject({ state: 'published', generation: 2, runId: 'run-b' });
+    // The blocked generation stays as its own record, and the retry is its own transition.
+    const generations = await opened.owner.run((tx) => tx.query<{ generation: number; state: string }>('SELECT generation, state FROM fill_unit_generation WHERE unit_id = $1 ORDER BY generation', ['blocked-stage/src']));
+    expect(generations.rows).toEqual([{ generation: 1, state: 'blocked' }, { generation: 2, state: 'published' }]);
+  });
+
+  test('a unit a finished run left failed is retried too: a failed fill does not trap the product', async () => {
+    // The first attempt raises, and the run's retry budget is one more: the unit ends failed and the run failed.
+    let attempts = 0;
+    let failing = true;
+    const flaky = new StageRegistry().register(fakeStage('flaky-stage', {
+      produces: [{ kind: 'other-facts', schemaVersion: 1, scope: 'repository' }],
+      plan: () => ({ units: [{ id: 'src', scope: 'src' }], coverage: 'planned' }),
+      execute: () => {
+        attempts += 1;
+        if (failing) throw new Error('the reader failed');
+        return { outcome: 'draft' };
+      },
+    }));
+    const opened = await world({ registry: flaky, product: 'other-product', limits: { retries: 1, retryDelayMs: 0 } });
+    await startRun(opened.orchestrator, { runId: 'run-failed' });
+    expect((await planRun(opened.orchestrator, { runId: 'run-failed' })).outcome).toBe('planned');
+    // A run whose unit failed settles short of its coverage: `completed_partial`, and the unit stands failed.
+    const first = await driveRun(opened.orchestrator, { runId: 'run-failed', workers: 1 });
+    expect(first.run.state).toBe('completed_partial');
+    expect((await readUnit(opened.owner, 'flaky-stage/src'))?.state).toBe('failed');
+
+    failing = false;
+    expect((await startRun(opened.orchestrator, { runId: 'run-after-failure' })).ok).toBe(true);
+    const planned = await planRun(opened.orchestrator, { runId: 'run-after-failure' });
+    expect(planned.outcome).toBe('planned');
+    if (planned.outcome !== 'planned') return;
+    expect(planned.units.map((unit) => `${unit.unitId}:${unit.generation}`)).toEqual(['flaky-stage/src:2']);
+    const driven = await driveRun(opened.orchestrator, { runId: 'run-after-failure', workers: 1 });
+    expect(driven.run.state).toBe('succeeded');
+    expect(await readUnit(opened.owner, 'flaky-stage/src')).toMatchObject({ state: 'published', generation: 2 });
+    expect(attempts).toBe(3);
   });
 
   test('the scheduler rechecks what went stale before it lets a run finish', async () => {

@@ -1,0 +1,75 @@
+path: 'services/orders/internal/api/export.go'
+nodes:
+  - id: 'code.file:services/orders/internal/api/export.go'
+    kind: 'code.file'
+    label: 'export.go'
+    evidence:
+      - path: 'services/orders/internal/api/export.go'
+        startLine: 1
+        endLine: 1
+        quote: 'package api'
+    reading: 'parsed'
+  - id: 'code.module:services/orders/internal/api'
+    kind: 'code.module'
+    label: 'services/orders/internal/api'
+    evidence:
+      - path: 'services/orders/internal/api/export.go'
+        startLine: 1
+        endLine: 1
+        quote: 'package api'
+    reading: 'parsed'
+  - id: 'code.symbol:services/orders/internal/api/export.go#OrderHandlers.Export'
+    kind: 'code.symbol'
+    label: 'OrderHandlers.Export'
+    evidence:
+      - path: 'services/orders/internal/api/export.go'
+        startLine: 16
+        endLine: 16
+        quote: 'func (h *OrderHandlers) Export(w http.ResponseWriter, r *http.Request) {'
+    reading: 'parsed'
+edges:
+  - relation: 'code.calls'
+    from: 'code.symbol:services/orders/internal/api/export.go#OrderHandlers.Export'
+    to: 'code.symbol:services/orders/internal/api/handlers.go#OrderService.ForEach'
+    evidence:
+      - path: 'services/orders/internal/api/export.go'
+        startLine: 24
+        endLine: 24
+        quote: '	err := h.svc.ForEach(r.Context(), application.ListFilter{}, write)'
+    reading: 'parsed'
+  - relation: 'code.contains'
+    from: 'code.file:services/orders/internal/api/export.go'
+    to: 'code.symbol:services/orders/internal/api/export.go#OrderHandlers.Export'
+    evidence:
+      - path: 'services/orders/internal/api/export.go'
+        startLine: 16
+        endLine: 16
+        quote: 'func (h *OrderHandlers) Export(w http.ResponseWriter, r *http.Request) {'
+    reading: 'parsed'
+  - relation: 'code.contains'
+    from: 'code.module:services/orders/internal/api'
+    to: 'code.file:services/orders/internal/api/export.go'
+    evidence:
+      - path: 'services/orders/internal/api/export.go'
+        startLine: 1
+        endLine: 1
+        quote: 'package api'
+    reading: 'parsed'
+  - relation: 'code.imports'
+    from: 'code.file:services/orders/internal/api/export.go'
+    to: 'code.module:services/orders/internal/application'
+    evidence:
+      - path: 'services/orders/internal/api/export.go'
+        startLine: 10
+        endLine: 10
+        quote: '	"training.example/orders/internal/application"'
+    reading: 'parsed'
+  - relation: 'code.imports'
+    from: 'code.file:services/orders/internal/api/export.go'
+    to: 'code.module:services/orders/internal/domain'
+    evidence:
+      - path: 'services/orders/internal/api/export.go'
+        startLine: 11
+        endLine: 11
+        quote: '	"training.example/orders/internal/domain"'
+    reading: 'parsed'

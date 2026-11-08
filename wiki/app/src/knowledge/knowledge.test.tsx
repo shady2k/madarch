@@ -264,7 +264,16 @@ describe('the blocks', () => {
     const container = into(createElement(BlockView, { block, resolutions: {} }));
     await until(() => container.querySelector('[data-testid=source-code]') !== null, 'the code');
     expect([...container.querySelectorAll('.source-number')].map((cell) => cell.textContent)).toEqual(['3', '4', '5']);
-    expect(container.querySelector('.tok-keyword')!.textContent).toBe('export');
+    // The plain scanner draws the lines at once and Shiki's colours replace them when they arrive; the
+    // test reads the line's text and its token once the highlighter has answered, so it does not depend
+    // on which of the two renderers drew the line at the moment it looked (measured: the tok- class is
+    // gone by the time the coloured renderer draws, and a loaded suite saw it replaced first).
+    const code = container.querySelector('[data-testid=source-code]')!;
+    await until(() => code.getAttribute('data-colored') === 'true', 'the highlighter');
+    const first = container.querySelector('[data-line="3"] .source-text')!;
+    // The coloured renderer keeps the line's own line break in its last token.
+    expect(first.textContent!.trimEnd()).toBe('export function charge() {');
+    expect([...first.querySelectorAll('.tok-keyword, .shiki-token')].map((token) => token.textContent)).toContain('export');
     expect(container.querySelector('[data-testid=code-place]')!.closest('a')!.getAttribute('href')).toBe(place.href);
     expect(container.querySelector('[data-testid=source-cut]')!.textContent).toContain('Open the file');
   });
@@ -567,6 +576,24 @@ describe('after the run', () => {
     // A finished run has no count to keep alone: its whole sentence stays the badge, and its name is the sentence.
     expect(bar.querySelector('[data-testid=fill-chip]')!.className).not.toContain('fill-chip-writing');
     expect(bar.querySelector('[data-testid=fill-chip]')!.getAttribute('aria-label')).toBe('Filled Oct 23, 5 pages');
+  });
+
+  test('a filled store no agent has written a page in names the files and commits the fill read', async () => {
+    stubFetch([]);
+    const read = status({
+      kinds: [{ kind: 'domain', source: 'markdown', count: 0, single: false, origins: [] }],
+      writer: { state: 'idle', agent: null, units: [] },
+      repository: { name: 'training', url: 'file:///training', defaultBranch: 'main', asIsCommit: 'a'.repeat(40), counts: { files: 114, commits: 72, folders: 55 }, gaps: [], steps: { tree: true, history: true } },
+    });
+    const bar = into(createElement(FillMenu, { status: read, refresh: () => undefined }));
+    await until(() => bar.querySelector('[data-testid=fill-chip]') !== null, 'the status');
+    // "0 pages" would read as if the fill found nothing: the badge says what it did read, and where it is from.
+    const chip = bar.querySelector('[data-testid=fill-chip]')!;
+    expect(chip.querySelector('.fill-chip-words')!.textContent).toBe('Filled Oct 23 · Files: 114 · Commits: 72');
+    // A phone keeps the same numbers without the date, as every other form of the badge keeps its count there.
+    expect(chip.querySelector('.fill-chip-count-narrow')!.textContent).toBe('Files: 114 · Commits: 72');
+    expect(chip.getAttribute('aria-label')).toBe('Filled Oct 23 · Files: 114 · Commits: 72');
+    expect(chip.textContent).not.toContain('pages');
   });
 
   test('a failed run stays on the page until the reader dismisses it', async () => {

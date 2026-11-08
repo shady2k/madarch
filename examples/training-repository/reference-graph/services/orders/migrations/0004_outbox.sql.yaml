@@ -1,0 +1,192 @@
+path: 'services/orders/migrations/0004_outbox.sql'
+nodes:
+  - id: 'code.column:orders.outbox.aggregate_id'
+    kind: 'code.column'
+    label: 'aggregate_id'
+    evidence:
+      - path: 'services/orders/migrations/0004_outbox.sql'
+        startLine: 6
+        endLine: 6
+        quote: '    aggregate_id TEXT NOT NULL,'
+    reading: 'parsed'
+  - id: 'code.column:orders.outbox.created_at'
+    kind: 'code.column'
+    label: 'created_at'
+    evidence:
+      - path: 'services/orders/migrations/0004_outbox.sql'
+        startLine: 9
+        endLine: 9
+        quote: '    created_at   TIMESTAMPTZ NOT NULL DEFAULT now(),'
+    reading: 'parsed'
+  - id: 'code.column:orders.outbox.id'
+    kind: 'code.column'
+    label: 'id'
+    evidence:
+      - path: 'services/orders/migrations/0004_outbox.sql'
+        startLine: 5
+        endLine: 5
+        quote: '    id           BIGSERIAL PRIMARY KEY,'
+    reading: 'parsed'
+  - id: 'code.column:orders.outbox.payload'
+    kind: 'code.column'
+    label: 'payload'
+    evidence:
+      - path: 'services/orders/migrations/0004_outbox.sql'
+        startLine: 8
+        endLine: 8
+        quote: '    payload      JSONB NOT NULL,'
+    reading: 'parsed'
+  - id: 'code.column:orders.outbox.published_at'
+    kind: 'code.column'
+    label: 'published_at'
+    evidence:
+      - path: 'services/orders/migrations/0004_outbox.sql'
+        startLine: 10
+        endLine: 10
+        quote: '    published_at TIMESTAMPTZ'
+    reading: 'parsed'
+  - id: 'code.column:orders.outbox.topic'
+    kind: 'code.column'
+    label: 'topic'
+    evidence:
+      - path: 'services/orders/migrations/0004_outbox.sql'
+        startLine: 7
+        endLine: 7
+        quote: '    topic        TEXT NOT NULL,'
+    reading: 'parsed'
+  - id: 'code.file:services/orders/migrations/0004_outbox.sql'
+    kind: 'code.file'
+    label: '0004_outbox.sql'
+    evidence:
+      - path: 'services/orders/migrations/0004_outbox.sql'
+        startLine: 1
+        endLine: 1
+        quote: '-- Messages waiting to leave for Kafka. The order service writes a row in the'
+    reading: 'parsed'
+  - id: 'code.index:orders.outbox_unpublished_idx'
+    kind: 'code.index'
+    label: 'outbox_unpublished_idx'
+    evidence:
+      - path: 'services/orders/migrations/0004_outbox.sql'
+        startLine: 13
+        endLine: 13
+        quote: 'CREATE INDEX outbox_unpublished_idx ON outbox (id) WHERE published_at IS NULL;'
+    reading: 'parsed'
+  - id: 'code.migration:services/orders/migrations/0004_outbox.sql'
+    kind: 'code.migration'
+    label: '0004_outbox.sql'
+    evidence:
+      - path: 'services/orders/migrations/0004_outbox.sql'
+        startLine: 1
+        endLine: 1
+        quote: '-- Messages waiting to leave for Kafka. The order service writes a row in the'
+    reading: 'parsed'
+  - id: 'code.table:orders.outbox'
+    kind: 'code.table'
+    label: 'outbox'
+    evidence:
+      - path: 'services/orders/migrations/0004_outbox.sql'
+        startLine: 4
+        endLine: 4
+        quote: 'CREATE TABLE outbox ('
+    reading: 'parsed'
+edges:
+  - relation: 'code.belongs-to'
+    from: 'code.migration:services/orders/migrations/0004_outbox.sql'
+    to: 'code.package:services/orders'
+    evidence:
+      - path: 'services/orders/migrations/0004_outbox.sql'
+        startLine: 1
+        endLine: 1
+        quote: '-- Messages waiting to leave for Kafka. The order service writes a row in the'
+    reading: 'parsed'
+  - relation: 'code.contains'
+    from: 'code.table:orders.outbox'
+    to: 'code.column:orders.outbox.aggregate_id'
+    evidence:
+      - path: 'services/orders/migrations/0004_outbox.sql'
+        startLine: 6
+        endLine: 6
+        quote: '    aggregate_id TEXT NOT NULL,'
+    reading: 'parsed'
+  - relation: 'code.contains'
+    from: 'code.table:orders.outbox'
+    to: 'code.column:orders.outbox.created_at'
+    evidence:
+      - path: 'services/orders/migrations/0004_outbox.sql'
+        startLine: 9
+        endLine: 9
+        quote: '    created_at   TIMESTAMPTZ NOT NULL DEFAULT now(),'
+    reading: 'parsed'
+  - relation: 'code.contains'
+    from: 'code.table:orders.outbox'
+    to: 'code.column:orders.outbox.id'
+    evidence:
+      - path: 'services/orders/migrations/0004_outbox.sql'
+        startLine: 5
+        endLine: 5
+        quote: '    id           BIGSERIAL PRIMARY KEY,'
+    reading: 'parsed'
+  - relation: 'code.contains'
+    from: 'code.table:orders.outbox'
+    to: 'code.column:orders.outbox.payload'
+    evidence:
+      - path: 'services/orders/migrations/0004_outbox.sql'
+        startLine: 8
+        endLine: 8
+        quote: '    payload      JSONB NOT NULL,'
+    reading: 'parsed'
+  - relation: 'code.contains'
+    from: 'code.table:orders.outbox'
+    to: 'code.column:orders.outbox.published_at'
+    evidence:
+      - path: 'services/orders/migrations/0004_outbox.sql'
+        startLine: 10
+        endLine: 10
+        quote: '    published_at TIMESTAMPTZ'
+    reading: 'parsed'
+  - relation: 'code.contains'
+    from: 'code.table:orders.outbox'
+    to: 'code.column:orders.outbox.topic'
+    evidence:
+      - path: 'services/orders/migrations/0004_outbox.sql'
+        startLine: 7
+        endLine: 7
+        quote: '    topic        TEXT NOT NULL,'
+    reading: 'parsed'
+  - relation: 'code.contains'
+    from: 'code.table:orders.outbox'
+    to: 'code.index:orders.outbox_unpublished_idx'
+    evidence:
+      - path: 'services/orders/migrations/0004_outbox.sql'
+        startLine: 13
+        endLine: 13
+        quote: 'CREATE INDEX outbox_unpublished_idx ON outbox (id) WHERE published_at IS NULL;'
+    reading: 'parsed'
+  - relation: 'code.covers'
+    from: 'code.index:orders.outbox_unpublished_idx'
+    to: 'code.column:orders.outbox.id'
+    evidence:
+      - path: 'services/orders/migrations/0004_outbox.sql'
+        startLine: 13
+        endLine: 13
+        quote: 'CREATE INDEX outbox_unpublished_idx ON outbox (id) WHERE published_at IS NULL;'
+    reading: 'parsed'
+  - relation: 'code.creates'
+    from: 'code.migration:services/orders/migrations/0004_outbox.sql'
+    to: 'code.index:orders.outbox_unpublished_idx'
+    evidence:
+      - path: 'services/orders/migrations/0004_outbox.sql'
+        startLine: 13
+        endLine: 13
+        quote: 'CREATE INDEX outbox_unpublished_idx ON outbox (id) WHERE published_at IS NULL;'
+    reading: 'parsed'
+  - relation: 'code.creates'
+    from: 'code.migration:services/orders/migrations/0004_outbox.sql'
+    to: 'code.table:orders.outbox'
+    evidence:
+      - path: 'services/orders/migrations/0004_outbox.sql'
+        startLine: 4
+        endLine: 4
+        quote: 'CREATE TABLE outbox ('
+    reading: 'parsed'

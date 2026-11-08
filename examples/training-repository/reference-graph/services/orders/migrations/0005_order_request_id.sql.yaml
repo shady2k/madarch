@@ -1,0 +1,93 @@
+path: 'services/orders/migrations/0005_order_request_id.sql'
+nodes:
+  - id: 'code.column:orders.orders.request_id'
+    kind: 'code.column'
+    label: 'request_id'
+    evidence:
+      - path: 'services/orders/migrations/0005_order_request_id.sql'
+        startLine: 3
+        endLine: 3
+        quote: 'ALTER TABLE orders ADD COLUMN request_id TEXT;'
+    reading: 'parsed'
+  - id: 'code.file:services/orders/migrations/0005_order_request_id.sql'
+    kind: 'code.file'
+    label: '0005_order_request_id.sql'
+    evidence:
+      - path: 'services/orders/migrations/0005_order_request_id.sql'
+        startLine: 1
+        endLine: 1
+        quote: '-- The client''s idempotency key for placing an order: the same customer sending'
+    reading: 'parsed'
+  - id: 'code.index:orders.orders_request_idx'
+    kind: 'code.index'
+    label: 'orders_request_idx'
+    evidence:
+      - path: 'services/orders/migrations/0005_order_request_id.sql'
+        startLine: 5
+        endLine: 5
+        quote: 'CREATE UNIQUE INDEX orders_request_idx ON orders (customer_id, request_id) WHERE request_id IS NOT NULL;'
+    reading: 'parsed'
+  - id: 'code.migration:services/orders/migrations/0005_order_request_id.sql'
+    kind: 'code.migration'
+    label: '0005_order_request_id.sql'
+    evidence:
+      - path: 'services/orders/migrations/0005_order_request_id.sql'
+        startLine: 1
+        endLine: 1
+        quote: '-- The client''s idempotency key for placing an order: the same customer sending'
+    reading: 'parsed'
+edges:
+  - relation: 'code.alters'
+    from: 'code.migration:services/orders/migrations/0005_order_request_id.sql'
+    to: 'code.column:orders.orders.request_id'
+    evidence:
+      - path: 'services/orders/migrations/0005_order_request_id.sql'
+        startLine: 3
+        endLine: 3
+        quote: 'ALTER TABLE orders ADD COLUMN request_id TEXT;'
+    reading: 'parsed'
+  - relation: 'code.belongs-to'
+    from: 'code.migration:services/orders/migrations/0005_order_request_id.sql'
+    to: 'code.package:services/orders'
+    evidence:
+      - path: 'services/orders/migrations/0005_order_request_id.sql'
+        startLine: 1
+        endLine: 1
+        quote: '-- The client''s idempotency key for placing an order: the same customer sending'
+    reading: 'parsed'
+  - relation: 'code.contains'
+    from: 'code.table:orders.orders'
+    to: 'code.index:orders.orders_request_idx'
+    evidence:
+      - path: 'services/orders/migrations/0005_order_request_id.sql'
+        startLine: 5
+        endLine: 5
+        quote: 'CREATE UNIQUE INDEX orders_request_idx ON orders (customer_id, request_id) WHERE request_id IS NOT NULL;'
+    reading: 'parsed'
+  - relation: 'code.covers'
+    from: 'code.index:orders.orders_request_idx'
+    to: 'code.column:orders.orders.customer_id'
+    evidence:
+      - path: 'services/orders/migrations/0005_order_request_id.sql'
+        startLine: 5
+        endLine: 5
+        quote: 'CREATE UNIQUE INDEX orders_request_idx ON orders (customer_id, request_id) WHERE request_id IS NOT NULL;'
+    reading: 'parsed'
+  - relation: 'code.covers'
+    from: 'code.index:orders.orders_request_idx'
+    to: 'code.column:orders.orders.request_id'
+    evidence:
+      - path: 'services/orders/migrations/0005_order_request_id.sql'
+        startLine: 5
+        endLine: 5
+        quote: 'CREATE UNIQUE INDEX orders_request_idx ON orders (customer_id, request_id) WHERE request_id IS NOT NULL;'
+    reading: 'parsed'
+  - relation: 'code.creates'
+    from: 'code.migration:services/orders/migrations/0005_order_request_id.sql'
+    to: 'code.index:orders.orders_request_idx'
+    evidence:
+      - path: 'services/orders/migrations/0005_order_request_id.sql'
+        startLine: 5
+        endLine: 5
+        quote: 'CREATE UNIQUE INDEX orders_request_idx ON orders (customer_id, request_id) WHERE request_id IS NOT NULL;'
+    reading: 'parsed'

@@ -1,0 +1,111 @@
+path: 'docs/adr/0002-outbox.md'
+nodes:
+  - id: 'code.document-section:docs/adr/0002-outbox.md#ADR-0002: Events leave through a transactional outbox'
+    kind: 'code.document-section'
+    label: 'ADR-0002: Events leave through a transactional outbox'
+    evidence:
+      - path: 'docs/adr/0002-outbox.md'
+        startLine: 1
+        endLine: 1
+        quote: '# ADR-0002: Events leave through a transactional outbox'
+    reading: 'parsed'
+  - id: 'code.document-section:docs/adr/0002-outbox.md#Consequences'
+    kind: 'code.document-section'
+    label: 'Consequences'
+    evidence:
+      - path: 'docs/adr/0002-outbox.md'
+        startLine: 19
+        endLine: 19
+        quote: '## Consequences'
+    reading: 'parsed'
+  - id: 'code.document-section:docs/adr/0002-outbox.md#Context'
+    kind: 'code.document-section'
+    label: 'Context'
+    evidence:
+      - path: 'docs/adr/0002-outbox.md'
+        startLine: 5
+        endLine: 5
+        quote: '## Context'
+    reading: 'parsed'
+  - id: 'code.document-section:docs/adr/0002-outbox.md#Decision'
+    kind: 'code.document-section'
+    label: 'Decision'
+    evidence:
+      - path: 'docs/adr/0002-outbox.md'
+        startLine: 12
+        endLine: 12
+        quote: '## Decision'
+    reading: 'parsed'
+  - id: 'code.document:docs/adr/0002-outbox.md'
+    kind: 'code.document'
+    label: '0002-outbox.md'
+    evidence:
+      - path: 'docs/adr/0002-outbox.md'
+        startLine: 1
+        endLine: 1
+        quote: '# ADR-0002: Events leave through a transactional outbox'
+    reading: 'parsed'
+  - id: 'code.file:docs/adr/0002-outbox.md'
+    kind: 'code.file'
+    label: '0002-outbox.md'
+    evidence:
+      - path: 'docs/adr/0002-outbox.md'
+        startLine: 1
+        endLine: 1
+        quote: '# ADR-0002: Events leave through a transactional outbox'
+    reading: 'parsed'
+edges:
+  - relation: 'code.contains'
+    from: 'code.document:docs/adr/0002-outbox.md'
+    to: 'code.document-section:docs/adr/0002-outbox.md#ADR-0002: Events leave through a transactional outbox'
+    evidence:
+      - path: 'docs/adr/0002-outbox.md'
+        startLine: 1
+        endLine: 1
+        quote: '# ADR-0002: Events leave through a transactional outbox'
+    reading: 'parsed'
+  - relation: 'code.contains'
+    from: 'code.document:docs/adr/0002-outbox.md'
+    to: 'code.document-section:docs/adr/0002-outbox.md#Consequences'
+    evidence:
+      - path: 'docs/adr/0002-outbox.md'
+        startLine: 19
+        endLine: 19
+        quote: '## Consequences'
+    reading: 'parsed'
+  - relation: 'code.contains'
+    from: 'code.document:docs/adr/0002-outbox.md'
+    to: 'code.document-section:docs/adr/0002-outbox.md#Context'
+    evidence:
+      - path: 'docs/adr/0002-outbox.md'
+        startLine: 5
+        endLine: 5
+        quote: '## Context'
+    reading: 'parsed'
+  - relation: 'code.contains'
+    from: 'code.document:docs/adr/0002-outbox.md'
+    to: 'code.document-section:docs/adr/0002-outbox.md#Decision'
+    evidence:
+      - path: 'docs/adr/0002-outbox.md'
+        startLine: 12
+        endLine: 12
+        quote: '## Decision'
+    reading: 'parsed'
+  - relation: 'code.mentions'
+    from: 'code.document:docs/adr/0002-outbox.md'
+    to: 'code.module:services/orders/internal/relay'
+    evidence:
+      - path: 'docs/adr/0002-outbox.md'
+        startLine: 16
+        endLine: 16
+        quote: '`store.OrderRepository`). A relay (`internal/relay`) reads the rows that are'
+    reading: 'judgement'
+  - relation: 'code.mentions'
+    from: 'code.document:docs/adr/0002-outbox.md'
+    to: 'code.symbol:services/orders/internal/store/outbox.go#OutboxWriter'
+    evidence:
+      - path: 'docs/adr/0002-outbox.md'
+        startLine: 15
+        endLine: 15
+        quote: 'database transaction as the change (`store.OutboxWriter`, called by'
+    reading: 'judgement'

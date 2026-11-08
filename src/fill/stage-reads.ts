@@ -120,10 +120,6 @@ import { BUILD_CONFIGURATION_STAGE_ID, PUBLISHED_MANIFESTS_READ } from './stages
 import { PUBLISHED_DOCUMENTS_READ } from './stages/document-index.js';
 import { PUBLISHED_TREE_READ } from './stages/inventory.js';
 import { PUBLISHED_FILES_READ, PUBLISHED_PACKAGES_READ, PUBLISHED_SYMBOLS_READ as MODULE_SYMBOLS_READ, RESOLVED_EDGES_READ } from './stages/modules.js';
-import {
-  COMPILER_INDEX_READ, PUBLISHED_READS_READ,
-  PUBLISHED_SYMBOLS_READ as RESOLUTION_SYMBOLS_READ, SEMANTIC_RESOLUTION_STAGE_ID,
-} from './stages/semantic-resolution.js';
 import { PUBLISHED_GAPS_READ, PUBLISHED_IMPORTS_READ } from './stages/syntax-specifiers.js';
 import { SYNTAX_STAGE_ID } from './stages/syntax.js';
 
@@ -137,7 +133,6 @@ import { SYNTAX_STAGE_ID } from './stages/syntax.js';
  * into here, so it is the order of the names and not a hand-kept one.
  */
 const STAGE_READ_NAME_LIST = [
-  COMPILER_INDEX_READ,
   MODULE_SYMBOLS_READ,
   PUBLISHED_DOCUMENTS_READ,
   PUBLISHED_FILES_READ,
@@ -145,9 +140,7 @@ const STAGE_READ_NAME_LIST = [
   PUBLISHED_IMPORTS_READ,
   PUBLISHED_MANIFESTS_READ,
   PUBLISHED_PACKAGES_READ,
-  PUBLISHED_READS_READ,
   PUBLISHED_TREE_READ,
-  RESOLUTION_SYMBOLS_READ,
   RESOLVED_EDGES_READ,
 ] as const;
 
@@ -171,12 +164,14 @@ export interface StageReadRequest {
   readonly path?: string;
 }
 
-/** The reads that name one file of the repository, and the reads that name none. */
-const PATH_READS: readonly string[] = [COMPILER_INDEX_READ, RESOLUTION_SYMBOLS_READ];
-
-/** The keys a read of one kind holds: the read's own name, the repository, and a path where the read names one. */
-function keysOf(read: StageReadName): readonly string[] {
-  return PATH_READS.includes(read) ? ['path', 'read', 'repository'] : ['read', 'repository'];
+/**
+ * The keys a read of one kind holds: the read's own name and the repository.
+ * The reads that named one file of a repository were the resolution stage's,
+ * and that stage reads the graph now (madarch-8bdc.2.2): a fact-store read that
+ * names a path has no producer left, so none is answered here.
+ */
+function keysOf(): readonly string[] {
+  return ['read', 'repository'];
 }
 
 /**
@@ -217,9 +212,9 @@ function readText(request: StageReadRequest): string {
   return JSON.stringify({ read: request.read, repository: request.repository, ...(request.path === undefined ? {} : { path: request.path }) });
 }
 
-/** One read of a known kind, its fields read against what that read names: the repository, and the path where it names one. */
+/** One read of a known kind, its fields read against what that read names: the repository it reads. */
 function requestOf(kind: StageReadName, fields: Record<string, unknown>, text: string, at: string): StageReadRequest {
-  const keys = keysOf(kind);
+  const keys = keysOf();
   const unknown = Object.keys(fields).filter((key) => !keys.includes(key)).sort(byCodePoint);
   if (unknown.length > 0) {
     raise(`${at}: the read ${JSON.stringify(text)} holds ${unknown.map((key) => JSON.stringify(key)).join(', ')}, and a read of "${kind}" holds ${keys.join(', ')}: an answer is built from what a read names and from nothing else`);
@@ -228,12 +223,7 @@ function requestOf(kind: StageReadName, fields: Record<string, unknown>, text: s
   if (typeof repository !== 'string' || !ID_PATTERN.test(repository)) {
     raise(`${at}: the read ${JSON.stringify(text)} names the repository ${shown(repository)}: the product's own name for a repository, like "orders-api", never a path, a URL or a branch`);
   }
-  if (!PATH_READS.includes(kind)) return { read: kind, repository };
-  const path = fields['path'];
-  if (typeof path !== 'string' || !isRepositoryPath(path)) {
-    raise(`${at}: the read ${JSON.stringify(text)} names the path ${shown(path)}: a path from the repository's root, "/"-separated at every depth, with no "." or ".." leg`);
-  }
-  return { read: kind, repository, path };
+  return { read: kind, repository };
 }
 
 /** What one read answers from: the process's database owner, the run's pinned snapshot, and a transaction a caller already opened. */
@@ -568,25 +558,6 @@ async function manifestRows(executor: SqlExecutor, request: StageReadRequest, at
   }));
 }
 
-/** The symbols declared in one file, each with the range its declaration stands at. */
-async function symbolOfFileRows(executor: SqlExecutor, request: StageReadRequest, at: string): Promise<readonly Row[]> {
-  const path = request.path;
-  if (path === undefined) {
-    raise(`${at}: the read ${readText(request)} names no path, and this read answers the symbols one file declares: a read of one file's symbols names the file`);
-  }
-  const facts = await repositoryFacts(executor, ['symbol'], request.repository, path);
-  return facts.map((fact) => {
-    const value = valueOf(fact, at);
-    return {
-      kind: 'symbol',
-      file: pathIn(value, 'file', fact, at),
-      id: fact.id,
-      ...fromValue(value, ['qualifiedName', 'symbolKind']),
-      ...rangeRow(fact, at),
-    };
-  });
-}
-
 /** What stage 3 could not tie to a node: the gaps of its own `coverage` of a repository, one row per gap. */
 async function coverageGapRows(executor: SqlExecutor, request: StageReadRequest, at: string): Promise<readonly Row[]> {
   const facts = await stageCoverageFacts(executor, SYNTAX_STAGE_ID, request.repository);
@@ -641,26 +612,6 @@ async function importRows(executor: SqlExecutor, request: StageReadRequest, at: 
   return rows;
 }
 
-/** What the resolution stage's own last run read for each file of the repository. */
-async function resolutionReadRows(executor: SqlExecutor, request: StageReadRequest, at: string): Promise<readonly Row[]> {
-  const facts = await stageCoverageFacts(executor, SEMANTIC_RESOLUTION_STAGE_ID, request.repository);
-  return facts.map((fact) => {
-    const value = valueOf(fact, at);
-    return { kind: 'coverage', file: pathIn(value, 'scope', fact, at), ...fromValue(value, ['read']) };
-  });
-}
-
-/**
- * The compiler index of one file: no rows. This build wires no compiler index
- * (`src/product/fill-stages.ts` registers the eight deterministic stages and no
- * indexer), and the resolution stage's own words say what a wiring without one
- * answers: nothing — the read exists as the seam a SCIP indexer would answer, and
- * the file's coverage names the index it did not have.
- */
-async function compilerIndexRows(_executor: SqlExecutor, _request: StageReadRequest, _at: string): Promise<readonly Row[]> {
-  return [];
-}
-
 /** The packages and build targets a repository's manifests declare. */
 async function packageRowsOf(executor: SqlExecutor, request: StageReadRequest, at: string): Promise<readonly Row[]> {
   const facts = await repositoryFacts(executor, ['package'], request.repository);
@@ -709,7 +660,6 @@ interface StageAnswer {
 
 /** Every read this module answers, by the name the stage's own builder writes. */
 const ANSWERS: { readonly [K in StageReadName]: StageAnswer } = {
-  [COMPILER_INDEX_READ]: { tables: FACTS, answer: compilerIndexRows },
   [MODULE_SYMBOLS_READ]: { tables: FACTS, answer: publishedSymbolRows },
   [PUBLISHED_DOCUMENTS_READ]: { tables: FACTS, answer: documentRows },
   [PUBLISHED_FILES_READ]: { tables: FACTS, answer: publishedFileRows },
@@ -717,9 +667,7 @@ const ANSWERS: { readonly [K in StageReadName]: StageAnswer } = {
   [PUBLISHED_IMPORTS_READ]: { tables: FACTS, answer: importRows },
   [PUBLISHED_MANIFESTS_READ]: { tables: FACTS_AND_HOLDINGS, answer: manifestRows },
   [PUBLISHED_PACKAGES_READ]: { tables: FACTS, answer: packageRowsOf },
-  [PUBLISHED_READS_READ]: { tables: FACTS_AND_HOLDINGS, answer: resolutionReadRows },
   [PUBLISHED_TREE_READ]: { tables: FACTS, answer: treeRows },
-  [RESOLUTION_SYMBOLS_READ]: { tables: FACTS, answer: symbolOfFileRows },
   [RESOLVED_EDGES_READ]: { tables: FACTS, answer: resolvedEdgeRows },
 };
 

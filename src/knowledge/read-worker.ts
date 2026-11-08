@@ -1,6 +1,6 @@
 /**
  * The read worker (madarch-m38l.4, remark 3): `madarch knowledge-read-worker`.
- * It holds one snapshot of a product's graph store open (see `fill-protocol.ts`)
+ * It holds one snapshot of a product's graph store open (see `fill-run.ts`)
  * and answers the server's statements, so the statements run on this process's
  * thread and a page of the wiki never waits for the server's own thread, which
  * the opening of a database blocks for hundreds of milliseconds. The server
@@ -11,7 +11,7 @@
 import { mkdirSync } from 'node:fs';
 import { dirname } from 'node:path';
 import { createPGliteDatabaseOwner, type DatabaseOwner, type OuterTransaction } from '../adapters/database-owner.js';
-import { createGraphStore } from '../graph/index.js';
+import { createGraphStore, createRecordSchema } from '../graph/index.js';
 import { decodeWire, encodeWire } from './wire.js';
 
 export type ReadRequest =
@@ -32,7 +32,7 @@ export type ReadReply =
   | { type: 'ended'; tx: number; error?: string };
 
 const SCHEMA_TABLE = `CREATE TABLE IF NOT EXISTS knowledge_fill (
-  repo text PRIMARY KEY, scope text NOT NULL, head text NOT NULL, commit_hash text NOT NULL, effective_time text NOT NULL,
+  repo text PRIMARY KEY, scope text, head text NOT NULL, commit_hash text NOT NULL, effective_time text NOT NULL,
   commits int NOT NULL, filled_commits int NOT NULL)`;
 
 export async function runReadWorker(io: { lines: AsyncIterable<string>; send: (reply: string) => void }): Promise<number> {
@@ -86,6 +86,9 @@ export async function runReadWorker(io: { lines: AsyncIterable<string>; send: (r
         // A store a fill never wrote - an empty folder the home made, or an earlier madarch's - has no tables: they are made
         // when absent on every open (both statements are idempotent), so a first read never fails on a missing relation.
         await createGraphStore(owner).createSchema();
+        // This step's record tables too (madarch-8bdc.2.5): a snapshot of a store the fill has not run on is
+        // read for its repository and its files, and a missing relation would be a failed page, not an empty one.
+        await createRecordSchema(owner);
         await owner.transaction('write', async (tx) => { await tx.query(SCHEMA_TABLE); });
         send({ type: 'ready' });
       } catch (error) {

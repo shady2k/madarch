@@ -1,0 +1,93 @@
+path: 'services/orders/internal/pricing/pricing.go'
+nodes:
+  - id: 'code.file:services/orders/internal/pricing/pricing.go'
+    kind: 'code.file'
+    label: 'pricing.go'
+    evidence:
+      - path: 'services/orders/internal/pricing/pricing.go'
+        startLine: 1
+        endLine: 1
+        quote: '// Package pricing turns order lines into money. All amounts are cents.'
+    reading: 'parsed'
+  - id: 'code.module:services/orders/internal/pricing'
+    kind: 'code.module'
+    label: 'services/orders/internal/pricing'
+    evidence:
+      - path: 'services/orders/internal/pricing/pricing.go'
+        startLine: 2
+        endLine: 2
+        quote: 'package pricing'
+    reading: 'parsed'
+  - id: 'code.symbol:services/orders/internal/pricing/pricing.go#Discount'
+    kind: 'code.symbol'
+    label: 'Discount'
+    evidence:
+      - path: 'services/orders/internal/pricing/pricing.go'
+        startLine: 12
+        endLine: 12
+        quote: 'func Discount(amountCents int64, percent int) int64 {'
+    reading: 'parsed'
+  - id: 'code.symbol:services/orders/internal/pricing/pricing.go#LineTotal'
+    kind: 'code.symbol'
+    label: 'LineTotal'
+    evidence:
+      - path: 'services/orders/internal/pricing/pricing.go'
+        startLine: 5
+        endLine: 5
+        quote: 'func LineTotal(unitCents int64, quantity int) int64 {'
+    reading: 'parsed'
+  - id: 'code.symbol:services/orders/internal/pricing/pricing.go#percentOf'
+    kind: 'code.symbol'
+    label: 'percentOf'
+    evidence:
+      - path: 'services/orders/internal/pricing/pricing.go'
+        startLine: 24
+        endLine: 24
+        quote: 'func percentOf(amountCents int64, percent int) int64 {'
+    reading: 'parsed'
+edges:
+  - relation: 'code.calls'
+    from: 'code.symbol:services/orders/internal/pricing/pricing.go#Discount'
+    to: 'code.symbol:services/orders/internal/pricing/pricing.go#percentOf'
+    evidence:
+      - path: 'services/orders/internal/pricing/pricing.go'
+        startLine: 19
+        endLine: 19
+        quote: '	return percentOf(amountCents, percent)'
+    reading: 'parsed'
+  - relation: 'code.contains'
+    from: 'code.file:services/orders/internal/pricing/pricing.go'
+    to: 'code.symbol:services/orders/internal/pricing/pricing.go#Discount'
+    evidence:
+      - path: 'services/orders/internal/pricing/pricing.go'
+        startLine: 12
+        endLine: 12
+        quote: 'func Discount(amountCents int64, percent int) int64 {'
+    reading: 'parsed'
+  - relation: 'code.contains'
+    from: 'code.file:services/orders/internal/pricing/pricing.go'
+    to: 'code.symbol:services/orders/internal/pricing/pricing.go#LineTotal'
+    evidence:
+      - path: 'services/orders/internal/pricing/pricing.go'
+        startLine: 5
+        endLine: 5
+        quote: 'func LineTotal(unitCents int64, quantity int) int64 {'
+    reading: 'parsed'
+  - relation: 'code.contains'
+    from: 'code.file:services/orders/internal/pricing/pricing.go'
+    to: 'code.symbol:services/orders/internal/pricing/pricing.go#percentOf'
+    evidence:
+      - path: 'services/orders/internal/pricing/pricing.go'
+        startLine: 24
+        endLine: 24
+        quote: 'func percentOf(amountCents int64, percent int) int64 {'
+    reading: 'parsed'
+  - relation: 'code.contains'
+    from: 'code.module:services/orders/internal/pricing'
+    to: 'code.file:services/orders/internal/pricing/pricing.go'
+    evidence:
+      - path: 'services/orders/internal/pricing/pricing.go'
+        startLine: 2
+        endLine: 2
+        quote: 'package pricing'
+    reading: 'parsed'

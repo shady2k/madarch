@@ -1,0 +1,13 @@
+path: 'services/payments/jest.config.js'
+notes: 'a jest configuration; no kind holds a test runner''s option.'
+nodes:
+  - id: 'code.file:services/payments/jest.config.js'
+    kind: 'code.file'
+    label: 'jest.config.js'
+    evidence:
+      - path: 'services/payments/jest.config.js'
+        startLine: 1
+        endLine: 1
+        quote: '/** @type {import(''jest'').Config} */'
+    reading: 'parsed'
+edges: []

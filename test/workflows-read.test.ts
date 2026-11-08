@@ -21,6 +21,12 @@ import { DEFAULT_STAGE_DEFAULTS, type FillStage } from '../src/fill/stage.js';
 
 const FILE = 'madarch/workflows.yaml';
 
+/**
+ * The stages the engine's registry holds, as its own refusals name them: read from the registry, never written here,
+ * so a stage added to the engine moves this text with it.
+ */
+const ENGINE_STAGES = createEngineStageRegistry().all().map((stage) => stage.id).join(', ');
+
 const made: string[] = [];
 afterAll(() => {
   for (const folder of made.splice(0)) rmSync(folder, { recursive: true, force: true });
@@ -91,12 +97,10 @@ describe('the workflows the starter set declares', () => {
     for (const workflow of read.workflows.values()) for (const id of workflow.stages) expect(held.has(id)).toBe(true);
     const firstFill = read.workflows.get('first-fill')!;
     expect(firstFill.status).toBe('implemented');
-    // The first fill names the stages of the fill as the registry holds them today: the eight deterministic
-    // stages, the seven agent stages a run registers when it names an agent, and the narrative stage.
-    expect(firstFill.stages).toEqual([
-      'snapshot', 'history', 'inventory', 'build-configuration', 'document-index', 'syntax', 'semantic-resolution',
-      'modules', 'boundaries', 'intent-history', 'overview', 'understanding', 'recovery', 'doc-intent', 'narrative',
-    ]);
+    // The first fill names the stages of the fill as the starter set declares them, and every one is a stage this
+    // engine's registry holds: the list is the starter set's own, never a second one written here.
+    expect(firstFill.stages).toEqual([...STARTER_WORKFLOWS.find((one) => one.name === 'first-fill')!.stages]);
+    for (const id of firstFill.stages) expect(held.has(id)).toBe(true);
     // No engine stage waits for a commit, picks one up in the background or narrows a fill to the files a commit
     // changed (0033, item 25): update by commit is planned, and running the fill at a new commit is a first fill again.
     expect(read.workflows.get('update-by-commit')!.status).toBe('planned');
@@ -157,7 +161,7 @@ describe('the refusals of the workflow check', () => {
     expect(read.findings).toEqual([{
       file: FILE,
       line: lineOf(text, '- teleport'),
-      message: 'workflow "first-fill" stage "teleport": the engine\'s stage registry holds no stage "teleport" (its stages are boundaries, build-configuration, doc-intent, document-index, history, intent-history, inventory, modules, narrative, overview, recovery, semantic-resolution, snapshot, syntax, understanding)',
+      message: 'workflow "first-fill" stage "teleport": the engine\'s stage registry holds no stage "teleport" (its stages are ' + ENGINE_STAGES + ')',
     }]);
     // The refused workflow is left out, and the others stand.
     expect(read.workflows.has('first-fill')).toBe(false);
@@ -174,28 +178,34 @@ describe('the refusals of the workflow check', () => {
   });
 
   test('a stage whose input no earlier stage produces is refused by the derivation\'s own path', () => {
-    // Modules reads `symbol`, and syntax is the stage that produces it: a workflow that leaves syntax out starves modules.
+    // Modules reads `symbol`, and two stages of this madarch produce it — the file pass and the code
+    // pass: a workflow that leaves both out starves modules, and the derivation names both paths.
     const text = stagesOf('first-fill', ['snapshot', 'inventory', 'modules']);
     const read = readText(text);
-    expect(read.findings).toEqual([{
-      file: FILE,
-      line: lineOf(text, '- modules'),
-      message: 'workflow "first-fill" stage "modules": modules → symbol → syntax (disabled): the workflow names no stage that produces the input "symbol"',
-    }]);
+    expect(read.findings.map((finding) => finding.message)).toEqual([
+      'workflow "first-fill" stage "modules": modules → symbol → codegraph (disabled): the workflow names no stage that produces the input "symbol"',
+      'workflow "first-fill" stage "modules": modules → symbol → syntax (disabled): the workflow names no stage that produces the input "symbol"',
+    ]);
+    expect(read.findings.map((finding) => [finding.file, finding.line])).toEqual([
+      [FILE, lineOf(text, '- modules')], [FILE, lineOf(text, '- modules')],
+    ]);
     expect(read.workflows.has('first-fill')).toBe(false);
     expect(read.workflows.size).toBe(3);
   });
 
   test('a workflow that names stages is checked whatever its status says: a planned one is exempt from neither refusal', () => {
     const workflow = (status: string): string => ['workflows:', '  branch-worktree:', `    status: ${status}`, '    stages:', '      - modules', ''].join('\n');
+    // Two stages produce a symbol — the file pass and the code pass — and the snapshot is the one
+    // that produces a file; the workflow names none of the three, and the derivation names each path.
     const both = [
-      'workflow "branch-worktree" stage "modules": modules → file → inventory (disabled): the workflow names no stage that produces the input "file"',
+      'workflow "branch-worktree" stage "modules": modules → file → snapshot (disabled): the workflow names no stage that produces the input "file"',
+      'workflow "branch-worktree" stage "modules": modules → symbol → codegraph (disabled): the workflow names no stage that produces the input "symbol"',
       'workflow "branch-worktree" stage "modules": modules → symbol → syntax (disabled): the workflow names no stage that produces the input "symbol"',
     ];
     expect(readText(workflow('implemented')).findings.map((finding) => finding.message)).toEqual(both);
     // Decision 0033, item 2 names no exception for a planned workflow: the stage it names is refused at its own line.
     const planned = readText(workflow('planned'));
-    expect(planned.findings.map((finding) => [finding.line, finding.message])).toEqual([[5, both[0]!], [5, both[1]!]]);
+    expect(planned.findings.map((finding) => [finding.line, finding.message])).toEqual(both.map((message) => [5, message]));
     expect(planned.workflows.size).toBe(0);
     // The paired case: a planned workflow of the stages the registry holds and feeds reads with no finding.
     const sound = readText('workflows:\n  branch-worktree:\n    status: planned\n    stages: [snapshot, inventory, syntax, modules]\n');
@@ -215,7 +225,7 @@ describe('the refusals of the workflow check', () => {
       '    stages: *stages',
       '',
     ].join('\n');
-    const teleport = (name: string): string => `workflow "${name}" stage "teleport": the engine's stage registry holds no stage "teleport" (its stages are boundaries, build-configuration, doc-intent, document-index, history, intent-history, inventory, modules, narrative, overview, recovery, semantic-resolution, snapshot, syntax, understanding)`;
+    const teleport = (name: string): string => `workflow "${name}" stage "teleport": the engine's stage registry holds no stage "teleport" (its stages are ${ENGINE_STAGES})`;
     // The alias is used on line 8: the fault of the copied workflow is the fault of that line, not the file's first.
     expect(refusals(text)).toEqual([[5, teleport('original')], [8, teleport('copied')]]);
     // The paired case: an alias of the stages the registry holds and feeds reads as those stages.
@@ -341,7 +351,7 @@ describe('the product-wiki check reads the workflows with the manifest', () => {
     const read = readKinds(folder);
     if (!read.present) throw new Error('the product holds no kinds manifest');
     expect(read.manifest.workflows?.workflows.has('update-by-commit')).toBe(false);
-    const expected = 'workflow "update-by-commit" stage "teleport": the engine\'s stage registry holds no stage "teleport" (its stages are boundaries, build-configuration, doc-intent, document-index, history, intent-history, inventory, modules, narrative, overview, recovery, semantic-resolution, snapshot, syntax, understanding)';
+    const expected = 'workflow "update-by-commit" stage "teleport": the engine\'s stage registry holds no stage "teleport" (its stages are ' + ENGINE_STAGES + ')';
     expect(read.manifest.workflows?.findings.map((finding) => [finding.file, finding.line, finding.message])).toEqual([[join(folder, WORKFLOWS_FILE), lineOf(text, '- teleport'), expected]]);
     // The Problems page reads the manifest's findings: the workflow's stands beside the kinds' own (of which this starter set has none).
     expect(read.manifest.findings.map((finding) => [finding.file.endsWith(WORKFLOWS_FILE), finding.message])).toEqual([[true, expected]]);

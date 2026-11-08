@@ -15,56 +15,14 @@
  * unreachable from the initial one is a construction error, thrown with this
  * module's path and the throwing line.
  */
-import { fileURLToPath } from 'node:url';
 import { assign, createMachine, transition as xstateTransition } from 'xstate';
 import { byCodePoint } from '../model/order.js';
 
-/**
- * This module's path as a person reads it. Run from source, that is the file's
- * own absolute path; bundled — the shipped `bun build --compile` binary, where
- * `import.meta.url` is `/$bunfs/root/<binary>` — it is the source path of the
- * file whose frames are reported, and the line and column are the bundle's,
- * because a bundle carries no source map. Either way an error names a full path
- * and never a bare `Error`.
- */
-const SOURCE_PATH = 'src/fill/fsm-core.ts';
-const MODULE_PATH = import.meta.url.startsWith('file:') && !fileURLToPath(import.meta.url).startsWith('/$bunfs')
-  ? fileURLToPath(import.meta.url)
-  : SOURCE_PATH;
-
-/**
- * The stack frames of this module's own helpers. JavaScript engines elide the frame
- * of a function that only returns another call, so the helpers are skipped by name
- * rather than by counting frames.
- */
-const LOCATING_HELPERS = new Set(['throwSite', 'raise', 'here']);
-
-/** The file, line and column of the first frame above this module's locating helpers. */
-function throwSite(): string {
-  const frames = (new Error().stack ?? '').split('\n').slice(1);
-  for (const frame of frames) {
-    const located = /\(?([^\s()]+):(\d+):(\d+)\)?\s*$/.exec(frame.trim());
-    if (located === null) continue;
-    const name = /^\s*at\s+([^\s(]+)/.exec(frame)?.[1] ?? '';
-    if (LOCATING_HELPERS.has(name)) continue;
-    return `${located[1]}:${located[2]}:${located[3]}`;
-  }
-  return MODULE_PATH;
-}
-
-/** Raises an error that names the file, line and column it was raised from, then what is wrong. */
-export function raise(message: string): never {
-  throw new Error(`${throwSite()}: ${message}`);
-}
-
-/**
- * The file, line and column of the statement that calls this helper. A shared
- * wrapper takes it from its caller, so a failure the wrapper reports names the
- * operation's own line rather than the wrapper's.
- */
-export function here(): string {
-  return throwSite();
-}
+// The file, line and column of a raise: one helper for the whole engine
+// (`src/model/raise.ts`), re-exported here so the fill's own errors keep their
+// import, and so the two modules cannot drift apart.
+import { here, raise } from '../model/raise.js';
+export { here, raise };
 
 /**
  * One table entry, with its id built the same way for every machine:
@@ -177,7 +135,7 @@ interface XStateConfigState { on: Record<string, unknown[]> }
 function validateSpec<State extends string, Event extends FillEventObject, Context>(
   spec: MachineSpec<State, Event, Context>,
 ): void {
-  if (spec.states.length === 0) raise(`machine ${spec.id} declares no states, in ${MODULE_PATH}`);
+  if (spec.states.length === 0) raise(`machine ${spec.id} declares no states`);
   if (!spec.states.includes(spec.initial)) raise(`machine ${spec.id} declares initial state "${spec.initial}", which is not among its states`);
   const seenStates = new Set<string>();
   for (const state of spec.states) {

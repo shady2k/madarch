@@ -47,6 +47,17 @@ export interface RenderContext {
   repositories: readonly string[];
   /** The same place on the repository's web page (GitHub, GitLab, ...), when the repository's address is known. */
   webOf?: (repo: string | null, path: string, lineStart: number, lineEnd: number) => { host: string; url: string } | undefined;
+  /**
+   * The store's record tables, asked the way the kind `code.file` needs them (madarch-8bdc.2.5): the files this fill
+   * published are paths in the record store, not versions in the temporal graph, so the kind's listing and its count
+   * are read here when the store answers them. The filter is a path prefix.
+   */
+  records?: {
+    readonly files: {
+      count: (prefix?: string) => Promise<number>;
+      page: (options: { readonly after?: string; readonly prefix?: string; readonly limit: number }) => Promise<{ total: number; rows: readonly { path: string; repository: string }[]; next: string | null }>;
+    };
+  };
   /** What the index of the Markdown (madarch-m38l.8) knows: the statements that rely on a key, and the counts per page kind. */
   index?: {
     relyingOn: (key: string) => Promise<RelyingStatement[]>;

@@ -25,27 +25,15 @@ export interface StarterWorkflow {
 
 /**
  * The stages of a fill as the engine's registry holds them today (0026's stage 0
- * to 13 and the page stage): the eight deterministic stages, then the agent stages
+ * to 13 and the page stage): the ten deterministic stages, then the agent stages
  * a run registers when it names an agent, then the narrative stage that cites them.
- * The order is the one the capabilities derive, and a test holds it to the
- * registry's own derivation.
+ * A test holds the list to the registry's own stages.
  */
 const FILL_STAGES: readonly string[] = [
-  'snapshot',
-  'history',
-  'inventory',
-  'build-configuration',
-  'document-index',
-  'syntax',
-  'semantic-resolution',
-  'modules',
-  'boundaries',
-  'intent-history',
-  'overview',
-  'understanding',
-  'recovery',
-  'doc-intent',
-  'narrative',
+  // This step's fill and nothing else (madarch-8bdc.2.5, item 6): the tree and the history of
+  // a repository. A later step adds its stage here, and to `FILL_STEP_IDS`, in one commit.
+  'repository-tree',
+  'repository-history',
 ];
 
 /**

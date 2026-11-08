@@ -1,0 +1,282 @@
+path: 'services/promotions/internal/store/promotions.go'
+nodes:
+  - id: 'code.field:services/promotions/internal/store/promotions.go#Promotion.Code'
+    kind: 'code.field'
+    label: 'Promotion.Code'
+    evidence:
+      - path: 'services/promotions/internal/store/promotions.go'
+        startLine: 19
+        endLine: 19
+        quote: '	Code     string'
+    reading: 'parsed'
+  - id: 'code.field:services/promotions/internal/store/promotions.go#Promotion.ID'
+    kind: 'code.field'
+    label: 'Promotion.ID'
+    evidence:
+      - path: 'services/promotions/internal/store/promotions.go'
+        startLine: 18
+        endLine: 18
+        quote: '	ID       string'
+    reading: 'parsed'
+  - id: 'code.field:services/promotions/internal/store/promotions.go#Promotion.Kind'
+    kind: 'code.field'
+    label: 'Promotion.Kind'
+    evidence:
+      - path: 'services/promotions/internal/store/promotions.go'
+        startLine: 20
+        endLine: 20
+        quote: '	Kind     string'
+    reading: 'parsed'
+  - id: 'code.field:services/promotions/internal/store/promotions.go#Promotion.MinCents'
+    kind: 'code.field'
+    label: 'Promotion.MinCents'
+    evidence:
+      - path: 'services/promotions/internal/store/promotions.go'
+        startLine: 22
+        endLine: 22
+        quote: '	MinCents int64'
+    reading: 'parsed'
+  - id: 'code.field:services/promotions/internal/store/promotions.go#Promotion.Value'
+    kind: 'code.field'
+    label: 'Promotion.Value'
+    evidence:
+      - path: 'services/promotions/internal/store/promotions.go'
+        startLine: 21
+        endLine: 21
+        quote: '	Value    int64'
+    reading: 'parsed'
+  - id: 'code.field:services/promotions/internal/store/promotions.go#Repository.db'
+    kind: 'code.field'
+    label: 'Repository.db'
+    evidence:
+      - path: 'services/promotions/internal/store/promotions.go'
+        startLine: 27
+        endLine: 27
+        quote: '	db *sql.DB'
+    reading: 'parsed'
+  - id: 'code.file:services/promotions/internal/store/promotions.go'
+    kind: 'code.file'
+    label: 'promotions.go'
+    evidence:
+      - path: 'services/promotions/internal/store/promotions.go'
+        startLine: 1
+        endLine: 1
+        quote: '// Package store reads promotion codes from the promotions database.'
+    reading: 'parsed'
+  - id: 'code.module:services/promotions/internal/store'
+    kind: 'code.module'
+    label: 'services/promotions/internal/store'
+    evidence:
+      - path: 'services/promotions/internal/store/promotions.go'
+        startLine: 2
+        endLine: 2
+        quote: 'package store'
+    reading: 'parsed'
+  - id: 'code.symbol:services/promotions/internal/store/promotions.go#ErrNotFound'
+    kind: 'code.symbol'
+    label: 'ErrNotFound'
+    evidence:
+      - path: 'services/promotions/internal/store/promotions.go'
+        startLine: 14
+        endLine: 14
+        quote: 'var ErrNotFound = errors.New("promotion not found")'
+    reading: 'parsed'
+  - id: 'code.symbol:services/promotions/internal/store/promotions.go#Open'
+    kind: 'code.symbol'
+    label: 'Open'
+    evidence:
+      - path: 'services/promotions/internal/store/promotions.go'
+        startLine: 31
+        endLine: 31
+        quote: 'func Open(ctx context.Context, url string) (*Repository, error) {'
+    reading: 'parsed'
+  - id: 'code.symbol:services/promotions/internal/store/promotions.go#Promotion'
+    kind: 'code.symbol'
+    label: 'Promotion'
+    evidence:
+      - path: 'services/promotions/internal/store/promotions.go'
+        startLine: 17
+        endLine: 17
+        quote: 'type Promotion struct {'
+    reading: 'parsed'
+  - id: 'code.symbol:services/promotions/internal/store/promotions.go#Repository'
+    kind: 'code.symbol'
+    label: 'Repository'
+    evidence:
+      - path: 'services/promotions/internal/store/promotions.go'
+        startLine: 26
+        endLine: 26
+        quote: 'type Repository struct {'
+    reading: 'parsed'
+  - id: 'code.symbol:services/promotions/internal/store/promotions.go#Repository.Close'
+    kind: 'code.symbol'
+    label: 'Repository.Close'
+    evidence:
+      - path: 'services/promotions/internal/store/promotions.go'
+        startLine: 44
+        endLine: 44
+        quote: 'func (r *Repository) Close() error { return r.db.Close() }'
+    reading: 'parsed'
+  - id: 'code.symbol:services/promotions/internal/store/promotions.go#Repository.FindActive'
+    kind: 'code.symbol'
+    label: 'Repository.FindActive'
+    evidence:
+      - path: 'services/promotions/internal/store/promotions.go'
+        startLine: 47
+        endLine: 47
+        quote: 'func (r *Repository) FindActive(ctx context.Context, code string, now time.Time) (Promotion, error) {'
+    reading: 'parsed'
+edges:
+  - relation: 'code.contains'
+    from: 'code.file:services/promotions/internal/store/promotions.go'
+    to: 'code.symbol:services/promotions/internal/store/promotions.go#ErrNotFound'
+    evidence:
+      - path: 'services/promotions/internal/store/promotions.go'
+        startLine: 14
+        endLine: 14
+        quote: 'var ErrNotFound = errors.New("promotion not found")'
+    reading: 'parsed'
+  - relation: 'code.contains'
+    from: 'code.file:services/promotions/internal/store/promotions.go'
+    to: 'code.symbol:services/promotions/internal/store/promotions.go#Open'
+    evidence:
+      - path: 'services/promotions/internal/store/promotions.go'
+        startLine: 31
+        endLine: 31
+        quote: 'func Open(ctx context.Context, url string) (*Repository, error) {'
+    reading: 'parsed'
+  - relation: 'code.contains'
+    from: 'code.file:services/promotions/internal/store/promotions.go'
+    to: 'code.symbol:services/promotions/internal/store/promotions.go#Promotion'
+    evidence:
+      - path: 'services/promotions/internal/store/promotions.go'
+        startLine: 17
+        endLine: 17
+        quote: 'type Promotion struct {'
+    reading: 'parsed'
+  - relation: 'code.contains'
+    from: 'code.file:services/promotions/internal/store/promotions.go'
+    to: 'code.symbol:services/promotions/internal/store/promotions.go#Repository'
+    evidence:
+      - path: 'services/promotions/internal/store/promotions.go'
+        startLine: 26
+        endLine: 26
+        quote: 'type Repository struct {'
+    reading: 'parsed'
+  - relation: 'code.contains'
+    from: 'code.file:services/promotions/internal/store/promotions.go'
+    to: 'code.symbol:services/promotions/internal/store/promotions.go#Repository.Close'
+    evidence:
+      - path: 'services/promotions/internal/store/promotions.go'
+        startLine: 44
+        endLine: 44
+        quote: 'func (r *Repository) Close() error { return r.db.Close() }'
+    reading: 'parsed'
+  - relation: 'code.contains'
+    from: 'code.file:services/promotions/internal/store/promotions.go'
+    to: 'code.symbol:services/promotions/internal/store/promotions.go#Repository.FindActive'
+    evidence:
+      - path: 'services/promotions/internal/store/promotions.go'
+        startLine: 47
+        endLine: 47
+        quote: 'func (r *Repository) FindActive(ctx context.Context, code string, now time.Time) (Promotion, error) {'
+    reading: 'parsed'
+  - relation: 'code.contains'
+    from: 'code.module:services/promotions/internal/store'
+    to: 'code.file:services/promotions/internal/store/promotions.go'
+    evidence:
+      - path: 'services/promotions/internal/store/promotions.go'
+        startLine: 2
+        endLine: 2
+        quote: 'package store'
+    reading: 'parsed'
+  - relation: 'code.contains'
+    from: 'code.symbol:services/promotions/internal/store/promotions.go#Promotion'
+    to: 'code.field:services/promotions/internal/store/promotions.go#Promotion.Code'
+    evidence:
+      - path: 'services/promotions/internal/store/promotions.go'
+        startLine: 19
+        endLine: 19
+        quote: '	Code     string'
+    reading: 'parsed'
+  - relation: 'code.contains'
+    from: 'code.symbol:services/promotions/internal/store/promotions.go#Promotion'
+    to: 'code.field:services/promotions/internal/store/promotions.go#Promotion.ID'
+    evidence:
+      - path: 'services/promotions/internal/store/promotions.go'
+        startLine: 18
+        endLine: 18
+        quote: '	ID       string'
+    reading: 'parsed'
+  - relation: 'code.contains'
+    from: 'code.symbol:services/promotions/internal/store/promotions.go#Promotion'
+    to: 'code.field:services/promotions/internal/store/promotions.go#Promotion.Kind'
+    evidence:
+      - path: 'services/promotions/internal/store/promotions.go'
+        startLine: 20
+        endLine: 20
+        quote: '	Kind     string'
+    reading: 'parsed'
+  - relation: 'code.contains'
+    from: 'code.symbol:services/promotions/internal/store/promotions.go#Promotion'
+    to: 'code.field:services/promotions/internal/store/promotions.go#Promotion.MinCents'
+    evidence:
+      - path: 'services/promotions/internal/store/promotions.go'
+        startLine: 22
+        endLine: 22
+        quote: '	MinCents int64'
+    reading: 'parsed'
+  - relation: 'code.contains'
+    from: 'code.symbol:services/promotions/internal/store/promotions.go#Promotion'
+    to: 'code.field:services/promotions/internal/store/promotions.go#Promotion.Value'
+    evidence:
+      - path: 'services/promotions/internal/store/promotions.go'
+        startLine: 21
+        endLine: 21
+        quote: '	Value    int64'
+    reading: 'parsed'
+  - relation: 'code.contains'
+    from: 'code.symbol:services/promotions/internal/store/promotions.go#Repository'
+    to: 'code.field:services/promotions/internal/store/promotions.go#Repository.db'
+    evidence:
+      - path: 'services/promotions/internal/store/promotions.go'
+        startLine: 27
+        endLine: 27
+        quote: '	db *sql.DB'
+    reading: 'parsed'
+  - relation: 'code.imports'
+    from: 'code.file:services/promotions/internal/store/promotions.go'
+    to: 'code.dependency:services/promotions/go.mod#github.com/lib/pq'
+    evidence:
+      - path: 'services/promotions/internal/store/promotions.go'
+        startLine: 10
+        endLine: 10
+        quote: '	_ "github.com/lib/pq"'
+    reading: 'parsed'
+  - relation: 'code.reads-table'
+    from: 'code.file:services/promotions/internal/store/promotions.go'
+    to: 'code.table:promotions.promotions'
+    evidence:
+      - path: 'services/promotions/internal/store/promotions.go'
+        startLine: 50
+        endLine: 50
+        quote: '		`SELECT id, code, kind, value, COALESCE(min_cents, 0)'
+    reading: 'judgement'
+  - relation: 'code.uses-type'
+    from: 'code.symbol:services/promotions/internal/store/promotions.go#Open'
+    to: 'code.symbol:services/promotions/internal/store/promotions.go#Repository'
+    evidence:
+      - path: 'services/promotions/internal/store/promotions.go'
+        startLine: 31
+        endLine: 31
+        quote: 'func Open(ctx context.Context, url string) (*Repository, error) {'
+    reading: 'parsed'
+  - relation: 'code.uses-type'
+    from: 'code.symbol:services/promotions/internal/store/promotions.go#Repository.FindActive'
+    to: 'code.symbol:services/promotions/internal/store/promotions.go#Promotion'
+    evidence:
+      - path: 'services/promotions/internal/store/promotions.go'
+        startLine: 47
+        endLine: 47
+        quote: 'func (r *Repository) FindActive(ctx context.Context, code string, now time.Time) (Promotion, error) {'
+    reading: 'parsed'

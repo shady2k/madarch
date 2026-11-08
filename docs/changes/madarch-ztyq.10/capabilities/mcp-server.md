@@ -169,13 +169,11 @@ product fill's graph for the same repository and commit shall serve that graph, 
 folder and saying that it reused it, without extracting the repository again. A cold build shall run every
 producer the fill runs — code, files, operations, contracts and the data model — never a subset, because a
 graph without a contract's operations or a migration's tables answers refusals for entities that exist.
-A cold build shall be bounded: it streams the tree file by file, holds one file's facts at a time, and
-reads at most 400 code files, which this machine measures at 2 145 MB for 300 files with the facts the
-producers read and killed at 3 164 MB for the checkout's 1 041; a tree beyond the bound shall be refused
-with the count, the bound, the measurement and what to serve instead, never built until the machine kills
-it and never built with a producer left out.
-A start that fails for good — a tree past the bound with no graph to reuse — shall be kept, and every tool
-call shall answer that failure with `isError` true and the reason the start gave, never a progress note.
+A cold build shall stream the tree file by file and hold one file's facts at a time. There is no file count
+above which it refuses: the fill is the path that must hold any repository, and a machine that runs out of
+memory is a fill defect to fix, never a reason to leave a repository unserved.
+A start that fails for good shall be kept, and every tool call shall answer that failure with `isError`
+true and the reason the start gave, never a progress note.
 
 ### Scenario: a-product-graph-is-reused
 - Given: a madarch home whose product knowledge store holds the graph of a repository at its `HEAD`
@@ -188,14 +186,14 @@ call shall answer that failure with `isError` true and the reason the start gave
 - Then: the first two answer at once, and the call's answer says `graph building` and names the repository as building in its source
 
 ### Scenario: a-failed-start-is-answered-on-every-call
-- Given: a server whose start failed for good because the tree is past the bound and no graph is there to reuse
+- Given: a server whose start failed for good
 - When: a client sends `initialize`, then a tool call, then the same tool call again
-- Then: the handshake answers, and both calls answer `isError` true with the start's own reason, the file count and the bound, and no call says the graph is building
+- Then: the handshake answers, and both calls answer `isError` true with the start's own reason, and no call says the graph is building
 
-### Scenario: a-tree-beyond-the-bound-is-refused-with-what-to-serve
-- Given: a checkout whose code files exceed the cold build's bound
-- When: `madarch mcp` serves it with no graph in its state folder
-- Then: the command exits 2 with a message naming the count, the bound, the measurement and the store to serve instead, and no extraction starts
+### Scenario: no-file-count-refuses-a-run
+- Given: a checkout of any number of code files and no graph in its state folder
+- When: `madarch mcp` serves it
+- Then: the build starts, and no file count refuses it
 
 ## Requirement: source-on-every-answer — Every result names its revision, refusals and failures included
 Every tool result shall carry the source — the repository, the commit, the branch, the commit's date, the

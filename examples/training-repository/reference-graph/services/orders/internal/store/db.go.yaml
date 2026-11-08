@@ -1,0 +1,129 @@
+path: 'services/orders/internal/store/db.go'
+nodes:
+  - id: 'code.column:orders.schema_migrations.applied_at'
+    kind: 'code.column'
+    label: 'applied_at'
+    evidence:
+      - path: 'services/orders/internal/store/db.go'
+        startLine: 36
+        endLine: 36
+        quote: '    applied_at TIMESTAMPTZ NOT NULL DEFAULT now()'
+    reading: 'parsed'
+  - id: 'code.column:orders.schema_migrations.name'
+    kind: 'code.column'
+    label: 'name'
+    evidence:
+      - path: 'services/orders/internal/store/db.go'
+        startLine: 35
+        endLine: 35
+        quote: '    name       TEXT PRIMARY KEY,'
+    reading: 'parsed'
+  - id: 'code.file:services/orders/internal/store/db.go'
+    kind: 'code.file'
+    label: 'db.go'
+    evidence:
+      - path: 'services/orders/internal/store/db.go'
+        startLine: 1
+        endLine: 1
+        quote: '// Package store holds the Postgres implementations of the service''s storage'
+    reading: 'parsed'
+  - id: 'code.module:services/orders/internal/store'
+    kind: 'code.module'
+    label: 'services/orders/internal/store'
+    evidence:
+      - path: 'services/orders/internal/store/db.go'
+        startLine: 3
+        endLine: 3
+        quote: 'package store'
+    reading: 'parsed'
+  - id: 'code.symbol:services/orders/internal/store/db.go#Migrate'
+    kind: 'code.symbol'
+    label: 'Migrate'
+    evidence:
+      - path: 'services/orders/internal/store/db.go'
+        startLine: 33
+        endLine: 33
+        quote: 'func Migrate(ctx context.Context, db *sql.DB, dir string) error {'
+    reading: 'parsed'
+  - id: 'code.symbol:services/orders/internal/store/db.go#Open'
+    kind: 'code.symbol'
+    label: 'Open'
+    evidence:
+      - path: 'services/orders/internal/store/db.go'
+        startLine: 18
+        endLine: 18
+        quote: 'func Open(ctx context.Context, url string) (*sql.DB, error) {'
+    reading: 'parsed'
+  - id: 'code.table:orders.schema_migrations'
+    kind: 'code.table'
+    label: 'schema_migrations'
+    evidence:
+      - path: 'services/orders/internal/store/db.go'
+        startLine: 34
+        endLine: 34
+        quote: '	if _, err := db.ExecContext(ctx, `CREATE TABLE IF NOT EXISTS schema_migrations ('
+    reading: 'parsed'
+edges:
+  - relation: 'code.contains'
+    from: 'code.file:services/orders/internal/store/db.go'
+    to: 'code.symbol:services/orders/internal/store/db.go#Migrate'
+    evidence:
+      - path: 'services/orders/internal/store/db.go'
+        startLine: 33
+        endLine: 33
+        quote: 'func Migrate(ctx context.Context, db *sql.DB, dir string) error {'
+    reading: 'parsed'
+  - relation: 'code.contains'
+    from: 'code.file:services/orders/internal/store/db.go'
+    to: 'code.symbol:services/orders/internal/store/db.go#Open'
+    evidence:
+      - path: 'services/orders/internal/store/db.go'
+        startLine: 18
+        endLine: 18
+        quote: 'func Open(ctx context.Context, url string) (*sql.DB, error) {'
+    reading: 'parsed'
+  - relation: 'code.contains'
+    from: 'code.module:services/orders/internal/store'
+    to: 'code.file:services/orders/internal/store/db.go'
+    evidence:
+      - path: 'services/orders/internal/store/db.go'
+        startLine: 3
+        endLine: 3
+        quote: 'package store'
+    reading: 'parsed'
+  - relation: 'code.contains'
+    from: 'code.table:orders.schema_migrations'
+    to: 'code.column:orders.schema_migrations.applied_at'
+    evidence:
+      - path: 'services/orders/internal/store/db.go'
+        startLine: 36
+        endLine: 36
+        quote: '    applied_at TIMESTAMPTZ NOT NULL DEFAULT now()'
+    reading: 'parsed'
+  - relation: 'code.contains'
+    from: 'code.table:orders.schema_migrations'
+    to: 'code.column:orders.schema_migrations.name'
+    evidence:
+      - path: 'services/orders/internal/store/db.go'
+        startLine: 35
+        endLine: 35
+        quote: '    name       TEXT PRIMARY KEY,'
+    reading: 'parsed'
+  - relation: 'code.imports'
+    from: 'code.file:services/orders/internal/store/db.go'
+    to: 'code.dependency:services/orders/go.mod#github.com/lib/pq'
+    evidence:
+      - path: 'services/orders/internal/store/db.go'
+        startLine: 14
+        endLine: 14
+        quote: '	_ "github.com/lib/pq"'
+    reading: 'parsed'
+  - relation: 'code.writes-table'
+    from: 'code.file:services/orders/internal/store/db.go'
+    to: 'code.table:orders.schema_migrations'
+    evidence:
+      - path: 'services/orders/internal/store/db.go'
+        startLine: 66
+        endLine: 66
+        quote: '		if _, err := tx.ExecContext(ctx, `INSERT INTO schema_migrations (name) VALUES ($1)`, name); err != nil {'
+    reading: 'judgement'

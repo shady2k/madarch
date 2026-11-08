@@ -1,0 +1,201 @@
+path: 'services/payments/src/providers/deferred.ts'
+nodes:
+  - id: 'code.field:services/payments/src/providers/deferred.ts#Accepted.charge'
+    kind: 'code.field'
+    label: 'Accepted.charge'
+    evidence:
+      - path: 'services/payments/src/providers/deferred.ts'
+        startLine: 5
+        endLine: 5
+        quote: '  charge: ChargeRequest;'
+    reading: 'parsed'
+  - id: 'code.field:services/payments/src/providers/deferred.ts#Accepted.remainingCents'
+    kind: 'code.field'
+    label: 'Accepted.remainingCents'
+    evidence:
+      - path: 'services/payments/src/providers/deferred.ts'
+        startLine: 7
+        endLine: 7
+        quote: '  remainingCents: number;'
+    reading: 'parsed'
+  - id: 'code.field:services/payments/src/providers/deferred.ts#Deferred.batch'
+    kind: 'code.field'
+    label: 'Deferred.batch'
+    evidence:
+      - path: 'services/payments/src/providers/deferred.ts'
+        startLine: 18
+        endLine: 18
+        quote: '  private readonly batch = new Map<string, Accepted>();'
+    reading: 'parsed'
+  - id: 'code.field:services/payments/src/providers/deferred.ts#Deferred.name'
+    kind: 'code.field'
+    label: 'Deferred.name'
+    evidence:
+      - path: 'services/payments/src/providers/deferred.ts'
+        startLine: 17
+        endLine: 17
+        quote: '  readonly name = ''deferred'';'
+    reading: 'parsed'
+  - id: 'code.file:services/payments/src/providers/deferred.ts'
+    kind: 'code.file'
+    label: 'deferred.ts'
+    evidence:
+      - path: 'services/payments/src/providers/deferred.ts'
+        startLine: 1
+        endLine: 1
+        quote: 'import { randomUUID } from ''node:crypto'';'
+    reading: 'parsed'
+  - id: 'code.symbol:services/payments/src/providers/deferred.ts#Accepted'
+    kind: 'code.symbol'
+    label: 'Accepted'
+    evidence:
+      - path: 'services/payments/src/providers/deferred.ts'
+        startLine: 4
+        endLine: 4
+        quote: 'interface Accepted {'
+    reading: 'parsed'
+  - id: 'code.symbol:services/payments/src/providers/deferred.ts#Deferred'
+    kind: 'code.symbol'
+    label: 'Deferred'
+    evidence:
+      - path: 'services/payments/src/providers/deferred.ts'
+        startLine: 16
+        endLine: 16
+        quote: 'export class Deferred extends BaseProvider implements PaymentProvider {'
+    reading: 'parsed'
+  - id: 'code.symbol:services/payments/src/providers/deferred.ts#Deferred.pending'
+    kind: 'code.symbol'
+    label: 'Deferred.pending'
+    evidence:
+      - path: 'services/payments/src/providers/deferred.ts'
+        startLine: 41
+        endLine: 41
+        quote: '  pending(): number {'
+    reading: 'parsed'
+  - id: 'code.symbol:services/payments/src/providers/deferred.ts#Deferred.submit'
+    kind: 'code.symbol'
+    label: 'Deferred.submit'
+    evidence:
+      - path: 'services/payments/src/providers/deferred.ts'
+        startLine: 20
+        endLine: 20
+        quote: '  protected async submit(charge: ChargeRequest): Promise<ChargeResult> {'
+    reading: 'parsed'
+  - id: 'code.symbol:services/payments/src/providers/deferred.ts#Deferred.submitRefund'
+    kind: 'code.symbol'
+    label: 'Deferred.submitRefund'
+    evidence:
+      - path: 'services/payments/src/providers/deferred.ts'
+        startLine: 27
+        endLine: 27
+        quote: '  protected async submitRefund(providerReference: string, amountCents: number): Promise<void> {'
+    reading: 'parsed'
+edges:
+  - relation: 'code.contains'
+    from: 'code.file:services/payments/src/providers/deferred.ts'
+    to: 'code.symbol:services/payments/src/providers/deferred.ts#Accepted'
+    evidence:
+      - path: 'services/payments/src/providers/deferred.ts'
+        startLine: 4
+        endLine: 4
+        quote: 'interface Accepted {'
+    reading: 'parsed'
+  - relation: 'code.contains'
+    from: 'code.file:services/payments/src/providers/deferred.ts'
+    to: 'code.symbol:services/payments/src/providers/deferred.ts#Deferred'
+    evidence:
+      - path: 'services/payments/src/providers/deferred.ts'
+        startLine: 16
+        endLine: 16
+        quote: 'export class Deferred extends BaseProvider implements PaymentProvider {'
+    reading: 'parsed'
+  - relation: 'code.contains'
+    from: 'code.symbol:services/payments/src/providers/deferred.ts#Accepted'
+    to: 'code.field:services/payments/src/providers/deferred.ts#Accepted.charge'
+    evidence:
+      - path: 'services/payments/src/providers/deferred.ts'
+        startLine: 5
+        endLine: 5
+        quote: '  charge: ChargeRequest;'
+    reading: 'parsed'
+  - relation: 'code.contains'
+    from: 'code.symbol:services/payments/src/providers/deferred.ts#Accepted'
+    to: 'code.field:services/payments/src/providers/deferred.ts#Accepted.remainingCents'
+    evidence:
+      - path: 'services/payments/src/providers/deferred.ts'
+        startLine: 7
+        endLine: 7
+        quote: '  remainingCents: number;'
+    reading: 'parsed'
+  - relation: 'code.contains'
+    from: 'code.symbol:services/payments/src/providers/deferred.ts#Deferred'
+    to: 'code.field:services/payments/src/providers/deferred.ts#Deferred.batch'
+    evidence:
+      - path: 'services/payments/src/providers/deferred.ts'
+        startLine: 18
+        endLine: 18
+        quote: '  private readonly batch = new Map<string, Accepted>();'
+    reading: 'parsed'
+  - relation: 'code.contains'
+    from: 'code.symbol:services/payments/src/providers/deferred.ts#Deferred'
+    to: 'code.field:services/payments/src/providers/deferred.ts#Deferred.name'
+    evidence:
+      - path: 'services/payments/src/providers/deferred.ts'
+        startLine: 17
+        endLine: 17
+        quote: '  readonly name = ''deferred'';'
+    reading: 'parsed'
+  - relation: 'code.contains'
+    from: 'code.symbol:services/payments/src/providers/deferred.ts#Deferred'
+    to: 'code.symbol:services/payments/src/providers/deferred.ts#Deferred.pending'
+    evidence:
+      - path: 'services/payments/src/providers/deferred.ts'
+        startLine: 41
+        endLine: 41
+        quote: '  pending(): number {'
+    reading: 'parsed'
+  - relation: 'code.contains'
+    from: 'code.symbol:services/payments/src/providers/deferred.ts#Deferred'
+    to: 'code.symbol:services/payments/src/providers/deferred.ts#Deferred.submit'
+    evidence:
+      - path: 'services/payments/src/providers/deferred.ts'
+        startLine: 20
+        endLine: 20
+        quote: '  protected async submit(charge: ChargeRequest): Promise<ChargeResult> {'
+    reading: 'parsed'
+  - relation: 'code.contains'
+    from: 'code.symbol:services/payments/src/providers/deferred.ts#Deferred'
+    to: 'code.symbol:services/payments/src/providers/deferred.ts#Deferred.submitRefund'
+    evidence:
+      - path: 'services/payments/src/providers/deferred.ts'
+        startLine: 27
+        endLine: 27
+        quote: '  protected async submitRefund(providerReference: string, amountCents: number): Promise<void> {'
+    reading: 'parsed'
+  - relation: 'code.implements'
+    from: 'code.symbol:services/payments/src/providers/deferred.ts#Deferred'
+    to: 'code.symbol:services/payments/src/providers/provider.ts#PaymentProvider'
+    evidence:
+      - path: 'services/payments/src/providers/deferred.ts'
+        startLine: 16
+        endLine: 16
+        quote: 'export class Deferred extends BaseProvider implements PaymentProvider {'
+    reading: 'parsed'
+  - relation: 'code.imports'
+    from: 'code.file:services/payments/src/providers/deferred.ts'
+    to: 'code.file:services/payments/src/providers/provider.ts'
+    evidence:
+      - path: 'services/payments/src/providers/deferred.ts'
+        startLine: 2
+        endLine: 2
+        quote: 'import { BaseProvider, ChargeRequest, ChargeResult, PaymentProvider } from ''./provider'';'
+    reading: 'parsed'
+  - relation: 'code.uses-type'
+    from: 'code.field:services/payments/src/providers/deferred.ts#Accepted.charge'
+    to: 'code.symbol:services/payments/src/providers/provider.ts#ChargeRequest'
+    evidence:
+      - path: 'services/payments/src/providers/deferred.ts'
+        startLine: 5
+        endLine: 5
+        quote: '  charge: ChargeRequest;'
+    reading: 'parsed'

@@ -7,8 +7,8 @@
  * publication leaves them (a publication's machine is test/fill-fact-store.test.ts's
  * subject, not this reader's), and every read is then checked by the consuming
  * stage's OWN row reader (`publishedTreeRows`, `publishedDocuments`,
- * `publishedImportRows`, `publishedGapRows`, `publishedReadRows`, `symbolRows`,
- * `indexRows`, `packageRows`, `fileRows`, `edgeRows`), because a row shape
+ * `publishedImportRows`, `publishedGapRows`, `packageRows`, `fileRows`,
+ * `edgeRows`), because a row shape
  * invented here would prove nothing about the stages that read it. Where a
  * reader is the stage's own private one (the build and configuration stage's
  * `publishedManifests`), the row is checked against the interface that stage
@@ -26,16 +26,11 @@ import { parseStageRead, createStageReadReader, createStageReadSchema, STAGE_REA
 import { publishedTreeRead, publishedTreeRows } from '../src/fill/stages/inventory.js';
 import { publishedManifestsRead } from '../src/fill/stages/build-configuration.js';
 import { publishedDocuments, publishedDocumentsRead } from '../src/fill/stages/document-index.js';
-import {
-  compilerIndexRead, indexRows,
-  publishedReadsRead, publishedReadRows, publishedSymbolsRead, symbolRows as resolutionSymbolRows,
-} from '../src/fill/stages/semantic-resolution.js';
 import { publishedGapRows, publishedGapsRead, publishedImportRows, publishedImportsRead } from '../src/fill/stages/syntax-specifiers.js';
 import {
   edgeRows, fileRows, packageRows, publishedFilesRead, publishedPackagesRead, publishedSymbolsRead as moduleSymbolsRead,
   resolvedEdgesRead, symbolRows as moduleSymbolRows,
 } from '../src/fill/stages/modules.js';
-import { commitsHeldQuery, coverageHeldQuery, historyScope } from '../src/fill/stages/history.js';
 
 const REPOSITORY = 'orders-api';
 const OTHER = 'other-api';
@@ -101,7 +96,7 @@ beforeAll(async () => {
   // The history stage's own coverage of one repository at one commit: its scope
   // is that stage's own form, which is what its read filters by.
   const historyCoverage = node('coverage', {
-    repository: REPOSITORY, scope: historyScope(REPOSITORY, COMMIT), complete: false,
+    repository: REPOSITORY, scope: `${REPOSITORY}@${COMMIT}`, complete: false,
     read: ['the pinned commit and its ancestry'], unread: [{ what: 'f'.repeat(40), reason: 'budget' }],
   }, 'src/cart.ts', 'extracted', 1, { system: 'git', version: '2.42.0' });
   const imported = edge('import', { from: fileId(REPOSITORY, 'src/cart.ts'), to: fileId(REPOSITORY, 'src/total.ts'), specifier: './total.js' }, 'src/cart.ts');
@@ -177,15 +172,15 @@ async function query(text: string): Promise<readonly Record<string, unknown>[]> 
 describe('the read grammar', () => {
   test('every read name a stage writes is one this module answers', () => {
     expect([...STAGE_READ_NAMES].sort()).toEqual([
-      'stage-1-published-tree', 'stage-2-published-manifests', 'stage-3-coverage-gaps', 'stage-3-published-symbols',
-      'stage-4-compiler-index', 'stage-4-published-imports', 'stage-4-published-reads', 'stage-5-published-files',
-      'stage-5-published-packages', 'stage-5-published-symbols', 'stage-5-resolved-edges', 'stage-6-published-documents',
+      'stage-1-published-tree', 'stage-2-published-manifests', 'stage-3-coverage-gaps', 'stage-4-published-imports',
+      'stage-5-published-files', 'stage-5-published-packages', 'stage-5-published-symbols', 'stage-5-resolved-edges',
+      'stage-6-published-documents',
     ]);
   });
 
   test('a stage read parses into what it names, and anything else is another reader\'s text', () => {
     expect(parseStageRead(publishedTreeRead(REPOSITORY))).toEqual({ read: 'stage-1-published-tree', repository: REPOSITORY });
-    expect(parseStageRead(publishedSymbolsRead(REPOSITORY, 'src/cart.ts'))).toEqual({ read: 'stage-3-published-symbols', repository: REPOSITORY, path: 'src/cart.ts' });
+    expect(parseStageRead(publishedImportsRead(REPOSITORY))).toEqual({ read: 'stage-4-published-imports', repository: REPOSITORY });
     // A stage's own SQL and a read of the graph-read grammar are not this grammar.
     expect(parseStageRead('SELECT repository, commit FROM fact')).toBeNull();
     expect(parseStageRead(readText({ read: 'fact', id: FACTS[0]!.fact.id }))).toBeNull();
@@ -236,16 +231,6 @@ describe('the manifests, documents, packages and symbols the stages plan and rea
     ]);
   });
 
-  test('a file\'s symbols answer one file\'s declarations, with the range each stands at', async () => {
-    const read = publishedSymbolsRead(REPOSITORY, 'src/cart.ts');
-    const symbols = resolutionSymbolRows(await query(read), REPOSITORY, 'src/cart.ts', read);
-    expect(symbols.map((symbol) => [symbol.qualifiedName, symbol.symbolKind, symbol.range.startLine, symbol.range.endLine])).toEqual([
-      ['Cart', 'class', 2, 2],
-      ['Cart.total', 'method', 5, 5],
-    ]);
-    expect(symbols[0]?.id.startsWith('symbol:')).toBe(true);
-  });
-
   test('the file and symbol facts the modules stage ranks carry their whole value and their place', async () => {
     const filesRead = publishedFilesRead(REPOSITORY);
     const files = fileRows(await query(filesRead), REPOSITORY, filesRead);
@@ -286,17 +271,6 @@ describe('the resolution stage\'s reads', () => {
     ]);
   });
 
-  test('the reads this stage\'s own last run made are its own coverage, with the files it read', async () => {
-    const read = publishedReadsRead(REPOSITORY);
-    expect(publishedReadRows(await query(read), REPOSITORY, read)).toEqual([
-      { kind: 'coverage', file: 'src/cart.ts', read: ['src/cart.ts', 'src/total.ts'] },
-    ]);
-  });
-
-  test('a compiler index this build wires asks for nothing, which is what the stage\'s words say a wiring without one answers', async () => {
-    expect(await query(compilerIndexRead(REPOSITORY, 'src/cart.ts'))).toEqual([]);
-    expect(indexRows([], REPOSITORY, 'src/cart.ts', compilerIndexRead(REPOSITORY, 'src/cart.ts')).size).toBe(0);
-  });
 });
 
 describe('the resolved edges the modules stage ranks', () => {
@@ -310,16 +284,6 @@ describe('the resolved edges the modules stage ranks', () => {
   });
 });
 
-describe('a stage\'s own SQL, through the view this module creates', () => {
-  test('the history stage\'s own queries answer the facts the store holds', async () => {
-    const commits = await query(commitsHeldQuery(REPOSITORY));
-    expect(commits.map((row) => row['commit'])).toEqual([COMMIT]);
-    expect((commits[0]?.['value'] as { subject: string }).subject).toBe('the cart');
-    const coverage = await query(coverageHeldQuery(REPOSITORY, historyScope(REPOSITORY, COMMIT)));
-    expect(coverage.length).toBe(1);
-    expect((coverage[0]?.['value'] as { complete: boolean }).complete).toBe(false);
-  });
-});
 
 describe('the reads this module hands on', () => {
   test('a read of the graph-read grammar is answered by that grammar\'s own reader', async () => {

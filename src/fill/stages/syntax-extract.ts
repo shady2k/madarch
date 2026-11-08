@@ -222,17 +222,27 @@ async function grammarFor(language: SyntaxLanguage): Promise<Awaited<ReturnType<
  * the two arguments decide the answer, and nothing else does.
  */
 export async function extractFileSyntax(path: string, bytes: Uint8Array): Promise<ExtractedFileSyntax> {
-  const read = await readSyntaxTree(path, bytes, (file) => {
-    const findings = walk(file.path, file.text, file.root, file.language);
-    // A file the parser could not read whole, and a declaration the walk could
-    // not name, are both read as far as they went and said so: the findings
-    // stand, and each gap carries what was not read and the reason.
-    const unread = [...findings.unread];
-    if (!file.complete) unread.push({ what: file.path, reason: 'error' });
-    return { ...findings, unread: mergeGaps(unread) };
-  });
+  const read = await readSyntaxTree(path, bytes, (file) => readFileFindings(file));
   if (!read.read) return emptyFindings(path, read.language, read.unread);
-  return { path, language: read.language, parsed: true, ...read.value };
+  return read.value;
+}
+
+/**
+ * Everything the syntax reading finds in one parsed file: what
+ * `extractFileSyntax` answers, from a tree a caller has already made. A walk
+ * that reads two things from one parse — this stage's findings and the names
+ * the file mentions (`resolution-extract.ts`) — calls this beside its own
+ * reader and pays one parse for both (decision 0033, item 14: the file pass
+ * reads its file once and writes its own facts).
+ */
+export function readFileFindings(file: ParsedSyntaxTree): ExtractedFileSyntax {
+  const findings = walk(file.path, file.text, file.root, file.language);
+  // A file the parser could not read whole, and a declaration the walk could
+  // not name, are both read as far as they went and said so: the findings
+  // stand, and each gap carries what was not read and the reason.
+  const unread = [...findings.unread];
+  if (!file.complete) unread.push({ what: file.path, reason: 'error' });
+  return { path: file.path, language: file.language, parsed: true, ...findings, unread: mergeGaps(unread) };
 }
 
 /** One file parsed for a reader that walks the tree itself, stage 4's resolution beside stage 3's syntax. */

@@ -1,0 +1,129 @@
+path: 'docs/adr/0001-broker.md'
+nodes:
+  - id: 'code.document-section:docs/adr/0001-broker.md#ADR-0001: Kafka is the broker'
+    kind: 'code.document-section'
+    label: 'ADR-0001: Kafka is the broker'
+    evidence:
+      - path: 'docs/adr/0001-broker.md'
+        startLine: 1
+        endLine: 1
+        quote: '# ADR-0001: Kafka is the broker'
+    reading: 'parsed'
+  - id: 'code.document-section:docs/adr/0001-broker.md#Consequences'
+    kind: 'code.document-section'
+    label: 'Consequences'
+    evidence:
+      - path: 'docs/adr/0001-broker.md'
+        startLine: 25
+        endLine: 25
+        quote: '## Consequences'
+    reading: 'parsed'
+  - id: 'code.document-section:docs/adr/0001-broker.md#Context'
+    kind: 'code.document-section'
+    label: 'Context'
+    evidence:
+      - path: 'docs/adr/0001-broker.md'
+        startLine: 5
+        endLine: 5
+        quote: '## Context'
+    reading: 'parsed'
+  - id: 'code.document-section:docs/adr/0001-broker.md#Decision'
+    kind: 'code.document-section'
+    label: 'Decision'
+    evidence:
+      - path: 'docs/adr/0001-broker.md'
+        startLine: 12
+        endLine: 12
+        quote: '## Decision'
+    reading: 'parsed'
+  - id: 'code.document-section:docs/adr/0001-broker.md#Why Kafka'
+    kind: 'code.document-section'
+    label: 'Why Kafka'
+    evidence:
+      - path: 'docs/adr/0001-broker.md'
+        startLine: 18
+        endLine: 18
+        quote: '## Why Kafka'
+    reading: 'judgement'
+  - id: 'code.document:docs/adr/0001-broker.md'
+    kind: 'code.document'
+    label: '0001-broker.md'
+    evidence:
+      - path: 'docs/adr/0001-broker.md'
+        startLine: 1
+        endLine: 1
+        quote: '# ADR-0001: Kafka is the broker'
+    reading: 'parsed'
+  - id: 'code.file:docs/adr/0001-broker.md'
+    kind: 'code.file'
+    label: '0001-broker.md'
+    evidence:
+      - path: 'docs/adr/0001-broker.md'
+        startLine: 1
+        endLine: 1
+        quote: '# ADR-0001: Kafka is the broker'
+    reading: 'parsed'
+edges:
+  - relation: 'code.contains'
+    from: 'code.document:docs/adr/0001-broker.md'
+    to: 'code.document-section:docs/adr/0001-broker.md#ADR-0001: Kafka is the broker'
+    evidence:
+      - path: 'docs/adr/0001-broker.md'
+        startLine: 1
+        endLine: 1
+        quote: '# ADR-0001: Kafka is the broker'
+    reading: 'parsed'
+  - relation: 'code.contains'
+    from: 'code.document:docs/adr/0001-broker.md'
+    to: 'code.document-section:docs/adr/0001-broker.md#Consequences'
+    evidence:
+      - path: 'docs/adr/0001-broker.md'
+        startLine: 25
+        endLine: 25
+        quote: '## Consequences'
+    reading: 'parsed'
+  - relation: 'code.contains'
+    from: 'code.document:docs/adr/0001-broker.md'
+    to: 'code.document-section:docs/adr/0001-broker.md#Context'
+    evidence:
+      - path: 'docs/adr/0001-broker.md'
+        startLine: 5
+        endLine: 5
+        quote: '## Context'
+    reading: 'parsed'
+  - relation: 'code.contains'
+    from: 'code.document:docs/adr/0001-broker.md'
+    to: 'code.document-section:docs/adr/0001-broker.md#Decision'
+    evidence:
+      - path: 'docs/adr/0001-broker.md'
+        startLine: 12
+        endLine: 12
+        quote: '## Decision'
+    reading: 'parsed'
+  - relation: 'code.contains'
+    from: 'code.document:docs/adr/0001-broker.md'
+    to: 'code.document-section:docs/adr/0001-broker.md#Why Kafka'
+    evidence:
+      - path: 'docs/adr/0001-broker.md'
+        startLine: 18
+        endLine: 18
+        quote: '## Why Kafka'
+    reading: 'parsed'
+  - relation: 'code.mentions'
+    from: 'code.document:docs/adr/0001-broker.md'
+    to: 'code.channel:orders.events'
+    evidence:
+      - path: 'docs/adr/0001-broker.md'
+        startLine: 14
+        endLine: 14
+        quote: 'Both services publish to Kafka topics, `orders.events` and `payments.events`'
+    reading: 'judgement'
+  - relation: 'code.mentions'
+    from: 'code.document:docs/adr/0001-broker.md'
+    to: 'code.channel:payments.events'
+    evidence:
+      - path: 'docs/adr/0001-broker.md'
+        startLine: 14
+        endLine: 14
+        quote: 'Both services publish to Kafka topics, `orders.events` and `payments.events`'
+    reading: 'judgement'

@@ -1,0 +1,129 @@
+path: 'docs/vision.md'
+nodes:
+  - id: 'code.document-section:docs/vision.md#Journeys'
+    kind: 'code.document-section'
+    label: 'Journeys'
+    evidence:
+      - path: 'docs/vision.md'
+        startLine: 22
+        endLine: 22
+        quote: '## Journeys'
+    reading: 'parsed'
+  - id: 'code.document-section:docs/vision.md#The value'
+    kind: 'code.document-section'
+    label: 'The value'
+    evidence:
+      - path: 'docs/vision.md'
+        startLine: 16
+        endLine: 16
+        quote: '## The value'
+    reading: 'parsed'
+  - id: 'code.document-section:docs/vision.md#Users'
+    kind: 'code.document-section'
+    label: 'Users'
+    evidence:
+      - path: 'docs/vision.md'
+        startLine: 7
+        endLine: 7
+        quote: '## Users'
+    reading: 'parsed'
+  - id: 'code.document-section:docs/vision.md#Vision'
+    kind: 'code.document-section'
+    label: 'Vision'
+    evidence:
+      - path: 'docs/vision.md'
+        startLine: 1
+        endLine: 1
+        quote: '# Vision'
+    reading: 'parsed'
+  - id: 'code.document:docs/vision.md'
+    kind: 'code.document'
+    label: 'vision.md'
+    evidence:
+      - path: 'docs/vision.md'
+        startLine: 1
+        endLine: 1
+        quote: '# Vision'
+    reading: 'parsed'
+  - id: 'code.file:docs/vision.md'
+    kind: 'code.file'
+    label: 'vision.md'
+    evidence:
+      - path: 'docs/vision.md'
+        startLine: 1
+        endLine: 1
+        quote: '# Vision'
+    reading: 'parsed'
+edges:
+  - relation: 'code.contains'
+    from: 'code.document:docs/vision.md'
+    to: 'code.document-section:docs/vision.md#Journeys'
+    evidence:
+      - path: 'docs/vision.md'
+        startLine: 22
+        endLine: 22
+        quote: '## Journeys'
+    reading: 'parsed'
+  - relation: 'code.contains'
+    from: 'code.document:docs/vision.md'
+    to: 'code.document-section:docs/vision.md#The value'
+    evidence:
+      - path: 'docs/vision.md'
+        startLine: 16
+        endLine: 16
+        quote: '## The value'
+    reading: 'parsed'
+  - relation: 'code.contains'
+    from: 'code.document:docs/vision.md'
+    to: 'code.document-section:docs/vision.md#Users'
+    evidence:
+      - path: 'docs/vision.md'
+        startLine: 7
+        endLine: 7
+        quote: '## Users'
+    reading: 'parsed'
+  - relation: 'code.contains'
+    from: 'code.document:docs/vision.md'
+    to: 'code.document-section:docs/vision.md#Vision'
+    evidence:
+      - path: 'docs/vision.md'
+        startLine: 1
+        endLine: 1
+        quote: '# Vision'
+    reading: 'parsed'
+  - relation: 'code.mentions'
+    from: 'code.document-section:docs/vision.md#Journeys'
+    to: 'code.route:checkout:POST /checkout'
+    evidence:
+      - path: 'docs/vision.md'
+        startLine: 24
+        endLine: 24
+        quote: '1. **Place an order** - the shopper checks out; checkout prices the cart,'
+    reading: 'judgement'
+  - relation: 'code.mentions'
+    from: 'code.document-section:docs/vision.md#Journeys'
+    to: 'code.route:payments:POST /payments'
+    evidence:
+      - path: 'docs/vision.md'
+        startLine: 26
+        endLine: 26
+        quote: '2. **Pay** - checkout asks the payments service to authorize the card; the'
+    reading: 'judgement'
+  - relation: 'code.mentions'
+    from: 'code.document-section:docs/vision.md#Journeys'
+    to: 'code.route:promotions:POST /internal/apply'
+    evidence:
+      - path: 'docs/vision.md'
+        startLine: 30
+        endLine: 30
+        quote: '4. **Use a promotion** - the shopper types a code; the promotions service says'
+    reading: 'judgement'
+  - relation: 'code.mentions'
+    from: 'code.document-section:docs/vision.md#Journeys'
+    to: 'code.symbol:services/payments/src/domain/refund.ts#checkRefund'
+    evidence:
+      - path: 'docs/vision.md'
+        startLine: 28
+        endLine: 28
+        quote: '3. **Get a refund** - support refunds a captured payment, in part or in full,'
+    reading: 'judgement'

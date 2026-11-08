@@ -19,7 +19,7 @@ import { byCodePoint } from '../model/order.js';
 import { pathOfKey } from './layer.js';
 
 /** The tools decision 0032 gives the agent stage, in the decision's own order. */
-export const REPO_TOOL_NAMES = ['get_symbol', 'get_context', 'trace_flow', 'get_document_sections', 'search_pages', 'get_page', 'search_questions'] as const;
+const REPO_TOOL_NAMES = ['get_symbol', 'get_context', 'trace_flow', 'get_document_sections', 'search_pages', 'get_page', 'search_questions'] as const;
 
 export type RepoToolName = (typeof REPO_TOOL_NAMES)[number];
 

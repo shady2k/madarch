@@ -44,6 +44,7 @@ import type { DatabaseOwner } from '../adapters/database-owner.js';
 import { canonicalJsonDigest } from '../model/canonical.js';
 import type { SqlExecutor } from '../query/sql-driver.js';
 import { byCodePoint } from '../model/order.js';
+import { annotateSpan, withSpan } from '../obs/trace.js';
 import type { FillControl } from '../product/fill-runtime.js';
 import { hashFillInputs } from '../product/fill-runtime.js';
 import { here, raise, withLocation } from './fsm-core.js';
@@ -107,6 +108,8 @@ import {
   readUnitGeneration,
   readProductUnits,
   replaceStaleGeneration,
+  retryGeneration,
+  RETRYABLE_UNIT_STATES,
   revokeUnitLease,
   type ChainRecord,
   type RunRecord,
@@ -116,6 +119,8 @@ import type { ChainEvidence, RunEvidence } from './fsm.js';
 import type { QueueService, ClaimedJob } from './queue.js';
 import type { FillStageConfigurationRead } from './config.js';
 import type { FillStage, StagePlan } from './stage.js';
+import { STATIC_GRAPH_READ, staticGraphRead, staticStageContext, type StaticGraphNode, type StaticGraphReader, type StaticStageSource } from './stages/static-context.js';
+import { createFileFactsCache, type FileFactsCache } from './stages/file-facts.js';
 
 // ---------------------------------------------------------------------------------------------
 // The seams a caller passes
@@ -267,6 +272,20 @@ export interface OrchestratorOptions {
   readonly guard?: HumanEditGuard;
   /** Where a unit's own MCP server is opened, for the stages that declare `usesTools`. */
   readonly unitTools?: (request: UnitToolsOpening) => Promise<StageUnitTools | undefined> | StageUnitTools | undefined;
+  /**
+   * One pinned repository for a static unit, as its path-scoped answers
+   * (decision 0033, "Capability boundaries"). A stage that declares no static
+   * reading is handed none; a static stage is handed the repository the unit's
+   * scope names. The source is the host's, so the run never reaches a checkout
+   * itself and a stage never receives a tree reader.
+   */
+  readonly staticSource?: (ref: UnitRef) => Promise<StaticStageSource | undefined> | StaticStageSource | undefined;
+  /**
+   * The graph a static unit reads through (decision 0033): bounded by key, by
+   * global name and by one neighbourhood, never a whole table. The host owns
+   * the store; a stage is handed the reader and nothing wider.
+   */
+  readonly staticGraph?: (ref: UnitRef) => Promise<StaticGraphReader | undefined> | StaticGraphReader | undefined;
   /** Every durable progress event, once it is committed. */
   readonly sink?: ProgressSink;
   /** Where the orchestrator's own lines go; nothing by default. */
@@ -291,6 +310,8 @@ export interface FillOrchestrator {
   readonly control: RunControlReader;
   readonly guard: HumanEditGuard | undefined;
   readonly unitTools: ((request: UnitToolsOpening) => Promise<StageUnitTools | undefined>) | undefined;
+  readonly staticSource: ((ref: UnitRef) => Promise<StaticStageSource | undefined>) | undefined;
+  readonly staticGraph: ((ref: UnitRef) => Promise<StaticGraphReader | undefined>) | undefined;
   readonly sink: ProgressSink | undefined;
   readonly log: (line: string) => void;
   /**
@@ -300,6 +321,13 @@ export interface FillOrchestrator {
    * removes it when the attempt ends.
    */
   readonly authority: Map<string, AbortController>;
+  /**
+   * The run's memory of parsed files (madarch-8bdc.2.5): one parse per file a static
+   * unit reads, shared by every stage and unit of this orchestrator's fills. Its bound
+   * is `FILE_FACTS_CACHE_LIMITS` (512 files, 64 MiB of source text); what it answered
+   * is read at the end of a fill (`fileFacts.stats`).
+   */
+  readonly fileFacts: FileFactsCache;
 }
 
 /** Builds the orchestrator, resolving every seam and the limits. */
@@ -327,10 +355,21 @@ export function createOrchestrator(options: OrchestratorOptions): FillOrchestrat
     control: options.control ?? (async () => undefined),
     guard: options.guard,
     unitTools: options.unitTools === undefined ? undefined : async (request) => await options.unitTools!(request),
+    staticSource: options.staticSource === undefined ? undefined : async (ref) => await options.staticSource!(ref),
+    staticGraph: options.staticGraph === undefined ? undefined : async (ref) => await options.staticGraph!(ref),
     sink: options.sink,
     log: options.log ?? (() => undefined),
     authority: new Map(),
+    fileFacts: createFileFactsCache(),
   };
+}
+
+/** The file a static unit's own reading is about, where its id names one (`file:<repository>:<path>`). */
+function ownPathOf(stageUnitId: string): string | undefined {
+  if (!stageUnitId.startsWith('file:')) return undefined;
+  const rest = stageUnitId.slice('file:'.length);
+  const at = rest.indexOf(':');
+  return at < 0 ? undefined : rest.slice(at + 1);
 }
 
 /** The key one attempt's authority is registered under. */
@@ -798,6 +837,22 @@ async function planStageUnits(
   orchestrator: FillOrchestrator,
   options: { readonly run: RunRecord; readonly graph: DerivedStageGraph; readonly stageId: string; readonly stagePosition: number; readonly at: number },
 ): Promise<StagePlanOutcome & { readonly refusal?: PlanRefusal }> {
+  // One step of the fill is one span: the stage's plan and every unit it recorded, under the step's name.
+  return await withSpan('fill.step', { 'madarch.step': options.stageId, 'madarch.run': options.run.runId }, async (span) => {
+    const answer = await planStageUnitsSpanned(orchestrator, options);
+    span.setAttribute('madarch.units', answer.units.length);
+    span.setAttribute('madarch.reused', answer.reused.length);
+    if (answer.foundNothing) span.setAttribute('madarch.found', 'nothing');
+    if (answer.refusal !== undefined) span.setAttribute('madarch.refusal', answer.refusal.code);
+    return answer;
+  });
+}
+
+/** One stage's planning wave, with the step's span already around it. */
+async function planStageUnitsSpanned(
+  orchestrator: FillOrchestrator,
+  options: { readonly run: RunRecord; readonly graph: DerivedStageGraph; readonly stageId: string; readonly stagePosition: number; readonly at: number },
+): Promise<StagePlanOutcome & { readonly refusal?: PlanRefusal }> {
   const database = orchestrator.database;
   const { run, graph, stageId, stagePosition, at } = options;
   const units: PlannedUnit[] = [];
@@ -853,11 +908,29 @@ async function planStageUnits(
           await emit(orchestrator, { runId: run.runId, at, stage: stageId, unitId, generation: replaced.record.generation, kind: 'unit-planned', summary: `planned ${unitId} (${scope.scope}) as generation ${replaced.record.generation}, replacing the stale generation ${answer.generation} this unit stood on` });
           continue;
         }
+        // A generation that published nothing, of a run that has ended, is the unit's last attempt: a new fill retries
+        // it with a fresh budget rather than refusing forever. Only a generation of a run that has not ended — a unit
+        // another run is working — is refused, which is what "a unit is worked by one run at a time" says.
+        const owner = await readRun(database, answer.runId);
+        const ended = owner === null || ENDED_RUN_STATES.includes(owner.state);
+        if (ended && RETRYABLE_UNIT_STATES.includes(answer.state)) {
+          const retried = await retryGeneration(database, { unitId, runId: run.runId, inputsDigest: digest, retries: orchestrator.limits.retries, at });
+          if (!retried.ok) {
+            return { stageId, units, reused, foundNothing, refusal: { code: retried.refusal.code, reason: `fill-orchestrator: unit "${unitId}" could not be retried for run "${run.runId}": ${retried.refusal.reason}` } };
+          }
+          await recordUnitPlan(database, {
+            unitId, generation: retried.record.generation, runId: run.runId, stageId, stageUnitId: scope.id,
+            scope: scope.scope, stagePosition, planPosition, at, cacheVersions: stageCacheVersions(stage),
+          });
+          units.push({ unitId, stageId, stageUnitId: scope.id, scope: scope.scope, generation: retried.record.generation, stagePosition, planPosition, state: retried.record.state, created: true });
+          await emit(orchestrator, { runId: run.runId, at, stage: stageId, unitId, generation: retried.record.generation, kind: 'unit-planned', summary: `planned ${unitId} (${scope.scope}) as generation ${retried.record.generation}, retrying the ${answer.state} generation ${answer.generation} run "${answer.runId}" left` });
+          continue;
+        }
         return {
           stageId, units, reused, foundNothing,
           refusal: {
             code: 'fill-orchestrator/unit-in-another-run',
-            reason: `fill-orchestrator: unit "${unitId}" stands ${answer.state} in run "${answer.runId}", and run "${run.runId}" plans it: a unit is worked by one run at a time, so finish or cancel that run before this one plans the unit`,
+            reason: `fill-orchestrator: unit "${unitId}" stands ${answer.state} in run "${answer.runId}"${owner === null ? '' : `, which stands ${owner.state}`}, and run "${run.runId}" plans it: a unit is worked by one run at a time, so finish or cancel that run before this one plans the unit`,
           },
         };
       }
@@ -1349,7 +1422,7 @@ export interface WorkOutcome {
  */
 export async function workOnce(orchestrator: FillOrchestrator, options: { readonly worker: string }): Promise<WorkOutcome> {
   const database = orchestrator.database;
-  const claimed = await orchestrator.queue.claim<{ unitId: string; generation: number }>({ queue: orchestrator.queueName, limit: 1 });
+  const claimed = await withSpan('attempt.read', { 'madarch.phase': 'claim' }, async () => await orchestrator.queue.claim<{ unitId: string; generation: number }>({ queue: orchestrator.queueName, limit: 1 }));
   const job = claimed[0];
   if (job === undefined) return { claimed: false, job: 'none' };
   const data = job.data;
@@ -1357,7 +1430,7 @@ export async function workOnce(orchestrator: FillOrchestrator, options: { readon
     await orchestrator.queue.complete(orchestrator.queueName, job, { reason: 'the job carries no unit identity' });
     return { claimed: true, result: 'refused', refusal: { code: 'fill-orchestrator/job-malformed', reason: `fill-orchestrator: the claimed job ${job.id} carries ${JSON.stringify(data)}, which names no unit generation` }, job: 'completed' };
   }
-  const unit = await readUnit(database, data.unitId);
+  const unit = await withSpan('attempt.read', { 'madarch.unit': data.unitId, 'madarch.generation': data.generation }, async () => await readUnit(database, data.unitId));
   if (unit === null) {
     await orchestrator.queue.complete(orchestrator.queueName, job, { reason: 'no such unit' });
     return { claimed: true, unitId: data.unitId, generation: data.generation, result: 'nothing-to-do', summary: 'the unit is not recorded', job: 'completed' };
@@ -1460,8 +1533,30 @@ async function takeAttemptStep(
   return { ok: false, outcome: await refusedStep(orchestrator, { unit: request.unit, step: request.step, job: request.job, refusal: step.refusal }) };
 }
 
-/** Runs one attempt of a ready unit: lease it, start it, run its stage and follow the outcome. */
+/**
+ * Runs one attempt of a ready unit inside the unit's span: the phases below it
+ * (execute, draft, validate, publish) are its children, and the result the
+ * attempt ended with is the span's own attribute, so the trace says what the
+ * unit did without a second record.
+ */
 async function attemptUnit(
+  orchestrator: FillOrchestrator,
+  request: { readonly worker: string; readonly job: ClaimedJob<{ unitId: string; generation: number }>; readonly unit: UnitRecord },
+): Promise<WorkOutcome> {
+  return await withSpan('fill.unit', {
+    'madarch.unit': request.unit.unitId,
+    'madarch.stage': request.unit.stageId,
+    'madarch.generation': request.unit.generation,
+    'madarch.attempt': request.unit.context.attempt,
+  }, async (span) => {
+    const outcome = await attemptUnitPhases(orchestrator, request);
+    span.setAttribute('madarch.outcome', outcome.result ?? 'none');
+    return outcome;
+  });
+}
+
+/** One attempt's phases, each its own span, under the unit's span. */
+async function attemptUnitPhases(
   orchestrator: FillOrchestrator,
   request: { readonly worker: string; readonly job: ClaimedJob<{ unitId: string; generation: number }>; readonly unit: UnitRecord },
 ): Promise<WorkOutcome> {
@@ -1531,11 +1626,49 @@ async function attemptUnit(
     // again — the store's own answer, read once per attempt, and no graph read that
     // a child's publication could move.
     const sealedChildren = await readSealedChildren(database, unit.unitId, unit.generation);
+    // A static stage is handed its pinned repository, path-scoped, and never a tree reader (0033): the
+    // source is the host's, and the reads it makes of the graph go through this attempt's tracked reader.
+    const staticSource = orchestrator.staticSource === undefined ? undefined : await orchestrator.staticSource(unitRef(unit, plan));
+    const staticGraph = orchestrator.staticGraph === undefined ? undefined : await orchestrator.staticGraph(unitRef(unit, plan));
+    // Every bounded read through the static context is recorded as this generation's dependency, exactly as a
+    // stage's own tracked read is: the publication's recheck replays it, and an answer that moved refuses the
+    // publication rather than writing facts the graph no longer supports (decision 0027).
+    const recordStatic = async <T>(text: string, rows: readonly T[]): Promise<readonly T[]> => {
+      await recordUnitRead(orchestrator.database, { unitId: unit.unitId, generation: unit.generation, query: recordedReadText(text), rows, membership: answerMembership(text, rows), at: orchestrator.clock() });
+      await emit(orchestrator, { runId: unit.runId, at: orchestrator.clock(), stage: unit.stageId, unitId: unit.unitId, generation: unit.generation, kind: 'unit-read', summary: `${unit.unitId} read "${text}" and answered ${rows.length} ${rows.length === 1 ? 'node' : 'nodes'}` });
+      return rows;
+    };
+    const trackedStatic: StaticGraphReader | undefined = staticGraph === undefined ? undefined : {
+      byKey: async (key, options) => await recordStatic(staticGraphRead({ kind: 'key', value: key, limit: options?.limit ?? 256 }), await staticGraph.byKey(key, options)),
+      byGlobalName: async (name, options) => await recordStatic(staticGraphRead({ kind: 'globalName', value: name, limit: options?.limit ?? 256 }), await staticGraph.byGlobalName(name, options)),
+      edgesByProperty: async (relation, field, value, options) => {
+        // A read of the edges another unit published, by the value they carry: the recorded text
+        // names the relation, the field and the value, so the recheck replays the same question.
+        const text = staticGraphRead({ kind: 'edgesByProperty', value, relation, field, limit: options?.limit ?? 256, ...(options?.after === undefined ? {} : { after: options.after }) });
+        const answered = await staticGraph.edgesByProperty(relation, field, value, options);
+        return { rows: await recordStatic(text, answered.rows), next: answered.next };
+      },
+      byProperty: async (kind, field, value, options) => {
+        // A read by a value: the recorded text names the kind, the field and the value, so the
+        // publication's recheck replays the same question and refuses an answer that moved.
+        const text = staticGraphRead({ kind: 'property', value, nodeKind: kind, field, limit: options?.limit ?? 256, ...(options?.after === undefined ? {} : { after: options.after }) });
+        const answered = await staticGraph.byProperty(kind, field, value, options);
+        return { rows: await recordStatic(text, answered.rows), next: answered.next };
+      },
+      neighbourhood: async (nodeId, options) => {
+        const text = staticGraphRead({ kind: 'neighbourhood', value: nodeId, limit: options.limit ?? 256, relations: options.relations, direction: options.direction, ...(options.after === undefined ? {} : { after: options.after }) });
+        const answered = await staticGraph.neighbourhood(nodeId, options);
+        // A page's rows are its membership: the cursor it answers is the query the next page names,
+        // and the page after the last one is the empty page a later mention would land on.
+        return { rows: await recordStatic(text, answered.rows), next: answered.next };
+      },
+    };
     context = {
       unit: { id: plan.stageUnitId, scope: plan.scope },
       ...(tools === undefined ? {} : { tools }),
       config,
       graph: attemptReader,
+      ...(staticSource === undefined || trackedStatic === undefined ? {} : { static: staticStageContext(staticSource, trackedStatic, orchestrator.fileFacts, ownPathOf(plan.stageUnitId)) }),
       draft: draftWriter,
       ...(sealedChildren.length === 0 ? {} : { sealedChildren }),
       // A stage reports its progress synchronously; the notes are kept in order and written as the run's
@@ -1545,7 +1678,11 @@ async function attemptUnit(
       },
       signal: controller.signal,
     };
-    result = await stage.execute({ id: plan.stageUnitId, scope: plan.scope }, context);
+    result = await withSpan('attempt.execute', { 'madarch.unit': unit.unitId, 'madarch.stage': unit.stageId }, async (executeSpan) => {
+      const answered = await stage.execute({ id: plan.stageUnitId, scope: plan.scope }, context as StageContext);
+      executeSpan.setAttribute('madarch.outcome', answered.outcome);
+      return answered;
+    });
   } catch (error) {
     raised = error as Error;
   } finally {
@@ -1575,14 +1712,36 @@ async function attemptUnit(
   // The draft: the machine's own `submit-draft` step, then the effect that records what was written.
   const drafted = await takeAttemptStep(orchestrator, { unit, step: 'submit-draft', job: request.job, event: { type: 'submit-draft', at: orchestrator.clock(), generation: unit.generation, fence } });
   if (!drafted.ok) return drafted.outcome;
-  const recorded = await recordUnitDraft(database, { unitId: unit.unitId, generation: unit.generation, writes, at: orchestrator.clock() });
+  let recorded: Awaited<ReturnType<typeof recordUnitDraft>>;
+  try {
+    recorded = await withSpan('attempt.draft', { 'madarch.unit': unit.unitId, 'madarch.writes': writes.length }, async (draftSpan) => {
+      const held = await recordUnitDraft(database, { unitId: unit.unitId, generation: unit.generation, writes, at: orchestrator.clock() });
+      draftSpan.setAttribute('madarch.writes', held.digest.length === 0 ? 0 : writes.length);
+      return held;
+    });
+  } catch (error) {
+    // A draft the store could not record is this unit's failure: the run keeps the other units' work and
+    // spends this generation's retries (decision 0033, items 18, 19 and 27), never the process.
+    const reason = `recording the draft of "${unit.unitId}" generation ${unit.generation} raised: ${messageOf(error)}`;
+    return await retryAttempt(orchestrator, { unit, fence, job: request.job, cause: 'transient-failure', reason, summary: reason });
+  }
   await emit(orchestrator, { runId: unit.runId, at: orchestrator.clock(), stage: unit.stageId, unitId: unit.unitId, generation: unit.generation, kind: 'unit-drafted', summary: `${unit.unitId} drafted ${writes.length} ${writes.length === 1 ? 'write' : 'writes'}` });
 
   const validating = await takeAttemptStep(orchestrator, { unit, step: 'validate-draft', job: request.job, event: { type: 'validate-draft', at: orchestrator.clock(), generation: unit.generation, fence } });
   if (!validating.ok) return validating.outcome;
   await emit(orchestrator, { runId: unit.runId, at: orchestrator.clock(), stage: unit.stageId, unitId: unit.unitId, generation: unit.generation, kind: 'unit-validating', summary: `${unit.unitId} validates its draft` });
 
-  const validation = await stage.validate({ writes }, attemptReader);
+  let validation: Awaited<ReturnType<typeof stage.validate>>;
+  try {
+    validation = await withSpan('attempt.validate', { 'madarch.unit': unit.unitId, 'madarch.writes': writes.length }, async (validateSpan) => {
+      const held = await stage.validate({ writes }, attemptReader);
+      validateSpan.setAttribute('madarch.valid', held.ok);
+      return held;
+    });
+  } catch (error) {
+    const reason = `the validation of "${unit.unitId}" generation ${unit.generation} raised: ${messageOf(error)}`;
+    return await retryAttempt(orchestrator, { unit, fence, job: request.job, cause: 'validation-problem', reason, summary: reason });
+  }
   if (!validation.ok) {
     return await retryAttempt(orchestrator, {
       unit: validating.record, fence, job: request.job, cause: 'validation-problem',
@@ -1590,7 +1749,11 @@ async function attemptUnit(
       summary: `${unit.unitId} was refused by validation: ${validation.errors.join('; ')}`,
     });
   }
-  return await publishAttempt(orchestrator, { unit: validating.record, plan, fence, job: request.job, reader, stage, held: { digest: recorded.digest, writes } });
+  return await withSpan('attempt.publish', { 'madarch.unit': unit.unitId, 'madarch.generation': unit.generation }, async (publishSpan) => {
+    const published = await publishAttempt(orchestrator, { unit: validating.record, plan, fence, job: request.job, reader, stage, held: { digest: recorded.digest, writes } });
+    publishSpan.setAttribute('madarch.outcome', published.result ?? 'none');
+    return published;
+  });
 }
 
 /**
@@ -1615,7 +1778,9 @@ async function publishAttempt(
   const database = orchestrator.database;
   const unit = request.unit;
   const at = orchestrator.clock();
+  const draftAt = performance.now();
   const draft = await readUnitDraftHead(database, unit.unitId, unit.generation);
+  const draftMs = performance.now() - draftAt;
   if (draft === null) raise(`unit "${unit.unitId}" generation ${unit.generation} reached validation with no recorded draft set to publish`);
   const digest = publicationDigest({ inputsDigest: unit.inputsDigest, draft: draft.digest, stageId: request.stage.id, stageVersion: request.stage.version });
   // The publication is one snapshot (see `publishUnitIn`), so a writer that got to one of its rows first
@@ -1623,6 +1788,19 @@ async function publishAttempt(
   // refuse what a snapshot refuses. That race is the same event as a read that moved: the attempt is
   // retried against the store as it now stands, its draft retracted, exactly as a stale read is.
   let outcome: { readonly publication: PublicationOutcome; readonly settled: boolean };
+  let revalidateMs = 0;
+  let revalidateReads = 0;
+  let applyMs = 0;
+  let publicationReader: UnitGraphReader | undefined;
+  // What the publication cost, as the publish span's own fields: a statement's time is its own span.
+  const annotatePublication = (): void => {
+    annotateSpan({
+      'madarch.publication.draftMs': Math.round(draftMs),
+      'madarch.publication.revalidateMs': Math.round(revalidateMs),
+      'madarch.publication.reads': revalidateReads,
+      'madarch.publication.applyMs': Math.round(applyMs),
+    });
+  };
   try {
     outcome = await ownTransaction(here(), orchestrator, `publishUnit(${unit.unitId}/${unit.generation})`, ['fill_publication', 'fill_unit_read', 'fill_unit_draft', 'fill_unit_draft_part', 'fill_unit_lease', 'fill_unit_generation'], async (transaction) => {
       const publication: PublicationOutcome = await publishUnitIn(transaction, {
@@ -1634,8 +1812,13 @@ async function publishAttempt(
         // The reads are rechecked through the publication's own transaction: the process's owner refuses a
         // second transaction on its connection, so the pinned graph answers from inside this one.
         revalidate: async (read: TrackedRead, executor) => {
-          const reader = await orchestrator.graph(unitRef(unit, request.plan), executor);
-          const answered = await answerNow(reader, recordedReadText(read.query));
+          const readAt = performance.now();
+          revalidateReads += 1;
+          // One reader for the whole publication: the wiring is the same transaction and the same unit,
+          // and building it per read cost a publication tens of reads' worth of setup (measured 224 ms a read).
+          publicationReader ??= await orchestrator.graph(unitRef(unit, request.plan), executor);
+          const answered = await answerNow(publicationReader, recordedReadText(read.query));
+          revalidateMs += performance.now() - readAt;
           // A read the graph cannot answer now — the file a span cited is gone, or shorter than the span — refuses
           // the publication like any other read that moved: the draft stands on bytes nothing holds any more.
           if (answered.kind === 'unanswered') return { membership: `unanswered: ${answered.reason}`, members: 0 };
@@ -1644,7 +1827,12 @@ async function publishAttempt(
           return { membership: answerMembership(read.query, answered.rows), members: answered.rows.length };
         },
         held: request.held,
-        apply: async (executor, writes, digest) => await orchestrator.facts.apply({ executor, unit, plan: request.plan, digest, writes }),
+        apply: async (executor, writes, digest) => {
+          const applyAt = performance.now();
+          const applied = await orchestrator.facts.apply({ executor, unit, plan: request.plan, digest, writes });
+          applyMs += performance.now() - applyAt;
+          return applied;
+        },
       });
       if (publication.outcome === 'published' || publication.outcome === 'replayed') {
         const settled = await orchestrator.queue.complete(orchestrator.queueName, request.job, { publication: { unitId: unit.unitId, generation: unit.generation, digest } }, transaction);
@@ -1653,11 +1841,21 @@ async function publishAttempt(
       return { publication, settled: false };
     });
   } catch (error) {
-    if (!isSerializationFailure(error)) throw error;
-    const reason = `the publication of "${unit.unitId}" generation ${unit.generation} lost its snapshot to a concurrent writer (${messageOf(error)}); the attempt is retried against the store as it now stands`;
+    annotatePublication();
+    if (isSerializationFailure(error)) {
+      const reason = `the publication of "${unit.unitId}" generation ${unit.generation} lost its snapshot to a concurrent writer (${messageOf(error)}); the attempt is retried against the store as it now stands`;
+      return await retryAttempt(orchestrator, { unit, fence: request.fence, job: request.job, cause: 'validation-problem', reason, summary: reason });
+    }
+    // A publication that raised is this unit's failure, not the run's: decision 0033 (items 18, 19 and 27)
+    // bounds the retries and reports partial coverage, and a unit that cannot publish leaves what the other
+    // units published standing. The attempt retries under the machine's own retry cause, and the last
+    // attempt fails the generation with this reason on its record (c40e53d0, lost by ee2fcd40 and restored
+    // here; it is what took a whole fill down over one unit's refused publication).
+    const reason = `the publication of "${unit.unitId}" generation ${unit.generation} raised: ${messageOf(error)}`;
     return await retryAttempt(orchestrator, { unit, fence: request.fence, job: request.job, cause: 'validation-problem', reason, summary: reason });
   }
 
+  annotatePublication();
   if (outcome.publication.outcome === 'published') {
     // The record's own digest, not the one this attempt computed before the transaction: they are the
     // same publication, and everything the run says about it afterwards names what it really wrote.
@@ -2366,6 +2564,10 @@ export async function guardStage(orchestrator: FillOrchestrator, options: { read
 // One scheduler pass, and the loop a host runs
 // ---------------------------------------------------------------------------------------------
 
+/** One part of a scheduler pass whose wall time is measured, and the times of every part. */
+type SchedulerPhase = 'read' | 'sweep' | 'evidence' | 'replan' | 'admit' | 'guard' | 'stale' | 'settle';
+type SchedulerPhases = Readonly<Record<SchedulerPhase, number>>;
+
 /** What one scheduler pass did. */
 export interface SchedulerOutcome {
   /** The run as it stands after the pass. */
@@ -2385,6 +2587,12 @@ export interface SchedulerOutcome {
   readonly reused: readonly string[];
   /** The stages whose plan found a producer's inputs but nothing in them, in this pass's wave. */
   readonly foundNothing: readonly string[];
+  /** How many units the run held when the pass began. */
+  readonly units: number;
+  /** The wall time of the whole pass. */
+  readonly ms: number;
+  /** The wall time of each part of the pass. */
+  readonly phases: SchedulerPhases;
 }
 
 /**
@@ -2408,23 +2616,38 @@ function guardKey(stageId: string, units: readonly UnitRecord[]): string {
  */
 export async function schedulerPass(orchestrator: FillOrchestrator, options: { readonly runId: string }): Promise<SchedulerOutcome> {
   const database = orchestrator.database;
+  const startedAt = performance.now();
+  let marked = startedAt;
+  const phases: Record<SchedulerPhase, number> = { read: 0, sweep: 0, evidence: 0, replan: 0, admit: 0, guard: 0, stale: 0, settle: 0 };
+  const tick = (phase: SchedulerPhase): void => { const now = performance.now(); phases[phase] += now - marked; marked = now; };
+  const elapsed = (): number => performance.now() - startedAt;
   let run = await readRun(database, options.runId);
   if (run === null) raise(`no run ${options.runId} is recorded`);
   if (['succeeded', 'completed_partial', 'blocked', 'failed', 'cancelled', 'paused'].includes(run.state)) {
     const settlement = await settleRun(orchestrator, { runId: run.runId });
-    return { run: settlement.run, admitted: 0, swept: 0, stale: 0, settlement, refused: [], moved: false, guarded: [], reused: [], foundNothing: [] };
+    tick('settle');
+    return { run: settlement.run, admitted: 0, swept: 0, stale: 0, settlement, refused: [], moved: false, guarded: [], reused: [], foundNothing: [], units: 0, ms: elapsed(), phases: { ...phases } };
   }
   const control = await orchestrator.control(run.runId);
   if (control === 'stopped') {
     const cancelled = await cancelRun(orchestrator, { runId: run.runId, cause: 'the person stopped the run' });
-    return { run: cancelled.run, admitted: 0, swept: cancelled.cancelledUnits.length, stale: 0, settlement: cancelled.settlement, refused: cancelled.refused, moved: true, guarded: [], reused: [], foundNothing: [] };
+    tick('read');
+    return { run: cancelled.run, admitted: 0, swept: cancelled.cancelledUnits.length, stale: 0, settlement: cancelled.settlement, refused: cancelled.refused, moved: true, guarded: [], reused: [], foundNothing: [], units: 0, ms: elapsed(), phases: { ...phases } };
   }
   if (control === 'paused' && run.state === 'running') {
     const settlement = await pauseRun(orchestrator, { runId: run.runId });
-    return { run: settlement.run, admitted: 0, swept: 0, stale: 0, settlement, refused: [], moved: true, guarded: [], reused: [], foundNothing: [] };
+    tick('read');
+    return { run: settlement.run, admitted: 0, swept: 0, stale: 0, settlement, refused: [], moved: true, guarded: [], reused: [], foundNothing: [], units: 0, ms: elapsed(), phases: { ...phases } };
   }
+  // The run's size, for the pass timing: a count is what tells a pass that costs what it does from one
+  // that costs what the run holds. The index on `fill_unit_generation(run_id)` makes it a small read.
+  const passRunId = run.runId;
+  const counted = await database.run(async (executor) => await executor.query<{ count: string }>('SELECT count(*)::text AS count FROM fill_unit_generation WHERE run_id = $1', [passRunId]));
+  const unitsInRun = Number(counted.rows[0]?.count ?? 0);
+  tick('read');
 
   const swept = await sweepUnits(orchestrator, { runId: run.runId });
+  tick('sweep');
   // A stage that planned no unit and whose producers have published since plans
   // here (madarch-tzte.26.3), before the pass admits anything: the units the
   // re-planning names stand in this pass's admission, in the stage order the
@@ -2435,10 +2658,13 @@ export async function schedulerPass(orchestrator: FillOrchestrator, options: { r
   // its planning left open. A run-level refusal stands in the pass's refusals,
   // so nothing is dropped in silence.
   const quiet = (await runEvidence(orchestrator, run.runId));
+  tick('evidence');
   const wave = quiet.runnable === 0 && quiet.inFlight === 0 && quiet.waiting === 0 || run.state === 'planning'
     ? await replanAfterPublications(orchestrator, { runId: run.runId })
     : { outcome: 'planned' as const, planned: false, run, units: [], reused: [], foundNothing: [] };
+  tick('replan');
   const admission = await admitUnits(orchestrator, { runId: run.runId });
+  tick('admit');
   const refused: UnitRefusal[] = [
     ...swept.refused,
     ...wave.outcome === 'refused' ? [{ unitId: '', code: wave.code, reason: wave.reason }] : [],
@@ -2466,21 +2692,26 @@ export async function schedulerPass(orchestrator: FillOrchestrator, options: { r
       if (verdict.outcome === 'conflict') {
         guarded.push(stageId);
         const blocked = await blockRun(orchestrator, { runId: run.runId, reason: `human-edit-wins: the published output of stage ${stageId} was edited by a person, and the run waits for that review` });
-        return { run: blocked.run, admitted: admission.admittedNow, swept: swept.swept.length, stale: 0, settlement: blocked, refused, moved: true, guarded, reused: waveReused, foundNothing: waveFoundNothing };
+        tick('guard');
+        return { run: blocked.run, admitted: admission.admittedNow, swept: swept.swept.length, stale: 0, settlement: blocked, refused, moved: true, guarded, reused: waveReused, foundNothing: waveFoundNothing, units: unitsInRun, ms: elapsed(), phases: { ...phases } };
       }
     }
   }
+  tick('guard');
 
   // A run that would settle first asks whether what it published still stands: the staleness recheck
   // (a recorded read that moved, an input that moved) runs when nothing else is outstanding, which is
   // the moment its own work is meant to be complete, and its cost is bounded by that.
   const beforeStale = await runEvidence(orchestrator, run.runId);
+  tick('evidence');
   let stale: StaleSweep = { invalidated: [], refused: [] };
   if (beforeStale.runnable === 0 && beforeStale.inFlight === 0 && beforeStale.waiting === 0) {
     stale = await invalidateStaleUnits(orchestrator, { runId: run.runId });
     refused.push(...stale.refused);
   }
+  tick('stale');
   const settlement = await settleRun(orchestrator, { runId: run.runId });
+  tick('settle');
   return {
     run: settlement.run,
     admitted: admission.admittedNow,
@@ -2492,11 +2723,20 @@ export async function schedulerPass(orchestrator: FillOrchestrator, options: { r
     guarded,
     reused: waveReused,
     foundNothing: waveFoundNothing,
+    units: unitsInRun,
+    ms: elapsed(),
+    phases: { ...phases },
   };
 }
 
 /** The states a run ended in: nothing further happens to it. */
 const TERMINAL_RUN_STATES = ['succeeded', 'completed_partial', 'blocked', 'failed', 'cancelled', 'paused'] as const;
+
+/**
+ * The run states a unit of which a later run may take up again: the run ended and nothing of it is in flight. A
+ * `paused` run is not one of them — it is resumed as it was, so its units stay its own.
+ */
+const ENDED_RUN_STATES: readonly string[] = ['succeeded', 'completed_partial', 'blocked', 'failed', 'cancelled'];
 
 /** What one driven run ended as. */
 export interface DriveOutcome {
@@ -2536,7 +2776,16 @@ export async function driveRun(
   if (run === null) raise(`no run ${options.runId} is recorded`);
   while (passes < maxPasses) {
     passes += 1;
-    const pass = await schedulerPass(orchestrator, { runId: run.runId });
+    // One span per pass of the scheduler: what the pass held, what it admitted and swept, and what its claims cost.
+    const pass = await withSpan('scheduler.pass', { 'madarch.pass': passes }, async (span) => {
+      const held = await schedulerPass(orchestrator, { runId: options.runId });
+      span.setAttribute('madarch.units', held.units);
+      span.setAttribute('madarch.admitted', held.admitted);
+      span.setAttribute('madarch.swept', held.swept);
+      span.setAttribute('madarch.state', held.run.state);
+      for (const [phase, value] of Object.entries(held.phases)) span.setAttribute(`madarch.phase.${phase}`, Math.round(value));
+      return held;
+    });
     run = pass.run;
     reused.push(...pass.reused);
     foundNothing.push(...pass.foundNothing);
@@ -2546,6 +2795,7 @@ export async function driveRun(
     for (const refusal of pass.refused) {
       if (refusal.unitId === '' && !refused.some((held) => held.code === refusal.code && held.reason === refusal.reason)) refused.push({ code: refusal.code, reason: refusal.reason });
     }
+    const workStarted = performance.now();
     let claimedThisPass = 0;
     for (let worker = 0; worker < workers; worker += 1) {
       const outcome = await workOnce(orchestrator, { worker: `worker-${worker + 1}` });
@@ -2553,8 +2803,13 @@ export async function driveRun(
       claimedThisPass += 1;
       work += 1;
     }
+    const workMs = performance.now() - workStarted;
+    annotateSpan({ 'madarch.claimed': claimedThisPass, 'madarch.workMs': Math.round(workMs) });
     if ((TERMINAL_RUN_STATES as readonly string[]).includes(run.state)) return { run, passes, work, settled: true, reused, foundNothing, refused };
     if (claimedThisPass === 0 && !pass.moved) {
+      // A pass that moved nothing while the run still owes work is a run held by a state its own claims cannot
+      // reach: name the counts the loop waited on, so the 5 s wait that follows is not a silence.
+      await emit(orchestrator, { runId: run.runId, at: orchestrator.clock(), stage: '', unitId: '', generation: null, kind: 'run-waiting', summary: JSON.stringify({ pass: passes, units: pass.units, admitted: pass.admitted, swept: pass.swept, stale: pass.stale, settlement: pass.settlement.outcome, evidence: pass.settlement.evidence }) });
       return { run, passes, work, settled: false, stoppedBecause: 'a pass and its claims together changed nothing', reused, foundNothing, refused };
     }
   }
@@ -2565,7 +2820,15 @@ export async function driveRun(
 export interface RunStatus {
   readonly run: RunRecord;
   readonly evidence: RunEvidence;
-  readonly units: readonly { readonly unitId: string; readonly stageId: string; readonly state: UnitState; readonly generation: number; readonly attempts: number }[];
+  readonly units: readonly {
+    readonly unitId: string;
+    readonly stageId: string;
+    readonly state: UnitState;
+    readonly generation: number;
+    readonly attempts: number;
+    /** The moment a unit standing `retry_wait` is runnable again, in the run's own milliseconds; null for any other state. */
+    readonly retryAt: number | null;
+  }[];
   readonly chain: ChainRecord | null;
 }
 
@@ -2578,7 +2841,7 @@ export async function runStatus(orchestrator: FillOrchestrator, runId: string): 
   return {
     run,
     evidence,
-    units: units.map((unit) => ({ unitId: unit.unitId, stageId: unit.stageId, state: unit.state, generation: unit.generation, attempts: unit.context.attempt })),
+    units: units.map((unit) => ({ unitId: unit.unitId, stageId: unit.stageId, state: unit.state, generation: unit.generation, attempts: unit.context.attempt, retryAt: unit.state === 'retry_wait' ? unit.context.retryAt : null })),
     chain: await readChain(orchestrator.database, orchestrator.product),
   };
 }

@@ -196,6 +196,10 @@ const WRITE_KINDS: { readonly [K in StageDraftWrite['kind']]: { readonly describ
   entity: { describe: 'an "entity-proposal" fact', accepts: (kind) => kind === 'entity-proposal' },
   link: { describe: 'an edge fact', accepts: (kind) => (FACT_EDGE_KINDS as readonly string[]).includes(kind) },
   question: { describe: 'a "question" fact', accepts: (kind) => kind === 'question' },
+  // A static stage's graph items never reach the fact store: they are applied by the publication's
+  // graph transaction (decision 0033). The entries are here because `StageDraftWrite` is one union.
+  node: { describe: 'a graph node, which the fact store never holds', accepts: () => false },
+  edge: { describe: 'a graph edge, which the fact store never holds', accepts: () => false },
 };
 
 /**
