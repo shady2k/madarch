@@ -542,6 +542,8 @@ describe('where the settings are and where the progress is', () => {
     expect(showsProgress({ name: 'home' }, filled)).toBe(true);
     expect(showsProgress({ name: 'entity', id: 'domain:x' }, filled)).toBe(true);
     expect(showsProgress({ name: 'home' }, status({ home: null }))).toBe(false);
+    // With no store the home is the introduction and draws its own card: the page above carries none.
+    expect(showsProgress({ name: 'home' }, status({ home: 'product:shop', filled: false }))).toBe(false);
     for (const route of [{ name: 'catalogue' }, { name: 'glossary' }, { name: 'statement', id: 'a', sentence: 'b', turn: 0 }, { name: 'kind', kind: 'domain' }, { name: 'problems' }, { name: 'settings' }, { name: 'docs' }] as const) {
       expect(showsProgress(route, filled)).toBe(false);
     }

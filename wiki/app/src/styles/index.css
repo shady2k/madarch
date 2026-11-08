@@ -77,7 +77,9 @@
   box-sizing: border-box;
   width: 100%;
   min-block-size: 100%;
-  padding: calc(2.5em + 14px) 48px 2.5em;
+  /* The tab bar and the page's first line keep the side padding's rhythm: the title never stands farther from the
+     bar above it than the text stands from the page's side. */
+  padding: 48px 48px 2.5em;
   overflow-wrap: break-word;
   background: var(--surface-page);
   font-size: var(--fs-body);
@@ -92,6 +94,7 @@
 @media (max-width: 900px) {
   .shell-document {
     padding-inline: 32px;
+    padding-block-start: 32px;
   }
 }
 
@@ -124,7 +127,7 @@
 
   .shell-document {
     min-block-size: 100%;
-    padding: calc(2.5em - 8px) 20px 2.5em;
+    padding: 20px 20px 2.5em;
   }
 
   .eyebrow {

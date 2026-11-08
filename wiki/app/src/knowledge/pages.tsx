@@ -126,8 +126,9 @@ function KindMap({ kind, version }: { kind: string; version: number }): ReactEle
 export function KindPage({ kind, version }: { kind: string; version: number }): ReactElement {
   const { t } = useTranslation();
   const kindName = useKindName();
+  const summary = useContext(KindLabels).find((entry) => entry.kind === kind);
   // The form of the listing is the kind's declaration (`listing:` of the manifest), not a kind the app knows.
-  const operations = useContext(KindLabels).find((entry) => entry.kind === kind)?.listing === 'operations';
+  const operations = summary?.listing === 'operations';
   const [query, setQuery] = useState('');
   const [asked, setAsked] = useState('');
   const [more, setMore] = useState<EntityRef[]>([]);
@@ -177,7 +178,7 @@ export function KindPage({ kind, version }: { kind: string; version: number }): 
       <KindMap kind={kind} version={version} />
       {(error ?? read.error) !== null && <Alert variant="problem" className="mb-4"><AlertDescription><p>{error ?? read.error}</p></AlertDescription></Alert>}
       {listing === null && read.error === null && <PageSkeleton testId="kind-loading" rows />}
-      {listing !== null && rows.length === 0 && <p className="text-muted" data-testid="kind-empty">{t('knowledge.nothingOfKind')}</p>}
+      {listing !== null && rows.length === 0 && <p className="text-muted" data-testid="kind-empty">{summary?.source === 'document' ? t('knowledge.noStageYet') : t('knowledge.nothingOfKind')}</p>}
       {rows.length > 0 && operations && <Operations rows={rows} metadata={{...listing?.operations, ...operationMore}} />}
       {rows.length > 0 && !operations && (
         <Table>
@@ -392,7 +393,10 @@ function FillPart({ status, refresh }: { status: WikiStatus; refresh: () => void
   );
 }
 
-/** The product's front: the fill card, the manifest's findings and the kinds, when no page is the home. */
+/**
+ * The product's front when no page is the home: an introduction for a newcomer in the interface language, and the fill's
+ * card with the agent choice and its one press. The words are the engine's own and say nothing about this product.
+ */
 export function Overview({ status, refresh }: { status: WikiStatus; refresh: () => void }): ReactElement {
   const { t } = useTranslation();
   useTabTitle(status.product.name);
@@ -400,26 +404,23 @@ export function Overview({ status, refresh }: { status: WikiStatus; refresh: () 
     <section data-testid="overview">
       <header className="mb-6">
         <h1>{status.product.name}</h1>
-        <p>{status.filled ? t('knowledge.overviewFilled') : t('knowledge.overviewEmpty')}</p>
+        <p className="text-secondary" data-testid="home-intro">{t('knowledge.homeIntro.summary')}</p>
       </header>
+      <div className="mb-8" data-testid="home-guidance">
+        <h2 className="mt-0">{t('knowledge.homeIntro.canTitle')}</h2>
+        <ul>
+          <li>{t('knowledge.homeIntro.canStart')}</li>
+          <li>{t('knowledge.homeIntro.canOpen')}</li>
+          <li>{t('knowledge.homeIntro.canAsk')}</li>
+        </ul>
+        <h2>{t('knowledge.homeIntro.howTitle')}</h2>
+        <p>{t('knowledge.homeIntro.howRead')}</p>
+        <p>{t('knowledge.homeIntro.howStages')}</p>
+        <p className="mb-0">{t('knowledge.homeIntro.howAgent')}</p>
+      </div>
       <FillCard status={status} refresh={refresh} />
-      <ManifestFindings status={status} />
     </section>
   );
-}
-
-function ManifestFindings({ status }: { status: WikiStatus }): ReactElement | null {
-  const { t } = useTranslation();
-  if (status.seeded.length > 0) {
-    return (
-      <Alert className="mb-8" data-testid="starter-set">
-        <AlertTitle>{t('knowledge.starterSetTitle')}</AlertTitle>
-        <AlertDescription><p>{t('knowledge.starterSet', { files: status.seeded.join(', ') })}</p></AlertDescription>
-      </Alert>
-    );
-  }
-  if (status.findings.length === 0) return null;
-  return <Findings findings={status.findings} scope="manifest" />;
 }
 
 /** A product with no kinds manifest: what the file is and where it comes from. */
