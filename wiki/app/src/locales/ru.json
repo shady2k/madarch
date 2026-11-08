@@ -311,7 +311,7 @@
     "fillPhaseHistory_many": "Читается история: {{count}} коммитов",
     "fillPhaseHistory_other": "Читается история: {{count}} коммита",
     "catalogue": "Каталог сущностей",
-    "catalogueIntro": "С какими сущностями работает вики этого продукта: что это, сколько их, как они здесь появились и где на них посмотреть.",
+    "catalogueIntro": "Все виды, которые объявляет вики продукта: что это, сколько их, заполняет ли их этап сегодня и где на них посмотреть.",
     "catalogueEntities_one": "{{count}} сущность",
     "catalogueEntities_few": "{{count}} сущности",
     "catalogueEntities_many": "{{count}} сущностей",
@@ -323,13 +323,18 @@
     "catalogueColKind": "Вид",
     "catalogueColAbout": "Что это",
     "catalogueColCount": "Сколько",
-    "catalogueColOrigin": "Как появились",
-    "origin": {
-      "agent": "написал агент",
-      "person": "написал человек",
-      "code": "прочитано из кода",
-      "history": "прочитано из истории"
+    "catalogueColStage": "Чем заполняется",
+    "catalogueFilled": "заполняет {{stage}}",
+    "catalogueStage": {
+      "extract": "извлечение из кода",
+      "documents": "этап документов",
+      "writer": "писатель",
+      "history": "этап истории"
     },
+    "catalogueNoStage": "этапа пока нет",
+    "cataloguePerson": "пишет человек",
+    "catalogueNoTranslation": "нет перевода",
+    "catalogueEmptyGroup": "Видов пока нет",
     "groupOther": "Прочее",
     "tabs": "Открытые страницы",
     "closeTab": "Закрыть вкладку {{title}}",

@@ -1,10 +1,13 @@
 import { appPath } from '../app-base.js';
 import { historyQuery } from './history-context.js';
 import { readJson, RequestError } from '../api.js';
-import type { AgentChoices, AgentOffer, AnswerResult, Block, CommitPageModel, CorrectionResult, CreatedTask, DiagramRenderer, DiagramView, DocumentListing, DocumentPageModel, EntityListing, FilePageModel, FillRunView, FillState, FolderPageModel, Glossary, GraphVerdictBudgets, GraphVerdictFilter, GraphVerdictReport, GraphVerdictRole, GraphVerdictView, ModelRoleId, ModelRoleView, Neighborhood, PageJournal, PageModel, ProblemCategories, ProblemItems, ProblemSection, ProblemSources, ProductChoice, ProductSettings, QuestionDetail, QuestionListing, RefreshPreview, SourceFile, StatementModel, TaskDetail, TaskImpact, TaskListing, TaskProposal, TaskRow, TaskScope, UserSettings, WikiStatus, WriterState } from './types.js';
+import type { AgentChoices, AgentOffer, AnswerResult, Block, CatalogView, CommitPageModel, CorrectionResult, CreatedTask, DiagramRenderer, DiagramView, DocumentListing, DocumentPageModel, EntityListing, FilePageModel, FillRunView, FillState, FolderPageModel, Glossary, GraphVerdictBudgets, GraphVerdictFilter, GraphVerdictReport, GraphVerdictRole, GraphVerdictView, ModelRoleId, ModelRoleView, Neighborhood, PageJournal, PageModel, ProblemCategories, ProblemItems, ProblemSection, ProblemSources, ProductChoice, ProductSettings, QuestionDetail, QuestionListing, RefreshPreview, SourceFile, StatementModel, TaskDetail, TaskImpact, TaskListing, TaskProposal, TaskRow, TaskScope, UserSettings, WikiStatus, WriterState } from './types.js';
 
 /** The wiki's status: manifest, kinds, repositories, fill. */
 export const getStatus = (signal?: AbortSignal): Promise<WikiStatus> => readJson<WikiStatus>('read the wiki', '/api/k/status', signal);
+
+/** The entity catalogue: every kind the manifest declares, with its words, its count and what fills it (madarch-8bdc.2.5). */
+export const getCatalog = (signal?: AbortSignal): Promise<CatalogView> => readJson<CatalogView>('read the entity catalogue', '/api/k/catalog', signal);
 
 /** One entity's page. */
 export const getPage = (id: string, lang: string, signal?: AbortSignal, compose?: (reason: string) => string): Promise<PageModel> => readJson<PageModel>(`read the page of ${id}`, `/api/k/page?id=${encodeURIComponent(id)}&lang=${lang === 'ru' ? 'ru' : 'en'}${historyQuery()}`, signal, compose);

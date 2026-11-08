@@ -311,7 +311,7 @@
     "fillPhaseHistory_few": "Reading the history: {{count}} commits",
     "fillPhaseHistory_many": "Reading the history: {{count}} commits",
     "catalogue": "Entity catalogue",
-    "catalogueIntro": "The kinds of things this product's wiki works with: what each is, how many there are, how they got here, and where to see them.",
+    "catalogueIntro": "Every kind this product's wiki declares: what each is, how many there are, whether a stage fills it today, and where to see them.",
     "catalogueEntities_one": "{{count}} entity",
     "catalogueEntities_few": "{{count}} entities",
     "catalogueEntities_many": "{{count}} entities",
@@ -323,13 +323,18 @@
     "catalogueColKind": "Kind",
     "catalogueColAbout": "What it is",
     "catalogueColCount": "How many",
-    "catalogueColOrigin": "How it got here",
-    "origin": {
-      "agent": "written by the agent",
-      "person": "written by a person",
-      "code": "read from the code",
-      "history": "read from the history"
+    "catalogueColStage": "Filled by",
+    "catalogueFilled": "filled by {{stage}}",
+    "catalogueStage": {
+      "extract": "code extraction",
+      "documents": "the documents stage",
+      "writer": "the writer",
+      "history": "the history stage"
     },
+    "catalogueNoStage": "no stage yet",
+    "cataloguePerson": "written by a person",
+    "catalogueNoTranslation": "no translation",
+    "catalogueEmptyGroup": "No kinds yet",
     "groupOther": "Other",
     "tabs": "Open pages",
     "closeTab": "Close the tab {{title}}",

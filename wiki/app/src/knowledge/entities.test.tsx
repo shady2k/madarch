@@ -20,7 +20,7 @@ import { resetPreferences } from './preferences.js';
 import { addressOfStatement, kRouteOf } from './routes.js';
 import { cutSentences, plainText, remarkStatements, type MNode } from './statements.js';
 import { activateTab, closeTab, currentAddress, linkHandlers, openInNewTab, resetTabs, setTabTitle, frontTab, syncFrontTabAddress, useTabTitle } from './tabs.js';
-import type { Block, DocumentListing, KindSummary, Resolution, StatementModel, WikiStatus } from './types.js';
+import type { Block, CatalogKindView, CatalogView, DocumentListing, KindSummary, Resolution, StatementModel, WikiStatus } from './types.js';
 
 beforeAll(async () => {
   GlobalRegistrator.register({ url: 'http://localhost/' });
@@ -487,17 +487,30 @@ describe('the navigation by group', () => {
 });
 
 describe('the catalogue', () => {
-  const full = {
+  /** The catalogue's own request answered by a stub, as the server sends it. */
+  const answer = (catalog: CatalogView): void => {
+    (globalThis as { fetch?: unknown }).fetch = async (url: string) => url.includes('/api/k/catalog')
+      ? new Response(JSON.stringify(catalog))
+      : new Response('{}', { status: 404 });
+  };
+  const kind = (fields: Partial<CatalogKindView> & Pick<CatalogKindView, 'kind'>): CatalogKindView => ({
+    area: 'code', subgroup: '', count: 0, page: false, filled: false, ...fields,
+  });
+  const full: CatalogView = {
+    product: { name: 'shop', id: 'shop' },
+    language: 'en',
     groups: [{ group: 'code', labels: { en: 'Code', ru: 'Код' } }, { group: 'history', labels: { en: 'History', ru: 'История' } }],
     kinds: [
-      kind({ kind: 'code.file', group: 'code', count: 115, statements: 9, descriptions: { en: 'A file of a code repository.', ru: 'Файл репозитория кода.' }, labels: { en: { one: 'File', many: 'Files' }, ru: { one: 'Файл', many: 'Файлы' } } }),
-      kind({ kind: 'code.commit', group: 'history', count: 72, origins: ['history'], descriptions: { en: 'A change.', ru: 'Изменение.' } }),
-      kind({ kind: 'domain', source: 'markdown', group: 'code', count: 0, origins: ['agent', 'person'] }),
+      kind({ kind: 'code.file', count: 115, statements: 9, page: true, producer: 'extract', filled: true, descriptions: { en: 'A file of a code repository.', ru: 'Файл репозитория кода.' }, labels: { en: { one: 'File', many: 'Files' }, ru: { one: 'Файл', many: 'Файлы' } } }),
+      kind({ kind: 'code.commit', area: 'history', count: 72, page: true, producer: 'history', filled: true, descriptions: { en: 'A change.', ru: 'Изменение.' }, labels: { en: { one: 'Commit', many: 'Commits' }, ru: { one: 'Коммит', many: 'Коммиты' } } }),
+      kind({ kind: 'domain', area: 'code', count: 0, descriptions: { en: 'A part of the business.', ru: 'Часть бизнеса.' }, labels: { en: { one: 'Domain', many: 'Domains' }, ru: { one: 'Домен', many: 'Домены' } } }),
     ],
-  } as unknown as WikiStatus;
+    findings: [],
+  };
 
-  test('each kind is in its group with what it is, how many there are, how they got here and a link to its list, in the reader\'s language', async () => {
-    const container = into(createElement(CataloguePage, { status: full }));
+  test('every declared kind is in its group with what it is, how many there are, whether a stage fills it and a link when it has a page, in the reader\'s language', async () => {
+    answer(full);
+    const container = into(createElement(CataloguePage, { version: 0 }));
     await until(() => container.querySelector('[data-testid=catalogue-page]') !== null, 'the catalogue');
     expect(container.querySelector('[data-testid=catalogue-total]')!.textContent).toBe('187 entities in 3 kinds');
     const groups = [...container.querySelectorAll('[data-testid=catalogue-group]')].map((section) => section.getAttribute('data-group'));
@@ -507,37 +520,68 @@ describe('the catalogue', () => {
     expect(row.querySelector('a')!.textContent).toBe('Files');
     expect(row.textContent).toContain('A file of a code repository.');
     expect(row.querySelector('[data-testid=catalogue-count]')!.textContent).toBe('1159 statements');
-    expect(row.querySelector('[data-origin=code]')!.textContent).toBe('read from the code');
-    expect(container.querySelector('[data-kind="code.commit"] [data-origin=history]')!.textContent).toBe('read from the history');
-    const written = [...container.querySelectorAll('[data-kind="domain"] [data-origin]')].map((badge) => badge.textContent);
-    expect(written).toEqual(['written by the agent', 'written by a person']);
-    expect(container.querySelector('[data-kind="domain"] [data-testid=catalogue-count]')!.textContent).toBe('0');
+    expect(row.querySelector('[data-testid=catalogue-stage]')!.textContent).toBe('filled by code extraction');
+    expect(container.querySelector('[data-kind="code.commit"] [data-testid=catalogue-stage]')!.textContent).toBe('filled by the history stage');
+    // A kind nothing fills yet stays in the list with zero, and no link is offered to a page it does not have.
+    const empty = container.querySelector('[data-kind="domain"]')!;
+    expect(empty.querySelector('[data-testid=catalogue-count]')!.textContent).toBe('0');
+    expect(empty.querySelector('[data-testid=catalogue-stage]')!.textContent).toBe('no stage yet');
+    expect(empty.querySelector('a')).toBeNull();
+    expect(empty.getAttribute('data-filled')).toBe('false');
   });
 
-  test('in Russian the names, the descriptions and the origins are Russian', async () => {
+  test('in Russian the names, the descriptions and the stage words are Russian', async () => {
+    answer(full);
     await setWikiLanguage('ru');
     try {
-      const container = into(createElement(CataloguePage, { status: full }));
+      const container = into(createElement(CataloguePage, { version: 0 }));
       await until(() => container.querySelector('[data-testid=catalogue-page]') !== null, 'the catalogue');
       expect(container.querySelector('h1')!.textContent).toBe('Каталог сущностей');
       expect(container.querySelector('[data-kind="code.file"]')!.textContent).toContain('Файл репозитория кода.');
-      expect(container.querySelector('[data-kind="code.file"] [data-origin=code]')!.textContent).toBe('прочитано из кода');
+      expect(container.querySelector('[data-kind="code.file"] [data-testid=catalogue-stage]')!.textContent).toBe('заполняет извлечение из кода');
       expect(container.querySelector('[data-group=history] h2')!.textContent).toContain('История');
     } finally {
       await setWikiLanguage('en');
     }
   });
 
+  test('a kind with no translation is marked and never shown by an English name', async () => {
+    answer({ ...full, kinds: [kind({ kind: 'domain', labels: { en: { one: 'Domain', many: 'Domains' } }, descriptions: { en: 'A part of the business.' }, count: 0 })] });
+    await setWikiLanguage('ru');
+    try {
+      const container = into(createElement(CataloguePage, { version: 0 }));
+      await until(() => container.querySelector('[data-testid=catalogue-page]') !== null, 'the catalogue');
+      const row = container.querySelector('[data-kind="domain"]')!;
+      expect(row.querySelector('[data-testid=catalogue-kind-name]')!.textContent).toBe('domain');
+      expect(row.querySelector('[data-testid=catalogue-no-translation]')!.textContent).toBe('нет перевода');
+      expect(row.querySelector('[data-testid=catalogue-no-description]')!.textContent).toBe('нет перевода');
+      expect(row.textContent).not.toContain('Domains');
+      expect(row.querySelector('[data-testid=catalogue-count]')!.textContent).toBe('0');
+    } finally {
+      await setWikiLanguage('en');
+    }
+  });
+
+  test('a page a person writes says so and is not counted as a stage', async () => {
+    answer({ ...full, kinds: [kind({ kind: 'correction', labels: { en: { one: 'Correction', many: 'Corrections' } }, descriptions: { en: 'A note that a statement is wrong.' }, page: true, producer: 'person', filled: false, count: 2 })] });
+    const container = into(createElement(CataloguePage, { version: 0 }));
+    await until(() => container.querySelector('[data-testid=catalogue-page]') !== null, 'the catalogue');
+    expect(container.querySelector('[data-kind="correction"] [data-testid=catalogue-stage]')!.textContent).toBe('written by a person');
+    expect(container.querySelector('[data-kind="correction"]')!.getAttribute('data-filled')).toBe('false');
+  });
+
   test('one entity in one kind reads in the singular, in English and in Russian', async () => {
-    const one = { groups: [{ group: 'code', labels: { en: 'Code', ru: 'Код' } }], kinds: [kind({ kind: 'code.file', group: 'code', count: 1 })] } as unknown as WikiStatus;
-    const english = into(createElement(CataloguePage, { status: one }));
+    const one: CatalogView = { ...full, groups: [{ group: 'code', labels: { en: 'Code', ru: 'Код' } }], kinds: [kind({ kind: 'code.file', count: 1 })] };
+    answer(one);
+    const english = into(createElement(CataloguePage, { version: 0 }));
     await until(() => english.querySelector('[data-testid=catalogue-total]') !== null, 'the catalogue');
     expect(english.querySelector('[data-testid=catalogue-total]')!.textContent).toBe('1 entity in 1 kind');
     rendered?.unmount();
     document.body.innerHTML = '';
     await setWikiLanguage('ru');
     try {
-      const russian = into(createElement(CataloguePage, { status: one }));
+      answer(one);
+      const russian = into(createElement(CataloguePage, { version: 0 }));
       await until(() => russian.querySelector('[data-testid=catalogue-total]') !== null, 'the catalogue');
       expect(russian.querySelector('[data-testid=catalogue-total]')!.textContent).toBe('1 сущность в 1 виде');
     } finally {

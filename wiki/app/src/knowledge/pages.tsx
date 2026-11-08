@@ -14,7 +14,7 @@ import { Button } from '@/components/ui/button.js';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card.js';
 import { Input } from '@/components/ui/input.js';
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@/components/ui/table.js';
-import { getViews, getDocument, getDocuments, getEntities, getPage, getSource, getStatement, correctStatement, startFill } from './api.js';
+import { getViews, getCatalog, getDocument, getDocuments, getEntities, getPage, getSource, getStatement, correctStatement, startFill } from './api.js';
 import { syncFrontTabAddress, useTabTitle } from './tabs.js';
 import { currentHistory } from './history-context.js';
 import { HistoryBar } from './history-bar.js';
@@ -29,7 +29,7 @@ import { blockOpen, useRole } from './roles.js';
 import { PageSkeleton } from './skeleton.js';
 import { Textarea } from '@/components/ui/textarea.js';
 import { DiagramsView } from './diagrams/views.js';
-import type { CorrectionResult, DiagramRenderer, DiagramView, DocumentListing, DocumentPageModel, EntityListing, EntityRef, Excerpt, GroundView, Origin, PageModel, SourceFile, StatementModel, WikiStatus } from './types.js';
+import type { CatalogKindView, CatalogView, CorrectionResult, DiagramRenderer, DiagramView, DocumentListing, DocumentPageModel, EntityListing, EntityRef, Excerpt, GroundView, GroupSummary, PageModel, SourceFile, StatementModel, WikiStatus } from './types.js';
 
 function message(failure: unknown): string {
   return failure instanceof Error ? failure.message : String(failure);
@@ -566,61 +566,74 @@ export function DocumentPage({ repo, path, version }: { repo: string | null; pat
   );
 }
 
-/** The origins a kind's entities have, as a reader says them. */
-function OriginBadges({ origins }: { origins: readonly Origin[] }): ReactElement {
-  const { t } = useTranslation();
-  if (origins.length === 0) return <span className="text-muted">–</span>;
-  return <span className="flex flex-wrap gap-1">{origins.map((origin) => <Badge key={origin} data-origin={origin}>{t(`knowledge.origin.${origin}`)}</Badge>)}</span>;
-}
-
 /**
- * The catalogue of the entity kinds the product's wiki works with, read from its manifest: by group, each kind with what
- * it is, how many entities the graph and the Markdown hold of it, how they got here, and a link to its list.
+ * The entity catalogue: every kind the product's manifest declares, read from the catalogue's own request
+ * (madarch-8bdc.2.5), under its area and subgroup — its name and description in the reader's language, the entities that
+ * stand of it (zero when nothing filled it yet), and whether a stage fills it today. A kind the product declares but no
+ * stage fills stays in the list: the catalogue is the product's full potential, and nothing is hidden by its count.
  */
-export function CataloguePage({ status }: { status: WikiStatus }): ReactElement {
+export function CataloguePage({ version }: { version: number }): ReactElement {
   const { t, i18n } = useTranslation();
-  const kindName = useKindName();
   const language = (i18n.resolvedLanguage ?? 'en').startsWith('ru') ? 'ru' : 'en';
   useTabTitle(t('knowledge.catalogue'));
-  const kinds = status.kinds.filter((kind) => !kind.single || kind.count > 0);
-  const known = new Set(status.groups.map((group) => group.group));
-  const top = status.groups.filter((group) => group.parent === undefined || !known.has(group.parent));
-  const children = status.groups.filter((group) => group.parent !== undefined && known.has(group.parent));
-  const label = (group: { labels: Record<string, string>; group: string }): string => group.labels[language] ?? group.labels['en'] ?? group.group;
-  const kindsOf = (group: string): typeof kinds => kinds.filter((kind) => kind.group === group);
-  const sections = [
-    ...top.map((group) => {
-      const subgroups = children
-        .filter((child) => child.parent === group.group)
-        .map((child) => ({ key: child.group, name: label(child), kinds: kindsOf(child.group) }))
-        .filter((child) => child.kinds.length > 0);
-      return { key: group.group, name: label(group), kinds: kindsOf(group.group), subgroups };
-    }),
-    { key: '\0other', name: t('knowledge.groupOther'), kinds: kinds.filter((kind) => kind.group === undefined || !known.has(kind.group)), subgroups: [] },
-  ].filter((section) => section.kinds.length > 0 || section.subgroups.some((subgroup) => subgroup.kinds.length > 0));
+  const { data, error } = useRead<CatalogView>('catalogue', version, getCatalog);
+  if (error !== null && data === null) {
+    return <Alert data-testid="catalogue-error"><AlertTitle>{t('knowledge.catalogue')}</AlertTitle><AlertDescription>{error}</AlertDescription></Alert>;
+  }
+  if (data === null) return <PageSkeleton testId="catalogue-loading" />;
+  const kinds = data.kinds;
+  const known = new Set(data.groups.map((group) => group.group));
+  const top = data.groups.filter((group) => group.parent === undefined || !known.has(group.parent));
+  const children = data.groups.filter((group) => group.parent !== undefined && known.has(group.parent));
+  const label = (group: GroupSummary): string => group.labels[language] ?? group.labels['en'] ?? group.group;
+  const ofArea = (area: string): CatalogKindView[] => kinds.filter((kind) => kind.area === area && (kind.subgroup === '' || !known.has(kind.subgroup)));
+  const ofSubgroup = (subgroup: string): CatalogKindView[] => kinds.filter((kind) => kind.subgroup === subgroup);
+  const placed = new Set([...top.map((group) => group.group), ...children.map((group) => group.group)]);
+  const other = kinds.filter((kind) => !placed.has(kind.area) && !placed.has(kind.subgroup));
+  const sections: { key: string; name: string; kinds: CatalogKindView[]; subgroups: { key: string; name: string; kinds: CatalogKindView[] }[] }[] = [
+    ...top.map((group) => ({
+      key: group.group,
+      name: label(group),
+      kinds: ofArea(group.group),
+      subgroups: children.filter((child) => child.parent === group.group).map((child) => ({ key: child.group, name: label(child), kinds: ofSubgroup(child.group) })),
+    })),
+    ...(other.length === 0 ? [] : [{ key: '\0other', name: t('knowledge.groupOther'), kinds: other, subgroups: [] }]),
+  ].filter((section) => section.kinds.length > 0 || section.subgroups.length > 0);
   const entities = kinds.reduce((sum, kind) => sum + kind.count, 0);
-  const table = (rows: typeof kinds): ReactElement => (
+  /** The kind's name in the reader's language; a language the declaration leaves out is marked, never filled with English. */
+  const nameOf = (kind: CatalogKindView): string => kind.labels?.[language]?.many ?? kind.kind;
+  const translated = (kind: CatalogKindView): boolean => kind.labels?.[language] !== undefined;
+  const producerWords = (kind: CatalogKindView): string => {
+    if (kind.producer === undefined) return t('knowledge.catalogueNoStage');
+    if (kind.producer === 'person') return t('knowledge.cataloguePerson');
+    return t('knowledge.catalogueFilled', { stage: t(`knowledge.catalogueStage.${kind.producer}`) });
+  };
+  const table = (rows: CatalogKindView[]): ReactElement => (
     <Table>
       <TableHeader>
         <TableRow>
           <TableHead>{t('knowledge.catalogueColKind')}</TableHead>
           <TableHead>{t('knowledge.catalogueColAbout')}</TableHead>
           <TableHead>{t('knowledge.catalogueColCount')}</TableHead>
-          <TableHead>{t('knowledge.catalogueColOrigin')}</TableHead>
+          <TableHead>{t('knowledge.catalogueColStage')}</TableHead>
         </TableRow>
       </TableHeader>
       <TableBody>
         {rows.map((kind) => (
-          <TableRow key={kind.kind} data-kind={kind.kind}>
-            <TableCell className="whitespace-nowrap align-top"><KLink href={addressOfKind(kind.kind)}>{kindName(kind.kind, 'many')}</KLink></TableCell>
-            <TableCell className="max-w-[32rem] align-top">{kind.descriptions?.[language] ?? kind.descriptions?.['en'] ?? <span className="text-muted">–</span>}</TableCell>
+          <TableRow key={kind.kind} data-kind={kind.kind} data-filled={String(kind.filled)}>
+            <TableCell className="whitespace-nowrap align-top">
+              {kind.page ? <KLink href={addressOfKind(kind.kind)}>{nameOf(kind)}</KLink> : <span data-testid="catalogue-kind-name">{nameOf(kind)}</span>}
+              {!translated(kind) && <span className="ml-2 text-small text-muted" data-testid="catalogue-no-translation">{t('knowledge.catalogueNoTranslation')}</span>}
+            </TableCell>
+            <TableCell className="max-w-[32rem] align-top">{kind.descriptions?.[language] ?? <span className="text-muted" data-testid="catalogue-no-description">{t('knowledge.catalogueNoTranslation')}</span>}</TableCell>
             <TableCell className="align-top" data-testid="catalogue-count">{kind.count}{kind.statements !== undefined && <span className="block text-small text-muted" data-testid="catalogue-statements">{t('knowledge.catalogueStatements', { count: kind.statements })}</span>}</TableCell>
-            <TableCell className="align-top"><OriginBadges origins={kind.origins} /></TableCell>
+            <TableCell className="align-top" data-testid="catalogue-stage" data-stage={kind.producer ?? 'none'}>{producerWords(kind)}</TableCell>
           </TableRow>
         ))}
       </TableBody>
     </Table>
   );
+  const rows = (rows: CatalogKindView[]): ReactElement => rows.length > 0 ? table(rows) : <p className="mt-0 text-small text-muted" data-testid="catalogue-empty-subgroup">{t('knowledge.catalogueEmptyGroup')}</p>;
   return (
     <section data-testid="catalogue-page">
       <header className="mb-6">
@@ -637,7 +650,7 @@ export function CataloguePage({ status }: { status: WikiStatus }): ReactElement 
             {section.subgroups.map((subgroup) => (
               <section key={subgroup.key} className="mb-5" data-testid="catalogue-subgroup" data-subgroup={subgroup.key}>
                 <h3 className="mb-2 mt-5 flex items-baseline gap-3 text-[15px]">{subgroup.name}<span className="text-small font-normal text-muted">{subgroup.kinds.reduce((sum, kind) => sum + kind.count, 0)}</span></h3>
-                {table(subgroup.kinds)}
+                {rows(subgroup.kinds)}
               </section>
             ))}
           </section>
