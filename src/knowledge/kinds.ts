@@ -58,6 +58,13 @@ export interface Finding {
   /** The kind of problem; a file that cannot be read when the finding does not say. */
   kind?: FindingKind;
   /**
+   * The message as a key and its values, when the engine writes it in English words the interface words itself: the
+   * app says `loop.problemText.<textKey>` with `textArgs`, and `message` is the fallback for a reader that knows no
+   * such key (madarch-8bdc.2.5).
+   */
+  textKey?: string;
+  textArgs?: Record<string, string | number>;
+  /**
    * The file's place on disk, when the reader knows it: a diagnostic names both the identity a reader navigates by
    * (`file`) and the absolute path a person opens (madarch-ztyq.3, the review of finding 8). A finding whose place is
    * not a file of this machine — a manifest's entry, say — has none.

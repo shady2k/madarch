@@ -1,7 +1,7 @@
 import { appPath } from '../app-base.js';
 import { historyQuery } from './history-context.js';
 import { readJson, RequestError } from '../api.js';
-import type { AgentChoices, AgentOffer, AnswerResult, Block, CommitPageModel, CorrectionResult, CreatedTask, DiagramRenderer, DiagramView, DocumentListing, DocumentPageModel, EntityListing, FilePageModel, FillRunView, FillState, FolderPageModel, Glossary, GraphVerdictBudgets, GraphVerdictFilter, GraphVerdictReport, GraphVerdictRole, GraphVerdictView, ModelRoleId, ModelRoleView, Neighborhood, PageJournal, PageModel, ProblemListing, ProductChoice, ProductSettings, QuestionDetail, QuestionListing, RefreshPreview, SourceFile, StatementModel, TaskDetail, TaskImpact, TaskListing, TaskProposal, TaskRow, TaskScope, UserSettings, WikiStatus, WriterState } from './types.js';
+import type { AgentChoices, AgentOffer, AnswerResult, Block, CommitPageModel, CorrectionResult, CreatedTask, DiagramRenderer, DiagramView, DocumentListing, DocumentPageModel, EntityListing, FilePageModel, FillRunView, FillState, FolderPageModel, Glossary, GraphVerdictBudgets, GraphVerdictFilter, GraphVerdictReport, GraphVerdictRole, GraphVerdictView, ModelRoleId, ModelRoleView, Neighborhood, PageJournal, PageModel, ProblemCategories, ProblemItems, ProblemSection, ProblemSources, ProductChoice, ProductSettings, QuestionDetail, QuestionListing, RefreshPreview, SourceFile, StatementModel, TaskDetail, TaskImpact, TaskListing, TaskProposal, TaskRow, TaskScope, UserSettings, WikiStatus, WriterState } from './types.js';
 
 /** The wiki's status: manifest, kinds, repositories, fill. */
 export const getStatus = (signal?: AbortSignal): Promise<WikiStatus> => readJson<WikiStatus>('read the wiki', '/api/k/status', signal);
@@ -262,7 +262,26 @@ export const getQuestions = (signal?: AbortSignal): Promise<QuestionListing> => 
 
 export const getQuestion = (id: string, signal?: AbortSignal): Promise<QuestionDetail> => readJson<QuestionDetail>(`read the question ${id}`, `/api/k/question?id=${encodeURIComponent(id)}`, signal);
 
-export const getProblems = (signal?: AbortSignal): Promise<ProblemListing> => readJson<ProblemListing>('list the problems', '/api/k/problems', signal);
+/** The Problems page's first level: one row per rule, with counts (madarch-8bdc.2.5). */
+export function getProblemCategories(options: { section?: ProblemSection } = {}, signal?: AbortSignal): Promise<ProblemCategories> {
+  const query = new URLSearchParams();
+  if (options.section !== undefined) query.set('section', options.section);
+  return readJson<ProblemCategories>('list the problem categories', `/api/k/problems${query.size === 0 ? '' : `?${query.toString()}`}`, signal);
+}
+
+/** The second level: the sources of one category, one bounded page at a time. */
+export function getProblemSources(rule: string, options: { after?: string } = {}, signal?: AbortSignal): Promise<ProblemSources> {
+  const query = new URLSearchParams({ rule });
+  if (options.after !== undefined) query.set('after', options.after);
+  return readJson<ProblemSources>(`list the sources of ${rule}`, `/api/k/problems?${query.toString()}`, signal);
+}
+
+/** The third level: the items of one source of one category, one bounded page at a time. */
+export function getProblemItems(rule: string, source: string, options: { after?: string } = {}, signal?: AbortSignal): Promise<ProblemItems> {
+  const query = new URLSearchParams({ rule, source });
+  if (options.after !== undefined) query.set('after', options.after);
+  return readJson<ProblemItems>(`list the problems of ${rule} in ${source}`, `/api/k/problems?${query.toString()}`, signal);
+}
 
 /** «Не проблема»: the reason is kept as a file in the product repository. */
 export const dismissProblem = (id: string, reason: string): Promise<{ file: string; committed: boolean; note?: string; commit?: string }> => post('dismiss the problem', '/api/k/problem-dismiss', { id, reason });

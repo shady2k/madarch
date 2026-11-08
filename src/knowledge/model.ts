@@ -582,7 +582,8 @@ export interface WikiStatus {
   seeded: string[];
   /** Why the starter set could not be written into a product that has no manifest. */
   seedError?: string;
-  findings: Finding[];
+  /** How many findings the documents and the manifest hold: a count, never the list (madarch-8bdc.2.5). */
+  findingCount: number;
   kinds: KindSummary[];
   /** The groups of kinds, in the manifest's order. */
   groups: {

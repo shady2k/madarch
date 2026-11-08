@@ -832,7 +832,9 @@
       "stopWords_many": "Stopping ends the run now. {{count}} pages have already been rewritten by this run: they stay as they are, and the page being written now stays as it was before the run.",
       "stopWords_other": "Stopping ends the run now. {{count}} pages have already been rewritten by this run: they stay as they are, and the page being written now stays as it was before the run."
     },
-    "pageProblems": "{{count}} problems"
+    "pageProblems": "{{count}} problems",
+    "findingsWhere": "Open the problems",
+    "findingsCount": "Findings: {{count}}"
   },
   "loop": {
     "questionsTitle": "Questions",
@@ -1095,7 +1097,49 @@
       "document.undocumented": "Undocumented behaviour",
       "document.ambiguous-term": "Ambiguous term"
     },
-    "taskFromProblem": "Opened from a problem on the Problems page."
+    "taskFromProblem": "Opened from a problem on the Problems page.",
+    "problemFilterAll": "All",
+    "problemBack": "All categories",
+    "problemSourcesIntro": "These problems grouped by the page or the file they stand in. Open a group to read its problems.",
+    "problemSourcesShown": "{{shown}} of {{count}} sources",
+    "problemPageShown": "{{shown}} of {{count}} problems",
+    "problemPageNext": "Show more",
+    "problemCount": "{{count}} open of {{total}} problems",
+    "ruleMeaning": {
+      "dependency.cycle": "Two or more modules import each other, so neither can be understood or changed alone.",
+      "security.sql-input": "A value a request can set reaches a SQL statement without being bound.",
+      "security.export-route": "A route answers outside the group that checks who is asking.",
+      "large-file": "A file is longer than a person can hold in their head.",
+      "hotspot": "A file is both large and changed often, so a change there is risky.",
+      "dead-export": "A symbol is exported and nothing imports it.",
+      "debt.todo": "A TODO marks work someone put off.",
+      "debt.fixme": "A FIXME marks a known defect.",
+      "config.required-dev-value": "A required setting is committed with the value a developer used.",
+      "dependency.declared-unused": "A package is declared and no code imports it.",
+      "dependency.used-undeclared": "Code imports a package the manifest does not declare.",
+      "contract.operation-without-route": "A contract operation has no route that answers it.",
+      "contract.route-without-operation": "A route answers something the contract does not name.",
+      "document.contradiction": "Two sources state different things about the same subject.",
+      "document.stale": "A document still states what the code no longer does.",
+      "document.undocumented": "A behaviour the code has is described by no document.",
+      "document.ambiguous-term": "One term names two different things.",
+      "wiki.correction": "A person recorded that a statement is wrong.",
+      "wiki.ground-removed": "A statement stands on a ground that has left the code or the documents.",
+      "wiki.broken-link": "A statement points to something the graph and the documents do not hold.",
+      "wiki.unreadable-file": "A file the wiki reads cannot be read.",
+      "wiki.unread-passage": "A passage of a document is read by no kind of the manifest.",
+      "wiki.unplaced": "A question or correction names no page it belongs to.",
+      "wiki.manifest": "The manifest has a finding of its own."
+    },
+    "problemText": {
+      "unreadPassagePending": "No classifier has read this passage yet, so what it means is not shown: «{{passage}}»",
+      "unreadPassageBlock": "This block holds text no kind of the manifest reads: «{{passage}}»",
+      "unreadPassageClassifierNoMeaning": "The classifier read no meaning of this passage, so no page shows it: «{{passage}}»",
+      "unreadPassageUnread": "No kind of the manifest and no classifier read this passage, so no page shows it: «{{passage}}»"
+    },
+    "problemNote": {
+      "ruleUnimplemented": "The rule {{rule}} names the predicate \"{{predicate}}\", which the engine does not implement: the rule is not run"
+    }
   },
   "journal": {
     "title": "How the agent wrote this page",

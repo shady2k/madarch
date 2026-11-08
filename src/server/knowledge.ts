@@ -441,7 +441,32 @@ export function createKnowledgePart(
       const done = await product.correct(asked.statement, asked.reason);
       return { response: json(201, { correction: done.correction.slug, id: done.correction.id, file: done.correction.file, committed: done.committed, ...(done.commit === undefined ? {} : { commit: done.commit }), ...(done.note === undefined ? {} : { note: done.note }), by: done.correction.by, at: done.correction.at }) };
     }),
-    problems: guarded('list the problems', async () => ({ response: json(200, await product.problems()) })),
+    problems: guarded('list the problems', async (request) => {
+      const query = new URL(request.url).searchParams;
+      const section = query.get('section');
+      if (section !== null && section !== 'code' && section !== 'documents' && section !== 'wiki') {
+        return refused(400, { field: 'section', accepted: 'code, documents or wiki', message: `"section" is ${JSON.stringify(section)}: a category belongs to the code, the documents or the wiki` });
+      }
+      const asked = query.get('limit');
+      const limit = asked === null ? 100 : Number(asked);
+      if (!Number.isInteger(limit) || limit < 1 || limit > 100) return refused(400, { field: 'limit', accepted: '1 to 100', message: `"limit" is ${JSON.stringify(asked)}: a page holds 1 to 100 rows` });
+      const after = query.get('after');
+      const rule = query.get('rule');
+      if (rule === null || rule === '') {
+        if (after !== null) return refused(400, { field: 'after', message: '"after" pages a level: name "rule" (the sources of a category) or "rule" and "source" (the items of one source)' });
+        return { response: json(200, await product.problemCategories(section === null ? undefined : section)) };
+      }
+      const source = query.get('source');
+      const page = source === null
+        ? await product.problemSources(rule, { ...(after === null ? {} : { after }), limit })
+        : await product.problemItems(rule, source, { ...(after === null ? {} : { after }), limit });
+      if (page === undefined) {
+        return refused(404, source === null
+          ? { field: 'rule', message: `the problems hold no category ${JSON.stringify(rule)}: the product's manifest declares it in madarch/kinds.yaml under problems.rules, or no problem of it is open` }
+          : { field: 'source', message: `the category ${JSON.stringify(rule)} holds no source ${JSON.stringify(source)}: read the category's sources first` });
+      }
+      return { response: json(200, page) };
+    }),
     problemDismiss: guarded('record that a problem is not one', async (request) => {
       const crossSite = foreign(request); if (crossSite !== undefined) return refused(403, { message: crossSite });
       if (own) return refused(403, { message: "madarch's own wiki is documentation: a dismissal belongs to the product's repository" });

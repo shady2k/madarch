@@ -5692,11 +5692,6 @@
   {
     "rule": "no-unreachable-code",
     "file": "wiki/app/src/knowledge/types.ts",
-    "symbol": "ProblemSection"
-  },
-  {
-    "rule": "no-unreachable-code",
-    "file": "wiki/app/src/knowledge/types.ts",
     "symbol": "ProblemSeverity"
   },
   {

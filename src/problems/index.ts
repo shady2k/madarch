@@ -17,7 +17,7 @@ import type { Unplaced } from '../loop/plan.js';
 import type { StarterOffer } from '../knowledge/starter-upgrade.js';
 import { readCodeSnapshot, evaluateCode } from './code.js';
 import { evaluateDocuments } from './documents.js';
-import { problemId, type ProblemDraft, type ProblemSettings } from './types.js';
+import { problemId, type ProblemDraft, type ProblemNote, type ProblemSettings } from './types.js';
 
 export interface CollectInput {
   readonly productFolder: string;
@@ -54,7 +54,7 @@ export function openProblemsOf(problems: readonly Pick<Problem, 'entity' | 'clos
 
 /** Collects the three sections: code rules over the graph, document rules over the questions, the wiki's own findings. */
 export async function collectProblems(input: CollectInput): Promise<Awaited<ReturnType<typeof listProblems>>> {
-  const notes: string[] = [];
+  const notes: ProblemNote[] = [];
   const drafts: ProblemDraft[] = [];
   try {
     const snapshot = await readCodeSnapshot(input.graph);
@@ -62,14 +62,14 @@ export async function collectProblems(input: CollectInput): Promise<Awaited<Retu
     drafts.push(...judged.problems);
     notes.push(...judged.notes);
   } catch (error) {
-    notes.push(`the code section could not be judged: ${(error as Error).message}`);
+    notes.push({ message: `the code section could not be judged: ${(error as Error).message}` });
   }
   try {
     const judged = await evaluateDocuments({ questions: readQuestions(input.productFolder).items, resolve: input.resolve, settings: input.settings });
     drafts.push(...judged.problems);
     notes.push(...judged.notes);
   } catch (error) {
-    notes.push(`the documents section could not be judged: ${(error as Error).message}`);
+    notes.push({ message: `the documents section could not be judged: ${(error as Error).message}` });
   }
   const listing = await listProblems({
     productFolder: input.productFolder, owner: input.owner, resolve: input.resolve, findings: input.findings,

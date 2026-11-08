@@ -326,7 +326,8 @@ export type WikiStatus = {
   language: string;
   seeded: string[];
   seedError?: string;
-  findings: Finding[];
+  /** How many findings the documents hold: a count, never the list (madarch-8bdc.2.5). */
+  findingCount: number;
   kinds: KindSummary[];
   groups: GroupSummary[];
   repositories: { name: string; filled: boolean }[];
@@ -407,7 +408,7 @@ export type SourceFile = { history?: HistoryContext; repo: string | null; path: 
 export type ProductChoice = { name: string; folder: string; own?: boolean };
 
 export type GlossaryTerm = { id: string; title: string; definition: string; synonyms: string[]; code: string[]; usedIn: string | null; ambiguous: string | null; source?: { original: string; document: string; line: number; endLine: number }; repo: string | null; path: string; line: number; endLine: number; anchor: string; single: boolean; href: string };
-export type Glossary = { terms: GlossaryTerm[]; resolutions: Record<string, Resolution>; findings: Finding[] };
+export type Glossary = { terms: GlossaryTerm[]; resolutions: Record<string, Resolution>; findingCount: number };
 export type UserSettings = { role: string; asked: boolean; roles: string[] };
 
 export type DocumentRef = { repo: string | null; path: string; title: string };
@@ -508,6 +509,9 @@ export type Problem = {
   sentence: string | null;
   target: string | null;
   reason: string;
+  /** The reason as a locale key and its values; `reason` is the fallback (madarch-8bdc.2.5). */
+  textKey?: string;
+  textArgs?: Record<string, string | number>;
   file: string;
   line: number | null;
   /** The file's place on this machine, when the server knows it. */
@@ -527,7 +531,60 @@ export type StarterOffer = {
   fields?: string[];
 };
 
-export type ProblemListing = { problems: Problem[]; sections?: Record<ProblemSection, number>; open: number; closed: number; dismissed?: number; notes: string[]; starter?: StarterOffer[] };
+/** A note beside a listing, worded by the app when `textKey` is known (madarch-8bdc.2.5). */
+type ProblemNote = { message: string; textKey?: string; textArgs?: Record<string, string | number> };
+
+/** The first level: one row per rule. */
+export type ProblemCategory = {
+  rule: string;
+  kind: ProblemKind;
+  section: ProblemSection;
+  sonar: SonarKind;
+  severity: ProblemSeverity;
+  fixer: 'agent' | 'person';
+  count: number;
+  open: number;
+  closed: number;
+  label?: Record<string, string>;
+};
+export type ProblemCategories = {
+  categories: ProblemCategory[];
+  total: number;
+  open: number;
+  closed: number;
+  dismissed: number;
+  sections: Record<ProblemSection, number>;
+  severities: Record<ProblemSeverity, number>;
+  notes: ProblemNote[];
+  starter: StarterOffer[];
+};
+
+/** The second level: the sources of one category, one bounded page at a time. */
+export type ProblemSource = { key: string; label: string; page: string | null; pageTitle: string | null; file: string | null; count: number; open: number };
+export type ProblemSources = {
+  rule: string;
+  kind: ProblemKind;
+  section: ProblemSection;
+  sonar: SonarKind;
+  severity: ProblemSeverity;
+  count: number;
+  open: number;
+  closed: number;
+  totalSources: number;
+  sources: ProblemSource[];
+  next: string | null;
+};
+
+/** The third level: the items of one source, one bounded page at a time. */
+export type ProblemItems = {
+  rule: string;
+  source: string;
+  count: number;
+  open: number;
+  closed: number;
+  problems: Problem[];
+  next: string | null;
+};
 
 /** A value an agent offers for the model or the reasoning level. */
 export type ChoiceValue = { value: string; name: string; description?: string };

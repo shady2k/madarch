@@ -93,7 +93,7 @@ const OFFERS: StarterOffer[] = [
 ];
 
 const status = (over: Partial<WikiStatus> = {}): WikiStatus => ({
-  product: { name: 'shop', id: 'p1' }, manifest: 'ok', manifestFile: 'madarch/kinds.yaml', language: 'ru', seeded: [], findings: [], kinds: [], groups: [], repositories: [{ name: 'shop', filled: true }],
+  product: { name: 'shop', id: 'p1' }, manifest: 'ok', manifestFile: 'madarch/kinds.yaml', language: 'ru', seeded: [], findingCount: 0, kinds: [], groups: [], repositories: [{ name: 'shop', filled: true }],
   filled: true, incomplete: false, fill: { state: 'idle' }, writer: { state: 'idle', agent: null, units: [] }, bounds: BOUNDS, chosenAgent: null, home: null, starterOffers: 0, ...over,
 });
 
@@ -449,11 +449,18 @@ describe('the product settings page', () => {
   });
 
 describe('the starter set on the Problems page', () => {
+  /** The first level of the Problems page: no category, and the offers to add. */
+  const categories = (starter: StarterOffer[] = []) => ({
+    categories: [], total: 0, open: 0, closed: 0, dismissed: 0,
+    sections: { code: 0, documents: 0, wiki: 0 }, severities: { blocker: 0, critical: 0, major: 0, minor: 0, info: 0 },
+    notes: [], starter,
+  });
+
   test('lists what the set holds and the manifest lacks, each with «Add», and adds exactly the one pressed', async () => {
     const posted: unknown[] = [];
     (globalThis as { fetch?: unknown }).fetch = async (url: string, init?: RequestInit) => {
       if (url.endsWith('/api/k/starter')) { posted.push(JSON.parse(String(init!.body))); return json({ written: ['madarch/kinds.yaml'] }); }
-      return json({ problems: [], open: 0, closed: 0, notes: [], starter: OFFERS });
+      return json(categories(OFFERS));
     };
     const page = into(createElement(ProblemsPage, { version: 0 }));
     await until(() => page.querySelector('[data-testid=problems-starter]') !== null, 'the offers');
@@ -477,10 +484,10 @@ describe('the starter set on the Problems page', () => {
   });
 
   test('a rule of the starter set is offered by its label and id, and a rule missing a field says which', async () => {
-    (globalThis as { fetch?: unknown }).fetch = async () => json({ problems: [], open: 0, closed: 0, notes: [], starter: [
+    (globalThis as { fetch?: unknown }).fetch = async () => json(categories([
       { id: 'rule:debt.todo', type: 'rule', name: 'debt.todo', labels: { en: 'TODO', ru: 'TODO' } },
       { id: 'rule:dependency.cycle', type: 'rule', name: 'dependency.cycle', labels: { en: 'Dependency cycle', ru: 'Цикл зависимостей' }, fields: ['label', 'params'] },
-    ] });
+    ]));
     const page = into(createElement(ProblemsPage, { version: 0 }));
     await until(() => page.querySelector('[data-testid=problems-starter]') !== null, 'the offers');
     (page.querySelector('[data-testid=starter-toggle]') as HTMLElement).click();
@@ -491,7 +498,7 @@ describe('the starter set on the Problems page', () => {
 
   test('in Russian the offer carries the Russian name and «Добавить»', async () => {
     await setWikiLanguage('ru');
-    (globalThis as { fetch?: unknown }).fetch = async () => json({ problems: [], open: 0, closed: 0, notes: [], starter: OFFERS });
+    (globalThis as { fetch?: unknown }).fetch = async () => json(categories(OFFERS));
     const page = into(createElement(ProblemsPage, { version: 0 }));
     await until(() => page.querySelector('[data-testid=problems-starter]') !== null, 'the offers');
     expect(page.querySelector('[data-testid=starter-summary]')).toBeNull();

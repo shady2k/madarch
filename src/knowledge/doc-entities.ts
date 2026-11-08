@@ -422,7 +422,9 @@ export function readDocEntities(sources: readonly DocumentSource[], manifest: Ki
     const key = documentKey(source.repo, source.path);
     const where = source.repo === null ? source.path : `repos/${source.repo}/${source.path}`;
     // Every diagnostic of this document names both places it stands in: the identity a reader navigates by and the file.
-    const report = (line: number, message: string, kind?: FindingKind): void => { findings.push({ file: where, line, message, ...(kind === undefined ? {} : { kind }), ...(source.origin === undefined ? {} : { source: source.origin }) }); };
+    const report = (line: number, message: string, kind?: FindingKind, text?: { key: string; args: Record<string, string | number> }): void => {
+      findings.push({ file: where, line, message, ...(kind === undefined ? {} : { kind }), ...(text === undefined ? {} : { textKey: text.key, textArgs: text.args }), ...(source.origin === undefined ? {} : { source: source.origin }) });
+    };
     const tree = readDocTree(source);
     findings.push(...tree.findings);
     const reading = anchorsOfTree(tree);
@@ -503,10 +505,16 @@ export function readDocEntities(sources: readonly DocumentSource[], manifest: Ki
           // Every pending block is said, not only the section: a block no classifier read has no page and must not be
           // dropped by the early answer (the ninth review, B). The leaves are said by the loop below, before the early
           // answer leaves the section.
-          for (const block of pending) report(block.line, `no classifier has read this passage yet, so what it means is not shown: ${quote(firstWords(leadText(block) || block.raw))}`, 'unread-passage');
+          for (const block of pending) {
+            const words = firstWords(leadText(block) || block.raw);
+            report(block.line, `no classifier has read this passage yet, so what it means is not shown: ${quote(words)}`, 'unread-passage', { key: 'unreadPassagePending', args: { passage: words } });
+          }
           for (const leaf of sectionLeaves(section, namesIdentifier)) {
             if (manifest.ignoreBlocks.includes(leaf.type)) continue;
-            report(leaf.line, `this block holds text no kind of the manifest reads: ${quote(firstWords(namedLeaf(leaf) ?? leafWords(leaf)))}`, 'unread-passage');
+            {
+              const words = firstWords(namedLeaf(leaf) ?? leafWords(leaf));
+              report(leaf.line, `this block holds text no kind of the manifest reads: ${quote(words)}`, 'unread-passage', { key: 'unreadPassageBlock', args: { passage: words } });
+            }
           }
           continue;
         }
@@ -542,13 +550,17 @@ export function readDocEntities(sources: readonly DocumentSource[], manifest: Ki
                 ? [...new Set([...anchorsOfNode(names, block), anchor])]
                 : [anchor], title: place === 1 ? titleOf(block, identifier) : firstWords(span.text), identifier: place === 1 ? identifier : null, line: span.line, endLine: span.endLine, text: span.text, headingPath: [...section.headingPath] });
         }
-        for (const block of pending) if (!places.has(block)) report(block.line, `the classifier read no meaning of this passage, so no page shows it: ${quote(firstWords(leadText(block)))}`, 'unread-passage');
+        for (const block of pending) {
+          if (places.has(block)) continue;
+          const words = firstWords(leadText(block));
+          report(block.line, `the classifier read no meaning of this passage, so no page shows it: ${quote(words)}`, 'unread-passage', { key: 'unreadPassageClassifierNoMeaning', args: { passage: words } });
+        }
       } else if (pending.length > 0) {
         // Without a classifier every passage the first two passes left is said, with its own words: the wiki shows what
         // it could not decide instead of a smaller picture of the documents (madarch-ztyq.3, the review of finding 5).
         for (const block of pending) {
           const words = firstWords(leadText(block));
-          report(block.line, `no kind of the manifest and no classifier read this passage, so no page shows it: ${quote(words)}`, 'unread-passage');
+          report(block.line, `no kind of the manifest and no classifier read this passage, so no page shows it: ${quote(words)}`, 'unread-passage', { key: 'unreadPassageUnread', args: { passage: words } });
         }
       }
       // A block that holds text of its own and opens with an identifier a person meant to be read — a rule written in a
@@ -558,7 +570,10 @@ export function readDocEntities(sources: readonly DocumentSource[], manifest: Ki
       // manifest (`documents.ignore`). No block is dropped without one of the three (the review of the eighth pass).
       for (const leaf of sectionLeaves(section, namesIdentifier)) {
         if (manifest.ignoreBlocks.includes(leaf.type)) continue;
-        report(leaf.line, `this block holds text no kind of the manifest reads: ${quote(firstWords(namedLeaf(leaf) ?? leafWords(leaf)))}`, 'unread-passage');
+        {
+              const words = firstWords(namedLeaf(leaf) ?? leafWords(leaf));
+              report(leaf.line, `this block holds text no kind of the manifest reads: ${quote(words)}`, 'unread-passage', { key: 'unreadPassageBlock', args: { passage: words } });
+            }
       }
     }
     // A number names one section: a second section with the same anchor has no page, and the finding says where the first is.
