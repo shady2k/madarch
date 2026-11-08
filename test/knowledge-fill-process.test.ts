@@ -13,7 +13,7 @@
  */
 import { afterAll, beforeAll, describe, expect, test } from 'bun:test';
 import { execFileSync } from 'node:child_process';
-import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs';
+import { mkdirSync, mkdtempSync, readFileSync, readdirSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { createPGliteDatabaseOwner } from '../src/adapters/database-owner.js';
@@ -181,6 +181,24 @@ describe('the store a fill wrote', () => {
     } finally {
       await server.stop();
     }
+  }, 120_000);
+
+  test('the reader is given the store at a pace of its own, not once per published unit', async () => {
+    // A snapshot is a copy of the store (43 MB here) plus a reader process that boots the copy: one per published unit
+    // took the fill from 6 s to 15 s on a two-core runner, so the run gives the reader the first publication and then
+    // one at most every 8 s (`snapshotMs`), and one at its own end.
+    const storeFolder = productStoreFolder(join(home, 'walk'), knowledgeRootOf(home));
+    // `read/0` is the empty store the wiki opens before the first fill: the run's own snapshots are numbered from 1.
+    const snapshots = readdirSync(join(storeFolder, 'read')).filter((name) => /^\d+$/.test(name) && Number(name) >= 1);
+    const traces = readdirSync(join(storeFolder, 'traces')).filter((name) => name.startsWith('fill-') && name.endsWith('.jsonl') && !name.endsWith('.log.jsonl'));
+    expect(traces.length).toBe(1);
+    const published = readFileSync(join(storeFolder, 'traces', traces[0]!), 'utf8')
+      .split('\n').filter((line) => line !== '').map((line) => JSON.parse(line) as { name: string })
+      .filter((span) => span.name === 'attempt.publish').length;
+    // Two repositories, two passes: four units published, and the reader was given the store twice.
+    expect(published).toBe(4);
+    expect(snapshots.length).toBe(2);
+    expect(snapshots.length).toBeLessThan(published);
   }, 120_000);
 
   test('every file the listing names answers a page, in each interface language', async () => {

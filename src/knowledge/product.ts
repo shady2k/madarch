@@ -939,7 +939,7 @@ export class KnowledgeProduct {
     // as it reads rather than waiting for its end.
     let run: KnowledgeFillRun & { close(): Promise<void> };
     try {
-      run = startFillInWorker({ productFolder: product.folder, storeFolder, runId }, (snapshot) => {
+      run = startFillInWorker({ productFolder: product.folder, storeFolder, runId, ...(this.options.snapshotMs === undefined ? {} : { snapshotMs: this.options.snapshotMs }) }, (snapshot) => {
         void this.swapReader(snapshot, undefined).catch((error: unknown) => {
           this.options.errorLog?.(`the knowledge wiki could not read the snapshot ${snapshot} of ${this.readRoot()}: ${error instanceof Error ? error.message : String(error)}`);
         });

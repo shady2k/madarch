@@ -24,7 +24,7 @@ export type FillStoreOwner = KnowledgeFillOptions['database'];
 
 /** What the server asks of the worker. */
 type FillRequest =
-  | { type: 'start'; id: number; productFolder: string; storeFolder: string; runId: string }
+  | { type: 'start'; id: number; productFolder: string; storeFolder: string; runId: string; snapshotMs?: number }
   | { type: 'control'; id: number; action: 'pause' | 'stop' };
 
 /** What the worker answers. */
@@ -63,6 +63,7 @@ export async function runFillWorker(io: { lines: AsyncIterable<string>; send: (l
           storeFolder: request.storeFolder,
           runId: request.runId,
           database,
+          ...(request.snapshotMs === undefined ? {} : { snapshotMs: request.snapshotMs }),
           // A server's pages follow the fill: every snapshot the run publishes is one its reader can open now.
           onPublish: (seq) => send({ type: 'snapshot', seq }),
         });
@@ -127,6 +128,8 @@ export interface FillWorkerRun {
   readonly productFolder: string;
   readonly storeFolder: string;
   readonly runId: string;
+  /** The least time between two snapshots a reader is given while the run is under way (the fill's own default when left out). */
+  readonly snapshotMs?: number;
 }
 
 /**

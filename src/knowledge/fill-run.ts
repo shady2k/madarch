@@ -33,6 +33,9 @@ const execFileAsync = promisify(execFile);
  */
 type StoreOwner = NonNullable<Parameters<typeof import('../fill/orchestrator-host.js').createFillOrchestratorService>[0]['owner']>;
 
+/** The least time between two snapshots a reader is given while a run is under way: a snapshot costs a store's copy. */
+const DEFAULT_SNAPSHOT_MS = 8_000;
+
 /** The numbers of the snapshots already in `readRoot`, so a new one never reuses one. */
 export function snapshotNumbers(readRoot: string): number[] {
   try {
@@ -71,11 +74,13 @@ export interface KnowledgeFillOptions {
    */
   readonly database: StoreOwner;
   /**
-   * Called after each unit the run publishes, once the store's pins carry what it published and a numbered snapshot
-   * of it stands for a reader: a server that serves the wiki's pages while the fill runs moves its reader to that
-   * snapshot here, so a page shows the files the run has published so far rather than the store before it.
+   * Called with each numbered snapshot the run publishes for a reader — the first publication, then one at most every
+   * `snapshotMs`, and the run's own end — once the store's pins carry what it published: a server that serves the wiki's
+   * pages while the fill runs moves its reader to that snapshot here, so a page shows what the run has published so far.
    */
   readonly onPublish?: (snapshot: number) => void | Promise<void>;
+  /** The least time between two snapshots a reader is given while the run is under way, in milliseconds (default 8 000). */
+  readonly snapshotMs?: number;
 }
 
 /** What one fill of a knowledge store ended as. */
@@ -194,6 +199,9 @@ export async function startKnowledgeFill(options: KnowledgeFillOptions): Promise
   const owner = options.database;
   await owner.ready;
   let service: FillOrchestratorService | undefined;
+  /** When the reader was last given a snapshot, and the least time between two of them. */
+  let lastSnapshot: number | undefined;
+  const snapshotEveryMs = options.snapshotMs ?? DEFAULT_SNAPSHOT_MS;
   let closed = false;
   const close = async (): Promise<void> => {
     if (closed) return;
@@ -214,17 +222,23 @@ export async function startKnowledgeFill(options: KnowledgeFillOptions): Promise
           workers: options.workers ?? 16,
           maxPasses: 100_000,
           onService: (started) => { service = started; },
-          // A reader that is showing the wiki while this run reads it opens every snapshot the run publishes: the
-          // pages follow the fill instead of waiting for its end. A snapshot the reader cannot be given is not the
-          // run's failure — the run's own end takes another one — so the step is read and never thrown on.
+          // A reader that is showing the wiki while this run reads it is given the store at a pace proportional to the
+          // run's length, not to its units: the first publication at once (so a first fill's files stand early), then
+          // at most one every `snapshotMs` (8 s by default), and one when the run ends. A snapshot costs a copy of the
+          // store plus a reader process that boots the copy — about half a second of a two-core machine each — and one
+          // per published unit took the fill from 6 s to 15 s there. A snapshot the reader cannot be given is not the
+          // run's failure: the run's own end takes another one, so the step is read and never thrown on.
           ...(options.onPublish === undefined ? {} : {
             sink: async (event: { readonly kind: string }): Promise<void> => {
               if (event.kind !== 'unit-published') return;
+              const at = Date.now();
+              if (lastSnapshot !== undefined && at - lastSnapshot < snapshotEveryMs) return;
+              lastSnapshot = at;
               try {
                 await writePins(owner);
                 await options.onPublish!(await takeSnapshot(owner, storeDatabasePath(options.storeFolder), storeSnapshotsFolder(options.storeFolder)));
               } catch {
-                // the next unit publishes again; the run's end finishes the store whether or not this one did
+                // the next publication tries again; the run's end finishes the store whether or not this one did
               }
             },
           }),
