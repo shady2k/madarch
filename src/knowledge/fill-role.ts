@@ -31,6 +31,8 @@ export interface FillRoleOptions {
   readonly openStore: (databaseFolder: string) => Promise<StoreOwner>;
   /** Ends the loop after this many actions a claim did not answer — a test drives the role by its own signals. */
   readonly idle?: () => boolean;
+  /** The process that started this one: the role ends when it is gone, so a server's fill process never outlives it. */
+  readonly parentPid?: number;
 }
 
 /**
@@ -42,6 +44,9 @@ export async function runFillRole(options: FillRoleOptions): Promise<number> {
   const watched = new Map<string, Watched>();
   for (;;) {
     if (options.idle?.() === true) return 0;
+    if (options.parentPid !== undefined) {
+      try { process.kill(options.parentPid, 0); } catch { return 0; }
+    }
     for (const storeFolder of storeFoldersOf(options.knowledgeRoot)) {
       let held = watched.get(storeFolder);
       if (held === undefined) {

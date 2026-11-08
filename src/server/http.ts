@@ -525,7 +525,8 @@ const notServed = (message: string): Response => Response.json({ message }, { st
 function startFillRole(options: { readonly home: string; readonly root: string }): { stop: () => void } | undefined {
   try {
     const { command, args } = selfCommand(['--role', 'fill', '--home', options.home]);
-    const child = Bun.spawn([command, ...args], { stdin: 'ignore', stdout: 'inherit', stderr: 'inherit', env: { ...process.env, MADARCH_KNOWLEDGE_ROOT: options.root } });
+    // Its output would mix with the server's own on the same stream: the fill role's log lines are diagnostics of a child.
+    const child = Bun.spawn([command, ...args], { stdin: 'ignore', stdout: 'ignore', stderr: 'ignore', env: { ...process.env, MADARCH_KNOWLEDGE_ROOT: options.root, MADARCH_FILL_PARENT: String(process.pid) } });
     try { setPriority(child.pid, 10); } catch { /* the platform refuses: the child runs at the priority it has */ }
     return {
       stop: () => {
