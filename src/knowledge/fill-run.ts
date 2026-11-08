@@ -70,10 +70,16 @@ export interface KnowledgeFillOptions {
    * (decision 0033, item 3).
    */
   readonly database: StoreOwner;
+  /**
+   * Called after each unit the run publishes, once the store's pins carry what it published and a numbered snapshot
+   * of it stands for a reader: a server that serves the wiki's pages while the fill runs moves its reader to that
+   * snapshot here, so a page shows the files the run has published so far rather than the store before it.
+   */
+  readonly onPublish?: (snapshot: number) => void | Promise<void>;
 }
 
 /** What one fill of a knowledge store ended as. */
-interface KnowledgeFillResult {
+export interface KnowledgeFillResult {
   readonly ok: boolean;
   readonly state: string;
   /** Why a run that did not end was refused or failed, in the run's own words. */
@@ -126,12 +132,11 @@ export interface FinishedKnowledgeStore {
 }
 
 /**
- * Finishes one store after a run that settled: the `knowledge_fill` rows that name the repositories the
- * run published, and the numbered snapshot a reader opens. Every caller that fills the store — the
- * button, `madarch fill`, `madarch fill-stages`, the daemon's updates and `madarch mcp` — finishes it
- * here, so a run of any of them is read by the same reader, in the same snapshot layout.
+ * Writes the store's pins: the `knowledge_fill` rows that name the repositories it holds and what each was read to.
+ * A snapshot carries the pins, so a reader that opens one reads the commit its graph was filled from beside the graph
+ * itself — a run that publishes a snapshot before it ends writes its pins first for the same reason.
  */
-export async function finishKnowledgeStore(owner: StoreOwner, storeFolder: string): Promise<FinishedKnowledgeStore> {
+async function writePins(owner: StoreOwner): Promise<number> {
   await owner.run((tx: { query: (text: string, params?: readonly unknown[]) => Promise<unknown> }) => tx.query(`CREATE TABLE IF NOT EXISTS knowledge_fill (
     repo text PRIMARY KEY, scope text NOT NULL, head text NOT NULL, commit_hash text NOT NULL, effective_time text NOT NULL,
     commits int NOT NULL, filled_commits int NOT NULL)`));
@@ -143,8 +148,19 @@ export async function finishKnowledgeStore(owner: StoreOwner, storeFolder: strin
       [pin.name, pin.scope, pin.head, pin.commit, pin.effectiveTime, String(pin.commits), String(pin.filledCommits)],
     ));
   }
+  return pins.length;
+}
+
+/**
+ * Finishes one store after a run that settled: the `knowledge_fill` rows that name the repositories the
+ * run published, and the numbered snapshot a reader opens. Every caller that fills the store — the
+ * button, `madarch fill`, `madarch fill-stages`, the daemon's updates and `madarch mcp` — finishes it
+ * here, so a run of any of them is read by the same reader, in the same snapshot layout.
+ */
+export async function finishKnowledgeStore(owner: StoreOwner, storeFolder: string): Promise<FinishedKnowledgeStore> {
+  const pins = await writePins(owner);
   const snapshot = await takeSnapshot(owner, storeDatabasePath(storeFolder), storeSnapshotsFolder(storeFolder));
-  return { pins: pins.length, snapshot };
+  return { pins, snapshot };
 }
 
 /**
@@ -179,6 +195,20 @@ export async function startKnowledgeFill(options: KnowledgeFillOptions): Promise
           workers: options.workers ?? 16,
           maxPasses: 100_000,
           onService: (started) => { service = started; },
+          // A reader that is showing the wiki while this run reads it opens every snapshot the run publishes: the
+          // pages follow the fill instead of waiting for its end. A snapshot the reader cannot be given is not the
+          // run's failure — the run's own end takes another one — so the step is read and never thrown on.
+          ...(options.onPublish === undefined ? {} : {
+            sink: async (event: { readonly kind: string }): Promise<void> => {
+              if (event.kind !== 'unit-published') return;
+              try {
+                await writePins(owner);
+                await options.onPublish!(await takeSnapshot(owner, storeDatabasePath(options.storeFolder), storeSnapshotsFolder(options.storeFolder)));
+              } catch {
+                // the next unit publishes again; the run's end finishes the store whether or not this one did
+              }
+            },
+          }),
         });
         if (!result.ok) return { ok: false, state: 'failed', message: `${result.code}: ${result.reason}`, units: 0 };
         if (!result.settled || result.state !== 'succeeded') {

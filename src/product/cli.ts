@@ -280,6 +280,7 @@ export const COMMANDS: Record<string, CommandSpec> = {
   // the environment the ACP session passed it — so it is listed here for the parser and in no help text.
   'mcp-unit': { positionals: [], flags: { home: false, product: false, port: false, open: false, branch: false, yes: false } },
   'knowledge-read-worker': { positionals: [], flags: { home: false, product: false, port: false, open: false, branch: false, yes: false } },
+  'knowledge-fill-worker': { positionals: [], flags: { home: false, product: false, port: false, open: false, branch: false, yes: false } },
   'knowledge-render-worker': { positionals: [], flags: { home: false, product: false, port: false, open: false, branch: false, yes: false } },
   // The deterministic fill (decision 0026's stages 0 to 7, started by madarch-tzte.21.8): it runs
   // the eight stages over one product and prints what the graph holds afterwards. It serves nothing
@@ -684,6 +685,17 @@ export async function main(args: readonly string[], deps: CliDeps = {}): Promise
   if (command === 'mcp-unit') {
     const { serveUnitMcpServer } = await import('../fill/unit-mcp-server.js');
     return await serveUnitMcpServer();
+  }
+  if (command === 'knowledge-fill-worker') {
+    // One product's store, filled in a process of its own (madarch-m38l.4): the server that serves the wiki's pages
+    // starts it, so the store's boot and its statements never run on the server's thread. The store's connection is
+    // opened here, in the program that owns this process (decision 0033, item 3), and handed to the worker's loop.
+    const { runFillWorker } = await import('../knowledge/fill-worker.js');
+    const { standardInputLines } = await import('../knowledge/lines.js');
+    const code = await runFillWorker({ lines: standardInputLines(), send: (line) => { process.stdout.write(`${line}\n`); } }, (path) => createPGliteDatabaseOwner({ path, btreeGist: true }));
+    // The pipe from the server is still open for reading; the worker is over.
+    await new Promise<void>((done) => { process.stdout.write('', () => done()); });
+    process.exit(code);
   }
   if (command === 'knowledge-read-worker') {
     const { runReadWorker } = await import('../knowledge/read-worker.js');

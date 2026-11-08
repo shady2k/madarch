@@ -26,7 +26,7 @@ import { execFile, execFileSync } from 'node:child_process';
 import { mkdir, rename, rm, writeFile } from 'node:fs/promises';
 import { dirname, join, relative, resolve } from 'node:path';
 import { promisify } from 'node:util';
-import { createPGliteDatabaseOwner, type DatabaseOwner, type OuterTransaction } from '../adapters/database-owner.js';
+import type { DatabaseOwner, OuterTransaction } from '../adapters/database-owner.js';
 import { RemoteOwner } from './remote-owner.js';
 import { byCodePoint } from '../model/order.js';
 import { MANIFEST_FILE, readProduct, type ProductIdentity } from '../product/manifest.js';
@@ -37,7 +37,8 @@ import { insideFolder, homeKind, KINDS_FILE, readKinds, setKindsLanguage, type F
 import { WORKFLOWS_FILE } from './workflows.js';
 import { linesOf } from './lines.js';
 import { applyReset, planReset, type ResetPlan } from './reset.js';
-import { startKnowledgeFill, type KnowledgeFillRun } from './fill-run.js';
+import type { KnowledgeFillResult, KnowledgeFillRun } from './fill-run.js';
+import { startFillInWorker } from './fill-worker.js';
 import { fillWritesPages } from '../fill/steps.js';
 import { snapshotNumbers } from './fill-run.js';
 import { locationOf, type RenderContext } from './blocks.js';
@@ -927,22 +928,41 @@ export class KnowledgeProduct {
     void repositories;
     const startedAt = (this.options.now?.() ?? new Date()).toISOString();
     const runId = `fill-${startedAt.replace(/[-:.]/gu, '').replace(/Z$/u, 'Z')}`;
-    let run: KnowledgeFillRun;
+    const storeFolder = this.storeFolder();
+    // The trace this run writes is read by its id: a second trace in the store (a server's tool
+    // calls) is never taken for the fill's progress.
+    this.fillRunId = runId;
+    // The fill runs in a process of its own (`madarch knowledge-fill-worker`; madarch-m38l.4, decision 0033 item 27):
+    // a PGlite runs every statement on the thread that owns it, and the store's boot inside this process held every
+    // page of the wiki for 2.4-2.9 s while a first fill opened its database (the pages test/knowledge-responsive.test.ts
+    // measured in CI). The snapshot each published unit makes is handed to the reader here, so a page follows the fill
+    // as it reads rather than waiting for its end.
+    let run: KnowledgeFillRun & { close(): Promise<void> };
     try {
-      // The store's owner is opened here, where the process's connection already is (decision 0033, item 3): the fill
-      // module is handed it and closes it when the run ends.
-      const database = createPGliteDatabaseOwner({ path: join(this.storeFolder(), 'graph'), btreeGist: true });
-      // The trace this run writes is read by its id: a second trace in the store (a server's tool
-      // calls) is never taken for the fill's progress.
-      this.fillRunId = runId;
-      run = await startKnowledgeFill({ productFolder: product.folder, storeFolder: this.storeFolder(), runId, database });
+      run = startFillInWorker({ productFolder: product.folder, storeFolder, runId }, (snapshot) => {
+        void this.swapReader(snapshot, undefined).catch((error: unknown) => {
+          this.options.errorLog?.(`the knowledge wiki could not read the snapshot ${snapshot} of ${this.readRoot()}: ${error instanceof Error ? error.message : String(error)}`);
+        });
+      });
     } catch (error) {
+      // The program that runs the fill's worker could not be started: no store was opened and nothing was read.
       this.fill = { state: 'failed', startedAt: this.fill.startedAt, finishedAt: (this.options.now?.() ?? new Date()).toISOString(), message: error instanceof Error ? error.message : String(error), code: 'store' };
       this.notify();
       return;
     }
     this.fillRun = run;
-    const result = await run.done;
+    let result: KnowledgeFillResult;
+    try {
+      result = await run.done;
+    } catch (error) {
+      // The worker could not open the store (or ended without an answer): the run failed at its store, and the answer
+      // names the worker and the lines it left on its own error stream.
+      this.fill = { state: 'failed', startedAt: this.fill.startedAt, finishedAt: (this.options.now?.() ?? new Date()).toISOString(), message: error instanceof Error ? error.message : String(error), code: 'store' };
+      this.notify();
+      await run.close();
+      return;
+    }
+    await run.close();
     if (!result.ok) {
       this.fill = { state: 'failed', startedAt: this.fill.startedAt, finishedAt: (this.options.now?.() ?? new Date()).toISOString(), ...(result.message === undefined ? {} : { message: result.message }), code: 'fill' };
       this.notify();
