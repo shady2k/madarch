@@ -23,7 +23,7 @@ import { closeTrace, openTrace, runInTrace, withSpan, withSpanSync } from '../sr
 const engine = join(import.meta.dir, '..');
 const load = async (path: string) => await import(pathToFileURL(join(engine, path)).href);
 const graph = await load('src/graph/index.ts') as typeof import('../src/graph/index.js');
-const { createPGliteDatabaseOwner } = await load('src/adapters/database-owner.ts') as typeof import('../src/adapters/database-owner.js');
+const { createDatabaseOwner } = await load('src/adapters/database-owner.ts') as typeof import('../src/adapters/database-owner.js');
 /** git's own answer for the checks against git: a child process of the run, so a span of its own. */
 function gitTextOf(root: string, args: readonly string[]): string {
   return withSpanSync('process.git', { 'process.command': 'git', 'process.args': [...args], 'process.cwd': root, 'madarch.check': 'against-git' }, (span) => {
@@ -50,7 +50,7 @@ const runId = process.argv.includes('--run') ? argument('run') : `step1-${String
 
 const pin: RepositoryAt = { repository: 'madarch', root: repository, commit, url: `file://${repository}` };
 mkdirSync(store, { recursive: true });
-const owner = createTestDatabaseOwner({ store: join(store, 'graph'), btreeGist: true });
+const owner = await createDatabaseOwner({ store: join(store, 'graph'), btreeGist: true });
 await graph.createRecordSchema(owner);
 
 const peak = { tree: 0, history: 0 };
