@@ -1,7 +1,11 @@
 /**
- * The fill runs in a process of its own (madarch-m38l.4, decision 0033 item 27): a PGlite runs every statement on the
- * thread that owns it, so a store opened inside the server's process holds every page of the wiki while it boots and
- * while it is written. This file reads the three consequences a reader of the wiki sees:
+ * The fill runs in a process of its own (madarch-m38l.4, decision 0033 item 27), and with one PostgreSQL server
+ * (madarch-8bdc.2.5) the reader reads the store the fill writes — no copy of it is made. What holds a reader still at one
+ * moment is its own exported snapshot: a transaction holding `pg_export_snapshot()` and nothing else, which every page
+ * imports in a transaction of its own. The reader therefore never holds a lock a fill's DDL needs, and a new generation
+ * is a new reader process whose export begins at the newer moment.
+ *
+ * This file reads the three consequences a reader of the wiki sees:
  *
  * - the server's thread answers throughout the fill — no page waits on the store's boot (the CI failure measured
  *   2 454-2 936 ms for three pages while a first fill opened its store);
@@ -165,7 +169,8 @@ describe('the store a fill wrote', () => {
   beforeAll(async () => {
     const server = await startServer({ productHome: home, appFolder: app, port: 0, log: () => undefined, errorLog: () => undefined });
     try {
-      expect((await fill(server, 'walk')).state).toBe('done');
+      const ended = await fill(server, 'walk');
+      expect(ended.state, JSON.stringify(ended)).toBe('done');
     } finally {
       await server.stop();
     }
@@ -201,12 +206,20 @@ describe('the store a fill wrote', () => {
   }, 120_000);
 
   test('the reader is given the store at a pace of its own, not once per published unit', async () => {
-    // A snapshot is a copy of the store (43 MB here) plus a reader process that boots the copy: one per published unit
-    // took the fill from 6 s to 15 s on a two-core runner, so the run gives the reader the first publication and then
-    // one at most every 8 s (`snapshotMs`), and one at its own end.
+    // A generation costs a reader process that opens the store and exports its snapshot, which is the cost the pace is
+    // for: one per published unit took the fill from 6 s to 15 s on a two-core runner, so the run announces the first
+    // publication and then one at most every 8 s (`snapshotMs`), and one at its own end. With one server the generation
+    // is a line in `<store>/read/<n>` (the store and the instant), not a copy of the store.
     const storeFolder = productStoreFolder(join(home, 'walk'), knowledgeRootOf(home));
-    // `read/0` is the empty store the wiki opens before the first fill: the run's own snapshots are numbered from 1.
+    // The run's own generations are numbered from 1 (a reader opened before the fill takes 0, which no run announces).
     const snapshots = readdirSync(join(storeFolder, 'read')).filter((name) => /^\d+$/.test(name) && Number(name) >= 1);
+    // Each generation is the store the fill wrote and the instant it was announced at: what a reader opens is that
+    // store, and the line is what says which moment its export stood at.
+    for (const name of snapshots) {
+      const marker = JSON.parse(readFileSync(join(storeFolder, 'read', name), 'utf8')) as { store: string; at: string };
+      expect(marker.store).toBe(join(storeFolder, 'graph'));
+      expect(Number.isFinite(Date.parse(marker.at))).toBe(true);
+    }
     const traces = readdirSync(join(storeFolder, 'traces')).filter((name) => name.startsWith('fill-') && name.endsWith('.jsonl') && !name.endsWith('.log.jsonl'));
     expect(traces.length).toBe(1);
     const published = readFileSync(join(storeFolder, 'traces', traces[0]!), 'utf8')
@@ -219,6 +232,8 @@ describe('the store a fill wrote', () => {
   }, 120_000);
 
   test('every file the listing names answers a page, in each interface language', async () => {
+    // A server started now opens a reader of the store the fill wrote — the same database, not a copy of it — and every
+    // file the fill counted is a row of the kind `code.file` with a page in each interface language.
     const server = await startServer({ productHome: home, appFolder: app, port: 0, log: () => undefined, errorLog: () => undefined });
     try {
       const listing = await json(server, 'walk', '/api/k/entities?kind=code.file&limit=100');

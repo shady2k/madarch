@@ -126,13 +126,27 @@ export async function runReadWorker(io: { lines: AsyncIterable<string>; send: (r
         // folder the home made, or an earlier madarch's): then it makes them, as the fill's own schema does, so a first
         // read is an empty page and never a missing relation. A store that has them is read and not touched — a write
         // here would lock the tables a running fill is publishing into.
-        const there = await owner.run(async (tx) => await tx.query<{ there: boolean }>("SELECT to_regclass('public.knowledge_fill') IS NOT NULL AS there"));
-        if (there.rows[0]?.there !== true) {
-          await createGraphStore(owner).createSchema();
-          // This step's record tables too (madarch-8bdc.2.5): a snapshot of a store the fill has not run on is
-          // read for its repository and its files, and a missing relation would be a failed page, not an empty one.
-          await createRecordSchema(owner);
-          await owner.transaction('write', async (tx) => { await tx.query(SCHEMA_TABLE); });
+        const there = async (): Promise<boolean> => (await owner!.run(async (tx) => await tx.query<{ there: boolean }>("SELECT to_regclass('public.knowledge_fill') IS NOT NULL AS there"))).rows[0]?.there === true;
+        if (!(await there())) {
+          // A store no fill has written yet gets its tables from this reader, so a product before its first fill reads as
+          // empty. A fill that is creating the same tables at the same instant holds the locks in its own order and one
+          // of the two is chosen as the deadlock victim: that answer is PostgreSQL telling this side to try again, and
+          // the second attempt finds the tables the other side committed.
+          for (let attempt = 1; ; attempt += 1) {
+            try {
+              await createGraphStore(owner).createSchema();
+              // This step's record tables too (madarch-8bdc.2.5): a snapshot of a store the fill has not run on is
+              // read for its repository and its files, and a missing relation would be a failed page, not an empty one.
+              await createRecordSchema(owner);
+              await owner.transaction('write', async (tx) => { await tx.query(SCHEMA_TABLE); });
+              break;
+            } catch (error) {
+              const retryable = /deadlock detected/i.test(errorText(error)) || /could not serialize access/i.test(errorText(error));
+              if (!retryable || attempt >= 5) throw error;
+              await Bun.sleep(100 * attempt);
+              if (await there()) break;
+            }
+          }
         }
         // The snapshot: a transaction that holds nothing but an exported snapshot id.
         exported = await exportSnapshot();
@@ -163,12 +177,21 @@ export async function runReadWorker(io: { lines: AsyncIterable<string>; send: (r
       state.wake?.();
     }
   }
-  // The server's pipe is closed: a transaction still open will get no more words, so each is rolled back and ends.
+  // The server's pipe is closed: a transaction still open will get no more words, so each is rolled back and ends,
+  // and the exported snapshot's transaction ends too — a worker whose server was killed must not sit on the machine
+  // holding a snapshot nothing will read.
   for (const state of transactions.values()) {
     state.queue.push({ type: 'end', tx: -1, commit: false });
     state.wake?.();
   }
-  while (work.size > 0) await Promise.allSettled([...work]);
+  exported?.finish();
+  exported = undefined;
+  // The work ends with the pipe: a statement still running is given a moment, and then the process goes regardless.
+  await Promise.race([
+    (async () => { while (work.size > 0) await Promise.allSettled([...work]); })(),
+    new Promise<void>((resolve) => { setTimeout(resolve, 2_000).unref?.(); }),
+  ]);
   await owner?.close().catch(() => undefined);
-  return 0;
+  // The moment this process exists for is over: it ends now, whatever a library kept alive.
+  process.exit(0);
 }
