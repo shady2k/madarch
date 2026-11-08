@@ -116,14 +116,13 @@ Artifacts (documents, tasks, commit messages, code comments) are written in Engl
   2026-11-07): the cluster is `<store>/pgdata`, its Unix socket `<store>/pgsock`,
   and a fill of `/work/madarch` peaks at 213 MB of RSS in the process plus 12 MB
   of the server, where the in-process database it replaced peaked at 1 127 MB.
-  The knowledge wiki still keeps its reads in a process of their own
-  (`madarch knowledge-read-worker`, madarch-m38l.4): the reason is no longer the
-  database's memory — it is that a page's reads then run on their own thread
-  while a fill, a rendering or a template runs on the server's, and the reader
-  can be ended without touching the server's state. A test that opens a
-  product's wiki still pays 3-6 s for the reader's first start (warm it in
-  `beforeAll`). The 4 GB pod and `MADARCH_SKY_MEMORY=8` stay the shape the
-  wiki's acceptance runs need: two products, their fills and a browser walk.
+  The wiki has no reader process any more (madarch-8bdc.9): one binary runs
+  as `--role api` (HTTP, MCP and the web files, reading the store directly, a
+  page in its own `REPEATABLE READ` transaction) or `--role fill` (claims
+  pressed fills from the store's queue); `madarch serve` runs the api role and
+  one fill child at nice 10. The 4 GB pod and `MADARCH_SKY_MEMORY=8` stay the
+  shape the wiki's acceptance runs need: two products, their fills and a
+  browser walk.
 - madarch's own wiki (decision 0031, madarch-m38l.10) is the repository
   `shady2k/madarch-product`, not content of this repository. `own-wiki.lock` pins the
   revision `scripts/build-binary.ts` embeds as a git bundle; a first start installs it at
