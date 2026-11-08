@@ -52,7 +52,7 @@ const json = (body: unknown, status = 200): Response => new Response(JSON.string
 const BOUNDS = { turns: 30, minutes: 10, toolCalls: 80, writeAttempts: 5, maxDomains: 12, editorialRequestsPerPage: 2 };
 const kind = (over: Partial<KindSummary>): KindSummary => ({ kind: 'code.file', source: 'graph', count: 1, single: false, origins: ['code'], ...over });
 const status = (over: Partial<WikiStatus> = {}): WikiStatus => ({
-  product: { name: 'shop', id: 'p1' }, manifest: 'ok', manifestFile: 'madarch/kinds.yaml', language: 'en', seeded: [], findings: [], kinds: [], groups: [],
+  product: { name: 'shop', id: 'p1' }, manifest: 'ok', manifestFile: 'madarch/kinds.yaml', language: 'en', seeded: [], findingCount: 0, kinds: [], groups: [],
   repositories: [], filled: false, incomplete: false, fill: { state: 'idle' }, writer: { state: 'idle', agent: null, units: [] }, bounds: BOUNDS,
   chosenAgent: null, home: null, starterOffers: 0, ...over,
 });
@@ -208,7 +208,7 @@ describe('the glossary table', () => {
   });
   const glossary: Glossary = {
     terms: Array.from({ length: 7 }, (_, index) => term(`Term ${index + 1}`, { source: { original: `The source of Term ${index + 1}.`, document: 'docs/glossary.md', line: index * 2 + 1, endLine: index * 2 + 2 } })),
-    resolutions: {}, findings: [],
+    resolutions: {}, findingCount: 0,
   };
 
   test('every term is one compact table row, the original opens inside that row, and the place is written once', async () => {

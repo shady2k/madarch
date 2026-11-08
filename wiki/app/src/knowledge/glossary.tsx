@@ -8,14 +8,14 @@
  */
 import { createContext, useContext, useEffect, useMemo, useState, type ReactElement } from 'react';
 import { useTranslation } from 'react-i18next';
-import { Alert, AlertDescription } from '@/components/ui/alert.js';
+import { Alert, AlertDescription, AlertTitle } from '@/components/ui/alert.js';
 import { Badge } from '@/components/ui/badge.js';
 import { Input } from '@/components/ui/input.js';
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@/components/ui/table.js';
 import { getGlossary } from './api.js';
-import { Findings, KLink, KMarkdown } from './blocks.js';
+import { KLink, KMarkdown } from './blocks.js';
 import { PageSkeleton } from './skeleton.js';
-import { addressOfDocument } from './routes.js';
+import { addressOfDocument, K_PROBLEMS } from './routes.js';
 import { useTabTitle } from './tabs.js';
 import type { Glossary, GlossaryTerm, Resolution } from './types.js';
 import { plainText, type MNode } from './statements.js';
@@ -245,7 +245,12 @@ export function GlossaryPage({ version }: { version: number }): ReactElement {
           </TableBody>
         </Table>
       )}
-      <Findings findings={glossary.findings} />
+      {glossary.findingCount > 0 && (
+        <Alert variant="problem" className="mb-8" data-testid="glossary-findings">
+          <AlertTitle>{t('knowledge.findingsCount', { count: glossary.findingCount })}</AlertTitle>
+          <AlertDescription><p className="mb-0"><KLink href={K_PROBLEMS}>{t('knowledge.findingsWhere')}</KLink></p></AlertDescription>
+        </Alert>
+      )}
       {glossary.terms.length > 0 && shown.length === 0 && <p className="text-muted">{t('knowledge.nothingOfKind')}</p>}
     </section>
   );

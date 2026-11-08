@@ -101,9 +101,9 @@ import { proposeTask, type TaskChoice, type TaskProposal } from '../loop/propose
 import { readKnowledgePages } from './index/index.js';
 import { rendersInProcess, warmRenderWorker } from './liquid.js';
 import { planRefresh, type RefreshPlan } from '../loop/plan.js';
-import { listQuestions, listTasks, openTasks, questionDetail, taskDetail, type ProblemListing, type QuestionDetail, type QuestionListing, type TaskDetail, type TaskListing, type TaskRow } from '../loop/views.js';
+import { listQuestions, listTasks, openTasks, questionDetail, taskDetail, type Problem, type ProblemCategories, type ProblemCategory, type ProblemItems, type ProblemListing, type ProblemSources, type QuestionDetail, type QuestionListing, type TaskDetail, type TaskListing, type TaskRow } from '../loop/views.js';
 import { collectProblems, openProblemsOf } from '../problems/index.js';
-import { defaultSettings } from '../problems/types.js';
+import { defaultSettings, type ProblemSection, type ProblemSeverity } from '../problems/types.js';
 import { WikiReadError } from './read-error.js';
 import { productStoreFolder, storeDatabasePath, storeSnapshotsFolder } from '../product/store.js';
 import { readProblemDismissals, writeProblemDismissal } from '../loop/problem-files.js';
@@ -2224,7 +2224,12 @@ export class KnowledgeProduct {
     // A snapshot the fill published moves the store's numbers, not the files the body was made from: they are read for
     // every answer, in the reader's process, over the snapshot the pages show.
     const numbers = ctx === undefined ? undefined : await this.numbersOf(ctx, problems);
-    return { ...body, ...(numbers ?? {}), loop, fill: this.statusFill(), writer: ctx === undefined ? this.writer : { ...this.writer, units: this.unitsOf(ctx) }, chosenAgent: this.chosenAgent() };
+    // The count the front shows is the Problems page's own total while its listing stands for these inputs; a listing
+    // still being collected leaves the reading's finding count, never a count of other inputs (madarch-8bdc.2.5).
+    const findingCount = problems !== '' && collected !== undefined && collected.key === problems
+      ? collected.listing.open + collected.listing.closed
+      : body.findingCount;
+    return { ...body, ...(numbers ?? {}), findingCount, loop, fill: this.statusFill(), writer: ctx === undefined ? this.writer : { ...this.writer, units: this.unitsOf(ctx) }, chosenAgent: this.chosenAgent() };
   }
 
   /**
@@ -2484,7 +2489,7 @@ export class KnowledgeProduct {
     const declared = this.repositories();
     const context = await this.context();
     if ('absent' in context) {
-      return { body: { ...common, manifest: 'no-manifest', manifestFile: context.file, language: 'en', seeded: [], ...(this.seedError === undefined ? {} : { seedError: this.seedError }), findings: [], kinds: [], groups: [], repositories: declared.map((repo) => ({ name: repo.name, filled: false })), filled: false, incomplete: false, fill: this.fill, writer: this.writer, bounds: { ...WRITER_BOUNDS, editorialRequestsPerPage: this.editorialRequestsPerPage() }, chosenAgent: this.chosenAgent(), home: null, roles: {}, loop: this.loopCounts(), starterOffers: 0 }, ctx: undefined };
+      return { body: { ...common, manifest: 'no-manifest', manifestFile: context.file, language: 'en', seeded: [], ...(this.seedError === undefined ? {} : { seedError: this.seedError }), findingCount: 0, kinds: [], groups: [], repositories: declared.map((repo) => ({ name: repo.name, filled: false })), filled: false, incomplete: false, fill: this.fill, writer: this.writer, bounds: { ...WRITER_BOUNDS, editorialRequestsPerPage: this.editorialRequestsPerPage() }, chosenAgent: this.chosenAgent(), home: null, roles: {}, loop: this.loopCounts(), starterOffers: 0 }, ctx: undefined };
     }
     const home = homeKind(context.manifest);
     const homeEntity = home === undefined ? undefined : [...context.ctx.markdown.values()].find((entity) => entity.kind === home.name);
@@ -2498,7 +2503,7 @@ export class KnowledgeProduct {
       manifestFile: context.manifest.file,
       language: context.manifest.language ?? 'en',
       seeded: this.seeded,
-      findings: context.findings,
+      findingCount: context.findings.length,
       // A store the answer cannot read (a lock a writer holds, a connection gone) must not take the whole answer with
       // it: the fill state and the files' reading stand, and the kinds stand as they were last read.
       kinds: await kindSummaries(context.ctx).catch(() => this.statusMemo?.body.kinds ?? []),
@@ -2882,14 +2887,15 @@ export class KnowledgeProduct {
   }
 
   /** The terms of the product's glossaries, read from its documents (no fill is needed). */
-  async glossary(): Promise<{ terms: GlossaryTerm[]; resolutions: Record<string, Resolution>; findings: Finding[] }> {
+  async glossary(): Promise<{ terms: GlossaryTerm[]; resolutions: Record<string, Resolution>; findingCount: number }> {
     const context = await this.context();
-    if ('absent' in context) return { terms: [], resolutions: {}, findings: [] };
+    if ('absent' in context) return { terms: [], resolutions: {}, findingCount: 0 };
     const terms = glossaryTerms(context.manifest, context.ctx.docEntities.values(), context.ctx.localizedSources, context.ctx.language, context.ctx.repositories.length === 1);
     // The links the terms' texts hold are resolved here once, so the page draws them as it draws any other (broken ones marked).
     const resolutions: Record<string, Resolution> = {};
     for (const url of [...new Set(terms.flatMap(termLinks))].sort(byCodePoint)) resolutions[url] = await context.ctx.resolver.resolve(url);
-    return { terms, resolutions, findings: context.findings };
+    // The list stays behind: the glossary page gets its count and opens the Problems page for the rows (madarch-8bdc.2.5).
+    return { terms, resolutions, findingCount: context.findings.length };
   }
 
   /**
@@ -3285,6 +3291,98 @@ export class KnowledgeProduct {
 
   /** The corrections people made and what the engine found itself, each with who fixes it. */
   async problems(): Promise<ProblemListing> {
+    return await this.problemListing();
+  }
+
+  /**
+   * The Problems page's first level: one row per rule, with the counts the page and the sidebar show, and no problem
+   * list (madarch-8bdc.2.5). `section` filters the rows; the totals and the severity counts are of the rows shown, so
+   * a filtered page never claims a number the other pages do not hold.
+   */
+  async problemCategories(section?: ProblemSection): Promise<ProblemCategories> {
+    const listing = await this.problemListing();
+    const categories = section === undefined ? listing.categories : listing.categories.filter((category) => category.section === section);
+    const problems = section === undefined ? listing.problems : listing.problems.filter((problem) => problem.section === section);
+    const sections = { code: 0, documents: 0, wiki: 0 } as Record<ProblemSection, number>;
+    const severities = { blocker: 0, critical: 0, major: 0, minor: 0, info: 0 } as Record<ProblemSeverity, number>;
+    for (const problem of problems) { sections[problem.section] += 1; severities[problem.severity] += 1; }
+    return {
+      categories,
+      total: problems.length,
+      open: problems.filter((problem) => !problem.closed).length,
+      closed: problems.filter((problem) => problem.closed).length,
+      dismissed: listing.dismissed,
+      sections, severities,
+      notes: listing.notes,
+      starter: listing.starter,
+    };
+  }
+
+  /**
+   * The second level: the sources of one rule — the page or the file each problem stands in — grouped, counted and
+   * paged in code-point order of their keys. `after` is the key of the last source of the previous page, exactly as
+   * the repository's folder page takes it (`src/knowledge/repository-view.ts`); `next` is the key to pass back.
+   */
+  async problemSources(rule: string, options: { after?: string; limit: number }): Promise<ProblemSources | undefined> {
+    const listing = await this.problemListing();
+    const category = listing.categories.find((candidate) => candidate.rule === rule);
+    if (category === undefined) return undefined;
+    const rows = listing.problems.filter((problem) => problem.rule === rule);
+    const grouped = new Map<string, Problem[]>();
+    for (const problem of rows) {
+      const key = problem.page ?? problem.file;
+      const held = grouped.get(key);
+      if (held === undefined) grouped.set(key, [problem]);
+      else held.push(problem);
+    }
+    const keys = [...grouped.keys()].sort(byCodePoint);
+    const start = options.after === undefined ? 0 : keys.findIndex((key) => byCodePoint(key, options.after!) > 0);
+    const shown = start < 0 ? [] : keys.slice(start, start + options.limit);
+    const sources = shown.map((key) => {
+      const held = grouped.get(key)!;
+      const first = held[0]!;
+      return {
+        key,
+        label: first.page === null ? (first.file === '' ? key : first.file) : (first.pageTitle ?? first.page),
+        page: first.page,
+        pageTitle: first.pageTitle,
+        file: first.file === '' ? null : first.file,
+        count: held.length,
+        open: held.filter((problem) => !problem.closed).length,
+      };
+    });
+    return {
+      rule, kind: category.kind, section: category.section, sonar: category.sonar, severity: category.severity,
+      count: rows.length, open: rows.filter((problem) => !problem.closed).length, closed: rows.filter((problem) => problem.closed).length,
+      totalSources: keys.length, sources,
+      next: start >= 0 && start + options.limit < keys.length ? (shown[shown.length - 1] ?? null) : null,
+    };
+  }
+
+  /**
+   * The third level: the items of one source of one rule, paged by the stable problem id in code-point order: the
+   * client passes `next` back as `after`, and no page is silently short — it states the count of the whole source.
+   */
+  async problemItems(rule: string, source: string, options: { after?: string; limit: number }): Promise<ProblemItems | undefined> {
+    const listing = await this.problemListing();
+    const category = listing.categories.find((candidate) => candidate.rule === rule);
+    if (category === undefined) return undefined;
+    const rows = listing.problems.filter((problem) => problem.rule === rule && (problem.page ?? problem.file) === source)
+      .sort((a, b) => byCodePoint(a.id, b.id));
+    if (rows.length === 0) return undefined;
+    const start = options.after === undefined ? 0 : rows.findIndex((problem) => byCodePoint(problem.id, options.after!) > 0);
+    const shown = start < 0 ? [] : rows.slice(start, start + options.limit);
+    const more = start >= 0 && start + options.limit < rows.length;
+    return {
+      rule, source,
+      count: rows.length, open: rows.filter((problem) => !problem.closed).length, closed: rows.filter((problem) => problem.closed).length,
+      problems: shown,
+      next: more ? (shown[shown.length - 1]?.id ?? null) : null,
+    };
+  }
+
+  /** The listing as the page reads it: the same collection `problems()` cached, for the three levels. */
+  private async problemListing(): Promise<ProblemListing> {
     const context = await this.context();
     if ('absent' in context) throw new WikiReadError(`the product has no ${context.file}: the wiki shows the kinds that file declares`);
     const owner = await this.open();

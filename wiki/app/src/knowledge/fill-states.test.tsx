@@ -46,7 +46,7 @@ afterEach(() => {
 });
 
 const status = (over: Partial<WikiStatus> = {}): WikiStatus => ({
-  product: { name: 'shop', id: 'x' }, manifest: 'ok', manifestFile: 'madarch/kinds.yaml', language: 'en', seeded: [], findings: [], kinds: [], groups: [],
+  product: { name: 'shop', id: 'x' }, manifest: 'ok', manifestFile: 'madarch/kinds.yaml', language: 'en', seeded: [], findingCount: 0, kinds: [], groups: [],
   repositories: [{ name: 'code', filled: true }], filled: false, incomplete: false,
   fill: { state: 'idle' },
   writer: { state: 'idle', agent: null, units: [] },

@@ -198,7 +198,7 @@ describe('the glossary page and a term\'s block', () => {
       'madarch:doc:docs/reference.md#manifest': { state: 'ok', target: 'madarch:doc:docs/reference.md#manifest', kind: 'document', label: 'docs/reference.md#manifest', href: '/k/doc?path=docs%2Freference.md#manifest' },
       'madarch:doc:docs/reference.md#question': { state: 'ok', target: 'madarch:doc:docs/reference.md#question', kind: 'document', label: 'docs/reference.md#question', href: '/k/doc?path=docs%2Freference.md#question' },
     },
-    findings: [],
+    findingCount: 0,
   };
 
   test('every term is listed with its definition, names, the document and line it is stated at; the ambiguous one is marked and links to its question', async () => {
@@ -233,17 +233,16 @@ describe('the glossary page and a term\'s block', () => {
     expect(filterTerms(glossary.terms, 'nothing like it')).toEqual([]);
   });
 
-  test('the findings that explain a missing term are on the page with their file and line', async () => {
-    (globalThis as { fetch?: unknown }).fetch = async () => Response.json({ ...glossary, findings: [{ file: 'docs/glossary.md', line: 12, message: 'Manifest opens a second section of this document' }] });
+  test('the findings of the documents are a count that opens the Problems page, never the list itself', async () => {
+    (globalThis as { fetch?: unknown }).fetch = async () => Response.json({ ...glossary, findingCount: 1 });
     const container = into(createElement(GlossaryPage, { version: 1 }));
-    await until(() => container.querySelector('[data-testid=findings]') !== null, 'the findings');
-    container.querySelector<HTMLElement>('[data-testid=findings-details]')!.click();
-    await until(() => container.querySelector('[data-testid=findings] li') !== null, 'the details');
-    expect(container.querySelector('[data-testid=findings] li')!.textContent).toContain('docs/glossary.md:12');
+    await until(() => container.querySelector('[data-testid=glossary-findings]') !== null, 'the findings count');
+    expect(container.querySelector('[data-testid=glossary-findings]')!.textContent).toContain('Findings: 1');
+    expect(container.querySelector('[data-testid=glossary-findings] a')!.getAttribute('href')).toBe('/k/problems');
   });
 
   test('a product with no glossary says what a glossary is; a read that fails shows its reason', async () => {
-    (globalThis as { fetch?: unknown }).fetch = async () => Response.json({ terms: [], resolutions: {}, findings: [] });
+    (globalThis as { fetch?: unknown }).fetch = async () => Response.json({ terms: [], resolutions: {}, findingCount: 0 });
     let container = into(createElement(GlossaryPage, { version: 1 }));
     await until(() => container.querySelector('[data-testid=glossary-empty]') !== null, 'the empty note');
     rendered?.unmount();

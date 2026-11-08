@@ -219,6 +219,8 @@ describe('the three passes, each recording which one decided', () => {
     // Every passage the classifier did not read is named, with its own line, rather than the section as a whole.
     expect(unread.findings.map((finding) => [finding.file, finding.line])).toEqual([['docs/stories.md', 3], ['docs/stories.md', 5]]);
     expect(unread.findings[0]!.message).toContain('no classifier has read this passage yet');
+    expect(unread.findings[0]!.textKey).toBe('unreadPassagePending');
+    expect(unread.findings[0]!.textArgs).toEqual({ passage: 'A shopper pays by card' });
   });
 
   test('a passage of a general kind no kind of the manifest names is a finding at the passage, not a passage that vanishes', () => {
@@ -282,6 +284,8 @@ describe('the passages of one section are decided one by one', () => {
     expect(read.findings[0]!.message).toContain('no kind of the manifest and no classifier read this passage');
     expect(read.findings[0]!.message).toContain('«ZZ-9 Loyalty points»');
     expect(read.findings[1]!.message).toContain('«Rows are read in the order they were written»');
+    expect(read.findings[0]!.textKey).toBe('unreadPassageUnread');
+    expect(read.findings[0]!.textArgs).toEqual({ passage: 'ZZ-9 Loyalty points' });
   }, 60_000);
 
   test('two meanings in one paragraph are two entities, each with its own anchor and the words the reading named', () => {

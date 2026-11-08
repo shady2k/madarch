@@ -58,6 +58,30 @@ const get = async (path: string): Promise<{ status: number; body: any }> => {
   const response = await fetch(`${server.url}/products/orders-shop${path}`);
   return { status: response.status, body: await response.json() };
 };
+
+/** Every problem through the page's three levels: categories, the sources of each, then the items of each source. */
+const allProblems = async (): Promise<any> => {
+  const categories = (await get('/api/k/problems')).body;
+  const problems: any[] = [];
+  for (const category of categories.categories) {
+    let after: string | undefined;
+    for (;;) {
+      const sources = (await get(`/api/k/problems?rule=${encodeURIComponent(category.rule)}${after === undefined ? '' : `&after=${encodeURIComponent(after)}`}`)).body;
+      for (const source of sources.sources) {
+        let cursor: string | undefined;
+        for (;;) {
+          const items = (await get(`/api/k/problems?rule=${encodeURIComponent(category.rule)}&source=${encodeURIComponent(source.key)}${cursor === undefined ? '' : `&after=${encodeURIComponent(cursor)}`}`)).body;
+          problems.push(...items.problems);
+          if (items.next === null) break;
+          cursor = items.next;
+        }
+      }
+      if (sources.next === null) break;
+      after = sources.next;
+    }
+  }
+  return { ...categories, problems };
+};
 const post = async (path: string, body: unknown, headers: Record<string, string> = {}): Promise<{ status: number; body: any }> => {
   const response = await fetch(`${server.url}/products/orders-shop${path}`, { method: 'POST', headers: { 'content-type': 'application/json', ...headers }, body: typeof body === 'string' ? body : JSON.stringify(body) });
   return { status: response.status, body: await response.json() };
@@ -163,27 +187,26 @@ describe('the corrections and the problems', () => {
     expect(done.body).toMatchObject({ correction: CORRECTION_SLUG, id: `correction:${CORRECTION_SLUG}`, file: CORRECTION_FILE, committed: true, by: { name: 'Ada Reader' } });
     expect(git(folder, 'log', '-1', '--format=%an <%ae>').trim()).toBe('Ada Reader <ada@example.test>');
     expect((await get('/api/k/status')).body.loop.correctionsOpen).toBe(1);
-    const problems = await get('/api/k/problems');
-    expect(problems.status).toBe(200);
-    const correction = problems.body.problems.find((p: { kind: string }) => p.kind === 'correction');
+    const problems = await allProblems();
+    const correction = problems.problems.find((p: { kind: string }) => p.kind === 'correction');
     expect(correction).toMatchObject({ fixer: 'agent', closed: false, page: 'domain:orders', statement: 'ten-percent-discount', sentence: CORRECTION_SENTENCE, reason: CORRECTION_REASON, file: CORRECTION_FILE, by: { name: 'Ada Reader' } });
   });
 
   test('what the engine finds is listed beside them: a ground that names nothing, with the file, the line and who fixes it', async () => {
-    const problems = (await get('/api/k/problems')).body;
+    const problems = await allProblems();
     // Nothing is filled: the page stands on a service and a document section the graph does not hold yet.
     const broken = problems.problems.filter((p: { kind: string }) => p.kind === 'broken-link');
     expect(broken.length).toBeGreaterThan(0);
     expect(broken[0]).toMatchObject({ fixer: 'agent', closed: false, file: 'docs/domains/orders.md' });
     expect(typeof broken[0].line).toBe('number');
     expect(broken[0].reason.length).toBeGreaterThan(10);
-    expect(problems.notes.join(' ')).toContain('single code repository');
+    expect(problems.notes.map((note: { message: string }) => note.message).join(' ')).toContain('single code repository');
     expect(problems.open).toBe(problems.problems.length);
   });
 
 
   test('the listing has the three sections, and every row carries its rule, Sonar kind, severity, place, entity and evidence', async () => {
-    const problems = (await get('/api/k/problems')).body;
+    const problems = await allProblems();
     expect(Object.keys(problems.sections).sort()).toEqual(['code', 'documents', 'wiki']);
     expect(problems.sections.documents).toBeGreaterThan(0);
     expect(problems.sections.wiki).toBeGreaterThan(0);
@@ -203,7 +226,7 @@ describe('the corrections and the problems', () => {
     expect(documents.find((row: { rule: string }) => row.rule === 'document.contradiction')).toMatchObject({
       kind: 'document-contradiction', sonar: 'bug', severity: 'major', file: 'docs/questions/discount-percentage.md', entity: { key: 'question:discount-percentage' },
     });
-    const wiki = problems.problems.find((row: { rule: string }) => row.rule === 'wiki.broken-link');
+    const wiki = problems.problems.find((row: { rule: string; target: string }) => row.rule === 'wiki.broken-link' && row.target === 'doc:README.md#discounts');
     expect(wiki).toMatchObject({ section: 'wiki', kind: 'broken-link', sonar: 'bug', severity: 'major', page: 'domain:orders', fixer: 'agent', place: { key: 'domain:orders' }, entity: { key: 'domain:orders' } });
     expect(wiki.id).toBe('wiki.broken-link\u0000domain:orders\u0000ten-percent-discount\u0000doc:README.md#discounts');
     const onEntity = problems.problems.filter((row: { entity: { key: string } | null }) => row.entity?.key === 'domain:orders').length;
@@ -213,7 +236,7 @@ describe('the corrections and the problems', () => {
   });
 
   test('«Не проблема» writes the person\'s reason as a file of the product, commits it, and the listing leaves it out', async () => {
-    const before = (await get('/api/k/problems')).body;
+    const before = await allProblems();
     const broken = before.problems.find((row: { rule: string }) => row.rule === 'wiki.broken-link');
     expect(broken).toBeDefined();
     const done = await post('/api/k/problem-dismiss', { id: broken.id, reason: 'The README section is written by the fill itself.' });
@@ -225,7 +248,7 @@ describe('the corrections and the problems', () => {
     expect(text).toContain('rule: wiki.broken-link');
     expect(text).toContain('reason: The README section is written by the fill itself.');
     expect(git(folder, 'log', '-1', '--format=%s').trim()).toBe('Record that a problem is not one');
-    const after = (await get('/api/k/problems')).body;
+    const after = await allProblems();
     expect(after.problems.some((row: { id: string }) => row.id === broken.id)).toBe(false);
     expect(after.dismissed).toBe(1);
     expect(after.sections.wiki).toBe(before.sections.wiki - 1);
@@ -235,7 +258,7 @@ describe('the corrections and the problems', () => {
   });
 
   test('«Создать задачу» opens a task scoped to the place the problem names', async () => {
-    const listing = (await get('/api/k/problems')).body;
+    const listing = await allProblems();
     const contradiction = listing.problems.find((row: { rule: string }) => row.rule === 'document.contradiction');
     expect(contradiction.scope).toEqual({ type: 'file', path: 'docs/questions/discount-percentage.md' });
     const created = await post('/api/k/problem-task', { id: contradiction.id });
@@ -258,7 +281,7 @@ describe('the corrections and the problems', () => {
   test('a file that cannot be read is a problem for a person, naming the file and the line', async () => {
     writeFileSync(join(folder, 'docs/questions/broken-one.md'), 'no front matter\n');
     try {
-      const problems = (await get('/api/k/problems')).body;
+      const problems = await allProblems();
       const unreadable = problems.problems.find((p: { kind: string; file: string }) => p.kind === 'unreadable-file' && p.file === 'docs/questions/broken-one.md');
       expect(unreadable).toMatchObject({ fixer: 'person', line: 1 });
       expect(unreadable.reason).toContain('the file has no front matter');

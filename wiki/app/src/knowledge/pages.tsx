@@ -21,7 +21,7 @@ import { HistoryBar } from './history-bar.js';
 import { AgentChoice, useAgentChoice, WriterLine } from './writer.js';
 import { FailureNote } from './errors.js';
 import { BlockView, CodeLines, CodePlace, EntityName, Findings, KLink, KMarkdown, PlannedBadge, PlannedContext, brokenWords, groupLabel, scrollToAnchor, sentenceKey, type PlannedMarks } from './blocks.js';
-import { addressOfDocument, addressOfEntity, addressOfJournal, addressOfKind, addressOfStatement } from './routes.js';
+import { addressOfDocument, addressOfEntity, addressOfJournal, addressOfKind, addressOfStatement, K_PROBLEMS } from './routes.js';
 import { KindLabels, useKindName } from './kind-names.js';
 import { fillPhaseWords, fillShare, fillWords } from './fill-words.js';
 import { useRead } from './live.js';
@@ -418,8 +418,16 @@ function ManifestFindings({ status }: { status: WikiStatus }): ReactElement | nu
       </Alert>
     );
   }
-  if (status.findings.length === 0) return null;
-  return <Findings findings={status.findings} scope="manifest" />;
+  if (status.findingCount === 0) return null;
+  return (
+    <Alert variant="problem" className="mb-8" data-testid="manifest-findings">
+      <AlertTitle>{t('knowledge.findings', { count: status.findingCount })}</AlertTitle>
+      <AlertDescription>
+        <p>{t('knowledge.findingsHelp')}</p>
+        <p className="mb-0"><KLink href={K_PROBLEMS}>{t('knowledge.findingsWhere')}</KLink></p>
+      </AlertDescription>
+    </Alert>
+  );
 }
 
 /** A product with no kinds manifest: what the file is and where it comes from. */
