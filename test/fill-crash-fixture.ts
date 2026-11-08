@@ -173,7 +173,10 @@ export class CrashDriver {
   private readonly finished: Promise<void>;
 
   constructor(binary: string, specFile: string) {
-    this.process = Bun.spawn([binary, specFile], { stdin: 'pipe', stdout: 'pipe', stderr: 'pipe' });
+    // The run's own environment, handed over: `Bun.spawn` without `env` starts the child with the environment the
+    // process was started in, so the preload's TMPDIR (the run's scratch), HOME and MADARCH_HOME would be gone — and a
+    // child that cannot find the scratch is a child whose folders the run cannot sweep.
+    this.process = Bun.spawn([binary, specFile], { stdin: 'pipe', stdout: 'pipe', stderr: 'pipe', env: process.env });
     this.finished = this.pump();
   }
 

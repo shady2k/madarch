@@ -19,12 +19,24 @@ let lease: ClusterLease | undefined;
 let failure: Error | undefined;
 
 /**
- * Starts the run's server and puts its socket folder where every test file and
- * every child process it starts reads it. A server that cannot start (root,
- * a platform with no pinned build, a machine that cannot download) is kept as
- * the failure every case that opens a database then reports.
+ * Starts the run's server, once, and puts its socket folder where every test file
+ * and every child process it starts reads it: the first case that opens a
+ * database asks, and a run with no such case never starts a server (a child run
+ * of the scratch fixture is 10 s slower when every run boots one). A server that
+ * cannot start (root, a platform with no pinned build, a machine that cannot
+ * download) is kept as the failure every case that opens a database reports.
  */
-export async function startRunPostgres(): Promise<void> {
+export async function ensureRunPostgres(): Promise<void> {
+  if (lease !== undefined || failure !== undefined) return;
+  start ??= startRunPostgres();
+  await start;
+}
+
+/** The one start, shared by every case that asks while it runs. */
+let start: Promise<void> | undefined;
+
+/** Starts the server now: what `ensureRunPostgres` runs once. */
+async function startRunPostgres(): Promise<void> {
   const scratch = runScratch();
   const store = join(scratch.folder, 'postgres');
   try {
@@ -35,16 +47,4 @@ export async function startRunPostgres(): Promise<void> {
     noteTestServerFailure(failure);
     process.stderr.write(`madarch test run: the run's PostgreSQL server could not start, so every case that opens a database will fail: ${failure.message}\n`);
   }
-}
-
-/** Stops the run's server, once. */
-export async function stopRunPostgres(): Promise<void> {
-  const held = lease;
-  lease = undefined;
-  if (held !== undefined) await held.close().catch(() => undefined);
-}
-
-/** Why the run's server is not there, for a case that needs it and finds nothing. */
-export function runPostgresFailure(): Error | undefined {
-  return failure;
 }

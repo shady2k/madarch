@@ -19,7 +19,7 @@
  */
 import { existsSync, mkdirSync, readFileSync, rmSync, writeFileSync, chmodSync } from 'node:fs';
 import { tmpdir } from 'node:os';
-import { join, resolve } from 'node:path';
+import { dirname, join, resolve } from 'node:path';
 import { spawnSync } from 'node:child_process';
 import { Client } from 'pg';
 import { log as defaultLog } from '../obs/log.js';
@@ -37,9 +37,6 @@ export const CLUSTER_ADMIN_DATABASE = 'postgres';
 
 /** How long a cluster is given to answer after its `postmaster.pid` names a live process, before it is stopped. */
 const ANSWER_WAIT_MS = 5_000;
-
-/** The prefix of the socket folder a store's server listens in, in the system temporary folder. */
-const SOCKET_FOLDER_PREFIX = 'madarch-pg-';
 
 /** The ownership file's name inside a cluster's data directory. */
 const OWNER_FILE = 'madarch-owner.pid';
@@ -61,17 +58,46 @@ export interface RunningCluster {
 }
 
 /**
- * The data directory of a store (`<store>/pgdata`) and its socket folder.
+ * The data directory of a store (`<store>/pgdata`) and the socket folder its server listens in.
  *
- * The socket folder stands in the system temporary folder under a hash of the data directory, because a Unix socket
- * path is limited to about a hundred bytes and a store's path is not: `<products home>/.madarch/knowledge/<id>/graph/pgsock`
- * is longer than that on this machine (measured: 150 bytes, and PostgreSQL refuses to start). The folder is private to
- * the user, named after the store it serves, and removed when the server stops.
+ * A Unix socket path is limited to about a hundred bytes (measured: `pg_ctl start` failed with a 150-byte
+ * `<products home>/.madarch/knowledge/<id>/graph/pgsock/.s.PGSQL.5432`), and a store's path is long. The socket folder
+ * is therefore a short one: `.pgsock/<16 hex of the data directory>` in the deepest folder above the store whose path
+ * still fits — inside the run's own scratch for a test's store, beside the store in a product's state.
+ *
+ * It is computed from the data directory and **nothing else**: not from the process's temporary folder, which a child
+ * process may not have (`Bun.spawn` without `env:` starts it with the environment the run started with, where a
+ * preload's `TMPDIR` is not), and not from anything a second process could compute differently. Two processes opening
+ * one store must name one socket, or they start two servers of it; and a folder a run makes must be one its own sweep
+ * takes away.
  */
 export function clusterPaths(store: string): { readonly dataDir: string; readonly socketDir: string } {
-  const root = resolve(store);
-  const dataDir = join(root, 'pgdata');
-  return { dataDir, socketDir: join(tmpdir(), `${SOCKET_FOLDER_PREFIX}${sha256Hex(new TextEncoder().encode(dataDir)).slice(0, 16)}`) };
+  const dataDir = join(resolve(store), 'pgdata');
+  return { dataDir, socketDir: socketFolderFor(dataDir) };
+}
+
+/**
+ * The longest folder a socket goes in, in bytes: the kernel's `sun_path` is 107 bytes for the whole path, and the
+ * server's own file name adds `.s.PGSQL.5432` (14 bytes) — measured: a 95-byte folder made `pg_ctl start` fail.
+ */
+const SOCKET_PATH_LIMIT = 90;
+
+/** The folder the socket of one data directory lives in, in code-point order of the stores it serves. */
+const SOCKET_FOLDER = '.pgsock';
+
+/** The socket folder of one data directory: the deepest folder above it whose `.pgsock/<hash>` path still fits. */
+function socketFolderFor(dataDir: string): string {
+  const hash = sha256Hex(new TextEncoder().encode(dataDir)).slice(0, 16);
+  for (let folder = dataDir; ;) {
+    const parent = dirname(folder);
+    if (parent === '/' || parent === folder) break;
+    const attempt = join(parent, SOCKET_FOLDER, hash);
+    if (Buffer.byteLength(attempt) <= SOCKET_PATH_LIMIT) return attempt;
+    folder = parent;
+  }
+  // Nothing above the store is short enough (a store under a very deep path): the system's temporary folder, whose
+  // sockets the run-sweep of a test and the reclaim of a stale server remove like any other.
+  return join(tmpdir(), `madarch-pg-${hash}`);
 }
 
 /** Runs one of the server's own programs, refusing by name with what it said. */

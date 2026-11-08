@@ -323,9 +323,8 @@ function running(pid: number): boolean {
   }
 }
 
-// The preload's work, at load: create the scratch, point the variables into
-// it, start the one server the run's cases open, and leave its stop and the
-// removal to the hooks above.
+// The preload's work, at load: create the scratch, point the variables into it, and leave the removal to the hooks
+// above. The run's server is started by the first case that opens a database (`ensureRunPostgres`), and the same hook
+// stops it with the scratch.
 runScratch();
-await (await import('./run-postgres.js')).startRunPostgres();
 await installEndOfRun();

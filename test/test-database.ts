@@ -19,6 +19,7 @@
  */
 import { createDatabaseOwner, type DatabaseOwner } from '../src/adapters/database-owner.js';
 import { clusterQuery } from '../src/adapters/postgres-cluster.js';
+import { ensureRunPostgres } from './run-postgres.js';
 import { createQueryDatabase } from '../src/adapters/query-database.js';
 import { createHistoryStore } from '../src/adapters/sql-history.js';
 import type { Clock, HistoryStore } from '../src/history/types.js';
@@ -76,6 +77,8 @@ async function dropDatabase(socketDir: string, database: string): Promise<void> 
  * server, or the store folder the case names. Nothing a case writes outlives it.
  */
 export async function createTestDatabaseOwner(options: TestDatabaseOptions = {}): Promise<DatabaseOwner> {
+  // The run's server is started here, on the first case that needs one.
+  await ensureRunPostgres();
   if (options.store !== undefined) return await createDatabaseOwner({ store: options.store, ...(options.database === undefined ? {} : { database: options.database }), ...(options.btreeGist === true ? { btreeGist: true } : {}) });
   const socketDir = options.socket ?? testServerSocket();
   made += 1;
