@@ -16,7 +16,7 @@ test('snapshot activation replaces complete pins on reused scope only after succ
  const root=mkdtempSync(join(tmpdir(),'madarch-rebuild-pins-'));const graph=join(root,'graph');const reads=join(root,'read');
  const maker=await createTestDatabaseOwner({store:graph,btreeGist:true});await maker.ready;await createGraphStore(maker).createSchema();const seq=await takeSnapshot(maker,graph,reads);await maker.close();
  const product=new KnowledgeProduct({productFolder:root,storeRoot:root});const boundary=product as unknown as PinBoundary;
- const old=Object.create(RemoteOwner.prototype) as RemoteOwner;Object.assign(old,{close:async()=>undefined,recent:()=>[]});boundary.reader={owner:old,seq:0,path:join(reads,'0')};boundary.open=async()=>boundary.reader.owner;boundary.readRoot=()=>reads;boundary.pins.set('A',pin('A','7'));boundary.pins.set('B',pin('B','8'));
+ const old=Object.create(RemoteOwner.prototype) as RemoteOwner;Object.assign(old,{close:async()=>undefined,recent:()=>[]});boundary.reader={owner:old,seq:0,path:join(reads,'0'),store:graph};boundary.open=async()=>boundary.reader.owner;boundary.readRoot=()=>reads;boundary.pins.set('A',pin('A','7'));boundary.pins.set('B',pin('B','8'));
  const failing={transaction:async()=>{throw new Error('injected pin query failure');}} as unknown as DatabaseOwner;await expect(boundary.loadPins(failing)).rejects.toThrow('pin query failure');expect([...boundary.pins.keys()]).toEqual(['A','B']);
  const warm=spyOn(RemoteOwner.prototype,'warm').mockRejectedValueOnce(new Error('injected warm failure'));
  try {
