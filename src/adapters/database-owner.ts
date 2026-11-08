@@ -482,7 +482,17 @@ export async function createDatabaseOwner(options: DatabaseOwnerOptions = {}): P
   }
   try {
     await ensureDatabase(cluster, database);
-    if (options.btreeGist === true) await clusterQuery(cluster, database, 'CREATE EXTENSION IF NOT EXISTS btree_gist');
+    if (options.btreeGist === true) {
+      try {
+        await clusterQuery(cluster, database, 'CREATE EXTENSION IF NOT EXISTS btree_gist');
+      } catch (error) {
+        // `CREATE EXTENSION IF NOT EXISTS` is not race-free: two processes opening one store at the same instant can
+        // both create it, and one of them reads the other's row as a duplicate key. The extension standing is what was
+        // asked for, so that answer is the success it is.
+        const held = await clusterQuery(cluster, database, "SELECT 1 AS held FROM pg_extension WHERE extname = 'btree_gist'");
+        if (held.length === 0) throw error;
+      }
+    }
     const inner = await createPostgresDatabaseOwner({ host: cluster.socketDir, port: cluster.port, database, user: cluster.user, max: 8 });
     await inner.ready;
     return new ServerStoreOwner(inner, release);

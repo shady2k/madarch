@@ -42,10 +42,13 @@ export async function runReadWorker(io: { lines: AsyncIterable<string>; send: (r
   const send = (reply: ReadReply): void => io.send(encodeWire(reply));
   let owner: DatabaseOwner | undefined;
   const transactions = new Map<number, { queue: ReadRequest[]; wake: (() => void) | undefined }>();
-  /** The snapshot the worker answers from: one repeatable-read transaction, begun at the open. */
-  let snapshot: { queue: ReadRequest[]; wake: (() => void) | undefined } | undefined;
-  /** The transaction ids the server named, mapped onto that one snapshot. */
-  const named = new Set<number>();
+  /**
+   * The snapshot every answer of this worker is read at: a transaction that only ran `pg_export_snapshot()`, so it holds
+   * no relation lock and a fill's DDL never waits on a reader; each page imports it with `SET TRANSACTION SNAPSHOT` in a
+   * transaction of its own, which is short. This is what lets a reader see one moment of the store while the fill keeps
+   * writing it — and never block the writer.
+   */
+  let exported: { readonly id: string; finish(): void } | undefined;
   /** The statements and transactions under way; each leaves the set when it ends. */
   const work = new Set<Promise<void>>();
   const track = (operation: Promise<void>): void => {
@@ -63,10 +66,38 @@ export async function runReadWorker(io: { lines: AsyncIterable<string>; send: (r
     }
   };
 
+  /**
+   * Exports this reader's snapshot: one transaction that runs `pg_export_snapshot()` and then waits, holding no relation
+   * lock. Its id is what every answer is read at, and the transaction that holds it is the only long-lived one here.
+   */
+  const exportSnapshot = async (): Promise<{ readonly id: string; finish(): void }> => {
+    let settle!: (id: string) => void;
+    const id = new Promise<string>((resolve) => { settle = resolve; });
+    let release!: () => void;
+    const kept = new Promise<void>((resolve) => { release = resolve; });
+    track(owner!.transaction('snapshot', async (tx) => {
+      const held = await tx.query<{ id: string }>('SELECT pg_export_snapshot() AS id');
+      settle(held.rows[0]!.id);
+      await kept;
+    }).catch(() => undefined));
+    return { id: await id, finish: release };
+  };
+
+  /** Runs one transaction at the reader's snapshot: `SET TRANSACTION SNAPSHOT` first, which takes only the moment. */
+  const atSnapshot = async <T>(work: (tx: OuterTransaction) => Promise<T>): Promise<T> => {
+    const snapshot = exported?.id;
+    return await owner!.transaction('snapshot', async (tx) => {
+      if (snapshot !== undefined) await tx.query(`SET TRANSACTION SNAPSHOT '${snapshot}'`);
+      return await work(tx);
+    });
+  };
+
   const beginTransaction = (request: Extract<ReadRequest, { type: 'begin' }>): void => {
     const state: { queue: ReadRequest[]; wake: (() => void) | undefined } = { queue: [], wake: undefined };
     transactions.set(request.id, state);
+    const snapshot = exported?.id;
     track(owner!.transaction(request.kind, async (tx) => {
+      if (request.kind === 'snapshot' && snapshot !== undefined) await tx.query(`SET TRANSACTION SNAPSHOT '${snapshot}'`);
       send({ type: 'begun', id: request.id });
       for (;;) {
         while (state.queue.length === 0) await new Promise<void>((resolve) => { state.wake = resolve; });
@@ -103,21 +134,8 @@ export async function runReadWorker(io: { lines: AsyncIterable<string>; send: (r
           await createRecordSchema(owner);
           await owner.transaction('write', async (tx) => { await tx.query(SCHEMA_TABLE); });
         }
-        // The snapshot itself: a repeatable-read transaction held for this process's life, so every page it answers
-        // agrees with the moment the fill published it.
-        const held: { queue: ReadRequest[]; wake: (() => void) | undefined } = { queue: [], wake: undefined };
-        snapshot = held;
-        track(owner.transaction('snapshot', async (tx) => {
-          for (;;) {
-            while (held.queue.length === 0) await new Promise<void>((resolve) => { held.wake = resolve; });
-            const next = held.queue.shift()!;
-            if (next.type === 'in') await runStatement(tx, next.id, next.sql, next.values);
-            else if (next.type === 'end') return;
-          }
-        }).then(
-          () => undefined,
-          (error: unknown) => { send({ type: 'failed', message: `the reader's snapshot ended: ${errorText(error)}` }); },
-        ));
+        // The snapshot: a transaction that holds nothing but an exported snapshot id.
+        exported = await exportSnapshot();
         send({ type: 'ready' });
       } catch (error) {
         send({ type: 'failed', message: `the snapshot ${request.path} could not be opened: ${errorText(error)}` });
@@ -130,24 +148,11 @@ export async function runReadWorker(io: { lines: AsyncIterable<string>; send: (r
       return 1;
     }
     if (request.type === 'query') {
-      // Every statement of a reader is answered from its snapshot: the store it reads is the one a fill may be writing.
-      snapshot!.queue.push({ type: 'in', id: request.id, tx: 0, sql: request.sql, values: request.values });
-      snapshot!.wake?.();
+      // A bare statement is answered at the reader's snapshot, in a transaction that lasts as long as the statement.
+      const { id, sql, values } = request;
+      track(atSnapshot(async (tx) => await runStatement(tx, id, sql, values)));
     } else if (request.type === 'begin') {
-      if (request.kind === 'write') beginTransaction(request);
-      else {
-        // A snapshot transaction the server opens is this worker's own held snapshot.
-        named.add(request.id);
-        send({ type: 'begun', id: request.id });
-      }
-    } else if (named.has(request.tx)) {
-      if (request.type === 'in') {
-        snapshot!.queue.push(request);
-        snapshot!.wake?.();
-      } else {
-        named.delete(request.tx);
-        send({ type: 'ended', tx: request.tx });
-      }
+      beginTransaction(request);
     } else {
       const state = transactions.get(request.type === 'in' ? request.tx : request.tx);
       if (state === undefined) {

@@ -71,7 +71,11 @@ async function fill(server: StartedServer, name: string): Promise<FillState> {
   expect(pressed.status).toBe(202);
   for (let attempt = 0; attempt < 1200; attempt++) {
     const status = await json(server, name, '/api/k/status');
-    const state = (status.body['fill'] as FillState).state;
+    const reported = status.body['fill'] as FillState | undefined;
+    if (reported === undefined) {
+      throw new Error(`the wiki answered ${String(status.status)} without a fill state (${JSON.stringify(status.body)}) at ${String(attempt)} of the poll`);
+    }
+    const state = reported.state;
     if (state !== 'running') return status.body['fill'] as FillState;
     await new Promise((rest) => setTimeout(rest, 100));
   }

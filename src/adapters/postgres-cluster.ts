@@ -304,26 +304,37 @@ export async function openCluster(options: OpenClusterOptions): Promise<RunningC
     writeFileSync(join(dataDir, OWNER_FILE), `${String(process.pid)}\n`);
     return share({ dataDir, socketDir, port: CLUSTER_PORT, user: CLUSTER_USER, startedIt: true, bin, stop: () => stopCluster({ dataDir, socketDir, bin, log }) });
   }
-  await reclaimStaleServer(dataDir, bin, socketDir, log);
+  // A server of this store may be starting, running or stopping in another process at this instant: a store is opened by
+  // the fill's worker and by a reader at once, and each of them may be the first. So the decision is taken up to three
+  // times — attach if the server answers, wait for a predecessor to let go, start if nothing holds it — and a start that
+  // loses the race is retried rather than reported.
+  let failure: unknown;
+  for (let attempt = 1; attempt <= 3; attempt += 1) {
+    if (attempt > 1) await Bun.sleep(200 * attempt);
+    await reclaimStaleServer(dataDir, bin, socketDir, log);
+    if (await answering(socketDir)) {
+      writeFileSync(join(dataDir, OWNER_FILE), `${String(process.pid)}\n`);
+      return share({ dataDir, socketDir, port: CLUSTER_PORT, user: CLUSTER_USER, startedIt: true, bin, stop: () => stopCluster({ dataDir, socketDir, bin, log }) });
+    }
+    try {
+      startServer({ dataDir, socketDir, bin, log });
+    } catch (error) {
+      // A predecessor that is still letting go: the next attempt waits for it, then answers or starts.
+      failure = error;
+      continue;
+    }
+    if (!(await answering(socketDir))) {
+      failure = new Error(`${join(dataDir, '..', 'postgres.log')}:1: the PostgreSQL server started on ${dataDir} but does not answer on ${socketDir}: read that log for what it said (src/adapters/postgres-cluster.ts)`);
+      continue;
+    }
+    writeFileSync(join(dataDir, OWNER_FILE), `${String(process.pid)}\n`);
+    return share({ dataDir, socketDir, port: CLUSTER_PORT, user: CLUSTER_USER, startedIt: true, bin, stop: () => stopCluster({ dataDir, socketDir, bin, log }) });
+  }
   if (await answering(socketDir)) {
     writeFileSync(join(dataDir, OWNER_FILE), `${String(process.pid)}\n`);
     return share({ dataDir, socketDir, port: CLUSTER_PORT, user: CLUSTER_USER, startedIt: true, bin, stop: () => stopCluster({ dataDir, socketDir, bin, log }) });
   }
-  try {
-    startServer({ dataDir, socketDir, bin, log });
-  } catch (error) {
-    // Two processes may start one store's server at the same instant: the one that lost the lock finds the other's
-    // server answering, and attaches to it instead of reporting a start it did not need to make.
-    if (await answering(socketDir)) {
-      return share({ dataDir, socketDir, port: CLUSTER_PORT, user: CLUSTER_USER, startedIt: false, bin, stop: noStop });
-    }
-    throw error;
-  }
-  if (!(await answering(socketDir))) {
-    throw new Error(`${join(dataDir, '..', 'postgres.log')}:1: the PostgreSQL server started on ${dataDir} but does not answer on ${socketDir}: read that log for what it said (src/adapters/postgres-cluster.ts)`);
-  }
-  writeFileSync(join(dataDir, OWNER_FILE), `${String(process.pid)}\n`);
-  return share({ dataDir, socketDir, port: CLUSTER_PORT, user: CLUSTER_USER, startedIt: true, bin, stop: () => stopCluster({ dataDir, socketDir, bin, log }) });
+  throw failure;
 }
 
 /**
