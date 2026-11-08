@@ -9,7 +9,7 @@
  * folder and no file, and a store without a history has no commit. The caller
  * answers with the step named rather than an empty page.
  */
-import { commitWithPaths, fileFacts, fileHistory, folderChildrenOf, folderFiles, listDirectories, listFiles, listRepositories, repositoryFacts, type FileRecord } from '../graph/index.js';
+import { commitWithPaths, fileFacts, fileHistory, folderChildrenOf, folderFiles, listDirectories, listFiles, listRepositories, repositoryFacts, type FileDate, type FileRecord } from '../graph/index.js';
 import { withSpan } from '../obs/trace.js';
 import { byCodePoint } from '../model/order.js';
 import type { RepositoryCounts } from './model.js';
@@ -36,7 +36,10 @@ interface PageHistoryRow {
   readonly added: number | null;
   readonly removed: number | null;
   readonly previousPath: string | null;
+  /** The author's clock with its offset, as `git log %aI` writes it. */
   readonly date: string;
+  /** The offset `date` stands at, in minutes east of UTC. */
+  readonly offsetMin: number;
   readonly subject: string;
   readonly walk: number;
 }
@@ -134,8 +137,8 @@ export interface FilePageModel {
   readonly repository: string;
   readonly asIsCommit: string | null;
   readonly file: PageFile;
-  readonly created: { readonly date: string; readonly commit: string; readonly author: string } | null;
-  readonly modified: { readonly date: string; readonly commit: string; readonly author: string } | null;
+  readonly created: FileDate | null;
+  readonly modified: FileDate | null;
   readonly commitCount: number;
   readonly authors: readonly string[];
   readonly history: readonly PageHistoryRow[];
@@ -160,7 +163,7 @@ export async function filePage(owner: RecordOwner, repository: string, path: str
       commitCount: file.commitCount, authors: [...file.authors],
       history: history?.rows.map((row) => ({
         commit: row.commit, change: row.change, added: row.added, removed: row.removed,
-        previousPath: row.previousPath, date: row.date, subject: row.subject, walk: row.walk,
+        previousPath: row.previousPath, date: row.date, offsetMin: row.offsetMin, subject: row.subject, walk: row.walk,
       })) ?? [],
       next: history?.next ?? null,
     };

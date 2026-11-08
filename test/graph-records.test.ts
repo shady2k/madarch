@@ -233,8 +233,9 @@ describe('a git date of a zero or a negative offset', () => {
     const at = { repository: 'offsets', root: offsets, commit: negative, url: `file://${offsets}` };
     await publishHistory(owner, await readRepositoryHistory(at));
     // git states 20:38:26 at +00:00, and 20:38:26 at -05:00, which is 01:38:26 UTC the next day.
-    expect(await commitFacts(owner, 'offsets', zero)).toMatchObject({ authorDate: '2026-11-07T20:38:26Z', authorOffsetMin: 0, commitDate: '2026-11-07T20:38:26Z', commitOffsetMin: 0 });
-    expect(await commitFacts(owner, 'offsets', negative)).toMatchObject({ authorDate: '2026-11-08T01:38:26Z', authorOffsetMin: -300, commitDate: '2026-11-08T01:38:26Z', commitOffsetMin: -300 });
+    // The answer is `%aI`: the clock the author wrote and the offset it stood at, never the instant.
+    expect(await commitFacts(owner, 'offsets', zero)).toMatchObject({ authorDate: '2026-11-07T20:38:26+00:00', authorOffsetMin: 0, commitDate: '2026-11-07T20:38:26+00:00', commitOffsetMin: 0 });
+    expect(await commitFacts(owner, 'offsets', negative)).toMatchObject({ authorDate: '2026-11-07T20:38:26-05:00', authorOffsetMin: -300, commitDate: '2026-11-07T20:38:26-05:00', commitOffsetMin: -300 });
   }, 120_000);
 
   test('a history whose dates git states with Z publishes with a zero offset', async () => {
@@ -249,6 +250,6 @@ describe('a git date of a zero or a negative offset', () => {
       gaps: [],
     };
     await publishHistory(owner, history);
-    expect(await commitFacts(owner, 'z-dates', 'b'.repeat(40))).toMatchObject({ authorDate: '2026-11-07T20:38:26Z', authorOffsetMin: 0, commitDate: '2026-11-07T20:38:26Z', commitOffsetMin: 0 });
+    expect(await commitFacts(owner, 'z-dates', 'b'.repeat(40))).toMatchObject({ authorDate: '2026-11-07T20:38:26+00:00', authorOffsetMin: 0, commitDate: '2026-11-07T20:38:26+00:00', commitOffsetMin: 0 });
   }, 120_000);
 });

@@ -35,12 +35,34 @@ export function mbText(bytes: number): string {
   return `${(bytes / (1024 * 1024)).toFixed(1)} MB`;
 }
 
-/** One date with the UTC offset git recorded, as `2026-11-07 19:14:32 +03:00`. */
+/** The offset a git date carries as `Z` or `+HH:MM`, in minutes east of UTC; null where it carries none. */
+function offsetIn(date: string): number | null {
+  const match = /(Z|[+-]\d{2}:\d{2})$/u.exec(date);
+  if (match === null) return null;
+  if (match[1] === 'Z') return 0;
+  const sign = match[1]!.startsWith('-') ? -1 : 1;
+  return sign * (Number(match[1]!.slice(1, 3)) * 60 + Number(match[1]!.slice(4, 6)));
+}
+
+/** The part of a git date before its offset: the clock it stood at. */
+function clockIn(date: string): string {
+  return date.replace(/(Z|[+-]\d{2}:\d{2})$/u, '').replace('T', ' ');
+}
+
+/**
+ * One git date as its own offset reads it: `2026-11-07 19:14:32 +03:00`.
+ *
+ * The record states a git date as `%aI` states it — the author's clock and the offset that clock
+ * stood at — so the two are written side by side and the clock is never converted: converting it to
+ * UTC and then appending the offset would say `16:14:32 +03:00`, a clock nobody wrote (review, item 1).
+ * A date that carries no offset is shown as `UTC` where the record has none either.
+ */
 export function instantText(date: string, offsetMin: number | null): string {
-  const base = date.replace('T', ' ').replace(/Z$/u, '');
-  if (offsetMin === null) return `${base} UTC`;
-  const sign = offsetMin < 0 ? '-' : '+';
-  const total = Math.abs(offsetMin);
+  const effective = offsetIn(date) ?? offsetMin;
+  const base = clockIn(date);
+  if (effective === null) return `${base} UTC`;
+  const sign = effective < 0 ? '-' : '+';
+  const total = Math.abs(effective);
   return `${base} ${sign}${String(Math.floor(total / 60)).padStart(2, '0')}:${String(total % 60).padStart(2, '0')}`;
 }
 
@@ -252,8 +274,8 @@ export function FilePage({ path, after, version }: { path: string; after: { walk
     [t('knowledge.repository.lines'), <span key="lines">{model.file.lines === null ? '—' : String(model.file.lines)}</span>],
     [t('knowledge.repository.form'), <span key="form">{model.file.form === 'binary' ? t('knowledge.repository.binary') : t('knowledge.repository.text')}</span>],
     [t('knowledge.repository.language'), <span key="language" data-testid="file-languages">{model.file.language}{model.file.candidates.length > 1 || model.file.candidates[0] !== model.file.language ? ` (${model.file.candidates.join(', ')})` : ''}</span>],
-    [t('knowledge.repository.created'), model.created === null ? <span key="created">—</span> : <span key="created"><KLink href={addressOfCommit(model.created.commit)}><code>{model.created.commit.slice(0, 12)}</code></KLink> {new Date(model.created.date).toLocaleString(language, { dateStyle: 'medium', timeStyle: 'short' })} · {model.created.author || t('knowledge.repository.unknownAuthor')}</span>],
-    [t('knowledge.repository.modified'), model.modified === null ? <span key="modified">—</span> : <span key="modified"><KLink href={addressOfCommit(model.modified.commit)}><code>{model.modified.commit.slice(0, 12)}</code></KLink> {new Date(model.modified.date).toLocaleString(language, { dateStyle: 'medium', timeStyle: 'short' })} · {model.modified.author || t('knowledge.repository.unknownAuthor')}</span>],
+    [t('knowledge.repository.created'), model.created === null ? <span key="created">—</span> : <span key="created"><KLink href={addressOfCommit(model.created.commit)}><code>{model.created.commit.slice(0, 12)}</code></KLink> <time dateTime={model.created.date}>{instantText(model.created.date, model.created.offsetMin)}</time> · {model.created.author || t('knowledge.repository.unknownAuthor')}</span>],
+    [t('knowledge.repository.modified'), model.modified === null ? <span key="modified">—</span> : <span key="modified"><KLink href={addressOfCommit(model.modified.commit)}><code>{model.modified.commit.slice(0, 12)}</code></KLink> <time dateTime={model.modified.date}>{instantText(model.modified.date, model.modified.offsetMin)}</time> · {model.modified.author || t('knowledge.repository.unknownAuthor')}</span>],
     [t('knowledge.repository.commitCount'), <span key="count">{model.commitCount}</span>],
     [t('knowledge.repository.authors'), <span key="authors" data-testid="file-authors">{model.authors.length === 0 ? '—' : model.authors.join(', ')}</span>],
   ];
@@ -296,7 +318,7 @@ export function FilePage({ path, after, version }: { path: string; after: { walk
             {model.history.map((row) => (
               <tr key={`${row.commit}\u0000${row.walk}`} className="border-b border-line align-top last:border-b-0" data-testid="history-row" data-change={row.change}>
                 <td className="py-1 pr-3"><KLink href={addressOfCommit(row.commit)} testId="history-commit"><code>{row.commit.slice(0, 12)}</code></KLink></td>
-                <td className="py-1 pr-3 whitespace-nowrap text-muted">{new Date(row.date).toLocaleDateString(language)}</td>
+                <td className="py-1 pr-3 whitespace-nowrap text-muted"><time dateTime={row.date}>{instantText(row.date, row.offsetMin)}</time></td>
                 <td className="py-1 pr-3">{row.change}{row.previousPath === null ? '' : ` ← ${row.previousPath}`}</td>
                 <td className="py-1 text-right text-muted">{row.added === null ? '—' : `+${row.added}`}</td>
                 <td className="py-1 text-right text-muted">{row.removed === null ? '—' : `−${row.removed}`}</td>

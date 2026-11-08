@@ -371,15 +371,16 @@ export type FolderPageModel = {
 };
 
 /** One commit of a file's history. */
-export type PageHistoryRow = { commit: string; change: string; added: number | null; removed: number | null; previousPath: string | null; date: string; subject: string; walk: number };
+/** One row of a file's history: the author's clock with its offset, as the record states it. */
+export type PageHistoryRow = { commit: string; change: string; added: number | null; removed: number | null; previousPath: string | null; date: string; offsetMin: number; subject: string; walk: number };
 
 /** One file's page: every fact of the file and one page of its history. */
 export type FilePageModel = {
   repository: string;
   asIsCommit: string | null;
   file: PageFile;
-  created: { date: string; commit: string; author: string } | null;
-  modified: { date: string; commit: string; author: string } | null;
+  created: { date: string; offsetMin: number; commit: string; author: string } | null;
+  modified: { date: string; offsetMin: number; commit: string; author: string } | null;
   commitCount: number;
   authors: string[];
   history: PageHistoryRow[];

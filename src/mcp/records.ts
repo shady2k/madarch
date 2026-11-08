@@ -209,7 +209,7 @@ async function getFileHistoryAnswer(context: RecordContext, args: Record<string,
       path,
       commits: page.rows.map((row) => ({
         commit: row.commit, change: row.change, added: row.added, removed: row.removed,
-        previousPath: row.previousPath, date: row.date, subject: row.subject, walk: row.walk,
+        previousPath: row.previousPath, date: row.date, offsetMin: row.offsetMin, subject: row.subject, walk: row.walk,
       })),
       next: page.next,
     },
