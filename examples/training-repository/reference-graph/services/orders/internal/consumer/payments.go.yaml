@@ -1,0 +1,354 @@
+path: 'services/orders/internal/consumer/payments.go'
+nodes:
+  - id: 'code.field:services/orders/internal/consumer/payments.go#PaymentEvents.handler'
+    kind: 'code.field'
+    label: 'PaymentEvents.handler'
+    evidence:
+      - path: 'services/orders/internal/consumer/payments.go'
+        startLine: 35
+        endLine: 35
+        quote: '	handler PaymentEventHandler'
+    reading: 'parsed'
+  - id: 'code.field:services/orders/internal/consumer/payments.go#PaymentEvents.log'
+    kind: 'code.field'
+    label: 'PaymentEvents.log'
+    evidence:
+      - path: 'services/orders/internal/consumer/payments.go'
+        startLine: 36
+        endLine: 36
+        quote: '	log     *slog.Logger'
+    reading: 'parsed'
+  - id: 'code.field:services/orders/internal/consumer/payments.go#PaymentEvents.reader'
+    kind: 'code.field'
+    label: 'PaymentEvents.reader'
+    evidence:
+      - path: 'services/orders/internal/consumer/payments.go'
+        startLine: 34
+        endLine: 34
+        quote: '	reader  *kafka.Reader'
+    reading: 'parsed'
+  - id: 'code.field:services/orders/internal/consumer/payments.go#paymentEvent.Kind'
+    kind: 'code.field'
+    label: 'paymentEvent.Kind'
+    evidence:
+      - path: 'services/orders/internal/consumer/payments.go'
+        startLine: 27
+        endLine: 27
+        quote: '	Kind    string `json:"type"`'
+    reading: 'parsed'
+  - id: 'code.field:services/orders/internal/consumer/payments.go#paymentEvent.OrderID'
+    kind: 'code.field'
+    label: 'paymentEvent.OrderID'
+    evidence:
+      - path: 'services/orders/internal/consumer/payments.go'
+        startLine: 28
+        endLine: 28
+        quote: '	OrderID string `json:"orderId"`'
+    reading: 'parsed'
+  - id: 'code.field:services/orders/internal/consumer/payments.go#paymentEvent.Reason'
+    kind: 'code.field'
+    label: 'paymentEvent.Reason'
+    evidence:
+      - path: 'services/orders/internal/consumer/payments.go'
+        startLine: 29
+        endLine: 29
+        quote: '	Reason  string `json:"reason"`'
+    reading: 'parsed'
+  - id: 'code.file:services/orders/internal/consumer/payments.go'
+    kind: 'code.file'
+    label: 'payments.go'
+    evidence:
+      - path: 'services/orders/internal/consumer/payments.go'
+        startLine: 1
+        endLine: 1
+        quote: '// Package consumer reads the events other services publish and turns them'
+    reading: 'parsed'
+  - id: 'code.module:services/orders/internal/consumer'
+    kind: 'code.module'
+    label: 'services/orders/internal/consumer'
+    evidence:
+      - path: 'services/orders/internal/consumer/payments.go'
+        startLine: 3
+        endLine: 3
+        quote: 'package consumer'
+    reading: 'parsed'
+  - id: 'code.symbol:services/orders/internal/consumer/payments.go#NewPaymentEvents'
+    kind: 'code.symbol'
+    label: 'NewPaymentEvents'
+    evidence:
+      - path: 'services/orders/internal/consumer/payments.go'
+        startLine: 41
+        endLine: 41
+        quote: 'func NewPaymentEvents(brokers string, handler PaymentEventHandler, log *slog.Logger) *PaymentEvents {'
+    reading: 'parsed'
+  - id: 'code.symbol:services/orders/internal/consumer/payments.go#PaymentEventHandler'
+    kind: 'code.symbol'
+    label: 'PaymentEventHandler'
+    evidence:
+      - path: 'services/orders/internal/consumer/payments.go'
+        startLine: 21
+        endLine: 21
+        quote: 'type PaymentEventHandler interface {'
+    reading: 'parsed'
+  - id: 'code.symbol:services/orders/internal/consumer/payments.go#PaymentEventHandler.ApplyPaymentEvent'
+    kind: 'code.symbol'
+    label: 'PaymentEventHandler.ApplyPaymentEvent'
+    evidence:
+      - path: 'services/orders/internal/consumer/payments.go'
+        startLine: 22
+        endLine: 22
+        quote: '	ApplyPaymentEvent(ctx context.Context, orderID, kind, note string) error'
+    reading: 'parsed'
+  - id: 'code.symbol:services/orders/internal/consumer/payments.go#PaymentEvents'
+    kind: 'code.symbol'
+    label: 'PaymentEvents'
+    evidence:
+      - path: 'services/orders/internal/consumer/payments.go'
+        startLine: 33
+        endLine: 33
+        quote: 'type PaymentEvents struct {'
+    reading: 'parsed'
+  - id: 'code.symbol:services/orders/internal/consumer/payments.go#PaymentEvents.Run'
+    kind: 'code.symbol'
+    label: 'PaymentEvents.Run'
+    evidence:
+      - path: 'services/orders/internal/consumer/payments.go'
+        startLine: 53
+        endLine: 53
+        quote: 'func (c *PaymentEvents) Run(ctx context.Context) error {'
+    reading: 'parsed'
+  - id: 'code.symbol:services/orders/internal/consumer/payments.go#PaymentEvents.handle'
+    kind: 'code.symbol'
+    label: 'PaymentEvents.handle'
+    evidence:
+      - path: 'services/orders/internal/consumer/payments.go'
+        startLine: 70
+        endLine: 70
+        quote: 'func (c *PaymentEvents) handle(ctx context.Context, message kafka.Message) {'
+    reading: 'parsed'
+  - id: 'code.symbol:services/orders/internal/consumer/payments.go#PaymentsTopic'
+    kind: 'code.symbol'
+    label: 'PaymentsTopic'
+    evidence:
+      - path: 'services/orders/internal/consumer/payments.go'
+        startLine: 17
+        endLine: 17
+        quote: 'const PaymentsTopic = "payments.events"'
+    reading: 'parsed'
+  - id: 'code.symbol:services/orders/internal/consumer/payments.go#paymentEvent'
+    kind: 'code.symbol'
+    label: 'paymentEvent'
+    evidence:
+      - path: 'services/orders/internal/consumer/payments.go'
+        startLine: 26
+        endLine: 26
+        quote: 'type paymentEvent struct {'
+    reading: 'parsed'
+edges:
+  - relation: 'code.calls'
+    from: 'code.symbol:services/orders/internal/consumer/payments.go#PaymentEvents.Run'
+    to: 'code.symbol:services/orders/internal/consumer/payments.go#PaymentEvents.handle'
+    evidence:
+      - path: 'services/orders/internal/consumer/payments.go'
+        startLine: 63
+        endLine: 63
+        quote: '		c.handle(ctx, message)'
+    reading: 'parsed'
+  - relation: 'code.calls'
+    from: 'code.symbol:services/orders/internal/consumer/payments.go#PaymentEvents.handle'
+    to: 'code.symbol:services/orders/internal/consumer/payments.go#PaymentEventHandler.ApplyPaymentEvent'
+    evidence:
+      - path: 'services/orders/internal/consumer/payments.go'
+        startLine: 76
+        endLine: 76
+        quote: '	if err := c.handler.ApplyPaymentEvent(ctx, event.OrderID, event.Kind, event.Reason); err != nil {'
+    reading: 'parsed'
+  - relation: 'code.consumes'
+    from: 'code.symbol:services/orders/internal/consumer/payments.go#PaymentEvents.Run'
+    to: 'code.channel:payments.events'
+    evidence:
+      - path: 'services/orders/internal/consumer/payments.go'
+        startLine: 17
+        endLine: 17
+        quote: 'const PaymentsTopic = "payments.events"'
+    reading: 'parsed'
+  - relation: 'code.contains'
+    from: 'code.file:services/orders/internal/consumer/payments.go'
+    to: 'code.symbol:services/orders/internal/consumer/payments.go#NewPaymentEvents'
+    evidence:
+      - path: 'services/orders/internal/consumer/payments.go'
+        startLine: 41
+        endLine: 41
+        quote: 'func NewPaymentEvents(brokers string, handler PaymentEventHandler, log *slog.Logger) *PaymentEvents {'
+    reading: 'parsed'
+  - relation: 'code.contains'
+    from: 'code.file:services/orders/internal/consumer/payments.go'
+    to: 'code.symbol:services/orders/internal/consumer/payments.go#PaymentEventHandler'
+    evidence:
+      - path: 'services/orders/internal/consumer/payments.go'
+        startLine: 21
+        endLine: 21
+        quote: 'type PaymentEventHandler interface {'
+    reading: 'parsed'
+  - relation: 'code.contains'
+    from: 'code.file:services/orders/internal/consumer/payments.go'
+    to: 'code.symbol:services/orders/internal/consumer/payments.go#PaymentEventHandler.ApplyPaymentEvent'
+    evidence:
+      - path: 'services/orders/internal/consumer/payments.go'
+        startLine: 22
+        endLine: 22
+        quote: '	ApplyPaymentEvent(ctx context.Context, orderID, kind, note string) error'
+    reading: 'parsed'
+  - relation: 'code.contains'
+    from: 'code.file:services/orders/internal/consumer/payments.go'
+    to: 'code.symbol:services/orders/internal/consumer/payments.go#PaymentEvents'
+    evidence:
+      - path: 'services/orders/internal/consumer/payments.go'
+        startLine: 33
+        endLine: 33
+        quote: 'type PaymentEvents struct {'
+    reading: 'parsed'
+  - relation: 'code.contains'
+    from: 'code.file:services/orders/internal/consumer/payments.go'
+    to: 'code.symbol:services/orders/internal/consumer/payments.go#PaymentEvents.Run'
+    evidence:
+      - path: 'services/orders/internal/consumer/payments.go'
+        startLine: 53
+        endLine: 53
+        quote: 'func (c *PaymentEvents) Run(ctx context.Context) error {'
+    reading: 'parsed'
+  - relation: 'code.contains'
+    from: 'code.file:services/orders/internal/consumer/payments.go'
+    to: 'code.symbol:services/orders/internal/consumer/payments.go#PaymentEvents.handle'
+    evidence:
+      - path: 'services/orders/internal/consumer/payments.go'
+        startLine: 70
+        endLine: 70
+        quote: 'func (c *PaymentEvents) handle(ctx context.Context, message kafka.Message) {'
+    reading: 'parsed'
+  - relation: 'code.contains'
+    from: 'code.file:services/orders/internal/consumer/payments.go'
+    to: 'code.symbol:services/orders/internal/consumer/payments.go#PaymentsTopic'
+    evidence:
+      - path: 'services/orders/internal/consumer/payments.go'
+        startLine: 17
+        endLine: 17
+        quote: 'const PaymentsTopic = "payments.events"'
+    reading: 'parsed'
+  - relation: 'code.contains'
+    from: 'code.file:services/orders/internal/consumer/payments.go'
+    to: 'code.symbol:services/orders/internal/consumer/payments.go#paymentEvent'
+    evidence:
+      - path: 'services/orders/internal/consumer/payments.go'
+        startLine: 26
+        endLine: 26
+        quote: 'type paymentEvent struct {'
+    reading: 'parsed'
+  - relation: 'code.contains'
+    from: 'code.module:services/orders/internal/consumer'
+    to: 'code.file:services/orders/internal/consumer/payments.go'
+    evidence:
+      - path: 'services/orders/internal/consumer/payments.go'
+        startLine: 3
+        endLine: 3
+        quote: 'package consumer'
+    reading: 'parsed'
+  - relation: 'code.contains'
+    from: 'code.symbol:services/orders/internal/consumer/payments.go#PaymentEventHandler'
+    to: 'code.symbol:services/orders/internal/consumer/payments.go#PaymentEventHandler.ApplyPaymentEvent'
+    evidence:
+      - path: 'services/orders/internal/consumer/payments.go'
+        startLine: 22
+        endLine: 22
+        quote: '	ApplyPaymentEvent(ctx context.Context, orderID, kind, note string) error'
+    reading: 'parsed'
+  - relation: 'code.contains'
+    from: 'code.symbol:services/orders/internal/consumer/payments.go#PaymentEvents'
+    to: 'code.field:services/orders/internal/consumer/payments.go#PaymentEvents.handler'
+    evidence:
+      - path: 'services/orders/internal/consumer/payments.go'
+        startLine: 35
+        endLine: 35
+        quote: '	handler PaymentEventHandler'
+    reading: 'parsed'
+  - relation: 'code.contains'
+    from: 'code.symbol:services/orders/internal/consumer/payments.go#PaymentEvents'
+    to: 'code.field:services/orders/internal/consumer/payments.go#PaymentEvents.log'
+    evidence:
+      - path: 'services/orders/internal/consumer/payments.go'
+        startLine: 36
+        endLine: 36
+        quote: '	log     *slog.Logger'
+    reading: 'parsed'
+  - relation: 'code.contains'
+    from: 'code.symbol:services/orders/internal/consumer/payments.go#PaymentEvents'
+    to: 'code.field:services/orders/internal/consumer/payments.go#PaymentEvents.reader'
+    evidence:
+      - path: 'services/orders/internal/consumer/payments.go'
+        startLine: 34
+        endLine: 34
+        quote: '	reader  *kafka.Reader'
+    reading: 'parsed'
+  - relation: 'code.contains'
+    from: 'code.symbol:services/orders/internal/consumer/payments.go#paymentEvent'
+    to: 'code.field:services/orders/internal/consumer/payments.go#paymentEvent.Kind'
+    evidence:
+      - path: 'services/orders/internal/consumer/payments.go'
+        startLine: 27
+        endLine: 27
+        quote: '	Kind    string `json:"type"`'
+    reading: 'parsed'
+  - relation: 'code.contains'
+    from: 'code.symbol:services/orders/internal/consumer/payments.go#paymentEvent'
+    to: 'code.field:services/orders/internal/consumer/payments.go#paymentEvent.OrderID'
+    evidence:
+      - path: 'services/orders/internal/consumer/payments.go'
+        startLine: 28
+        endLine: 28
+        quote: '	OrderID string `json:"orderId"`'
+    reading: 'parsed'
+  - relation: 'code.contains'
+    from: 'code.symbol:services/orders/internal/consumer/payments.go#paymentEvent'
+    to: 'code.field:services/orders/internal/consumer/payments.go#paymentEvent.Reason'
+    evidence:
+      - path: 'services/orders/internal/consumer/payments.go'
+        startLine: 29
+        endLine: 29
+        quote: '	Reason  string `json:"reason"`'
+    reading: 'parsed'
+  - relation: 'code.imports'
+    from: 'code.file:services/orders/internal/consumer/payments.go'
+    to: 'code.dependency:services/orders/go.mod#github.com/segmentio/kafka-go'
+    evidence:
+      - path: 'services/orders/internal/consumer/payments.go'
+        startLine: 12
+        endLine: 12
+        quote: '	"github.com/segmentio/kafka-go"'
+    reading: 'parsed'
+  - relation: 'code.uses-type'
+    from: 'code.symbol:services/orders/internal/consumer/payments.go#NewPaymentEvents'
+    to: 'code.symbol:services/orders/internal/consumer/payments.go#PaymentEventHandler'
+    evidence:
+      - path: 'services/orders/internal/consumer/payments.go'
+        startLine: 41
+        endLine: 41
+        quote: 'func NewPaymentEvents(brokers string, handler PaymentEventHandler, log *slog.Logger) *PaymentEvents {'
+    reading: 'parsed'
+  - relation: 'code.uses-type'
+    from: 'code.symbol:services/orders/internal/consumer/payments.go#NewPaymentEvents'
+    to: 'code.symbol:services/orders/internal/consumer/payments.go#PaymentEvents'
+    evidence:
+      - path: 'services/orders/internal/consumer/payments.go'
+        startLine: 41
+        endLine: 41
+        quote: 'func NewPaymentEvents(brokers string, handler PaymentEventHandler, log *slog.Logger) *PaymentEvents {'
+    reading: 'parsed'
+  - relation: 'code.uses-type'
+    from: 'code.symbol:services/orders/internal/consumer/payments.go#PaymentEvents'
+    to: 'code.symbol:services/orders/internal/consumer/payments.go#PaymentEventHandler'
+    evidence:
+      - path: 'services/orders/internal/consumer/payments.go'
+        startLine: 35
+        endLine: 35
+        quote: '	handler PaymentEventHandler'
+    reading: 'parsed'

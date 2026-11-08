@@ -24,6 +24,7 @@
  * lies by omission costs one read, then is refused.
  */
 import { existsSync, statSync } from 'node:fs';
+import { closeTrace, openTrace, runInTrace, withSpan, type TraceRun } from '../obs/trace.js';
 import { dirname, join as joinPath, normalize } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { Value } from 'typebox/value';
@@ -282,6 +283,10 @@ export async function startServer(options: ServerOptions): Promise<StartedServer
   const errorSink = options.errorLog ?? ((line: string) => console.error(line));
   const log = (line: string) => sink(escapeControlCharacters(line));
   const errorLog = (line: string) => errorSink(escapeControlCharacters(line));
+  // The server's own trace: one span per request and the spans of the work a request asks for, kept beside
+  // the state the server itself holds. A server told of no folder keeps none.
+  const obsFolder = options.dataFolder ?? options.knowledgeRoot;
+  const obsTrace = obsFolder === undefined ? undefined : openTrace({ store: obsFolder, runId: `server-${String(process.pid)}` });
   const productWiki = wiki !== undefined && wiki.ok ? wiki.wiki : undefined;
   let sources: SourceStores | undefined;
   try {
@@ -307,6 +312,7 @@ export async function startServer(options: ServerOptions): Promise<StartedServer
     graphs,
     log,
     errorLog,
+    ...(obsTrace === undefined ? {} : { trace: obsTrace }),
     wiki: productWiki === undefined ? undefined : createWikiPart(makeJson, wikiRefused, productWiki, appFolder, { env, outside: knowledgeHost.of(productWiki.product.folder).changes }),
     appFolder,
     unitTool: options.orchestrator?.unitTool,
@@ -375,7 +381,7 @@ export async function startServer(options: ServerOptions): Promise<StartedServer
         own: item.own,
         wiki: opened.wiki,
         manifest,
-        handler: createHandler({ env, sources, graphs, log, errorLog, wiki: createWikiPart(makeJson, wikiRefused, opened.wiki, appFolder, { env, outside: knowledgeHost.of(item.folder).changes }), appFolder, unitTool: options.orchestrator?.unitTool, knowledge: knowledgeOf(item.folder, item.own, `/products/${encodeURIComponent(name)}`) }),
+        handler: createHandler({ env, sources, graphs, log, errorLog, ...(obsTrace === undefined ? {} : { trace: obsTrace }), wiki: createWikiPart(makeJson, wikiRefused, opened.wiki, appFolder, { env, outside: knowledgeHost.of(item.folder).changes }), appFolder, unitTool: options.orchestrator?.unitTool, knowledge: knowledgeOf(item.folder, item.own, `/products/${encodeURIComponent(name)}`) }),
       });
     }
     productEntries.clear();
@@ -492,6 +498,7 @@ const notServed = (message: string): Response => Response.json({ message }, { st
       try { await sources?.close(); } catch (error) { failure ??= error; }
       try { await options.orchestrator?.stop(); } catch (error) { failure ??= error; }
       try { await knowledgeHost.close(); } catch (error) { failure ??= error; }
+      if (obsTrace !== undefined) closeTrace(obsTrace);
       if (failure !== undefined) throw failure;
     },
   };
@@ -518,6 +525,8 @@ export function createHandler(dependencies: {
   knowledge?: KnowledgePart;
   /** Told of each request, so the wiki can prepare for a page a browser is opening. */
   opened?: (request: Request) => void;
+  /** The run's trace this server writes its requests into, when it keeps one. */
+  trace?: TraceRun | undefined;
   /** The environment the handler judges a request against; the process's own when it is left out (the fill's sign-in choice reads it). */
   env?: ServerOptions['env'];
 }): ServerHandler {
@@ -585,6 +594,11 @@ export function createHandler(dependencies: {
         { method: 'GET', path: '/api/k/view', handle: (request: Request) => dependencies.knowledge!.view(request) },
         { method: 'GET', path: '/api/k/view-frame', handle: (request: Request) => dependencies.knowledge!.viewFrame(request) },
         { method: 'GET', path: '/api/k/source', handle: (request: Request) => dependencies.knowledge!.source(request) },
+        { method: 'GET', path: '/api/k/repository', handle: (request: Request) => dependencies.knowledge!.repository(request) },
+        { method: 'GET', path: '/api/k/folder', handle: (request: Request) => dependencies.knowledge!.folder(request) },
+        { method: 'GET', path: '/api/k/file', handle: (request: Request) => dependencies.knowledge!.file(request) },
+        { method: 'GET', path: '/api/k/commit', handle: (request: Request) => dependencies.knowledge!.commit(request) },
+        { method: 'GET', path: '/api/k/run', handle: (request: Request) => dependencies.knowledge!.run(request) },
         { method: 'GET', path: '/api/k/products', handle: (request: Request) => dependencies.knowledge!.products(request) },
         { method: 'POST', path: '/api/k/fill', handle: (request: Request) => dependencies.knowledge!.fill(request) },
         { method: 'POST', path: '/api/k/pause', handle: (request: Request) => dependencies.knowledge!.pause(request) },
@@ -1137,6 +1151,15 @@ export function createHandler(dependencies: {
   }
 
   const handle = async (request: Request): Promise<Response> => {
+    if (dependencies.trace === undefined) return await handleUnspanned(request);
+    const pathname = new URL(request.url).pathname;
+    return await runInTrace(dependencies.trace, async () => await withSpan('http.request', { 'http.method': request.method, 'http.path': pathname }, async (span) => {
+      const answered = await handleUnspanned(request);
+      span.setAttribute('http.status', answered.status);
+      return answered;
+    }));
+  };
+  const handleUnspanned = async (request: Request): Promise<Response> => {
     const started = performance.now();
     const pathname = new URL(request.url).pathname;
     dependencies.opened?.(request);

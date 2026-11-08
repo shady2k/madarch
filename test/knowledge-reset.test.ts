@@ -8,7 +8,7 @@ import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { parseCorrection, parseQuestion, renderCorrection, renderQuestion } from '../src/loop/entities.js';
 import { applyReset, planReset } from '../src/knowledge/reset.js';
-import { storeFolderOf } from '../src/knowledge/product.js';
+import { storeFolderOf } from '../src/product/store.js';
 import { seedStarterSet } from '../src/knowledge/seed.js';
 import { setKindsLanguage } from '../src/knowledge/kinds.js';
 import { describeReset } from '../src/product/cli.js';

@@ -20,6 +20,8 @@
  */
 import { type TSchema } from 'typebox';
 import type { AcpMcpServer } from './acp.js';
+import type { StaticEdgeDraft, StaticNodeDraft } from './stages/static-graph.js';
+import type { StaticStageContext } from './stages/static-context.js';
 
 /** How much of the product one capability or fact kind is about. */
 export type CapabilityScope = 'product' | 'repository' | 'package' | 'cluster' | 'file';
@@ -147,7 +149,11 @@ export type StageDraftWrite =
   | { kind: 'fact'; evidence: string; value: unknown }
   | { kind: 'entity'; evidence: string; value: unknown }
   | { kind: 'link'; evidence: string; value: unknown }
-  | { kind: 'question'; evidence: string; value: unknown };
+  | { kind: 'question'; evidence: string; value: unknown }
+  /** One graph node a static stage's draft writes (decision 0033): applied by the publication's own transaction. */
+  | { kind: 'node'; evidence: string; value: StaticNodeDraft }
+  /** One graph edge a static stage's draft writes; both ends name nodes by their key. */
+  | { kind: 'edge'; evidence: string; value: StaticEdgeDraft };
 
 /** The draft set a unit's writes collect into while it runs. */
 export interface StageDraftSet {
@@ -253,6 +259,14 @@ export interface StageContext {
   config: ResolvedStageConfiguration;
   /** Tracked reads of the pinned graph. */
   graph: StageGraphReader;
+  /**
+   * One pinned repository's path-scoped answers for a static stage (decision
+   * 0033, "Capability boundaries"): one file's bytes, its entry, whether a
+   * folder stands, and bounded reads of the graph. A static stage never holds a
+   * tree reader; a stage that plans from the tree reads it in its plan, where
+   * the run, not a worker, is doing the reading.
+   */
+  static?: StaticStageContext;
   /** Private draft writes, visible to other units only as draft. */
   draft: StageDraftWriter;
   /** Progress the run's view shows. */
@@ -301,6 +315,14 @@ export interface FillStage {
   configSchema: TSchema;
   /** The stage's defaults, before the product's configuration speaks. */
   defaults: StageDefaults;
+  /**
+   * Whether the stage is one of decision 0033's static stages: its units read one
+   * file's bytes and bounded graph queries through `StageContext.static`, and its
+   * draft writes graph nodes and edges that the publication's transaction applies
+   * to the 0028 graph. A host dispatches on this marker, never on a stage id a
+   * product could reuse.
+   */
+  readonly staticReading?: boolean;
   /**
    * Whether the stage's units read and write through the unit's own MCP server
    * (0026, "Agents and tools"). A stage that declares it is handed

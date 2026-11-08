@@ -1,0 +1,408 @@
+path: 'services/orders/internal/store/outbox.go'
+nodes:
+  - id: 'code.field:services/orders/internal/store/outbox.go#ChangedItem.PriceCents'
+    kind: 'code.field'
+    label: 'ChangedItem.PriceCents'
+    evidence:
+      - path: 'services/orders/internal/store/outbox.go'
+        startLine: 35
+        endLine: 35
+        quote: '	PriceCents int64  `json:"priceCents"`'
+    reading: 'parsed'
+  - id: 'code.field:services/orders/internal/store/outbox.go#ChangedItem.Quantity'
+    kind: 'code.field'
+    label: 'ChangedItem.Quantity'
+    evidence:
+      - path: 'services/orders/internal/store/outbox.go'
+        startLine: 34
+        endLine: 34
+        quote: '	Quantity   int    `json:"quantity"`'
+    reading: 'parsed'
+  - id: 'code.field:services/orders/internal/store/outbox.go#ChangedItem.SKU'
+    kind: 'code.field'
+    label: 'ChangedItem.SKU'
+    evidence:
+      - path: 'services/orders/internal/store/outbox.go'
+        startLine: 33
+        endLine: 33
+        quote: '	SKU        string `json:"sku"`'
+    reading: 'parsed'
+  - id: 'code.field:services/orders/internal/store/outbox.go#OrderChanged.CustomerID'
+    kind: 'code.field'
+    label: 'OrderChanged.CustomerID'
+    evidence:
+      - path: 'services/orders/internal/store/outbox.go'
+        startLine: 24
+        endLine: 24
+        quote: '	CustomerID string        `json:"customerId,omitempty"`'
+    reading: 'parsed'
+  - id: 'code.field:services/orders/internal/store/outbox.go#OrderChanged.Items'
+    kind: 'code.field'
+    label: 'OrderChanged.Items'
+    evidence:
+      - path: 'services/orders/internal/store/outbox.go'
+        startLine: 27
+        endLine: 27
+        quote: '	Items      []ChangedItem `json:"items,omitempty"`'
+    reading: 'parsed'
+  - id: 'code.field:services/orders/internal/store/outbox.go#OrderChanged.OccurredAt'
+    kind: 'code.field'
+    label: 'OrderChanged.OccurredAt'
+    evidence:
+      - path: 'services/orders/internal/store/outbox.go'
+        startLine: 28
+        endLine: 28
+        quote: '	OccurredAt time.Time     `json:"occurredAt"`'
+    reading: 'parsed'
+  - id: 'code.field:services/orders/internal/store/outbox.go#OrderChanged.OrderID'
+    kind: 'code.field'
+    label: 'OrderChanged.OrderID'
+    evidence:
+      - path: 'services/orders/internal/store/outbox.go'
+        startLine: 23
+        endLine: 23
+        quote: '	OrderID    string        `json:"orderId"`'
+    reading: 'parsed'
+  - id: 'code.field:services/orders/internal/store/outbox.go#OrderChanged.Status'
+    kind: 'code.field'
+    label: 'OrderChanged.Status'
+    evidence:
+      - path: 'services/orders/internal/store/outbox.go'
+        startLine: 25
+        endLine: 25
+        quote: '	Status     string        `json:"status"`'
+    reading: 'parsed'
+  - id: 'code.field:services/orders/internal/store/outbox.go#OrderChanged.TotalCents'
+    kind: 'code.field'
+    label: 'OrderChanged.TotalCents'
+    evidence:
+      - path: 'services/orders/internal/store/outbox.go'
+        startLine: 26
+        endLine: 26
+        quote: '	TotalCents int64         `json:"totalCents"`'
+    reading: 'parsed'
+  - id: 'code.field:services/orders/internal/store/outbox.go#OutboxWriter.topic'
+    kind: 'code.field'
+    label: 'OutboxWriter.topic'
+    evidence:
+      - path: 'services/orders/internal/store/outbox.go'
+        startLine: 42
+        endLine: 42
+        quote: '	topic string'
+    reading: 'parsed'
+  - id: 'code.file:services/orders/internal/store/outbox.go'
+    kind: 'code.file'
+    label: 'outbox.go'
+    evidence:
+      - path: 'services/orders/internal/store/outbox.go'
+        startLine: 1
+        endLine: 1
+        quote: 'package store'
+    reading: 'parsed'
+  - id: 'code.symbol:services/orders/internal/store/outbox.go#ChangedItem'
+    kind: 'code.symbol'
+    label: 'ChangedItem'
+    evidence:
+      - path: 'services/orders/internal/store/outbox.go'
+        startLine: 32
+        endLine: 32
+        quote: 'type ChangedItem struct {'
+    reading: 'parsed'
+  - id: 'code.symbol:services/orders/internal/store/outbox.go#NewOutboxWriter'
+    kind: 'code.symbol'
+    label: 'NewOutboxWriter'
+    evidence:
+      - path: 'services/orders/internal/store/outbox.go'
+        startLine: 46
+        endLine: 46
+        quote: 'func NewOutboxWriter(topic string) *OutboxWriter {'
+    reading: 'parsed'
+  - id: 'code.symbol:services/orders/internal/store/outbox.go#OrderChanged'
+    kind: 'code.symbol'
+    label: 'OrderChanged'
+    evidence:
+      - path: 'services/orders/internal/store/outbox.go'
+        startLine: 22
+        endLine: 22
+        quote: 'type OrderChanged struct {'
+    reading: 'parsed'
+  - id: 'code.symbol:services/orders/internal/store/outbox.go#OrdersTopic'
+    kind: 'code.symbol'
+    label: 'OrdersTopic'
+    evidence:
+      - path: 'services/orders/internal/store/outbox.go'
+        startLine: 15
+        endLine: 15
+        quote: 'const OrdersTopic = "orders.events"'
+    reading: 'parsed'
+  - id: 'code.symbol:services/orders/internal/store/outbox.go#OutboxWriter'
+    kind: 'code.symbol'
+    label: 'OutboxWriter'
+    evidence:
+      - path: 'services/orders/internal/store/outbox.go'
+        startLine: 41
+        endLine: 41
+        quote: 'type OutboxWriter struct {'
+    reading: 'parsed'
+  - id: 'code.symbol:services/orders/internal/store/outbox.go#OutboxWriter.Write'
+    kind: 'code.symbol'
+    label: 'OutboxWriter.Write'
+    evidence:
+      - path: 'services/orders/internal/store/outbox.go'
+        startLine: 51
+        endLine: 51
+        quote: 'func (w *OutboxWriter) Write(ctx context.Context, tx *sql.Tx, change OrderChanged) error {'
+    reading: 'parsed'
+  - id: 'code.symbol:services/orders/internal/store/outbox.go#PurgedStatus'
+    kind: 'code.symbol'
+    label: 'PurgedStatus'
+    evidence:
+      - path: 'services/orders/internal/store/outbox.go'
+        startLine: 18
+        endLine: 18
+        quote: 'const PurgedStatus = "purged"'
+    reading: 'parsed'
+  - id: 'code.symbol:services/orders/internal/store/outbox.go#changeOf'
+    kind: 'code.symbol'
+    label: 'changeOf'
+    evidence:
+      - path: 'services/orders/internal/store/outbox.go'
+        startLine: 65
+        endLine: 65
+        quote: 'func changeOf(order domain.Order) OrderChanged {'
+    reading: 'parsed'
+edges:
+  - relation: 'code.contains'
+    from: 'code.file:services/orders/internal/store/outbox.go'
+    to: 'code.symbol:services/orders/internal/store/outbox.go#ChangedItem'
+    evidence:
+      - path: 'services/orders/internal/store/outbox.go'
+        startLine: 32
+        endLine: 32
+        quote: 'type ChangedItem struct {'
+    reading: 'parsed'
+  - relation: 'code.contains'
+    from: 'code.file:services/orders/internal/store/outbox.go'
+    to: 'code.symbol:services/orders/internal/store/outbox.go#NewOutboxWriter'
+    evidence:
+      - path: 'services/orders/internal/store/outbox.go'
+        startLine: 46
+        endLine: 46
+        quote: 'func NewOutboxWriter(topic string) *OutboxWriter {'
+    reading: 'parsed'
+  - relation: 'code.contains'
+    from: 'code.file:services/orders/internal/store/outbox.go'
+    to: 'code.symbol:services/orders/internal/store/outbox.go#OrderChanged'
+    evidence:
+      - path: 'services/orders/internal/store/outbox.go'
+        startLine: 22
+        endLine: 22
+        quote: 'type OrderChanged struct {'
+    reading: 'parsed'
+  - relation: 'code.contains'
+    from: 'code.file:services/orders/internal/store/outbox.go'
+    to: 'code.symbol:services/orders/internal/store/outbox.go#OrdersTopic'
+    evidence:
+      - path: 'services/orders/internal/store/outbox.go'
+        startLine: 15
+        endLine: 15
+        quote: 'const OrdersTopic = "orders.events"'
+    reading: 'parsed'
+  - relation: 'code.contains'
+    from: 'code.file:services/orders/internal/store/outbox.go'
+    to: 'code.symbol:services/orders/internal/store/outbox.go#OutboxWriter'
+    evidence:
+      - path: 'services/orders/internal/store/outbox.go'
+        startLine: 41
+        endLine: 41
+        quote: 'type OutboxWriter struct {'
+    reading: 'parsed'
+  - relation: 'code.contains'
+    from: 'code.file:services/orders/internal/store/outbox.go'
+    to: 'code.symbol:services/orders/internal/store/outbox.go#OutboxWriter.Write'
+    evidence:
+      - path: 'services/orders/internal/store/outbox.go'
+        startLine: 51
+        endLine: 51
+        quote: 'func (w *OutboxWriter) Write(ctx context.Context, tx *sql.Tx, change OrderChanged) error {'
+    reading: 'parsed'
+  - relation: 'code.contains'
+    from: 'code.file:services/orders/internal/store/outbox.go'
+    to: 'code.symbol:services/orders/internal/store/outbox.go#PurgedStatus'
+    evidence:
+      - path: 'services/orders/internal/store/outbox.go'
+        startLine: 18
+        endLine: 18
+        quote: 'const PurgedStatus = "purged"'
+    reading: 'parsed'
+  - relation: 'code.contains'
+    from: 'code.file:services/orders/internal/store/outbox.go'
+    to: 'code.symbol:services/orders/internal/store/outbox.go#changeOf'
+    evidence:
+      - path: 'services/orders/internal/store/outbox.go'
+        startLine: 65
+        endLine: 65
+        quote: 'func changeOf(order domain.Order) OrderChanged {'
+    reading: 'parsed'
+  - relation: 'code.contains'
+    from: 'code.module:services/orders/internal/store'
+    to: 'code.file:services/orders/internal/store/outbox.go'
+    evidence:
+      - path: 'services/orders/internal/store/outbox.go'
+        startLine: 1
+        endLine: 1
+        quote: 'package store'
+    reading: 'parsed'
+  - relation: 'code.contains'
+    from: 'code.symbol:services/orders/internal/store/outbox.go#ChangedItem'
+    to: 'code.field:services/orders/internal/store/outbox.go#ChangedItem.PriceCents'
+    evidence:
+      - path: 'services/orders/internal/store/outbox.go'
+        startLine: 35
+        endLine: 35
+        quote: '	PriceCents int64  `json:"priceCents"`'
+    reading: 'parsed'
+  - relation: 'code.contains'
+    from: 'code.symbol:services/orders/internal/store/outbox.go#ChangedItem'
+    to: 'code.field:services/orders/internal/store/outbox.go#ChangedItem.Quantity'
+    evidence:
+      - path: 'services/orders/internal/store/outbox.go'
+        startLine: 34
+        endLine: 34
+        quote: '	Quantity   int    `json:"quantity"`'
+    reading: 'parsed'
+  - relation: 'code.contains'
+    from: 'code.symbol:services/orders/internal/store/outbox.go#ChangedItem'
+    to: 'code.field:services/orders/internal/store/outbox.go#ChangedItem.SKU'
+    evidence:
+      - path: 'services/orders/internal/store/outbox.go'
+        startLine: 33
+        endLine: 33
+        quote: '	SKU        string `json:"sku"`'
+    reading: 'parsed'
+  - relation: 'code.contains'
+    from: 'code.symbol:services/orders/internal/store/outbox.go#OrderChanged'
+    to: 'code.field:services/orders/internal/store/outbox.go#OrderChanged.CustomerID'
+    evidence:
+      - path: 'services/orders/internal/store/outbox.go'
+        startLine: 24
+        endLine: 24
+        quote: '	CustomerID string        `json:"customerId,omitempty"`'
+    reading: 'parsed'
+  - relation: 'code.contains'
+    from: 'code.symbol:services/orders/internal/store/outbox.go#OrderChanged'
+    to: 'code.field:services/orders/internal/store/outbox.go#OrderChanged.Items'
+    evidence:
+      - path: 'services/orders/internal/store/outbox.go'
+        startLine: 27
+        endLine: 27
+        quote: '	Items      []ChangedItem `json:"items,omitempty"`'
+    reading: 'parsed'
+  - relation: 'code.contains'
+    from: 'code.symbol:services/orders/internal/store/outbox.go#OrderChanged'
+    to: 'code.field:services/orders/internal/store/outbox.go#OrderChanged.OccurredAt'
+    evidence:
+      - path: 'services/orders/internal/store/outbox.go'
+        startLine: 28
+        endLine: 28
+        quote: '	OccurredAt time.Time     `json:"occurredAt"`'
+    reading: 'parsed'
+  - relation: 'code.contains'
+    from: 'code.symbol:services/orders/internal/store/outbox.go#OrderChanged'
+    to: 'code.field:services/orders/internal/store/outbox.go#OrderChanged.OrderID'
+    evidence:
+      - path: 'services/orders/internal/store/outbox.go'
+        startLine: 23
+        endLine: 23
+        quote: '	OrderID    string        `json:"orderId"`'
+    reading: 'parsed'
+  - relation: 'code.contains'
+    from: 'code.symbol:services/orders/internal/store/outbox.go#OrderChanged'
+    to: 'code.field:services/orders/internal/store/outbox.go#OrderChanged.Status'
+    evidence:
+      - path: 'services/orders/internal/store/outbox.go'
+        startLine: 25
+        endLine: 25
+        quote: '	Status     string        `json:"status"`'
+    reading: 'parsed'
+  - relation: 'code.contains'
+    from: 'code.symbol:services/orders/internal/store/outbox.go#OrderChanged'
+    to: 'code.field:services/orders/internal/store/outbox.go#OrderChanged.TotalCents'
+    evidence:
+      - path: 'services/orders/internal/store/outbox.go'
+        startLine: 26
+        endLine: 26
+        quote: '	TotalCents int64         `json:"totalCents"`'
+    reading: 'parsed'
+  - relation: 'code.contains'
+    from: 'code.symbol:services/orders/internal/store/outbox.go#OutboxWriter'
+    to: 'code.field:services/orders/internal/store/outbox.go#OutboxWriter.topic'
+    evidence:
+      - path: 'services/orders/internal/store/outbox.go'
+        startLine: 42
+        endLine: 42
+        quote: '	topic string'
+    reading: 'parsed'
+  - relation: 'code.imports'
+    from: 'code.file:services/orders/internal/store/outbox.go'
+    to: 'code.module:services/orders/internal/domain'
+    evidence:
+      - path: 'services/orders/internal/store/outbox.go'
+        startLine: 10
+        endLine: 10
+        quote: '	"training.example/orders/internal/domain"'
+    reading: 'parsed'
+  - relation: 'code.uses-type'
+    from: 'code.symbol:services/orders/internal/store/outbox.go#NewOutboxWriter'
+    to: 'code.symbol:services/orders/internal/store/outbox.go#OutboxWriter'
+    evidence:
+      - path: 'services/orders/internal/store/outbox.go'
+        startLine: 46
+        endLine: 46
+        quote: 'func NewOutboxWriter(topic string) *OutboxWriter {'
+    reading: 'parsed'
+  - relation: 'code.uses-type'
+    from: 'code.symbol:services/orders/internal/store/outbox.go#OutboxWriter.Write'
+    to: 'code.symbol:services/orders/internal/store/outbox.go#OrderChanged'
+    evidence:
+      - path: 'services/orders/internal/store/outbox.go'
+        startLine: 51
+        endLine: 51
+        quote: 'func (w *OutboxWriter) Write(ctx context.Context, tx *sql.Tx, change OrderChanged) error {'
+    reading: 'parsed'
+  - relation: 'code.uses-type'
+    from: 'code.symbol:services/orders/internal/store/outbox.go#changeOf'
+    to: 'code.symbol:services/orders/internal/domain/order.go#Order'
+    evidence:
+      - path: 'services/orders/internal/store/outbox.go'
+        startLine: 65
+        endLine: 65
+        quote: 'func changeOf(order domain.Order) OrderChanged {'
+    reading: 'parsed'
+  - relation: 'code.uses-type'
+    from: 'code.symbol:services/orders/internal/store/outbox.go#changeOf'
+    to: 'code.symbol:services/orders/internal/store/outbox.go#OrderChanged'
+    evidence:
+      - path: 'services/orders/internal/store/outbox.go'
+        startLine: 65
+        endLine: 65
+        quote: 'func changeOf(order domain.Order) OrderChanged {'
+    reading: 'parsed'
+  - relation: 'code.writes-table'
+    from: 'code.file:services/orders/internal/store/outbox.go'
+    to: 'code.table:orders.outbox'
+    evidence:
+      - path: 'services/orders/internal/store/outbox.go'
+        startLine: 57
+        endLine: 57
+        quote: '		`INSERT INTO outbox (aggregate_id, topic, payload) VALUES ($1, $2, $3)`,'
+    reading: 'judgement'
+  - relation: 'code.writes-table'
+    from: 'code.symbol:services/orders/internal/store/outbox.go#OutboxWriter.Write'
+    to: 'code.table:orders.outbox'
+    evidence:
+      - path: 'services/orders/internal/store/outbox.go'
+        startLine: 57
+        endLine: 57
+        quote: '		`INSERT INTO outbox (aggregate_id, topic, payload) VALUES ($1, $2, $3)`,'
+    reading: 'parsed'

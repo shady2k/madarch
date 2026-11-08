@@ -1,0 +1,480 @@
+path: 'services/payments/src/providers/provider.ts'
+nodes:
+  - id: 'code.field:services/payments/src/providers/provider.ts#BaseProvider.name'
+    kind: 'code.field'
+    label: 'BaseProvider.name'
+    evidence:
+      - path: 'services/payments/src/providers/provider.ts'
+        startLine: 44
+        endLine: 44
+        quote: '  abstract readonly name: string;'
+    reading: 'parsed'
+  - id: 'code.field:services/payments/src/providers/provider.ts#ChargeRequest.amountCents'
+    kind: 'code.field'
+    label: 'ChargeRequest.amountCents'
+    evidence:
+      - path: 'services/payments/src/providers/provider.ts'
+        startLine: 8
+        endLine: 8
+        quote: '  amountCents: number;'
+    reading: 'parsed'
+  - id: 'code.field:services/payments/src/providers/provider.ts#ChargeRequest.cardToken'
+    kind: 'code.field'
+    label: 'ChargeRequest.cardToken'
+    evidence:
+      - path: 'services/payments/src/providers/provider.ts'
+        startLine: 11
+        endLine: 11
+        quote: '  cardToken: string;'
+    reading: 'parsed'
+  - id: 'code.field:services/payments/src/providers/provider.ts#ChargeRequest.currency'
+    kind: 'code.field'
+    label: 'ChargeRequest.currency'
+    evidence:
+      - path: 'services/payments/src/providers/provider.ts'
+        startLine: 9
+        endLine: 9
+        quote: '  currency: string;'
+    reading: 'parsed'
+  - id: 'code.field:services/payments/src/providers/provider.ts#ChargeRequest.orderId'
+    kind: 'code.field'
+    label: 'ChargeRequest.orderId'
+    evidence:
+      - path: 'services/payments/src/providers/provider.ts'
+        startLine: 7
+        endLine: 7
+        quote: '  orderId: string;'
+    reading: 'parsed'
+  - id: 'code.field:services/payments/src/providers/provider.ts#ChargeRequest.paymentId'
+    kind: 'code.field'
+    label: 'ChargeRequest.paymentId'
+    evidence:
+      - path: 'services/payments/src/providers/provider.ts'
+        startLine: 6
+        endLine: 6
+        quote: '  paymentId: string;'
+    reading: 'parsed'
+  - id: 'code.field:services/payments/src/providers/provider.ts#ChargeResult.providerReference'
+    kind: 'code.field'
+    label: 'ChargeResult.providerReference'
+    evidence:
+      - path: 'services/payments/src/providers/provider.ts'
+        startLine: 16
+        endLine: 16
+        quote: '  providerReference: string;'
+    reading: 'parsed'
+  - id: 'code.field:services/payments/src/providers/provider.ts#PaymentProvider.name'
+    kind: 'code.field'
+    label: 'PaymentProvider.name'
+    evidence:
+      - path: 'services/payments/src/providers/provider.ts'
+        startLine: 37
+        endLine: 37
+        quote: '  readonly name: string;'
+    reading: 'parsed'
+  - id: 'code.field:services/payments/src/providers/provider.ts#ProviderDeclinedError.reason'
+    kind: 'code.field'
+    label: 'ProviderDeclinedError.reason'
+    evidence:
+      - path: 'services/payments/src/providers/provider.ts'
+        startLine: 21
+        endLine: 21
+        quote: '  constructor(readonly reason: string) {'
+    reading: 'parsed'
+  - id: 'code.file:services/payments/src/providers/provider.ts'
+    kind: 'code.file'
+    label: 'provider.ts'
+    evidence:
+      - path: 'services/payments/src/providers/provider.ts'
+        startLine: 1
+        endLine: 1
+        quote: 'import { logger } from ''../logging/logger'';'
+    reading: 'parsed'
+  - id: 'code.symbol:services/payments/src/providers/provider.ts#BaseProvider'
+    kind: 'code.symbol'
+    label: 'BaseProvider'
+    evidence:
+      - path: 'services/payments/src/providers/provider.ts'
+        startLine: 43
+        endLine: 43
+        quote: 'export abstract class BaseProvider implements PaymentProvider {'
+    reading: 'parsed'
+  - id: 'code.symbol:services/payments/src/providers/provider.ts#BaseProvider.charge'
+    kind: 'code.symbol'
+    label: 'BaseProvider.charge'
+    evidence:
+      - path: 'services/payments/src/providers/provider.ts'
+        startLine: 46
+        endLine: 46
+        quote: '  async charge(request: ChargeRequest): Promise<ChargeResult> {'
+    reading: 'parsed'
+  - id: 'code.symbol:services/payments/src/providers/provider.ts#BaseProvider.refund'
+    kind: 'code.symbol'
+    label: 'BaseProvider.refund'
+    evidence:
+      - path: 'services/payments/src/providers/provider.ts'
+        startLine: 54
+        endLine: 54
+        quote: '  async refund(providerReference: string, amountCents: number): Promise<void> {'
+    reading: 'parsed'
+  - id: 'code.symbol:services/payments/src/providers/provider.ts#BaseProvider.submit'
+    kind: 'code.symbol'
+    label: 'BaseProvider.submit'
+    evidence:
+      - path: 'services/payments/src/providers/provider.ts'
+        startLine: 59
+        endLine: 59
+        quote: '  protected abstract submit(request: ChargeRequest): Promise<ChargeResult>;'
+    reading: 'parsed'
+  - id: 'code.symbol:services/payments/src/providers/provider.ts#BaseProvider.submitRefund'
+    kind: 'code.symbol'
+    label: 'BaseProvider.submitRefund'
+    evidence:
+      - path: 'services/payments/src/providers/provider.ts'
+        startLine: 60
+        endLine: 60
+        quote: '  protected abstract submitRefund(providerReference: string, amountCents: number): Promise<void>;'
+    reading: 'parsed'
+  - id: 'code.symbol:services/payments/src/providers/provider.ts#ChargeRequest'
+    kind: 'code.symbol'
+    label: 'ChargeRequest'
+    evidence:
+      - path: 'services/payments/src/providers/provider.ts'
+        startLine: 4
+        endLine: 4
+        quote: 'export interface ChargeRequest {'
+    reading: 'parsed'
+  - id: 'code.symbol:services/payments/src/providers/provider.ts#ChargeResult'
+    kind: 'code.symbol'
+    label: 'ChargeResult'
+    evidence:
+      - path: 'services/payments/src/providers/provider.ts'
+        startLine: 14
+        endLine: 14
+        quote: 'export interface ChargeResult {'
+    reading: 'parsed'
+  - id: 'code.symbol:services/payments/src/providers/provider.ts#PaymentProvider'
+    kind: 'code.symbol'
+    label: 'PaymentProvider'
+    evidence:
+      - path: 'services/payments/src/providers/provider.ts'
+        startLine: 36
+        endLine: 36
+        quote: 'export interface PaymentProvider {'
+    reading: 'parsed'
+  - id: 'code.symbol:services/payments/src/providers/provider.ts#PaymentProvider.charge'
+    kind: 'code.symbol'
+    label: 'PaymentProvider.charge'
+    evidence:
+      - path: 'services/payments/src/providers/provider.ts'
+        startLine: 38
+        endLine: 38
+        quote: '  charge(request: ChargeRequest): Promise<ChargeResult>;'
+    reading: 'parsed'
+  - id: 'code.symbol:services/payments/src/providers/provider.ts#PaymentProvider.refund'
+    kind: 'code.symbol'
+    label: 'PaymentProvider.refund'
+    evidence:
+      - path: 'services/payments/src/providers/provider.ts'
+        startLine: 39
+        endLine: 39
+        quote: '  refund(providerReference: string, amountCents: number): Promise<void>;'
+    reading: 'parsed'
+  - id: 'code.symbol:services/payments/src/providers/provider.ts#ProviderDeclinedError'
+    kind: 'code.symbol'
+    label: 'ProviderDeclinedError'
+    evidence:
+      - path: 'services/payments/src/providers/provider.ts'
+        startLine: 20
+        endLine: 20
+        quote: 'export class ProviderDeclinedError extends Error {'
+    reading: 'parsed'
+  - id: 'code.symbol:services/payments/src/providers/provider.ts#ProviderDeclinedError.constructor'
+    kind: 'code.symbol'
+    label: 'ProviderDeclinedError.constructor'
+    evidence:
+      - path: 'services/payments/src/providers/provider.ts'
+        startLine: 21
+        endLine: 21
+        quote: '  constructor(readonly reason: string) {'
+    reading: 'parsed'
+  - id: 'code.symbol:services/payments/src/providers/provider.ts#ProviderUnavailableError'
+    kind: 'code.symbol'
+    label: 'ProviderUnavailableError'
+    evidence:
+      - path: 'services/payments/src/providers/provider.ts'
+        startLine: 28
+        endLine: 28
+        quote: 'export class ProviderUnavailableError extends Error {'
+    reading: 'parsed'
+  - id: 'code.symbol:services/payments/src/providers/provider.ts#ProviderUnavailableError.constructor'
+    kind: 'code.symbol'
+    label: 'ProviderUnavailableError.constructor'
+    evidence:
+      - path: 'services/payments/src/providers/provider.ts'
+        startLine: 29
+        endLine: 29
+        quote: '  constructor(message: string) {'
+    reading: 'parsed'
+edges:
+  - relation: 'code.calls'
+    from: 'code.symbol:services/payments/src/providers/provider.ts#BaseProvider.charge'
+    to: 'code.symbol:services/payments/src/providers/provider.ts#BaseProvider.submit'
+    evidence:
+      - path: 'services/payments/src/providers/provider.ts'
+        startLine: 51
+        endLine: 51
+        quote: '    return this.submit(request);'
+    reading: 'parsed'
+  - relation: 'code.calls'
+    from: 'code.symbol:services/payments/src/providers/provider.ts#BaseProvider.charge'
+    to: 'code.symbol:services/payments/src/providers/provider.ts#ProviderDeclinedError'
+    evidence:
+      - path: 'services/payments/src/providers/provider.ts'
+        startLine: 48
+        endLine: 48
+        quote: '      throw new ProviderDeclinedError(''amount must be positive'');'
+    reading: 'parsed'
+  - relation: 'code.calls'
+    from: 'code.symbol:services/payments/src/providers/provider.ts#BaseProvider.refund'
+    to: 'code.symbol:services/payments/src/providers/provider.ts#BaseProvider.submitRefund'
+    evidence:
+      - path: 'services/payments/src/providers/provider.ts'
+        startLine: 56
+        endLine: 56
+        quote: '    await this.submitRefund(providerReference, amountCents);'
+    reading: 'parsed'
+  - relation: 'code.contains'
+    from: 'code.file:services/payments/src/providers/provider.ts'
+    to: 'code.symbol:services/payments/src/providers/provider.ts#BaseProvider'
+    evidence:
+      - path: 'services/payments/src/providers/provider.ts'
+        startLine: 43
+        endLine: 43
+        quote: 'export abstract class BaseProvider implements PaymentProvider {'
+    reading: 'parsed'
+  - relation: 'code.contains'
+    from: 'code.file:services/payments/src/providers/provider.ts'
+    to: 'code.symbol:services/payments/src/providers/provider.ts#ChargeRequest'
+    evidence:
+      - path: 'services/payments/src/providers/provider.ts'
+        startLine: 4
+        endLine: 4
+        quote: 'export interface ChargeRequest {'
+    reading: 'parsed'
+  - relation: 'code.contains'
+    from: 'code.file:services/payments/src/providers/provider.ts'
+    to: 'code.symbol:services/payments/src/providers/provider.ts#ChargeResult'
+    evidence:
+      - path: 'services/payments/src/providers/provider.ts'
+        startLine: 14
+        endLine: 14
+        quote: 'export interface ChargeResult {'
+    reading: 'parsed'
+  - relation: 'code.contains'
+    from: 'code.file:services/payments/src/providers/provider.ts'
+    to: 'code.symbol:services/payments/src/providers/provider.ts#PaymentProvider'
+    evidence:
+      - path: 'services/payments/src/providers/provider.ts'
+        startLine: 36
+        endLine: 36
+        quote: 'export interface PaymentProvider {'
+    reading: 'parsed'
+  - relation: 'code.contains'
+    from: 'code.file:services/payments/src/providers/provider.ts'
+    to: 'code.symbol:services/payments/src/providers/provider.ts#ProviderDeclinedError'
+    evidence:
+      - path: 'services/payments/src/providers/provider.ts'
+        startLine: 20
+        endLine: 20
+        quote: 'export class ProviderDeclinedError extends Error {'
+    reading: 'parsed'
+  - relation: 'code.contains'
+    from: 'code.file:services/payments/src/providers/provider.ts'
+    to: 'code.symbol:services/payments/src/providers/provider.ts#ProviderUnavailableError'
+    evidence:
+      - path: 'services/payments/src/providers/provider.ts'
+        startLine: 28
+        endLine: 28
+        quote: 'export class ProviderUnavailableError extends Error {'
+    reading: 'parsed'
+  - relation: 'code.contains'
+    from: 'code.symbol:services/payments/src/providers/provider.ts#BaseProvider'
+    to: 'code.field:services/payments/src/providers/provider.ts#BaseProvider.name'
+    evidence:
+      - path: 'services/payments/src/providers/provider.ts'
+        startLine: 44
+        endLine: 44
+        quote: '  abstract readonly name: string;'
+    reading: 'parsed'
+  - relation: 'code.contains'
+    from: 'code.symbol:services/payments/src/providers/provider.ts#BaseProvider'
+    to: 'code.symbol:services/payments/src/providers/provider.ts#BaseProvider.charge'
+    evidence:
+      - path: 'services/payments/src/providers/provider.ts'
+        startLine: 46
+        endLine: 46
+        quote: '  async charge(request: ChargeRequest): Promise<ChargeResult> {'
+    reading: 'parsed'
+  - relation: 'code.contains'
+    from: 'code.symbol:services/payments/src/providers/provider.ts#BaseProvider'
+    to: 'code.symbol:services/payments/src/providers/provider.ts#BaseProvider.refund'
+    evidence:
+      - path: 'services/payments/src/providers/provider.ts'
+        startLine: 54
+        endLine: 54
+        quote: '  async refund(providerReference: string, amountCents: number): Promise<void> {'
+    reading: 'parsed'
+  - relation: 'code.contains'
+    from: 'code.symbol:services/payments/src/providers/provider.ts#BaseProvider'
+    to: 'code.symbol:services/payments/src/providers/provider.ts#BaseProvider.submit'
+    evidence:
+      - path: 'services/payments/src/providers/provider.ts'
+        startLine: 59
+        endLine: 59
+        quote: '  protected abstract submit(request: ChargeRequest): Promise<ChargeResult>;'
+    reading: 'parsed'
+  - relation: 'code.contains'
+    from: 'code.symbol:services/payments/src/providers/provider.ts#BaseProvider'
+    to: 'code.symbol:services/payments/src/providers/provider.ts#BaseProvider.submitRefund'
+    evidence:
+      - path: 'services/payments/src/providers/provider.ts'
+        startLine: 60
+        endLine: 60
+        quote: '  protected abstract submitRefund(providerReference: string, amountCents: number): Promise<void>;'
+    reading: 'parsed'
+  - relation: 'code.contains'
+    from: 'code.symbol:services/payments/src/providers/provider.ts#ChargeRequest'
+    to: 'code.field:services/payments/src/providers/provider.ts#ChargeRequest.amountCents'
+    evidence:
+      - path: 'services/payments/src/providers/provider.ts'
+        startLine: 8
+        endLine: 8
+        quote: '  amountCents: number;'
+    reading: 'parsed'
+  - relation: 'code.contains'
+    from: 'code.symbol:services/payments/src/providers/provider.ts#ChargeRequest'
+    to: 'code.field:services/payments/src/providers/provider.ts#ChargeRequest.cardToken'
+    evidence:
+      - path: 'services/payments/src/providers/provider.ts'
+        startLine: 11
+        endLine: 11
+        quote: '  cardToken: string;'
+    reading: 'parsed'
+  - relation: 'code.contains'
+    from: 'code.symbol:services/payments/src/providers/provider.ts#ChargeRequest'
+    to: 'code.field:services/payments/src/providers/provider.ts#ChargeRequest.currency'
+    evidence:
+      - path: 'services/payments/src/providers/provider.ts'
+        startLine: 9
+        endLine: 9
+        quote: '  currency: string;'
+    reading: 'parsed'
+  - relation: 'code.contains'
+    from: 'code.symbol:services/payments/src/providers/provider.ts#ChargeRequest'
+    to: 'code.field:services/payments/src/providers/provider.ts#ChargeRequest.orderId'
+    evidence:
+      - path: 'services/payments/src/providers/provider.ts'
+        startLine: 7
+        endLine: 7
+        quote: '  orderId: string;'
+    reading: 'parsed'
+  - relation: 'code.contains'
+    from: 'code.symbol:services/payments/src/providers/provider.ts#ChargeRequest'
+    to: 'code.field:services/payments/src/providers/provider.ts#ChargeRequest.paymentId'
+    evidence:
+      - path: 'services/payments/src/providers/provider.ts'
+        startLine: 6
+        endLine: 6
+        quote: '  paymentId: string;'
+    reading: 'parsed'
+  - relation: 'code.contains'
+    from: 'code.symbol:services/payments/src/providers/provider.ts#ChargeResult'
+    to: 'code.field:services/payments/src/providers/provider.ts#ChargeResult.providerReference'
+    evidence:
+      - path: 'services/payments/src/providers/provider.ts'
+        startLine: 16
+        endLine: 16
+        quote: '  providerReference: string;'
+    reading: 'parsed'
+  - relation: 'code.contains'
+    from: 'code.symbol:services/payments/src/providers/provider.ts#PaymentProvider'
+    to: 'code.field:services/payments/src/providers/provider.ts#PaymentProvider.name'
+    evidence:
+      - path: 'services/payments/src/providers/provider.ts'
+        startLine: 37
+        endLine: 37
+        quote: '  readonly name: string;'
+    reading: 'parsed'
+  - relation: 'code.contains'
+    from: 'code.symbol:services/payments/src/providers/provider.ts#PaymentProvider'
+    to: 'code.symbol:services/payments/src/providers/provider.ts#PaymentProvider.charge'
+    evidence:
+      - path: 'services/payments/src/providers/provider.ts'
+        startLine: 38
+        endLine: 38
+        quote: '  charge(request: ChargeRequest): Promise<ChargeResult>;'
+    reading: 'parsed'
+  - relation: 'code.contains'
+    from: 'code.symbol:services/payments/src/providers/provider.ts#PaymentProvider'
+    to: 'code.symbol:services/payments/src/providers/provider.ts#PaymentProvider.refund'
+    evidence:
+      - path: 'services/payments/src/providers/provider.ts'
+        startLine: 39
+        endLine: 39
+        quote: '  refund(providerReference: string, amountCents: number): Promise<void>;'
+    reading: 'parsed'
+  - relation: 'code.contains'
+    from: 'code.symbol:services/payments/src/providers/provider.ts#ProviderDeclinedError'
+    to: 'code.field:services/payments/src/providers/provider.ts#ProviderDeclinedError.reason'
+    evidence:
+      - path: 'services/payments/src/providers/provider.ts'
+        startLine: 21
+        endLine: 21
+        quote: '  constructor(readonly reason: string) {'
+    reading: 'parsed'
+  - relation: 'code.contains'
+    from: 'code.symbol:services/payments/src/providers/provider.ts#ProviderDeclinedError'
+    to: 'code.symbol:services/payments/src/providers/provider.ts#ProviderDeclinedError.constructor'
+    evidence:
+      - path: 'services/payments/src/providers/provider.ts'
+        startLine: 21
+        endLine: 21
+        quote: '  constructor(readonly reason: string) {'
+    reading: 'parsed'
+  - relation: 'code.contains'
+    from: 'code.symbol:services/payments/src/providers/provider.ts#ProviderUnavailableError'
+    to: 'code.symbol:services/payments/src/providers/provider.ts#ProviderUnavailableError.constructor'
+    evidence:
+      - path: 'services/payments/src/providers/provider.ts'
+        startLine: 29
+        endLine: 29
+        quote: '  constructor(message: string) {'
+    reading: 'parsed'
+  - relation: 'code.implements'
+    from: 'code.symbol:services/payments/src/providers/provider.ts#BaseProvider'
+    to: 'code.symbol:services/payments/src/providers/provider.ts#PaymentProvider'
+    evidence:
+      - path: 'services/payments/src/providers/provider.ts'
+        startLine: 43
+        endLine: 43
+        quote: 'export abstract class BaseProvider implements PaymentProvider {'
+    reading: 'parsed'
+  - relation: 'code.imports'
+    from: 'code.file:services/payments/src/providers/provider.ts'
+    to: 'code.file:services/payments/src/logging/logger.ts'
+    evidence:
+      - path: 'services/payments/src/providers/provider.ts'
+        startLine: 1
+        endLine: 1
+        quote: 'import { logger } from ''../logging/logger'';'
+    reading: 'parsed'
+  - relation: 'code.uses-type'
+    from: 'code.symbol:services/payments/src/providers/provider.ts#PaymentProvider.charge'
+    to: 'code.symbol:services/payments/src/providers/provider.ts#ChargeRequest'
+    evidence:
+      - path: 'services/payments/src/providers/provider.ts'
+        startLine: 38
+        endLine: 38
+        quote: '  charge(request: ChargeRequest): Promise<ChargeResult>;'
+    reading: 'parsed'

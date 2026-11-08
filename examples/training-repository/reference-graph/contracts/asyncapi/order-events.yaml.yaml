@@ -1,0 +1,147 @@
+path: 'contracts/asyncapi/order-events.yaml'
+nodes:
+  - id: 'code.contract:contracts/asyncapi/order-events.yaml'
+    kind: 'code.contract'
+    label: 'order-events.yaml'
+    evidence:
+      - path: 'contracts/asyncapi/order-events.yaml'
+        startLine: 1
+        endLine: 1
+        quote: 'asyncapi: 2.6.0'
+    reading: 'parsed'
+  - id: 'code.file:contracts/asyncapi/order-events.yaml'
+    kind: 'code.file'
+    label: 'order-events.yaml'
+    evidence:
+      - path: 'contracts/asyncapi/order-events.yaml'
+        startLine: 1
+        endLine: 1
+        quote: 'asyncapi: 2.6.0'
+    reading: 'parsed'
+  - id: 'code.message:OrderChanged'
+    kind: 'code.message'
+    label: 'OrderChanged'
+    evidence:
+      - path: 'contracts/asyncapi/order-events.yaml'
+        startLine: 29
+        endLine: 29
+        quote: '    OrderChanged:'
+    reading: 'parsed'
+  - id: 'code.message:PaymentEvent'
+    kind: 'code.message'
+    label: 'PaymentEvent'
+    evidence:
+      - path: 'contracts/asyncapi/order-events.yaml'
+        startLine: 57
+        endLine: 57
+        quote: '    PaymentEvent:'
+    reading: 'parsed'
+  - id: 'code.operation:contracts/asyncapi/order-events.yaml#orderChanged'
+    kind: 'code.operation'
+    label: 'orderChanged'
+    evidence:
+      - path: 'contracts/asyncapi/order-events.yaml'
+        startLine: 18
+        endLine: 18
+        quote: '      operationId: orderChanged'
+    reading: 'parsed'
+  - id: 'code.operation:contracts/asyncapi/order-events.yaml#paymentEvent'
+    kind: 'code.operation'
+    label: 'paymentEvent'
+    evidence:
+      - path: 'contracts/asyncapi/order-events.yaml'
+        startLine: 24
+        endLine: 24
+        quote: '      operationId: paymentEvent'
+    reading: 'parsed'
+edges:
+  - relation: 'code.belongs-to'
+    from: 'code.message:OrderChanged'
+    to: 'code.contract:contracts/asyncapi/order-events.yaml'
+    evidence:
+      - path: 'contracts/asyncapi/order-events.yaml'
+        startLine: 29
+        endLine: 29
+        quote: '    OrderChanged:'
+    reading: 'parsed'
+  - relation: 'code.belongs-to'
+    from: 'code.message:PaymentEvent'
+    to: 'code.contract:contracts/asyncapi/order-events.yaml'
+    evidence:
+      - path: 'contracts/asyncapi/order-events.yaml'
+        startLine: 57
+        endLine: 57
+        quote: '    PaymentEvent:'
+    reading: 'parsed'
+  - relation: 'code.carries'
+    from: 'code.channel:orders.events'
+    to: 'code.message:OrderChanged'
+    evidence:
+      - path: 'contracts/asyncapi/order-events.yaml'
+        startLine: 20
+        endLine: 20
+        quote: '        $ref: ''#/components/messages/OrderChanged'''
+    reading: 'parsed'
+  - relation: 'code.carries'
+    from: 'code.channel:payments.events'
+    to: 'code.message:PaymentEvent'
+    evidence:
+      - path: 'contracts/asyncapi/order-events.yaml'
+        startLine: 26
+        endLine: 26
+        quote: '        $ref: ''#/components/messages/PaymentEvent'''
+    reading: 'parsed'
+  - relation: 'code.consumes'
+    from: 'code.operation:contracts/asyncapi/order-events.yaml#paymentEvent'
+    to: 'code.channel:payments.events'
+    evidence:
+      - path: 'contracts/asyncapi/order-events.yaml'
+        startLine: 24
+        endLine: 24
+        quote: '      operationId: paymentEvent'
+    reading: 'parsed'
+  - relation: 'code.contains'
+    from: 'code.channel:orders.events'
+    to: 'code.operation:contracts/asyncapi/order-events.yaml#orderChanged'
+    evidence:
+      - path: 'contracts/asyncapi/order-events.yaml'
+        startLine: 18
+        endLine: 18
+        quote: '      operationId: orderChanged'
+    reading: 'parsed'
+  - relation: 'code.contains'
+    from: 'code.channel:payments.events'
+    to: 'code.operation:contracts/asyncapi/order-events.yaml#paymentEvent'
+    evidence:
+      - path: 'contracts/asyncapi/order-events.yaml'
+        startLine: 24
+        endLine: 24
+        quote: '      operationId: paymentEvent'
+    reading: 'parsed'
+  - relation: 'code.contains'
+    from: 'code.contract:contracts/asyncapi/order-events.yaml'
+    to: 'code.channel:orders.events'
+    evidence:
+      - path: 'contracts/asyncapi/order-events.yaml'
+        startLine: 15
+        endLine: 15
+        quote: '  orders.events:'
+    reading: 'parsed'
+  - relation: 'code.contains'
+    from: 'code.contract:contracts/asyncapi/order-events.yaml'
+    to: 'code.channel:payments.events'
+    evidence:
+      - path: 'contracts/asyncapi/order-events.yaml'
+        startLine: 21
+        endLine: 21
+        quote: '  payments.events:'
+    reading: 'parsed'
+  - relation: 'code.publishes'
+    from: 'code.operation:contracts/asyncapi/order-events.yaml#orderChanged'
+    to: 'code.channel:orders.events'
+    evidence:
+      - path: 'contracts/asyncapi/order-events.yaml'
+        startLine: 18
+        endLine: 18
+        quote: '      operationId: orderChanged'
+    reading: 'parsed'

@@ -65,24 +65,42 @@
  * anywhere yet.
  */
 import { execFileSync } from 'node:child_process';
-import { resolve } from 'node:path';
+import { join, resolve } from 'node:path';
 import { byCodePoint } from '../model/order.js';
+import { withSpan } from '../obs/trace.js';
 import { isRepositoryPath } from '../fill/facts.js';
 import { ID_PATTERN } from '../model/schema.js';
 import type { FillStageConfigurationRead } from '../fill/config.js';
 import { readFillStageConfiguration } from '../fill/config.js';
-import type { FactStoreDatabase } from '../fill/fact-store.js';
+import { createGraphStore, createRecordSchema, publishHistory, publishTree, type GraphStore } from '../graph/index.js';
 import type { FillProduct, ProductFillWiring } from '../fill/orchestrator-host.js';
 import type { UnitRef } from '../fill/orchestrator.js';
 import type { RunSnapshot } from '../fill/orchestrator-store.js';
 import type { StageRegistry } from '../fill/registry.js';
 import { createGitSnapshotSource, type RepositoryPin, type SnapshotSource } from '../fill/snapshot.js';
 import { createStageReadReader, createStageReadSchema } from '../fill/stage-reads.js';
+import { createStaticStageReadReader } from '../fill/stages/static-reads.js';
+import { CODE_FACTS_STAGE_ID } from '../fill/stages/code-facts.js';
+import { folderOf, manifestChainOf } from '../fill/stages/service-membership.js';
+import { ensureGraphSchema } from '../fill/stages/static-graph.js';
 import type { AgentStageWiring } from '../fill/stages/agent-stage.js';
 import { createStageRegistry } from '../fill/stages/index.js';
 import { sameFolder } from './git.js';
 import { hashFillInput } from './fill-runtime.js';
-import { readProduct, type ProductIdentity } from './manifest.js';
+import type { ProductIdentity } from './manifest.js';
+import { fillFolderIdentity, productRepositoryId } from './identity.js';
+import { headCommitOf } from './fill-updates.js';
+import { raise } from '../model/raise.js';
+import { engineFirstFillStages, firstFillStagesOf, readWorkflows, type FirstFillRead } from '../knowledge/workflows.js';
+
+/**
+ * The process's one connection as this wiring names it: the type the graph store
+ * is built over. Naming the store's own parameter type keeps this module from
+ * importing the connection (decision 0033, item 3: only the graph store and the
+ * storage layer import it) while still reading and lending the owner the host
+ * created.
+ */
+type FillDatabase = Parameters<typeof createGraphStore>[0];
 
 /** What one product's stages fill is built from. */
 export interface StagesFillOptions {
@@ -93,7 +111,7 @@ export interface StagesFillOptions {
    * the process's one owner (decision 0027). This module reads and writes it
    * through the host; it neither opens nor closes it.
    */
-  readonly database: FactStoreDatabase;
+  readonly database: FillDatabase;
   /**
    * The agent the product's units are driven with (decision 0026, "Agents and
    * tools"): where it is named, the agent unit stage is registered beside the eight
@@ -102,6 +120,8 @@ export interface StagesFillOptions {
    * planned — a run with no agent never plans work it cannot run.
    */
   readonly agent?: Omit<AgentStageWiring, 'snapshots'>;
+  /** What this step's two passes publish through; the store over this owner when it is left out. */
+  readonly records?: import('../fill/steps.js').RecordPassWiring;
 }
 
 /** One product's stages fill: the registry the run derives its stage graph from, and the wiring the host drives it with. */
@@ -111,6 +131,12 @@ export interface StagesFill {
   /** The eight deterministic stages, registered over this product's own pins. */
   readonly registry: StageRegistry;
   readonly wiring: ProductFillWiring;
+  /**
+   * The declared repositories this run could not pin, each with its path and the state it is
+   * in: a checkout that holds no commit yet. A run reads the repositories it can and says what
+   * it did for these, rather than refusing the product.
+   */
+  readonly unread: () => readonly UnreadRepository[];
 }
 
 /**
@@ -132,63 +158,161 @@ export function declaredStagesDigest(registry: StageRegistry): string {
  */
 export async function createStagesFill(options: StagesFillOptions): Promise<StagesFill> {
   const folder = resolve(options.product);
-  const identity = readIdentity(folder);
+  const read = await withSpan('fill.identity', { 'madarch.product': folder }, async () => fillFolderIdentity(folder));
+  const identity = read.identity;
   const product: FillProduct = { name: identity.name, folder };
   // The pins one run stands on: read when the run plans (`snapshot`, which the
   // orchestrator asks for before it asks any stage to plan), and read by every
   // other answer of this wiring, so a run's units, its inputs and its sources
   // name one commit of each repository.
   let pinned: readonly RepositoryPin[] | undefined;
-  const pins = (): readonly RepositoryPin[] => (pinned ??= pinsOf(identity));
+  let unread: readonly UnreadRepository[] = [];
+  const readPins = (): readonly RepositoryPin[] => {
+    const pinnedRead = pinsOf(identity, read.product);
+    unread = pinnedRead.unread;
+    return (pinned = pinnedRead.pins);
+  };
+  const pins = (): readonly RepositoryPin[] => pinned ?? readPins();
   const snapshots = createGitSnapshotSource(pins);
   /** Reads the pins again, for the run about to plan (`snapshot`): see the module doc. */
-  const repin = (): readonly RepositoryPin[] => (pinned = pinsOf(identity));
-  const registry = createStageRegistry({
-    snapshots,
-    checkoutOf: (repository: string) => rootOf(identity, repository),
-    ...(options.agent === undefined ? {} : { agent: options.agent }),
+  const repin = (): readonly RepositoryPin[] => readPins();
+  // The record store this step's passes publish through: the process's one owner, so what the
+  // wiki's button fills is what `madarch mcp` reads (madarch-8bdc.2.5, item 6).
+  await createRecordSchema(options.database);
+  const records = options.records ?? {
+    publishTree: (input: Parameters<typeof publishTree>[1]) => publishTree(options.database, input),
+    publishHistory: (input: Parameters<typeof publishHistory>[1]) => publishHistory(options.database, input),
+  };
+  // Building the registry loads the stages' own modules and their parsers: one span names what that cost.
+  const registry = await withSpan('fill.registry', { 'madarch.product': identity.name }, async (span) => {
+    const held = createStageRegistry({
+      snapshots,
+      checkoutOf: (repository: string) => rootOf(identity, repository),
+      records,
+      ...(options.agent === undefined ? {} : { agent: options.agent }),
+    });
+    span.setAttribute('madarch.stages', held.all().length);
+    return held;
   });
   // The view a stage's own SQL reads through (the history stage's three queries)
   // stands before any run: it is the store's own schema, and no read may create
   // it (a read inside a publication's transaction could not).
   await createStageReadSchema(options.database);
+  // The 0028 graph the static stages publish into and plan from (decision 0033). One store over the
+  // process's owner: its tables and the extractor vocabulary are created with the rest of the fill's.
+  const store: GraphStore = createGraphStore(options.database);
+  await ensureGraphSchema(store);
+  // The stages a run of this product enables are its workflow's (decision 0033, item 2): a product that
+  // holds no manifest of its own runs the engine's starter set, as a repository that is no product does.
+  const workflow = workflowOf(folder);
   const wiring: ProductFillWiring = {
     snapshot: () => snapshotOf(identity, registry, repin()),
-    configuration: (): FillStageConfigurationRead => readFillStageConfiguration(folder),
-    graph: (ref, transaction) => createStageReadReader({
-      database: options.database,
-      snapshot: snapshots,
-      ...(transaction === undefined ? {} : { executor: transaction }),
-    }),
+    configuration: (): FillStageConfigurationRead => configurationOfWorkflow(workflow, readFillStageConfiguration(folder), registry),
+    graph: (ref, transaction) => (registry.get(ref.stageId)?.staticReading === true
+      ? createStaticStageReadReader(store, transaction)
+      : createStageReadReader({
+        database: options.database,
+        snapshot: snapshots,
+        ...(transaction === undefined ? {} : { executor: transaction }),
+      })),
     source: (): SnapshotSource => snapshots,
-    inputs: (ref) => inputsOf(identity, registry, pins(), ref),
+    inputs: (ref) => inputsOf(registry, pins(), ref),
   };
-  return { product, registry, wiring };
+  return { product, registry, wiring, unread: () => unread };
 }
 
-/** The product's identity, refused with the manifest's own file, line and words. */
-function readIdentity(folder: string): ProductIdentity {
-  const read = readProduct(folder);
-  if (!read.ok) throw new Error(`${read.file}:${read.line}: ${read.message}`);
-  if (!ID_PATTERN.test(read.product.name)) {
-    throw new Error(`the product ${read.product.folder} names itself ${JSON.stringify(read.product.name)}, which is no repository name: a name a repository is read under starts with a letter or a digit and carries letters, digits, ".", "_" or "-" (write "name:" in ${read.product.folder}/workspace.yaml)`);
+/**
+ * What a run enables, as the orchestrator's configuration read (decision 0027):
+ * the product's `fill.stages` entries as it wrote them, and every stage the
+ * run's workflow does not name turned off (decision 0033, item 2: which stages a
+ * run enables is its workflow's). A stage the product wrote a broken entry for is
+ * passed on as written, so the registry names the fault instead of this reader
+ * dropping it; a stage the workflow does not name keeps the product's other
+ * fields and is disabled.
+ */
+function configurationOfWorkflow(workflow: FirstFillRead, written: FillStageConfigurationRead, registry: StageRegistry): FillStageConfigurationRead {
+  if (!workflow.ok) {
+    return { ok: false, errors: [{ file: workflow.refusal.file, line: workflow.refusal.line, path: '', message: workflow.refusal.message }] };
   }
-  return read.product;
+  if (!written.ok) return written;
+  const named = new Set(workflow.stages);
+  const stages: Record<string, unknown> = Object.create(null);
+  for (const stage of registry.all()) {
+    const held = Object.prototype.hasOwnProperty.call(written.stages, stage.id) ? written.stages[stage.id] : undefined;
+    const object = held !== null && typeof held === 'object' && !Array.isArray(held) ? held as Record<string, unknown> : undefined;
+    if (object !== undefined) {
+      stages[stage.id] = { ...object, enabled: named.has(stage.id) ? object['enabled'] ?? true : false };
+      continue;
+    }
+    if (held !== undefined) {
+      stages[stage.id] = held;
+      continue;
+    }
+    if (!named.has(stage.id)) stages[stage.id] = { enabled: false };
+  }
+  return { ok: true, file: workflow.file, stages, lines: { ...written.lines } };
+}
+
+/**
+ * The stages a run of one folder enables: the `first-fill` workflow its
+ * `madarch/workflows.yaml` names, or — for a folder that holds no manifest, a
+ * repository that is no product included — the engine's own starter set, which
+ * is the one `madarch new` writes into a product.
+ */
+function workflowOf(folder: string): FirstFillRead {
+  return readWorkflows(folder).present ? firstFillStagesOf(folder) : engineFirstFillStages();
+}
+
+/** The run's snapshot record of one pinned repository, as fill-runtime's shape holds it. */
+function snapshotOfPins(folder: string, registry: StageRegistry, pin: RepositoryPin): RunSnapshot {
+  return {
+    repository: folder,
+    defaultBranch: pin.defaultBranch ?? 'HEAD',
+    commit: pin.commit,
+    registryHash: declaredStagesDigest(registry),
+  };
+}
+
+/** A repository a run could not pin, named where it stands: what the fill did for it, in words. */
+export interface UnreadRepository {
+  readonly repository: string;
+  /** The checkout's full path. */
+  readonly path: string;
+  /** Why nothing was read of it: the state it is in, never a guess. */
+  readonly reason: string;
+}
+
+/** What one run pins: the repositories it reads, and the ones it could not pin. */
+interface PinnedRepositories {
+  readonly pins: readonly RepositoryPin[];
+  readonly unread: readonly UnreadRepository[];
 }
 
 /**
  * The repositories one run pins, in the manifest's own order: the product
  * repository first, then each code repository the manifest declares. A declared
  * repository whose folder is not a Git checkout is refused by name here, before
- * any stage plans a unit for it.
+ * any stage plans a unit for it; a checkout that holds no commit yet is not a
+ * refusal — it is named in `unread`, the run reads the other repositories, and
+ * the answer says what it did for it (a repository added before its first
+ * commit must not break the product's wiki).
  */
-function pinsOf(identity: ProductIdentity): readonly RepositoryPin[] {
-  const pins: RepositoryPin[] = [pinOf(identity.name, 'product', identity.folder)];
+function pinsOf(identity: ProductIdentity, product: boolean): PinnedRepositories {
+  // A store names one repository by one id, and two checkouts that share a name are two
+  // repositories. The id of the product's own repository is decided in one place, which the fill,
+  // the wiring that resolves a unit's folder and the MCP server all read (`productRepositoryId`).
+  const own = productRepositoryId(identity);
+  const pins: RepositoryPin[] = [pinOf(own, product ? 'product' : 'code', identity.folder)];
+  const unread: UnreadRepository[] = [];
   for (const repo of identity.repos) {
     const root = checkoutFolderOf(identity, repo.name);
+    if (headCommitOf(root) === undefined) {
+      unread.push({ repository: repo.name, path: root, reason: 'the checkout holds no commit yet' });
+      continue;
+    }
     pins.push(pinOf(repo.name, 'code', root, repo.branch));
   }
-  return pins;
+  return { pins, unread };
 }
 
 /** One repository pinned at the commit its checkout's HEAD names. */
@@ -216,7 +340,7 @@ function checkoutFolderOf(identity: ProductIdentity, name: string): string {
   const root = resolve(identity.folder, 'repos', name);
   const top = gitQuietly(root, ['rev-parse', '--show-toplevel']);
   if (top === undefined || !sameFolder(top, root)) {
-    throw new Error(`the product ${identity.folder} declares the repository ${JSON.stringify(name)}, and ${root} is no Git checkout of its own: connect it with "madarch repo add ${name} <url>" or bootstrap the product (madarch bootstrap)`);
+    raise(`the product ${identity.folder} declares the repository ${JSON.stringify(name)}, and ${root} is no Git checkout of its own: connect it with "madarch repo add ${name} <url>" or bootstrap the product`);
   }
   return root;
 }
@@ -225,7 +349,7 @@ function checkoutFolderOf(identity: ProductIdentity, name: string): string {
 
 /** The folder one repository's checkout stands in, refused by name where the product pins no such repository. */
 function rootOf(identity: ProductIdentity, repository: string): string {
-  if (repository === identity.name) return identity.folder;
+  if (repository === productRepositoryId(identity)) return identity.folder;
   const declared = identity.repos.find((repo) => repo.name === repository);
   if (declared === undefined) {
     const known = [identity.name, ...identity.repos.map((repo) => repo.name)].map((id) => JSON.stringify(id));
@@ -254,7 +378,7 @@ function rootOf(identity: ProductIdentity, repository: string): string {
  * holds, so a resolution unit's input is the run's pins: a run on another commit
  * re-resolves the files its plan names.
  */
-function inputsOf(_identity: ProductIdentity, registry: StageRegistry, pins: readonly RepositoryPin[], ref: UnitRef): Readonly<Record<string, string>> {
+async function inputsOf(registry: StageRegistry, pins: readonly RepositoryPin[], ref: UnitRef): Promise<Readonly<Record<string, string>>> {
   const inputs: Record<string, string> = { stages: declaredStagesDigest(registry) };
   // An agent unit's facts stand on what it read, and nothing on its scope's own pin (decision 0026,
   // "Updates"): its reads with their membership are rechecked by the orchestrator, the spans it read are
@@ -267,7 +391,18 @@ function inputsOf(_identity: ProductIdentity, registry: StageRegistry, pins: rea
   const path = pathOfScope(pins, ref.scope);
   const readsFacts = RESOLUTION_STAGE_ID === ref.stageId;
   if (path !== undefined && !readsFacts) {
-    inputs['entry'] = blobOf(pins, repositoryOfScope(pins, ref.scope) ?? '', path);
+    const repository = repositoryOfScope(pins, ref.scope) ?? '';
+    inputs['entry'] = blobOf(pins, repository, path);
+    // The code-facts stage's membership fact stands on the manifests above the file, and its ports
+    // on the file's own bytes (the entry above): a manifest that moves re-reads every file whose
+    // unit it declares, although the files' own blobs did not move (madarch-8bdc.2.4).
+    if (ref.stageId === CODE_FACTS_STAGE_ID) {
+      const chain = await manifestChainOf(folderOf(path), async (candidate: string) => {
+        const blob = blobOf(pins, repository, candidate);
+        return blob === 'no-entry' ? undefined : { path: candidate, blob };
+      });
+      inputs['manifests'] = chain.join('\n');
+    }
   } else {
     // A unit whose scope names no path reads one repository whole: the digest of
     // *that* repository's pin, so a commit in one repository of a product with
@@ -348,14 +483,16 @@ function blobOf(pins: readonly RepositoryPin[], repository: string, path: string
  * are the pins themselves (see the module doc).
  */
 function snapshotOf(identity: ProductIdentity, registry: StageRegistry, pins: readonly RepositoryPin[]): RunSnapshot {
-  const product = pins.find((pin) => pin.form === 'product');
-  if (product === undefined) {
-    throw new Error(`the product ${identity.folder} pins no product repository, and every run of it stands on one: this is a defect of this module (src/product/fill-stages.ts, pinsOf)`);
+  // The folder a fill was asked for is the commit the run stands on: its own repository's pin, whether the folder is a
+  // product repository or a checkout that is no product.
+  const own = pins.find((pin) => pin.form === 'product') ?? pins[0];
+  if (own === undefined) {
+    throw new Error(`the folder ${identity.folder} pins no repository, and every run stands on one: this is a defect of this module (src/product/fill-stages.ts, pinsOf)`);
   }
   return {
     repository: identity.folder,
-    defaultBranch: product.defaultBranch ?? 'HEAD',
-    commit: product.commit,
+    defaultBranch: own.defaultBranch ?? 'HEAD',
+    commit: own.commit,
     registryHash: declaredStagesDigest(registry),
   };
 }
@@ -383,7 +520,7 @@ function onePinDigest(pins: readonly RepositoryPin[], repository: string | undef
 function git(root: string, id: string, args: readonly string[]): string {
   const answer = gitQuietly(root, args);
   if (answer === undefined) {
-    throw new Error(`the repository ${JSON.stringify(id)} of the product stands in ${root}, and git could not read it: "git ${args.join(' ')}" failed there, which is no Git checkout or one git cannot read`);
+    raise(`the repository ${JSON.stringify(id)} of the product stands in ${root}, and git could not read it: "git ${args.join(' ')}" failed there, which is no Git checkout or one git cannot read`);
   }
   return answer;
 }

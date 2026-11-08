@@ -1,0 +1,21 @@
+path: 'scripts/seed-promotions.sql'
+nodes:
+  - id: 'code.file:scripts/seed-promotions.sql'
+    kind: 'code.file'
+    label: 'seed-promotions.sql'
+    evidence:
+      - path: 'scripts/seed-promotions.sql'
+        startLine: 1
+        endLine: 1
+        quote: 'INSERT INTO promotions (id, code, kind, value, min_cents) VALUES'
+    reading: 'parsed'
+edges:
+  - relation: 'code.writes-table'
+    from: 'code.file:scripts/seed-promotions.sql'
+    to: 'code.table:promotions.promotions'
+    evidence:
+      - path: 'scripts/seed-promotions.sql'
+        startLine: 1
+        endLine: 1
+        quote: 'INSERT INTO promotions (id, code, kind, value, min_cents) VALUES'
+    reading: 'parsed'

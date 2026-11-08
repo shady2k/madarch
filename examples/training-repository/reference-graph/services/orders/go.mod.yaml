@@ -1,0 +1,138 @@
+path: 'services/orders/go.mod'
+nodes:
+  - id: 'code.dependency:services/orders/go.mod#github.com/golang-jwt/jwt/v5'
+    kind: 'code.dependency'
+    label: 'github.com/golang-jwt/jwt/v5 v5.2.1'
+    evidence:
+      - path: 'services/orders/go.mod'
+        startLine: 6
+        endLine: 6
+        quote: '	github.com/golang-jwt/jwt/v5 v5.2.1'
+    reading: 'declared'
+  - id: 'code.dependency:services/orders/go.mod#github.com/klauspost/compress'
+    kind: 'code.dependency'
+    label: 'github.com/klauspost/compress v1.15.9 (indirect)'
+    evidence:
+      - path: 'services/orders/go.mod'
+        startLine: 12
+        endLine: 12
+        quote: '	github.com/klauspost/compress v1.15.9 // indirect'
+    reading: 'declared'
+  - id: 'code.dependency:services/orders/go.mod#github.com/lib/pq'
+    kind: 'code.dependency'
+    label: 'github.com/lib/pq v1.10.9'
+    evidence:
+      - path: 'services/orders/go.mod'
+        startLine: 7
+        endLine: 7
+        quote: '	github.com/lib/pq v1.10.9'
+    reading: 'declared'
+  - id: 'code.dependency:services/orders/go.mod#github.com/pierrec/lz4/v4'
+    kind: 'code.dependency'
+    label: 'github.com/pierrec/lz4/v4 v4.1.15 (indirect)'
+    evidence:
+      - path: 'services/orders/go.mod'
+        startLine: 13
+        endLine: 13
+        quote: '	github.com/pierrec/lz4/v4 v4.1.15 // indirect'
+    reading: 'declared'
+  - id: 'code.dependency:services/orders/go.mod#github.com/segmentio/kafka-go'
+    kind: 'code.dependency'
+    label: 'github.com/segmentio/kafka-go v0.4.47'
+    evidence:
+      - path: 'services/orders/go.mod'
+        startLine: 8
+        endLine: 8
+        quote: '	github.com/segmentio/kafka-go v0.4.47'
+    reading: 'declared'
+  - id: 'code.file:services/orders/go.mod'
+    kind: 'code.file'
+    label: 'go.mod'
+    evidence:
+      - path: 'services/orders/go.mod'
+        startLine: 1
+        endLine: 1
+        quote: 'module training.example/orders'
+    reading: 'parsed'
+  - id: 'code.manifest:services/orders/go.mod'
+    kind: 'code.manifest'
+    label: 'go.mod'
+    evidence:
+      - path: 'services/orders/go.mod'
+        startLine: 1
+        endLine: 1
+        quote: 'module training.example/orders'
+    reading: 'declared'
+  - id: 'code.package:services/orders'
+    kind: 'code.package'
+    label: 'services/orders'
+    evidence:
+      - path: 'services/orders/go.mod'
+        startLine: 1
+        endLine: 1
+        quote: 'module training.example/orders'
+    reading: 'declared'
+edges:
+  - relation: 'code.belongs-to'
+    from: 'code.manifest:services/orders/go.mod'
+    to: 'code.package:services/orders'
+    evidence:
+      - path: 'services/orders/go.mod'
+        startLine: 1
+        endLine: 1
+        quote: 'module training.example/orders'
+    reading: 'declared'
+  - relation: 'code.belongs-to'
+    from: 'code.package:services/orders'
+    to: 'code.service:orders'
+    evidence:
+      - path: 'services/orders/go.mod'
+        startLine: 1
+        endLine: 1
+        quote: 'module training.example/orders'
+    reading: 'declared'
+  - relation: 'code.declares-dependency'
+    from: 'code.manifest:services/orders/go.mod'
+    to: 'code.dependency:services/orders/go.mod#github.com/golang-jwt/jwt/v5'
+    evidence:
+      - path: 'services/orders/go.mod'
+        startLine: 6
+        endLine: 6
+        quote: '	github.com/golang-jwt/jwt/v5 v5.2.1'
+    reading: 'declared'
+  - relation: 'code.declares-dependency'
+    from: 'code.manifest:services/orders/go.mod'
+    to: 'code.dependency:services/orders/go.mod#github.com/klauspost/compress'
+    evidence:
+      - path: 'services/orders/go.mod'
+        startLine: 12
+        endLine: 12
+        quote: '	github.com/klauspost/compress v1.15.9 // indirect'
+    reading: 'declared'
+  - relation: 'code.declares-dependency'
+    from: 'code.manifest:services/orders/go.mod'
+    to: 'code.dependency:services/orders/go.mod#github.com/lib/pq'
+    evidence:
+      - path: 'services/orders/go.mod'
+        startLine: 7
+        endLine: 7
+        quote: '	github.com/lib/pq v1.10.9'
+    reading: 'declared'
+  - relation: 'code.declares-dependency'
+    from: 'code.manifest:services/orders/go.mod'
+    to: 'code.dependency:services/orders/go.mod#github.com/pierrec/lz4/v4'
+    evidence:
+      - path: 'services/orders/go.mod'
+        startLine: 13
+        endLine: 13
+        quote: '	github.com/pierrec/lz4/v4 v4.1.15 // indirect'
+    reading: 'declared'
+  - relation: 'code.declares-dependency'
+    from: 'code.manifest:services/orders/go.mod'
+    to: 'code.dependency:services/orders/go.mod#github.com/segmentio/kafka-go'
+    evidence:
+      - path: 'services/orders/go.mod'
+        startLine: 8
+        endLine: 8
+        quote: '	github.com/segmentio/kafka-go v0.4.47'
+    reading: 'declared'

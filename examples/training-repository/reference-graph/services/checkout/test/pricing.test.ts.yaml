@@ -1,0 +1,61 @@
+path: 'services/checkout/test/pricing.test.ts'
+nodes:
+  - id: 'code.file:services/checkout/test/pricing.test.ts'
+    kind: 'code.file'
+    label: 'pricing.test.ts'
+    evidence:
+      - path: 'services/checkout/test/pricing.test.ts'
+        startLine: 1
+        endLine: 1
+        quote: 'import { discountFor, previewTotal } from ''../src/pricing'';'
+    reading: 'parsed'
+  - id: 'code.test-case:services/checkout/test/pricing.test.ts#prices every line: discount first, then 8% tax, none on zero-rated lines'
+    kind: 'code.test-case'
+    label: 'prices every line: discount first, then 8% tax, none on zero-rated lines'
+    evidence:
+      - path: 'services/checkout/test/pricing.test.ts'
+        startLine: 11
+        endLine: 11
+        quote: '  it(''prices every line: discount first, then 8% tax, none on zero-rated lines'', () => {'
+    reading: 'parsed'
+  - id: 'code.test-case:services/checkout/test/pricing.test.ts#takes the percentage off, cut off at the cent'
+    kind: 'code.test-case'
+    label: 'takes the percentage off, cut off at the cent'
+    evidence:
+      - path: 'services/checkout/test/pricing.test.ts'
+        startLine: 4
+        endLine: 4
+        quote: '  it(''takes the percentage off, cut off at the cent'', () => {'
+    reading: 'parsed'
+edges:
+  - relation: 'code.calls'
+    from: 'code.file:services/checkout/test/pricing.test.ts'
+    to: 'code.symbol:services/checkout/src/pricing.ts#discountFor'
+    evidence:
+      - path: 'services/checkout/test/pricing.test.ts'
+        startLine: 5
+        endLine: 5
+        quote: '    expect(discountFor(1000, 10)).toBe(100);'
+      - path: 'services/checkout/test/pricing.test.ts'
+        startLine: 6
+        endLine: 6
+        quote: '    expect(discountFor(999, 10)).toBe(99);'
+    reading: 'parsed'
+  - relation: 'code.calls'
+    from: 'code.file:services/checkout/test/pricing.test.ts'
+    to: 'code.symbol:services/checkout/src/pricing.ts#previewTotal'
+    evidence:
+      - path: 'services/checkout/test/pricing.test.ts'
+        startLine: 12
+        endLine: 12
+        quote: '    const preview = previewTotal('
+    reading: 'parsed'
+  - relation: 'code.imports'
+    from: 'code.file:services/checkout/test/pricing.test.ts'
+    to: 'code.file:services/checkout/src/pricing.ts'
+    evidence:
+      - path: 'services/checkout/test/pricing.test.ts'
+        startLine: 1
+        endLine: 1
+        quote: 'import { discountFor, previewTotal } from ''../src/pricing'';'
+    reading: 'parsed'

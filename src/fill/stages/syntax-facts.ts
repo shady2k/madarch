@@ -67,6 +67,16 @@ export interface SyntaxFactRequest {
   readonly source?: FactSource;
 }
 
+/**
+ * The name a symbol carries across the product: its qualified name inside the
+ * file and the file's place in the repository. A stage that resolves a reference
+ * from another file asks the graph for this name (decision 0033); nothing keeps
+ * a table of the repository's symbols in memory.
+ */
+function globalSymbolName(repository: string, path: string, qualifiedName: string): string {
+  return `${repository}:${path}#${qualifiedName}`;
+}
+
 /** One file's facts, and the coverage the file was read with. */
 export interface SyntaxFactSet {
   /** Every fact the file's findings make, in code point order of kind and id. */
@@ -99,6 +109,7 @@ export function syntaxFacts(request: SyntaxFactRequest): SyntaxFactSet {
         file: request.path,
         qualifiedName: symbol.qualifiedName,
         symbolKind: symbol.symbolKind,
+        globalName: globalSymbolName(request.repository, request.path, symbol.qualifiedName),
       },
     });
     facts.push(symbolFact);
@@ -208,6 +219,8 @@ export function placeOf(path: RepositoryPath, span: SyntaxSpan): FactPlace {
       startColumn: span.startColumn,
       endLine: span.endLine,
       endColumn: span.endColumn,
+      startByte: span.startByte,
+      endByte: span.endByte,
     },
   };
 }
@@ -244,9 +257,20 @@ function dedupeGaps(gaps: readonly CoverageGap[]): CoverageGap[] {
  * 4. the path as a folder with each extension's `index` file (`./x/index.ts`).
  */
 export function resolveSpecifier(from: string, specifier: string, known: ReadonlySet<string>): string | undefined {
-  if (!isRelativeSpecifier(specifier)) return undefined;
+  return importCandidates(from, specifier).find((candidate) => known.has(candidate));
+}
+
+/**
+ * The paths a relative specifier may name, in the order they are tried, and no
+ * answer from the tree: a reader checks each path with its own path-scoped
+ * lookup (decision 0033), so no table of the repository's files stands between
+ * the specifier and its file. A non-relative specifier names no path of this
+ * repository and answers none.
+ */
+export function importCandidates(from: string, specifier: string): readonly string[] {
+  if (!isRelativeSpecifier(specifier)) return [];
   const base = posix.normalize(posix.join(posix.dirname(from), specifier));
-  if (base.startsWith('..') || base.startsWith('/')) return undefined;
+  if (base.startsWith('..') || base.startsWith('/')) return [];
   // The importing file's own extension is tried first among the replacements:
   // a TypeScript file's `./x.js` is the `x.ts` beside it, and a repository that
   // also holds an `x.cjs` does not turn that import into a CommonJS one.
@@ -261,11 +285,9 @@ export function resolveSpecifier(from: string, specifier: string, known: Readonl
     for (const candidate of order) candidates.push(`${base}${candidate}`);
   }
   for (const candidate of order) candidates.push(`${base}/index${candidate}`);
-  for (const candidate of candidates) {
-    if (candidate !== base && !isSourcePath(candidate)) continue;
-    if (known.has(candidate)) return candidate;
-  }
-  return undefined;
+  // A replacement is asked only where it is a source path: `./x.js` beside the
+  // `x.ts` it names tries `x.ts`, and never the `x.json` of a data file.
+  return candidates.filter((candidate, index) => index === 0 || isSourcePath(candidate));
 }
 
 /**

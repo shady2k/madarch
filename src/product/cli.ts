@@ -20,7 +20,7 @@ import { listProducts, type ProductList } from './list.js';
 import { runningVersion } from './version.js';
 import { startDaemon, stopDaemon, daemonStatus, serveDaemon, ensureDaemon, daemonUrl } from './daemon.js';
 import { applyReset, planReset, type ResetPlan } from '../knowledge/reset.js';
-import { defaultKnowledgeRoot, storeFolderOf } from '../knowledge/product.js';
+import { knowledgeRootOf, productStoreFolder, storeDatabasePath } from '../product/store.js';
 import { upgrade, type UpgradeOptions } from './upgrade.js';
 import { serveWiki, machineOpener, type Opener, type ServeEnv, type ServeOptions } from '../product-wiki/serve.js';
 import {
@@ -37,12 +37,13 @@ import {
 } from './lifecycle.js';
 import { readProduct } from './manifest.js';
 import { runGit } from './git.js';
-import { startFill, type StartFillOptions } from './fill.js';
-import { createStagesFill } from './fill-stages.js';
+import { runFill } from '../fill/run.js';
 import { productsHome, type DraftEnv } from './draft.js';
+import { finishKnowledgeStore, startKnowledgeFill, type FinishedKnowledgeStore } from '../knowledge/fill-run.js';
 import { createPGliteDatabaseOwner } from '../adapters/database-owner.js';
 import { countPublishedFactsByKind } from '../fill/fact-store.js';
-import { createFillOrchestratorService, fillDatabasePath, type FillOrchestratorService, type FillRunResult } from '../fill/orchestrator-host.js';
+import type { FillOrchestratorService, FillRunResult } from '../fill/orchestrator-host.js';
+import { readTraceReport, renderTraceReport } from '../obs/trace-report.js';
 import { byCodePoint } from '../model/order.js';
 
 /** The compact command list shown after context-aware first-run guidance. */
@@ -84,6 +85,22 @@ export const SHORT_HELP = [
 function commandHelp(command: string): string {
   const spec = COMMANDS[command];
   if (spec === undefined) return `madarch ${command} is a command group.\nUse madarch repo add --help for its command.`;
+  if (command === 'fill') {
+    // The fill's own usage: the probe is part of it, and it takes no agent of its own (the product's fill runs the
+    // stages its workflow names; an agent's choice belongs to the wiki's wizard).
+    return [
+      'usage: madarch fill [--product <folder>] [--home <folder>] [--workers <n>] [--json] [--probe-acp]',
+      '',
+      'Options:',
+      '  --home <folder>       Products home',
+      '  --product <folder>    Product folder',
+      '  --workers <n>         Units the run holds in hand at once (16 by default)',
+      '  --json                Print one object of machine-readable facts',
+      '  --probe-acp           Report the agents on this machine that speak the Agent Client Protocol, and fill nothing',
+      '',
+      'Example: madarch fill',
+    ].join('\n');
+  }
   const positionals = command === 'repo' ? ' add <name> <url>' : spec.positionals.length === 0 ? '' : ` ${spec.positionals.map((word) => `<${word}>`).join(' ')}`;
   const flags: string[] = [];
   if (spec.flags.home) flags.push('  --home <folder>       Products home');
@@ -103,7 +120,7 @@ function commandHelp(command: string): string {
   if (spec.flags.run) flags.push('  --run <id>            The run to plan (one built from this moment by default)');
   if (spec.flags.workers) flags.push('  --workers <n>         Units the run holds in hand at once (16 by default, 1 through 64)');
   if (spec.flags.yes) flags.push('  --yes                 Confirm without prompting');
-  if (['new', 'init', 'list', 'fill-stages'].includes(command)) flags.push('  --json                Print machine-readable facts');
+  if (['new', 'init', 'list', 'fill', 'fill-stages'].includes(command)) flags.push('  --json                Print machine-readable facts');
   const usage = `madarch ${command}${positionals}${command === 'repo' ? ' [--source <path>] [--mode <link|move|clone>] [--branch <name>] [--product <folder>]' : ''}`;
   return [`usage: ${usage}`, '', ...(flags.length ? ['Options:', ...flags] : []), '', `Example: ${usage.split(' [')[0]}`].join('\n');
 }
@@ -227,6 +244,7 @@ export const HELP = [
   '  repo add   enter one code repository in the manifest and clone it',
   '  bootstrap  clone what the manifest declares into repos/<name>',
   '  fill-stages  run the eight deterministic stages over a product',
+  "  trace      say where one fill run's time went, from its trace",
   '  clone      clone a pushed product into the products home and bootstrap it',
   'options:',
   '  --home <folder>       demo, new, init, list and clone: the products home of this one command, over MADARCH_HOME',
@@ -238,6 +256,9 @@ export const HELP = [
   '  --no-open             print the address but do not open the browser',
   '  --run <id>            fill-stages only: the run to plan (one built from this moment by default)',
   '  --workers <n>         fill-stages only: units the run holds in hand at once (16 by default, 1 through 64)',
+  '  --store <folder>      trace only: the store whose traces to read (the fill store of the products home by default)',
+  '  --steps <a,b>         fill-stages only: the steps of the one list to run, by id',
+  '                        (repository-tree, repository-history; all of them, in dependency order, when left out)',
 ].join('\n');
 
 /** One subcommand's argument surface, whole: what it takes, and nothing else. */
@@ -245,7 +266,7 @@ interface CommandSpec {
   /** The positional words it takes, in order, by their label for the refusals. */
   positionals: readonly string[];
   /** The flags it takes, beside the ones they both share. */
-  flags: { home: boolean; product: boolean; port: boolean; open: boolean; branch: boolean; yes: boolean; source?: boolean; mode?: boolean; host?: boolean; run?: boolean; workers?: boolean };
+  flags: { home: boolean; product: boolean; port: boolean; open: boolean; branch: boolean; yes: boolean; source?: boolean; mode?: boolean; host?: boolean; run?: boolean; workers?: boolean; steps?: boolean; store?: boolean; probe?: boolean; agent?: boolean };
 }
 
 /** The specs the subcommands answer to, whole. */
@@ -264,7 +285,12 @@ export const COMMANDS: Record<string, CommandSpec> = {
   // The deterministic fill (decision 0026's stages 0 to 7, started by madarch-tzte.21.8): it runs
   // the eight stages over one product and prints what the graph holds afterwards. It serves nothing
   // and takes no agent, so it carries no port and no open.
-  'fill-stages': { positionals: [], flags: { home: true, product: true, port: false, open: false, branch: false, yes: false, run: true, workers: true } },
+  'fill-stages': { positionals: [], flags: { home: true, product: true, port: false, open: false, branch: false, yes: false, run: true, workers: true, steps: true } },
+  // One product's knowledge store, filled by the one orchestrator (decision 0033, item 1): the same fill the
+  // wiki's button starts, over the store the wiki reads. It serves nothing and takes no agent.
+  fill: { positionals: [], flags: { home: true, product: true, port: false, open: false, branch: false, yes: false, workers: true, probe: true, agent: true } },
+  // Where the time went, read from a run's trace and nothing else (madarch-8bdc.2.5, item 2).
+  trace: { positionals: [], flags: { home: true, product: false, port: false, open: false, branch: false, yes: false, store: true, run: true } },
   demo: { positionals: [], flags: { home: true, product: false, port: true, open: true, branch: false, yes: false, host: true } },
   init: { positionals: [], flags: { home: true, product: false, port: true, open: true, branch: false, yes: false } },
   new: { positionals: [], flags: { home: true, product: false, port: true, open: true, branch: false, yes: false } },
@@ -295,6 +321,10 @@ interface Parsed {
   host: string | undefined;
   run: string | undefined;
   workers: number | undefined;
+  steps: readonly string[] | undefined;
+  store: string | undefined;
+  probe: boolean;
+  agent: string | undefined;
   json: boolean;
 }
 
@@ -311,6 +341,10 @@ function flagNamesFor(flags: CommandSpec['flags']): readonly string[] {
     ...(flags.mode ? ['--mode'] : []),
     ...(flags.run ? ['--run'] : []),
     ...(flags.workers ? ['--workers'] : []),
+    ...(flags.steps ? ['--steps'] : []),
+    ...(flags.store ? ['--store'] : []),
+    ...(flags.probe ? ['--probe-acp'] : []),
+    ...(flags.agent ? ['--agent'] : []),
     ...(flags.yes ? ['--yes'] : []),
   ];
 }
@@ -323,7 +357,7 @@ function flagNamesFor(flags: CommandSpec['flags']): readonly string[] {
  * Returns the parse, or the number of the exit a refusal needs.
  */
 function parse(spec: CommandSpec, given: readonly string[]): Parsed | number {
-  const parsed: Parsed = { words: [], home: undefined, product: undefined, port: undefined, open: true, branch: undefined, yes: false, source: undefined, mode: undefined, host: undefined, run: undefined, workers: undefined, json: false };
+  const parsed: Parsed = { words: [], home: undefined, product: undefined, port: undefined, open: true, branch: undefined, yes: false, source: undefined, mode: undefined, host: undefined, run: undefined, workers: undefined, steps: undefined, store: undefined, probe: false, agent: undefined, json: false };
   const seen = new Set<string>();
   const flags = flagNamesFor(spec.flags).map((name) => `${name}${name === '--no-open' ? '' : ' <value>'}`).join(', ');
   for (let i = 0; i < given.length; i++) {
@@ -384,6 +418,16 @@ function parse(spec: CommandSpec, given: readonly string[]): Parsed | number {
       parsed.yes = true;
       continue;
     }
+    if (name === '--probe-acp') {
+      if (!spec.flags.probe) return unknownOption(arg, flags);
+      if (arg.includes('=')) {
+        console.error('the --probe-acp flag takes no value: it reports the agents on this machine');
+        console.error('run madarch --help for help');
+        return 2;
+      }
+      parsed.probe = true;
+      continue;
+    }
     if (name === '--no-open') {
       if (!spec.flags.open) return unknownOption(arg, flags);
       if (arg.includes('=')) {
@@ -400,6 +444,14 @@ function parse(spec: CommandSpec, given: readonly string[]): Parsed | number {
       const problem = valueProblem('--host', value);
       if (problem !== undefined) { console.error(problem); console.error('run madarch --help for help'); return 2; }
       parsed.host = value!.trim();
+      continue;
+    }
+    if (name === '--store') {
+      if (!spec.flags.store) return unknownOption(arg, flags);
+      const value = flagValue();
+      const problem = valueProblem('--store', value);
+      if (problem !== undefined) { console.error(problem); console.error('run madarch --help for help'); return 2; }
+      parsed.store = value!.trim();
       continue;
     }
     if (name === '--workers') {
@@ -420,6 +472,22 @@ function parse(spec: CommandSpec, given: readonly string[]): Parsed | number {
       const problem = valueProblem('--run', value);
       if (problem !== undefined) { console.error(problem); console.error('run madarch --help for help'); return 2; }
       parsed.run = value!.trim();
+      continue;
+    }
+    if (name === '--agent') {
+      if (!spec.flags.agent) return unknownOption(arg, flags);
+      const value = flagValue();
+      const problem = valueProblem('--agent', value);
+      if (problem !== undefined) { console.error(problem); console.error('run madarch --help for help'); return 2; }
+      parsed.agent = value!.trim();
+      continue;
+    }
+    if (name === '--steps') {
+      if (!spec.flags.steps) return unknownOption(arg, flags);
+      const value = flagValue();
+      const problem = valueProblem('--steps', value);
+      if (problem !== undefined) { console.error(problem); console.error('run madarch --help for help'); return 2; }
+      parsed.steps = value!.split(',').map((step) => step.trim()).filter((step) => step !== '');
       continue;
     }
     if (name === '--port') {
@@ -567,7 +635,6 @@ async function askRepoMode(): Promise<RepoConnectMode> {
 }
 
 export async function main(args: readonly string[], deps: CliDeps = {}): Promise<number> {
-  if (args[0] === 'fill') return fillCommand(args.slice(1));
   // The MCP server is a program of its own that happens to be reached through this command: it reads its own flags
   // (`--repo`, `--store`, `--journal`) and must start even in a folder that is no product, so it is dispatched before
   // the command table is consulted.
@@ -590,18 +657,18 @@ export async function main(args: readonly string[], deps: CliDeps = {}): Promise
     return 0;
   }
   if (command.startsWith('--')) {
-    console.error(`unknown option "${command}" before the subcommand: the subcommands are "new", "init", "demo", "serve", "start", "stop", "status", "list", "rename", "remote", "repo add", "bootstrap", "clone", "fill", "fill-stages", "version" and "upgrade"`);
+    console.error(`unknown option "${command}" before the subcommand: the subcommands are "new", "init", "demo", "serve", "start", "stop", "status", "list", "rename", "remote", "repo add", "bootstrap", "clone", "fill", "fill-stages", "trace", "version" and "upgrade"`);
     console.error('run madarch --help for help');
     return 2;
   }
   if (!(command in COMMANDS)) {
-    console.error(`unknown subcommand "${command}": the subcommands are "new", "init", "demo", "serve", "start", "stop", "status", "list", "rename", "remote", "repo add", "bootstrap", "clone", "fill", "fill-stages", "version" and "upgrade"`);
+    console.error(`unknown subcommand "${command}": the subcommands are "new", "init", "demo", "serve", "start", "stop", "status", "list", "rename", "remote", "repo add", "bootstrap", "clone", "fill", "fill-stages", "trace", "version" and "upgrade"`);
     console.error('run madarch --help for help');
     return 2;
   }
 
   const spec = COMMANDS[command]!;
-  if (args.slice(1).includes('--json') && !['new', 'init', 'list', 'fill-stages'].includes(command)) {
+  if (args.slice(1).includes('--json') && !['new', 'init', 'list', 'fill', 'fill-stages'].includes(command)) {
     console.error(`unknown option "--json" for ${command}: machine-readable output is not supported by this command`);
     console.error('run madarch --help for help');
     return 2;
@@ -618,6 +685,17 @@ export async function main(args: readonly string[], deps: CliDeps = {}): Promise
   if (command === 'mcp-unit') {
     const { serveUnitMcpServer } = await import('../fill/unit-mcp-server.js');
     return await serveUnitMcpServer();
+  }
+  if (command === 'knowledge-fill-worker') {
+    // One product's store, filled in a process of its own (madarch-m38l.4): the server that serves the wiki's pages
+    // starts it, so the store's boot and its statements never run on the server's thread. The store's connection is
+    // opened here, in the program that owns this process (decision 0033, item 3), and handed to the worker's loop.
+    const { runFillWorker } = await import('../knowledge/fill-worker.js');
+    const { standardInputLines } = await import('../knowledge/lines.js');
+    const code = await runFillWorker({ lines: standardInputLines(), send: (line) => { process.stdout.write(`${line}\n`); } }, (path) => createPGliteDatabaseOwner({ path, btreeGist: true }));
+    // The pipe from the server is still open for reading; the worker is over.
+    await new Promise<void>((done) => { process.stdout.write('', () => done()); });
+    process.exit(code);
   }
   if (command === 'knowledge-read-worker') {
     const { runReadWorker } = await import('../knowledge/read-worker.js');
@@ -636,15 +714,8 @@ export async function main(args: readonly string[], deps: CliDeps = {}): Promise
     await new Promise<void>((done) => { process.stdout.write('', () => done()); });
     process.exit(code);
   }
-  if (command === 'knowledge-fill-worker') {
-    // The knowledge wiki's fill, in a process of its own (madarch-m38l.4): messages are lines on standard input and output.
-    const { runFillWorker } = await import('../knowledge/fill-worker.js');
-    const { standardInputLines } = await import('../knowledge/lines.js');
-    const code = await runFillWorker({ lines: standardInputLines(), send: (message) => { process.stdout.write(`${JSON.stringify(message)}\n`); } });
-    // The pipe from the server is still open for reading; the worker is over.
-    await new Promise<void>((done) => { process.stdout.write('', () => done()); });
-    process.exit(code);
-  }
+  if (command === 'fill') return await fillCommand(parsed, home);
+  if (command === 'trace') return traceCommand(parsed, home);
   if (command === 'fill-stages') return await fillStagesCommand(parsed, home);
   if (command === 'init') {
     const result = initLife({ cwd: process.cwd(), home });
@@ -718,35 +789,53 @@ export async function main(args: readonly string[], deps: CliDeps = {}): Promise
 async function fillStagesCommand(parsed: Parsed, home: string | undefined): Promise<number> {
   const folder = resolve(parsed.product ?? process.cwd());
   const resolvedHome = resolve(productsHome(process.env as DraftEnv, home));
+  // The one store of this product, resolved by the function the button, `madarch fill`, the daemon and
+  // `madarch mcp` use: a command-line fill writes what the wiki and the MCP server read.
+  let storeFolder: string;
+  try {
+    storeFolder = productStoreFolder(folder, knowledgeRootOf(resolvedHome));
+  } catch (error) {
+    console.error(error instanceof Error ? error.message : String(error));
+    return 1;
+  }
   // The milliseconds are kept: two runs asked for inside one second are two
   // runs, and a run id that already stands is one this command may not plan.
   const runId = parsed.run ?? `stages-${new Date().toISOString().replace(/[-:.]/gu, '').replace(/Z$/u, 'Z')}`;
-  // PGlite opens a data directory, and the products home may not hold the fill's
-  // own folder yet (the host would make it; this command opens the owner itself).
-  await mkdir(dirname(fillDatabasePath(resolvedHome)), { recursive: true });
+  // PGlite opens a data directory, and the product's store may not stand yet (the host would make it;
+  // this command opens the owner itself).
+  const databasePath = storeDatabasePath(storeFolder);
+  await mkdir(dirname(databasePath), { recursive: true });
   const workers = parsed.workers ?? 16;
-  const owner = createPGliteDatabaseOwner({ path: fillDatabasePath(resolvedHome) });
+  const owner = createPGliteDatabaseOwner({ path: databasePath, btreeGist: true });
   let service: FillOrchestratorService | undefined;
   let exit = 0;
   try {
-    const fill = await createStagesFill({ product: folder, database: owner });
+    const product = { name: basename(folder), folder };
     // The deterministic stages' units are short and a pass is not free: the run
     // holds sixteen in hand and claims sixteen per pass (`workers`), which is
     // what makes a repository of a few thousand files minutes rather than hours
     // (the walk measured one unit and 26.8 s of a 27.6 s unit in the admission of
     // a single-slot run, and 1.7-3.4 s per read of the run's unit list). The
     // stages' own concurrency (one unit each) still bounds what runs at once.
-    service = createFillOrchestratorService({
-      home: resolvedHome, owner, registry: fill.registry, wiring: () => fill.wiring,
-      limits: { maxInFlight: workers }, workers, maxPasses: 100_000,
-    });
     const started = Date.now();
-    const result = await service.run({ product: fill.product, runId });
+    // One fill, through the one runner (madarch-8bdc.2.5, item 6): the steps the caller named, or
+    // the whole one list in the order the stages' declarations derive.
+    const result = await runFill({
+      product: folder, database: owner, runId, home: storeFolder, store: storeFolder,
+      limits: { maxInFlight: workers }, workers, maxPasses: 100_000,
+      ...(parsed.steps === undefined ? {} : { steps: parsed.steps }),
+      onService: (started) => { service = started; },
+    });
     if (!result.ok) {
       console.error(`${result.code}: ${result.reason}`);
       exit = 1;
     } else {
-      reportFillStages(fill.product, result, await countPublishedFactsByKind(owner), Date.now() - started, parsed.json);
+      // The store is finished the way the button finishes it: the pins the run published, and the numbered
+      // snapshot the wiki's reader opens. A run that did not succeed writes neither.
+      const finished = result.settled && result.state === 'succeeded'
+        ? await finishKnowledgeStore(owner, storeFolder)
+        : undefined;
+      reportFillStages(product, storeFolder, result, await countPublishedFactsByKind(owner), finished, Date.now() - started, parsed.json);
       // A run that did not settle, or settled without its coverage, is not a
       // fill a caller may treat as done: the exit code says so, and the line
       // names what the run ended as.
@@ -765,23 +854,53 @@ async function fillStagesCommand(parsed: Parsed, home: string | undefined): Prom
   return exit;
 }
 
-/** One run's facts, one per line: the run, its units, the stages that found nothing, and the graph's facts by kind. */
-function reportFillStages(product: { readonly name: string; readonly folder: string }, result: FillRunResult, counts: Readonly<Record<string, number>>, elapsedMs: number, json: boolean): void {
+/**
+ * `madarch trace`: where one run's time went, read from its trace and nothing
+ * else (madarch-8bdc.2.5, item 2). `--run` names the run, `--store` the store
+ * whose traces are read; without either the current folder's product store is
+ * read, which is the one store its fill writes.
+ */
+function traceCommand(parsed: Parsed, home: string | undefined): number {
+  const resolvedHome = resolve(productsHome(process.env as DraftEnv, home));
+  let store: string;
+  if (parsed.store !== undefined) {
+    store = resolve(parsed.store);
+  } else {
+    try {
+      store = productStoreFolder(process.cwd(), knowledgeRootOf(resolvedHome));
+    } catch (error) {
+      console.error(error instanceof Error ? error.message : String(error));
+      return 1;
+    }
+  }
+  try {
+    const report = readTraceReport({ store, ...(parsed.run === undefined ? {} : { runId: parsed.run }) });
+    process.stdout.write(renderTraceReport(report));
+    return 0;
+  } catch (error) {
+    console.error(error instanceof Error ? error.message : String(error));
+    return 1;
+  }
+}
+
+/** One run's facts, one per line: the store it wrote, the run, its units, the stages that found nothing, and the facts by kind. */
+function reportFillStages(product: { readonly name: string; readonly folder: string }, storeFolder: string, result: FillRunResult, counts: Readonly<Record<string, number>>, finished: FinishedKnowledgeStore | undefined, elapsedMs: number, json: boolean): void {
   const inherited = new Set(result.reused);
   const units = [...result.units].sort((left, right) => byCodePoint(left.unitId, right.unitId));
   const executed = units.filter((unit) => !inherited.has(unit.unitId));
   if (json) {
-    console.log(JSON.stringify({ product, runId: result.runId, state: result.state, settled: result.settled, passes: result.passes, work: result.work, stoppedBecause: result.stoppedBecause, units, inherited: [...inherited].sort(byCodePoint), foundNothing: [...result.foundNothing].sort(byCodePoint), counts, elapsedMs }));
+    console.log(JSON.stringify({ product, store: storeFolder, runId: result.runId, state: result.state, settled: result.settled, passes: result.passes, work: result.work, stoppedBecause: result.stoppedBecause, retryWaitMs: result.retryWaitMs, units, inherited: [...inherited].sort(byCodePoint), foundNothing: [...result.foundNothing].sort(byCodePoint), counts, snapshot: finished?.snapshot, elapsedMs }));
     return;
   }
   console.log(`Fill ${result.runId}: ${result.state}${result.settled ? '' : ', not settled'}${result.stoppedBecause === undefined ? '' : ` (${result.stoppedBecause})`}`);
   console.log(`Product: ${product.name} in ${displayPath(product.folder)}`);
+  console.log(`Store: ${displayPath(storeFolder)}${finished === undefined ? ' (no snapshot: the run did not succeed)' : `, snapshot ${String(finished.snapshot)}`}`);
   console.log(`Units: ${String(units.length)} in the run, ${String(executed.length)} executed and ${String(inherited.size)} inherited`);
   for (const unit of units) console.log(`${unit.unitId}\t${unit.state}\tgeneration ${String(unit.generation)}\t${inherited.has(unit.unitId) ? 'inherited' : 'executed'}`);
   if (result.foundNothing.length > 0) console.log(`Stages that read their inputs and found nothing: ${[...result.foundNothing].sort(byCodePoint).join(', ')}`);
   console.log(`Facts by kind: ${Object.keys(counts).length === 0 ? 'none' : ''}`);
   for (const kind of Object.keys(counts).sort(byCodePoint)) console.log(`${kind}\t${String(counts[kind])}`);
-  console.log(`Time: ${String(Math.round(elapsedMs / 100) / 10)}s in ${String(result.passes)} passes`);
+  console.log(`Time: ${String(Math.round(elapsedMs / 100) / 10)}s in ${String(result.passes)} passes, ${String(Math.round(result.retryWaitMs / 100) / 10)}s waiting for the run's own retries`);
 }
 
 /**
@@ -791,25 +910,61 @@ function reportFillStages(product: { readonly name: string; readonly folder: str
  * nothing: it stops at the initialize handshake, and names what a missing
  * adapter would be installed with.
  */
-async function fillCommand(args: readonly string[]): Promise<number> {
-  let agent: StartFillOptions['agent'] = 'claude'; let maxUnits = 60; let model=process.env.MADARCH_FILL_MODEL; let ompExtension=process.env.MADARCH_OMP_EXTENSION; let ompExecutable=process.env.MADARCH_OMP_EXECUTABLE; let json = false; let probe = false; const seen = new Set<string>();
-  for (let i=0;i<args.length;i++) { const arg=args[i]!; if (arg==='--json') { json=true; continue; } if (arg==='--probe-acp') { probe=true; continue; } if (arg==='--help'||arg==='-h') { console.log('usage: madarch fill [--agent claude|codex|omp] [--model NAME] [--omp-extension PATH] [--omp-executable PATH] [--max-units N] [--json] [--probe-acp]'); return 0; }
-    if (!['--agent','--max-units','--model','--omp-extension','--omp-executable'].includes(arg)) { console.error(`unknown fill option ${JSON.stringify(arg)}`); return 2; } if(seen.has(arg)){console.error(`repeated fill option ${arg}`);return 2;} seen.add(arg); const value=args[++i]; if(!value||value.startsWith('--')){console.error(`${arg} needs a value`);return 2;}
-    if(arg==='--agent'){if(value!=='claude'&&value!=='codex'&&value!=='omp'){console.error('--agent must be claude, codex, or omp');return 2;}agent=value;} else if(arg==='--model')model=value; else if(arg==='--omp-extension')ompExtension=value; else if(arg==='--omp-executable')ompExecutable=value; else {maxUnits=Number(value);if(!Number.isInteger(maxUnits)||maxUnits<1){console.error('--max-units must be a positive whole number');return 2;}}
+/**
+ * `madarch fill`: one product's knowledge store, filled by the one orchestrator (decision 0033, item 1). It is the
+ * same fill the wiki's button starts — the static stages the product's `madarch/workflows.yaml` names, over the store
+ * the wiki reads (`<home>/.madarch/knowledge/<product id>`) — and it writes no page: a page is an agent's work and a
+ * later stage's. `--probe-acp` reports the agents this machine speaks to, and fills nothing.
+ */
+async function fillCommand(parsed: Parsed, home: string | undefined): Promise<number> {
+  const probe = parsed.probe;
+  const json = parsed.json === true;
+  // A probe reports what this machine can connect and fills nothing: an agent named beside it has nothing to drive.
+  if (probe && parsed.agent !== undefined) {
+    console.error('--probe-acp reports the agents on this machine and fills nothing: drop --agent');
+    return 2;
+  }
+  if (parsed.agent !== undefined) {
+    console.error(`--agent is no option of madarch fill: a product's fill runs the stages its workflow names, and an agent is chosen in its wiki (${FILL_USAGE})`);
+    return 2;
   }
   if (probe) {
-    if (seen.size > 0) { console.error(`--probe-acp reports the agents on this machine and fills nothing: drop ${[...seen].join(', ')}`); return 2; }
     try {
-      // The ACP client and its protocol library are loaded only here: every
-      // other command starts without them.
+      // The ACP client and its protocol library are loaded only here: every other command starts without them.
       const acp = await import('../fill/acp-probe.js');
       const report = await acp.probeAcpAgents({ cwd: process.cwd() });
       console.log(json ? JSON.stringify(report) : acp.formatAcpProbe(report));
       return 0;
     } catch (error) { console.error((error as Error).message); return 1; }
   }
-  try { const result=await startFill(process.cwd(),{agent,maxUnits,model,ompExtension,ompExecutable}); if(json) console.log(JSON.stringify(result)); else { console.log(`Fill ${result.run.id}: ${result.run.status}`); console.log(`Units reused: ${result.counts.reused}; run: ${result.counts.run}; agent calls: ${result.agentCalls.used} of ${result.agentCalls.cap}`); console.log(`Branch: ${result.run.agentBranch}`); console.log(`Watch progress in the wiki with: madarch serve`); console.log('Next: review the proposed pages and their sources.'); } return 0; } catch(error) { console.error((error as Error).message); return 1; }
+  const folder = resolve(parsed.product ?? process.cwd());
+  const identity = readProduct(folder);
+  if (!identity.ok) { console.error(`${identity.file}:${identity.line}: ${identity.message}`); return 1; }
+  const resolvedHome = resolve(productsHome(process.env as DraftEnv, home));
+  const storeFolder = productStoreFolder(folder, knowledgeRootOf(resolvedHome));
+  const runId = `fill-${new Date().toISOString().replace(/[-:.]/gu, '').replace(/Z$/u, 'Z')}`;
+  let run;
+  try {
+    run = await startKnowledgeFill({ productFolder: folder, storeFolder, runId, database: createPGliteDatabaseOwner({ path: storeDatabasePath(storeFolder), btreeGist: true }), ...(parsed.workers === undefined ? {} : { workers: parsed.workers }) });
+  } catch (error) {
+    console.error((error as Error).message);
+    return 1;
+  }
+  const result = await run.done;
+  if (json) {
+    console.log(JSON.stringify({ product: { name: identity.product.name, folder }, runId, ...result }));
+    return result.ok ? 0 : 1;
+  }
+  console.log(`Fill ${runId}: ${result.state}`);
+  console.log(`Product: ${identity.product.name} in ${displayPath(folder)}`);
+  console.log(`Store: ${displayPath(storeFolder)}`);
+  console.log(`Units: ${String(result.units)}${result.snapshot === undefined ? '' : `, snapshot ${String(result.snapshot)}`}`);
+  if (!result.ok) { if (result.message !== undefined) console.error(result.message); return 1; }
+  console.log('Watch the pages with: madarch serve');
+  return 0;
 }
+
+const FILL_USAGE = 'usage: madarch fill [--product <folder>] [--home <folder>] [--workers <n>] [--json] [--probe-acp]';
 
 function displayPath(folder: string): string {
   const home = process.env.HOME;
@@ -962,8 +1117,8 @@ async function resetCommand(name: string | undefined, homeOption: string | undef
       if (!answer.ok) throw new Error(`the background server at ${server} answered ${answer.status}: ${await answer.text()}`);
       plan = (await answer.json()) as ResetPlan;
     } else {
-      const knowledge = defaultKnowledgeRoot(root);
-      plan = planReset(folder, storeFolderOf(knowledge, read.product.id, join(folder, 'workspace.yaml')), knowledge);
+      const knowledge = knowledgeRootOf(root);
+      plan = planReset(folder, productStoreFolder(folder, knowledge), knowledge);
     }
   } catch (error) {
     console.error(error instanceof Error ? error.message : String(error));

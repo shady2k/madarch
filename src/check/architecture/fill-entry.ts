@@ -2,11 +2,11 @@
  * One entry point per job (decision 0033, items 1 and 4): a fill is started by the
  * orchestrator host and by nothing else.
  *
- * Read from the code, the modules that start a fill are three surfaces beside the
- * orchestrator, and they are what decision 0033 deletes: the extract driver's
- * `fillGraph` (the whole-tree reader the wiki's fill called), the knowledge fill
- * worker's `runFillWorker` (its own loop), and the product CLI's `startFill` (its
- * own run, worktree and stages). The stage registry's runner is the orchestrator's
+ * Read from the code, the one surface beside the orchestrator is the extract
+ * driver's `fillGraph` (the whole-tree reader the contracts stages still fill
+ * through, and decision 0033 deletes once they are merged). The knowledge fill
+ * worker's own loop and the product CLI's `startFill` are deleted: the wiki's fill
+ * and `madarch fill` start the fill through the orchestrator host. The stage registry's runner is the orchestrator's
  * `driveRun`, which plans a registry's stages and drives them to their end; the host
  * that owns an orchestrator for a process is src/fill/orchestrator-host.ts, and
  * every other module that starts one of these is a second entry point for a job that
@@ -17,8 +17,9 @@
  * rule reads what each module imports from a runner module and reports the names
  * that are runners.
  */
-import { importStatementsOf } from './imports.js';
+import { moduleNamesOf } from './imports.js';
 import { moduleSet, resolveModuleSpecifier, type ModuleSet } from './sources.js';
+import { posix } from 'node:path';
 import { orderedViolations, type ArchitectureViolation } from './violation.js';
 
 /** A runner module and the names in it that start a fill. */
@@ -31,8 +32,11 @@ interface FillRunner {
 const FILL_RUNNERS: readonly FillRunner[] = [
   { module: 'src/extract/driver/index.ts', runners: ['fillGraph'] },
   { module: 'src/fill/orchestrator.ts', runners: ['driveRun'] },
-  { module: 'src/knowledge/fill-worker.ts', runners: ['runFillWorker'] },
-  { module: 'src/product/fill.ts', runners: ['startFill'] },
+  // madarch-8bdc.2.5, item 6: a fill is started through `runFill` and by nothing else. These two are
+  // what `runFill` builds on, so a module that reaches for either one is a second wiring or a second
+  // runner — the same defect as a second call of the host.
+  { module: 'src/fill/orchestrator-host.ts', runners: ['createFillOrchestratorService'] },
+  { module: 'src/product/fill-stages.ts', runners: ['createStagesFill'] },
 ];
 
 /** The one module that starts a fill: the orchestrator host of a process. */
@@ -49,14 +53,24 @@ const WHOLE_RUNNER_MODULE = '*';
 export function fillEntryViolations(root: string, modules: ModuleSet = moduleSet(root)): ArchitectureViolation[] {
   const violations: ArchitectureViolation[] = [];
   for (const file of modules.modules) {
-    if (file === FILL_HOST) continue;
-    for (const statement of importStatementsOf(root, file)) {
+    // The host and the one runner may name a runner: everyone else goes through `runFill`.
+    if (file === FILL_HOST || file === 'src/fill/run.ts') continue;
+    const held = moduleNamesOf(root, file);
+    for (const statement of held.imports) {
       const target = resolveModuleSpecifier(modules, file, statement.specifier);
       if (target === null) continue;
       const runner = FILL_RUNNERS.find((candidate) => candidate.module === target);
       if (runner === undefined) continue;
       const names = statement.wholeModule ? [WHOLE_RUNNER_MODULE] : statement.names.filter((name) => runner.runners.includes(name));
       for (const name of names) violations.push({ rule: 'one-fill-entry', file, line: statement.line, symbol: `${target}:${name}` });
+    }
+    // A call handed a module's name as a string literal — a local `load(path)` that imports what it names — takes
+    // that module as a whole: the parse says which module the literal names, and a runner's name is a second entry.
+    for (const call of held.literalCalls) {
+      const target = moduleNamed(modules, file, call.value);
+      if (target === null) continue;
+      if (!FILL_RUNNERS.some((candidate) => candidate.module === target)) continue;
+      violations.push({ rule: 'one-fill-entry', file, line: call.line, symbol: `${target}:${WHOLE_RUNNER_MODULE}` });
     }
   }
   return unique(orderedViolations(violations));
@@ -71,4 +85,18 @@ function unique(violations: readonly ArchitectureViolation[]): ArchitectureViola
     if (held === undefined || violation.line < held.line) byIdentity.set(identity, violation);
   }
   return orderedViolations([...byIdentity.values()]);
+}
+
+/**
+ * The module one string literal names, as a path from the repository root: a relative specifier a module writes
+ * (`'./fill-stages.js'`), or a path from the root itself (`'src/product/fill-stages.ts'`) — which is the form a
+ * `load(path)` helper takes. Anything else names no module of this repository.
+ */
+function moduleNamed(modules: ModuleSet, file: string, value: string): string | null {
+  const relative = resolveModuleSpecifier(modules, file, value);
+  if (relative !== null) return relative;
+  if (value.startsWith('.') || value.startsWith('/')) return null;
+  const named = posix.normalize(value);
+  if (named === '..' || named.startsWith('../')) return null;
+  return modules.known.has(named) ? named : null;
 }

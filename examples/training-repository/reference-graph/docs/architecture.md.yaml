@@ -1,0 +1,201 @@
+path: 'docs/architecture.md'
+nodes:
+  - id: 'code.document-section:docs/architecture.md#Architecture'
+    kind: 'code.document-section'
+    label: 'Architecture'
+    evidence:
+      - path: 'docs/architecture.md'
+        startLine: 1
+        endLine: 1
+        quote: '# Architecture'
+    reading: 'parsed'
+  - id: 'code.document-section:docs/architecture.md#Data'
+    kind: 'code.document-section'
+    label: 'Data'
+    evidence:
+      - path: 'docs/architecture.md'
+        startLine: 21
+        endLine: 21
+        quote: '## Data'
+    reading: 'parsed'
+  - id: 'code.document-section:docs/architecture.md#How they talk'
+    kind: 'code.document-section'
+    label: 'How they talk'
+    evidence:
+      - path: 'docs/architecture.md'
+        startLine: 12
+        endLine: 12
+        quote: '## How they talk'
+    reading: 'parsed'
+  - id: 'code.document-section:docs/architecture.md#Not built yet'
+    kind: 'code.document-section'
+    label: 'Not built yet'
+    evidence:
+      - path: 'docs/architecture.md'
+        startLine: 32
+        endLine: 32
+        quote: '## Not built yet'
+    reading: 'judgement'
+  - id: 'code.document-section:docs/architecture.md#Payment flow'
+    kind: 'code.document-section'
+    label: 'Payment flow'
+    evidence:
+      - path: 'docs/architecture.md'
+        startLine: 27
+        endLine: 27
+        quote: '## Payment flow'
+    reading: 'parsed'
+  - id: 'code.document:docs/architecture.md'
+    kind: 'code.document'
+    label: 'architecture.md'
+    evidence:
+      - path: 'docs/architecture.md'
+        startLine: 1
+        endLine: 1
+        quote: '# Architecture'
+    reading: 'parsed'
+  - id: 'code.file:docs/architecture.md'
+    kind: 'code.file'
+    label: 'architecture.md'
+    evidence:
+      - path: 'docs/architecture.md'
+        startLine: 1
+        endLine: 1
+        quote: '# Architecture'
+    reading: 'parsed'
+edges:
+  - relation: 'code.contains'
+    from: 'code.document:docs/architecture.md'
+    to: 'code.document-section:docs/architecture.md#Architecture'
+    evidence:
+      - path: 'docs/architecture.md'
+        startLine: 1
+        endLine: 1
+        quote: '# Architecture'
+    reading: 'parsed'
+  - relation: 'code.contains'
+    from: 'code.document:docs/architecture.md'
+    to: 'code.document-section:docs/architecture.md#Data'
+    evidence:
+      - path: 'docs/architecture.md'
+        startLine: 21
+        endLine: 21
+        quote: '## Data'
+    reading: 'parsed'
+  - relation: 'code.contains'
+    from: 'code.document:docs/architecture.md'
+    to: 'code.document-section:docs/architecture.md#How they talk'
+    evidence:
+      - path: 'docs/architecture.md'
+        startLine: 12
+        endLine: 12
+        quote: '## How they talk'
+    reading: 'parsed'
+  - relation: 'code.contains'
+    from: 'code.document:docs/architecture.md'
+    to: 'code.document-section:docs/architecture.md#Not built yet'
+    evidence:
+      - path: 'docs/architecture.md'
+        startLine: 32
+        endLine: 32
+        quote: '## Not built yet'
+    reading: 'parsed'
+  - relation: 'code.contains'
+    from: 'code.document:docs/architecture.md'
+    to: 'code.document-section:docs/architecture.md#Payment flow'
+    evidence:
+      - path: 'docs/architecture.md'
+        startLine: 27
+        endLine: 27
+        quote: '## Payment flow'
+    reading: 'parsed'
+  - relation: 'code.mentions'
+    from: 'code.document:docs/architecture.md'
+    to: 'code.channel:orders.events'
+    evidence:
+      - path: 'docs/architecture.md'
+        startLine: 17
+        endLine: 17
+        quote: '- Orders publishes `orders.events` through its outbox relay; Payments'
+    reading: 'judgement'
+  - relation: 'code.mentions'
+    from: 'code.document:docs/architecture.md'
+    to: 'code.channel:payments.events'
+    evidence:
+      - path: 'docs/architecture.md'
+        startLine: 18
+        endLine: 18
+        quote: '  publishes `payments.events`; Orders consumes the payment events to confirm'
+    reading: 'judgement'
+  - relation: 'code.mentions'
+    from: 'code.document:docs/architecture.md'
+    to: 'code.column:payments.payments.order_id'
+    evidence:
+      - path: 'docs/architecture.md'
+        startLine: 23
+        endLine: 23
+        quote: 'Orders and Payments keep separate Postgres databases. `payments.order_id` is a'
+    reading: 'judgement'
+  - relation: 'code.mentions'
+    from: 'code.document:docs/architecture.md'
+    to: 'code.file:contracts/openapi/orders.yaml'
+    evidence:
+      - path: 'docs/architecture.md'
+        startLine: 14
+        endLine: 14
+        quote: '- Checkout calls Orders over HTTP, as described in contracts/openapi/orders.yaml.'
+    reading: 'judgement'
+  - relation: 'code.mentions'
+    from: 'code.document:docs/architecture.md'
+    to: 'code.file:contracts/proto/payments.proto'
+    evidence:
+      - path: 'docs/architecture.md'
+        startLine: 15
+        endLine: 15
+        quote: '- Checkout calls Payments over gRPC (contracts/proto/payments.proto).'
+    reading: 'judgement'
+  - relation: 'code.mentions'
+    from: 'code.document:docs/architecture.md'
+    to: 'code.file:services/checkout/package.json'
+    evidence:
+      - path: 'docs/architecture.md'
+        startLine: 10
+        endLine: 10
+        quote: '| checkout | TypeScript | Backend for the frontend; runs the checkout sequence | 8083 |'
+    reading: 'judgement'
+  - relation: 'code.mentions'
+    from: 'code.document:docs/architecture.md'
+    to: 'code.file:services/orders/go.mod'
+    evidence:
+      - path: 'docs/architecture.md'
+        startLine: 7
+        endLine: 7
+        quote: '| orders | Go | Orders and their state machine; HTTP API; outbox relay | 8080 |'
+    reading: 'judgement'
+  - relation: 'code.mentions'
+    from: 'code.document:docs/architecture.md'
+    to: 'code.file:services/payments/package.json'
+    evidence:
+      - path: 'docs/architecture.md'
+        startLine: 8
+        endLine: 8
+        quote: '| payments | TypeScript | Charges and refunds behind a provider adapter; HTTP and gRPC | 8081, 50051 |'
+    reading: 'judgement'
+  - relation: 'code.mentions'
+    from: 'code.document:docs/architecture.md'
+    to: 'code.file:services/promotions/go.mod'
+    evidence:
+      - path: 'docs/architecture.md'
+        startLine: 9
+        endLine: 9
+        quote: '| promotions | Go | Promotion codes and discount strategies | 8082 |'
+    reading: 'judgement'
+  - relation: 'code.mentions'
+    from: 'code.document:docs/architecture.md'
+    to: 'code.route:promotions:POST /internal/apply'
+    evidence:
+      - path: 'docs/architecture.md'
+        startLine: 16
+        endLine: 16
+        quote: '- Checkout calls Promotions over HTTP (`POST /internal/apply`).'
+    reading: 'judgement'

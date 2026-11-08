@@ -1,0 +1,466 @@
+path: 'services/orders/internal/api/middleware.go'
+nodes:
+  - id: 'code.field:services/orders/internal/api/middleware.go#Claims.CustomerID'
+    kind: 'code.field'
+    label: 'Claims.CustomerID'
+    evidence:
+      - path: 'services/orders/internal/api/middleware.go'
+        startLine: 94
+        endLine: 94
+        quote: '	CustomerID string'
+    reading: 'parsed'
+  - id: 'code.field:services/orders/internal/api/middleware.go#Claims.Role'
+    kind: 'code.field'
+    label: 'Claims.Role'
+    evidence:
+      - path: 'services/orders/internal/api/middleware.go'
+        startLine: 96
+        endLine: 96
+        quote: '	Role string'
+    reading: 'parsed'
+  - id: 'code.field:services/orders/internal/api/middleware.go#statusRecorder.http.ResponseWriter'
+    kind: 'code.field'
+    label: 'statusRecorder.http.ResponseWriter'
+    evidence:
+      - path: 'services/orders/internal/api/middleware.go'
+        startLine: 34
+        endLine: 34
+        quote: '	http.ResponseWriter'
+    reading: 'parsed'
+  - id: 'code.field:services/orders/internal/api/middleware.go#statusRecorder.status'
+    kind: 'code.field'
+    label: 'statusRecorder.status'
+    evidence:
+      - path: 'services/orders/internal/api/middleware.go'
+        startLine: 35
+        endLine: 35
+        quote: '	status int'
+    reading: 'parsed'
+  - id: 'code.file:services/orders/internal/api/middleware.go'
+    kind: 'code.file'
+    label: 'middleware.go'
+    evidence:
+      - path: 'services/orders/internal/api/middleware.go'
+        startLine: 1
+        endLine: 1
+        quote: 'package api'
+    reading: 'parsed'
+  - id: 'code.symbol:services/orders/internal/api/middleware.go#Chain'
+    kind: 'code.symbol'
+    label: 'Chain'
+    evidence:
+      - path: 'services/orders/internal/api/middleware.go'
+        startLine: 23
+        endLine: 23
+        quote: 'func Chain(middleware ...Middleware) Middleware {'
+    reading: 'parsed'
+  - id: 'code.symbol:services/orders/internal/api/middleware.go#Claims'
+    kind: 'code.symbol'
+    label: 'Claims'
+    evidence:
+      - path: 'services/orders/internal/api/middleware.go'
+        startLine: 92
+        endLine: 92
+        quote: 'type Claims struct {'
+    reading: 'parsed'
+  - id: 'code.symbol:services/orders/internal/api/middleware.go#ClaimsFromContext'
+    kind: 'code.symbol'
+    label: 'ClaimsFromContext'
+    evidence:
+      - path: 'services/orders/internal/api/middleware.go'
+        startLine: 102
+        endLine: 102
+        quote: 'func ClaimsFromContext(ctx context.Context) (Claims, bool) {'
+    reading: 'parsed'
+  - id: 'code.symbol:services/orders/internal/api/middleware.go#Middleware'
+    kind: 'code.symbol'
+    label: 'Middleware'
+    evidence:
+      - path: 'services/orders/internal/api/middleware.go'
+        startLine: 19
+        endLine: 19
+        quote: 'type Middleware func(http.Handler) http.Handler'
+    reading: 'parsed'
+  - id: 'code.symbol:services/orders/internal/api/middleware.go#RecoverPanics'
+    kind: 'code.symbol'
+    label: 'RecoverPanics'
+    evidence:
+      - path: 'services/orders/internal/api/middleware.go'
+        startLine: 77
+        endLine: 77
+        quote: 'func RecoverPanics(log *slog.Logger) Middleware {'
+    reading: 'parsed'
+  - id: 'code.symbol:services/orders/internal/api/middleware.go#RequestLogger'
+    kind: 'code.symbol'
+    label: 'RequestLogger'
+    evidence:
+      - path: 'services/orders/internal/api/middleware.go'
+        startLine: 49
+        endLine: 49
+        quote: 'func RequestLogger(log *slog.Logger) Middleware {'
+    reading: 'parsed'
+  - id: 'code.symbol:services/orders/internal/api/middleware.go#RequireAuth'
+    kind: 'code.symbol'
+    label: 'RequireAuth'
+    evidence:
+      - path: 'services/orders/internal/api/middleware.go'
+        startLine: 109
+        endLine: 109
+        quote: 'func RequireAuth(secret string) Middleware {'
+    reading: 'parsed'
+  - id: 'code.symbol:services/orders/internal/api/middleware.go#RequireRole'
+    kind: 'code.symbol'
+    label: 'RequireRole'
+    evidence:
+      - path: 'services/orders/internal/api/middleware.go'
+        startLine: 137
+        endLine: 137
+        quote: 'func RequireRole(role string) Middleware {'
+    reading: 'parsed'
+  - id: 'code.symbol:services/orders/internal/api/middleware.go#claimsKey'
+    kind: 'code.symbol'
+    label: 'claimsKey'
+    evidence:
+      - path: 'services/orders/internal/api/middleware.go'
+        startLine: 99
+        endLine: 99
+        quote: 'type claimsKey struct{}'
+    reading: 'parsed'
+  - id: 'code.symbol:services/orders/internal/api/middleware.go#newRequestID'
+    kind: 'code.symbol'
+    label: 'newRequestID'
+    evidence:
+      - path: 'services/orders/internal/api/middleware.go'
+        startLine: 67
+        endLine: 67
+        quote: 'func newRequestID() string {'
+    reading: 'parsed'
+  - id: 'code.symbol:services/orders/internal/api/middleware.go#requestIDHeader'
+    kind: 'code.symbol'
+    label: 'requestIDHeader'
+    evidence:
+      - path: 'services/orders/internal/api/middleware.go'
+        startLine: 45
+        endLine: 45
+        quote: 'const requestIDHeader = "X-Request-Id"'
+    reading: 'parsed'
+  - id: 'code.symbol:services/orders/internal/api/middleware.go#statusRecorder'
+    kind: 'code.symbol'
+    label: 'statusRecorder'
+    evidence:
+      - path: 'services/orders/internal/api/middleware.go'
+        startLine: 33
+        endLine: 33
+        quote: 'type statusRecorder struct {'
+    reading: 'parsed'
+  - id: 'code.symbol:services/orders/internal/api/middleware.go#statusRecorder.WriteHeader'
+    kind: 'code.symbol'
+    label: 'statusRecorder.WriteHeader'
+    evidence:
+      - path: 'services/orders/internal/api/middleware.go'
+        startLine: 38
+        endLine: 38
+        quote: 'func (s *statusRecorder) WriteHeader(code int) {'
+    reading: 'parsed'
+  - id: 'code.symbol:services/orders/internal/api/middleware.go#writeUnauthorized'
+    kind: 'code.symbol'
+    label: 'writeUnauthorized'
+    evidence:
+      - path: 'services/orders/internal/api/middleware.go'
+        startLine: 152
+        endLine: 152
+        quote: 'func writeUnauthorized(w http.ResponseWriter, reason string) {'
+    reading: 'parsed'
+edges:
+  - relation: 'code.calls'
+    from: 'code.symbol:services/orders/internal/api/middleware.go#RecoverPanics'
+    to: 'code.symbol:services/orders/internal/api/handlers.go#writeJSON'
+    evidence:
+      - path: 'services/orders/internal/api/middleware.go'
+        startLine: 83
+        endLine: 83
+        quote: '					writeJSON(w, http.StatusInternalServerError, errorBody{Error: "internal", Message: "internal error"})'
+    reading: 'parsed'
+  - relation: 'code.calls'
+    from: 'code.symbol:services/orders/internal/api/middleware.go#RequestLogger'
+    to: 'code.symbol:services/orders/internal/api/middleware.go#newRequestID'
+    evidence:
+      - path: 'services/orders/internal/api/middleware.go'
+        startLine: 56
+        endLine: 56
+        quote: '				id = newRequestID()'
+    reading: 'parsed'
+  - relation: 'code.calls'
+    from: 'code.symbol:services/orders/internal/api/middleware.go#RequestLogger'
+    to: 'code.symbol:services/orders/internal/logging/logger.go#WithLogger'
+    evidence:
+      - path: 'services/orders/internal/api/middleware.go'
+        startLine: 60
+        endLine: 60
+        quote: '			r = r.WithContext(logging.WithLogger(r.Context(), requestLog))'
+    reading: 'parsed'
+  - relation: 'code.calls'
+    from: 'code.symbol:services/orders/internal/api/middleware.go#RequireAuth'
+    to: 'code.symbol:services/orders/internal/api/middleware.go#writeUnauthorized'
+    evidence:
+      - path: 'services/orders/internal/api/middleware.go'
+        startLine: 115
+        endLine: 115
+        quote: '				writeUnauthorized(w, "missing bearer token")'
+      - path: 'services/orders/internal/api/middleware.go'
+        startLine: 121
+        endLine: 121
+        quote: '				writeUnauthorized(w, "invalid token")'
+    reading: 'parsed'
+  - relation: 'code.calls'
+    from: 'code.symbol:services/orders/internal/api/middleware.go#RequireRole'
+    to: 'code.symbol:services/orders/internal/api/middleware.go#ClaimsFromContext'
+    evidence:
+      - path: 'services/orders/internal/api/middleware.go'
+        startLine: 140
+        endLine: 140
+        quote: '			claims, ok := ClaimsFromContext(r.Context())'
+    reading: 'parsed'
+  - relation: 'code.contains'
+    from: 'code.file:services/orders/internal/api/middleware.go'
+    to: 'code.symbol:services/orders/internal/api/middleware.go#Chain'
+    evidence:
+      - path: 'services/orders/internal/api/middleware.go'
+        startLine: 23
+        endLine: 23
+        quote: 'func Chain(middleware ...Middleware) Middleware {'
+    reading: 'parsed'
+  - relation: 'code.contains'
+    from: 'code.file:services/orders/internal/api/middleware.go'
+    to: 'code.symbol:services/orders/internal/api/middleware.go#Claims'
+    evidence:
+      - path: 'services/orders/internal/api/middleware.go'
+        startLine: 92
+        endLine: 92
+        quote: 'type Claims struct {'
+    reading: 'parsed'
+  - relation: 'code.contains'
+    from: 'code.file:services/orders/internal/api/middleware.go'
+    to: 'code.symbol:services/orders/internal/api/middleware.go#ClaimsFromContext'
+    evidence:
+      - path: 'services/orders/internal/api/middleware.go'
+        startLine: 102
+        endLine: 102
+        quote: 'func ClaimsFromContext(ctx context.Context) (Claims, bool) {'
+    reading: 'parsed'
+  - relation: 'code.contains'
+    from: 'code.file:services/orders/internal/api/middleware.go'
+    to: 'code.symbol:services/orders/internal/api/middleware.go#Middleware'
+    evidence:
+      - path: 'services/orders/internal/api/middleware.go'
+        startLine: 19
+        endLine: 19
+        quote: 'type Middleware func(http.Handler) http.Handler'
+    reading: 'parsed'
+  - relation: 'code.contains'
+    from: 'code.file:services/orders/internal/api/middleware.go'
+    to: 'code.symbol:services/orders/internal/api/middleware.go#RecoverPanics'
+    evidence:
+      - path: 'services/orders/internal/api/middleware.go'
+        startLine: 77
+        endLine: 77
+        quote: 'func RecoverPanics(log *slog.Logger) Middleware {'
+    reading: 'parsed'
+  - relation: 'code.contains'
+    from: 'code.file:services/orders/internal/api/middleware.go'
+    to: 'code.symbol:services/orders/internal/api/middleware.go#RequestLogger'
+    evidence:
+      - path: 'services/orders/internal/api/middleware.go'
+        startLine: 49
+        endLine: 49
+        quote: 'func RequestLogger(log *slog.Logger) Middleware {'
+    reading: 'parsed'
+  - relation: 'code.contains'
+    from: 'code.file:services/orders/internal/api/middleware.go'
+    to: 'code.symbol:services/orders/internal/api/middleware.go#RequireAuth'
+    evidence:
+      - path: 'services/orders/internal/api/middleware.go'
+        startLine: 109
+        endLine: 109
+        quote: 'func RequireAuth(secret string) Middleware {'
+    reading: 'parsed'
+  - relation: 'code.contains'
+    from: 'code.file:services/orders/internal/api/middleware.go'
+    to: 'code.symbol:services/orders/internal/api/middleware.go#RequireRole'
+    evidence:
+      - path: 'services/orders/internal/api/middleware.go'
+        startLine: 137
+        endLine: 137
+        quote: 'func RequireRole(role string) Middleware {'
+    reading: 'parsed'
+  - relation: 'code.contains'
+    from: 'code.file:services/orders/internal/api/middleware.go'
+    to: 'code.symbol:services/orders/internal/api/middleware.go#claimsKey'
+    evidence:
+      - path: 'services/orders/internal/api/middleware.go'
+        startLine: 99
+        endLine: 99
+        quote: 'type claimsKey struct{}'
+    reading: 'parsed'
+  - relation: 'code.contains'
+    from: 'code.file:services/orders/internal/api/middleware.go'
+    to: 'code.symbol:services/orders/internal/api/middleware.go#newRequestID'
+    evidence:
+      - path: 'services/orders/internal/api/middleware.go'
+        startLine: 67
+        endLine: 67
+        quote: 'func newRequestID() string {'
+    reading: 'parsed'
+  - relation: 'code.contains'
+    from: 'code.file:services/orders/internal/api/middleware.go'
+    to: 'code.symbol:services/orders/internal/api/middleware.go#requestIDHeader'
+    evidence:
+      - path: 'services/orders/internal/api/middleware.go'
+        startLine: 45
+        endLine: 45
+        quote: 'const requestIDHeader = "X-Request-Id"'
+    reading: 'parsed'
+  - relation: 'code.contains'
+    from: 'code.file:services/orders/internal/api/middleware.go'
+    to: 'code.symbol:services/orders/internal/api/middleware.go#statusRecorder'
+    evidence:
+      - path: 'services/orders/internal/api/middleware.go'
+        startLine: 33
+        endLine: 33
+        quote: 'type statusRecorder struct {'
+    reading: 'parsed'
+  - relation: 'code.contains'
+    from: 'code.file:services/orders/internal/api/middleware.go'
+    to: 'code.symbol:services/orders/internal/api/middleware.go#statusRecorder.WriteHeader'
+    evidence:
+      - path: 'services/orders/internal/api/middleware.go'
+        startLine: 38
+        endLine: 38
+        quote: 'func (s *statusRecorder) WriteHeader(code int) {'
+    reading: 'parsed'
+  - relation: 'code.contains'
+    from: 'code.file:services/orders/internal/api/middleware.go'
+    to: 'code.symbol:services/orders/internal/api/middleware.go#writeUnauthorized'
+    evidence:
+      - path: 'services/orders/internal/api/middleware.go'
+        startLine: 152
+        endLine: 152
+        quote: 'func writeUnauthorized(w http.ResponseWriter, reason string) {'
+    reading: 'parsed'
+  - relation: 'code.contains'
+    from: 'code.module:services/orders/internal/api'
+    to: 'code.file:services/orders/internal/api/middleware.go'
+    evidence:
+      - path: 'services/orders/internal/api/middleware.go'
+        startLine: 1
+        endLine: 1
+        quote: 'package api'
+    reading: 'parsed'
+  - relation: 'code.contains'
+    from: 'code.symbol:services/orders/internal/api/middleware.go#Claims'
+    to: 'code.field:services/orders/internal/api/middleware.go#Claims.CustomerID'
+    evidence:
+      - path: 'services/orders/internal/api/middleware.go'
+        startLine: 94
+        endLine: 94
+        quote: '	CustomerID string'
+    reading: 'parsed'
+  - relation: 'code.contains'
+    from: 'code.symbol:services/orders/internal/api/middleware.go#Claims'
+    to: 'code.field:services/orders/internal/api/middleware.go#Claims.Role'
+    evidence:
+      - path: 'services/orders/internal/api/middleware.go'
+        startLine: 96
+        endLine: 96
+        quote: '	Role string'
+    reading: 'parsed'
+  - relation: 'code.contains'
+    from: 'code.symbol:services/orders/internal/api/middleware.go#statusRecorder'
+    to: 'code.field:services/orders/internal/api/middleware.go#statusRecorder.http.ResponseWriter'
+    evidence:
+      - path: 'services/orders/internal/api/middleware.go'
+        startLine: 34
+        endLine: 34
+        quote: '	http.ResponseWriter'
+    reading: 'parsed'
+  - relation: 'code.contains'
+    from: 'code.symbol:services/orders/internal/api/middleware.go#statusRecorder'
+    to: 'code.field:services/orders/internal/api/middleware.go#statusRecorder.status'
+    evidence:
+      - path: 'services/orders/internal/api/middleware.go'
+        startLine: 35
+        endLine: 35
+        quote: '	status int'
+    reading: 'parsed'
+  - relation: 'code.imports'
+    from: 'code.file:services/orders/internal/api/middleware.go'
+    to: 'code.dependency:services/orders/go.mod#github.com/golang-jwt/jwt/v5'
+    evidence:
+      - path: 'services/orders/internal/api/middleware.go'
+        startLine: 13
+        endLine: 13
+        quote: '	"github.com/golang-jwt/jwt/v5"'
+    reading: 'parsed'
+  - relation: 'code.imports'
+    from: 'code.file:services/orders/internal/api/middleware.go'
+    to: 'code.module:services/orders/internal/logging'
+    evidence:
+      - path: 'services/orders/internal/api/middleware.go'
+        startLine: 15
+        endLine: 15
+        quote: '	"training.example/orders/internal/logging"'
+    reading: 'parsed'
+  - relation: 'code.uses-type'
+    from: 'code.symbol:services/orders/internal/api/middleware.go#Chain'
+    to: 'code.symbol:services/orders/internal/api/middleware.go#Middleware'
+    evidence:
+      - path: 'services/orders/internal/api/middleware.go'
+        startLine: 23
+        endLine: 23
+        quote: 'func Chain(middleware ...Middleware) Middleware {'
+    reading: 'parsed'
+  - relation: 'code.uses-type'
+    from: 'code.symbol:services/orders/internal/api/middleware.go#ClaimsFromContext'
+    to: 'code.symbol:services/orders/internal/api/middleware.go#Claims'
+    evidence:
+      - path: 'services/orders/internal/api/middleware.go'
+        startLine: 102
+        endLine: 102
+        quote: 'func ClaimsFromContext(ctx context.Context) (Claims, bool) {'
+    reading: 'parsed'
+  - relation: 'code.uses-type'
+    from: 'code.symbol:services/orders/internal/api/middleware.go#RecoverPanics'
+    to: 'code.symbol:services/orders/internal/api/middleware.go#Middleware'
+    evidence:
+      - path: 'services/orders/internal/api/middleware.go'
+        startLine: 77
+        endLine: 77
+        quote: 'func RecoverPanics(log *slog.Logger) Middleware {'
+    reading: 'parsed'
+  - relation: 'code.uses-type'
+    from: 'code.symbol:services/orders/internal/api/middleware.go#RequestLogger'
+    to: 'code.symbol:services/orders/internal/api/middleware.go#Middleware'
+    evidence:
+      - path: 'services/orders/internal/api/middleware.go'
+        startLine: 49
+        endLine: 49
+        quote: 'func RequestLogger(log *slog.Logger) Middleware {'
+    reading: 'parsed'
+  - relation: 'code.uses-type'
+    from: 'code.symbol:services/orders/internal/api/middleware.go#RequireAuth'
+    to: 'code.symbol:services/orders/internal/api/middleware.go#Middleware'
+    evidence:
+      - path: 'services/orders/internal/api/middleware.go'
+        startLine: 109
+        endLine: 109
+        quote: 'func RequireAuth(secret string) Middleware {'
+    reading: 'parsed'
+  - relation: 'code.uses-type'
+    from: 'code.symbol:services/orders/internal/api/middleware.go#RequireRole'
+    to: 'code.symbol:services/orders/internal/api/middleware.go#Middleware'
+    evidence:
+      - path: 'services/orders/internal/api/middleware.go'
+        startLine: 137
+        endLine: 137
+        quote: 'func RequireRole(role string) Middleware {'
+    reading: 'parsed'

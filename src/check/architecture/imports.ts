@@ -35,6 +35,25 @@ export interface ImportStatement {
   readonly wholeModule: boolean;
 }
 
+/** One call whose first argument is a string literal: the module name the call hands over, and its line. */
+interface LiteralCall {
+  /** The literal exactly as the module writes it. */
+  readonly value: string;
+  /** The 1-based line the call starts on. */
+  readonly line: number;
+}
+
+/** What one module's syntax says about other modules: its imports, and the literal arguments of its calls. */
+export interface ModuleNames {
+  readonly imports: readonly ImportStatement[];
+  /**
+   * Every call whose first argument is a string literal, whatever the call is called — a local `load(path)`
+   * helper that imports what the path names is as much a way of naming a module as `import()` is, and the
+   * literal is what the parse says, never a pattern read from the text.
+   */
+  readonly literalCalls: readonly LiteralCall[];
+}
+
 /**
  * The import statements of one module, in the order they are written: its static
  * imports and re-exports, then every `import()` call anywhere in its body.
@@ -42,13 +61,18 @@ export interface ImportStatement {
  * A module that fails to parse is refused by name with the path and the reason, so
  * a rule never silently reads a module as having no imports.
  */
-export function importStatementsOf(root: string, file: string): ImportStatement[] {
+export function importStatementsOf(root: string, file: string): readonly ImportStatement[] {
+  return moduleNamesOf(root, file).imports;
+}
+
+/** The same parse, with every literal argument a call hands over as well. */
+export function moduleNamesOf(root: string, file: string): ModuleNames {
   const path = absolutePathOf(root, file);
-  return importStatementsOfSource(readFileSync(path, 'utf8'), file, path);
+  return moduleNamesOfSource(readFileSync(path, 'utf8'), file, path);
 }
 
 /** The same, for a source already in hand, named by the path a reader opens. */
-function importStatementsOfSource(source: string, file: string, path: string): ImportStatement[] {
+function moduleNamesOfSource(source: string, file: string, path: string): ModuleNames {
   let module;
   try {
     module = parseSync(source, parseOptionsOf(file));
@@ -79,7 +103,8 @@ function importStatementsOfSource(source: string, file: string, path: string): I
   for (const dynamic of dynamicImportsOf(module)) {
     statements.push({ specifier: dynamic.specifier, line: lineAt(bytes, dynamic.start), names: [], wholeModule: true });
   }
-  return statements;
+  const literalCalls = literalCallsOf(module).map((call) => ({ value: call.value, line: lineAt(bytes, call.start) }));
+  return { imports: statements, literalCalls };
 }
 
 /** The 1-based line a byte offset falls on: one more than the newlines before it. */
@@ -128,6 +153,44 @@ function dynamicImportsOf(node: unknown): DynamicImport[] {
       const span = held['span'] as { start: number } | undefined;
       if (expression?.['type'] === 'StringLiteral' && typeof expression['value'] === 'string' && span !== undefined) {
         found.push({ specifier: expression['value'], start: span.start });
+      }
+    }
+    for (const [key, entry] of Object.entries(held)) {
+      if (key === 'span' || key === 'ctxt') continue;
+      walk(entry);
+    }
+  };
+  walk(node);
+  return found;
+}
+
+/** One call whose first argument is a string literal. */
+interface LiteralArgument {
+  readonly value: string;
+  readonly start: number;
+}
+
+/**
+ * Every call in a module whose first argument is a string literal, wherever it stands:
+ * `load('src/extract/driver/index.ts')` names that module as plainly as `import()` does,
+ * and the parse is the only reader of it. A computed argument is not a name this check
+ * can read, and is left to the reader.
+ */
+function literalCallsOf(node: unknown): LiteralArgument[] {
+  const found: LiteralArgument[] = [];
+  const walk = (value: unknown): void => {
+    if (Array.isArray(value)) {
+      for (const item of value) walk(item);
+      return;
+    }
+    if (value === null || typeof value !== 'object') return;
+    const held = value as Record<string, unknown>;
+    if (held['type'] === 'CallExpression') {
+      const first = Array.isArray(held['arguments']) ? (held['arguments'][0] as Record<string, unknown> | undefined) : undefined;
+      const expression = first?.['expression'] as Record<string, unknown> | undefined;
+      const span = held['span'] as { start: number } | undefined;
+      if (expression?.['type'] === 'StringLiteral' && typeof expression['value'] === 'string' && span !== undefined) {
+        found.push({ value: expression['value'], start: span.start });
       }
     }
     for (const [key, entry] of Object.entries(held)) {

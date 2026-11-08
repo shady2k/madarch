@@ -273,7 +273,6 @@ async function openWorld(options: WorldOptions): Promise<World> {
 
   let server: StartedServer | undefined;
   const service = createFillOrchestratorService({
-    home: join(folder, 'products'),
     registry,
     owner,
     wiring: () => wiring,
@@ -701,7 +700,10 @@ describe('stage 13\'s declaration', () => {
       .toEqual([
         ['boundaries', 'module'],
         ['intent-history', 'after'],
-        ['inventory', 'file'],
+        // The `file` node is the snapshot stage's per-file unit (decision 0033, item 14: the
+        // file is the unit of static work, and the unit that reads a file's bytes writes its
+        // facts); the inventory stage publishes only the containment edges now.
+        ['snapshot', 'file'],
         ['modules', 'module'],
         ['overview', 'after'],
         ['snapshot', 'repository'],

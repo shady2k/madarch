@@ -1,0 +1,21 @@
+path: 'scripts/seed-orders.sql'
+nodes:
+  - id: 'code.file:scripts/seed-orders.sql'
+    kind: 'code.file'
+    label: 'seed-orders.sql'
+    evidence:
+      - path: 'scripts/seed-orders.sql'
+        startLine: 1
+        endLine: 1
+        quote: 'INSERT INTO customers (id, email, name) VALUES (''demo'', ''demo@example.test'', ''Demo Shopper'')'
+    reading: 'parsed'
+edges:
+  - relation: 'code.writes-table'
+    from: 'code.file:scripts/seed-orders.sql'
+    to: 'code.table:orders.customers'
+    evidence:
+      - path: 'scripts/seed-orders.sql'
+        startLine: 1
+        endLine: 1
+        quote: 'INSERT INTO customers (id, email, name) VALUES (''demo'', ''demo@example.test'', ''Demo Shopper'')'
+    reading: 'parsed'

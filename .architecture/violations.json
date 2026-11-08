@@ -381,26 +381,6 @@
   },
   {
     "rule": "no-unreachable-code",
-    "file": "src/extract/operations/prometheus-text.ts",
-    "symbol": "PrometheusTextDeclaration"
-  },
-  {
-    "rule": "no-unreachable-code",
-    "file": "src/extract/operations/prometheus-text.ts",
-    "symbol": "PrometheusTextError"
-  },
-  {
-    "rule": "no-unreachable-code",
-    "file": "src/extract/operations/prometheus-text.ts",
-    "symbol": "PrometheusTextRange"
-  },
-  {
-    "rule": "no-unreachable-code",
-    "file": "src/extract/operations/prometheus-text.ts",
-    "symbol": "PrometheusTextSample"
-  },
-  {
-    "rule": "no-unreachable-code",
     "file": "src/extract/operations/source.ts",
     "symbol": "declaredUnits"
   },
@@ -787,11 +767,6 @@
   {
     "rule": "no-unreachable-code",
     "file": "src/fill/facts.ts",
-    "symbol": "DirectoryValue"
-  },
-  {
-    "rule": "no-unreachable-code",
-    "file": "src/fill/facts.ts",
     "symbol": "DocumentLinkEdgeValue"
   },
   {
@@ -962,11 +937,6 @@
   {
     "rule": "no-unreachable-code",
     "file": "src/fill/facts.ts",
-    "symbol": "RepositoryValue"
-  },
-  {
-    "rule": "no-unreachable-code",
-    "file": "src/fill/facts.ts",
     "symbol": "ResolvesEdgeValue"
   },
   {
@@ -978,11 +948,6 @@
     "rule": "no-unreachable-code",
     "file": "src/fill/facts.ts",
     "symbol": "RuleValue"
-  },
-  {
-    "rule": "no-unreachable-code",
-    "file": "src/fill/facts.ts",
-    "symbol": "SYMBOL_KINDS"
   },
   {
     "rule": "no-unreachable-code",
@@ -1308,31 +1273,6 @@
     "rule": "no-unreachable-code",
     "file": "src/fill/orchestrator-host.ts",
     "symbol": "DEFAULT_FILL_QUEUE"
-  },
-  {
-    "rule": "no-unreachable-code",
-    "file": "src/fill/orchestrator-host.ts",
-    "symbol": "FillActivity"
-  },
-  {
-    "rule": "no-unreachable-code",
-    "file": "src/fill/orchestrator-host.ts",
-    "symbol": "FillProgressAnswer"
-  },
-  {
-    "rule": "no-unreachable-code",
-    "file": "src/fill/orchestrator-host.ts",
-    "symbol": "FillRunControl"
-  },
-  {
-    "rule": "no-unreachable-code",
-    "file": "src/fill/orchestrator-host.ts",
-    "symbol": "FillRunControlAnswer"
-  },
-  {
-    "rule": "no-unreachable-code",
-    "file": "src/fill/orchestrator-host.ts",
-    "symbol": "FillRunRequest"
   },
   {
     "rule": "no-unreachable-code",
@@ -1822,11 +1762,6 @@
   {
     "rule": "no-unreachable-code",
     "file": "src/fill/stages/document-index.ts",
-    "symbol": "markdownEntriesOf"
-  },
-  {
-    "rule": "no-unreachable-code",
-    "file": "src/fill/stages/document-index.ts",
     "symbol": "parseDocumentScope"
   },
   {
@@ -1842,17 +1777,7 @@
   {
     "rule": "no-unreachable-code",
     "file": "src/fill/stages/document-index.ts",
-    "symbol": "taskKeysOf"
-  },
-  {
-    "rule": "no-unreachable-code",
-    "file": "src/fill/stages/document-index.ts",
     "symbol": "textOf"
-  },
-  {
-    "rule": "no-unreachable-code",
-    "file": "src/fill/stages/document-index.ts",
-    "symbol": "treePathsOf"
   },
   {
     "rule": "no-unreachable-code",
@@ -2091,11 +2016,6 @@
   },
   {
     "rule": "no-unreachable-code",
-    "file": "src/fill/stages/resolution-extract.ts",
-    "symbol": "MentionUse"
-  },
-  {
-    "rule": "no-unreachable-code",
     "file": "src/fill/stages/resolution-facts.ts",
     "symbol": "IndexResolutionRow"
   },
@@ -2302,11 +2222,6 @@
   {
     "rule": "no-unreachable-code",
     "file": "src/graph/versions.ts",
-    "symbol": "kindId"
-  },
-  {
-    "rule": "no-unreachable-code",
-    "file": "src/graph/versions.ts",
     "symbol": "loadEdgeVersion"
   },
   {
@@ -2418,16 +2333,6 @@
     "rule": "no-unreachable-code",
     "file": "src/knowledge/answer-key-judge.ts",
     "symbol": "countsOfPacks"
-  },
-  {
-    "rule": "no-unreachable-code",
-    "file": "src/knowledge/blocks.ts",
-    "symbol": "SOURCE_BLOCK_LINES"
-  },
-  {
-    "rule": "no-unreachable-code",
-    "file": "src/knowledge/blocks.ts",
-    "symbol": "detailRows"
   },
   {
     "rule": "no-unreachable-code",
@@ -2553,16 +2458,6 @@
     "rule": "no-unreachable-code",
     "file": "src/knowledge/doc-tree.ts",
     "symbol": "sectionsOf"
-  },
-  {
-    "rule": "no-unreachable-code",
-    "file": "src/knowledge/fill-protocol.ts",
-    "symbol": "ToolDefinition"
-  },
-  {
-    "rule": "no-unreachable-code",
-    "file": "src/knowledge/fill-protocol.ts",
-    "symbol": "UnitSummary"
   },
   {
     "rule": "no-unreachable-code",
@@ -3021,16 +2916,6 @@
   },
   {
     "rule": "no-unreachable-code",
-    "file": "src/knowledge/product.ts",
-    "symbol": "FillWorkerFactory"
-  },
-  {
-    "rule": "no-unreachable-code",
-    "file": "src/knowledge/product.ts",
-    "symbol": "spawnFillWorker"
-  },
-  {
-    "rule": "no-unreachable-code",
     "file": "src/knowledge/proto-document.ts",
     "symbol": "ProtoField"
   },
@@ -3281,11 +3166,6 @@
   },
   {
     "rule": "no-unreachable-code",
-    "file": "src/loop/task-run.ts",
-    "symbol": "TaskRunRefusal"
-  },
-  {
-    "rule": "no-unreachable-code",
     "file": "src/loop/views.ts",
     "symbol": "Fixer"
   },
@@ -3351,11 +3231,6 @@
   },
   {
     "rule": "no-unreachable-code",
-    "file": "src/mcp/graph.ts",
-    "symbol": "COLD_BUILD_CODE_FILES"
-  },
-  {
-    "rule": "no-unreachable-code",
     "file": "src/mcp/journal.ts",
     "symbol": "JournalToolSummary"
   },
@@ -3368,11 +3243,6 @@
     "rule": "no-unreachable-code",
     "file": "src/mcp/server.ts",
     "symbol": "REPO_MCP_INFO"
-  },
-  {
-    "rule": "no-unreachable-code",
-    "file": "src/mcp/session.ts",
-    "symbol": "markUncommitted"
   },
   {
     "rule": "no-unreachable-code",
@@ -3791,11 +3661,6 @@
   },
   {
     "rule": "no-unreachable-code",
-    "file": "src/product/daemon.ts",
-    "symbol": "landedFillOf"
-  },
-  {
-    "rule": "no-unreachable-code",
     "file": "src/product/demo.ts",
     "symbol": "DEMO_REPOSITORY"
   },
@@ -3871,21 +3736,6 @@
   },
   {
     "rule": "no-unreachable-code",
-    "file": "src/product/fill-agent-answers.ts",
-    "symbol": "AGENT_ANSWER_MAX_RETRIES"
-  },
-  {
-    "rule": "no-unreachable-code",
-    "file": "src/product/fill-agent-answers.ts",
-    "symbol": "CLAIM_LAYERS"
-  },
-  {
-    "rule": "no-unreachable-code",
-    "file": "src/product/fill-agent-answers.ts",
-    "symbol": "ParsedSynthesisSegment"
-  },
-  {
-    "rule": "no-unreachable-code",
     "file": "src/product/fill-claims.ts",
     "symbol": "scoreQuestionTypes"
   },
@@ -3946,11 +3796,6 @@
   },
   {
     "rule": "no-unreachable-code",
-    "file": "src/product/fill.ts",
-    "symbol": "createAgentCallBudget"
-  },
-  {
-    "rule": "no-unreachable-code",
     "file": "src/product/lifecycle.ts",
     "symbol": "RepoReport"
   },
@@ -3978,11 +3823,6 @@
     "rule": "no-unreachable-code",
     "file": "src/product/list.ts",
     "symbol": "UnreadableProduct"
-  },
-  {
-    "rule": "no-unreachable-code",
-    "file": "src/product/manifest.ts",
-    "symbol": "PRODUCT_SCHEMA_VERSION"
   },
   {
     "rule": "no-unreachable-code",
@@ -4477,11 +4317,6 @@
   {
     "rule": "no-unreachable-code",
     "file": "src/writer/index.ts",
-    "symbol": "AcpAgentOptions"
-  },
-  {
-    "rule": "no-unreachable-code",
-    "file": "src/writer/index.ts",
     "symbol": "AlternativeFlow"
   },
   {
@@ -4567,11 +4402,6 @@
   {
     "rule": "no-unreachable-code",
     "file": "src/writer/index.ts",
-    "symbol": "EditorialAcpJudgeOptions"
-  },
-  {
-    "rule": "no-unreachable-code",
-    "file": "src/writer/index.ts",
     "symbol": "EditorialFinding"
   },
   {
@@ -4588,11 +4418,6 @@
     "rule": "no-unreachable-code",
     "file": "src/writer/index.ts",
     "symbol": "EditorialJudgeAnswer"
-  },
-  {
-    "rule": "no-unreachable-code",
-    "file": "src/writer/index.ts",
-    "symbol": "EditorialJudgeError"
   },
   {
     "rule": "no-unreachable-code",
@@ -5945,43 +5770,8 @@
     "symbol": "Pick"
   },
   {
-    "rule": "one-fill-entry",
-    "file": "scripts/write-knowledge.ts",
-    "symbol": "src/extract/driver/index.ts:fillGraph"
-  },
-  {
-    "rule": "one-fill-entry",
-    "file": "src/index.ts",
-    "symbol": "src/product/fill.ts:startFill"
-  },
-  {
-    "rule": "one-fill-entry",
-    "file": "src/knowledge/fill-worker.ts",
-    "symbol": "src/extract/driver/index.ts:fillGraph"
-  },
-  {
-    "rule": "one-fill-entry",
-    "file": "src/mcp/graph.ts",
-    "symbol": "src/extract/driver/index.ts:fillGraph"
-  },
-  {
-    "rule": "one-fill-entry",
-    "file": "src/product/cli.ts",
-    "symbol": "src/knowledge/fill-worker.ts:*"
-  },
-  {
-    "rule": "one-fill-entry",
-    "file": "src/product/cli.ts",
-    "symbol": "src/product/fill.ts:startFill"
-  },
-  {
     "rule": "sql-only-in-storage-layer",
     "file": "scripts/index-knowledge.ts",
-    "symbol": "src/adapters/database-owner.ts"
-  },
-  {
-    "rule": "sql-only-in-storage-layer",
-    "file": "scripts/write-knowledge.ts",
     "symbol": "src/adapters/database-owner.ts"
   },
   {
@@ -6086,11 +5876,6 @@
   },
   {
     "rule": "sql-only-in-storage-layer",
-    "file": "src/knowledge/fill-worker.ts",
-    "symbol": "src/adapters/database-owner.ts"
-  },
-  {
-    "rule": "sql-only-in-storage-layer",
     "file": "src/knowledge/graph-read.ts",
     "symbol": "src/adapters/database-owner.ts"
   },
@@ -6157,11 +5942,6 @@
   {
     "rule": "sql-only-in-storage-layer",
     "file": "src/loop/propose.ts",
-    "symbol": "src/adapters/database-owner.ts"
-  },
-  {
-    "rule": "sql-only-in-storage-layer",
-    "file": "src/loop/task-run.ts",
     "symbol": "src/adapters/database-owner.ts"
   },
   {

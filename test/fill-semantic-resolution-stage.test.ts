@@ -1,43 +1,51 @@
 /**
- * The semantic resolution stage (madarch-tzte.21.6, decision 0026's stage 4)
- * through its own `plan` and `execute` with a fake context: the orchestrator
- * (madarch-tzte.19.5) is not needed and not used.
+ * Stage 4, the resolution of a file's names (decision 0026's stage 4; decision
+ * 0033's "The file is the unit of static work"), through its own `plan` and
+ * `execute`: the orchestrator is not needed and not used.
  *
- * Every expectation comes from the task and the schema, never from the module:
- * the fixture the task names (`a.ts` calls an exported function of `b.ts`)
- * yields one resolved call edge with precision `syntactic`; an unresolved
- * reference is written with its own place; the compiler index is named in the
- * coverage when there is none and answers the edges where there is one; and a
- * change to one file re-resolves that file and the files whose resolution read
- * its symbols, and nothing else.
+ * Every expectation comes from the task and the decisions, never from the
+ * module. The fixture is a repository the test makes in a temporary folder and
+ * removes: `a.ts` calls an exported function of `b.ts`, extends a class of it
+ * and mentions a plain name of it. The file pass (stages 0 to 3) runs first on
+ * the test's own repository, and the graph the resolution reads is the one those
+ * three published — its nodes and edges, keyed as the drafts key them — so a
+ * unit's bounded reads answer exactly what the run would have answered.
  *
- * The graph is the test's own: the reads a plan and a unit make are answered
- * from the facts the stages before this one published in the same test, which is
- * what a fact store would answer, and no test touches a real database. Every
- * repository is one the test makes in a temporary folder and removes.
+ * What is asserted: a resolved call, inheritance and reference edge with the
+ * symbol at each end; one positioned occurrence per resolved mention; a coverage
+ * that names what could not be tied down with its own place; that a name the
+ * file declares itself is resolved without asking the graph; that a file's
+ * mentions are read page by page when it writes more than one page; and the
+ * plan's incrementality — a second run of one commit plans no unit, a changed
+ * target re-plans its importers, and a vanished path is retracted.
  */
-import { describe, expect, test } from 'bun:test';
+import { afterAll, beforeAll, describe as bunDescribe, expect, test as bunTest } from 'bun:test';
 import { execFileSync } from 'node:child_process';
 import { mkdir, mkdtemp, rm, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
-import { checkFact } from '../src/fill/facts.js';
 import { deriveStageGraph } from '../src/fill/registry.js';
 import { createGitSnapshotSource, type SnapshotSource } from '../src/fill/snapshot.js';
-import { DEFAULT_STAGE_LIMITS, type StageContext, type StageDraftWrite, type StageUnit } from '../src/fill/stage.js';
-import { publishedTreeRead, createInventoryStage, type PublishedTreeRow } from '../src/fill/stages/inventory.js';
-import {
-  compilerIndexRead, createSemanticResolutionStage, indexRows,
-  publishedReadRows, publishedReadsRead, publishedSymbolsRead, symbolRows, SEMANTIC_RESOLUTION_STAGE_ID,
-} from '../src/fill/stages/semantic-resolution.js';
 import { createStageRegistry } from '../src/fill/stages/index.js';
+import { staticStageContext, type StaticGraphNode, type StaticGraphReader } from '../src/fill/stages/static-context.js';
+import { DEFAULT_STAGE_LIMITS, type StageContext, type StageDraftWrite, type StageUnit } from '../src/fill/stage.js';
+import { createSnapshotStage, publishedRepositoryRead } from '../src/fill/stages/snapshot.js';
+import { createInventoryStage, publishedContainmentRead } from '../src/fill/stages/inventory.js';
 import { createSyntaxStage } from '../src/fill/stages/syntax.js';
+import { publishedTreeRead } from '../src/fill/stages/tree-rows.js';
+import { publishedGapsRead, publishedImportsRead } from '../src/fill/stages/syntax-specifiers.js';
 import {
-  publishedGapRows, publishedGapsRead, publishedImportRows, publishedImportsRead,
-  type PublishedImportRow,
-} from '../src/fill/stages/syntax-specifiers.js';
+  createSemanticResolutionStage, publishedResolvedRead, publishedResolvedRows, SEMANTIC_RESOLUTION_STAGE_ID,
+} from '../src/fill/stages/semantic-resolution.js';
+import { gapRowsOf, importRowsOf, itemsOf, nodesOfKind, treeRowsOf } from './fill-static-drafts.js';
+import { skippedBecauseOutOfWorkflow } from './fill-skip-list.js';
 
-// ---- the test's own repository, context and graph ---------------------------
+// The cases read a stage out of this step's list: they come back with that stage's step (test/fill-skip-list.ts).
+const skippedSuite = skippedBecauseOutOfWorkflow(import.meta.path);
+const describe = bunDescribe.skipIf(skippedSuite !== undefined);
+const test = bunTest.skipIf(skippedSuite !== undefined);
+
+const REPOSITORY = 'orders-api';
 
 /** A throwaway repository the test commits into by hand. */
 interface Fixture {
@@ -72,29 +80,135 @@ async function fixture(): Promise<Fixture> {
   };
 }
 
-/** What a stage recorded while it ran. */
+/** The source one pinned repository's stages read: the test's own commit of its own folder. */
+function sourceAt(root: string, commit: string): SnapshotSource {
+  return createGitSnapshotSource([{ id: REPOSITORY, form: 'code', root, commit }]);
+}
+
+/** The repository a unit's scope names: `<repository>` or `<repository>:<path>`. */
+function repositoryOfScope(scope: string): string {
+  const parts = scope.split(':');
+  if (parts[0] === 'file' || parts[0] === 'directory') return parts[1] ?? '';
+  return parts.length === 1 ? scope : parts[0]!;
+}
+
+/** What a stage wrote, and the reads it made. */
 interface Recorder {
   readonly writes: StageDraftWrite[];
   readonly notes: string[];
   readonly queries: string[];
 }
 
-/** One unit's context: the reads answered by the test, the draft collected here, and a signal the test holds. */
-function contextFor(unit: StageUnit, answer: (read: string) => readonly unknown[] | Promise<readonly unknown[]> = () => []): { context: StageContext; recorder: Recorder; controller: AbortController } {
+/** The graph one run's nodes and edges: what the file pass published, as a graph store would hold it. */
+interface Graph {
+  readonly nodes: readonly StaticGraphNode[];
+  readonly edges: readonly { readonly relation: string; readonly from: string; readonly to: string; readonly position?: { readonly start: number; readonly end: number }; readonly properties?: Record<string, unknown> }[];
+}
+
+/**
+ * The graph the file pass's drafts publish: each node key becomes a node id (the
+ * order of the writes, `n1`, `n2`, …), each edge's keys become the ids of the
+ * nodes they name, and a node's properties are the draft's own. A key the draft
+ * does not define is refused rather than dropped, as the store refuses it.
+ */
+function graphOf(writes: readonly StageDraftWrite[]): Graph {
+  const ids = new Map<string, string>();
+  const nodes: StaticGraphNode[] = [];
+  for (const write of writes) {
+    if (write.kind !== 'node') continue;
+    const id = `n${String(nodes.length + 1)}`;
+    ids.set(write.value.key, id);
+    nodes.push({ id, kind: write.value.kind, label: write.value.label, properties: write.value.properties, producer: 'fill.syntax', scope: '0' });
+  }
+  const edges: { relation: string; from: string; to: string; position?: { start: number; end: number }; properties?: Record<string, unknown> }[] = [];
+  for (const write of writes) {
+    if (write.kind !== 'edge') continue;
+    const from = 'key' in write.value.from ? ids.get(write.value.from.key) : undefined;
+    const to = 'key' in write.value.to ? ids.get(write.value.to.key) : undefined;
+    if (from === undefined || to === undefined) {
+      throw new Error(`the draft's ${write.value.relation} edge names a node no write of the same draft defines: ${JSON.stringify(write.value)}`);
+    }
+    edges.push({ relation: write.value.relation, from, to, ...(write.value.position === undefined ? {} : { position: write.value.position }), ...(write.value.properties === undefined ? {} : { properties: write.value.properties }) });
+  }
+  return { nodes, edges };
+}
+
+/** The number of a node id, so a page's order and cursor are the store's own (ids ascend). */
+function numberOf(id: string): number {
+  return Number(id.slice(1));
+}
+
+/**
+ * The graph reader a unit is handed over one {@link Graph}: by key, by global
+ * name and one neighbourhood per page, as the store answers them. The
+ * neighbourhood follows the relations recursively and pages in node id order,
+ * which is `readTraversal`'s own rule.
+ */
+function readerOf(graph: Graph): StaticGraphReader & { readonly asked: string[] } {
+  const asked: string[] = [];
+  return {
+    asked,
+    async byKey(key: string): Promise<readonly StaticGraphNode[]> {
+      asked.push(`key:${key}`);
+      return graph.nodes.filter((node) => node.properties['recordKey'] === key);
+    },
+    async byGlobalName(name: string): Promise<readonly StaticGraphNode[]> {
+      asked.push(`global:${name}`);
+      return graph.nodes.filter((node) => node.kind === 'code.symbol' && node.properties['globalName'] === name);
+    },
+    async byProperty(kind: string, field: string, value: string): Promise<{ readonly rows: readonly StaticGraphNode[]; readonly next: string | null }> {
+      asked.push(`property:${kind}:${field}:${value}`);
+      return { rows: graph.nodes.filter((node) => node.kind === kind && node.properties[field] === value), next: null };
+    },
+    async edgesByProperty(): Promise<{ readonly rows: readonly never[]; readonly next: string | null }> {
+      asked.push('edges');
+      return { rows: [], next: null };
+    },
+    async neighbourhood(nodeId: string, options: { readonly relations: readonly string[]; readonly direction: 'out' | 'in'; readonly limit?: number; readonly after?: string }) {
+      asked.push(`near:${nodeId}:${options.relations.join(',')}:${options.direction}:${options.after ?? 'first'}`);
+      const found = new Set<string>();
+      const walk = (at: string): void => {
+        for (const edge of graph.edges) {
+          if (!options.relations.includes(edge.relation)) continue;
+          const [from, to] = options.direction === 'out' ? [edge.from, edge.to] : [edge.to, edge.from];
+          if (from !== at || found.has(to)) continue;
+          found.add(to);
+          walk(to);
+        }
+      };
+      walk(nodeId);
+      const limit = options.limit ?? 256;
+      const after = options.after === undefined ? 0 : numberOf(options.after);
+      const rows = [...found].map(numberOf).filter((id) => id > after).sort((left, right) => left - right);
+      const page = rows.slice(0, limit).map((id) => graph.nodes.find((node) => numberOf(node.id) === id)!);
+      const more = rows.length > limit;
+      return { rows: page, next: more ? page[page.length - 1]!.id : null };
+    },
+  } as unknown as StaticGraphReader & { readonly asked: string[] };
+}
+
+/** One unit's context: the draft collected here, the reads answered by the test's graph, and a signal the test holds. */
+async function contextFor(unit: StageUnit, options: { readonly source?: SnapshotSource; readonly reader?: StaticGraphReader; readonly answer?: (read: string) => readonly unknown[] } = {}): Promise<{ context: StageContext; recorder: Recorder; controller: AbortController }> {
   const recorder: Recorder = { writes: [], notes: [], queries: [] };
   const controller = new AbortController();
+  const graph = {
+    query: async (read: string) => {
+      recorder.queries.push(read);
+      return options.answer?.(read) ?? [];
+    },
+  };
+  const repository = options.source === undefined ? undefined : await (async () => {
+    const { staticStageSourceOf } = await import('../src/fill/stages/static-context.js');
+    return staticStageSourceOf(options.source!, repositoryOfScope(unit.scope));
+  })();
   return {
     recorder,
     controller,
     context: {
       unit,
-      config: { id: SEMANTIC_RESOLUTION_STAGE_ID, version: 1, enabled: true, concurrency: 1, limits: DEFAULT_STAGE_LIMITS, config: {} },
-      graph: {
-        query: async (read: string) => {
-          recorder.queries.push(read);
-          return await answer(read);
-        },
-      },
+      config: { id: SEMANTIC_RESOLUTION_STAGE_ID, version: 2, enabled: true, concurrency: 1, limits: DEFAULT_STAGE_LIMITS, config: {} },
+      graph,
+      ...(repository === undefined ? {} : { static: staticStageContext(repository, options.reader ?? readerOf({ nodes: [], edges: [] })) }),
       draft: {
         write: (entry: StageDraftWrite) => { recorder.writes.push(entry); },
         writes: () => ({ writes: recorder.writes }),
@@ -105,156 +219,79 @@ function contextFor(unit: StageUnit, answer: (read: string) => readonly unknown[
   };
 }
 
-/** One fact of a draft set, as the fact store would hold it. */
-interface DraftFact {
-  readonly kind: string;
-  readonly id: string;
-  readonly value: Record<string, unknown>;
-  readonly provenance: {
-    readonly repository: { readonly id: string; readonly commit: string };
-    readonly place?: { readonly file: string; readonly range: { readonly startLine: number; readonly startColumn: number; readonly endLine: number; readonly endColumn: number } };
-  };
-}
-
-/** The facts one draft set holds, in the order they were written; a write that is no fact is left out. */
-function factsOf(writes: readonly StageDraftWrite[]): readonly DraftFact[] {
-  const facts: DraftFact[] = [];
-  for (const write of writes) {
-    if (write.kind !== 'fact') continue;
-    facts.push(write.value as DraftFact);
-  }
-  return facts;
-}
-
-/** The facts of a kind in a draft set, in the order they were written. */
-function factsOfKind(writes: readonly StageDraftWrite[], kind: string): readonly DraftFact[] {
-  return factsOf(writes).filter((fact) => fact.kind === kind);
-}
-
-/** The one fact of a kind in a draft set, refused where the draft holds another number of them. */
-function factOfKind(writes: readonly StageDraftWrite[], kind: string): DraftFact {
-  const held = factsOfKind(writes, kind);
-  if (held.length !== 1) throw new Error(`the draft holds ${held.length} ${kind} facts, and this test expects one: ${held.map((fact) => fact.id).join(', ')}`);
-  return held[0]!;
-}
-
-/** What a fact store would answer for one repository's stage-1 tree: the file and directory facts a draft set holds. */
-function publishedRows(writes: readonly StageDraftWrite[], repository: string): readonly PublishedTreeRow[] {
-  const rows: PublishedTreeRow[] = [];
-  for (const fact of factsOf(writes)) {
-    if (fact.kind !== 'file' && fact.kind !== 'directory') continue;
-    const blob = fact.value['blob'];
-    rows.push({ kind: fact.kind, repository, path: String(fact.value['path']), ...(typeof blob === 'string' ? { blob } : {}) });
-  }
-  return rows;
-}
-
-/** What a fact store would answer for this stage's own last reading: one row a file, with the files its resolution read. */
-function readRows(writes: readonly StageDraftWrite[]): readonly { readonly kind: 'coverage'; readonly file: string; readonly read: readonly string[] }[] {
-  const rows: { kind: 'coverage'; file: string; read: readonly string[] }[] = [];
-  for (const fact of factsOf(writes)) {
-    if (fact.kind !== 'coverage') continue;
-    rows.push({ kind: 'coverage', file: String(fact.value['scope']), read: (fact.value['read'] as readonly string[] | undefined) ?? [] });
-  }
-  return rows;
-}
-
-/** What a fact store would answer for one repository's stage-3 gaps: the coverage facts a draft set holds, one row a gap. */
-function gapRows(writes: readonly StageDraftWrite[]): readonly { readonly kind: 'coverage'; readonly file: string; readonly what: string }[] {
-  const rows: { kind: 'coverage'; file: string; what: string }[] = [];
-  for (const fact of factsOf(writes)) {
-    if (fact.kind !== 'coverage') continue;
-    const unread = fact.value['unread'] as readonly { readonly what: string }[] | undefined;
-    for (const gap of unread ?? []) rows.push({ kind: 'coverage', file: String(fact.value['scope']), what: gap.what });
-  }
-  return rows;
-}
-
-/** What a fact store would answer for one repository's stage-3 imports: the `import` edges a draft set holds. */
-function importRows(writes: readonly StageDraftWrite[]): readonly PublishedImportRow[] {
-  return factsOf(writes).filter((fact) => fact.kind === 'import').map((fact) => ({
-    kind: 'import' as const,
-    from: String(fact.value['from']),
-    to: String(fact.value['to']),
-    specifier: String(fact.value['specifier']),
-  }));
-}
-
-/** What a fact store would answer for one file's stage-3 symbols: the `symbol` facts a draft set holds for that file. */
-function symbolRowsOf(writes: readonly StageDraftWrite[], path: string): readonly Record<string, unknown>[] {
-  return factsOf(writes)
-    .filter((fact) => fact.kind === 'symbol' && fact.value['file'] === path && fact.provenance.place !== undefined)
-    .map((fact) => ({
-      kind: 'symbol' as const,
-      id: fact.id,
-      file: path,
-      qualifiedName: String(fact.value['qualifiedName']),
-      symbolKind: fact.value['symbolKind'],
-      startLine: fact.provenance.place!.range.startLine,
-      startColumn: fact.provenance.place!.range.startColumn,
-      endLine: fact.provenance.place!.range.endLine,
-      endColumn: fact.provenance.place!.range.endColumn,
-    }));
-}
-
-/** What the inventory stage and the syntax stage of one commit published: what the resolution stage's reads answer. */
+/** What the file pass published for one commit: its drafts, the tree its plans read, and the graph a unit reads. */
 interface Published {
-  readonly tree: readonly PublishedTreeRow[];
-  readonly writes: readonly StageDraftWrite[];
-  /** What this stage's own last run wrote, for the plan's read of it. */
-  readonly resolution?: readonly StageDraftWrite[];
+  readonly tree: StageDraftWrite[];
+  readonly syntax: StageDraftWrite[];
+  readonly graph: Graph;
 }
 
-async function publishedAt(source: SnapshotSource): Promise<Published> {
-  const inventory = createInventoryStage(source);
+/** Runs stages 0 to 3 of one pinned repository the way the orchestrator does, each unit against what the earlier ones wrote. */
+async function filePass(source: SnapshotSource): Promise<Published> {
+  const snapshot = createSnapshotStage(source);
   const tree: StageDraftWrite[] = [];
-  for (const unit of (await inventory.plan({ query: async () => [] })).units) {
-    const run = contextFor(unit);
+  for (const unit of (await snapshot.plan({ query: async () => [] })).units) {
+    const run = await contextFor(unit, { source });
+    await snapshot.execute(unit, run.context);
+    tree.push(...run.recorder.writes);
+  }
+  const inventory = createInventoryStage(source);
+  for (const unit of (await inventory.plan({
+    query: async (read: string) => {
+      if (read === publishedTreeRead(REPOSITORY)) return treeRowsOf(tree, REPOSITORY);
+      if (read === publishedRepositoryRead(REPOSITORY)) return [{ kind: 'repository', repository: REPOSITORY }];
+      if (read === publishedContainmentRead(REPOSITORY)) return [];
+      return [];
+    },
+  })).units) {
+    const run = await contextFor(unit, { source });
     await inventory.execute(unit, run.context);
     tree.push(...run.recorder.writes);
   }
   const syntax = createSyntaxStage(source);
   const writes: StageDraftWrite[] = [];
-  for (const unit of (await syntax.plan({ query: async () => [] })).units) {
-    const run = contextFor(unit);
+  for (const unit of (await syntax.plan({
+    query: async (read: string) => (read === publishedTreeRead(REPOSITORY) ? treeRowsOf(tree, REPOSITORY) : []),
+  })).units) {
+    const run = await contextFor(unit, { source });
     await syntax.execute(unit, run.context);
     writes.push(...run.recorder.writes);
   }
-  return { tree: publishedRows(tree, repositoryOf(tree)), writes };
+  return { tree, syntax: writes, graph: graphOf([...tree, ...writes]) };
 }
 
-/** The repository a set of inventory facts was published for. */
-function repositoryOf(writes: readonly StageDraftWrite[]): string {
-  for (const fact of factsOf(writes)) {
-    if (fact.kind === 'file') return String(fact.value['repository']);
-  }
-  throw new Error('the inventory published no file fact: this test needs its repository name');
+/** The units one plan named, by id, in code point order. */
+function unitIds(plan: { units: readonly { id: string }[] }): string[] {
+  return plan.units.map((unit) => unit.id);
 }
 
-/** The graph one resolution run reads: the published tree, the imports, the symbols, and the compiler's index. */
-function graphOf(published: Published, repository: string, options: { readonly index?: (path: string) => readonly unknown[] } = {}): (read: string) => Promise<readonly unknown[]> {
-  return async (read: string) => {
-    if (read === publishedTreeRead(repository)) return published.tree;
-    if (read === publishedReadsRead(repository)) return readRows(published.resolution ?? []);
-    if (read === publishedImportsRead(repository)) return importRows(published.writes);
-    if (read === publishedGapsRead(repository)) return gapRows(published.writes);
-    for (const fact of factsOf(published.writes)) {
-      if (fact.kind !== 'symbol') continue;
-      const path = String(fact.value['file']);
-      if (read === publishedSymbolsRead(repository, path)) return symbolRowsOf(published.writes, path);
+/** The reads a plan makes, answered from the file pass's drafts and this stage's own last run. */
+function planAnswers(published: Published, resolved: readonly StageDraftWrite[] = []): (read: string) => readonly unknown[] {
+  return (read: string) => {
+    if (read === publishedTreeRead(REPOSITORY)) return treeRowsOf([...published.tree, ...published.syntax], REPOSITORY);
+    if (read === publishedImportsRead(REPOSITORY)) return importRowsOf(published.syntax);
+    if (read === publishedGapsRead(REPOSITORY)) return gapRowsOf(published.syntax);
+    if (read === publishedResolvedRead(REPOSITORY)) {
+      return nodesOfKind(resolved, 'code.coverage')
+        .filter((node) => typeof node.properties['blob'] === 'string')
+        .map((node) => ({ kind: 'coverage', file: String(node.properties['scope']), blob: String(node.properties['blob']), read: (node.properties['read'] as readonly string[] | undefined) ?? [] }));
     }
-    const indexed = /stage-4-compiler-index/.exec(read);
-    if (indexed !== null) {
-      const parsed = JSON.parse(read) as { readonly path?: string };
-      return options.index?.(String(parsed.path)) ?? [];
-    }
-    return [];
+    throw new Error(`the plan asked the read ${read}, and this test answers no such read`);
   };
 }
 
-/** The units one plan named, by id. */
-function unitIds(plan: { units: readonly { id: string }[] }): string[] {
-  return plan.units.map((unit) => unit.id);
+/** The stage, one unit and what it wrote. */
+async function runUnit(unit: { id: string; scope: string }, published: Published, source: SnapshotSource): Promise<{ readonly writes: readonly StageDraftWrite[]; readonly notes: readonly string[]; readonly asked: readonly string[] }> {
+  const stage = createSemanticResolutionStage(source);
+  const reader = readerOf(published.graph);
+  const run = await contextFor(unit, { source, reader });
+  await stage.execute(unit, run.context);
+  return { writes: run.recorder.writes, notes: run.recorder.notes, asked: reader.asked };
+}
+
+/** The file unit of one path. */
+function fileUnit(path: string): { id: string; scope: string } {
+  return { id: `file:${REPOSITORY}:${path}`, scope: `${REPOSITORY}:${path}` };
 }
 
 /** What a call refused with, so a test can read what it names; `answered` when it did not refuse. */
@@ -267,648 +304,524 @@ async function refusedBy(call: () => unknown): Promise<string> {
   }
 }
 
-/**
- * The id stage 3 published for one file's symbol, by its qualified name.
- */
-function symbolIdOf(published: Published, path: string, qualifiedName: string): string {
-  const held = factsOf(published.writes).filter((fact) => fact.kind === 'symbol' && fact.value['file'] === path && fact.value['qualifiedName'] === qualifiedName);
-  if (held.length !== 1) throw new Error(`stage 3 published ${held.length} symbols named ${qualifiedName} in ${path}, and this test needs exactly one`);
-  return held[0]!.id;
+/** The key a node of one kind and path carries in the drafts. */
+function keyOf(writes: readonly StageDraftWrite[], kind: string, path: string): string {
+  const held = nodesOfKind(writes, kind).filter((node) => node.properties['path'] === path || node.properties['file'] === path);
+  if (held.length !== 1) throw new Error(`the drafts hold ${String(held.length)} ${kind} nodes for ${path}, and this test needs exactly one`);
+  return held[0]!.key;
 }
 
-/** The stage, one unit and what it wrote: the shape every execution test reads. */
-async function runUnit(source: SnapshotSource, unit: StageUnit, graph: (read: string) => readonly unknown[] | Promise<readonly unknown[]>): Promise<{ readonly stage: ReturnType<typeof createSemanticResolutionStage>; readonly run: { context: StageContext; recorder: Recorder; controller: AbortController }; readonly outcome: unknown }> {
-  const stage = createSemanticResolutionStage(source);
-  const run = contextFor(unit, graph);
-  const outcome = await stage.execute(unit, run.context);
-  return { stage, run, outcome };
+/** The key of one symbol of one file, by its qualified name. */
+function symbolKeyOf(writes: readonly StageDraftWrite[], path: string, qualifiedName: string): string {
+  const held = nodesOfKind(writes, 'code.symbol').filter((node) => node.properties['file'] === path && node.properties['qualifiedName'] === qualifiedName);
+  if (held.length !== 1) throw new Error(`the drafts hold ${String(held.length)} symbols named ${qualifiedName} of ${path}, and this test needs exactly one`);
+  return held[0]!.key;
 }
 
-/** The two files of the task's own fixture: `a.ts` calls an exported function of `b.ts`. */
-const CALLS_AN_EXPORTED_FUNCTION: readonly { readonly path: string; readonly text: string }[] = [
-  { path: 'src/b.ts', text: "export function create(order: string): string {\n  return order;\n}\n" },
-  { path: 'src/a.ts', text: "import { create } from './b.js';\n\nexport function run(order: string): string {\n  return create(order);\n}\n" },
-];
-
-/** A source pinned at one commit of the test's repository. */
-function sourceAt(root: string, commit: string, repository = 'orders-api'): SnapshotSource {
-  return createGitSnapshotSource([{ id: repository, form: 'code', root, commit }]);
+/** The edges of one relation a unit wrote, as `[from key, to key]` and their properties. */
+function edgesOf(writes: readonly StageDraftWrite[], relation: string): readonly { readonly from: string; readonly to: string; readonly properties: Record<string, unknown>; readonly position?: { readonly start: number; readonly end: number } }[] {
+  return writes
+    .filter((write) => write.kind === 'edge' && write.value.relation === relation)
+    .map((write) => write as Extract<StageDraftWrite, { kind: 'edge' }>)
+    .map((write) => ({
+      from: 'key' in write.value.from ? write.value.from.key : '',
+      to: 'key' in write.value.to ? write.value.to.key : '',
+      properties: (write.value.properties ?? {}) as Record<string, unknown>,
+      ...(write.value.position === undefined ? {} : { position: write.value.position }),
+    }));
 }
 
-/** Writes the fixture's files and commits them. */
-async function writeFixture(f: Fixture, files: readonly { readonly path: string; readonly text: string }[]): Promise<string> {
-  for (const file of files) await f.write(file.path, file.text);
-  return f.commit();
+/** The one coverage node a unit wrote, refused where it wrote another number of them. */
+function coverageOf(writes: readonly StageDraftWrite[]): { readonly scope: string; readonly complete: boolean; readonly read: readonly string[]; readonly unread: readonly { readonly what: string }[]; readonly blob: string } {
+  const held = nodesOfKind(writes, 'code.coverage');
+  if (held.length !== 1) throw new Error(`the unit wrote ${String(held.length)} coverage nodes, and this test expects one`);
+  const properties = held[0]!.properties;
+  return {
+    scope: String(properties['scope']),
+    complete: properties['complete'] === true,
+    read: (properties['read'] as readonly string[]) ?? [],
+    unread: (properties['unread'] as readonly { what: string }[]) ?? [],
+    blob: String(properties['blob']),
+  };
 }
 
-// ---- the registry ----------------------------------------------------------
+/** The two files the fixture commits: `a.ts` calls, extends and mentions names of `b.ts`. */
+const A_TS = [
+  "import { create, Thing } from './b.js';",
+  'export class Service extends Thing {',
+  '  run(): number {',
+  '    return create(1);',
+  '  }',
+  '}',
+  'export const made = create(2);',
+  'export function local(): number { return 7; }',
+  'export const called = local();',
+  '',
+].join('\n');
+const B_TS = [
+  'export class Thing {}',
+  'export function create(n: number): number { return n; }',
+  '',
+].join('\n');
 
-describe('the semantic resolution stage is registered', () => {
-  test('the derived graph runs it after the syntax stage, on stage 3\'s symbols and imports and stage 1\'s files', async () => {
-    const f = await fixture();
-    try {
-      await f.write('src/orders.ts', 'export const orders = 1;\n');
-      const commit = f.commit();
-      const registry = createStageRegistry({ snapshots: sourceAt(f.root, commit) });
-      const read = deriveStageGraph(registry);
-      if (!read.ok) throw new Error(`the graph did not derive: ${JSON.stringify(read)}`);
-      expect(read.graph.order).toEqual(['snapshot', 'history', 'inventory', 'build-configuration', 'document-index', 'syntax', 'semantic-resolution', 'modules']);
-      expect(read.graph.edges).toEqual([
-        { from: 'build-configuration', to: 'modules', via: 'package' },
-        { from: 'inventory', to: 'build-configuration', via: 'file' },
-        { from: 'inventory', to: 'document-index', via: 'file' },
-        { from: 'inventory', to: 'modules', via: 'file' },
-        { from: 'inventory', to: 'semantic-resolution', via: 'file' },
-        { from: 'inventory', to: 'syntax', via: 'file' },
-        { from: 'semantic-resolution', to: 'modules', via: 'call' },
-        { from: 'semantic-resolution', to: 'modules', via: 'inherits' },
-        { from: 'semantic-resolution', to: 'modules', via: 'reference' },
-        { from: 'snapshot', to: 'build-configuration', via: 'snapshot' },
-        { from: 'snapshot', to: 'document-index', via: 'snapshot' },
-        { from: 'snapshot', to: 'history', via: 'snapshot' },
-        { from: 'snapshot', to: 'inventory', via: 'repository' },
-        { from: 'snapshot', to: 'inventory', via: 'snapshot' },
-        { from: 'syntax', to: 'modules', via: 'import' },
-        { from: 'syntax', to: 'modules', via: 'symbol' },
-        { from: 'syntax', to: 'semantic-resolution', via: 'import' },
-        { from: 'syntax', to: 'semantic-resolution', via: 'symbol' },
-      ]);
-      expect(registry.get(SEMANTIC_RESOLUTION_STAGE_ID)?.produces.map((produced) => produced.kind)).toEqual([
-        'call', 'coverage', 'inherits', 'occurrence', 'reference',
-      ]);
-    } finally {
-      await f.dispose();
-    }
+describe('the resolution reader', () => {
+  test('it reads one file\'s mentions and symbols, and it is no stage of the fill any more', () => {
+    const stage = createSemanticResolutionStage(createGitSnapshotSource(() => []));
+    expect(stage.id).toBe(SEMANTIC_RESOLUTION_STAGE_ID);
+    expect(stage.staticReading).toBe(true);
+    expect(stage.consumes.required.map((consume) => consume.capability).sort()).toEqual(['file', 'import', 'mention', 'symbol']);
+    // Decision 0033's "The code pass" (amended 2026-11-06): the fill's calls are the code pass's, and
+    // this reader is kept for the working-tree layer alone, so the registry holds no such stage.
+    expect(createStageRegistry({ snapshots: createGitSnapshotSource(() => []) }).get(SEMANTIC_RESOLUTION_STAGE_ID)).toBeUndefined();
+    const read = deriveStageGraph(createStageRegistry({ snapshots: createGitSnapshotSource(() => []) }), undefined);
+    expect(read.ok).toBe(true);
+    if (!read.ok) return;
+    expect(read.graph.order).not.toContain(SEMANTIC_RESOLUTION_STAGE_ID);
+    expect(createStageRegistry({ snapshots: createGitSnapshotSource(() => []) }).get('codegraph')).toBeDefined();
   });
 });
 
-// ---- planning --------------------------------------------------------------
+describe('the plan', () => {
+  let f: Fixture;
+  let commit = '';
+  let published: Published;
 
-describe('the resolution stage plans the files a commit moves', () => {
-  test('a first run plans every source file, in code point order of the unit ids, and no document', async () => {
-    const f = await fixture();
-    try {
-      await f.write('README.md', '# fixture\n');
-      await f.write('src/orders.ts', 'export const orders = 1;\n');
-      await f.write('src/helper.ts', 'export const helper = 1;\n');
-      await f.write('scripts/run.py', 'print("hello")\n');
-      const commit = f.commit();
-      const stage = createSemanticResolutionStage(sourceAt(f.root, commit));
-      const plan = await stage.plan({ query: async () => [] });
-      expect(unitIds(plan)).toEqual([
-        'file:orders-api:scripts/run.py',
-        'file:orders-api:src/helper.ts',
-        'file:orders-api:src/orders.ts',
-      ]);
-      expect(plan.coverage).toBe('planned');
-      // A tree that holds no source file at all plans nothing, and says so.
-      const bare = await fixture();
-      try {
-        await bare.write('README.md', '# nothing to read\n');
-        const empty = bare.commit();
-        const emptyStage = createSemanticResolutionStage(sourceAt(bare.root, empty));
-        expect(await emptyStage.plan({ query: async () => [] })).toEqual({ units: [], coverage: 'nothing-found' });
-      } finally {
-        await bare.dispose();
-      }
-    } finally {
-      await f.dispose();
-    }
+  beforeAll(async () => {
+    f = await fixture();
+    await f.write('src/a.ts', A_TS);
+    await f.write('src/b.ts', B_TS);
+    await f.write('README.md', '# orders\n');
+    commit = f.commit();
+    published = await filePass(sourceAt(f.root, commit));
+  }, 120_000);
+
+  afterAll(async () => {
+    await f.dispose();
   });
 
-  test('a file whose blob did not move is not planned again', async () => {
-    const f = await fixture();
-    try {
-      const commit = await writeFixture(f, CALLS_AN_EXPORTED_FUNCTION);
-      const source = sourceAt(f.root, commit);
-      const published = await publishedAt(source);
-      const stage = createSemanticResolutionStage(source);
-      // A first run has nothing published and plans both files.
-      expect(unitIds(await stage.plan({ query: async () => [] })).length).toBe(2);
-      // A second run of the same commit has nothing left to resolve.
-      const again = await stage.plan({ query: graphOf(published, 'orders-api') });
-      expect(unitIds(again)).toEqual([]);
-      expect(again.coverage).toBe('planned');
-    } finally {
-      await f.dispose();
-    }
-  });
+  test('a first run plans every source file, in code point order, and no document', async () => {
+    const stage = createSemanticResolutionStage(sourceAt(f.root, commit));
+    const plan = await stage.plan({ query: async (read: string) => planAnswers(published)(read) });
+    expect(plan.coverage).toBe('planned');
+    expect(unitIds(plan)).toEqual([`file:${REPOSITORY}:src/a.ts`, `file:${REPOSITORY}:src/b.ts`]);
+  }, 60_000);
 
-  test('a change to one file re-resolves that file and every file whose resolution read its symbols, and no other', async () => {
-    const f = await fixture();
-    try {
-      const first = await writeFixture(f, [
-        { path: 'src/core.ts', text: 'export function core(): number {\n  return 1;\n}\n' },
-        { path: 'src/uses.ts', text: "import { core } from './core.js';\n\nexport function run(): number {\n  return core();\n}\n" },
-        { path: 'src/other.ts', text: 'export const other = 1;\n' },
-      ]);
-      const published = await publishedAt(sourceAt(f.root, first));
-      // One file's symbols move: that file, and the file whose resolution read
-      // them, and nothing else.
-      await f.write('src/core.ts', 'export function core(): number {\n  return 2;\n}\n');
-      const second = f.commit();
-      const stage = createSemanticResolutionStage(sourceAt(f.root, second));
-      const plan = await stage.plan({ query: graphOf(published, 'orders-api') });
-      expect(unitIds(plan)).toEqual([
-        'file:orders-api:src/core.ts',
-        'file:orders-api:src/uses.ts',
-      ]);
-    } finally {
-      await f.dispose();
-    }
-  });
+  test('a second run of one commit plans no unit', async () => {
+    const stage = createSemanticResolutionStage(sourceAt(f.root, commit));
+    // What this stage resolved: both files, at the pinned blob, each reading itself and — for `a.ts` — `b.ts`.
+    const resolved: StageDraftWrite[] = [
+      { kind: 'node', evidence: 'fixture', value: { key: 'resolved:a', kind: 'code.coverage', label: 'a', properties: { factKind: 'coverage', scope: 'src/a.ts', blob: published.graph.nodes.find((node) => node.properties['path'] === 'src/a.ts')!.properties['blob'], read: ['src/a.ts', 'src/b.ts'] } } },
+      { kind: 'node', evidence: 'fixture', value: { key: 'resolved:b', kind: 'code.coverage', label: 'b', properties: { factKind: 'coverage', scope: 'src/b.ts', blob: published.graph.nodes.find((node) => node.properties['path'] === 'src/b.ts')!.properties['blob'], read: ['src/b.ts'] } } },
+    ];
+    const plan = await stage.plan({ query: async (read: string) => planAnswers(published, resolved)(read) });
+    expect(unitIds(plan)).toEqual([]);
+  }, 60_000);
 
-  test('an imported file the commit no longer holds re-resolves its importers', async () => {
-    const f = await fixture();
-    try {
-      const first = await writeFixture(f, CALLS_AN_EXPORTED_FUNCTION);
-      const published = await publishedAt(sourceAt(f.root, first));
-      f.git('rm', '-q', 'src/b.ts');
-      const second = f.commit();
-      const stage = createSemanticResolutionStage(sourceAt(f.root, second));
-      // `src/b.ts` is gone, so `src/a.ts` read symbols that no longer stand:
-      // it is planned again beside the vanished path's own retraction, and its
-      // unit writes the import's names as unresolved, at their places.
-      const plan = await stage.plan({ query: graphOf(published, 'orders-api') });
-      expect(unitIds(plan)).toEqual(['file:orders-api:src/a.ts', 'file:orders-api:src/b.ts']);
-      // The state a run resumes in when the retraction published and this
-      // stage's units did not: the tree read holds no `b.ts`, so the graph
-      // answers no `file` fact for the target and the edge itself is what plans
-      // the importer (the read answers such an edge, `stage-reads.ts`).
-      const settled = await publishedAt(sourceAt(f.root, second));
-      const resumed = await stage.plan({ query: graphOf({ tree: settled.tree, writes: published.writes }, 'orders-api') });
-      expect(unitIds(resumed)).toEqual(['file:orders-api:src/a.ts']);
-      const importer = plan.units.find((unit) => unit.id === 'file:orders-api:src/a.ts')!;
-      const run = await runUnit(sourceAt(f.root, second), importer, graphOf(published, 'orders-api'));
-      expect(factsOfKind(run.run.recorder.writes, 'call')).toEqual([]);
-      const gaps = factOfKind(run.run.recorder.writes, 'coverage').value['unread'] as readonly { readonly what: string }[];
-      expect(gaps.some((gap) => gap.what.includes('create at src/a.ts:4:9'))).toBe(true);
-    } finally {
-      await f.dispose();
-    }
-  });
-
-  test('a file that appears under a specifier stage 3 could not tie re-resolves the file that wrote it', async () => {
-    const f = await fixture();
-    try {
-      // The first commit imports a file that does not exist yet: stage 3 writes
-      // the specifier as a gap of the importer's coverage and no import edge.
-      const first = await writeFixture(f, [
-        { path: 'src/a.ts', text: "import { create } from './b.js';\n\nexport function run(): void {\n  create();\n}\n" },
-        { path: 'src/c.ts', text: 'export const other = 1;\n' },
-      ]);
-      const published = await publishedAt(sourceAt(f.root, first));
-      expect(gapRows(published.writes).some((row) => row.file === 'src/a.ts' && row.what === './b.js')).toBe(true);
-      await f.write('src/b.ts', 'export function create(): void {}\n');
-      const second = f.commit();
-      const stage = createSemanticResolutionStage(sourceAt(f.root, second));
-      const plan = await stage.plan({ query: graphOf(published, 'orders-api') });
-      // The importer and the file that appeared; not the file that imports
-      // nothing and was not touched.
-      expect(unitIds(plan)).toEqual(['file:orders-api:src/a.ts', 'file:orders-api:src/b.ts']);
-      // This stage's own runs read both files and their coverage says so: the
-      // next run of the same commit plans nothing, whatever stage 3's older gap
-      // still names — the plan does not re-fire on a specifier it has resolved.
-      const resolution: StageDraftWrite[] = [];
-      for (const unit of plan.units) {
-        const run = await runUnit(sourceAt(f.root, second), unit, graphOf(published, 'orders-api'));
-        resolution.push(...run.run.recorder.writes);
-      }
-      // The second commit's *tree* against the first commit's stage-3 facts —
-      // the state the bound exists for: stage 3 has not re-read the importer, so
-      // its gap still names the specifier the file's resolution now answers. With
-      // this stage's own runs in the graph too, a run plans nothing; without the
-      // bound, rule 3 fires again and plans the importer, which is what makes
-      // this assertion fail on the unbounded code.
-      const settled = await publishedAt(sourceAt(f.root, second));
-      const after = await stage.plan({ query: graphOf({ tree: settled.tree, writes: published.writes, resolution }, 'orders-api') });
-      expect(unitIds(after)).toEqual([]);
-      // And without this stage's own reading the same graph plans the importer
-      // again: the bound is the reading, and a wiring that answers none re-plans.
-      const unbounded = await stage.plan({ query: graphOf({ tree: settled.tree, writes: published.writes }, 'orders-api') });
-      expect(unitIds(unbounded)).toContain('file:orders-api:src/a.ts');
-    } finally {
-      await f.dispose();
-    }
-  });
-
-  test('an import whose specifier names another file of the pinned tree now re-resolves its importer', async () => {
-    const f = await fixture();
-    try {
-      // Stage 3 reads `./b.js` as the `b.ts` beside it, and writes that import
-      // edge. A `b.js` that appears beside it is the file the specifier names
-      // now, and the importer's resolution moves although no file it read moved.
-      const first = await writeFixture(f, [
-        { path: 'src/b.ts', text: 'export function create(): void {}\n' },
-        { path: 'src/a.ts', text: "import { create } from './b.js';\n\nexport function run(): void {\n  create();\n}\n" },
-      ]);
-      const published = await publishedAt(sourceAt(f.root, first));
-      expect(importRows(published.writes).map((row) => row.specifier)).toEqual(['./b.js']);
-      await f.write('src/b.js', 'export function create() {}\n');
-      const second = f.commit();
-      const stage = createSemanticResolutionStage(sourceAt(f.root, second));
-      const plan = await stage.plan({ query: graphOf(published, 'orders-api') });
-      expect(unitIds(plan)).toContain('file:orders-api:src/a.ts');
-      expect(unitIds(plan)).toContain('file:orders-api:src/b.js');
-      // The file stage 3's edge named did not move, and it is not planned.
-      expect(unitIds(plan)).not.toContain('file:orders-api:src/b.ts');
-      // This stage's own run reads the file the specifier names now, and its
-      // coverage says so: the graph of that commit, with this stage's runs in it,
-      // plans nothing — stage 3's older import edge does not re-fire the rule.
-      const resolution: StageDraftWrite[] = [];
-      for (const unit of plan.units) {
-        const run = await runUnit(sourceAt(f.root, second), unit, graphOf(published, 'orders-api'));
-        resolution.push(...run.run.recorder.writes);
-      }
-      // Stage 3's own facts are the first commit's — its import edge still names
-      // `src/b.ts` — and this stage's runs are the newer reading: the rule fires
-      // once and not again, which is what the unbounded code would fail.
-      const settled = await publishedAt(sourceAt(f.root, second));
-      const after = await stage.plan({ query: graphOf({ tree: settled.tree, writes: published.writes, resolution }, 'orders-api') });
-      expect(unitIds(after)).toEqual([]);
-    } finally {
-      await f.dispose();
-    }
-  });
+  test('an imported file whose blob moved re-plans the file that imports it, and no other', async () => {
+    await f.write('src/b.ts', `${B_TS}// a comment moves the bytes and no symbol\n`);
+    const moved = f.commit();
+    const at = await filePass(sourceAt(f.root, moved));
+    const stage = createSemanticResolutionStage(sourceAt(f.root, moved));
+    const resolved: StageDraftWrite[] = [
+      { kind: 'node', evidence: 'fixture', value: { key: 'resolved:a', kind: 'code.coverage', label: 'a', properties: { factKind: 'coverage', scope: 'src/a.ts', blob: published.graph.nodes.find((node) => node.properties['path'] === 'src/a.ts')!.properties['blob'], read: ['src/a.ts', 'src/b.ts'] } } },
+      { kind: 'node', evidence: 'fixture', value: { key: 'resolved:b', kind: 'code.coverage', label: 'b', properties: { factKind: 'coverage', scope: 'src/b.ts', blob: published.graph.nodes.find((node) => node.properties['path'] === 'src/b.ts')!.properties['blob'], read: ['src/b.ts'] } } },
+    ];
+    const plan = await stage.plan({ query: async (read: string) => planAnswers(at, resolved)(read) });
+    expect(unitIds(plan)).toEqual([`file:${REPOSITORY}:src/a.ts`, `file:${REPOSITORY}:src/b.ts`]);
+  }, 120_000);
 
   test('a source file the pinned commit no longer holds is planned, and its unit publishes nothing', async () => {
-    const f = await fixture();
-    try {
-      const first = await writeFixture(f, CALLS_AN_EXPORTED_FUNCTION);
-      const published = await publishedAt(sourceAt(f.root, first));
-      f.git('rm', '-q', 'src/a.ts');
-      const second = f.commit();
-      const stage = createSemanticResolutionStage(sourceAt(f.root, second));
-      const plan = await stage.plan({ query: graphOf(published, 'orders-api') });
-      expect(unitIds(plan)).toContain('file:orders-api:src/a.ts');
-      // The vanished path's unit publishes nothing, which is how the facts an
-      // earlier run wrote for it are retracted.
-      const gone = plan.units.find((unit) => unit.id === 'file:orders-api:src/a.ts')!;
-      const run = contextFor(gone, graphOf(published, 'orders-api'));
-      expect(await stage.execute(gone, run.context)).toEqual({ outcome: 'draft' });
-      expect(run.recorder.writes).toEqual([]);
-      expect(run.recorder.notes[0]).toContain('src/a.ts');
-    } finally {
-      await f.dispose();
-    }
-  });
+    await f.git('rm', '-q', 'src/b.ts');
+    const without = f.commit();
+    const at = await filePass(sourceAt(f.root, without));
+    const stage = createSemanticResolutionStage(sourceAt(f.root, without));
+    const resolved: StageDraftWrite[] = [
+      { kind: 'node', evidence: 'fixture', value: { key: 'resolved:a', kind: 'code.coverage', label: 'a', properties: { factKind: 'coverage', scope: 'src/a.ts', blob: published.graph.nodes.find((node) => node.properties['path'] === 'src/a.ts')!.properties['blob'], read: ['src/a.ts', 'src/b.ts'] } } },
+      { kind: 'node', evidence: 'fixture', value: { key: 'resolved:b', kind: 'code.coverage', label: 'b', properties: { factKind: 'coverage', scope: 'src/b.ts', blob: published.graph.nodes.find((node) => node.properties['path'] === 'src/b.ts')!.properties['blob'], read: ['src/b.ts'] } } },
+    ];
+    const plan = await stage.plan({ query: async (read: string) => planAnswers(at, resolved)(read) });
+    expect(unitIds(plan)).toEqual([`file:${REPOSITORY}:src/a.ts`, `file:${REPOSITORY}:src/b.ts`]);
+    // The vanished path has no node, and a unit that reads no file node writes nothing.
+    const gone = await runUnit(fileUnit('src/b.ts'), at, sourceAt(f.root, without));
+    expect(gone.writes).toEqual([]);
+    expect(gone.notes[0]).toContain('stands at no node of the graph');
+  }, 120_000);
 });
 
-// ---- one unit --------------------------------------------------------------
+/** One repository the test writes, commits, runs the file pass over, and resolves one file of. */
+async function runOn(files: Readonly<Record<string, string>>, path = 'src/a.ts'): Promise<{ readonly published: Published; readonly writes: readonly StageDraftWrite[]; readonly asked: readonly string[]; readonly notes: readonly string[]; readonly commit: string; readonly f: Fixture }> {
+  const f = await fixture();
+  for (const [at, text] of Object.entries(files)) await f.write(at, text);
+  const commit = f.commit();
+  const source = sourceAt(f.root, commit);
+  const published = await filePass(source);
+  const run = await runUnit(fileUnit(path), published, source);
+  return { published, writes: run.writes, asked: run.asked, notes: run.notes, commit, f };
+}
 
-describe('one unit resolves the file it names', () => {
-  test('a.ts calls an exported function of b.ts: one resolved call edge, at precision syntactic', async () => {
-    const f = await fixture();
+describe('one unit resolves the names its file writes', () => {
+  test('a call, an inheritance and a call of the file\'s own function: one edge each, from the caller to the symbol it names', async () => {
+    const run = await runOn({ 'src/a.ts': A_TS, 'src/b.ts': B_TS, 'README.md': '# orders\n' });
     try {
-      const commit = await writeFixture(f, CALLS_AN_EXPORTED_FUNCTION);
-      const source = sourceAt(f.root, commit);
-      const published = await publishedAt(source);
-      const run = await runUnit(source, { id: 'file:orders-api:src/a.ts', scope: 'orders-api:src/a.ts' }, graphOf(published, 'orders-api'));
-      const calls = factsOfKind(run.run.recorder.writes, 'call');
-      expect(calls.length).toBe(1);
-      const call = calls[0]!;
-      // The task's own words: one resolved call edge, with precision syntactic.
-      expect(call.value['precision']).toBe('syntactic');
-      expect(call.value['count']).toBe(1);
-      expect(call.value['from']).toBe(symbolIdOf(published, 'src/a.ts', 'run'));
-      expect(call.value['to']).toBe(symbolIdOf(published, 'src/b.ts', 'create'));
-      // The mention itself is an occurrence at its own place, tied to the symbol.
-      const occurrences = factsOfKind(run.run.recorder.writes, 'occurrence');
-      expect(occurrences.length).toBe(1);
-      expect(occurrences[0]!.value['symbol']).toBe(symbolIdOf(published, 'src/b.ts', 'create'));
-      expect(occurrences[0]!.value['roles']).toEqual(['read-access']);
-      expect(occurrences[0]!.provenance.place).toEqual({ file: 'src/a.ts', range: { startLine: 4, startColumn: 9, endLine: 4, endColumn: 15 } });
-      // Every fact the unit wrote is one the schema reads and this stage produces.
-      const validation = await run.stage.validate({ writes: run.run.recorder.writes }, { query: async () => [] });
-      expect(validation).toEqual({ ok: true });
-      expect(factsOf(run.run.recorder.writes).every((fact) => checkFact(fact).length === 0)).toBe(true);
-    } finally {
-      await f.dispose();
-    }
-  });
-
-  test('the file\'s coverage names the compiler index it did not have, and the files whose symbols it read', async () => {
-    const f = await fixture();
-    try {
-      const commit = await writeFixture(f, CALLS_AN_EXPORTED_FUNCTION);
-      const source = sourceAt(f.root, commit);
-      const published = await publishedAt(source);
-      const run = await runUnit(source, { id: 'file:orders-api:src/a.ts', scope: 'orders-api:src/a.ts' }, graphOf(published, 'orders-api'));
-      const coverage = factOfKind(run.run.recorder.writes, 'coverage');
-      // The resolution is the syntactic fallback, and the file's coverage says
-      // which compiler index it did not have; it also names the files whose
-      // symbols the resolution read, which is what a later run re-resolves.
-      expect(coverage.value['scope']).toBe('src/a.ts');
-      expect(coverage.value['complete']).toBe(false);
-      expect(coverage.value['read']).toEqual(['src/a.ts', 'src/b.ts']);
-      const gaps = coverage.value['unread'] as readonly { readonly what: string; readonly reason: string }[];
-      expect(gaps.length).toBe(1);
-      expect(gaps[0]!.reason).toBe('unsupported');
-      expect(gaps[0]!.what).toContain('compiler index');
-      // The unit read its own symbols and the symbols of the file its import
-      // names, each as a tracked read, and asked for the compiler's index once.
-      const queries = [...run.run.recorder.queries].sort();
-      expect(queries).toEqual([
-        compilerIndexRead('orders-api', 'src/a.ts'),
-        publishedSymbolsRead('orders-api', 'src/a.ts'),
-        publishedSymbolsRead('orders-api', 'src/b.ts'),
+      const create = symbolKeyOf(run.published.syntax, 'src/b.ts', 'create');
+      const thing = symbolKeyOf(run.published.syntax, 'src/b.ts', 'Thing');
+      const calls = edgesOf(run.writes, 'code.calls');
+      expect(calls.map((edge) => [edge.from, edge.to, edge.properties['count']]).sort()).toEqual([
+        [symbolKeyOf(run.published.syntax, 'src/a.ts', 'Service.run'), create, 1],
+        [symbolKeyOf(run.published.syntax, 'src/a.ts', 'made'), create, 1],
+        [symbolKeyOf(run.published.syntax, 'src/a.ts', 'called'), symbolKeyOf(run.published.syntax, 'src/a.ts', 'local'), 1],
       ].sort());
-      expect(queries.filter((read) => read === compilerIndexRead('orders-api', 'src/a.ts')).length).toBe(1);
-    } finally {
-      await f.dispose();
-    }
-  });
-
-  test('an imported name the target file does not declare is written as unresolved with its place', async () => {
-    const f = await fixture();
-    try {
-      const commit = await writeFixture(f, [
-        { path: 'src/b.ts', text: 'export function create(): void {}\n' },
-        { path: 'src/a.ts', text: "import { missing } from './b.js';\n\nexport function run(): void {\n  missing();\n}\n" },
+      expect(calls.every((edge) => edge.properties['factKind'] === 'call' && edge.properties['precision'] === 'syntactic')).toBe(true);
+      expect(edgesOf(run.writes, 'code.inherits').map((edge) => [edge.from, edge.to])).toEqual([
+        [symbolKeyOf(run.published.syntax, 'src/a.ts', 'Service'), thing],
       ]);
-      const source = sourceAt(f.root, commit);
-      const published = await publishedAt(source);
-      const run = await runUnit(source, { id: 'file:orders-api:src/a.ts', scope: 'orders-api:src/a.ts' }, graphOf(published, 'orders-api'));
-      // No edge to a symbol that does not exist: the mention is a gap naming the
-      // name and the place a reader can go to.
-      expect(factsOfKind(run.run.recorder.writes, 'call')).toEqual([]);
-      expect(factsOfKind(run.run.recorder.writes, 'reference')).toEqual([]);
-      expect(factsOfKind(run.run.recorder.writes, 'occurrence')).toEqual([]);
-      const coverage = factOfKind(run.run.recorder.writes, 'coverage');
-      const gaps = coverage.value['unread'] as readonly { readonly what: string }[];
-      expect(gaps.some((gap) => gap.what.includes('missing at src/a.ts:4:2'))).toBe(true);
-      expect(run.run.recorder.notes[0]).toContain('1 unresolved');
-    } finally {
-      await f.dispose();
-    }
-  });
-
-  test('a name imported from a package outside the repository is named once, and its uses are not resolved', async () => {
-    const f = await fixture();
-    try {
-      const commit = await writeFixture(f, [
-        { path: 'src/a.ts', text: "import { map } from 'lodash';\n\nexport function run(): unknown {\n  return map([]);\n}\n" },
+      // Every resolved mention is one positioned occurrence from the file to the symbol it names.
+      const occurrences = edgesOf(run.writes, 'code.occurrence');
+      expect(occurrences).toHaveLength(4);
+      expect(occurrences.every((edge) => edge.from === keyOf([...run.published.tree, ...run.published.syntax], 'code.file', 'src/a.ts'))).toBe(true);
+      expect(occurrences.every((edge) => edge.position !== undefined && edge.position.end > edge.position.start)).toBe(true);
+      const coverage = coverageOf(run.writes);
+      expect(coverage.scope).toBe('src/a.ts');
+      expect(coverage.read).toEqual(['src/a.ts', 'src/b.ts']);
+      expect(coverage.complete).toBe(true);
+      expect(coverage.unread).toEqual([]);
+      // The reads it made: its file by key, its mentions and symbols by one neighbourhood each, and one
+      // global name per name it takes from b.ts — and none for `local`, which a.ts declares itself.
+      expect(run.asked.filter((asked) => asked.startsWith('global:')).sort()).toEqual([
+        `global:${REPOSITORY}:src/b.ts#Thing`,
+        `global:${REPOSITORY}:src/b.ts#create`,
       ]);
-      const source = sourceAt(f.root, commit);
-      const published = await publishedAt(source);
-      const run = await runUnit(source, { id: 'file:orders-api:src/a.ts', scope: 'orders-api:src/a.ts' }, graphOf(published, 'orders-api'));
-      expect(factsOfKind(run.run.recorder.writes, 'call')).toEqual([]);
-      const coverage = factOfKind(run.run.recorder.writes, 'coverage');
-      const gaps = coverage.value['unread'] as readonly { readonly what: string }[];
-      // One gap for the import, and none per use: the package's symbols are not
-      // in this repository, which is a fact about the import, not about the call.
-      expect(gaps.filter((gap) => gap.what.includes('lodash')).length).toBe(1);
-      expect(gaps.filter((gap) => gap.what.includes('map at')).length).toBe(0);
+      expect(run.asked.filter((asked) => asked.startsWith('key:'))).toEqual([`key:${keyOf([...run.published.tree, ...run.published.syntax], 'code.file', 'src/a.ts')}`]);
     } finally {
-      await f.dispose();
+      await run.f.dispose();
     }
-  });
+  }, 180_000);
 
-  test('a compiler index answers at precision compiler, and its absence is not named', async () => {
-    const f = await fixture();
+  test('two runs of one commit write the same edges and the same coverage', async () => {
+    const run = await runOn({ 'src/a.ts': A_TS, 'src/b.ts': B_TS });
     try {
-      const commit = await writeFixture(f, [
-        { path: 'src/a.ts', text: "import { map } from 'lodash';\n\nexport function run(): unknown {\n  return map([]);\n}\n" },
+      const again = await runUnit(fileUnit('src/a.ts'), run.published, sourceAt(run.f.root, run.commit));
+      expect(again.writes).toEqual(run.writes);
+    } finally {
+      await run.f.dispose();
+    }
+  }, 180_000);
+
+  test('an imported name the target file does not declare is a coverage gap with its own place', async () => {
+    const run = await runOn({
+      'src/a.ts': "import { missing } from './b.js';\nexport const used = missing(1);\n",
+      'src/b.ts': B_TS,
+    });
+    try {
+      expect(edgesOf(run.writes, 'code.calls')).toEqual([]);
+      const coverage = coverageOf(run.writes);
+      expect(coverage.complete).toBe(false);
+      expect(coverage.unread.map((gap) => gap.what)).toEqual([
+        'missing at src/a.ts:2:20, the import "./b.js" binds "missing" to "missing", and the file "src/b.ts" declares no symbol of that name',
       ]);
-      const source = sourceAt(f.root, commit);
-      const published = await publishedAt(source);
-      const target = symbolIdOf(published, 'src/a.ts', 'run');
-      // A compiler index that resolved the call `map([])` to the symbol `run`
-      // itself — the fixture's own symbol, since the index names fact ids.
-      const index = (path: string): readonly unknown[] => path === 'src/a.ts' ? [{ line: 4, column: 9, symbol: target }] : [];
-      const run = await runUnit(source, { id: 'file:orders-api:src/a.ts', scope: 'orders-api:src/a.ts' }, graphOf(published, 'orders-api', { index }));
-      const calls = factsOfKind(run.run.recorder.writes, 'call');
-      expect(calls.length).toBe(1);
-      expect(calls[0]!.value['precision']).toBe('compiler');
-      expect(calls[0]!.value['to']).toBe(target);
-      const coverage = factOfKind(run.run.recorder.writes, 'coverage');
-      const gaps = coverage.value['unread'] as readonly { readonly what: string }[];
-      expect(gaps.some((gap) => gap.what.includes('compiler index'))).toBe(false);
+      expect(coverage.read).toEqual(['src/a.ts', 'src/b.ts']);
     } finally {
-      await f.dispose();
+      await run.f.dispose();
     }
-  });
+  }, 180_000);
 
-  test('the resolution is deterministic: two runs of one commit write the same facts', async () => {
-    const f = await fixture();
+  test('a name imported from a package outside the repository is out of the resolution\'s claim: no edge and no gap', async () => {
+    const run = await runOn({
+      'src/a.ts': "import { create } from 'lodash';\nexport const made = create(1);\n",
+      'src/b.ts': B_TS,
+    });
     try {
-      const commit = await writeFixture(f, CALLS_AN_EXPORTED_FUNCTION);
-      const source = sourceAt(f.root, commit);
-      const published = await publishedAt(source);
-      const unit = { id: 'file:orders-api:src/a.ts', scope: 'orders-api:src/a.ts' };
-      const once = await runUnit(source, unit, graphOf(published, 'orders-api'));
-      const twice = await runUnit(source, unit, graphOf(published, 'orders-api'));
-      expect(twice.run.recorder.writes).toEqual(once.run.recorder.writes);
+      expect(edgesOf(run.writes, 'code.calls')).toEqual([]);
+      expect(coverageOf(run.writes).unread).toEqual([]);
+      expect(run.asked.filter((asked) => asked.startsWith('global:'))).toEqual([]);
     } finally {
-      await f.dispose();
+      await run.f.dispose();
     }
-  });
+  }, 180_000);
+
+  test('a name a parameter binds is no mention of a symbol, and a name nothing binds is out of the claim', async () => {
+    const run = await runOn({
+      'src/a.ts': 'export function take(create: number): number { return create; }\nexport const other = create(1);\n',
+      'src/b.ts': B_TS,
+    });
+    try {
+      expect(edgesOf(run.writes, 'code.calls')).toEqual([]);
+      expect(coverageOf(run.writes).unread).toEqual([]);
+    } finally {
+      await run.f.dispose();
+    }
+  }, 180_000);
+
+  test('a file with more mentions than one page is read page by page, and every mention is resolved', async () => {
+    const lines = ['export function local(): number { return 1; }'];
+    for (let index = 0; index < 300; index += 1) lines.push(`export const v${String(index)} = local();`);
+    const run = await runOn({ 'src/a.ts': `${lines.join('\n')}\n`, 'src/b.ts': B_TS });
+    try {
+      const calls = edgesOf(run.writes, 'code.calls');
+      expect(calls).toHaveLength(300);
+      expect(calls.every((edge) => edge.properties['count'] === 1)).toBe(true);
+      expect(edgesOf(run.writes, 'code.occurrence')).toHaveLength(300);
+      // The reads past the first page name the cursor the page before answered.
+      expect(run.asked.filter((asked) => asked.startsWith('near:') && !asked.endsWith(':first')).length).toBeGreaterThan(1);
+      expect(coverageOf(run.writes).complete).toBe(true);
+    } finally {
+      await run.f.dispose();
+    }
+  }, 300_000);
 
   test('a cancelled unit raises rather than publishing an empty draft', async () => {
     const f = await fixture();
     try {
-      const commit = await writeFixture(f, CALLS_AN_EXPORTED_FUNCTION);
+      await f.write('src/a.ts', A_TS);
+      await f.write('src/b.ts', B_TS);
+      const commit = f.commit();
       const source = sourceAt(f.root, commit);
+      const published = await filePass(source);
       const stage = createSemanticResolutionStage(source);
-      const run = contextFor({ id: 'file:orders-api:src/a.ts', scope: 'orders-api:src/a.ts' });
+      const run = await contextFor(fileUnit('src/a.ts'), { source, reader: readerOf(published.graph) });
       run.controller.abort();
-      const message = await refusedBy(() => stage.execute({ id: 'file:orders-api:src/a.ts', scope: 'orders-api:src/a.ts' }, run.context));
-      expect(message).toContain('file:orders-api:src/a.ts');
-      expect(message).toContain('cancelled');
-      expect(run.recorder.writes).toEqual([]);
+      expect(await refusedBy(async () => await stage.execute(fileUnit('src/a.ts'), run.context))).toContain('cancelled before it resolved the pinned file');
     } finally {
       await f.dispose();
     }
-  });
-
-  test('a source file no grammar of the syntax stage reads is published as a coverage gap', async () => {
-    const f = await fixture();
-    try {
-      const commit = await writeFixture(f, [{ path: 'scripts/run.py', text: 'print("hello")\n' }]);
-      const source = sourceAt(f.root, commit);
-      const published = await publishedAt(source);
-      const run = await runUnit(source, { id: 'file:orders-api:scripts/run.py', scope: 'orders-api:scripts/run.py' }, graphOf(published, 'orders-api'));
-      const coverage = factOfKind(run.run.recorder.writes, 'coverage');
-      expect(coverage.value['complete']).toBe(false);
-      expect(coverage.value['read']).toEqual([]);
-      expect(coverage.value['unread']).toEqual([{ what: 'scripts/run.py', reason: 'unsupported' }]);
-      expect(factsOfKind(run.run.recorder.writes, 'occurrence')).toEqual([]);
-    } finally {
-      await f.dispose();
-    }
-  });
-
-  test('a source path that holds a symbolic link is published as a coverage gap', async () => {
-    const f = await fixture();
-    try {
-      await f.write('src/b.ts', 'export function create(): void {}\n');
-      await f.write('src/a.ts', "import { create } from './link.js';\n\nexport function run(): void {\n  create();\n}\n");
-      execFileSync('ln', ['-s', 'b.ts', join(f.root, 'src/link.ts')]);
-      const commit = f.commit();
-      const source = sourceAt(f.root, commit);
-      const published = await publishedAt(source);
-      const unit = { id: 'file:orders-api:src/link.ts', scope: 'orders-api:src/link.ts' };
-      const run = await runUnit(source, unit, graphOf(published, 'orders-api'));
-      const coverage = factOfKind(run.run.recorder.writes, 'coverage');
-      expect(coverage.value['complete']).toBe(false);
-      expect(coverage.value['unread']).toEqual([{ what: 'src/link.ts', reason: 'unsupported' }]);
-      expect(factsOfKind(run.run.recorder.writes, 'occurrence')).toEqual([]);
-      expect(run.run.recorder.notes.join(' ')).toContain('a symbolic link');
-    } finally {
-      await f.dispose();
-    }
-  });
-
-  test('a file nested past what the walk can read is the unit\'s coverage gap, not a raised unit', async () => {
-    const f = await fixture();
-    try {
-      // The walk is recursive, so only a depth well past any real file reaches
-      // this: the threshold is the machine's stack, hence the headroom here.
-      const depth = 12_000;
-      const deep = `${Array.from({ length: depth }, (_, index) => `function f${index}() {`).join('\n')}\n${'}'.repeat(depth)}\n`;
-      await f.write('src/deep.ts', deep);
-      const commit = f.commit();
-      const source = sourceAt(f.root, commit);
-      const published = await publishedAt(source);
-      const unit = { id: 'file:orders-api:src/deep.ts', scope: 'orders-api:src/deep.ts' };
-      const run = await runUnit(source, unit, graphOf(published, 'orders-api'));
-      expect(await run.stage.validate({ writes: run.run.recorder.writes }, { query: async () => [] })).toEqual({ ok: true });
-      const coverage = factOfKind(run.run.recorder.writes, 'coverage');
-      expect(coverage.value['unread']).toEqual([{ what: 'src/deep.ts', reason: 'error' }]);
-      expect(run.run.recorder.notes.join(' ')).toContain('nested past what this reader can walk');
-    } finally {
-      await f.dispose();
-    }
-  });
-
-  test('a RangeError that is not a stack overflow travels instead of becoming a coverage gap', async () => {
-    const f = await fixture();
-    try {
-      const commit = await writeFixture(f, CALLS_AN_EXPORTED_FUNCTION);
-      const published = await publishedAt(sourceAt(f.root, commit));
-      // A reader that answers a file with a `RangeError` of its own: only the
-      // walk's own stack overflow is a file's gap, and a defect still travels.
-      const sources = sourceAt(f.root, commit);
-      const failing: SnapshotSource = {
-        pins: () => sources.pins(),
-        open: async (id: string) => {
-          const reader = await sources.open(id);
-          // The reader the stage sees, with one file's bytes refused by a
-          // `RangeError` of its own: a structural stand-in for the class.
-          return {
-            repository: reader.repository,
-            form: reader.form,
-            root: reader.root,
-            commit: reader.commit,
-            tree: reader.tree,
-            defaultBranch: reader.defaultBranch,
-            source: reader.source,
-            entries: () => reader.entries(),
-            files: () => reader.files(),
-            unfiled: () => reader.unfiled(),
-            fileCount: reader.fileCount,
-            byteCount: reader.byteCount,
-            entry: (path: string) => reader.entry(path),
-            read: async (path: string) => {
-              if (path === 'src/a.ts') throw new RangeError('the blob is out of bounds');
-              return reader.read(path);
-            },
-          } as unknown as Awaited<ReturnType<SnapshotSource['open']>>;
-        },
-      };
-      const stage = createSemanticResolutionStage(failing);
-      const unit = { id: 'file:orders-api:src/a.ts', scope: 'orders-api:src/a.ts' };
-      const message = await refusedBy(() => stage.execute(unit, contextFor(unit, graphOf(published, 'orders-api')).context));
-      expect(message).toContain('out of bounds');
-    } finally {
-      await f.dispose();
-    }
-  });
-
-  test('a default import of a file whose default export has its own name is written unresolved, with its place', async () => {
-    const f = await fixture();
-    try {
-      const commit = await writeFixture(f, [
-        { path: 'src/b.ts', text: 'export default function named(): void {}\n' },
-        { path: 'src/a.ts', text: "import named from './b.js';\n\nexport function run(): void {\n  named();\n}\n" },
-      ]);
-      const source = sourceAt(f.root, commit);
-      const published = await publishedAt(source);
-      const run = await runUnit(source, { id: 'file:orders-api:src/a.ts', scope: 'orders-api:src/a.ts' }, graphOf(published, 'orders-api'));
-      // Stage 3 reads `export default function named` as the symbol `named` and
-      // publishes no `default` symbol for it, so the import binds a name this
-      // stage cannot tie: a gap at the mention's own place, never a wrong edge.
-      expect(factsOfKind(run.run.recorder.writes, 'call')).toEqual([]);
-      const gaps = factOfKind(run.run.recorder.writes, 'coverage').value['unread'] as readonly { readonly what: string }[];
-      expect(gaps.some((gap) => gap.what.includes('named at src/a.ts:4:2') && gap.what.includes('"default"'))).toBe(true);
-    } finally {
-      await f.dispose();
-    }
-  });
+  }, 180_000);
 });
 
-// ---- the reads' own refusals -----------------------------------------------
+describe('a graph that does not answer what the file pass published is refused, naming the place', () => {
+  test('a mention node that holds no place, and a symbol node that is no symbol', async () => {
+    const f = await fixture();
+    try {
+      await f.write('src/a.ts', A_TS);
+      await f.write('src/b.ts', B_TS);
+      const commit = f.commit();
+      const source = sourceAt(f.root, commit);
+      const published = await filePass(source);
+      const stage = createSemanticResolutionStage(source);
+      const withoutRange = {
+        nodes: published.graph.nodes.map((node) => node.kind === 'code.mention' ? { ...node, properties: { ...node.properties, range: undefined } } : node),
+        edges: published.graph.edges,
+      };
+      const first = await contextFor(fileUnit('src/a.ts'), { source, reader: readerOf(withoutRange) });
+      expect(await refusedBy(async () => await stage.execute(fileUnit('src/a.ts'), first.context))).toContain('its range is');
+      // A node hung from the file by code.mentions that is no mention at all.
+      const wrongKind = {
+        nodes: published.graph.nodes.map((node) => node.kind === 'code.mention' ? { ...node, kind: 'code.symbol' } : node),
+        edges: published.graph.edges,
+      };
+      const second = await contextFor(fileUnit('src/a.ts'), { source, reader: readerOf(wrongKind) });
+      expect(await refusedBy(async () => await stage.execute(fileUnit('src/a.ts'), second.context))).toContain('where it was asked for the file\'s mentions');
+    } finally {
+      await f.dispose();
+    }
+  }, 180_000);
+});
 
-/** A fact id of the shape a symbol fact carries, for a row a test hands the reader. */
-const SYMBOL_ID = `symbol:${'a'.repeat(64)}`;
-/** A fact id of the shape a file fact carries. */
-const FILE_ID = `file:${'b'.repeat(64)}`;
+/** The read the plan makes of this stage's own resolutions, for the row refusals below. */
+const RESOLVED_READ = publishedResolvedRead(REPOSITORY).toString();
 
-describe('a read that does not answer what the stage asked for is refused, naming the read, the row and the field', () => {
-  const read = publishedSymbolsRead('orders-api', 'src/a.ts');
-  const row = { kind: 'symbol', id: SYMBOL_ID, file: 'src/a.ts', qualifiedName: 'run', symbolKind: 'function', startLine: 1, startColumn: 0, endLine: 1, endColumn: 3 };
+/** The key a file node of one path carries in the drafts. */
+function fileNodeKeyOf(published: Published, path: string): string {
+  return keyOf([...published.tree, ...published.syntax], 'code.file', path);
+}
 
-  test('a symbol row with a key the read does not define', async () => {
-    const message = await refusedBy(() => symbolRows([{ ...row, run: 'r1' }], 'orders-api', 'src/a.ts', read));
-    expect(message).toContain(read);
-    expect(message).toContain('row 1');
-    expect(message).toContain('"run"');
+describe('the plan refuses a row it would plan by', () => {
+  const read = publishedResolvedRead(REPOSITORY);
+  const row = { kind: 'coverage' as const, file: 'src/a.ts', blob: 'b'.repeat(40), read: ['src/a.ts', 'src/b.ts'] };
+
+  test('a row names the kind, the file, the blob and the list of files it read', async () => {
+    expect(publishedResolvedRows([row], REPOSITORY, read)).toEqual([row]);
+    expect(await refusedBy(() => publishedResolvedRows([{ ...row, kind: 'gap' }], REPOSITORY, read))).toContain('its kind is "gap"');
+    expect(await refusedBy(() => publishedResolvedRows([{ ...row, file: '../a.ts' }], REPOSITORY, read))).toContain('is no repository path');
+    expect(await refusedBy(() => publishedResolvedRows([{ ...row, blob: 'not-a-blob' }], REPOSITORY, read))).toContain('is no blob id');
+    expect(await refusedBy(() => publishedResolvedRows([{ ...row, read: 'src/a.ts' }], REPOSITORY, read))).toContain('is no list of paths');
+    expect(await refusedBy(() => publishedResolvedRows([{ ...row, read: ['../a.ts'] }], REPOSITORY, read))).toContain('is no repository path');
+    expect(await refusedBy(() => publishedResolvedRows([{ ...row, run: 'r1' }], REPOSITORY, read))).toContain('"run"');
+    expect(await refusedBy(() => publishedResolvedRows([null], REPOSITORY, read))).toContain('is no row');
   });
 
-  test('a symbol row declared in another file, and one whose id is no symbol fact', async () => {
-    const elsewhere = await refusedBy(() => symbolRows([{ ...row, file: 'src/b.ts' }], 'orders-api', 'src/a.ts', read));
-    expect(elsewhere).toContain('one read is one file\'s symbols');
-    const wrong = await refusedBy(() => symbolRows([{ ...row, id: FILE_ID }], 'orders-api', 'src/a.ts', read));
-    expect(wrong).toContain('no symbol fact id');
-  });
+  test('a plan whose file has no node in the published tree plans nothing, and says so', async () => {
+    const f = await fixture();
+    try {
+      await f.write('src/a.ts', A_TS);
+      await f.write('src/b.ts', B_TS);
+      const commit = f.commit();
+      const source = sourceAt(f.root, commit);
+      const published = await filePass(source);
+      const stage = createSemanticResolutionStage(source);
+      // The tree the plan reads without a.ts's file node: the unit cannot read a mention of a file
+      // the snapshot has not published, so the plan names nothing rather than a half answer.
+      const answers = planAnswers(published);
+      const plan = await stage.plan({
+        query: async (readText: string) => {
+          if (readText !== publishedTreeRead(REPOSITORY)) return answers(readText);
+          return treeRowsOf([...published.tree, ...published.syntax], REPOSITORY).filter((row) => row.path !== 'src/a.ts');
+        },
+      });
+      expect(plan.coverage).toBe('nothing-found');
+      expect(unitIds(plan)).toEqual([]);
+    } finally {
+      await f.dispose();
+    }
+  }, 180_000);
+});
 
-  test('a symbol row whose range is no range, and one whose end stands before its start', async () => {
-    const broken = await refusedBy(() => symbolRows([{ ...row, endLine: 'two' }], 'orders-api', 'src/a.ts', read));
-    expect(broken).toContain('endLine');
-    const backwards = await refusedBy(() => symbolRows([{ ...row, startLine: 4, endLine: 2 }], 'orders-api', 'src/a.ts', read));
-    expect(backwards).toContain('never before its start');
-  });
+describe('a file\'s imports and declarations decide what a mention names', () => {
+  test('a default import names the target file\'s default export, and a namespace member its own name', async () => {
+    const run = await runOn({
+      'src/a.ts': [
+        "import makeIt from './b.js';",
+        "import * as things from './b.js';",
+        'export const made = makeIt(1);',
+        'export const named = things.create(2);',
+        'export const whole = things;',
+        '',
+      ].join('\n'),
+      'src/b.ts': 'export default function (n: number): number { return n; }\nexport function create(n: number): number { return n; }\n',
+    });
+    try {
+      const calls = edgesOf(run.writes, 'code.calls');
+      expect(calls.map((edge) => [edge.from, edge.to]).sort()).toEqual([
+        // The anonymous default export is the target file's `default` symbol.
+        [symbolKeyOf(run.published.syntax, 'src/a.ts', 'made'), symbolKeyOf(run.published.syntax, 'src/b.ts', 'default')],
+        [symbolKeyOf(run.published.syntax, 'src/a.ts', 'named'), symbolKeyOf(run.published.syntax, 'src/b.ts', 'create')],
+      ].sort());
+      // `things` alone names a module, and no symbol stands for it: out of the resolution's claim.
+      expect(coverageOf(run.writes).complete).toBe(true);
+      expect(run.asked.filter((asked) => asked.startsWith('global:')).sort()).toEqual([
+        `global:${REPOSITORY}:src/b.ts#create`,
+        `global:${REPOSITORY}:src/b.ts#default`,
+      ]);
+    } finally {
+      await run.f.dispose();
+    }
+  }, 180_000);
 
-  test('an import row that names another kind, an id that is no file fact', async () => {
-    const imports = publishedImportsRead('orders-api');
-    const kind = await refusedBy(() => publishedImportRows([{ kind: 'call', from: FILE_ID, to: FILE_ID, specifier: './b.js' }], 'orders-api', imports));
-    expect(kind).toContain('answers "import" edges');
-    const id = await refusedBy(() => publishedImportRows([{ kind: 'import', from: SYMBOL_ID, to: FILE_ID, specifier: './b.js' }], 'orders-api', imports));
-    expect(id).toContain('no file fact id');
-    const specifier = await refusedBy(() => publishedImportRows([{ kind: 'import', from: FILE_ID, to: FILE_ID, specifier: ' ' }], 'orders-api', imports));
-    expect(specifier).toContain('is no specifier');
-  });
+  test('a declaration of the file beats an import of the same name from the mention\'s own line on', async () => {
+    const run = await runOn({
+      'src/a.ts': [
+        "import { create } from './b.js';",
+        'export const made = create(1);',
+        'export function local(create: number): number {',
+        '  return create;',
+        '}',
+        '',
+      ].join('\n'),
+      'src/b.ts': 'export function create(n: number): number { return n; }\n',
+    });
+    try {
+      const calls = edgesOf(run.writes, 'code.calls');
+      expect(calls.map((edge) => edge.to)).toEqual([symbolKeyOf(run.published.syntax, 'src/b.ts', 'create')]);
+      // The mention of `create` inside `local` names the parameter, not the import: one global ask.
+      expect(run.asked.filter((asked) => asked.startsWith('global:'))).toEqual([`global:${REPOSITORY}:src/b.ts#create`]);
+    } finally {
+      await run.f.dispose();
+    }
+  }, 180_000);
 
-  test('a gap row that names another kind, a file that is no repository path, an empty what', async () => {
-    const read = publishedGapsRead('orders-api');
-    expect(await refusedBy(() => publishedGapRows([{ kind: 'symbol', file: 'src/a.ts', what: './b.js' }], 'orders-api', read))).toContain('answers "coverage" gaps');
-    expect(await refusedBy(() => publishedGapRows([{ kind: 'coverage', file: '/abs/a.ts', what: './b.js' }], 'orders-api', read))).toContain('no repository path');
-    expect(await refusedBy(() => publishedGapRows([{ kind: 'coverage', file: 'src/a.ts', what: ' ' }], 'orders-api', read))).toContain('is no gap');
-  });
+  test('two calls of one target from one symbol fold into one edge with the count of the places', async () => {
+    const run = await runOn({
+      'src/a.ts': 'export function local(): number { return 1; }\nexport function twice(): number { return local() + local(); }\n',
+      'src/b.ts': B_TS,
+    });
+    try {
+      const calls = edgesOf(run.writes, 'code.calls');
+      expect(calls).toHaveLength(1);
+      expect(calls[0]!.properties['count']).toBe(2);
+      expect(edgesOf(run.writes, 'code.occurrence')).toHaveLength(2);
+    } finally {
+      await run.f.dispose();
+    }
+  }, 180_000);
+});
 
-  test('a read row that names another kind, a file that is no repository path, a read list that is no list', async () => {
-    const read = publishedReadsRead('orders-api');
-    expect(await refusedBy(() => publishedReadRows([{ kind: 'symbol', file: 'src/a.ts', read: ['src/a.ts'] }], 'orders-api', read))).toContain('answers "coverage" facts');
-    expect(await refusedBy(() => publishedReadRows([{ kind: 'coverage', file: '/abs/a.ts', read: ['src/a.ts'] }], 'orders-api', read))).toContain('no repository path');
-    expect(await refusedBy(() => publishedReadRows([{ kind: 'coverage', file: 'src/a.ts', read: 'src/a.ts' }], 'orders-api', read))).toContain('no list of paths');
-    expect(await refusedBy(() => publishedReadRows([{ kind: 'coverage', file: 'src/a.ts', read: ['../a.ts'] }], 'orders-api', read))).toContain('no repository path');
-  });
+describe('a node the graph answers that is no symbol or no mention is refused, naming the node and the read', () => {
+  test('a symbol node of another file, one with no place, and one whose range ends before it starts', async () => {
+    const f = await fixture();
+    try {
+      await f.write('src/a.ts', A_TS);
+      await f.write('src/b.ts', B_TS);
+      const commit = f.commit();
+      const source = sourceAt(f.root, commit);
+      const published = await filePass(source);
+      const stage = createSemanticResolutionStage(source);
+      const name = 'orders-api:src/a.ts#run';
+      const cases: readonly { readonly nodes: readonly StaticGraphNode[]; readonly edges: Graph['edges']; readonly expected: string }[] = [
+        {
+          nodes: [{ id: 'n1', kind: 'code.symbol', label: 'run', properties: { recordKey: 'symbol:x', file: 'src/b.ts', qualifiedName: 'run', symbolKind: 'method', provenance: { place: { range: { startLine: 1, startColumn: 0, endLine: 2, endColumn: 1 } } } }, producer: 'fill.syntax', scope: '0' }],
+          edges: [{ relation: 'code.contains', from: 'n0', to: 'n1' }],
+          expected: 'which is declared in "src/b.ts", and the read was for the symbols of "src/a.ts"',
+        },
+        {
+          nodes: [{ id: 'n1', kind: 'code.symbol', label: 'run', properties: { recordKey: 'symbol:x', file: 'src/a.ts', qualifiedName: 'run', symbolKind: 'method' }, producer: 'fill.syntax', scope: '0' }],
+          edges: [{ relation: 'code.contains', from: 'n0', to: 'n1' }],
+          expected: 'with no place.range',
+        },
+        {
+          nodes: [{ id: 'n1', kind: 'code.symbol', label: 'run', properties: { recordKey: 'symbol:x', file: 'src/a.ts', qualifiedName: 'run', symbolKind: 'method', provenance: { place: { range: { startLine: 4, startColumn: 0, endLine: 2, endColumn: 1 } } } }, producer: 'fill.syntax', scope: '0' }],
+          edges: [{ relation: 'code.contains', from: 'n0', to: 'n1' }],
+          expected: 'a range\'s end is never before its start',
+        },
+        {
+          nodes: [{ id: 'n1', kind: 'code.mention', label: 'run', properties: { recordKey: 'mention:x', name: 'run', use: 'call', access: 'read-access', parameterBound: false, range: { startLine: 1, startColumn: 0, endLine: 1, endColumn: 3 } }, producer: 'fill.syntax', scope: '0' }],
+          edges: [{ relation: 'code.mentions', from: 'n0', to: 'n1' }],
+          expected: 'its byte span [undefined, undefined) is no span: 0 <= start < end',
+        },
+        {
+          nodes: [{ id: 'n1', kind: 'code.mention', label: 'run', properties: { recordKey: 'mention:x', name: ' ', use: 'call', access: 'read-access', parameterBound: false, range: { startLine: 1, startColumn: 0, endLine: 1, endColumn: 3, startByte: 0, endByte: 3 } }, producer: 'fill.syntax', scope: '0' }],
+          edges: [{ relation: 'code.mentions', from: 'n0', to: 'n1' }],
+          expected: 'its name is " "',
+        },
+      ];
+      for (const held of cases) {
+        // The unit's own file node keeps its published id, and the doctored node stands beside it.
+        const file = published.graph.nodes.filter((node) => node.kind === 'code.file' && node.properties['path'] === 'src/a.ts');
+        const nodes = [...held.nodes.map((node) => ({ ...node, id: `n${String(file.length + 1)}` })), ...file];
+        const edges = held.edges.map((edge) => ({ ...edge, from: edge.from === 'n0' ? file[0]!.id : edge.from, to: edge.to === 'n1' ? nodes[0]!.id : edge.to }));
+        const graph = { nodes, edges };
+        const run = await contextFor(fileUnit('src/a.ts'), { source, reader: readerOf(graph) });
+        const message = await refusedBy(async () => await stage.execute(fileUnit('src/a.ts'), run.context));
+        expect(message).toContain(held.expected);
+      }
+      void name;
+    } finally {
+      await f.dispose();
+    }
+  }, 300_000);
+});
 
-  test('an index row whose place stands twice, and one whose symbol is no symbol fact', async () => {
-    const index = compilerIndexRead('orders-api', 'src/a.ts');
-    const twice = await refusedBy(() => indexRows([{ line: 2, column: 1, symbol: SYMBOL_ID }, { line: 2, column: 1, symbol: SYMBOL_ID }], 'orders-api', 'src/a.ts', index));
-    expect(twice).toContain('2:1');
-    const wrong = await refusedBy(() => indexRows([{ line: 2, column: 1, symbol: 'create' }], 'orders-api', 'src/a.ts', index));
-    expect(wrong).toContain('no symbol fact id');
-  });
+describe('the readers refuse a node they cannot read whole', () => {
+  test('a symbol range that is no number, a name that is no text, a file that names no blob, and a mention with no byte span', async () => {
+    const f = await fixture();
+    try {
+      await f.write('src/a.ts', A_TS);
+      await f.write('src/b.ts', B_TS);
+      const commit = f.commit();
+      const source = sourceAt(f.root, commit);
+      const published = await filePass(source);
+      const stage = createSemanticResolutionStage(source);
+      const file = published.graph.nodes.find((node) => node.kind === 'code.file' && node.properties['path'] === 'src/a.ts')!;
+      const symbol = published.graph.nodes.find((node) => node.kind === 'code.symbol' && node.properties['file'] === 'src/a.ts')!;
+      const mention = published.graph.nodes.find((node) => node.kind === 'code.mention' && node.properties['file'] === 'src/a.ts')!;
+      const cases: readonly { readonly node: StaticGraphNode; readonly fileNode?: StaticGraphNode; readonly relation: string; readonly expected: string }[] = [
+        // A range whose line is a text is no range.
+        { node: { ...symbol, properties: { ...symbol.properties, provenance: { place: { range: { startLine: 'one', startColumn: 0, endLine: 2, endColumn: 1 } } } } }, relation: 'code.contains', expected: 'place.range.startLine is "one"' },
+        // A node with no key names nothing.
+        { node: { ...symbol, properties: { ...symbol.properties, recordKey: ' ' } }, relation: 'code.contains', expected: 'its recordKey is " "' },
+        // The file node of this unit carries no blob: the plan could not tell one reading from the next.
+        { node: { ...file, properties: { ...file.properties, blob: undefined } }, fileNode: { ...file, properties: { ...file.properties, blob: undefined } }, relation: '', expected: 'carries no blob' },
+        // A resolved mention with no byte span cannot position its occurrence.
+        { node: { ...mention, properties: { ...mention.properties, range: { startLine: 1, startColumn: 0, endLine: 1, endColumn: 3 } } }, relation: 'code.mentions', expected: 'its byte span [undefined, undefined) is no span' },
+      ];
+      for (const held of cases) {
+        const fileNode = held.fileNode ?? file;
+        const graph = held.relation === ''
+          ? { nodes: [fileNode], edges: [] }
+          : { nodes: [fileNode, held.node], edges: [{ relation: held.relation, from: fileNode.id, to: held.node.id }] };
+        const run = await contextFor(fileUnit('src/a.ts'), { source, reader: readerOf(graph) });
+        expect(await refusedBy(async () => await stage.execute(fileUnit('src/a.ts'), run.context))).toContain(held.expected);
+      }
+    } finally {
+      await f.dispose();
+    }
+  }, 300_000);
 });

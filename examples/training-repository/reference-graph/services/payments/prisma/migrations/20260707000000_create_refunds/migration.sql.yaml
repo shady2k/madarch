@@ -1,0 +1,159 @@
+path: 'services/payments/prisma/migrations/20260707000000_create_refunds/migration.sql'
+nodes:
+  - id: 'code.column:payments.refunds.amount_cents'
+    kind: 'code.column'
+    label: 'amount_cents'
+    evidence:
+      - path: 'services/payments/prisma/migrations/20260707000000_create_refunds/migration.sql'
+        startLine: 6
+        endLine: 6
+        quote: '    "reason" TEXT,'
+      - path: 'services/payments/prisma/schema.prisma'
+        startLine: 33
+        endLine: 33
+        quote: '  amountCents Int      @map("amount_cents")'
+    reading: 'parsed'
+  - id: 'code.column:payments.refunds.created_at'
+    kind: 'code.column'
+    label: 'created_at'
+    evidence:
+      - path: 'services/payments/prisma/migrations/20260707000000_create_refunds/migration.sql'
+        startLine: 8
+        endLine: 8
+        quote: ''
+      - path: 'services/payments/prisma/schema.prisma'
+        startLine: 35
+        endLine: 35
+        quote: '  createdAt   DateTime @map("created_at")'
+    reading: 'parsed'
+  - id: 'code.column:payments.refunds.id'
+    kind: 'code.column'
+    label: 'id'
+    evidence:
+      - path: 'services/payments/prisma/migrations/20260707000000_create_refunds/migration.sql'
+        startLine: 4
+        endLine: 4
+        quote: '    "payment_id" TEXT NOT NULL,'
+    reading: 'parsed'
+  - id: 'code.column:payments.refunds.payment_id'
+    kind: 'code.column'
+    label: 'payment_id'
+    evidence:
+      - path: 'services/payments/prisma/migrations/20260707000000_create_refunds/migration.sql'
+        startLine: 5
+        endLine: 5
+        quote: '    "amount_cents" INTEGER NOT NULL,'
+      - path: 'services/payments/prisma/schema.prisma'
+        startLine: 31
+        endLine: 31
+        quote: '  paymentId   String   @map("payment_id")'
+    reading: 'parsed'
+  - id: 'code.column:payments.refunds.reason'
+    kind: 'code.column'
+    label: 'reason'
+    evidence:
+      - path: 'services/payments/prisma/migrations/20260707000000_create_refunds/migration.sql'
+        startLine: 7
+        endLine: 7
+        quote: '    "created_at" TIMESTAMP(3) NOT NULL,'
+    reading: 'parsed'
+  - id: 'code.file:services/payments/prisma/migrations/20260707000000_create_refunds/migration.sql'
+    kind: 'code.file'
+    label: 'migration.sql'
+    evidence:
+      - path: 'services/payments/prisma/migrations/20260707000000_create_refunds/migration.sql'
+        startLine: 1
+        endLine: 1
+        quote: '-- A payment has many refunds; a refund belongs to one payment.'
+    reading: 'parsed'
+  - id: 'code.migration:services/payments/prisma/migrations/20260707000000_create_refunds/migration.sql'
+    kind: 'code.migration'
+    label: 'migration.sql'
+    evidence:
+      - path: 'services/payments/prisma/migrations/20260707000000_create_refunds/migration.sql'
+        startLine: 1
+        endLine: 1
+        quote: '-- A payment has many refunds; a refund belongs to one payment.'
+    reading: 'parsed'
+  - id: 'code.table:payments.refunds'
+    kind: 'code.table'
+    label: 'refunds'
+    evidence:
+      - path: 'services/payments/prisma/migrations/20260707000000_create_refunds/migration.sql'
+        startLine: 2
+        endLine: 2
+        quote: 'CREATE TABLE "refunds" ('
+    reading: 'parsed'
+edges:
+  - relation: 'code.belongs-to'
+    from: 'code.migration:services/payments/prisma/migrations/20260707000000_create_refunds/migration.sql'
+    to: 'code.package:services/payments'
+    evidence:
+      - path: 'services/payments/prisma/migrations/20260707000000_create_refunds/migration.sql'
+        startLine: 1
+        endLine: 1
+        quote: '-- A payment has many refunds; a refund belongs to one payment.'
+    reading: 'parsed'
+  - relation: 'code.contains'
+    from: 'code.table:payments.refunds'
+    to: 'code.column:payments.refunds.amount_cents'
+    evidence:
+      - path: 'services/payments/prisma/migrations/20260707000000_create_refunds/migration.sql'
+        startLine: 6
+        endLine: 6
+        quote: '    "reason" TEXT,'
+    reading: 'parsed'
+  - relation: 'code.contains'
+    from: 'code.table:payments.refunds'
+    to: 'code.column:payments.refunds.created_at'
+    evidence:
+      - path: 'services/payments/prisma/migrations/20260707000000_create_refunds/migration.sql'
+        startLine: 8
+        endLine: 8
+        quote: ''
+    reading: 'parsed'
+  - relation: 'code.contains'
+    from: 'code.table:payments.refunds'
+    to: 'code.column:payments.refunds.id'
+    evidence:
+      - path: 'services/payments/prisma/migrations/20260707000000_create_refunds/migration.sql'
+        startLine: 4
+        endLine: 4
+        quote: '    "payment_id" TEXT NOT NULL,'
+    reading: 'parsed'
+  - relation: 'code.contains'
+    from: 'code.table:payments.refunds'
+    to: 'code.column:payments.refunds.payment_id'
+    evidence:
+      - path: 'services/payments/prisma/migrations/20260707000000_create_refunds/migration.sql'
+        startLine: 5
+        endLine: 5
+        quote: '    "amount_cents" INTEGER NOT NULL,'
+    reading: 'parsed'
+  - relation: 'code.contains'
+    from: 'code.table:payments.refunds'
+    to: 'code.column:payments.refunds.reason'
+    evidence:
+      - path: 'services/payments/prisma/migrations/20260707000000_create_refunds/migration.sql'
+        startLine: 7
+        endLine: 7
+        quote: '    "created_at" TIMESTAMP(3) NOT NULL,'
+    reading: 'parsed'
+  - relation: 'code.creates'
+    from: 'code.migration:services/payments/prisma/migrations/20260707000000_create_refunds/migration.sql'
+    to: 'code.table:payments.refunds'
+    evidence:
+      - path: 'services/payments/prisma/migrations/20260707000000_create_refunds/migration.sql'
+        startLine: 2
+        endLine: 2
+        quote: 'CREATE TABLE "refunds" ('
+    reading: 'parsed'
+  - relation: 'code.foreign-key'
+    from: 'code.column:payments.refunds.payment_id'
+    to: 'code.column:payments.payments.id'
+    evidence:
+      - path: 'services/payments/prisma/migrations/20260707000000_create_refunds/migration.sql'
+        startLine: 12
+        endLine: 12
+        quote: 'ALTER TABLE "refunds" ADD CONSTRAINT "refunds_payment_id_fkey" FOREIGN KEY ("payment_id") REFERENCES "payments"("id") ON DELETE RESTRICT ON UPDATE CASCADE;'
+    reading: 'parsed'

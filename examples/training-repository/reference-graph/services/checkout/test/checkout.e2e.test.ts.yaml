@@ -1,0 +1,217 @@
+path: 'services/checkout/test/checkout.e2e.test.ts'
+nodes:
+  - id: 'code.file:services/checkout/test/checkout.e2e.test.ts'
+    kind: 'code.file'
+    label: 'checkout.e2e.test.ts'
+    evidence:
+      - path: 'services/checkout/test/checkout.e2e.test.ts'
+        startLine: 1
+        endLine: 1
+        quote: 'import http, { IncomingMessage, ServerResponse } from ''node:http'';'
+    reading: 'parsed'
+  - id: 'code.symbol:services/checkout/test/checkout.e2e.test.ts#json'
+    kind: 'code.symbol'
+    label: 'json'
+    evidence:
+      - path: 'services/checkout/test/checkout.e2e.test.ts'
+        startLine: 31
+        endLine: 31
+        quote: 'function json(res: ServerResponse, status: number, body: unknown) {'
+    reading: 'parsed'
+  - id: 'code.symbol:services/checkout/test/checkout.e2e.test.ts#listen'
+    kind: 'code.symbol'
+    label: 'listen'
+    evidence:
+      - path: 'services/checkout/test/checkout.e2e.test.ts'
+        startLine: 12
+        endLine: 12
+        quote: 'function listen(handler: (req: IncomingMessage, res: ServerResponse, body: any) => void) {'
+    reading: 'parsed'
+  - id: 'code.test-case:services/checkout/test/checkout.e2e.test.ts#cancels the order and answers 402 when the payment is declined'
+    kind: 'code.test-case'
+    label: 'cancels the order and answers 402 when the payment is declined'
+    evidence:
+      - path: 'services/checkout/test/checkout.e2e.test.ts'
+        startLine: 115
+        endLine: 115
+        quote: '  it(''cancels the order and answers 402 when the payment is declined'', async () => {'
+    reading: 'parsed'
+  - id: 'code.test-case:services/checkout/test/checkout.e2e.test.ts#places the order with the promotion percent and pays it'
+    kind: 'code.test-case'
+    label: 'places the order with the promotion percent and pays it'
+    evidence:
+      - path: 'services/checkout/test/checkout.e2e.test.ts'
+        startLine: 103
+        endLine: 103
+        quote: '  it(''places the order with the promotion percent and pays it'', async () => {'
+    reading: 'parsed'
+edges:
+  - relation: 'code.calls'
+    from: 'code.file:services/checkout/test/checkout.e2e.test.ts'
+    to: 'code.symbol:services/checkout/src/app.ts#createApp'
+    evidence:
+      - path: 'services/checkout/test/checkout.e2e.test.ts'
+        startLine: 84
+        endLine: 84
+        quote: '    checkout = createApp(service).listen(0, ''127.0.0.1'');'
+    reading: 'parsed'
+  - relation: 'code.calls'
+    from: 'code.file:services/checkout/test/checkout.e2e.test.ts'
+    to: 'code.symbol:services/checkout/src/checkout-service.ts#CheckoutService'
+    evidence:
+      - path: 'services/checkout/test/checkout.e2e.test.ts'
+        startLine: 83
+        endLine: 83
+        quote: '    const service = new CheckoutService(new OrdersClient(orders.url), paymentsClient, new PromotionsClient(promotions.url));'
+    reading: 'parsed'
+  - relation: 'code.calls'
+    from: 'code.file:services/checkout/test/checkout.e2e.test.ts'
+    to: 'code.symbol:services/checkout/src/orders-client.ts#OrdersClient'
+    evidence:
+      - path: 'services/checkout/test/checkout.e2e.test.ts'
+        startLine: 83
+        endLine: 83
+        quote: '    const service = new CheckoutService(new OrdersClient(orders.url), paymentsClient, new PromotionsClient(promotions.url));'
+    reading: 'parsed'
+  - relation: 'code.calls'
+    from: 'code.file:services/checkout/test/checkout.e2e.test.ts'
+    to: 'code.symbol:services/checkout/src/payments-client.ts#PaymentsClient'
+    evidence:
+      - path: 'services/checkout/test/checkout.e2e.test.ts'
+        startLine: 82
+        endLine: 82
+        quote: '    paymentsClient = new PaymentsClient(`127.0.0.1:${grpcPort}`, 2000);'
+    reading: 'parsed'
+  - relation: 'code.calls'
+    from: 'code.file:services/checkout/test/checkout.e2e.test.ts'
+    to: 'code.symbol:services/checkout/src/promotions-client.ts#PromotionsClient'
+    evidence:
+      - path: 'services/checkout/test/checkout.e2e.test.ts'
+        startLine: 83
+        endLine: 83
+        quote: '    const service = new CheckoutService(new OrdersClient(orders.url), paymentsClient, new PromotionsClient(promotions.url));'
+    reading: 'parsed'
+  - relation: 'code.calls'
+    from: 'code.file:services/checkout/test/checkout.e2e.test.ts'
+    to: 'code.symbol:services/checkout/test/checkout.e2e.test.ts#json'
+    evidence:
+      - path: 'services/checkout/test/checkout.e2e.test.ts'
+        startLine: 56
+        endLine: 56
+        quote: '        json(res, 201, { id: ''ord_1'', status: ''pending_payment'', totalCents: total });'
+      - path: 'services/checkout/test/checkout.e2e.test.ts'
+        startLine: 58
+        endLine: 58
+        quote: '        json(res, 200, { id: ''ord_1'', status: ''cancelled'', totalCents: 0 });'
+      - path: 'services/checkout/test/checkout.e2e.test.ts'
+        startLine: 63
+        endLine: 63
+        quote: '        json(res, 200, { code: ''WELCOME10'', discountCents: Math.floor(body.subtotalCents / 10), percent: 10 });'
+      - path: 'services/checkout/test/checkout.e2e.test.ts'
+        startLine: 65
+        endLine: 65
+        quote: '        json(res, 404, { error: ''unknown_code'' });'
+    reading: 'parsed'
+  - relation: 'code.calls'
+    from: 'code.file:services/checkout/test/checkout.e2e.test.ts'
+    to: 'code.symbol:services/checkout/test/checkout.e2e.test.ts#listen'
+    evidence:
+      - path: 'services/checkout/test/checkout.e2e.test.ts'
+        startLine: 47
+        endLine: 47
+        quote: '    orders = await listen((req, res, body) => {'
+      - path: 'services/checkout/test/checkout.e2e.test.ts'
+        startLine: 61
+        endLine: 61
+        quote: '    promotions = await listen((_req, res, body) => {'
+    reading: 'parsed'
+  - relation: 'code.calls'
+    from: 'code.file:services/checkout/test/checkout.e2e.test.ts'
+    to: 'code.symbol:services/checkout/test/payments-stub.ts#loadServiceDefinition'
+    evidence:
+      - path: 'services/checkout/test/checkout.e2e.test.ts'
+        startLine: 72
+        endLine: 72
+        quote: '    paymentsServer.addService(loadServiceDefinition(), {'
+    reading: 'parsed'
+  - relation: 'code.contains'
+    from: 'code.file:services/checkout/test/checkout.e2e.test.ts'
+    to: 'code.symbol:services/checkout/test/checkout.e2e.test.ts#json'
+    evidence:
+      - path: 'services/checkout/test/checkout.e2e.test.ts'
+        startLine: 31
+        endLine: 31
+        quote: 'function json(res: ServerResponse, status: number, body: unknown) {'
+    reading: 'parsed'
+  - relation: 'code.contains'
+    from: 'code.file:services/checkout/test/checkout.e2e.test.ts'
+    to: 'code.symbol:services/checkout/test/checkout.e2e.test.ts#listen'
+    evidence:
+      - path: 'services/checkout/test/checkout.e2e.test.ts'
+        startLine: 12
+        endLine: 12
+        quote: 'function listen(handler: (req: IncomingMessage, res: ServerResponse, body: any) => void) {'
+    reading: 'parsed'
+  - relation: 'code.imports'
+    from: 'code.file:services/checkout/test/checkout.e2e.test.ts'
+    to: 'code.dependency:services/checkout/package.json#@grpc/grpc-js'
+    evidence:
+      - path: 'services/checkout/test/checkout.e2e.test.ts'
+        startLine: 3
+        endLine: 3
+        quote: 'import * as grpc from ''@grpc/grpc-js'';'
+    reading: 'parsed'
+  - relation: 'code.imports'
+    from: 'code.file:services/checkout/test/checkout.e2e.test.ts'
+    to: 'code.file:services/checkout/src/app.ts'
+    evidence:
+      - path: 'services/checkout/test/checkout.e2e.test.ts'
+        startLine: 4
+        endLine: 4
+        quote: 'import { createApp } from ''../src/app'';'
+    reading: 'parsed'
+  - relation: 'code.imports'
+    from: 'code.file:services/checkout/test/checkout.e2e.test.ts'
+    to: 'code.file:services/checkout/src/checkout-service.ts'
+    evidence:
+      - path: 'services/checkout/test/checkout.e2e.test.ts'
+        startLine: 5
+        endLine: 5
+        quote: 'import { CheckoutService } from ''../src/checkout-service'';'
+    reading: 'parsed'
+  - relation: 'code.imports'
+    from: 'code.file:services/checkout/test/checkout.e2e.test.ts'
+    to: 'code.file:services/checkout/src/orders-client.ts'
+    evidence:
+      - path: 'services/checkout/test/checkout.e2e.test.ts'
+        startLine: 6
+        endLine: 6
+        quote: 'import { OrdersClient } from ''../src/orders-client'';'
+    reading: 'parsed'
+  - relation: 'code.imports'
+    from: 'code.file:services/checkout/test/checkout.e2e.test.ts'
+    to: 'code.file:services/checkout/src/payments-client.ts'
+    evidence:
+      - path: 'services/checkout/test/checkout.e2e.test.ts'
+        startLine: 7
+        endLine: 7
+        quote: 'import { PaymentsClient } from ''../src/payments-client'';'
+    reading: 'parsed'
+  - relation: 'code.imports'
+    from: 'code.file:services/checkout/test/checkout.e2e.test.ts'
+    to: 'code.file:services/checkout/src/promotions-client.ts'
+    evidence:
+      - path: 'services/checkout/test/checkout.e2e.test.ts'
+        startLine: 8
+        endLine: 8
+        quote: 'import { PromotionsClient } from ''../src/promotions-client'';'
+    reading: 'parsed'
+  - relation: 'code.imports'
+    from: 'code.file:services/checkout/test/checkout.e2e.test.ts'
+    to: 'code.file:services/checkout/test/payments-stub.ts'
+    evidence:
+      - path: 'services/checkout/test/checkout.e2e.test.ts'
+        startLine: 9
+        endLine: 9
+        quote: 'import { loadServiceDefinition } from ''./payments-stub'';'
+    reading: 'parsed'

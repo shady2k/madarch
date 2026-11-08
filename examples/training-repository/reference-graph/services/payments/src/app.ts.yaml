@@ -1,0 +1,300 @@
+path: 'services/payments/src/app.ts'
+nodes:
+  - id: 'code.field:services/payments/src/app.ts#AppDeps.jwtSecret'
+    kind: 'code.field'
+    label: 'AppDeps.jwtSecret'
+    evidence:
+      - path: 'services/payments/src/app.ts'
+        startLine: 11
+        endLine: 11
+        quote: '  jwtSecret: string;'
+    reading: 'parsed'
+  - id: 'code.field:services/payments/src/app.ts#AppDeps.prisma'
+    kind: 'code.field'
+    label: 'AppDeps.prisma'
+    evidence:
+      - path: 'services/payments/src/app.ts'
+        startLine: 10
+        endLine: 10
+        quote: '  prisma: PrismaClient;'
+    reading: 'parsed'
+  - id: 'code.field:services/payments/src/app.ts#AppDeps.service'
+    kind: 'code.field'
+    label: 'AppDeps.service'
+    evidence:
+      - path: 'services/payments/src/app.ts'
+        startLine: 9
+        endLine: 9
+        quote: '  service: PaymentService;'
+    reading: 'parsed'
+  - id: 'code.file:services/payments/src/app.ts'
+    kind: 'code.file'
+    label: 'app.ts'
+    evidence:
+      - path: 'services/payments/src/app.ts'
+        startLine: 1
+        endLine: 1
+        quote: 'import express, { Express } from ''express'';'
+    reading: 'parsed'
+  - id: 'code.health-endpoint:payments:/healthz'
+    kind: 'code.health-endpoint'
+    label: 'GET /healthz'
+    evidence:
+      - path: 'services/payments/src/app.ts'
+        startLine: 20
+        endLine: 20
+        quote: '  app.get(''/healthz'', (_req, res) => {'
+    reading: 'parsed'
+  - id: 'code.route:payments:GET /healthz'
+    kind: 'code.route'
+    label: 'GET /healthz'
+    evidence:
+      - path: 'services/payments/src/app.ts'
+        startLine: 20
+        endLine: 20
+        quote: '  app.get(''/healthz'', (_req, res) => {'
+    reading: 'parsed'
+  - id: 'code.route:payments:GET /payments/{id}'
+    kind: 'code.route'
+    label: 'GET /payments/{id}'
+    evidence:
+      - path: 'services/payments/src/app.ts'
+        startLine: 25
+        endLine: 25
+        quote: '  app.use(''/payments'', auth, paymentRoutes(deps.service));'
+    reading: 'parsed'
+  - id: 'code.route:payments:GET /reports/legacy'
+    kind: 'code.route'
+    label: 'GET /reports/legacy'
+    evidence:
+      - path: 'services/payments/src/app.ts'
+        startLine: 26
+        endLine: 26
+        quote: '  app.use(''/reports'', auth, legacyReportRoutes(deps.prisma));'
+    reading: 'parsed'
+  - id: 'code.route:payments:POST /payments'
+    kind: 'code.route'
+    label: 'POST /payments'
+    evidence:
+      - path: 'services/payments/src/app.ts'
+        startLine: 25
+        endLine: 25
+        quote: '  app.use(''/payments'', auth, paymentRoutes(deps.service));'
+    reading: 'parsed'
+  - id: 'code.route:payments:POST /payments/{id}/refunds'
+    kind: 'code.route'
+    label: 'POST /payments/{id}/refunds'
+    evidence:
+      - path: 'services/payments/src/app.ts'
+        startLine: 25
+        endLine: 25
+        quote: '  app.use(''/payments'', auth, paymentRoutes(deps.service));'
+    reading: 'parsed'
+  - id: 'code.symbol:services/payments/src/app.ts#AppDeps'
+    kind: 'code.symbol'
+    label: 'AppDeps'
+    evidence:
+      - path: 'services/payments/src/app.ts'
+        startLine: 8
+        endLine: 8
+        quote: 'export interface AppDeps {'
+    reading: 'parsed'
+  - id: 'code.symbol:services/payments/src/app.ts#createApp'
+    kind: 'code.symbol'
+    label: 'createApp'
+    evidence:
+      - path: 'services/payments/src/app.ts'
+        startLine: 15
+        endLine: 15
+        quote: 'export function createApp(deps: AppDeps): Express {'
+    reading: 'parsed'
+edges:
+  - relation: 'code.belongs-to'
+    from: 'code.route:payments:GET /healthz'
+    to: 'code.service:payments'
+    evidence:
+      - path: 'services/payments/src/app.ts'
+        startLine: 20
+        endLine: 20
+        quote: '  app.get(''/healthz'', (_req, res) => {'
+    reading: 'parsed'
+  - relation: 'code.belongs-to'
+    from: 'code.route:payments:GET /payments/{id}'
+    to: 'code.service:payments'
+    evidence:
+      - path: 'services/payments/src/app.ts'
+        startLine: 25
+        endLine: 25
+        quote: '  app.use(''/payments'', auth, paymentRoutes(deps.service));'
+    reading: 'parsed'
+  - relation: 'code.belongs-to'
+    from: 'code.route:payments:GET /reports/legacy'
+    to: 'code.service:payments'
+    evidence:
+      - path: 'services/payments/src/app.ts'
+        startLine: 26
+        endLine: 26
+        quote: '  app.use(''/reports'', auth, legacyReportRoutes(deps.prisma));'
+    reading: 'parsed'
+  - relation: 'code.belongs-to'
+    from: 'code.route:payments:POST /payments'
+    to: 'code.service:payments'
+    evidence:
+      - path: 'services/payments/src/app.ts'
+        startLine: 25
+        endLine: 25
+        quote: '  app.use(''/payments'', auth, paymentRoutes(deps.service));'
+    reading: 'parsed'
+  - relation: 'code.belongs-to'
+    from: 'code.route:payments:POST /payments/{id}/refunds'
+    to: 'code.service:payments'
+    evidence:
+      - path: 'services/payments/src/app.ts'
+        startLine: 25
+        endLine: 25
+        quote: '  app.use(''/payments'', auth, paymentRoutes(deps.service));'
+    reading: 'parsed'
+  - relation: 'code.calls'
+    from: 'code.symbol:services/payments/src/app.ts#createApp'
+    to: 'code.symbol:services/payments/src/api/legacy-report.ts#legacyReportRoutes'
+    evidence:
+      - path: 'services/payments/src/app.ts'
+        startLine: 26
+        endLine: 26
+        quote: '  app.use(''/reports'', auth, legacyReportRoutes(deps.prisma));'
+    reading: 'parsed'
+  - relation: 'code.calls'
+    from: 'code.symbol:services/payments/src/app.ts#createApp'
+    to: 'code.symbol:services/payments/src/api/middleware.ts#authenticate'
+    evidence:
+      - path: 'services/payments/src/app.ts'
+        startLine: 24
+        endLine: 24
+        quote: '  const auth = authenticate(deps.jwtSecret);'
+    reading: 'parsed'
+  - relation: 'code.calls'
+    from: 'code.symbol:services/payments/src/app.ts#createApp'
+    to: 'code.symbol:services/payments/src/api/routes.ts#paymentRoutes'
+    evidence:
+      - path: 'services/payments/src/app.ts'
+        startLine: 25
+        endLine: 25
+        quote: '  app.use(''/payments'', auth, paymentRoutes(deps.service));'
+    reading: 'parsed'
+  - relation: 'code.contains'
+    from: 'code.file:services/payments/src/app.ts'
+    to: 'code.symbol:services/payments/src/app.ts#AppDeps'
+    evidence:
+      - path: 'services/payments/src/app.ts'
+        startLine: 8
+        endLine: 8
+        quote: 'export interface AppDeps {'
+    reading: 'parsed'
+  - relation: 'code.contains'
+    from: 'code.file:services/payments/src/app.ts'
+    to: 'code.symbol:services/payments/src/app.ts#createApp'
+    evidence:
+      - path: 'services/payments/src/app.ts'
+        startLine: 15
+        endLine: 15
+        quote: 'export function createApp(deps: AppDeps): Express {'
+    reading: 'parsed'
+  - relation: 'code.contains'
+    from: 'code.symbol:services/payments/src/app.ts#AppDeps'
+    to: 'code.field:services/payments/src/app.ts#AppDeps.jwtSecret'
+    evidence:
+      - path: 'services/payments/src/app.ts'
+        startLine: 11
+        endLine: 11
+        quote: '  jwtSecret: string;'
+    reading: 'parsed'
+  - relation: 'code.contains'
+    from: 'code.symbol:services/payments/src/app.ts#AppDeps'
+    to: 'code.field:services/payments/src/app.ts#AppDeps.prisma'
+    evidence:
+      - path: 'services/payments/src/app.ts'
+        startLine: 10
+        endLine: 10
+        quote: '  prisma: PrismaClient;'
+    reading: 'parsed'
+  - relation: 'code.contains'
+    from: 'code.symbol:services/payments/src/app.ts#AppDeps'
+    to: 'code.field:services/payments/src/app.ts#AppDeps.service'
+    evidence:
+      - path: 'services/payments/src/app.ts'
+        startLine: 9
+        endLine: 9
+        quote: '  service: PaymentService;'
+    reading: 'parsed'
+  - relation: 'code.imports'
+    from: 'code.file:services/payments/src/app.ts'
+    to: 'code.dependency:services/payments/package.json#@prisma/client'
+    evidence:
+      - path: 'services/payments/src/app.ts'
+        startLine: 2
+        endLine: 2
+        quote: 'import { PrismaClient } from ''@prisma/client'';'
+    reading: 'parsed'
+  - relation: 'code.imports'
+    from: 'code.file:services/payments/src/app.ts'
+    to: 'code.dependency:services/payments/package.json#express'
+    evidence:
+      - path: 'services/payments/src/app.ts'
+        startLine: 1
+        endLine: 1
+        quote: 'import express, { Express } from ''express'';'
+    reading: 'parsed'
+  - relation: 'code.imports'
+    from: 'code.file:services/payments/src/app.ts'
+    to: 'code.file:services/payments/src/api/legacy-report.ts'
+    evidence:
+      - path: 'services/payments/src/app.ts'
+        startLine: 4
+        endLine: 4
+        quote: 'import { legacyReportRoutes } from ''./api/legacy-report'';'
+    reading: 'parsed'
+  - relation: 'code.imports'
+    from: 'code.file:services/payments/src/app.ts'
+    to: 'code.file:services/payments/src/api/middleware.ts'
+    evidence:
+      - path: 'services/payments/src/app.ts'
+        startLine: 3
+        endLine: 3
+        quote: 'import { authenticate, errorHandler, requestLogger } from ''./api/middleware'';'
+    reading: 'parsed'
+  - relation: 'code.imports'
+    from: 'code.file:services/payments/src/app.ts'
+    to: 'code.file:services/payments/src/api/routes.ts'
+    evidence:
+      - path: 'services/payments/src/app.ts'
+        startLine: 5
+        endLine: 5
+        quote: 'import { paymentRoutes } from ''./api/routes'';'
+    reading: 'parsed'
+  - relation: 'code.imports'
+    from: 'code.file:services/payments/src/app.ts'
+    to: 'code.file:services/payments/src/domain/payment-service.ts'
+    evidence:
+      - path: 'services/payments/src/app.ts'
+        startLine: 6
+        endLine: 6
+        quote: 'import { PaymentService } from ''./domain/payment-service'';'
+    reading: 'parsed'
+  - relation: 'code.uses-type'
+    from: 'code.field:services/payments/src/app.ts#AppDeps.service'
+    to: 'code.symbol:services/payments/src/domain/payment-service.ts#PaymentService'
+    evidence:
+      - path: 'services/payments/src/app.ts'
+        startLine: 9
+        endLine: 9
+        quote: '  service: PaymentService;'
+    reading: 'parsed'
+  - relation: 'code.uses-type'
+    from: 'code.symbol:services/payments/src/app.ts#createApp'
+    to: 'code.symbol:services/payments/src/app.ts#AppDeps'
+    evidence:
+      - path: 'services/payments/src/app.ts'
+        startLine: 15
+        endLine: 15
+        quote: 'export function createApp(deps: AppDeps): Express {'
+    reading: 'parsed'

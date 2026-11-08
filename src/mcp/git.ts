@@ -9,6 +9,7 @@
  * `/`-separated and relative to the repository root.
  */
 import { execFileSync } from 'node:child_process';
+import { withSpanSync } from '../obs/trace.js';
 import { existsSync, readFileSync } from 'node:fs';
 import { resolve } from 'node:path';
 
@@ -41,7 +42,12 @@ export interface Revision {
 /** Runs one git command in a repository and answers its bytes. */
 function gitBytes(repository: string, args: readonly string[]): Buffer {
   try {
-    return execFileSync('git', [...args], { cwd: repository, maxBuffer: 1 << 28, stdio: ['ignore', 'pipe', 'pipe'], env: { ...process.env, LC_ALL: 'C', GIT_OPTIONAL_LOCKS: '0' } });
+    return withSpanSync('process.git', { 'process.command': 'git', 'process.args': [...args], 'process.cwd': repository }, (span) => {
+      const answer = execFileSync('git', [...args], { cwd: repository, maxBuffer: 1 << 28, stdio: ['ignore', 'pipe', 'pipe'], env: { ...process.env, LC_ALL: 'C', GIT_OPTIONAL_LOCKS: '0' } });
+      span.setAttribute('process.outputBytes', answer.length);
+      span.setAttribute('process.exitCode', 0);
+      return answer;
+    });
   } catch (error) {
     const failure = error as { stderr?: Buffer | string; status?: number };
     const said = (failure.stderr === undefined ? '' : failure.stderr.toString()).trim();
@@ -49,10 +55,13 @@ function gitBytes(repository: string, args: readonly string[]): Buffer {
   }
 }
 
-/** The bytes of a path in the working tree, or null when the file is not there. */
-export function readWorkingFile(repository: string, path: string): Uint8Array | null {
-  const full = resolve(repository, path);
-  return existsSync(full) ? readFileSync(full) : null;
+/** The bytes of a path at one commit, or null when the commit holds none: the text an answer quotes from an unchanged file. */
+export function readCommitFile(repository: string, commit: string, path: string): Uint8Array | null {
+  try {
+    return gitBytes(repository, ['show', `${commit}:${path}`]);
+  } catch {
+    return null;
+  }
 }
 
 /** Whether the checkout names a commit at all: an empty repository cannot be served. */
@@ -115,29 +124,4 @@ export function readRevision(repository: string): Revision {
   const dirty = dirtyFiles(repository);
   const touched = [...new Set(dirty.flatMap((one) => (one.from === undefined ? [one.path] : [one.path, one.from])))].sort(ordered);
   return { repository, commit, branch: headBranch(repository), dirty, touched };
-}
-
-/** One repository tree as an extractor reads it: the working tree's paths and bytes. */
-export interface WorkingTree {
-  readonly paths: readonly string[];
-  read(path: string): Uint8Array;
-}
-
-/**
- * The working tree as one tree: the index's paths and the untracked ones git
- * does not ignore, in code point order, as the driver hands a commit's tree to
- * an extractor. A path that is not on disk is not in the tree — a deleted file
- * is a file the working tree no longer has.
- */
-export function workingTree(repository: string): WorkingTree {
-  const listed = gitBytes(repository, ['ls-files', '-z', '--cached', '--others', '--exclude-standard']).toString('utf8').split('\0');
-  const paths = [...new Set(listed.filter((path) => path !== ''))].filter((path) => existsSync(resolve(repository, path))).sort(ordered);
-  return {
-    paths,
-    read: (path: string): Uint8Array => {
-      const bytes = readWorkingFile(repository, path);
-      if (bytes === null) throw new Error(`${resolve(repository, path)}:1: the working tree holds no such file (src/mcp/git.ts)`);
-      return bytes;
-    },
-  };
 }

@@ -1,0 +1,328 @@
+path: 'services/payments/prisma/migrations/20260603000000_create_payments/migration.sql'
+nodes:
+  - id: 'code.column:payments.payments.amount_cents'
+    kind: 'code.column'
+    label: 'amount_cents'
+    evidence:
+      - path: 'services/payments/prisma/migrations/20260603000000_create_payments/migration.sql'
+        startLine: 6
+        endLine: 6
+        quote: '    "amount_cents" INTEGER NOT NULL,'
+      - path: 'services/payments/prisma/schema.prisma'
+        startLine: 15
+        endLine: 15
+        quote: '  amountCents       Int       @map("amount_cents")'
+    reading: 'parsed'
+  - id: 'code.column:payments.payments.captured_at'
+    kind: 'code.column'
+    label: 'captured_at'
+    evidence:
+      - path: 'services/payments/prisma/migrations/20260603000000_create_payments/migration.sql'
+        startLine: 13
+        endLine: 13
+        quote: '    "captured_at" TIMESTAMP(3),'
+      - path: 'services/payments/prisma/schema.prisma'
+        startLine: 22
+        endLine: 22
+        quote: '  capturedAt        DateTime? @map("captured_at")'
+    reading: 'parsed'
+  - id: 'code.column:payments.payments.created_at'
+    kind: 'code.column'
+    label: 'created_at'
+    evidence:
+      - path: 'services/payments/prisma/migrations/20260603000000_create_payments/migration.sql'
+        startLine: 12
+        endLine: 12
+        quote: '    "created_at" TIMESTAMP(3) NOT NULL,'
+      - path: 'services/payments/prisma/schema.prisma'
+        startLine: 21
+        endLine: 21
+        quote: '  createdAt         DateTime  @map("created_at")'
+    reading: 'parsed'
+  - id: 'code.column:payments.payments.currency'
+    kind: 'code.column'
+    label: 'currency'
+    evidence:
+      - path: 'services/payments/prisma/migrations/20260603000000_create_payments/migration.sql'
+        startLine: 7
+        endLine: 7
+        quote: '    "currency" TEXT NOT NULL,'
+    reading: 'parsed'
+  - id: 'code.column:payments.payments.decline_reason'
+    kind: 'code.column'
+    label: 'decline_reason'
+    evidence:
+      - path: 'services/payments/prisma/migrations/20260603000000_create_payments/migration.sql'
+        startLine: 11
+        endLine: 11
+        quote: '    "decline_reason" TEXT,'
+      - path: 'services/payments/prisma/schema.prisma'
+        startLine: 20
+        endLine: 20
+        quote: '  declineReason     String?   @map("decline_reason")'
+    reading: 'parsed'
+  - id: 'code.column:payments.payments.id'
+    kind: 'code.column'
+    label: 'id'
+    evidence:
+      - path: 'services/payments/prisma/migrations/20260603000000_create_payments/migration.sql'
+        startLine: 4
+        endLine: 4
+        quote: '    "id" TEXT NOT NULL,'
+    reading: 'parsed'
+  - id: 'code.column:payments.payments.idempotency_key'
+    kind: 'code.column'
+    label: 'idempotency_key'
+    evidence:
+      - path: 'services/payments/prisma/migrations/20260603000000_create_payments/migration.sql'
+        startLine: 9
+        endLine: 9
+        quote: '    "idempotency_key" TEXT NOT NULL,'
+      - path: 'services/payments/prisma/schema.prisma'
+        startLine: 18
+        endLine: 18
+        quote: '  idempotencyKey    String    @unique @map("idempotency_key")'
+    reading: 'parsed'
+  - id: 'code.column:payments.payments.order_id'
+    kind: 'code.column'
+    label: 'order_id'
+    evidence:
+      - path: 'services/payments/prisma/migrations/20260603000000_create_payments/migration.sql'
+        startLine: 5
+        endLine: 5
+        quote: '    "order_id" TEXT NOT NULL,'
+      - path: 'services/payments/prisma/schema.prisma'
+        startLine: 14
+        endLine: 14
+        quote: '  orderId           String    @map("order_id")'
+    reading: 'parsed'
+  - id: 'code.column:payments.payments.provider_reference'
+    kind: 'code.column'
+    label: 'provider_reference'
+    evidence:
+      - path: 'services/payments/prisma/migrations/20260603000000_create_payments/migration.sql'
+        startLine: 10
+        endLine: 10
+        quote: '    "provider_reference" TEXT,'
+      - path: 'services/payments/prisma/schema.prisma'
+        startLine: 19
+        endLine: 19
+        quote: '  providerReference String?   @map("provider_reference")'
+    reading: 'parsed'
+  - id: 'code.column:payments.payments.status'
+    kind: 'code.column'
+    label: 'status'
+    evidence:
+      - path: 'services/payments/prisma/migrations/20260603000000_create_payments/migration.sql'
+        startLine: 8
+        endLine: 8
+        quote: '    "status" TEXT NOT NULL,'
+    reading: 'parsed'
+  - id: 'code.file:services/payments/prisma/migrations/20260603000000_create_payments/migration.sql'
+    kind: 'code.file'
+    label: 'migration.sql'
+    evidence:
+      - path: 'services/payments/prisma/migrations/20260603000000_create_payments/migration.sql'
+        startLine: 1
+        endLine: 1
+        quote: '-- order_id points at the orders service''s orders table, but not through a'
+    reading: 'parsed'
+  - id: 'code.index:payments.payments_idempotency_key_key'
+    kind: 'code.index'
+    label: 'payments_idempotency_key_key'
+    evidence:
+      - path: 'services/payments/prisma/migrations/20260603000000_create_payments/migration.sql'
+        startLine: 18
+        endLine: 18
+        quote: 'CREATE UNIQUE INDEX "payments_idempotency_key_key" ON "payments"("idempotency_key");'
+    reading: 'parsed'
+  - id: 'code.index:payments.payments_order_id_idx'
+    kind: 'code.index'
+    label: 'payments_order_id_idx'
+    evidence:
+      - path: 'services/payments/prisma/migrations/20260603000000_create_payments/migration.sql'
+        startLine: 20
+        endLine: 20
+        quote: 'CREATE INDEX "payments_order_id_idx" ON "payments"("order_id");'
+    reading: 'parsed'
+  - id: 'code.migration:services/payments/prisma/migrations/20260603000000_create_payments/migration.sql'
+    kind: 'code.migration'
+    label: 'migration.sql'
+    evidence:
+      - path: 'services/payments/prisma/migrations/20260603000000_create_payments/migration.sql'
+        startLine: 1
+        endLine: 1
+        quote: '-- order_id points at the orders service''s orders table, but not through a'
+    reading: 'parsed'
+  - id: 'code.table:payments.payments'
+    kind: 'code.table'
+    label: 'payments'
+    evidence:
+      - path: 'services/payments/prisma/migrations/20260603000000_create_payments/migration.sql'
+        startLine: 3
+        endLine: 3
+        quote: 'CREATE TABLE "payments" ('
+    reading: 'parsed'
+edges:
+  - relation: 'code.belongs-to'
+    from: 'code.migration:services/payments/prisma/migrations/20260603000000_create_payments/migration.sql'
+    to: 'code.package:services/payments'
+    evidence:
+      - path: 'services/payments/prisma/migrations/20260603000000_create_payments/migration.sql'
+        startLine: 1
+        endLine: 1
+        quote: '-- order_id points at the orders service''s orders table, but not through a'
+    reading: 'parsed'
+  - relation: 'code.contains'
+    from: 'code.table:payments.payments'
+    to: 'code.column:payments.payments.amount_cents'
+    evidence:
+      - path: 'services/payments/prisma/migrations/20260603000000_create_payments/migration.sql'
+        startLine: 6
+        endLine: 6
+        quote: '    "amount_cents" INTEGER NOT NULL,'
+    reading: 'parsed'
+  - relation: 'code.contains'
+    from: 'code.table:payments.payments'
+    to: 'code.column:payments.payments.captured_at'
+    evidence:
+      - path: 'services/payments/prisma/migrations/20260603000000_create_payments/migration.sql'
+        startLine: 13
+        endLine: 13
+        quote: '    "captured_at" TIMESTAMP(3),'
+    reading: 'parsed'
+  - relation: 'code.contains'
+    from: 'code.table:payments.payments'
+    to: 'code.column:payments.payments.created_at'
+    evidence:
+      - path: 'services/payments/prisma/migrations/20260603000000_create_payments/migration.sql'
+        startLine: 12
+        endLine: 12
+        quote: '    "created_at" TIMESTAMP(3) NOT NULL,'
+    reading: 'parsed'
+  - relation: 'code.contains'
+    from: 'code.table:payments.payments'
+    to: 'code.column:payments.payments.currency'
+    evidence:
+      - path: 'services/payments/prisma/migrations/20260603000000_create_payments/migration.sql'
+        startLine: 7
+        endLine: 7
+        quote: '    "currency" TEXT NOT NULL,'
+    reading: 'parsed'
+  - relation: 'code.contains'
+    from: 'code.table:payments.payments'
+    to: 'code.column:payments.payments.decline_reason'
+    evidence:
+      - path: 'services/payments/prisma/migrations/20260603000000_create_payments/migration.sql'
+        startLine: 11
+        endLine: 11
+        quote: '    "decline_reason" TEXT,'
+    reading: 'parsed'
+  - relation: 'code.contains'
+    from: 'code.table:payments.payments'
+    to: 'code.column:payments.payments.id'
+    evidence:
+      - path: 'services/payments/prisma/migrations/20260603000000_create_payments/migration.sql'
+        startLine: 4
+        endLine: 4
+        quote: '    "id" TEXT NOT NULL,'
+    reading: 'parsed'
+  - relation: 'code.contains'
+    from: 'code.table:payments.payments'
+    to: 'code.column:payments.payments.idempotency_key'
+    evidence:
+      - path: 'services/payments/prisma/migrations/20260603000000_create_payments/migration.sql'
+        startLine: 9
+        endLine: 9
+        quote: '    "idempotency_key" TEXT NOT NULL,'
+    reading: 'parsed'
+  - relation: 'code.contains'
+    from: 'code.table:payments.payments'
+    to: 'code.column:payments.payments.order_id'
+    evidence:
+      - path: 'services/payments/prisma/migrations/20260603000000_create_payments/migration.sql'
+        startLine: 5
+        endLine: 5
+        quote: '    "order_id" TEXT NOT NULL,'
+    reading: 'parsed'
+  - relation: 'code.contains'
+    from: 'code.table:payments.payments'
+    to: 'code.column:payments.payments.provider_reference'
+    evidence:
+      - path: 'services/payments/prisma/migrations/20260603000000_create_payments/migration.sql'
+        startLine: 10
+        endLine: 10
+        quote: '    "provider_reference" TEXT,'
+    reading: 'parsed'
+  - relation: 'code.contains'
+    from: 'code.table:payments.payments'
+    to: 'code.column:payments.payments.status'
+    evidence:
+      - path: 'services/payments/prisma/migrations/20260603000000_create_payments/migration.sql'
+        startLine: 8
+        endLine: 8
+        quote: '    "status" TEXT NOT NULL,'
+    reading: 'parsed'
+  - relation: 'code.contains'
+    from: 'code.table:payments.payments'
+    to: 'code.index:payments.payments_idempotency_key_key'
+    evidence:
+      - path: 'services/payments/prisma/migrations/20260603000000_create_payments/migration.sql'
+        startLine: 18
+        endLine: 18
+        quote: 'CREATE UNIQUE INDEX "payments_idempotency_key_key" ON "payments"("idempotency_key");'
+    reading: 'parsed'
+  - relation: 'code.contains'
+    from: 'code.table:payments.payments'
+    to: 'code.index:payments.payments_order_id_idx'
+    evidence:
+      - path: 'services/payments/prisma/migrations/20260603000000_create_payments/migration.sql'
+        startLine: 20
+        endLine: 20
+        quote: 'CREATE INDEX "payments_order_id_idx" ON "payments"("order_id");'
+    reading: 'parsed'
+  - relation: 'code.covers'
+    from: 'code.index:payments.payments_idempotency_key_key'
+    to: 'code.column:payments.payments.idempotency_key'
+    evidence:
+      - path: 'services/payments/prisma/migrations/20260603000000_create_payments/migration.sql'
+        startLine: 18
+        endLine: 18
+        quote: 'CREATE UNIQUE INDEX "payments_idempotency_key_key" ON "payments"("idempotency_key");'
+    reading: 'parsed'
+  - relation: 'code.covers'
+    from: 'code.index:payments.payments_order_id_idx'
+    to: 'code.column:payments.payments.order_id'
+    evidence:
+      - path: 'services/payments/prisma/migrations/20260603000000_create_payments/migration.sql'
+        startLine: 20
+        endLine: 20
+        quote: 'CREATE INDEX "payments_order_id_idx" ON "payments"("order_id");'
+    reading: 'parsed'
+  - relation: 'code.creates'
+    from: 'code.migration:services/payments/prisma/migrations/20260603000000_create_payments/migration.sql'
+    to: 'code.index:payments.payments_idempotency_key_key'
+    evidence:
+      - path: 'services/payments/prisma/migrations/20260603000000_create_payments/migration.sql'
+        startLine: 18
+        endLine: 18
+        quote: 'CREATE UNIQUE INDEX "payments_idempotency_key_key" ON "payments"("idempotency_key");'
+    reading: 'parsed'
+  - relation: 'code.creates'
+    from: 'code.migration:services/payments/prisma/migrations/20260603000000_create_payments/migration.sql'
+    to: 'code.index:payments.payments_order_id_idx'
+    evidence:
+      - path: 'services/payments/prisma/migrations/20260603000000_create_payments/migration.sql'
+        startLine: 20
+        endLine: 20
+        quote: 'CREATE INDEX "payments_order_id_idx" ON "payments"("order_id");'
+    reading: 'parsed'
+  - relation: 'code.creates'
+    from: 'code.migration:services/payments/prisma/migrations/20260603000000_create_payments/migration.sql'
+    to: 'code.table:payments.payments'
+    evidence:
+      - path: 'services/payments/prisma/migrations/20260603000000_create_payments/migration.sql'
+        startLine: 3
+        endLine: 3
+        quote: 'CREATE TABLE "payments" ('
+    reading: 'parsed'

@@ -63,6 +63,8 @@ import { byCodePoint } from '../../model/order.js';
 import { ID_PATTERN } from '../../model/schema.js';
 import { GIT_LEAKS } from '../../product/git.js';
 import type { SnapshotSource } from '../snapshot.js';
+import { checkStaticGraphDraft, graphWritesOf } from './static-graph.js';
+import { STATIC_READ_ROW_LIMIT, type StaticGraphReader } from './static-context.js';
 import {
   FACT_KINDS,
   checkFact,
@@ -95,7 +97,7 @@ const execFile = promisify(execFileCallback);
 export const HISTORY_STAGE_ID = 'history';
 
 /** The stage module's own version (decision 0027): bumped when the behaviour it declares changes. */
-export const HISTORY_STAGE_VERSION = 1;
+export const HISTORY_STAGE_VERSION = 3;
 
 /** How many commits of the ancestry one unit reads where the product configures no depth. */
 export const DEFAULT_HISTORY_DEPTH = 1000;
@@ -115,21 +117,56 @@ export const HISTORY_INPUT_CAPABILITY = 'snapshot';
  * the kind every stage of the fill reports in (decision 0026), and the other
  * two are stage 7's own.
  */
-export const HISTORY_FACT_KINDS = ['commit', 'coverage', 'task-key'] as const;
+export const HISTORY_FACT_KINDS = ['author', 'authored', 'commit', 'coverage', 'parent', 'task-key', 'touched'] as const;
 
-/** The stage's own configuration: how deep into one repository's ancestry a unit reads. */
-const HISTORY_CONFIG_SCHEMA = Type.Object({ depth: Type.Integer({ minimum: 1 }) });
+/**
+ * The schema version each produced kind is written in. The four this stage writes as raw graph
+ * items — the author node and the three history relations — carry the graph's own shape and no
+ * fact-schema kind, so they are declared here at version 1.
+ */
+const HISTORY_PRODUCED_VERSIONS: Readonly<Record<(typeof HISTORY_FACT_KINDS)[number], number>> = {
+  author: 1,
+  authored: 1,
+  commit: FACT_KINDS.commit.version,
+  coverage: FACT_KINDS.coverage.version,
+  parent: 1,
+  'task-key': FACT_KINDS['task-key'].version,
+  touched: 1,
+};
+
+/** The stage's own configuration: how deep into one repository's ancestry a unit reads, and which trailer of a commit message names task keys. */
+const HISTORY_CONFIG_SCHEMA = Type.Object({
+  depth: Type.Integer({ minimum: 1 }),
+  /** The trailer the product declares as its task-key source; no name is assumed where it declares none. */
+  trailer: Type.Optional(Type.String({ minLength: 1 })),
+  /** The literal separators the product declares between the keys of one trailer value; required with `trailer`. */
+  separators: Type.Optional(Type.Array(Type.String({ minLength: 1 }), { minItems: 1 })),
+});
 
 // ---- the graph reads ------------------------------------------------------
 
+/** The read names an execute makes: the commits the graph already holds for a repository, and this stage's coverage of one scope. */
+export const COMMITS_HELD_READ = 'stage-7-held-commits';
+export const HISTORY_COVERAGE_READ = 'stage-7-held-coverage';
+
+/**
+ * The reader every fact of this stage cites: its own reading of Git at one
+ * commit. The coverage's identity carries the reader, so this stage's coverage
+ * of one scope is its own and no other stage's.
+ */
+export const HISTORY_SOURCE_SYSTEM_NAME = 'madarch-history';
+
+/** The reader this stage's facts cite, at the stage's own version. */
+const HISTORY_SOURCE: FactSource = { system: HISTORY_SOURCE_SYSTEM_NAME, version: '2' };
+
 /** The read an execute makes of the commit facts this repository's history already holds, with the value each holds. */
-export function commitsHeldQuery(repository: string): string {
-  return `SELECT commit, value FROM fact WHERE kind = 'commit' AND repository = '${repositoryName(repository)}'`;
+export function commitsHeldRead(repository: string): string {
+  return JSON.stringify({ read: COMMITS_HELD_READ, repository: repositoryName(repository) });
 }
 
 /** The read an execute makes of the coverage fact it wrote for one scope, so a coverage that still holds is not written again. */
-export function coverageHeldQuery(repository: string, scope: string): string {
-  return `SELECT value FROM fact WHERE kind = 'coverage' AND repository = '${repositoryName(repository)}' AND scope = '${scopeText(scope)}'`;
+export function historyCoverageRead(repository: string, scope: string): string {
+  return JSON.stringify({ read: HISTORY_COVERAGE_READ, repository: repositoryName(repository), scope: scopeText(scope) });
 }
 
 /** The repository a fact may name: the product's own name for it, which is also what a read may hold between quotes. */
@@ -171,10 +208,18 @@ export interface HistoryCommit {
   readonly subject: string;
   /** The name the commit was authored under, as git records it. */
   readonly author?: string;
+  /** The email the commit was authored under: the identity an author node is named by. */
+  readonly authorEmail?: string;
   /** The paths the commit changed, from the repository's root, in code point order, each once. */
   readonly files: readonly RepositoryPath[];
-  /** The commit's whole message, the bytes the task keys are read from. */
-  readonly message: string;
+  /** Every trailer git's own parser read from the commit's message, in the order the parser returns them. */
+  readonly trailers: readonly HistoryTrailer[];
+}
+
+/** One trailer git's parser read: the key and the value, exactly as the parser returned them. */
+export interface HistoryTrailer {
+  readonly key: string;
+  readonly value: string;
 }
 
 /** One read of a repository's ancestry at one commit. */
@@ -210,12 +255,15 @@ export const HISTORY_LOG_RECORD = '\x1e';
 export const HISTORY_LOG_FIELD = '\x1f';
 
 /**
- * The log format: `%x1e` opens a commit's record, the fields are joined by
- * `%x1f`, and the message is last so that a message holding the field
- * separator itself still reads (a message holding the record separator is
- * refused by the reader rather than read as two records).
+ * The log format: `%x1e` opens a commit's record and `%x1f` joins its fields.
+ * The commit's trailers are one field of git's own trailer parser, each trailer
+ * as the parser writes it (`key: value`), the items separated by NUL: a commit
+ * message holds no NUL, so the parser's own text stays whole — and what a
+ * trailer means is the product's declaration, never this reader's guess. A
+ * message holding the record separator is refused by the parser rather than
+ * read as two records.
  */
-const HISTORY_LOG_FORMAT = '%x1e%H%x1f%P%x1f%ct%x1f%at%x1f%an%x1f%s%x1f%B%x1f';
+const HISTORY_LOG_FORMAT = '%x1e%H%x1f%P%x1f%ct%x1f%at%x1f%an%x1f%ae%x1f%s%x1f%(trailers:only,unfold,separator=%x00)';
 
 /** The most a git call may answer: the whole ancestry of a very large repository, names included. */
 const GIT_MAX_BUFFER = 256 * 1024 * 1024;
@@ -356,12 +404,12 @@ async function sourceVersion(folder: string, signal: AbortSignal | undefined, wh
 
 /**
  * The commits Git listed, newest first as `git log` writes them, each with its
- * parents, its two times, its author, its subject, the message and the paths it
- * changed. Everything a record holds that the format does not promise is
+ * parents, its two times, its author, its subject, the trailers git's own parser
+ * read and the paths it changed. Everything a record holds that the format does not promise is
  * refused by name rather than read past: a record whose first field is no
  * commit, a parent that is no commit, a time that is no whole number of
- * seconds, a record whose fields are followed by something that is no path
- * list, and a path list that does not end with its separator. A message
+ * seconds, a record with no path list, a trailer git's parser did not write as
+ * `key: value`, and a path list that does not end with its separator. A message
  * holding the record separator reaches the reader as a record of its own, which
  * is why these refusals name the repository, the commit and the bytes rather
  * than dropping the record.
@@ -371,31 +419,28 @@ function parseLog(text: string, at: { readonly repository: string; readonly comm
   const commits: HistoryCommit[] = [];
   for (const record of text.split(HISTORY_LOG_RECORD)) {
     if (record === '') continue;
-    const last = record.lastIndexOf(HISTORY_LOG_FIELD);
-    if (last < 0) throw new Error(`${where} holds a record with no field separator: ${JSON.stringify(record.slice(0, 120))}`);
-    const fields = record.slice(0, last).split(HISTORY_LOG_FIELD);
-    const [commit, parents, committed, authored, author, subject] = fields;
-    if (commit === undefined || parents === undefined || committed === undefined || authored === undefined || author === undefined || subject === undefined) {
-      throw new Error(`${where} holds a record with ${fields.length} fields: a record is the commit, its parents, its two times, its author, its subject and its message`);
+    // The path list is the section that opens with a NUL: a newline and the paths where the
+    // commit changed files, and the NUL alone where it changed none. Everything before it is
+    // the record's fields; a commit message holds no NUL, so the parser's trailer text stays whole.
+    const listed = record.indexOf('\x00\n');
+    const pathAt = listed >= 0 ? listed : record.endsWith('\x00') ? record.length - 1 : -1;
+    if (pathAt < 0) throw new Error(`${where} holds a record with no path list: ${JSON.stringify(record.slice(0, 120))}`);
+    const fields = record.slice(0, pathAt).split(HISTORY_LOG_FIELD);
+    const [commit, parents, committed, authored, author, authorEmail, subject, trailerText] = fields;
+    if (commit === undefined || parents === undefined || committed === undefined || authored === undefined || author === undefined || authorEmail === undefined || subject === undefined || trailerText === undefined || fields.length !== 8) {
+      throw new Error(`${where} holds a record with ${fields.length} fields: a record is the commit, its parents, its two times, its author's name and email, its subject, the trailers git's parser read and its paths`);
     }
     if (!COMMIT_PATTERN.test(commit)) {
       throw new Error(`${where} holds a record whose first field is ${JSON.stringify(commit)}: a commit is 40 lower-case hexadecimal digits, so this record is a message git wrote as one`);
     }
-    const message = fields.slice(6).join(HISTORY_LOG_FIELD);
+    const trailers = parseTrailers(trailerText, commit, where);
     const parentsRead = parents === '' ? [] : parents.split(' ').map((parent) => {
       if (!COMMIT_PATTERN.test(parent)) throw new Error(`${where} names the parent ${JSON.stringify(parent)} of ${commit}: a parent is 40 lower-case hexadecimal digits`);
       return parent;
     });
     const committedAt = isoTimestamp(committed, `the committer time of ${commit}`, where);
     const authoredAt = isoTimestamp(authored, `the author time of ${commit}`, where);
-    // Everything after the record's last field separator is git's path list,
-    // and git opens one with a NUL. Anything else there means the record the
-    // reader is holding was cut in two — a message holding the record separator
-    // — and that is refused here, where the commit it pretended to be is known.
-    const section = record.slice(last + 1);
-    if (section !== '' && !section.startsWith('\x00')) {
-      throw new Error(`${where} holds a record for ${commit} whose fields are followed by ${JSON.stringify(section.slice(0, 120))}, which is no path list: a message holding the record separator reaches the reader as a record of its own`);
-    }
+    const section = record.slice(pathAt);
     commits.push({
       commit,
       parents: parentsRead,
@@ -403,11 +448,27 @@ function parseLog(text: string, at: { readonly repository: string; readonly comm
       authoredAt,
       subject,
       ...(author === '' ? {} : { author }),
+      ...(authorEmail === '' ? {} : { authorEmail }),
       files: parseFiles(section, commit, where),
-      message,
+      trailers,
     });
   }
   return commits;
+}
+
+/**
+ * The trailers git's parser returned for one commit, in the parser's order:
+ * each item is the parser's own `key: value` text, the items separated by NUL.
+ * The first `": "` is git's separator; a value may hold another. An item the
+ * parser did not write in that form is refused by the commit it belongs to.
+ */
+function parseTrailers(text: string, commit: string, where: string): HistoryTrailer[] {
+  if (text === '') return [];
+  return text.split('\x00').map((item) => {
+    const at = item.indexOf(': ');
+    if (at < 0) throw new Error(`${where} reads the trailer ${JSON.stringify(item)} of ${commit}: git's trailer parser writes each as "key: value"`);
+    return { key: item.slice(0, at), value: item.slice(at + 2) };
+  });
 }
 
 /**
@@ -557,7 +618,13 @@ function coverageGaps(gaps: readonly CoverageGap[], repository: string, scope: s
 const SCOPE_PATTERN = /^repository:([A-Za-z0-9][A-Za-z0-9._-]*)@([0-9a-f]{40})$/u;
 const SCOPE_FORM = 'a history scope is "repository:<name>@<commit>", naming the product\'s own name for the repository and the 40 lower-case hexadecimal digits of the commit the run pinned';
 
-/** The scope of the unit that reads one repository at one commit. */
+/**
+ * The scope of the unit that reads one repository's ancestry: the repository itself. The unit's
+ * own key is its range (`<repository>@<commit>`, `historyUnitId`), but the scope it publishes under
+ * is the repository's: two runs at two commits write the same producer and scope, so a later range
+ * replaces the earlier reading instead of colliding with it on the commits both ancestries hold
+ * (decision 0033's fenced publication, and decision 0030's commit range as what a unit reads).
+ */
 export function historyScope(repository: string, commit: string): string {
   return `repository:${repositoryName(repository)}@${pinnedCommit(commit, `the repository ${repository}`)}`;
 }
@@ -581,13 +648,13 @@ function pinnedCommit(commit: string, what: string): string {
   return commit;
 }
 
-/** The repository and the commit one unit's scope names, refused by name where it is not that form. */
-export function parseHistoryScope(scope: string): PinnedSnapshot {
-  const match = typeof scope === 'string' ? SCOPE_PATTERN.exec(scope) : null;
-  const repository = match?.[1];
-  const commit = match?.[2];
-  if (repository === undefined || commit === undefined) {
-    throw new Error(`history: the scope ${JSON.stringify(scope)} names no repository at a commit: ${SCOPE_FORM}`);
+/** The repository and the commit one unit's **id** names (`<repository>@<commit>`), refused by name where it is not that form. */
+export function parseHistoryScope(unitId: string): PinnedSnapshot {
+  const at = typeof unitId === 'string' ? unitId.lastIndexOf('@') : -1;
+  const repository = at < 0 ? '' : unitId.slice(0, at);
+  const commit = at < 0 ? '' : unitId.slice(at + 1);
+  if (repository === '' || !ID_PATTERN.test(repository) || !COMMIT_PATTERN.test(commit)) {
+    throw new Error(`history: the unit ${JSON.stringify(unitId)} names no repository at a commit: a history unit is "<repository>@<commit>", naming the product's own name for the repository and the 40 lower-case hexadecimal digits of the commit the run pinned`);
   }
   return { repository, commit };
 }
@@ -620,15 +687,23 @@ async function planUnits(sources: SnapshotSource): Promise<StagePlan> {
 // ---- the facts one unit writes --------------------------------------------
 
 /**
- * The task keys a commit message names: the tracker's own rule (the backlog
- * integration's `taskIds`), one or more lines `Task: <id>[, <id> ...]`, read
- * case-insensitively, keys split on commas and whitespace, the case of each key
- * kept as the commit wrote it, each occurring once, in code point order.
+ * The task keys one commit's trailers name: the values of the trailer the
+ * product declares, split on the literal separators the product declares, each
+ * piece once, in code point order. No trailer name and no separator stands in
+ * this module: a product that declares none yields no keys, and one that
+ * declares both says how its own messages read.
  */
-export function taskKeys(message: string): string[] {
+export function taskKeysOf(trailers: readonly HistoryTrailer[], trailer: string, separators: readonly string[]): string[] {
   const keys = new Set<string>();
-  for (const match of message.matchAll(/^Task:\s*(.+)$/gim)) {
-    for (const key of (match[1] ?? '').split(/[\s,]+/u)) if (key !== '') keys.add(key);
+  for (const one of trailers) {
+    if (one.key !== trailer) continue;
+    let pieces = [one.value];
+    for (const separator of separators) {
+      const split: string[] = [];
+      for (const piece of pieces) split.push(...piece.split(separator));
+      pieces = split;
+    }
+    for (const piece of pieces) if (piece !== '') keys.add(piece);
   }
   return [...keys].sort(byCodePoint);
 }
@@ -646,6 +721,7 @@ function commitFact(repository: string, commit: HistoryCommit, source: FactSourc
       ...(commit.author === undefined ? {} : { author: commit.author }),
       parents: commit.parents,
       files: commit.files,
+      ...(commit.trailers.length === 0 ? {} : { trailers: commit.trailers }),
     },
     // The commit a commit fact is read at is the commit itself: the schema
     // refuses a fact whose value and provenance name two commits.
@@ -664,17 +740,23 @@ function taskKeyFact(repository: string, commit: string, from: string, key: stri
   });
 }
 
-/** What the history stage's reader read, in the coverage's own words: the two questions a read answers. */
-const HISTORY_READ: readonly string[] = ['the pinned commit and its ancestry', 'the task keys the commit messages name'];
+/**
+ * What the history stage's reader read, in the coverage's own words: the two
+ * questions a read answers, one of which says the product declared no trailer
+ * rather than leaving the absence unspoken.
+ */
+function historyRead(trailer: string | undefined): readonly string[] {
+  return ['the pinned commit and its ancestry', trailer === undefined ? 'the task keys (none: the product declares no trailer)' : 'the task keys the declared trailer names'];
+}
 
 /** The `coverage` fact of one unit: what its read reached, and every gap it could not. */
-function coverageFact(repository: string, scope: string, ancestry: HistoryAncestry) {
+function coverageFact(repository: string, scope: string, ancestry: HistoryAncestry, trailer: string | undefined) {
   const unread = coverageGaps(ancestry.unread, repository, scope);
-  const value: CoverageValue = { repository, scope, complete: unread.length === 0, read: HISTORY_READ, unread };
+  const value: CoverageValue = { repository, scope, complete: unread.length === 0, read: historyRead(trailer), unread };
   return makeNodeFact({
     kind: 'coverage',
     value,
-    provenance: { source: ancestry.source, repository: { id: repository, commit: ancestry.commit } },
+    provenance: { source: HISTORY_SOURCE, repository: { id: repository, commit: ancestry.commit } },
     layer: 'extracted',
   });
 }
@@ -687,9 +769,32 @@ function coverageFact(repository: string, scope: string, ancestry: HistoryAncest
  * with the query that answered it; two rows for one commit are refused too,
  * since a fact's identity names one commit of one repository once.
  */
-async function readCommitsHeld(graph: StageGraphReader, repository: string): Promise<Map<string, unknown>> {
-  const query = commitsHeldQuery(repository);
-  const rows = await graph.query(query);
+async function readCommitsHeld(graph: StaticGraphReader, repository: string, range: string): Promise<Map<string, unknown>> {
+  const query = commitsHeldRead(repository);
+  const rows: unknown[] = [];
+  let after: string | undefined;
+  for (;;) {
+    // The read asks for this range's nodes and no wider answer: a read whose answer is every
+    // commit of the repository moves whenever any other unit publishes, and this unit's own
+    // generation would never stand still (madarch-8bdc.2.3).
+    const page = await graph.byProperty('code.commit', 'range', range, { limit: STATIC_READ_ROW_LIMIT, ...(after === undefined ? {} : { after }) });
+    // The graph holds the snapshot stage's `code.commit` node of the same commit as well: a
+    // commit the history stage read is one that cites this stage's reader, and that is the one
+    // this read compares against.
+    rows.push(...page.rows
+      .filter((node) => {
+        const provenance = node.properties['provenance'];
+        const source = provenance !== null && typeof provenance === 'object' ? (provenance as Record<string, unknown>)['source'] : undefined;
+        const system = source !== null && typeof source === 'object' ? (source as Record<string, unknown>)['system'] : undefined;
+        // What this unit's earlier generation published for its own range, and nothing another range
+        // read: a read over every range's copies would move whenever any range's unit published or
+        // was retracted, and the range's own reading would never stand still (madarch-8bdc.2.3).
+        return system === HISTORY_SOURCE_SYSTEM_NAME && node.properties['range'] === range;
+      })
+      .map((node) => ({ commit: String(node.properties['commit']), value: valueFieldsOf(node.properties) })));
+    if (page.next === null) break;
+    after = page.next;
+  }
   const held = new Map<string, unknown>();
   rows.forEach((row, index) => {
     if (typeof row !== 'object' || row === null || Array.isArray(row)) {
@@ -699,21 +804,32 @@ async function readCommitsHeld(graph: StageGraphReader, repository: string): Pro
     if (typeof commit !== 'string' || !COMMIT_PATTERN.test(commit)) {
       throw new Error(`history: row ${index} of "${query}" names the commit ${JSON.stringify(commit)}: a commit is 40 lower-case hexadecimal digits`);
     }
-    if (value === undefined) {
-      throw new Error(`history: row ${index} of "${query}" names ${commit} with no value: the read compares what the graph holds, so a row that holds nothing is refused`);
-    }
-    if (held.has(commit)) {
-      throw new Error(`history: "${query}" answered ${commit} twice: one fact names one commit of one repository once`);
-    }
-    held.set(commit, value);
+    // The graph holds one copy of a commit per range that read it (each range's unit publishes
+    // under its own scope): what this unit compares against is the commit, and the first copy's
+    // value is the one it already read.
+    if (!held.has(commit)) held.set(commit, value);
   });
   return held;
 }
 
 /** The coverage fact this unit already wrote for its scope, as the graph holds it, or `undefined` where it holds none. */
-async function readCoverageHeld(graph: StageGraphReader, repository: string, scope: string): Promise<unknown | undefined> {
-  const query = coverageHeldQuery(repository, scope);
-  const rows = await graph.query(query);
+async function readCoverageHeld(graph: StaticGraphReader, repository: string, scope: string): Promise<unknown | undefined> {
+  const query = historyCoverageRead(repository, scope);
+  const rows: unknown[] = [];
+  let after: string | undefined;
+  for (;;) {
+    const page = await graph.byProperty('code.coverage', 'scope', scope, { limit: STATIC_READ_ROW_LIMIT, ...(after === undefined ? {} : { after }) });
+    for (const node of page.rows) {
+      if (node.properties['scope'] !== scope) continue;
+      const provenance = node.properties['provenance'];
+      const source = provenance !== null && typeof provenance === 'object' ? (provenance as Record<string, unknown>)['source'] : undefined;
+      const system = source !== null && typeof source === 'object' ? (source as Record<string, unknown>)['system'] : undefined;
+      if (system !== HISTORY_SOURCE_SYSTEM_NAME) continue;
+      rows.push({ value: coverageValueOf(node.properties) });
+    }
+    if (page.next === null) break;
+    after = page.next;
+  }
   if (rows.length > 1) {
     throw new Error(`history: "${query}" answered ${rows.length} coverage facts: one stage's coverage of one scope is one fact`);
   }
@@ -729,6 +845,103 @@ async function readCoverageHeld(graph: StageGraphReader, repository: string, sco
   return value;
 }
 
+/** The coverage value a node carries: its own fields and none of the graph's bookkeeping. */
+function coverageValueOf(properties: Record<string, unknown>): Record<string, unknown> {
+  const value: Record<string, unknown> = {};
+  for (const key of ['repository', 'scope', 'complete', 'read', 'unread']) if (properties[key] !== undefined) value[key] = properties[key];
+  return value;
+}
+
+/** The unit's bounded graph reads, refused by name where the run handed none. */
+/**
+ * The files the repository's tree holds, as the snapshot stage published them: a path and the
+ * recordKey of its node. A commit's changed path is a `code.touched` edge to that node, and a path
+ * the pinned tree does not hold has no node to name — a later tree that holds it moves this read,
+ * and the generation is replaced rather than left with a smaller answer.
+ */
+async function readRepositoryFiles(graph: StaticGraphReader, repository: string): Promise<Map<string, string>> {
+  const files = new Map<string, string>();
+  let after: string | undefined;
+  for (;;) {
+    const page = await graph.byProperty('code.file', 'repository', repository, { limit: STATIC_READ_ROW_LIMIT, ...(after === undefined ? {} : { after }) });
+    for (const node of page.rows) {
+      const path = node.properties['path'];
+      const key = node.properties['recordKey'];
+      if (typeof path === 'string' && typeof key === 'string' && key !== '') files.set(path, key);
+    }
+    if (page.next === null) break;
+    after = page.next;
+  }
+  return files;
+}
+
+function staticGraphOf(unit: StageUnit, context: StageContext): StaticGraphReader {
+  const held = context.static;
+  if (held === undefined) {
+    throw new Error(`the unit "${unit.id}" runs the history stage's static reading, and its context holds no bounded graph reads: a run hands a static stage its repository's path-scoped answers (src/fill/stages/history.ts, decision 0033)`);
+  }
+  return held;
+}
+
+/**
+ * The key one commit node carries: the repository, the range the unit read and the commit. Two
+ * runs at two commits write two ranges, and the ancestors both ancestries hold stand once under
+ * each: a node's version belongs to the producer and scope that published it (decision 0033's
+ * fenced publication), and a range's unit replaces its own copy.
+ */
+function commitNodeKeyOf(repository: string, range: string, commit: string): string {
+  return `commit:${canonicalJsonDigest({ repository, range, commit })}`;
+}
+
+/**
+ * The key one author node carries: the repository, the range the unit read and the email git
+ * records. An author stands in as many ranges as read a commit of theirs, and each range's unit
+ * owns its copy for the same reason a commit's key names its range: a node's version belongs to
+ * the producer and scope that published it (decision 0033's fenced publication), and a second
+ * run at another commit publishes under another scope.
+ */
+function authorNodeKeyOf(repository: string, range: string, email: string): string {
+  return `code.author:${canonicalJsonDigest({ repository, range, email })}`;
+}
+
+/**
+ * The value a fact holds, as the graph's node carries it: the fact's own fields and none of what
+ * this stage's node carries beside them — the graph's bookkeeping and the `range` the node names.
+ */
+function valueFieldsOf(value: object): Record<string, unknown> {
+  const held = { ...(value as Record<string, unknown>) };
+  for (const key of ['recordKey', 'factKind', 'layer', 'status', 'provenance', 'range']) delete held[key];
+  return held;
+}
+
+/**
+ * The key one task key's node carries: the repository and the key. A task is one node however
+ * many commits name it, so every commit's `code.tasks` edge joins that one node; the commit
+ * belongs to the edge, never to the node's identity.
+ */
+function taskNodeKeyOf(repository: string, key: string): string {
+  return `task:${canonicalJsonDigest({ repository, key })}`;
+}
+
+/**
+ * The graph items one task key of a commit makes: a `code.task` node for the key
+ * (the extractors' own kind, `src/extract/history/commits.ts`) and one
+ * `code.tasks` edge from the commit's node to it.
+ */
+function taskNodeDrafts(repository: string, key: string, commitKey: string, evidence: string, nodeWritten: boolean): readonly StageDraftWrite[] {
+  const to = taskNodeKeyOf(repository, key);
+  const writes: StageDraftWrite[] = [];
+  if (!nodeWritten) {
+    writes.push({ kind: 'node', evidence, value: { key: to, kind: 'code.task', label: key, properties: { factKind: 'task-key', repository, key } } });
+  }
+  writes.push({
+    kind: 'edge',
+    evidence,
+    value: { relation: 'code.tasks', from: { key: commitKey }, to: { key: to }, properties: { factKind: 'task-key', repository, key, line: 1 } },
+  });
+  return writes;
+}
+
 /** The depth one unit reads to, from the stage's resolved configuration, refused by its own field where it is no depth. */
 export function historyDepth(config: unknown): number {
   const depth = typeof config === 'object' && config !== null && !Array.isArray(config) ? (config as { depth?: unknown }).depth : undefined;
@@ -736,6 +949,24 @@ export function historyDepth(config: unknown): number {
     throw new Error(`history: config.depth is ${JSON.stringify(depth)}: the stage reads a whole number of commits, 1 or more`);
   }
   return depth;
+}
+
+/**
+ * The trailer the product declares as its task-key source, with the separators
+ * it declares between the keys of one value. Both are data: a product that
+ * declares neither names no task key, and one that declares one without the
+ * other is refused here rather than guessed at.
+ */
+function historyTrailer(config: unknown): { readonly trailer?: string; readonly separators?: readonly string[] } {
+  const held = typeof config === 'object' && config !== null && !Array.isArray(config) ? (config as { trailer?: unknown; separators?: unknown }) : {};
+  if (held.trailer === undefined && held.separators === undefined) return {};
+  if (typeof held.trailer !== 'string' || held.trailer === '') {
+    throw new Error(`history: config.trailer is ${JSON.stringify(held.trailer)}: a product that reads task keys declares the trailer's name, a non-empty text`);
+  }
+  if (!Array.isArray(held.separators) || held.separators.length === 0 || held.separators.some((one) => typeof one !== 'string' || one === '')) {
+    throw new Error(`history: config.separators is ${JSON.stringify(held.separators)}: a product that reads task keys declares the literal separators between them, at least one non-empty text`);
+  }
+  return { trailer: held.trailer, separators: held.separators as readonly string[] };
 }
 
 /**
@@ -755,38 +986,89 @@ export function historyDepth(config: unknown): number {
  * its set the graph already agreed with; every fact of the set is written.
  */
 async function executeUnit(reader: HistoryReader, unit: StageUnit, context: StageContext): Promise<StageExecutionResult> {
-  const { repository, commit } = parseHistoryScope(unit.scope);
+  const { repository, commit } = parseHistoryScope(unit.id);
   const depth = historyDepth(context.config.config);
+  const { trailer, separators } = historyTrailer(context.config.config);
   const what = `history: unit ${unit.id}`;
   if (context.signal.aborted) throw new Error(`${what} was cancelled before it read ${repository} at ${commit}`);
-  const held = await readCommitsHeld(context.graph, repository);
-  const heldCoverage = await readCoverageHeld(context.graph, repository, unit.scope);
+  const graph = staticGraphOf(unit, context);
+  const held = await readCommitsHeld(graph, repository, commit);
+  const heldCoverage = await readCoverageHeld(graph, repository, unit.scope);
   const ancestry = await reader.read({ repository, commit, depth, signal: context.signal });
   context.progress(`read the ancestry of ${repository} at ${commit}: ${ancestry.commits.length} ${ancestry.commits.length === 1 ? 'commit' : 'commits'}`, 0.5);
 
   const writes: StageDraftWrite[] = [];
+  // The task keys whose node this draft already writes: one node per key, one edge per commit.
+  const writtenTaskNodes = new Set<string>();
   let commitsWritten = 0;
   let keysWritten = 0;
   let commitsAgreed = 0;
   for (const one of ancestry.commits) {
-    const fact = commitFact(repository, one, ancestry.source);
+    const fact = commitFact(repository, one, HISTORY_SOURCE);
     // What the graph already holds is reported and not skipped: the unit's own
     // publication replaces its own facts, so the whole set is written every time
     // (see this function's own doc).
     const known = held.get(one.commit);
-    if (known !== undefined && canonicalJsonDigest(known) === canonicalJsonDigest(fact.value)) commitsAgreed += 1;
+    if (known !== undefined && canonicalJsonDigest(known) === canonicalJsonDigest(valueFieldsOf(fact.value))) commitsAgreed += 1;
     const evidence = `${repository}@${one.commit}`;
-    writes.push({ kind: 'fact', evidence, value: fact });
+    const commitKey = commitNodeKeyOf(repository, ancestry.commit, one.commit);
+    for (const write of graphWritesOf(fact, evidence)) {
+      // The node carries the range its unit read: this stage's held-commits read answers its own range
+      // and no other (see `readCommitsHeld`).
+      writes.push(write.kind === 'node' ? { ...write, value: { ...write.value, key: commitKey, properties: { ...write.value.properties, range: ancestry.commit } } } : write);
+    }
     commitsWritten += 1;
-    for (const key of taskKeys(one.message)) {
-      writes.push({ kind: 'fact', evidence, value: taskKeyFact(repository, one.commit, fact.id, key, ancestry.source) });
-      keysWritten += 1;
+    if (trailer !== undefined && separators !== undefined) {
+      for (const key of taskKeysOf(one.trailers, trailer, separators)) {
+        // One `code.task` node per key in the unit's draft, whatever commits name it: a node's
+        // key stands once in one publication, and each commit's own `code.tasks` edge names it.
+        const node = taskNodeDrafts(repository, key, commitKey, evidence, writtenTaskNodes.has(key));
+        if (!writtenTaskNodes.has(key)) writtenTaskNodes.add(key);
+        writes.push(...node);
+        keysWritten += 1;
+      }
     }
   }
 
-  const coverage = coverageFact(repository, unit.scope, ancestry);
-  const coverageAgreed = heldCoverage !== undefined && canonicalJsonDigest(heldCoverage) === canonicalJsonDigest(coverage.value);
-  writes.push({ kind: 'fact', evidence: `${repository}@${ancestry.commit}`, value: coverage });
+  // The author of every commit, its first parent and the files it changed: the three relations the
+  // history extractor states beside the commit, and this stage wrote none of them. A file edge names
+  // the file node the snapshot stage published, so only a path the tree read answers is written;
+  // an answer that grows replaces this generation (the read is tracked).
+  const files = await readRepositoryFiles(graph, repository);
+  const authors = new Map<string, { readonly key: string; readonly name: string; readonly email: string }>();
+  for (const one of ancestry.commits) {
+    if (one.authorEmail === undefined || one.authorEmail === '') continue;
+    const key = authorNodeKeyOf(repository, ancestry.commit, one.authorEmail);
+    authors.set(key, { key, name: one.author ?? one.authorEmail, email: one.authorEmail });
+  }
+  for (const author of [...authors.values()].sort((left, right) => byCodePoint(left.key, right.key))) {
+    writes.push({
+      kind: 'node',
+      evidence: `${repository}@${ancestry.commit}`,
+      value: { key: author.key, kind: 'code.author', label: author.name, properties: { factKind: 'author', repository, range: ancestry.commit, email: author.email, name: author.name, recordKey: author.key } },
+    });
+  }
+  const readCommits = new Set(ancestry.commits.map((one) => one.commit));
+  for (const one of ancestry.commits) {
+    const commitKey = commitNodeKeyOf(repository, ancestry.commit, one.commit);
+    const evidence = `${repository}@${one.commit}`;
+    if (one.authorEmail !== undefined && one.authorEmail !== '') {
+      writes.push({ kind: 'edge', evidence, value: { relation: 'code.authored', from: { key: commitKey }, to: { key: authorNodeKeyOf(repository, ancestry.commit, one.authorEmail) }, properties: { factKind: 'authored', repository } } });
+    }
+    const parent = one.parents[0];
+    if (parent !== undefined && readCommits.has(parent)) {
+      writes.push({ kind: 'edge', evidence, value: { relation: 'code.parent', from: { key: commitKey }, to: { key: commitNodeKeyOf(repository, ancestry.commit, parent) }, properties: { factKind: 'parent', repository } } });
+    }
+    for (const path of one.files) {
+      const fileKey = files.get(path);
+      if (fileKey === undefined) continue;
+      writes.push({ kind: 'edge', evidence, value: { relation: 'code.touched', from: { key: commitKey }, to: { key: fileKey }, properties: { factKind: 'touched', repository } } });
+    }
+  }
+
+  const coverage = coverageFact(repository, unit.scope, ancestry, trailer);
+  const coverageAgreed = heldCoverage !== undefined && canonicalJsonDigest(heldCoverage) === canonicalJsonDigest(valueFieldsOf(coverage.value));
+  for (const write of graphWritesOf(coverage, `${repository}@${ancestry.commit}`)) writes.push(write);
 
   for (const write of writes) context.draft.write(write);
   context.progress(`wrote ${commitsWritten} ${commitsWritten === 1 ? 'commit' : 'commits'} (${commitsAgreed} the graph already held) and ${keysWritten} task ${keysWritten === 1 ? 'key' : 'keys'} of ${repository} at ${commit}, with the coverage ${coverageAgreed ? 'the graph already held' : 'this read wrote'}`, 1);
@@ -810,31 +1092,22 @@ function refusalOf(write: StageDraftWrite, index: number, problem: { readonly pa
  * is a draft whole: a rerun that changed nothing writes nothing.
  */
 export function validateDraft(draft: StageDraftSet): StageValidation {
-  const errors: string[] = [];
-  const commitIds = new Set<string>();
-  const edges: { readonly index: number; readonly value: unknown }[] = [];
-  draft.writes.forEach((write, index) => {
-    if (write.kind !== 'fact') {
-      errors.push(`write[${index}] is a ${write.kind} write: the history stage writes facts and nothing else`);
-      return;
-    }
-    for (const problem of checkFact(write.value)) errors.push(refusalOf(write, index, problem));
-    const fact = write.value;
-    if (typeof fact !== 'object' || fact === null || Array.isArray(fact)) return;
-    const { kind, id } = fact as { kind?: unknown; id?: unknown };
-    if (typeof kind !== 'string' || !(HISTORY_FACT_KINDS as readonly string[]).includes(kind)) {
-      errors.push(`write[${index}] is a ${JSON.stringify(kind)} fact: the history stage writes ${HISTORY_FACT_KINDS.join(', ')}`);
-      return;
-    }
-    if (kind === 'commit' && typeof id === 'string') commitIds.add(id);
-    if (kind === 'task-key') edges.push({ index, value: (fact as { value?: unknown }).value });
+  const checked = checkStaticGraphDraft(HISTORY_STAGE_ID, HISTORY_FACT_KINDS, draft);
+  const errors: string[] = checked.ok ? [] : [...checked.errors];
+  // The graph's validator reads each item's key, kind, ends and position; this is the
+  // stage's own rule over the same draft: a task key's edge starts at a commit node this
+  // draft writes.
+  const commitKeys = new Set<string>();
+  draft.writes.forEach((write: StageDraftWrite) => {
+    if (write.kind === 'node' && write.value.kind === 'code.commit') commitKeys.add(write.value.key);
   });
-  for (const { index, value } of edges) {
-    const from = typeof value === 'object' && value !== null && !Array.isArray(value) ? (value as { from?: unknown }).from : undefined;
-    if (typeof from !== 'string' || !commitIds.has(from)) {
-      errors.push(`write[${index}] is a task-key edge of ${JSON.stringify(from)}: an edge names a node that exists, and this draft writes no commit fact of that id`);
+  draft.writes.forEach((write: StageDraftWrite, index: number) => {
+    if (write.kind !== 'edge' || write.value.relation !== 'code.tasks') return;
+    const from = 'key' in write.value.from ? write.value.from.key : undefined;
+    if (from === undefined || !commitKeys.has(from)) {
+      errors.push(`write[${index}] is a task-key edge of ${JSON.stringify(from)}: an edge names a node that exists, and this draft writes no commit node of that key`);
     }
-  }
+  });
   return errors.length === 0 ? { ok: true } : { ok: false, errors };
 }
 
@@ -852,6 +1125,8 @@ export function createHistoryStage(reader: HistoryReader, sources: SnapshotSourc
   return {
     id: HISTORY_STAGE_ID,
     version: HISTORY_STAGE_VERSION,
+    // Its unit reads Git (decision 0030's commit range) and the graph, never a tree (decision 0033, item 5).
+    staticReading: true,
     consumes: {
       required: [
         { capability: HISTORY_INPUT_CAPABILITY, scope: 'product', freshness: 'current' },
@@ -859,7 +1134,7 @@ export function createHistoryStage(reader: HistoryReader, sources: SnapshotSourc
       ],
       optional: [],
     },
-    produces: HISTORY_FACT_KINDS.map((kind) => ({ kind, schemaVersion: FACT_KINDS[kind].version, scope: 'repository' as const })),
+    produces: HISTORY_FACT_KINDS.map((kind) => ({ kind, schemaVersion: HISTORY_PRODUCED_VERSIONS[kind], scope: 'repository' as const })),
     configSchema: HISTORY_CONFIG_SCHEMA,
     defaults: { enabled: true, concurrency: 1, limits: DEFAULT_STAGE_LIMITS, config: { depth: DEFAULT_HISTORY_DEPTH } },
     plan: () => planUnits(sources),

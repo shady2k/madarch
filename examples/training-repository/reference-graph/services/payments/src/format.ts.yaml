@@ -1,0 +1,48 @@
+path: 'services/payments/src/format.ts'
+nodes:
+  - id: 'code.file:services/payments/src/format.ts'
+    kind: 'code.file'
+    label: 'format.ts'
+    evidence:
+      - path: 'services/payments/src/format.ts'
+        startLine: 1
+        endLine: 1
+        quote: '/** Formats cents as "12.34 EUR"; used by the report and the logs. */'
+    reading: 'parsed'
+  - id: 'code.symbol:services/payments/src/format.ts#formatInvoiceLegacy'
+    kind: 'code.symbol'
+    label: 'formatInvoiceLegacy'
+    evidence:
+      - path: 'services/payments/src/format.ts'
+        startLine: 7
+        endLine: 7
+        quote: 'export function formatInvoiceLegacy(total: number): string {'
+    reading: 'parsed'
+  - id: 'code.symbol:services/payments/src/format.ts#formatMoney'
+    kind: 'code.symbol'
+    label: 'formatMoney'
+    evidence:
+      - path: 'services/payments/src/format.ts'
+        startLine: 2
+        endLine: 2
+        quote: 'export function formatMoney(cents: number, currency: string): string {'
+    reading: 'parsed'
+edges:
+  - relation: 'code.contains'
+    from: 'code.file:services/payments/src/format.ts'
+    to: 'code.symbol:services/payments/src/format.ts#formatInvoiceLegacy'
+    evidence:
+      - path: 'services/payments/src/format.ts'
+        startLine: 7
+        endLine: 7
+        quote: 'export function formatInvoiceLegacy(total: number): string {'
+    reading: 'parsed'
+  - relation: 'code.contains'
+    from: 'code.file:services/payments/src/format.ts'
+    to: 'code.symbol:services/payments/src/format.ts#formatMoney'
+    evidence:
+      - path: 'services/payments/src/format.ts'
+        startLine: 2
+        endLine: 2
+        quote: 'export function formatMoney(cents: number, currency: string): string {'
+    reading: 'parsed'

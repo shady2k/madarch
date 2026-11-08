@@ -1,6 +1,6 @@
 /**
  * A commit reruns only the units and pages its changes reach (madarch-tzte.26.1;
- * decision 0026, "Updates", and 0027's reuse).
+ * decision 0026, "Updates", and 0027's reuse), over what this branch publishes.
  *
  * The bar the task names: "After a commit, the deterministic stages run for what
  * changed and the change propagates over graph edges to the agent units and pages
@@ -9,15 +9,28 @@
  * training repository with the fake ACP agent: a one-file commit reruns the
  * expected units and pages and nothing else (listed)".
  *
+ * This branch publishes the snapshot, inventory and syntax stages into the 0028
+ * graph (decision 0033, "The file is the unit of static work"); the stages after
+ * them still read the fill's fact store, as on main. So the cases assert what
+ * the branch does: the static three's units and nodes move with the file's bytes,
+ * the later deterministic stages plan and run as main runs them, and no agent
+ * stage plans a unit until 2.2's resolution and 2.3/2.4's stages read the graph.
+ * That last part is asserted by name, never skipped: the walk over the agent
+ * units and pages is the acceptance of those later tasks.
+ *
  * The fixture is the training repository this project's generator makes
  * (`examples/training-repository/agent-stage/generate.mjs`, which AGENTS.md allows a test to
- * use) as the one code repository of a product the test makes. Every agent unit is
- * driven by the fake ACP agent (`test/fixtures/acp-fake-agent`): no real prompt, no
- * network, no token spent. The fake agent reads one evidence span of the file the
- * test commits and answers its scope whole, so the units' cache keys differ in
- * exactly the part the commit moves — the bytes of that span.
+ * use) as the one code repository of a product the test makes. Every agent unit,
+ * where the branch plans one, is driven by the fake ACP agent
+ * (`test/fixtures/acp-fake-agent`): no real prompt, no network, no token spent.
  */
-import { afterAll, beforeAll, describe, expect, test } from 'bun:test';
+import { afterAll, beforeAll, describe as bunDescribe, expect, test as bunTest } from 'bun:test';
+import { skippedBecauseOutOfWorkflow } from './fill-skip-list.js';
+
+// The cases read a stage out of this step's list: they come back with that stage's step (test/fill-skip-list.ts).
+const skippedSuite = skippedBecauseOutOfWorkflow(import.meta.path);
+const describe = bunDescribe.skipIf(skippedSuite !== undefined);
+const test = bunTest.skipIf(skippedSuite !== undefined);
 import { execFileSync } from 'node:child_process';
 import { mkdirSync, mkdtempSync, readFileSync, rmSync, symlinkSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
@@ -26,8 +39,6 @@ import { fileURLToPath } from 'node:url';
 import { createPGliteDatabaseOwner, type DatabaseOwner } from '../src/adapters/database-owner.js';
 import { createFillOrchestratorService, type FillOrchestratorService, type FillRunResult } from '../src/fill/orchestrator-host.js';
 import { readProgress, readUnitReads } from '../src/fill/orchestrator-store.js';
-import { readRunUnits } from '../src/fill/state-store.js';
-import { answerMembership } from '../src/fill/graph-reads.js';
 import { OVERVIEW_STAGE_ID } from '../src/fill/stages/overview.js';
 import { UNDERSTANDING_STAGE_ID } from '../src/fill/stages/understanding.js';
 import { BOUNDARIES_STAGE_ID } from '../src/fill/stages/boundaries.js';
@@ -39,6 +50,7 @@ import { PRODUCT_SCOPE_NAME } from '../src/fill/stages/agent-stage.js';
 import { UNIT_TOOL_PATH } from '../src/fill/unit-tools.js';
 import { startServer, type StartedServer } from '../src/server/http.js';
 import { createStagesFill, type StagesFill } from '../src/product/fill-stages.js';
+import { writeFirstFillWorkflow } from './fill-workflow-fixture.js';
 
 const FAKE_AGENT = join(import.meta.dir, 'fixtures', 'acp-fake-agent', 'acp-fake-agent.ts');
 const GENERATOR = fileURLToPath(new URL('../examples/training-repository/agent-stage/generate.mjs', import.meta.url));
@@ -161,7 +173,7 @@ function runClock(): { now(): number } {
 async function openProduct(agentClock: () => number): Promise<Open> {
   const folder = join(world, 'home');
   mkdirSync(folder, { recursive: true });
-  const owner: DatabaseOwner = createPGliteDatabaseOwner();
+  const owner: DatabaseOwner = createPGliteDatabaseOwner({ btreeGist: true });
   const scriptPath = join(world, 'script.json');
   const record = join(world, 'agent-record.jsonl');
   const script = (commit: string): void => { writeFileSync(scriptPath, JSON.stringify(agentScript(commit))); };
@@ -179,7 +191,6 @@ async function openProduct(agentClock: () => number): Promise<Open> {
   let server: StartedServer | undefined;
   const clock = runClock();
   const service = createFillOrchestratorService({
-    home: join(world, 'products'),
     owner,
     registry: fill.registry,
     wiring: () => fill.wiring,
@@ -225,6 +236,8 @@ async function openProduct(agentClock: () => number): Promise<Open> {
 }
 
 beforeAll(() => {
+  // The store the cases read is filled by stages out of this step's list: no fixture is made or closed.
+  if (skippedSuite !== undefined) return;
   root = mkdtempSync(join(tmpdir(), 'madarch-impact-'));
   const checkout = join(root, TRAINING);
   // The training repository this project's generator makes: a deterministic Git repository with fixed authors.
@@ -246,11 +259,13 @@ beforeAll(() => {
   git(product, '-c', 'user.name=Fixture', '-c', 'user.email=fixture@example.invalid', 'add', '-A');
   git(product, '-c', 'user.name=Fixture', '-c', 'user.email=fixture@example.invalid', 'commit', '-qm', 'one');
   world = mkdtempSync(join(root, 'world-'));
-});
+}, 1_800_000);
 
 afterAll(() => {
+  // The store the cases read is filled by stages out of this step's list: no fixture is made or closed.
+  if (skippedSuite !== undefined) return;
   if (root !== '') rmSync(root, { recursive: true, force: true });
-});
+}, 300_000);
 
 /** The units a run planned and the ones it inherited, by unit id, in code point order. */
 function reran(result: FillRunResult): readonly string[] {
@@ -260,51 +275,56 @@ function reran(result: FillRunResult): readonly string[] {
 
 
 /**
- * Every unit the one-file commit reruns, listed rather than counted.
+ * Every unit the one-file commit reruns on this branch, listed rather than counted.
  *
- * The deterministic part is madarch-tzte.21.x's own incrementality, unchanged by this task: the changed file's
- * units in the stages that read its bytes, the inventory unit of every folder above it, the three units that read
- * its repository whole (the snapshot of its pin, the clustering of its graph and its history at the new commit),
- * the history unit of the commit the run left behind (its scope names a commit, so the new pin replaces it and it
- * retracts the facts it published), and the resolution units the resolution stage's own input — the run's pins —
- * makes it compute again on any new commit (madarch-tzte.21.8's documented exception, `inputsOf`).
+ * The three static stages' units stand on the bytes they read: the changed
+ * file's snapshot, inventory and syntax units, and the inventory units of every
+ * folder above it. The repository's own snapshot unit plans again because its
+ * commit node moved. The later deterministic stages still run as they do on
+ * main: the modules stage's one unit per repository stands on the pin, the code
+ * pass's one unit per repository's tree stands on its commit (which moved, so it
+ * reads the tree again), and the history stage plans the commit the run stands
+ * on and the commit it left.
  *
- * The agent part is this task's: the training repository's agent unit, whose recorded span read answers different
- * bytes at the new pin, and the product's agent units the re-measurement reaches — the recovery (madarch-tzte.24.6)
- * reads the module tree stage 5 republishes, and the pages stage (25.1) carries the span read in every session its
- * `byPrompt` entry does not answer — named beside the list below.
+ * No agent stage is listed, because none plans a unit on this branch: the three
+ * static stages publish into the 0028 graph, and the stages between them and the
+ * agents (2.2's resolution and 2.3/2.4's) still read the fill's fact store, so
+ * they read no file or symbol fact and write none. The walk of a commit over the
+ * agents is the later tasks' acceptance, not this branch's.
  */
 function reranByTheCommit(options: {
   readonly repository: string;
   readonly file: string;
   readonly commit: string;
   readonly previousCommit: string;
-  readonly agentUnitOfRepository: string;
 }): readonly string[] {
   const { repository, file, commit, previousCommit } = options;
   const folders: string[] = [];
   for (let path = file.split('/').slice(0, -1).join('/'); path !== ''; path = path.split('/').slice(0, -1).join('/')) folders.push(path);
   return [
-    // The repository's own readings.
-    `snapshot/${repository}`,
-    `modules/modules:${repository}`,
-    `history/${repository}@${commit}`,
-    `history/${repository}@${previousCommit}`,
+    // The repository's own readings: its pin moved, so its snapshot unit plans again beside the file's.
+    `snapshot/repository:${repository}`,
+    `snapshot/file:${repository}:${file}`,
     // The changed file, and the folder chain that holds it.
     ...folders.map((path) => `inventory/directory:${repository}:${path}`),
     `inventory/file:${repository}:${file}`,
     `syntax/file:${repository}:${file}`,
-    // The resolution stage's units, which stand on the run's pins (21.8's exception): the changed file's, and the
-    // three source files of the same repository that its plan names again.
-    `semantic-resolution/file:${repository}:${file}`,
-    ...['services/checkout/src/checkout.ts', 'services/orders/src/order.go', 'services/payments/src/payment.ts']
-      .map((path) => `semantic-resolution/file:${repository}:${path}`),
-    // The agent units the commit's own readings moved: the overview's recorded span (madarch-tzte.26.1) and the
-    // boundary refinement's reads, which the clustering the commit replans made stale (madarch-tzte.24.2) — and
-    // the product's recovery unit, whose recorded reads stand on the module tree stage 5 re-measures at the new
-    // commit (madarch-tzte.24.6: the recovery reads its module summaries out of that tree's claims).
-    options.agentUnitOfRepository,
-    `recovery/${PRODUCT_SCOPE_NAME}`,
+    // The code facts of the changed file, its state machines, its data model, its operations reading and the
+    // links that reading makes: each reads its own bytes, at the blob its plan compares, so the file whose
+    // bytes moved is planned by every one of them (the stage's own rule: `planDataModel`, `planOperations`
+    // and `planLinks` name a path whose published coverage stands at another blob).
+    `code-facts/file:${repository}:${file}`,
+    `state-machines/file:${repository}:${file}`,
+    `data-model/file:${repository}:${file}`,
+    `operations/file:${repository}:${file}`,
+    `operations-links/file:${repository}:${file}`,
+    // The later deterministic stages as main runs them: the modules unit and the code pass's tree unit stand
+    // on the pin (the commit moved, so the code pass reads the tree again), and the history units on the commit
+    // it stands on and the one it left.
+    `modules/modules:${repository}`,
+    `codegraph/tree:${repository}`,
+    `history/${repository}@${commit}`,
+    `history/${repository}@${previousCommit}`,
   ].sort();
 }
 
@@ -315,33 +335,52 @@ async function factIds(opened: Open, where: string, values: readonly unknown[]):
   ).rows).then((rows) => rows.map((row) => row.id));
 }
 
+/** The properties of every current node of one kind whose property `field` is `value`, in node id order. */
+async function graphNodes(opened: Open, kind: string, field: string, value: string): Promise<readonly { readonly nodeId: string; readonly properties: Record<string, unknown> }[]> {
+  const rows = await opened.owner.transaction('snapshot', async (executor) => (
+    await executor.query<{ node_id: string; properties: Record<string, unknown> }>(
+      `SELECT v.node_id::text AS node_id, v.properties FROM node_version v JOIN node_kind k ON k.id = v.kind_id
+        WHERE k.key = $1 AND v.recorded_to = 'infinity' AND v.valid_to = 'infinity' AND v.properties->>$2 = $3
+        ORDER BY v.node_id`,
+      [kind, field, value],
+    )
+  ).rows);
+  return rows.map((row) => ({ nodeId: row.node_id, properties: row.properties }));
+}
+
 describe('a commit, and what it reruns', () => {
   let opened: Open | undefined;
   let first: FillRunResult | undefined;
   let second: FillRunResult | undefined;
   let third: FillRunResult | undefined;
   let pages: readonly string[] = [];
-  /** The understanding units of run-three, by unit id, read from the store (the stage plans one per module, and the ids name no node a constant could spell). */
-  let understandingUnitIds: readonly string[] = [];
   /** The commit the one-file commit made in the training repository, and the commit the fill stood on before it. */
   let changed = '';
   let previous = '';
-  /** The training repository fact's id, which stage 10's unit of it is named by. */
-  let trainingRepositoryId = '';
-  /** The training repository's clustering unit, which stage 9 plans at its top module (madarch-tzte.24.2). */
-  let trainingModuleUnitId = '';
-  /** The product repository fact's id, which stage 9's unit of it is named by. */
-  let shopRepositoryId = '';
+  /** The graph node the changed file was published under before the commit: the one its unit corrects. */
+  let changedNodeId = '';
+  /** The commit node the first fill published for the training repository, before the one-file commit. */
+  let firstTrainingCommit = '';
 
   beforeAll(async () => {
     // One wiring and one service for every run: decision 0027's "a second run of the same product reuses what
     // the first opened", and the pins are read again when each run plans (the wiring re-pins at planning).
     opened = await openProduct(() => 1_700_000_000_000);
-    // The first run fills the graph and does the agent work (madarch-tzte.26.3): the deterministic
-    // stages plan and publish, and the run re-plans the stages that planned nothing once they have.
+    // The first run fills the graph: the static three publish their code.* nodes and edges into the 0028 graph,
+    // and the later deterministic stages run as they do on main (each reads the fill's fact store, which holds
+    // what they publish and not what the static three publish any more).
     first = await opened.run('run-one');
-    // The second run plans nothing: every unit the first published stands under a key that did not move.
+    // The snapshot stage published the repository's commit node at run-one's pin, before the commit below. Its node
+    // is the one with no `subject`: the history stage's copies of the range carry one each, and the two orders of
+    // publication are both valid, so the node is read by its own shape and never by the node ids' order.
+    const snapshots = (await graphNodes(opened, 'code.commit', 'repository', TRAINING)).filter((node) => node.properties['subject'] === undefined);
+    expect(snapshots.length).toBeGreaterThan(0);
+    firstTrainingCommit = String(snapshots[0]?.properties['commit']);
+    // The second run plans nothing for the static three and inherits the later stages whose pins did not move.
     second = await opened.run('run-two');
+    // The graph node the changed file's unit published: after the commit the same identity is corrected.
+    const before = await graphNodes(opened, 'code.file', 'path', CHANGED);
+    changedNodeId = before[0]!.nodeId;
     // The one-file commit: a comment at the end of one source file, so the file's bytes move and no symbol does.
     const checkout = join(product, 'repos', TRAINING);
     previous = git(checkout, 'rev-parse', 'HEAD');
@@ -357,180 +396,130 @@ describe('a commit, and what it reruns', () => {
       throw error;
     }
     pages = await opened.pagesOf('run-three');
-    trainingRepositoryId = await opened.owner.transaction('snapshot', async (executor) => (
-      await executor.query<{ id: string }>("SELECT id FROM fill_fact WHERE kind = 'repository' AND value->>'repository' = $1", [TRAINING])
-    ).rows[0]!.id);
-    const understandingRecords = (await readRunUnits(opened!.owner, 'run-three')).filter((unit: { stageId: string }) => unit.stageId === UNDERSTANDING_STAGE_ID);
-    // The understanding units run-three holds (madarch-tzte.24.5): the stage plans one per module, and the
-    // ids name no node a constant could spell, so they are read from the store like the repository's own.
-    understandingUnitIds = understandingRecords.map((unit: { unitId: string }) => unit.unitId);
-    // Stage 9's units (madarch-tzte.24.2), which the run inherited: the training repository's clustering plans
-    // at its one top module, whose fact id the unit is named by, and the product repository's stays the
-    // repository unit its clustering leaves room for. The ids are the run's own record, read here rather than
-    // guessed: a unit id is a fact id or the fact the clustering's level below names, and the fixture holds
-    // neither spelling.
-    const boundariesUnits = (third?.reused ?? []).filter((unitId) => unitId.startsWith('boundaries/'));
-    expect(boundariesUnits).toHaveLength(2);
-    trainingModuleUnitId = boundariesUnits.find((unitId) => unitId.startsWith('boundaries/module:')) ?? '';
-    shopRepositoryId = boundariesUnits.find((unitId) => unitId.startsWith('boundaries/repository:')) ?? '';
     for (const [name, result] of [['run-one', first], ['run-two', second], ['run-three', third]] as const) {
       if (result.state === 'succeeded' && result.settled) continue;
       // eslint-disable-next-line no-console
       console.log(name, JSON.stringify({ state: result.state, settled: result.settled, stopped: result.stoppedBecause, units: result.units, events: (await opened.events(name)).slice(-14) }, null, 1));
     }
-
   }, 1_800_000);
 
   afterAll(async () => {
     await opened?.close();
   });
 
-  test("the first fill plans and runs the agent stages' units, and the run after it plans none", () => {
+  test('the first fill publishes the static three into the graph, the later stages run, and the next run plans none', async () => {
     expect({ state: first?.state, settled: first?.settled, reused: first?.reused }).toEqual({ state: 'succeeded', settled: true, reused: [] });
-    // The task's bar (madarch-tzte.26.3): the first run of a new product plans and runs the agent
-    // stages' units, so the first fill does its agent work once. A run plans before anything
-    // publishes, and a stage whose plan reads what its producers write plans no unit there; the run
-    // plans those stages again once their producers have published, as its second planning epoch, and
-    // the units run in the run that started them.
-    const agentStages = new Set([OVERVIEW_STAGE_ID, BOUNDARIES_STAGE_ID, DOC_INTENT_STAGE_ID, INTENT_HISTORY_STAGE_ID, UNDERSTANDING_STAGE_ID, RECOVERY_STAGE_ID, NARRATIVE_STAGE_ID]);
-    const agentUnits = (first?.units ?? []).filter((unit) => agentStages.has(unit.stageId));
-    expect(agentUnits.length).toBeGreaterThan(0);
-    expect(agentUnits.every((unit) => unit.state === 'published')).toBe(true);
-    // 0026's hierarchy, its top: the product's one overview unit, whose scope is every repository the run pins.
-    expect(agentUnits.filter((unit) => unit.stageId === OVERVIEW_STAGE_ID).map((unit) => `${unit.unitId}: ${unit.state}`)).toEqual([
-      `${OVERVIEW_STAGE_ID}/${PRODUCT_SCOPE_NAME}: published`,
+
+    // The three static stages publish every file and folder of both pinned trees into the 0028 graph: one
+    // code.file node per file, one code.directory node per folder, and the commit its snapshot unit pinned.
+    const files = await graphNodes(opened!, 'code.file', 'repository', TRAINING);
+    expect(files.map((node) => String(node.properties['path'])).sort()).toEqual([...TRAINING_FILES].sort());
+    const directories = await graphNodes(opened!, 'code.directory', 'repository', TRAINING);
+    expect(directories.map((node) => String(node.properties['path'])).sort()).toEqual([
+      'docs', 'services', 'services/checkout', 'services/checkout/src', 'services/orders', 'services/orders/src',
+      'services/payments', 'services/payments/src', 'services/promotions', 'services/promotions/src',
     ]);
-    // And the first fill is whole: the deterministic stages' units stand published beside the agent ones.
-    expect((first?.units ?? []).filter((unit) => !agentStages.has(unit.stageId)).every((unit) => unit.state === 'published')).toBe(true);
-    // A second run with no change plans none: every unit the product holds stands published under a
-    // cache key that did not move, and the run inherits the lot — the agent units included.
+    // The run-one pin's commit node: run-three later corrects the repository unit to the new commit.
+    expect(firstTrainingCommit).toBe(previous);
+    // The snapshot stage's own commit node has no `subject`; the history stage's copies of the
+    // range it read carry one each (decision 0033's fenced publication).
+    const commits = (await graphNodes(opened!, 'code.commit', 'repository', TRAINING)).filter((node) => node.properties['subject'] === undefined);
+    expect(commits.map((node) => String(node.properties['commit']))).toEqual([changed]);
+    // The syntax stage's symbols and its positioned mentions stand in the same graph, one unit's reading each.
+    const symbols = await graphNodes(opened!, 'code.symbol', 'repository', TRAINING);
+    expect(symbols.length).toBeGreaterThan(0);
+    expect(symbols.every((node) => typeof node.properties['globalName'] === 'string')).toBe(true);
+
+    // The later deterministic stages still run as they do on main: the modules stage plans one unit per
+    // pinned repository, the code pass one unit per repository's tree (decision 0033's "The code pass"),
+    // the history stage one per commit, and the document index one per document.
+    const ran = new Set((first?.units ?? []).map((unit) => unit.unitId));
+    for (const unitId of [
+      `modules/modules:${TRAINING}`,
+      `modules/modules:${PRODUCT}`,
+      `codegraph/tree:${TRAINING}`,
+      `codegraph/tree:${PRODUCT}`,
+      `history/${TRAINING}@${previous}`,
+      `history/${PRODUCT}@${git(product, 'rev-parse', 'HEAD')}`,
+      'document-index/document:training:README.md',
+    ]) {
+      expect(ran.has(unitId)).toBe(true);
+    }
+    // No agent stage plans a unit on this branch: the three static stages publish into the 0028 graph, and the
+    // stages between them and the agents (2.2's resolution, 2.3/2.4's) still read the fill's fact store, where
+    // the static three no longer write. This case asserts that absence rather than skipping it; the walk over
+    // the agent stages is the acceptance of those later tasks.
+    const agentStages = new Set([OVERVIEW_STAGE_ID, BOUNDARIES_STAGE_ID, DOC_INTENT_STAGE_ID, INTENT_HISTORY_STAGE_ID, UNDERSTANDING_STAGE_ID, RECOVERY_STAGE_ID, NARRATIVE_STAGE_ID]);
+    expect((first?.units ?? []).filter((unit) => agentStages.has(unit.stageId))).toEqual([]);
+
+    // A second run with no change plans no unit for the static four: the graph answers the same tree,
+    // and the resolution's own coverage says what it resolved at that blob. The later stages whose pin
+    // did not move are inherited.
     expect({ state: second?.state, settled: second?.settled }).toEqual({ state: 'succeeded', settled: true });
     expect(reran(second!)).toEqual([]);
     expect((second?.units ?? []).map((unit) => unit.unitId)).toEqual([]);
-    expect((second?.reused ?? []).length).toBeGreaterThan(0);
-    expect([...(second?.reused ?? [])]).toContain(`${OVERVIEW_STAGE_ID}/${PRODUCT_SCOPE_NAME}`);
-  }, 900_000);
-
-  test('a one-file commit reruns the units it reaches and inherits every other unit', async () => {
-    expect(third?.state).toBe('succeeded');
-    // The units the commit reran: the changed file's own, its folder chain's, the three units that read the
-    // repository whole, the history unit of the commit it left, the resolution units the stage's own pins-input
-    // computes again, the product's overview unit, whose recorded span read the commit moved — and, beside
-    // that list, whatever pages (25.1) the update reruns. The rule the task holds the update to is "only
-    // what it reaches", so the pages are not listed here from the code: every page the update reran besides
-    // the list above must stand on the read the commit moved, and the run's own progress names it — a span
-    // read, the changed file's — for each of them (asserted below).
-    const deterministicReran = reranByTheCommit({
-      repository: TRAINING,
-      file: CHANGED,
-      commit: changed,
-      previousCommit: previous,
-      agentUnitOfRepository: `${OVERVIEW_STAGE_ID}/${PRODUCT_SCOPE_NAME}`,
-    });
-    const narrativeReran = reran(third!).filter((unitId) => unitId.startsWith(`${NARRATIVE_STAGE_ID}/`));
-    expect(reran(third!)).toEqual([...deterministicReran, ...narrativeReran].sort());
-    const events = await opened!.events('run-three');
-    expect(narrativeReran.length).toBeGreaterThan(0);
-    for (const unitId of narrativeReran) {
-      const stale = events.filter((event) => event.kind === 'unit-stale' && event.unitId === unitId);
-      expect(stale).toHaveLength(1);
-      expect(stale[0]!.summary).toContain('"read":"span"');
-      expect(stale[0]!.summary).toContain(CHANGED);
-    }
-    // The units the run planned and inherited, listed whole: the product repository's snapshot, clustering and
-    // history, whose pin, reads and spans the commit did not move. The two lists hold the run's planned units and
-    // the ones it inherited between them; a unit an earlier run published that this run plans nothing of stands
-    // outside both, and the store's own answer below is what says the overview unit was the only agent unit.
-    expect((third?.units ?? []).filter((unit) => unit.stageId === OVERVIEW_STAGE_ID).map((unit) => unit.unitId))
-      .toEqual([`${OVERVIEW_STAGE_ID}/${PRODUCT_SCOPE_NAME}`]);
-    // Stage 10's unit of the training repository's documents is inherited too: the commit moved no
-    // document, and its reads stand. The unit's id is the repository fact's own (24.3's plan), read
-    // from the store here rather than guessed.
-    // Stage 11's units are inherited too: a run plans before any stage publishes, and at planning the reads the
-    // units recorded — the commits of their repository and the comments of their files, both the stage's own SQL —
-    // still answer what they answered when the units ran in run-one. The commit moves those reads (a new commit
-    // fact, and a new comment in the changed file), and what that makes of the units is the run's own sweep, which
-    // reaches them over the declared capabilities (26.1), not this list. The training repository's module stood
-    // past 0026's planned size, so the plan named its files, and the product repository's own module stands as one
-    // unit; the ids are the store's own.
-    const intentUnitsOfTraining = await factIds(opened!, "kind = 'file' AND value->>'repository' = $1", [TRAINING]);
-    const moduleOfProduct = await factIds(opened!, "kind = 'module' AND value->>'repository' = $1", [PRODUCT]);
-    // Stage 12's units (madarch-tzte.24.5) are inherited as the others are: the one module the training
-    // repository clusters into was understood from the graph and its children's summaries, and the commit
-    // moves what that makes of it into the next run's planning. The units are read from the store, as the
-    // repository fact's id is above, and the stage is bound non-empty: the clustering holds one module, so
-    // one unit must have run and been reused.
-    expect(understandingUnitIds.length).toBeGreaterThan(0);
-    // The one page the `byPrompt` entry answered whole is inherited beside them: its scope is the training
-    // repository's own, the script's entry for that scope answered it without the span read, and its reads stand.
-    // The page is the training module's, whose fact id the boundaries unit above names.
-    const narrativeReused = [...(third?.reused ?? [])].filter((unitId) => unitId.startsWith(`${NARRATIVE_STAGE_ID}/`));
-    expect(narrativeReused).toEqual([`${NARRATIVE_STAGE_ID}/${trainingModuleUnitId.slice(`${BOUNDARIES_STAGE_ID}/`.length)}`]);
-
-    expect([...(third?.reused ?? [])].sort()).toEqual([
-      `snapshot/${PRODUCT}`,
-      `modules/modules:${PRODUCT}`,
+    expect([...(second?.reused ?? [])].sort()).toEqual([
       `history/${PRODUCT}@${git(product, 'rev-parse', 'HEAD')}`,
-      // The unit's id is the store's: the stage's own, then the unit's, which is the repository fact's id.
-      `doc-intent/${trainingRepositoryId}`,
-      ...intentUnitsOfTraining.map((id) => `${INTENT_HISTORY_STAGE_ID}/${id}`),
-      ...moduleOfProduct.map((id) => `${INTENT_HISTORY_STAGE_ID}/${id}`),
-      ...understandingUnitIds,
-      ...narrativeReused,
-      // Stage 9's units are inherited whole (madarch-tzte.24.2): a comment-only commit moves no module, no
-      // member count and no containment, and the recorded reads of both units stand. The training repository's
-      // clustering is one module unit, planned at the level below the repository because its estimate is past
-      // 0026's planned size, and the product repository's is the repository unit its one module leaves room for.
-      trainingModuleUnitId,
-      shopRepositoryId,
+      `history/${TRAINING}@${previous}`,
+      `modules/modules:${PRODUCT}`,
+      `modules/modules:${TRAINING}`,
+      'document-index/document:training:README.md',
+      'document-index/document:training:docs/architecture.md',
+      'document-index/document:training:services/orders/README.md',
     ].sort());
   }, 900_000);
 
-  test("the bytes the overview unit read moved at the new pin, and the manifest span stands as it stood", async () => {
-    // the changed file (5 lines before the commit, 7 after) and the product's own manifest, and the changed file's
-    // span answers different bytes at the commit the update run pins while the manifest's stand as they stood.
-    const reads = await readUnitReads(opened!.owner, `${OVERVIEW_STAGE_ID}/${PRODUCT_SCOPE_NAME}`, 1);
-    const spans = reads.filter((read) => (JSON.parse(read.query) as { read?: string }).read === 'span');
-    expect(spans.map((read) => ({ query: JSON.parse(read.query), membership: read.membership }))).toEqual([
-      { query: { read: 'span', repository: TRAINING, file: CHANGED, startLine: 1, endLine: 200 }, membership: expect.any(String) },
-      { query: { read: 'span', repository: PRODUCT, file: 'workspace.yaml', startLine: 1, endLine: 200 }, membership: expect.any(String) },
-    ]);
-    const spanOf = (repository: string) => spans.find((read) => (JSON.parse(read.query) as { repository: string }).repository === repository)!;
-    // The reader the run reads through answers a span at its own pin: the same read, the moved bytes.
-    const reader = await opened!.fill.wiring.graph({ stageId: OVERVIEW_STAGE_ID, stageUnitId: PRODUCT_SCOPE_NAME, unitId: `${OVERVIEW_STAGE_ID}/${PRODUCT_SCOPE_NAME}`, scope: '*', generation: 1 });
-    const movedNow = await reader.query(spanOf(TRAINING).query);
-    expect(answerMembership(spanOf(TRAINING).query, movedNow)).not.toBe(spanOf(TRAINING).membership);
-    const keptNow = await reader.query(spanOf(PRODUCT).query);
-    expect(answerMembership(spanOf(PRODUCT).query, keptNow)).toBe(spanOf(PRODUCT).membership);
-    // What the sweep said it replaced, and why: the run's own progress names the read that moved.
-    const stale = (await opened!.events('run-three')).filter((event) => event.kind === 'unit-stale' && event.unitId === `${OVERVIEW_STAGE_ID}/${PRODUCT_SCOPE_NAME}`);
-    expect(stale.length).toBe(1);
-    expect(stale[0]!.summary).toContain('went stale (a read the generation recorded answers something else now:');
+  test('a one-file commit reruns the static units it reaches and the later stages main reruns, and inherits the rest', async () => {
+    expect(third?.state).toBe('succeeded');
+    // The units the commit reran: the changed file's static three, the folder chain above it, the repository's
+    // snapshot, and the later stages main reruns on a new pin (the modules unit, the resolution units and the
+    // two history units). The list is the branch's own walk; no agent unit stands on it because none planned.
+    expect(reran(third!)).toEqual(reranByTheCommit({ repository: TRAINING, file: CHANGED, commit: changed, previousCommit: previous }));
+    // The units run-three inherited: the product repository's modules and history, whose pin did not move.
+    // The document index names its documents again — its plan compares the blob its own coverage
+    // recorded with the tree's — and a document whose reading stands is inherited, not written.
+    // The units run-three named and found already theirs: the product's modules and history, whose pin did
+    // not move; the three documents whose reading stands; and the three data-model units of the code files the
+    // commit did not touch, which the data-model stage's plan names and whose named inputs did not move, so the
+    // run inherits them and writes nothing (the same list stands at d2d1e1a8, checked in a worktree of it).
+    expect([...(third?.reused ?? [])].sort()).toEqual([
+      `history/${PRODUCT}@${git(product, 'rev-parse', 'HEAD')}`,
+      `modules/modules:${PRODUCT}`,
+      'document-index/document:training:README.md',
+      'document-index/document:training:docs/architecture.md',
+      'document-index/document:training:services/orders/README.md',
+      'data-model/file:training:services/checkout/src/checkout.ts',
+      'data-model/file:training:services/orders/src/order.go',
+      'data-model/file:training:services/payments/src/payment.ts',
+    ].sort());
   }, 900_000);
 
-  test('the pages the update announces are the pages its publications changed, and no other', async () => {
-    // A page is a view of the facts a unit holds (0026, "Pages"), so the pages an update announces are the pages
-    // whose facts its publications changed. The one-file commit moved the bytes of one file, so what moved in the
-    // graph is stage 5's re-measurement of that repository: its module's membership and importance, and the
-    // importance of the three symbols the file declares. The file's own fact stands as it stood — a file's fact
-    // is its identity, so a later publication of it adds a holding and changes no row — and no page of the
-    // product repository, of a document or of another file's symbols is announced.
-    const moduleOfTraining = await factIds(opened!, "kind = 'module' AND value->>'repository' = $1", [TRAINING]);
-    const symbolsOfTheFile = await factIds(opened!, "kind = 'symbol' AND value->>'file' = $1", [CHANGED]);
-    expect(moduleOfTraining.length).toBe(1);
-    expect(symbolsOfTheFile.length).toBe(3);
-    // The pages stage's units publish their coverage of what they read, and a coverage names the page it was
-    // read for — but a coverage whose row stands as it stood is no change to any page (0026: a page is
-    // announced when its facts changed), and the replacement generation's coverage is the same record the last
-    // one wrote. The pages stage's rerun announces nothing of its own.
-    expect(pages).toEqual([...moduleOfTraining, ...symbolsOfTheFile].sort());
-    // The file whose bytes the commit moved has a page, and it is not one of the announced ones: its own row
-    // moved nothing. Neither did the product repository's.
-    const filePage = await factIds(opened!, "kind = 'file' AND value->>'path' = $1 AND value->>'repository' = $2", [CHANGED, TRAINING]);
-    expect(filePage.length).toBe(1);
-    expect(pages).not.toContain(filePage[0]!);
-    // A repository page stands announced only where the pages stage's units moved one: none here.
-    expect(pages.filter((id) => id.startsWith('repository:'))).toEqual([]);
-    expect(pages.filter((id) => id.startsWith('document:'))).toEqual([]);
+  test("the changed file's bytes moved at the new pin, and the manifest stands as it stood", async () => {
+    const checkout = join(product, 'repos', TRAINING);
+    // The changed file's unit published one node before the commit and corrects the same identity after it:
+    // its blob property names the new commit's bytes, and the node is the one the first run opened.
+    const after = await graphNodes(opened!, 'code.file', 'path', CHANGED);
+    expect(after.map((node) => node.nodeId)).toEqual([changedNodeId]);
+    expect(after[0]!.properties['blob']).toBe(git(checkout, 'rev-parse', `${changed}:${CHANGED}`));
+    // The manifest the product's own unit published stands as it stood: its repository's pin did not move.
+    const manifest = await graphNodes(opened!, 'code.file', 'path', 'workspace.yaml');
+    expect(manifest.map((node) => node.properties['blob'])).toEqual([git(product, 'rev-parse', `HEAD:workspace.yaml`)]);
+    // The overview unit that read a span of the changed file does not exist on this branch (no agent stage
+    // plans a unit), so no span read moved; its return is 2.2 to 2.4's acceptance.
+    expect((await readUnitReads(opened!.owner, `${OVERVIEW_STAGE_ID}/${PRODUCT_SCOPE_NAME}`, 1))).toEqual([]);
+  }, 900_000);
+
+  test('the update announces no page on this branch: its facts stand in the 0028 graph, not in the fill fact store', async () => {
+    // A page is a view of the facts a unit holds (0026, "Pages"). On this branch the pages stage's facts are
+    // the ones the modules stage would publish from the fill's fact store, and that stage reads no file fact
+    // any more: the three static stages publish into the 0028 graph. So no module or symbol fact stands to
+    // move, and the update announces no page. This case asserts that state explicitly; it is not a skip, and
+    // it returns to a non-empty list when 2.2 to 2.4 make the later stages read the graph.
+    expect(await factIds(opened!, "kind IN ('module', 'symbol')", [])).toEqual([]);
+    expect(pages).toEqual([]);
+    // The graph holds the changed file's symbol nodes all the same: the syntax stage published them beside
+    // the file node, and the commit corrected the file's own reading.
+    const symbols = await graphNodes(opened!, 'code.symbol', 'repository', TRAINING);
+    expect(symbols.length).toBeGreaterThan(0);
   }, 900_000);
 });

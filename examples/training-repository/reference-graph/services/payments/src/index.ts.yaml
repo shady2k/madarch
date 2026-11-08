@@ -1,0 +1,264 @@
+path: 'services/payments/src/index.ts'
+nodes:
+  - id: 'code.entry-point:payments'
+    kind: 'code.entry-point'
+    label: 'main'
+    evidence:
+      - path: 'services/payments/src/index.ts'
+        startLine: 15
+        endLine: 15
+        quote: 'async function main(): Promise<void> {'
+    reading: 'parsed'
+  - id: 'code.file:services/payments/src/index.ts'
+    kind: 'code.file'
+    label: 'index.ts'
+    evidence:
+      - path: 'services/payments/src/index.ts'
+        startLine: 1
+        endLine: 1
+        quote: 'import { PrismaClient } from ''@prisma/client'';'
+    reading: 'parsed'
+  - id: 'code.process:payments'
+    kind: 'code.process'
+    label: 'payments'
+    evidence:
+      - path: 'services/payments/src/index.ts'
+        startLine: 14
+        endLine: 14
+        quote: '/** The composition root: builds every collaborator once and passes it on through constructors. */'
+    reading: 'parsed'
+  - id: 'code.symbol:services/payments/src/index.ts#GRPC_PORT'
+    kind: 'code.symbol'
+    label: 'GRPC_PORT'
+    evidence:
+      - path: 'services/payments/src/index.ts'
+        startLine: 12
+        endLine: 12
+        quote: 'const GRPC_PORT = 50051;'
+    reading: 'parsed'
+  - id: 'code.symbol:services/payments/src/index.ts#HTTP_PORT'
+    kind: 'code.symbol'
+    label: 'HTTP_PORT'
+    evidence:
+      - path: 'services/payments/src/index.ts'
+        startLine: 11
+        endLine: 11
+        quote: 'const HTTP_PORT = 8081;'
+    reading: 'parsed'
+  - id: 'code.symbol:services/payments/src/index.ts#main'
+    kind: 'code.symbol'
+    label: 'main'
+    evidence:
+      - path: 'services/payments/src/index.ts'
+        startLine: 15
+        endLine: 15
+        quote: 'async function main(): Promise<void> {'
+    reading: 'parsed'
+edges:
+  - relation: 'code.belongs-to'
+    from: 'code.process:payments'
+    to: 'code.service:payments'
+    evidence:
+      - path: 'services/payments/src/index.ts'
+        startLine: 14
+        endLine: 14
+        quote: '/** The composition root: builds every collaborator once and passes it on through constructors. */'
+    reading: 'parsed'
+  - relation: 'code.calls'
+    from: 'code.file:services/payments/src/index.ts'
+    to: 'code.symbol:services/payments/src/index.ts#main'
+    evidence:
+      - path: 'services/payments/src/index.ts'
+        startLine: 32
+        endLine: 32
+        quote: 'main().catch((error) => {'
+    reading: 'parsed'
+  - relation: 'code.calls'
+    from: 'code.symbol:services/payments/src/index.ts#main'
+    to: 'code.symbol:services/payments/src/app.ts#createApp'
+    evidence:
+      - path: 'services/payments/src/index.ts'
+        startLine: 26
+        endLine: 26
+        quote: '  createApp({ service, prisma, jwtSecret: config.jwtSecret }).listen(HTTP_PORT, () => {'
+    reading: 'parsed'
+  - relation: 'code.calls'
+    from: 'code.symbol:services/payments/src/index.ts#main'
+    to: 'code.symbol:services/payments/src/config.ts#loadConfig'
+    evidence:
+      - path: 'services/payments/src/index.ts'
+        startLine: 16
+        endLine: 16
+        quote: '  const config = loadConfig();'
+    reading: 'parsed'
+  - relation: 'code.calls'
+    from: 'code.symbol:services/payments/src/index.ts#main'
+    to: 'code.symbol:services/payments/src/domain/payment-service.ts#PaymentService'
+    evidence:
+      - path: 'services/payments/src/index.ts'
+        startLine: 19
+        endLine: 19
+        quote: '  const service = new PaymentService({'
+    reading: 'parsed'
+  - relation: 'code.calls'
+    from: 'code.symbol:services/payments/src/index.ts#main'
+    to: 'code.symbol:services/payments/src/events/publishers.ts#KafkaEventSink.connect'
+    evidence:
+      - path: 'services/payments/src/index.ts'
+        startLine: 18
+        endLine: 18
+        quote: '  const sink = await KafkaEventSink.connect(config.kafkaBrokers);'
+    reading: 'parsed'
+  - relation: 'code.calls'
+    from: 'code.symbol:services/payments/src/index.ts#main'
+    to: 'code.symbol:services/payments/src/grpc/server.ts#startGrpcServer'
+    evidence:
+      - path: 'services/payments/src/index.ts'
+        startLine: 29
+        endLine: 29
+        quote: '  await startGrpcServer(service, GRPC_PORT);'
+    reading: 'parsed'
+  - relation: 'code.calls'
+    from: 'code.symbol:services/payments/src/index.ts#main'
+    to: 'code.symbol:services/payments/src/providers/factory.ts#PaymentClientFactory.create'
+    evidence:
+      - path: 'services/payments/src/index.ts'
+        startLine: 20
+        endLine: 20
+        quote: '    provider: PaymentClientFactory.create(config.paymentProvider),'
+    reading: 'parsed'
+  - relation: 'code.calls'
+    from: 'code.symbol:services/payments/src/index.ts#main'
+    to: 'code.symbol:services/payments/src/store/payment-repository.ts#PrismaPaymentRepository'
+    evidence:
+      - path: 'services/payments/src/index.ts'
+        startLine: 21
+        endLine: 21
+        quote: '    repository: new PrismaPaymentRepository(prisma),'
+    reading: 'parsed'
+  - relation: 'code.contains'
+    from: 'code.file:services/payments/src/index.ts'
+    to: 'code.symbol:services/payments/src/index.ts#GRPC_PORT'
+    evidence:
+      - path: 'services/payments/src/index.ts'
+        startLine: 12
+        endLine: 12
+        quote: 'const GRPC_PORT = 50051;'
+    reading: 'parsed'
+  - relation: 'code.contains'
+    from: 'code.file:services/payments/src/index.ts'
+    to: 'code.symbol:services/payments/src/index.ts#HTTP_PORT'
+    evidence:
+      - path: 'services/payments/src/index.ts'
+        startLine: 11
+        endLine: 11
+        quote: 'const HTTP_PORT = 8081;'
+    reading: 'parsed'
+  - relation: 'code.contains'
+    from: 'code.file:services/payments/src/index.ts'
+    to: 'code.symbol:services/payments/src/index.ts#main'
+    evidence:
+      - path: 'services/payments/src/index.ts'
+        startLine: 15
+        endLine: 15
+        quote: 'async function main(): Promise<void> {'
+    reading: 'parsed'
+  - relation: 'code.imports'
+    from: 'code.file:services/payments/src/index.ts'
+    to: 'code.dependency:services/payments/package.json#@prisma/client'
+    evidence:
+      - path: 'services/payments/src/index.ts'
+        startLine: 1
+        endLine: 1
+        quote: 'import { PrismaClient } from ''@prisma/client'';'
+    reading: 'parsed'
+  - relation: 'code.imports'
+    from: 'code.file:services/payments/src/index.ts'
+    to: 'code.file:services/payments/src/app.ts'
+    evidence:
+      - path: 'services/payments/src/index.ts'
+        startLine: 2
+        endLine: 2
+        quote: 'import { createApp } from ''./app'';'
+    reading: 'parsed'
+  - relation: 'code.imports'
+    from: 'code.file:services/payments/src/index.ts'
+    to: 'code.file:services/payments/src/config.ts'
+    evidence:
+      - path: 'services/payments/src/index.ts'
+        startLine: 3
+        endLine: 3
+        quote: 'import { loadConfig } from ''./config'';'
+    reading: 'parsed'
+  - relation: 'code.imports'
+    from: 'code.file:services/payments/src/index.ts'
+    to: 'code.file:services/payments/src/domain/payment-service.ts'
+    evidence:
+      - path: 'services/payments/src/index.ts'
+        startLine: 4
+        endLine: 4
+        quote: 'import { PaymentService } from ''./domain/payment-service'';'
+    reading: 'parsed'
+  - relation: 'code.imports'
+    from: 'code.file:services/payments/src/index.ts'
+    to: 'code.file:services/payments/src/events/publishers.ts'
+    evidence:
+      - path: 'services/payments/src/index.ts'
+        startLine: 5
+        endLine: 5
+        quote: 'import { KafkaEventSink } from ''./events/publishers'';'
+    reading: 'parsed'
+  - relation: 'code.imports'
+    from: 'code.file:services/payments/src/index.ts'
+    to: 'code.file:services/payments/src/grpc/server.ts'
+    evidence:
+      - path: 'services/payments/src/index.ts'
+        startLine: 6
+        endLine: 6
+        quote: 'import { startGrpcServer } from ''./grpc/server'';'
+    reading: 'parsed'
+  - relation: 'code.imports'
+    from: 'code.file:services/payments/src/index.ts'
+    to: 'code.file:services/payments/src/logging/logger.ts'
+    evidence:
+      - path: 'services/payments/src/index.ts'
+        startLine: 7
+        endLine: 7
+        quote: 'import { logger } from ''./logging/logger'';'
+    reading: 'parsed'
+  - relation: 'code.imports'
+    from: 'code.file:services/payments/src/index.ts'
+    to: 'code.file:services/payments/src/providers/factory.ts'
+    evidence:
+      - path: 'services/payments/src/index.ts'
+        startLine: 8
+        endLine: 8
+        quote: 'import { PaymentClientFactory } from ''./providers/factory'';'
+    reading: 'parsed'
+  - relation: 'code.imports'
+    from: 'code.file:services/payments/src/index.ts'
+    to: 'code.file:services/payments/src/store/payment-repository.ts'
+    evidence:
+      - path: 'services/payments/src/index.ts'
+        startLine: 9
+        endLine: 9
+        quote: 'import { PrismaPaymentRepository } from ''./store/payment-repository'';'
+    reading: 'parsed'
+  - relation: 'code.listens-on'
+    from: 'code.process:payments'
+    to: 'code.port:payments:50051'
+    evidence:
+      - path: 'services/payments/src/index.ts'
+        startLine: 12
+        endLine: 12
+        quote: 'const GRPC_PORT = 50051;'
+    reading: 'parsed'
+  - relation: 'code.listens-on'
+    from: 'code.process:payments'
+    to: 'code.port:payments:8081'
+    evidence:
+      - path: 'services/payments/src/index.ts'
+        startLine: 11
+        endLine: 11
+        quote: 'const HTTP_PORT = 8081;'
+    reading: 'parsed'

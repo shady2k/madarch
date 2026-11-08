@@ -1,0 +1,120 @@
+path: 'services/payments/src/api/routes.ts'
+nodes:
+  - id: 'code.file:services/payments/src/api/routes.ts'
+    kind: 'code.file'
+    label: 'routes.ts'
+    evidence:
+      - path: 'services/payments/src/api/routes.ts'
+        startLine: 1
+        endLine: 1
+        quote: 'import { Router } from ''express'';'
+    reading: 'parsed'
+  - id: 'code.symbol:services/payments/src/api/routes.ts#paymentRoutes'
+    kind: 'code.symbol'
+    label: 'paymentRoutes'
+    evidence:
+      - path: 'services/payments/src/api/routes.ts'
+        startLine: 6
+        endLine: 6
+        quote: 'export function paymentRoutes(service: PaymentService): Router {'
+    reading: 'parsed'
+edges:
+  - relation: 'code.calls'
+    from: 'code.route:payments:GET /payments/{id}'
+    to: 'code.symbol:services/payments/src/domain/payment-service.ts#PaymentService.get'
+    evidence:
+      - path: 'services/payments/src/api/routes.ts'
+        startLine: 36
+        endLine: 36
+        quote: '      res.json(await service.get(req.params.id));'
+    reading: 'judgement'
+  - relation: 'code.calls'
+    from: 'code.route:payments:POST /payments'
+    to: 'code.symbol:services/payments/src/domain/payment-service.ts#PaymentService.pay'
+    evidence:
+      - path: 'services/payments/src/api/routes.ts'
+        startLine: 21
+        endLine: 21
+        quote: '      const payment = await service.pay({'
+    reading: 'judgement'
+  - relation: 'code.calls'
+    from: 'code.route:payments:POST /payments/{id}/refunds'
+    to: 'code.symbol:services/payments/src/domain/payment-service.ts#PaymentService.refund'
+    evidence:
+      - path: 'services/payments/src/api/routes.ts'
+        startLine: 45
+        endLine: 45
+        quote: '      res.status(201).json(await service.refund(req.params.id, amountCents, reason));'
+    reading: 'judgement'
+  - relation: 'code.calls'
+    from: 'code.symbol:services/payments/src/api/routes.ts#paymentRoutes'
+    to: 'code.symbol:services/payments/src/domain/payment-service.ts#PaymentService.get'
+    evidence:
+      - path: 'services/payments/src/api/routes.ts'
+        startLine: 36
+        endLine: 36
+        quote: '      res.json(await service.get(req.params.id));'
+    reading: 'parsed'
+  - relation: 'code.calls'
+    from: 'code.symbol:services/payments/src/api/routes.ts#paymentRoutes'
+    to: 'code.symbol:services/payments/src/domain/payment-service.ts#PaymentService.pay'
+    evidence:
+      - path: 'services/payments/src/api/routes.ts'
+        startLine: 21
+        endLine: 21
+        quote: '      const payment = await service.pay({'
+    reading: 'parsed'
+  - relation: 'code.calls'
+    from: 'code.symbol:services/payments/src/api/routes.ts#paymentRoutes'
+    to: 'code.symbol:services/payments/src/domain/payment-service.ts#PaymentService.refund'
+    evidence:
+      - path: 'services/payments/src/api/routes.ts'
+        startLine: 45
+        endLine: 45
+        quote: '      res.status(201).json(await service.refund(req.params.id, amountCents, reason));'
+    reading: 'parsed'
+  - relation: 'code.contains'
+    from: 'code.file:services/payments/src/api/routes.ts'
+    to: 'code.symbol:services/payments/src/api/routes.ts#paymentRoutes'
+    evidence:
+      - path: 'services/payments/src/api/routes.ts'
+        startLine: 6
+        endLine: 6
+        quote: 'export function paymentRoutes(service: PaymentService): Router {'
+    reading: 'parsed'
+  - relation: 'code.imports'
+    from: 'code.file:services/payments/src/api/routes.ts'
+    to: 'code.dependency:services/payments/package.json#express'
+    evidence:
+      - path: 'services/payments/src/api/routes.ts'
+        startLine: 1
+        endLine: 1
+        quote: 'import { Router } from ''express'';'
+    reading: 'parsed'
+  - relation: 'code.imports'
+    from: 'code.file:services/payments/src/api/routes.ts'
+    to: 'code.file:services/payments/src/domain/payment-service.ts'
+    evidence:
+      - path: 'services/payments/src/api/routes.ts'
+        startLine: 2
+        endLine: 2
+        quote: 'import { PaymentService } from ''../domain/payment-service'';'
+    reading: 'parsed'
+  - relation: 'code.imports'
+    from: 'code.file:services/payments/src/api/routes.ts'
+    to: 'code.file:services/payments/src/domain/payment.ts'
+    evidence:
+      - path: 'services/payments/src/api/routes.ts'
+        startLine: 3
+        endLine: 3
+        quote: 'import { PaymentStatus } from ''../domain/payment'';'
+    reading: 'parsed'
+  - relation: 'code.uses-type'
+    from: 'code.symbol:services/payments/src/api/routes.ts#paymentRoutes'
+    to: 'code.symbol:services/payments/src/domain/payment-service.ts#PaymentService'
+    evidence:
+      - path: 'services/payments/src/api/routes.ts'
+        startLine: 6
+        endLine: 6
+        quote: 'export function paymentRoutes(service: PaymentService): Router {'
+    reading: 'parsed'

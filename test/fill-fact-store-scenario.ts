@@ -179,7 +179,7 @@ export function scenarioFacts(): ScenarioFacts {
 
 /** One write of a fact, as a stage's draft writer makes it: the write's kind is the tool that wrote it, and its `value` is the fact. */
 export function writeOf(kind: StageDraftWrite['kind'], fact: unknown, evidence = 'src/cart.ts:1'): StageDraftWrite {
-  return { kind, evidence, value: fact };
+  return { kind, evidence, value: fact } as StageDraftWrite;
 }
 
 /** Everything one run of the scenario saw, with no judgement in it. */

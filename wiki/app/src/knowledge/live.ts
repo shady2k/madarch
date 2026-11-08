@@ -52,6 +52,15 @@ export function useWikiStatus(): { status: WikiStatus | null; error: string | nu
     });
   }, []);
 
+  // A running fill is followed by asking again: the run writes its trace as it goes and sends no
+  // event per span, so a page that waited for a change would show the press and then nothing until
+  // the run ended (madarch-8bdc.2.5, item 2). A quiet product still asks for nothing.
+  useEffect(() => {
+    if (status?.fill.state !== 'running') return;
+    const poll = setInterval(load, 400);
+    return () => clearInterval(poll);
+  }, [status?.fill.state, load]);
+
   useEffect(() => {
     load();
     if (typeof EventSource === 'undefined') return () => controller.current?.abort();

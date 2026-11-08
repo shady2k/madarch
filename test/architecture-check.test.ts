@@ -70,6 +70,7 @@ const FIXTURE: Readonly<Record<string, readonly string[]>> = {
   ],
   'src/knowledge/fill-worker.ts': ['/** The knowledge fill worker\'s own loop. */', 'export async function runFillWorker(): Promise<void> {}', ''],
   'src/product/fill.ts': ['/** The product CLI\'s own fill. */', 'export async function startFill(): Promise<void> {}', ''],
+  'src/product/fill-stages.ts': ['/** The declared stages\' wiring. */', 'export async function createStagesFill(): Promise<void> {}', ''],
   'src/writer/view.ts': [
     "import { DRIVER_PRODUCER } from '../extract/driver/index.js';",
     '',
@@ -183,6 +184,39 @@ describe('the architecture check', () => {
     expect(architectureProblemLines(await architectureCheck({ root, rules: ['one-fill-entry'] }))).toEqual([]);
   });
 
+  test('a second wiring of the fill fails by name, and passes when the plant is removed', async () => {
+    const root = fixtureProject();
+    await acceptWhatIsFound(root, ['one-fill-entry']);
+    expect(architectureProblemLines(await architectureCheck({ root, rules: ['one-fill-entry'] }))).toEqual([]);
+
+    const plant = [
+      '/**',
+      ' * A second wiring of the fill, planted by the test: the host and the stages built beside the one runner.',
+      ' */',
+      "import { createFillOrchestratorService } from './fill/orchestrator-host.js';",
+      "import { createStagesFill } from './product/fill-stages.js';",
+      '',
+      'export const wired = [createFillOrchestratorService, createStagesFill];',
+    ];
+    writeModule(root, 'src/second-wiring.ts', plant);
+
+    const planted = await architectureCheck({ root, rules: ['one-fill-entry'] });
+    expect(planted.comparison.unlisted).toEqual([
+      { rule: 'one-fill-entry', file: 'src/second-wiring.ts', line: lineOf(plant, 'fill/orchestrator-host.js'), symbol: 'src/fill/orchestrator-host.ts:createFillOrchestratorService' },
+      { rule: 'one-fill-entry', file: 'src/second-wiring.ts', line: lineOf(plant, 'product/fill-stages.js'), symbol: 'src/product/fill-stages.ts:createStagesFill' },
+    ]);
+    const problems = architectureProblemLines(planted);
+    expect(problems.length).toBe(2);
+    expect(problems[0]).toContain(`${join(root, 'src', 'second-wiring.ts')}:${lineOf(plant, 'fill/orchestrator-host.js')}: one-fill-entry:`);
+    expect(problems[0]).toContain('the fill runner createFillOrchestratorService of src/fill/orchestrator-host.ts');
+    expect(problems[1]).toContain('the fill runner createStagesFill of src/product/fill-stages.ts');
+
+    rmSync(join(root, 'src', 'second-wiring.ts'));
+    const removed = await architectureCheck({ root, rules: ['one-fill-entry'] });
+    expect(architectureProblemLines(removed)).toEqual([]);
+    expect(architectureCheckPasses(removed)).toBe(true);
+  });
+
   test(
     'a module no entry reaches fails, and passes when the plant is removed',
     async () => {
@@ -246,10 +280,13 @@ describe('the architecture check', () => {
       ' */',
       "import * as driver from './extract/driver/index.js';",
       "export { fillGraph } from './extract/driver/index.js';",
-      "export * from './knowledge/fill-worker.js';",
+      "export * from './fill/orchestrator.js';",
       '',
-      "export const pick = async (): Promise<unknown> => import('./product/fill.js');",
+      "export const pick = async (): Promise<unknown> => import('./product/fill-stages.js');",
       'export const whole = driver;',
+      'const load = async (path: string): Promise<unknown> => await import(path);',
+      "export const loaded = await load('src/fill/orchestrator-host.ts');",
+      "export const elsewhere = await load('src/writer/view.ts');",
     ];
     writeModule(root, 'src/rogue-imports.ts', plant);
 
@@ -257,10 +294,12 @@ describe('the architecture check', () => {
     expect(planted.comparison.unlisted.map((violation) => [violation.line, violation.symbol])).toEqual([
       [lineOf(plant, "import * as driver"), 'src/extract/driver/index.ts:*'],
       [lineOf(plant, 'export { fillGraph }'), 'src/extract/driver/index.ts:fillGraph'],
-      [lineOf(plant, 'export * from'), 'src/knowledge/fill-worker.ts:*'],
-      [lineOf(plant, "import('./product/fill.js')"), 'src/product/fill.ts:*'],
+      // A local loader handed a runner's path takes the module as a whole; a module that is no runner is not an entry.
+      [lineOf(plant, "load('src/fill/orchestrator-host.ts')"), 'src/fill/orchestrator-host.ts:*'],
+      [lineOf(plant, 'export * from'), 'src/fill/orchestrator.ts:*'],
+      [lineOf(plant, "import('./product/fill-stages.js')"), 'src/product/fill-stages.ts:*'],
     ]);
-    expect(architectureProblemLines(planted).length).toBe(4);
+    expect(architectureProblemLines(planted).length).toBe(5);
 
     rmSync(join(root, 'src', 'rogue-imports.ts'));
     expect(architectureProblemLines(await architectureCheck({ root, rules: ['one-fill-entry'] }))).toEqual([]);

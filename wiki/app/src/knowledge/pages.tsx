@@ -23,7 +23,7 @@ import { FailureNote } from './errors.js';
 import { BlockView, CodeLines, CodePlace, EntityName, Findings, KLink, KMarkdown, PlannedBadge, PlannedContext, brokenWords, groupLabel, scrollToAnchor, sentenceKey, type PlannedMarks } from './blocks.js';
 import { addressOfDocument, addressOfEntity, addressOfJournal, addressOfKind, addressOfStatement } from './routes.js';
 import { KindLabels, useKindName } from './kind-names.js';
-import { fillShare, fillWords } from './fill-words.js';
+import { fillPhaseWords, fillShare, fillWords } from './fill-words.js';
 import { useRead } from './live.js';
 import { blockOpen, useRole } from './roles.js';
 import { PageSkeleton } from './skeleton.js';
@@ -288,17 +288,32 @@ function FillPart({ status, refresh }: { status: WikiStatus; refresh: () => void
     );
   };
   if (fill.state === 'running') {
-    const share = fillShare(fill);
+    // The bar is the run's own trace (madarch-8bdc.2.5, item 2): the units it planned and the units it
+    // published, as the trace states them, and the last thing it did. A run that has written no unit yet
+    // shows the commits-read bar the store keeps instead of an empty one.
+    const progress = fill.progress;
+    const planned = progress?.planned ?? 0;
+    const published = progress?.published ?? 0;
+    const share = planned > 0 ? Math.min(1, published / planned) : fillShare(fill);
     return (
       <Card className="mb-8" data-testid="fill-card" data-state="running">
         <CardHeader>
           <CardTitle>{t('knowledge.fillRunningTitle')}</CardTitle>
-          <CardDescription>{fill.repository !== undefined ? t('knowledge.fillReading', { repository: fill.repository, what: fillWords(fill, t) }) : t('knowledge.fillOpening')}</CardDescription>
+          <CardDescription>{fill.repository !== undefined ? t('knowledge.fillReading', { repository: fill.repository, what: fillPhaseWords(fill, t) }) : t('knowledge.fillOpening')}</CardDescription>
         </CardHeader>
         <CardContent>
           <div className="h-2 w-full overflow-hidden rounded-full bg-[var(--surface-active)]" role="progressbar" aria-valuemin={0} aria-valuemax={100} aria-valuenow={Math.round(share * 100)} aria-label={t('knowledge.fillRunningTitle')}>
             <div className="h-full rounded-full bg-ink transition-[width] duration-150 motion-reduce:transition-none" style={{ width: `${Math.round(share * 100)}%` }} />
           </div>
+          {progress !== undefined && planned > 0 && (
+            <p className="mb-0 mt-3 text-small text-muted" data-testid="fill-progress-counts">{t('knowledge.repository.progressCounts', { published, planned })}</p>
+          )}
+          {progress !== undefined && planned === 0 && (
+            <p className="mb-0 mt-3 text-small text-muted" data-testid="fill-progress-spans">{t('knowledge.repository.fillSpans', { spans: progress.spans })}</p>
+          )}
+          {progress?.last !== null && progress?.last !== undefined && (progress.last.startsWith('fill.unit') || progress.last.startsWith('scheduler pass')) && (
+            <p className="mb-0 mt-1 break-all text-small text-muted" data-testid="fill-progress-last">{t('knowledge.repository.fillLast', { last: progress.last })}</p>
+          )}
           <p className="mb-0 mt-3 text-small text-muted">{t('knowledge.fillLive')}</p>
         </CardContent>
       </Card>
@@ -310,6 +325,12 @@ function FillPart({ status, refresh }: { status: WikiStatus; refresh: () => void
         <AlertTitle>{t('knowledge.fillFailedTitle')}</AlertTitle>
         <AlertDescription>
           <FailureNote scope="fill" code={fill.code} message={fill.message} />
+          {fill.error !== undefined && fill.error.file !== undefined && (
+            <p className="mb-0 mt-2 break-all text-small" data-testid="fill-error-where">{t('knowledge.repository.errorAt', { file: fill.error.file, line: fill.error.line ?? 0, path: fill.error.path ?? '' })}</p>
+          )}
+          {fill.error !== undefined && fill.error.file === undefined && fill.error.path !== undefined && (
+            <p className="mb-0 mt-2 break-all text-small" data-testid="fill-error-path">{t('knowledge.repository.errorPath', { path: fill.error.path })}</p>
+          )}
           <p className="mt-2"><Button variant="default" size="default" onClick={start} disabled={starting}>{t('knowledge.fillRetry')}</Button></p>
           {refused !== null && <p className="mb-0 mt-3 text-small" role="alert" data-testid="fill-refused">{refused}</p>}
         </AlertDescription>

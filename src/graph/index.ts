@@ -18,14 +18,17 @@ import type { DatabaseOwner } from '../adapters/database-owner.js';
 import type { OuterTransaction } from '../history/types.js';
 import type { GraphId } from './digest.js';
 import {
-  leaseWorkItem, openWorkItem, publish, type LeaseInput, type PublishInput, type PublishResult, type WorkItemInput,
+  leaseWorkItem, openWorkItem, publish, publishUnit,
+  type LeaseInput, type PublishInput, type PublishResult, type PublishUnitInput, type PublishUnitResult, type UnitEdgeDraft, type UnitEnd, type UnitNodeDraft, type WorkItemInput,
 } from './publish.js';
 import {
-  readAll, readCallees, readCallers, readClaims, readContentBytes, readNode, readOutgoingDiff, readRelationsWithin, readStateChain, readTraversal, resolveLens,
+  readAll, readByKey, readByProperty, readCallees, readCallers, readClaims, readContentBytes, readEdgesByProperty, readNode, readOutgoingDiff, readRelationsWithin, readStateChain, readTraversal, resolveLens,
   type ClaimEntry, type EdgeEntry, type GraphLens, type OutgoingDiff, type Page, type PageOptions, type StateEntry,
 } from './reads.js';
 import { registerCodeSchema, registerVocabulary } from './register.js';
 import { createGraphSchema } from './schema.js';
+import { createGraphCheckpoints, type CheckpointRun, type GraphCheckpoints } from './checkpoint.js';
+import { createGraphStatistics, type GraphStatistics, type StatisticsRefresh } from './statistics.js';
 import { instantMicros, microsInstant } from './time.js';
 import {
   closeVersion, removeNodeVersion, correctEdgeVersion, correctNodeVersion, endEdgeVersion, endNode, newNodeIdentity, openEdgeVersion, openNodeVersion, writeMemo,
@@ -37,11 +40,16 @@ export { GraphClockBehind, GraphError } from './errors.js';
 import { GraphClockBehind } from './errors.js';
 export type { GraphOrigin } from './errors.js';
 export { GRAPH_TABLES } from './schema.js';
+export {
+  RECORD_EDGE_KINDS, RECORD_NODE_KINDS, RECORD_TABLES, RecordGap, authorKeyOf, commitFacts, commitWithPaths, createRecordSchema, fileFacts, fileHistory, folderChildrenOf, folderFiles, folderOfPath, gitDateOf, instantOf, listDirectories, listFiles, listRepositories, publishHistory, publishTree, recordSizes, repositoryFacts,
+  type CommitRecord, type FileDate, type FileHistoryRow, type FileRecord, type HistoryCommit, type HistoryPublish, type RecordCounts, type TouchedRecord, type TreeFile, type TreeGitlink, type TreePublish,
+} from './records.js';
 export { ALL_STATES, plusMicrosecond, type Instant, type StateSpan } from './time.js';
 export { CODE_NODE_KINDS, CODE_PREFIX, CODE_RELATIONS, ENGINE_NODE_KINDS, ENGINE_PREFIX, ENGINE_RELATIONS, CALLS, CONTAINS, STATE_KIND, CONTENT_KIND, CLAIM_KIND, ACCEPTANCE_KIND, type GraphRegistry, type RelationDeclaration } from './vocabulary.js';
 export { claimCanonicalForm, claimDigest, sha256Hex, type ByteSpan, type ClaimContent, type EvidenceSpan, type GraphId } from './digest.js';
 export type { EdgeEntry, GraphLens, OutgoingDiff, Page, PageOptions, ClaimEntry, StateEntry } from './reads.js';
-export type { PublishInput, PublishNode, PublishEdge, PublishEnd, PublishResult, WorkItemInput, LeaseInput, NodeRef } from './publish.js';
+export type { PublishInput, PublishNode, PublishEdge, PublishEnd, PublishResult, PublishUnitInput, PublishUnitResult, UnitEdgeDraft, UnitEnd, UnitNodeDraft, WorkItemInput, LeaseInput, NodeRef } from './publish.js';
+export { outerTransactionOf, type QueryExecutor } from './transaction.js';
 export type { NewNodeVersion, NewEdgeVersion, NodePatch, EdgePatch, NodeVersionRow, EdgeVersionRow, EndResult } from './versions.js';
 
 export interface GraphStoreOptions {
@@ -53,7 +61,22 @@ export class GraphStore {
   /** The last recorded instant this store handed out, in microseconds since the epoch. */
   private last = 0n;
 
-  constructor(private readonly owner: DatabaseOwner, private readonly options: GraphStoreOptions = {}) {}
+  /**
+   * The planner's statistics of the version tables (`statistics.ts`): every publication counts the versions
+   * it wrote, and `refreshStatistics` runs `ANALYZE` when enough of them did.
+   */
+  readonly statistics: GraphStatistics;
+
+  /**
+   * The WAL checkpoint the same seam runs (`checkpoint.ts`): PGlite's single-user backend has no
+   * checkpointer, so without it `pg_wal` grows with the graph until the disk is full.
+   */
+  readonly checkpoints: GraphCheckpoints;
+
+  constructor(private readonly owner: DatabaseOwner, private readonly options: GraphStoreOptions = {}) {
+    this.statistics = createGraphStatistics(owner);
+    this.checkpoints = createGraphCheckpoints(owner);
+  }
 
   private reading(): bigint {
     return BigInt((this.options.now ?? (() => new Date()))().getTime()) * 1000n;
@@ -165,7 +188,54 @@ export class GraphStore {
 
   /** Publishes a unit's result in one transaction; see `publish.ts` for the fencing it enforces. */
   publish(input: PublishInput, transaction?: OuterTransaction): Promise<PublishResult> {
-    return this.write(transaction, (ctx) => publish(ctx, input));
+    return this.published(transaction, (ctx) => publish(ctx, input));
+  }
+
+  /**
+   * Publishes one unit's nodes and edges: the scope its caller's key names, the
+   * generation the store allocates, the publication lock, and `complete: true`,
+   * all inside the caller's transaction (decision 0027's one atomic operation;
+   * decision 0033, item 3). See `publishUnit` in `publish.ts`.
+   */
+  publishUnit(input: PublishUnitInput, transaction?: OuterTransaction): Promise<PublishUnitResult> {
+    return this.published(transaction, (ctx) => publishUnit(ctx, input));
+  }
+
+  /**
+   * Runs one publication, counts the versions it wrote towards the next statistics refresh, and — when this
+   * store owns the transaction, so it has committed by the time `write` answers — refreshes them at once. A
+   * publication inside a caller's transaction leaves the refresh to the caller, which knows when it committed
+   * (`refreshStatistics`; the fill calls it when a unit's publication lands).
+   */
+  private async published<T extends PublishResult | PublishUnitResult>(transaction: OuterTransaction | undefined, work: (ctx: WriteContext) => Promise<T>): Promise<T> {
+    const result = await this.write(transaction, work);
+    const versions: PublishResult = 'publication' in result ? result.publication : result;
+    const written = versions.nodeVersionsOpened + versions.edgeVersionsOpened;
+    this.statistics.note(written);
+    this.checkpoints.note(written);
+    if (transaction === undefined) await this.maintain();
+    return result;
+  }
+
+  /**
+   * The store's maintenance after a publication committed: the planner's statistics when the rows
+   * written make them stale (`statistics.ts`) and the WAL checkpoint when they make it due
+   * (`checkpoint.ts`). A caller that published inside its own transaction calls this after it commits.
+   */
+  async maintain(): Promise<{ statistics: StatisticsRefresh | null; checkpoint: CheckpointRun | null }> {
+    const statistics = await this.statistics.refresh();
+    const checkpoint = await this.checkpoints.checkpoint();
+    return { statistics, checkpoint };
+  }
+
+  /**
+   * `ANALYZE` of the version tables when the rows published since the last one make it due (`statistics.ts`),
+   * or when a table that holds rows was never analyzed; null when nothing was due. A caller that published
+   * inside its own transaction calls this after it commits, so the planner's estimates cover the rows that
+   * publication wrote.
+   */
+  refreshStatistics(): Promise<StatisticsRefresh | null> {
+    return this.statistics.refresh();
   }
 
   /** One node as the lens sees it, or null. */
@@ -206,6 +276,31 @@ export class GraphStore {
       const resolved = await resolveLens(tx, { ...lens, state: 0 }, this.nowText());
       return await readStateChain(tx, resolved);
     });
+  }
+
+  /** The nodes whose current version carries the record key, in node id order, one bounded page. */
+  byKey(key: string, options?: PageOptions, transaction?: OuterTransaction): Promise<Page<NodeVersionRow>> {
+    return this.read(transaction, async (tx) => await readByKey(tx, key, await this.lens(tx, undefined), options));
+  }
+
+  /** The nodes of one kind whose current version carries `value` in the property `field`: one bounded page. */
+  byProperty(kind: string, field: string, value: string, options?: PageOptions, transaction?: OuterTransaction): Promise<Page<NodeVersionRow>> {
+    return this.read(transaction, async (tx) => await readByProperty(tx, kind, field, value, await this.lens(tx, undefined), options));
+  }
+
+  /** The symbols whose global name is `name`: the graph's own query by the name a reader of another file writes (0033). */
+  byGlobalName(name: string, options?: PageOptions, transaction?: OuterTransaction): Promise<Page<NodeVersionRow>> {
+    return this.byProperty('code.symbol', 'globalName', name, options, transaction);
+  }
+
+  /** One bounded page of the edges of one relation whose property carries a value. */
+  edgesByProperty(relation: string, field: string, value: string, options?: PageOptions, transaction?: OuterTransaction): Promise<Page<EdgeEntry>> {
+    return this.read(transaction, async (tx) => await readEdgesByProperty(tx, relation, field, value, await this.lens(tx, undefined), options));
+  }
+
+  /** One bounded page of the nodes reachable from `start` through `relations`, in node id order. */
+  neighbourhood(start: GraphId, relations: readonly string[], direction: 'out' | 'in', options?: PageOptions, transaction?: OuterTransaction): Promise<Page<NodeVersionRow>> {
+    return this.read(transaction, async (tx) => await readTraversal(tx, start, relations, direction, await this.lens(tx, undefined), options));
   }
 
   /** The bytes of a content node, or of a span of them, found by digest; null when no content has it. */

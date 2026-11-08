@@ -1,89 +1,97 @@
 /**
- * Stage 1 of the fill (decision 0026): the inventory stage writes what the
- * pinned tree of each repository holds — one `file` node per file (its roles,
- * the language stage 3 will parse it as, its size and the blob its bytes stand
- * under), one `directory` node per folder that holds a file, and one `contains`
- * edge from each node's container to it (a folder, or the repository node at
- * the root).
+ * Stage 1 of the fill (decision 0026; decision 0033's per-file units): the
+ * inventory stage draws the tree's containment — one `code.contains` edge from
+ * each file's or folder's container to it, the container being a folder's node
+ * or the repository's node. The nodes themselves are the snapshot stage's:
+ * this stage publishes no node, and every edge's two ends are nodes the
+ * snapshot already wrote (decision 0033, item 15: steps build on each other).
  *
  * **Units.** A unit is one file or one directory, named
- * `<kind>:<repository>:<path>`; its scope is `<repository>:<path>`. That is the
- * granularity incrementality needs: a commit that changes one file's bytes
- * moves that file's unit (and, through the directory rule below, the units of
- * the folders it stands in) and no other, so a second run writes that file's
- * facts and no other file's.
+ * `<kind>:<repository>:<path>`; its scope is `<repository>:<path>`. A commit
+ * that changes one file's bytes moves that file's unit (and, through the
+ * directory rule below, the units of the folders it stands in) and no other.
  *
- * **The plan reads what the previous runs published.** Before it names a unit,
- * the plan makes one tracked read per repository — a JSON document naming the
- * read and the repository (`publishedTreeRead`) — and the graph answers the
- * `file` and `directory` facts it already holds for it. So a plan holds:
+ * **The plan reads what the previous runs published.** The plan reads the
+ * `code.file` and `code.directory` nodes the graph holds for the repository
+ * (`publishedTreeRead`) and plans:
  *
  * - a file's unit when the file is new or its blob moved at the pinned commit;
  * - a file's unit for a published path the commit no longer holds, which
- *   publishes nothing and so retracts the facts of a file that was deleted or
- *   renamed away (a rename leaves no stale fact behind);
+ *   publishes nothing and so retracts the edge of a deleted or renamed-away
+ *   file;
  * - a directory's unit when the folder is new, when it vanished, and when it
  *   holds a file this run writes, so a changed file's folders are published
  *   with it.
  *
  * A graph that answers nothing for a repository plans its whole tree, which is
- * what a first run is. The plan is in code point order of the unit ids, so two
- * runs of one commit plan the same units in the same order.
+ * what a first run is. The plan is in code point order of the unit ids.
+ *
+ * **What the files are.** The file node's roles, language, bytes and blob are
+ * the snapshot stage's reading of the path and the tree; this stage keeps the
+ * pure rules (`rolesFor`, `languageFor`, `wholeFileRange`, `directoriesOf`)
+ * because the later stages read a path the same way, and the snapshot stage
+ * uses them too.
  */
 import { Type } from 'typebox';
 import { byCodePoint } from '../../model/order.js';
 import { ID_PATTERN } from '../../model/schema.js';
-import {
-  FACT_KINDS, isRepositoryPath, makeEdgeFact, makeNodeFact, repositoryPath,
-  type Fact, type FactProvenance, type FactRange, type FileRole, type FileValue,
-} from '../facts.js';
-import type { SnapshotEntry, SnapshotReader, SnapshotSource } from '../snapshot.js';
-import {
-  DEFAULT_STAGE_DEFAULTS,
-  type FillStage, type StageContext, type StageDraftSet, type StageExecutionResult,
-  type StageGraphReader, type StagePlan, type StageUnit,
-} from '../stage.js';
-import { checkFactDraft, evidenceAt, provenanceOf } from './draft.js';
+import { FACT_KINDS, isRepositoryPath, makeEdgeFact, makeNodeFact, repositoryPath, type Fact, type FactProvenance, type FactRange, type FileRole, type RepositoryForm } from '../facts.js';
+import type { SnapshotReader, SnapshotSource } from '../snapshot.js';
+import { DEFAULT_STAGE_DEFAULTS, type FillStage, type StageContext, type StageExecutionResult, type StageGraphReader, type StagePlan, type StageUnit } from '../stage.js';
+import { evidenceAtPlace, provenanceOfPlace } from './draft.js';
+import type { StaticStageSource } from './static-context.js';
+import { checkStaticGraphDraft, graphWritesOf } from './static-graph.js';
+import { fileFactIdOf } from './syntax-facts.js';
+import { publishedRepositoryRead, publishedRepositoryRows } from './snapshot.js';
+import { publishedTreeRead, publishedTreeRows, type PublishedTreeRow } from './tree-rows.js';
 
 /** The stage's id, as it is registered and as its units are named. */
 export const INVENTORY_STAGE_ID = 'inventory';
 
 /** The stage's own version, bumped when what it writes or plans changes. */
-export const INVENTORY_STAGE_VERSION = 1;
+export const INVENTORY_STAGE_VERSION = 2;
 
 /** The fact kinds the stage produces, in code point order. */
-export const INVENTORY_STAGE_KINDS: readonly string[] = ['contains', 'directory', 'file'];
+export const INVENTORY_STAGE_KINDS: readonly string[] = ['contains'];
 
-/** The read the plan makes; the wiring answers it from the product graph. */
-export const PUBLISHED_TREE_READ = 'stage-1-published-tree';
+// The tree read lives in one module the three static stages share.
+export { PUBLISHED_TREE_READ, publishedTreeRead, publishedTreeRows } from './tree-rows.js';
 
-/**
- * The one tracked read the inventory's plan makes: the `file` and `directory`
- * facts the graph already holds for one repository's stage-1 tree. The text is
- * a JSON document, so a wiring reads it as data and not as prose: `{"read":
- * "stage-1-published-tree", "repository": "<the product's name for it>"}`.
- */
-export function publishedTreeRead(repository: string): string {
-  return JSON.stringify({ read: PUBLISHED_TREE_READ, repository });
+/** The read the inventory's plan makes of its own containment edges. */
+export const PUBLISHED_CONTAINMENT_READ = 'stage-1-published-containment';
+
+/** The read of one repository's published containment edges. */
+export function publishedContainmentRead(repository: string): string {
+  return JSON.stringify({ read: PUBLISHED_CONTAINMENT_READ, repository });
 }
 
-/** One row of that read: a file or directory fact, as the graph holds it. */
-export interface PublishedTreeRow {
-  readonly kind: 'directory' | 'file';
-  readonly repository: string;
-  readonly path: string;
-  /** The blob a file's bytes stood under; absent where the fact was written before the field existed. */
-  readonly blob?: string;
+/** One row of that read: one child and the container it stands in (`''` is the repository root). */
+export interface PublishedContainmentRow {
+  readonly kind: 'contains';
+  readonly child: 'file' | 'directory';
+  /** The container's path, or `''` for the repository node. */
+  readonly from: string;
+  readonly to: string;
 }
 
-/** The keys a row of the read holds, and no others. */
-const ROW_FIELDS: readonly string[] = ['blob', 'kind', 'path', 'repository'];
-
-/** What the read answered, as the plan compares against it. */
-interface PublishedTree {
-  /** Each published file's path, and the blob it stood under (`undefined` where the row named none). */
-  readonly files: ReadonlyMap<string, string | undefined>;
-  readonly directories: ReadonlySet<string>;
+/** The read's rows, read: each row names a file or folder and the container it stands in. */
+export function publishedContainmentRows(rows: readonly unknown[], repository: string, read: string): readonly PublishedContainmentRow[] {
+  return rows.map((row, index) => {
+    const refuse = (detail: string): Error => new Error(`the read ${read} answered row ${index + 1} for the repository ${JSON.stringify(repository)}, and ${detail}`);
+    if (row === null || typeof row !== 'object' || Array.isArray(row)) throw refuse(`${JSON.stringify(row)} is no row: a row is an object naming its kind, its child and its container`);
+    const held = row as Record<string, unknown>;
+    if (held['kind'] !== 'contains') throw refuse(`its kind is ${JSON.stringify(held['kind'])}, and this read answers "contains" rows`);
+    const child = held['child'];
+    if (child !== 'file' && child !== 'directory') throw refuse(`its child is ${JSON.stringify(child)}, and a containment row names a "file" or a "directory"`);
+    const keys = Object.keys(held).sort(byCodePoint);
+    const unknown = keys.filter((key) => !['child', 'from', 'kind', 'to'].includes(key));
+    if (unknown.length > 0) throw refuse(`it holds ${unknown.map((key) => JSON.stringify(key)).join(', ')}, and a row holds child, from, kind, to`);
+    const from = held['from'];
+    if (typeof from !== 'string' || (from !== '' && !isRepositoryPath(from))) throw refuse(`its container ${JSON.stringify(from)} is no repository path: a container is a folder's path or "" for the repository`);
+    const to = held['to'];
+    if (typeof to !== 'string' || !isRepositoryPath(to)) throw refuse(`its child path ${JSON.stringify(to)} is no repository path`);
+    return { kind: 'contains', child, from, to };
+  });
 }
 
 /** A unit id as this stage planned it. */
@@ -109,88 +117,102 @@ function scopeOf(repository: string, path: string): string {
 /**
  * The stage, built over the source that holds the run's pins. `plan` reads the
  * pins and the published tree (one tracked read per repository); each unit
- * writes its node's fact and the `contains` edge from that node's container.
+ * draws the edge from its node's container.
  */
 export function createInventoryStage(sources: SnapshotSource): FillStage {
   return {
     id: INVENTORY_STAGE_ID,
     version: INVENTORY_STAGE_VERSION,
-    // The repository node and the snapshot the plan's paths stand in come from
-    // stage 0: a file's `contains` edge is drawn from a repository node that
-    // must be published before it, and a `nothing-found` snapshot starves the
-    // inventory instead of filling a graph with paths nobody pinned.
+    staticReading: true,
+    // The nodes a containment edge joins are the snapshot's: a graph without them is an inventory
+    // with nothing to draw, which the registry reports as starvation rather than an edge to a node
+    // nobody published.
     consumes: {
       required: [
-        { capability: 'repository', scope: 'repository', freshness: 'current' },
-        { capability: 'snapshot', scope: 'repository', freshness: 'current' },
+        { capability: 'directory', scope: 'repository', freshness: 'current' },
+        { capability: 'file', scope: 'repository', freshness: 'current' },
       ],
       optional: [],
     },
-    // A unit's publication replaces only that unit's facts (0027), so the
-    // ownership scope is the widest the stage may ever replace: a `file` fact
-    // is owned at the file, and the folder and the `contains` edge at the
-    // repository (the scope vocabulary has no scope for one folder).
     produces: [
       { kind: 'contains', schemaVersion: FACT_KINDS['contains'].version, scope: 'repository' },
-      { kind: 'directory', schemaVersion: FACT_KINDS['directory'].version, scope: 'repository' },
-      { kind: 'file', schemaVersion: FACT_KINDS['file'].version, scope: 'file' },
     ],
     configSchema: Type.Object({}),
     defaults: { ...DEFAULT_STAGE_DEFAULTS, config: {} },
     plan: async (graph: StageGraphReader): Promise<StagePlan> => planInventory(sources, graph),
-    execute: async (unit: StageUnit, context: StageContext): Promise<StageExecutionResult> => executeInventoryUnit(sources, unit, context),
-    validate: (draft: StageDraftSet) => checkFactDraft(INVENTORY_STAGE_ID, INVENTORY_STAGE_KINDS, draft),
+    execute: async (unit: StageUnit, context: StageContext): Promise<StageExecutionResult> => executeInventoryUnit(unit, context),
+    validate: (draft) => checkStaticGraphDraft(INVENTORY_STAGE_ID, INVENTORY_STAGE_KINDS, draft),
   };
 }
 
 // ---- planning ------------------------------------------------------------
 
-/**
- * The units one run of the inventory fills: a unit per file whose blob moved at
- * the pinned commit (or that is new), a retraction for a published file the
- * commit no longer holds, and a directory's unit where the folder is new,
- * vanished, or holds a file this run writes.
- */
+/** The units one run of the inventory fills, from the pinned tree and the published nodes. */
 async function planInventory(sources: SnapshotSource, graph: StageGraphReader): Promise<StagePlan> {
   const pins = await sources.pins();
   const units: { id: string; scope: string }[] = [];
   let anyFile = false;
+  // The nodes this stage's edges join are the snapshot's. If one a planned edge would end at is not
+  // published yet, the plan names no unit at all: the run's re-plan wave plans the stage again once the
+  // snapshot published past its recorded attempt (decision 0027; 0033, item 15). A partial plan would
+  // leave the skipped units unplanned, because a stage that planned any unit is never re-planned.
+  let blocked = false;
   for (const pin of pins) {
     const reader = await sources.open(pin.id);
-    const read = publishedTreeRead(pin.id);
-    const published = publishedTreeRows(await graph.query(read), pin.id, read);
     const files = reader.files();
-    // A tree whose entries are all unfiled held entries too: it is not a
-    // repository that found nothing, and stage 0's coverage names the gap.
+    // A tree whose entries are all unfiled held entries too: stage 0's coverage names the gap.
     anyFile = anyFile || files.length > 0 || reader.unfiled().length > 0;
-    // Every walk below is over maps and sets, so a plan costs what the
-    // repository holds and not its square: 0026 asks the fill to be complete on
-    // any repository size.
     const standing = new Set(files.map((entry) => String(entry.path)));
-    const written = new Set<string>();
+    const folders = foldersOf(reader);
+    // The nodes this stage's edges join are the snapshot's. Until its repository node, and the node of
+    // each file or folder an edge would end at, stand published, no unit is planned: the run's re-plan
+    // wave plans this stage again once the snapshot published past its recorded attempt (decision 0027;
+    // 0033, item 15 — every step builds on what the earlier one published).
+    const treeRead = publishedTreeRead(pin.id);
+    const tree = publishedTreeRows(await graph.query(treeRead), pin.id, treeRead);
+    const repositoryRead = publishedRepositoryRead(pin.id);
+    const repositories = publishedRepositoryRows(await graph.query(repositoryRead), pin.id, repositoryRead);
+    if (!repositories.some((row) => row.kind === 'repository')) {
+      blocked = true;
+      continue;
+    }
+    // What this stage published before: the container each file and folder stands in. A file whose bytes
+    // moved is the snapshot's to republish and keeps its edge; a file that moved to another folder, a
+    // new one, a vanished one and a folder that appeared or went are this stage's units.
+    const read = publishedContainmentRead(pin.id);
+    const published = publishedContainmentRows(await graph.query(read), pin.id, read);
+    const fileEdge = new Map<string, string>();
+    const directoryEdge = new Map<string, string>();
+    for (const row of published) (row.child === 'file' ? fileEdge : directoryEdge).set(row.to, row.from);
+    const containerOf = (path: string): string => parentOf(path) ?? '';
     for (const entry of files) {
-      if (published.files.get(entry.path) === entry.id) continue;
-      written.add(entry.path);
+      if (fileEdge.get(entry.path) === containerOf(entry.path)) continue;
+      const parent = parentOf(entry.path);
+      if (!tree.files.has(entry.path) || (parent !== undefined && !tree.directories.has(parent))) {
+        blocked = true;
+        continue;
+      }
       units.push({ id: fileUnitId(pin.id, entry.path), scope: scopeOf(pin.id, entry.path) });
     }
-    for (const path of published.files.keys()) {
+    for (const path of fileEdge.keys()) {
       if (standing.has(path)) continue;
-      // A path the pinned commit no longer holds: the unit publishes nothing,
-      // which is how what an earlier commit's run wrote there is retracted.
+      // A path the pinned commit no longer holds: the unit publishes nothing, which retracts its edge.
       units.push({ id: fileUnitId(pin.id, path), scope: scopeOf(pin.id, path) });
     }
-    // The folders that hold a file this run writes, at any depth, are published
-    // with it; a folder the commit no longer holds is planned to be cleared.
-    const writtenFolders = new Set(directoriesOf([...written]));
-    const folders = foldersOf(reader);
     for (const path of folders) {
-      if (published.directories.has(path) && !writtenFolders.has(path)) continue;
+      if (directoryEdge.get(path) === containerOf(path)) continue;
+      const parent = parentOf(path);
+      if (!tree.directories.has(path) || (parent !== undefined && !tree.directories.has(parent))) {
+        blocked = true;
+        continue;
+      }
       units.push({ id: directoryUnitId(pin.id, path), scope: scopeOf(pin.id, path) });
     }
-    for (const path of published.directories) {
+    for (const path of directoryEdge.keys()) {
       if (!folders.has(path)) units.push({ id: directoryUnitId(pin.id, path), scope: scopeOf(pin.id, path) });
     }
   }
+  if (blocked) return { units: [], coverage: 'nothing-found' };
   units.sort((left, right) => byCodePoint(left.id, right.id));
   return { units, coverage: anyFile ? 'planned' : 'nothing-found' };
 }
@@ -217,7 +239,7 @@ function foldersOf(reader: SnapshotReader): ReadonlySet<string> {
  * path, and never the repository root, which is the `repository` node and not a
  * folder of the tree.
  */
-function directoriesOf(paths: readonly string[]): readonly string[] {
+export function directoriesOf(paths: readonly string[]): readonly string[] {
   const directories = new Set<string>();
   for (const path of paths) {
     let parent = parentOf(path);
@@ -235,171 +257,53 @@ function parentOf(path: string): string | undefined {
   return at < 0 ? undefined : path.slice(0, at);
 }
 
-/**
- * The read's rows, read: each row names the repository it was read for, a
- * kind, a repository path and (for a file) the blob it stood under. A row that
- * names another repository, a kind this stage does not hold, a path that is no
- * repository path or a blob that is no blob id is refused, naming the read, the
- * row and what was wrong with it — a row read past would plan a wrong unit in
- * silence, and a row dropped would leave a stale fact behind.
- *
- * Every stage that plans from this read reads its rows here: the syntax stage
- * (madarch-tzte.21.3) plans from the same document, and one reader is what keeps
- * the two from accepting different rows — two copies of this rule drifted apart
- * within one rebase, where a duplicate path and a folder carrying a blob were
- * refused by one stage and accepted by the other.
- */
-export function publishedTreeRows(rows: readonly unknown[], repository: string, read: string): PublishedTree {
-  const files = new Map<string, string | undefined>();
-  const directories = new Set<string>();
-  rows.forEach((row, index) => {
-    const refuse = (detail: string): Error => new Error(`the read ${read} answered row ${index + 1} for the repository ${JSON.stringify(repository)}, and ${detail}`);
-    if (row === null || typeof row !== 'object' || Array.isArray(row)) {
-      throw refuse(`${JSON.stringify(row)} is no row: a row is an object naming its kind, its repository and its path`);
-    }
-    const held = row as Record<string, unknown>;
-    const kind = held['kind'];
-    if (kind !== 'file' && kind !== 'directory') {
-      throw refuse(`its kind is ${JSON.stringify(kind)}, and this stage holds "file" and "directory"`);
-    }
-    const named = held['repository'];
-    if (named !== repository) {
-      throw refuse(`its repository is ${JSON.stringify(named)}, and the read was for ${JSON.stringify(repository)}: one read is one repository`);
-    }
-    const unknown = Object.keys(held).filter((key) => !ROW_FIELDS.includes(key)).sort(byCodePoint);
-    if (unknown.length > 0) {
-      throw refuse(`it holds ${unknown.map((key) => JSON.stringify(key)).join(', ')}, and a row holds ${ROW_FIELDS.join(', ')}: a run, a unit, an attempt or a session is none of them`);
-    }
-    const rawPath = held['path'];
-    if (typeof rawPath !== 'string' || !isRepositoryPath(rawPath)) {
-      throw refuse(`its path ${JSON.stringify(rawPath)} is no repository path: a path from the repository's root, "/"-separated, with no "." or ".." leg`);
-    }
-    const path = repositoryPath(rawPath as string);
-    // Two rows for one path in one answer are refused rather than resolved by
-    // order: the fact log is versioned, and which of two versions of one file a
-    // read meant is not this stage's to guess.
-    const twice = files.has(path) || directories.has(path);
-    if (twice) throw refuse(`its path ${JSON.stringify(path)} stands in an earlier row of this answer: one read answers one row per path`);
-    if (kind === 'directory') {
-      if (held['blob'] !== undefined) {
-        throw refuse(`it is a folder and carries a blob: a row's blob is the file's bytes, and a folder holds no bytes of its own`);
-      }
-      directories.add(path);
-      return;
-    }
-    const blob = held['blob'];
-    if (blob !== undefined && (typeof blob !== 'string' || !/^[0-9a-f]{40}$/.test(blob))) {
-      throw refuse(`its blob ${JSON.stringify(blob)} is no blob id: 40 lower-case hexadecimal digits, or no blob at all`);
-    }
-    files.set(path, typeof blob === 'string' ? blob : undefined);
-  });
-  return { files, directories };
-}
-
 // ---- one unit ------------------------------------------------------------
 
 /**
- * One unit: the file's or the folder's node fact and the `contains` edge from
- * its container. A path the pinned commit no longer holds, or one that holds a
- * submodule's commit (whose tree stands in another repository), writes nothing,
- * and a unit that writes nothing is how this stage asks for a retraction: the
- * publication that replaces a unit's facts with an empty set is what removes
- * what an earlier run wrote for it (madarch-tzte.20.2's publication semantics;
- * this change states the request, not the mechanism).
+ * One unit: the edge from the node's container to it. A path the pinned commit
+ * no longer holds, or one that holds a submodule's commit (whose tree stands in
+ * another repository), writes nothing, and the publication of an empty draft
+ * under the unit's own scope ends what an earlier run wrote for it.
  */
-async function executeInventoryUnit(sources: SnapshotSource, unit: StageUnit, context: StageContext): Promise<StageExecutionResult> {
+async function executeInventoryUnit(unit: StageUnit, context: StageContext): Promise<StageExecutionResult> {
   refuseWhenCancelled(unit, context);
   const planned = plannedUnit(unit.id);
-  const reader = await sources.open(planned.repository);
-  refuseWhenCancelled(unit, context);
-  const provenance = provenanceOf(reader);
-  // A folder stands in the tree while a file of this repository stands in it:
-  // git holds no empty folder, so a path with no file under it is gone.
-  const stands = planned.kind === 'file' || foldersOf(reader).has(planned.path);
-  const facts = !stands
-    ? []
-    : planned.kind === 'file'
-      ? await fileFacts(reader, planned.path, provenance)
-      : directoryFacts(reader, planned.path, provenance);
-  if (facts.length === 0) {
-    context.progress(`the ${planned.kind} ${planned.path} does not stand in ${planned.repository} at ${reader.commit}: this unit publishes nothing, and what an earlier run wrote there is retracted`, 1);
+  const source = staticSourceOf(unit, context);
+  const provenance = provenanceOfPlace(source);
+  const stands = planned.kind === 'file'
+    ? (await source.entry(planned.path)) !== undefined && (await source.entry(planned.path))?.form !== 'commit'
+    : await source.holdsDirectory(planned.path);
+  if (!stands) {
+    context.progress(`the ${planned.kind} ${planned.path} does not stand in ${source.repository} at ${source.commit}: this unit publishes nothing, and what an earlier run wrote there is retracted`, 1);
     return { outcome: 'draft' };
   }
-  for (const fact of facts) {
-    context.draft.write({ kind: 'fact', evidence: evidenceAt(reader, planned.path), value: fact });
+  const edge = containment(source.repository, source.form, planned.path, planned.kind === 'file' ? fileFactIdOf(source.repository, planned.path) : directoryContainer(source.repository, planned.path, provenance).id, provenance);
+  for (const write of graphWritesOf(edge, evidenceAtPlace(source, planned.path))) {
+    // The edge says which kind its child is, so a reader of the containment rows names a file and a
+    // folder without resolving the child's node (the snapshot published both kinds).
+    context.draft.write(write.kind === 'edge' ? { ...write, value: { ...write.value, properties: { ...write.value.properties, childKind: planned.kind } } } : write);
   }
-  context.progress(`wrote ${facts.length} ${facts.length === 1 ? 'fact' : 'facts'} for ${planned.kind} ${planned.path} of ${planned.repository} at ${reader.commit}`, 1);
+  context.progress(`drew the containment of ${planned.kind} ${planned.path} of ${source.repository} at ${source.commit}`, 1);
   return { outcome: 'draft' };
 }
 
 /**
- * One file's facts: its node, and the edge from the folder (or the repository)
- * it stands in. A file's place is the whole of it — the bytes the commit holds
- * are read once here, so the range a reader is shown is the file's own and not
- * a claim about it — and its bytes are the tree's count of them, which the
- * reader has already checked against what git answers.
- */
-async function fileFacts(reader: SnapshotReader, path: string, provenance: FactProvenance): Promise<readonly Fact[]> {
-  const entry: SnapshotEntry | undefined = reader.entry(path);
-  // A path the commit does not hold, and one that holds a submodule's commit,
-  // are no file of this repository: the unit publishes nothing.
-  if (entry === undefined || entry.form === 'commit') return [];
-  // The same decoding `readText` answers with, the byte order mark included:
-  // two readings of one file's bytes must not disagree by a code unit.
-  const text = new TextDecoder('utf-8', { ignoreBOM: true }).decode(await reader.read(entry.path));
-  const language = languageFor(entry.path);
-  const placed: FileValue = {
-    repository: reader.repository,
-    path: entry.path,
-    roles: rolesFor(entry.path),
-    blob: entry.id,
-    ...(language === undefined ? {} : { language }),
-    ...(entry.bytes === undefined ? {} : { bytes: entry.bytes }),
-  };
-  const file = makeNodeFact({
-    kind: 'file',
-    value: placed,
-    provenance: { ...provenance, place: { file: entry.path, range: wholeFileRange(text) } },
-    layer: 'extracted',
-  });
-  return [file, containment(reader, entry.path, file.id, provenance)];
-}
-
-/**
- * The range of a whole file, as a reader counts lines: from the first line's
- * first character to the last line's end. A trailing newline ends a line rather
- * than starting an empty one, and the columns are UTF-16 code units of the line
- * as it reads.
- */
-export function wholeFileRange(text: string): FactRange {
-  const lines = text.split('\n');
-  const endLine = lines.length > 1 && lines[lines.length - 1] === '' ? lines.length - 1 : lines.length;
-  return { startLine: 1, startColumn: 0, endLine, endColumn: (lines[endLine - 1] ?? '').length };
-}
-
-/** One folder's facts: its node, and the edge from the folder (or the repository) it stands in. */
-function directoryFacts(reader: SnapshotReader, path: string, provenance: FactProvenance): readonly Fact[] {
-  const directory = makeNodeFact({
-    kind: 'directory',
-    value: { repository: reader.repository, path: repositoryPath(path) },
-    provenance,
-    layer: 'extracted',
-  });
-  return [directory, containment(reader, path, directory.id, provenance)];
-}
-
-/**
  * The `contains` edge from the node a path stands in to the node it is: the
- * folder above it, or the repository node at the root. The repository's id is
- * the one stage 0 published — its identity is the repository's name alone, so
- * the same node is named here whatever commit it was pinned at.
+ * folder above it, or the repository node at the root. The container's id is
+ * the one the snapshot published — a directory's identity is the repository and
+ * the path, and a repository's identity is its name alone.
  */
-function containment(reader: SnapshotReader, path: string, child: string, provenance: FactProvenance): Fact {
+function containment(repository: string, form: RepositoryForm, path: string, child: string, provenance: FactProvenance): Fact {
   const parent = parentOf(path);
   const container = parent === undefined
-    ? makeNodeFact({ kind: 'repository', value: { repository: reader.repository, form: reader.form }, provenance, layer: 'extracted' })
-    : makeNodeFact({ kind: 'directory', value: { repository: reader.repository, path: repositoryPath(parent) }, provenance, layer: 'extracted' });
+    ? makeNodeFact({ kind: 'repository', value: { repository, form }, provenance, layer: 'extracted' })
+    : directoryContainer(repository, parent, provenance);
   return makeEdgeFact({ kind: 'contains', value: { from: container.id, to: child }, provenance, layer: 'extracted' });
+}
+
+/** The directory fact of one folder, whose id is the node key the snapshot published. */
+function directoryContainer(repository: string, path: string, provenance: FactProvenance): { id: string } {
+  return makeNodeFact({ kind: 'directory', value: { repository, path: repositoryPath(path) }, provenance, layer: 'extracted' });
 }
 
 /** The unit id read back as this stage planned it; an id this stage never plans is refused. */
@@ -415,11 +319,15 @@ function plannedUnit(id: string): PlannedUnit {
   return { kind: kind as 'directory' | 'file', repository, path };
 }
 
-/**
- * A cancelled unit stops where it stands, and a unit that has read nothing is
- * no draft: the publication of an empty fact set retracts what an earlier run
- * wrote, which a cancellation must never do in silence.
- */
+/** The unit's static repository, refused by name where the run handed none. */
+function staticSourceOf(unit: StageUnit, context: StageContext): StaticStageSource {
+  const held = context.static;
+  if (held === undefined) {
+    throw new Error(`the unit "${unit.id}" runs the inventory's static reading, and its context holds no pinned repository: a run hands a static stage its repository's path-scoped answers (src/fill/stages/inventory.ts, decision 0033)`);
+  }
+  return held.repository;
+}
+
 function refuseWhenCancelled(unit: StageUnit, context: StageContext): void {
   if (context.signal.aborted) {
     throw new Error(`the unit "${unit.id}" was cancelled before it read the pinned tree: a cancelled unit publishes nothing`);
@@ -478,11 +386,7 @@ const ASSET_EXTENSIONS: readonly string[] = [
 /** The extensions a schema is written in. */
 const SCHEMA_EXTENSIONS: readonly string[] = ['.avsc', '.graphql', '.proto', '.xsd'];
 
-/**
- * The folders a path's legs name a role for, by the leg's own name: a file
- * under `test/` is a test, one under `vendor/` is vendored, one under
- * `migrations/` is a migration, and one under `fixtures/` is a fixture.
- */
+/** The folders a path's legs name a role for, by the leg's own name. */
 const ROLE_BY_LEG: Readonly<Record<string, FileRole>> = {
   '.venv': 'vendor',
   '__fixtures__': 'fixture',
@@ -511,9 +415,7 @@ const ROLE_BY_LEG: Readonly<Record<string, FileRole>> = {
 /**
  * What a file is, from its path alone: its language (stage 3's parser's name,
  * where one parses it), the roles it plays (in code point order, each once) and
- * — where the path places nothing at all — the one role `asset`, which claims
- * no more than that the repository ships it. A role the path does not name is
- * never guessed: `source` is claimed only for a file whose extension is code.
+ * — where the path places nothing at all — the one role `asset`.
  */
 export function rolesFor(path: string): readonly FileRole[] {
   const roles = new Set<FileRole>();
@@ -547,4 +449,16 @@ export function languageFor(path: string): string | undefined {
 function extensionOf(name: string): string {
   const at = name.lastIndexOf('.');
   return at <= 0 ? '' : name.slice(at).toLowerCase();
+}
+
+/**
+ * The range of a whole file, as a reader counts lines: from the first line's
+ * first character to the last line's end. A trailing newline ends a line rather
+ * than starting an empty one, and the columns are UTF-16 code units of the line
+ * as it reads.
+ */
+export function wholeFileRange(text: string): FactRange {
+  const lines = text.split('\n');
+  const endLine = lines.length > 1 && lines[lines.length - 1] === '' ? lines.length - 1 : lines.length;
+  return { startLine: 1, startColumn: 0, endLine, endColumn: (lines[endLine - 1] ?? '').length };
 }

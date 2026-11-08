@@ -326,9 +326,27 @@ export function readPinnedGitMaterial(repository: string, commit: string, file: 
 }
 
 
-/** Read the pinned commit log as a source material without consulting a working-tree branch. */
+/**
+ * Read the pinned commit log as a source material without consulting a working-tree branch.
+ *
+ * The author date is rendered strictly ISO 8601 in UTC, and git's own rendering is not used
+ * for it: `%aI` writes `Z` on one git version and `+00:00` on another, so the same commit
+ * answered two source ids — and the record's id is a digest of this text. The date is taken
+ * as the author's epoch seconds and written the one way, so a source record of a commit is
+ * the same record on every machine.
+ */
 export function readPinnedGitHistory(repository: string, commit: string): ExtractionMaterial {
-  const text = execFileSync('git', ['log', '--format=%H%x09%aI%x09%an%x09%s', commit], { cwd: repository, encoding: 'utf8', stdio: ['ignore', 'pipe', 'pipe'] });
+  const text = execFileSync('git', ['log', '--format=%H%x09%at%x09%an%x09%s', commit], { cwd: repository, encoding: 'utf8', stdio: ['ignore', 'pipe', 'pipe'] })
+    .split('\n')
+    .map((line) => {
+      if (line === '') return line;
+      const [hash, seconds, ...rest] = line.split('\t');
+      if (hash === undefined || seconds === undefined || rest.length !== 2) {
+        throw new Error(`git log of ${commit} answered ${JSON.stringify(line)}, and a row is a hash, an author date, an author and a subject separated by tabs: full path ${repository}`);
+      }
+      return [hash, new Date(Number(seconds) * 1000).toISOString().replace(/\.\d{3}Z$/u, 'Z'), ...rest].join('\t');
+    })
+    .join('\n');
   return { path: 'git:history', text, type: 'git-history', mediaType: 'text/tab-separated-values' };
 }
 

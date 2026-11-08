@@ -19,9 +19,10 @@
  */
 import { existsSync } from 'node:fs';
 import { mkdir } from 'node:fs/promises';
-import { dirname, join } from 'node:path';
+import { dirname } from 'node:path';
 import { createPGliteDatabaseOwner, type DatabaseOwner } from '../adapters/database-owner.js';
 import { byCodePoint } from '../model/order.js';
+import { withSpan } from '../obs/trace.js';
 import { readProduct } from '../product/manifest.js';
 import { runningVersion } from '../product/version.js';
 import { createPgBossQueue } from '../adapters/pg-boss-queue.js';
@@ -30,6 +31,9 @@ import { draftSetOf, factGraph, writeScope, type CheckedWriteDraft, type Checked
 import type { FillStageConfigurationRead } from './config.js';
 import type { SqlExecutor } from '../query/sql-driver.js';
 import { FACT_APPLICATION, createFactStoreSchema } from './fact-store.js';
+import { createGraphStore, outerTransactionOf, type GraphStore } from '../graph/index.js';
+import { ensureGraphSchema, staticUnitPublicationOf } from './stages/static-graph.js';
+import { staticGraphReaderOf } from './stages/static-context.js';
 import { emptyNextStep, emptyPageSetMessage, emptyQuestionSet, readDecisionSubject, readPageChanges, readPageModel, readPageSet, type GraphDecisionWrite, type GraphPagesSource } from './graph-pages.js';
 import { answerDocument, acceptanceDocument, ANSWERS_FOLDER, ACCEPTANCES_FOLDER, commitDecision, decisionFile, discardDecision, stageDecision, type DecisionRecord, type StagedDecision } from './decisions.js';
 import { applyDecisions } from './declared.js';
@@ -66,6 +70,7 @@ import type { QueueService } from './queue.js';
 import { createFillStateSchema, readChain, readLatestRun, readRun, readRunUnits } from './state-store.js';
 import type { StageRegistry } from './registry.js';
 import type { SnapshotSource } from './snapshot.js';
+import { staticStageSourceOf } from './stages/static-context.js';
 import {
   callUnitTool,
   createUnitToolsHost,
@@ -158,6 +163,11 @@ export interface FillRunResult {
   readonly units: readonly { readonly unitId: string; readonly stageId: string; readonly state: string; readonly generation: number; readonly attempts: number }[];
   /** The units the run inherited already published with their inputs unchanged: it planned nothing for them. */
   readonly reused: readonly string[];
+  /**
+   * The wall-clock milliseconds this host spent waiting for the run's own retry moments (`driveFor`), so how much
+   * of a fill's time was the waiting for a unit the run itself schedules is a measured number, not a guess.
+   */
+  readonly retryWaitMs: number;
   /** The enabled stages whose plan found a producer's inputs and nothing in them, so nobody reads it as a capability nothing produces. */
   readonly foundNothing: readonly string[];
   /**
@@ -306,7 +316,7 @@ export interface FillOrchestratorService {
    * `.madarch/fill` — answers `null` so its own control answers for it; a step a
    * run's machine refuses answers a refusal in the machine's own words.
    */
-  control(request: { readonly productFolder: string; readonly runId: string; readonly action: FillRunControl }): Promise<FillRunControlAnswer | null>;
+  control(request: { readonly productFolder: string; readonly runId: string; readonly action: FillRunControl; readonly product?: string }): Promise<FillRunControlAnswer | null>;
   /**
    * Stops the queue and closes the database this service opened; safe to call
    * twice and safe to call before anything was opened.
@@ -315,8 +325,6 @@ export interface FillOrchestratorService {
 }
 
 export interface FillOrchestratorServiceOptions {
-  /** The products home the process's fill database lives under. */
-  readonly home: string;
   /**
    * The address this process answers a unit's tool calls at — `${server.url}/api/fill/unit/tool`
    * (`src/server/http.ts`, `UNIT_TOOL_PATH`) — read when a unit's tools are opened,
@@ -337,15 +345,14 @@ export interface FillOrchestratorServiceOptions {
    */
   readonly wiring?: (product: FillProduct, context: { readonly owner: DatabaseOwner }) => Promise<ProductFillWiring | ProductFill> | ProductFillWiring | ProductFill;
   /**
-   * The process's own database owner, when the host already holds one (decision
-   * 0027's one owner per process, which is what lets a publication's facts and
-   * the orchestrator's record share a transaction): the service borrows it for
-   * the fill's tables and the queue and never closes it. Left out, the service
-   * opens its own PGlite under the home on the first run asked for and closes it
-   * with everything else it opened.
+   * The store's own owner, when the host already holds one (decision 0027's one owner per store, which
+   * is what lets a publication's facts and the orchestrator's record share a transaction): the service
+   * borrows it for the fill's tables and the queue and never closes it. Left out, the service opens
+   * its own PGlite at `databasePath` on the first run asked for and closes it with everything else it
+   * opened — so a service is given the product's store, never a home to guess one from.
    */
   readonly owner?: DatabaseOwner;
-  /** The process's database's data directory; `<home>/.madarch/fill/state.db` when it is left out. */
+  /** The store's database path (`<store>/graph`, `storeDatabasePath`), required when no owner is lent. */
   readonly databasePath?: string;
   /** The units' queue's name; `fill-units` when it is left out. */
   readonly queueName?: string;
@@ -362,12 +369,128 @@ export interface FillOrchestratorServiceOptions {
   readonly control?: (product: FillProduct) => RunControlReader;
 }
 
+/**
+ * The repository a static unit's scope names: `<repository>` for the snapshot
+ * stage's units, `<repository>:<path>` for a file's or a folder's, and
+ * `repository:<repository>@<commit>` for the history stage's commit range
+ * (decision 0030). A scope that names no repository is refused here, naming the
+ * unit and the file, so a static stage is never handed another repository's
+ * bytes.
+ */
+function repositoryOfScope(ref: UnitRef): string {
+  const at = ref.scope.indexOf(':');
+  const repository = ref.scope.startsWith('repository:')
+    ? ref.scope.slice('repository:'.length).split('@')[0] ?? ''
+    : at < 0 ? ref.scope : ref.scope.slice(0, at);
+  if (repository.trim() === '') {
+    throw new Error(`fill-orchestrator: the unit ${JSON.stringify(ref.unitId)} of stage ${JSON.stringify(ref.stageId)} has the scope ${JSON.stringify(ref.scope)}, which names no repository: a static unit's scope starts with the repository it reads (src/fill/orchestrator-host.ts)`);
+  }
+  return repository;
+}
+
 /** The units' queue's name in the process's database. */
 export const DEFAULT_FILL_QUEUE = 'fill-units';
 
 /** Where the process's fill database lives under a products home. */
-export function fillDatabasePath(home: string): string {
-  return join(home, '.madarch', 'fill', 'state.db');
+/** The unit states a run is finished with: nothing waits on them any longer. */
+const TERMINAL_UNIT_STATES: readonly string[] = ['published', 'superseded', 'failed', 'cancelled', 'stale'];
+
+/** The most wall-clock time a host spends waiting for a run's own retry moments before it reports the run as it stands. */
+const RETRY_WAIT_BUDGET_MS = 60_000;
+
+/** The shortest pause between two drives of a run whose units wait for the queue's own sweep, never a spin. */
+const RETRY_POLL_MS = 50;
+
+/**
+ * One run driven to its end, waiting for the moments the run itself schedules
+ * (decision 0027: "a retry that is not due yet waits for the caller's clock, and a
+ * host polls with its own interval"). The loop that drives a run cannot pass a
+ * retry's moment by itself: `workOnce` completes a job that arrives early ("the
+ * wait has not ended") and the run's own sweep enqueues it again only once the
+ * moment has passed, so a pass that changed nothing while a unit waits is the
+ * host's cue to wait for that unit's own `retryAt` and drive again — not the end
+ * of the run.
+ *
+ * The wait is the unit's own moment, never a guess: the earliest `retryAt` the
+ * run reports, capped by the run's retry delay, and the whole waiting is bounded
+ * by `RETRY_WAIT_BUDGET_MS`, so a unit that waits for ever is reported as the
+ * unsettled run it is. What the waiting cost is answered with the run
+ * (`retryWaitMs`), so a host can say how much of a fill's wall clock it was.
+ */
+async function driveFor(orchestrator: FillOrchestrator, request: { readonly runId: string; readonly workers?: number; readonly maxPasses?: number }): Promise<Awaited<ReturnType<typeof driveRun>> & { readonly retryWaitMs: number }> {
+  let driven = await driveRun(orchestrator, request);
+  const startedWaiting = Date.now();
+  let waited = 0;
+  while (!driven.settled && driven.stoppedBecause === 'a pass and its claims together changed nothing' && Date.now() - startedWaiting < RETRY_WAIT_BUDGET_MS) {
+    const status = await runStatus(orchestrator, request.runId);
+    // A unit with work left is one the run has not finished with: it waits for its retry, stands ready for a worker, or
+    // waits for the queue's own maintenance to lift a claim. A run none of those is a run whose pass is the end of it.
+    const live = status === null ? [] : status.units.filter((unit) => !TERMINAL_UNIT_STATES.includes(unit.state));
+    if (live.length === 0) break;
+    const due = live.flatMap((unit) => (unit.retryAt === null ? [] : [unit.retryAt]));
+    const now = orchestrator.clock();
+    const pause = due.length === 0
+      ? RETRY_POLL_MS
+      : Math.min(orchestrator.limits.retryDelayMs, Math.max(RETRY_POLL_MS, Math.min(...due) - now));
+    const before = Date.now();
+    await new Promise<void>((resolve) => setTimeout(resolve, pause));
+    waited += Math.max(0, Date.now() - before);
+    const again = await driveRun(orchestrator, request);
+    driven = {
+      ...again,
+      passes: driven.passes + again.passes,
+      work: driven.work + again.work,
+      reused: [...driven.reused, ...again.reused],
+      foundNothing: [...driven.foundNothing, ...again.foundNothing],
+      refused: [...driven.refused, ...again.refused],
+    };
+  }
+  return { ...driven, retryWaitMs: waited };
+}
+
+/**
+ * Opens one fill database owner at a path, for a host that lends its own owner to a
+ * run and closes it (src/product/daemon.ts, src/mcp/graph.ts). The owner is the
+ * process's own connection to the store, and closing it is the caller's.
+ */
+export function openFillDatabase(path: string): DatabaseOwner {
+  return createPGliteDatabaseOwner({ path, btreeGist: true });
+}
+
+/**
+ * One product's newest run in the shape a watching person reads (madarch-tzte.26.2),
+ * read from the store alone: the run, its units and its durable events, in order. The
+ * daemon's own answers and the service's `progress` read this one shape.
+ */
+export async function fillProgressOf(database: DatabaseOwner, product: string): Promise<FillProgressAnswer | null> {
+  const latest = await readLatestRun(database, product);
+  if (latest === null) return null;
+  const units = await readRunUnits(database, latest.runId);
+  const events = await readProgress(database, latest.runId);
+  return {
+    run: {
+      id: latest.runId,
+      status: latest.state,
+      createdAt: new Date(latest.createdAt).toISOString(),
+      updatedAt: new Date(latest.updatedAt).toISOString(),
+      product,
+    },
+    units: units.map((unit) => ({
+      unitId: unit.unitId,
+      stage: unit.stageId,
+      status: unit.state,
+      generation: unit.generation,
+      attempts: unit.context.attempt,
+    })),
+    events: events.map((event) => ({
+      seq: event.seq,
+      at: new Date(event.at).toISOString(),
+      stage: event.stage,
+      unitId: event.unitId,
+      type: event.kind,
+      summary: event.summary,
+    })),
+  };
 }
 
 /**
@@ -375,39 +498,56 @@ export function fillDatabasePath(home: string): string {
  * owner, the tables and the queue are created when a run is first asked for.
  */
 export function createFillOrchestratorService(options: FillOrchestratorServiceOptions): FillOrchestratorService {
-  const databasePath = options.databasePath ?? fillDatabasePath(options.home);
+  const databasePath = options.databasePath;
   const queueName = options.queueName ?? DEFAULT_FILL_QUEUE;
   const limits = { ...DEFAULT_ORCHESTRATOR_LIMITS, ...options.limits };
-  let opening: Promise<{ owner: DatabaseOwner; queue: QueueService; opened: boolean }> | undefined;
+  let opening: Promise<{ owner: DatabaseOwner; queue: QueueService; graph: GraphStore; opened: boolean }> | undefined;
+  let graphStore: GraphStore | undefined;
   let stopped = false;
 
-  async function open(): Promise<{ owner: DatabaseOwner; queue: QueueService; opened: boolean }> {
+  async function open(): Promise<{ owner: DatabaseOwner; queue: QueueService; graph: GraphStore; opened: boolean }> {
     if (opening !== undefined) return await opening;
     opening = (async () => {
       // PGlite opens a data directory, and the state folder it stands in may not be there yet: the
       // process's own folder under the products home is made on the first run asked for.
       const lent = options.owner;
-      if (lent === undefined) await mkdir(dirname(databasePath), { recursive: true });
-      const database = lent ?? createPGliteDatabaseOwner({ path: databasePath });
+      if (lent === undefined) {
+        if (databasePath === undefined) {
+          throw new Error("fill-orchestrator: this service was given no store: name the product's owner or its database path (src/fill/orchestrator-host.ts)");
+        }
+        await mkdir(dirname(databasePath), { recursive: true });
+      }
+      const database = lent ?? createPGliteDatabaseOwner({ path: databasePath!, btreeGist: true });
       await createFillStateSchema(database);
       await createOrchestratorSchema(database);
       // The store a published fact set lands in is the fill's own (`fact-store.ts`): its tables are
-      // created with the rest of the fill's, so a wiring that lands facts there finds them.
+      // created with the rest of the fill's, so a wiring that lands facts there finds them. The three
+      // static stages do not land there: their publication writes the 0028 graph below (decision 0033).
       await createFactStoreSchema(database);
-      const queue = options.queueFactory !== undefined
-        ? await options.queueFactory(database)
-        : await createPgBossQueue({ owner: database });
-      // The unit's own accounting carries its retries, so the queue retries nothing itself: a settlement
-      // here says the attempt is over, and a retry is the orchestrator's own enqueue at its own moment.
-      await queue.declare({
-        name: queueName,
-        leaseSeconds: Math.max(1, Math.ceil(limits.leaseMs / 1000)),
-        retries: 0,
-        retryDelaySeconds: 0,
-        retryBackoff: false,
-        singletons: true,
+      // The one temporal graph the static stages publish into and read through (decision 0028; 0033's
+      // capability boundary). Its tables are created before a run of a registry with static stages plans,
+      // never inside a publication's transaction (`ensureGraph`).
+      const graph = createGraphStore(database);
+      graphStore = graph;
+      // The queue's own tables and its declaration are one span: their statements are the queue adapter's, not
+      // the storage layer's, and this is where a fill pays for them.
+      const queue = await withSpan('fill.queue', { 'madarch.queue': queueName }, async () => {
+        const opened = options.queueFactory !== undefined
+          ? await options.queueFactory(database)
+          : await createPgBossQueue({ owner: database });
+        // The unit's own accounting carries its retries, so the queue retries nothing itself: a settlement
+        // here says the attempt is over, and a retry is the orchestrator's own enqueue at its own moment.
+        await opened.declare({
+          name: queueName,
+          leaseSeconds: Math.max(1, Math.ceil(limits.leaseMs / 1000)),
+          retries: 0,
+          retryDelaySeconds: 0,
+          retryBackoff: false,
+          singletons: true,
+        });
+        return opened;
       });
-      return { owner: database, queue, opened: lent === undefined };
+      return { owner: database, queue, graph, opened: lent === undefined };
     })();
     return await opening;
   }
@@ -480,6 +620,14 @@ async function fileDecision(
    * (`cancelRun`'s revocation), leaving the work in flight. Building it once also keeps a product's stage registry
    * and wiring in one place for every run of it.
    */
+  /** The graph's tables and vocabulary, created once per process before a registry with static stages runs. */
+  let graphReady: Promise<void> | undefined;
+  async function ensureGraph(): Promise<void> {
+    if (graphStore === undefined) throw new Error('fill-orchestrator: the graph schema was asked for before the process\'s owner was opened (src/fill/orchestrator-host.ts)');
+    graphReady ??= ensureGraphSchema(graphStore);
+    await graphReady;
+  }
+
   const orchestrators = new Map<string, FillOrchestrator>();
   /** The registry each product's orchestrator was built over: what the pages outbox asks for by name. */
   const registries = new Map<string, StageRegistry>();
@@ -491,7 +639,10 @@ async function fileDecision(
     if ('ok' in wired) return wired;
     const { wiring, registry } = wired;
     registries.set(product.name, registry);
-    const { owner, queue } = await open();
+    const { owner, queue, graph } = await open();
+    // A registry with any static stage publishes into the 0028 graph: its tables and vocabulary stand
+    // before the first plan reads them, outside every publication's transaction.
+    if (registry.all().some((stage) => stage.staticReading === true)) await ensureGraph();
     const built = createOrchestrator({
       database: owner,
       registry,
@@ -502,7 +653,39 @@ async function fileDecision(
       snapshot: () => wiring.snapshot(),
       graph: (ref, transaction) => wiring.graph(ref, transaction),
       inputs: (ref) => wiring.inputs(ref),
-      facts: wiring.facts ?? FACT_APPLICATION,
+      // A static stage (0033, "Capability boundaries") is handed its pinned repository's path-scoped
+      // answers here: the host owns the snapshot source, and a stage never receives the reader.
+      staticSource: async (ref) => {
+        if (registry.get(ref.stageId)?.staticReading !== true) return undefined;
+        const source = await sourceOf(wiring, product);
+        return await staticStageSourceOf(source, repositoryOfScope(ref));
+      },
+      // The same stages read the graph through three bounded questions (0033): by key, by global name
+      // and one bounded neighbourhood. They never receive the store.
+      staticGraph: (ref) => (registry.get(ref.stageId)?.staticReading === true ? staticGraphReaderOf(graph) : undefined),
+      // The static stages' drafts are graph items, applied by the publication's own transaction into the
+      // 0028 graph. The graph store's one unit publication owns the scope its caller's key names, the
+      // generation allocation and the publication lock (decision 0033, item 3); the orchestrator's executor
+      // is adapted at the storage boundary, never in a stage module. Every other stage still lands its fact
+      // set where the wiring says (today the fill's fact store), and a host that names another landing point
+      // keeps it for those stages.
+      facts: {
+        apply: async (input) => {
+          if (registry.get(input.unit.stageId)?.staticReading === true) {
+            await graph.publishUnit(staticUnitPublicationOf({
+              unitId: input.unit.unitId,
+              // A stage whose unit id names what it read and whose scope is what it replaces
+              // publishes under that scope (the history stage's range under its repository).
+              scopeKey: input.plan.scope,
+              stageId: input.unit.stageId,
+              digest: input.digest,
+              writes: input.writes,
+            }), outerTransactionOf(input.executor));
+            return input.writes.length;
+          }
+          return await (wiring.facts ?? FACT_APPLICATION).apply(input);
+        },
+      },
       ...(options.clock === undefined ? {} : { clock: options.clock }),
       control: options.control !== undefined ? options.control(product) : async (runId: string) => await consumeFillControl(product.folder, runId),
       ...(wiring.guard === undefined ? {} : { guard: wiring.guard }),
@@ -527,7 +710,16 @@ async function fileDecision(
       // subscribers ask the store which pages the publication touched (`fill_page_change`), and a publication
       // that touched no page wakes a stream that then writes nothing.
       sink: async (event) => {
-        if (event.kind === 'unit-published') notifyPages();
+        if (event.kind === 'unit-published') {
+          notifyPages();
+          // The publication committed before this event was emitted, so the store's maintenance runs here,
+          // outside every transaction: the planner's statistics (`statistics.ts`: due after 50 000 versions
+          // written, or once for a store whose version tables were never analyzed) and the WAL checkpoint
+          // (`checkpoint.ts`: due after 20 000 versions, because PGlite's single-user backend runs no
+          // checkpointer and `pg_wal` would otherwise grow until the disk is full). A fill whose stages land
+          // facts only writes no version, and this call then only asks whether either is due.
+          await graph.maintain();
+        }
         await options.sink?.(event);
       },
       limits,
@@ -671,7 +863,7 @@ async function fileDecision(
     // A stopped service reads nothing, and says so: answering the empty page set here would claim the product's
     // graph holds nothing, which is a statement about the store this service no longer reads.
     if (stopped) throw new Error('fill-orchestrator: the fill service was stopped, so it reads no graph: the pages are served while the service that owns the database runs');
-    if (options.owner === undefined && existsSync(databasePath) === false) return undefined;
+    if (options.owner === undefined && (databasePath === undefined || existsSync(databasePath) === false)) return undefined;
     return (await open()).owner;
   }
 
@@ -816,8 +1008,10 @@ async function fileDecision(
       const active = activeRunId === null ? null : await readRun(database, activeRunId);
       return { state: chain.state, activeRunId, activeRunState: active?.state ?? null };
     },
-    async control(request: { readonly productFolder: string; readonly runId: string; readonly action: FillRunControl }): Promise<FillRunControlAnswer | null> {
-      const product: FillProduct = { name: productNameOf(request.productFolder), folder: request.productFolder };
+    async control(request: { readonly productFolder: string; readonly runId: string; readonly action: FillRunControl; readonly product?: string }): Promise<FillRunControlAnswer | null> {
+      // A caller that already holds the product's name (a served checkout, which is no product repository) hands
+      // it in; everyone else reads it from the manifest, as before.
+      const product: FillProduct = { name: request.product ?? productNameOf(request.productFolder), folder: request.productFolder };
       const built = await orchestratorFor(product);
       if ('ok' in built) return { ok: false, code: built.code, reason: built.reason };
       // A run the store does not hold is the landed fill's, which keeps its own state file: `null` hands the
@@ -846,35 +1040,7 @@ async function fileDecision(
     async progress(folder: string): Promise<FillProgressAnswer | null> {
       const database = await pageDatabase();
       if (database === undefined) return null;
-      const product = productNameOf(folder);
-      const latest = await readLatestRun(database, product);
-      if (latest === null) return null;
-      const units = await readRunUnits(database, latest.runId);
-      const events = await readProgress(database, latest.runId);
-      return {
-        run: {
-          id: latest.runId,
-          status: latest.state,
-          createdAt: new Date(latest.createdAt).toISOString(),
-          updatedAt: new Date(latest.updatedAt).toISOString(),
-          product,
-        },
-        units: units.map((unit) => ({
-          unitId: unit.unitId,
-          stage: unit.stageId,
-          status: unit.state,
-          generation: unit.generation,
-          attempts: unit.context.attempt,
-        })),
-        events: events.map((event) => ({
-          seq: event.seq,
-          at: new Date(event.at).toISOString(),
-          stage: event.stage,
-          unitId: event.unitId,
-          type: event.kind,
-          summary: event.summary,
-        })),
-      };
+      return await fillProgressOf(database, productNameOf(folder));
     },
     async unitTools(request: UnitToolsRequest): Promise<UnitToolsHandle> {
       return await openUnitTools(request);
@@ -883,19 +1049,28 @@ async function fileDecision(
       return await units.call(request);
     },
     async run(request: FillRunRequest): Promise<FillRunResult | RefusedFillRun> {
-      const built = await orchestratorFor(request.product);
+      // A service is given the product's store (its owner or its database path): one that names none refuses the run
+      // by name, rather than guessing a store from a home no product owns.
+      if (options.wiring !== undefined && options.owner === undefined && databasePath === undefined) {
+        return { ok: false, code: 'fill-orchestrator/no-store', reason: `fill-orchestrator: this service was given no store for ${JSON.stringify(request.product.name)}: name the product's owner or its database path (src/fill/orchestrator-host.ts)` };
+      }
+      const built = await withSpan('fill.ready', { 'madarch.product': request.product.name }, async () => await orchestratorFor(request.product));
       if ('ok' in built) return built;
       const orchestrator = built;
       if (request.resume === true) await resumeRun(orchestrator, { runId: request.runId });
-      const started = await startRun(orchestrator, { runId: request.runId });
+      const started = await withSpan('fill.start', { 'madarch.run': request.runId }, async () => await startRun(orchestrator, { runId: request.runId }));
       if (!started.ok) return { ok: false, code: started.code, reason: started.reason };
-      const planned = await planRun(orchestrator, { runId: request.runId });
+      const planned = await withSpan('fill.plan', { 'madarch.run': request.runId }, async (span) => {
+        const held = await planRun(orchestrator, { runId: request.runId });
+        span.setAttribute('madarch.outcome', held.outcome);
+        return held;
+      });
       if (planned.outcome === 'refused') return { ok: false, code: planned.code, reason: planned.reason };
-      const driven = await driveRun(orchestrator, {
+      const driven = await withSpan('fill.drive', { 'madarch.run': request.runId, 'madarch.workers': request.workers ?? options.workers ?? 1 }, async () => await driveFor(orchestrator, {
         runId: request.runId,
         workers: request.workers ?? options.workers ?? 1,
         ...(request.maxPasses === undefined && options.maxPasses === undefined ? {} : { maxPasses: request.maxPasses ?? options.maxPasses }),
-      });
+      }));
       // The pages outbox, after the run settled (0027: a separate idempotent step): every page the run's
       // narrative units published is carried into the product's git here, never inside a publication. A
       // registry without the pages stage — every run without an agent today — carries nothing, and pays
@@ -929,6 +1104,7 @@ async function fileDecision(
         settled: driven.settled,
         passes: driven.passes,
         work: driven.work,
+        retryWaitMs: driven.retryWaitMs,
         ...(driven.stoppedBecause === undefined ? {} : { stoppedBecause: driven.stoppedBecause }),
         units: (status?.units ?? []).map((unit) => ({ unitId: unit.unitId, stageId: unit.stageId, state: unit.state, generation: unit.generation, attempts: unit.attempts })),
         reused,

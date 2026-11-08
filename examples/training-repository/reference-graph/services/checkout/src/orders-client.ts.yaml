@@ -1,0 +1,309 @@
+path: 'services/checkout/src/orders-client.ts'
+nodes:
+  - id: 'code.field:services/checkout/src/orders-client.ts#Order.id'
+    kind: 'code.field'
+    label: 'Order.id'
+    evidence:
+      - path: 'services/checkout/src/orders-client.ts'
+        startLine: 5
+        endLine: 5
+        quote: '  id: string;'
+    reading: 'parsed'
+  - id: 'code.field:services/checkout/src/orders-client.ts#Order.status'
+    kind: 'code.field'
+    label: 'Order.status'
+    evidence:
+      - path: 'services/checkout/src/orders-client.ts'
+        startLine: 6
+        endLine: 6
+        quote: '  status: string;'
+    reading: 'parsed'
+  - id: 'code.field:services/checkout/src/orders-client.ts#Order.totalCents'
+    kind: 'code.field'
+    label: 'Order.totalCents'
+    evidence:
+      - path: 'services/checkout/src/orders-client.ts'
+        startLine: 7
+        endLine: 7
+        quote: '  totalCents: number;'
+    reading: 'parsed'
+  - id: 'code.field:services/checkout/src/orders-client.ts#OrdersClient.baseUrl'
+    kind: 'code.field'
+    label: 'OrdersClient.baseUrl'
+    evidence:
+      - path: 'services/checkout/src/orders-client.ts'
+        startLine: 22
+        endLine: 22
+        quote: '  constructor(private readonly baseUrl: string) {}'
+    reading: 'parsed'
+  - id: 'code.field:services/checkout/src/orders-client.ts#OrdersError.status'
+    kind: 'code.field'
+    label: 'OrdersError.status'
+    evidence:
+      - path: 'services/checkout/src/orders-client.ts'
+        startLine: 12
+        endLine: 12
+        quote: '    readonly status: number,'
+    reading: 'parsed'
+  - id: 'code.file:services/checkout/src/orders-client.ts'
+    kind: 'code.file'
+    label: 'orders-client.ts'
+    evidence:
+      - path: 'services/checkout/src/orders-client.ts'
+        startLine: 1
+        endLine: 1
+        quote: 'import { CartLine } from ''./pricing'';'
+    reading: 'parsed'
+  - id: 'code.symbol:services/checkout/src/orders-client.ts#Order'
+    kind: 'code.symbol'
+    label: 'Order'
+    evidence:
+      - path: 'services/checkout/src/orders-client.ts'
+        startLine: 4
+        endLine: 4
+        quote: 'export interface Order {'
+    reading: 'parsed'
+  - id: 'code.symbol:services/checkout/src/orders-client.ts#OrdersClient'
+    kind: 'code.symbol'
+    label: 'OrdersClient'
+    evidence:
+      - path: 'services/checkout/src/orders-client.ts'
+        startLine: 21
+        endLine: 21
+        quote: 'export class OrdersClient {'
+    reading: 'parsed'
+  - id: 'code.symbol:services/checkout/src/orders-client.ts#OrdersClient.cancelOrder'
+    kind: 'code.symbol'
+    label: 'OrdersClient.cancelOrder'
+    evidence:
+      - path: 'services/checkout/src/orders-client.ts'
+        startLine: 49
+        endLine: 49
+        quote: '  async cancelOrder(auth: string, requestId: string, orderId: string, reason: string): Promise<void> {'
+    reading: 'parsed'
+  - id: 'code.symbol:services/checkout/src/orders-client.ts#OrdersClient.constructor'
+    kind: 'code.symbol'
+    label: 'OrdersClient.constructor'
+    evidence:
+      - path: 'services/checkout/src/orders-client.ts'
+        startLine: 22
+        endLine: 22
+        quote: '  constructor(private readonly baseUrl: string) {}'
+    reading: 'parsed'
+  - id: 'code.symbol:services/checkout/src/orders-client.ts#OrdersClient.placeOrder'
+    kind: 'code.symbol'
+    label: 'OrdersClient.placeOrder'
+    evidence:
+      - path: 'services/checkout/src/orders-client.ts'
+        startLine: 25
+        endLine: 25
+        quote: '  async placeOrder('
+    reading: 'parsed'
+  - id: 'code.symbol:services/checkout/src/orders-client.ts#OrdersError'
+    kind: 'code.symbol'
+    label: 'OrdersError'
+    evidence:
+      - path: 'services/checkout/src/orders-client.ts'
+        startLine: 10
+        endLine: 10
+        quote: 'export class OrdersError extends Error {'
+    reading: 'parsed'
+  - id: 'code.symbol:services/checkout/src/orders-client.ts#OrdersError.constructor'
+    kind: 'code.symbol'
+    label: 'OrdersError.constructor'
+    evidence:
+      - path: 'services/checkout/src/orders-client.ts'
+        startLine: 11
+        endLine: 11
+        quote: '  constructor('
+    reading: 'parsed'
+  - id: 'code.symbol:services/checkout/src/orders-client.ts#errorMessage'
+    kind: 'code.symbol'
+    label: 'errorMessage'
+    evidence:
+      - path: 'services/checkout/src/orders-client.ts'
+        startLine: 61
+        endLine: 61
+        quote: 'async function errorMessage(response: Response): Promise<string> {'
+    reading: 'parsed'
+edges:
+  - relation: 'code.calls'
+    from: 'code.symbol:services/checkout/src/orders-client.ts#OrdersClient.cancelOrder'
+    to: 'code.symbol:services/checkout/src/orders-client.ts#OrdersError'
+    evidence:
+      - path: 'services/checkout/src/orders-client.ts'
+        startLine: 56
+        endLine: 56
+        quote: '      throw new OrdersError(response.status, await errorMessage(response));'
+    reading: 'parsed'
+  - relation: 'code.calls'
+    from: 'code.symbol:services/checkout/src/orders-client.ts#OrdersClient.cancelOrder'
+    to: 'code.symbol:services/checkout/src/orders-client.ts#errorMessage'
+    evidence:
+      - path: 'services/checkout/src/orders-client.ts'
+        startLine: 56
+        endLine: 56
+        quote: '      throw new OrdersError(response.status, await errorMessage(response));'
+    reading: 'parsed'
+  - relation: 'code.calls'
+    from: 'code.symbol:services/checkout/src/orders-client.ts#OrdersClient.placeOrder'
+    to: 'code.symbol:services/checkout/src/orders-client.ts#OrdersError'
+    evidence:
+      - path: 'services/checkout/src/orders-client.ts'
+        startLine: 43
+        endLine: 43
+        quote: '      throw new OrdersError(response.status, await errorMessage(response));'
+    reading: 'parsed'
+  - relation: 'code.calls'
+    from: 'code.symbol:services/checkout/src/orders-client.ts#OrdersClient.placeOrder'
+    to: 'code.symbol:services/checkout/src/orders-client.ts#errorMessage'
+    evidence:
+      - path: 'services/checkout/src/orders-client.ts'
+        startLine: 43
+        endLine: 43
+        quote: '      throw new OrdersError(response.status, await errorMessage(response));'
+    reading: 'parsed'
+  - relation: 'code.calls-remote'
+    from: 'code.symbol:services/checkout/src/orders-client.ts#OrdersClient.cancelOrder'
+    to: 'code.operation:contracts/openapi/orders.yaml#cancelOrder'
+    evidence:
+      - path: 'services/checkout/src/orders-client.ts'
+        startLine: 50
+        endLine: 50
+        quote: '    const response = await fetch(`${this.baseUrl}/orders/${orderId}/cancel`, {'
+    reading: 'parsed'
+  - relation: 'code.calls-remote'
+    from: 'code.symbol:services/checkout/src/orders-client.ts#OrdersClient.placeOrder'
+    to: 'code.operation:contracts/openapi/orders.yaml#createOrder'
+    evidence:
+      - path: 'services/checkout/src/orders-client.ts'
+        startLine: 32
+        endLine: 32
+        quote: '    const response = await fetch(`${this.baseUrl}/orders`, {'
+    reading: 'parsed'
+  - relation: 'code.contains'
+    from: 'code.file:services/checkout/src/orders-client.ts'
+    to: 'code.symbol:services/checkout/src/orders-client.ts#Order'
+    evidence:
+      - path: 'services/checkout/src/orders-client.ts'
+        startLine: 4
+        endLine: 4
+        quote: 'export interface Order {'
+    reading: 'parsed'
+  - relation: 'code.contains'
+    from: 'code.file:services/checkout/src/orders-client.ts'
+    to: 'code.symbol:services/checkout/src/orders-client.ts#OrdersClient'
+    evidence:
+      - path: 'services/checkout/src/orders-client.ts'
+        startLine: 21
+        endLine: 21
+        quote: 'export class OrdersClient {'
+    reading: 'parsed'
+  - relation: 'code.contains'
+    from: 'code.file:services/checkout/src/orders-client.ts'
+    to: 'code.symbol:services/checkout/src/orders-client.ts#OrdersError'
+    evidence:
+      - path: 'services/checkout/src/orders-client.ts'
+        startLine: 10
+        endLine: 10
+        quote: 'export class OrdersError extends Error {'
+    reading: 'parsed'
+  - relation: 'code.contains'
+    from: 'code.file:services/checkout/src/orders-client.ts'
+    to: 'code.symbol:services/checkout/src/orders-client.ts#errorMessage'
+    evidence:
+      - path: 'services/checkout/src/orders-client.ts'
+        startLine: 61
+        endLine: 61
+        quote: 'async function errorMessage(response: Response): Promise<string> {'
+    reading: 'parsed'
+  - relation: 'code.contains'
+    from: 'code.symbol:services/checkout/src/orders-client.ts#Order'
+    to: 'code.field:services/checkout/src/orders-client.ts#Order.id'
+    evidence:
+      - path: 'services/checkout/src/orders-client.ts'
+        startLine: 5
+        endLine: 5
+        quote: '  id: string;'
+    reading: 'parsed'
+  - relation: 'code.contains'
+    from: 'code.symbol:services/checkout/src/orders-client.ts#Order'
+    to: 'code.field:services/checkout/src/orders-client.ts#Order.status'
+    evidence:
+      - path: 'services/checkout/src/orders-client.ts'
+        startLine: 6
+        endLine: 6
+        quote: '  status: string;'
+    reading: 'parsed'
+  - relation: 'code.contains'
+    from: 'code.symbol:services/checkout/src/orders-client.ts#Order'
+    to: 'code.field:services/checkout/src/orders-client.ts#Order.totalCents'
+    evidence:
+      - path: 'services/checkout/src/orders-client.ts'
+        startLine: 7
+        endLine: 7
+        quote: '  totalCents: number;'
+    reading: 'parsed'
+  - relation: 'code.contains'
+    from: 'code.symbol:services/checkout/src/orders-client.ts#OrdersClient'
+    to: 'code.field:services/checkout/src/orders-client.ts#OrdersClient.baseUrl'
+    evidence:
+      - path: 'services/checkout/src/orders-client.ts'
+        startLine: 22
+        endLine: 22
+        quote: '  constructor(private readonly baseUrl: string) {}'
+    reading: 'parsed'
+  - relation: 'code.contains'
+    from: 'code.symbol:services/checkout/src/orders-client.ts#OrdersClient'
+    to: 'code.symbol:services/checkout/src/orders-client.ts#OrdersClient.cancelOrder'
+    evidence:
+      - path: 'services/checkout/src/orders-client.ts'
+        startLine: 49
+        endLine: 49
+        quote: '  async cancelOrder(auth: string, requestId: string, orderId: string, reason: string): Promise<void> {'
+    reading: 'parsed'
+  - relation: 'code.contains'
+    from: 'code.symbol:services/checkout/src/orders-client.ts#OrdersClient'
+    to: 'code.symbol:services/checkout/src/orders-client.ts#OrdersClient.constructor'
+    evidence:
+      - path: 'services/checkout/src/orders-client.ts'
+        startLine: 22
+        endLine: 22
+        quote: '  constructor(private readonly baseUrl: string) {}'
+    reading: 'parsed'
+  - relation: 'code.contains'
+    from: 'code.symbol:services/checkout/src/orders-client.ts#OrdersClient'
+    to: 'code.symbol:services/checkout/src/orders-client.ts#OrdersClient.placeOrder'
+    evidence:
+      - path: 'services/checkout/src/orders-client.ts'
+        startLine: 25
+        endLine: 25
+        quote: '  async placeOrder('
+    reading: 'parsed'
+  - relation: 'code.contains'
+    from: 'code.symbol:services/checkout/src/orders-client.ts#OrdersError'
+    to: 'code.field:services/checkout/src/orders-client.ts#OrdersError.status'
+    evidence:
+      - path: 'services/checkout/src/orders-client.ts'
+        startLine: 12
+        endLine: 12
+        quote: '    readonly status: number,'
+    reading: 'parsed'
+  - relation: 'code.contains'
+    from: 'code.symbol:services/checkout/src/orders-client.ts#OrdersError'
+    to: 'code.symbol:services/checkout/src/orders-client.ts#OrdersError.constructor'
+    evidence:
+      - path: 'services/checkout/src/orders-client.ts'
+        startLine: 11
+        endLine: 11
+        quote: '  constructor('
+    reading: 'parsed'
+  - relation: 'code.imports'
+    from: 'code.file:services/checkout/src/orders-client.ts'
+    to: 'code.file:services/checkout/src/pricing.ts'
+    evidence:
+      - path: 'services/checkout/src/orders-client.ts'
+        startLine: 1
+        endLine: 1
+        quote: 'import { CartLine } from ''./pricing'';'
+    reading: 'parsed'

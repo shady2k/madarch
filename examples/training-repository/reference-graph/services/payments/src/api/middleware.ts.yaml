@@ -1,0 +1,111 @@
+path: 'services/payments/src/api/middleware.ts'
+nodes:
+  - id: 'code.file:services/payments/src/api/middleware.ts'
+    kind: 'code.file'
+    label: 'middleware.ts'
+    evidence:
+      - path: 'services/payments/src/api/middleware.ts'
+        startLine: 1
+        endLine: 1
+        quote: 'import { NextFunction, Request, RequestHandler, Response } from ''express'';'
+    reading: 'parsed'
+  - id: 'code.symbol:services/payments/src/api/middleware.ts#authenticate'
+    kind: 'code.symbol'
+    label: 'authenticate'
+    evidence:
+      - path: 'services/payments/src/api/middleware.ts'
+        startLine: 17
+        endLine: 17
+        quote: 'export function authenticate(secret: string): RequestHandler {'
+    reading: 'parsed'
+  - id: 'code.symbol:services/payments/src/api/middleware.ts#errorHandler'
+    kind: 'code.symbol'
+    label: 'errorHandler'
+    evidence:
+      - path: 'services/payments/src/api/middleware.ts'
+        startLine: 34
+        endLine: 34
+        quote: 'export function errorHandler(err: unknown, _req: Request, res: Response, _next: NextFunction): void {'
+    reading: 'parsed'
+  - id: 'code.symbol:services/payments/src/api/middleware.ts#requestLogger'
+    kind: 'code.symbol'
+    label: 'requestLogger'
+    evidence:
+      - path: 'services/payments/src/api/middleware.ts'
+        startLine: 8
+        endLine: 8
+        quote: 'export const requestLogger: RequestHandler = (req, res, next) => {'
+    reading: 'parsed'
+edges:
+  - relation: 'code.contains'
+    from: 'code.file:services/payments/src/api/middleware.ts'
+    to: 'code.symbol:services/payments/src/api/middleware.ts#authenticate'
+    evidence:
+      - path: 'services/payments/src/api/middleware.ts'
+        startLine: 17
+        endLine: 17
+        quote: 'export function authenticate(secret: string): RequestHandler {'
+    reading: 'parsed'
+  - relation: 'code.contains'
+    from: 'code.file:services/payments/src/api/middleware.ts'
+    to: 'code.symbol:services/payments/src/api/middleware.ts#errorHandler'
+    evidence:
+      - path: 'services/payments/src/api/middleware.ts'
+        startLine: 34
+        endLine: 34
+        quote: 'export function errorHandler(err: unknown, _req: Request, res: Response, _next: NextFunction): void {'
+    reading: 'parsed'
+  - relation: 'code.contains'
+    from: 'code.file:services/payments/src/api/middleware.ts'
+    to: 'code.symbol:services/payments/src/api/middleware.ts#requestLogger'
+    evidence:
+      - path: 'services/payments/src/api/middleware.ts'
+        startLine: 8
+        endLine: 8
+        quote: 'export const requestLogger: RequestHandler = (req, res, next) => {'
+    reading: 'parsed'
+  - relation: 'code.imports'
+    from: 'code.file:services/payments/src/api/middleware.ts'
+    to: 'code.dependency:services/payments/package.json#express'
+    evidence:
+      - path: 'services/payments/src/api/middleware.ts'
+        startLine: 1
+        endLine: 1
+        quote: 'import { NextFunction, Request, RequestHandler, Response } from ''express'';'
+    reading: 'parsed'
+  - relation: 'code.imports'
+    from: 'code.file:services/payments/src/api/middleware.ts'
+    to: 'code.dependency:services/payments/package.json#jsonwebtoken'
+    evidence:
+      - path: 'services/payments/src/api/middleware.ts'
+        startLine: 2
+        endLine: 2
+        quote: 'import jwt from ''jsonwebtoken'';'
+    reading: 'parsed'
+  - relation: 'code.imports'
+    from: 'code.file:services/payments/src/api/middleware.ts'
+    to: 'code.file:services/payments/src/domain/payment-service.ts'
+    evidence:
+      - path: 'services/payments/src/api/middleware.ts'
+        startLine: 4
+        endLine: 4
+        quote: 'import { PaymentNotFound } from ''../domain/payment-service'';'
+    reading: 'parsed'
+  - relation: 'code.imports'
+    from: 'code.file:services/payments/src/api/middleware.ts'
+    to: 'code.file:services/payments/src/domain/refund.ts'
+    evidence:
+      - path: 'services/payments/src/api/middleware.ts'
+        startLine: 5
+        endLine: 5
+        quote: 'import { RefundRejected } from ''../domain/refund'';'
+    reading: 'parsed'
+  - relation: 'code.imports'
+    from: 'code.file:services/payments/src/api/middleware.ts'
+    to: 'code.file:services/payments/src/logging/logger.ts'
+    evidence:
+      - path: 'services/payments/src/api/middleware.ts'
+        startLine: 3
+        endLine: 3
+        quote: 'import { logger } from ''../logging/logger'';'
+    reading: 'parsed'

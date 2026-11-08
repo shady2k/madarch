@@ -1,0 +1,228 @@
+path: 'services/checkout/package.json'
+nodes:
+  - id: 'code.dependency:services/checkout/package.json#@grpc/grpc-js'
+    kind: 'code.dependency'
+    label: '@grpc/grpc-js 1.10.8'
+    evidence:
+      - path: 'services/checkout/package.json'
+        startLine: 14
+        endLine: 14
+        quote: '    "@grpc/grpc-js": "1.10.8",'
+    reading: 'declared'
+  - id: 'code.dependency:services/checkout/package.json#@grpc/proto-loader'
+    kind: 'code.dependency'
+    label: '@grpc/proto-loader 0.7.13'
+    evidence:
+      - path: 'services/checkout/package.json'
+        startLine: 15
+        endLine: 15
+        quote: '    "@grpc/proto-loader": "0.7.13",'
+    reading: 'declared'
+  - id: 'code.dependency:services/checkout/package.json#@types/express'
+    kind: 'code.dependency'
+    label: '@types/express 4.17.21 (dev)'
+    evidence:
+      - path: 'services/checkout/package.json'
+        startLine: 20
+        endLine: 20
+        quote: '    "@types/express": "4.17.21",'
+    reading: 'declared'
+  - id: 'code.dependency:services/checkout/package.json#@types/jest'
+    kind: 'code.dependency'
+    label: '@types/jest 29.5.12 (dev)'
+    evidence:
+      - path: 'services/checkout/package.json'
+        startLine: 21
+        endLine: 21
+        quote: '    "@types/jest": "29.5.12",'
+    reading: 'declared'
+  - id: 'code.dependency:services/checkout/package.json#@types/node'
+    kind: 'code.dependency'
+    label: '@types/node 20.12.12 (dev)'
+    evidence:
+      - path: 'services/checkout/package.json'
+        startLine: 22
+        endLine: 22
+        quote: '    "@types/node": "20.12.12",'
+    reading: 'declared'
+  - id: 'code.dependency:services/checkout/package.json#express'
+    kind: 'code.dependency'
+    label: 'express 4.19.2'
+    evidence:
+      - path: 'services/checkout/package.json'
+        startLine: 16
+        endLine: 16
+        quote: '    "express": "4.19.2",'
+    reading: 'declared'
+  - id: 'code.dependency:services/checkout/package.json#jest'
+    kind: 'code.dependency'
+    label: 'jest 29.7.0 (dev)'
+    evidence:
+      - path: 'services/checkout/package.json'
+        startLine: 23
+        endLine: 23
+        quote: '    "jest": "29.7.0",'
+    reading: 'declared'
+  - id: 'code.dependency:services/checkout/package.json#pino'
+    kind: 'code.dependency'
+    label: 'pino 9.1.0'
+    evidence:
+      - path: 'services/checkout/package.json'
+        startLine: 17
+        endLine: 17
+        quote: '    "pino": "9.1.0"'
+    reading: 'declared'
+  - id: 'code.dependency:services/checkout/package.json#ts-jest'
+    kind: 'code.dependency'
+    label: 'ts-jest 29.1.4 (dev)'
+    evidence:
+      - path: 'services/checkout/package.json'
+        startLine: 24
+        endLine: 24
+        quote: '    "ts-jest": "29.1.4",'
+    reading: 'declared'
+  - id: 'code.dependency:services/checkout/package.json#typescript'
+    kind: 'code.dependency'
+    label: 'typescript 5.4.5 (dev)'
+    evidence:
+      - path: 'services/checkout/package.json'
+        startLine: 25
+        endLine: 25
+        quote: '    "typescript": "5.4.5"'
+    reading: 'declared'
+  - id: 'code.file:services/checkout/package.json'
+    kind: 'code.file'
+    label: 'package.json'
+    evidence:
+      - path: 'services/checkout/package.json'
+        startLine: 1
+        endLine: 1
+        quote: '{'
+    reading: 'parsed'
+  - id: 'code.manifest:services/checkout/package.json'
+    kind: 'code.manifest'
+    label: 'package.json'
+    evidence:
+      - path: 'services/checkout/package.json'
+        startLine: 1
+        endLine: 1
+        quote: '{'
+    reading: 'declared'
+  - id: 'code.package:services/checkout'
+    kind: 'code.package'
+    label: 'services/checkout'
+    evidence:
+      - path: 'services/checkout/package.json'
+        startLine: 1
+        endLine: 1
+        quote: '{'
+    reading: 'declared'
+edges:
+  - relation: 'code.belongs-to'
+    from: 'code.manifest:services/checkout/package.json'
+    to: 'code.package:services/checkout'
+    evidence:
+      - path: 'services/checkout/package.json'
+        startLine: 1
+        endLine: 1
+        quote: '{'
+    reading: 'declared'
+  - relation: 'code.belongs-to'
+    from: 'code.package:services/checkout'
+    to: 'code.service:checkout'
+    evidence:
+      - path: 'services/checkout/package.json'
+        startLine: 1
+        endLine: 1
+        quote: '{'
+    reading: 'declared'
+  - relation: 'code.declares-dependency'
+    from: 'code.manifest:services/checkout/package.json'
+    to: 'code.dependency:services/checkout/package.json#@grpc/grpc-js'
+    evidence:
+      - path: 'services/checkout/package.json'
+        startLine: 14
+        endLine: 14
+        quote: '    "@grpc/grpc-js": "1.10.8",'
+    reading: 'declared'
+  - relation: 'code.declares-dependency'
+    from: 'code.manifest:services/checkout/package.json'
+    to: 'code.dependency:services/checkout/package.json#@grpc/proto-loader'
+    evidence:
+      - path: 'services/checkout/package.json'
+        startLine: 15
+        endLine: 15
+        quote: '    "@grpc/proto-loader": "0.7.13",'
+    reading: 'declared'
+  - relation: 'code.declares-dependency'
+    from: 'code.manifest:services/checkout/package.json'
+    to: 'code.dependency:services/checkout/package.json#@types/express'
+    evidence:
+      - path: 'services/checkout/package.json'
+        startLine: 20
+        endLine: 20
+        quote: '    "@types/express": "4.17.21",'
+    reading: 'declared'
+  - relation: 'code.declares-dependency'
+    from: 'code.manifest:services/checkout/package.json'
+    to: 'code.dependency:services/checkout/package.json#@types/jest'
+    evidence:
+      - path: 'services/checkout/package.json'
+        startLine: 21
+        endLine: 21
+        quote: '    "@types/jest": "29.5.12",'
+    reading: 'declared'
+  - relation: 'code.declares-dependency'
+    from: 'code.manifest:services/checkout/package.json'
+    to: 'code.dependency:services/checkout/package.json#@types/node'
+    evidence:
+      - path: 'services/checkout/package.json'
+        startLine: 22
+        endLine: 22
+        quote: '    "@types/node": "20.12.12",'
+    reading: 'declared'
+  - relation: 'code.declares-dependency'
+    from: 'code.manifest:services/checkout/package.json'
+    to: 'code.dependency:services/checkout/package.json#express'
+    evidence:
+      - path: 'services/checkout/package.json'
+        startLine: 16
+        endLine: 16
+        quote: '    "express": "4.19.2",'
+    reading: 'declared'
+  - relation: 'code.declares-dependency'
+    from: 'code.manifest:services/checkout/package.json'
+    to: 'code.dependency:services/checkout/package.json#jest'
+    evidence:
+      - path: 'services/checkout/package.json'
+        startLine: 23
+        endLine: 23
+        quote: '    "jest": "29.7.0",'
+    reading: 'declared'
+  - relation: 'code.declares-dependency'
+    from: 'code.manifest:services/checkout/package.json'
+    to: 'code.dependency:services/checkout/package.json#pino'
+    evidence:
+      - path: 'services/checkout/package.json'
+        startLine: 17
+        endLine: 17
+        quote: '    "pino": "9.1.0"'
+    reading: 'declared'
+  - relation: 'code.declares-dependency'
+    from: 'code.manifest:services/checkout/package.json'
+    to: 'code.dependency:services/checkout/package.json#ts-jest'
+    evidence:
+      - path: 'services/checkout/package.json'
+        startLine: 24
+        endLine: 24
+        quote: '    "ts-jest": "29.1.4",'
+    reading: 'declared'
+  - relation: 'code.declares-dependency'
+    from: 'code.manifest:services/checkout/package.json'
+    to: 'code.dependency:services/checkout/package.json#typescript'
+    evidence:
+      - path: 'services/checkout/package.json'
+        startLine: 25
+        endLine: 25
+        quote: '    "typescript": "5.4.5"'
+    reading: 'declared'

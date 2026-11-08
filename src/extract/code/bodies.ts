@@ -24,7 +24,7 @@ import { codeQuery } from './query.js';
 import { decodeNumberToken, decodeStringToken } from './literals.js';
 import { codeFactId, type CodeBindingFact, type CodeCallFact, type CodeExpressionFact, type CodeImportFact, type CodeExportFact, type CodeFieldFact } from './facts.js';
 import type { ExtractionGap, SourceSpan } from '../records.js';
-import { holderAt, type FileSymbol } from './symbols.js';
+import { holderAt, type FileSymbol } from '../../fill/stages/code-symbols.js';
 
 export interface MemberSite {
   readonly span: SyntaxSpan;

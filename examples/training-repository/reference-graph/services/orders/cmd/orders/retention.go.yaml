@@ -1,0 +1,84 @@
+path: 'services/orders/cmd/orders/retention.go'
+nodes:
+  - id: 'code.file:services/orders/cmd/orders/retention.go'
+    kind: 'code.file'
+    label: 'retention.go'
+    evidence:
+      - path: 'services/orders/cmd/orders/retention.go'
+        startLine: 1
+        endLine: 1
+        quote: 'package main'
+    reading: 'parsed'
+  - id: 'code.symbol:services/orders/cmd/orders/retention.go#retentionInterval'
+    kind: 'code.symbol'
+    label: 'retentionInterval'
+    evidence:
+      - path: 'services/orders/cmd/orders/retention.go'
+        startLine: 12
+        endLine: 12
+        quote: 'const retentionInterval = 6 * time.Hour'
+    reading: 'parsed'
+  - id: 'code.symbol:services/orders/cmd/orders/retention.go#runRetention'
+    kind: 'code.symbol'
+    label: 'runRetention'
+    evidence:
+      - path: 'services/orders/cmd/orders/retention.go'
+        startLine: 16
+        endLine: 16
+        quote: 'func runRetention(ctx context.Context, orders *application.Service, log *slog.Logger) error {'
+    reading: 'parsed'
+edges:
+  - relation: 'code.calls'
+    from: 'code.symbol:services/orders/cmd/orders/retention.go#runRetention'
+    to: 'code.symbol:services/orders/internal/application/order_service.go#Service.RunRetentionJob'
+    evidence:
+      - path: 'services/orders/cmd/orders/retention.go'
+        startLine: 24
+        endLine: 24
+        quote: '			removed, err := orders.RunRetentionJob(ctx)'
+    reading: 'parsed'
+  - relation: 'code.contains'
+    from: 'code.file:services/orders/cmd/orders/retention.go'
+    to: 'code.symbol:services/orders/cmd/orders/retention.go#retentionInterval'
+    evidence:
+      - path: 'services/orders/cmd/orders/retention.go'
+        startLine: 12
+        endLine: 12
+        quote: 'const retentionInterval = 6 * time.Hour'
+    reading: 'parsed'
+  - relation: 'code.contains'
+    from: 'code.file:services/orders/cmd/orders/retention.go'
+    to: 'code.symbol:services/orders/cmd/orders/retention.go#runRetention'
+    evidence:
+      - path: 'services/orders/cmd/orders/retention.go'
+        startLine: 16
+        endLine: 16
+        quote: 'func runRetention(ctx context.Context, orders *application.Service, log *slog.Logger) error {'
+    reading: 'parsed'
+  - relation: 'code.contains'
+    from: 'code.module:services/orders/cmd/orders'
+    to: 'code.file:services/orders/cmd/orders/retention.go'
+    evidence:
+      - path: 'services/orders/cmd/orders/retention.go'
+        startLine: 1
+        endLine: 1
+        quote: 'package main'
+    reading: 'parsed'
+  - relation: 'code.imports'
+    from: 'code.file:services/orders/cmd/orders/retention.go'
+    to: 'code.module:services/orders/internal/application'
+    evidence:
+      - path: 'services/orders/cmd/orders/retention.go'
+        startLine: 8
+        endLine: 8
+        quote: '	"training.example/orders/internal/application"'
+    reading: 'parsed'
+  - relation: 'code.uses-type'
+    from: 'code.symbol:services/orders/cmd/orders/retention.go#runRetention'
+    to: 'code.symbol:services/orders/internal/application/order_service.go#Service'
+    evidence:
+      - path: 'services/orders/cmd/orders/retention.go'
+        startLine: 16
+        endLine: 16
+        quote: 'func runRetention(ctx context.Context, orders *application.Service, log *slog.Logger) error {'
+    reading: 'parsed'

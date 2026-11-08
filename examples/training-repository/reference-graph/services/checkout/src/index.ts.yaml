@@ -1,0 +1,219 @@
+path: 'services/checkout/src/index.ts'
+nodes:
+  - id: 'code.entry-point:checkout'
+    kind: 'code.entry-point'
+    label: 'top-level'
+    evidence:
+      - path: 'services/checkout/src/index.ts'
+        startLine: 11
+        endLine: 11
+        quote: 'const config = loadConfig();'
+    reading: 'parsed'
+  - id: 'code.file:services/checkout/src/index.ts'
+    kind: 'code.file'
+    label: 'index.ts'
+    evidence:
+      - path: 'services/checkout/src/index.ts'
+        startLine: 1
+        endLine: 1
+        quote: 'import { createApp } from ''./app'';'
+    reading: 'parsed'
+  - id: 'code.process:checkout'
+    kind: 'code.process'
+    label: 'checkout'
+    evidence:
+      - path: 'services/checkout/src/index.ts'
+        startLine: 11
+        endLine: 11
+        quote: 'const config = loadConfig();'
+    reading: 'parsed'
+  - id: 'code.symbol:services/checkout/src/index.ts#PORT'
+    kind: 'code.symbol'
+    label: 'PORT'
+    evidence:
+      - path: 'services/checkout/src/index.ts'
+        startLine: 9
+        endLine: 9
+        quote: 'const PORT = 8083;'
+    reading: 'parsed'
+  - id: 'code.symbol:services/checkout/src/index.ts#config'
+    kind: 'code.symbol'
+    label: 'config'
+    evidence:
+      - path: 'services/checkout/src/index.ts'
+        startLine: 11
+        endLine: 11
+        quote: 'const config = loadConfig();'
+    reading: 'parsed'
+  - id: 'code.symbol:services/checkout/src/index.ts#service'
+    kind: 'code.symbol'
+    label: 'service'
+    evidence:
+      - path: 'services/checkout/src/index.ts'
+        startLine: 12
+        endLine: 12
+        quote: 'const service = new CheckoutService('
+    reading: 'parsed'
+edges:
+  - relation: 'code.belongs-to'
+    from: 'code.process:checkout'
+    to: 'code.service:checkout'
+    evidence:
+      - path: 'services/checkout/src/index.ts'
+        startLine: 11
+        endLine: 11
+        quote: 'const config = loadConfig();'
+    reading: 'parsed'
+  - relation: 'code.calls'
+    from: 'code.file:services/checkout/src/index.ts'
+    to: 'code.symbol:services/checkout/src/app.ts#createApp'
+    evidence:
+      - path: 'services/checkout/src/index.ts'
+        startLine: 18
+        endLine: 18
+        quote: 'createApp(service).listen(PORT, () => {'
+    reading: 'parsed'
+  - relation: 'code.calls'
+    from: 'code.file:services/checkout/src/index.ts'
+    to: 'code.symbol:services/checkout/src/checkout-service.ts#CheckoutService'
+    evidence:
+      - path: 'services/checkout/src/index.ts'
+        startLine: 12
+        endLine: 12
+        quote: 'const service = new CheckoutService('
+    reading: 'parsed'
+  - relation: 'code.calls'
+    from: 'code.file:services/checkout/src/index.ts'
+    to: 'code.symbol:services/checkout/src/config.ts#loadConfig'
+    evidence:
+      - path: 'services/checkout/src/index.ts'
+        startLine: 11
+        endLine: 11
+        quote: 'const config = loadConfig();'
+    reading: 'parsed'
+  - relation: 'code.calls'
+    from: 'code.file:services/checkout/src/index.ts'
+    to: 'code.symbol:services/checkout/src/orders-client.ts#OrdersClient'
+    evidence:
+      - path: 'services/checkout/src/index.ts'
+        startLine: 13
+        endLine: 13
+        quote: '  new OrdersClient(config.ordersUrl),'
+    reading: 'parsed'
+  - relation: 'code.calls'
+    from: 'code.file:services/checkout/src/index.ts'
+    to: 'code.symbol:services/checkout/src/payments-client.ts#PaymentsClient'
+    evidence:
+      - path: 'services/checkout/src/index.ts'
+        startLine: 14
+        endLine: 14
+        quote: '  new PaymentsClient(config.paymentsAddr, config.paymentsDeadlineMs),'
+    reading: 'parsed'
+  - relation: 'code.calls'
+    from: 'code.file:services/checkout/src/index.ts'
+    to: 'code.symbol:services/checkout/src/promotions-client.ts#PromotionsClient'
+    evidence:
+      - path: 'services/checkout/src/index.ts'
+        startLine: 15
+        endLine: 15
+        quote: '  new PromotionsClient(config.promotionsUrl),'
+    reading: 'parsed'
+  - relation: 'code.contains'
+    from: 'code.file:services/checkout/src/index.ts'
+    to: 'code.symbol:services/checkout/src/index.ts#PORT'
+    evidence:
+      - path: 'services/checkout/src/index.ts'
+        startLine: 9
+        endLine: 9
+        quote: 'const PORT = 8083;'
+    reading: 'parsed'
+  - relation: 'code.contains'
+    from: 'code.file:services/checkout/src/index.ts'
+    to: 'code.symbol:services/checkout/src/index.ts#config'
+    evidence:
+      - path: 'services/checkout/src/index.ts'
+        startLine: 11
+        endLine: 11
+        quote: 'const config = loadConfig();'
+    reading: 'parsed'
+  - relation: 'code.contains'
+    from: 'code.file:services/checkout/src/index.ts'
+    to: 'code.symbol:services/checkout/src/index.ts#service'
+    evidence:
+      - path: 'services/checkout/src/index.ts'
+        startLine: 12
+        endLine: 12
+        quote: 'const service = new CheckoutService('
+    reading: 'parsed'
+  - relation: 'code.imports'
+    from: 'code.file:services/checkout/src/index.ts'
+    to: 'code.file:services/checkout/src/app.ts'
+    evidence:
+      - path: 'services/checkout/src/index.ts'
+        startLine: 1
+        endLine: 1
+        quote: 'import { createApp } from ''./app'';'
+    reading: 'parsed'
+  - relation: 'code.imports'
+    from: 'code.file:services/checkout/src/index.ts'
+    to: 'code.file:services/checkout/src/checkout-service.ts'
+    evidence:
+      - path: 'services/checkout/src/index.ts'
+        startLine: 2
+        endLine: 2
+        quote: 'import { CheckoutService } from ''./checkout-service'';'
+    reading: 'parsed'
+  - relation: 'code.imports'
+    from: 'code.file:services/checkout/src/index.ts'
+    to: 'code.file:services/checkout/src/config.ts'
+    evidence:
+      - path: 'services/checkout/src/index.ts'
+        startLine: 3
+        endLine: 3
+        quote: 'import { loadConfig } from ''./config'';'
+    reading: 'parsed'
+  - relation: 'code.imports'
+    from: 'code.file:services/checkout/src/index.ts'
+    to: 'code.file:services/checkout/src/logging/logger.ts'
+    evidence:
+      - path: 'services/checkout/src/index.ts'
+        startLine: 4
+        endLine: 4
+        quote: 'import { logger } from ''./logging/logger'';'
+    reading: 'parsed'
+  - relation: 'code.imports'
+    from: 'code.file:services/checkout/src/index.ts'
+    to: 'code.file:services/checkout/src/orders-client.ts'
+    evidence:
+      - path: 'services/checkout/src/index.ts'
+        startLine: 5
+        endLine: 5
+        quote: 'import { OrdersClient } from ''./orders-client'';'
+    reading: 'parsed'
+  - relation: 'code.imports'
+    from: 'code.file:services/checkout/src/index.ts'
+    to: 'code.file:services/checkout/src/payments-client.ts'
+    evidence:
+      - path: 'services/checkout/src/index.ts'
+        startLine: 6
+        endLine: 6
+        quote: 'import { PaymentsClient } from ''./payments-client'';'
+    reading: 'parsed'
+  - relation: 'code.imports'
+    from: 'code.file:services/checkout/src/index.ts'
+    to: 'code.file:services/checkout/src/promotions-client.ts'
+    evidence:
+      - path: 'services/checkout/src/index.ts'
+        startLine: 7
+        endLine: 7
+        quote: 'import { PromotionsClient } from ''./promotions-client'';'
+    reading: 'parsed'
+  - relation: 'code.listens-on'
+    from: 'code.process:checkout'
+    to: 'code.port:checkout:8083'
+    evidence:
+      - path: 'services/checkout/src/index.ts'
+        startLine: 9
+        endLine: 9
+        quote: 'const PORT = 8083;'
+    reading: 'parsed'

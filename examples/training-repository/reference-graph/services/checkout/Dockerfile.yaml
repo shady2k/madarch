@@ -1,0 +1,48 @@
+path: 'services/checkout/Dockerfile'
+nodes:
+  - id: 'code.dockerfile:services/checkout/Dockerfile'
+    kind: 'code.dockerfile'
+    label: 'services/checkout/Dockerfile'
+    evidence:
+      - path: 'services/checkout/Dockerfile'
+        startLine: 1
+        endLine: 1
+        quote: '# Build context is the repository root, because the image also needs contracts/proto.'
+    reading: 'declared'
+  - id: 'code.file:services/checkout/Dockerfile'
+    kind: 'code.file'
+    label: 'Dockerfile'
+    evidence:
+      - path: 'services/checkout/Dockerfile'
+        startLine: 1
+        endLine: 1
+        quote: '# Build context is the repository root, because the image also needs contracts/proto.'
+    reading: 'parsed'
+edges:
+  - relation: 'code.belongs-to'
+    from: 'code.dockerfile:services/checkout/Dockerfile'
+    to: 'code.package:services/checkout'
+    evidence:
+      - path: 'services/checkout/Dockerfile'
+        startLine: 1
+        endLine: 1
+        quote: '# Build context is the repository root, because the image also needs contracts/proto.'
+    reading: 'declared'
+  - relation: 'code.depends-on'
+    from: 'code.dockerfile:services/checkout/Dockerfile'
+    to: 'code.image:node:20-alpine'
+    evidence:
+      - path: 'services/checkout/Dockerfile'
+        startLine: 2
+        endLine: 2
+        quote: 'FROM node:20-alpine AS build'
+    reading: 'declared'
+  - relation: 'code.exposes'
+    from: 'code.dockerfile:services/checkout/Dockerfile'
+    to: 'code.port:checkout:8083'
+    evidence:
+      - path: 'services/checkout/Dockerfile'
+        startLine: 16
+        endLine: 16
+        quote: 'EXPOSE 8083'
+    reading: 'declared'

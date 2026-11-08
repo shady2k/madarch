@@ -152,7 +152,7 @@ jobs:
           kill "$PID"; wait "$PID" || true; PID=
 
   macos-arm64:
-    runs-on: macos-14
+    runs-on: macos-15
     steps:
       - uses: actions/checkout@v7
       - uses: oven-sh/setup-bun@v2

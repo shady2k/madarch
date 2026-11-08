@@ -1,0 +1,84 @@
+path: 'services/orders/internal/pricing/tax.go'
+nodes:
+  - id: 'code.file:services/orders/internal/pricing/tax.go'
+    kind: 'code.file'
+    label: 'tax.go'
+    evidence:
+      - path: 'services/orders/internal/pricing/tax.go'
+        startLine: 1
+        endLine: 1
+        quote: 'package pricing'
+    reading: 'parsed'
+  - id: 'code.symbol:services/orders/internal/pricing/tax.go#LineTax'
+    kind: 'code.symbol'
+    label: 'LineTax'
+    evidence:
+      - path: 'services/orders/internal/pricing/tax.go'
+        startLine: 16
+        endLine: 16
+        quote: 'func LineTax(lineCents int64, zeroRated bool) int64 {'
+    reading: 'parsed'
+  - id: 'code.symbol:services/orders/internal/pricing/tax.go#Tax'
+    kind: 'code.symbol'
+    label: 'Tax'
+    evidence:
+      - path: 'services/orders/internal/pricing/tax.go'
+        startLine: 8
+        endLine: 8
+        quote: 'func Tax(taxableCents int64) int64 {'
+    reading: 'parsed'
+  - id: 'code.symbol:services/orders/internal/pricing/tax.go#TaxRateBasisPoints'
+    kind: 'code.symbol'
+    label: 'TaxRateBasisPoints'
+    evidence:
+      - path: 'services/orders/internal/pricing/tax.go'
+        startLine: 4
+        endLine: 4
+        quote: 'const TaxRateBasisPoints = 800'
+    reading: 'parsed'
+edges:
+  - relation: 'code.calls'
+    from: 'code.symbol:services/orders/internal/pricing/tax.go#LineTax'
+    to: 'code.symbol:services/orders/internal/pricing/tax.go#Tax'
+    evidence:
+      - path: 'services/orders/internal/pricing/tax.go'
+        startLine: 20
+        endLine: 20
+        quote: '	return Tax(lineCents)'
+    reading: 'parsed'
+  - relation: 'code.contains'
+    from: 'code.file:services/orders/internal/pricing/tax.go'
+    to: 'code.symbol:services/orders/internal/pricing/tax.go#LineTax'
+    evidence:
+      - path: 'services/orders/internal/pricing/tax.go'
+        startLine: 16
+        endLine: 16
+        quote: 'func LineTax(lineCents int64, zeroRated bool) int64 {'
+    reading: 'parsed'
+  - relation: 'code.contains'
+    from: 'code.file:services/orders/internal/pricing/tax.go'
+    to: 'code.symbol:services/orders/internal/pricing/tax.go#Tax'
+    evidence:
+      - path: 'services/orders/internal/pricing/tax.go'
+        startLine: 8
+        endLine: 8
+        quote: 'func Tax(taxableCents int64) int64 {'
+    reading: 'parsed'
+  - relation: 'code.contains'
+    from: 'code.file:services/orders/internal/pricing/tax.go'
+    to: 'code.symbol:services/orders/internal/pricing/tax.go#TaxRateBasisPoints'
+    evidence:
+      - path: 'services/orders/internal/pricing/tax.go'
+        startLine: 4
+        endLine: 4
+        quote: 'const TaxRateBasisPoints = 800'
+    reading: 'parsed'
+  - relation: 'code.contains'
+    from: 'code.module:services/orders/internal/pricing'
+    to: 'code.file:services/orders/internal/pricing/tax.go'
+    evidence:
+      - path: 'services/orders/internal/pricing/tax.go'
+        startLine: 1
+        endLine: 1
+        quote: 'package pricing'
+    reading: 'parsed'

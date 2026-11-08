@@ -1,0 +1,93 @@
+path: '.github/workflows/ci.yml'
+nodes:
+  - id: 'code.ci-job:.github/workflows/ci.yml#checkout'
+    kind: 'code.ci-job'
+    label: 'checkout'
+    evidence:
+      - path: '.github/workflows/ci.yml'
+        startLine: 48
+        endLine: 48
+        quote: '  checkout:'
+    reading: 'declared'
+  - id: 'code.ci-job:.github/workflows/ci.yml#orders'
+    kind: 'code.ci-job'
+    label: 'orders'
+    evidence:
+      - path: '.github/workflows/ci.yml'
+        startLine: 8
+        endLine: 8
+        quote: '  orders:'
+    reading: 'declared'
+  - id: 'code.ci-job:.github/workflows/ci.yml#payments'
+    kind: 'code.ci-job'
+    label: 'payments'
+    evidence:
+      - path: '.github/workflows/ci.yml'
+        startLine: 33
+        endLine: 33
+        quote: '  payments:'
+    reading: 'declared'
+  - id: 'code.ci-job:.github/workflows/ci.yml#promotions'
+    kind: 'code.ci-job'
+    label: 'promotions'
+    evidence:
+      - path: '.github/workflows/ci.yml'
+        startLine: 21
+        endLine: 21
+        quote: '  promotions:'
+    reading: 'declared'
+  - id: 'code.ci-workflow:.github/workflows/ci.yml'
+    kind: 'code.ci-workflow'
+    label: 'ci'
+    evidence:
+      - path: '.github/workflows/ci.yml'
+        startLine: 1
+        endLine: 1
+        quote: 'name: ci'
+    reading: 'declared'
+  - id: 'code.file:.github/workflows/ci.yml'
+    kind: 'code.file'
+    label: 'ci.yml'
+    evidence:
+      - path: '.github/workflows/ci.yml'
+        startLine: 1
+        endLine: 1
+        quote: 'name: ci'
+    reading: 'parsed'
+edges:
+  - relation: 'code.contains-job'
+    from: 'code.ci-workflow:.github/workflows/ci.yml'
+    to: 'code.ci-job:.github/workflows/ci.yml#checkout'
+    evidence:
+      - path: '.github/workflows/ci.yml'
+        startLine: 48
+        endLine: 48
+        quote: '  checkout:'
+    reading: 'declared'
+  - relation: 'code.contains-job'
+    from: 'code.ci-workflow:.github/workflows/ci.yml'
+    to: 'code.ci-job:.github/workflows/ci.yml#orders'
+    evidence:
+      - path: '.github/workflows/ci.yml'
+        startLine: 8
+        endLine: 8
+        quote: '  orders:'
+    reading: 'declared'
+  - relation: 'code.contains-job'
+    from: 'code.ci-workflow:.github/workflows/ci.yml'
+    to: 'code.ci-job:.github/workflows/ci.yml#payments'
+    evidence:
+      - path: '.github/workflows/ci.yml'
+        startLine: 33
+        endLine: 33
+        quote: '  payments:'
+    reading: 'declared'
+  - relation: 'code.contains-job'
+    from: 'code.ci-workflow:.github/workflows/ci.yml'
+    to: 'code.ci-job:.github/workflows/ci.yml#promotions'
+    evidence:
+      - path: '.github/workflows/ci.yml'
+        startLine: 21
+        endLine: 21
+        quote: '  promotions:'
+    reading: 'declared'

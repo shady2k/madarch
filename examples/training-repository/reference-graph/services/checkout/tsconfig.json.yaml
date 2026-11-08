@@ -1,0 +1,13 @@
+path: 'services/checkout/tsconfig.json'
+notes: 'a TypeScript compiler configuration; no kind holds a compiler option.'
+nodes:
+  - id: 'code.file:services/checkout/tsconfig.json'
+    kind: 'code.file'
+    label: 'tsconfig.json'
+    evidence:
+      - path: 'services/checkout/tsconfig.json'
+        startLine: 1
+        endLine: 1
+        quote: '{'
+    reading: 'parsed'
+edges: []

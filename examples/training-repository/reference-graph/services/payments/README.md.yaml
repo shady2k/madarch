@@ -1,0 +1,75 @@
+path: 'services/payments/README.md'
+nodes:
+  - id: 'code.document-section:services/payments/README.md#Payments service'
+    kind: 'code.document-section'
+    label: 'Payments service'
+    evidence:
+      - path: 'services/payments/README.md'
+        startLine: 1
+        endLine: 1
+        quote: '# Payments service'
+    reading: 'parsed'
+  - id: 'code.document:services/payments/README.md'
+    kind: 'code.document'
+    label: 'README.md'
+    evidence:
+      - path: 'services/payments/README.md'
+        startLine: 1
+        endLine: 1
+        quote: '# Payments service'
+    reading: 'parsed'
+  - id: 'code.file:services/payments/README.md'
+    kind: 'code.file'
+    label: 'README.md'
+    evidence:
+      - path: 'services/payments/README.md'
+        startLine: 1
+        endLine: 1
+        quote: '# Payments service'
+    reading: 'parsed'
+edges:
+  - relation: 'code.contains'
+    from: 'code.document:services/payments/README.md'
+    to: 'code.document-section:services/payments/README.md#Payments service'
+    evidence:
+      - path: 'services/payments/README.md'
+        startLine: 1
+        endLine: 1
+        quote: '# Payments service'
+    reading: 'parsed'
+  - relation: 'code.mentions'
+    from: 'code.document:services/payments/README.md'
+    to: 'code.contract:contracts/proto/payments.proto'
+    evidence:
+      - path: 'services/payments/README.md'
+        startLine: 3
+        endLine: 3
+        quote: 'Charges and refunds. HTTP on 8081 (`/payments`, `/reports`, `/healthz`), gRPC on'
+    reading: 'judgement'
+  - relation: 'code.mentions'
+    from: 'code.document:services/payments/README.md'
+    to: 'code.env-var:PAYMENT_PROVIDER'
+    evidence:
+      - path: 'services/payments/README.md'
+        startLine: 4
+        endLine: 4
+        quote: '50051 (contracts/proto/payments.proto). The provider is chosen by'
+    reading: 'judgement'
+  - relation: 'code.mentions'
+    from: 'code.document:services/payments/README.md'
+    to: 'code.env-var:PAYMENT_TIMEOUT_MS'
+    evidence:
+      - path: 'services/payments/README.md'
+        startLine: 5
+        endLine: 5
+        quote: '`PAYMENT_PROVIDER` (`cardnet` or `deferred`); a provider call that does not'
+    reading: 'judgement'
+  - relation: 'code.mentions'
+    from: 'code.document:services/payments/README.md'
+    to: 'code.route:payments:POST /payments'
+    evidence:
+      - path: 'services/payments/README.md'
+        startLine: 3
+        endLine: 3
+        quote: 'Charges and refunds. HTTP on 8081 (`/payments`, `/reports`, `/healthz`), gRPC on'
+    reading: 'judgement'

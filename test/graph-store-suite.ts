@@ -175,7 +175,7 @@ export function graphStoreTests(label: string, getOwner: () => DatabaseOwner): v
   describe(`temporal graph store on ${label}`, () => {
     run('graph-only: the module creates exactly the graph tables, and btree_gist is loaded', async (env) => {
       const tables = await env.query<{ table_name: string }>(`SELECT table_name FROM information_schema.tables WHERE table_schema = current_schema() AND table_type = 'BASE TABLE' ORDER BY table_name`);
-      expect(tables.map((t) => t.table_name)).toEqual(['edge_identity', 'edge_version', 'node_identity', 'node_kind', 'node_version', 'relation_type', 'work_item']);
+      expect(tables.map((t) => t.table_name)).toEqual(['edge_identity', 'edge_version', 'node_identity', 'node_kind', 'node_version', 'publication_scope', 'relation_type', 'work_item']);
       expect((await env.query(`SELECT 1 FROM pg_extension WHERE extname = 'btree_gist'`)).length).toBe(1);
       // A second createSchema changes nothing.
       const before = await env.count('node_kind');
@@ -189,9 +189,13 @@ export function graphStoreTests(label: string, getOwner: () => DatabaseOwner): v
       expect(exclusion.map((c) => c.conrelid.replace(/^.*\./, ''))).toEqual(['edge_version', 'node_version', 'node_version', 'node_version', 'node_version']);
       const indexes = await env.query<{ indexname: string; indexdef: string }>(`SELECT indexname, indexdef FROM pg_indexes WHERE schemaname = current_schema()`);
       const current = indexes.filter((i) => /WHERE \(?recorded_to = 'infinity'/.test(i.indexdef)).map((i) => i.indexname).sort();
-      expect(current).toEqual(['edge_version_current_dst', 'edge_version_current_edge', 'edge_version_current_src', 'node_version_current', 'node_version_current_kind', 'node_version_record_key']);
-      const historical = indexes.filter((i) => /USING gist/.test(i.indexdef) && /states/.test(i.indexdef) && !/EXCLUDE/.test(i.indexdef)).map((i) => i.indexname).sort();
-      expect(historical).toEqual(['edge_version_history_dst', 'edge_version_history_src', 'node_version_history', 'edge_version_no_overlap', 'node_version_no_overlap'].sort());
+      // `*_producer_scope` are the sweep's (madarch-8bdc.2.5): a complete publication reads the current versions of
+      // its own producer and scope, and without them that read is a sequential scan of the whole table.
+      expect(current).toEqual(['edge_version_current_dst', 'edge_version_current_edge', 'edge_version_current_src', 'edge_version_producer_scope', 'node_version_current', 'node_version_current_kind', 'node_version_producer_scope']);
+      // The node table's historical read uses the no-overlap constraint's own GiST index: the module declares no
+      // second one of that definition (madarch-8bdc.2.5, test/graph-index-duplicates.test.ts).
+      const historical = indexes.filter((i) => /USING gist/.test(i.indexdef) && /states/.test(i.indexdef)).map((i) => i.indexname).sort();
+      expect(historical).toEqual(['edge_version_history_dst', 'edge_version_history_src', 'edge_version_no_overlap', 'node_version_no_overlap'].sort());
       const types = await env.query<{ column_name: string; data_type: string }>(
         `SELECT column_name, data_type FROM information_schema.columns WHERE table_schema = current_schema() AND table_name = 'node_version' AND column_name IN ('valid_from','valid_to','recorded_from','recorded_to','states') ORDER BY column_name`,
       );

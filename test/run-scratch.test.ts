@@ -19,6 +19,17 @@ import { productsHome } from '../src/product/draft.js';
 import { wikiCacheRoot } from '../src/wiki/cache.js';
 
 const SCRATCH = runScratch();
+/**
+ * The four variables as the run's preload set them, read before any test file runs: another file of the
+ * same run may point MADARCH_HOME at a folder of its own for a case (all of them under this scratch's
+ * `tmp`), and that is the case's business — this file holds the preload's promise about the run's start.
+ */
+const AT_LOAD: Readonly<Record<string, string | undefined>> = {
+  HOME: process.env.HOME,
+  MADARCH_HOME: process.env.MADARCH_HOME,
+  TMPDIR: process.env.TMPDIR,
+  MADARCH_WIKI_CACHE: process.env.MADARCH_WIKI_CACHE,
+};
 const REPO = fileURLToPath(new URL('..', import.meta.url));
 const FIXTURE = './test/fixtures/run-scratch/writes.case.ts';
 
@@ -32,7 +43,7 @@ function insideScratch(name: string, value: string | undefined, folder: string):
 describe('the run scratch the preload makes', () => {
   test('HOME, MADARCH_HOME, TMPDIR and MADARCH_WIKI_CACHE point inside it', () => {
     const folder = SCRATCH.folder;
-    for (const name of ['HOME', 'MADARCH_HOME', 'TMPDIR', 'MADARCH_WIKI_CACHE']) insideScratch(name, process.env[name], folder);
+    for (const name of ['HOME', 'MADARCH_HOME', 'TMPDIR', 'MADARCH_WIKI_CACHE']) insideScratch(name, AT_LOAD[name], folder);
     expect(process.env[RUN_SCRATCH_VARIABLE]).toBe(folder);
     expect(process.env[REAL_TEMP_VARIABLE]).toBe(SCRATCH.realTemporaryFolder);
     // The home itself, the madarch home and the temporary folder are the three

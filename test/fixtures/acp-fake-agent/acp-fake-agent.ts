@@ -66,7 +66,7 @@
  */
 import { appendFileSync, readFileSync, writeFileSync } from 'node:fs';
 import { createInterface } from 'node:readline';
-import { verifyScriptedGuide, writeScriptedGuide } from '../../scripted-guide-agent.js';
+import { verifyScriptedGuide, writeScriptedGuide } from './scripted-guide-calls.js';
 
 const argv = process.argv.slice(2);
 const option = (name: string): string | undefined => {
