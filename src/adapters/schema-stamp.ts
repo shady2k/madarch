@@ -33,6 +33,8 @@ export interface SchemaOnceOptions {
   readonly name: string;
   /** What the schema is made of, in the order it runs: the digest a later call compares. */
   readonly parts: readonly string[];
+  /** The tables the schema makes: a store whose tables were dropped does not stand, whatever its stamp says. */
+  readonly tables: readonly string[];
   /** Runs the statements, inside the transaction this call holds. */
   readonly create: (transaction: OuterTransaction) => Promise<void>;
 }
@@ -43,8 +45,15 @@ export async function createSchemaOnce(owner: DatabaseOwner, options: SchemaOnce
   return await owner.transaction('write', async (transaction) => {
     await transaction.query(`CREATE SCHEMA IF NOT EXISTS ${STAMP_SCHEMA}`);
     await transaction.query(STAMP_TABLE);
-    const held = await transaction.query<{ stamp: string }>(`SELECT stamp FROM ${STAMP_SCHEMA}.schema_stamp WHERE name = $1`, [options.name]);
-    if (held.rows[0]?.stamp === stamp) return false;
+    const held = await transaction.query<{ stamp: string; standing: string }>(
+      `SELECT s.stamp, (SELECT count(*)::text FROM pg_class c JOIN pg_namespace n ON n.oid = c.relnamespace
+                        WHERE n.nspname = current_schema() AND c.relkind = 'r' AND c.relname = ANY($2::text[])) AS standing
+         FROM ${STAMP_SCHEMA}.schema_stamp s WHERE s.name = $1`,
+      [options.name, options.tables],
+    );
+    // The stamp stands only while the tables it describes stand: a store reset by a tool or a test drops them, and the
+    // stamp beside them must not claim a schema that is gone.
+    if (held.rows[0]?.stamp === stamp && Number(held.rows[0]?.standing) === options.tables.length) return false;
     await options.create(transaction);
     await transaction.query(
       `INSERT INTO ${STAMP_SCHEMA}.schema_stamp (name, stamp) VALUES ($1, $2) ON CONFLICT (name) DO UPDATE SET stamp = excluded.stamp, created_at = now()`,

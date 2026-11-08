@@ -252,6 +252,7 @@ export async function createGraphSchema(owner: DatabaseOwner, at: string): Promi
   // long as they run. `createSchemaOnce` holds the digest of what made it (`src/adapters/schema-stamp.ts`).
   await createSchemaOnce(owner, {
     name: 'graph',
+    tables: GRAPH_TABLES,
     parts: [...SCHEMA, ...TRIGGERS.map((trigger) => `${trigger.name} ${trigger.statement}`), ...ENGINE_NODE_KINDS, ...CODE_NODE_KINDS, ...ENGINE_RELATIONS.map((relation) => relation.key), ...CODE_RELATIONS.map((relation) => relation.key)],
     create: async (tx) => {
       try {

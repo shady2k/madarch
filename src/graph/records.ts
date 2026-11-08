@@ -174,6 +174,7 @@ export async function createRecordSchema(owner: DatabaseOwner): Promise<void> {
   // As the temporal graph's schema: a schema that stands is not made again, because its DDL locks the tables a page reads.
   await createSchemaOnce(owner, {
     name: 'records',
+    tables: RECORD_TABLES,
     parts: [...SCHEMA, ...RECORD_NODE_KINDS, ...RECORD_EDGE_KINDS],
     create: async (tx) => {
       for (const statement of SCHEMA) await tx.query(statement);
