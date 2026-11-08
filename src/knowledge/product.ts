@@ -307,7 +307,11 @@ type StatusRead = { body: WikiStatus; ctx: RenderContext | undefined };
 
 export class KnowledgeProduct {
   /** The store the reads are made on: a snapshot of the primary store, or an empty one before any fill (see `fill-protocol.ts`). */
-  private reader: { owner: DatabaseOwner; seq: number; path: string } | undefined;
+  /**
+   * The reader: its process, the generation it answers at, the marker line of that generation (a file this server removes
+   * when a newer reader has taken over) and the store it reads, which never moves.
+   */
+  private reader: { owner: DatabaseOwner; seq: number; path: string; store: string } | undefined;
   private opening: Promise<void> | undefined;
   private fill: FillState = { state: 'idle' };
   private running: Promise<void> | undefined;
@@ -415,8 +419,8 @@ export class KnowledgeProduct {
       }
       // The reader reads the store the fill writes, never a copy of it: its own repeatable-read transaction, begun in
       // a process of its own (so opening the store never holds up this server's thread), is the snapshot it answers from.
-      const path = this.storeFolder();
-      const owner = new RemoteOwner(path, { create: created });
+      const store = this.storeFolder();
+      const owner = new RemoteOwner(store, { create: created });
       try {
         await owner.ready;
         // This newly opened snapshot owns a complete pin set even when an idle reader retained old pins.
@@ -426,7 +430,8 @@ export class KnowledgeProduct {
         await owner.close().catch(() => undefined);
         throw error;
       }
-      this.reader = { owner, seq, path };
+      // The generation's line is what this server removes when a newer one stands; the store is never removed by a reader.
+      this.reader = { owner, seq, path: join(root, String(seq)), store };
     })();
     try {
       await this.opening;
@@ -592,14 +597,13 @@ export class KnowledgeProduct {
       // A delayed or already-consumed notice cannot change the active snapshot's pins.
       if (held.seq >= seq) return;
       // The store a reader reads never moves: a newer generation is a reader opened at a newer moment on the same store.
-      const path = held.path;
-      const owner = new RemoteOwner(path, { create: false });
+      const owner = new RemoteOwner(held.store, { create: false });
       try {
         await owner.ready;
         // The new process answers its first statements slowly; warm before changing either reader or pins.
         if (held.owner instanceof RemoteOwner) await owner.warm(held.owner.recent());
       } catch(error) {await owner.close().catch(()=>undefined);throw error;}
-      this.reader = { owner, seq, path };
+      this.reader = { owner, seq, path: join(this.readRoot(), String(seq)), store: held.store };
       // What the repositories were filled to is applied with the snapshot it belongs to: a source is read at the commit
       // the graph it is shown beside was filled from. A caller that names no pins takes the snapshot's own
       // (`knowledge_fill`, which the fill wrote before the snapshot was made).

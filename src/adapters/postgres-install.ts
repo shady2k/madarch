@@ -65,6 +65,19 @@ interface InstallMarker {
   readonly sha256: string;
 }
 
+/** The lock an install holds beside its folder: one installer of a version at a time, the others wait for its marker. */
+const INSTALL_LOCK_SUFFIX = '.lock';
+
+/** Whether a process is still there: one this process may not signal counts as there. */
+function alive(pid: number): boolean {
+  try {
+    process.kill(pid, 0);
+    return true;
+  } catch (error) {
+    return (error as NodeJS.ErrnoException).code === 'EPERM';
+  }
+}
+
 /** The `bin` folder's two programs an install cannot be used without. */
 const REQUIRED_PROGRAMS = ['initdb', 'pg_ctl'] as const;
 
@@ -267,22 +280,83 @@ export async function ensurePostgresInstalled(options: PostgresInstallOptions = 
   const progress = options.progress ?? defaultProgress;
   const archive = join(postgresDownloadFolder(env), postgresArchiveName(build));
   const url = (options.archiveUrl ?? postgresArchiveUrl)(build);
-  const digest = await digestOf(archive);
-  if (digest !== build.sha256) {
-    // An archive that is not the pinned one is not kept: the download starts again (or continues its `.part`).
-    if (digest !== null) rmSync(archive, { force: true });
-    await downloadArchive({ build, url, archive, folder, progress });
-    const downloaded = await digestOf(archive);
-    if (downloaded !== build.sha256) {
-      rmSync(archive, { force: true });
-      throw new Error(`${WHERE}:1: the archive downloaded from ${url} has sha256 ${String(downloaded)}, and ${folder} pins ${build.sha256} (PostgreSQL ${POSTGRES_VERSION}, ${build.target}): nothing was installed and the archive was removed. Check the release page for ${POSTGRES_VERSION}; if the release moved, that is a change to src/adapters/postgres-builds.ts, not to what this machine downloads`);
+  // One installer of this version at a time (the wiki's own server, its fill worker and its read worker all start from a
+  // cold tools folder): the lock is a file only one process can make, and the others wait for its marker or take over a
+  // lock whose process is gone. The download is inside the lock too, so one process fetches the 38 MB and the rest read
+  // what it installed.
+  const lockPath = `${folder}${INSTALL_LOCK_SUFFIX}`;
+  mkdirSync(dirname(folder), { recursive: true });
+  if (!(await takeInstallLock(lockPath, folder, build, progress))) return { bin: join(folder, 'bin'), folder, build };
+  try {
+    const digest = await digestOf(archive);
+    if (digest !== build.sha256) {
+      // An archive that is not the pinned one is not kept: the download starts again (or continues its `.part`).
+      if (digest !== null) rmSync(archive, { force: true });
+      await downloadArchive({ build, url, archive, folder, progress });
+      const downloaded = await digestOf(archive);
+      if (downloaded !== build.sha256) {
+        rmSync(archive, { force: true });
+        throw new Error(`${WHERE}:1: the archive downloaded from ${url} has sha256 ${String(downloaded)}, and ${folder} pins ${build.sha256} (PostgreSQL ${POSTGRES_VERSION}, ${build.target}): nothing was installed and the archive was removed. Check the release page for ${POSTGRES_VERSION}; if the release moved, that is a change to src/adapters/postgres-builds.ts, not to what this machine downloads`);
+      }
     }
+    return await installUnderLock({ build, folder, archive, progress });
+  } finally {
+    rmSync(lockPath, { force: true });
   }
+}
+
+/**
+ * Takes the install's lock, or answers that another installer finished: waits while a live process holds it (a name that
+ * does not resolve, a download of 38 MB, an unpack), and takes over a lock whose process is gone. Answers true when this
+ * process holds the lock — the caller removes it — and false when the folder is now installed by another.
+ */
+async function takeInstallLock(lockPath: string, folder: string, build: PostgresBuild, progress: (line: string) => void): Promise<boolean> {
+  for (let attempt = 1; ; attempt += 1) {
+    // The other installer may have finished while this one waited: the marker is the answer, and no unpack is needed.
+    if (installedBuild(folder, build)) return false;
+    try {
+      writeFileSync(lockPath, `${String(process.pid)}\n`, { flag: 'wx' });
+      return true;
+    } catch (error) {
+      if ((error as NodeJS.ErrnoException).code !== 'EEXIST') throw error;
+    }
+    let holder: number | undefined;
+    try {
+      const pid = Number(readFileSync(lockPath, 'utf8').trim());
+      holder = Number.isInteger(pid) && pid > 1 ? pid : undefined;
+    } catch {
+      holder = undefined; // the lock went away between the two calls: the next attempt takes it
+    }
+    if (holder !== undefined && alive(holder)) {
+      if (attempt === 1) progress(`madarch: another process (pid ${String(holder)}) is installing PostgreSQL ${POSTGRES_VERSION} into ${folder}; waiting for it`);
+      await Bun.sleep(200);
+      continue;
+    }
+    // A lock a killed install left: it is removed and this process takes the install over.
+    rmSync(lockPath, { force: true });
+  }
+}
+
+/** The unpack, the marker and the rename, with the install's lock held. */
+async function installUnderLock(options: {
+  readonly build: PostgresBuild;
+  readonly folder: string;
+  readonly archive: string;
+  readonly progress: (line: string) => void;
+}): Promise<InstalledPostgres> {
+  const { build, folder, archive } = options;
+  const progress = options.progress;
   progress(`madarch: unpacking PostgreSQL ${POSTGRES_VERSION} into ${folder}`);
-  // A scratch folder a killed install left beside the target is swept: it is never a usable install.
+  // A scratch folder a killed install left beside the target is swept, and one a live process is writing is not: the
+  // lock makes the second impossible, and the name's own pid says which is which if a process bypassed it.
   const parent = dirname(folder);
   const base = folder.slice(parent.length + 1);
-  for (const name of readdirSync(parent)) if (name.startsWith(`${base}.unpack-`)) rmSync(join(parent, name), { recursive: true, force: true });
+  for (const name of readdirSync(parent)) {
+    if (!name.startsWith(`${base}.unpack-`)) continue;
+    const owner = Number(name.slice(`${base}.unpack-`.length));
+    if (Number.isInteger(owner) && owner > 1 && owner !== process.pid && alive(owner)) continue;
+    rmSync(join(parent, name), { recursive: true, force: true });
+  }
   const scratch = `${folder}.unpack-${String(process.pid)}`;
   rmSync(scratch, { recursive: true, force: true });
   mkdirSync(scratch, { recursive: true });

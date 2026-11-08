@@ -11,7 +11,7 @@
  */
 import { afterEach, describe, expect, test } from 'bun:test';
 import { createHash } from 'node:crypto';
-import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, statSync, writeFileSync } from 'node:fs';
+import { existsSync, mkdirSync, mkdtempSync, readFileSync, readdirSync, rmSync, statSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { ensurePostgresInstalled } from '../src/adapters/postgres-install.js';
@@ -168,6 +168,33 @@ describe('installing the pinned server', () => {
       served.stop();
     }
   }, 60_000);
+
+  test.skipIf(isRoot)('three installers at once end with one installed server and nothing left over', async () => {
+    // The wiki's own server, its fill worker and its read worker all start from a cold tools folder (CI run 42479678749:
+    // the second and third installers swept the first's unpack folder while tar was writing it). One holds the lock and
+    // installs; the others wait for its marker and read what it installed.
+    const root = scratch();
+    const bytes = archiveOf(root);
+    const build = fixtureBuild(bytes);
+    const served = serveArchive(bytes);
+    try {
+      const env = { HOME: join(root, 'home') };
+      const installed = await Promise.all([1, 2, 3].map(async () => await ensurePostgresInstalled({ build, archiveUrl: () => served.url, env, progress: () => undefined })));
+      const wanted = join(root, 'home', 'madarch', 'tools', 'postgresql', '18.6.1', 'bin');
+      for (const one of installed) {
+        expect(one.bin).toBe(wanted);
+        expect(existsSync(join(one.bin, 'initdb'))).toBe(true);
+      }
+      // One download served all three, and nothing stands beside the install: no unpack folder of a live or dead
+      // installer, no part file, no lock.
+      expect(served.requests).toBe(1);
+      const tools = join(root, 'home', 'madarch', 'tools', 'postgresql');
+      expect(readdirSync(tools).filter((name) => /\.unpack-|\.part$|\.lock$/u.test(name))).toEqual([]);
+      expect(readdirSync(join(tools, 'downloads'))).toEqual([]);
+    } finally {
+      served.stop();
+    }
+  }, 120_000);
 
   test.skipIf(isRoot)('refuses an archive whose sha256 is not the pinned one, and installs nothing', async () => {
     const root = scratch();
