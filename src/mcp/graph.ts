@@ -12,6 +12,7 @@
  * The graph is derived data (decision 0023): a store that is missing, holds no graph of
  * this commit or cannot be read is filled again, never trusted.
  */
+import { randomBytes } from 'node:crypto';
 import { closeSync, existsSync, mkdirSync, openSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
 import { join, resolve } from 'node:path';
 import { createPGliteDatabaseOwner, type DatabaseOwner } from '../adapters/database-owner.js';
@@ -194,9 +195,12 @@ async function fillRepositoryGraph(owner: DatabaseOwner, repository: string, fol
   const result = await runFill({
     product: repository,
     database: owner,
-    // The run's id names the commit it reads, so a server's building answer finds this run's trace
-    // by name and never by "the newest file" (the server's own trace stands beside it).
-    runId: `mcp-${commit.slice(0, 12)}`,
+    // The run's id names the commit it reads and the run itself. A start at a commit this store
+    // filled before is a second run — the store has moved to another commit since, and this start
+    // fills it back — so the id carries a fresh token: an id made from the commit alone named the
+    // finished run, and the one fill refused to plan it (fill-orchestrator/run-not-plannable;
+    // review, item 2). The commit stays legible in the trace's name, the token makes it unique.
+    runId: `mcp-${commit.slice(0, 12)}-${randomBytes(4).toString('hex')}`,
     home: folder,
     store: folder,
     log,
