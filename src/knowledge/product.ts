@@ -47,7 +47,7 @@ import { treeReadProducer } from '../extract/driver/index.js';
 import { TREE_EXTRACTORS, HISTORY_EXTRACTOR } from '../extract/driver/extractors.js';
 import { selectHistory, withHistoryLinks, type HistoryContext, type HistorySelection } from './temporal.js';
 import { markdownFilesBelow, readMarkdownEntities, type MarkdownEntity } from './markdown.js';
-import type { AgentOffer, Block, ChangedPage, DocumentListing, DocumentPage, DocumentRef, FillErrorView, FillRunView, FillState, Neighborhood, PageModel, PlannedMarkView, PlannedSectionView, RepositoryFactsView, WikiStatus, WriterState, WriterUnit } from './model.js';
+import type { AgentOffer, Block, CatalogView, ChangedPage, DocumentListing, DocumentPage, DocumentRef, FillErrorView, FillRunView, FillState, Neighborhood, PageModel, PlannedMarkView, PlannedSectionView, RepositoryFactsView, WikiStatus, WriterState, WriterUnit } from './model.js';
 import { commitPage, filePage, folderPage, recordedFileCount, recordedFileFacts, recordedFiles, repositoryOf, repositoryPage, type CommitPageModel, type FilePageFacts, type FilePageModel, type FolderPageModel } from './repository-view.js';
 import { readFillProgressOf } from '../obs/progress.js';
 import { readTraceRun } from '../obs/trace-report.js';
@@ -65,6 +65,7 @@ import { CONTENT_LANGUAGES } from '../writer/prompts.js';
 import type { DraftEnv } from '../product/home.js';
 import type { KindSummary } from './model.js';
 import { documentTitleOf, findSubject, graphTitleOf, kindSummaries, markdownTitleOf, productTitleOf, recordFilePage, renderPage, listEntities, type PageResult } from './render.js';
+import { catalogKinds, groupViews } from './catalog-view.js';
 import { indexCounts, statementsRelyingOn } from './index/queries.js';
 import { PAGE_KIND, STATEMENT_OF } from './index/vocabulary.js';
 import { ACTIVE_FILL_FILE, CHANGED_PAGES_FILE, DOCUMENT_PAGES_FILE, invalidateInterruptedRun, readChangedPages, readDocumentPages } from './changed-pages.js';
@@ -2190,6 +2191,34 @@ export class KnowledgeProduct {
     } finally {
       if (this.statusFlight?.promise === promise) this.statusFlight = undefined;
     }
+  }
+
+  /**
+   * The entity catalogue's own answer (madarch-8bdc.2.5): every kind the manifest declares, with its plane in the
+   * catalog, its words in each interface language, the entities that stand of it and what produces it today. It is a
+   * request of its own, not part of the status the navigation polls: the catalogue is the product's full map, and the
+   * status keeps the kinds the wiki shows. Its counts are read over the store's newest snapshot, as the status's are.
+   */
+  async catalog(): Promise<CatalogView> {
+    const product = this.product();
+    if ('message' in product) throw new WikiReadError(product.message);
+    const common = { product: { name: product.name, id: product.id } };
+    const context = await this.context();
+    if ('absent' in context) return { ...common, language: 'en', groups: [], kinds: [], findings: [] };
+    let ctx = context.ctx;
+    try {
+      const owner = await this.open();
+      ctx = { ...ctx, graph: new GraphReader(owner, this.validAt), ...(ctx.records === undefined ? {} : { records: this.recordFiles(owner) }) };
+    } catch {
+      // The store cannot be opened: the counts stand as the context read them, and the catalogue still lists its kinds.
+    }
+    return {
+      ...common,
+      language: context.manifest.language ?? 'en',
+      groups: groupViews(context.manifest),
+      kinds: await catalogKinds(ctx),
+      findings: context.manifest.catalog === undefined ? [] : [...context.manifest.catalog.findings],
+    };
   }
 
   /**

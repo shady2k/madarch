@@ -43,6 +43,12 @@ const SMALL = [
   '    status: implemented',
   '    relation-constraints: { out: [], in: [] }',
   '    template-policy: none',
+  '    labels:',
+  '      en: { one: Symbol, many: Symbols }',
+  '      ru: { one: Символ, many: Символы }',
+  '    description:',
+  '      en: A symbol the extractor read.',
+  '      ru: Символ, прочитанный извлекателем.',
   'mapping:',
   '  version: 1',
   '  kinds:',
@@ -72,7 +78,7 @@ function read(text: string, emitted: { kinds: ReadonlyMap<string, readonly strin
   const declared = (document.toJS() as { kinds?: Record<string, Record<string, unknown>> }).kinds ?? {};
   for (const [name, decl] of Object.entries(declared)) {
     if (schema.schema === undefined) break;
-    const entry = readCatalogKind(name, decl, schema.schema, groups, at(['kinds', name]), () => undefined);
+    const entry = readCatalogKind(name, decl, schema.schema, groups, at(['kinds', name]), () => undefined, ['en', 'ru']);
     if (entry !== undefined) kinds.set(name, entry);
   }
   const mapping = readMapping((document.toJS() as Record<string, unknown>)['mapping'], at, 'madarch/kinds.yaml', schema.schema === undefined ? undefined : { schema: schema.schema, kinds }, emitted);

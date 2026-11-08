@@ -68,6 +68,10 @@ const SMALL = [
   '    file: docs/widget.md',
   '    labels:',
   '      en: { one: Widget, many: Widgets }',
+  '      ru: { one: Виджет, many: Виджеты }',
+  '    description:',
+  '      en: A widget.',
+  '      ru: Виджет.',
   '  gadget:',
   '    id: "x.gadget"',
   '    group: area.one',
@@ -77,6 +81,12 @@ const SMALL = [
   '    status: implemented',
   '    relation-constraints: { out: [], in: [] }',
   '    template-policy: none',
+  '    labels:',
+  '      en: { one: Gadget, many: Gadgets }',
+  '      ru: { one: Приспособление, many: Приспособления }',
+  '    description:',
+  '      en: A gadget.',
+  '      ru: Приспособление.',
   '  sprocket:',
   '    id: "x.sprocket"',
   '    group: area.two',
@@ -86,10 +96,19 @@ const SMALL = [
   '    status: not-implemented',
   '    relation-constraints: { out: [], in: [] }',
   '    template-policy: none',
+  '    labels:',
+  '      en: { one: Sprocket, many: Sprockets }',
+  '      ru: { one: Звёздочка, many: Звёздочки }',
+  '    description:',
+  '      en: A sprocket.',
+  '      ru: Звёздочка.',
   '',
 ].join('\n');
 
-/** One catalog-only kind as the small catalog writes it, with the fields a test changes. */
+/**
+ * One catalog-only kind as the small catalog writes it, with the fields a test changes. Its words are written unless the
+ * test leaves `labels` or `description` out (`null`), which is how a missing translation is planted.
+ */
 function kind(name: string, fields: Readonly<Record<string, string | null>> = {}): string[] {
   const row: Record<string, string | null> = {
     id: `"x.${name}"`,
@@ -100,9 +119,19 @@ function kind(name: string, fields: Readonly<Record<string, string | null>> = {}
     status: 'not-implemented',
     'relation-constraints': '{ out: [], in: [] }',
     'template-policy': 'none',
+    labels: `labels:\n      en: { one: ${name}, many: ${name}s }\n      ru: { one: ${name}, many: ${name}s }`,
+    description: `description:\n      en: A ${name}.\n      ru: ${name}.`,
     ...fields,
   };
-  return [`  ${name}:`, ...Object.entries(row).filter(([, value]) => value !== null).map(([field, value]) => `    ${field}: ${value}`)];
+  const lines = [`  ${name}:`];
+  for (const [field, value] of Object.entries(row)) {
+    if (value === null) continue;
+    if (value.startsWith('labels:\n') || value.startsWith('description:\n')) {
+      const [head, ...rest] = value.split('\n');
+      lines.push(`    ${head}`, ...rest);
+    } else lines.push(`    ${field}: ${value}`);
+  }
+  return lines;
 }
 
 /** The small catalog with `name` declared last, its fields as `fields` says (`null` leaves a field out). */
@@ -176,6 +205,22 @@ describe('a catalog is read as its manifest declares it', () => {
     // The wiki shows the page kinds and no page for a kind the engine cannot make yet.
     expect([...read.kinds.keys()]).toEqual(['widget']);
     expect([...read.groups.keys()]).toEqual(['area', 'area.one', 'area.two']);
+  });
+
+  test('a kind without a translation is a finding at its declaration and stays in the catalog, never an English label in its place', () => {
+    const manifest = withKind(SMALL, 'untranslated', { labels: '{ en: { one: Thing, many: Things } }', description: '{ en: A thing. }' });
+    const read = parseKinds(manifest, 'madarch/kinds.yaml', TEMPLATES);
+    const found = read.findings.filter((finding) => finding.message.includes('untranslated'));
+    expect(found.map((finding) => finding.message)).toEqual([
+      'kind "untranslated": the kind has no name in "ru": the catalogue names every kind in en and ru, and an untranslated name is never shown as an English one',
+      'kind "untranslated": the kind has no description in "ru": the catalogue describes every kind in en and ru, and an untranslated description is never shown as an English one',
+    ]);
+    for (const finding of found) {
+      expect(finding.file).toBe('madarch/kinds.yaml');
+      expect(finding.line).toBeGreaterThan(0);
+    }
+    // The catalogue keeps the kind with the words it has: the page marks it untranslated rather than dropping it.
+    expect(read.catalog!.kinds.get('untranslated')).toMatchObject({ labels: { en: { one: 'Thing', many: 'Things' } }, descriptions: { en: 'A thing.' } });
   });
 
   test('the starter set reads clean: every area of the life cycle, two levels, and a row for every kind', () => {
@@ -291,7 +336,7 @@ describe('one defect in the manifest is one problem', () => {
   /** A catalogue-only kind appended to the `kinds:` section, for the plants that add one. */
   function appendedKind(name: string, id: string, group: string, extra: string[] = []): string {
     const base = STARTER_FILES.find((file) => file.path === 'madarch/kinds.yaml')!.content;
-    return base.replace('\nmapping:\n', `\n  ${name}:\n    id: "${id}"\n    group: ${group}\n    definition: "A kind the test plants."\n    sources: ["https://example.test/plant"]\n    acquisition: ["conversation"]\n    status: not-implemented\n    relation-constraints: { out: [], in: [] }\n    template-policy: none\n${extra.join('')}\nmapping:\n`);
+    return base.replace('\nmapping:\n', `\n  ${name}:\n    id: "${id}"\n    group: ${group}\n    definition: "A kind the test plants."\n    sources: ["https://example.test/plant"]\n    acquisition: ["conversation"]\n    status: not-implemented\n    relation-constraints: { out: [], in: [] }\n    template-policy: none\n    labels:\n      en: { one: Plant, many: Plants }\n      ru: { one: Растение, many: Растения }\n    description:\n      en: A kind the test plants.\n      ru: Вид, который сажает тест.\n${extra.join('')}\nmapping:\n`);
   }
   const cases: [string, string, string][] = [
     ['a group whose parent nobody declares', withPlant('groups:\n', 'groups:\n  broken: { en: Broken, ru: Сломано, short: { en: Broken, ru: Сломано }, parent: nowhere }\n'), 'group "broken": "parent" names a group of "groups"'],

@@ -342,6 +342,44 @@ export interface PageModel {
   problems?: number;
 }
 
+/**
+ * What fills a kind today, read from the kind's own declaration (madarch-8bdc.2.5): the source its page is read from, the
+ * origin it declares, or the extractor its acquisition names. `person` is not a stage: a page a person writes is listed so
+ * the catalogue can say that no stage fills it yet.
+ */
+export type KindProducer = 'extract' | 'documents' | 'writer' | 'history' | 'person';
+
+/** One kind of the entity catalogue: every kind the manifest declares, filled or not (madarch-8bdc.2.5). */
+export interface CatalogKindView {
+  kind: string;
+  /** The area the kind's subgroup belongs to. */
+  area: string;
+  subgroup: string;
+  /** The kind's name per interface language; a missing language is left out and its finding names the declaration. */
+  labels?: Record<string, { one: string; many: string }>;
+  /** What the kind is per interface language; a missing language is left out and its finding names the declaration. */
+  descriptions?: Record<string, string>;
+  count: number;
+  /** The statements the pages of this kind make, when the index holds any. */
+  statements?: number;
+  /** The kind has a page of its own (`template-policy: page`), so its row may link to it. */
+  page: boolean;
+  /** What produces the kind today, from its declaration; absent when nothing does. */
+  producer?: KindProducer;
+  /** Whether a stage of the fill produces the kind today: `producer` is not a person and exists. */
+  filled: boolean;
+}
+
+/** The catalogue's own answer (madarch-8bdc.2.5): every declared kind under its area and subgroup, its words, its count and what fills it. */
+export interface CatalogView {
+  product: { name: string; id: string };
+  language: string;
+  groups: WikiStatus['groups'];
+  kinds: CatalogKindView[];
+  /** The catalog's own findings: a row that leaves a field out, and a kind that leaves a translation out. */
+  findings: Finding[];
+}
+
 export interface KindSummary {
   kind: string;
   source: 'graph' | 'markdown' | 'document';

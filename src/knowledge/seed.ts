@@ -793,8 +793,20 @@ export function kindLines(kind: CatalogKindData, options: KindLineOptions = {}):
     lines.push(`    relation-constraints: { out: [${kind.out.join(', ')}], in: [${kind.into.join(', ')}] }`);
     lines.push(`    template-policy: ${kind.policy}`);
   } else if (options.group !== false) lines.push(`    group: ${kind.group}`);
-  // A kind the engine cannot make yet shows no page: its row is its whole declaration.
-  if (kind.policy === 'none' || kind.template === undefined || kind.source === undefined || kind.en === undefined || kind.ru === undefined || kind.describe === undefined) return lines;
+  // A kind's name and description per interface language: the catalogue page lists every declared kind with them, and a
+  // catalogue-only kind carries them beside its row (madarch-8bdc.2.5).
+  const words = (): void => {
+    if (kind.en === undefined || kind.ru === undefined || kind.describe === undefined) return;
+    lines.push('    labels:');
+    lines.push(`      en: { one: ${yamlText(kind.en[0])}, many: ${yamlText(kind.en[1])} }`);
+    lines.push(`      ru: { one: ${yamlText(kind.ru[0])}, many: ${yamlText(kind.ru[1])} }`);
+    lines.push('    description:');
+    lines.push(`      en: ${yamlText(kind.describe[0])}`);
+    lines.push(`      ru: ${yamlText(kind.describe[1])}`);
+  };
+  // A kind the engine cannot make yet shows no page: its row and its words are its whole declaration.
+  if (kind.policy === 'none') { words(); return lines; }
+  if (kind.template === undefined || kind.source === undefined) return lines;
   lines.push(`    template: templates/${kind.template}`);
   lines.push(`    source: ${kind.source}`);
   if (kind.origin !== undefined) lines.push(`    origin: ${kind.origin}`);
@@ -810,12 +822,7 @@ export function kindLines(kind: CatalogKindData, options: KindLineOptions = {}):
   if (kind.nav !== undefined) lines.push(`    nav: ${kind.nav}`);
   const details = DETAILS[kind.name];
   if (details !== undefined && details.length > 0) lines.push(`    details: [${details.join(', ')}]`);
-  lines.push('    labels:');
-  lines.push(`      en: { one: ${yamlText(kind.en[0])}, many: ${yamlText(kind.en[1])} }`);
-  lines.push(`      ru: { one: ${yamlText(kind.ru[0])}, many: ${yamlText(kind.ru[1])} }`);
-  lines.push('    description:');
-  lines.push(`      en: ${yamlText(kind.describe[0])}`);
-  lines.push(`      ru: ${yamlText(kind.describe[1])}`);
+  words();
   return lines;
 }
 const KINDS = kindsManifest();

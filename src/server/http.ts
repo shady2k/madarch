@@ -586,6 +586,7 @@ export function createHandler(dependencies: {
         { method: 'GET', path: '/k/e/<id>.md|.json', match: (pathname) => pageFileAt(pathname) !== undefined, handle: (request: Request) => dependencies.knowledge!.pageFile(request) },
         { method: 'GET', path: '/k/kind/<kind>.md|.json', match: (pathname) => kindFileAt(pathname) !== undefined, handle: (request: Request) => dependencies.knowledge!.kindFile(request) },
         { method: 'GET', path: '/api/k/status', handle: (request: Request) => dependencies.knowledge!.status(request) },
+        { method: 'GET', path: '/api/k/catalog', handle: (request: Request) => dependencies.knowledge!.catalog(request) },
         { method: 'GET', path: '/api/k/page', handle: (request: Request) => dependencies.knowledge!.page(request) },
         { method: 'GET', path: '/api/k/block', handle: (request: Request) => dependencies.knowledge!.block(request) },
         { method: 'GET', path: '/api/k/statement', handle: (request: Request) => dependencies.knowledge!.statement(request) },

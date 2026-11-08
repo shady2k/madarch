@@ -35,6 +35,12 @@ const SMALL = [
   '    status: implemented',
   '    relation-constraints: { out: [], in: [] }',
   '    template-policy: none',
+  '    labels:',
+  '      en: { one: Symbol, many: Symbols }',
+  '      ru: { one: Символ, many: Символы }',
+  '    description:',
+  '      en: A symbol the extractor read.',
+  '      ru: Символ, прочитанный извлекателем.',
   '',
 ].join('\n');
 

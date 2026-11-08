@@ -31,6 +31,7 @@ import type { FilePageFacts } from './repository-view.js';
 import { renderLiquidPage } from './liquid.js';
 import { blockIdentity, foldLanguageParams, parseTemplate, substitute } from './template.js';
 import { termLinks } from './glossary.js';
+import { kindNumbers } from './kind-numbers.js';
 
 export type PageResult = { ok: true; page: PageModel } | { ok: false; status: 404 | 500; message: string };
 
@@ -373,11 +374,7 @@ function originsOf(ctx: RenderContext, decl: { name: string; source: 'graph' | '
 }
 
 export async function kindSummaries(ctx: RenderContext): Promise<KindSummary[]> {
-  const counts = new Map((await ctx.graph.kindCounts()).map((entry) => [entry.kind, entry.count]));
-  // The record store's files are the kind `code.file`'s entities in a store this fill wrote (madarch-8bdc.2.5): the
-  // count the navigation and the listing show is the store's own, so the two never disagree about where the files are.
-  if (ctx.records !== undefined) counts.set('code.file', await ctx.records.files.count());
-  const statements = new Map((await ctx.index?.counts() ?? []).map((entry) => [entry.kind, entry.statements]));
+  const numbers = await kindNumbers(ctx);
   return [...ctx.manifest.kinds.values()].filter((decl) => decl.member === undefined).map((decl) => ({
     kind: decl.name,
     source: decl.source,
@@ -390,12 +387,8 @@ export async function kindSummaries(ctx: RenderContext): Promise<KindSummary[]> 
     origins: originsOf(ctx, decl),
     ...(decl.descriptions === undefined ? {} : { descriptions: { ...decl.descriptions } }),
     ...(decl.labels === undefined ? {} : { labels: { ...decl.labels } }),
-    ...(statements.has(decl.name) ? { statements: statements.get(decl.name)! } : {}),
-    count: decl.source === 'markdown'
-      ? [...ctx.markdown.values()].filter((entity) => entity.kind === decl.name).length
-      : decl.source === 'document'
-        ? [...ctx.docEntities.values()].filter((entity) => entity.kind === decl.name).length
-        : counts.get(decl.name) ?? 0,
+    ...(numbers.statements.has(decl.name) ? { statements: numbers.statements.get(decl.name)! } : {}),
+    count: numbers.count(decl.name, decl.source),
   }));
 }
 
