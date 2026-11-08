@@ -21,10 +21,8 @@ function context(files: { total: number; rows: readonly { path: string; reposito
     manifest: { file: 'madarch/kinds.yaml', roles: new Map(), properties, kinds: new Map([['code.file', { ...decl('code.file'), ...(details === undefined ? {} : { details }) }]]), declaredTemplates: [], groups: new Map(), excludeDocuments: [], ignoreBlocks: [], findings: [] } as unknown as KindsManifest,
     graph: { kindCounts: async () => [], list: async () => ({ rows: [], next: null, total: 0 }) } as unknown as RenderContext['graph'],
     markdown: new Map(),
-    docEntities: new Map(),
-    localizedSources: new Map(),
     language: 'en',
-    documents: [],
+    
     repositories: ['shop-forward'],
     webOf: () => undefined,
     commitOf: () => null,

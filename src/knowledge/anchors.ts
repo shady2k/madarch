@@ -56,7 +56,7 @@ export function slugOf(heading: string): string {
 }
 
 /** The identifier a text opens with (`UC-2`, `ADR-0001`), or null: letters, a hyphen and digits, then a boundary. */
-export function identifierOf(text: string): string | null {
+function identifierOf(text: string): string | null {
   const plain = text.trim();
   let at = 0;
   while (at < plain.length && LETTER(plain.codePointAt(at)!)) at += 1;

@@ -22,7 +22,7 @@
  */
 import { createHash } from 'node:crypto';
 import { parse as parseYaml, stringify } from 'yaml';
-import type { DocEntity } from '../knowledge/doc-entities.js';
+import type { DocEntity } from '../knowledge/model.js';
 import type { WrittenAt } from '../knowledge/index/page.js';
 import { splitFrontMatter } from '../knowledge/markdown.js';
 import { byCodePoint } from '../model/order.js';

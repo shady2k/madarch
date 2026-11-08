@@ -84,14 +84,14 @@ export type UnitSpec =
   | { readonly kind: 'domain'; readonly id: string; readonly path: string; readonly domain: DomainDeclaration; readonly productId?: string }
   | { readonly kind: 'administrator-guide'; readonly id: string; readonly path: string; readonly prepared: GuidePreparedUnit }
   | { readonly kind: 'user-guide'; readonly id: string; readonly path: string; readonly prepared: GuidePreparedUnit }
-  | { readonly kind: 'localized-source'; readonly id: string; readonly path: string; readonly entity: import('../knowledge/doc-entities.js').DocEntity; readonly sourceLanguage: 'en' | 'ru'; readonly language: 'en' | 'ru' }
+  | { readonly kind: 'localized-source'; readonly id: string; readonly path: string; readonly entity: import('../knowledge/model.js').DocEntity; readonly sourceLanguage: 'en' | 'ru'; readonly language: 'en' | 'ru' }
   // The writer's own page kinds (decision 0032, section 1; madarch-ztyq.4): the graph's verdicts, the home
   // page and the editorial pass's report are knowledge pages of the same format, so they are checked and
   // written like the product and domain pages.
   | { readonly kind: 'validation' | 'overview' | 'editorial'; readonly id: string; readonly path: string; readonly name: string; readonly productId?: string }
   // The enrichment of ONE passage of a person's document: stored apart from the document, keyed by the
   // entity's identity, written through `write_enrichment` (`src/writer/enrichment.ts`).
-  | { readonly kind: 'enrichment'; readonly id: string; readonly path: string; readonly entity: import('../knowledge/doc-entities.js').DocEntity; readonly task: string };
+  | { readonly kind: 'enrichment'; readonly id: string; readonly path: string; readonly entity: import('../knowledge/model.js').DocEntity; readonly task: string };
 
 /** Where checked pages go; the filesystem's is in `run.ts`. */
 export interface PageSink {

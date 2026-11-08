@@ -16,7 +16,7 @@ import {
   type EditorialJudge,
   type EditorialPage,
 } from '../src/writer/editorial.js';
-import type { DocEntity } from '../src/knowledge/doc-entities.js';
+import type { DocEntity } from '../src/knowledge/model.js';
 
 const front = (id: string, kind: string, title: string): string[] => ['---', `id: ${id}`, `kind: ${kind}`, `title: ${title}`, 'relates: []', 'producer: agent', 'sources: []', '---', ''];
 

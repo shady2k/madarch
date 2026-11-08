@@ -23,8 +23,7 @@ about 27% of the key's 175 items fully shown, 62% partly, 11% not at all. The ca
   `read_file` of whole files, 12 `find_nodes` by path text, no `get_node` and no `neighbors`. It
   paraphrased code, so domain pages read as code walkthroughs; the shared prompt (`fixedPart()` in
   `prompts.ts`) even asks for timeouts and retries on every page.
-- Documents are read by numbering (`sectionsOf()`/`kindOfSection()` in `doc-entities.ts`); an
-  unnumbered «Qualities» section yields nothing.
+- Documents are read by numbering; an unnumbered «Qualities» section yields nothing.
 - Question deduplication compares the sets of entities a question cites (`askQuestion()`: same type,
   `subjectOf()` Jaccard ≥ 0.5 over entity ids, broad containers excluded); questions about the same
   decision grounded in different files slip through, and shop got 35 questions, about 12 of them

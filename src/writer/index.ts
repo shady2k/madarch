@@ -22,7 +22,7 @@ export {
 } from './editorial.js';
 export { writtenAtOf, withoutCredentials } from './basis.js';
 export {
-  PLACE_FIELDS, STRUCTURED_SECTIONS, UNREACHED_ROUTE, implementationPlaces, parseFields, relatesOf, renderStructuredBody, structuredKindOf, structuredLanguage, structuredSchema, withReference,
+  PLACE_FIELDS, STRUCTURED_SECTIONS, UNREACHED_ROUTE, implementationPlaces, relatesOf, structuredLanguage, structuredSchema, withReference,
   type AlternativeFlow, type DecisionFields, type GroundedStatement, type ImplementationFields, type NamedPlace, type PlaceField, type RuleFields, type ScenarioFields,
   type SectionDecl, type SectionId, type StructuredBody, type StructuredFields, type StructuredKind, type StructuredLanguage,
 } from './structured.js';

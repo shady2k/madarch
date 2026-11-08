@@ -18,8 +18,7 @@ import { createPGliteDatabaseOwner, type DatabaseOwner } from '../src/adapters/d
 import { fillGraph } from '../src/extract/driver/index.js';
 import { HISTORY_EXTRACTOR, OWNERS, TREE_EXTRACTORS } from '../src/extract/driver/extractors.js';
 import { createGraphStore, type GraphStore } from '../src/graph/index.js';
-import { readDocEntities } from '../src/knowledge/doc-entities.js';
-import { KINDS_FILE, readKinds, type KindsManifest } from '../src/knowledge/kinds.js';
+import { KINDS_FILE, readKinds } from '../src/knowledge/kinds.js';
 import { seedStarterSet } from '../src/knowledge/seed.js';
 import {
   DOMAIN_SECTIONS, GraphView, UnitTools, memorySink, renderDomainPage, type DomainSectionDecl, type PageSink, type UnitSpec,
@@ -64,11 +63,11 @@ beforeAll(async () => {
   // people wrote — the containers a reader opens (a file), not on a section number this test would have to guess —
   // and the code on the keys its tools answer. A key the graph does not hold is a refusal, so none is guessed here.
   const documents = markdownOf(repository);
-  const entities = readDocEntities(documents, manifestOf(product)).entities;
   const fileOf = (identifier: string): string => {
-    const entity = entities.find((candidate) => candidate.identifier === identifier);
-    if (entity === undefined) throw new Error(`${join(repository, 'docs/requirements.md')}:1: the fixture's documents hold no ${identifier}`);
-    return entity.path;
+    const name = `**${identifier} `;
+    const found = documents.find((document) => document.text.split('\n').some((line) => line.includes(name)));
+    if (found === undefined) throw new Error(`${join(repository, 'docs/requirements.md')}:1: the fixture's documents hold no ${identifier}`);
+    return found.path;
   };
   const requirements = fileOf('UC-1');
   const rules = fileOf('BR-1');
@@ -98,13 +97,6 @@ function markdownOf(folder: string, root = folder): { repo: string; path: string
     else if (name.endsWith('.md')) out.push({ repo: 'training', path: path.slice(root.length + 1).split('\\').join('/'), text: readFileSync(path, 'utf8') });
   }
   return out;
-}
-
-/** The product's manifest of kinds: the fixture's own, which decides what a document section is. */
-function manifestOf(folder: string): KindsManifest {
-  const read = readKinds(folder);
-  if (!read.present) throw new Error(`${join(folder, KINDS_FILE)}:1: the fixture product has no manifest of kinds`);
-  return read.manifest;
 }
 
 afterAll(async () => {

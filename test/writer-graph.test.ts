@@ -18,7 +18,7 @@ import { createPGliteDatabaseOwner, type DatabaseOwner } from '../src/adapters/d
 import { fillGraph } from '../src/extract/driver/index.js';
 import { extractFiles } from '../src/extract/driver/files.js';
 import { createGraphStore, type GraphStore } from '../src/graph/index.js';
-import type { DocEntity } from '../src/knowledge/doc-entities.js';
+import type { DocEntity } from '../src/knowledge/model.js';
 import {
   enrichmentPath, enrichmentPageId, fsSink, GraphView, memorySink, memoryWriterState, runWriter, UnitTools, writerGraphProblems,
   writerPageFamily, writerUnitOrder, WRITER_UNIT_KINDS,

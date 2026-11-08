@@ -12,7 +12,6 @@
  * graph's spans were read from, and a restarted server still knows.
  */
 import { memberParent } from './blocks.js';
-import { glossaryTerms, termLinks, type GlossaryTerm } from './glossary.js';
 import { GUIDE_OUTPUTS } from '../writer/guides/host-contract.js';
 import type { GuideContextFor, GuideHostFor } from '../writer/guides/host.js';
 import type { GuideKind, GuideLocale } from '../writer/guides/model.js';
@@ -20,7 +19,6 @@ import { readGuidePage } from '../writer/guides/read.js';
 import { createGuideReadFactories, guideProductPin } from '../writer/guides/writer.js';
 import { createGraphStore } from '../graph/index.js';
 import { createGitSnapshotSource } from '../fill/snapshot.js';
-import { detectDocumentLanguage, localizedSourcePath, parseLocalizedSource, type LocalizedDocumentSource } from '../writer/localized-source.js';
 import { cpSync, existsSync, mkdirSync, readFileSync, readdirSync, realpathSync, rmSync, statSync, writeFileSync } from 'node:fs';
 import { execFile, execFileSync } from 'node:child_process';
 import { mkdir, rename, rm, writeFile } from 'node:fs/promises';
@@ -30,7 +28,6 @@ import type { DatabaseOwner, OuterTransaction } from '../adapters/database-owner
 import { RemoteOwner } from './remote-owner.js';
 import { byCodePoint } from '../model/order.js';
 import { MANIFEST_FILE, readProduct, type ProductIdentity } from '../product/manifest.js';
-import { canonicalJsonDigest } from '../model/canonical.js';
 import { selfCommand } from '../product/self-command.js';
 import { headCommitOf } from '../product/fill-updates.js';
 import { insideFolder, homeKind, KINDS_FILE, readKinds, setKindsLanguage, type Finding, type KindsManifest } from './kinds.js';
@@ -63,11 +60,10 @@ import { fileJournal, journalFolder, journalOfUnit, newRunId, NO_COUNTERS, readJ
 import { productSlug, PRODUCT_PATH, type ToolAnswer, type ToolClient, type UnitAgent } from '../writer/index.js';
 import { CONTENT_LANGUAGES } from '../writer/prompts.js';
 import type { DraftEnv } from '../product/home.js';
-import { documentTitleOf, findSubject, graphTitleOf, kindSummaries, markdownTitleOf, productTitleOf, recordFilePage, renderPage, listEntities, type PageResult } from './render.js';
+import { findSubject, graphTitleOf, kindSummaries, markdownTitleOf, productTitleOf, recordFilePage, renderPage, listEntities, type PageResult } from './render.js';
 import { indexCounts, statementsRelyingOn } from './index/queries.js';
 import { PAGE_KIND, STATEMENT_OF } from './index/vocabulary.js';
-import { ACTIVE_FILL_FILE, CHANGED_PAGES_FILE, DOCUMENT_PAGES_FILE, invalidateInterruptedRun, readChangedPages, readDocumentPages } from './changed-pages.js';
-import { documentSections } from './index/sections.js';
+import { ACTIVE_FILL_FILE, CHANGED_PAGES_FILE, invalidateInterruptedRun, readChangedPages } from './changed-pages.js';
 import { webLink } from './index/web-link.js';
 import { acpGraphJudge } from './graph-verdict-acp-judge.js';
 import { graphVerdictFile, loadGraphSnapshot, readGraphVerdictState, writeGraphVerdictBudgets, writeGraphVerdictState } from './graph-verdict-store.js';
@@ -84,10 +80,7 @@ import { archifyFrame, likec4Model } from './view-frames.js';
 import { buildViews, chosenRenderer, parseSpec, payloadOf, RENDERERS_OF, ViewRefusal, type GraphView, type ViewPayload } from './views.js';
 import { buildStatement, type StatementResult } from './statement.js';
 import { noEntityMessage, Resolver, type Resolution } from './resolve.js';
-import { readDocEntities, type DocEntity, type DocumentSource } from './doc-entities.js';
-import { IDENTITIES_FILE, readDocIdentities, sameDocIdentities, writeDocIdentities } from './doc-identities.js';
-import { CLASSIFICATIONS_FILE, readClassificationStore, storedClassifier } from './semantics.js';
-import { DOCUMENT_LIMIT, DOCUMENT_PATH, HARNESS_FILES, documentTitle, docsLinkedOutside, listedDocument, productDocumentPaths, readProductDocument, readRepoDocuments, repoDocumentPaths } from './doc-sources.js';
+import { DOCUMENT_LIMIT, DOCUMENT_PATH, HARNESS_FILES, documentTitle, listedDocument, productDocumentPaths, readProductDocument, readRepoDocuments, repoDocumentPaths } from './doc-sources.js';
 import { ensureLoopKinds, seedStarterSet, TEMPLATES } from './seed.js';
 import { CORRECTIONS_FOLDER, QUESTIONS_FOLDER, readCorrections } from '../loop/entities.js';
 import { answerQuestion, commitFiles, localIdentity, LoopRefusal, recordCorrection, type Answered, type Corrected } from '../loop/answer.js';
@@ -264,28 +257,20 @@ export function createSnapshotHistoryReader() {
 
 /**
  * The writer's units as a reader knows them (madarch-m38l.23): the page each one writes, and that page's kind and title as
- * the wiki knows them now — from the documents and the Markdown for a page that stands, from the product page's own
- * declaration for a domain still waiting. Nothing is invented: a unit whose page neither stands nor is declared keeps only
- * what the run said about it, and no field is filled from the unit's id.
+ * the wiki knows them now — from the Markdown for a page that stands, from the product page's own declaration for a
+ * domain still waiting. Nothing is invented: a unit whose page neither stands nor is declared keeps only what the run
+ * said about it, and no field is filled from the unit's id.
  */
 function namedUnits(ctx: RenderContext, units: readonly WriterUnit[]): WriterUnit[] {
-  // The writer's enrichment units name a passage of a person's document: `enrichment:<document entity id>` (`enrichmentPath`).
-  const ENRICHMENT_UNIT = 'enrichment:';
   return units.map((unit) => {
-    const localized = unit.unit.startsWith(LOCALIZED_SOURCE_UNIT) ? unit.unit.slice(LOCALIZED_SOURCE_UNIT.length) : undefined;
-    // A localized source writes a document's page: its kind and title are the document entity's own.
-    const doc = localized === undefined ? undefined : ctx.docEntities.get(localized);
-    const page = ctx.markdown.get(localized ?? unit.unit);
-    // An enrichment's page is a passage of a document, and the passage is read before its page stands: the reader's
-    // title for a page the run is writing now is the passage's own, never the writer's id for it.
-    const passage = page === undefined && unit.unit.startsWith(ENRICHMENT_UNIT) ? ctx.docEntities.get(unit.unit.slice(ENRICHMENT_UNIT.length)) : undefined;
+    const page = ctx.markdown.get(unit.unit);
     const family = unit.unit.slice(0, unit.unit.indexOf(':'));
-    // The unit's own id names the page kind it writes (`product`, `domain`, `administrator-guide`, `enrichment`): a name
-    // only where the manifest declares that kind, so the reader never reads a kind this product does not have.
+    // The unit's own id names the page kind it writes (`product`, `domain`, `administrator-guide`): a name only where
+    // the manifest declares that kind, so the reader never reads a kind this product does not have.
     const declared = unit.kind ?? family;
-    const kind = doc?.kind ?? page?.kind ?? (ctx.manifest.kinds.has(declared) ? declared : undefined);
-    const title = doc?.title ?? passage?.title ?? page?.title ?? unit.title;
-    return { ...unit, page: localized ?? unit.unit, ...(kind === undefined ? {} : { kind }), ...(title === undefined ? {} : { title }) };
+    const kind = page?.kind ?? (ctx.manifest.kinds.has(declared) ? declared : undefined);
+    const title = page?.title ?? unit.title;
+    return { ...unit, page: unit.unit, ...(kind === undefined ? {} : { kind }), ...(title === undefined ? {} : { title }) };
   });
 }
 
@@ -360,8 +345,6 @@ export class KnowledgeProduct {
   /** The pages the last fill changed, as told and as kept beside the store (madarch-u3vw2). */
   private changedPages: ChangedPage[] | undefined;
   private changedLoaded = false;
-  /** The document entities of the last completed run, by durable page id, as kept beside the store. */
-  private documentBaselineMemo: Map<string, string> | undefined | null;
 
   constructor(private readonly options: KnowledgeProductOptions) {
     this.invalidateInterruptedRun();
@@ -1007,11 +990,6 @@ export class KnowledgeProduct {
     return join(this.storeFolder(), CHANGED_PAGES_FILE);
   }
 
-  /** The file the document entities of the last completed run are kept in: the line their next run is counted from. */
-  private documentPagesFile(): string {
-    return join(this.storeFolder(), DOCUMENT_PAGES_FILE);
-  }
-
   /**
    * A run that was under way when the server stopped cannot be restored: its result was never written, and the list
    * beside the store belongs to the run before. The mark is what tells the two apart; this removes both the stale list
@@ -1053,13 +1031,13 @@ export class KnowledgeProduct {
 
   /**
    * The pages a run changed, from the graph's own account of it: every node and every edge the run opened or closed, the
-   * pages of the entities that are still there, the page a touched statement belongs to through `statement-of`, the
-   * Markdown pages whose file it wrote, and the document entities whose passage changed. A run that starts from an
+   * pages of the entities that are still there, the page a touched statement belongs to through `statement-of`, and
+   * the Markdown pages whose file it wrote. A run that starts from an
    * empty graph (`before` null) wrote every page; after it, only what it touched is named. A page the run removed is not
    * named: there is no page left to open. Only the kinds the product declares are pages; the index's own nodes and
    * sections are not.
    */
-  private async pagesChangedSince(before: string | null): Promise<{ pages: ChangedPage[]; documents: Map<string, string> }> {
+  private async pagesChangedSince(before: string | null): Promise<ChangedPage[]> {
     const context = await this.context();
     if ('absent' in context) throw new WikiReadError(`the product has no ${context.file}: the wiki shows the kinds that file declares`);
     const owner = await this.open();
@@ -1124,53 +1102,7 @@ export class KnowledgeProduct {
       }
       if (!found.has(id)) found.set(id, { id, title });
     }
-    // A document entity is a page too, and its page id is its durable identity. The line is the last completed run's
-    // entities: a passage whose text, title or address changed is named; a document that gained none is not.
-    const documents = this.documentDigests(context);
-    const baseline = this.documentBaseline();
-    for (const [id, digest] of documents) {
-      if (baseline !== undefined && baseline.get(id) === digest) continue;
-      const entity = context.ctx.docEntities.get(id);
-      if (entity === undefined) continue;
-      const declaration = context.manifest.kinds.get(entity.kind);
-      if (declaration === undefined) continue;
-      if (!found.has(id)) found.set(id, { id, title: documentTitleOf(declaration.title, entity) });
-    }
-    return { pages: [...found.values()].sort((a, b) => byCodePoint(a.id, b.id)), documents };
-  }
-
-  /** The document entities a page stands for, by durable page id, digested as the page renders them. */
-  private documentDigests(context: { manifest: KindsManifest; ctx: RenderContext }): Map<string, string> {
-    const out = new Map<string, string>();
-    for (const entity of context.ctx.docEntities.values()) {
-      const declaration = context.manifest.kinds.get(entity.kind);
-      if (declaration?.source !== 'document') continue;
-      out.set(entity.id, canonicalJsonDigest({
-        kind: entity.kind,
-        title: entity.title,
-        pageTitle: documentTitleOf(declaration.title, entity),
-        identifier: entity.identifier,
-        repo: entity.repo,
-        path: entity.path,
-        anchor: entity.anchor,
-        aliases: entity.aliases,
-        text: entity.text,
-        language: context.ctx.language,
-        localizedStatement: context.ctx.localizedSources.get(entity.id)?.statement ?? null,
-        semantics: entity.semantics,
-        pass: entity.pass,
-        headingPath: entity.headingPath,
-      }));
-    }
-    return out;
-  }
-
-  /** The document entities of the last completed run, or undefined when none is recorded. */
-  private documentBaseline(): Map<string, string> | undefined {
-    if (this.documentBaselineMemo !== undefined) return this.documentBaselineMemo ?? undefined;
-    const baseline = readDocumentPages(this.storeFolder());
-    this.documentBaselineMemo = baseline ?? null;
-    return baseline;
+    return [...found.values()].sort((a, b) => byCodePoint(a.id, b.id));
   }
 
   /** Records what the run changed: in the fill's state, beside its store, and to the streams. */
@@ -1178,11 +1110,8 @@ export class KnowledgeProduct {
     // A run that did not finish changed nothing the wiki may claim; one whose boundary is unknown would be a guess.
     if (before === undefined || this.fill.state !== 'done' || this.writer.state === 'failed') return;
     let changed: ChangedPage[];
-    let documents: Map<string, string>;
     try {
-      const result = await this.pagesChangedSince(before);
-      changed = result.pages;
-      documents = result.documents;
+      changed = await this.pagesChangedSince(before);
     } catch (error) {
       this.options.errorLog?.(`the knowledge wiki could not list the pages the fill of ${this.storeFolder()} changed: ${error instanceof Error ? error.message : String(error)}`);
       return;
@@ -1194,12 +1123,6 @@ export class KnowledgeProduct {
       await writeFile(this.changedPagesFile(), `${JSON.stringify({ startedAt: this.fill.startedAt ?? null, finishedAt: this.fill.finishedAt ?? null, pages: changed })}\n`, 'utf8');
     } catch (error) {
       this.options.errorLog?.(`the knowledge wiki could not record which pages the fill of ${this.storeFolder()} changed: ${error instanceof Error ? error.message : String(error)}`);
-    }
-    try {
-      await writeFile(this.documentPagesFile(), `${JSON.stringify({ startedAt: this.fill.startedAt ?? null, finishedAt: this.fill.finishedAt ?? null, entities: Object.fromEntries(documents) })}\n`, 'utf8');
-      this.documentBaselineMemo = documents;
-    } catch (error) {
-      this.options.errorLog?.(`the knowledge wiki could not record the document entities of the fill of ${this.storeFolder()}: ${error instanceof Error ? error.message : String(error)}`);
     }
     this.notify();
   }
@@ -1608,7 +1531,7 @@ export class KnowledgeProduct {
     if (entry === undefined) return { ok: false, status: 400, message: `"agent" is ${JSON.stringify(id)}: madarch offers claude-code and codex` };
     const offer = this.agentOffers().find((candidate) => candidate.id === id)!;
     if (!offer.installed) {
-      if (!install) return { ok: false, status: 409, message: `the ${entry.label} adapter is not installed: say yes to install it into ${offer.install?.folder ?? 'madarch\'s agents folder'}` };
+      if (!install) return { ok: false, status: 409, message: `the ${entry.label} adapter is not installed: say yes to install it into ${offer.install?.kind === 'npm' ? offer.install.folder : 'madarch\'s agents folder'}` };
       if (this.installing !== undefined) return { ok: false, status: 409, message: 'an adapter is being installed; wait for it to end' };
       const work = installAdapter(id, this.env);
       this.installing = work;
@@ -1651,7 +1574,7 @@ export class KnowledgeProduct {
     if (entry === undefined) return { ok: false, status: 400, message: `"agent" is ${JSON.stringify(id)}: madarch offers claude-code, codex, opencode and omp` };
     const offer = this.agentOffers().find((candidate) => candidate.id === id)!;
     if (!offer.installed) {
-      if (!install) return { ok: false, status: 409, message: `the ${entry.label} adapter is not installed: say yes to install it into ${offer.install?.folder ?? 'madarch\'s agents folder'}` };
+      if (!install) return { ok: false, status: 409, message: `the ${entry.label} adapter is not installed: say yes to install it into ${offer.install?.kind === 'npm' ? offer.install.folder : 'madarch\'s agents folder'}` };
       if (this.installing !== undefined) return { ok: false, status: 409, message: 'an adapter is being installed; wait for it to end' };
       const work = installAdapter(id, this.env);
       this.installing = work;
@@ -1786,8 +1709,6 @@ export class KnowledgeProduct {
       return { ok: false, message: `the pages and the graph were removed, but the manifest could not be put at the current starter set: ${error instanceof Error ? error.message : String(error)}` };
     }
     this.upgraded = true;
-    this.docMemo = undefined;
-    this.repoDocs.clear();
     this.notify();
     const chosen = this.chosenAgent();
     const started = await this.startFill(chosen === null ? {} : { expectAgent: chosen.id });
@@ -1907,50 +1828,7 @@ export class KnowledgeProduct {
       markdownRead.entities.push({ id: output.id, kind, title, relates: [], producer: 'agent', sources: [], body: '', bodyLine: 1, file: declaration.file, front: {} });
     }
     const markdown = new Map<string, MarkdownEntity>(markdownRead.entities.map((entity) => [entity.id, entity]));
-    const reading = history === undefined ? await this.documentEntities(product.folder, read.manifest) : { entities: [], sources: [], findings: [] };
-    const docEntities = new Map<string, DocEntity>(reading.entities.map((entity) => [entity.id, entity]));
     const language = read.manifest.language ?? 'en';
-    const localizedSources = new Map<string, LocalizedDocumentSource>();
-    const localizedFindings: Finding[] = [];
-    for (const entity of reading.entities) {
-      const sourceLanguage = detectDocumentLanguage(entity.text);
-      if (sourceLanguage === language) continue;
-      const file = localizedSourcePath(entity);
-      if (sourceLanguage === undefined) {
-        localizedFindings.push({ file, line: entity.line, message: `the source language cannot be identified confidently as English or Russian; no localized statement is shown` });
-        continue;
-      }
-      const text = readProductDocument(product.folder, file);
-      if (text === undefined) {
-        localizedFindings.push({ file, line: 1, message: `no localized source exists for ${entity.id}; fill the wiki in ${language} to write it`, pending: entity.id });
-        continue;
-      }
-      const parsed = parseLocalizedSource(file, text, entity, language);
-      if (!parsed.ok) {
-        localizedFindings.push({ file, line: parsed.line, message: `${parsed.message}; no localized statement is shown` });
-        continue;
-      }
-      if (parsed.source.sourceLanguage !== sourceLanguage) {
-        localizedFindings.push({ file, line: 2, message: `source-language is ${parsed.source.sourceLanguage}, but the current document is detected as ${sourceLanguage}` });
-        continue;
-      }
-      // A product with one code repository does not name it in the place of a localized statement either.
-      const single = entity.repo !== null && this.repositories().length === 1;
-      localizedSources.set(entity.id, single ? { ...parsed.source, sourceDocument: parsed.source.sourceDocument.replace(new RegExp(`^repos/${entity.repo?.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}/`), '') } : parsed.source);
-    }
-    const entityAtLine = new Map<string, DocEntity>(reading.entities.map((entity) => [`${entity.repo ?? ''}\0${entity.path}\0${entity.line}`, entity]));
-    // A page id names a durable identity: the resolver finds the page by it, whatever heading the document writes now.
-    const entityById = new Map<string, DocEntity>(reading.entities.map((entity) => [`${entity.repo ?? ''}\0${entity.path}\0${entity.stableId}`, entity]));
-    // A source anchor names the passage the document gives that anchor now — and a passage of one paragraph has an anchor
-    // of its own (`stories.1.2`), so two meanings of one paragraph never open one another's page (the review of C(b)).
-    // Every anchor the tree derives is indexed, not only the primary one: a paragraph's place (`transport.1`) and a
-    // heading's number both address the passage they name, and the first meaning of a split paragraph keeps them
-    // (the review of the sixth pass, finding 1).
-    const entityByAnchor = new Map<string, DocEntity>();
-    for (const entity of reading.entities) for (const anchor of [entity.anchor, ...entity.aliases]) {
-      const key = `${entity.repo ?? ''}\0${entity.path}\0${anchor}`;
-      if (!entityByAnchor.has(key)) entityByAnchor.set(key, entity);
-    }
     const repoOfScope = (scope: string): string | undefined => [...pins.values()].find((pin) => pin.scope !== null && pin.scope === scope)?.name;
     const readSource = async (repo: string | null, path: string): Promise<string | undefined> => {
       if (repo === null) {
@@ -1983,6 +1861,13 @@ export class KnowledgeProduct {
     // the record tables, and a page of a past time is the temporal graph's alone, so a historical page is asked nothing
     // of them. The repository resolved is the one the wiki's repository pages show, the product's first declared one.
     const records = history === undefined ? this.recordFiles(indexOwner) : undefined;
+    // A declared checkout that holds no commit is named with its path: the wiki says what it leaves unread rather than
+    // failing, and the fill says the same of it. This reads a ref, never a document.
+    const emptyRepositories: Finding[] = [];
+    if (history === undefined) for (const repo of this.repositories().filter((candidate) => candidate.present)) {
+      const commit = pins.get(repo.name)?.commit;
+      if ((commit === undefined || commit === '') && headCommitOf(repo.path) === undefined) emptyRepositories.push({ file: repo.path, line: 1, message: `the repository ${JSON.stringify(repo.name)} holds no commit yet: nothing is read from it until it does`, source: repo.path });
+    }
     const resolver = new Resolver({
       graph,
       markdown,
@@ -1990,17 +1875,11 @@ export class KnowledgeProduct {
       readDocument: readSource,
       repositories: () => history === undefined ? [...pins.keys()].sort(byCodePoint) : [history.repo],
       locate: (entity) => (entity.span === undefined ? undefined : locationOf({ repoOfScope, webOf }, entity.scope, entity.span)),
-      documentEntity: (repo, path, line) => entityAtLine.get(`${repo ?? ''}\0${path}\0${line}`),
-      documentEntityByAnchor: (repo, path, anchor) => entityByAnchor.get(`${repo ?? ''}\0${path}\0${anchor}`),
-      documentEntityById: (repo, path, stableId) => entityById.get(`${repo ?? ''}\0${path}\0${stableId}`),
     });
-    // A page the running fill has taken up is not a problem yet (madarch-m38l.23): the agent is writing it now, and the
-    // page says so in place of the missing statement until the run ends.
-    const writing = this.writer.state === 'waiting' || this.writer.state === 'running';
     return {
-      ctx: { productFolder: product.folder, manifest: read.manifest, graph, markdown, docEntities, localizedSources, language, documents: reading.sources, ...(writing ? { awaitsLocalized: true } : {}), repositories: history === undefined ? [...pins.keys()].sort(byCodePoint) : [history.repo], webOf, ...(records === undefined ? {} : { records }), ...(history === undefined ? { index: { relyingOn: (key: string) => statementsRelyingOn(indexOwner, key), counts: () => indexCounts(indexOwner) } } : {}), commitOf: (repo) => history === undefined ? pins.get(repo)?.commit ?? null : repo === history.repo ? history.commit : null, resolver, repoOfScope, readSource },
+      ctx: { productFolder: product.folder, manifest: read.manifest, graph, markdown, language, repositories: history === undefined ? [...pins.keys()].sort(byCodePoint) : [history.repo], webOf, ...(records === undefined ? {} : { records }), ...(history === undefined ? { index: { relyingOn: (key: string) => statementsRelyingOn(indexOwner, key), counts: () => indexCounts(indexOwner) } } : {}), commitOf: (repo) => history === undefined ? pins.get(repo)?.commit ?? null : repo === history.repo ? history.commit : null, resolver, repoOfScope, readSource },
       manifest: read.manifest,
-      findings: [...read.manifest.findings, ...markdownRead.findings, ...reading.findings, ...(writing ? localizedFindings.filter((finding) => finding.pending === undefined) : localizedFindings)],
+      findings: [...read.manifest.findings, ...markdownRead.findings, ...emptyRepositories],
     };
   }
 
@@ -2021,84 +1900,6 @@ export class KnowledgeProduct {
     }
     return parts.join('|');
   }
-
-  /** The memo of the document entities: they are read again only when a document, a commit or a document kind changed. */
-  private docMemo: { key: string; sources: DocumentSource[]; entities: DocEntity[]; findings: Finding[] } | undefined;
-  private readonly repoDocs = new Map<string, DocumentSource[]>();
-
-  /**
-   * The Markdown documents the wiki lists (the product repository's as the working tree holds them, each code repository's
-   * at the commit the graph was filled from) and the entities of the manifest's document kinds in them. A repository with
-   * more documents than the listing's limit is read up to it, and a finding says so.
-   */
-  private async documentEntities(productFolder: string, manifest: KindsManifest): Promise<{ sources: DocumentSource[]; entities: DocEntity[]; findings: Finding[] }> {
-    if (![...manifest.kinds.values()].some((kind) => kind.source === 'document')) return { sources: [], entities: [], findings: [] };
-    const store = this.storeFolder();
-    const findings: Finding[] = [];
-    const sources: DocumentSource[] = [];
-    const stamps: string[] = [];
-    const outside = docsLinkedOutside(productFolder);
-    if (outside !== undefined) findings.push({ file: 'docs', line: 1, message: `docs is a link to ${outside}, outside the product repository ${productFolder}: its documents are not read for entities`, source: join(productFolder, 'docs') });
-    for (const path of productDocumentPaths(productFolder).filter((candidate) => listedDocument(manifest, null, candidate))) {
-      const text = readProductDocument(productFolder, path);
-      if (text === undefined) { findings.push({ file: path, line: 1, message: 'the document is too large or cannot be read, so no entity is read from it', source: join(productFolder, path) }); continue; }
-      sources.push({ repo: null, path, text, origin: join(productFolder, path) });
-      stamps.push(`${path}\0${text.length}\0${Bun.hash(text)}`);
-    }
-    for (const repo of this.repositories().filter((candidate) => candidate.present)) {
-      const commit = this.pins.get(repo.name)?.commit;
-      // A checkout that holds no commit has no documents: it is named with its path, and nothing is
-      // read of it. A repository added before its first commit must not fail the product's wiki.
-      if (commit === undefined || commit === '') {
-        if (headCommitOf(repo.path) === undefined) {
-          findings.push({ file: repo.path, line: 1, message: `the repository ${JSON.stringify(repo.name)} holds no commit yet: nothing is read from it until it does`, source: repo.path });
-          continue;
-        }
-      }
-      const at = commit === undefined || commit === '' ? 'HEAD' : commit;
-      const key = `${repo.name}@${at}@${manifest.excludeDocuments.join(',')}`;
-      let held = this.repoDocs.get(key);
-      if (held === undefined) {
-        const all = (await repoDocumentPaths(repo.name, repo.path, commit)).filter((candidate) => listedDocument(manifest, repo.name, candidate));
-        const paths = all.slice(0, DOCUMENT_LIMIT);
-        const texts = await readRepoDocuments(repo.name, repo.path, at, paths);
-        held = [];
-        const cut: Finding[] = [];
-        for (const path of paths) {
-          const text = texts.get(path);
-          if (text === undefined) continue;
-          if (text === null) { cut.push({ file: `repos/${repo.name}/${path}`, line: 1, message: 'the document is too large, comes past the budget of bytes read from this repository, or its name holds a line break, so no entity is read from it', source: join(repo.path, path) }); continue; }
-          held.push({ repo: repo.name, path, text, origin: join(repo.path, path) });
-        }
-        if (all.length > DOCUMENT_LIMIT) cut.push({ file: `repos/${repo.name}`, line: 1, message: `the repository holds ${all.length} Markdown documents and the wiki reads the first ${DOCUMENT_LIMIT} of them for entities`, source: repo.path });
-        this.repoDocs.set(key, held);
-        this.repoDocFindings.set(key, cut);
-      }
-      sources.push(...held);
-      findings.push(...(this.repoDocFindings.get(key) ?? []));
-      stamps.push(key);
-    }
-    const signature = JSON.stringify([...manifest.kinds.values()].filter((kind) => kind.source === 'document').map((kind) => [kind.name, kind.identifier, kind.terms, kind.headings, kind.semantics, kind.structure]));
-    // The identities beside the product and the meanings jev and the agent read are part of what the read stands on: a changed one reads the documents again.
-    const identityFile = join(store, IDENTITIES_FILE);
-    const classificationFile = join(store, CLASSIFICATIONS_FILE);
-    const stampOf = (file: string): string => { try { return String(statSync(file).mtimeMs); } catch { return '-'; } };
-    const keyOf = (): string => `${signature}\0${stamps.join('\n')}\0${String((manifest.expect ?? []).map((entry) => entry.kind).join(','))}\0${String(manifest.ignoreBlocks.join(','))}\0${stampOf(identityFile)}\0${stampOf(classificationFile)}`;
-    if (this.docMemo?.key !== keyOf()) {
-      const held = readDocIdentities(identityFile);
-      const hasClassifications = existsSync(classificationFile);
-      const classifications = hasClassifications ? readClassificationStore(classificationFile) : { answers: new Map(), findings: [] as Finding[] };
-      const read = readDocEntities(sources, manifest, { identities: held.identities, ...(hasClassifications ? { classifier: storedClassifier(classifications.answers) } : {}) });
-      // The identities are kept beside the product, never in the repository: editing a heading keeps its links.
-      if (!sameDocIdentities(held.identities, read.identities)) {
-        try { writeDocIdentities(identityFile, read.identities); }
-        catch (error) { held.findings.push({ file: identityFile, line: 1, message: `the identities of the document sections could not be kept, so a renamed section loses its links at the next read: ${(error as Error).message}` }); }
-      }
-      this.docMemo = { key: keyOf(), sources, entities: read.entities, findings: [...held.findings, ...classifications.findings, ...read.findings] };
-    }
-    return { sources, entities: this.docMemo.entities, findings: [...findings, ...this.docMemo.findings] };
-  }
-  private readonly repoDocFindings = new Map<string, Finding[]>();
 
   private readonly origins = new Map<string, string | null>();
 
@@ -2186,7 +1987,7 @@ export class KnowledgeProduct {
   /**
    * What moves without a file: the fill, the writer and the agent, taken from this process on every answer. The units
    * are named against the context of the cached read, so a unit that starts while the files stay unchanged keeps the
-   * reader-facing kind, title and page the read's documents and Markdown gave it (madarch-m38l.23). The Problems count
+   * reader-facing kind, title and page the read's Markdown gave it (madarch-m38l.23). The Problems count
    * is the one collected for exactly these inputs, else absent: an answer never keeps a count collected for inputs the
    * cache has replaced — while a fill holds the collection back, the answer is pending (madarch-u3vw.8).
    */
@@ -2540,7 +2341,7 @@ export class KnowledgeProduct {
   /**
    * A stamp of every file the Problems page reads besides the pinned graph: the product's manifest, the kinds manifest,
    * the workflows manifest, every template path a declaration names, the files of the Markdown kinds, the product's
-   * documents, the questions and the corrections, and the store's identities and classifications. Status is polled, so
+   * documents, the questions and the corrections. Status is polled, so
    * the page's count is kept; an edit of any of these — a manifest a person changed, a document, a question — must
    * change this key, or the menu keeps a count the page no longer shows (madarch-m38l.24, the review; the template
    * paths and the content hashes are madarch-u3vw.8).
@@ -2568,13 +2369,6 @@ export class KnowledgeProduct {
     for (const path of productDocumentPaths(folder)) parts.push(this.contentStamp(join(folder, path)));
     parts.push(this.folderStamp(QUESTIONS_FOLDER));
     parts.push(this.folderStamp(CORRECTIONS_FOLDER));
-    try {
-      const store = this.storeFolder();
-      parts.push(this.contentStamp(join(store, IDENTITIES_FILE)));
-      parts.push(this.contentStamp(join(store, CLASSIFICATIONS_FILE)));
-    } catch {
-      parts.push('store:absent');
-    }
     return parts.join('\n');
   }
 
@@ -2824,15 +2618,13 @@ export class KnowledgeProduct {
     return { ok: true, statement: { ...result.statement, ...(await this.plannedForStatement(id, result.statement.name)) } };
   }
 
-  /** The terms of the product's glossaries, read from its documents (no fill is needed). */
-  async glossary(): Promise<{ terms: GlossaryTerm[]; resolutions: Record<string, Resolution>; findings: Finding[] }> {
-    const context = await this.context();
-    if ('absent' in context) return { terms: [], resolutions: {}, findings: [] };
-    const terms = glossaryTerms(context.manifest, context.ctx.docEntities.values(), context.ctx.localizedSources, context.ctx.language, context.ctx.repositories.length === 1);
-    // The links the terms' texts hold are resolved here once, so the page draws them as it draws any other (broken ones marked).
-    const resolutions: Record<string, Resolution> = {};
-    for (const url of [...new Set(terms.flatMap(termLinks))].sort(byCodePoint)) resolutions[url] = await context.ctx.resolver.resolve(url);
-    return { terms, resolutions, findings: context.findings };
+  /**
+   * The terms of the product's glossaries. No stage of the fill writes the document kinds a glossary is read from yet,
+   * so the answer is empty: the old reading of the documents at request time is deleted, and the terms come back with
+   * the stage that fills them.
+   */
+  async glossary(): Promise<{ terms: never[]; resolutions: Record<string, Resolution>; findings: Finding[] }> {
+    return { terms: [], resolutions: {}, findings: [] };
   }
 
   /**

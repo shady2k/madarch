@@ -33,13 +33,10 @@ describe('the wiki section', () => {
     expect(listing.sections).toEqual({ code: 0, documents: 0, wiki: 1 });
   });
 
-  test('a passage no reader decided and an answer that reaches no page keep their old kinds and gain their rules', async () => {
+  test('an answer that reaches no page keeps its old kind and gains its rule', async () => {
     const listing = await listProblems(input(folder(), {
-      findings: [{ file: 'repos/shop/docs/notes.md', line: 4, message: 'no kind read this passage', kind: 'unread-passage', source: '/srv/checkouts/shop/docs/notes.md' }],
       unplaced: [{ kind: 'question', slug: 'discount', title: 'Which discount?', reason: 'the question names no page' }],
     }));
-    const passage = listing.problems.find((problem) => problem.kind === 'unread-passage')!;
-    expect(passage).toMatchObject({ section: 'wiki', rule: 'wiki.unread-passage', sonar: 'code-smell', severity: 'minor', fixer: 'agent', line: 4, source: '/srv/checkouts/shop/docs/notes.md' });
     const unplaced = listing.problems.find((problem) => problem.kind === 'unplaced')!;
     expect(unplaced).toMatchObject({ section: 'wiki', rule: 'wiki.unplaced', sonar: 'code-smell', severity: 'minor', fixer: 'person', place: { label: 'docs/questions/discount.md', href: '/k/src?path=docs%2Fquestions%2Fdiscount.md' } });
     expect(unplaced.entity).toMatchObject({ href: '/k/questions/discount', key: 'question:discount' });

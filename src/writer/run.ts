@@ -29,7 +29,7 @@ import { KINDS_FILE, readKinds } from '../knowledge/kinds.js';
 import { parseQuestion, parseStatementRef, QUESTIONS_FOLDER, readCorrections, readQuestions, type Correction, type Question } from '../loop/entities.js';
 import { CONTENT_SLUG } from '../loop/ids.js';
 import { writtenAtOf } from './basis.js';
-import type { DocEntity } from '../knowledge/doc-entities.js';
+import type { DocEntity } from '../knowledge/model.js';
 import { detectDocumentLanguage, localizedSourcePath, localizedSourcePrompt, parseLocalizedSource, renderLocalizedSource, LOCALIZED_SOURCE_SCHEMA } from './localized-source.js';
 import { includedNotes, type ChangeNote, type EditBrief } from './edit.js';
 import { readPage, statementsOf } from './sentences.js';

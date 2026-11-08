@@ -35,7 +35,7 @@ export function documentTitle(markdown: string, path: string): string {
 }
 
 /** Whether a path is a page of a Markdown kind of the manifest: its one file, or a file below its folder. */
-export function isKindPage(manifest: KindsManifest, path: string): boolean {
+function isKindPage(manifest: KindsManifest, path: string): boolean {
   for (const decl of manifest.kinds.values()) {
     if (decl.source !== 'markdown') continue;
     if (decl.file !== undefined && decl.file === path) return true;
@@ -55,7 +55,7 @@ export function listedDocument(manifest: KindsManifest, repo: string | null, pat
 }
 
 /** Where the product's `docs` folder really is when it is a link out of the product repository; undefined when it is inside or absent. */
-export function docsLinkedOutside(productFolder: string): string | undefined {
+function docsLinkedOutside(productFolder: string): string | undefined {
   try {
     const real = realpathSync(join(productFolder, 'docs'));
     const root = realpathSync(productFolder);

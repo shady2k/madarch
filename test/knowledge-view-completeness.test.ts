@@ -51,7 +51,7 @@ const MANIFEST = fixtureManifest({
 
 function context(graph: GraphReader): RenderContext {
   return { graph, productFolder: '', manifest: MANIFEST,
-    markdown: new Map(), docEntities: new Map(), localizedSources: new Map(), language: 'en', documents: [], repositories: [],
+    markdown: new Map(),  language: 'en',  repositories: [],
     commitOf: () => null, repoOfScope: () => undefined, readSource: async () => undefined,
     resolver: new Resolver({ graph, markdown: new Map(), declared: () => false, readDocument: async () => undefined, repositories: () => [], locate: () => undefined }),
   };

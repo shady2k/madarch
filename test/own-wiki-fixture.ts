@@ -28,7 +28,7 @@ The example tool keeps a manifest for every product.[^manifest]
 [^manifest]: [Manifest](madarch:doc:docs/reference.md#manifest)
 `;
 
-export const GLOSSARY = `# Glossary
+const GLOSSARY = `# Glossary
 
 - **Manifest** - The file that tells the wiki which kinds a product has.
   - Also called: manifests, kinds file
