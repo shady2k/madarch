@@ -138,7 +138,9 @@ async function downloadArchive(options: {
   readonly progress: (line: string) => void;
 }): Promise<void> {
   const { build, url, archive, folder } = options;
-  const partial = `${archive}.part`;
+  // One writer per download: two processes installing at once write their own part files, and the archive is only made
+  // whole by a rename, so a file the other process is still writing is never read.
+  const partial = `${archive}.${String(process.pid)}.part`;
   mkdirSync(dirname(archive), { recursive: true });
   let held = existsSync(partial) ? statSync(partial).size : 0;
   if (held > 0) options.progress(`madarch: continuing the PostgreSQL ${POSTGRES_VERSION} download at ${megabytes(held)} MB of ${megabytes(build.bytes)} MB (${folder})`);

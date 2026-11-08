@@ -215,7 +215,9 @@ function startServer(options: { readonly dataDir: string; readonly socketDir: st
 function createDataDir(dataDir: string, bin: string, log: (line: string) => void): void {
   if (existsSync(join(dataDir, 'PG_VERSION'))) return;
   mkdirSync(dataDir, { recursive: true, mode: 0o700 });
-  log(`madarch: creating the PostgreSQL data directory ${dataDir}`);
+  // Progress, not a warning: a command whose output a caller reads (a script's, a test's) stays quiet.
+  defaultLog.info(`madarch: creating the PostgreSQL data directory ${dataDir}`, { madarch: 'postgres' });
+  void log;
   runBinary(join(bin, 'initdb'), ['-D', dataDir, '-U', CLUSTER_USER, '--auth=trust', '-E', 'UTF8', '--locale=C']);
 }
 
@@ -289,7 +291,7 @@ export async function openCluster(options: OpenClusterOptions): Promise<RunningC
   if (stopping !== undefined) await stopping;
   const env = options.env ?? process.env;
   const log = options.log ?? ((line: string) => defaultLog.warn(line, { madarch: 'postgres' }));
-  const bin = join(options.bin ?? (await ensurePostgresInstalled({ env, progress: (line) => log(line) })).bin);
+  const bin = join(options.bin ?? (await ensurePostgresInstalled({ env, progress: (line) => defaultLog.info(line, { madarch: 'postgres' }) })).bin);
   const { dataDir, socketDir } = { dataDir: resolve(options.dataDir), socketDir: resolve(options.socketDir) };
   mkdirSync(socketDir, { recursive: true, mode: 0o700 });
   chmodSync(socketDir, 0o700);

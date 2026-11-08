@@ -53,8 +53,9 @@ async function sharedAdapters() {
 describe('one database owner per process', () => {
   test('the history and the query database hold their tables in the one database the owner opened', async () => {
     const { owner, history, database } = await sharedAdapters();
-    // Both adapters' tables answering from one connection is what "one
-    // owner" means; two databases would each show only its own tables.
+    // The history makes its tables on its first use: this read is what makes them, and then both adapters' tables
+    // answer from the one connection, which is what "one owner" means.
+    await history.read();
     const tables = await owner.run(async (transaction) => {
       const rows = await transaction.query<{ table_name: string }>(
         "SELECT table_name FROM information_schema.tables WHERE table_schema = 'public' ORDER BY table_name",

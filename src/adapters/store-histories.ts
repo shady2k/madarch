@@ -51,7 +51,7 @@ export async function openStoreHistories(options: StoreHistoriesOptions): Promis
     historyOf(database: string): HistoryStore {
       let history = opened.get(database);
       if (history === undefined) {
-        history = createHistoryStore({ cluster: lease.ref, database, clock: options.clock });
+        history = createHistoryStore({ store: options.store, cluster: lease.ref, database, clock: options.clock });
         opened.set(database, history);
       }
       return history;

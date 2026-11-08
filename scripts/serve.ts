@@ -14,6 +14,7 @@
 import { startServer } from '../src/index.js';
 import { createQueryDatabase } from '../src/adapters/query-database.js';
 import { join } from 'node:path';
+import { existsSync } from 'node:fs';
 
 const USAGE = 'usage: bun scripts/serve.ts --data <folder> [--host 127.0.0.1] [--port 4180]';
 
@@ -77,6 +78,12 @@ async function main(args: readonly string[]): Promise<number> {
     }
   }
 
+  // The data folder is the caller's: the source histories live there, and a folder that is not there is a mistake to
+  // name rather than a store to make (the query database's own store is made under it).
+  if (!existsSync(data)) {
+    console.error(`${data}: the data folder does not exist: name the folder the server keeps its source histories in, or create it first`);
+    return 2;
+  }
   try {
     const queryDatabase = await createQueryDatabase({ store: join(data, '.query-graph') });
     const server = await startServer({ dataFolder: data, queryDatabase, host, port });

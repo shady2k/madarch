@@ -252,7 +252,7 @@ export function createHistoryStore(options: HistoryStoreOptions): HistoryStore {
   const ownsOwner = options.owner === undefined;
   /** The owner, opened on first use: a store's cluster is started there, and a history no operation touched opens nothing. */
   let openedOwner: DatabaseOwner | undefined = options.owner;
-  let location = options.owner?.location ?? (options.store === undefined ? 'a private database' : options.store);
+  let location = options.owner?.location ?? (options.store === undefined ? 'a private database' : `${options.store} (${options.database ?? 'madarch'})`);
   // The tables are created before the first operation, and the transaction
   // that creates them is queued on the owner at once — before this function
   // returns, so ahead of any later work on the owner, its close included. A
@@ -262,12 +262,15 @@ export function createHistoryStore(options: HistoryStoreOptions): HistoryStore {
   const opened = (async () => {
     try {
       const owner = openedOwner ?? await createDatabaseOwner({
-        ...(options.store === undefined ? {} : { store: options.store }),
+        // A cluster another part of the run holds is opened on its own; `store` then only names the place a message
+        // speaks of.
+        ...(options.store === undefined || options.cluster !== undefined ? {} : { store: options.store }),
         ...(options.database === undefined ? {} : { database: options.database }),
         ...(options.cluster === undefined ? {} : { cluster: options.cluster }),
       });
       openedOwner = owner;
-      location = owner.location;
+      // A store names the place a message speaks of; only a history with no store of its own is named by the owner.
+      if (options.store === undefined) location = owner.location;
       await owner.transaction('write', async (transaction) => {
         for (const statement of SCHEMA) await transaction.query(statement);
         const columns = await transaction.query<{ column_name: string }>(

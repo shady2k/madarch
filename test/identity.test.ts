@@ -12,6 +12,9 @@ import { spawnSync } from 'node:child_process';
 import { LOCAL_MARK, authorEnv, commitArguments, authorOf, identityTrailer, localGitIdentity, whoIsTheUser, type IdentityProvider } from '../src/identity/identity.js';
 import { gitEnv } from './git-env.js';
 
+/** git's configuration sources sealed off: no system or global user is the fixture's. */
+const SEALED = { GIT_CONFIG_GLOBAL: '/dev/null', GIT_CONFIG_NOSYSTEM: '1' };
+
 let folder: string | undefined;
 afterEach(() => { if (folder !== undefined) rmSync(folder, { recursive: true, force: true }); folder = undefined; });
 
@@ -43,14 +46,15 @@ describe('the local identity', () => {
   });
 
   test('a missing name or email is a refusal naming the product folder and the command that sets it', () => {
-    const noName = localGitIdentity(repository({ 'user.email': 'a@example.test' }));
+    // git is asked in a sealed environment: a machine's own system or global config names a user this fixture did not.
+    const noName = localGitIdentity(repository({ 'user.email': 'a@example.test' }), SEALED);
     expect(noName.ok).toBe(false);
     if (!noName.ok) {
       expect(noName.message).toContain(folder!);
       expect(noName.message).toContain('git config --global user.name');
     }
     rmSync(folder!, { recursive: true, force: true });
-    const noEmail = localGitIdentity(repository({ 'user.name': 'A' }));
+    const noEmail = localGitIdentity(repository({ 'user.name': 'A' }), SEALED);
     expect(noEmail.ok).toBe(false);
     if (!noEmail.ok) {
       expect(noEmail.message).toContain(folder!);
@@ -72,7 +76,7 @@ describe('the local identity', () => {
     const answer = localGitIdentity(repository({ 'user.name': 'Config', 'user.email': 'config@example.test' }), { GIT_AUTHOR_NAME: 'Env Name', GIT_AUTHOR_EMAIL: 'env@example.test' });
     expect(answer.ok && [answer.identity.name, answer.identity.email]).toEqual(['Env Name', 'env@example.test']);
     rmSync(folder!, { recursive: true, force: true });
-    const noEmail = localGitIdentity(repository({ 'user.name': 'A' }), { GIT_AUTHOR_NAME: 'Env Name' });
+    const noEmail = localGitIdentity(repository({ 'user.name': 'A' }), { ...SEALED, GIT_AUTHOR_NAME: 'Env Name' });
     expect(noEmail.ok).toBe(false);
   });
 

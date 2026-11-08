@@ -6,7 +6,7 @@ import { createSqlQueryDatabase } from '../src/adapters/sql-query-database.js';
 import type { SqlExecutor, SqlQueryDriver, SqlTransactionKind } from '../src/query/sql-driver.js';
 import type { VectorRecord } from '../src/vector/types.js';
 import { createTestQueryDatabase, serverPgVectorVersion } from './test-database.js';
-import { skippedBecauseOutOfWorkflow } from './fill-skip-list.js';
+import { skippedCaseOf } from './fill-skip-list.js';
 
 /**
  * Why the two search cases below are not run here: the pinned server build
@@ -14,7 +14,7 @@ import { skippedBecauseOutOfWorkflow } from './fill-skip-list.js';
  * the vector index's step. A case that the current steps' paths reach is never
  * skipped, and the projection itself opens and answers every graph query.
  */
-const VECTOR_STEP = skippedBecauseOutOfWorkflow('test/sql-vector-index.test.ts');
+const VECTOR_STEP = skippedCaseOf('test/sql-vector-index.test.ts', 'Vector search on a server is exact') ?? skippedCaseOf('test/sql-vector-index.test.ts', 'preserves vector results across close and reopen');
 if (VECTOR_STEP === undefined) throw new Error('test/sql-vector-index.test.ts: its search cases must be named in test/fill-skip-list.ts');
 const vectorVersion = await serverPgVectorVersion();
 const searchable = vectorVersion === '0.8.7';

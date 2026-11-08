@@ -110,7 +110,12 @@ export async function createTestDatabaseOwner(options: TestDatabaseOptions = {})
  * database of its own, without a cluster per case.
  */
 export async function createTestHistory(options: { readonly clock: Clock; readonly store?: string }): Promise<HistoryStore> {
-  const owner = await createTestDatabaseOwner(options.store === undefined ? {} : { store: options.store });
+  if (options.store !== undefined) {
+    // A history of a store of its own: it opens and closes the store, and names it in the errors it reports.
+    const held = createHistoryStore({ store: options.store, clock: options.clock });
+    return { ...held, close: async () => { await held.close(); } };
+  }
+  const owner = await createTestDatabaseOwner();
   const history = createHistoryStore({ owner, clock: options.clock });
   return {
     ...history,

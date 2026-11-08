@@ -94,6 +94,9 @@ function sourceIsAllowed(source: string, goModules: readonly string[] = []): boo
   if (host === 'json-schema.org' && owner === 'draft') return true;
   if (host === 'astral.sh' && owner === 'uv' && repo === 'install.sh') return true;
   if (host === 'viewscreen.githubusercontent.com' && owner === 'markdown' && repo === 'mermaid') return true;
+  // The PostgreSQL build madarch installs is fetched from its own release page: the one source of the server's archives
+  // (madarch-8bdc.2.5, decision 0024's amendment), pinned by version and by the sha256 of each platform's archive.
+  if (host === 'github.com' && owner === 'theseus-rs' && repo === 'postgresql-binaries') return true;
   // Madarch's own Homebrew tap is a release channel, not an outside repository.
   return (host === 'github.com' || host === 'raw.githubusercontent.com') && owner === 'shady2k' && ['madarch', 'madarch-product', 'homebrew-tap'].includes(repo);
 }

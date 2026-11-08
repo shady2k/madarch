@@ -72,10 +72,14 @@ export function postgresArchiveUrl(build: PostgresBuild): string {
  * are one platform's).
  */
 export function postgresInstallFolder(env: Readonly<Record<string, string | undefined>> = process.env): string {
-  return join(madarchHome(env), 'tools', 'postgresql', POSTGRES_VERSION);
+  // A folder a caller names, for a run whose homes are its own (the test preload points this at the account's install, so
+  // a child process does not download the server again), and otherwise the home's own.
+  const named = env['MADARCH_TOOLS']?.trim();
+  return join(named === undefined || named === '' ? join(madarchHome(env), 'tools') : named, 'postgresql', POSTGRES_VERSION);
 }
 
 /** The folder the archives are downloaded into and unpacked from, before they are files of an install. */
 export function postgresDownloadFolder(env: Readonly<Record<string, string | undefined>> = process.env): string {
-  return join(madarchHome(env), 'tools', 'postgresql', 'downloads');
+  const named = env['MADARCH_TOOLS']?.trim();
+  return join(named === undefined || named === '' ? join(madarchHome(env), 'tools') : named, 'postgresql', 'downloads');
 }

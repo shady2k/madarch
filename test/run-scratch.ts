@@ -129,6 +129,9 @@ function createRunScratch(): RunScratch {
     const tools = join(account, 'madarch', 'tools');
     mkdirSync(tools, { recursive: true });
     symlinkSync(tools, join(madarchHome, 'tools'), 'dir');
+    // And the same folder by name, for a child whose home and MADARCH_HOME are its own: it finds the install instead of
+    // downloading the server again (measured: a second download of 38 MB in a test that starts its own home).
+    process.env['MADARCH_TOOLS'] = tools;
   }
   // The cache folder itself is not made here: `ensureWikiCacheRoot` creates it
   // private to the user, and refuses one already writable by group or others.

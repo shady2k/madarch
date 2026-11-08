@@ -12,10 +12,10 @@
  */
 import { afterAll, beforeAll, describe, expect, test } from 'bun:test';
 import { runGit } from '../src/product/git.js';
-import { mkdirSync, mkdtempSync, readdirSync, rmSync, writeFileSync } from 'node:fs';
+import { mkdirSync, mkdtempSync, readFileSync, readdirSync, rmSync, writeFileSync } from 'node:fs';
 import { repositoryFacts } from '../src/graph/index.js';
 import { readProduct } from '../src/product/manifest.js';
-import { knowledgeRootOf, productStoreFolder, storeSnapshotsFolder } from '../src/product/store.js';
+import { knowledgeRootOf, productStoreFolder, storeDatabasePath, storeSnapshotsFolder } from '../src/product/store.js';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import type { FillRunResult } from '../src/fill/orchestrator-host.js';
@@ -157,7 +157,11 @@ describe('the update a default-branch commit starts', () => {
     // The first fill and the update each finished a snapshot for the reader.
     expect(snapshots.length).toBeGreaterThanOrEqual(2);
     const newest = snapshots.at(-1)!;
-    const owner = await createTestDatabaseOwner({ store: join(storeSnapshotsFolder(store), String(newest)), btreeGist: true });
+    // The generation names the store the update wrote: with one server the reader reads that store, and a generation is
+    // the line that says which moment it stands at, not a copy of it.
+    const generation = JSON.parse(readFileSync(join(storeSnapshotsFolder(store), String(newest)), 'utf8')) as { store: string; at: string };
+    expect(generation.store).toBe(storeDatabasePath(store));
+    const owner = await createTestDatabaseOwner({ store: generation.store, btreeGist: true });
     await owner.ready;
     try {
       const pins = await owner.run((tx) => tx.query<{ repo: string; commit_hash: string }>('SELECT repo, commit_hash FROM knowledge_fill ORDER BY repo'));

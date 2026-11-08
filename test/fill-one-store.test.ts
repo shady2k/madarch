@@ -9,7 +9,7 @@
  */
 import { afterAll, beforeAll, describe, expect, test } from 'bun:test';
 import { execFileSync } from 'node:child_process';
-import { existsSync, mkdirSync, mkdtempSync, readdirSync, rmSync } from 'node:fs';
+import { existsSync, readFileSync, mkdirSync, mkdtempSync, readdirSync, rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { type DatabaseOwner } from '../src/adapters/database-owner.js';
@@ -94,9 +94,13 @@ describe('the one store of one product', () => {
     const wiki = new KnowledgeProduct({ productFolder: product, storeRoot: knowledgeRootOf(PRODUCTS_HOME) });
     try {
       expect(wiki.settingsView().store).toBe(store);
-      // The reader's own answer: the snapshot the command took, with the run's pins.
+      // The reader's own answer: the generation the command finished names the store the fill wrote (with one server a
+      // generation is a line, not a copy), and that store holds the run's pins.
       await wiki.status();
-      const owner = await openStore(join(storeSnapshotsFolder(store), String(snapshot)));
+      const generation = JSON.parse(readFileSync(join(storeSnapshotsFolder(store), String(snapshot)), 'utf8')) as { store: string; at: string };
+      expect(generation.store).toBe(storeDatabasePath(store));
+      expect(Number.isFinite(Date.parse(generation.at))).toBe(true);
+      const owner = await openStore(generation.store);
       try {
         const pins = await owner.run((tx) => tx.query<{ repo: string; commit_hash: string }>('SELECT repo, commit_hash FROM knowledge_fill ORDER BY repo'));
         expect(pins.rows).toContainEqual({ repo: name, commit_hash: head });

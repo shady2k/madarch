@@ -591,7 +591,8 @@ export class KnowledgeProduct {
       const held = this.reader!;
       // A delayed or already-consumed notice cannot change the active snapshot's pins.
       if (held.seq >= seq) return;
-      const path = this.storeFolder();
+      // The store a reader reads never moves: a newer generation is a reader opened at a newer moment on the same store.
+      const path = held.path;
       const owner = new RemoteOwner(path, { create: false });
       try {
         await owner.ready;
