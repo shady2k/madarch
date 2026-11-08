@@ -398,3 +398,37 @@ Then put: an epic above the feature; many requests per piece of work (a request 
 Owner (2026-11-08): «Давай пробовать»
 
 Agreed: the order M0 → L1 (catalog first) → I1 → G1 → O1, the epic, many requests, and the kinds above.
+
+## Arch.1 Processes become roles: api and fill (2026-11-08, after PR 222)
+
+Owner: «А откуда у нас несколько процессов?» → (the fill and read worker processes exist because PGlite blocked its thread; with a real PostgreSQL server the read worker is no longer needed)
+Owner: «Давай обсудим. Можем собирать назад в один процесс, в монолит. Взаимодействие с БД должно идти через единый модуль абстракции. С другой стороны веб-сервер и заполнение и правда стоит разделить. Причем это особенно важно, когда таких репозиториев и изменениев станет больше, тогда мы сможем горизонтально масштабироваться. В локальной работе это не важно, а вот в серверной очень важно, код же у нас будет единый.»
+Owner: «Не знаю. А как лучше? Может быть веб тоже разделить? Само веб-приложение и отдельно api и mcp, а также отдельно заполнение?»
+Put: one binary, a role per instance by flag: `api` (HTTP, MCP and the built web files; stateless, scaled behind a balancer) and `fill` (workers taking jobs from the PostgreSQL queue; scaled by count). Roles talk only through PostgreSQL; all SQL through the one storage module. The read worker goes. Web files are static assets, served by `api` locally and by a CDN or nginx on a server. A separate `mcp` role only if its load ever differs. Locally `madarch serve` runs `api` in its process and one `fill` as a separate process of the same binary, so local behaves as the server does.
+Owner: «Звучит хорошо.»
+
+## Arch.2 The public read-only wiki of madarch runs with a back end, not as static files (2026-11-08)
+
+Owner: «А еще, я потом хочу опубликовать вики madarch, чтобы показать как это будет выглядеть. В режиме read-only. Как это реализовать? Генерить статику? Или с бэком, который следит за репозиторием?»
+Put: the same two roles — `api --read-only` (pages, search and MCP; every write refused by the API) and `fill` following madarch's repository and filling each new commit on main — on one small server with PostgreSQL, only `api` exposed, with a request rate limit. Static export rejected: no search, graph queries or MCP, no live filling, and a second serving surface.
+Owner: «Да»
+
+## Ent.1 Work is done on entities of every kind; the task is one kind among them (2026-11-08)
+
+Owner: «Почему мы не делаем сейчас каталог сущностей?» → (task madarch-lk4r.2 started) → «А как же те отдельные сущности, которые мы с тобой обуждали ранее?» → (comment, link, time moved to a common area) → «А еще? Поищи, мы там обсуждали дизайн, безопасносить, sre и прочие разделы.» → «Блин, ну какая работа? О чем ты? Я с тобой говорю о уникальных сущностях. Ты меня не понимаешь?» → «Так а почему это виды? Я тебя не очень понимаю. Вот давай представим. У меня возникла идея, регистрируем сущность. Затем мы расписали US, создали несколько со связью к идее. Потом мы сделали исследование, тоже сущность.»
+Put: a kind is the type ("Idea"), an entity is one instance; the product's life is a chain of entities of many kinds linked to each other (idea → user stories → research → design → requirement → decision → task → code → test → release → incident → postmortem); lifecycle, responsible person, executor, priority and per-step accounting belong to an entity of any kind people or agents author, not only to a task; the agent works on them directly (writes the stories, runs the research).
+Owner: «Ну кажется да. А ты что думаешь?»
+Put: agreed, as ALM tools do (Polarion, codebeamer work items of any type with workflows); limits: kinds that come from code (function, file, endpoint) take no lifecycle or responsible person, only as-is and to-be; a task stays for work with no entity of its own (update a dependency, investigate) or spanning many; the queue is entities of any kind in a takable status, priority from the feature or epic they are linked to, the reservation on a subtree of the graph; the agent creates entities as drafts rather than tasks to write them. The catalog's Schema subgroup gains the shared parts lifecycle, responsibility (responsible and executor) and accounting; the manifest attaches them per kind.
+Owner: «Ну кажется да. Только я тебя еще раз прошу показать мне на примере как это будет, чтобы оценить верно ли ты меня понял.»
+Put: a worked example (an online shop: request R → idea I «Доставка в день заказа» approved → three user stories linked "refines", one declined with a comment → a question blocks a story → a research entity with its findings → design, requirement, architecture decision, code from the repository, a task for the code change through the agent's lifecycle, test, release, incident, postmortem; the idea's page shows the whole tree with statuses, responsible people and cost summed upward; the agent's queue mixes kinds).
+Owner: «Ну да, похоже на то. Только вот этот ручной перевод заявок меня смущает. В диалоге с агентом это несложно. Но я же не будут постоянно статусы менять?»
+
+## Ent.2 Statuses move by events declared in the manifest; a person only decides
+
+Put: a transition names the event that moves it (a linked story created, a package approved, merged, its test passing), declared in the manifest beside the kind's statuses, run by the one engine; a person tells the agent what is needed, answers questions, approves or declines packages; approval may be given in the dialog with the agent (the same approval as in «На согласовании»; that section holds what did not come from one's own dialog); moving a status by hand stays possible and is a request like any change.
+Owner: «Значит у каждого статуса должен быть подстатус? Типа ожидается согласование? Иначе мы потеряем текущий статус.»
+
+## Ent.3 One status; approval, blocking and reservation are separate dimensions
+
+Put: no sub-status; an entity has one current status; a pending approval is a package entity linked to it, shown as a mark beside the status, applied on approval, closed with its reason on decline, several at once allowed; "awaiting clarification" is not a status either but an open question linked to the entity which, with blocking links, makes it blocked; dimensions: status (one, by the kind's lifecycle), pending approval (open packages), blocked (open questions and blockers), reservation (who holds it) — each computed, as GitHub keeps review and conflicts beside a pull request's state and Jira Service Management keeps approvals apart from status.
+Owner: «Да»
