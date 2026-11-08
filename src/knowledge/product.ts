@@ -2242,8 +2242,18 @@ export class KnowledgeProduct {
     } catch {
       // The store cannot be opened: the counts stand as the body read them and the answer still says how the fill is.
     }
-    const kinds = await kindSummaries(bound).catch(() => undefined);
-    const repository = await this.repositoryView().catch(() => undefined);
+    // A store read of a status answer is a read of a store a fill may be finishing in: a failure is tried once more, a
+    // moment later, and only then stands as unanswered.
+    const once = async <T>(read: () => Promise<T>): Promise<T | undefined> => {
+      try {
+        return await read();
+      } catch {
+        await Bun.sleep(150);
+        return await read().catch(() => undefined);
+      }
+    };
+    const kinds = await once(async () => await kindSummaries(bound));
+    const repository = await once(async () => await this.repositoryView());
     const run = this.runViewOf();
     this.fillExtras = {
       ...(repository === undefined ? {} : { counts: repository.counts }),
