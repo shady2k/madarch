@@ -54,7 +54,8 @@ async function press(server: StartedServer, name: string): Promise<Record<string
   expect(pressed.status).toBe(202);
   for (let attempt = 0; attempt < 1200; attempt++) {
     const status = await json(server, name, '/api/k/status');
-    const fill = status.body['fill'] as Record<string, unknown>;
+    const fill = status.body['fill'] as Record<string, unknown> | undefined;
+    if (fill === undefined) throw new Error(`/api/k/status answered ${String(status.status)} with no fill state: ${JSON.stringify(status.body).slice(0, 500)}`);
     if (fill['state'] !== 'running') return status.body;
     await new Promise((resolve) => setTimeout(resolve, 250));
   }

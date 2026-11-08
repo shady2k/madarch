@@ -2190,6 +2190,15 @@ export class KnowledgeProduct {
    * cache has replaced — while a fill holds the collection back, the answer is pending (madarch-u3vw.8).
    */
   private async statusLive(body: WikiStatus, ctx: RenderContext | undefined): Promise<WikiStatus> {
+    try {
+      return await this.statusLiveNow(body, ctx);
+    } catch {
+      // The store could not be read for this answer: the fill state is this process's own and is answered regardless.
+      return { ...body, fill: this.statusFill(), chosenAgent: this.chosenAgent() };
+    }
+  }
+
+  private async statusLiveNow(body: WikiStatus, ctx: RenderContext | undefined): Promise<WikiStatus> {
     const problems = this.problemsKeySafe();
     const collected = this.problemsCache;
     let loop = body.loop;
@@ -2205,7 +2214,7 @@ export class KnowledgeProduct {
     // A snapshot the fill published moves the store's numbers, not the files the body was made from: they are read for
     // every answer, in the reader's process, over the snapshot the pages show.
     const numbers = ctx === undefined ? undefined : await this.numbersOf(ctx);
-    return { ...body, ...(numbers ?? {}), loop, fill: this.statusFill(), writer: ctx === undefined ? this.writer : { ...this.writer, units: this.unitRows(ctx) }, chosenAgent: this.chosenAgent() };
+    return { ...body, ...(numbers ?? {}), loop, fill: this.statusFill(), writer: ctx === undefined ? this.writer : { ...this.writer, units: this.unitsOf(ctx) }, chosenAgent: this.chosenAgent() };
   }
 
   /**
@@ -2213,6 +2222,18 @@ export class KnowledgeProduct {
    * The context's own read of the manifest and the product's documents is not made again — only the two fields that read
    * the store are bound to the reader this answer uses, so a snapshot the fill published is stated at once.
    */
+  /**
+   * The writer's units for an answer: a store read that fails (a fill holds a lock, a connection went) leaves the units as
+   * they were last answered, because a status answer is read for how the fill is and must not fail on its store.
+   */
+  private unitsOf(ctx: RenderContext): WriterUnit[] {
+    try {
+      return this.unitRows(ctx);
+    } catch {
+      return this.statusMemo?.body.writer.units ?? [];
+    }
+  }
+
   private async numbersOf(ctx: RenderContext): Promise<Partial<WikiStatus>> {
     let bound = ctx;
     try {
@@ -2451,7 +2472,7 @@ export class KnowledgeProduct {
       filled: this.pins.size > 0,
       incomplete,
       fill: this.statusFill(),
-      writer: { ...this.writer, units: this.unitRows(context.ctx) },
+      writer: { ...this.writer, units: this.unitsOf(context.ctx) },
       bounds: { ...WRITER_BOUNDS, editorialRequestsPerPage: this.editorialRequestsPerPage() },
       chosenAgent: this.chosenAgent(),
       home: homeEntity?.id ?? null,
