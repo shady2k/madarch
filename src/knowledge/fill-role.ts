@@ -9,6 +9,7 @@ import { join } from 'node:path';
 import { readProduct } from '../product/manifest.js';
 import { startKnowledgeFill } from './fill-run.js';
 import { claimFillRun, openFillRunQueue, settleFillRun } from '../fill/run-jobs.js';
+import { withSpan } from '../obs/trace.js';
 import { readRunControl, writeFillEnd } from '../fill/orchestrator-store.js';
 
 /** The owner one store is read through, as `startKnowledgeFill` takes it: derived, so this module holds no connection. */
@@ -65,7 +66,7 @@ export async function runFillRole(options: FillRoleOptions): Promise<number> {
         return null;
       });
       if (job === null) continue;
-      await runOne(options, held, job, log);
+      await withSpan('fill.role.run', { 'madarch.product': job.data.product, 'madarch.run': job.data.runId }, async () => { await runOne(options, held, job, log); });
     }
     await Bun.sleep(250);
   }
