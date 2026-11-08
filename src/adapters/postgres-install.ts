@@ -125,12 +125,12 @@ function runProgram(program: string, args: readonly string[]): void {
 }
 
 /**
- * The waits between a download's attempts, in milliseconds: five attempts over about half a minute. GitHub's release
+ * The waits between a download's attempts, in milliseconds: five attempts over about a minute. GitHub's release
  * download answers 502/504 at times (CI run 42467156631: shards 3 and 4 could not install the server at all), and a
  * connection dropped mid-archive is as transient. A 4xx, a 416 and a sha256 mismatch are not: the answer says what is
  * wrong, and waiting changes nothing.
  */
-const RETRY_DELAYS_MS: readonly number[] = [1_000, 2_000, 4_000, 8_000, 16_000];
+const RETRY_DELAYS_MS: readonly number[] = [2_000, 5_000, 10_000, 20_000];
 
 /** A download failure another attempt may answer differently. */
 class TransientDownload extends Error {}
@@ -154,21 +154,22 @@ async function downloadArchive(options: {
   readonly progress: (line: string) => void;
 }): Promise<void> {
   const { build, url, archive, folder } = options;
+  const attempts = RETRY_DELAYS_MS.length + 1;
   let last: TransientDownload | undefined;
-  for (let attempt = 1; attempt <= RETRY_DELAYS_MS.length; attempt += 1) {
+  for (let attempt = 1; attempt <= attempts; attempt += 1) {
     try {
       await downloadAttempt(options);
       return;
     } catch (error) {
       if (!(error instanceof TransientDownload)) throw error;
       last = error;
-      if (attempt === RETRY_DELAYS_MS.length) break;
+      if (attempt === attempts) break;
       const wait = RETRY_DELAYS_MS[attempt - 1]!;
-      options.progress(`madarch: the PostgreSQL ${POSTGRES_VERSION} download failed (attempt ${String(attempt)} of ${String(RETRY_DELAYS_MS.length)}): ${error.message}; trying again in ${String(Math.round(wait / 1_000))} s`);
+      options.progress(`madarch: the PostgreSQL ${POSTGRES_VERSION} download failed (attempt ${String(attempt)} of ${String(attempts)}): ${error.message}; trying again in ${String(Math.round(wait / 1_000))} s`);
       await Bun.sleep(wait);
     }
   }
-  throw new Error(`${WHERE}:1: the PostgreSQL ${POSTGRES_VERSION} archive could not be downloaded from ${url} after ${String(RETRY_DELAYS_MS.length)} attempts: ${last?.message ?? 'the download failed'}. madarch installs its server once, into ${folder}; run the command again when the release is reachable — a download that was cut short continues where it stopped`);
+  throw new Error(`${WHERE}:1: the PostgreSQL ${POSTGRES_VERSION} archive could not be downloaded from ${url} after ${String(attempts)} attempts: ${last?.message ?? 'the download failed'}. madarch installs its server once, into ${folder}; run the command again when the release is reachable — a download that was cut short continues where it stopped`);
 }
 
 /** One attempt at the download: the network's, this file's, and the archive's own answer. */
