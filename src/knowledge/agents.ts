@@ -12,6 +12,7 @@
  * code.
  */
 import path from 'node:path';
+import { readFileSync } from 'node:fs';
 import { ACP_ADAPTERS, acpAdapterBinFolder, acpAgentFolder, acpInstallOffer, acpLaunchOf, acpLoginState, type AcpAdapterCatalogueEntry } from '../fill/acp-probe.js';
 import { installAcpAdapter } from '../fill/acp-install.js';
 import { resolveExecutable } from '../fill/acp.js';
@@ -55,12 +56,24 @@ function launchOf(entry: AcpAdapterCatalogueEntry, env: DraftEnv): { binary: str
   return entry.launches.find((candidate) => resolveExecutable(candidate.binary, searchPath) !== undefined);
 }
 
-/** What the reader sees of each agent: whether its adapter is here, its sign-in, and what an install fetches. */
+/** The version of an npm adapter madarch installed, read from the package it wrote; null when it cannot be read. */
+function installedVersionOf(entry: AcpAdapterCatalogueEntry, env: DraftEnv, home: string): string | null {
+  if (entry.install.kind !== 'npm') return null;
+  try {
+    const kept = JSON.parse(readFileSync(path.join(acpAgentFolder(entry, env, home), 'node_modules', entry.install.package, 'package.json'), 'utf8')) as { version?: unknown };
+    return typeof kept.version === 'string' && kept.version !== '' ? kept.version : null;
+  } catch {
+    return null;
+  }
+}
+
+/** What the reader sees of each agent: whether its adapter is here, where and at what version, its sign-in, and what an install fetches. */
 export function offers(env: DraftEnv): AgentOffer[] {
   const home = homeFromEnv(env);
   return WRITER_AGENTS.map((id) => {
     const entry = adapterOf(id)!;
-    let installed = launchOf(entry, env) !== undefined;
+    const launch = launchOf(entry, env);
+    let installed = launch !== undefined;
     if (installed && entry.machineLaunch !== undefined) {
       try { acpLaunchOf(entry, env, process.cwd(), { PATH: searchPathOf(entry, env) }); } catch { installed = false; }
     }
@@ -72,9 +85,11 @@ export function offers(env: DraftEnv): AgentOffer[] {
       installed,
       login: login.state,
       loginDetail: login.detail,
+      where: installed && launch !== undefined ? resolveExecutable(launch.binary, searchPathOf(entry, env)) ?? null : null,
+      version: installed ? installedVersionOf(entry, env, home) : null,
       install: installed || offer === undefined ? null : entry.install.kind === 'npm'
-        ? { package: entry.install.package, version: entry.install.version, size: `${Math.round((entry.install.installedBytes ?? entry.install.unpackedBytes) / 1_000_000)} MB`, folder: acpAgentFolder(entry, env, home) }
-        : { package: entry.install.program, version: 'machine-installed', size: 'bundled', folder: entry.install.program },
+        ? { kind: 'npm' as const, package: entry.install.package, version: entry.install.version, size: `${Math.round((entry.install.installedBytes ?? entry.install.unpackedBytes) / 1_000_000)} MB`, folder: acpAgentFolder(entry, env, home) }
+        : { kind: 'bundled' as const, program: entry.install.program, note: entry.install.note },
     };
   });
 }

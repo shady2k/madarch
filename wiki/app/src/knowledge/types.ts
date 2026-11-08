@@ -316,7 +316,14 @@ export type AgentOffer = {
   installed: boolean;
   login: 'signed-in' | 'not-signed-in' | 'unknown';
   loginDetail: string;
-  install: { package: string; version: string; size: string; folder: string } | null;
+  /** Where the adapter's program was found when it is installed; null when it is not or is not known. */
+  where: string | null;
+  /** The version madarch can read from the installed adapter; null when it cannot read one. */
+  version: string | null;
+  install:
+    | { kind: 'npm'; package: string; version: string; size: string; folder: string }
+    | { kind: 'bundled'; program: string; note: string }
+    | null;
 };
 
 export type WikiStatus = {

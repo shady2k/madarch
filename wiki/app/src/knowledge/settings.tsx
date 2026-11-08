@@ -14,6 +14,7 @@ import { Badge } from '@/components/ui/badge.js';
 import { Button } from '@/components/ui/button.js';
 import { chooseAgent, chooseModelRole, getAgentChoices, getAgentChoicesFor, getAgents, getGraphVerdicts, getProductSettings, rewritePages, saveGraphVerdictBudgets, saveProductSettings, startFresh } from './api.js';
 import { useRead } from './live.js';
+import { agentOfferNote } from './writer.js';
 import { PageSkeleton } from './skeleton.js';
 import { useTabTitle } from './tabs.js';
 import { K_HOME } from './routes.js';
@@ -56,7 +57,7 @@ function AgentSection({ settings, reload }: { settings: ProductSettings; reload:
             <span className="min-w-0 flex-1">
               <span className="block font-medium text-ink">{agent.label}</span>
               <span className="block text-small text-muted">
-                {agent.installed ? t('knowledge.writer.installed') : t('knowledge.writer.notInstalled', { package: agent.install?.package ?? agent.label, version: agent.install?.version ?? '', size: agent.install?.size ?? '', folder: agent.install?.folder ?? '' })}
+                {agentOfferNote(t, agent)}
                 {agent.login === 'signed-in' ? ` ${t('knowledge.writer.signedIn')}` : agent.login === 'not-signed-in' ? ` ${t('knowledge.writer.notSignedIn', { agent: agent.label })}` : ''}
               </span>
             </span>
