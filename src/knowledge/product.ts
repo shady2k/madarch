@@ -608,7 +608,7 @@ export class KnowledgeProduct {
       // The new snapshot's own numbers are read here, beside the answers the old reader still gives, so the first page
       // asked after the publish is not the one that pays for them.
       void this.repositoryView().then((repository) => {
-        if (this.reader?.seq === seq) this.storeOf = { seq, ...(repository === undefined ? {} : { repository }) };
+        if (this.reader?.seq === seq && this.storeOf?.seq !== seq) this.storeOf = { key: '', seq, ...(repository === undefined ? {} : { repository }) };
       }).catch(() => undefined);
       // What the repositories were filled to is applied with the snapshot it belongs to: a source is read at the commit
       // the graph it is shown beside was filled from. A caller that names no pins takes the snapshot's own
@@ -2223,7 +2223,7 @@ export class KnowledgeProduct {
     }
     // A snapshot the fill published moves the store's numbers, not the files the body was made from: they are read for
     // every answer, in the reader's process, over the snapshot the pages show.
-    const numbers = ctx === undefined ? undefined : await this.numbersOf(ctx);
+    const numbers = ctx === undefined ? undefined : await this.numbersOf(ctx, this.statusKey());
     return { ...body, ...(numbers ?? {}), loop, fill: this.statusFill(), writer: ctx === undefined ? this.writer : { ...this.writer, units: this.unitsOf(ctx) }, chosenAgent: this.chosenAgent() };
   }
 
@@ -2251,9 +2251,9 @@ export class KnowledgeProduct {
    * and under a loaded runner (CI run 42505805264: 266-338 ms across unrelated endpoints at the first publication) the
    * answers of that moment queued behind them.
    */
-  private storeOf: { seq: number; repository?: RepositoryFactsView; kinds?: KindSummary[] } | undefined;
+  private storeOf: { key: string; seq: number; repository?: RepositoryFactsView; kinds?: KindSummary[] } | undefined;
 
-  private async numbersOf(ctx: RenderContext): Promise<Partial<WikiStatus>> {
+  private async numbersOf(ctx: RenderContext, key: string): Promise<Partial<WikiStatus>> {
     let bound = ctx;
     try {
       const owner = await this.open();
@@ -2274,10 +2274,11 @@ export class KnowledgeProduct {
     };
     const seq = this.reader?.seq;
     const held = this.storeOf;
-    const same = held !== undefined && held.seq === seq;
+    // A generation's numbers stand while the files stand: a page written beside the product moves them (`status-work`).
+    const same = held !== undefined && held.seq === seq && held.key === key;
     const kinds = same && held.kinds !== undefined ? held.kinds : await once(async () => await kindSummaries(bound));
     const repository = same && 'repository' in held ? held.repository : await once(async () => await this.repositoryView());
-    if (seq !== undefined) this.storeOf = { seq, ...(repository === undefined ? {} : { repository }), ...(kinds === undefined ? {} : { kinds }) };
+    if (seq !== undefined) this.storeOf = { key, seq, ...(repository === undefined ? {} : { repository }), ...(kinds === undefined ? {} : { kinds }) };
     const run = this.runViewOf();
     this.fillExtras = {
       ...(repository === undefined ? {} : { counts: repository.counts }),
