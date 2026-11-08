@@ -36,8 +36,8 @@ import { linesOf } from './lines.js';
 import { applyReset, planReset, type ResetPlan } from './reset.js';
 import type { KnowledgeFillResult, KnowledgeFillRun } from './fill-run.js';
 import { askFillRun, openFillRunQueue } from '../fill/run-jobs.js';
-import { askRunControl, readRunControl } from '../fill/orchestrator-store.js';
-import { readLiveRun, readRun } from '../fill/state-store.js';
+import { askRunControl, readFillEnd } from '../fill/orchestrator-store.js';
+import { readLiveRun, readRun, readStoreStamp } from '../fill/state-store.js';
 import { fillWritesPages } from '../fill/steps.js';
 import { locationOf, type RenderContext } from './blocks.js';
 import { GraphReader } from './graph-read.js';
@@ -308,6 +308,8 @@ export class KnowledgeProduct {
   private reader: { owner: DatabaseOwner; seq: number } | undefined;
   /** The generation of the store this process has read: raised once per publication a fill announces. */
   private generation = 0;
+  /** The store's own stamp when this process last read it: a publication moves it, whoever ran the fill. */
+  private storeStamp: string | undefined;
   private opening: Promise<void> | undefined;
   /** The store's fill-run queue, opened with the store and closed with it (madarch-8bdc.9). */
   private fillQueue: Awaited<ReturnType<typeof openFillRunQueue>> | undefined;
@@ -741,6 +743,14 @@ export class KnowledgeProduct {
     }
   }
 
+  /** The declared repositories whose checkout holds no commit yet: what a fill says it could not read. */
+  private unreadOf(): { repository: string; path: string; reason: string }[] {
+    return this.repositories()
+      .filter((repo) => repo.present)
+      .filter((repo) => headCommitOf(repo.path) === undefined)
+      .map((repo) => ({ repository: repo.name, path: repo.path, reason: 'the checkout holds no commit yet' }));
+  }
+
   /** The file a paused run is kept in, beside the store whose pages it was writing. */
   private pauseFile(): string {
     return join(this.storeFolder(), 'pause.json');
@@ -951,6 +961,7 @@ export class KnowledgeProduct {
     const storeFolder = this.storeFolder();
     this.fillRunId = runId;
     let state: string | undefined;
+    let end: Awaited<ReturnType<typeof readFillEnd>> = null;
     try {
       const owner = await this.open();
       // One queue per product, opened with its store and closed with it: starting and stopping the queue's own scheduler
@@ -964,7 +975,12 @@ export class KnowledgeProduct {
         if (this.closed) return;
         const run = await readRun(owner, runId).catch(() => null);
         state = run?.state;
-        if (state === 'succeeded' || state === 'failed' || state === 'cancelled' || state === 'completed_partial') break;
+        if (state === 'succeeded' || state === 'failed' || state === 'cancelled' || state === 'completed_partial') {
+          // What the run answered — the reason it did not finish, the repositories it could not read — is the process
+          // that ran it's own record of its end (madarch-8bdc.9).
+          end = await readFillEnd(owner, runId).catch(() => null);
+          break;
+        }
         await Bun.sleep(250);
       }
     } catch (error) {
@@ -985,9 +1001,13 @@ export class KnowledgeProduct {
     // store kept a record of pages the run changed — never an absent field a reader would take for "unknown".
     this.changedLoaded = false;
     if (this.writer.state === 'waiting' && this.writer.units.length === 0) this.writer = { ...this.writer, state: 'idle' };
+    // The repositories the run could not read are the checkouts with no commit: the answer names them from the files,
+    // where the process that pressed the fill and the one that ran it agree without a second record.
+    const unread: { repository: string; path: string; reason: string }[] = end?.unread === undefined ? this.unreadOf() : [...end.unread];
     this.fill = {
       state: 'done', startedAt: this.fill.startedAt, finishedAt: (this.options.now?.() ?? new Date()).toISOString(), gaps: 0,
       changed: this.lastChangedPages() ?? [],
+      ...(unread.length === 0 ? {} : { unread }),
     };
     this.notify();
     this.lastUse = Date.now();
@@ -2057,6 +2077,20 @@ export class KnowledgeProduct {
    */
   private async followStoreFill(): Promise<void> {
     if (this.reader === undefined) return;
+    // A publication of a fill this process did not run moves the numbers an answer states (madarch-8bdc.9): the store's
+    // stamp is read before the answer, and a moved stamp reads its pins and its numbers again.
+    try {
+      const stamp = await readStoreStamp(this.reader.owner);
+      if (this.storeStamp !== stamp) {
+        this.storeStamp = stamp;
+        this.generation += 1;
+        this.reader = { owner: this.reader.owner, seq: this.generation };
+        this.storeOf = undefined;
+        await this.loadPins(this.reader.owner).catch(() => undefined);
+      }
+    } catch {
+      // The store cannot be read: the answer is what this process last knew.
+    }
     let live: Awaited<ReturnType<typeof readLiveRun>>;
     try {
       live = await readLiveRun(this.reader.owner);
@@ -2071,6 +2105,11 @@ export class KnowledgeProduct {
       return;
     }
     if (this.fill.state === 'running' && this.fillRunId !== undefined) {
+      // The run the press named may not be written yet by the process that took the job: only a run that stands settled
+      // ends the fill here.
+      const run = await readRun(this.reader.owner, this.fillRunId).catch(() => undefined);
+      if (run === undefined || run === null) return;
+      if (run.state !== 'succeeded' && run.state !== 'failed' && run.state !== 'cancelled' && run.state !== 'completed_partial') return;
       await this.published(undefined).catch(() => undefined);
       this.changedLoaded = false;
       this.fill = { state: 'done', startedAt: this.fill.startedAt, finishedAt: (this.options.now?.() ?? new Date()).toISOString(), gaps: 0, changed: this.lastChangedPages() ?? [] };

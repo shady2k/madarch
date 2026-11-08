@@ -40,7 +40,7 @@ import { SCHEMA_LOCK_SQL, storeSchemaLockKey } from '../adapters/schema-stamp.js
 
 /** The orchestrator's own tables; `createOrchestratorSchema` creates them and every error names the ones it touched. */
 export const ORCHESTRATOR_TABLES = [
-  'fill_run_configuration', 'fill_run_stage', 'fill_unit_plan', 'fill_unit_read', 'fill_unit_draft', 'fill_unit_draft_part', 'fill_unit_split', 'fill_publication', 'fill_event', 'fill_control',
+  'fill_run_configuration', 'fill_run_stage', 'fill_unit_plan', 'fill_unit_read', 'fill_unit_draft', 'fill_unit_draft_part', 'fill_unit_split', 'fill_publication', 'fill_event', 'fill_control', 'fill_end',
 ] as const;
 
 const SCHEMA: readonly string[] = [
@@ -50,6 +50,15 @@ const SCHEMA: readonly string[] = [
     run_id text PRIMARY KEY,
     action text NOT NULL,
     at bigint NOT NULL
+  )`,
+  // What a run ended with, where the api role reads it (madarch-8bdc.9): the process that ran the fill writes the answer
+  // its own result carried, and the process that pressed it states that answer.
+  `CREATE TABLE IF NOT EXISTS fill_end (
+    run_id text PRIMARY KEY,
+    state text NOT NULL,
+    message text,
+    unread jsonb,
+    finished_at timestamptz NOT NULL DEFAULT now()
   )`,
   `CREATE TABLE IF NOT EXISTS fill_run_configuration (
     run_id text PRIMARY KEY,
@@ -863,6 +872,42 @@ export async function publishUnitIn(executor: SqlExecutor, options: PublicationR
     record: { unitId: options.unitId, generation: options.generation, digest, facts, publishedAt: options.at },
     effects: step.effects,
   };
+}
+
+/** What a run of a fill ended with, as the process that ran it answered it (madarch-8bdc.9). */
+export interface FillEnd {
+  readonly runId: string;
+  readonly state: string;
+  readonly message?: string;
+  readonly unread?: readonly { readonly repository: string; readonly path: string; readonly reason: string }[];
+}
+
+/** Records how a run ended, where the process that pressed it reads it. */
+export async function writeFillEnd(database: OrchestratorDatabase, end: FillEnd): Promise<void> {
+  const at = here();
+  await run(at, database, `writeFillEnd(${end.runId})`, ['fill_end'], async (executor) => {
+    await executor.query(
+      `INSERT INTO fill_end (run_id, state, message, unread) VALUES ($1, $2, $3, $4::jsonb)
+       ON CONFLICT (run_id) DO UPDATE SET state = $2, message = $3, unread = $4::jsonb, finished_at = now()`,
+      [end.runId, end.state, end.message ?? null, end.unread === undefined ? null : JSON.stringify(end.unread)],
+    );
+  }, 'write');
+}
+
+/** How a run ended, or null when the process that ran it has not written it yet. */
+export async function readFillEnd(database: OrchestratorDatabase, runId: string): Promise<FillEnd | null> {
+  const at = here();
+  return await run(at, database, `readFillEnd(${runId})`, ['fill_end'], async (executor) => {
+    const { rows } = await executor.query<{ state: string; message: string | null; unread: unknown }>('SELECT state, message, unread FROM fill_end WHERE run_id = $1', [runId]);
+    const row = rows[0];
+    if (row === undefined) return null;
+    return {
+      runId,
+      state: row.state,
+      ...(row.message === null ? {} : { message: row.message }),
+      ...(Array.isArray(row.unread) ? { unread: row.unread as { repository: string; path: string; reason: string }[] } : {}),
+    };
+  }, 'snapshot');
 }
 
 /**

@@ -426,6 +426,22 @@ export async function createRun(database: FillStateDatabase, options: { readonly
 }
 
 /**
+ * A cheap stamp of what a store's answers stand on (madarch-8bdc.9): how many publications it holds, the last of them,
+ * and what its pins were filled to. An api role that did not run the fill reads it before each answer and reads the
+ * store's numbers again when it moved — one row of counting, not the numbers themselves.
+ */
+export async function readStoreStamp(database: FillStateDatabase): Promise<string> {
+  const at = here();
+  return await run(at, database, 'readStoreStamp', ['fill_publication', 'knowledge_fill'], async (executor) => {
+    const { rows } = await executor.query<{ stamp: string }>(
+      `SELECT (SELECT count(*)::text || ':' || coalesce(max(published_at)::text, '-') FROM fill_publication)
+              || ':' || (SELECT coalesce(string_agg(repo || '=' || filled_commits::text, ',' ORDER BY repo), '-') FROM knowledge_fill) AS stamp`,
+    );
+    return rows[0]?.stamp ?? '0:-:-';
+  }, 'snapshot');
+}
+
+/**
  * The newest run of a store that is under way, or null: a fill a *different* process runs is this store's own state
  * (madarch-8bdc.9), and an api role that did not press it still answers how it is.
  */

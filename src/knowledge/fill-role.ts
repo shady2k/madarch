@@ -9,7 +9,7 @@ import { join } from 'node:path';
 import { readProduct } from '../product/manifest.js';
 import { startKnowledgeFill } from './fill-run.js';
 import { claimFillRun, openFillRunQueue, settleFillRun } from '../fill/run-jobs.js';
-import { readRunControl } from '../fill/orchestrator-store.js';
+import { readRunControl, writeFillEnd } from '../fill/orchestrator-store.js';
 
 /** The owner one store is read through, as `startKnowledgeFill` takes it: derived, so this module holds no connection. */
 type StoreOwner = NonNullable<Parameters<typeof startKnowledgeFill>[0]['database']>;
