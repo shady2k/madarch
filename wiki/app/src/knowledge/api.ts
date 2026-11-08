@@ -27,6 +27,17 @@ export function getSource(repo: string | null, path: string, signal?: AbortSigna
   return readJson<SourceFile>(`read the source of ${path}`, `/api/k/source?${query.toString()}${historyQuery()}`, signal);
 }
 
+/**
+ * The text of one file at the as-is commit a file page names (madarch-8bdc.2.5, item 1): no date of the tab
+ * travels with it. A file page's address carries `at` for the page of its history it walks, not for the file's
+ * text, so `getSource`'s history query would ask another commit than the one the page is true at.
+ */
+export function getFileText(repo: string | null, path: string, signal?: AbortSignal, compose?: (reason: string) => string): Promise<SourceFile> {
+  const query = new URLSearchParams({ path });
+  if (repo !== null) query.set('repo', repo);
+  return readJson<SourceFile>(`read the text of ${path}`, `/api/k/source?${query.toString()}`, signal, compose);
+}
+
 /** The products the selector offers: the home's, or this one alone. */
 export async function getProducts(signal?: AbortSignal): Promise<ProductChoice[]> {
   const mounted = /^\/products\/[^/]+/.test(window.location.pathname);
