@@ -201,7 +201,63 @@ describe('the two passes over one fixture', () => {
   }, 120_000);
 });
 
+describe('the gaps each pass owns', () => {
+  test('a pass replaces only the gaps it wrote, whatever reason the other pass wrote them under', async () => {
+    if (owner === undefined) throw new Error('the store was not opened');
+    const tree = (gaps: { what: string; reason: 'non-utf8-path' | 'unreadable' }[]) => ({ repository: { name: 'gaps', url: 'file:///gaps' }, commit: 'a'.repeat(40), files: [], gitlinks: [], gaps });
+    const history = (gaps: { what: string; reason: 'shallow-history' | 'unreadable' }[]) => ({ repository: { name: 'gaps' }, commits: [], gaps });
+    // The repository's first empty publications make its own rows (the repository, its as-is edge): the
+    // counts below are the gaps', not those rows'.
+    await publishHistory(owner, history([]));
+    await publishTree(owner, tree([]));
+    // The history writes an unreadable field and a shallow history; the tree then writes a path no
+    // UTF-8 can hold. Both passes can write `unreadable`, so the reason cannot say whose row it is.
+    const firstHistory = await publishHistory(owner, history([{ what: 'commit aaa author name <0xff>', reason: 'unreadable' }, { what: 'gaps at aaa', reason: 'shallow-history' }]));
+    expect([firstHistory.inserted, firstHistory.deleted]).toEqual([2, 0]);
+    const firstTree = await publishTree(owner, tree([{ what: 'bad/<0xff>.ts', reason: 'non-utf8-path' }]));
+    expect([firstTree.inserted, firstTree.deleted]).toEqual([1, 0]);
+    const all = await repositoryFacts(owner, 'gaps');
+    expect(all?.gaps).toEqual([
+      { what: 'bad/<0xff>.ts', reason: 'non-utf8-path' },
+      { what: 'commit aaa author name <0xff>', reason: 'unreadable' },
+      { what: 'gaps at aaa', reason: 'shallow-history' },
+    ]);
+    // The history runs again without the unreadable field: its own row goes, and the tree's stands.
+    const secondHistory = await publishHistory(owner, history([{ what: 'gaps at aaa', reason: 'shallow-history' }]));
+    expect([secondHistory.inserted, secondHistory.deleted]).toEqual([0, 1]);
+    expect(secondHistory.unchanged).toBeGreaterThanOrEqual(1);
+    expect((await repositoryFacts(owner, 'gaps'))?.gaps).toEqual([
+      { what: 'bad/<0xff>.ts', reason: 'non-utf8-path' },
+      { what: 'gaps at aaa', reason: 'shallow-history' },
+    ]);
+    // The tree runs again without its unreadable path: its own row goes, and the history's stands.
+    const secondTree = await publishTree(owner, tree([]));
+    expect([secondTree.inserted, secondTree.deleted]).toEqual([0, 1]);
+    expect((await repositoryFacts(owner, 'gaps'))?.gaps).toEqual([{ what: 'gaps at aaa', reason: 'shallow-history' }]);
+  }, 120_000);
+
+  test('a store filled before the producing pass was recorded keeps its rows under one, and the column is added', async () => {
+    if (owner === undefined) throw new Error('the store was not opened');
+    // A store as the schema before this fix left it: a gap table with no `producer`, and one row in it.
+    const old = createPGliteDatabaseOwner({ btreeGist: true });
+    try {
+      await old.run((tx) => tx.query(`CREATE TABLE gap (repository_id bigint NOT NULL, what text NOT NULL CHECK (what <> ''), reason text NOT NULL CHECK (reason IN ('non-utf8-path', 'shallow-history', 'unreadable')), PRIMARY KEY (repository_id, what))`));
+      await old.run((tx) => tx.query(`INSERT INTO gap (repository_id, what, reason) VALUES (1, 'an old gap', 'shallow-history')`));
+      await createRecordSchema(old);
+      const columns = await old.run((tx) => tx.query<{ column_name: string; column_default: string | null }>(`SELECT column_name, column_default FROM information_schema.columns WHERE table_name = 'gap' AND column_name = 'producer'`));
+      expect(columns.rows[0]?.column_name).toBe('producer');
+      expect(columns.rows[0]?.column_default).toContain('tree');
+      const held = await old.run((tx) => tx.query<{ producer: string }>(`SELECT producer FROM gap WHERE what = 'an old gap'`));
+      // The row the old schema held is a tree row until a fill rewrites it under its own pass.
+      expect(held.rows[0]?.producer).toBe('tree');
+    } finally {
+      await old.close();
+    }
+  }, 120_000);
+});
+
 describe('a git date of a zero or a negative offset', () => {
+
   test('instantOf reads the offset git writes, and the Z a newer git writes for zero minutes', () => {
     expect(instantOf('2026-11-07T20:38:26+03:00', 'authorDate', 'h')).toEqual(['2026-11-07T20:38:26Z', 180]);
     expect(instantOf('2026-11-07T20:38:26-05:00', 'authorDate', 'h')).toEqual(['2026-11-07T20:38:26Z', -300]);

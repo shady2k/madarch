@@ -154,8 +154,12 @@ const SCHEMA: readonly string[] = [
     repository_id bigint NOT NULL,
     what text NOT NULL CHECK (what <> ''),
     reason text NOT NULL CHECK (reason IN ('non-utf8-path', 'shallow-history', 'unreadable')),
+    producer text NOT NULL CHECK (producer IN ('tree', 'history')),
     PRIMARY KEY (repository_id, what)
   )`,
+  // A store filled before the producing pass was recorded: its gaps were the tree's rows by default and
+  // the next fill writes each pass's own rows under the pass that read them (madarch-8bdc review, item 3).
+  `ALTER TABLE gap ADD COLUMN IF NOT EXISTS producer text NOT NULL DEFAULT 'tree'`,
   `CREATE INDEX IF NOT EXISTS file_path ON file (path_id)`,
   `CREATE INDEX IF NOT EXISTS file_blob ON file (blob_id)`,
   `CREATE INDEX IF NOT EXISTS edge_to ON edge (to_id, kind_id)`,
@@ -461,10 +465,9 @@ export async function publishTree(owner: DatabaseOwner, input: TreePublish): Pro
       counts = { ...counts, inserted: counts.inserted + 1 };
     }
     counts = sum(counts, await publishFolders(tx, kinds, repositoryId, new Map([...fileNodes, ...linkNodes]), paths, within));
-    // The tree pass retracts only the gaps it can produce: a tree published after a history used to delete
-    // the history's shallow-history gap, and every answer afterwards dropped it (madarch-8bdc.2.5, item 1).
-    // The scope is the one both sides need: only the folders inside the paths this fill covers are touched.
-    counts = sum(counts, await publishGaps(tx, repositoryId, input.gaps, TREE_GAP_REASONS));
+    // The tree pass retracts only the gaps it wrote: a tree published after a history used to delete the
+    // history's gaps, and every answer afterwards dropped them (madarch-8bdc.2.5, item 1; review, item 3).
+    counts = sum(counts, await publishGaps(tx, repositoryId, input.gaps, 'tree'));
     return counts;
   });
 }
@@ -556,32 +559,34 @@ async function repositoryFactRow(tx: OuterTransaction, repositoryId: string, rep
   return { inserted: 0, updated: 0, deleted: 0, unchanged: 1 };
 }
 
-/** The reasons one pass can record: a pass never retracts a gap another pass owns. */
-const TREE_GAP_REASONS: readonly string[] = ['non-utf8-path', 'unreadable'];
-const HISTORY_GAP_REASONS: readonly string[] = ['shallow-history'];
+/** The pass that read a gap: a gap is replaced by the pass that wrote it, and by no other. */
+type GapProducer = 'tree' | 'history';
 
 /**
- * The gaps of one repository, as one pass read them: the pass's own reasons are
- * written and the pass's own stale ones go, and the other pass's gaps stand as
- * they are. The two passes read one store and answer different reasons — a
- * shallow history is the history's, an unreadable path the tree's — so a tree
- * that runs after a history does not retract the history's gap (measured: it
- * did, and a shallow clone's answer lost its gap).
+ * The gaps of one repository, as one pass read them: the rows this pass wrote are
+ * written again and the pass's stale ones go, and the other pass's rows stand as
+ * they are.
+ *
+ * A row is owned by the pass that read it, not by its reason: both passes can
+ * write `unreadable` (a commit field no UTF-8 holds, a path the tree could not
+ * read), so a reason cannot say whose row it is — scoping by reason let a tree
+ * pass delete the history's unreadable rows and a history pass delete the
+ * tree's (review, item 3; measured: a shallow clone's answer lost the history's
+ * unreadable field after a tree ran).
  */
-async function publishGaps(tx: OuterTransaction, repositoryId: string, gaps: readonly { readonly what: string; readonly reason: string }[], owned: readonly string[]): Promise<RecordCounts> {
-  const held = new Map((await tx.query<{ what: string; reason: string }>('SELECT what, reason FROM gap WHERE repository_id = $1::bigint', [repositoryId])).rows.map((row) => [row.what, row.reason]));
+async function publishGaps(tx: OuterTransaction, repositoryId: string, gaps: readonly { readonly what: string; readonly reason: string }[], producer: GapProducer): Promise<RecordCounts> {
+  const held = new Map((await tx.query<{ what: string; reason: string }>('SELECT what, reason FROM gap WHERE repository_id = $1::bigint AND producer = $2', [repositoryId, producer])).rows.map((row) => [row.what, row.reason]));
   let inserted = 0;
   let unchanged = 0;
   let deleted = 0;
   for (const gap of gaps) {
     if (held.get(gap.what) === gap.reason) { unchanged += 1; continue; }
-    await tx.query('INSERT INTO gap (repository_id, what, reason) VALUES ($1::bigint, $2, $3) ON CONFLICT (repository_id, what) DO UPDATE SET reason = EXCLUDED.reason', [repositoryId, gap.what, gap.reason]);
+    await tx.query('INSERT INTO gap (repository_id, what, reason, producer) VALUES ($1::bigint, $2, $3, $4) ON CONFLICT (repository_id, what) DO UPDATE SET reason = EXCLUDED.reason, producer = EXCLUDED.producer', [repositoryId, gap.what, gap.reason, producer]);
     inserted += 1;
   }
-  for (const [what, reason] of held) {
-    if (!owned.includes(reason)) continue;
+  for (const [what] of held) {
     if (gaps.some((gap) => gap.what === what)) continue;
-    await tx.query('DELETE FROM gap WHERE repository_id = $1::bigint AND what = $2', [repositoryId, what]);
+    await tx.query('DELETE FROM gap WHERE repository_id = $1::bigint AND what = $2 AND producer = $3', [repositoryId, what, producer]);
     deleted += 1;
   }
   return { inserted, updated: 0, deleted, unchanged };
@@ -770,7 +775,7 @@ export async function publishHistory(owner: DatabaseOwner, input: HistoryPublish
       counts = { ...counts, deleted: counts.deleted + 1 };
       void heldRow;
     }
-    counts = sum(counts, await publishGaps(tx, repositoryId, input.gaps, HISTORY_GAP_REASONS));
+    counts = sum(counts, await publishGaps(tx, repositoryId, input.gaps, 'history'));
     return counts;
   });
 }
