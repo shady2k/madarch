@@ -14,7 +14,7 @@ import { setWikiLanguage } from '../i18n.js';
 import { BlockView, Findings, KMarkdown } from './blocks.js';
 import { highlight } from './highlight.js';
 import { Root as AppRoot } from './root.js';
-import { FillCard } from './pages.js';
+import { FillCard, Overview } from './pages.js';
 import { WriterLine } from './writer.js';
 import { FillPage } from './fill-page.js';
 import { FillMenu, ProductSelector, Toolbar, productChoices } from './app.js';
@@ -333,6 +333,42 @@ function stubFetch(calls: string[], others: (url: string, init?: RequestInit) =>
     return others(url, init);
   };
 }
+
+/** The kinds a page lists: one kind's row as the status sends it, and the listing an empty layer answers. */
+const emptyListing = (kind: string): Response => new Response(JSON.stringify({ kind, total: 0, rows: [], next: null }), { status: 200 });
+
+describe('the empty home', () => {
+  const status = (over: Partial<WikiStatus> = {}): WikiStatus => ({
+    product: { name: 'shop', id: 'x' }, manifest: 'ok', manifestFile: 'madarch/kinds.yaml', language: 'en', seeded: [], findings: [], kinds: [], groups: [], repositories: [{ name: 'training', filled: false }], filled: false, incomplete: false, fill: { state: 'idle' }, writer: { state: 'idle', agent: null, units: [] }, bounds: { turns: 30, minutes: 10, toolCalls: 80, writeAttempts: 5, maxDomains: 12, editorialRequestsPerPage: 2 }, chosenAgent: null, home: null, ...over,
+  });
+
+  test('introduces madarch to a newcomer and offers the fill, and shows no findings block', async () => {
+    const calls: string[] = [];
+    stubFetch(calls);
+    const container = into(createElement(Overview, {
+      status: status({ findings: [{ file: 'docs/glossary.md', line: 1, message: 'a finding of a product file' }] }),
+      refresh: () => undefined,
+    }));
+    await until(() => container.querySelector('[data-testid=fill-start]') !== null, 'the start button');
+    expect(container.querySelector('[data-testid=home-intro]')!.textContent).toContain('fills itself from its repositories');
+    const guidance = container.querySelector('[data-testid=home-guidance]')!;
+    expect(guidance.textContent).toContain('start the fill');
+    expect(guidance.textContent).toContain('open the files, folders and commits');
+    expect(guidance.textContent).toContain('through MCP');
+    expect(guidance.textContent).toContain('commit by commit');
+    expect(guidance.textContent).toContain('Each stage adds a layer');
+    expect(guidance.textContent).toContain('writes pages from the graph and nothing else');
+    expect(container.textContent).not.toContain('problems');
+  });
+
+  test('a document kind says plainly that no fill stage writes it yet', async () => {
+    (globalThis as { fetch?: unknown }).fetch = async (url: string) => (url.includes('/api/k/entities') ? emptyListing('doc.use-case') : new Response(JSON.stringify({ message: 'not here' }), { status: 404 }));
+    const kind: KindSummary = { kind: 'doc.use-case', source: 'document', single: false, count: 0, origins: ['person'] };
+    const container = into(createElement(KindLabels.Provider, { value: [kind] }, createElement(KindPage, { kind: 'doc.use-case', version: 1 })));
+    await until(() => container.querySelector('[data-testid=kind-empty]') !== null, 'the empty kind');
+    expect(container.querySelector('[data-testid=kind-empty]')!.textContent).toBe('No fill stage writes this kind yet.');
+  });
+});
 
 describe('the fill card', () => {
   const status = (over: Partial<WikiStatus> = {}): WikiStatus => ({

@@ -150,7 +150,24 @@ describe('the front page', () => {
 });
 
 describe('the menu', () => {
-  test('«Waiting for you» stands directly under Home, counts questions, tasks and problems, greys an empty entry, and sources and settings sit at the foot', async () => {
+  test('with no fill the home is the introduction, even when the product files hold a home page', async () => {
+    let askedPage = false;
+    (globalThis as { fetch?: unknown }).fetch = async (url: string) => {
+      if (url.includes('/api/k/page')) askedPage = true;
+      if (url.endsWith('/api/k/status')) return json(status({ filled: false, home: 'product:shop', kinds: [kind({ kind: 'product', source: 'markdown', single: true, count: 1 })], groups: nestedGroups.slice(0, 1) }));
+      if (url.endsWith('/api/k/products')) return json({ products: [{ name: 'shop', folder: 'shop' }] });
+      if (url.endsWith('/api/k/agents')) return json({ agents: [], chosen: null });
+      if (url.endsWith('/api/k/settings')) return json({ role: 'everything', asked: true, roles: [] });
+      if (url.endsWith('/api/k/glossary')) return json({ terms: [], resolutions: {}, findings: [] });
+      return json({ message: 'not here' }, 404);
+    };
+    window.history.replaceState({}, '', '/k');
+    const app = into(createElement(AppRoot));
+    await until(() => app.querySelector('[data-testid=home-intro]') !== null, 'the introduction');
+    expect(askedPage).toBe(false);
+  });
+
+  test('«Waiting for you» stands directly under Home, counts questions and problems, hides an empty count, and sources and settings sit at the foot', async () => {
     (globalThis as { fetch?: unknown }).fetch = async (url: string) => {
       if (url.endsWith('/api/k/status')) return json(status({
         home: 'product:shop', filled: true,
@@ -173,7 +190,9 @@ describe('the menu', () => {
     expect(waiting.nextElementSibling).toBe(catalogue);
     expect(waiting.querySelector('[data-testid=nav-questions]')).not.toBeNull();
     expect(waiting.querySelector('[data-testid=nav-questions]')!.textContent).toContain('2');
-    expect(waiting.querySelector('[data-testid=nav-tasks]')!.textContent).toContain('0');
+    // A count drawn from files is absent until it is above zero: nothing of the product is read before the fill runs.
+    expect(waiting.querySelector('[data-testid=nav-tasks]')!.textContent).not.toContain('0');
+    expect(waiting.querySelector('[data-testid=nav-tasks-count]')).toBeNull();
     expect(waiting.querySelector('[data-testid=nav-tasks]')!.getAttribute('data-empty')).toBe('true');
     expect(waiting.querySelector('[data-testid=nav-problems]')!.textContent).toContain('3');
     expect(waiting.querySelector('[data-testid=nav-problems]')!.getAttribute('data-empty')).toBe('false');

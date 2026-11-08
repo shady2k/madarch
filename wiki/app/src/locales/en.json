@@ -161,6 +161,17 @@
     "chooseProduct": "Choose a product",
     "products": "Products",
     "home": "Home",
+    "homeIntro": {
+      "summary": "madarch is a wiki of a product that fills itself from its repositories.",
+      "canTitle": "Here you can:",
+      "canStart": "start the fill and watch pages appear as it reads the repositories;",
+      "canOpen": "open the files, folders and commits of the repositories the product joins;",
+      "canAsk": "ask the wiki through MCP.",
+      "howTitle": "How it works",
+      "howRead": "The fill reads the joined repositories commit by commit into the product's graph.",
+      "howStages": "Each stage adds a layer, and the wiki draws only what those stages wrote.",
+      "howAgent": "The agent, if you choose one, writes pages from the graph and nothing else."
+    },
     "waiting": "Waiting for you",
     "kinds": "Pages by kind",
     "documents": "Sources",
@@ -255,7 +266,11 @@
       "lineWriting": "{{agent}} is writing the pages: {{done}} of {{total}} written; now {{name}}.",
       "lineWritingShort": "{{agent}} is writing the pages: {{done}} of {{total}} written.",
       "lineWritingCount": "{{agent}} is writing the pages: {{done}} written; now {{name}}.",
-      "lineWritingCountShort": "{{agent}} is writing the pages: {{done}} written."
+      "lineWritingCountShort": "{{agent}} is writing the pages: {{done}} written.",
+      "installedAt": "Its adapter is installed at {{where}}, version {{version}}.",
+      "installedUnknownVersion": "Its adapter is installed at {{where}}; madarch does not know its version.",
+      "installUnknown": "Its adapter is not installed; madarch does not know what installing {{agent}} would fetch.",
+      "notInstalledBundled": "Its adapter is not installed: {{program}} is a program of its own, not a package madarch installs. Install it from its trusted distribution; madarch knows neither its version nor its folder."
     },
     "fillWriting": "The agent is writing",
     "fillDone_one": "Filled {{date}}, {{count}} page",
@@ -461,7 +476,7 @@
       "colPlace": "Place",
       "lead_one": "{{count}} term, each with the place it is stated.",
       "lead_other": "{{count}} terms, each with the place it is stated.",
-      "empty": "This product has no glossary yet. A glossary is a document whose list items start with a bold term; the manifest names it under terms.",
+      "empty": "No fill stage writes the glossary yet: its terms come back with the stage that reads the documents.",
       "alsoCalled": "Also called",
       "inCode": "In code",
       "usedIn": "Used in",
@@ -843,7 +858,8 @@
     },
     "pageProblems": "{{count}} problems",
     "findingsWhere": "Open the problems",
-    "findingsCount": "Findings: {{count}}"
+    "findingsCount": "Findings: {{count}}",
+    "noStageYet": "No fill stage writes this kind yet."
   },
   "loop": {
     "questionsTitle": "Questions",

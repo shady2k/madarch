@@ -58,8 +58,9 @@ function BrandMark(): ReactElement {
 export function showsProgress(route: KRoute, status: WikiStatus): boolean {
   // The repository page is the home once the store holds a repository (madarch-8bdc.2.5, item 3); a
   // fill that runs there, or fails there, still draws its card, so the press and its progress stay
-  // where the reader is.
-  if (route.name === 'home') return status.home !== null || status.fill.state === 'running' || status.fill.state === 'failed';
+  // where the reader is. With no store the home is the introduction, which draws its own fill card:
+  // one card, never two.
+  if (route.name === 'home') return status.filled && (status.home !== null || status.fill.state === 'running' || status.fill.state === 'failed');
   return route.name === 'entity';
 }
 
@@ -213,7 +214,8 @@ function NavPanel({ status, products, route, onNavigate }: { status: WikiStatus;
     >
       <Icon aria-hidden="true" className="size-4 shrink-0 text-muted" />
       <span className="min-w-0 flex-1">{label}</span>
-      <span className="text-small text-muted" data-testid={`${id}-count`}>{count}</span>
+      {/* A count drawn from files is shown only once it is above zero: nothing is read until the fill runs. */}
+      {count > 0 && <span className="text-small text-muted" data-testid={`${id}-count`}>{count}</span>}
     </a>
   );
   const directOf = (entry: NavGroup): KindSummary[] => {
@@ -802,11 +804,15 @@ export function KnowledgeApp(): ReactElement {
     </Sheet>
   );
   let view: ReactElement;
-  if (route.name === 'home') view = status.home !== null
-    ? <EntityPage key={status.home} id={status.home} version={version} />
-    : status.repository !== undefined && status.repository.asIsCommit !== null
-      ? <RepositoryPage status={status} version={version} />
-      : <Overview status={status} refresh={refresh} />;
+  // No store, no home page: until a fill runs the home is the introduction, even when the product repository holds a
+  // page a later stage will read. Nothing of the product is parsed before the fill writes it.
+  if (route.name === 'home') view = !status.filled
+    ? <Overview status={status} refresh={refresh} />
+    : status.home !== null
+      ? <EntityPage key={status.home} id={status.home} version={version} />
+      : status.repository !== undefined && status.repository.asIsCommit !== null
+        ? <RepositoryPage status={status} version={version} />
+        : <Overview status={status} refresh={refresh} />;
   else if (route.name === 'entity') view = <EntityPage key={route.id} id={route.id} version={version} />;
   else if (route.name === 'kind') view = <KindPage key={route.kind} kind={route.kind} version={version} />;
   else if (route.name === 'questions') view = <QuestionsPage version={version} />;
