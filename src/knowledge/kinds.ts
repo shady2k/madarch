@@ -954,6 +954,9 @@ export function parseKinds(text: string, file: string, productFolder: string): K
   }
   const kinds = new Map<string, KindDecl>();
   const declaredTemplates: string[] = [];
+  // A kind's missing translation is a finding, but not a reason to leave its page out: the kinds a product has not
+  // translated yet still show, marked as untranslated. These findings join the manifest's at the end of the read.
+  const wordsFound: Finding[] = [];
   // Every name the manifest declares, sound or not: the mapping resolves a kind against the declaration, and the
   // catalog's own finding is the one a refused kind carries (one defect, one problem on the Problems page).
   const declaredKindNames = new Set(Object.keys(declared as Record<string, unknown>));
@@ -971,6 +974,12 @@ export function parseKinds(text: string, file: string, productFolder: string): K
       problem(path, message);
       catalogFound.push(...findings.slice(before));
     };
+    // The catalogue's words are read apart: a missing language is reported, and the kind stays whatever its page shows.
+    const wordsProblem = (path: (string | number)[], message: string): void => {
+      const before = findings.length;
+      problem(path, message);
+      wordsFound.push(...findings.splice(before));
+    };
     if (value === null || typeof value !== 'object' || Array.isArray(value)) {
       findings.push({ file, line, message: `kind "${name}": the declaration is a mapping with a template and a source` });
       continue;
@@ -985,7 +994,7 @@ export function parseKinds(text: string, file: string, productFolder: string): K
       const stray = Object.keys(decl).filter((key) => CATALOG_ONLY_FIELDS.has(key));
       if (stray.length > 0) catalogProblem([stray[0]!], `"${stray[0]}" is a field of the entity catalog, and the manifest declares no "catalog"`);
     } else if (catalogSchema !== undefined) {
-      const entry = readCatalogKind(name, decl, catalogSchema, groups, line, catalogProblem, LABEL_LANGUAGES, refusedGroupParents);
+      const entry = readCatalogKind(name, decl, catalogSchema, groups, line, catalogProblem, wordsProblem, LABEL_LANGUAGES, refusedGroupParents);
       if (entry !== undefined) catalogEntries.set(name, entry);
     }
     const policy = typeof decl['template-policy'] === 'string' ? decl['template-policy'] : 'page';
@@ -1198,6 +1207,10 @@ export function parseKinds(text: string, file: string, productFolder: string): K
     findings.push(...shape);
     catalogFound.push(...shape);
   }
+  // The translation findings stand beside the catalog's own, after every kind has been read: they name a kind that is
+  // still shown, so they must not be read as the defect that leaves a page out.
+  findings.push(...wordsFound);
+  catalogFound.push(...wordsFound);
   // A kind named in "expect" that the manifest does not declare is a finding at its own line.
   const wanted = expected.filter((entry) => {
     const kind = kinds.get(entry.kind);
