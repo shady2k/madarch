@@ -211,10 +211,11 @@ describe('the empty wiki, the press and the end state', () => {
     try {
       const empty = await json(server, 'docs', '/api/k/status');
       expect(empty.status).toBe(200);
-      expect(empty.body['findings']).toEqual([]);
+      // The status carries the count, never the list (madarch-8bdc.2.5): nothing is read from the documents, so no finding is one.
+      expect(empty.body['findingCount']).toBe(0);
       expect((empty.body['kinds'] as { kind: string; count: number }[]).filter((kind) => kind.kind.startsWith('doc.')).map((kind) => kind.count)).toEqual([0, 0, 0, 0, 0]);
       const glossary = await json(server, 'docs', '/api/k/glossary');
-      expect(glossary.body).toEqual({ terms: [], resolutions: {}, findings: [] });
+      expect(glossary.body).toEqual({ terms: [], resolutions: {}, findingCount: 0 });
       const useCases = await json(server, 'docs', '/api/k/entities?kind=doc.use-case');
       expect(useCases.body).toMatchObject({ total: 0, rows: [], next: null });
       // After a fill the repository's own pages stand, and no document layer is filled: no stage writes one yet.

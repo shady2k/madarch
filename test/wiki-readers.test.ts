@@ -255,7 +255,8 @@ describe('the products-home server with madarch\'s own wiki', () => {
   test('the glossary reads only the store: no fill stage writes its terms yet, so it answers none', async () => {
     const answer = await get(busy, '/products/madarch-wiki/api/k/glossary');
     if (answer.status !== 200) throw new Error(`the glossary answered ${answer.status} ${JSON.stringify(answer.body)}; the server said:\n${errors.join('\n')}`);
-    expect(answer.body).toEqual({ terms: [], resolutions: {}, findings: [] });
+    // The answer carries a count, never the list (madarch-8bdc.2.5): no stage writes a term, so the count is zero.
+    expect(answer.body).toEqual({ terms: [], resolutions: {}, findingCount: 0 });
   });
 
   test('a document section is no page: no fill stage reads the products documents at request time', async () => {

@@ -339,14 +339,15 @@ const emptyListing = (kind: string): Response => new Response(JSON.stringify({ k
 
 describe('the empty home', () => {
   const status = (over: Partial<WikiStatus> = {}): WikiStatus => ({
-    product: { name: 'shop', id: 'x' }, manifest: 'ok', manifestFile: 'madarch/kinds.yaml', language: 'en', seeded: [], findings: [], kinds: [], groups: [], repositories: [{ name: 'training', filled: false }], filled: false, incomplete: false, fill: { state: 'idle' }, writer: { state: 'idle', agent: null, units: [] }, bounds: { turns: 30, minutes: 10, toolCalls: 80, writeAttempts: 5, maxDomains: 12, editorialRequestsPerPage: 2 }, chosenAgent: null, home: null, ...over,
+    product: { name: 'shop', id: 'x' }, manifest: 'ok', manifestFile: 'madarch/kinds.yaml', language: 'en', seeded: [], findingCount: 0, kinds: [], groups: [], repositories: [{ name: 'training', filled: false }], filled: false, incomplete: false, fill: { state: 'idle' }, writer: { state: 'idle', agent: null, units: [] }, bounds: { turns: 30, minutes: 10, toolCalls: 80, writeAttempts: 5, maxDomains: 12, editorialRequestsPerPage: 2 }, chosenAgent: null, home: null, ...over,
   });
 
   test('introduces madarch to a newcomer and offers the fill, and shows no findings block', async () => {
     const calls: string[] = [];
     stubFetch(calls);
     const container = into(createElement(Overview, {
-      status: status({ findings: [{ file: 'docs/glossary.md', line: 1, message: 'a finding of a product file' }] }),
+      // The status carries a count, never the list (madarch-8bdc.2.5): one finding of the product's files is one number.
+      status: status({ findingCount: 1 }),
       refresh: () => undefined,
     }));
     await until(() => container.querySelector('[data-testid=fill-start]') !== null, 'the start button');

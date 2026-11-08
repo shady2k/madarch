@@ -1149,15 +1149,8 @@
       "wiki.ground-removed": "A statement stands on a ground that has left the code or the documents.",
       "wiki.broken-link": "A statement points to something the graph and the documents do not hold.",
       "wiki.unreadable-file": "A file the wiki reads cannot be read.",
-      "wiki.unread-passage": "A passage of a document is read by no kind of the manifest.",
       "wiki.unplaced": "A question or correction names no page it belongs to.",
       "wiki.manifest": "The manifest has a finding of its own."
-    },
-    "problemText": {
-      "unreadPassagePending": "No classifier has read this passage yet, so what it means is not shown: «{{passage}}»",
-      "unreadPassageBlock": "This block holds text no kind of the manifest reads: «{{passage}}»",
-      "unreadPassageClassifierNoMeaning": "The classifier read no meaning of this passage, so no page shows it: «{{passage}}»",
-      "unreadPassageUnread": "No kind of the manifest and no classifier read this passage, so no page shows it: «{{passage}}»"
     },
     "problemNote": {
       "ruleUnimplemented": "The rule {{rule}} names the predicate \"{{predicate}}\", which the engine does not implement: the rule is not run"
