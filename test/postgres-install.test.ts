@@ -109,7 +109,8 @@ describe('installing the pinned server', () => {
     const build = fixtureBuild(bytes);
     const served = serveArchive(bytes);
     const home = join(root, 'home');
-    const partial = join(home, 'madarch', 'tools', 'postgresql', 'downloads', 'postgresql-18.6.1-fixture-target.tar.gz.part');
+    // The part file a download writes is the process's own, so two installs at once never write one file.
+    const partial = join(home, 'madarch', 'tools', 'postgresql', 'downloads', `postgresql-18.6.1-fixture-target.tar.gz.${String(process.pid)}.part`);
     try {
       mkdirSync(join(partial, '..'), { recursive: true });
       writeFileSync(partial, bytes.subarray(0, 100));

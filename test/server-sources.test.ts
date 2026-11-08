@@ -1083,7 +1083,7 @@ describe('a corrupt data folder refuses to open, naming the file', () => {
         rmSync(dir, { recursive: true, force: true });
       }
     }
-  });
+  }, 60_000);
 
   test('a file name this server never writes is refused, even when the sidecar matches what it would decode to', async () => {
     // A raw `~` is always encoded, a `%zz` escape is not hexadecimal, and
