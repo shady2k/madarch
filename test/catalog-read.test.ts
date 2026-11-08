@@ -223,6 +223,29 @@ describe('a catalog is read as its manifest declares it', () => {
     expect(read.catalog!.kinds.get('untranslated')).toMatchObject({ labels: { en: { one: 'Thing', many: 'Things' } }, descriptions: { en: 'A thing.' } });
   });
 
+  test('a page kind the product has not translated still shows: the finding names it and its page stays in "kinds"', () => {
+    const manifest = withKind(SMALL, 'untranslated-page', {
+      'template-policy': 'page',
+      template: 'templates/item.liquid',
+      source: 'markdown',
+      file: 'docs/untranslated.md',
+      labels: '{ en: { one: Page, many: Pages } }',
+      description: null,
+    });
+    const read = parseKinds(manifest, 'madarch/kinds.yaml', TEMPLATES);
+    const found = read.findings.filter((finding) => finding.message.includes('untranslated-page'));
+    expect(found.map((finding) => finding.message)).toEqual([
+      'kind "untranslated-page": the kind has no name in "ru": the catalogue names every kind in en and ru, and an untranslated name is never shown as an English one',
+      'kind "untranslated-page": "description" says what the kind is in each interface language (en, ru): a sentence saying what the kind is',
+    ]);
+    for (const finding of found) expect(finding.line).toBeGreaterThan(0);
+    // The page kind is not a broken row: the missing translation is reported and the kind is still declared.
+    expect(read.kinds.has('untranslated-page')).toBe(true);
+    expect(read.catalog!.kinds.get('untranslated-page')).toMatchObject({ labels: { en: { one: 'Page', many: 'Pages' } }, descriptions: {} });
+    // The catalogue's own answer carries the finding too, so its page can mark the kind untranslated.
+    expect(read.catalog!.findings.filter((finding) => finding.message.includes('untranslated-page'))).toHaveLength(2);
+  });
+
   test('the starter set reads clean: every area of the life cycle, two levels, and a row for every kind', () => {
     const read = parseKinds(STARTER_FILES.find((file) => file.path === 'madarch/kinds.yaml')!.content, 'madarch/kinds.yaml', TEMPLATES);
     const starter = product();

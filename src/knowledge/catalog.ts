@@ -267,6 +267,11 @@ export function readCatalogKind(
   groups: ReadonlyMap<string, CatalogGroup>,
   line: number,
   problem: (path: (string | number)[], message: string) => void,
+  /**
+   * Where a missing translation is reported. It is a finding of its own and never a reason to leave the kind out: a
+   * product that has not translated a kind still shows it, marked as untranslated (madarch-8bdc.2.5).
+   */
+  wordsProblem: (path: (string | number)[], message: string) => void,
   /** The languages the wiki's interface speaks: a kind names and describes itself in each, or the catalogue says why. */
   languages: readonly string[],
   /** The groups the manifest reader already refused (a `parent` nobody declares): the kind adds no second finding. */
@@ -278,7 +283,7 @@ export function readCatalogKind(
     problem(path, message);
   };
   const id = decl['id'];
-  const words = readCatalogWords(decl, languages, problem);
+  const words = readCatalogWords(decl, languages, wordsProblem);
   if (!isIdentifier(id)) fail(['id'], `"id" is the canonical concept id of the kind (one concept has one kind), such as "c4.container", got ${JSON.stringify(id)}`);
   const definition = decl['definition'];
   if (typeof definition !== 'string' || definition.trim() === '' || definition.trim() !== definition) fail(['definition'], `"definition" is one sentence saying what the kind is, got ${JSON.stringify(definition)}`);
