@@ -88,7 +88,7 @@ import { createStageRegistry } from '../fill/stages/index.js';
 import { sameFolder } from './git.js';
 import { hashFillInput } from './fill-runtime.js';
 import type { ProductIdentity } from './manifest.js';
-import { fillFolderIdentity } from './identity.js';
+import { fillFolderIdentity, productRepositoryId } from './identity.js';
 import { headCommitOf } from './fill-updates.js';
 import { raise } from '../model/raise.js';
 import { engineFirstFillStages, firstFillStagesOf, readWorkflows, type FirstFillRead } from '../knowledge/workflows.js';
@@ -299,10 +299,9 @@ interface PinnedRepositories {
  */
 function pinsOf(identity: ProductIdentity, product: boolean): PinnedRepositories {
   // A store names one repository by one id, and two checkouts that share a name are two
-  // repositories: a product whose own name is also a connected repository's names its own
-  // repository `<name>-product`, so both are read and neither is taken for the other. A product
-  // that connects no repository of its own name keeps its name.
-  const own = identity.repos.some((repo) => repo.name === identity.name) ? `${identity.name}-product` : identity.name;
+  // repositories. The id of the product's own repository is decided in one place, which the fill,
+  // the wiring that resolves a unit's folder and the MCP server all read (`productRepositoryId`).
+  const own = productRepositoryId(identity);
   const pins: RepositoryPin[] = [pinOf(own, product ? 'product' : 'code', identity.folder)];
   const unread: UnreadRepository[] = [];
   for (const repo of identity.repos) {
@@ -350,7 +349,7 @@ function checkoutFolderOf(identity: ProductIdentity, name: string): string {
 
 /** The folder one repository's checkout stands in, refused by name where the product pins no such repository. */
 function rootOf(identity: ProductIdentity, repository: string): string {
-  if (repository === identity.name) return identity.folder;
+  if (repository === productRepositoryId(identity)) return identity.folder;
   const declared = identity.repos.find((repo) => repo.name === repository);
   if (declared === undefined) {
     const known = [identity.name, ...identity.repos.map((repo) => repo.name)].map((id) => JSON.stringify(id));

@@ -154,8 +154,12 @@ const SCHEMA: readonly string[] = [
     repository_id bigint NOT NULL,
     what text NOT NULL CHECK (what <> ''),
     reason text NOT NULL CHECK (reason IN ('non-utf8-path', 'shallow-history', 'unreadable')),
+    producer text NOT NULL CHECK (producer IN ('tree', 'history')),
     PRIMARY KEY (repository_id, what)
   )`,
+  // A store filled before the producing pass was recorded: its gaps were the tree's rows by default and
+  // the next fill writes each pass's own rows under the pass that read them (madarch-8bdc review, item 3).
+  `ALTER TABLE gap ADD COLUMN IF NOT EXISTS producer text NOT NULL DEFAULT 'tree'`,
   `CREATE INDEX IF NOT EXISTS file_path ON file (path_id)`,
   `CREATE INDEX IF NOT EXISTS file_blob ON file (blob_id)`,
   `CREATE INDEX IF NOT EXISTS edge_to ON edge (to_id, kind_id)`,
@@ -461,10 +465,9 @@ export async function publishTree(owner: DatabaseOwner, input: TreePublish): Pro
       counts = { ...counts, inserted: counts.inserted + 1 };
     }
     counts = sum(counts, await publishFolders(tx, kinds, repositoryId, new Map([...fileNodes, ...linkNodes]), paths, within));
-    // The tree pass retracts only the gaps it can produce: a tree published after a history used to delete
-    // the history's shallow-history gap, and every answer afterwards dropped it (madarch-8bdc.2.5, item 1).
-    // The scope is the one both sides need: only the folders inside the paths this fill covers are touched.
-    counts = sum(counts, await publishGaps(tx, repositoryId, input.gaps, TREE_GAP_REASONS));
+    // The tree pass retracts only the gaps it wrote: a tree published after a history used to delete the
+    // history's gaps, and every answer afterwards dropped them (madarch-8bdc.2.5, item 1; review, item 3).
+    counts = sum(counts, await publishGaps(tx, repositoryId, input.gaps, 'tree'));
     return counts;
   });
 }
@@ -556,32 +559,34 @@ async function repositoryFactRow(tx: OuterTransaction, repositoryId: string, rep
   return { inserted: 0, updated: 0, deleted: 0, unchanged: 1 };
 }
 
-/** The reasons one pass can record: a pass never retracts a gap another pass owns. */
-const TREE_GAP_REASONS: readonly string[] = ['non-utf8-path', 'unreadable'];
-const HISTORY_GAP_REASONS: readonly string[] = ['shallow-history'];
+/** The pass that read a gap: a gap is replaced by the pass that wrote it, and by no other. */
+type GapProducer = 'tree' | 'history';
 
 /**
- * The gaps of one repository, as one pass read them: the pass's own reasons are
- * written and the pass's own stale ones go, and the other pass's gaps stand as
- * they are. The two passes read one store and answer different reasons — a
- * shallow history is the history's, an unreadable path the tree's — so a tree
- * that runs after a history does not retract the history's gap (measured: it
- * did, and a shallow clone's answer lost its gap).
+ * The gaps of one repository, as one pass read them: the rows this pass wrote are
+ * written again and the pass's stale ones go, and the other pass's rows stand as
+ * they are.
+ *
+ * A row is owned by the pass that read it, not by its reason: both passes can
+ * write `unreadable` (a commit field no UTF-8 holds, a path the tree could not
+ * read), so a reason cannot say whose row it is — scoping by reason let a tree
+ * pass delete the history's unreadable rows and a history pass delete the
+ * tree's (review, item 3; measured: a shallow clone's answer lost the history's
+ * unreadable field after a tree ran).
  */
-async function publishGaps(tx: OuterTransaction, repositoryId: string, gaps: readonly { readonly what: string; readonly reason: string }[], owned: readonly string[]): Promise<RecordCounts> {
-  const held = new Map((await tx.query<{ what: string; reason: string }>('SELECT what, reason FROM gap WHERE repository_id = $1::bigint', [repositoryId])).rows.map((row) => [row.what, row.reason]));
+async function publishGaps(tx: OuterTransaction, repositoryId: string, gaps: readonly { readonly what: string; readonly reason: string }[], producer: GapProducer): Promise<RecordCounts> {
+  const held = new Map((await tx.query<{ what: string; reason: string }>('SELECT what, reason FROM gap WHERE repository_id = $1::bigint AND producer = $2', [repositoryId, producer])).rows.map((row) => [row.what, row.reason]));
   let inserted = 0;
   let unchanged = 0;
   let deleted = 0;
   for (const gap of gaps) {
     if (held.get(gap.what) === gap.reason) { unchanged += 1; continue; }
-    await tx.query('INSERT INTO gap (repository_id, what, reason) VALUES ($1::bigint, $2, $3) ON CONFLICT (repository_id, what) DO UPDATE SET reason = EXCLUDED.reason', [repositoryId, gap.what, gap.reason]);
+    await tx.query('INSERT INTO gap (repository_id, what, reason, producer) VALUES ($1::bigint, $2, $3, $4) ON CONFLICT (repository_id, what) DO UPDATE SET reason = EXCLUDED.reason, producer = EXCLUDED.producer', [repositoryId, gap.what, gap.reason, producer]);
     inserted += 1;
   }
-  for (const [what, reason] of held) {
-    if (!owned.includes(reason)) continue;
+  for (const [what] of held) {
     if (gaps.some((gap) => gap.what === what)) continue;
-    await tx.query('DELETE FROM gap WHERE repository_id = $1::bigint AND what = $2', [repositoryId, what]);
+    await tx.query('DELETE FROM gap WHERE repository_id = $1::bigint AND what = $2 AND producer = $3', [repositoryId, what, producer]);
     deleted += 1;
   }
   return { inserted, updated: 0, deleted, unchanged };
@@ -770,7 +775,7 @@ export async function publishHistory(owner: DatabaseOwner, input: HistoryPublish
       counts = { ...counts, deleted: counts.deleted + 1 };
       void heldRow;
     }
-    counts = sum(counts, await publishGaps(tx, repositoryId, input.gaps, HISTORY_GAP_REASONS));
+    counts = sum(counts, await publishGaps(tx, repositoryId, input.gaps, 'history'));
     return counts;
   });
 }
@@ -818,11 +823,29 @@ export interface CommitRecord {
   readonly hash: string;
   readonly parents: readonly string[];
   readonly author: { readonly name: string; readonly email: string };
+  /** The author's clock with its offset, as `git log %aI` writes it. */
   readonly authorDate: string;
+  /** The offset `authorDate` stands at, in minutes east of UTC: the same number `authorDate` carries. */
   readonly authorOffsetMin: number;
+  /** The committer's clock with its offset, as `git log %cI` writes it. */
   readonly commitDate: string;
+  /** The offset `commitDate` stands at, in minutes east of UTC: the same number `commitDate` carries. */
   readonly commitOffsetMin: number;
   readonly subject: string;
+}
+
+/**
+ * One git date as `git log %aI` writes it: the clock the author wrote, and the offset it stood at.
+ *
+ * The store keeps git's two numbers apart — the clock as it stood and the minutes east of UTC — and
+ * a reader that gets the clock back must put the offset beside it, never convert the clock to UTC
+ * and keep the offset: `2026-11-07T19:14:32` at `+180` is `19:14:32 +03:00`, and the instant that
+ * clock names is `16:14:32Z`, a third number the reader may compute and this one must not print.
+ */
+export function gitDateOf(localClock: string, offsetMin: number): string {
+  const sign = offsetMin < 0 ? '-' : '+';
+  const total = Math.abs(offsetMin);
+  return `${localClock}${sign}${String(Math.floor(total / 60)).padStart(2, '0')}:${String(total % 60).padStart(2, '0')}`;
 }
 
 /** One path the walk has not read: the store says so rather than answering nothing. */
@@ -885,7 +908,10 @@ export interface TouchedRecord {
 /** One row of a file's history: the commit that touched the path and what it did to it. */
 export interface FileHistoryRow extends TouchedRecord {
   readonly commit: string;
+  /** The author's clock with its offset, as `git log %aI` writes it. */
   readonly date: string;
+  /** The offset `date` stands at, in minutes east of UTC: the same number `date` carries. */
+  readonly offsetMin: number;
   readonly subject: string;
   /** The commit's position in the walk from the tip: its order in the history, not on the clock. */
   readonly walk: number;
@@ -909,7 +935,7 @@ export async function fileHistory(owner: DatabaseOwner, input: { readonly reposi
          SELECT t.previous_path_id FROM chain c JOIN touched t ON t.path_id = c.path_id WHERE t.previous_path_id IS NOT NULL
        )
        SELECT n.key AS commit, t.change, t.added::text AS added, t.removed::text AS removed, pp.text AS previous,
-              to_char((c.commit_date - make_interval(mins => c.commit_offset_min)) AT TIME ZONE 'UTC', 'YYYY-MM-DD"T"HH24:MI:SS"Z"') AS date, c.subject, c.walk
+              to_char(c.commit_date AT TIME ZONE 'UTC', 'YYYY-MM-DD"T"HH24:MI:SS') AS date, c.commit_offset_min AS offset_min, c.subject, c.walk
        FROM touched t JOIN chain ch ON ch.path_id = t.path_id JOIN node n ON n.id = t.commit_node_id
        JOIN commit_fact c ON c.node_id = n.id LEFT JOIN path pp ON pp.id = t.previous_path_id
        WHERE n.repository_id = $1::bigint AND ($3::int IS NULL OR c.walk > $3::int OR (c.walk = $3::int AND n.key > $4))
@@ -920,7 +946,7 @@ export async function fileHistory(owner: DatabaseOwner, input: { readonly reposi
       commit: String(row['commit']), change: String(row['change']) as TouchedRecord['change'],
       added: row['added'] === null ? null : Number(row['added']), removed: row['removed'] === null ? null : Number(row['removed']),
       previousPath: row['previous'] === null || row['previous'] === undefined ? null : String(row['previous']),
-      date: String(row['date']), subject: String(row['subject']),
+      date: gitDateOf(String(row['date']), Number(row['offset_min'])), offsetMin: Number(row['offset_min']), subject: String(row['subject']),
       walk: Number(row['walk']),
       path: input.path,
     }));
@@ -979,19 +1005,29 @@ export async function folderChildrenOf(owner: DatabaseOwner, repository: string,
 }
 
 /** One file with its dates, its commit count and its authors: the dates follow the renames. */
-export async function fileFacts(owner: DatabaseOwner, repository: string, path: string): Promise<(FileRecord & { readonly created: { date: string; commit: string; author: string } | null; readonly modified: { date: string; commit: string; author: string } | null; readonly commitCount: number; readonly authors: readonly string[] }) | null> {
+/** One date a file's page states: the author's clock with its offset, and the commit it belongs to. */
+export interface FileDate {
+  /** The author's clock with its offset, as `git log %aI` writes it. */
+  readonly date: string;
+  /** The offset `date` stands at, in minutes east of UTC: the same number `date` carries. */
+  readonly offsetMin: number;
+  readonly commit: string;
+  readonly author: string;
+}
+
+export async function fileFacts(owner: DatabaseOwner, repository: string, path: string): Promise<(FileRecord & { readonly created: FileDate | null; readonly modified: FileDate | null; readonly commitCount: number; readonly authors: readonly string[] }) | null> {
   return await withSpan('records.fileFacts', { 'records.path': path }, async () => await owner.transaction('snapshot', async (tx) => {
     const repositoryId = await repositoryIdOf(tx, repository);
     const found = await tx.query(`${FILE_SELECT} WHERE n.repository_id = $1::bigint AND p.text = $2`, [repositoryId, path]);
     const row = found.rows[0];
     if (row === undefined) return null;
-    const history = await tx.query<{ commit: string; date: string; name: string }>(
+    const history = await tx.query<{ commit: string; date: string; offset_min: number; name: string }>(
       `WITH RECURSIVE chain(path_id) AS (
          SELECT id FROM path WHERE text = $2
          UNION
          SELECT t.previous_path_id FROM chain c JOIN touched t ON t.path_id = c.path_id WHERE t.previous_path_id IS NOT NULL
        )
-       SELECT n.key AS commit, to_char((c.commit_date - make_interval(mins => c.commit_offset_min)) AT TIME ZONE 'UTC', 'YYYY-MM-DD"T"HH24:MI:SS"Z"') AS date, coalesce(a.name, '') AS name, c.walk, t.change
+       SELECT n.key AS commit, to_char(c.commit_date AT TIME ZONE 'UTC', 'YYYY-MM-DD"T"HH24:MI:SS') AS date, c.commit_offset_min AS offset_min, coalesce(a.name, '') AS name, c.walk, t.change
        FROM touched t JOIN chain ch ON ch.path_id = t.path_id JOIN node n ON n.id = t.commit_node_id
        JOIN commit_fact c ON c.node_id = n.id
        LEFT JOIN edge e ON e.to_id = n.id AND e.kind_id = (SELECT id FROM kind WHERE name = 'authored')
@@ -1002,7 +1038,7 @@ export async function fileFacts(owner: DatabaseOwner, repository: string, path: 
     // The order is the history's own, not the clock's: a commit's `walk` is its position in the
     // stream git prints from the tip, so the deepest commit in the rename chain is the creation and
     // the shallowest is the last change (madarch-8bdc.2.5: dates are not monotonic).
-    const commits = history.rows as unknown as { commit: string; date: string; name: string; walk: number; change: string }[];
+    const commits = history.rows as unknown as { commit: string; date: string; offset_min: number; name: string; walk: number; change: string }[];
     const created = commits.reduce((deepest, entry) => (entry.walk > deepest.walk ? entry : deepest), commits[0]!);
     const first = created;
     const last = commits[0];
@@ -1010,8 +1046,8 @@ export async function fileFacts(owner: DatabaseOwner, repository: string, path: 
     const authors = [...new Set(commits.map((entry) => entry.name).filter((name) => name !== ''))].sort();
     return {
       ...fileOf(row),
-      created: first === undefined ? null : { date: first.date, commit: first.commit, author: first.name },
-      modified: last === undefined ? null : { date: last.date, commit: last.commit, author: last.name },
+      created: first === undefined ? null : { date: gitDateOf(first.date, first.offset_min), offsetMin: first.offset_min, commit: first.commit, author: first.name },
+      modified: last === undefined ? null : { date: gitDateOf(last.date, last.offset_min), offsetMin: last.offset_min, commit: last.commit, author: last.name },
       commitCount: distinct.size,
       authors,
     };
@@ -1052,8 +1088,8 @@ export async function commitFacts(owner: DatabaseOwner, repository: string, hash
   return await withSpan('records.commitFacts', { 'records.commit': hash }, async () => await owner.transaction('snapshot', async (tx) => {
     const repositoryId = await repositoryIdOf(tx, repository);
     const found = await tx.query<Record<string, unknown>>(
-      `SELECT c.hash, to_char((c.author_date - make_interval(mins => c.author_offset_min)) AT TIME ZONE 'UTC', 'YYYY-MM-DD"T"HH24:MI:SS"Z"') AS author_date, c.author_offset_min,
-              to_char((c.commit_date - make_interval(mins => c.commit_offset_min)) AT TIME ZONE 'UTC', 'YYYY-MM-DD"T"HH24:MI:SS"Z"') AS commit_date, c.commit_offset_min, c.subject,
+      `SELECT c.hash, to_char(c.author_date AT TIME ZONE 'UTC', 'YYYY-MM-DD"T"HH24:MI:SS') AS author_date, c.author_offset_min,
+              to_char(c.commit_date AT TIME ZONE 'UTC', 'YYYY-MM-DD"T"HH24:MI:SS') AS commit_date, c.commit_offset_min, c.subject,
               coalesce(a.name, '') AS author_name, coalesce(a.email, '') AS author_email
        FROM node n JOIN kind k ON k.id = n.kind_id JOIN commit_fact c ON c.node_id = n.id
        LEFT JOIN edge e ON e.to_id = n.id AND e.kind_id = (SELECT id FROM kind WHERE name = 'authored')
@@ -1071,8 +1107,8 @@ export async function commitFacts(owner: DatabaseOwner, repository: string, hash
     return {
       hash: String(row['hash']), parents: parents.rows.map((entry) => entry.key),
       author: { name: String(row['author_name']), email: String(row['author_email']) },
-      authorDate: String(row['author_date']), authorOffsetMin: Number(row['author_offset_min']),
-      commitDate: String(row['commit_date']), commitOffsetMin: Number(row['commit_offset_min']),
+      authorDate: gitDateOf(String(row['author_date']), Number(row['author_offset_min'])), authorOffsetMin: Number(row['author_offset_min']),
+      commitDate: gitDateOf(String(row['commit_date']), Number(row['commit_offset_min'])), commitOffsetMin: Number(row['commit_offset_min']),
       subject: String(row['subject']),
     };
   }));

@@ -140,6 +140,12 @@ describe('the tools this step serves', () => {
     expect((answer['created'] as Record<string, unknown>)['commit']).toBe(first);
     expect((answer['modified'] as Record<string, unknown>)['commit']).toBe(third);
     expect((answer['created'] as Record<string, unknown>)['author']).toBe('Ada Example');
+    // A git date is the clock its author wrote it on, with that offset: `%aI` states both, and the
+    // store keeps the same two numbers apart. The fixture commits under Europe/Moscow (offset 180).
+    expect((answer['created'] as Record<string, unknown>)['date']).toBe(git(REPOSITORY, 'log', '-1', '--format=%aI', first));
+    expect((answer['created'] as Record<string, unknown>)['offsetMin']).toBe(180);
+    expect((answer['modified'] as Record<string, unknown>)['date']).toBe(git(REPOSITORY, 'log', '-1', '--format=%aI', third));
+    expect((answer['modified'] as Record<string, unknown>)['offsetMin']).toBe(180);
   }, 120_000);
 
   test('a file the as-is commit does not hold is refused by name', async () => {
@@ -159,6 +165,13 @@ describe('the tools this step serves', () => {
       [first, 'added', null],
     ]);
     expect(commits.map((commit) => [commit['added'], commit['removed']])).toEqual([[2, 1], [0, 0], [1, 0]]);
+    // Every row's date is its commit's own clock with its own offset, not a UTC instant wearing one.
+    expect(commits.map((commit) => commit['offsetMin'])).toEqual([180, 180, 180]);
+    expect(commits.map((commit) => commit['date'])).toEqual([
+      git(REPOSITORY, 'log', '-1', '--format=%aI', third),
+      git(REPOSITORY, 'log', '-1', '--format=%aI', second),
+      git(REPOSITORY, 'log', '-1', '--format=%aI', first),
+    ]);
     const paged = await call('get_file_history', { path: 'src/nested/c.ts', limit: 1 });
     expect(paged.answer['next']).toEqual({ walk: 0, commit: third });
     const after = await call('get_file_history', { path: 'src/nested/c.ts', limit: 1, after: paged.answer['next'] });
@@ -175,6 +188,7 @@ describe('the tools this step serves', () => {
       hash: third,
       author: { name: 'Ada Example', email: 'ada@example.test' },
       authorOffsetMin: 180, commitOffsetMin: 180,
+      authorDate: git(REPOSITORY, 'log', '-1', '--format=%aI', third), commitDate: git(REPOSITORY, 'log', '-1', '--format=%cI', third),
       subject: 'the nested file and one export grow',
       parents: [second],
     });

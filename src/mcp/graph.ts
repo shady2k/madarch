@@ -12,6 +12,7 @@
  * The graph is derived data (decision 0023): a store that is missing, holds no graph of
  * this commit or cannot be read is filled again, never trusted.
  */
+import { randomBytes } from 'node:crypto';
 import { closeSync, existsSync, mkdirSync, openSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
 import { join, resolve } from 'node:path';
 import { createPGliteDatabaseOwner, type DatabaseOwner } from '../adapters/database-owner.js';
@@ -19,7 +20,7 @@ import { readProgress } from '../fill/orchestrator-store.js';
 import { runFill } from '../fill/run.js';
 import type { FillProgress } from '../obs/progress.js';
 import { createGraphStore, repositoryFacts, type GraphStore } from '../graph/index.js';
-import { fillFolderIdentity } from '../product/identity.js';
+import { fillFolderIdentity, productRepositoryId } from '../product/identity.js';
 import { productsHome, type DraftEnv } from '../product/home.js';
 import { knowledgeRootOf, productStoreFolder, storeDatabasePath } from '../product/store.js';
 import { GraphView } from '../writer/view.js';
@@ -194,9 +195,12 @@ async function fillRepositoryGraph(owner: DatabaseOwner, repository: string, fol
   const result = await runFill({
     product: repository,
     database: owner,
-    // The run's id names the commit it reads, so a server's building answer finds this run's trace
-    // by name and never by "the newest file" (the server's own trace stands beside it).
-    runId: `mcp-${commit.slice(0, 12)}`,
+    // The run's id names the commit it reads and the run itself. A start at a commit this store
+    // filled before is a second run — the store has moved to another commit since, and this start
+    // fills it back — so the id carries a fresh token: an id made from the commit alone named the
+    // finished run, and the one fill refused to plan it (fill-orchestrator/run-not-plannable;
+    // review, item 2). The commit stays legible in the trace's name, the token makes it unique.
+    runId: `mcp-${commit.slice(0, 12)}-${randomBytes(4).toString('hex')}`,
     home: folder,
     store: folder,
     log,
@@ -236,6 +240,11 @@ export async function openRepositoryGraph(options: {
   const repository = resolve(options.repository);
   const env = options.env ?? process.env;
   const identity = fillFolderIdentity(repository);
+  // The store's name for the checkout's own repository: the id the fill pins it under, read from the
+  // one function both sides call, so a product whose name a connected repository carries is served
+  // from the store its fill wrote (`<name>-product`), never read under a name the store never held
+  // (review, item 4).
+  const productId = productRepositoryId(identity.identity);
   const folder = repositoryStoreFolder(repository, env);
   mkdirSync(folder, { recursive: true });
   const log = options.log ?? (() => {});
@@ -250,7 +259,7 @@ export async function openRepositoryGraph(options: {
     let fill = readFillOutcome(folder);
     let filled = false;
     let view: GraphView | null = null;
-    const heldCommit = await asIsCommitOf(openedOwner, identity.identity.name);
+    const heldCommit = await asIsCommitOf(openedOwner, productId);
     const store = createGraphStore(openedOwner);
     /**
      * The temporal view this store answers at, or null when the store holds no reading of this commit.
@@ -262,7 +271,7 @@ export async function openRepositoryGraph(options: {
      * served with no view at all. A store a static stage filled has one, and the seven tools read it.
      */
     const readingOf = async (): Promise<GraphView | null> => {
-      if (!(await graphReadsCommit(openedOwner, identity.identity.name, commit))) return null;
+      if (!(await graphReadsCommit(openedOwner, productId, commit))) return null;
       try { return await GraphView.open(openedOwner, store); } catch { return null; }
     };
     if (heldCommit === commit) {
@@ -278,7 +287,7 @@ export async function openRepositoryGraph(options: {
       const after = performance.now();
       log(`madarch mcp: graph filled in ${((after - before) / 1000).toFixed(1)} s${fill.failed.length === 0 ? '' : `; ${fill.failed.length} ${fill.failed.length === 1 ? 'unit' : 'units'} did not publish (${fill.state})`}`);
     }
-    const asIs = await asIsCommitOf(owner, identity.identity.name);
+    const asIs = await asIsCommitOf(owner, productId);
     if (asIs !== commit) {
       throw new Error(`${databasePath}:1: the fill of ${repository} left the store at ${asIs === null ? 'no commit' : asIs}, and the checkout stands at ${commit}: a graph of another commit is not served (src/mcp/graph.ts)`);
     }
@@ -287,7 +296,7 @@ export async function openRepositoryGraph(options: {
       owner: openedOwner,
       store: createGraphStore(openedOwner),
       view,
-      repositoryName: identity.identity.name,
+      repositoryName: productId,
       folder,
       commit,
       filled,

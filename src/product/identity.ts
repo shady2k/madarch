@@ -17,6 +17,35 @@ export interface FillFolderIdentity {
 }
 
 /**
+ * The id a product's own repository is pinned under.
+ *
+ * A store names one repository by one id, and two checkouts that share a name are two repositories:
+ * a product whose own name is also a connected repository's name pins its own repository
+ * `<name>-product`, so both are read and neither is taken for the other. A product that declares no
+ * repository of its own name keeps its name.
+ *
+ * The candidate is `<name>-product`, then `<name>-product-2` and so on while a declared repository
+ * already carries that id — a declared repository may be called `sample-product` — and each
+ * candidate is checked against the declared names, so the id this function answers is never one of
+ * them. The choice is the same for one manifest every time, and the fill, the wiring that resolves
+ * a unit's folder and the MCP server read it from here: one function, one id. A product whose
+ * candidates are all declared is refused by name, because pinning two checkouts under one id is
+ * what the snapshot reader refuses and a silently chosen id would read the wrong checkout.
+ */
+export function productRepositoryId(identity: ProductIdentity): string {
+  const declared = new Set(identity.repos.map((repo) => repo.name));
+  if (!declared.has(identity.name)) return identity.name;
+  const first = `${identity.name}-product`;
+  if (!declared.has(first)) return first;
+  for (let number = 2; number <= 99; number += 1) {
+    const candidate = `${first}-${number}`;
+    if (!declared.has(candidate)) return candidate;
+  }
+  const held = [first, ...Array.from({ length: 98 }, (_, index) => `${first}-${index + 2}`)].filter((id) => declared.has(id));
+  throw new Error(`the product ${identity.folder} names itself ${JSON.stringify(identity.name)} and declares ${held.map((id) => JSON.stringify(id)).join(', ')}, so its own repository has no id of its own: rename one of them, and the product's repository is pinned under a name no declared repository carries (src/product/identity.ts)`);
+}
+
+/**
  * The identity a fill reads one folder under. A product's is its manifest's, refused with the
  * manifest's own file, line and words. A checkout that holds no manifest is read as the
  * repository it is: its folder's own name is the name its facts stand under, and it declares

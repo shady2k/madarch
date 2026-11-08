@@ -55,8 +55,8 @@ const answer = (path: string, body: unknown): void => {
 
 /** Two commits of a file's history, as the server states them. */
 const HISTORY: PageHistoryRow[] = [
-  { commit: 'b'.repeat(40), change: 'modified', added: 2, removed: 1, previousPath: null, date: '2026-11-07T11:00:00Z', subject: 'grows', walk: 0 },
-  { commit: 'a'.repeat(40), change: 'added', added: 1, removed: 0, previousPath: null, date: '2026-11-07T10:00:00Z', subject: 'written', walk: 1 },
+  { commit: 'b'.repeat(40), change: 'modified', added: 2, removed: 1, previousPath: null, date: '2026-11-07T14:00:00+03:00', offsetMin: 180, subject: 'grows', walk: 0 },
+  { commit: 'a'.repeat(40), change: 'added', added: 1, removed: 0, previousPath: null, date: '2026-11-07T13:00:00+03:00', offsetMin: 180, subject: 'written', walk: 1 },
 ];
 
 const FILE = { path: 'src/a.ts', mode: '100644', blob: 'a'.repeat(40), bytes: 20, lines: 1, form: 'text' as const, language: 'ambiguous', candidates: ['TypeScript', 'XML'] };
@@ -80,9 +80,12 @@ describe('the numbers and names a page writes', () => {
     expect(msText(5.5)).toBe('5.5 ms');
     expect(msText(1500)).toBe('1.50 s');
     expect(mbText(200 * 1024 * 1024)).toBe('200.0 MB');
-    expect(instantText('2026-11-07T19:14:32Z', 180)).toBe('2026-11-07 19:14:32 +03:00');
-    expect(instantText('2026-11-07T19:14:32Z', -330)).toBe('2026-11-07 19:14:32 -05:30');
-    expect(instantText('2026-11-07T19:14:32Z', null)).toBe('2026-11-07 19:14:32 UTC');
+    // The store states a git date as `%aI` states it: the author's clock and the offset it was written
+    // at. The page writes those two numbers, never the clock with a foreign offset appended.
+    expect(instantText('2026-11-07T19:14:32+03:00', 180)).toBe('2026-11-07 19:14:32 +03:00');
+    expect(instantText('2026-11-07T19:14:32-05:30', -330)).toBe('2026-11-07 19:14:32 -05:30');
+    expect(instantText('2026-11-07T19:14:32+00:00', 0)).toBe('2026-11-07 19:14:32 +00:00');
+    expect(instantText('2026-11-07T19:14:32', null)).toBe('2026-11-07 19:14:32 UTC');
   });
 
   test('a table of files links each one and says a binary blob holds no line count', async () => {
@@ -155,8 +158,8 @@ describe('a folder and a file', () => {
   test('a file states every fact the graph holds of it, its dates and authors, and the commits that touched it', async () => {
     const file: FilePageModel = {
       repository: 'code', asIsCommit: 'b'.repeat(40), file: FILE,
-      created: { date: '2026-11-07T10:00:00Z', commit: 'a'.repeat(40), author: 'Ada' },
-      modified: { date: '2026-11-07T11:00:00Z', commit: 'b'.repeat(40), author: 'Ada' },
+      created: { date: '2026-11-07T13:00:00+03:00', offsetMin: 180, commit: 'a'.repeat(40), author: 'Ada' },
+      modified: { date: '2026-11-07T14:00:00+03:00', offsetMin: 180, commit: 'b'.repeat(40), author: 'Ada' },
       commitCount: 2, authors: ['Ada'],
       history: HISTORY,
       next: null,
@@ -166,6 +169,13 @@ describe('a folder and a file', () => {
     await until(() => container.querySelector('[data-testid=file-facts]') !== null, 'the facts');
     const text = container.textContent ?? '';
     for (const fact of ['100644', 'a'.repeat(40), '20', '1', 'text', 'ambiguous (TypeScript, XML)', 'Ada', 'Commits touching it']) expect(text).toContain(fact);
+    // The file's two dates are its commits' own clocks, each with the offset it was written at.
+    expect(text).toContain('2026-11-07 13:00:00 +03:00');
+    expect(text).toContain('2026-11-07 14:00:00 +03:00');
+    expect([...container.querySelectorAll('[data-testid=history-row]')].map((row) => row.textContent)).toEqual([
+      expect.stringContaining('2026-11-07'),
+      expect.stringContaining('2026-11-07'),
+    ]);
     expect(container.querySelectorAll('[data-testid=history-row]').length).toBe(2);
     expect([...container.querySelectorAll('[data-testid=history-row]')].map((row) => row.getAttribute('data-change'))).toEqual(['modified', 'added']);
   });
@@ -174,8 +184,8 @@ describe('a folder and a file', () => {
     const commit: CommitPageModel = {
       repository: 'code', asIsCommit: 'b'.repeat(40), hash: 'b'.repeat(40),
       author: { name: 'Ada', email: 'ada@example.test' },
-      authorDate: '2026-11-07T11:00:00Z', authorOffsetMin: 180,
-      commitDate: '2026-11-07T11:00:00Z', commitOffsetMin: 180, subject: 'a file goes',
+      authorDate: '2026-11-07T14:00:00+03:00', authorOffsetMin: 180,
+      commitDate: '2026-11-07T14:00:00+03:00', commitOffsetMin: 180, subject: 'a file goes',
       parents: ['a'.repeat(40)],
       changed: [
         { path: 'src/kept.ts', change: 'modified', added: 1, removed: 1, previousPath: null },
@@ -187,7 +197,8 @@ describe('a folder and a file', () => {
     await until(() => container.querySelector('[data-testid=commit-changed]') !== null, 'the changed paths');
     const links = [...container.querySelectorAll('[data-testid=changed-file]')].map((link) => link.textContent);
     expect(links).toEqual(['src/kept.ts']);
-    expect(container.textContent).toContain('11:00:00 +03:00');
+    expect(container.textContent).toContain('14:00:00 +03:00');
+    expect(container.textContent).not.toContain('14:00:00+03:00 +03:00');
     expect(container.querySelectorAll('[data-testid=changed-row]').length).toBe(2);
   });
 });

@@ -211,6 +211,61 @@ describe('the server answers before its store is filled', () => {
   }, 60_000);
 });
 
+describe('a store moved between commits', () => {
+  test('a start at a commit this store filled before fills it again, and answers it', async () => {
+    // One checkout of this case's own, standing at A, then at B, then at A again: the store follows the
+    // checkout's HEAD, and the third start must fill A rather than find the run that filled it before
+    // (a run id made from the commit alone named a finished run, and the one fill refused it as
+    // fill-orchestrator/run-not-plannable: review, item 2).
+    const repo = mkdtempSync(path.join(tmpdir(), 'madarch-mcp-review-moved-'));
+    const home = mkdtempSync(path.join(tmpdir(), 'madarch-mcp-review-moved-home-'));
+    const env = { ...process.env, MADARCH_HOME: home };
+    const run = (...args: string[]): string => execFileSync('git', args, { cwd: repo, encoding: 'utf8', env: COMMIT_ENV }).trim();
+    run('init', '-q', '-b', 'main');
+    writeFileSync(path.join(repo, 'one.txt'), 'the first commit\n');
+    run('add', '-A');
+    run('commit', '-qm', 'A');
+    const A = run('rev-parse', 'HEAD');
+    writeFileSync(path.join(repo, 'two.txt'), 'the second commit\n');
+    run('add', '-A');
+    run('commit', '-qm', 'B');
+    const B = run('rev-parse', 'HEAD');
+    const at = async (commit: string, served: string): Promise<void> => {
+      run('checkout', '-q', commit);
+      const opened = await RepositorySession.open({ repository: repo, env });
+      try {
+        const answered = await opened.call('get_repository', {});
+        expect(answered.isError).toBe(false);
+        expect((answered.answer as Record<string, unknown>)['asIsCommit']).toBe(served);
+      } finally {
+        await opened.close();
+      }
+    };
+    try {
+      await at(A, A);
+      await at(B, B);
+      // The commit the store filled first: the store holds B, so this start fills A, and the fill runs.
+      await at(A, A);
+      const listed = await (async (): Promise<void> => {
+        const opened = await RepositorySession.open({ repository: repo, env });
+        try {
+          const files = await opened.call('list_files', {});
+          expect(files.isError).toBe(false);
+          // A's tree, not B's: the second file stands only in B, and the store was moved back to A.
+          expect(((files.answer as Record<string, unknown>)['files'] as { path: string }[]).map((file) => file.path)).toEqual(['one.txt']);
+          expect((files.answer as Record<string, unknown>)['source']).toMatchObject({ commit: A });
+        } finally {
+          await opened.close();
+        }
+      })();
+      await listed;
+    } finally {
+      rmSync(repo, { recursive: true, force: true });
+      rmSync(home, { recursive: true, force: true });
+    }
+  }, 300_000);
+});
+
 describe('the store the button fills is read, not filled twice', () => {
   test('a second server at the same commit opens the store the first one filled, and fills nothing', async () => {
     // A products home of this case's own: one store serves one process at a time, and the suite's own
