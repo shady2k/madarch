@@ -48,7 +48,7 @@ import { TREE_EXTRACTORS, HISTORY_EXTRACTOR } from '../extract/driver/extractors
 import { selectHistory, withHistoryLinks, type HistoryContext, type HistorySelection } from './temporal.js';
 import { markdownFilesBelow, readMarkdownEntities, type MarkdownEntity } from './markdown.js';
 import type { AgentOffer, Block, ChangedPage, DocumentListing, DocumentPage, DocumentRef, FillErrorView, FillRunView, FillState, Neighborhood, PageModel, PlannedMarkView, PlannedSectionView, RepositoryFactsView, WikiStatus, WriterState, WriterUnit } from './model.js';
-import { commitPage, filePage, folderPage, repositoryOf, repositoryPage, type CommitPageModel, type FilePageModel, type FolderPageModel } from './repository-view.js';
+import { commitPage, filePage, folderPage, recordedFileCount, recordedFiles, repositoryOf, repositoryPage, type CommitPageModel, type FilePageModel, type FolderPageModel } from './repository-view.js';
 import { readFillProgressOf } from '../obs/progress.js';
 import { readTraceRun } from '../obs/trace-report.js';
 import { neighborhoodOf } from './diagrams.js';
@@ -1979,6 +1979,22 @@ export class KnowledgeProduct {
       if (origin === undefined || commit === undefined || commit === '') return undefined;
       return webLink({ origin, commit, path, lineStart, lineEnd });
     };
+    // The store's records answer the kind `code.file` (madarch-8bdc.2.5): the fill publishes the repository's paths in
+    // the record tables, and a page of a past time is the temporal graph's alone, so a historical page is asked nothing
+    // of them. The repository resolved is the one the wiki's repository pages show, the product's first declared one.
+    const records = history === undefined ? (() => {
+      let held: Promise<string | null> | undefined;
+      const repository = (): Promise<string | null> => (held ??= repositoryOf(indexOwner, this.repositories()[0]?.name ?? null));
+      return {
+        files: {
+          count: async (prefix?: string): Promise<number> => { const name = await repository(); return name === null ? 0 : await recordedFileCount(indexOwner, name, prefix); },
+          page: async (options: { readonly after?: string; readonly prefix?: string; readonly limit: number }) => {
+            const name = await repository();
+            return name === null ? { total: 0, rows: [], next: null } : await recordedFiles(indexOwner, name, options);
+          },
+        },
+      };
+    })() : undefined;
     const resolver = new Resolver({
       graph,
       markdown,
@@ -1994,7 +2010,7 @@ export class KnowledgeProduct {
     // page says so in place of the missing statement until the run ends.
     const writing = this.writer.state === 'waiting' || this.writer.state === 'running';
     return {
-      ctx: { productFolder: product.folder, manifest: read.manifest, graph, markdown, docEntities, localizedSources, language, documents: reading.sources, ...(writing ? { awaitsLocalized: true } : {}), repositories: history === undefined ? [...pins.keys()].sort(byCodePoint) : [history.repo], webOf, ...(history === undefined ? { index: { relyingOn: (key: string) => statementsRelyingOn(indexOwner, key), counts: () => indexCounts(indexOwner) } } : {}), commitOf: (repo) => history === undefined ? pins.get(repo)?.commit ?? null : repo === history.repo ? history.commit : null, resolver, repoOfScope, readSource },
+      ctx: { productFolder: product.folder, manifest: read.manifest, graph, markdown, docEntities, localizedSources, language, documents: reading.sources, ...(writing ? { awaitsLocalized: true } : {}), repositories: history === undefined ? [...pins.keys()].sort(byCodePoint) : [history.repo], webOf, ...(records === undefined ? {} : { records }), ...(history === undefined ? { index: { relyingOn: (key: string) => statementsRelyingOn(indexOwner, key), counts: () => indexCounts(indexOwner) } } : {}), commitOf: (repo) => history === undefined ? pins.get(repo)?.commit ?? null : repo === history.repo ? history.commit : null, resolver, repoOfScope, readSource },
       manifest: read.manifest,
       findings: [...read.manifest.findings, ...markdownRead.findings, ...reading.findings, ...(writing ? localizedFindings.filter((finding) => finding.pending === undefined) : localizedFindings)],
     };

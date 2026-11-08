@@ -25,7 +25,7 @@ import { readBody } from './markdown.js';
 import { entityAtAddress, type DocEntity } from './doc-entities.js';
 import type { MarkdownEntity } from './markdown.js';
 import type { Block, EntityListing, EntityRef, KindSummary, PageModel } from './model.js';
-import { documentAddress, noEntityMessage, type Resolution } from './resolve.js';
+import { documentAddress, noEntityMessage, sourceAddress, type Resolution } from './resolve.js';
 import { renderLiquidPage } from './liquid.js';
 import { blockIdentity, foldLanguageParams, parseTemplate, substitute } from './template.js';
 import { termLinks } from './glossary.js';
@@ -321,6 +321,9 @@ function originsOf(ctx: RenderContext, decl: { name: string; source: 'graph' | '
 
 export async function kindSummaries(ctx: RenderContext): Promise<KindSummary[]> {
   const counts = new Map((await ctx.graph.kindCounts()).map((entry) => [entry.kind, entry.count]));
+  // The record store's files are the kind `code.file`'s entities in a store this fill wrote (madarch-8bdc.2.5): the
+  // count the navigation and the listing show is the store's own, so the two never disagree about where the files are.
+  if (ctx.records !== undefined) counts.set('code.file', await ctx.records.files.count());
   const statements = new Map((await ctx.index?.counts() ?? []).map((entry) => [entry.kind, entry.statements]));
   return [...ctx.manifest.kinds.values()].filter((decl) => decl.member === undefined).map((decl) => ({
     kind: decl.name,
@@ -346,6 +349,24 @@ export async function kindSummaries(ctx: RenderContext): Promise<KindSummary[]> 
 export async function listEntities(ctx: RenderContext, kind: string, options: { q?: string; after?: string; limit: number }): Promise<EntityListing | undefined> {
   const decl = ctx.manifest.kinds.get(kind);
   if (decl === undefined || decl.member !== undefined) return undefined;
+  // A file of the store this fill wrote is a record, not a version of the temporal graph: the kind `code.file` lists the
+  // record tables' paths, in code-point order, one bounded page at a time, and its page is the repository's file page.
+  if (kind === 'code.file' && ctx.records !== undefined) {
+    const filter = options.q?.trim() ?? '';
+    const page = await ctx.records.files.page({ limit: options.limit, ...(options.after === undefined ? {} : { after: options.after }), ...(filter === '' ? {} : { prefix: filter }) });
+    return {
+      kind, total: page.total, next: page.next,
+      rows: page.rows.map((file) => {
+        const web = ctx.webOf?.(file.repository, file.path, 1, 1);
+        return {
+          id: `code.file:${file.path}`, kind, label: file.path,
+          // A file's page is the repository's own (`/k/file`), the only page this step draws of one.
+          href: `/k/file?${new URLSearchParams({ path: file.path }).toString()}`,
+          location: { repo: file.repository, path: file.path, lineStart: 1, lineEnd: 1, href: sourceAddress(file.repository, file.path, 1), ...(web === undefined ? {} : { web }) },
+        };
+      }),
+    };
+  }
   if (decl.source === 'markdown' || decl.source === 'document') {
     const text = options.q?.trim().toLowerCase() ?? '';
     const pool: (MarkdownEntity | DocEntity)[] = decl.source === 'markdown' ? [...ctx.markdown.values()] : [...ctx.docEntities.values()];

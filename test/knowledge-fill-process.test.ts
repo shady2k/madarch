@@ -1,12 +1,13 @@
 /**
  * The fill runs in a process of its own (madarch-m38l.4, decision 0033 item 27): a PGlite runs every statement on the
  * thread that owns it, so a store opened inside the server's process holds every page of the wiki while it boots and
- * while it is written. This file reads the two consequences a reader of the wiki sees:
+ * while it is written. This file reads the three consequences a reader of the wiki sees:
  *
  * - the server's thread answers throughout the fill — no page waits on the store's boot (the CI failure measured
  *   2 454-2 936 ms for three pages while a first fill opened its store);
  * - a pin the reader opens carries the scope of the store's temporal graph or nothing, never a repository's name in a
- *   column the reader compares as an id (`invalid input syntax for type bigint: "shop"` was a failed page).
+ *   column the reader compares as an id (`invalid input syntax for type bigint: "shop"` was a failed page);
+ * - the files the fill published are the kind `code.file`'s listing and its count, from the same store.
  *
  * Each product here is a fixture this test makes: one repository of four files and the product around it.
  */
@@ -22,7 +23,6 @@ import { startServer, type StartedServer } from '../src/server/http.js';
 import { gitEnv } from './git-env.js';
 import { SAMPLE_IDENTITY, makeProduct } from './knowledge-fixture.js';
 
-
 /** The bound a page of the wiki answers within while a fill runs: the owner's walk took about three seconds. */
 const BOUND_MS = 300;
 
@@ -32,6 +32,9 @@ const git = (cwd: string, ...args: string[]): string => execFileSync('git', args
 let root = '';
 let home = '';
 let app = '';
+
+/** The files the fixture repository holds, in code-point order. */
+const FILES = ['README.md', 'docs/note.md', 'src/a.ts', 'src/nested/b.ts'];
 
 const json = async (server: StartedServer, product: string, path: string): Promise<{ status: number; body: Record<string, unknown> }> => {
   const answer = await fetch(`${server.url}/products/${product}${path}`, { headers: { accept: 'application/json' } });
@@ -134,7 +137,7 @@ describe('the wiki while a fill runs', () => {
 });
 
 describe('the store a fill wrote', () => {
-  // One fill for the case below: it reads the store the fill left, not a run of its own.
+  // One fill for both cases below: they read the store it left, not a run of their own.
   beforeAll(async () => {
     const server = await startServer({ productHome: home, appFolder: app, port: 0, log: () => undefined, errorLog: () => undefined });
     try {
@@ -168,6 +171,35 @@ describe('the store a fill wrote', () => {
       expect([200, 404]).toContain(symbol.status);
       expect((await json(server, 'walk', '/api/k/status')).status).toBe(200);
       expect(errors).toEqual([]);
+    } finally {
+      await server.stop();
+    }
+  }, 120_000);
+
+  test('the files the store published are the kind code.file’s listing and its count', async () => {
+    const server = await startServer({ productHome: home, appFolder: app, port: 0, log: () => undefined, errorLog: () => undefined });
+    try {
+      const repository = await json(server, 'walk', '/api/k/repository');
+      expect(repository.status).toBe(200);
+      const counts = (repository.body['repository'] as { counts: { files: number } }).counts;
+      expect(counts.files).toBe(FILES.length);
+      const listing = await json(server, 'walk', '/api/k/entities?kind=code.file&limit=100');
+      expect(listing.status).toBe(200);
+      const held = listing.body as { total: number; rows: { id: string; label: string; href: string }[]; next: string | null };
+      // The listing answers the files the fill published, and its count is the store's own count of them.
+      expect(held.rows.map((row) => row.label)).toEqual(FILES);
+      expect(held.total).toBe(counts.files);
+      expect(held.rows.length).toBe(Math.min(100, held.total));
+      expect(held.next).toBeNull();
+      // A file's page is the repository's own, and its place is the file.
+      const first = held.rows[0]!;
+      expect(first.id).toBe(`code.file:${first.label}`);
+      expect(first.href).toBe(`/k/file?${new URLSearchParams({ path: first.label }).toString()}`);
+      // The listing's filter reads the store: a path prefix, and the count of what it holds.
+      const filtered = await json(server, 'walk', `/api/k/entities?kind=code.file&limit=100&q=${encodeURIComponent('src/')}`);
+      const narrowed = filtered.body as { total: number; rows: { label: string }[] };
+      expect(narrowed.rows.map((row) => row.label)).toEqual(['src/a.ts', 'src/nested/b.ts']);
+      expect(narrowed.total).toBe(2);
     } finally {
       await server.stop();
     }

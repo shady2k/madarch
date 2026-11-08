@@ -132,6 +132,55 @@ function pageFileOf(file: FileRecord): PageFile {
   };
 }
 
+/** One path the store holds, as the kind `code.file` lists it: the file of one repository, and no fact of its page. */
+interface RecordedFile {
+  readonly path: string;
+  readonly repository: string;
+}
+
+/** One bounded page of a repository's files, and the exact number of files the listing holds. */
+export interface RecordedFilePage {
+  readonly total: number;
+  readonly rows: readonly RecordedFile[];
+  readonly next: string | null;
+}
+
+/** How many paths one read of the listing holds: a page big enough that a count of a large repository is few reads. */
+const RECORDED_FILE_COUNT_PAGE = 1_000;
+
+/**
+ * The number of files a repository's listing holds, filtered by a path prefix when one is given. The store's
+ * `listFiles` answers a page and the path the next one starts at, and no count (the pages of a listing of two
+ * thousand files are a handful of reads); a listing with no filter reads the repository's own recorded count.
+ */
+export async function recordedFileCount(owner: RecordOwner, repository: string, prefix?: string): Promise<number> {
+  if (prefix === undefined || prefix === '') return (await repositoryFacts(owner, repository))?.fileCount ?? 0;
+  let total = 0;
+  let after: string | undefined;
+  for (;;) {
+    const page = await listFiles(owner, { repository, prefix, limit: RECORDED_FILE_COUNT_PAGE, ...(after === undefined ? {} : { after }) });
+    total += page.rows.length;
+    if (page.next === null) return total;
+    after = page.next;
+  }
+}
+
+/**
+ * One page of a repository's files in code-point order of their paths, and the exact number the listing holds: what
+ * the wiki's kind `code.file` lists. The filter is a path prefix — a file stands at a place in a tree, and the
+ * store's own listing takes a prefix, never a pattern.
+ */
+export async function recordedFiles(owner: RecordOwner, repository: string, options: { readonly after?: string; readonly prefix?: string; readonly limit: number }): Promise<RecordedFilePage> {
+  return await withSpan('wiki.recordedFiles', { 'wiki.repository': repository }, async () => {
+    const page = await listFiles(owner, { repository, limit: options.limit, ...(options.after === undefined ? {} : { after: options.after }), ...(options.prefix === undefined || options.prefix === '' ? {} : { prefix: options.prefix }) });
+    return {
+      total: await recordedFileCount(owner, repository, options.prefix),
+      rows: page.rows.map((file) => ({ path: file.path, repository })),
+      next: page.next,
+    };
+  });
+}
+
 /** One file's page: every fact of the file and one page of the commits that touched it. */
 export interface FilePageModel {
   readonly repository: string;
