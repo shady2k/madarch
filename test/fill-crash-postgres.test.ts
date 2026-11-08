@@ -2,14 +2,14 @@
  * The crash-injection suite against PostgreSQL (madarch-tzte.19.6, decision
  * 0027): the same compiled binary and the same fixture chain as
  * `test/fill-crash-suite.test.ts`, on the server a deployment runs — a `pg` pool
- * instead of PGlite's one connection, pg-boss's `postgres` profile in a schema of
+ * instead of the store owner's pool, pg-boss's `postgres` profile in a schema of
  * its own, and, what only a server can show, three executor processes working one
  * run at the same time.
  *
  * What the server is asked for is what the task's DONE WHEN names for it: one
  * publication per generation, no lost children, barrier recovery, stale fences
  * refused, the run's own concurrency enforced, recovery, and the starvation
- * diagnostic. The expectations are the PGlite leg's, taken from the task and from
+ * diagnostic. The expectations are the store leg's, taken from the task and from
  * decision 0027; the phases still move time by hand and never sleep.
  *
  * The server is the one `MADARCH_TEST_POSTGRES_URL` names, which CI's checks job

@@ -1,18 +1,19 @@
-import {expect, test} from 'bun:test';
-import {createPGliteDatabaseOwner,type DatabaseOwner} from '../src/adapters/database-owner.js';
-import {createGraphStore,type GraphId} from '../src/graph/index.js';
-import {GraphReader,spanOf,type GraphEntity,type NeighborEdge,type RelationEdge,type SourceSpan} from '../src/knowledge/graph-read.js';
-import {ChainBuilder,chainFrom} from '../src/knowledge/diagrams.js';
-import type {RenderContext} from '../src/knowledge/blocks.js';
-import {parseKinds} from '../src/knowledge/kinds.js';
-import {Resolver} from '../src/knowledge/resolve.js';
-import {byCodePoint} from '../src/model/order.js';
-import {buildViews,type GraphView} from '../src/knowledge/views.js';
-import {fixtureManifest} from './knowledge-manifest-fixture.js';
-import type {Chain} from '../src/knowledge/model.js';
+import { expect, test } from 'bun:test';
+import { type DatabaseOwner } from '../src/adapters/database-owner.js';
+import { createGraphStore, type GraphId } from '../src/graph/index.js';
+import { GraphReader, spanOf, type GraphEntity, type NeighborEdge, type RelationEdge, type SourceSpan } from '../src/knowledge/graph-read.js';
+import { ChainBuilder, chainFrom } from '../src/knowledge/diagrams.js';
+import type { RenderContext } from '../src/knowledge/blocks.js';
+import { parseKinds } from '../src/knowledge/kinds.js';
+import { Resolver } from '../src/knowledge/resolve.js';
+import { byCodePoint } from '../src/model/order.js';
+import { buildViews, type GraphView } from '../src/knowledge/views.js';
+import { fixtureManifest } from './knowledge-manifest-fixture.js';
+import type { Chain } from '../src/knowledge/model.js';
+import { createTestDatabaseOwner } from './test-database.js';
 
 test('final 1: route entry uses actual handled-by; callback references stay unordered with a range',async()=>{
- const owner=createPGliteDatabaseOwner({btreeGist:true});await owner.ready;
+ const owner=await createTestDatabaseOwner({btreeGist:true});await owner.ready;
  try {
   const store=createGraphStore(owner,{now:()=>new Date('2026-06-01T00:00:00Z')});await store.createSchema();
   await store.registerCodeSchema({kinds:['code.route'],relations:[{key:'code.handled-by'},{key:'code.references',discriminated:true}]});
@@ -40,7 +41,7 @@ test('final 1: route entry uses actual handled-by; callback references stay unor
 // ---- the step budget of a sequence view (madarch-mwhd.3) -------------------------------------------
 
 const unusedChainOwner: DatabaseOwner = {
-  location: 'unused chain fixture', ready: Promise.resolve(), allowConcurrentSnapshots: false, backend: 'pglite', hasVector: false,
+  location: 'unused chain fixture', ready: Promise.resolve(), allowConcurrentSnapshots: false, hasVector: false,
   transaction: async () => { throw new Error('the chain fixture must not query SQL'); },
   run: async () => { throw new Error('the chain fixture must not query SQL'); },
   exec: async () => { throw new Error('the chain fixture must not query SQL'); }, close: async () => {},

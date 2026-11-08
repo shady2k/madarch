@@ -82,7 +82,7 @@ function matches(one: GraphEntity, options: { q?: string; after?: string }): boo
 
 const unusedOwner: DatabaseOwner = {
   location: 'unused view fixture', ready: Promise.resolve(), allowConcurrentSnapshots: false,
-  backend: 'pglite', hasVector: false,
+  hasVector: false,
   transaction: async () => { throw new Error('the fixture must not query SQL'); },
   run: async () => { throw new Error('the fixture must not query SQL'); },
   exec: async () => { throw new Error('the fixture must not query SQL'); }, close: async () => {},

@@ -20,10 +20,10 @@ import { addCodeRepository, bootstrapProduct, createDirectoryLink } from '../src
 import { main, repoModeFromAnswer, COMMANDS } from '../src/product/cli.js';
 import { createDraft } from '../src/product/draft.js';
 import { listProducts } from '../src/product/list.js';
-import { stopDaemon } from '../src/product/daemon.js';
 import { gitEnv } from './git-env.js';
 import { GIT_IDENTITY, GIT_ENV } from './model-check-repo.js';
 import { homeOfCommand, noStrayDrafts, ISOLATED_HOME, sealedHome } from './scratch-home.js';
+import { stopDaemon } from '../src/product/daemon.js';
 
 // The library paths here create drafts in-process as well: MADARCH_HOME at
 // the guard's scratch from this module's load, so a mutated home resolution
@@ -91,7 +91,11 @@ export function scratchFolder(prefix = 'madarch-cli-'): string {
   return dir;
 }
 
+/** The daemons a command this file started runs in the background: `new` returns with one serving, and it is stopped here, pass or fail. */
+const startedHomes: string[] = [];
+
 const removeMadeFolders = (): void => {
+  for (const home of startedHomes.splice(0)) try { stopDaemon({ home }); } catch { /* no daemon of this home */ }
   for (const dir of made.splice(0)) rmSync(dir, { recursive: true, force: true });
   for (const proc of runningChildren.splice(0)) try { proc.kill(); } catch { /* already gone */ }
   const strays = noStrayDrafts();
@@ -131,7 +135,12 @@ interface LiveNew {
 }
 export function serveNew(args: string[], overrides: Record<string, string> = {}, program: readonly string[] = ['bun', CLI], cwd?: string): LiveNew {
   const env = { ...process.env, ...SEALED_GIT, ...SEALED_CLOCK, ...sealedHome(overrides), ...overrides };
-  if (args[0] === 'new' || args[0] === 'init') homeOfCommand(args, env);
+  if (args[0] === 'new' || args[0] === 'init') {
+    homeOfCommand(args, env);
+    // `new` starts a daemon in the background and returns: this file's cleanup stops it.
+    const home = homeOfCommand(args, env);
+    if (home !== '') startedHomes.push(home);
+  }
   const proc = Bun.spawn([...program, ...args], {
     stdin: 'pipe', stdout: 'pipe', stderr: 'pipe',
     env,

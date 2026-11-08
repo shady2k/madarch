@@ -1,6 +1,6 @@
 /**
  * One node's diagrams, read from the fill's fact store (madarch-tzte.23.8): the read a
- * page's diagram slot asks for, over a real fill service and its PGlite store.
+ * page's diagram slot asks for, over a real fill service and its store.
  *
  * The values here are decision 0026's and madarch-tzte.23.4's, not this code's: a
  * page draws the diagrams its node's kind stands in, a fact is solid and an

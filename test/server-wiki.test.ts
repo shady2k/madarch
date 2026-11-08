@@ -8,13 +8,13 @@ import { afterEach, describe, expect, test } from 'bun:test';
 import { startServer, type ServerOptions, type StartedServer } from '../src/index.js';
 import { agentSettingsPath, readChosenModel } from '../src/product/fill-wizard.js';
 import { fillStatePaths } from '../src/product/fill-runtime.js';
-import { createPGliteQueryDatabase } from '../src/adapters/pglite-query-database.js';
 import { gitEnv } from './git-env.js';
+import { createTestQueryDatabase } from './test-database.js';
 const productGitEnv = gitEnv({ GIT_AUTHOR_NAME: 'Question Test', GIT_AUTHOR_EMAIL: 'question@example.test', GIT_COMMITTER_NAME: 'Question Test', GIT_COMMITTER_EMAIL: 'question@example.test' });
 
 /**
  * The bound of the one case here that starts a server over a drafted product
- * with its own PGlite (`the model routes stay as they are`): it opens a
+ * with its own server (`the model routes stay as they are`): it opens a
  * database, a product folder and a built app before it can ask anything, and it
  * takes 4.30 s on GitHub's runners (2026-10-20). The file's other cases take
  * 0.2-1.1 s.
@@ -399,7 +399,7 @@ describe('the server\'s product mode', () => {
     builtApp();
     server = await startServer({
       dataFolder: (dataFolder = mkdtempSync(join(tmpdir(), 'madarch-wiki-data-'))),
-      queryDatabase: await createPGliteQueryDatabase(),
+      queryDatabase: await createTestQueryDatabase(),
       productFolder: folder!,
       appFolder,
       port: 0,

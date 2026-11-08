@@ -75,14 +75,19 @@ export {
   type ReadModel,
   type SharedEntity,
 } from './history/assertions.js';
-export { createPGliteHistory, type PGliteHistoryOptions } from './adapters/pglite-history.js';
+export { createHistoryStore, type HistoryStoreOptions } from './adapters/sql-history.js';
 export {
-  createPGliteDatabaseOwner,
+  copyStore,
+  createDatabaseOwner,
   createPostgresDatabaseOwner,
+  STORE_DATABASE,
+  type DatabaseClusterRef,
   type DatabaseOwner,
+  type DatabaseOwnerOptions,
   type OuterTransaction,
-  type PGliteDatabaseOwnerOptions,
 } from './adapters/database-owner.js';
+export { ensurePostgresInstalled, type InstalledPostgres } from './adapters/postgres-install.js';
+export { POSTGRES_VERSION } from './adapters/postgres-builds.js';
 export type { AsyncVectorIndex, VectorDistanceMetric, VectorMatch, VectorRecord, VectorSearchInput } from './vector/types.js';
 export type {
   ChildrenResult,
@@ -103,7 +108,7 @@ export { buildAsyncViewSet, buildAsyncView, type Arrow, type Place, type ShownEl
 export { renderMermaidPages, type MermaidError, type MermaidPage, type MermaidResult } from './render/mermaid.js';
 export { renderAsyncLikeC4Workspace, type LikeC4Error, type LikeC4Result, type NotDrawn } from './render/likec4.js';
 export { renderAsyncOneViewMermaid, renderAsyncOneViewLikeC4, type OneViewError, type OneViewLikeC4Result, type OneViewRequest, type OneViewMermaidResult } from './render/one-view.js';
-export { createPGliteQueryDatabase, type PGliteQueryDatabaseOptions } from './adapters/pglite-query-database.js';
+export { createQueryDatabase, type QueryDatabaseOptions } from './adapters/query-database.js';
 export { createPostgresQueryDatabase, type PostgresQueryDatabaseOptions } from './adapters/postgres-query-database.js';
 export { createSourceStores, sourceNameProblem, type SourceHead, type SourceStores, type SourceStoresOptions, type SourceStoreResult } from './server/sources.js';
 export { createGraphs, type Graph, type Graphs, type GraphsOptions } from './server/graphs.js';

@@ -1,23 +1,23 @@
 /** A complete named-setting catalogue is consumed in bounded production packets, never put in one coverage row. */
-import { expect,test } from 'bun:test';
+import { expect, test } from 'bun:test';
 import { execFileSync } from 'node:child_process';
-import { mkdtempSync,writeFileSync,rmSync } from 'node:fs';
-import {join} from 'node:path';
-import {tmpdir} from 'node:os';
-import {createPGliteDatabaseOwner} from '../src/adapters/database-owner.js';
-import {createGraphStore} from '../src/graph/index.js';
-import {fillGraph} from '../src/extract/driver/index.js';
-import {extractFiles} from '../src/extract/driver/files.js';
-import {createGitSnapshotSource} from '../src/fill/snapshot.js';
-import {createGuideWriter,guidePacketPolicy,prepareGuideEvidence,resolveGuideContext} from '../src/writer/guides/writer.js';
-import {firstGuideCursor,readGuidePageContext,guidePagesComplete,GUIDE_PACKET_BYTES,type GuideContextPage} from '../src/writer/guides/prepared.js';
-import {guideDigest} from '../src/writer/guides/digest.js';
-import {seedStarterSet} from '../src/knowledge/seed.js';
-import {gitEnv} from './git-env.js';
-import {byCodePoint} from '../src/model/order.js';
+import { mkdtempSync, writeFileSync, rmSync } from 'node:fs';
+import { join } from 'node:path';
+import { tmpdir } from 'node:os';
+import { createGraphStore } from '../src/graph/index.js';
+import { fillGraph } from '../src/extract/driver/index.js';
+import { extractFiles } from '../src/extract/driver/files.js';
+import { createGitSnapshotSource } from '../src/fill/snapshot.js';
+import { createGuideWriter, guidePacketPolicy, prepareGuideEvidence, resolveGuideContext } from '../src/writer/guides/writer.js';
+import { firstGuideCursor, readGuidePageContext, guidePagesComplete, GUIDE_PACKET_BYTES, type GuideContextPage } from '../src/writer/guides/prepared.js';
+import { guideDigest } from '../src/writer/guides/digest.js';
+import { seedStarterSet } from '../src/knowledge/seed.js';
+import { gitEnv } from './git-env.js';
+import { byCodePoint } from '../src/model/order.js';
+import { createTestDatabaseOwner } from './test-database.js';
 
 test('actual prepared guide paginates every named configuration reference with complete digest and no private values',async()=>{
- const folder=mkdtempSync(join(tmpdir(),'guide-reference-pages-'));const owner=createPGliteDatabaseOwner({btreeGist:true});
+ const folder=mkdtempSync(join(tmpdir(),'guide-reference-pages-'));const owner=await createTestDatabaseOwner({btreeGist:true});
  try{
   const configuration=Object.fromEntries(Array.from({length:1000},(_,index)=>[`ordinary_setting_${index}`,'Ready']));
   const expected=Object.keys(configuration).map((name)=>`‹value of ${name}›`).sort(byCodePoint);

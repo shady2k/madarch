@@ -15,13 +15,14 @@ import { mkdtempSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import path from 'node:path';
 import { afterAll, beforeAll, describe, expect, test } from 'bun:test';
-import { createPGliteDatabaseOwner, type DatabaseOwner } from '../src/adapters/database-owner.js';
+import { type DatabaseOwner } from '../src/adapters/database-owner.js';
 import { fillGraph, fillSnapshot } from '../src/extract/driver/index.js';
 import { extractFiles } from '../src/extract/driver/files.js';
 import type { Extraction } from '../src/extract/records.js';
 import type { FillOptions, TreeExtractor } from '../src/extract/driver/index.js';
 import { HISTORY_EXTRACTOR, OWNERS, TREE_EXTRACTORS } from '../src/extract/driver/extractors.js';
 import { createGraphStore, type GraphStore } from '../src/graph/index.js';
+import { createTestDatabaseOwner } from './test-database.js';
 
 const COMMITS = 3000;
 const EPOCH = 1_700_000_000;
@@ -117,7 +118,7 @@ beforeAll(async () => {
   repository = path.join(workspace, 'repo');
   execFileSync('git', ['init', '-q', '-b', 'main', repository]);
   importStream(repository, stream(steps(1, COMMITS, churn), 1, EPOCH));
-  owner = createPGliteDatabaseOwner({ btreeGist: true });
+  owner = await createTestDatabaseOwner({ btreeGist: true });
   store = createGraphStore(owner);
   await owner.ready;
   await store.createSchema();

@@ -1,11 +1,12 @@
 /**
  * The fill worker (madarch-m38l.4, decision 0033 item 27): `madarch knowledge-fill-worker`.
- * It owns one product's store while a fill runs — opens PGlite, boots it, runs the one
- * runner `runFill` over it and finishes it — so the server that serves the wiki's pages
- * never holds the store's thread: a PGlite runs every statement on the thread that owns
- * it, and a page asked while the store boots waits seconds for it (CI measured three pages
- * of the training repository answering in 2 454, 2 723 and 2 936 ms while a first fill opened
- * its store inside the server's process).
+ * It owns one product's store while a fill runs — opens its database on the store's own PostgreSQL
+ * server, runs the one runner `runFill` over it and finishes it — so the process that serves the
+ * wiki's pages never carries the fill's work: the fill reads git, parses and publishes on its own
+ * cores, and a page asked meanwhile is answered by the server (and by a reader of its own) without
+ * waiting for it. The measurement this separation was made for: three pages of the training
+ * repository answered in 2 454, 2 723 and 2 936 ms while a first fill opened its store inside the
+ * server's process (CI).
  *
  * The server starts one for each fill it runs and speaks lines of JSON to it (`wire.ts`):
  * `start` names the product, the store and the run; the worker answers `started`, then a
@@ -48,10 +49,10 @@ const FILL_PRIORITY = 10;
  * owns the process supplies it, so this module never names a database connection
  * (decision 0033, item 3).
  */
-export async function runFillWorker(io: { lines: AsyncIterable<string>; send: (line: string) => void }, openStore: (path: string) => FillStoreOwner): Promise<number> {
-  // The fill yields to the pages it runs beside (madarch-m38l.4): this process is the heaviest reader on the machine — a
-  // PGlite booting a store and every statement of the run — and a server of two cores owes the requests that arrive
-  // meanwhile. A platform that does not let a process lower its own priority runs the fill at the priority it has.
+export async function runFillWorker(io: { lines: AsyncIterable<string>; send: (line: string) => void }, openStore: (path: string) => Promise<FillStoreOwner>): Promise<number> {
+  // The fill yields to the pages it runs beside (madarch-m38l.4): this process is the heaviest worker on the machine —
+  // opening a store and every statement of the run — and a server of two cores owes the requests that arrive meanwhile.
+  // A platform that does not let a process lower its own priority runs the fill at the priority it has.
   try {
     setPriority(0, FILL_PRIORITY);
   } catch {
@@ -68,7 +69,7 @@ export async function runFillWorker(io: { lines: AsyncIterable<string>; send: (l
         send({ type: 'failed', id: request.id, message: 'a fill worker runs one fill: this one has already been asked for a store' });
         continue;
       }
-      const database = openStore(storeDatabasePath(request.storeFolder));
+      const database = await openStore(storeDatabasePath(request.storeFolder));
       try {
         run = await startKnowledgeFill({
           productFolder: request.productFolder,

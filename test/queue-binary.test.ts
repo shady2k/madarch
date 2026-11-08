@@ -1,8 +1,8 @@
 /**
  * The queue inside a compiled binary (madarch-tzte.19.2): `bun build --compile`
- * builds `test/queue-binary-driver.ts` with the three files PGlite's own build
+ * builds `test/queue-binary-driver.ts` with the three files the store's own build
  * reads — the same ones `scripts/build-binary.ts` stages for the release binary —
- * and the two phases of that program run as two processes on one PGlite data
+ * and the two phases of that program run as two processes on one store
  * folder. What the task asks this to show, and where each expectation comes
  * from:
  *
@@ -24,7 +24,6 @@ import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { spawnSync } from 'node:child_process';
 import { fileURLToPath } from 'node:url';
-import { pgliteAssetFiles } from '../scripts/pglite-assets.js';
 
 const REPO_ROOT = fileURLToPath(new URL('..', import.meta.url));
 const DRIVER = join(REPO_ROOT, 'test', 'queue-binary-driver.ts');
@@ -39,7 +38,6 @@ function build(folder: string): string {
   const binary = join(folder, 'queue-binary');
   const build = spawnSync('bun', [
     'build', '--compile', DRIVER,
-    ...pgliteAssetFiles().flatMap((file) => ['--asset', file]),
     '--outfile', binary,
   ], { encoding: 'utf8', cwd: REPO_ROOT });
   const said = `${build.stdout ?? ''}${build.stderr ?? ''}`.trim();
@@ -57,7 +55,7 @@ function run(binary: string, folder: string, phase: 'first' | 'second'): PhaseRe
   return JSON.parse(run.stdout.trim()) as PhaseReport;
 }
 
-test('a compiled binary enqueues, claims, fails and retries a job on PGlite, and a second process completes it', async () => {
+test("a compiled binary enqueues, claims, fails and retries a job on a store's server, and a second process completes it", async () => {
   const folder = mkdtempSync(join(tmpdir(), 'madarch-queue-binary-'));
   try {
     const binary = build(folder);

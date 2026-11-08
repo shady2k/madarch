@@ -21,6 +21,12 @@ export interface SkippedFillSuite {
 }
 
 const SKIPPED_FILL_SUITES: readonly SkippedFillSuite[] = [
+  {
+    file: 'test/sql-vector-index.test.ts',
+    brings: "the vector index's step",
+    because: "its two search cases need pgvector, and the server madarch installs carries none (decision 0024's amendment): the projection opens and its vector index refuses by name",
+    cases: ['Vector search on a server is exact', 'preserves vector results across close and reopen'],
+  },
   { file: 'test/fill-stages.test.ts', brings: 'snapshot, inventory, syntax, resolution, modules, documents', because: 'its cases assert the facts of the stages out of the list' },
   { file: 'test/fill-operations-training.test.ts', brings: 'operations, operations-links', because: 'it compares the operations reading against the extract driver' },
   { file: 'test/fill-operations-links.test.ts', brings: 'operations-links', because: 'it reads the variables and services the links stage publishes' },

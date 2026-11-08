@@ -60,47 +60,18 @@
  */
 import { readFileSync, readSync, writeSync } from 'node:fs';
 import { Type } from 'typebox';
-import { createPGliteDatabaseOwner, createPostgresDatabaseOwner, type DatabaseOwner } from '../src/adapters/database-owner.js';
+import { createPostgresDatabaseOwner, type DatabaseOwner } from '../src/adapters/database-owner.js';
 import { createPgBossQueue } from '../src/adapters/pg-boss-queue.js';
 import type { ClaimRequest, QueueService as QueueContract } from '../src/fill/queue.js';
 import { readFillStageConfiguration } from '../src/fill/config.js';
-import {
-  DEFAULT_ORCHESTRATOR_LIMITS,
-  cancelRun,
-  createOrchestrator,
-  driveRun,
-  planRun,
-  schedulerPass,
-  startRun,
-  unitIdFor,
-  type FillOrchestrator,
-  type OrchestratorLimits,
-  type UnitRef,
-} from '../src/fill/orchestrator.js';
-import {
-  createOrchestratorSchema,
-  publishUnit,
-  readMembership,
-  readProgress,
-  readPublications,
-  readRunConfiguration,
-  readSealedChildren,
-  readUnitDraft,
-  type RunSnapshot,
-} from '../src/fill/orchestrator-store.js';
+import { DEFAULT_ORCHESTRATOR_LIMITS, cancelRun, createOrchestrator, driveRun, planRun, schedulerPass, startRun, unitIdFor, type FillOrchestrator, type OrchestratorLimits, type UnitRef } from '../src/fill/orchestrator.js';
+import { createOrchestratorSchema, publishUnit, readMembership, readProgress, readPublications, readRunConfiguration, readSealedChildren, readUnitDraft, type RunSnapshot } from '../src/fill/orchestrator-store.js';
 import { createFillOrchestratorService } from '../src/fill/orchestrator-host.js';
 import { StageRegistry } from '../src/fill/registry.js';
 import { DEFAULT_STAGE_DEFAULTS, type FillStage, type StageDraftSet, type StageExecutionResult, type StageUnitScope } from '../src/fill/stage.js';
-import {
-  createFillStateSchema,
-  readChain,
-  readRun,
-  readRunUnits,
-  readTransitions,
-  readUnit,
-  readUnitGenerations,
-} from '../src/fill/state-store.js';
+import { createFillStateSchema, readChain, readRun, readRunUnits, readTransitions, readUnit, readUnitGenerations } from '../src/fill/state-store.js';
 import { byCodePoint } from '../src/model/order.js';
+import { createTestDatabaseOwner } from './test-database.js';
 
 // ---- the spec the test writes ----------------------------------------------
 
@@ -132,7 +103,7 @@ export type DriverPhase =
   | { readonly kind: 'service'; readonly workers?: number };
 
 export interface DriverSpec {
-  readonly storage: { readonly kind: 'pglite'; readonly folder: string }
+  readonly storage: { readonly kind: 'store'; readonly folder: string }
     | { readonly kind: 'postgres'; readonly connectionString: string; readonly schema: string };
   readonly queueSchema: string;
   readonly clockFile: string;
@@ -452,8 +423,8 @@ function wrapQueue(queue: QueueService, hooks: QueueHooks): QueueContract {
 /** Opens the process's one database, the fill's tables, the queue and the orchestrator over them. */
 async function openWorld(spec: DriverSpec, interruption: Interruption | undefined): Promise<World> {
   const limits: OrchestratorLimits = { ...DEFAULT_ORCHESTRATOR_LIMITS, leaseMs: 1_000, retryDelayMs: 1_000, maxInFlight: 2, ageingStepMs: 60_000, ...spec.limits };
-  const owner: DatabaseOwner = spec.storage.kind === 'pglite'
-    ? createPGliteDatabaseOwner({ path: spec.storage.folder })
+  const owner: DatabaseOwner = spec.storage.kind === 'store'
+    ? await createTestDatabaseOwner({ store: spec.storage.folder })
     : await createPostgresDatabaseOwner({ connectionString: spec.storage.connectionString });
   if (spec.storage.kind === 'postgres') {
     // The fill's own tables live in the schema the test named, and the connection

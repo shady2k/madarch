@@ -19,8 +19,8 @@ assigned, the recognised problems are looked for — and renders the model's
 views into a folder when asked. It is the gate a model passes before anything
 is sent anywhere.
 
-**History** (`src/history/`, `src/adapters/pglite-history.ts`): keeps every
-version of every source's compiled model as a bitemporal fact log in PGlite:
+**History** (`src/history/`, `src/adapters/sql-history.ts`): keeps every
+version of every source's compiled model as a bitemporal fact log in PostgreSQL:
 each assertion carries when it was true (the commit's time) and when the
 history held it. Nothing is overwritten; a store is idempotent, orders a
 source's commits by time, not arrival, and is refused when a commit comes
@@ -31,19 +31,21 @@ asynchronous SQL projection built from history assertions to answer what views
 and agents ask — children, views with collapsed relations, dependents and
 dependencies, as of any time on either axis. It is derived state: `rebuild`
 builds it from a history's assertions, `update` applies one store's own report,
-and it can be rebuilt at any time. Local commands use embedded PGlite; server
-compositions inject a PostgreSQL query database. Graphs borrow source-scoped
+and it can be rebuilt at any time. Local commands open it on the store's own
+PostgreSQL server; server compositions inject a PostgreSQL query database. Graphs borrow source-scoped
 query facades from that shared owner.
 
 **Database owner** (`src/adapters/database-owner.ts`): one
-PostgreSQL-compatible database per process — embedded PGlite locally, a `pg`
-pool on a server — opened once and lent to the history store, the query
+PostgreSQL database per process — a store's own server locally (installed into
+the madarch home at a pinned version and hash, `src/adapters/postgres-install.ts`,
+started by `src/adapters/postgres-cluster.ts`), a server a connection string
+names otherwise — opened once and lent to the history store, the query
 projection and, by decision 0027, the queue and the orchestrator's tables. A
 lent owner outlives the adapters that borrow it, and every operation of either
 adapter takes one of the owner's transactions, so a history write and a
-projection update commit or roll back together. PGlite serves one connection,
-so its owner serializes every transaction on it; a pool lets snapshots
-overlap. The server's own composition still opens one history per source
+projection update commit or roll back together. The owner runs its own
+transactions one at a time; other processes reach the same store through
+connections of their own, and their snapshots overlap. The server's own composition still opens one history per source
 (decision 0024) and its query database separately.
 
 **Renderer** (`src/render/`): turns views into text a reader sees — the view
@@ -105,14 +107,19 @@ No server route shows them since the documents app was removed
 
 **The knowledge wiki's processes** (madarch-m38l.4). The wiki's one server
 (`src/server/http.ts`, `src/server/knowledge.ts`) does not read a graph store on
-its own thread, because PGlite runs a statement on the thread that owns it. A
+its own thread: it reads through a worker process of its own. A
 fill is the one orchestrator's run (`src/knowledge/fill-run.ts`), which owns the
-product's primary store and takes a numbered snapshot when it ends. It runs in
-the server's own process today, so a statement of the fill blocks the server's
-thread: this is a known defect, madarch-8bdc.2.9. The server reads the newest snapshot through
+product's primary store and publishes generations at a pace of its own. It
+runs in a process of its own, `madarch knowledge-fill-worker`
+(`src/knowledge/fill-worker.ts`), so no statement of the fill holds the server's
+thread. The server reads the newest generation through
 `madarch knowledge-read-worker` (`src/knowledge/read-worker.ts`, spoken to by
-`remote-owner.ts`), one process per snapshot, warmed with what its predecessor
-answered before the reads move to it, and closed when nobody reads.
+`remote-owner.ts`), one process per generation: a generation is a marker naming the store the
+fill wrote and an instant, and the worker reads that store itself under a
+PostgreSQL snapshot it exports (`pg_export_snapshot()`, each page in a short
+transaction set to it), so it holds no lock the fill waits on. A worker is
+warmed with what its predecessor answered before the reads move to it, closed
+when nobody reads, and ends with the server that started it.
 
 ## From a document to a reader
 
@@ -152,14 +159,14 @@ message; a refusal about a request field also names the field and, where it
 can, what is accepted.
 One line per request goes to the log; no model content ever does.
 
-The machine-local state folder holds one file-backed PGlite database directory
+The machine-local state folder holds one PostgreSQL data directory
 per source (`src/server/sources.ts`), outside the product repository. Its name
 is derived from the source's name by encoding every byte a file name should not
 carry. A small sidecar beside each database names its source and head, so a
 restart answers the same as before it stopped. The local source store
-serializes its HistoryStore operations to respect PGlite's single connection
-(decision 0024). The local command also stores the rebuildable query projection
-in one PGlite database at `<data>/.query-graph`; it is shared by graph-scoped
+serializes its HistoryStore operations on its owner (decision 0024). The local
+command also stores the rebuildable query projection in one PostgreSQL database
+at `<data>/.query-graph`; it is shared by graph-scoped
 facades. Server compositions inject PostgreSQL for the query projection. A
 legacy `.sqlite` history is not migrated; resend source models to rebuild the
 fact log.

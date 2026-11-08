@@ -14,19 +14,18 @@ import { mkdirSync, mkdtempSync, readFileSync, readdirSync, rmSync, statSync, wr
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { parse as parseYaml, parseDocument } from 'yaml';
-import { createPGliteDatabaseOwner, type DatabaseOwner } from '../src/adapters/database-owner.js';
+import { type DatabaseOwner } from '../src/adapters/database-owner.js';
 import { fillGraph } from '../src/extract/driver/index.js';
 import { HISTORY_EXTRACTOR, OWNERS, TREE_EXTRACTORS } from '../src/extract/driver/extractors.js';
 import { createGraphStore, type GraphStore } from '../src/graph/index.js';
 import { readDocEntities } from '../src/knowledge/doc-entities.js';
 import { KINDS_FILE, readKinds, type KindsManifest } from '../src/knowledge/kinds.js';
 import { seedStarterSet } from '../src/knowledge/seed.js';
-import {
-  DOMAIN_SECTIONS, GraphView, UnitTools, memorySink, renderDomainPage, type DomainSectionDecl, type PageSink, type UnitSpec,
-} from '../src/writer/index.js';
+import { DOMAIN_SECTIONS, GraphView, UnitTools, memorySink, renderDomainPage, type DomainSectionDecl, type PageSink, type UnitSpec } from '../src/writer/index.js';
 import { domainPrompt } from '../src/writer/prompts.js';
 import { DEFAULT_UNIT_BOUNDS, type UnitExtras } from '../src/writer/tools.js';
 import { ROOT, generateTrainingRepository, makeProduct } from './knowledge-fixture.js';
+import { createTestDatabaseOwner } from './test-database.js';
 
 const KEY = JSON.parse(readFileSync(join(ROOT, 'examples/training-repository/answer-key.json'), 'utf8')) as { snapshots: Record<string, string> };
 
@@ -54,7 +53,7 @@ beforeAll(async () => {
   product = makeProduct(join(scratch, 'home'), 'training-shop', repository);
   seedStarterSet(product);
   if (!readKinds(product).present) throw new Error(`${join(product, KINDS_FILE)}:1: the fixture product has no manifest of kinds`);
-  owner = createPGliteDatabaseOwner({ btreeGist: true, path: join(scratch, 'store') });
+  owner = await createTestDatabaseOwner({ btreeGist: true, store: join(scratch, 'store') });
   store = createGraphStore(owner);
   await owner.ready;
   await store.createSchema();

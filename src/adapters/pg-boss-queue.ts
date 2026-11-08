@@ -2,13 +2,12 @@
  * The queue's pg-boss adapter (decision 0027, "Queue"): `QueueService`
  * (`src/fill/queue.ts`) served by pg-boss, running on the process's one
  * database owner (madarch-tzte.19.1) instead of a database or a pool of its
- * own. A PGlite owner hands pg-boss the adapter's own `fromPglite` over the
- * owner's one connection, which is what makes the queue's tables live in the
- * same database as the fact log, the query projection and the orchestrator's
- * tables; a PostgreSQL owner gets a thin `IDatabase` over the pool the owner
- * already holds. Either way every statement pg-boss sends takes the owner's
- * queue like any other work, so a claim, a settlement and a maintenance pass
- * are short transactions that can never land inside someone else's.
+ * own. pg-boss is handed a thin `IDatabase` over the pool the owner already
+ * holds, which is what makes the queue's tables live in the same database as
+ * the fact log, the query projection and the orchestrator's tables, and every
+ * statement pg-boss sends takes the owner's queue like any other work, so a
+ * claim, a settlement and a maintenance pass are short transactions that can
+ * never land inside someone else's.
  *
  * Two shapes reach the owner. The ordinary one is a statement with parameters
  * (`run`); the other is the schema creation and the migrations pg-boss sends as
@@ -41,7 +40,7 @@
  * still orders the batch it is handed, for a store that answers it unordered
  * and for a row written beside this adapter.
  */
-import { PgBoss, fromPglite } from 'pg-boss';
+import { PgBoss } from 'pg-boss';
 import type { CommandResponse, Db, Job, JobAttempt, JobWithMetadata, PgBoss as PgBossInstance } from 'pg-boss';
 import { byCodePoint } from '../model/order.js';
 import type { DatabaseOwner } from './database-owner.js';
@@ -99,26 +98,6 @@ export interface PgBossQueueOptions {
    * the next pass takes it.
    */
   superviseIntervalSeconds?: number;
-}
-
-/** The shape pg-boss's PGlite adapter reads: a query and a batch, both on the owner's one connection. */
-interface PgliteFace {
-  query<Row = unknown>(text: string, values?: unknown[]): Promise<{ rows: Row[] }>;
-  exec(text: string): Promise<{ rows: unknown[] }[]>;
-}
-
-/** The owner's one connection, shaped for pg-boss's own PGlite adapter. */
-function pgliteFace(owner: DatabaseOwner): PgliteFace {
-  return {
-    query: async <Row>(text: string, values?: unknown[]) => {
-      const { rows } = await owner.run((executor) => executor.query<Row & object>(text, values));
-      return { rows };
-    },
-    exec: async (text: string) => {
-      const results = await owner.exec(text);
-      return results.map((result) => ({ rows: result.rows as unknown[] }));
-    },
-  };
 }
 
 /** The owner's pool, shaped for pg-boss: one statement per call, batches through `exec`. */
@@ -496,13 +475,12 @@ export async function createPgBossQueue(options: PgBossQueueOptions): Promise<Qu
   // verbatim, exactly as pg-boss interpolates it into pg-boss's: a bare name, or
   // one the caller has quoted itself to reach a name a bare one cannot spell.
   const schema = options.schema ?? DEFAULT_QUEUE_SCHEMA;
-  const database = owner.backend === 'pglite' ? fromPglite(pgliteFace(owner)) : ownerDatabase(owner);
+  const database = ownerDatabase(owner);
   const superviseInterval = options.superviseIntervalSeconds ?? 60;
   const boss = new PgBoss({
-    // The owner names the engine; pg-boss's profiles for the two are the same
-    // set of gates, and naming the one the database really is keeps its own
-    // diagnostics honest.
-    backend: owner.backend,
+    // The database is PostgreSQL, on a server or on the pool a caller named;
+    // naming it keeps pg-boss's own diagnostics honest.
+    backend: 'postgres',
     db: database,
     schema,
     supervise: options.supervise ?? true,

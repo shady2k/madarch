@@ -26,7 +26,7 @@ export class GraphError extends Error {
   }
 }
 
-/** The PostgreSQL error code of a driver failure (`pg` and PGlite both set `code`). */
+/** The PostgreSQL error code of a driver failure (`pg` sets `code`). */
 export function databaseCode(error: unknown): string | undefined {
   if (typeof error === 'object' && error !== null && 'code' in error && typeof error.code === 'string') return error.code;
   return undefined;

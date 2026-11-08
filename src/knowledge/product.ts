@@ -2,8 +2,8 @@
  * One product's knowledge wiki (decision 0029): the product's own graph store,
  * the fill that writes it, and the reads that draw its pages.
  *
- * The store is a PGlite database under the machine's state (outside the
- * product repository: 0023, a derived index is rebuilt, never transferred),
+ * The store is a PostgreSQL database on a server of its own under the machine's
+ * state (outside the product repository: 0023, a derived index is rebuilt, never transferred),
  * named by the product's id, which survives a rename of its folder. A fill
  * runs the extract driver over each repository the manifest declares, into
  * that store, one commit at a time; after each commit the pages that are open
@@ -21,7 +21,7 @@ import { createGuideReadFactories, guideProductPin } from '../writer/guides/writ
 import { createGraphStore } from '../graph/index.js';
 import { createGitSnapshotSource } from '../fill/snapshot.js';
 import { detectDocumentLanguage, localizedSourcePath, parseLocalizedSource, type LocalizedDocumentSource } from '../writer/localized-source.js';
-import { cpSync, existsSync, mkdirSync, readFileSync, readdirSync, realpathSync, rmSync, statSync, writeFileSync } from 'node:fs';
+import { existsSync, mkdirSync, readFileSync, readdirSync, realpathSync, rmSync, statSync, writeFileSync } from 'node:fs';
 import { execFile, execFileSync } from 'node:child_process';
 import { mkdir, rename, rm, writeFile } from 'node:fs/promises';
 import { dirname, join, relative, resolve } from 'node:path';
@@ -63,6 +63,7 @@ import { fileJournal, journalFolder, journalOfUnit, newRunId, NO_COUNTERS, readJ
 import { productSlug, PRODUCT_PATH, type ToolAnswer, type ToolClient, type UnitAgent } from '../writer/index.js';
 import { CONTENT_LANGUAGES } from '../writer/prompts.js';
 import type { DraftEnv } from '../product/home.js';
+import type { KindSummary } from './model.js';
 import { documentTitleOf, findSubject, graphTitleOf, kindSummaries, markdownTitleOf, productTitleOf, recordFilePage, renderPage, listEntities, type PageResult } from './render.js';
 import { indexCounts, statementsRelyingOn } from './index/queries.js';
 import { PAGE_KIND, STATEMENT_OF } from './index/vocabulary.js';
@@ -129,7 +130,7 @@ export { WikiReadError } from './read-error.js';
 
 /** How long the server keeps the previous snapshot open after a newer one is read, so a request in flight on it ends. */
 const SNAPSHOT_KEEP_MS = 3_000;
-/** A reader nobody has asked for this long is closed, and its memory (a PGlite is about a gigabyte) given back; the next page opens it again. */
+/** A reader nobody has asked for this long is closed, and its memory given back; the next page opens it again. */
 const READER_IDLE_MS = 10 * 60_000;
 
 /** Starts the agent that writes the pages; the error names why it cannot. */
@@ -307,7 +308,11 @@ type StatusRead = { body: WikiStatus; ctx: RenderContext | undefined };
 
 export class KnowledgeProduct {
   /** The store the reads are made on: a snapshot of the primary store, or an empty one before any fill (see `fill-protocol.ts`). */
-  private reader: { owner: DatabaseOwner; seq: number; path: string } | undefined;
+  /**
+   * The reader: its process, the generation it answers at, the marker line of that generation (a file this server removes
+   * when a newer reader has taken over) and the store it reads, which never moves.
+   */
+  private reader: { owner: DatabaseOwner; seq: number; path: string; store: string } | undefined;
   private opening: Promise<void> | undefined;
   private fill: FillState = { state: 'idle' };
   private running: Promise<void> | undefined;
@@ -409,20 +414,14 @@ export class KnowledgeProduct {
       mkdirSync(root, { recursive: true });
       let seq = snapshotNumbers(root).pop();
       let created = false;
-      if (seq === undefined && this.fillRun === undefined && existsSync(this.graphPath())) {
-        const temporary = join(root, '1.tmp');
-        rmSync(temporary, { recursive: true, force: true });
-        cpSync(this.graphPath(), temporary, { recursive: true });
-        await rename(temporary, join(root, '1'));
-        seq = 1;
-      }
       if (seq === undefined) {
         seq = 0;
-        created = true;
+        created = !existsSync(this.graphPath());
       }
-      const path = join(root, String(seq));
-      // The snapshot is read by a process of its own, so that opening it never holds up this server's thread.
-      const owner = new RemoteOwner(path, { create: created });
+      // The reader reads the store the fill writes, never a copy of it: its own repeatable-read transaction, begun in
+      // a process of its own (so opening the store never holds up this server's thread), is the snapshot it answers from.
+      const store = this.storeFolder();
+      const owner = new RemoteOwner(store, { create: created });
       try {
         await owner.ready;
         // This newly opened snapshot owns a complete pin set even when an idle reader retained old pins.
@@ -432,7 +431,8 @@ export class KnowledgeProduct {
         await owner.close().catch(() => undefined);
         throw error;
       }
-      this.reader = { owner, seq, path };
+      // The generation's line is what this server removes when a newer one stands; the store is never removed by a reader.
+      this.reader = { owner, seq, path: join(root, String(seq)), store };
     })();
     try {
       await this.opening;
@@ -597,14 +597,19 @@ export class KnowledgeProduct {
       const held = this.reader!;
       // A delayed or already-consumed notice cannot change the active snapshot's pins.
       if (held.seq >= seq) return;
-      const path = join(this.readRoot(), String(seq));
-      const owner = new RemoteOwner(path, { create: false });
+      // The store a reader reads never moves: a newer generation is a reader opened at a newer moment on the same store.
+      const owner = new RemoteOwner(held.store, { create: false });
       try {
         await owner.ready;
         // The new process answers its first statements slowly; warm before changing either reader or pins.
         if (held.owner instanceof RemoteOwner) await owner.warm(held.owner.recent());
       } catch(error) {await owner.close().catch(()=>undefined);throw error;}
-      this.reader = { owner, seq, path };
+      this.reader = { owner, seq, path: join(this.readRoot(), String(seq)), store: held.store };
+      // The new snapshot's own numbers are read here, beside the answers the old reader still gives, so the first page
+      // asked after the publish is not the one that pays for them.
+      void this.repositoryView().then((repository) => {
+        if (this.reader?.seq === seq && this.storeOf?.seq !== seq) this.storeOf = { key: '', seq, ...(repository === undefined ? {} : { repository }) };
+      }).catch(() => undefined);
       // What the repositories were filled to is applied with the snapshot it belongs to: a source is read at the commit
       // the graph it is shown beside was filled from. A caller that names no pins takes the snapshot's own
       // (`knowledge_fill`, which the fill wrote before the snapshot was made).
@@ -908,6 +913,10 @@ export class KnowledgeProduct {
       ...(resuming ? { resumed: true } : {}),
     };
     this.pausedRun = undefined;
+    // The reader a fill's polls read opens before the press answers (madarch-8bdc.2.5): a page asked while the fill
+    // starts is answered from a reader that stands, never pays the reader's own start on its own thread (measured: the
+    // first answers after a press waited 1.9 s for it on two cores, one of them busy).
+    await this.open().catch(() => undefined);
     this.notify();
     this.running = this.runOrchestratedFill(product, repositories).finally(() => {
       // The mark goes only when the run is over, after its result is recorded: a restart before this point has no list.
@@ -933,10 +942,10 @@ export class KnowledgeProduct {
     // calls) is never taken for the fill's progress.
     this.fillRunId = runId;
     // The fill runs in a process of its own (`madarch knowledge-fill-worker`; madarch-m38l.4, decision 0033 item 27):
-    // a PGlite runs every statement on the thread that owns it, and the store's boot inside this process held every
-    // page of the wiki for 2.4-2.9 s while a first fill opened its database (the pages test/knowledge-responsive.test.ts
-    // measured in CI). The snapshot each published unit makes is handed to the reader here, so a page follows the fill
-    // as it reads rather than waiting for its end.
+    // it reads git and parses on its own cores, and a store opened inside this process held every page of the wiki for
+    // 2.4-2.9 s while a first fill opened its database (the pages test/knowledge-responsive.test.ts measured in CI). The
+    // generation each publication announces is handed to the reader here, so a page follows the fill as it reads rather
+    // than waiting for its end.
     let run: KnowledgeFillRun & { close(): Promise<void> };
     try {
       run = startFillInWorker({ productFolder: product.folder, storeFolder, runId, ...(this.options.snapshotMs === undefined ? {} : { snapshotMs: this.options.snapshotMs }) }, (snapshot) => {
@@ -2191,6 +2200,15 @@ export class KnowledgeProduct {
    * cache has replaced — while a fill holds the collection back, the answer is pending (madarch-u3vw.8).
    */
   private async statusLive(body: WikiStatus, ctx: RenderContext | undefined): Promise<WikiStatus> {
+    try {
+      return await this.statusLiveNow(body, ctx);
+    } catch {
+      // The store could not be read for this answer: the fill state is this process's own and is answered regardless.
+      return { ...body, fill: this.statusFill(), chosenAgent: this.chosenAgent() };
+    }
+  }
+
+  private async statusLiveNow(body: WikiStatus, ctx: RenderContext | undefined): Promise<WikiStatus> {
     const problems = this.problemsKeySafe();
     const collected = this.problemsCache;
     let loop = body.loop;
@@ -2205,8 +2223,8 @@ export class KnowledgeProduct {
     }
     // A snapshot the fill published moves the store's numbers, not the files the body was made from: they are read for
     // every answer, in the reader's process, over the snapshot the pages show.
-    const numbers = ctx === undefined ? undefined : await this.numbersOf(ctx);
-    return { ...body, ...(numbers ?? {}), loop, fill: this.statusFill(), writer: ctx === undefined ? this.writer : { ...this.writer, units: this.unitRows(ctx) }, chosenAgent: this.chosenAgent() };
+    const numbers = ctx === undefined ? undefined : await this.numbersOf(ctx, problems);
+    return { ...body, ...(numbers ?? {}), loop, fill: this.statusFill(), writer: ctx === undefined ? this.writer : { ...this.writer, units: this.unitsOf(ctx) }, chosenAgent: this.chosenAgent() };
   }
 
   /**
@@ -2214,16 +2232,53 @@ export class KnowledgeProduct {
    * The context's own read of the manifest and the product's documents is not made again — only the two fields that read
    * the store are bound to the reader this answer uses, so a snapshot the fill published is stated at once.
    */
-  private async numbersOf(ctx: RenderContext): Promise<Partial<WikiStatus>> {
+  /**
+   * The writer's units for an answer: a store read that fails (a fill holds a lock, a connection went) leaves the units as
+   * they were last answered, because a status answer is read for how the fill is and must not fail on its store.
+   */
+  private unitsOf(ctx: RenderContext): WriterUnit[] {
+    try {
+      return this.unitRows(ctx);
+    } catch {
+      return this.statusMemo?.body.writer.units ?? [];
+    }
+  }
+
+  /**
+   * What the store states of one generation (madarch-8bdc.2.5): the kind counts and the repository the pages show are read
+   * once per snapshot and reused by every answer until the next one. A fill publishes a snapshot rarely, and a poll asks
+   * several times a second: reading them on every answer put five or six round trips of one read worker behind each page,
+   * and under a loaded runner (CI run 42505805264: 266-338 ms across unrelated endpoints at the first publication) the
+   * answers of that moment queued behind them.
+   */
+  private storeOf: { key: string; seq: number; repository?: RepositoryFactsView; kinds?: KindSummary[] } | undefined;
+
+  private async numbersOf(ctx: RenderContext, key: string): Promise<Partial<WikiStatus>> {
     let bound = ctx;
     try {
       const owner = await this.open();
       bound = { ...ctx, graph: new GraphReader(owner, this.validAt), ...(ctx.records === undefined ? {} : { records: this.recordFiles(owner) }) };
+
     } catch {
       // The store cannot be opened: the counts stand as the body read them and the answer still says how the fill is.
     }
-    const kinds = await kindSummaries(bound).catch(() => undefined);
-    const repository = await this.repositoryView().catch(() => undefined);
+    // A store read of a status answer is a read of a store a fill may be finishing in: a failure is tried once more, a
+    // moment later, and only then stands as unanswered.
+    const once = async <T>(read: () => Promise<T>): Promise<T | undefined> => {
+      try {
+        return await read();
+      } catch {
+        await Bun.sleep(150);
+        return await read().catch(() => undefined);
+      }
+    };
+    const seq = this.reader?.seq;
+    const held = this.storeOf;
+    // A generation's numbers stand while the files stand: a page written beside the product moves them (`status-work`).
+    const same = held !== undefined && held.seq === seq && held.key === key;
+    const kinds = same && held.kinds !== undefined ? held.kinds : await once(async () => await kindSummaries(bound));
+    const repository = same && 'repository' in held ? held.repository : await once(async () => await this.repositoryView());
+    if (seq !== undefined) this.storeOf = { key, seq, ...(repository === undefined ? {} : { repository }), ...(kinds === undefined ? {} : { kinds }) };
     const run = this.runViewOf();
     this.fillExtras = {
       ...(repository === undefined ? {} : { counts: repository.counts }),
@@ -2444,13 +2499,15 @@ export class KnowledgeProduct {
       language: context.manifest.language ?? 'en',
       seeded: this.seeded,
       findings: context.findings,
-      kinds: await kindSummaries(context.ctx),
+      // A store the answer cannot read (a lock a writer holds, a connection gone) must not take the whole answer with
+      // it: the fill state and the files' reading stand, and the kinds stand as they were last read.
+      kinds: await kindSummaries(context.ctx).catch(() => this.statusMemo?.body.kinds ?? []),
       groups: [...context.manifest.groups.values()].map((group) => ({ group: group.name, labels: { ...group.labels }, ...(group.short === undefined ? {} : { short: { ...group.short } }), ...(group.parent === undefined ? {} : { parent: group.parent }), ...(group.open === undefined ? {} : { open: group.open }) })),
       repositories: declared.map((repo) => ({ name: repo.name, filled: (this.pins.get(repo.name)?.filledCommits ?? 0) > 0 })),
       filled: this.pins.size > 0,
       incomplete,
       fill: this.statusFill(),
-      writer: { ...this.writer, units: this.unitRows(context.ctx) },
+      writer: { ...this.writer, units: this.unitsOf(context.ctx) },
       bounds: { ...WRITER_BOUNDS, editorialRequestsPerPage: this.editorialRequestsPerPage() },
       chosenAgent: this.chosenAgent(),
       home: homeEntity?.id ?? null,

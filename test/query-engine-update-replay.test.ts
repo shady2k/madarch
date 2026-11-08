@@ -1,12 +1,7 @@
 import { describe, expect, test } from 'bun:test';
 import { createTestQueryEngine } from './query-test-engine.js';
-import {
-  createPGliteHistory,
-  type Clock,
-  type CompiledElement,
-  type CompiledModel,
-  type CompiledRelation,
-} from '../src/index.js';
+import { type Clock, type CompiledElement, type CompiledModel, type CompiledRelation } from '../src/index.js';
+import { createTestHistory } from './test-database.js';
 
 /**
  * M1's own repository test (stage3-fixes.md): over seeded random sequences
@@ -56,7 +51,7 @@ describe('M1: an engine kept in step through update() answers exactly like a reb
         const rnd = seededRandom(seed);
         let now = 100_000;
         const clock = fakeClock(now);
-        const history = createPGliteHistory({ clock });
+        const history = await createTestHistory({ clock });
         const updated = await createTestQueryEngine();
         await updated.rebuild([]);
 

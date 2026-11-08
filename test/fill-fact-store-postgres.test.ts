@@ -1,7 +1,7 @@
 /**
  * The fill's fact store on PostgreSQL (madarch-tzte.20.2): the same scenario and
- * the same expectations the PGlite suite runs, against the engine a server uses
- * — a `pg` pool instead of PGlite's one connection, in the schema this file
+ * the same expectations the store suite runs, against the engine a server uses
+ * — a `pg` pool instead of the store owner's pool, in the schema this file
  * drops before and after so a shared server does not accumulate runs.
  *
  * The server is the one `MADARCH_TEST_POSTGRES_URL` names, which CI's checks job
@@ -174,7 +174,7 @@ test.skipIf(connectionString === undefined)(`a fact another unit is publishing i
 
 test.skipIf(connectionString === undefined)(`the store's tables answer from the owner's own database (${SKIP})`, async () => {
   // What the tables hold is judged by the checks above; this says only that they answer from the server's
-  // own database, where a `pg` pool ran the same publication PGlite ran.
+  // own database, where a `pg` pool ran the same publication.
   const rows = await owner!.run(async (transaction) => (await transaction.query<{ count: number }>('SELECT count(*)::int AS count FROM fill_fact')).rows);
   expect(rows[0]?.count).toBeGreaterThan(0);
 }, 60_000);

@@ -115,7 +115,7 @@ test('cycle-between-siblings: three modules under one service form one cycle, na
 
     // One real CLI invocation checks the entire fixture path. The direct
     // API's failing on-failure mode is covered separately below, so it does
-    // not reopen PGlite during this end-to-end case.
+    // not reopen the store during this end-to-end case.
     const run = runScript(repo.path, '--json');
     expect(run.status).toBe(0);
     const report = JSON.parse(run.stdout) as ModelCheckReport;
@@ -124,7 +124,7 @@ test('cycle-between-siblings: three modules under one service form one cycle, na
     const cycle = report.problems[0]!;
     expect(cycle).toEqual(EXPECTED_SIBLING_CYCLE);
 
-    // The passing on-failure check does not initialize PGlite or analyze
+    // The passing on-failure check does not initialize the store or analyze
     // advisory problems; the default CLI invocation above does both.
     const passingSendCheck = await checkModel(repo.path, { problems: 'on-failure' });
     expect(passingSendCheck.outcome).toBe('passed');

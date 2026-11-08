@@ -15,7 +15,7 @@
 import { randomBytes } from 'node:crypto';
 import { closeSync, existsSync, mkdirSync, openSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
 import { join, resolve } from 'node:path';
-import { createPGliteDatabaseOwner, type DatabaseOwner } from '../adapters/database-owner.js';
+import { createDatabaseOwner, type DatabaseOwner } from '../adapters/database-owner.js';
 import { readProgress } from '../fill/orchestrator-store.js';
 import { runFill } from '../fill/run.js';
 import type { FillProgress } from '../obs/progress.js';
@@ -86,7 +86,7 @@ export function repositoryStoreFolder(repository: string, env: Readonly<Record<s
   return productStoreFolder(resolve(repository), knowledgeRootOf(productsHome(env as DraftEnv)));
 }
 
-/** A lock a live process holds on a store: the PGlite directory serves one writer at a time. */
+/** A lock a live process holds on a store folder: one fill writes it at a time. */
 export interface FolderLock {
   readonly folder: string;
   readonly pid: number;
@@ -253,7 +253,7 @@ export async function openRepositoryGraph(options: {
   const commit = headCommit(repository);
   let owner: DatabaseOwner | undefined;
   try {
-    owner = createPGliteDatabaseOwner({ path: databasePath, btreeGist: true, relaxedDurability: true });
+    owner = await createDatabaseOwner({ store: databasePath, btreeGist: true });
     const openedOwner = owner;
     const started = performance.now();
     let fill = readFillOutcome(folder);

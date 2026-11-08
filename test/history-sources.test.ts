@@ -1,15 +1,6 @@
 import { describe, expect, test } from 'bun:test';
-import {
-  createPGliteHistory,
-  type Clock,
-  type CompiledElement,
-  type CompiledInterface,
-  type CompiledModel,
-  type CompiledRelation,
-  type CompiledZone,
-  type HistoryStore,
-  type ReadModel,
-} from '../src/index.js';
+import { type Clock, type CompiledElement, type CompiledInterface, type CompiledModel, type CompiledRelation, type CompiledZone, type HistoryStore, type ReadModel } from '../src/index.js';
+import { createTestHistory } from './test-database.js';
 
 /** A clock a test moves by hand, never the real one. */
 function fakeClock(initial: number): Clock & { set(t: number): void } {
@@ -22,8 +13,8 @@ function fakeClock(initial: number): Clock & { set(t: number): void } {
   };
 }
 
-function history(clock: Clock): HistoryStore {
-  return createPGliteHistory({ clock });
+async function history(clock: Clock): Promise<HistoryStore> {
+  return await createTestHistory({ clock });
 }
 
 async function readModel(h: HistoryStore, input?: Parameters<HistoryStore['read']>[0]): Promise<ReadModel> {
@@ -68,7 +59,7 @@ function model(elements: CompiledElement[], relations: CompiledRelation[] = []):
 describe('sources: a graph is the union of its sources', () => {
   test('two-sources: reading with no source returns the union, and a cross-source relation joins them', async () => {
     const clock = fakeClock(DAY(2));
-    const h = history(clock);
+    const h = await history(clock);
     await h.store({
       source: 'shop',
       commit: 'c1',
@@ -85,7 +76,7 @@ describe('sources: a graph is the union of its sources', () => {
 
   test('id-clash: storing a source that declares an id another source already declares is refused, naming both', async () => {
     const clock = fakeClock(DAY(2));
-    const h = history(clock);
+    const h = await history(clock);
     await h.store({ source: 'payments', commit: 'p1', committedAt: DAY(1), model: model([element('payments-api')]) });
 
     const before = await readModel(h, { valid: DAY(2), known: DAY(2) });
@@ -101,7 +92,7 @@ describe('sources: a graph is the union of its sources', () => {
 
   test('two sources declaring different ids both store successfully (the paired normal case)', async () => {
     const clock = fakeClock(DAY(2));
-    const h = history(clock);
+    const h = await history(clock);
     await h.store({ source: 'payments', commit: 'p1', committedAt: DAY(1), model: model([element('payments-api')]) });
     const result = await h.store({ source: 'shop', commit: 's1', committedAt: DAY(1), model: model([element('checkout-web')]) });
     expect(result.errors).toEqual([]);
@@ -113,7 +104,7 @@ describe('sources: a graph is the union of its sources', () => {
     // claim of ownership the way an element id is: refusing it would make
     // the ordinary case of two unrelated sources fail to combine.
     const clock = fakeClock(DAY(2));
-    const h = history(clock);
+    const h = await history(clock);
     await h.store({ source: 'payments', commit: 'p1', committedAt: DAY(1), model: model([element('payments-api')]) });
     const result = await h.store({ source: 'shop', commit: 's1', committedAt: DAY(1), model: model([element('checkout-web')]) });
     expect(result.errors).toEqual([]);
@@ -124,7 +115,7 @@ describe('sources: a graph is the union of its sources', () => {
 
   test('an interface id clash is refused too, naming it and the other source', async () => {
     const clock = fakeClock(DAY(2));
-    const h = history(clock);
+    const h = await history(clock);
     await h.store({
       source: 'payments',
       commit: 'p1',
@@ -143,7 +134,7 @@ describe('sources: a graph is the union of its sources', () => {
 
   test('an interface id declared by only one source stores without a clash (the paired normal case)', async () => {
     const clock = fakeClock(DAY(2));
-    const h = history(clock);
+    const h = await history(clock);
     await h.store({ source: 'payments', commit: 'p1', committedAt: DAY(1), model: { ...model([]), interfaces: [iface('payments-charge')] } });
     const result = await h.store({ source: 'shop', commit: 's1', committedAt: DAY(1), model: { ...model([]), interfaces: [iface('checkout-charge')] } });
     expect(result.errors).toEqual([]);
@@ -151,7 +142,7 @@ describe('sources: a graph is the union of its sources', () => {
 
   test('a relation id clash is refused too, naming it and the other source', async () => {
     const clock = fakeClock(DAY(2));
-    const h = history(clock);
+    const h = await history(clock);
     await h.store({
       source: 'payments',
       commit: 'p1',
@@ -170,7 +161,7 @@ describe('sources: a graph is the union of its sources', () => {
 
   test('a relation id declared by only one source stores without a clash (the paired normal case)', async () => {
     const clock = fakeClock(DAY(2));
-    const h = history(clock);
+    const h = await history(clock);
     await h.store({ source: 'payments', commit: 'p1', committedAt: DAY(1), model: model([element('a'), element('b')], [relation('r1', 'a', 'b')]) });
     const result = await h.store({ source: 'shop', commit: 's1', committedAt: DAY(1), model: model([element('c'), element('d')], [relation('r2', 'c', 'd')]) });
     expect(result.errors).toEqual([]);
@@ -178,7 +169,7 @@ describe('sources: a graph is the union of its sources', () => {
 
   test('a new version declaring the same clashing id twice over (a malformed model) is refused with one error, not one per occurrence', async () => {
     const clock = fakeClock(DAY(2));
-    const h = history(clock);
+    const h = await history(clock);
     await h.store({ source: 'payments', commit: 'p1', committedAt: DAY(1), model: model([element('payments-api')]) });
 
     // Two elements sharing one id: `parseModel`/`compileModel` would never
@@ -193,7 +184,7 @@ describe('sources: a graph is the union of its sources', () => {
 
   test('two sources sharing a zone id whose content disagrees is recorded, not refused: the union keeps both definitions and reports a discrepancy naming the id, the field and both sources', async () => {
     const clock = fakeClock(DAY(2));
-    const h = history(clock);
+    const h = await history(clock);
     await h.store({ source: 'a', commit: 'c1', committedAt: DAY(1), model: { ...model([]), zones: [zone('pci', 'compliance')] } });
 
     const result = await h.store({ source: 'b', commit: 'c1', committedAt: DAY(1), model: { ...model([]), zones: [zone('pci', 'regulatory')] } });
@@ -209,7 +200,7 @@ describe('sources: a graph is the union of its sources', () => {
 
   test('two sources sharing a zone id with the identical definition store without a clash (the paired normal case)', async () => {
     const clock = fakeClock(DAY(2));
-    const h = history(clock);
+    const h = await history(clock);
     await h.store({ source: 'a', commit: 'c1', committedAt: DAY(1), model: { ...model([]), zones: [zone('pci', 'compliance')] } });
     const result = await h.store({ source: 'b', commit: 'c1', committedAt: DAY(1), model: { ...model([]), zones: [zone('pci', 'compliance')] } });
 

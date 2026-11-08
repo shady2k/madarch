@@ -1,10 +1,11 @@
 /** Small in-repository graph fixtures prove complete publication and scope isolation. */
 import { afterAll, beforeAll, expect, test } from 'bun:test';
 import { createHash } from 'node:crypto';
-import { createPGliteDatabaseOwner, type DatabaseOwner } from '../src/adapters/database-owner.js';
+import { type DatabaseOwner } from '../src/adapters/database-owner.js';
 import { createGraphStore, type GraphStore } from '../src/graph/index.js';
 import { treeReadProducer } from '../src/extract/driver/index.js';
 import { GraphReader } from '../src/knowledge/graph-read.js';
+import { createTestDatabaseOwner } from './test-database.js';
 
 // Independent byte-for-byte oracle: the baseline driver's inline expression, not the helper under test.
 const baseline = (names: readonly string[], history?: string): string => `code.extract.driver/${createHash('sha256').update(`${names.join('\n')}\n${history ?? ''}`).digest('hex').slice(0, 12)}`;
@@ -21,7 +22,7 @@ let other: string;
 const marker = baseline(['files'], 'history');
 const lease = { leaseToken: 'fixture', leaseUntil: '2099-01-01T00:00:00Z' };
 beforeAll(async () => {
-  owner = createPGliteDatabaseOwner({ btreeGist: true });
+  owner = await createTestDatabaseOwner({ btreeGist: true });
   await owner.ready;
   store = createGraphStore(owner);
   await store.createSchema();

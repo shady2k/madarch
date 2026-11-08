@@ -64,6 +64,7 @@ import type { FactApplication } from './orchestrator.js';
 import { readPublicationIn, readUnitDraftIn, type UnitPlanRecord } from './orchestrator-store.js';
 import type { UnitRecord } from './state-store.js';
 import type { StageDraftWrite } from './stage.js';
+import { SCHEMA_LOCK_SQL, storeSchemaLockKey } from '../adapters/schema-stamp.js';
 
 /** The fact store's own tables; `createFactStoreSchema` creates them and every error names the ones it touched. */
 export const FACT_STORE_TABLES = ['fill_fact', 'fill_fact_holding', PAGE_CHANGE_TABLE] as const;
@@ -129,6 +130,7 @@ export async function createFactStoreSchema(database: FactStoreDatabase): Promis
   const at = here();
   await withLocation(at, 'createFactStoreSchema', FACT_STORE_TABLES, async () => {
     await database.transaction('write', async (executor) => {
+      await executor.query(SCHEMA_LOCK_SQL, [storeSchemaLockKey()]);
       for (const statement of SCHEMA) await executor.query(statement);
     });
   });

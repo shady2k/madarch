@@ -9,10 +9,10 @@
  * decision 0026 and from the schema's kinds.
  *
  * The graph is one this test makes with the schema's constructors and publishes
- * into a PGlite of its own, so nothing here reads this checkout.
+ * into a database of its own, so nothing here reads this checkout.
  */
 import { afterAll, beforeAll, describe, expect, test } from 'bun:test';
-import { createPGliteDatabaseOwner, type DatabaseOwner } from '../src/adapters/database-owner.js';
+import { type DatabaseOwner } from '../src/adapters/database-owner.js';
 import { UNRESOLVED_PREFIX, buildDiagram, buildFactStoreDiagram, factStoreDiagramReads, type DiagramGraphReads } from '../src/fill/diagrams.js';
 import { moduleNeighbours, moduleViewScope, readNodeDiagrams } from '../src/fill/graph-diagrams.js';
 import { applyPublishedFacts, createFactStoreSchema } from '../src/fill/fact-store.js';
@@ -20,6 +20,7 @@ import { makeEdgeFact, makeNodeFact, repositoryPath, type Fact } from '../src/fi
 import { createOrchestratorSchema, type UnitPlanRecord } from '../src/fill/orchestrator-store.js';
 import { createFillStateSchema, createUnit, readUnit } from '../src/fill/state-store.js';
 import { DIAGRAM_FIXTURE } from './fill-diagram-fixture.js';
+import { createTestDatabaseOwner } from './test-database.js';
 
 const NOW = 1_700_000_000_000;
 const PRODUCT = 'fixture-product';
@@ -60,7 +61,7 @@ async function publish(database: DatabaseOwner, unitId: string, digest: string, 
 }
 
 beforeAll(async () => {
-  const database = createPGliteDatabaseOwner();
+  const database = await createTestDatabaseOwner();
   await createFillStateSchema(database);
   await createOrchestratorSchema(database);
   await createFactStoreSchema(database);

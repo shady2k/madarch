@@ -366,3 +366,22 @@ open; all three are answered above (Publication, Time, Constraints).
 - PostgreSQL 18 exclusion constraints and `WITHOUT OVERLAPS`. `WITHOUT OVERLAPS` covers one range,
   and this record needs three, hence the exclusion.
 - PGlite's extension list (`btree_gist`).
+
+## Amended 2026-11-07: the store runs on a PostgreSQL server
+
+Decision 0024 is amended: the store's database is a PostgreSQL server's, in a
+cluster of the store's own (`<store>/pgdata`, a Unix socket in
+`<store>/pgsock`) or a server a caller names. `btree_gist` is in the pinned
+build (measured: `CREATE EXTENSION btree_gist` succeeds and an exclusion
+constraint over a bigint and a range refuses an overlap). PGlite's one
+connection is gone, so the bounded-edge-write and reader-turn rules here keep
+their memory reason, not a serialisation one. The WAL checkpoint rule this
+store ran (`src/graph/checkpoint.ts`) is deleted as needless: measured, a
+server's own checkpointer recycled the WAL over 30 000 written rows and left
+the directory at 32 MB, where the in-process database had grown it to 6.9 GB.
+The statistics rule stays, for the reason measured: a server's autovacuum
+analyzes a table on its own schedule, so a fast fill would plan from no row
+count. `src/adapters/pglite-history.ts` and
+`src/adapters/{pglite,postgres}-query-database.ts` are now
+`src/adapters/sql-history.ts` and `src/adapters/query-database.ts`; pgvector is
+absent from the installed build (see 0024's amendment).

@@ -1,6 +1,6 @@
 /**
  * The queue's behaviour, observed once and judged by every caller: the tests on
- * PGlite (`test/queue.test.ts`) and on PostgreSQL (`test/queue-postgres.test.ts`)
+ * a store's own server (`test/queue.test.ts`) and on a server a connection string names (`test/queue-postgres.test.ts`)
  * run this, and the compiled binary's driver (`test/queue-binary-driver.ts`)
  * runs its phases, so the two backends and the binary answer the same
  * questions. This module asserts nothing: it makes the calls and reports what

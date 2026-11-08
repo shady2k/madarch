@@ -8,19 +8,8 @@ import { fileURLToPath } from 'node:url';
 import { MERMAID_FOLDER, REFERENCE_SYSTEM, REFERENCE_TIME } from '../scripts/render-views.js';
 import { checkLikeC4Workspaces, LIKEC4_BIN, type LikeC4CheckResult } from '../scripts/likec4-check.js';
 import { checkMermaidPages } from '../scripts/mermaid-check.js';
-import {
-  compileModel,
-  createPGliteHistory,
-  loadAndCompileModel,
-  loadModel,
-  renderMermaidPages,
-  renderAsyncOneViewLikeC4,
-  renderAsyncOneViewMermaid,
-  buildAsyncViewSet,
-  type CompiledModel,
-  type HistoryStore,
-  type AsyncQueryEngine,
-} from '../src/index.js';
+import { compileModel, loadAndCompileModel, loadModel, renderMermaidPages, renderAsyncOneViewLikeC4, renderAsyncOneViewMermaid, buildAsyncViewSet, type CompiledModel, type HistoryStore, type AsyncQueryEngine } from '../src/index.js';
+import { createTestHistory } from './test-database.js';
 
 /**
  * The views capability's one-view requirement (docs/changes/server-views/
@@ -48,7 +37,7 @@ const WHOLE_SET_MS = 20_000;
 
 /**
  * The bound of the hook that closes the file's databases: hooks do not get the
- * preload's default, and PGlite shutdown under a loaded runner took 5.9 s in CI
+ * preload's default, and Closing the file's databases under a loaded runner took 5.9 s in CI
  * (run 39415085797, test shard 4), over bun's five.
  */
 const HOOK_CLOSE_MS = 30_000;
@@ -57,7 +46,7 @@ const HOOK_CLOSE_MS = 30_000;
  * One history per fixture, opened the first time a case builds it and kept for
  * the file: a case still stores its own fixture and rebuilds the query engine
  * from that history alone, so the cases stay independent, and what goes away is
- * a PGlite boot per case (1.66 s on the 2-CPU pod the tests run on, measured
+ * a database boot per case (1.66 s on the 2-CPU pod the tests run on, measured
  * 2026-10-20, madarch-cznn). Two fixtures cannot share one history: the store
  * refuses two sources declaring the same element id.
  */
@@ -68,10 +57,10 @@ afterAll(async () => {
   fileHistories.clear();
 }, HOOK_CLOSE_MS);
 
-function historyFor(name: string): HistoryStore {
+async function historyFor(name: string): Promise<HistoryStore> {
   let history = fileHistories.get(name);
   if (history === undefined) {
-    history = createPGliteHistory({ clock: { now: () => DAY(1) } });
+    history = await createTestHistory({ clock: { now: () => DAY(1) } });
     fileHistories.set(name, history);
   }
   return history;
@@ -82,7 +71,7 @@ async function build(name: string): Promise<Built> {
   const { model, errors } = loadModel(fileURLToPath(new URL(`./fixtures/${name}`, import.meta.url)));
   expect(errors).toEqual([]);
   const compiled = compileModel(model!);
-  const history = historyFor(name);
+  const history = await historyFor(name);
   expect((await history.store({ source: 's', commit: name, committedAt: DAY(1), model: compiled })).errors).toEqual([]);
   const engine = await createTestQueryEngine();
   await engine.rebuild(await history.assertions());
@@ -620,7 +609,7 @@ describe("the reference system's one view", async () => {
   async function reference(): Promise<{ engine: AsyncQueryEngine; model: CompiledModel; at: { valid: number; known: number }; close(): Promise<void> }> {
     const { model, errors } = loadAndCompileModel(REFERENCE_SYSTEM);
     expect(errors).toEqual([]);
-    const history = createPGliteHistory({ clock: { now: () => REFERENCE_TIME } });
+    const history = await createTestHistory({ clock: { now: () => REFERENCE_TIME } });
     expect((await history.store({ source: 'reference-system', commit: 'working-tree', committedAt: REFERENCE_TIME, model: model! })).errors).toEqual([]);
     const engine = await createTestQueryEngine();
     await engine.rebuild(await history.assertions());

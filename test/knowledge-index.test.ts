@@ -10,13 +10,14 @@ import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import path from 'node:path';
 import { afterAll, beforeAll, describe, expect, test } from 'bun:test';
-import { createPGliteDatabaseOwner, type DatabaseOwner } from '../src/adapters/database-owner.js';
+import { type DatabaseOwner } from '../src/adapters/database-owner.js';
 import { fillGraph } from '../src/extract/driver/index.js';
 import { HISTORY_EXTRACTOR, OWNERS, TREE_EXTRACTORS } from '../src/extract/driver/extractors.js';
 import { createGraphStore, type GraphStore } from '../src/graph/index.js';
 import { changedGrounds, gitReader, indexCounts, indexKnowledge, readIndexedPage, statementsRelyingOn, type IndexedPage } from '../src/knowledge/index/index.js';
 import { GraphView } from '../src/writer/index.js';
 import { gitEnv } from './git-env.js';
+import { createTestDatabaseOwner } from './test-database.js';
 
 const REQUIREMENTS = `# Requirements
 
@@ -51,7 +52,7 @@ function git(...args: string[]): string {
 const dates = { next: '2020-01-01T10:00:00Z' };
 
 async function openStore(name: string): Promise<{ owner: DatabaseOwner; store: GraphStore }> {
-  const owner = createPGliteDatabaseOwner({ btreeGist: true, path: path.join(scratch, name) });
+  const owner = await createTestDatabaseOwner({ btreeGist: true, store: path.join(scratch, name) });
   const store = createGraphStore(owner);
   await owner.ready;
   await store.createSchema();

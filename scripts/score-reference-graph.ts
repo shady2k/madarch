@@ -59,7 +59,7 @@ const USAGE = 'usage: bun scripts/score-reference-graph.ts <reference folder> <r
  */
 const engine = join(import.meta.dir, '..');
 const load = async (path: string) => await import(pathToFileURL(join(engine, path)).href);
-const { createPGliteDatabaseOwner } = await load('src/adapters/database-owner.ts') as typeof import('../src/adapters/database-owner.js');
+const { createDatabaseOwner } = await load('src/adapters/database-owner.ts') as typeof import('../src/adapters/database-owner.js');
 type DatabaseOwner = import('../src/adapters/database-owner.js').DatabaseOwner;
 
 class UsageError extends Error {}
@@ -414,7 +414,7 @@ async function score(referenceRoot: string, repositoryFolder: string, database: 
   if (!existsSync(referenceRoot)) throw new UsageError(`${referenceRoot}: no such reference folder`);
   const reference = readReference(referenceRoot);
   const repository = basename(repositoryFolder);
-  const owner: DatabaseOwner = createPGliteDatabaseOwner({ path: database, btreeGist: true });
+  const owner: DatabaseOwner = await createDatabaseOwner({ store: database, btreeGist: true });
   try {
     const instant = new Date().toISOString();
     const reader = new GraphReader(owner, () => instant);

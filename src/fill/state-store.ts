@@ -49,6 +49,7 @@ import {
   runMachine,
   unitMachine,
 } from './fsm.js';
+import { SCHEMA_LOCK_SQL, storeSchemaLockKey } from '../adapters/schema-stamp.js';
 import type {
   ChainContext,
   ChainEvent,
@@ -160,6 +161,8 @@ const SCHEMA: readonly string[] = [
 export async function createFillStateSchema(database: FillStateDatabase): Promise<void> {
   const at = here();
   await run(at, database, 'createFillStateSchema', FILL_STATE_TABLES, async (executor) => {
+    // A schema made from several processes at once is serialized (`src/adapters/schema-stamp.ts`).
+    await executor.query(SCHEMA_LOCK_SQL, [storeSchemaLockKey()]);
     for (const statement of SCHEMA) await executor.query(statement);
   }, 'write');
 }

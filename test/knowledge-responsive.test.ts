@@ -1,6 +1,6 @@
 /**
  * A page answers while a fill runs (madarch-m38l.4, remark 3). The owner's walk: every page took about 3 seconds
- * during a fill, because the fill ran in the server's own process and PGlite runs a statement on the thread that
+ * during a fill, because the fill runs in the server's own process and a statement holds its transaction on the thread that
  * owns it. The fill is a worker process now and the server reads a snapshot of its store, so the 99th percentile of every page
  * during the fill of the generated training repository must stay under 300 ms, and no answer may take a second.
  *

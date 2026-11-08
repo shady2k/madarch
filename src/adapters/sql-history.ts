@@ -16,20 +16,24 @@ import type {
 } from '../history/types.js';
 import { byCodePoint } from '../model/order.js';
 import { canonicalJsonDigest } from '../model/canonical.js';
-import { createPGliteDatabaseOwner, type DatabaseOwner, type OuterTransaction } from './database-owner.js';
+import { createDatabaseOwner, type DatabaseClusterRef, type DatabaseOwner, type OuterTransaction } from './database-owner.js';
 
-export interface PGliteHistoryOptions {
-  /** The PGlite data directory; omitted for a private in-memory database. Keep persistent paths in product-local state outside the product repository. */
-  path?: string;
+export interface HistoryStoreOptions {
+  /** The store the history keeps its tables in; omitted for a private database in the temporary folder, removed with the history. */
+  store?: string;
+  /** The database inside that store: `madarch` unless a caller keeps several histories in one store. */
+  database?: string;
+  /** A server another part of the run already opened, which the history only connects to: `src/adapters/store-histories.ts` lends it to the histories of one store. */
+  cluster?: DatabaseClusterRef;
   /** Supplies recorded time's "now"; tests inject a fake clock. */
   clock: Clock;
   /**
    * The process's database owner to lend, opened once and shared with the
-   * query database and the future queue tables (decision 0027). Omitted,
-   * the history opens a PGlite of its own at `path` and closes it with
-   * `close()`; lent, the history never closes it — the caller that opened
-   * it does. Giving both `owner` and `path` is refused, because the path
-   * could only be silently ignored.
+   * query database and the queue's tables (decision 0027). Omitted, the
+   * history opens a store's owner at `store` and closes it with `close()`;
+   * lent, the history never closes it — the caller that opened it does.
+   * Giving both `owner` and `store` is refused, because the store could only
+   * be silently ignored.
    */
   owner?: DatabaseOwner;
 }
@@ -89,8 +93,8 @@ class StoreRefused extends Error {
 
 /**
  * Bitemporal versions of every source's compiled model, in PostgreSQL behind
- * `HistoryStore`. PGlite runs PostgreSQL in WASM in-process, and supports
- * the same file-backed database interface as the server's PostgreSQL store.
+ * `HistoryStore`: the owner in `options.owner` (the process's one database) or
+ * a store's owner opened at `options.store`.
  *
  * One table, `assertions`, holds one row per element, interface, relation,
  * data entity, scenario, category, zone, environment or state a source has
@@ -195,10 +199,33 @@ async function insertAssertionRows(executor: Executor, rows: readonly unknown[][
 }
 
 /**
+ * Closes the rows a store no longer believes, in statements of whole arrays: every changed assertion of a version is one
+ * row of five arrays, and the UPDATE matches them against the identity index. A version of 10 000 elements with half of
+ * them changed is one statement here where it used to be five thousand (measured: 2 977 ms of `UPDATE` for 5 000
+ * statements became 1 statement of 63 ms).
+ */
+async function closeAssertionRows(executor: Executor, recordedTo: number, rows: readonly unknown[][]): Promise<void> {
+  if (rows.length === 0) return;
+  const chunkSize = 10_000;
+  for (let start = 0; start < rows.length; start += chunkSize) {
+    const chunk = rows.slice(start, start + chunkSize);
+    await executor.query(
+      `UPDATE assertions SET recorded_to = $1
+       FROM unnest($2::text[], $3::text[], $4::text[], $5::float8[], $6::text[])
+         AS v(source, kind, entity_id, valid_from, opened_by)
+       WHERE assertions.source = v.source AND assertions.kind = v.kind AND assertions.entity_id = v.entity_id
+         AND assertions.valid_from = v.valid_from AND assertions.opened_by = v.opened_by
+         AND assertions.recorded_to IS NULL`,
+      [recordedTo, chunk.map((row) => row[0]), chunk.map((row) => row[1]), chunk.map((row) => row[2]), chunk.map((row) => row[3]), chunk.map((row) => row[4])],
+    );
+  }
+}
+
+/**
  * The history's own tables, created once per database the history is given
  * — its own, or the process's shared owner — before any operation runs.
- * Each statement is separate because an owner's transaction takes one
- * statement at a time (PGlite's `exec` is not part of the owner's shape).
+ * Each statement is separate: the owner's `transaction` runs statements one
+ * at a time through the port both adapters share.
  */
 const SCHEMA = [
   `CREATE TABLE IF NOT EXISTS assertions (
@@ -234,20 +261,21 @@ const SCHEMA = [
 ] as const;
 
 /**
- * The history store over a PostgreSQL-compatible database: the owner lent in
+ * The history store over a PostgreSQL database: the owner lent in
  * `options.owner` (the process's one database, shared with the query
- * projection), or a PGlite of its own opened at `options.path` and closed by
+ * projection), or a store's owner opened at `options.store` and closed by
  * `close()`. The history's tables are its own; one history per database is
  * what `renameSource` assumes (it renames the one source the history holds).
  */
-export function createPGliteHistory(options: PGliteHistoryOptions): HistoryStore {
-  if (options.owner !== undefined && options.path !== undefined) {
-    throw new Error(`the history cannot be given both a database owner and the path "${options.path}": the owner already names the database it serves, so a path beside it could only be silently ignored`);
+export function createHistoryStore(options: HistoryStoreOptions): HistoryStore {
+  if (options.owner !== undefined && options.store !== undefined) {
+    throw new Error(`the history cannot be given both a database owner and the store "${options.store}": the owner already names the database it serves, so a store beside it could only be silently ignored`);
   }
   const clock = options.clock;
-  const owner = options.owner ?? createPGliteDatabaseOwner({ path: options.path });
   const ownsOwner = options.owner === undefined;
-  const location = owner.location;
+  /** The owner, opened on first use: a store's cluster is started there, and a history no operation touched opens nothing. */
+  let openedOwner: DatabaseOwner | undefined = options.owner;
+  let location = options.owner?.location ?? (options.store === undefined ? 'a private database' : `${options.store} (${options.database ?? 'madarch'})`);
   // The tables are created before the first operation, and the transaction
   // that creates them is queued on the owner at once — before this function
   // returns, so ahead of any later work on the owner, its close included. A
@@ -256,6 +284,16 @@ export function createPGliteHistory(options: PGliteHistoryOptions): HistoryStore
   // not serve.
   const opened = (async () => {
     try {
+      const owner = openedOwner ?? await createDatabaseOwner({
+        // A cluster another part of the run holds is opened on its own; `store` then only names the place a message
+        // speaks of.
+        ...(options.store === undefined || options.cluster !== undefined ? {} : { store: options.store }),
+        ...(options.database === undefined ? {} : { database: options.database }),
+        ...(options.cluster === undefined ? {} : { cluster: options.cluster }),
+      });
+      openedOwner = owner;
+      // A store names the place a message speaks of; only a history with no store of its own is named by the owner.
+      if (options.store === undefined) location = owner.location;
       await owner.transaction('write', async (transaction) => {
         for (const statement of SCHEMA) await transaction.query(statement);
         const columns = await transaction.query<{ column_name: string }>(
@@ -290,9 +328,14 @@ export function createPGliteHistory(options: PGliteHistoryOptions): HistoryStore
    * its own; work given an outer transaction must not wait on one, or the
    * caller's open transaction would deadlock with it.
    */
+  async function ownerOf(): Promise<DatabaseOwner> {
+    await opened;
+    return openedOwner!;
+  }
+
   function write<T>(outer: OuterTransaction | undefined, work: (executor: Executor) => Promise<T>): Promise<T> {
     if (outer !== undefined) return work(outer);
-    return owner.transaction('write', work);
+    return ownerOf().then(async (owner) => await owner.transaction('write', work));
   }
 
   /**
@@ -303,7 +346,7 @@ export function createPGliteHistory(options: PGliteHistoryOptions): HistoryStore
    */
   function bare<T>(outer: OuterTransaction | undefined, work: (executor: Executor) => Promise<T>): Promise<T> {
     if (outer !== undefined) return work(outer);
-    return owner.run(work);
+    return ownerOf().then(async (owner) => await owner.run(work));
   }
 
   /** Refuses work once the history is closed, before any statement reaches the owner. */
@@ -342,8 +385,6 @@ export function createPGliteHistory(options: PGliteHistoryOptions): HistoryStore
       selectCommits: statement<CommitListRow>(executor, 'SELECT commit_id, committed_at, recorded_at, canonical_digest FROM source_commits WHERE source = ? ORDER BY committed_at ASC, commit_id COLLATE "C" ASC'),
       selectCommitRecord: statement<CommitListRow>(executor, 'SELECT commit_id, committed_at, recorded_at, canonical_digest FROM source_commits WHERE source = ? AND commit_id = ?'),
       selectLatestCommit: statement<CommitListRow>(executor, 'SELECT commit_id, committed_at, recorded_at, canonical_digest FROM source_commits WHERE source = ? ORDER BY committed_at DESC, commit_id COLLATE "C" DESC LIMIT 1'),
-      closeAssertion: statement(executor, `UPDATE assertions SET recorded_to = ?
-        WHERE source = ? AND kind = ? AND entity_id = ? AND valid_from = ? AND opened_by = ? AND recorded_to IS NULL`),
       insertCommit: statement(executor, 'INSERT INTO source_commits (source, commit_id, committed_at, content_digest, recorded_at, canonical_digest) VALUES (?, ?, ?, ?, ?, ?)'),
       renameCommitSource: statement(executor, 'UPDATE source_commits SET source = ? WHERE source = ?'),
       renameAssertionSource: statement(executor, 'UPDATE assertions SET source = ? WHERE source = ?'),
@@ -423,7 +464,7 @@ export function createPGliteHistory(options: PGliteHistoryOptions): HistoryStore
       return await write(outer, async (tx): Promise<StoreResult> => {
         const {
           selectCommit, upsertRegistry, selectSuccessorCommit, selectOtherCurrentOverlapping,
-          selectStateAt, selectMaxRecordedAt, closeAssertion, insertCommit,
+          selectStateAt, selectMaxRecordedAt, insertCommit,
         } = statements(tx);
         const queuedAssertions: unknown[][] = [];
         const existing = await selectCommit.get(source, commit);
@@ -511,6 +552,8 @@ export function createPGliteHistory(options: PGliteHistoryOptions): HistoryStore
 
       const opened: AssertionChange[] = [];
       const closed: AssertionChange[] = [];
+      /** The rows this store closes, one per changed assertion: closed by one statement once the loop has them. */
+      const closings: unknown[][] = [];
 
       // Close what changed or disappeared, leave what is unchanged exactly
       // as it is (the `replace` requirement). Closing never rewrites a
@@ -523,7 +566,7 @@ export function createPGliteHistory(options: PGliteHistoryOptions): HistoryStore
         const stillAsserted = newBySlot.get(slot);
         if (stillAsserted !== undefined && stillAsserted.content === oldRow.content) continue;
 
-        await closeAssertion.run(storingNow, source, oldRow.kind, oldRow.entity_id, oldRow.valid_from, oldRow.opened_by);
+        closings.push([source, oldRow.kind, oldRow.entity_id, oldRow.valid_from, oldRow.opened_by]);
         // Reported exactly as the row stood before this store touched it —
         // its own valid end, `oldRow.valid_to`, not the point this commit
         // now truncates it to: a caller keeping its own derived index (e.g.
@@ -583,6 +626,7 @@ export function createPGliteHistory(options: PGliteHistoryOptions): HistoryStore
         }
       }
 
+      await closeAssertionRows(tx, storingNow, closings);
       await insertAssertionRows(tx, queuedAssertions);
       if (registryInput !== undefined) {
         await upsertRegistry.run(source, registryInput.id, JSON.stringify(registryInput.formerNames));
@@ -728,7 +772,13 @@ export function createPGliteHistory(options: PGliteHistoryOptions): HistoryStore
     closed = true;
     // A lent owner is the caller's to close: closing it here would take the
     // query database's connection away with the history's.
-    closePromise = ownsOwner ? owner.close() : Promise.resolve();
+    // The tables are made by `opened`, so a close waits for it: a history closed
+    // the moment it was made must not leave its owner closed under a schema
+    // transaction that never ran.
+    closePromise = opened.then(
+      async () => { if (ownsOwner) await openedOwner!.close(); },
+      async () => { if (ownsOwner) await openedOwner?.close(); },
+    );
     return closePromise;
   }
 
