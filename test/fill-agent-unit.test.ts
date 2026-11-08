@@ -19,7 +19,7 @@ import { createHash } from 'node:crypto';
 import { mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
-import { createPGliteDatabaseOwner, type DatabaseOwner } from '../src/adapters/database-owner.js';
+import { type DatabaseOwner } from '../src/adapters/database-owner.js';
 import { createPgBossQueue } from '../src/adapters/pg-boss-queue.js';
 import { createFactStoreSchema, applyPublishedFacts, FACT_APPLICATION, readUnitFacts } from '../src/fill/fact-store.js';
 import { makeEdgeFact, makeNodeFact, repositoryPath, type Fact, type FactProvenance } from '../src/fill/facts.js';
@@ -27,29 +27,11 @@ import { createFactGraphReader, estimateTokens, DEFAULT_GRAPH_READ_LIMITS } from
 import { readPageModel } from '../src/fill/graph-pages.js';
 import { draftSetOf } from '../src/fill/checked-writes.js';
 import { createFillOrchestratorService, type FillOrchestratorService, type ProductFillWiring } from '../src/fill/orchestrator-host.js';
-import {
-  createOrchestrator,
-  planRun,
-  schedulerPass,
-  startRun,
-  sweepUnits,
-  workOnce,
-  type FillOrchestrator,
-} from '../src/fill/orchestrator.js';
+import { createOrchestrator, planRun, schedulerPass, startRun, sweepUnits, workOnce, type FillOrchestrator } from '../src/fill/orchestrator.js';
 import { createOrchestratorSchema, readProgress, readUnitDraft, readUnitReads, type RunSnapshot } from '../src/fill/orchestrator-store.js';
 import { createStageRegistry } from '../src/fill/stages/index.js';
 import { MEMBER_ESTIMATE_TOKENS } from '../src/fill/agent-packet.js';
-import {
-  AGENT_UNIT_STAGE_ID,
-  childrenOfPlaces,
-  coveredOf,
-  createAgentUnitStage,
-  MAX_PLAN_UNITS,
-  memberPlaces,
-  planUnits,
-  readUnitAnswer,
-  type AgentPlace,
-} from '../src/fill/stages/agent-unit.js';
+import { AGENT_UNIT_STAGE_ID, childrenOfPlaces, coveredOf, createAgentUnitStage, MAX_PLAN_UNITS, memberPlaces, planUnits, readUnitAnswer, type AgentPlace } from '../src/fill/stages/agent-unit.js';
 import { OVERVIEW_STAGE_ID } from '../src/fill/stages/overview.js';
 import { StageRegistry } from '../src/fill/registry.js';
 import { writeScope } from '../src/fill/checked-writes.js';
@@ -63,6 +45,7 @@ import { UNIT_TOOL_PATH } from '../src/fill/unit-tools.js';
 import type { UnitTimers } from '../src/fill/unit-limits.js';
 import { startServer, type StartedServer } from '../src/server/http.js';
 import type { QueueService } from '../src/fill/queue.js';
+import { createTestDatabaseOwner } from './test-database.js';
 
 const NOW = 1_700_000_000_000;
 const PRODUCT = 'fixture-product';
@@ -178,7 +161,7 @@ async function openWorld(options: WorldOptions): Promise<World> {
   const record = join(folder, 'agent-record.jsonl');
   const clock = options.clock ?? (() => NOW);
 
-  const owner = createPGliteDatabaseOwner();
+  const owner = await createTestDatabaseOwner();
   await createFillStateSchema(owner);
   await createOrchestratorSchema(owner);
   await createFactStoreSchema(owner);

@@ -9,7 +9,7 @@ import { afterAll, beforeAll, describe, expect, test } from 'bun:test';
 import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
-import { createPGliteDatabaseOwner, type DatabaseOwner } from '../src/adapters/database-owner.js';
+import { type DatabaseOwner } from '../src/adapters/database-owner.js';
 import { createGraphStore, type GraphId, type GraphStore } from '../src/graph/index.js';
 import type { RenderContext } from '../src/knowledge/blocks.js';
 import { GraphReader } from '../src/knowledge/graph-read.js';
@@ -20,6 +20,7 @@ import { readMarkdownEntities } from '../src/knowledge/markdown.js';
 import type { Block, PageModel } from '../src/knowledge/model.js';
 import { documentTitleOf, graphTitleOf, kindSummaries, listEntities, markdownTitleOf, renderPage } from '../src/knowledge/render.js';
 import { Resolver, findAnchor } from '../src/knowledge/resolve.js';
+import { createTestDatabaseOwner } from './test-database.js';
 
 // Record keys are built by concatenation so the neutral-names scan reads no key as a repository source.
 const K = (kind: string, rest: string): string => `${kind}:${rest}`;
@@ -49,7 +50,7 @@ const span = (path: string, lineStart: number, lineEnd: number) => ({ path, line
 
 beforeAll(async () => {
   productFolder = mkdtempSync(join(tmpdir(), 'madarch-knowledge-render-'));
-  owner = createPGliteDatabaseOwner({ btreeGist: true });
+  owner = await createTestDatabaseOwner({ btreeGist: true });
   await owner.ready;
   store = createGraphStore(owner, { now: () => new Date('2026-06-01T00:00:00Z') });
   await store.createSchema();

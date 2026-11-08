@@ -23,56 +23,20 @@ import { mkdirSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { Type } from 'typebox';
-import { createPGliteDatabaseOwner, type DatabaseOwner } from '../src/adapters/database-owner.js';
+import { type DatabaseOwner } from '../src/adapters/database-owner.js';
 import { byCodePoint } from '../src/model/order.js';
 import { createPgBossQueue } from '../src/adapters/pg-boss-queue.js';
 import { FACT_APPLICATION, applyPublishedFacts, createFactStoreSchema } from '../src/fill/fact-store.js';
 import { makeEdgeFact, makeNodeFact, repositoryPath, type Fact, type FactEdgeKind, type FactProvenance } from '../src/fill/facts.js';
-import {
-  COVERAGE_GAP_LIMIT,
-  COVERAGE_READ_SAMPLE,
-  DEFAULT_GRAPH_READ_LIMITS,
-  NEIGHBOR_EDGE_KINDS,
-  callGraphRead,
-  claimsAbout,
-  coverage,
-  createFactGraphReader,
-  createGraphReadContext,
-  answerMembership,
-  describeScope,
-  evidenceSpan,
-  graphReadsOver,
-  linesOf,
-  neighbors,
-  parseGraphRead,
-  recordedReadText,
-  readText,
-  spanMembership,
-  references,
-  type GraphRead,
-  type GraphReadContext,
-} from '../src/fill/graph-reads.js';
-import {
-  DEFAULT_ORCHESTRATOR_LIMITS,
-  admitUnits,
-  createOrchestrator,
-  invalidateStaleUnits,
-  planRun,
-  startRun,
-  workOnce,
-  type FillOrchestrator,
-} from '../src/fill/orchestrator.js';
-import {
-  createOrchestratorSchema,
-  readUnitReads,
-  type RunSnapshot,
-  type UnitPlanRecord,
-} from '../src/fill/orchestrator-store.js';
+import { COVERAGE_GAP_LIMIT, COVERAGE_READ_SAMPLE, DEFAULT_GRAPH_READ_LIMITS, NEIGHBOR_EDGE_KINDS, callGraphRead, claimsAbout, coverage, createFactGraphReader, createGraphReadContext, answerMembership, describeScope, evidenceSpan, graphReadsOver, linesOf, neighbors, parseGraphRead, recordedReadText, readText, spanMembership, references, type GraphRead, type GraphReadContext } from '../src/fill/graph-reads.js';
+import { DEFAULT_ORCHESTRATOR_LIMITS, admitUnits, createOrchestrator, invalidateStaleUnits, planRun, startRun, workOnce, type FillOrchestrator } from '../src/fill/orchestrator.js';
+import { createOrchestratorSchema, readUnitReads, type RunSnapshot, type UnitPlanRecord } from '../src/fill/orchestrator-store.js';
 import { StageRegistry } from '../src/fill/registry.js';
 import { createGitSnapshotSource, type RepositoryPin } from '../src/fill/snapshot.js';
 import { DEFAULT_STAGE_DEFAULTS, type FillStage } from '../src/fill/stage.js';
 import { createFillStateSchema, createUnit, readUnit, readUnitGenerations } from '../src/fill/state-store.js';
 import type { QueueService } from '../src/fill/queue.js';
+import { createTestDatabaseOwner } from './test-database.js';
 
 const NOW = 1_700_000_000_000;
 const REPOSITORY = 'acme-shop';
@@ -242,7 +206,7 @@ interface World {
 
 /** Opens the owner, creates the fill's tables and publishes the fixture graph as the unit `graph/all`. */
 async function openWorld(): Promise<World> {
-  const owner = createPGliteDatabaseOwner();
+  const owner = await createTestDatabaseOwner();
   await createFillStateSchema(owner);
   await createOrchestratorSchema(owner);
   await createFactStoreSchema(owner);
@@ -286,7 +250,7 @@ async function openWorld(): Promise<World> {
 
 /**
  * The one owner the read-only tests share: the pod this suite runs on holds 4 GB,
- * so the suite opens one PGlite for the fixture graph instead of one per test, and
+ * so the suite opens one store for the fixture graph instead of one per test, and
  * a test that changes the graph (a publication, a damaged row) opens an owner of
  * its own (`world()`). A shared owner is not a shared reading unit: each test that
  * asserts what it recorded asks for a unit of its own.
@@ -831,7 +795,7 @@ const READER_FACT = makeNodeFact({
  * orchestrator and replayed at publication.
  */
 async function openRunWorld(): Promise<RunWorld> {
-  const owner = createPGliteDatabaseOwner();
+  const owner = await createTestDatabaseOwner();
   await createFillStateSchema(owner);
   await createOrchestratorSchema(owner);
   await createFactStoreSchema(owner);

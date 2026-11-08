@@ -18,7 +18,7 @@ import { mkdirSync, mkdtempSync, rmSync, symlinkSync, unlinkSync, writeFileSync 
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { fileURLToPath } from 'node:url';
-import { createPGliteDatabaseOwner, type DatabaseOwner } from '../src/adapters/database-owner.js';
+import { type DatabaseOwner } from '../src/adapters/database-owner.js';
 import { countPublishedFactsByKind, readUnitFacts } from '../src/fill/fact-store.js';
 import { readUnitPlan } from '../src/fill/orchestrator-store.js';
 import { createFillOrchestratorService, type FillOrchestratorService, type FillRunResult } from '../src/fill/orchestrator-host.js';
@@ -27,6 +27,7 @@ import { createGraphStore } from '../src/graph/index.js';
 import { createStagesFill, declaredStagesDigest, type StagesFill } from '../src/product/fill-stages.js';
 import { writeFirstFillWorkflow } from './fill-workflow-fixture.js';
 import { skippedBecauseOutOfWorkflow } from './fill-skip-list.js';
+import { createTestDatabaseOwner } from './test-database.js';
 
 // The cases read a stage out of this step's list: they come back with that stage's step (test/fill-skip-list.ts).
 const skippedSuite = skippedBecauseOutOfWorkflow(import.meta.path);
@@ -114,7 +115,7 @@ async function unitNodes(owner: DatabaseOwner, unitId: string): Promise<readonly
 
 /** Opens one product for runs: its wiring, its host over an owner this test closes. */
 async function openProduct(folder: string): Promise<OpenProduct> {
-  const owner: DatabaseOwner = createPGliteDatabaseOwner({ btreeGist: true });
+  const owner: DatabaseOwner = await createTestDatabaseOwner({ btreeGist: true });
   const fill = await createStagesFill({ product: folder, database: owner });
   const home = mkdtempSync(join(tmpdir(), 'madarch-stages-home-'));
   const service = createFillOrchestratorService({ owner, registry: fill.registry, wiring: () => fill.wiring });
@@ -191,7 +192,7 @@ describe('the wiring of one product', () => {
   test('a manifest that does not read, and a product name that is no repository name, are refused with the file', async () => {
     const broken = join(root, 'broken');
     mkdirSync(broken, { recursive: true });
-    const owner = createPGliteDatabaseOwner({ btreeGist: true });
+    const owner = await createTestDatabaseOwner({ btreeGist: true });
     try {
       writeFileSync(join(broken, 'workspace.yaml'), 'schemaVersion: 1\nid: 6d9f9c2a-1b7c-4e0e-9a92-27f1d1a2b3c4\nname: [\n');
       await expect(createStagesFill({ product: broken, database: owner })).rejects.toThrow(
@@ -239,7 +240,7 @@ describe('the wiring of one product', () => {
     // A declared repository whose folder holds no checkout is refused by name:
     // the wiring never guesses a commit for a repository that is not there.
     unlinkSync(api);
-    const owner = createPGliteDatabaseOwner({ btreeGist: true });
+    const owner = await createTestDatabaseOwner({ btreeGist: true });
     try {
       const fill = await createStagesFill({ product: declared, database: owner });
       await expect(pinsOf(fill)).rejects.toThrow(new RegExp(`${api} is no Git checkout of its own`));

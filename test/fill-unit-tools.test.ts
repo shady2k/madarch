@@ -20,51 +20,24 @@ import { execFileSync } from 'node:child_process';
 import { mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
-import { createPGliteDatabaseOwner, type DatabaseOwner } from '../src/adapters/database-owner.js';
+import { type DatabaseOwner } from '../src/adapters/database-owner.js';
 import { createPgBossQueue } from '../src/adapters/pg-boss-queue.js';
 import { byCodePoint } from '../src/model/order.js';
 import { FACT_APPLICATION, applyPublishedFacts, createFactStoreSchema } from '../src/fill/fact-store.js';
 import { makeEdgeFact, makeNodeFact, repositoryPath, type Fact, type FactProvenance } from '../src/fill/facts.js';
-import {
-  createFactGraphReader,
-  DEFAULT_GRAPH_READ_LIMITS,
-  estimateTokens,
-  type GraphReadLimits,
-} from '../src/fill/graph-reads.js';
+import { createFactGraphReader, DEFAULT_GRAPH_READ_LIMITS, estimateTokens, type GraphReadLimits } from '../src/fill/graph-reads.js';
 import { connectAcpAgent, type AcpConnection, type AcpMcpServer } from '../src/fill/acp.js';
 import { recordedDraftSet } from '../src/fill/checked-writes.js';
 import { createFillOrchestratorService, type FillOrchestratorService, type ProductFillWiring } from '../src/fill/orchestrator-host.js';
-import {
-  createOrchestratorSchema,
-  readUnitDraft,
-  readUnitReads,
-  recordUnitDraft,
-  recordUnitPlan,
-  type RunSnapshot,
-} from '../src/fill/orchestrator-store.js';
+import { createOrchestratorSchema, readUnitDraft, readUnitReads, recordUnitDraft, recordUnitPlan, type RunSnapshot } from '../src/fill/orchestrator-store.js';
 import { StageRegistry } from '../src/fill/registry.js';
 import { createGitSnapshotSource, type RepositoryPin, type SnapshotSource } from '../src/fill/snapshot.js';
 import { createFillStateSchema, createUnit, readUnit } from '../src/fill/state-store.js';
-import {
-  callUnitTool,
-  createUnitToolsHost,
-  UNIT_TOOL_NAMES,
-  UNIT_TOOL_PATH,
-  UNIT_TOOL_TOKEN_VARIABLE,
-  UNIT_TOOL_URL_VARIABLE,
-  UNIT_TOOLS,
-  type UnitToolAnswer,
-  type UnitToolsHandle,
-} from '../src/fill/unit-tools.js';
-import {
-  answerUnitMcpMessage,
-  MCP_FALLBACK_VERSION,
-  MCP_PROTOCOL_VERSIONS,
-  serveUnitMcp,
-  UNIT_MCP_INFO,
-} from '../src/fill/unit-mcp.js';
+import { callUnitTool, createUnitToolsHost, UNIT_TOOL_NAMES, UNIT_TOOL_PATH, UNIT_TOOL_TOKEN_VARIABLE, UNIT_TOOL_URL_VARIABLE, UNIT_TOOLS, type UnitToolAnswer, type UnitToolsHandle } from '../src/fill/unit-tools.js';
+import { answerUnitMcpMessage, MCP_FALLBACK_VERSION, MCP_PROTOCOL_VERSIONS, serveUnitMcp, UNIT_MCP_INFO } from '../src/fill/unit-mcp.js';
 import { unitToolEnvironment, unitToolProxy } from '../src/fill/unit-mcp-server.js';
 import { startServer, type StartedServer } from '../src/server/http.js';
+import { createTestDatabaseOwner } from './test-database.js';
 
 const NOW = 1_700_000_000_000;
 const REPOSITORY = 'acme-shop';
@@ -169,7 +142,7 @@ async function publish(owner: DatabaseOwner, unitId: string, stageId: string, sc
 }
 
 async function openWorld(): Promise<World> {
-  const owner = createPGliteDatabaseOwner();
+  const owner = await createTestDatabaseOwner();
   await createFillStateSchema(owner);
   await createOrchestratorSchema(owner);
   await createFactStoreSchema(owner);

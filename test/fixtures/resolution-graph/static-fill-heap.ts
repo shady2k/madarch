@@ -19,10 +19,10 @@
 import { readFileSync, mkdtempSync, rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
-import { createPGliteDatabaseOwner } from '../../../src/adapters/database-owner.js';
 import { createFillOrchestratorService } from '../../../src/fill/orchestrator-host.js';
 import { createStagesFill } from '../../../src/product/fill-stages.js';
 import { writeProduct } from './repository.js';
+import { createDatabaseOwner } from '../../../src/adapters/database-owner.js';
 
 /** The process's resident set in KiB: the pages of this process the kernel holds now. */
 function residentKb(): number {
@@ -39,7 +39,7 @@ const count = Number(process.argv[2]);
 if (!Number.isInteger(count) || count < 2) throw new Error(`the measured fill takes a whole number of files from 2, and ${JSON.stringify(process.argv[2])} is none (test/fixtures/resolution-graph/static-fill-heap.ts)`);
 const root = process.argv[3] ?? mkdtempSync(join(tmpdir(), 'madarch-static-heap-'));
 const { product } = writeProduct(root, count);
-const owner = createPGliteDatabaseOwner({ btreeGist: true });
+const owner = await createDatabaseOwner({ store: join(root, 'store'), btreeGist: true });
 try {
   const fill = await createStagesFill({ product, database: owner });
   let at = 1_700_000_000_000;

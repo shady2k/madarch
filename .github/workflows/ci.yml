@@ -50,6 +50,15 @@ jobs:
         with:
           bun-version: 1.4.2
       - run: bun install --frozen-lockfile
+      # The PostgreSQL server madarch installs lives in the runner's home, not in the
+      # checkout: `<madarch home>/tools/postgresql/<version>/`. It is cached by the
+      # version and by the hash of the file that pins it, so a run downloads it once
+      # per pinned release and reads the marker on every later run (madarch-8bdc.2.5).
+      - name: Cache the installed PostgreSQL server
+        uses: actions/cache@v5
+        with:
+          path: ~/madarch/tools/postgresql
+          key: postgres-18.6.1-${{ runner.os }}-${{ runner.arch }}-${{ hashFiles('src/adapters/postgres-builds.ts') }}
       # What the run may leave behind (madarch-1xq): the home and the temporary
       # folder as they stand before the suite, compared with how they stand after
       # it. A suite that writes into either one fails here instead of filling the
@@ -106,6 +115,15 @@ jobs:
         with:
           bun-version: 1.4.2
       - run: bun install --frozen-lockfile
+      # The PostgreSQL server madarch installs lives in the runner's home, not in the
+      # checkout: `<madarch home>/tools/postgresql/<version>/`. It is cached by the
+      # version and by the hash of the file that pins it, so a run downloads it once
+      # per pinned release and reads the marker on every later run (madarch-8bdc.2.5).
+      - name: Cache the installed PostgreSQL server
+        uses: actions/cache@v5
+        with:
+          path: ~/madarch/tools/postgresql
+          key: postgres-18.6.1-${{ runner.os }}-${{ runner.arch }}-${{ hashFiles('src/adapters/postgres-builds.ts') }}
       - name: Note the home and the temporary folder before the checks
         run: node .shady2k/run-scratch-check.mjs snapshot "$RUNNER_TEMP/before-run.txt"
       # The product's type check and its architecture check (decision 0033, item 4):

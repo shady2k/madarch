@@ -20,7 +20,7 @@
 import { existsSync } from 'node:fs';
 import { mkdir } from 'node:fs/promises';
 import { dirname } from 'node:path';
-import { createPGliteDatabaseOwner, type DatabaseOwner } from '../adapters/database-owner.js';
+import { createDatabaseOwner, type DatabaseOwner } from '../adapters/database-owner.js';
 import { byCodePoint } from '../model/order.js';
 import { withSpan } from '../obs/trace.js';
 import { readProduct } from '../product/manifest.js';
@@ -348,8 +348,9 @@ export interface FillOrchestratorServiceOptions {
    * The store's own owner, when the host already holds one (decision 0027's one owner per store, which
    * is what lets a publication's facts and the orchestrator's record share a transaction): the service
    * borrows it for the fill's tables and the queue and never closes it. Left out, the service opens
-   * its own PGlite at `databasePath` on the first run asked for and closes it with everything else it
-   * opened — so a service is given the product's store, never a home to guess one from.
+   * the store at `databasePath` (its database on the cluster that stands under it, started on demand)
+   * on the first run asked for and closes it, and the server with it, like everything else it opened —
+   * so a service is given the product's store, never a home to guess one from.
    */
   readonly owner?: DatabaseOwner;
   /** The store's database path (`<store>/graph`, `storeDatabasePath`), required when no owner is lent. */
@@ -453,8 +454,8 @@ async function driveFor(orchestrator: FillOrchestrator, request: { readonly runI
  * run and closes it (src/product/daemon.ts, src/mcp/graph.ts). The owner is the
  * process's own connection to the store, and closing it is the caller's.
  */
-export function openFillDatabase(path: string): DatabaseOwner {
-  return createPGliteDatabaseOwner({ path, btreeGist: true });
+export async function openFillDatabase(store: string): Promise<DatabaseOwner> {
+  return await createDatabaseOwner({ store, btreeGist: true });
 }
 
 /**
@@ -508,7 +509,7 @@ export function createFillOrchestratorService(options: FillOrchestratorServiceOp
   async function open(): Promise<{ owner: DatabaseOwner; queue: QueueService; graph: GraphStore; opened: boolean }> {
     if (opening !== undefined) return await opening;
     opening = (async () => {
-      // PGlite opens a data directory, and the state folder it stands in may not be there yet: the
+      // The store's cluster stands under its data directory, and the folder above that may not be there yet: the
       // process's own folder under the products home is made on the first run asked for.
       const lent = options.owner;
       if (lent === undefined) {
@@ -517,7 +518,7 @@ export function createFillOrchestratorService(options: FillOrchestratorServiceOp
         }
         await mkdir(dirname(databasePath), { recursive: true });
       }
-      const database = lent ?? createPGliteDatabaseOwner({ path: databasePath!, btreeGist: true });
+      const database = lent ?? await createDatabaseOwner({ store: databasePath!, btreeGist: true });
       await createFillStateSchema(database);
       await createOrchestratorSchema(database);
       // The store a published fact set lands in is the fill's own (`fact-store.ts`): its tables are
@@ -715,9 +716,9 @@ async function fileDecision(
           // The publication committed before this event was emitted, so the store's maintenance runs here,
           // outside every transaction: the planner's statistics (`statistics.ts`: due after 50 000 versions
           // written, or once for a store whose version tables were never analyzed) and the WAL checkpoint
-          // (`checkpoint.ts`: due after 20 000 versions, because PGlite's single-user backend runs no
-          // checkpointer and `pg_wal` would otherwise grow until the disk is full). A fill whose stages land
-          // facts only writes no version, and this call then only asks whether either is due.
+          // (`checkpoint.ts`: due after 20 000 versions, so a fill never waits for `max_wal_size` to be filled
+          // before the segments are recycled). A fill whose stages land facts only writes no version, and this
+          // call then only asks whether either is due.
           await graph.maintain();
         }
         await options.sink?.(event);

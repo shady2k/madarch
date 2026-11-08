@@ -13,7 +13,7 @@ import { mkdtemp, mkdir, rm, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { Type } from 'typebox';
-import { createPGliteDatabaseOwner, type DatabaseOwner } from '../src/adapters/database-owner.js';
+import { type DatabaseOwner } from '../src/adapters/database-owner.js';
 import { makeEdgeFact, makeNodeFact, repositoryPath, type Fact, type FactProvenance } from '../src/fill/facts.js';
 import { createFillOrchestratorService, type FillOrchestratorService } from '../src/fill/orchestrator-host.js';
 import { FACT_APPLICATION } from '../src/fill/fact-store.js';
@@ -21,6 +21,7 @@ import { createUnit } from '../src/fill/state-store.js';
 import { StageRegistry } from '../src/fill/registry.js';
 import { DEFAULT_STAGE_DEFAULTS, type FillStage } from '../src/fill/stage.js';
 import type { StageDraftWrite } from '../src/fill/stage.js';
+import { createTestDatabaseOwner } from './test-database.js';
 
 /** The product's own name, as its manifest and a fill's runs name it: the scope of every page read. */
 export const PRODUCT = 'Fixture Product';
@@ -235,7 +236,7 @@ export async function openGraphFixture(options: {
   const folder = join(home, 'fixture-product');
   await mkdir(folder, { recursive: true });
   await writeFile(join(folder, 'workspace.yaml'), options.manifest ?? `schemaVersion: 1\nid: 3f6d2dc8-b16e-4bf0-9d3a-2c9c00b5287d\nname: ${PRODUCT}\n`);
-  const owner = createPGliteDatabaseOwner();
+  const owner = await createTestDatabaseOwner();
   let commit = COMMIT;
   const registry = (options.registry ?? new StageRegistry()).register(graphStage({ drafts: options.drafts }));
   for (const stage of options.extraStages ?? []) registry.register(stage);

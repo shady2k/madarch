@@ -4,7 +4,6 @@ import { execFileSync } from 'node:child_process';
 import { mkdtempSync, writeFileSync, rmSync } from 'node:fs';
 import { join } from 'node:path';
 import { tmpdir } from 'node:os';
-import { createPGliteDatabaseOwner } from '../src/adapters/database-owner.js';
 import { createGraphStore } from '../src/graph/index.js';
 import { fillGraph } from '../src/extract/driver/index.js';
 import { extractFiles } from '../src/extract/driver/files.js';
@@ -14,9 +13,10 @@ import { firstGuideCursor, readGuidePageContext, registerGuidePages, type GuideC
 import type { GuidePreparedUnit } from '../src/writer/guides/host-contract.js';
 import { guideDigest } from '../src/writer/guides/digest.js';
 import { gitEnv } from './git-env.js';
+import { createTestDatabaseOwner } from './test-database.js';
 
 test('pinned Go hex/octet, octal and Unicode escapes match UTF-8 secrets while JS hex retains code-unit semantics',async()=>{
- const folder=mkdtempSync(join(tmpdir(),'guide-go-literal-'));const owner=createPGliteDatabaseOwner({btreeGist:true});
+ const folder=mkdtempSync(join(tmpdir(),'guide-go-literal-'));const owner=await createTestDatabaseOwner({btreeGist:true});
  try{
   const secret='café';
   const text:Record<string,string>={

@@ -16,6 +16,7 @@
  *   without a digest (a trigger);
  * - a second publication record of one work item (a trigger).
  */
+import { createSchemaOnce } from '../adapters/schema-stamp.js';
 import type { DatabaseOwner } from '../adapters/database-owner.js';
 import { GraphError, databaseMessage } from './errors.js';
 import { CODE_NODE_KINDS, CODE_PREFIX, CODE_RELATIONS, ENGINE_NODE_KINDS, ENGINE_PREFIX, ENGINE_RELATIONS } from './vocabulary.js';
@@ -243,29 +244,36 @@ const TRIGGERS: readonly { name: string; table: string; statement: string }[] = 
 
 /**
  * Creates the graph's tables, its constraints and the engine's own
- * vocabulary; a second call changes nothing. A PGlite owner must have been
+ * vocabulary; a second call changes nothing. The owner must have been
  * opened with `btreeGist: true`.
  */
 export async function createGraphSchema(owner: DatabaseOwner, at: string): Promise<void> {
-  await owner.transaction('write', async (tx) => {
-    try {
-      await tx.query('CREATE EXTENSION IF NOT EXISTS btree_gist');
-    } catch (error) {
-      throw new GraphError('create graph schema', 'extension btree_gist', `the database "${owner.location}" does not load btree_gist, which the no-overlap constraints need (a PGlite owner is opened with btreeGist: true): ${databaseMessage(error)}`);
-    }
-    for (const statement of SCHEMA) await tx.query(statement);
-    for (const trigger of TRIGGERS) {
-      const exists = await tx.query(`SELECT 1 FROM pg_trigger WHERE tgname = $1 AND tgrelid = $2::regclass`, [trigger.name, trigger.table]);
-      if (exists.rows.length === 0) await tx.query(`CREATE TRIGGER ${trigger.name} ${trigger.statement}`);
-    }
-    for (const key of [...ENGINE_NODE_KINDS, ...CODE_NODE_KINDS]) {
-      await tx.query(`INSERT INTO node_kind (key, namespace, registered_at) VALUES ($1, 'engine', $2::timestamptz) ON CONFLICT (key) DO NOTHING`, [key, at]);
-    }
-    for (const relation of [...ENGINE_RELATIONS, ...CODE_RELATIONS]) {
-      await tx.query(
-        `INSERT INTO relation_type (key, namespace, discriminated, positioned, registered_at) VALUES ($1, 'engine', $2, $3, $4::timestamptz) ON CONFLICT (key) DO NOTHING`,
-        [relation.key, relation.discriminated === true, relation.positioned === true, at],
-      );
-    }
+  // A schema that already stands is not made again: its forty DDL statements would lock the tables a reader reads for as
+  // long as they run. `createSchemaOnce` holds the digest of what made it (`src/adapters/schema-stamp.ts`).
+  await createSchemaOnce(owner, {
+    name: 'graph',
+    tables: GRAPH_TABLES,
+    parts: [...SCHEMA, ...TRIGGERS.map((trigger) => `${trigger.name} ${trigger.statement}`), ...ENGINE_NODE_KINDS, ...CODE_NODE_KINDS, ...ENGINE_RELATIONS.map((relation) => relation.key), ...CODE_RELATIONS.map((relation) => relation.key)],
+    create: async (tx) => {
+      try {
+        await tx.query('CREATE EXTENSION IF NOT EXISTS btree_gist');
+      } catch (error) {
+        throw new GraphError('create graph schema', 'extension btree_gist', `the database "${owner.location}" does not load btree_gist, which the no-overlap constraints need (open the owner with btreeGist: true): ${databaseMessage(error)}`);
+      }
+      for (const statement of SCHEMA) await tx.query(statement);
+      for (const trigger of TRIGGERS) {
+        const exists = await tx.query(`SELECT 1 FROM pg_trigger WHERE tgname = $1 AND tgrelid = $2::regclass`, [trigger.name, trigger.table]);
+        if (exists.rows.length === 0) await tx.query(`CREATE TRIGGER ${trigger.name} ${trigger.statement}`);
+      }
+      for (const key of [...ENGINE_NODE_KINDS, ...CODE_NODE_KINDS]) {
+        await tx.query(`INSERT INTO node_kind (key, namespace, registered_at) VALUES ($1, 'engine', $2::timestamptz) ON CONFLICT (key) DO NOTHING`, [key, at]);
+      }
+      for (const relation of [...ENGINE_RELATIONS, ...CODE_RELATIONS]) {
+        await tx.query(
+          `INSERT INTO relation_type (key, namespace, discriminated, positioned, registered_at) VALUES ($1, 'engine', $2, $3, $4::timestamptz) ON CONFLICT (key) DO NOTHING`,
+          [relation.key, relation.discriminated === true, relation.positioned === true, at],
+        );
+      }
+    },
   });
 }

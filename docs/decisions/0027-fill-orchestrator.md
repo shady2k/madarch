@@ -156,3 +156,13 @@ only what it reaches. The change record names why this shape and not planning
 deferred into the run: the deterministic stages' plans are incremental against
 what the previous runs published, and a stage planned after its producer's
 publication would diff the run's own output and plan nothing.
+
+## Amended 2026-11-07: the background server runs a PostgreSQL server, not PGlite
+
+Decision 0024 is amended: there is one database owner, on a PostgreSQL server
+(the store's own cluster, started on demand, or a server a caller names), and
+`MADARCH_DATABASE`, the choice between engines and the in-process store are
+gone. The queue's PGlite profile (`backend: 'pglite'`, `fromPglite`) is gone
+with it: pg-boss runs on the owner's pool only. The reasons this decision gave
+for PGlite's single connection — a serialised queue, one statement at a time —
+no longer apply, and the owner's pool overlaps transactions instead.

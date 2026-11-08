@@ -13,7 +13,7 @@ import { mkdirSync, mkdtempSync, readFileSync, rmSync, statSync, writeFileSync }
 import { tmpdir } from 'node:os';
 import path from 'node:path';
 import { afterAll, beforeAll, describe, expect, test } from 'bun:test';
-import { createPGliteDatabaseOwner, type DatabaseOwner } from '../src/adapters/database-owner.js';
+import { type DatabaseOwner } from '../src/adapters/database-owner.js';
 import { fillGraph } from '../src/extract/driver/index.js';
 import { HISTORY_EXTRACTOR, OWNERS, TREE_EXTRACTORS } from '../src/extract/driver/extractors.js';
 import { createGraphStore, type GraphStore } from '../src/graph/index.js';
@@ -29,6 +29,7 @@ import { DEFAULT_UNIT_BOUNDS, GraphView, UnitTools, memorySink, runWriter, type 
 import { questionId } from '../src/loop/ids.js';
 import { slugOf } from '../src/writer/names.js';
 import { gitEnv } from './git-env.js';
+import { createTestDatabaseOwner } from './test-database.js';
 
 const README = `# Shop
 
@@ -111,7 +112,7 @@ beforeAll(async () => {
   const draft = createDraft({ home: path.join(scratch, 'home'), name: 'loop-shop', gitEnv: gitEnv(SEED) });
   if (draft.outcome !== 'created') throw new Error(JSON.stringify(draft));
   productFolder = draft.folder;
-  owner = createPGliteDatabaseOwner({ btreeGist: true, path: path.join(scratch, 'store') });
+  owner = await createTestDatabaseOwner({ btreeGist: true, store: path.join(scratch, 'store') });
   store = createGraphStore(owner);
   await owner.ready;
   await store.createSchema();

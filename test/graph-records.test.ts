@@ -8,10 +8,11 @@ import { execFileSync } from 'node:child_process';
 import { mkdirSync, mkdtempSync, rmSync, symlinkSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
-import { createPGliteDatabaseOwner, type DatabaseOwner } from '../src/adapters/database-owner.js';
+import { type DatabaseOwner } from '../src/adapters/database-owner.js';
 import { RECORD_TABLES, commitFacts, createRecordSchema, fileFacts, listDirectories, listFiles, publishHistory, publishTree, recordSizes, repositoryFacts } from '../src/graph/index.js';
 import { instantOf } from '../src/graph/records.js';
 import { REPOSITORY_HISTORY_STAGE_ID, REPOSITORY_TREE_STAGE_ID, createRepositoryHistoryStage, createRepositoryTreeStage, languageOfPath, readRepositoryHistory, readRepositoryTree, repositoryOfUnit, repositoryUnitId, shallowGapOf, type RepositoryAt } from '../src/fill/stages/repository-facts.js';
+import { createTestDatabaseOwner } from './test-database.js';
 
 let root = '';
 let repository = '';
@@ -50,7 +51,7 @@ beforeAll(async () => {
   git(['rm', '-q', 'docs/same-two.md']);
   writeFileSync(join(repository, 'src', 'a.ts'), 'export const a = 2;\n');
   commitAll('two');
-  owner = createPGliteDatabaseOwner({ btreeGist: true });
+  owner = await createTestDatabaseOwner({ btreeGist: true });
   await createRecordSchema(owner);
 });
 
@@ -239,7 +240,7 @@ describe('the gaps each pass owns', () => {
   test('a store filled before the producing pass was recorded keeps its rows under one, and the column is added', async () => {
     if (owner === undefined) throw new Error('the store was not opened');
     // A store as the schema before this fix left it: a gap table with no `producer`, and one row in it.
-    const old = createPGliteDatabaseOwner({ btreeGist: true });
+    const old = await createTestDatabaseOwner({ btreeGist: true });
     try {
       await old.run((tx) => tx.query(`CREATE TABLE gap (repository_id bigint NOT NULL, what text NOT NULL CHECK (what <> ''), reason text NOT NULL CHECK (reason IN ('non-utf8-path', 'shallow-history', 'unreadable')), PRIMARY KEY (repository_id, what))`));
       await old.run((tx) => tx.query(`INSERT INTO gap (repository_id, what, reason) VALUES (1, 'an old gap', 'shallow-history')`));

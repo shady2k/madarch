@@ -23,7 +23,7 @@ import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { afterAll, beforeAll, describe, expect, test } from 'bun:test';
 import { parse as parseYaml, parseDocument } from 'yaml';
-import { createPGliteDatabaseOwner, type DatabaseOwner } from '../src/adapters/database-owner.js';
+import { type DatabaseOwner } from '../src/adapters/database-owner.js';
 import { documentSections } from '../src/knowledge/index/sections.js';
 import { localizedSourcePath } from '../src/writer/localized-source.js';
 import { HOME_SECTIONS } from '../src/writer/home-page.js';
@@ -34,10 +34,8 @@ import { seedStarterSet } from '../src/knowledge/seed.js';
 import { HISTORY_EXTRACTOR, OWNERS, TREE_EXTRACTORS } from '../src/extract/driver/extractors.js';
 import { createGraphStore, type GraphStore } from '../src/graph/index.js';
 import { changedGrounds, gitReader, indexKnowledge, readIndexedPage, statementsRelyingOn } from '../src/knowledge/index/index.js';
-import {
-  DEFAULT_UNIT_BOUNDS, GraphView, UnitTools, WRITER_TOOLS, fsSink, memoryJournal, memorySink, runWriter, slugOf,
-  type DomainDeclaration, type EditorialJudge, type Journal, type MentionName, type ToolAnswer, type UnitAgent, type UnitOutcome, type UnitRequest, type UnitSpec, type WriterReport,
-} from '../src/writer/index.js';
+import { DEFAULT_UNIT_BOUNDS, GraphView, UnitTools, WRITER_TOOLS, fsSink, memoryJournal, memorySink, runWriter, slugOf, type DomainDeclaration, type EditorialJudge, type Journal, type MentionName, type ToolAnswer, type UnitAgent, type UnitOutcome, type UnitRequest, type UnitSpec, type WriterReport } from '../src/writer/index.js';
+import { createTestDatabaseOwner } from './test-database.js';
 
 const ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
 const GENERATOR = path.join(ROOT, 'examples/training-repository/generate.mjs');
@@ -77,7 +75,7 @@ beforeAll(async () => {
   }
   repository = path.join(scratch, 'repository');
   if (!existsSync(path.join(repository, '.git'))) execFileSync('node', [GENERATOR, repository], { stdio: 'ignore' });
-  owner = createPGliteDatabaseOwner({ btreeGist: true, path: path.join(scratch, 'store') });
+  owner = await createTestDatabaseOwner({ btreeGist: true, store: path.join(scratch, 'store') });
   store = createGraphStore(owner);
   await owner.ready;
   await store.createSchema();
@@ -967,7 +965,7 @@ describe('the graph index of the written pages', () => {
   test('deleting the graph and refilling restores the same nodes from the Markdown', async () => {
     const before = await dump(owner);
     expect(before.length).toBeGreaterThan(30);
-    const rebuilt = createPGliteDatabaseOwner({ btreeGist: true, path: path.join(scratch, 'store-rebuilt') });
+    const rebuilt = await createTestDatabaseOwner({ btreeGist: true, store: path.join(scratch, 'store-rebuilt') });
     const rebuiltStore = createGraphStore(rebuilt);
     await rebuilt.ready;
     await rebuiltStore.createSchema();

@@ -16,57 +16,16 @@
  */
 import { afterEach, describe, expect, test } from 'bun:test';
 import { Type } from 'typebox';
-import { createPGliteDatabaseOwner, type DatabaseOwner } from '../src/adapters/database-owner.js';
+import { type DatabaseOwner } from '../src/adapters/database-owner.js';
 import { createPgBossQueue } from '../src/adapters/pg-boss-queue.js';
 import { DEFAULT_STAGE_DEFAULTS, type FillStage, type StageDraftSet, type StageExecutionResult, type StageUnitScope } from '../src/fill/stage.js';
 import { StageRegistry } from '../src/fill/registry.js';
 import type { QueueService } from '../src/fill/queue.js';
 import { DEFAULT_QUEUE_SCHEMA } from '../src/adapters/pg-boss-queue.js';
-import {
-  DEFAULT_ORCHESTRATOR_LIMITS,
-  admissionOrder,
-  admitUnits,
-  cancelRun,
-  createOrchestrator,
-  driveRun,
-  invalidateStaleUnits,
-  planRun,
-  resumeRun,
-  runEvidence,
-  runStatus,
-  schedulerPass,
-  startRun,
-  sweepUnits,
-  unblockUnit,
-  workOnce,
-  type FillOrchestrator,
-  type HumanEditGuard,
-  type OrchestratorLimits,
-  type PlanOutcome,
-  type RunControlReader,
-  type UnitGraphReader,
-  type UnitRef,
-} from '../src/fill/orchestrator.js';
-import {
-  createOrchestratorSchema,
-  PUBLICATION_SNAPSHOT,
-  publishUnit,
-  readMembership,
-  readProgress,
-  readPublication,
-  readPublications,
-  readRunConfiguration,
-  readSealedChildren,
-  readUnitDraft,
-  readUnitReads,
-  recordUnitDraft,
-  retractUnitDraft,
-  recordUnitRead,
-  type RunSnapshot,
-} from '../src/fill/orchestrator-store.js';
+import { DEFAULT_ORCHESTRATOR_LIMITS, admissionOrder, admitUnits, cancelRun, createOrchestrator, driveRun, invalidateStaleUnits, planRun, resumeRun, runEvidence, runStatus, schedulerPass, startRun, sweepUnits, unblockUnit, workOnce, type FillOrchestrator, type HumanEditGuard, type OrchestratorLimits, type PlanOutcome, type RunControlReader, type UnitGraphReader, type UnitRef } from '../src/fill/orchestrator.js';
+import { createOrchestratorSchema, PUBLICATION_SNAPSHOT, publishUnit, readMembership, readProgress, readPublication, readPublications, readRunConfiguration, readSealedChildren, readUnitDraft, readUnitReads, recordUnitDraft, retractUnitDraft, recordUnitRead, type RunSnapshot } from '../src/fill/orchestrator-store.js';
 import { GraphReadRefusal, readText, recordedReadText } from '../src/fill/graph-reads.js';
 import { createFillOrchestratorService } from '../src/fill/orchestrator-host.js';
-import { createPGliteQueryDatabase } from '../src/adapters/pglite-query-database.js';
 import { startServer } from '../src/server/http.js';
 import { daemonFills } from '../src/product/daemon.js';
 import { existsSync, readdirSync } from 'node:fs';
@@ -74,6 +33,7 @@ import { mkdtemp, rm } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { advanceUnit, createFillStateSchema, leaseUnit, readChain, readRun, readRunUnits, readTransitions, readUnit, readUnitGenerations } from '../src/fill/state-store.js';
+import { createTestDatabaseOwner, createTestQueryDatabase } from './test-database.js';
 
 const NOW = 1_700_000_000_000;
 const QUEUE = 'fill-units';
@@ -129,7 +89,7 @@ async function openWorld(options: {
   clock?: ReturnType<typeof testClock>;
 }): Promise<World> {
   const lent = options.owner !== undefined;
-  const owner = options.owner ?? createPGliteDatabaseOwner();
+  const owner = options.owner ?? await createTestDatabaseOwner();
   await createFillStateSchema(owner);
   await createOrchestratorSchema(owner);
   const queue = await createPgBossQueue({ owner, supervise: false });
@@ -288,13 +248,12 @@ describe('the snapshot a publication reads', () => {
   // read would stand outside the recheck's answer while the recorded membership still matched. The
   // publication's transaction is one snapshot from its first statement.
   test('is one snapshot: the publication transaction opens with the repeatable-read statement', async () => {
-    const owner = createPGliteDatabaseOwner();
+    const owner = await createTestDatabaseOwner();
     const writes: string[][] = [];
     const watching: DatabaseOwner = {
       location: owner.location,
       ready: owner.ready,
       allowConcurrentSnapshots: owner.allowConcurrentSnapshots,
-      backend: owner.backend,
       hasVector: owner.hasVector,
       transaction: async (kind, work) => await owner.transaction(kind, async (transaction) => {
         const seen: string[] = [];
@@ -325,7 +284,7 @@ describe('the snapshot a publication reads', () => {
   }, 60_000);
 
   test('is repeatable read once the publication opens it, and the level is refused after the first statement', async () => {
-    const owner = createPGliteDatabaseOwner();
+    const owner = await createTestDatabaseOwner();
     try {
       const level = await owner.transaction('write', async (transaction) => {
         await transaction.query(PUBLICATION_SNAPSHOT);
@@ -348,13 +307,12 @@ describe('a publication that loses its snapshot', () => {
     // The publication is one snapshot (see `publishUnitIn`), so a writer that got to one of its rows first
     // fails to serialize instead of waiting. That is the same event as a read that moved: the attempt is
     // retried, and the worker does not die on the owner's error.
-    const owner = createPGliteDatabaseOwner();
+    const owner = await createTestDatabaseOwner();
     let fail = true;
     const losing: DatabaseOwner = {
       location: owner.location,
       ready: owner.ready,
       allowConcurrentSnapshots: owner.allowConcurrentSnapshots,
-      backend: owner.backend,
       hasVector: owner.hasVector,
       transaction: async (kind, work) => await owner.transaction(kind, async (transaction) => {
         const seen: string[] = [];
@@ -399,7 +357,7 @@ describe('a retraction of a draft set', () => {
   test('answers the set\'s head and reads none of its writes back', async () => {
     // A repository-wide unit's set is tens of megabytes of JSON, and every caller of a retraction discards
     // what the set held: reading it back parsed the whole set at the run's memory peak.
-    const owner = createPGliteDatabaseOwner();
+    const owner = await createTestDatabaseOwner();
     try {
       await createOrchestratorSchema(owner);
       const writes = Array.from({ length: 1_001 }, (_value, at) => ({ kind: 'fact' as const, evidence: `src/a.ts:${String(at + 1)}`, value: { at } }));
@@ -409,7 +367,6 @@ describe('a retraction of a draft set', () => {
         location: owner.location,
         ready: owner.ready,
         allowConcurrentSnapshots: owner.allowConcurrentSnapshots,
-        backend: owner.backend,
         hasVector: owner.hasVector,
         transaction: async (kind, work) => await owner.transaction(kind, async (transaction) => await work({
           query: async (sql, values) => {
@@ -584,7 +541,7 @@ describe('admission within the slots, by priority', () => {
     // every candidate that finds no slot. A run of a few thousand units measured 27 s of a 27.6 s unit
     // in exactly those transactions (madarch-tzte.21.8's walk over a madarch checkout).
     const units = Array.from({ length: 60 }, (_unused, index) => `unit-${String(index).padStart(2, '0')}`);
-    const lent = createPGliteDatabaseOwner();
+    const lent = await createTestDatabaseOwner();
     let transactions = 0;
     const counting = Object.create(lent) as DatabaseOwner;
     counting.transaction = async (kind, work) => { transactions += 1; return await lent.transaction(kind, work); };
@@ -1407,7 +1364,7 @@ describe('the service the background server owns', () => {
       expect(again.state).toBe('succeeded');
       await service.stop();
       // Closed with the service: another owner can take the store.
-      const reopened = createPGliteDatabaseOwner({ path: databasePath, btreeGist: true });
+      const reopened = await createTestDatabaseOwner({ store: databasePath, btreeGist: true });
       await reopened.ready;
       await reopened.close();
     } finally {
@@ -1715,7 +1672,7 @@ describe('the background server that owns the orchestrator', () => {
       const clock = { now: () => NOW };
       const server = await startServer({
         dataFolder: folder,
-        queryDatabase: await createPGliteQueryDatabase({ clock }),
+        queryDatabase: await createTestQueryDatabase({ clock }),
         port: 0,
         clock,
         orchestrator: { stop: async () => { stopped += 1; } },
@@ -2153,7 +2110,7 @@ describe('a draft set a store recorded before the parts existed', () => {
   // whole set in the row's own `writes` column. That row is a set like any other: a reader answers it
   // whole, and a store that answered it empty would publish nothing for it.
   test('is read back whole from its row, and a set recorded again is its parts alone', async () => {
-    const owner = createPGliteDatabaseOwner();
+    const owner = await createTestDatabaseOwner();
     try {
       await createOrchestratorSchema(owner);
       const legacy = [
@@ -2193,7 +2150,7 @@ describe('a draft set larger than one part', () => {
   // modules stage over the madarch tree — took the embedded store's memory up by about 490 MB for good.
   // A set is recorded in parts of a few hundred writes, and read back whole and in order.
   test('is recorded in parts no larger than a part, read back whole and in order, and replaced whole', async () => {
-    const owner = createPGliteDatabaseOwner();
+    const owner = await createTestDatabaseOwner();
     try {
       await createOrchestratorSchema(owner);
       // The part is 500 writes (the requirement's own number, not the constant's): 1 001 writes are three
@@ -2580,7 +2537,7 @@ describe('the second planning epoch of a first fill (madarch-tzte.26.3)', () => 
     // The clock is the test's own and moves across the restart, so the resumed run's steps stand after
     // the first world's in the store's own times.
     const clock = testClock();
-    const owner = createPGliteDatabaseOwner();
+    const owner = await createTestDatabaseOwner();
     const opened = await world({ registry, graph, owner, clock });
     await startRun(opened.orchestrator, { runId: 'run-1' });
     const planned = await planRun(opened.orchestrator, { runId: 'run-1' });

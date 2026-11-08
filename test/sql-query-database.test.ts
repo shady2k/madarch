@@ -2,8 +2,8 @@ import { afterAll, beforeAll, describe, expect, test } from 'bun:test';
 import { mkdtemp, rm } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
-import { createPGliteQueryDatabase } from '../src/adapters/pglite-query-database.js';
 import type { AssertionRecord } from '../src/history/types.js';
+import { createTestQueryDatabase } from './test-database.js';
 
 const DAY = (day: number) => Date.UTC(2026, 8, day);
 const AT = { valid: DAY(20), known: DAY(20), state: 'as-is' };
@@ -19,12 +19,12 @@ function relation(source: string, id: string, from: string, to: string): Asserti
 }
 
 describe('the shared SQL query database', () => {
-  let database: Awaited<ReturnType<typeof createPGliteQueryDatabase>> | undefined;
+  let database: Awaited<ReturnType<typeof createTestQueryDatabase>> | undefined;
   let temporaryDirectory: string | undefined;
 
   beforeAll(async () => {
     temporaryDirectory = await mkdtemp(join(tmpdir(), 'madarch-query-projection-'));
-    database = await createPGliteQueryDatabase({ path: join(temporaryDirectory, 'query-db') });
+    database = await createTestQueryDatabase({ store: join(temporaryDirectory, 'query-db') });
   });
 
   afterAll(async () => {
@@ -112,7 +112,7 @@ describe('the shared SQL query database', () => {
     await expect(sourceB.children('b', AT)).rejects.toThrow(/closed/i);
     expect(() => database!.forSources(['after-close'])).toThrow(/closed/i);
 
-    database = await createPGliteQueryDatabase({ path: join(temporaryDirectory!, 'query-db') });
+    database = await createTestQueryDatabase({ store: join(temporaryDirectory!, 'query-db') });
     const reopenedSource = database.forSources(['gate-b']);
     expect((await reopenedSource.children('b', AT)).elements?.map(({ id }) => id)).toEqual(['new-worker']);
     await reopenedSource.close();

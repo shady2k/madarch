@@ -5,7 +5,7 @@
  * ends well is published in one transaction; a failed or rerun unit's set is
  * retracted"), and 0027 ("a unit's publication replaces only that unit's facts,
  * never a whole source's"). One list, held by both engines' tests
- * (`test/fill-fact-store.test.ts` on PGlite and
+ * (`test/fill-fact-store.test.ts` on a store's own server and
  * `test/fill-fact-store-postgres.test.ts` on PostgreSQL): the scenario reports
  * what it saw and this judges it, so the two engines cannot drift apart.
  */

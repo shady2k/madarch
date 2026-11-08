@@ -17,7 +17,7 @@ import { mkdir, mkdtemp, rm, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { createHash } from 'node:crypto';
-import { createPGliteDatabaseOwner, type DatabaseOwner } from '../src/adapters/database-owner.js';
+import { type DatabaseOwner } from '../src/adapters/database-owner.js';
 import { createGraphStore, outerTransactionOf, type EdgeEntry, type GraphStore, type NodeVersionRow } from '../src/graph/index.js';
 import { createFillStateSchema, createRun, createUnit, advanceUnit, leaseUnit } from '../src/fill/state-store.js';
 import { createOrchestratorSchema, publishUnit, recordUnitDraft } from '../src/fill/orchestrator-store.js';
@@ -30,6 +30,7 @@ import { staticGraphReaderOf, staticStageContext, staticStageSourceOf } from '..
 import { createStaticStageReadReader } from '../src/fill/stages/static-reads.js';
 import { CODE_GRAPH_VOCABULARY, checkStaticGraphDraft, staticUnitPublicationOf, type StaticEnd } from '../src/fill/stages/static-graph.js';
 import { nodesOfKind } from './fill-static-drafts.js';
+import { createTestDatabaseOwner } from './test-database.js';
 
 const NOW = 1_700_000_000_000;
 const PRODUCT = 'fixture-product';
@@ -179,7 +180,7 @@ describe('the static stages publish into the 0028 graph', () => {
     const commit = f.commit();
     const source = createGitSnapshotSource([{ id: REPOSITORY, form: 'code', root: f.root, commit }]);
 
-    const owner = createPGliteDatabaseOwner({ btreeGist: true });
+    const owner = await createTestDatabaseOwner({ btreeGist: true });
     owners.push(owner);
     await createFillStateSchema(owner);
     await createOrchestratorSchema(owner);
@@ -240,7 +241,7 @@ describe('the static stages publish into the 0028 graph', () => {
     await f.write('src/a.ts', 'export const a = 1;\n');
     const commit = f.commit();
     const source = createGitSnapshotSource([{ id: REPOSITORY, form: 'code', root: f.root, commit }]);
-    const owner = createPGliteDatabaseOwner({ btreeGist: true });
+    const owner = await createTestDatabaseOwner({ btreeGist: true });
     owners.push(owner);
     await createFillStateSchema(owner);
     await createOrchestratorSchema(owner);
@@ -282,7 +283,7 @@ describe('the static stages publish into the 0028 graph', () => {
   }, 120_000);
 
   test('a publisher refuses an edge whose end no node carries, and a key two nodes carry', async () => {
-    const owner = createPGliteDatabaseOwner({ btreeGist: true });
+    const owner = await createTestDatabaseOwner({ btreeGist: true });
     owners.push(owner);
     await createFillStateSchema(owner);
     await createOrchestratorSchema(owner);
@@ -340,7 +341,7 @@ describe('the static stages publish into the 0028 graph', () => {
   }, 120_000);
 
   test('two records of one relation with the same ends stand apart by their discriminator', async () => {
-    const owner = createPGliteDatabaseOwner({ btreeGist: true });
+    const owner = await createTestDatabaseOwner({ btreeGist: true });
     owners.push(owner);
     await createFillStateSchema(owner);
     await createOrchestratorSchema(owner);
@@ -370,7 +371,7 @@ describe('the static stages publish into the 0028 graph', () => {
   }, 120_000);
 
   test('a unit that names no key, a key two of its nodes carry and a node with an empty key are refused, with file, line, path and full path', async () => {
-    const owner = createPGliteDatabaseOwner({ btreeGist: true });
+    const owner = await createTestDatabaseOwner({ btreeGist: true });
     owners.push(owner);
     await createFillStateSchema(owner);
     await createOrchestratorSchema(owner);
@@ -439,7 +440,7 @@ describe('the static stages publish into the 0028 graph', () => {
     await f.write('src/a.ts', 'export const a = 1;\n');
     const commit = f.commit();
     const source = createGitSnapshotSource([{ id: REPOSITORY, form: 'code', root: f.root, commit }]);
-    const owner = createPGliteDatabaseOwner({ btreeGist: true });
+    const owner = await createTestDatabaseOwner({ btreeGist: true });
     owners.push(owner);
     await createFillStateSchema(owner);
     await createOrchestratorSchema(owner);

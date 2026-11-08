@@ -16,7 +16,7 @@ import { execFileSync } from 'node:child_process';
 import { mkdtempSync, rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
-import { createPGliteDatabaseOwner, type DatabaseOwner } from '../src/adapters/database-owner.js';
+import { type DatabaseOwner } from '../src/adapters/database-owner.js';
 import { createFillOrchestratorService, type FillOrchestratorService, type FillRunResult } from '../src/fill/orchestrator-host.js';
 import { readRunPlans } from '../src/fill/orchestrator-store.js';
 import { createGraphStore, type EdgeEntry, type GraphStore, type NodeVersionRow } from '../src/graph/index.js';
@@ -25,6 +25,7 @@ import { STATE_MACHINES_STAGE_ID } from '../src/fill/stages/state-machines.js';
 import { fileFactIdOf } from '../src/fill/stages/syntax-facts.js';
 import { APP_FILE, CONFIG_FILE, expectedMachinesOf, GO_FILE, LOGGER_FILE, TS_FILE, writeProduct } from './fixtures/code-stages/repository.js';
 import { skippedBecauseOutOfWorkflow } from './fill-skip-list.js';
+import { createTestDatabaseOwner } from './test-database.js';
 
 // The cases read a stage out of this step's list: they come back with that stage's step (test/fill-skip-list.ts).
 const skippedSuite = skippedBecauseOutOfWorkflow(import.meta.path);
@@ -48,7 +49,7 @@ beforeAll(async () => {
   if (skippedSuite !== undefined) return;
   root = mkdtempSync(join(tmpdir(), 'madarch-code-stages-'));
   const { product } = writeProduct(root);
-  const owner = createPGliteDatabaseOwner({ btreeGist: true });
+  const owner = await createTestDatabaseOwner({ btreeGist: true });
   const fill = await createStagesFill({ product, database: owner });
   let at = 1_700_000_000_000;
   const service = createFillOrchestratorService({

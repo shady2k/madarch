@@ -11,13 +11,13 @@ import { execFileSync } from 'node:child_process';
 import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { dirname, join } from 'node:path';
-import { createPGliteDatabaseOwner } from '../src/adapters/database-owner.js';
 import { runFill } from '../src/fill/run.js';
 import { ensureGraphSchema } from '../src/fill/stages/static-graph.js';
 import { createGraphStore } from '../src/graph/index.js';
 import { repositoryStoreFolder } from '../src/mcp/graph.js';
 import { RepositorySession } from '../src/mcp/session.js';
 import { knowledgeRootOf, storeDatabasePath } from '../src/product/store.js';
+import { createTestDatabaseOwner } from './test-database.js';
 
 const ROOT = mkdtempSync(join(tmpdir(), 'madarch-mcp-fresh-'));
 const REPOSITORY = join(ROOT, 'checkout');
@@ -54,7 +54,7 @@ describe('a fresh store', () => {
     const head = git('rev-parse', 'HEAD');
     const store = repositoryStoreFolder(REPOSITORY, ENV);
     mkdirSync(dirname(storeDatabasePath(store)), { recursive: true });
-    const owner = createPGliteDatabaseOwner({ path: storeDatabasePath(store), btreeGist: true });
+    const owner = await createTestDatabaseOwner({ store: storeDatabasePath(store), btreeGist: true });
     await owner.ready;
     try {
       const run = await runFill({ product: REPOSITORY, database: owner, runId: 'fresh-store', home: store, store });
@@ -93,7 +93,7 @@ describe('a store whose temporal rows are an older commit\'s', () => {
     const store = repositoryStoreFolder(REPOSITORY, ENV);
     // What a store filled by the static stages at this commit holds: a file node at the instant of its publication.
     mkdirSync(dirname(storeDatabasePath(store)), { recursive: true });
-    const owner = createPGliteDatabaseOwner({ path: storeDatabasePath(store), btreeGist: true });
+    const owner = await createTestDatabaseOwner({ store: storeDatabasePath(store), btreeGist: true });
     await owner.ready;
     const graph = createGraphStore(owner);
     await ensureGraphSchema(graph);

@@ -1,10 +1,11 @@
 #!/usr/bin/env bun
 /**
  * Assembles one release binary of the madarch command (madarch-lfhu): the
- * wiki app's built folder, the release's version and the files PGlite's own
- * build reads (the process's database, decision 0027) are laid the way the
+ * wiki app's built folder and the release's version are laid the way the
  * compiled binary reads them (`Bun.main`'s directory), then `bun build
- * --compile` embeds and bundles the entry. The wiki app's
+ * --compile` embeds and bundles the entry. The store's PostgreSQL server is not
+ * carried: it is installed into the home on first use (decision 0024's
+ * amendment). The wiki app's
  * dist is freshly built here for every release
  * (`src/product-wiki/app.ts` ensureBuilt: the same build the checkout's own
  * `madarch` runs, with any old dist removed first), so a fresh binary always carries the current app; the
@@ -33,7 +34,6 @@ import { createServer as netServer } from 'node:net';
 import { dirname, join, resolve } from 'node:path';
 import { tmpdir } from 'node:os';
 import { fileURLToPath } from 'node:url';
-import { pgliteAssetFiles } from './pglite-assets.js';
 import { ensureBuilt } from '../src/product-wiki/app.js';
 import { GIT_LEAKS } from '../src/product/git.js';
 import { createHash } from 'node:crypto';
@@ -397,20 +397,12 @@ async function main(argv: readonly string[]): Promise<number> {
       console.error(own.message);
       return 2;
     }
-    let databaseFiles: string[];
-    try {
-      databaseFiles = pgliteAssetFiles();
-    } catch (error) {
-      console.error(error instanceof Error ? error.message : String(error));
-      return 2;
-    }
     const artifact = `madarch-${options.os}-${options.arch}${options.os === 'windows' ? '.exe' : ''}`;
     const outfile = resolve(options.out, artifact);
     const target = options.os === 'darwin' ? `bun-darwin-${options.arch}` : options.os === 'windows' ? `bun-windows-${options.arch}` : `bun-linux-${options.arch}`;
     const run = spawnSync('bun', [
       'build', '--compile', join(REPO_ROOT, 'scripts', 'madarch.ts'),
       '--asset', join(stage, 'wiki-app'), '--asset', join(stage, 'version'), '--asset', join(stage, 'own-wiki'),
-      ...databaseFiles.flatMap((file) => ['--asset', file]),
       '--target', target, '--outfile', outfile,
     ], { encoding: 'utf8' });
     const said = `${run.stdout ?? ''}${run.stderr ?? ''}`.trim();

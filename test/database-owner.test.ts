@@ -1,13 +1,10 @@
 import { describe, expect, test } from 'bun:test';
-import {
-  createPGliteDatabaseOwner,
-  createPGliteHistory,
-  createPGliteQueryDatabase,
-  type Clock,
-  type CompiledElement,
-  type CompiledModel,
-} from '../src/index.js';
+import type { Clock, CompiledElement, CompiledModel } from '../src/index.js';
 import { createFillStateSchema, openChain } from '../src/fill/state-store.js';
+import { createQueryDatabase } from '../src/adapters/query-database.js';
+import { createDatabaseOwner } from '../src/adapters/database-owner.js';
+import { createHistoryStore } from '../src/adapters/sql-history.js';
+import { createTestDatabaseOwner } from './test-database.js';
 
 const DAY = (day: number) => Date.UTC(2026, 8, day); // September 2026
 
@@ -46,9 +43,9 @@ const SOURCE = 'github.com/acme/shop';
 /** One owner serving both adapters, as decision 0027 makes the process do. */
 async function sharedAdapters() {
   const clock = fakeClock(DAY(2));
-  const owner = createPGliteDatabaseOwner({ vector: true });
-  const history = createPGliteHistory({ clock, owner });
-  const database = await createPGliteQueryDatabase({ owner, clock });
+  const owner = await createTestDatabaseOwner();
+  const history = createHistoryStore({ owner, clock });
+  const database = await createQueryDatabase({ owner, clock });
   const engine = database.forSources([SOURCE]);
   return { clock, owner, history, database, engine };
 }
@@ -56,15 +53,20 @@ async function sharedAdapters() {
 describe('one database owner per process', () => {
   test('the history and the query database hold their tables in the one database the owner opened', async () => {
     const { owner, history, database } = await sharedAdapters();
-    // Both adapters' tables answering from one connection is what "one
-    // owner" means; two databases would each show only its own tables.
+    // The history makes its tables on its first use: this read is what makes them, and then both adapters' tables
+    // answer from the one connection, which is what "one owner" means.
+    await history.read();
     const tables = await owner.run(async (transaction) => {
       const rows = await transaction.query<{ table_name: string }>(
         "SELECT table_name FROM information_schema.tables WHERE table_schema = 'public' ORDER BY table_name",
       );
       return rows.rows.map((row) => row.table_name);
     });
-    expect(tables).toEqual(expect.arrayContaining(['assertions', 'source_commits', 'source_registry', 'query_elements', 'query_relations', 'query_states', 'vector_items']));
+    // The projection's own tables are there; `vector_items` is not, because the
+    // database carries no pgvector and the vector index is what refuses by name
+    // (decision 0024's amendment, item 4 of this task).
+    expect(tables).toEqual(expect.arrayContaining(['assertions', 'source_commits', 'source_registry', 'query_elements', 'query_relations', 'query_states']));
+    expect(tables).not.toContain('vector_items');
     await database.close();
     await history.close();
     await owner.close();
@@ -155,7 +157,7 @@ describe('one database owner per process', () => {
     // A database answers COMMIT of an aborted transaction with a rollback, so
     // work that caught its own failed statement and resolved would otherwise
     // be reported as kept while every row of it was thrown away.
-    const owner = createPGliteDatabaseOwner();
+    const owner = await createTestDatabaseOwner();
     await expect(owner.transaction('write', async (transaction) => {
       await transaction.query('CREATE TABLE swallowed (value INTEGER)');
       await transaction.query('INSERT INTO swallowed VALUES (1)');
@@ -164,7 +166,7 @@ describe('one database owner per process', () => {
       } catch {
         // Swallowed on purpose: the caller carries on as if nothing happened.
       }
-    })).rejects.toThrow(/the transaction of the database owner ":memory:" was aborted by a failed statement and cannot be committed/);
+    })).rejects.toThrow(/was aborted by a failed statement and cannot be committed/);
     // Nothing of it survived, and the owner still answers afterwards.
     const tables = await owner.run(async (transaction) => await transaction.query<{ table_name: string }>(
       "SELECT table_name FROM information_schema.tables WHERE table_schema = 'public' AND table_name = 'swallowed'",
@@ -174,20 +176,20 @@ describe('one database owner per process', () => {
   });
 
   test('a call on an owner from inside its own transaction is refused, instead of waiting on the transaction that waits on it', async () => {
-    // PGlite serves one connection, so a second call queued behind the
-    // caller's own transaction would never run; a PostgreSQL pool would run it
-    // on another client, outside the caller's transaction. Both are refused
-    // with the same words, naming the owner and the way out.
-    const owner = createPGliteDatabaseOwner();
+    // The pool would run the second call on another client, outside the
+    // caller's transaction; both shapes are refused with the same words,
+    // naming the owner and the way out. This case opens an owner of its own,
+    // because a close it provokes on purpose must reach the owner untouched.
+    const owner = await createDatabaseOwner({});
     await expect(owner.transaction('write', async () => {
       await owner.transaction('write', async () => undefined);
-    })).rejects.toThrow(/the database owner ":memory:" was called from inside its own transaction; pass that transaction to the operation instead of opening another/);
+    })).rejects.toThrow(/was called from inside its own transaction; pass that transaction to the operation instead of opening another/);
     await expect(owner.transaction('write', async () => {
       await owner.run(async () => undefined);
-    })).rejects.toThrow(/the database owner ":memory:" was called from inside its own transaction/);
+    })).rejects.toThrow(/was called from inside its own transaction/);
     await expect(owner.transaction('write', async () => {
       await owner.close();
-    })).rejects.toThrow(/the database owner ":memory:" was closed from inside its own transaction/);
+    })).rejects.toThrow(/from inside its own transaction/);
     // Every refusal rolled the transaction back and left the owner answering.
     await owner.run(async (transaction) => await transaction.query('SELECT 1'));
     await owner.close();
@@ -199,7 +201,7 @@ describe('one database owner per process', () => {
       // The mistake this guards: the caller holds the owner's transaction but
       // forgot to pass it, so the history asks the owner for a bare read.
       await history.read();
-    })).rejects.toThrow(/the database owner ":memory:" was called from inside its own transaction/);
+    })).rejects.toThrow(/was called from inside its own transaction/);
     expect(await history.read()).toEqual(expect.objectContaining({ discrepancies: [], errors: [] }));
     await database.close();
     await history.close();
@@ -213,29 +215,35 @@ describe('one database owner per process', () => {
     // Borrowed, not owned: closing either adapter leaves the database open.
     await owner.run(async (transaction) => await transaction.query('SELECT 1'));
     // A closed history refuses its own operations, naming its database.
-    await expect(history.read()).rejects.toThrow(/history database ":memory:" is closed/);
+    await expect(history.read()).rejects.toThrow(/is closed/);
 
     await owner.close();
-    await expect(owner.run(async (transaction) => await transaction.query('SELECT 1'))).rejects.toThrow(/database owner ":memory:" is closed/);
+    await expect(owner.run(async (transaction) => await transaction.query('SELECT 1'))).rejects.toThrow(/database owner ".*" is closed/);
     // Closing twice is a no-op, never a second close of the database.
     await owner.close();
   });
 
-  test('a history refuses a path beside a lent owner, and so does the query database', async () => {
-    const owner = createPGliteDatabaseOwner();
-    expect(() => createPGliteHistory({ clock: fakeClock(DAY(1)), owner, path: '/tmp/madarch-shared-history' }))
-      .toThrow(/cannot be given both a database owner and the path "\/tmp\/madarch-shared-history"/);
-    await expect(createPGliteQueryDatabase({ owner, path: '/tmp/madarch-shared-query' }))
-      .rejects.toThrow(/cannot be given both a database owner and the path "\/tmp\/madarch-shared-query"/);
+  test('a history refuses a store beside a lent owner, and so does the query database', async () => {
+    const owner = await createTestDatabaseOwner();
+    expect(() => createHistoryStore({ clock: fakeClock(DAY(1)), owner, store: '/tmp/madarch-shared-history' }))
+      .toThrow(/cannot be given both a database owner and the store "\/tmp\/madarch-shared-history"/);
+    await expect(createQueryDatabase({ owner, store: '/tmp/madarch-shared-query' }))
+      .rejects.toThrow(/cannot be given both a database owner and the store "\/tmp\/madarch-shared-query"/);
     await owner.close();
   });
 
-  test('a query database lent an owner opened without the vector extension is refused, naming the owner and the way to open it', async () => {
-    // Without this refusal the projection would fail later, inside its own
-    // CREATE EXTENSION, with the engine's message and no owner named.
-    const owner = createPGliteDatabaseOwner();
-    await expect(createPGliteQueryDatabase({ owner }))
-      .rejects.toThrow(/the query database was lent the database owner ":memory:", whose database was not opened with the pgvector extension/);
+  test('a query database lent a store owner opens, and its vector index is what refuses: the pinned build carries no pgvector', async () => {
+    // The server madarch installs carries PostgreSQL's own contrib extensions
+    // and no pgvector (src/adapters/postgres-builds.ts). The projection's own
+    // tables and every graph query answer there; a vector rebuild or search
+    // says what it needs, naming the database.
+    const owner = await createTestDatabaseOwner();
+    const database = await createQueryDatabase({ owner });
+    const engine = database.forSources(['s']);
+    expect(await engine.children('nothing', { valid: DAY(1), known: DAY(1) })).toBeDefined();
+    await expect(database.vectorIndexForSources(['s']).rebuild(['s'], [])).rejects.toThrow(/the vector index needs pgvector 0\.8\.7/);
+    await engine.close();
+    await database.close();
     await owner.close();
   });
 
@@ -258,35 +266,31 @@ describe('one database owner per process', () => {
     await owner.close();
   });
 
-  test('a history opened with a path of its own still opens and closes its own database', async () => {
+  test('a history opened with a store of its own still opens and closes its own cluster', async () => {
     // The behaviour existing callers rely on: no owner lent, the history owns
-    // its database and closes it. A second history on the same path sees the
-    // first one's tables, so the file was really released.
+    // its store and closes it. A second history on the same store sees the
+    // first one's tables, so the server was really released and restarted.
     const { mkdtempSync, rmSync } = await import('node:fs');
     const { tmpdir } = await import('node:os');
     const { join } = await import('node:path');
-    const { createPGliteHistory: create } = await import('../src/index.js');
     const folder = mkdtempSync(join(tmpdir(), 'madarch-owner-'));
-    const path = join(folder, 'history.pglite');
     try {
-      const first = create({ clock: fakeClock(DAY(2)), path });
+      const first = createHistoryStore({ clock: fakeClock(DAY(2)), store: folder });
       await first.store({ source: SOURCE, commit: 'c1', committedAt: DAY(1), model: model([element('shop')]) });
       await first.close();
-      const second = create({ clock: fakeClock(DAY(2)), path });
+      const second = createHistoryStore({ clock: fakeClock(DAY(2)), store: folder });
       expect((await second.commits(SOURCE)).map((each) => each.commit)).toEqual(['c1']);
       await second.close();
     } finally {
       rmSync(folder, { recursive: true, force: true });
     }
-  }, 15_000);
+  }, 30_000);
 
-  test('an owner names the engine behind it and runs a batch of statements with no parameters as one message', async () => {
-    // The queue's adapter (madarch-tzte.19.2) reads the backend to select
-    // pg-boss's profile, and pg-boss sends its schema creation as one
-    // `BEGIN … COMMIT` text, which the extended protocol `query` refuses.
-    const owner = createPGliteDatabaseOwner();
+  test('an owner runs a batch of statements with no parameters as one message', async () => {
+    // pg-boss sends its schema creation as one `BEGIN … COMMIT` text, which
+    // the extended protocol `query` refuses.
+    const owner = await createTestDatabaseOwner();
     try {
-      expect(owner.backend).toBe('pglite');
       const created = await owner.exec('BEGIN; CREATE TABLE batched (a int); INSERT INTO batched VALUES (1); COMMIT;');
       // One result per statement in the batch, which is four here.
       expect(created).toHaveLength(4);
@@ -297,7 +301,7 @@ describe('one database owner per process', () => {
   }, 15_000);
 
   test('a batch whose statement fails rolls back on the same connection and leaves the owner usable', async () => {
-    const owner = createPGliteDatabaseOwner();
+    const owner = await createTestDatabaseOwner();
     try {
       await owner.exec('BEGIN; CREATE TABLE batched (a int); COMMIT;');
       await expect(owner.exec('BEGIN; INSERT INTO batched VALUES (2); SELECT * FROM no_such_table; COMMIT;')).rejects.toThrow();

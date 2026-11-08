@@ -6,8 +6,8 @@ import { join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { afterEach, describe, expect, test } from 'bun:test';
 import { createServer } from 'node:net';
-import { homeOfCommand, noStrayDrafts, sealedHome } from './scratch-home.js';
 import { stopDaemon } from '../src/product/daemon.js';
+import { homeOfCommand, noStrayDrafts, sealedHome } from './scratch-home.js';
 
 /** A port the machine holds free right now, for a daemon the test stops again. */
 async function freePort(): Promise<number> {
@@ -56,7 +56,11 @@ function scratchFolder(prefix = 'madarch-serve-'): string {
   return dir;
 }
 
+/** The daemons a command this file started runs in the background, stopped here pass or fail. */
+const startedHomes: string[] = [];
+
 function stopAll(): void {
+  for (const home of startedHomes.splice(0)) try { stopDaemon({ home }); } catch { /* no daemon of this home */ }
   for (const proc of runningChildren.splice(0)) try { proc.kill(); } catch { /* already gone */ }
 }
 
@@ -98,7 +102,11 @@ function addressOf(stdout: string): string | undefined {
 /** Starts the command live, watching its stdout, until the test closes it through `finish`. */
 function serveLive(args: string[], overrides: Record<string, string>, cwd?: string): LiveServe & { raw: Bun.Subprocess } {
   const env = { ...process.env, ...SEALED_GIT, ...sealedHome(overrides), ...overrides };
-  if (args[0] === 'new') homeOfCommand(args, env);
+  if (args[0] === 'new') {
+    homeOfCommand(args, env);
+    const home = homeOfCommand(args, env);
+    if (home !== '') startedHomes.push(home);
+  }
   const proc = Bun.spawn(['bun', CLI, ...args], {
     stdin: 'pipe',
     stdout: 'pipe',

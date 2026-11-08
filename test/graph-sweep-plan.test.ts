@@ -14,10 +14,11 @@
  * the sweep must stay under is a number this test reads, not a constant.
  */
 import { afterAll, beforeAll, describe, expect, test } from 'bun:test';
-import { createPGliteDatabaseOwner, type DatabaseOwner } from '../src/adapters/database-owner.js';
+import { type DatabaseOwner } from '../src/adapters/database-owner.js';
 import { createGraphStore, type GraphStore } from '../src/graph/index.js';
 import { SWEEP_EDGES_SQL, SWEEP_NODES_SQL } from '../src/graph/publish.js';
 import { ensureGraphSchema, staticUnitPublicationOf } from '../src/fill/stages/static-graph.js';
+import { createTestDatabaseOwner } from './test-database.js';
 
 const REPOSITORY = 'shop';
 /** Units beside the one under test: the graph these rows make is what a whole-table scan reads. */
@@ -96,7 +97,7 @@ async function publishUnit(unit: number, rows: number, edges: number): Promise<v
 }
 
 beforeAll(async () => {
-  owner = createPGliteDatabaseOwner({ btreeGist: true });
+  owner = await createTestDatabaseOwner({ btreeGist: true });
   store = createGraphStore(owner);
   await ensureGraphSchema(store);
   for (let unit = 0; unit < OTHER_UNITS + 1; unit += 1) {

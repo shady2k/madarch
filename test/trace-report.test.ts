@@ -8,12 +8,12 @@ import { describe, expect, test } from 'bun:test';
 import { mkdtempSync, rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
-import { createPGliteDatabaseOwner } from '../src/adapters/database-owner.js';
 import { runFill } from '../src/fill/run.js';
 import { readTraceReport, readTraceRun, readTraceSpans, stepReportsOf, traceReportOf, type StepReport } from '../src/obs/trace-report.js';
 import { closeTrace, openTrace, runInTrace, withSpan } from '../src/obs/trace.js';
 import { main } from '../src/product/cli.js';
 import { writeProduct } from './fixtures/code-stages/repository.js';
+import { createTestDatabaseOwner } from './test-database.js';
 
 /** Runs one command and answers what it wrote on standard output. */
 async function commandOutput(argv: readonly string[]): Promise<{ code: number; text: string }> {
@@ -59,7 +59,7 @@ describe('madarch trace', () => {
 
   test('names each step of a fill with its wall clock, its peak memory and its slowest names', async () => {
     const root = mkdtempSync(join(tmpdir(), 'madarch-trace-steps-'));
-    const owner = createPGliteDatabaseOwner({ btreeGist: true });
+    const owner = await createTestDatabaseOwner({ btreeGist: true });
     try {
       const { product } = writeProduct(root);
       const store = join(root, 'store');
@@ -130,7 +130,7 @@ describe('madarch trace', () => {
 
   test('a fixture fill leaves under 5% of its wall clock covered by no span', async () => {
     const root = mkdtempSync(join(tmpdir(), 'madarch-trace-uncovered-'));
-    const owner = createPGliteDatabaseOwner({ btreeGist: true });
+    const owner = await createTestDatabaseOwner({ btreeGist: true });
     try {
       const { product } = writeProduct(root);
       const store = join(root, 'store');

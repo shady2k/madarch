@@ -1,6 +1,6 @@
 /**
  * The fact store's behaviour, observed once and judged by every caller: the tests
- * on PGlite (`test/fill-fact-store.test.ts`) and on PostgreSQL
+ * on a store's own server (`test/fill-fact-store.test.ts`) and on a server a connection string names
  * (`test/fill-fact-store-postgres.test.ts`) run this, so both engines answer the
  * same questions. This module asserts nothing: it makes the calls and reports
  * what came back, and each caller holds the values it expects — the pattern

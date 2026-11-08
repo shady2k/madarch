@@ -38,20 +38,25 @@ export type IdentityProvider = (folder: string, env?: Readonly<Record<string, st
 const missing = (folder: string, key: 'user.name' | 'user.email'): string =>
   `git has no ${key} for ${folder}, so the wiki cannot say who wrote this: run  git config --global user.name "Your Name"  and  git config --global user.email "you@example.com"  (or the same without --global inside ${folder}), then try again`;
 
-export const localGitIdentity: IdentityProvider = (folder, env = process.env) => {
+export const localGitIdentity: IdentityProvider = (folder, environment = process.env) => {
+  // git is asked in the environment the caller named; a variable the caller leaves out (`undefined`) is left out of git's.
+  const env: Record<string, string> = {};
+  for (const [key, value] of Object.entries(environment)) if (value !== undefined) env[key] = value;
   // git's own order: the author variables, then the configuration.
   const named = (env['GIT_AUTHOR_NAME'] ?? '').trim();
   const mailed = (env['GIT_AUTHOR_EMAIL'] ?? '').trim();
-  const name = named !== '' ? { ok: true, output: named } : runGit(folder, ['config', '--get', 'user.name']);
+  // git is asked in the environment the caller named: a test seals the machine's own config there, and a server asks
+  // with the environment its process was given.
+  const name = named !== '' ? { ok: true, output: named } : runGit(folder, ['config', '--get', 'user.name'], env);
   if (!name.ok || name.output.trim() === '') {
     return { ok: false, message: missing(folder, 'user.name') };
   }
-  const email = mailed !== '' ? { ok: true, output: mailed } : runGit(folder, ['config', '--get', 'user.email']);
+  const email = mailed !== '' ? { ok: true, output: mailed } : runGit(folder, ['config', '--get', 'user.email'], env);
   if (!email.ok || email.output.trim() === '') {
     return { ok: false, message: missing(folder, 'user.email') };
   }
-  const key = runGit(folder, ['config', '--get', 'user.signingkey']);
-  const sign = runGit(folder, ['config', '--type=bool', '--get', 'commit.gpgsign']);
+  const key = runGit(folder, ['config', '--get', 'user.signingkey'], env);
+  const sign = runGit(folder, ['config', '--type=bool', '--get', 'commit.gpgsign'], env);
   return {
     ok: true,
     identity: {

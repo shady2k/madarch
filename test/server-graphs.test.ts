@@ -1,25 +1,18 @@
 import { afterEach, describe, expect, test } from 'bun:test';
-import {
-  createGraphs,
-  createPGliteDatabaseOwner,
-  createPGliteHistory,
-  createPGliteQueryDatabase,
-  type Clock,
-  type CompiledElement,
-  type CompiledModel,
-  type CompiledRelation,
-  type DatabaseOwner,
-  type HistoryStore,
-} from '../src/index.js';
+import { createGraphs, type Clock, type CompiledElement, type CompiledModel, type CompiledRelation, type DatabaseOwner, type HistoryStore } from '../src/index.js';
+import { createTestDatabaseOwner, createTestQueryDatabase } from './test-database.js';
+import { createHistoryStore } from '../src/adapters/sql-history.js';
+import { createQueryDatabase } from '../src/adapters/query-database.js';
 
 const DAY = (day: number) => Date.UTC(2026, 8, day); // September 2026
 
 /**
  * The bound of a case that opens two databases: two histories when it holds two
  * sources (the shape the product stores a source in), or one history beside the
- * query database the case opened of its own to watch facades close. One PGlite
- * is 1.66 s to boot on the 2-CPU pod the tests run on (measured 2026-10-20,
- * madarch-cznn), twice the file's other cases, so these cases name their own
+ * query database the case opened of its own to watch facades close. A store's
+ * own server is 370 ms to make and start on the 2-CPU pod the tests run on
+ * (measured 2026-11-07, `test/test-database.ts`), several times the file's other
+ * cases, so these cases name their own
  * twenty seconds instead of leaning on a suite default: a run of several test
  * files stops a test with no bound of its own at bun's five.
  */
@@ -64,20 +57,22 @@ function model(elements: CompiledElement[], relations: CompiledRelation[] = []):
  * leaves behind outlives it, and a case never pays for a database another one
  * opened.
  */
-let caseDatabases: { owner: DatabaseOwner; histories: number; projection: boolean }[] = [];
+let caseDatabases: { owner: Promise<DatabaseOwner>; histories: number; projection: boolean }[] = [];
 
 // The bound is named because hooks do not get the preload's default, and
-// closing the case's databases is the hook's work: PGlite shutdown under a
+// closing the case's databases is the hook's work: their shutdown under a
 // loaded runner took 5.9 s in CI (run 39415085797, test shard 4), over bun's
 // five.
 afterEach(async () => {
   const opened = caseDatabases;
   caseDatabases = [];
-  for (const each of opened) await each.owner.close();
+  // An owner that failed to open (a run whose server is not there) is an entry with a rejected promise: it is not closed,
+  // and the case that asked for it has already reported why.
+  await Promise.allSettled(opened.map(async (each) => (await each.owner).close()));
 }, 30_000);
 
 /**
- * An owner for this case's next port. One PGlite is 1.7 s to boot on the
+ * An owner for this case's next port. One database boot was 1.7 s on the
  * 2-CPU pod the tests run on (measured 2026-10-20, madarch-cznn: a bare
  * instance 1.66 s, its schema 0.07 s more), so a case opens as few as its own
  * work needs: the graphs' shared projection joins the owner of the case's
@@ -85,26 +80,25 @@ afterEach(async () => {
  * holding two sources' histories — a union, or a clash between sources — opens
  * a second owner, because one database holds one history.
  */
-function caseOwner(wants: 'history' | 'projection'): DatabaseOwner {
+async function caseOwner(wants: 'history' | 'projection'): Promise<DatabaseOwner> {
   const free = caseDatabases.find((each) => (wants === 'history' ? each.histories === 0 : !each.projection));
-  const held = free ?? (() => {
-    const made = { owner: createPGliteDatabaseOwner({ vector: true }), histories: 0, projection: false };
-    caseDatabases.push(made);
-    return made;
-  })();
+  // The slot is reserved with the promise of the owner, so two asks of one case share one database and a failed open never
+  // leaves an entry without an owner for the hook to close.
+  const held = free ?? { owner: createTestDatabaseOwner(), histories: 0, projection: false };
+  if (free === undefined) caseDatabases.push(held);
   if (wants === 'history') held.histories += 1;
   else held.projection = true;
-  return held.owner;
+  return await held.owner;
 }
 
 /** A history on this case's owner, the one that holds no history yet or a new one when the last holds one. */
-function caseHistory(clock: Clock): HistoryStore {
-  return createPGliteHistory({ owner: caseOwner('history'), clock });
+async function caseHistory(clock: Clock): Promise<HistoryStore> {
+  return createHistoryStore({ owner: await caseOwner('history'), clock });
 }
 
 /** A history with the commits already stored; each commit's model is named by its elements and relations. */
 async function storedHistory(source: string, clock: Clock, commits: { commit: string; committedAt: number; elements: CompiledElement[]; relations?: CompiledRelation[] }[]): Promise<HistoryStore> {
-  const history = caseHistory(clock);
+  const history = await caseHistory(clock);
   for (const each of commits) {
     await history.store({ source, commit: each.commit, committedAt: each.committedAt, model: model(each.elements, each.relations) });
   }
@@ -112,7 +106,7 @@ async function storedHistory(source: string, clock: Clock, commits: { commit: st
 }
 
 async function graphsFor(historyOf: (source: string) => HistoryStore, clock?: Clock) {
-  const database = await createPGliteQueryDatabase({ owner: caseOwner('projection'), clock });
+  const database = await createQueryDatabase({ owner: await caseOwner('projection'), clock });
   const graphs = createGraphs({ historyOf, database });
   const close = graphs.close.bind(graphs);
   graphs.close = async () => { await close(); await database.close(); };
@@ -171,7 +165,7 @@ describe('shared query database ownership', () => {
     const clock = fakeClock(DAY(9));
     const historyA = await storedHistory('source-a', clock, [{ commit: 'c1', committedAt: DAY(1), elements: [element('a-root')] }]);
     const historyB = await storedHistory('source-b', clock, [{ commit: 'c1', committedAt: DAY(1), elements: [element('b-root')] }]);
-    const database = await createPGliteQueryDatabase({ owner: caseOwner('projection'), clock });
+    const database = await createQueryDatabase({ owner: await caseOwner('projection'), clock });
     const graphs = createGraphs({ historyOf: (source) => source === 'source-a' ? historyA : historyB, database });
     const sourceB = graphs.graphForSource('source-b');
     await graphs.graphForSource('source-a').engine();
@@ -192,7 +186,7 @@ describe('shared query database ownership', () => {
   test('removing a graph clears its source rows from the shared projection', async () => {
     const clock = fakeClock(DAY(9));
     const history = await storedHistory('shop', clock, [{ commit: 'c1', committedAt: DAY(1), elements: [element('root')] }]);
-    const database = await createPGliteQueryDatabase({ owner: caseOwner('projection'), clock });
+    const database = await createQueryDatabase({ owner: await caseOwner('projection'), clock });
     const graphs = createGraphs({ historyOf: () => history, database });
     await graphs.graphForSource('shop').engine();
 
@@ -211,7 +205,7 @@ describe('shared query database ownership', () => {
   test('graph facades close once while the shared owner remains open until its owner closes', async () => {
     const clock = fakeClock(DAY(9));
     const history = await storedHistory('shop', clock, [{ commit: 'c1', committedAt: DAY(1), elements: [element('root')] }]);
-    const database = await createPGliteQueryDatabase({ clock });
+    const database = await createTestQueryDatabase({ clock });
     const forSources = database.forSources.bind(database);
     let facadeCloses = 0;
     let ownerCloses = 0;
@@ -341,7 +335,7 @@ describe('asynchronous graph engine construction', () => {
 describe('a graph is a set of sources', () => {
   test('a graph listing the same source twice is refused naming it', async () => {
     const clock = fakeClock(DAY(9));
-    const one = caseHistory(clock);
+    const one = await caseHistory(clock);
     const graphs = await graphsFor(() => one, clock);
     expect(() => graphs.addGraph('union', ['shop', 'shop'])).toThrow(/shop/);
     await graphs.close();
@@ -368,8 +362,8 @@ describe('a graph is a set of sources', () => {
 
   test('an id one source dropped before another declares it is no clash', async () => {
     const clock = fakeClock(DAY(9));
-    const one = caseHistory(clock);
-    const two = caseHistory(clock);
+    const one = await caseHistory(clock);
+    const two = await caseHistory(clock);
     clock.set(DAY(10));
     await one.store({ source: 'github.com/acme/one', commit: 'c1', committedAt: DAY(1), model: model([element('core')]) });
     clock.set(DAY(12));
@@ -387,7 +381,7 @@ describe('a graph is a set of sources', () => {
 describe('keeping a built graph in step', () => {
   test('a store after the engine was built is applied, and the view changes with it', async () => {
     const clock = fakeClock(DAY(9));
-    const one = caseHistory(clock);
+    const one = await caseHistory(clock);
     await one.store({ source: 'shop', commit: 'c1', committedAt: DAY(1), model: model([element('root', { kind: 'system' })]) });
     const graphs = await graphsFor(() => one, clock);
     const graph = graphs.graphForSource('shop');
@@ -406,7 +400,7 @@ describe('keeping a built graph in step', () => {
     // The closed row leaves the assertion-driven view; the opened child
     // row must arrive in the same update.
     const clock = fakeClock(DAY(9));
-    const one = caseHistory(clock);
+    const one = await caseHistory(clock);
     await one.store({ source: 'shop', commit: 'c1', committedAt: DAY(1), model: model([element('a'), element('keep')]) });
     const graphs = await graphsFor(() => one, clock);
     const graph = graphs.graphForSource('shop');
@@ -431,7 +425,7 @@ describe('keeping a built graph in step', () => {
     // it by id, closes the old row and opens no replacement (a zero-width
     // slice is never written).
     const clock = fakeClock(DAY(9));
-    const one = caseHistory(clock);
+    const one = await caseHistory(clock);
     await one.store({ source: 'shop', commit: 'c1', committedAt: DAY(1), model: model([element('a')]) });
     const graphs = await graphsFor(() => one, clock);
     const graph = graphs.graphForSource('shop');
@@ -451,7 +445,7 @@ describe('keeping a built graph in step', () => {
 
   test('dropBuilt drops the built engines of every graph listing the source, and the next use rebuilds from the history', async () => {
     const clock = fakeClock(DAY(9));
-    const one = caseHistory(clock);
+    const one = await caseHistory(clock);
     await one.store({ source: 'shop', commit: 'c1', committedAt: DAY(1), model: model([element('a')]) });
     const graphs = await graphsFor(() => one, clock);
     const own = graphs.graphForSource('shop');
@@ -472,7 +466,7 @@ describe('keeping a built graph in step', () => {
 
   test('remove takes the graphs listing the source out of the set, and a graph of the name is built fresh', async () => {
     const clock = fakeClock(DAY(9));
-    const one = caseHistory(clock);
+    const one = await caseHistory(clock);
     await one.store({ source: 'shop', commit: 'c1', committedAt: DAY(1), model: model([element('a')]) });
     const graphs = await graphsFor(() => one, clock);
     const own = graphs.graphForSource('shop');
@@ -495,7 +489,7 @@ describe('keeping a built graph in step', () => {
   });
   test('removes every matching graph even when one graph close throws, then rethrows the failure', async () => {
     const clock = fakeClock(DAY(9));
-    const one = caseHistory(clock);
+    const one = await caseHistory(clock);
     const graphs = await graphsFor(() => one, clock);
     const first = graphs.addGraph('first', ['shop']);
     const second = graphs.addGraph('second', ['shop']);
@@ -515,7 +509,7 @@ describe('keeping a built graph in step', () => {
 
   test('a store whose report a built engine fails to apply is dropped, not left behind: the throw passes on and the next use rebuilds from the history', async () => {
     const clock = fakeClock(DAY(9));
-    const one = caseHistory(clock);
+    const one = await caseHistory(clock);
     await one.store({ source: 'shop', commit: 'c1', committedAt: DAY(1), model: model([element('a')]) });
     const graphs = await graphsFor(() => one, clock);
     const graph = graphs.graphForSource('shop');
@@ -545,7 +539,7 @@ describe('keeping a built graph in step', () => {
 
   test('a recovery whose engine close fails still drops every listing graph and passes the original error on', async () => {
     const clock = fakeClock(DAY(9));
-    const one = caseHistory(clock);
+    const one = await caseHistory(clock);
     await one.store({ source: 'shop', commit: 'c1', committedAt: DAY(1), model: model([element('a')]) });
     const graphs = await graphsFor(() => one, clock);
     const own = graphs.graphForSource('shop');
@@ -588,7 +582,7 @@ describe('keeping a built graph in step', () => {
 
   test('a graph built after several stores sees all of them without any update call', async () => {
     const clock = fakeClock(DAY(9));
-    const one = caseHistory(clock);
+    const one = await caseHistory(clock);
     await one.store({ source: 'shop', commit: 'c1', committedAt: DAY(1), model: model([element('a')]) });
     await one.store({ source: 'shop', commit: 'c2', committedAt: DAY(2), model: model([element('a'), element('b')]) });
     const graphs = await graphsFor(() => one, clock);
@@ -600,7 +594,7 @@ describe('keeping a built graph in step', () => {
 
   test('a store with nothing opened or closed changes nothing', async () => {
     const clock = fakeClock(DAY(9));
-    const one = caseHistory(clock);
+    const one = await caseHistory(clock);
     await one.store({ source: 'shop', commit: 'c1', committedAt: DAY(1), model: model([element('a')]) });
     const graphs = await graphsFor(() => one, clock);
     const graph = graphs.graphForSource('shop');
@@ -614,7 +608,7 @@ describe('keeping a built graph in step', () => {
 
   test('a store for a source the graph does not list is not applied', async () => {
     const clock = fakeClock(DAY(9));
-    const one = caseHistory(clock);
+    const one = await caseHistory(clock);
     await one.store({ source: 'shop', commit: 'c1', committedAt: DAY(1), model: model([element('shop-root')]) });
     await one.store({ source: 'other', commit: 'c1', committedAt: DAY(1), model: model([element('other-root')]) });
     const graphs = await graphsFor(() => one, clock);
@@ -631,8 +625,8 @@ describe('keeping a built graph in step', () => {
 
   test('a store that brings a clash into a built two-source graph drops its engine, and the next use refuses instead of answering with duplicate rows', async () => {
     const clock = fakeClock(DAY(9));
-    const one = caseHistory(clock);
-    const two = caseHistory(clock);
+    const one = await caseHistory(clock);
+    const two = await caseHistory(clock);
     await one.store({ source: 'github.com/acme/one', commit: 'c1', committedAt: DAY(1), model: model([element('one-root')]) });
     await two.store({ source: 'github.com/acme/two', commit: 'c1', committedAt: DAY(1), model: model([element('two-root')]) });
     const graphs = await graphsFor((source) => (source === 'github.com/acme/one' ? one : two), clock);
@@ -661,7 +655,7 @@ describe('keeping a built graph in step', () => {
 describe('graph names', () => {
   test('a graph name taken twice is refused naming it', async () => {
     const clock = fakeClock(DAY(9));
-    const one = caseHistory(clock);
+    const one = await caseHistory(clock);
     const graphs = await graphsFor(() => one, clock);
     graphs.addGraph('union', ['shop']);
     expect(() => graphs.addGraph('union', ['other'])).toThrow(/union/);
@@ -670,7 +664,7 @@ describe('graph names', () => {
 
   test('a graph listing no source is refused naming it', async () => {
     const clock = fakeClock(DAY(9));
-    const one = caseHistory(clock);
+    const one = await caseHistory(clock);
     const graphs = await graphsFor(() => one, clock);
     expect(() => graphs.addGraph('empty', [])).toThrow(/empty/);
     await graphs.close();
@@ -678,7 +672,7 @@ describe('graph names', () => {
 
   test('graphForSource hands the same graph back and get finds it by name', async () => {
     const clock = fakeClock(DAY(9));
-    const one = caseHistory(clock);
+    const one = await caseHistory(clock);
     const graphs = await graphsFor(() => one, clock);
     const first = graphs.graphForSource('shop');
     const second = graphs.graphForSource('shop');
@@ -692,7 +686,7 @@ describe('graph names', () => {
 describe('the graph engine and its clock', () => {
   test('the sources are held in code point order, whatever order they were listed in', async () => {
     const clock = fakeClock(DAY(9));
-    const one = caseHistory(clock);
+    const one = await caseHistory(clock);
     const graphs = await graphsFor(() => one, clock);
     const union = graphs.addGraph('union', ['github.com/acme/two', 'github.com/acme/one', 'github.com/acme/three']);
     expect(union.sources).toEqual(['github.com/acme/one', 'github.com/acme/three', 'github.com/acme/two']);
@@ -704,7 +698,7 @@ describe('the graph engine and its clock', () => {
     // the injected clock sees it as current.
     const far = Date.UTC(2030, 0, 2);
     const clock = fakeClock(far);
-    const one = caseHistory(clock);
+    const one = await caseHistory(clock);
     await one.store({ source: 'shop', commit: 'c1', committedAt: Date.UTC(2030, 0, 1), model: model([element('far-future')]) });
     const graphs = await graphsFor(() => one, clock);
     const view = await (await graphs.graphForSource('shop').engine()).view({ depth: 0 });
@@ -714,7 +708,7 @@ describe('the graph engine and its clock', () => {
 
   test('a store report applied before the engine was ever built is not lost and does not build it', async () => {
     const clock = fakeClock(DAY(9));
-    const one = caseHistory(clock);
+    const one = await caseHistory(clock);
     await one.store({ source: 'shop', commit: 'c1', committedAt: DAY(1), model: model([element('root', { kind: 'system' })]) });
     const graphs = await graphsFor(() => one, clock);
     const graph = graphs.addGraph('shop', ['shop']);

@@ -36,6 +36,7 @@ import { here, raise, withLocation } from './fsm-core.js';
 import { FACT_RANK_FIELDS } from './facts.js';
 import { advanceUnitIn, type UnitRecord } from './state-store.js';
 import type { StageDraftWrite } from './stage.js';
+import { SCHEMA_LOCK_SQL, storeSchemaLockKey } from '../adapters/schema-stamp.js';
 
 /** The orchestrator's own tables; `createOrchestratorSchema` creates them and every error names the ones it touched. */
 export const ORCHESTRATOR_TABLES = [
@@ -155,6 +156,7 @@ const CACHE_VERSIONS_LOCK = 724_913_556;
 export async function createOrchestratorSchema(database: OrchestratorDatabase): Promise<void> {
   const at = here();
   await run(at, database, 'createOrchestratorSchema', ORCHESTRATOR_TABLES, async (executor) => {
+    await executor.query(SCHEMA_LOCK_SQL, [storeSchemaLockKey()]);
     for (const statement of SCHEMA) await executor.query(statement);
     // The column is added under the lock and only where it is missing: the check first, so a store a
     // previous build filled and this build opened pays one query and no DDL at all.
@@ -1187,8 +1189,8 @@ interface EventRow extends Record<string, unknown> { run_id: string; seq: unknow
 export async function appendProgress(database: OrchestratorDatabase, event: Omit<FillProgressEvent, 'seq'>): Promise<FillProgressEvent> {
   const at = here();
   return run(at, database, `appendProgress(${event.runId}, ${event.kind})`, ['fill_event', 'fill_run'], async (executor) => {
-    // The run's own row is taken first: two events of one run never share a number, whether the owner
-    // serializes its work (PGlite) or overlaps two transactions (a PostgreSQL pool).
+    // The run's own row is taken first: two events of one run never share a number, though the
+    // owner's pool overlaps two transactions.
     await executor.query('SELECT run_id FROM fill_run WHERE run_id = $1 FOR UPDATE', [event.runId]);
     const { rows } = await executor.query<{ next: unknown }>('SELECT COALESCE(MAX(seq), 0) + 1 AS next FROM fill_event WHERE run_id = $1', [event.runId]);
     const seq = millis(rows[0]?.next ?? 1);

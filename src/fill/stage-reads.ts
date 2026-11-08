@@ -404,11 +404,11 @@ function rangeRow(fact: FactRow, at: string): Row {
 
 /**
  * The most rows one statement of a read answers. A read of a whole repository
- * answers tens of thousands of facts, and PGlite gathers a statement's whole
- * answer in one buffer it grows by half again each time it fills, then copies it
- * once more before the rows are parsed: a single statement of 28 392 symbols held
- * several copies of the answer's bytes at once, in the middle of the modules
- * stage's unit, which is what the pod's memory limit killed (madarch-tzte.21.11).
+ * answers tens of thousands of facts, and the driver gathers a statement's whole
+ * answer in one buffer, then copies it once more before the rows are parsed: a
+ * single statement of 28 392 symbols held several copies of the answer's bytes at
+ * once, in the middle of the modules stage's unit, which is what the pod's memory
+ * limit killed (madarch-tzte.21.11).
  * A read asks in pages of this many rows, by id, so what one statement holds is a
  * page and the answer is the same rows.
  */

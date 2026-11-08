@@ -77,13 +77,17 @@ Artifacts (documents, tasks, commit messages, code comments) are written in Engl
   cases naming 15 000 ran 5.9 s and passed. So a case whose work is long names
   its own bound in the test; the five seconds are what an unnamed case really
   runs under, in a shard or a full run alike. The default is not the fix for a
-  slow test either — the cause is usually the databases a case opens: one
-  PGlite is 1.66 s to boot on the pod (a bare instance measured; the adapters'
-  schema adds 0.07 s), so a case that opened two histories and a query database
-  cost 4.5-6.4 s. One owner per case, lent to its history and its query
-  database (`createPGliteDatabaseOwner({ vector: true })`; decision 0027),
-  made `test/server-graphs.test.ts` 31 cases of 1.65-2.5 s, the cases holding
-  two sources 3.4-5.1 s under their own 20 s bound (madarch-cznn).
+  slow test either — the cause is usually the databases a case opens. Since
+  2026-11-07 a run holds **one PostgreSQL server**, started by the preload
+  (`test/run-postgres.ts`) in the run's scratch folder, and a case opens a
+  database on it (`createTestDatabaseOwner` in `test/test-database.ts`): the
+  database costs about 30 ms, where the in-process database it replaced cost a
+  1.66 s boot per case (measured on the pod 2026-10-20, madarch-cznn: a bare
+  instance 1.66 s, the adapters' schema 0.07 s more). A case that needs a *store
+  folder* of its own — a second process reopens it, a queue's data directory —
+  names one with `store` and pays for that store's cluster: 370 ms to `initdb`
+  and start on this box (measured 2026-11-07), which is why
+  `test/server-graphs.test.ts`'s two-source cases keep their own 20 s bound.
 - Views are accepted by rendering every page the way a reader sees it, not by
   parse checks: GitHub's own Mermaid renderer in a 1150 px column (open
   `viewscreen.githubusercontent.com/markdown/mermaid?color_mode=dark` and
@@ -108,13 +112,18 @@ Artifacts (documents, tasks, commit messages, code comments) are written in Engl
   `wiki/app`, then `--fetch` the folder): it serves the generated training repository
   as two products, walks the empty one into its fill and the filled one from the home
   page to a function.
-- A PGlite process is about 1 GB resident (measured on the pod, 2026-10-23) and runs
-  a statement on the thread that owns it. The knowledge wiki therefore keeps its fill
-  and its reads in processes of their own (`madarch knowledge-fill-worker`,
-  `madarch knowledge-read-worker`; madarch-m38l.4): the server's thread is never
-  blocked by either. A test that opens a product's wiki pays 3-6 s for the reader's
-  first start (warm it in `beforeAll`), and a pod of 4 GB is killed (exit 137) by a
-  fill with its reader: start the cluster with `MADARCH_SKY_MEMORY=8`.
+- A store runs on a PostgreSQL server madarch installs (decision 0024, amended
+  2026-11-07): the cluster is `<store>/pgdata`, its Unix socket `<store>/pgsock`,
+  and a fill of `/work/madarch` peaks at 213 MB of RSS in the process plus 12 MB
+  of the server, where the in-process database it replaced peaked at 1 127 MB.
+  The knowledge wiki still keeps its reads in a process of their own
+  (`madarch knowledge-read-worker`, madarch-m38l.4): the reason is no longer the
+  database's memory — it is that a page's reads then run on their own thread
+  while a fill, a rendering or a template runs on the server's, and the reader
+  can be ended without touching the server's state. A test that opens a
+  product's wiki still pays 3-6 s for the reader's first start (warm it in
+  `beforeAll`). The 4 GB pod and `MADARCH_SKY_MEMORY=8` stay the shape the
+  wiki's acceptance runs need: two products, their fills and a browser walk.
 - madarch's own wiki (decision 0031, madarch-m38l.10) is the repository
   `shady2k/madarch-product`, not content of this repository. `own-wiki.lock` pins the
   revision `scripts/build-binary.ts` embeds as a git bundle; a first start installs it at

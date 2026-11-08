@@ -607,7 +607,7 @@ describe('the SQL query engine', async () => {
   });
 
   // Keep all 40 independent query-engine scopes: the warmed test database
-  // avoids measuring PGlite startup here, while the owner-close contract is
+  // avoids measuring the store's startup here, while the owner-close contract is
   // covered separately in sql-query-database.test.ts.
   test.skipIf(process.env['MADARCH_SKIP_PERF'] !== undefined)(
     'close: releases each engine scope so many engines can be opened and closed in one process, and each one still answers correctly before its own close',
@@ -616,7 +616,7 @@ describe('the SQL query engine', async () => {
       for (let i = 0; i < 40; i++) {
         const engine = await createTestQueryEngine();
         await engine.rebuild([row('element', element('a', 'domain', [])), row('element', element(`child${i}`, 'service', ['a'], { parent: 'a' }))]);
-        // If `close` failed to release its PGlite instance, this many owners
+        // If `close` failed to release its database, this many owners
         // would exhaust the process's own resources well before finishing the
         // loop; a real query against each one, not merely opening and
         // closing it, is what would actually surface that.
