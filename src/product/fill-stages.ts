@@ -89,6 +89,8 @@ import { sameFolder } from './git.js';
 import { hashFillInput } from './fill-runtime.js';
 import type { ProductIdentity } from './manifest.js';
 import { fillFolderIdentity } from './identity.js';
+import { headCommitOf } from './fill-updates.js';
+import { raise } from '../model/raise.js';
 import { engineFirstFillStages, firstFillStagesOf, readWorkflows, type FirstFillRead } from '../knowledge/workflows.js';
 
 /**
@@ -129,6 +131,12 @@ export interface StagesFill {
   /** The eight deterministic stages, registered over this product's own pins. */
   readonly registry: StageRegistry;
   readonly wiring: ProductFillWiring;
+  /**
+   * The declared repositories this run could not pin, each with its path and the state it is
+   * in: a checkout that holds no commit yet. A run reads the repositories it can and says what
+   * it did for these, rather than refusing the product.
+   */
+  readonly unread: () => readonly UnreadRepository[];
 }
 
 /**
@@ -158,10 +166,16 @@ export async function createStagesFill(options: StagesFillOptions): Promise<Stag
   // other answer of this wiring, so a run's units, its inputs and its sources
   // name one commit of each repository.
   let pinned: readonly RepositoryPin[] | undefined;
-  const pins = (): readonly RepositoryPin[] => (pinned ??= pinsOf(identity, read.product));
+  let unread: readonly UnreadRepository[] = [];
+  const readPins = (): readonly RepositoryPin[] => {
+    const pinnedRead = pinsOf(identity, read.product);
+    unread = pinnedRead.unread;
+    return (pinned = pinnedRead.pins);
+  };
+  const pins = (): readonly RepositoryPin[] => pinned ?? readPins();
   const snapshots = createGitSnapshotSource(pins);
   /** Reads the pins again, for the run about to plan (`snapshot`): see the module doc. */
-  const repin = (): readonly RepositoryPin[] => (pinned = pinsOf(identity, read.product));
+  const repin = (): readonly RepositoryPin[] => readPins();
   // The record store this step's passes publish through: the process's one owner, so what the
   // wiki's button fills is what `madarch mcp` reads (madarch-8bdc.2.5, item 6).
   await createRecordSchema(options.database);
@@ -204,7 +218,7 @@ export async function createStagesFill(options: StagesFillOptions): Promise<Stag
     source: (): SnapshotSource => snapshots,
     inputs: (ref) => inputsOf(registry, pins(), ref),
   };
-  return { product, registry, wiring };
+  return { product, registry, wiring, unread: () => unread };
 }
 
 /**
@@ -259,19 +273,47 @@ function snapshotOfPins(folder: string, registry: StageRegistry, pin: Repository
   };
 }
 
+/** A repository a run could not pin, named where it stands: what the fill did for it, in words. */
+export interface UnreadRepository {
+  readonly repository: string;
+  /** The checkout's full path. */
+  readonly path: string;
+  /** Why nothing was read of it: the state it is in, never a guess. */
+  readonly reason: string;
+}
+
+/** What one run pins: the repositories it reads, and the ones it could not pin. */
+interface PinnedRepositories {
+  readonly pins: readonly RepositoryPin[];
+  readonly unread: readonly UnreadRepository[];
+}
+
 /**
  * The repositories one run pins, in the manifest's own order: the product
  * repository first, then each code repository the manifest declares. A declared
  * repository whose folder is not a Git checkout is refused by name here, before
- * any stage plans a unit for it.
+ * any stage plans a unit for it; a checkout that holds no commit yet is not a
+ * refusal — it is named in `unread`, the run reads the other repositories, and
+ * the answer says what it did for it (a repository added before its first
+ * commit must not break the product's wiki).
  */
-function pinsOf(identity: ProductIdentity, product: boolean): readonly RepositoryPin[] {
-  const pins: RepositoryPin[] = [pinOf(identity.name, product ? 'product' : 'code', identity.folder)];
+function pinsOf(identity: ProductIdentity, product: boolean): PinnedRepositories {
+  // A store names one repository by one id, and two checkouts that share a name are two
+  // repositories: a product whose own name is also a connected repository's names its own
+  // repository `<name>-product`, so both are read and neither is taken for the other. A product
+  // that connects no repository of its own name keeps its name.
+  const own = identity.repos.some((repo) => repo.name === identity.name) ? `${identity.name}-product` : identity.name;
+  const pins: RepositoryPin[] = [pinOf(own, product ? 'product' : 'code', identity.folder)];
+  const unread: UnreadRepository[] = [];
   for (const repo of identity.repos) {
     const root = checkoutFolderOf(identity, repo.name);
+    if (headCommitOf(root) === undefined) {
+      unread.push({ repository: repo.name, path: root, reason: 'the checkout holds no commit yet' });
+      continue;
+    }
     pins.push(pinOf(repo.name, 'code', root, repo.branch));
   }
-  return pins;
+  return { pins, unread };
 }
 
 /** One repository pinned at the commit its checkout's HEAD names. */
@@ -299,7 +341,7 @@ function checkoutFolderOf(identity: ProductIdentity, name: string): string {
   const root = resolve(identity.folder, 'repos', name);
   const top = gitQuietly(root, ['rev-parse', '--show-toplevel']);
   if (top === undefined || !sameFolder(top, root)) {
-    throw new Error(`the product ${identity.folder} declares the repository ${JSON.stringify(name)}, and ${root} is no Git checkout of its own: connect it with "madarch repo add ${name} <url>" or bootstrap the product (madarch bootstrap)`);
+    raise(`the product ${identity.folder} declares the repository ${JSON.stringify(name)}, and ${root} is no Git checkout of its own: connect it with "madarch repo add ${name} <url>" or bootstrap the product`);
   }
   return root;
 }
@@ -479,7 +521,7 @@ function onePinDigest(pins: readonly RepositoryPin[], repository: string | undef
 function git(root: string, id: string, args: readonly string[]): string {
   const answer = gitQuietly(root, args);
   if (answer === undefined) {
-    throw new Error(`the repository ${JSON.stringify(id)} of the product stands in ${root}, and git could not read it: "git ${args.join(' ')}" failed there, which is no Git checkout or one git cannot read`);
+    raise(`the repository ${JSON.stringify(id)} of the product stands in ${root}, and git could not read it: "git ${args.join(' ')}" failed there, which is no Git checkout or one git cannot read`);
   }
   return answer;
 }

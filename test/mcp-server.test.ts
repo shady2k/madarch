@@ -15,18 +15,12 @@ import { mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'nod
 import { tmpdir } from 'node:os';
 import path from 'node:path';
 import { createInterface } from 'node:readline';
-import { afterAll, beforeAll, describe as bunDescribe, expect, test as bunTest } from 'bun:test';
+import { afterAll, beforeAll, describe, expect, test } from 'bun:test';
 import { renderQuestion } from '../src/loop/entities.js';
 import { readJournal, summaryLines, summarize } from '../src/mcp/journal.js';
 import { RepositorySession } from '../src/mcp/session.js';
 import { answerRepositoryMcpMessage } from '../src/mcp/server.js';
-import { REPO_TOOL_NAMES } from '../src/mcp/tools.js';
-import { skippedBecauseOutOfWorkflow } from './fill-skip-list.js';
-
-// The cases read a stage out of this step's list: they come back with that stage's step (test/fill-skip-list.ts).
-const skippedSuite = skippedBecauseOutOfWorkflow(import.meta.path);
-const describe = bunDescribe.skipIf(skippedSuite !== undefined);
-const test = bunTest.skipIf(skippedSuite !== undefined);
+import { SERVED_TOOL_NAMES } from '../src/mcp/server.js';
 
 const PROJECT = path.resolve(import.meta.dir, '..');
 const REPOSITORY = mkdtempSync(path.join(tmpdir(), 'madarch-mcp-repo-'));
@@ -85,8 +79,6 @@ const QUESTION = renderQuestion({
 let session: RepositorySession;
 
 beforeAll(async () => {
-  // The store the cases read is filled by stages out of this step's list: no fixture is made or closed.
-  if (skippedSuite !== undefined) return;
   git('init', '-q', '-b', 'main');
   put('package.json', `${JSON.stringify({ name: 'atlas-kit', version: '1.0.0', type: 'module' }, null, 2)}\n`);
   put('src/store.ts', STORE_SOURCE);
@@ -100,8 +92,6 @@ beforeAll(async () => {
 }, 180_000);
 
 afterAll(async () => {
-  // The store the cases read is filled by stages out of this step's list: no fixture is made or closed.
-  if (skippedSuite !== undefined) return;
   await session.close();
   rmSync(REPOSITORY, { recursive: true, force: true });
   rmSync(STATE, { recursive: true, force: true });
@@ -116,10 +106,10 @@ async function answerOf(tool: string, args: Record<string, unknown>): Promise<{ 
 const json = (value: unknown): string => JSON.stringify(value);
 
 describe('the served tool surface', () => {
-  test('lists the seven tools of decision 0032, in the decision\'s order, each with the writer\'s own schema', async () => {
+  test('lists this step\'s five tools and the seven of decision 0032, in the served order, each with its own schema', async () => {
     const listed = await answerRepositoryMcpMessage({ jsonrpc: '2.0', id: 1, method: 'tools/list', params: {} }, session);
     const tools = ((listed?.['result'] as Record<string, unknown>)['tools'] ?? []) as { name: string; description: string; inputSchema: Record<string, unknown> }[];
-    expect(tools.map((tool) => tool.name)).toEqual([...REPO_TOOL_NAMES]);
+    expect(tools.map((tool) => tool.name)).toEqual([...SERVED_TOOL_NAMES]);
     for (const tool of tools) {
       expect(tool.description.length).toBeGreaterThan(20);
       expect(tool.inputSchema['type']).toBe('object');
@@ -141,128 +131,105 @@ describe('the served tool surface', () => {
   }, 60_000);
 });
 
-describe('each tool answers from the checkout', () => {
-  test('get_symbol answers the declaration with its code, and names the commit it was read at', async () => {
-    const { isError, answer } = await answerOf('get_symbol', { name: 'saveItem' });
+describe('each tool of this step answers from the store', () => {
+  test('list_files pages the store\'s files, and names the as-is commit it was read at', async () => {
+    const { isError, answer } = await answerOf('list_files', { prefix: 'src/' });
     expect(isError).toBe(false);
     const head = git('rev-parse', 'HEAD').trim();
     expect((answer['source'] as Record<string, unknown>)['commit']).toBe(head);
-    expect((answer['source'] as Record<string, unknown>)['dirty']).toEqual([]);
-    expect(answer['selected']).toMatchObject({ key: 'code.symbol:src/store.ts#saveItem', symbolKind: 'function', path: 'src/store.ts' });
-    expect(json(answer['selected'])).toContain('export function saveItem(item: Item): string {');
+    expect((answer['source'] as Record<string, unknown>)['changed']).toEqual([]);
+    expect((answer['files'] as { path: string }[]).map((file) => file.path)).toEqual(['src/list.ts', 'src/store.ts']);
   }, 60_000);
 
-  test('get_context answers the holders and the callers of one entity', async () => {
-    const { isError, answer } = await answerOf('get_context', { entity: 'code.symbol:src/store.ts#saveItem', purpose: 'implementation' });
+  test('get_file answers one file with every fact of it, its dates and its authors', async () => {
+    const { isError, answer } = await answerOf('get_file', { path: 'src/store.ts' });
     expect(isError).toBe(false);
-    expect(answer['entity']).toMatchObject({ key: 'code.symbol:src/store.ts#saveItem' });
-    expect(json(answer)).toContain('code.symbol:src/list.ts#saveAll');
+    expect(answer).toMatchObject({ path: 'src/store.ts', mode: '100644', form: 'text', authors: ['Ada Example'] });
+    expect((answer['created'] as Record<string, unknown>)['commit']).toBe(git('rev-parse', 'HEAD').trim());
   }, 60_000);
 
-  test('trace_flow walks from a function to the function it calls, with the site of the call', async () => {
-    const { isError, answer } = await answerOf('trace_flow', { entry: 'saveAll' });
-    expect(isError).toBe(false);
-    expect(answer['steps']).toEqual([expect.objectContaining({ relation: 'code.calls', to: expect.objectContaining({ key: 'code.symbol:src/store.ts#saveItem' }), site: expect.objectContaining({ path: 'src/list.ts' }) })]);
+  test('get_file_history answers the commit that wrote the file, and get_commit names its changed paths', async () => {
+    const history = await answerOf('get_file_history', { path: 'src/store.ts' });
+    expect(history.isError).toBe(false);
+    const commits = history.answer['commits'] as { commit: string; change: string }[];
+    expect(commits).toEqual([expect.objectContaining({ commit: git('rev-parse', 'HEAD').trim(), change: 'added' })]);
+    const commit = await answerOf('get_commit', { hash: commits[0]!.commit });
+    expect(commit.isError).toBe(false);
+    expect((commit.answer['changed'] as { path: string }[]).map((one) => one.path)).toEqual(['README.md', 'docs/notes/0001-shape.md', 'docs/questions/saved-items.md', 'package.json', 'src/list.ts', 'src/store.ts']);
   }, 60_000);
 
-  test('get_document_sections answers the document section whose words were asked for', async () => {
-    const { isError, answer } = await answerOf('get_document_sections', { intent: 'items saved one item at a time' });
+  test('get_repository answers the repository\'s facts, its counts and its gaps', async () => {
+    const { isError, answer } = await answerOf('get_repository', {});
     expect(isError).toBe(false);
-    expect(json(answer['sections'])).toContain('doc:docs/notes/0001-shape.md#');
+    expect(answer).toMatchObject({ repository: path.basename(REPOSITORY), asIsCommit: git('rev-parse', 'HEAD').trim(), counts: { files: 6, commits: 1, folders: 4 }, gaps: [] });
   }, 60_000);
 
-  test('search_pages finds the pages that hold the words, and its evidence names them', async () => {
-    const { isError, answer } = await answerOf('search_pages', { text: 'counts them' });
-    expect(isError).toBe(false);
-    expect((answer['pages'] as { path: string }[]).map((page) => page.path)).toContain('README.md');
-    expect(answer['evidence']).toContain('README.md');
-  }, 60_000);
-
-  test('get_page answers a document of the checkout as written, by its path', async () => {
-    const { isError, answer } = await answerOf('get_page', { page: 'docs/notes/0001-shape.md' });
-    expect(isError).toBe(false);
-    // The answer holds the document's lines; the file's last line break ends the last line and is not a line of it.
-    expect(`${answer['text'] as string}\n`).toBe(readFileSync(path.join(REPOSITORY, 'docs/notes/0001-shape.md'), 'utf8'));
-  }, 60_000);
-
-  test('search_questions answers the question the checkout holds, with what it is about', async () => {
-    const { isError, answer } = await answerOf('search_questions', {});
-    expect(isError).toBe(false);
-    expect(answer['total']).toBe(1);
-    expect(answer['questions']).toEqual([expect.objectContaining({ id: 'question:saved-items', status: 'open' })]);
+  test('the seven tools of decision 0032 name the step that has not run, rather than an empty answer', async () => {
+    for (const [tool, step] of [['get_symbol', 'syntax'], ['trace_flow', 'semantic-resolution'], ['get_page', 'document-index']] as const) {
+      const { isError, answer } = await answerOf(tool, { name: 'saveItem', entry: 'saveAll', page: 'README.md' });
+      expect(isError).toBe(true);
+      expect(answer['error']).toMatchObject({ code: 'step-not-run', step });
+      expect((answer['source'] as Record<string, unknown>)['commit']).toBe(git('rev-parse', 'HEAD').trim());
+    }
   }, 60_000);
 });
 
 describe('the checkout is named, and the facts stay the filled commit\'s', () => {
-  test('a symbol added without a commit is not a fact of the store, and the answer names the changed path', async () => {
-    put('src/store.ts', `${STORE_SOURCE}\n/** Drops one item by name. */\nexport function dropItem(name: string): void {\n  void name;\n}\n`);
-    const { isError, answer } = await answerOf('get_symbol', { name: 'dropItem' });
-    // The store is the fill's at the commit: a file the working tree changed is not re-extracted by a second path.
+  test('a file added without a commit is not a fact of the store, and the answer names the changed path', async () => {
+    put('src/extra.ts', '/** A file the commit does not hold. */\nexport const extra = 1;\n');
+    const { isError, answer } = await answerOf('get_file', { path: 'src/extra.ts' });
+    // The store is the fill's at the commit: a file the working tree added is not re-read by a second path.
     expect(isError).toBe(true);
-    expect(json(answer)).toContain('no-such-symbol');
+    expect((answer['error'] as Record<string, unknown>)['code']).toBe('no-such-file');
     const source = answer['source'] as Record<string, unknown>;
     expect(source['commit']).toBe(git('rev-parse', 'HEAD').trim());
-    expect(source['dirty']).toEqual([{ path: 'src/store.ts', status: 'modified' }]);
-    expect(source['reextracted']).toBeUndefined();
-    // The journal keeps what the call cost: no file was re-extracted, and the file reads the answer saved are counted.
+    expect(source['changed']).toEqual([{ path: 'src/extra.ts', status: 'untracked' }]);
+    // The journal keeps what the call cost: no file was re-extracted, and the answer's size is counted.
     const entry = readJournal(session.stateFolder).at(-1)!;
-    expect(entry.tool).toBe('get_symbol');
+    expect(entry.tool).toBe('get_file');
     expect(entry.answerBytes).toBeGreaterThan(50);
+    rmSync(path.join(REPOSITORY, 'src/extra.ts'));
   }, 60_000);
 
-  test('an edit to a symbol\'s own body is not read: the answer quotes the commit, and names the file as changed', async () => {
+  test('an edit to a file is not read: the store\'s bytes answer, and the file is named as changed', async () => {
     put('src/store.ts', STORE_SOURCE.replace('saveItem(item: Item)', 'saveItem(entry: Item)'));
-    const { isError, answer } = await answerOf('get_symbol', { name: 'saveItem' });
+    const { isError, answer } = await answerOf('get_file', { path: 'src/store.ts' });
     expect(isError).toBe(false);
-    // The commit's line is the fact; the working tree's line is not served by a second extraction.
-    expect(json(answer['selected'])).toContain('export function saveItem(item: Item): string {');
-    expect(json(answer['selected'])).not.toContain('saveItem(entry: Item)');
-    expect((answer['source'] as Record<string, unknown>)['dirty']).toEqual([{ path: 'src/store.ts', status: 'modified' }]);
+    expect((answer['blob'] as string).length).toBe(40);
+    expect((answer['source'] as Record<string, unknown>)['changed']).toEqual([{ path: 'src/store.ts', status: 'modified' }]);
     git('checkout', '--', 'src/store.ts');
   }, 60_000);
 
-  test('a file deleted without a commit is still the commit\'s fact, and the deletion is named', async () => {
+  test('a file deleted without a commit is still the commit\'s record, and the deletion is named', async () => {
     rmSync(path.join(REPOSITORY, 'src/list.ts'));
-    const { isError, answer } = await answerOf('get_symbol', { name: 'saveAll' });
+    const { isError, answer } = await answerOf('get_file', { path: 'src/list.ts' });
     expect(isError).toBe(false);
-    expect(json(answer['selected'])).toContain('code.symbol:src/list.ts#saveAll');
-    expect((answer['source'] as Record<string, unknown>)['dirty']).toContainEqual({ path: 'src/list.ts', status: 'deleted' });
+    expect((answer['path'] as string)).toBe('src/list.ts');
+    expect((answer['source'] as Record<string, unknown>)['changed']).toContainEqual({ path: 'src/list.ts', status: 'deleted' });
     git('checkout', '--', 'src/list.ts');
-    const back = await answerOf('get_symbol', { name: 'saveAll' });
+    const back = await answerOf('get_file', { path: 'src/list.ts' });
     expect(back.isError).toBe(false);
-  }, 60_000);
-
-  test('a document edited without a commit keeps the commit\'s words, and the answer names the file as changed', async () => {
-    put('README.md', '# Atlas kit\n\nSaves items, counts them and trims their names.\n');
-    const { isError, answer } = await answerOf('search_pages', { text: 'trims their names' });
-    // The edit is not in the store: the answer finds nothing, and says which file the working tree changed.
-    expect(isError).toBe(false);
-    expect(answer['pages']).toEqual([]);
-    expect((answer['source'] as Record<string, unknown>)['dirty']).toContainEqual({ path: 'README.md', status: 'modified' });
-    put('README.md', '# Atlas kit\n\nSaves items and counts them.\n');
   }, 60_000);
 });
 
 describe('the journal', () => {
-  test('keeps one line per call, with the tool, its arguments, the answer\'s size and the reads it saved', async () => {
-    const warmed = await answerOf('get_page', { page: 'README.md' });
+  test('keeps one line per call, with the tool, its arguments, the answer\'s size and the commit it was read at', async () => {
+    const warmed = await answerOf('list_files', { prefix: 'src/' });
     expect(warmed.isError).toBe(false);
     const before = readJournal(session.stateFolder).length;
-    await answerOf('get_symbol', { name: 'saveItem' });
+    await answerOf('get_file', { path: 'README.md' });
     const entries = readJournal(session.stateFolder);
     expect(entries.length).toBe(before + 1);
     const last = entries.at(-1)!;
-    expect(last.tool).toBe('get_symbol');
-    expect(last.arguments).toEqual({ name: 'saveItem' });
+    expect(last.tool).toBe('get_file');
+    expect(last.arguments).toEqual({ path: 'README.md' });
     expect(last.answerBytes).toBeGreaterThan(100);
-    expect(last.readsAvoided).toBeGreaterThan(0);
     // The entry names the commit the store is the graph of; no file is re-extracted, because the store is the facts.
     expect(last.revision.commit).toBe(git('rev-parse', 'HEAD').trim());
     expect((last as unknown as Record<string, unknown>)['reextracted']).toBeUndefined();
     const summary = summarize(session.stateFolder);
     expect(summary.calls).toBe(entries.length);
-    expect(summary.tools.find((one) => one.tool === 'get_symbol')!.calls).toBeGreaterThan(0);
-    expect(summaryLines(summary).join('\n')).toContain('file reads avoided');
+    expect(summary.tools.find((one) => one.tool === 'get_file')!.calls).toBeGreaterThan(0);
   }, 60_000);
 });
 
@@ -292,12 +259,12 @@ describe('the command as a client starts it', () => {
     expect((initialized['result'] as Record<string, unknown>)['serverInfo']).toMatchObject({ name: 'madarch' });
     child.stdin.write(`${JSON.stringify({ jsonrpc: '2.0', id: 2, method: 'tools/list', params: {} })}\n`);
     const listed = await nextLine();
-    expect(((listed['result'] as Record<string, unknown>)['tools'] as { name: string }[]).map((tool) => tool.name)).toEqual([...REPO_TOOL_NAMES]);
+    expect(((listed['result'] as Record<string, unknown>)['tools'] as { name: string }[]).map((tool) => tool.name)).toEqual([...SERVED_TOOL_NAMES]);
     // A client that asks while the graph is building is told so and asks again (madarch-ztyq.10 review): the server
     // answers its handshake at once and builds in the background.
     let body: Record<string, unknown> = {};
     for (let attempt = 0; attempt < 120; attempt++) {
-      child.stdin.write(`${JSON.stringify({ jsonrpc: '2.0', id: 3 + attempt, method: 'tools/call', params: { name: 'get_symbol', arguments: { name: 'saveItem' } } })}\n`);
+      child.stdin.write(`${JSON.stringify({ jsonrpc: '2.0', id: 3 + attempt, method: 'tools/call', params: { name: 'get_file', arguments: { path: 'src/store.ts' } } })}\n`);
       const called = await nextLine();
       const content = (called['result'] as Record<string, unknown>)['content'] as { type: string; text: string }[];
       expect(content[0]!.type).toBe('text');
@@ -307,7 +274,13 @@ describe('the command as a client starts it', () => {
     }
     expect(body['error']).toBeUndefined();
     expect((body['source'] as Record<string, unknown>)['repository']).toBe(REPOSITORY);
-    expect(body['selected']).toMatchObject({ key: 'code.symbol:src/store.ts#saveItem' });
+    expect(body).toMatchObject({ path: 'src/store.ts', form: 'text', mode: '100644' });
+    // The seven tools of decision 0032 name the step that has not run, rather than an empty answer.
+    child.stdin.write(`${JSON.stringify({ jsonrpc: '2.0', id: 200, method: 'tools/call', params: { name: 'get_symbol', arguments: { name: 'saveItem' } } })}\n`);
+    const later = await nextLine();
+    const laterBody = JSON.parse(((later['result'] as Record<string, unknown>)['content'] as { text: string }[])[0]!.text) as Record<string, unknown>;
+    expect((laterBody['error'] as Record<string, unknown>)['code']).toBe('step-not-run');
+    expect((laterBody['error'] as Record<string, unknown>)['step']).toBe('syntax');
     const exited = new Promise<number | null>((resolve) => child.on('exit', (code) => resolve(code)));
     child.stdin.end();
     expect(await exited).toBe(0);

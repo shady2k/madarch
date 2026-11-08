@@ -1571,24 +1571,73 @@ describe('what the review found, kept as tests', () => {
     expect(await readPublications(opened.owner, 'snapshot/src')).toHaveLength(1);
   });
 
-  test('a unit another run left behind is refused by name, never reused in silence', async () => {
-    const blocking = new StageRegistry().register(fakeStage('blocked-stage', {
+  test('a unit a finished run left blocked is retried by the next run, never inherited and never trapping the product', async () => {
+    // The work blocks on its first attempt and drafts on the next: the first run ends completed_partial, and a
+    // second fill of the same product must be able to work the unit again. The refusal for a unit another run
+    // holds names a unit *worked by one run at a time*, and a completed_partial run has ended.
+    let attempts = 0;
+    const retrying = new StageRegistry().register(fakeStage('blocked-stage', {
       produces: [{ kind: 'other-facts', schemaVersion: 1, scope: 'repository' }],
       plan: () => ({ units: [{ id: 'src', scope: 'src' }], coverage: 'planned' }),
-      execute: () => ({ outcome: 'blocked', reason: 'a person must look at this' }),
+      execute: () => {
+        attempts += 1;
+        return attempts === 1 ? { outcome: 'blocked', reason: 'a person must look at this' } : { outcome: 'draft' };
+      },
     }));
-    const opened = await world({ registry: blocking, product: 'other-product' });
+    const opened = await world({ registry: retrying, product: 'other-product' });
     await startRun(opened.orchestrator, { runId: 'run-a' });
     expect((await planRun(opened.orchestrator, { runId: 'run-a' })).outcome).toBe('planned');
     await admitUnits(opened.orchestrator, { runId: 'run-a' });
     expect((await workOnce(opened.orchestrator, { worker: 'worker-1' })).result).toBe('blocked');
     expect((await driveRun(opened.orchestrator, { runId: 'run-a', workers: 1 })).run.state).toBe('completed_partial');
+    expect((await readUnit(opened.owner, 'blocked-stage/src'))?.state).toBe('blocked');
 
+    // The next fill of the product plans the unit again, as generation 2 under its own run, and publishes it.
     expect((await startRun(opened.orchestrator, { runId: 'run-b' })).ok).toBe(true);
-    const refused = await planRun(opened.orchestrator, { runId: 'run-b' });
-    expect(refused.outcome).toBe('refused');
-    expect(refused.outcome === 'refused' ? refused.code : '').toBe('fill-orchestrator/unit-in-another-run');
-    expect(refused.outcome === 'refused' ? refused.reason : '').toContain('stands blocked in run "run-a"');
+    const planned = await planRun(opened.orchestrator, { runId: 'run-b' });
+    expect(planned.outcome).toBe('planned');
+    if (planned.outcome !== 'planned') return;
+    expect(planned.units.map((unit) => `${unit.unitId}:${unit.generation}`)).toEqual(['blocked-stage/src:2']);
+    const driven = await driveRun(opened.orchestrator, { runId: 'run-b', workers: 1 });
+    expect(driven.run.state).toBe('succeeded');
+    const unit = await readUnit(opened.owner, 'blocked-stage/src');
+    expect(unit).toMatchObject({ state: 'published', generation: 2, runId: 'run-b' });
+    // The blocked generation stays as its own record, and the retry is its own transition.
+    const generations = await opened.owner.run((tx) => tx.query<{ generation: number; state: string }>('SELECT generation, state FROM fill_unit_generation WHERE unit_id = $1 ORDER BY generation', ['blocked-stage/src']));
+    expect(generations.rows).toEqual([{ generation: 1, state: 'blocked' }, { generation: 2, state: 'published' }]);
+  });
+
+  test('a unit a finished run left failed is retried too: a failed fill does not trap the product', async () => {
+    // The first attempt raises, and the run's retry budget is one more: the unit ends failed and the run failed.
+    let attempts = 0;
+    let failing = true;
+    const flaky = new StageRegistry().register(fakeStage('flaky-stage', {
+      produces: [{ kind: 'other-facts', schemaVersion: 1, scope: 'repository' }],
+      plan: () => ({ units: [{ id: 'src', scope: 'src' }], coverage: 'planned' }),
+      execute: () => {
+        attempts += 1;
+        if (failing) throw new Error('the reader failed');
+        return { outcome: 'draft' };
+      },
+    }));
+    const opened = await world({ registry: flaky, product: 'other-product', limits: { retries: 1, retryDelayMs: 0 } });
+    await startRun(opened.orchestrator, { runId: 'run-failed' });
+    expect((await planRun(opened.orchestrator, { runId: 'run-failed' })).outcome).toBe('planned');
+    // A run whose unit failed settles short of its coverage: `completed_partial`, and the unit stands failed.
+    const first = await driveRun(opened.orchestrator, { runId: 'run-failed', workers: 1 });
+    expect(first.run.state).toBe('completed_partial');
+    expect((await readUnit(opened.owner, 'flaky-stage/src'))?.state).toBe('failed');
+
+    failing = false;
+    expect((await startRun(opened.orchestrator, { runId: 'run-after-failure' })).ok).toBe(true);
+    const planned = await planRun(opened.orchestrator, { runId: 'run-after-failure' });
+    expect(planned.outcome).toBe('planned');
+    if (planned.outcome !== 'planned') return;
+    expect(planned.units.map((unit) => `${unit.unitId}:${unit.generation}`)).toEqual(['flaky-stage/src:2']);
+    const driven = await driveRun(opened.orchestrator, { runId: 'run-after-failure', workers: 1 });
+    expect(driven.run.state).toBe('succeeded');
+    expect(await readUnit(opened.owner, 'flaky-stage/src')).toMatchObject({ state: 'published', generation: 2 });
+    expect(attempts).toBe(3);
   });
 
   test('the scheduler rechecks what went stale before it lets a run finish', async () => {

@@ -38,6 +38,7 @@ import { WORKFLOWS_FILE } from './workflows.js';
 import { linesOf } from './lines.js';
 import { applyReset, planReset, type ResetPlan } from './reset.js';
 import { startKnowledgeFill, type KnowledgeFillRun } from './fill-run.js';
+import { fillWritesPages } from '../fill/steps.js';
 import { snapshotNumbers } from './fill-run.js';
 import { locationOf, type RenderContext } from './blocks.js';
 import { GraphReader } from './graph-read.js';
@@ -45,7 +46,10 @@ import { treeReadProducer } from '../extract/driver/index.js';
 import { TREE_EXTRACTORS, HISTORY_EXTRACTOR } from '../extract/driver/extractors.js';
 import { selectHistory, withHistoryLinks, type HistoryContext, type HistorySelection } from './temporal.js';
 import { markdownFilesBelow, readMarkdownEntities, type MarkdownEntity } from './markdown.js';
-import type { AgentOffer, Block, ChangedPage, DocumentListing, DocumentPage, DocumentRef, FillState, Neighborhood, PageModel, PlannedMarkView, PlannedSectionView, WikiStatus, WriterState, WriterUnit } from './model.js';
+import type { AgentOffer, Block, ChangedPage, DocumentListing, DocumentPage, DocumentRef, FillErrorView, FillRunView, FillState, Neighborhood, PageModel, PlannedMarkView, PlannedSectionView, RepositoryFactsView, WikiStatus, WriterState, WriterUnit } from './model.js';
+import { commitPage, filePage, folderPage, repositoryOf, repositoryPage, type CommitPageModel, type FilePageModel, type FolderPageModel } from './repository-view.js';
+import { readFillProgressOf } from '../obs/progress.js';
+import { readTraceRun } from '../obs/trace-report.js';
 import { neighborhoodOf } from './diagrams.js';
 import { anchorLines, titleOfAnchor } from './anchors.js';
 import { adapterOf, installAdapter, makeUnitAgent, offers, queryAgentChoices, WRITER_AGENTS, WRITER_BOUNDS } from './agents.js';
@@ -308,6 +312,10 @@ export class KnowledgeProduct {
   private running: Promise<void> | undefined;
   /** The fill the store is running now, as its host controls it; undefined between runs. */
   private fillRun: KnowledgeFillRun | undefined;
+  /** The run id of the fill under way: the trace it writes is read by that id, never as "the newest file". */
+  private fillRunId: string | undefined;
+  /** What the last finished run's trace and the store's counts say: the end state's numbers. */
+  private fillExtras: { counts?: FillState['counts']; run?: FillRunView; error?: FillErrorView } = {};
   private stopping = false;
   /** A person asked for a pause: the worker finishes the page and the commit in progress and ends before the next one. */
   private pauseAsked = false;
@@ -874,13 +882,20 @@ export class KnowledgeProduct {
     }
     this.changedPages = undefined;
     this.changedLoaded = true;
-    this.fill = { state: 'running', startedAt, commit: 0, commits: 0, gaps: 0 };
+    // The repository the run reads, as the product declares it: the card says what it is reading
+    // before the run's own trace has a unit to count.
+    this.fill = { state: 'running', startedAt, commit: 0, commits: 0, gaps: 0, ...(repositories[0] === undefined ? {} : { repository: repositories[0].name }) };
+    this.fillExtras = {};
     const chosen = this.chosenAgent();
     const seeded = resuming && this.writer.units.length > 0 ? this.writer : undefined;
     const agent = seeded?.agent ?? chosen;
+    // A writer waits for the agent stage's units, and only a stage with tools writes a page: a fill
+    // whose steps hold none of them starts no writer, so a person is not told "the agent is writing"
+    // for a run that could never write (madarch-8bdc.2.5; the chosen agent is kept for that step).
+    const writes = agent !== null && fillWritesPages();
     this.writer = seeded === undefined
-      ? agent === null ? { state: 'idle', agent: null, units: [] } : { state: 'waiting', agent, units: [] }
-      : { ...seeded, state: agent === null ? 'idle' : 'waiting', current: undefined };
+      ? { state: writes ? 'waiting' : 'idle', agent, units: [] }
+      : { ...seeded, state: writes ? 'waiting' : 'idle', current: undefined };
     this.currentRun = {
       language: wanted,
       languageChanged,
@@ -917,6 +932,9 @@ export class KnowledgeProduct {
       // The store's owner is opened here, where the process's connection already is (decision 0033, item 3): the fill
       // module is handed it and closes it when the run ends.
       const database = createPGliteDatabaseOwner({ path: join(this.storeFolder(), 'graph'), btreeGist: true });
+      // The trace this run writes is read by its id: a second trace in the store (a server's tool
+      // calls) is never taken for the fill's progress.
+      this.fillRunId = runId;
       run = await startKnowledgeFill({ productFolder: product.folder, storeFolder: this.storeFolder(), runId, database });
     } catch (error) {
       this.fill = { state: 'failed', startedAt: this.fill.startedAt, finishedAt: (this.options.now?.() ?? new Date()).toISOString(), message: error instanceof Error ? error.message : String(error), code: 'store' };
@@ -937,7 +955,17 @@ export class KnowledgeProduct {
         this.options.errorLog?.(`the knowledge wiki could not read the snapshot ${result.snapshot} of ${this.readRoot()}: ${error instanceof Error ? error.message : String(error)}`);
       });
     }
-    this.fill = { state: 'done', startedAt: this.fill.startedAt, finishedAt: (this.options.now?.() ?? new Date()).toISOString(), gaps: 0 };
+    // A run that ended says which pages it changed: this fill writes no page (a page is an agent's
+    // work, and no agent stage runs in this step), so the answer is the empty list unless the store
+    // kept a record of pages the run changed — never an absent field a reader would take for "unknown".
+    this.changedLoaded = false;
+    // A writer that waited for units the run never planned has nothing to wait for: the run ended.
+    if (this.writer.state === 'waiting' && this.writer.units.length === 0) this.writer = { ...this.writer, state: 'idle' };
+    this.fill = {
+      state: 'done', startedAt: this.fill.startedAt, finishedAt: (this.options.now?.() ?? new Date()).toISOString(), gaps: 0,
+      changed: this.lastChangedPages() ?? [],
+      ...(result.unread === undefined || result.unread.length === 0 ? {} : { unread: [...result.unread] }),
+    };
     this.notify();
     this.lastUse = Date.now();
     // The rules and the judge read the snapshot as soon as the fill ends (madarch-mwhd.1 finding 6): a reader who
@@ -1995,6 +2023,14 @@ export class KnowledgeProduct {
     }
     for (const repo of this.repositories().filter((candidate) => candidate.present)) {
       const commit = this.pins.get(repo.name)?.commit;
+      // A checkout that holds no commit has no documents: it is named with its path, and nothing is
+      // read of it. A repository added before its first commit must not fail the product's wiki.
+      if (commit === undefined || commit === '') {
+        if (headCommitOf(repo.path) === undefined) {
+          findings.push({ file: repo.path, line: 1, message: `the repository ${JSON.stringify(repo.name)} holds no commit yet: nothing is read from it until it does`, source: repo.path });
+          continue;
+        }
+      }
       const at = commit === undefined || commit === '' ? 'HEAD' : commit;
       const key = `${repo.name}@${at}@${manifest.excludeDocuments.join(',')}`;
       let held = this.repoDocs.get(key);
@@ -2209,13 +2245,122 @@ export class KnowledgeProduct {
    * changed belong to the same record and are read with it (madarch-u3vw.2).
    */
   private statusFill(): WikiStatus['fill'] {
+    // A running fill says what its own trace says it has done (madarch-8bdc.2.5, item 2): the
+    // counts are read from the run's file as it is written, never kept as a second count here.
+    if (this.fill.state === 'running') {
+      const progress = this.fillRunId === undefined ? undefined : readFillProgressOf(this.storeFolder(), this.fillRunId);
+      return progress === undefined ? this.fill : { ...this.fill, progress };
+    }
     const incomplete = [...this.pins.values()].some((pin) => pin.filledCommits < pin.commits || pin.commits === 0);
-    if (this.fill.state !== 'idle' || this.pins.size === 0 || incomplete) return this.fill;
+    const ended: WikiStatus['fill'] = { ...this.fill, ...this.fillExtras };
+    if (this.fill.state !== 'idle' || this.pins.size === 0 || incomplete) return ended;
     const last = this.lastFill();
     const changed = this.lastChangedPages();
-    return last === undefined
-      ? { state: 'done', ...(changed === undefined ? {} : { changed }) }
-      : { state: 'done', finishedAt: last.finishedAt, ...(changed === undefined ? {} : { changed }) };
+    return {
+      state: 'done',
+      ...(last?.finishedAt === undefined ? {} : { finishedAt: last.finishedAt }),
+      ...(changed === undefined ? {} : { changed }),
+      ...this.fillExtras,
+    };
+  }
+
+  /** The newest run's trace as the run page states it, or null when the store holds no trace. */
+  private runViewOf(runId?: string): FillRunView | null {
+    try {
+      const run = readTraceRun({ store: this.storeFolder(), ...(runId === undefined ? {} : { runId }) });
+      return {
+        runId: run.runId,
+        startedAt: new Date(run.startedAtMs).toISOString(),
+        finishedAt: new Date(run.endedAtMs).toISOString(),
+        wallMs: run.report.wallMs,
+        spans: run.report.spanCount,
+        slowest: run.report.names.slice(0, 5).map((name) => ({ name: name.name, count: name.count, selfMs: name.selfMs })),
+        steps: run.steps.map((step) => ({
+          step: step.step, wallMs: step.wallMs, peakRssBytes: step.peakRssBytes, startRssBytes: step.startRssBytes,
+          slowest: step.slowest,
+        })),
+      };
+    } catch {
+      // A store whose fill never ran holds no trace: nothing is made up for it.
+      return null;
+    }
+  }
+
+  /**
+   * What a failed run's message names: the file and line the error was raised at, and the path
+   * the run was about. The message is the engine's own (`<file>:<line>:<column>: <words>`), so
+   * the three are read from it rather than guessed.
+   */
+  private errorOf(message: string): FillErrorView {
+    let at = message.indexOf(':');
+    while (at > 0) {
+      const line = message.slice(at + 1).split(':');
+      if (line.length >= 2 && /^\d+$/u.test(line[0]!) && /^\d+$/u.test(line[1]!)) {
+        return { message, file: message.slice(0, at), line: Number(line[0]), path: this.options.productFolder };
+      }
+      at = message.indexOf(':', at + 1);
+    }
+    return { message, path: this.options.productFolder };
+  }
+
+  /**
+   * The repository a page is about: the one the caller named when the product declares it, the
+   * product's first declared repository otherwise, and any repository the store holds when the
+   * product declares none. A product's own repository is filled beside its code repositories, and
+   * a page about "the repository" is about the code the reader connected, not about the product's
+   * own pages.
+   */
+  private async currentRepository(owner: DatabaseOwner, named: string | null = null): Promise<string | null> {
+    let declared: string[] = [];
+    try {
+      declared = this.repositories().map((repository) => repository.name);
+    } catch {
+      declared = [];
+    }
+    const wanted = named !== null && declared.includes(named) ? named : declared[0] ?? named;
+    return await repositoryOf(owner, wanted);
+  }
+
+  /** The repository the store holds, as a page states it: the named one, else the declared first one. */
+  async repositoryView(named: string | null = null): Promise<RepositoryFactsView | undefined> {
+    const owner = await this.open();
+    const repository = await this.currentRepository(owner, named);
+    if (repository === null) return undefined;
+    const page = await repositoryPage(owner, repository);
+    if (page === null) return undefined;
+    return {
+      name: page.repository, url: page.url, defaultBranch: page.defaultBranch, asIsCommit: page.asIsCommit,
+      counts: page.counts, gaps: page.gaps, steps: page.steps,
+    };
+  }
+
+  /** One folder's page, or null when the store holds no tree, no such folder, and no file inside it. */
+  async folderView(folder: string, after?: string): Promise<FolderPageModel | null> {
+    const owner = await this.open();
+    const repository = await this.currentRepository(owner);
+    if (repository === null) return null;
+    return await folderPage(owner, repository, folder, after);
+  }
+
+  /** One file's page, or null when the store holds no such file. */
+  async fileView(path: string, after?: { readonly walk: number; readonly commit: string }): Promise<FilePageModel | null> {
+    const owner = await this.open();
+    const repository = await this.currentRepository(owner);
+    if (repository === null) return null;
+    return await filePage(owner, repository, path, after);
+  }
+
+  /** One commit's page, or null when the store holds no such commit. */
+  async commitView(hash: string): Promise<CommitPageModel | null> {
+    const owner = await this.open();
+    const repository = await this.currentRepository(owner);
+    if (repository === null) return null;
+    return await commitPage(owner, repository, hash);
+  }
+
+  /** The newest run of the store's trace, or the named one. */
+  async runView(runId?: string): Promise<FillRunView | null> {
+    return this.runViewOf(runId);
   }
 
   private async statusNow(): Promise<StatusRead> {
@@ -2237,6 +2382,15 @@ export class KnowledgeProduct {
     // The count is the one collected for exactly the inputs this body reads; absent, the answer carries no count at all.
     const problems = await this.openProblems();
     if (problems !== undefined) loop.problemsOpen = problems.count;
+    // The end state's numbers: the repository the store holds and the run's trace, both read once here,
+    // for the same key the body is made for.
+    const repository = await this.repositoryView().catch(() => undefined);
+    const run = this.runViewOf();
+    this.fillExtras = {
+      ...(repository === undefined ? {} : { counts: repository.counts }),
+      ...(run === null ? {} : { run }),
+      ...(this.fill.state === 'failed' && this.fill.message !== undefined ? { error: this.errorOf(this.fill.message) } : {}),
+    };
     const body: WikiStatus = {
       ...common,
       manifest: 'ok',
@@ -2257,6 +2411,7 @@ export class KnowledgeProduct {
       roles: Object.fromEntries([...context.manifest.roles.values()].map((role) => [role.name, { ...(role.open === undefined ? {} : { open: [...role.open] }), lead: [...role.lead] }])),
       loop,
       starterOffers: this.starterOffers().length,
+      ...(repository === undefined ? {} : { repository }),
     };
     // The key is taken once more after the body is made: a change of the inputs while it was made leaves the count
     // pending rather than carried to the next poll (madarch-u3vw.8).

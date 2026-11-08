@@ -378,6 +378,72 @@ export interface ChangedPage {
   title: string;
 }
 
+/** The counts the repository's page states: the store's own answer, never a second reading of the checkout. */
+export interface RepositoryCounts {
+  readonly files: number;
+  readonly commits: number;
+  readonly folders: number;
+}
+
+/**
+ * The repository this step's graph holds (madarch-8bdc.2.5, item 3): its
+ * identity, the as-is commit every page is true at, the counts the store holds,
+ * the gaps the fill recorded, and which of the fill's steps have run.
+ */
+export interface RepositoryFactsView {
+  readonly name: string;
+  readonly url: string;
+  readonly defaultBranch: string | null;
+  readonly asIsCommit: string | null;
+  readonly counts: RepositoryCounts;
+  readonly gaps: readonly { readonly what: string; readonly reason: string }[];
+  readonly steps: { readonly tree: boolean; readonly history: boolean };
+}
+
+/** One step of the newest run, as its trace states it (madarch-8bdc.2.5, item 4). */
+export interface FillStepView {
+  readonly step: string;
+  readonly wallMs: number;
+  readonly peakRssBytes: number;
+  readonly startRssBytes: number;
+  readonly slowest: readonly { readonly name: string; readonly count: number; readonly selfMs: number }[];
+}
+
+/** The newest run of the store's trace: its wall clock, its spans and its steps. */
+export interface FillRunView {
+  readonly runId: string;
+  /** When the run's first span started and its last ended, as ISO instants. */
+  readonly startedAt: string;
+  readonly finishedAt: string;
+  readonly wallMs: number;
+  readonly spans: number;
+  /** The span names that took the most time of their own, the slowest first. */
+  readonly slowest: readonly { readonly name: string; readonly count: number; readonly selfMs: number }[];
+  readonly steps: readonly FillStepView[];
+}
+
+/** What a running fill has done so far, read from its trace (`src/obs/progress.ts`). */
+export interface FillProgressView {
+  readonly spans: number;
+  readonly planned: number;
+  readonly published: number;
+  readonly failed: number;
+  readonly blocked: number;
+  readonly stages: Readonly<Record<string, { readonly planned: number; readonly published: number; readonly failed: number; readonly blocked: number }>>;
+  readonly last: string | null;
+}
+
+/** A failure of a run, named where it stands: the file, the line and the path an engineer needs. */
+export interface FillErrorView {
+  readonly message: string;
+  /** The file the failure was raised in, when the message names one. */
+  readonly file?: string;
+  /** The line of that file, when the message names one. */
+  readonly line?: number;
+  /** The path the failure is about: the product folder, a checkout, or the file a pass could not read. */
+  readonly path?: string;
+}
+
 export interface FillState {
   /** The index was rebuilt because its deterministic readers changed. */
   rebuilt?: 'extractors-changed';
@@ -408,6 +474,20 @@ export interface FillState {
    * (madarch-u3vw2).
    */
   changed?: ChangedPage[];
+  /** What a running fill has done so far, read from its run's trace (madarch-8bdc.2.5, item 2). */
+  progress?: FillProgressView;
+  /** The counts the run published: the end state's numbers. */
+  counts?: RepositoryCounts;
+  /** The newest run's trace, once the store holds one: its time and its steps (items 2 and 4). */
+  run?: FillRunView;
+  /** Why the run failed, with the file, the line and the path it stands at. */
+  error?: FillErrorView;
+  /**
+   * The declared repositories this run could not read, each with its path and the state it is in
+   * (a checkout that holds no commit yet). A run reads the repositories it can, and says what it
+   * did for these rather than refusing the product.
+   */
+  unread?: { repository: string; path: string; reason: string }[];
 }
 
 /** One agent unit of the writer, as the wiki shows it. */
@@ -538,6 +618,12 @@ export interface WikiStatus {
   loop: { questionsOpen: number; questionsAnswered: number; correctionsOpen: number; tasksOpen: number; problemsOpen?: number };
   /** How many things the current starter set holds that this product's edited manifest lacks (the Problems page offers them). */
   starterOffers: number;
+  /**
+   * The repository this step's graph holds, when the store holds one: the
+   * wiki's home page is the repository's own page while this stands
+   * (madarch-8bdc.2.5, item 3). Absent before the first fill.
+   */
+  repository?: RepositoryFactsView;
 }
 
 /** A Markdown document the wiki shows as a page: of the product repository (`repo` null) or of a connected code repository. */

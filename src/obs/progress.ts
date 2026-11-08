@@ -28,6 +28,8 @@ interface PassProgress {
 
 /** The fill's state as its trace tells it. */
 export interface FillProgress {
+  /** How many spans the trace holds: a run whose units have not landed still says how far it is. */
+  readonly spans: number;
   readonly planned: number;
   readonly published: number;
   readonly failed: number;
@@ -55,6 +57,8 @@ function fillProgressOf(spans: readonly TraceSpan[]): FillProgress {
   let failed = 0;
   let blocked = 0;
   let last: string | null = null;
+  /** The newest span written, whatever it is: a run whose first unit has not landed still says what it is doing. */
+  let newest: string | null = null;
   let pass: PassProgress | null = null;
   const stageOf = (stage: string) => {
     const held = stages.get(stage) ?? { planned: 0, published: 0, failed: 0, blocked: 0 };
@@ -62,6 +66,8 @@ function fillProgressOf(spans: readonly TraceSpan[]): FillProgress {
     return held;
   };
   for (const span of spans) {
+    // The newest step-level span: the store's own statements are the run's plumbing, not what it did.
+    if (span.name.startsWith('fill.') || span.name.startsWith('scheduler.')) newest = span.name;
     if (span.name === 'fill.step') {
       const step = textOf(span, 'madarch.step');
       const units = numberOf(span, 'madarch.units');
@@ -93,7 +99,7 @@ function fillProgressOf(spans: readonly TraceSpan[]): FillProgress {
   for (const [step, units] of plannedByStep) stageOf(step).planned = units;
   const held: Record<string, StageProgress> = {};
   for (const [stage, progress] of [...stages].sort(([left], [right]) => (left < right ? -1 : left > right ? 1 : 0))) held[stage] = { ...progress };
-  return { planned: [...plannedByStep.values()].reduce((sum, units) => sum + units, 0), published, failed, blocked, stages: held, last, pass };
+  return { spans: spans.length, planned: [...plannedByStep.values()].reduce((sum, units) => sum + units, 0), published, failed, blocked, stages: held, last: last ?? newest, pass };
 }
 
 /** The progress of one trace file. */
@@ -102,13 +108,27 @@ export function readFillProgress(file: string): FillProgress {
 }
 
 /**
- * The progress of the newest trace in a store: a store a fill is writing into
- * holds the run's trace from its start, so a reader between two spans still
- * sees what the run has done.
+ * The progress of the newest trace in a store: a store a fill is writing into holds the run's trace
+ * from its start, so a reader between two spans still sees what the run has done. A server that
+ * serves the same store opens its own trace beside the fill's; the fill's is the newest while it
+ * runs, which is the only moment this answer is read.
  */
 export function readLatestFillProgress(store: string): FillProgress {
   const files = traceFiles(store);
-  if (files.length === 0) return { planned: 0, published: 0, failed: 0, blocked: 0, stages: {}, last: null, pass: null };
-  return readFillProgress(files[0]!.file);
+  return files.length === 0 ? NOTHING : readFillProgress(files[0]!.file);
 }
+
+/** No run has written a span yet: what a reader sees before the first one is written. */
+const NOTHING: FillProgress = { spans: 0, planned: 0, published: 0, failed: 0, blocked: 0, stages: {}, last: null, pass: null };
+
+/**
+ * The progress of one run in a store, by its run id: a store that also holds
+ * another run's trace (a server's own, a fill of another commit) answers the
+ * run asked for and never the newest file that happens to be there.
+ */
+export function readFillProgressOf(store: string, runId: string): FillProgress {
+  const file = traceFiles(store).find((one) => one.runId === runId);
+  return file === undefined ? NOTHING : readFillProgress(file.file);
+}
+
 

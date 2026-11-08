@@ -23,6 +23,7 @@ import { RunControls, runIsPaused, runIsStopped } from './run-controls.js';
 import { KLink } from './blocks.js';
 import { CataloguePage, DocumentPage, DocumentsPage, EntityPage, EmptyHome, FillCard, KindPage, SourcePage, StatementPage, Overview } from './pages.js';
 import { FillPage } from './fill-page.js';
+import { CommitPage, FilePage, FolderPage, RepositoryPage, RunPage } from './repository.js';
 import { unitName } from './writer.js';
 import { GlossaryContext, GlossaryPage, useGlossary, useGlossaryValue, useTerms } from './glossary.js';
 import { HelpLink, RoleCard, RoleMenu } from './role-ui.js';
@@ -55,7 +56,10 @@ function BrandMark(): ReactElement {
  * them (the top bar's chip says the same everywhere). The overview, which has no home page, draws the card itself.
  */
 export function showsProgress(route: KRoute, status: WikiStatus): boolean {
-  if (route.name === 'home') return status.home !== null;
+  // The repository page is the home once the store holds a repository (madarch-8bdc.2.5, item 3); a
+  // fill that runs there, or fails there, still draws its card, so the press and its progress stay
+  // where the reader is.
+  if (route.name === 'home') return status.home !== null || status.fill.state === 'running' || status.fill.state === 'failed';
   return route.name === 'entity';
 }
 
@@ -427,6 +431,8 @@ export function FillMenu({ status, refresh }: { status: WikiStatus; refresh: () 
   const currentName = current === undefined ? null : unitName(current, status.kinds, language);
   let label: string;
   let solid = false;
+  /** The badge's phone-width form, when the whole sentence does not fit there; null keeps the sentence alone. */
+  let narrow: string | null = null;
   const pagesTotal = writer.total;
   if (paused) label = pagesTotal === undefined ? t('knowledge.fillPage.paused') : t('knowledge.fillPage.pausedCount', { done: written, total: pagesTotal });
   else if (stopped) label = pagesTotal === undefined ? t('knowledge.fillPage.stopped') : t('knowledge.fillPage.stoppedCount', { done: written, total: pagesTotal });
@@ -438,7 +444,19 @@ export function FillMenu({ status, refresh }: { status: WikiStatus; refresh: () 
   }
   else if (status.filled) {
     const when = fill.finishedAt === undefined ? null : new Date(fill.finishedAt).toLocaleDateString(language, { day: 'numeric', month: 'short', timeZone: 'UTC' });
-    label = when === null ? t('knowledge.fillDoneNoDate', { count: pages }) : t('knowledge.fillDone', { date: when, count: pages });
+    // Until an agent has written a page, the badge names what the fill did read — the repository's
+    // files and commits, from the same store the pages read — rather than "0 pages", which reads as
+    // if the fill found nothing (madarch-8bdc.2.5, item 3 of the view's rework).
+    const counts = status.repository?.counts;
+    if (pages > 0 || counts === undefined) {
+      label = when === null ? t('knowledge.fillDoneNoDate', { count: pages }) : t('knowledge.fillDone', { date: when, count: pages });
+    } else {
+      label = when === null
+        ? t('knowledge.repository.fillRead', { files: counts.files, commits: counts.commits })
+        : t('knowledge.repository.fillReadAt', { date: when, files: counts.files, commits: counts.commits });
+      // The badge keeps its count on a phone, as every other form of it does: the same numbers without the date.
+      narrow = t('knowledge.repository.fillReadNarrow', { files: counts.files, commits: counts.commits });
+    }
     if (fill.rebuilt === 'extractors-changed') label = `${t('knowledge.fillRebuiltExtractors')}. ${label}`;
   } else return null;
   const busy = fill.state === 'running' || writer.state === 'running' || writer.state === 'waiting' || starting;
@@ -503,7 +521,9 @@ export function FillMenu({ status, refresh }: { status: WikiStatus; refresh: () 
               ? <><span className="fill-chip-words">{t('knowledge.fillWriting')} · </span><span className="fill-chip-count">{count}</span></>
               : held
                 ? <><span className="fill-chip-words">{label}</span><span className="fill-chip-count fill-chip-count-narrow">{count}</span></>
-                : label}
+                : narrow === null
+                  ? label
+                  : <><span className="fill-chip-words">{label}</span><span className="fill-chip-count fill-chip-count-narrow">{narrow}</span></>}
           </span>
         </Badge>
       </button>
@@ -600,7 +620,7 @@ export function SyncButton({ status, refresh }: { status: WikiStatus; refresh: (
   };
   const changed = fill.changed;
   return (
-    <span className="relative flex items-center">
+    <span className="sync-control relative flex items-center">
       {/* Below a phone's width the name is its icon, and the whole sentence stays the button's name and its tooltip. */}
       <Button variant="default" size="default" className="sync-button" disabled={busy} onClick={press} aria-label={busy ? t('knowledge.syncRunning') : t('knowledge.sync')} title={t('knowledge.syncHint')} data-testid="sync">
         <RefreshCwIcon aria-hidden="true" className="sync-icon size-4" data-testid="sync-icon" />
@@ -642,7 +662,7 @@ export function SyncButton({ status, refresh }: { status: WikiStatus; refresh: (
 export function Toolbar({ status, route, menu, refresh, products, current }: { status: WikiStatus; route: KRoute; menu: ReactNode; refresh: () => void; products: readonly ProductChoice[]; current: string | null }): ReactElement {
   const { t } = useTranslation();
   const kindName = useKindName();
-  const where = route.name === 'questions' || route.name === 'question' ? t('loop.questionsTitle') : route.name === 'problems' ? t('loop.problemsTitle') : route.name === 'tasks' ? t('loop.tasksTitle') : route.name === 'settings' ? t('settings.title') : route.name === 'journal' ? t('journal.title') : route.name === 'kind' ? kindName(route.kind, 'many') : route.name === 'source' ? t('knowledge.source') : route.name === 'docs' || route.name === 'doc' ? t('knowledge.documents') : route.name === 'catalogue' ? t('knowledge.catalogue') : route.name === 'glossary' ? t('knowledge.glossary.title') : route.name === 'statement' ? t('knowledge.statement') : route.name === 'entity' ? null : t('knowledge.home');
+  const where = route.name === 'questions' || route.name === 'question' ? t('loop.questionsTitle') : route.name === 'problems' ? t('loop.problemsTitle') : route.name === 'tasks' ? t('loop.tasksTitle') : route.name === 'settings' ? t('settings.title') : route.name === 'journal' ? t('journal.title') : route.name === 'kind' ? kindName(route.kind, 'many') : route.name === 'source' ? t('knowledge.source') : route.name === 'folder' ? t('knowledge.repository.folders') : route.name === 'file' ? t('knowledge.repository.file') : route.name === 'commit' ? t('knowledge.repository.commit') : route.name === 'run' ? t('knowledge.run.title') : route.name === 'docs' || route.name === 'doc' ? t('knowledge.documents') : route.name === 'catalogue' ? t('knowledge.catalogue') : route.name === 'glossary' ? t('knowledge.glossary.title') : route.name === 'statement' ? t('knowledge.statement') : route.name === 'entity' ? null : t('knowledge.home');
   return (
     <header className="shell-toolbar flex min-h-[58px] items-center justify-between gap-3 border-b border-line bg-page px-4 wide:px-[35px]">
       <span className="shell-breadcrumb min-w-0 truncate text-small text-secondary">
@@ -782,7 +802,11 @@ export function KnowledgeApp(): ReactElement {
     </Sheet>
   );
   let view: ReactElement;
-  if (route.name === 'home') view = status.home !== null ? <EntityPage key={status.home} id={status.home} version={version} /> : <Overview status={status} refresh={refresh} />;
+  if (route.name === 'home') view = status.home !== null
+    ? <EntityPage key={status.home} id={status.home} version={version} />
+    : status.repository !== undefined && status.repository.asIsCommit !== null
+      ? <RepositoryPage status={status} version={version} />
+      : <Overview status={status} refresh={refresh} />;
   else if (route.name === 'entity') view = <EntityPage key={route.id} id={route.id} version={version} />;
   else if (route.name === 'kind') view = <KindPage key={route.kind} kind={route.kind} version={version} />;
   else if (route.name === 'questions') view = <QuestionsPage version={version} />;
@@ -798,6 +822,10 @@ export function KnowledgeApp(): ReactElement {
   else if (route.name === 'catalogue') view = <CataloguePage status={status} />;
   else if (route.name === 'glossary') view = <GlossaryPage version={version} />;
   else if (route.name === 'statement') view = <StatementPage key={`${route.id}\0${route.sentence}\0${route.turn}`} id={route.id} sentence={route.sentence} turn={route.turn} version={version} />;
+  else if (route.name === 'folder') view = <FolderPage key={`${route.path}\0${route.after ?? ''}`} path={route.path} after={route.after} version={version} />;
+  else if (route.name === 'file') view = <FilePage key={`${route.path}\0${route.after?.walk ?? ''}\0${route.after?.commit ?? ''}`} path={route.path} after={route.after} version={version} />;
+  else if (route.name === 'commit') view = <CommitPage key={route.hash} hash={route.hash} version={version} />;
+  else if (route.name === 'run') view = <RunPage key={route.run ?? ''} run={route.run} version={version} />;
   else view = <SourcePage key={`${route.repo ?? ''}:${route.path}`} repo={route.repo} path={route.path} line={route.line} />;
   return (
     <TooltipProvider delayDuration={200} skipDelayDuration={100}>

@@ -4,7 +4,13 @@
  * outbox.*, modules.*, payments.cycle.*, database.*, interaction.* and hotspot items) and the generated repository's own
  * files, never the engine's output.
  */
-import { afterAll, beforeAll, describe, expect, test } from 'bun:test';
+import { afterAll, beforeAll, describe as bunDescribe, expect, test as bunTest } from 'bun:test';
+import { skippedBecauseOutOfWorkflow } from './fill-skip-list.js';
+
+// The cases read a stage out of this step's list: they come back with that stage's step (test/fill-skip-list.ts).
+const skippedSuite = skippedBecauseOutOfWorkflow(import.meta.path);
+const describe = bunDescribe.skipIf(skippedSuite !== undefined);
+const test = bunTest.skipIf(skippedSuite !== undefined);
 import { mkdirSync, mkdtempSync, readFileSync, rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
@@ -28,6 +34,8 @@ let work: string;
 let product: KnowledgeProduct;
 
 beforeAll(async () => {
+  // The store the cases read is filled by stages out of this step's list: no fixture is made or closed.
+  if (skippedSuite !== undefined) return;
   if (skip) return;
   work = mkdtempSync(join(tmpdir(), 'madarch-knowledge-diagrams-'));
   const repository = generateTrainingRepository(join(work, 'repo'));
@@ -41,6 +49,8 @@ beforeAll(async () => {
 }, 900_000);
 
 afterAll(async () => {
+  // The store the cases read is filled by stages out of this step's list: no fixture is made or closed.
+  if (skippedSuite !== undefined) return;
   if (skip) return;
   await product.close();
   rmSync(work, { recursive: true, force: true });

@@ -8,10 +8,14 @@ import { mkdtempSync, mkdirSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { dirname, join } from 'node:path';
 import { afterAll, describe, expect, test } from 'bun:test';
+import { createEngineStageRegistry } from '../src/fill/stages/index.js';
 import { STARTER_FILES } from '../src/knowledge/seed.js';
 import { WORKFLOWS_FILE } from '../src/knowledge/workflows.js';
 
 const SCRIPT = join(import.meta.dir, '..', 'scripts', 'check-workflows.ts');
+
+/** The stages the engine's registry holds, as the refusal names them: read from the registry, never a second list. */
+const ENGINE_STAGES = createEngineStageRegistry().all().map((stage) => stage.id).join(', ');
 
 const made: string[] = [];
 afterAll(() => {
@@ -66,7 +70,7 @@ describe('the workflow check over the starter set', () => {
     const folder = product(text);
     const done = run('--folder', folder);
     expect(done.code).toBe(1);
-    const expected = 'workflow "first-fill" stage "teleport": the engine\'s stage registry holds no stage "teleport" (its stages are boundaries, build-configuration, code-facts, codegraph, data-model, data-model-aggregate, doc-intent, document-index, history, intent-history, inventory, modules, narrative, operations, operations-links, overview, recovery, snapshot, state-machines, syntax, understanding)';
+    const expected = `workflow "first-fill" stage "teleport": the engine's stage registry holds no stage "teleport" (its stages are ${ENGINE_STAGES})`;
     expect(done.err.trim()).toBe(`${join(folder, WORKFLOWS_FILE)}:${lineOf(text, '- teleport')}: ${expected}`);
   }, 30_000);
 

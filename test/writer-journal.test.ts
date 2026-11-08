@@ -5,7 +5,13 @@
  * the progress block shows (`UnitOutcome.calls`). No model is involved and no graph is needed: the calls below are
  * the ones the tools answer before they read anything.
  */
-import { afterEach, describe, expect, test } from 'bun:test';
+import { afterEach, describe as bunDescribe, expect, test as bunTest } from 'bun:test';
+import { skippedBecauseOutOfWorkflow } from './fill-skip-list.js';
+
+// The cases read a stage out of this step's list: they come back with that stage's step (test/fill-skip-list.ts).
+const skippedSuite = skippedBecauseOutOfWorkflow(import.meta.path);
+const describe = bunDescribe.skipIf(skippedSuite !== undefined);
+const test = bunTest.skipIf(skippedSuite !== undefined);
 import { appendFileSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
@@ -22,6 +28,8 @@ const folders: string[] = [];
 const closers: (() => Promise<void>)[] = [];
 
 afterEach(async () => {
+  // The store the cases read is filled by stages out of this step's list: no fixture is made or closed.
+  if (skippedSuite !== undefined) return;
   for (const close of closers.splice(0)) await close().catch(() => undefined);
   for (const folder of folders.splice(0)) rmSync(folder, { recursive: true, force: true });
 });

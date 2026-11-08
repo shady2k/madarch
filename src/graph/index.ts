@@ -41,8 +41,8 @@ import { GraphClockBehind } from './errors.js';
 export type { GraphOrigin } from './errors.js';
 export { GRAPH_TABLES } from './schema.js';
 export {
-  RECORD_EDGE_KINDS, RECORD_NODE_KINDS, RECORD_TABLES, RecordGap, authorKeyOf, commitFacts, createRecordSchema, fileFacts, fileHistory, folderOfPath, instantOf, listDirectories, listFiles, listRepositories, publishHistory, publishTree, recordSizes, repositoryFacts,
-  type CommitRecord, type FileRecord, type HistoryCommit, type HistoryPublish, type RecordCounts, type TreeFile, type TreeGitlink, type TreePublish,
+  RECORD_EDGE_KINDS, RECORD_NODE_KINDS, RECORD_TABLES, RecordGap, authorKeyOf, commitFacts, commitWithPaths, createRecordSchema, fileFacts, fileHistory, folderChildrenOf, folderFiles, folderOfPath, instantOf, listDirectories, listFiles, listRepositories, publishHistory, publishTree, recordSizes, repositoryFacts,
+  type CommitRecord, type FileHistoryRow, type FileRecord, type HistoryCommit, type HistoryPublish, type RecordCounts, type TouchedRecord, type TreeFile, type TreeGitlink, type TreePublish,
 } from './records.js';
 export { ALL_STATES, plusMicrosecond, type Instant, type StateSpan } from './time.js';
 export { CODE_NODE_KINDS, CODE_PREFIX, CODE_RELATIONS, ENGINE_NODE_KINDS, ENGINE_PREFIX, ENGINE_RELATIONS, CALLS, CONTAINS, STATE_KIND, CONTENT_KIND, CLAIM_KIND, ACCEPTANCE_KIND, type GraphRegistry, type RelationDeclaration } from './vocabulary.js';

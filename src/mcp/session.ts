@@ -23,6 +23,7 @@ import { recordCall } from './journal.js';
 import { RepositoryReads } from './layer.js';
 import { RepositoryPages, repositoryQuestions } from './pages.js';
 import { callRepoTool, type RepoToolAnswer } from './tools.js';
+import { callRecordTool, isRecordTool, laterStepAnswer, type RecordContext, type RecordToolAnswer } from './records.js';
 
 /** What a session needs to open. */
 export interface SessionOptions {
@@ -35,7 +36,20 @@ export interface SessionOptions {
   readonly progress?: (() => FillProgress) | undefined;
 }
 
-/** One open repository, serving the seven tools. */
+/** A record answer in the shape every served tool answers: the body, and what it read. */
+async function recordAnswer(answered: RecordToolAnswer): Promise<RepoToolAnswer> {
+  const body = answered.answer as Record<string, unknown>;
+  const covered: string[] = [];
+  if (typeof body['path'] === 'string') covered.push(body['path']);
+  for (const key of ['files', 'changed', 'commits'] as const) {
+    const rows = body[key];
+    if (!Array.isArray(rows)) continue;
+    for (const row of rows) if (typeof row === 'object' && row !== null && typeof (row as { path?: unknown }).path === 'string') covered.push((row as { path: string }).path);
+  }
+  return { answer: body, isError: answered.isError, reads: [], covered: [...new Set(covered)].sort() };
+}
+
+/** One open repository, serving the five tools of this step and the seven of decision 0032. */
 export class RepositorySession {
   private graph: RepositoryGraph;
   private revision: Revision;
@@ -91,6 +105,10 @@ export class RepositorySession {
   /**
    * One tool call, answered from the store as it is now.
    *
+   * The five tools of this step read the record tables (`callRecordTool`), the seven of decision
+   * 0032 read the temporal graph when the store holds one, and a tool whose step this fill does not
+   * run answers that the step has not run, naming it (madarch-8bdc.2.5, item 1).
+   *
    * Every answer names the revision it was read at, refusals and failures included, and it gets that `source`
    * here, in one place: the answering functions show the source they were handed, and a call that never reached
    * them still says which commit it was asked about (madarch-ztyq.10 review).
@@ -103,12 +121,19 @@ export class RepositorySession {
     let revision = this.revision;
     const source = (): Record<string, unknown> => {
       const fill = this.graph.fill;
+      const view = this.graph.view;
       return {
         repository: this.absolute,
         // The as-is commit: the one the store's records name, never the checkout's HEAD guessed from the other side.
         commit: this.graph.commit,
         branch: revision.branch,
-        at: this.graph.view.at,
+        // The instant the temporal view reads at, when the store holds one: a store this step's fill wrote
+        // holds none, and its answers are the records' own.
+        ...(view === null ? {} : { at: view.at }),
+        // The checkout's HEAD, when it is not the commit the store holds; every path the working tree
+        // changed since it, under both names the two families of tools have used (`changed`, `dirty`).
+        ...(this.graph.commit === revision.commit ? {} : { head: revision.commit }),
+        changed: revision.dirty.map((one) => ({ path: one.path, status: one.status })),
         dirty: revision.dirty.map((one) => ({ path: one.path, status: one.status })),
         // What the fill that built this graph left out is named on every answer: a reader must never take a
         // partial graph for the whole one (decision 0033, items 18 and 19).
@@ -119,14 +144,34 @@ export class RepositorySession {
     let questionsAnswered = 0;
     try {
       revision = await this.catchUp();
-      const reads = new RepositoryReads(this.graph.view, this.absolute, this.graph.commit);
-      const pages = new RepositoryPages(this.graph.view, this.absolute, this.graph.commit);
-      answered = await callRepoTool(tool, argumentsValue, {
-        reads,
-        pages,
-        questions: async () => await repositoryQuestions(pages),
-        source: source(),
-      });
+      const view = this.graph.view;
+      if (isRecordTool(tool)) {
+        const context: RecordContext = {
+          owner: this.graph.owner,
+          repository: this.graph.repositoryName,
+          source: {
+            repository: this.absolute,
+            commit: this.graph.commit,
+            branch: revision.branch,
+            head: this.graph.commit === revision.commit ? null : revision.commit,
+            changed: revision.dirty.map((one) => ({ path: one.path, status: one.status })),
+          },
+        };
+        answered = await recordAnswer(await callRecordTool(tool, argumentsValue, context));
+      } else if (view === null) {
+        // No temporal graph stands in this store: the tool of a later step names that step rather
+        // than answering an empty page from a graph this fill never published.
+        answered = await recordAnswer(laterStepAnswer(tool, this.graph.repositoryName));
+      } else {
+        const reads = new RepositoryReads(view, this.absolute, this.graph.commit);
+        const pages = new RepositoryPages(view, this.absolute, this.graph.commit);
+        answered = await callRepoTool(tool, argumentsValue, {
+          reads,
+          pages,
+          questions: async () => await repositoryQuestions(pages),
+          source: source(),
+        });
+      }
       if (!answered.isError) {
         const body = answered.answer as Record<string, unknown>;
         // An ambiguous name is a question asked and not answered: the caller must ask again, by another name.

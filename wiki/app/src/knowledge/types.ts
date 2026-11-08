@@ -197,6 +197,54 @@ export type EntityListing = { kind: string; total: number; rows: EntityRef[]; ne
 /** One page a refresh changed, as the top bar lists it: the page's id and the title its page shows. */
 export type ChangedPage = { id: string; title: string };
 
+/** The counts the repository page states. */
+export type RepositoryCounts = { files: number; commits: number; folders: number };
+
+/** The repository the graph holds, as the wiki's pages state it (madarch-8bdc.2.5, item 3). */
+export type RepositoryFactsView = {
+  name: string;
+  url: string;
+  defaultBranch: string | null;
+  asIsCommit: string | null;
+  counts: RepositoryCounts;
+  gaps: { what: string; reason: string }[];
+  steps: { tree: boolean; history: boolean };
+};
+
+/** One step of the newest run, as its trace states it. */
+export type FillStepView = {
+  step: string;
+  wallMs: number;
+  peakRssBytes: number;
+  startRssBytes: number;
+  slowest: { name: string; count: number; selfMs: number }[];
+};
+
+/** The newest run's trace: its wall clock, its spans and its steps. */
+export type FillRunView = {
+  runId: string;
+  startedAt: string;
+  finishedAt: string;
+  wallMs: number;
+  spans: number;
+  slowest: { name: string; count: number; selfMs: number }[];
+  steps: FillStepView[];
+};
+
+/** What a running fill has done so far, read from its trace. */
+export type FillProgressView = {
+  spans: number;
+  planned: number;
+  published: number;
+  failed: number;
+  blocked: number;
+  stages: Record<string, { planned: number; published: number; failed: number; blocked: number }>;
+  last: string | null;
+};
+
+/** A failed run's error, with the file, the line and the path it stands at. */
+export type FillErrorView = { message: string; file?: string; line?: number; path?: string };
+
 export type FillState = {
   rebuilt?: 'extractors-changed';
   /** `paused` and `stopped` are a person's press (madarch-m38l.17): a paused run ends at the next page boundary and is
@@ -215,6 +263,16 @@ export type FillState = {
   gaps?: number;
   /** The pages the run changed; absent when it did not say, empty when it changed none (madarch-u3vw2). */
   changed?: ChangedPage[];
+  /** What a running fill has done so far, read from its run's trace (madarch-8bdc.2.5, item 2). */
+  progress?: FillProgressView;
+  /** The counts the run published: the end state's numbers. */
+  counts?: RepositoryCounts;
+  /** The newest run's trace, once the store holds one: its time and its steps. */
+  run?: FillRunView;
+  /** Why the run failed, with the file, the line and the path it stands at. */
+  error?: FillErrorView;
+  /** The declared repositories this run could not read, each with its path and the state it is in. */
+  unread?: { repository: string; path: string; reason: string }[];
 };
 
 export type WriterUnit = {
@@ -285,6 +343,62 @@ export type WikiStatus = {
   loop?: { questionsOpen: number; questionsAnswered: number; correctionsOpen: number; tasksOpen?: number; problemsOpen?: number };
   /** What the current starter set holds that this product's edited manifest lacks (the Problems page offers it). */
   starterOffers?: number;
+  /** The repository this step's graph holds: the home page is this repository's page while it stands. */
+  repository?: RepositoryFactsView;
+};
+
+/** One file as the repository pages show it. */
+export type PageFile = {
+  path: string;
+  mode: string;
+  blob: string;
+  bytes: number;
+  lines: number | null;
+  form: 'text' | 'binary';
+  language: string;
+  candidates: string[];
+};
+
+/** One folder's page: its own subfolders and one page of its own files. */
+export type FolderPageModel = {
+  repository: string;
+  asIsCommit: string | null;
+  folder: string;
+  parent: string | null;
+  folders: string[];
+  files: PageFile[];
+  next: string | null;
+};
+
+/** One commit of a file's history. */
+export type PageHistoryRow = { commit: string; change: string; added: number | null; removed: number | null; previousPath: string | null; date: string; subject: string; walk: number };
+
+/** One file's page: every fact of the file and one page of its history. */
+export type FilePageModel = {
+  repository: string;
+  asIsCommit: string | null;
+  file: PageFile;
+  created: { date: string; commit: string; author: string } | null;
+  modified: { date: string; commit: string; author: string } | null;
+  commitCount: number;
+  authors: string[];
+  history: PageHistoryRow[];
+  next: { walk: number; commit: string } | null;
+};
+
+/** One commit's page: its facts and the paths it changed. */
+export type CommitPageModel = {
+  repository: string;
+  asIsCommit: string | null;
+  hash: string;
+  author: { name: string; email: string };
+  authorDate: string;
+  authorOffsetMin: number;
+  commitDate: string;
+  commitOffsetMin: number;
+  subject: string;
+  parents: string[];
+  changed: { path: string; change: string; added: number | null; removed: number | null; previousPath: string | null }[];
 };
 
 export type SourceFile = { history?: HistoryContext; repo: string | null; path: string; language: string; commit: string | null; text: string };

@@ -9,15 +9,10 @@ import { execFileSync } from 'node:child_process';
 import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import path from 'node:path';
-import { afterAll, beforeAll, describe as bunDescribe, expect, test as bunTest } from 'bun:test';
+import { afterAll, beforeAll, describe, expect, test } from 'bun:test';
 import { RepositorySession } from '../src/mcp/session.js';
 import { answerRepositoryMcpMessage, type PendingRepository } from '../src/mcp/server.js';
-import { skippedBecauseOutOfWorkflow } from './fill-skip-list.js';
-
-// The cases read a stage out of this step's list: they come back with that stage's step (test/fill-skip-list.ts).
-const skippedSuite = skippedBecauseOutOfWorkflow(import.meta.path);
-const describe = bunDescribe.skipIf(skippedSuite !== undefined);
-const test = bunTest.skipIf(skippedSuite !== undefined);
+import { SERVED_TOOL_NAMES } from '../src/mcp/server.js';
 
 const REPOSITORY = mkdtempSync(path.join(tmpdir(), 'madarch-mcp-start-repo-'));
 const HOME = mkdtempSync(path.join(tmpdir(), 'madarch-mcp-start-home-'));
@@ -32,8 +27,6 @@ const put = (relativePath: string, text: string): void => {
 const CODE_FILES = 6;
 
 beforeAll(() => {
-  // The store the cases read is filled by stages out of this step's list: no fixture is made or closed.
-  if (skippedSuite !== undefined) return;
   const git = (...args: string[]): void => { execFileSync('git', args, { cwd: REPOSITORY, env: GIT_ENV }); };
   git('init', '-q', '-b', 'main');
   put('package.json', `${JSON.stringify({ name: 'start-kit', version: '1.0.0', type: 'module' }, null, 2)}\n`);
@@ -49,21 +42,24 @@ beforeAll(() => {
 }, 120_000);
 
 afterAll(() => {
-  // The store the cases read is filled by stages out of this step's list: no fixture is made or closed.
-  if (skippedSuite !== undefined) return;
   rmSync(REPOSITORY, { recursive: true, force: true });
   rmSync(HOME, { recursive: true, force: true });
 });
 
 describe('a served checkout', () => {
-  test('opens and answers its own symbol', async () => {
+  test('opens and answers the store the one fill published, naming the step of a tool it does not reach', async () => {
     const session = await RepositorySession.open({ repository: REPOSITORY, env: { ...process.env, MADARCH_HOME: HOME } });
     try {
-      const answer = await session.call('get_symbol', { name: 'f000' });
-      expect(answer.isError).toBe(false);
-      const text = JSON.stringify(answer.answer);
-      expect(text).toContain('f000');
-      expect(text).not.toContain('startup-failed');
+      // The five tools of this step answer from the record store: the fill's own tree at the checkout's HEAD.
+      const files = await session.call('list_files', { prefix: 'src/' });
+      expect(files.isError).toBe(false);
+      const body = files.answer as Record<string, unknown>;
+      expect((body['files'] as { path: string }[]).map((file) => file.path)).toContain('src/f000.ts');
+      expect((body['source'] as Record<string, unknown>)['commit']).toBe(execFileSync('git', ['rev-parse', 'HEAD'], { cwd: REPOSITORY, encoding: 'utf8' }).trim());
+      // A tool of a later step names its step rather than answering an empty result.
+      const symbol = await session.call('get_symbol', { name: 'f000' });
+      expect(symbol.isError).toBe(true);
+      expect((symbol.answer as Record<string, unknown>)['error']).toMatchObject({ code: 'step-not-run', step: 'syntax' });
     } finally {
       await session.close();
     }
@@ -75,10 +71,18 @@ describe('a served checkout', () => {
     try {
       const initialized = await answerRepositoryMcpMessage({ jsonrpc: '2.0', id: 1, method: 'initialize', params: { protocolVersion: '2025-06-18' } }, pending);
       expect((initialized?.['result'] as Record<string, unknown>)['serverInfo']).toMatchObject({ name: 'madarch' });
-      const called = await answerRepositoryMcpMessage({ jsonrpc: '2.0', id: 2, method: 'tools/call', params: { name: 'get_context', arguments: { entity: 'code.contract:contracts/openapi/items.yaml', purpose: 'domain' } } }, pending);
-      const result = called?.['result'] as Record<string, unknown>;
-      const text = (result['content'] as { text: string }[])[0]!.text;
-      expect(text).not.toContain('startup-failed');
+      const listed = await answerRepositoryMcpMessage({ jsonrpc: '2.0', id: 2, method: 'tools/list', params: {} }, pending);
+      expect(((listed?.['result'] as Record<string, unknown>)['tools'] as { name: string }[]).map((tool) => tool.name)).toEqual([...SERVED_TOOL_NAMES]);
+      // A client that asks while the store is being filled is told so and asks again (madarch-ztyq.10 review).
+      let text = '';
+      for (let attempt = 0; attempt < 120; attempt++) {
+        const called = await answerRepositoryMcpMessage({ jsonrpc: '2.0', id: 3 + attempt, method: 'tools/call', params: { name: 'get_file', arguments: { path: 'contracts/openapi/items.yaml' } } }, pending);
+        const result = called?.['result'] as Record<string, unknown>;
+        text = ((result['content'] as { text: string }[])[0]!.text);
+        if (!text.includes('graph-building')) break;
+        await new Promise((resolve) => setTimeout(resolve, 500));
+      }
+      expect(text).toContain('"path":"contracts/openapi/items.yaml"');
       expect(text).not.toContain('startup-failed');
     } finally {
       await (await ready).close();

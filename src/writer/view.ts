@@ -87,6 +87,15 @@ export class GraphView implements GroundResolver {
 
   private constructor(private readonly owner: DatabaseOwner, private readonly store: GraphStore, readonly at: string) {}
 
+  /**
+   * Opens the view at one named instant, for a store that holds no node version yet: a fresh store a served checkout
+   * resolves has the graph's tables and no reading, and an answer at any instant is the empty one. The instant is the
+   * caller's, so the view says which moment its empty answers were read at.
+   */
+  static at(owner: DatabaseOwner, store: GraphStore, instant: string): GraphView {
+    return new GraphView(owner, store, instant);
+  }
+
   /** Opens the view at the last commit the fill listed files for; refuses an empty graph with the way out. */
   static async open(owner: DatabaseOwner, store: GraphStore): Promise<GraphView> {
     // The last commit's instant: the newest start of any node version, or the newest end a sweep set (a last commit that only deletes files). The static stages publish the files early and the readings that hang from them later (decision 0033, item 15), so the instant is the graph's newest record and not one producer's file listing: a view pinned to the file lister's own instant would read the graph before the readings it opens on.

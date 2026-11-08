@@ -14,16 +14,24 @@
  */
 import { answerUnitMcpMessage, serveUnitMcp, type McpToolDefinition } from '../fill/unit-mcp.js';
 import { runningVersion } from '../product/version.js';
-import { REPO_TOOL_NAMES, REPO_TOOLS, callRepoTool } from './tools.js';
+import { REPO_TOOLS, type RepoToolAnswer } from './tools.js';
+import { RECORD_TOOLS } from './records.js';
 import { RepositorySession } from './session.js';
 import { readLatestFillProgress, type FillProgress } from '../obs/progress.js';
 import { bytesOf } from '../obs/trace.js';
 import { closeTrace, openTrace, runInTrace, withSpan, type TraceRun } from '../obs/trace.js';
 import { repositoryStoreFolder } from './graph.js';
+import { readRevision } from './git.js';
 import { join } from 'node:path';
 
 /** What this server calls itself in `initialize`, after the protocol's own fields. */
 export const REPO_MCP_INFO: { readonly name: string; readonly version: string } = { name: 'madarch', version: runningVersion() };
+
+/** Every tool this server serves: this step's five, then the seven of decision 0032 whose step has not run. */
+const SERVED_TOOLS: readonly McpToolDefinition[] = [...RECORD_TOOLS, ...REPO_TOOLS];
+
+/** The served tools' names, in the served order. */
+export const SERVED_TOOL_NAMES: readonly string[] = SERVED_TOOLS.map((tool) => tool.name);
 
 /**
  * A session that is still opening: `initialize` and `tools/list` answer from the
@@ -33,13 +41,24 @@ export const REPO_MCP_INFO: { readonly name: string; readonly version: string } 
  */
 export interface PendingRepository {
   readonly repository: string;
-  readonly ready: Promise<RepositorySession>;
+  readonly ready: Promise<ToolCalling>;
   /** The fill's state so far, read from its trace: what the `graph building` answer says. */
   readonly progress?: () => FillProgress;
 }
 
+/**
+ * What answers a tool call: one session, whichever store it reads. The served
+ * session reads this step's record store (`RepositoryRecordSession`); a caller
+ * that hands its own session keeps the same shape, so the protocol layer is the
+ * same over either.
+ */
+interface ToolCalling {
+  call(tool: string, argumentsValue: unknown): Promise<RepoToolAnswer>;
+  close(): Promise<void>;
+}
+
 /** What answers the protocol: a session that is open, or one that is still opening. */
-export type RepositoryProvider = RepositorySession | PendingRepository;
+export type RepositoryProvider = ToolCalling | PendingRepository;
 
 /** The answer a tool call gets while its graph is being built. */
 function buildingAnswer(repository: string, progress?: FillProgress): Record<string, unknown> {
@@ -66,7 +85,7 @@ function failedAnswer(repository: string, failure: unknown): Record<string, unkn
 }
 
 /** What a provider holds now: an open session, a start still in flight, or a start that failed for good. */
-type Opened = { readonly session: RepositorySession } | { readonly failure: unknown } | { readonly opening: true };
+type Opened = { readonly session: ToolCalling } | { readonly failure: unknown } | { readonly opening: true };
 
 /**
  * The session a provider holds now, without waiting for one that is still
@@ -123,26 +142,28 @@ export interface RepositoryMcpOptions {
 export async function serveRepositoryMcp(options: RepositoryMcpOptions): Promise<number> {
   const stderr = options.errorOutput ?? process.stderr;
   const log = (line: string): void => { stderr.write(`${line}\n`); };
+  // The store the one fill publishes, resolved by the one resolver every surface uses
+  // (`repositoryStoreFolder`): the wiki's button fills it, `madarch mcp` reads it.
   const store = repositoryStoreFolder(options.repository, options.env);
-  // The fill's own trace is written beside the graph as it happens, and the building answer reads it: a
-  // person sees how far the fill is without opening the store. The server's own trace holds its tool calls.
-  const progress = (): FillProgress => readLatestFillProgress(join(store, 'graph'));
+  // The fill's own trace is written beside the store as it happens, and the building answer reads
+  // the newest one: while a fill runs its trace is the newest in the store, and it is the only
+  // moment this answer is read. The server's own trace (its tool calls) is written beside it.
+  const progress = (): FillProgress => readLatestFillProgress(store);
   const sessionTrace = openTrace({ store, runId: `server-${String(process.pid)}` });
   const ready = RepositorySession.open({
     repository: options.repository,
     ...(options.env === undefined ? {} : { env: options.env }),
     log,
-    progress,
   });
   let failure: unknown;
   ready.then((session) => {
     const revision = session.current;
-    log(`madarch mcp: serving ${revision.branch} at ${revision.commit.slice(0, 12)}${revision.dirty.length === 0 ? '' : ` with ${revision.dirty.length} changed file(s)`}; tools: ${REPO_TOOL_NAMES.join(', ')}`);
+    log(`madarch mcp: serving ${revision.commit.slice(0, 12)}${revision.dirty.length === 0 ? '' : ` with ${revision.dirty.length} changed file(s)`}; tools: ${SERVED_TOOL_NAMES.join(', ')}`);
   }, (error: unknown) => { failure = error; log(error instanceof Error ? error.message : String(error)); });
   const provider: PendingRepository = { repository: options.repository, ready, progress };
   try {
     await serveUnitMcp({
-      tools: REPO_TOOLS as readonly McpToolDefinition[],
+      tools: [...RECORD_TOOLS, ...REPO_TOOLS] as readonly McpToolDefinition[],
       info: REPO_MCP_INFO,
       call: (tool, argumentsValue) => answerCall(options.repository, provider, tool, argumentsValue, sessionTrace),
       streams: { input: options.input ?? process.stdin, write: (text: string) => { (options.output ?? process.stdout).write(text); } },
@@ -160,7 +181,7 @@ export async function serveRepositoryMcp(options: RepositoryMcpOptions): Promise
  */
 export async function answerRepositoryMcpMessage(message: unknown, provider: RepositoryProvider, info: { name: string; version: string } = REPO_MCP_INFO): Promise<Record<string, unknown> | null> {
   return await answerUnitMcpMessage(message, {
-    tools: REPO_TOOLS,
+    tools: SERVED_TOOLS,
     info,
     call: (tool, argumentsValue) => answerCall('ready' in provider ? provider.repository : '', provider, tool, argumentsValue),
   });

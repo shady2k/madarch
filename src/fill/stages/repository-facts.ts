@@ -15,6 +15,7 @@
 import { StringDecoder } from 'node:string_decoder';
 import * as languages from 'linguist-languages';
 import { withSpan } from '../../obs/trace.js';
+import { raise } from '../../model/raise.js';
 import { Type } from 'typebox';
 import { byCodePoint } from '../../model/order.js';
 import type { SnapshotSource } from '../snapshot.js';
@@ -59,7 +60,7 @@ async function gitStream(root: string, args: readonly string[], onChunk: (chunk:
         env: { ...process.env, LC_ALL: 'C', GIT_OPTIONAL_LOCKS: '0' },
       });
     } catch (error) {
-      throw new Error(`the repository at ${root} could not run "git ${args.join(' ')}": ${error instanceof Error ? error.message : String(error)} (src/fill/stages/repository-facts.ts)`);
+      raise(`the repository at ${root} could not run "git ${args.join(' ')}": ${error instanceof Error ? error.message : String(error)}`);
     }
     const errors: Uint8Array[] = [];
     const drained = (async () => { for await (const chunk of process_.stderr as ReadableStream<Uint8Array>) errors.push(chunk); })();
@@ -74,7 +75,7 @@ async function gitStream(root: string, args: readonly string[], onChunk: (chunk:
     span.setAttribute('process.exitCode', code);
     if (code !== 0) {
       const message = Buffer.concat(errors.map((one) => Buffer.from(one))).toString('utf8').trim();
-      throw new Error(`the repository at ${root} could not run "git ${args.join(' ')}": git exited ${String(code)}${message === '' ? '' : `: ${message.slice(0, GIT_ERROR_BYTES)}${message.length > GIT_ERROR_BYTES ? ' (cut)' : ''}`} (src/fill/stages/repository-facts.ts)`);
+      raise(`the repository at ${root} could not run "git ${args.join(' ')}": git exited ${String(code)}${message === '' ? '' : `: ${message.slice(0, GIT_ERROR_BYTES)}${message.length > GIT_ERROR_BYTES ? ' (cut)' : ''}`}`);
     }
     return bytes;
   });
@@ -145,11 +146,21 @@ function escapedOf(bytes: Uint8Array): string {
   return out;
 }
 
-/** The empty tree's id, the base `git diff` compares a commit against: git's own answer, once per process. */
-let emptyTree: Promise<string> | undefined;
-function emptyTreeOf(root: string): Promise<string> {
-  emptyTree ??= gitText(root, ['hash-object', '-t', 'tree', '/dev/null']).then((text) => text.trim());
-  return emptyTree;
+/**
+ * The empty tree's id per object format: the base `git diff` compares a commit against, git's own answer, kept once
+ * per format. A repository of another object format (sha256 beside sha1) has another empty tree, so the id is keyed
+ * by the format git reports for the repository, never shared across formats.
+ */
+const emptyTrees = new Map<string, Promise<string>>();
+async function emptyTreeOf(root: string): Promise<string> {
+  const format = (await gitText(root, ['rev-parse', '--show-object-format'])).trim();
+  const held = emptyTrees.get(format);
+  if (held !== undefined) return await held;
+  const made = gitText(root, ['hash-object', '-t', 'tree', '/dev/null']).then((text) => text.trim());
+  emptyTrees.set(format, made);
+  // A read that failed leaves no id behind: the next repository of this format asks git again.
+  made.catch(() => { if (emptyTrees.get(format) === made) emptyTrees.delete(format); });
+  return await made;
 }
 
 // ---- the language dataset --------------------------------------------------
@@ -268,13 +279,14 @@ export async function readRepositoryTree(pin: RepositoryAt): Promise<TreePublish
   /** One `added\tremoved\tpath` record's counts, or undefined where the record is no such line. */
   const countsOf = (record: Buffer): { added: number | null; removed: number | null; pathBytes: Buffer } | undefined => {
     if (record.length === 0) return undefined;
-    const line = record.toString('latin1');
+    const counted = entryWithoutNewline(record);
+    const line = counted.toString('latin1');
     const first = line.indexOf('\t');
     const second = first < 0 ? -1 : line.indexOf('\t', first + 1);
     if (second < 0) return undefined;
     const added = line.slice(0, first);
     const removed = line.slice(first + 1, second);
-    return { added: added === '-' ? null : Number(added), removed: removed === '-' ? null : Number(removed), pathBytes: record.subarray(second + 1) };
+    return { added: added === '-' ? null : Number(added), removed: removed === '-' ? null : Number(removed), pathBytes: counted.subarray(second + 1) };
   };
   const numstatRecords: Buffer[] = [];
   const numstatSplit = byteSplit();
@@ -366,18 +378,38 @@ function splitBytes(bytes: Buffer, separator: number): Buffer[] {
 }
 
 /**
- * Splits one log stream into its commits as it arrives: a header record, then the diff
- * entries the next header ends. The records are bytes; a field or a path git wrote in
- * bytes no UTF-8 can hold is escaped into its field and named in a gap, so a reader sees
- * the exact bytes and never a replacement character that hides them.
+ * One commit header's fields, in order: the first six are cut at their 0x1f, and the subject is the rest of the
+ * record — git separates the fields with 0x1f, and a subject holding that byte is the subject as git states it,
+ * never truncated into extra fields. Fewer than seven fields is no header, and answers the parts it read.
+ */
+function headerFields(bytes: Buffer): Buffer[] {
+  const parts: Buffer[] = [];
+  let from = 0;
+  while (parts.length < 6) {
+    const at = bytes.indexOf(0x1f, from);
+    if (at < 0) return parts;
+    parts.push(bytes.subarray(from, at));
+    from = at + 1;
+  }
+  parts.push(bytes.subarray(from));
+  return parts;
+}
+
+/**
+ * Splits one log stream into its commits as it arrives: a header record, then the diff entries the next header
+ * ends. The records are bytes, and a path is kept exactly as git wrote it — git puts one newline in front of an
+ * entry's *first* record (its status or its counts), and a path that begins with a newline is that path. A field or
+ * a path in bytes no UTF-8 can hold is escaped into its field and named in a gap, so a reader sees the exact bytes
+ * and never a replacement character that hides them.
  */
 function logStreams(gaps: RepositoryGap[]): { push(chunk: Uint8Array): void; done(): { header: LogHeader; entries: Buffer[] }[] } {
   const split = byteSplit();
   const out: { header: LogHeader; entries: Buffer[] }[] = [];
   const take = (record: Buffer): void => {
-    const bytes = record[0] === 0x0a ? record.subarray(1) : record;
-    if (bytes[0] === 0x1f) {
-      const fields = splitBytes(bytes.subarray(1), 0x1f);
+    // A header may carry git's entry newline in front of it; anything else is an entry record, kept as it stands.
+    const leading = record[0] === 0x0a ? record.subarray(1) : record;
+    if (leading[0] === 0x1f) {
+      const fields = headerFields(leading.subarray(1));
       if (fields.length < 7) return;
       const hash = textOf(fields[0]!) ?? escapedOf(fields[0]!);
       const field = (value: Buffer, name: string): string => {
@@ -403,13 +435,18 @@ function logStreams(gaps: RepositoryGap[]): { push(chunk: Uint8Array): void; don
       });
       return;
     }
-    if (bytes.length === 0 || out.length === 0) return;
-    out[out.length - 1]!.entries.push(bytes);
+    if (record.length === 0 || out.length === 0) return;
+    out[out.length - 1]!.entries.push(record);
   };
   return {
     push(chunk: Uint8Array): void { for (const record of split.push(chunk)) take(record); },
     done(): { header: LogHeader; entries: Buffer[] }[] { for (const record of split.done()) take(record); return out; },
   };
+}
+
+/** One entry record without git's entry newline: the first record of an entry carries it, a path never does. */
+function entryWithoutNewline(record: Buffer): Buffer {
+  return record[0] === 0x0a ? record.subarray(1) : record;
 }
 
 /**
@@ -439,13 +476,14 @@ export async function readRepositoryHistory(pin: RepositoryAt): Promise<HistoryP
   /** One `added\tremoved\tpath` record's counts, and the bytes after its second tab. */
   const countsOf = (record: Buffer): { added: number | null; removed: number | null; pathBytes: Buffer } | undefined => {
     if (record.length === 0) return undefined;
-    const line = record.toString('latin1');
+    const counted = entryWithoutNewline(record);
+    const line = counted.toString('latin1');
     const first = line.indexOf('\t');
     const second = first < 0 ? -1 : line.indexOf('\t', first + 1);
     if (second < 0) return undefined;
     const added = line.slice(0, first);
     const removed = line.slice(first + 1, second);
-    return { added: added === '-' ? null : Number(added), removed: removed === '-' ? null : Number(removed), pathBytes: record.subarray(second + 1) };
+    return { added: added === '-' ? null : Number(added), removed: removed === '-' ? null : Number(removed), pathBytes: counted.subarray(second + 1) };
   };
   for (const stream of counts) {
     for (let at = 0; at < stream.entries.length; at += 1) {
@@ -466,7 +504,7 @@ export async function readRepositoryHistory(pin: RepositoryAt): Promise<HistoryP
     const touched: Touched[] = [];
     for (let at = 0; at < stream.entries.length; at += 1) {
       const entry = stream.entries[at]!;
-      const status = /^([ACDMRT])(\d*)$/.exec(entry.toString('latin1'));
+      const status = /^([ACDMRT])(\d*)$/.exec(entryWithoutNewline(entry).toString('latin1'));
       if (status === null) continue;
       const change = (status[1] === 'A' ? 'added' : status[1] === 'D' ? 'deleted' : status[1] === 'R' ? 'renamed' : 'modified') as Touched['change'];
       if (change === 'renamed') {
@@ -505,8 +543,13 @@ export async function readRepositoryHistory(pin: RepositoryAt): Promise<HistoryP
 /** What a stage needs to publish one pass's answer: the storage module's own write, given by the wiring. */
 export interface RepositoryPassWiring {
   readonly sources: SnapshotSource;
-  readonly publishTree: (input: TreePublish) => Promise<RecordCounts>;
-  readonly publishHistory: (input: HistoryPublish) => Promise<RecordCounts>;
+  /**
+   * What the tree pass publishes through. A caller that registers the stages to read their
+   * declarations (the engine's registry, a test of a stage's shape) hands none, and a unit that
+   * then runs refuses by name rather than publishing nowhere.
+   */
+  readonly publishTree?: (input: TreePublish) => Promise<RecordCounts>;
+  readonly publishHistory?: (input: HistoryPublish) => Promise<RecordCounts>;
   /** The repository paths this fill covers, as prefixes (`src/` covers everything under it); the whole tree when left out. */
   readonly paths?: readonly string[];
 }
@@ -519,7 +562,7 @@ export function repositoryUnitId(repository: string): string {
 /** The repository a unit id names, refused by name where it names none. */
 export function repositoryOfUnit(unitId: string): string {
   const match = /^repository:(.+)$/.exec(unitId);
-  if (match === null || match[1] === '') throw new Error(`the unit id ${JSON.stringify(unitId)} is not one of the repository passes, which are "repository:<name>" (src/fill/stages/repository-facts.ts)`);
+  if (match === null || match[1] === '') raise(`the unit id ${JSON.stringify(unitId)} is not one of the repository passes, which are "repository:<name>"`);
   return match[1]!;
 }
 
@@ -527,7 +570,7 @@ export function repositoryOfUnit(unitId: string): string {
 async function pinOf(sources: SnapshotSource, repository: string): Promise<RepositoryAt> {
   const pins = await sources.pins();
   const pin = pins.find((entry) => entry.id === repository);
-  if (pin === undefined) throw new Error(`the run pins no repository ${JSON.stringify(repository)}: its pins are ${pins.map((entry) => JSON.stringify(entry.id)).join(', ') || 'none'} (src/fill/stages/repository-facts.ts)`);
+  if (pin === undefined) raise(`the run pins no repository ${JSON.stringify(repository)}: its pins are ${pins.map((entry) => JSON.stringify(entry.id)).join(', ') || 'none'}`);
   return { repository: pin.id, root: pin.root, commit: pin.commit, url: `file://${pin.root}`, ...(pin.defaultBranch === undefined ? {} : { defaultBranch: pin.defaultBranch }) };
 }
 
@@ -552,11 +595,16 @@ export function createRepositoryTreeStage(wiring: RepositoryPassWiring): FillSta
       const read = await readRepositoryTree(pin);
       // A fill asked for some paths covers those and no others: the tree is read whole (one git
       // call) and the rows written are the ones under the prefixes the caller named.
+      const within = (path: string): boolean => wiring.paths === undefined || wiring.paths.some((prefix) => path === prefix || path.startsWith(prefix.endsWith('/') ? prefix : `${prefix}/`));
       const covered = wiring.paths === undefined ? read : {
         ...read,
-        files: read.files.filter((file) => wiring.paths!.some((prefix) => file.path === prefix || file.path.startsWith(prefix.endsWith('/') ? prefix : `${prefix}/`))),
-        gitlinks: read.gitlinks.filter((link) => wiring.paths!.some((prefix) => link.path === prefix || link.path.startsWith(prefix.endsWith('/') ? prefix : `${prefix}/`))),
+        files: read.files.filter((file) => within(file.path)),
+        gitlinks: read.gitlinks.filter((link) => within(link.path)),
+        // The publication covers these prefixes and no others: a row outside them is not this fill's to delete
+        // (madarch-8bdc.2.5, item 4b: a scoped publication touches its scope only).
+        scope: [...wiring.paths],
       };
+      if (wiring.publishTree === undefined) raise(`the tree pass of ${pin.repository} was asked to run, and the run that registered it wired no record store: its publisher is the record pass of src/graph/records.ts (src/fill/stages/repository-facts.ts)`);
       const counts = await wiring.publishTree(covered);
       context.progress(`${pin.repository} at ${pin.commit}: ${String(covered.files.length)} files, ${String(covered.gitlinks.length)} gitlinks, ${String(counts.inserted)} rows written`, 1);
       return { outcome: 'draft' };
@@ -581,6 +629,7 @@ export function createRepositoryHistoryStage(wiring: RepositoryPassWiring): Fill
     execute: async (unit: StageUnit, context): Promise<StageExecutionResult> => {
       const pin = await pinOf(wiring.sources, repositoryOfUnit(unit.id));
       const read = await readRepositoryHistory(pin);
+      if (wiring.publishHistory === undefined) raise(`the history pass of ${pin.repository} was asked to run, and the run that registered it wired no record store: its publisher is the record pass of src/graph/records.ts (src/fill/stages/repository-facts.ts)`);
       const counts = await wiring.publishHistory(read);
       context.progress(`${pin.repository}: ${String(read.commits.length)} commits, ${String(counts.inserted)} rows written`, 1);
       return { outcome: 'draft' };

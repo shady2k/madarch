@@ -8,6 +8,7 @@
  * a stage out of the list is out of the fill's path and comes back by a line here.
  */
 import type { HistoryPublish, RecordCounts, TreePublish } from '../graph/index.js';
+import { createEngineStageRegistry } from './stages/index.js';
 
 /** The ids this step's fill runs, in code point order: the one list. */
 const FILL_STEP_IDS = ['repository-history', 'repository-tree'] as const;
@@ -23,4 +24,21 @@ export interface RecordPassWiring {
 /** The steps of the one list, as a caller may name them. */
 export function fillSteps(): readonly string[] {
   return [...FILL_STEP_IDS];
+}
+
+/** Whether any step of this fill is a stage an agent drives — one that has tools and writes pages. */
+let writesPages: boolean | undefined;
+
+/**
+ * Whether a run of this fill writes pages. A page is an agent's work, and only a stage with tools
+ * writes one; the list above holds the steps, so this asks the engine's own declarations and never
+ * keeps a second list. False today: this step's fill is the tree and the history, and the agent
+ * stages' step turns it true by adding their ids above.
+ */
+export function fillWritesPages(): boolean {
+  if (writesPages === undefined) {
+    const steps = new Set(fillSteps());
+    writesPages = createEngineStageRegistry().all().some((stage) => steps.has(stage.id) && stage.usesTools === true);
+  }
+  return writesPages;
 }

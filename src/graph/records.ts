@@ -37,6 +37,8 @@
  */
 import type { DatabaseOwner } from '../adapters/database-owner.js';
 import type { OuterTransaction } from '../history/types.js';
+import { withSpan } from '../obs/trace.js';
+import { raise } from '../model/raise.js';
 
 /** The tables this module owns, in code point order. */
 export const RECORD_TABLES = [
@@ -200,6 +202,12 @@ export interface TreePublish {
   readonly commit: string;
   readonly files: readonly TreeFile[];
   readonly gitlinks: readonly TreeGitlink[];
+  /**
+   * The repository paths this publication covers, as prefixes; the whole tree when it is left out. A scoped
+   * publication touches its scope only: a file or folder outside it is not this publication's to delete, and a
+   * row it holds stands (madarch-8bdc.2.5, item 4b).
+   */
+  readonly scope?: readonly string[];
   readonly gaps: readonly { readonly what: string; readonly reason: 'non-utf8-path' | 'shallow-history' | 'unreadable' }[];
 }
 
@@ -361,6 +369,9 @@ async function blobIdsOf(tx: OuterTransaction, files: readonly TreeFile[]): Prom
  * names the tens of thousands of statements one tree used to make.
  */
 export async function publishTree(owner: DatabaseOwner, input: TreePublish): Promise<RecordCounts> {
+  const scope = input.scope;
+  /** Whether one repository path stands inside the publication's scope: the whole tree when it names none. */
+  const within = (path: string): boolean => scope === undefined || scope.some((prefix) => path === prefix || path.startsWith(prefix.endsWith('/') ? prefix : `${prefix}/`));
   return await write(owner, async (tx) => {
     const kinds = await kindIds(tx);
     const repositoryId = await repositoryScope(tx, input.repository.name);
@@ -380,7 +391,7 @@ export async function publishTree(owner: DatabaseOwner, input: TreePublish): Pro
     }
     const paths = await pathIds(tx, [...files.map((file) => file.path), ...input.gitlinks.map((link) => link.path), ...folders]);
     for (const file of files) {
-      if (!paths.has(file.path)) throw new Error(`the path ${JSON.stringify(file.path)} was not given an id by the dictionary (src/graph/records.ts)`);
+      if (!paths.has(file.path)) raise(`the path ${JSON.stringify(file.path)} was not given an id by the dictionary`);
     }
     const held = new Map<string, HeldFile>();
     const found = await tx.query<{ key: string; node_id: string; mode: string; hash: string; name: string; candidates: string[]; bytes: string; form: string; lines: string | null }>(
@@ -426,6 +437,8 @@ export async function publishTree(owner: DatabaseOwner, input: TreePublish): Pro
     }
     for (const [path, known] of held) {
       if (seen.has(path)) continue;
+      // A scoped publication covers its prefixes and no others: a file outside them is not its row to delete.
+      if (!within(path)) continue;
       await tx.query('DELETE FROM edge WHERE (from_id = $1::bigint OR to_id = $1::bigint)', [known.nodeId]);
       await tx.query('DELETE FROM file WHERE node_id = $1::bigint', [known.nodeId]);
       await tx.query('DELETE FROM node WHERE id = $1::bigint', [known.nodeId]);
@@ -447,8 +460,11 @@ export async function publishTree(owner: DatabaseOwner, input: TreePublish): Pro
       linkNodes.set(link.path, made.rows[0]!.id);
       counts = { ...counts, inserted: counts.inserted + 1 };
     }
-    counts = sum(counts, await publishFolders(tx, kinds, repositoryId, new Map([...fileNodes, ...linkNodes]), paths));
-    counts = sum(counts, await publishGaps(tx, repositoryId, input.gaps));
+    counts = sum(counts, await publishFolders(tx, kinds, repositoryId, new Map([...fileNodes, ...linkNodes]), paths, within));
+    // The tree pass retracts only the gaps it can produce: a tree published after a history used to delete
+    // the history's shallow-history gap, and every answer afterwards dropped it (madarch-8bdc.2.5, item 1).
+    // The scope is the one both sides need: only the folders inside the paths this fill covers are touched.
+    counts = sum(counts, await publishGaps(tx, repositoryId, input.gaps, TREE_GAP_REASONS));
     return counts;
   });
 }
@@ -465,7 +481,7 @@ export function folderOfPath(path: string): string {
  * for every vertex. A folder that loses its last file goes with its edge. Only what moved is
  * written: the desired parent of every vertex is compared with the edge the store holds.
  */
-async function publishFolders(tx: OuterTransaction, kinds: Map<string, string>, repositoryId: string, entities: ReadonlyMap<string, string>, paths: ReadonlyMap<string, string>): Promise<RecordCounts> {
+async function publishFolders(tx: OuterTransaction, kinds: Map<string, string>, repositoryId: string, entities: ReadonlyMap<string, string>, paths: ReadonlyMap<string, string>, within: (path: string) => boolean = () => true): Promise<RecordCounts> {
   const folders = new Set<string>();
   for (const path of entities.keys()) {
     for (let folder = folderOfPath(path); folder !== ''; folder = folderOfPath(folder)) folders.add(folder);
@@ -487,6 +503,8 @@ async function publishFolders(tx: OuterTransaction, kinds: Map<string, string>, 
   counts = { ...counts, inserted: counts.inserted + missing.length, unchanged: counts.unchanged + (folders.size - missing.length) };
   for (const [folder, node] of heldFolders) {
     if (folders.has(folder)) continue;
+    // A folder outside a scoped publication's prefixes is not that publication's to remove.
+    if (!within(folder)) continue;
     await tx.query('DELETE FROM edge WHERE from_id = $1::bigint OR to_id = $1::bigint', [node]);
     await tx.query('DELETE FROM directory WHERE node_id = $1::bigint', [node]);
     await tx.query('DELETE FROM node WHERE id = $1::bigint', [node]);
@@ -497,9 +515,11 @@ async function publishFolders(tx: OuterTransaction, kinds: Map<string, string>, 
   for (const [folder, node] of folderNodes) desired.set(node, folderNodes.get(folderOfPath(folder)) ?? repositoryId);
   for (const [path, node] of entities) desired.set(node, folderNodes.get(folderOfPath(path)) ?? repositoryId);
   const contains = kinds.get('contains')!;
-  const heldEdges = new Set((await tx.query<{ from_id: string; to_id: string }>(
-    `SELECT e.from_id::text AS from_id, e.to_id::text AS to_id FROM edge e JOIN node n ON n.id = e.to_id WHERE n.repository_id = $1::bigint AND e.kind_id = $2::bigint`, [repositoryId, contains],
-  )).rows.map((row) => `${row.from_id}\u0000${row.to_id}`));
+  // The `contains` edges this publication reconciles are the ones whose child stands in its scope: an edge to a
+  // file or folder outside the prefixes is not this publication's to re-parent or to delete.
+  const heldEdges = new Set((await tx.query<{ from_id: string; to_id: string; key: string }>(
+    `SELECT e.from_id::text AS from_id, e.to_id::text AS to_id, n.key FROM edge e JOIN node n ON n.id = e.to_id WHERE n.repository_id = $1::bigint AND e.kind_id = $2::bigint`, [repositoryId, contains],
+  )).rows.filter((row) => within(row.key)).map((row) => `${row.from_id}\u0000${row.to_id}`));
   const writes: { parent: string; child: string }[] = [];
   for (const [child, parent] of desired) {
     const key = `${parent}\u0000${child}`;
@@ -536,8 +556,19 @@ async function repositoryFactRow(tx: OuterTransaction, repositoryId: string, rep
   return { inserted: 0, updated: 0, deleted: 0, unchanged: 1 };
 }
 
-/** The gaps of one repository: the ones the pass read, and no older one. */
-async function publishGaps(tx: OuterTransaction, repositoryId: string, gaps: readonly { readonly what: string; readonly reason: string }[]): Promise<RecordCounts> {
+/** The reasons one pass can record: a pass never retracts a gap another pass owns. */
+const TREE_GAP_REASONS: readonly string[] = ['non-utf8-path', 'unreadable'];
+const HISTORY_GAP_REASONS: readonly string[] = ['shallow-history'];
+
+/**
+ * The gaps of one repository, as one pass read them: the pass's own reasons are
+ * written and the pass's own stale ones go, and the other pass's gaps stand as
+ * they are. The two passes read one store and answer different reasons — a
+ * shallow history is the history's, an unreadable path the tree's — so a tree
+ * that runs after a history does not retract the history's gap (measured: it
+ * did, and a shallow clone's answer lost its gap).
+ */
+async function publishGaps(tx: OuterTransaction, repositoryId: string, gaps: readonly { readonly what: string; readonly reason: string }[], owned: readonly string[]): Promise<RecordCounts> {
   const held = new Map((await tx.query<{ what: string; reason: string }>('SELECT what, reason FROM gap WHERE repository_id = $1::bigint', [repositoryId])).rows.map((row) => [row.what, row.reason]));
   let inserted = 0;
   let unchanged = 0;
@@ -547,7 +578,12 @@ async function publishGaps(tx: OuterTransaction, repositoryId: string, gaps: rea
     await tx.query('INSERT INTO gap (repository_id, what, reason) VALUES ($1::bigint, $2, $3) ON CONFLICT (repository_id, what) DO UPDATE SET reason = EXCLUDED.reason', [repositoryId, gap.what, gap.reason]);
     inserted += 1;
   }
-  for (const what of held.keys()) if (!gaps.some((gap) => gap.what === what)) { await tx.query('DELETE FROM gap WHERE repository_id = $1::bigint AND what = $2', [repositoryId, what]); deleted += 1; }
+  for (const [what, reason] of held) {
+    if (!owned.includes(reason)) continue;
+    if (gaps.some((gap) => gap.what === what)) continue;
+    await tx.query('DELETE FROM gap WHERE repository_id = $1::bigint AND what = $2', [repositoryId, what]);
+    deleted += 1;
+  }
   return { inserted, updated: 0, deleted, unchanged };
 }
 
@@ -734,7 +770,7 @@ export async function publishHistory(owner: DatabaseOwner, input: HistoryPublish
       counts = { ...counts, deleted: counts.deleted + 1 };
       void heldRow;
     }
-    counts = sum(counts, await publishGaps(tx, repositoryId, input.gaps));
+    counts = sum(counts, await publishGaps(tx, repositoryId, input.gaps, HISTORY_GAP_REASONS));
     return counts;
   });
 }
@@ -747,12 +783,20 @@ async function nodeOfCommit(tx: OuterTransaction, kinds: Map<string, string>, re
   return made.rows[0]!.id;
 }
 
-/** A `%aI` instant as a timestamp text and its offset in minutes: git's own two numbers, kept apart. */
+/**
+ * A `%aI` instant as a timestamp text and its offset in minutes: git's own two numbers, kept apart.
+ *
+ * Git writes the offset as `+HH:MM` or `-HH:MM`, and — from the version whose dates are strict ISO 8601 with a
+ * zero offset — as the bare `Z` every reader of `+00:00` also means (measured: git 2.43 writes `+00:00`, a newer
+ * git writes `Z` for the same commit). Both are one statement of the same zero minutes east of UTC, so both are
+ * read here; anything else is refused by name.
+ */
 export function instantOf(text: string, field: string, hash: string): [string, number] {
-  const match = /^(\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2})([+-])(\d{2}):(\d{2})$/.exec(text.trim());
-  if (match === null) throw new Error(`the commit ${hash} names its ${field} as ${JSON.stringify(text)}, and a git date is YYYY-MM-DDTHH:MM:SS+HH:MM (src/graph/records.ts)`);
-  const sign = match[2] === '-' ? -1 : 1;
-  return [`${match[1]}Z`, sign * (Number(match[3]) * 60 + Number(match[4]))];
+  const match = /^(\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2})(?:(Z)|([+-])(\d{2}):(\d{2}))$/u.exec(text.trim());
+  if (match === null) raise(`the commit ${hash} names its ${field} as ${JSON.stringify(text)}, and a git date is YYYY-MM-DDTHH:MM:SS+HH:MM or YYYY-MM-DDTHH:MM:SSZ`);
+  if (match[2] === 'Z') return [`${match[1]}Z`, 0];
+  const sign = match[3] === '-' ? -1 : 1;
+  return [`${match[1]}Z`, sign * (Number(match[4]) * 60 + Number(match[5]))];
 }
 
 // ---- what a reader asks ----------------------------------------------------
@@ -805,12 +849,20 @@ async function repositoryIdOf(tx: OuterTransaction, repository: string): Promise
   return row.id;
 }
 
-/** One page of a repository's files, in code point order of the paths. */
+/**
+ * One page of a repository's files, in code point order of the paths. The
+ * prefix is a path prefix, never a pattern: a `%` or a `_` in a path is the
+ * character the repository holds, and a page boundary is the path it ended on.
+ */
 export async function listFiles(owner: DatabaseOwner, input: { readonly repository: string; readonly prefix?: string; readonly language?: string; readonly after?: string; readonly limit: number }): Promise<{ readonly rows: readonly FileRecord[]; readonly next: string | null }> {
-  return await owner.transaction('snapshot', async (tx) => {
+  return await withSpan('records.listFiles', {
+    'records.prefix': input.prefix ?? '',
+    'records.language': input.language ?? '',
+    'records.limit': input.limit,
+  }, async () => await owner.transaction('snapshot', async (tx) => {
     const repositoryId = await repositoryIdOf(tx, input.repository);
     const found = await tx.query(
-      `${FILE_SELECT} WHERE n.repository_id = $1::bigint AND ($2::text IS NULL OR p.text LIKE $2 || '%') AND ($3::text IS NULL OR l.name = $3) AND ($4::text IS NULL OR p.text > $4)
+      `${FILE_SELECT} WHERE n.repository_id = $1::bigint AND ($2::text IS NULL OR left(p.text, length($2::text)) = $2::text) AND ($3::text IS NULL OR l.name = $3) AND ($4::text IS NULL OR p.text > $4)
        ORDER BY p.text LIMIT $5::bigint`,
       [repositoryId, input.prefix ?? null, input.language ?? null, input.after ?? null, String(input.limit + 1)],
     );
@@ -818,13 +870,38 @@ export async function listFiles(owner: DatabaseOwner, input: { readonly reposito
     const more = rows.length > input.limit;
     const shown = more ? rows.slice(0, input.limit) : rows;
     return { rows: shown, next: more ? shown[shown.length - 1]!.path : null };
-  });
+  }));
 }
 
-/** The commits that touched one path, following renames, newest first. */
-export async function fileHistory(owner: DatabaseOwner, input: { readonly repository: string; readonly path: string; readonly after?: string; readonly limit: number }): Promise<{ readonly rows: readonly { readonly commit: string; readonly change: string; readonly added: number | null; readonly removed: number | null; readonly previousPath: string | null; readonly date: string; readonly subject: string }[]; readonly next: string | null }> {
-  return await owner.transaction('snapshot', async (tx) => {
+/** One path a commit changed, as the history pass read it. */
+export interface TouchedRecord {
+  readonly path: string;
+  readonly change: 'added' | 'modified' | 'deleted' | 'renamed';
+  readonly added: number | null;
+  readonly removed: number | null;
+  readonly previousPath: string | null;
+}
+
+/** One row of a file's history: the commit that touched the path and what it did to it. */
+export interface FileHistoryRow extends TouchedRecord {
+  readonly commit: string;
+  readonly date: string;
+  readonly subject: string;
+  /** The commit's position in the walk from the tip: its order in the history, not on the clock. */
+  readonly walk: number;
+}
+
+/**
+ * A page of a file's history, newest first. `next` names the exact row the page
+ * ended on — the date and the commit — so a page boundary between two commits
+ * written in the same second neither repeats a row nor skips one.
+ */
+export async function fileHistory(owner: DatabaseOwner, input: { readonly repository: string; readonly path: string; readonly after?: { readonly walk: number; readonly commit: string }; readonly limit: number }): Promise<{ readonly rows: readonly FileHistoryRow[]; readonly next: { readonly walk: number; readonly commit: string } | null }> {
+  return await withSpan('records.fileHistory', { 'records.path': input.path, 'records.limit': input.limit }, async () => await owner.transaction('snapshot', async (tx) => {
     const repositoryId = await repositoryIdOf(tx, input.repository);
+    // The order is the history's own, not the clock's: a commit's `walk` is its position in the
+    // stream git prints from the tip, so the newest change is the smallest walk. Two commits written
+    // in one second are ordered by their walk, never by a hash comparison that would reorder them.
     const found = await tx.query(
       `WITH RECURSIVE chain(path_id) AS (
          SELECT id FROM path WHERE text = $2
@@ -832,28 +909,78 @@ export async function fileHistory(owner: DatabaseOwner, input: { readonly reposi
          SELECT t.previous_path_id FROM chain c JOIN touched t ON t.path_id = c.path_id WHERE t.previous_path_id IS NOT NULL
        )
        SELECT n.key AS commit, t.change, t.added::text AS added, t.removed::text AS removed, pp.text AS previous,
-              to_char((c.commit_date - make_interval(mins => c.commit_offset_min)) AT TIME ZONE 'UTC', 'YYYY-MM-DD"T"HH24:MI:SS"Z"') AS date, c.subject
+              to_char((c.commit_date - make_interval(mins => c.commit_offset_min)) AT TIME ZONE 'UTC', 'YYYY-MM-DD"T"HH24:MI:SS"Z"') AS date, c.subject, c.walk
        FROM touched t JOIN chain ch ON ch.path_id = t.path_id JOIN node n ON n.id = t.commit_node_id
        JOIN commit_fact c ON c.node_id = n.id LEFT JOIN path pp ON pp.id = t.previous_path_id
-       WHERE n.repository_id = $1::bigint AND ($3::text IS NULL OR (c.commit_date - make_interval(mins => c.commit_offset_min)) < $3::timestamptz OR ((c.commit_date - make_interval(mins => c.commit_offset_min)) = $3::timestamptz AND n.key > $4))
-       ORDER BY (c.commit_date - make_interval(mins => c.commit_offset_min)) DESC, n.key DESC LIMIT $5::bigint`,
-      [repositoryId, input.path, input.after ?? null, input.after ?? '', String(input.limit + 1)],
+       WHERE n.repository_id = $1::bigint AND ($3::int IS NULL OR c.walk > $3::int OR (c.walk = $3::int AND n.key > $4))
+       ORDER BY c.walk ASC, n.key ASC LIMIT $5::bigint`,
+      [repositoryId, input.path, input.after?.walk ?? null, input.after?.commit ?? '', String(input.limit + 1)],
     );
     const rows = found.rows.map((row) => ({
-      commit: String(row['commit']), change: String(row['change']),
+      commit: String(row['commit']), change: String(row['change']) as TouchedRecord['change'],
       added: row['added'] === null ? null : Number(row['added']), removed: row['removed'] === null ? null : Number(row['removed']),
       previousPath: row['previous'] === null || row['previous'] === undefined ? null : String(row['previous']),
       date: String(row['date']), subject: String(row['subject']),
+      walk: Number(row['walk']),
+      path: input.path,
     }));
     const more = rows.length > input.limit;
     const shown = more ? rows.slice(0, input.limit) : rows;
-    return { rows: shown, next: more ? shown[shown.length - 1]!.date : null };
+    const last = shown[shown.length - 1];
+    return { rows: shown, next: more && last !== undefined ? { walk: last.walk, commit: last.commit } : null };
+  }));
+}
+
+/** One commit with the paths it changed, or null when the store holds no such commit. */
+export async function commitWithPaths(owner: DatabaseOwner, repository: string, hash: string): Promise<(CommitRecord & { readonly touched: readonly TouchedRecord[] }) | null> {
+  const commit = await commitFacts(owner, repository, hash);
+  if (commit === null) return null;
+  const touched = await withSpan('records.commitPaths', { 'records.commit': hash }, async () => await owner.transaction('snapshot', async (tx) => {
+    const repositoryId = await repositoryIdOf(tx, repository);
+    const found = await tx.query<{ path: string; change: string; added: string | null; removed: string | null; previous: string | null }>(
+      `SELECT p.text AS path, t.change, t.added::text AS added, t.removed::text AS removed, pp.text AS previous
+       FROM touched t JOIN node n ON n.id = t.commit_node_id JOIN path p ON p.id = t.path_id LEFT JOIN path pp ON pp.id = t.previous_path_id
+       WHERE n.repository_id = $1::bigint AND n.key = $2 ORDER BY p.text`,
+      [repositoryId, hash],
+    );
+    return found.rows.map((row) => ({
+      path: row.path, change: row.change as TouchedRecord['change'],
+      added: row.added === null ? null : Number(row.added), removed: row.removed === null ? null : Number(row.removed),
+      previousPath: row.previous,
+    }));
+  }));
+  return { ...commit, touched };
+}
+
+/** One page of a folder's own files (not its subfolders'), in code point order of the paths. */
+export async function folderFiles(owner: DatabaseOwner, input: { readonly repository: string; readonly folder: string; readonly after?: string; readonly limit: number }): Promise<{ readonly rows: readonly FileRecord[]; readonly next: string | null }> {
+  return await withSpan('records.folderFiles', { 'records.folder': input.folder, 'records.limit': input.limit }, async () => await owner.transaction('snapshot', async (tx) => {
+    const repositoryId = await repositoryIdOf(tx, input.repository);
+    const prefix = input.folder === '' ? '' : `${input.folder}/`;
+    const found = await tx.query(
+      `${FILE_SELECT} WHERE n.repository_id = $1::bigint AND ($2::text = '' OR left(p.text, length($2::text)) = $2::text)
+         AND position('/' in substr(p.text, length($2::text) + 1)) = 0 AND ($3::text IS NULL OR p.text > $3)
+       ORDER BY p.text LIMIT $4::bigint`,
+      [repositoryId, prefix, input.after ?? null, String(input.limit + 1)],
+    );
+    const rows = found.rows.map(fileOf);
+    const more = rows.length > input.limit;
+    const shown = more ? rows.slice(0, input.limit) : rows;
+    return { rows: shown, next: more ? shown[shown.length - 1]!.path : null };
+  }));
+}
+
+/** The immediate subfolders of one folder, in code point order; `''` is the repository's root. */
+export async function folderChildrenOf(owner: DatabaseOwner, repository: string, folder: string): Promise<readonly string[]> {
+  return await withSpan('records.folderChildren', { 'records.folder': folder }, async () => {
+    const rows = await listDirectories(owner, repository);
+    return rows.filter((row) => row.parent === folder).map((row) => row.path);
   });
 }
 
 /** One file with its dates, its commit count and its authors: the dates follow the renames. */
 export async function fileFacts(owner: DatabaseOwner, repository: string, path: string): Promise<(FileRecord & { readonly created: { date: string; commit: string; author: string } | null; readonly modified: { date: string; commit: string; author: string } | null; readonly commitCount: number; readonly authors: readonly string[] }) | null> {
-  return await owner.transaction('snapshot', async (tx) => {
+  return await withSpan('records.fileFacts', { 'records.path': path }, async () => await owner.transaction('snapshot', async (tx) => {
     const repositoryId = await repositoryIdOf(tx, repository);
     const found = await tx.query(`${FILE_SELECT} WHERE n.repository_id = $1::bigint AND p.text = $2`, [repositoryId, path]);
     const row = found.rows[0];
@@ -867,8 +994,8 @@ export async function fileFacts(owner: DatabaseOwner, repository: string, path: 
        SELECT n.key AS commit, to_char((c.commit_date - make_interval(mins => c.commit_offset_min)) AT TIME ZONE 'UTC', 'YYYY-MM-DD"T"HH24:MI:SS"Z"') AS date, coalesce(a.name, '') AS name, c.walk, t.change
        FROM touched t JOIN chain ch ON ch.path_id = t.path_id JOIN node n ON n.id = t.commit_node_id
        JOIN commit_fact c ON c.node_id = n.id
-       LEFT JOIN edge e ON e.from_id = n.id AND e.kind_id = (SELECT id FROM kind WHERE name = 'authored')
-       LEFT JOIN author a ON a.node_id = e.to_id
+       LEFT JOIN edge e ON e.to_id = n.id AND e.kind_id = (SELECT id FROM kind WHERE name = 'authored')
+       LEFT JOIN author a ON a.node_id = e.from_id
        WHERE n.repository_id = $1::bigint ORDER BY c.walk ASC, n.key ASC`,
       [repositoryId, path],
     );
@@ -888,12 +1015,12 @@ export async function fileFacts(owner: DatabaseOwner, repository: string, path: 
       commitCount: distinct.size,
       authors,
     };
-  });
+  }));
 }
 
 /** Every repository the store holds, in code point order of the names. */
 export async function listRepositories(owner: DatabaseOwner): Promise<readonly { readonly name: string; readonly url: string; readonly defaultBranch: string | null; readonly asIsCommit: string | null }[]> {
-  return await owner.transaction('snapshot', async (tx) => {
+  return await withSpan('records.listRepositories', {}, async () => await owner.transaction('snapshot', async (tx) => {
     const found = await tx.query<{ name: string; url: string; default_branch: string | null; as_is: string | null }>(
       `SELECT r.name, r.url, r.default_branch, a.key AS as_is
        FROM node n JOIN kind k ON k.id = n.kind_id JOIN repository_fact r ON r.node_id = n.id
@@ -901,12 +1028,12 @@ export async function listRepositories(owner: DatabaseOwner): Promise<readonly {
        LEFT JOIN node a ON a.id = e.to_id WHERE k.name = 'repository' ORDER BY r.name`,
     );
     return found.rows.map((row) => ({ name: row.name, url: row.url, defaultBranch: row.default_branch, asIsCommit: row.as_is }));
-  });
+  }));
 }
 
 /** Every folder of one repository, in code point order of the paths, with the parent it hangs from. */
 export async function listDirectories(owner: DatabaseOwner, repository: string): Promise<readonly { readonly path: string; readonly parent: string }[]> {
-  return await owner.transaction('snapshot', async (tx) => {
+  return await withSpan('records.listDirectories', { 'records.repository': repository }, async () => await owner.transaction('snapshot', async (tx) => {
     const repositoryId = await repositoryIdOf(tx, repository);
     const found = await tx.query<{ path: string; parent: string }>(
       `SELECT p.text AS path, coalesce(pp.text, '') AS parent
@@ -917,20 +1044,20 @@ export async function listDirectories(owner: DatabaseOwner, repository: string):
       [repositoryId],
     );
     return found.rows;
-  });
+  }));
 }
 
 /** One commit with its parents, its author and its dates. */
 export async function commitFacts(owner: DatabaseOwner, repository: string, hash: string): Promise<CommitRecord | null> {
-  return await owner.transaction('snapshot', async (tx) => {
+  return await withSpan('records.commitFacts', { 'records.commit': hash }, async () => await owner.transaction('snapshot', async (tx) => {
     const repositoryId = await repositoryIdOf(tx, repository);
     const found = await tx.query<Record<string, unknown>>(
       `SELECT c.hash, to_char((c.author_date - make_interval(mins => c.author_offset_min)) AT TIME ZONE 'UTC', 'YYYY-MM-DD"T"HH24:MI:SS"Z"') AS author_date, c.author_offset_min,
               to_char((c.commit_date - make_interval(mins => c.commit_offset_min)) AT TIME ZONE 'UTC', 'YYYY-MM-DD"T"HH24:MI:SS"Z"') AS commit_date, c.commit_offset_min, c.subject,
               coalesce(a.name, '') AS author_name, coalesce(a.email, '') AS author_email
        FROM node n JOIN kind k ON k.id = n.kind_id JOIN commit_fact c ON c.node_id = n.id
-       LEFT JOIN edge e ON e.from_id = n.id AND e.kind_id = (SELECT id FROM kind WHERE name = 'authored')
-       LEFT JOIN author a ON a.node_id = e.to_id
+       LEFT JOIN edge e ON e.to_id = n.id AND e.kind_id = (SELECT id FROM kind WHERE name = 'authored')
+       LEFT JOIN author a ON a.node_id = e.from_id
        WHERE n.repository_id = $1::bigint AND k.name = 'commit' AND c.hash = $2`,
       [repositoryId, hash],
     );
@@ -948,12 +1075,12 @@ export async function commitFacts(owner: DatabaseOwner, repository: string, hash
       commitDate: String(row['commit_date']), commitOffsetMin: Number(row['commit_offset_min']),
       subject: String(row['subject']),
     };
-  });
+  }));
 }
 
 /** One repository as a reader sees it: its name, its url, the commit it is as-is at, its counts and its gaps. */
 export async function repositoryFacts(owner: DatabaseOwner, repository: string): Promise<{ readonly name: string; readonly url: string; readonly defaultBranch: string | null; readonly asIsCommit: string | null; readonly fileCount: number; readonly commitCount: number; readonly directoryCount: number; readonly gaps: readonly { what: string; reason: string }[] } | null> {
-  return await owner.transaction('snapshot', async (tx) => {
+  return await withSpan('records.repositoryFacts', { 'records.repository': repository }, async () => await owner.transaction('snapshot', async (tx) => {
     const found = await tx.query<{ id: string; name: string; url: string; default_branch: string | null }>(
       `SELECT n.id::text AS id, r.name, r.url, r.default_branch FROM node n JOIN kind k ON k.id = n.kind_id JOIN repository_fact r ON r.node_id = n.id WHERE k.name = 'repository' AND n.key = $1`,
       [repository],
@@ -979,7 +1106,7 @@ export async function repositoryFacts(owner: DatabaseOwner, repository: string):
       directoryCount: Number(counts.rows[0]?.directories ?? '0'),
       gaps: gaps.rows,
     };
-  });
+  }));
 }
 
 /** Every table's bytes with its indexes and its rows, for the bytes-per-row measurement. */

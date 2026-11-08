@@ -397,7 +397,8 @@ describe('the kinds the fill writes', () => {
     // added to them (madarch-tzte.21.7), `symbol` to 3 when its global name was
     // added (decision 0033), and `module` to 2 when stage 9's proposal was
     // added to it (madarch-tzte.24.2).
-    const moved: Readonly<Record<string, number>> = { 'call': 2, 'document': 2, 'file': 3, 'inherits': 2, 'module': 2, 'reference': 2, 'section': 2, 'symbol': 3 };
+    // `commit` to 2 when git's own parser's trailer records were added to its value (madarch-8bdc.2.5).
+    const moved: Readonly<Record<string, number>> = { 'call': 2, 'commit': 2, 'document': 2, 'file': 3, 'inherits': 2, 'module': 2, 'reference': 2, 'section': 2, 'symbol': 3 };
     for (const kind of FACT_KINDS_IN_ORDER) {
       expect(Number.isInteger(FACT_KINDS[kind].version)).toBe(true);
       // 0027: a stage declares the fact kind's version for what it produces,

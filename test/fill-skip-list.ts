@@ -12,6 +12,12 @@ export interface SkippedFillSuite {
   readonly brings: string;
   /** What the case reads that this step's fill does not publish. */
   readonly because: string;
+  /**
+   * The cases of the file that are skipped, each named by a fragment of its title; absent skips the whole
+   * file. A file whose cases read stages both in and out of this step's list names the latter, so the
+   * cases that read what this fill publishes keep running.
+   */
+  readonly cases?: readonly string[];
 }
 
 const SKIPPED_FILL_SUITES: readonly SkippedFillSuite[] = [
@@ -31,13 +37,51 @@ const SKIPPED_FILL_SUITES: readonly SkippedFillSuite[] = [
   { file: 'test/fill-static-heap.test.ts', brings: 'the static stages', because: 'it reads their memory bound over a fill' },
   { file: 'test/fill-code-facts-training.test.ts', brings: 'code-facts', because: 'it compares the code facts against the extract driver' },
   { file: 'test/fill-operations-fixture.test.ts', brings: 'operations', because: 'it reads the operations records of a folder' },
-  // madarch-8bdc.2.5, items 2 and 3: `madarch mcp` reads the store the one fill publishes, and this step's fill is
-  // the tree and the history passes. The seven tools read the temporal graph the static stages publish, so a case
-  // that asks one is named here until those stages' steps come; the code they read is the fill's, unchanged.
-  { file: 'test/mcp-server.test.ts', brings: 'the static stages that publish the temporal graph', because: 'its cases read symbols, documents and pages the static stages publish' },
-  { file: 'test/mcp-review.test.ts', brings: 'the static stages that publish the temporal graph', because: 'its cases read symbols, migrations, documents and edges of the temporal graph' },
-  { file: 'test/mcp-start.test.ts', brings: 'the static stages that publish the temporal graph', because: 'its cases read the contract and symbol facts a served store answers' },
-  { file: 'test/mcp-lock.test.ts', brings: 'the static stages that publish the temporal graph', because: 'its case opens a served store, which holds no graph until those stages publish one' },
+  { file: 'test/fill-impact.test.ts', brings: 'snapshot, inventory, syntax and the agent stages', because: 'its run reads the snapshot stage\'s commit nodes and the agent stages\' reruns' },
+  { file: 'test/fill-resolution-graph.test.ts', brings: 'resolution and its static stages', because: 'it reads the calls, references and inheritance edges the resolution stage publishes' },
+  // The wiki's pages are drawn from the temporal graph the static stages publish; this step's fill publishes the
+  // tree and the history records, and the pages return with those stages' steps. The reader itself works: it opens
+  // the store and reads its pins (test/fill-one-store.test.ts, test/wiki-readers.test.ts).
+  { file: 'test/knowledge-home-page.test.ts', brings: 'the history and static stages that publish the temporal graph', because: 'its page blocks read the commits and files those stages publish' },
+  { file: 'test/knowledge-diagrams.test.ts', brings: 'the static stages that publish the temporal graph', because: 'its diagrams are drawn from the graph\'s symbols, operations and tables' },
+  { file: 'test/writer-journal.test.ts', brings: 'the static stages that publish the temporal graph', because: 'its journal is read per page the graph holds' },
+  // The loop closes on pages an agent writes, driven by the agent stages of 0026 (stages 8 to 13) and the narrative
+  // stage: the first step that adds any of them to `FILL_STEP_IDS` brings these cases back. This fill's steps are the
+  // tree and the history, so a run with an agent chosen plans no page at all — and `fillWritesPages()` says so.
+  { file: 'test/loop-training.test.ts', brings: 'the agent stages 8 to 13 of 0026 and the narrative stage', because: 'its cases read the pages, questions and tasks those stages write' },
+  { file: 'test/knowledge-sync.test.ts', brings: 'the agent stages 8 to 13 of 0026 and the narrative stage', because: 'its case reads the pages a run with an agent writes' },
+  // The wiki's whole page model: a page's blocks are drawn from the symbols, resolved calls, operations, documents
+  // and commit history the static stages publish, and from the pages the agent stages write.
+  { file: 'test/knowledge-vertical.test.ts', brings: 'syntax, semantic-resolution, operations, document-index, modules, the temporal history stage and the agent stages', because: 'its cases read the entity index and the page blocks those stages publish' },
+  // `madarch init`'s empty-wiki cases run (they read what this fill publishes); the press's cases read the pages the
+  // agent stages write, and come back with the first of them.
+  { file: 'test/madarch-init-e2e.test.ts', brings: 'the agent stages 8 to 13 of 0026 and the narrative stage', because: 'the press\'s cases read the pages, guides and questions those stages write' },
+  // The answer key's items are read back from the temporal graph the build-configuration, document-index,
+  // modules and history stages publish; this step's fill publishes the tree and the history records.
+  { file: 'test/fill-build-configuration-training.test.ts', brings: 'build-configuration, document-index, modules and the temporal history stage', because: 'it reads the answer key\'s manifest, document, module and history items back from the graph' },
+  // The eight cases of the knowledge server that read the entity index and the pages drawn from it. The
+  // file's other cases (the empty product, the selector, the fill and its stream, the search refusals) run:
+  // they read what this step's fill publishes.
+  {
+    file: 'test/knowledge-server.test.ts',
+    brings: 'syntax, document-index, modules and the temporal history stage (the page model over the graph)',
+    because: 'they read the entity index and the page blocks those stages publish',
+    cases: [
+      'the function page shows its callees',
+      'repository first/tag/last trees',
+      'repository landmarks have bilingual',
+      'a kind is listed from the graph in key order',
+      'a page is Markdown and JSON at its .md and .json siblings',
+      'the Markdown of a page writes its history figures',
+      'a kind is Markdown and JSON at its .md and .json siblings',
+      'a refresh that reads a new commit names the pages',
+    ],
+  },
+  // madarch-8bdc.2.5, items 1 to 3: `madarch mcp` reads the store the one fill publishes, and this step's fill is
+  // the tree and the history passes. The four mcp suites are not named here: their cases read the five tools of
+  // this step from the store (and the seven tools' step-not-run answers), so they run. `test/wiki-fill-button-walk`
+  // reads the repository pages this step publishes, so it runs too. A case that asked the seven tools for facts of
+  // the temporal graph would be named here until those stages' steps come.
 ];
 
 /**
@@ -46,5 +90,11 @@ const SKIPPED_FILL_SUITES: readonly SkippedFillSuite[] = [
  */
 export function skippedBecauseOutOfWorkflow(file: string): SkippedFillSuite | undefined {
   const normalized = file.split('\\').join('/');
-  return SKIPPED_FILL_SUITES.find((entry) => normalized === entry.file || normalized.endsWith(`/${entry.file}`));
+  return SKIPPED_FILL_SUITES.find((entry) => (entry.cases === undefined || entry.cases.length === 0) && (normalized === entry.file || normalized.endsWith(`/${entry.file}`)));
+}
+
+/** The entry that skips one case of one file, when the case's title holds one of its fragments. */
+export function skippedCaseOf(file: string, title: string): SkippedFillSuite | undefined {
+  const normalized = file.split('\\').join('/');
+  return SKIPPED_FILL_SUITES.find((entry) => entry.cases !== undefined && entry.cases.some((fragment) => title.includes(fragment)) && (normalized === entry.file || normalized.endsWith(`/${entry.file}`)));
 }
