@@ -218,8 +218,22 @@ describe('the empty wiki, the press and the end state', () => {
       const emptyStatus = await json(server, 'half', '/api/k/status');
       expect(emptyStatus.status).toBe(200);
       expect(JSON.stringify(emptyStatus.body['repositories'])).toContain('empty-code');
-      expect(JSON.stringify(emptyStatus.body['findings'])).toContain('holds no commit yet');
-      expect(JSON.stringify(emptyStatus.body['findings'])).toContain(join(folder, 'repos', 'empty-code'));
+      // The finding now lives on the Problems page: its category, then the source the repository is,
+      // then the item itself, with the engine's words and the checkout's full path (madarch-8bdc.2.5).
+      const categories = await json(server, 'half', '/api/k/problems');
+      expect(categories.status).toBe(200);
+      const unreadable = (categories.body['categories'] as { rule: string }[]).find((category) => category.rule === 'wiki.unreadable-file');
+      expect(unreadable).toBeDefined();
+      const sources = await json(server, 'half', `/api/k/problems?rule=${encodeURIComponent('wiki.unreadable-file')}`);
+      expect(sources.status).toBe(200);
+      const emptySource = (sources.body['sources'] as { key: string }[]).find((source) => source.key === join(folder, 'repos', 'empty-code'));
+      expect(emptySource).toBeDefined();
+      const items = await json(server, 'half', `/api/k/problems?rule=${encodeURIComponent('wiki.unreadable-file')}&source=${encodeURIComponent(emptySource!.key)}`);
+      expect(items.status).toBe(200);
+      const item = (items.body['problems'] as { reason: string; source?: string }[]).find((problem) => problem.reason.includes('holds no commit yet'));
+      expect(item).toBeDefined();
+      expect(item!.reason).toContain('holds no commit yet');
+      expect(item!.source).toBe(join(folder, 'repos', 'empty-code'));
       // The fill reads the committed repository and says what it did for the empty one.
       const ended = await press(server, 'half');
       const fill = ended['fill'] as Record<string, unknown>;
