@@ -35,6 +35,8 @@ export interface KnowledgePart {
   /** The product's `/llms.txt`: its addresses and every declared kind with the address of its list. */
   llms: (request: Request) => Promise<Handled>;
   status: (request: Request) => Promise<Handled>;
+  /** The entity catalogue: every kind the manifest declares, filled or not (madarch-8bdc.2.5). */
+  catalog: (request: Request) => Promise<Handled>;
   page: (request: Request) => Promise<Handled>;
   block: (request: Request) => Promise<Handled>;
   statement: (request: Request) => Promise<Handled>;
@@ -145,6 +147,7 @@ export function createKnowledgePart(
       return { response: json(200, { id: identity.id, name: identity.name }) };
     }),
     status: guarded('read the product', async () => ({ response: json(200, own ? { ...(await product.status()), own: true } : await product.status()) })),
+    catalog: guarded('read the entity catalogue', async () => ({ response: json(200, await product.catalog()) })),
     page: guarded('draw the page', async (request) => {
       const id = new URL(request.url).searchParams.get('id');
       if (id === null || id.trim() === '') return refused(400, { field: 'id', message: '"id" is required: the key or id of the entity whose page is asked for' });

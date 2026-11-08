@@ -5622,11 +5622,6 @@
   {
     "rule": "no-unreachable-code",
     "file": "wiki/app/src/knowledge/types.ts",
-    "symbol": "GroupSummary"
-  },
-  {
-    "rule": "no-unreachable-code",
-    "file": "wiki/app/src/knowledge/types.ts",
     "symbol": "HistoryMore"
   },
   {

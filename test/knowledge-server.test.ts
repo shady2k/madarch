@@ -113,6 +113,28 @@ describe('an empty product', () => {
     expect(unconnected.body.repositories).toEqual([]);
   });
 
+  test('the catalogue lists every kind the manifest declares, with a zero count for one nothing filled, and its own answer stays under the size bound', async () => {
+    const status = await get('/products/bare/api/k/status');
+    // The status still names the kinds with pages (and a member's row), and holds no catalogue of its own.
+    expect(status.body.kinds.length).toBe(65);
+    expect(status.body.catalog).toBeUndefined();
+    const response = await fetch(`${server.url}/products/bare/api/k/catalog`);
+    const text = await response.text();
+    expect(response.status).toBe(200);
+    const catalog = JSON.parse(text) as { kinds: any[]; groups: any[]; findings: any[] };
+    expect(catalog.kinds.length).toBe(490);
+    expect(catalog.groups.length).toBe(126);
+    expect(catalog.findings).toEqual([]);
+    const empty = catalog.kinds.find((kind) => kind.kind === 'domain-repository');
+    expect(empty).toMatchObject({ count: 0, filled: false, page: false });
+    expect(empty.producer).toBeUndefined();
+    expect(empty.labels).toEqual({ en: { one: 'Domain repository', many: 'Domain repositories' }, ru: { one: 'Репозиторий предметной области', many: 'Репозитории предметной области' } });
+    expect(empty.descriptions.ru).toBe('Интерфейс предметной области, дающий доступ к агрегатам как к коллекции; это не репозиторий системы контроля версий.');
+    const filled = catalog.kinds.find((kind) => kind.kind === 'code.service');
+    expect(filled).toMatchObject({ count: 0, filled: true, page: true, producer: 'extract', area: 'code', subgroup: 'code.structure' });
+    expect(Buffer.byteLength(text, 'utf8')).toBeLessThan(300_000);
+  }, 30_000);
+
   test('the fill is refused in words where it cannot start: no repository', async () => {
     const none = await fetch(`${server.url}/products/unconnected/api/k/fill`, { method: 'POST' });
     expect(none.status).toBe(409);

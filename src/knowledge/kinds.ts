@@ -985,7 +985,7 @@ export function parseKinds(text: string, file: string, productFolder: string): K
       const stray = Object.keys(decl).filter((key) => CATALOG_ONLY_FIELDS.has(key));
       if (stray.length > 0) catalogProblem([stray[0]!], `"${stray[0]}" is a field of the entity catalog, and the manifest declares no "catalog"`);
     } else if (catalogSchema !== undefined) {
-      const entry = readCatalogKind(name, decl, catalogSchema, groups, line, catalogProblem, refusedGroupParents);
+      const entry = readCatalogKind(name, decl, catalogSchema, groups, line, catalogProblem, LABEL_LANGUAGES, refusedGroupParents);
       if (entry !== undefined) catalogEntries.set(name, entry);
     }
     const policy = typeof decl['template-policy'] === 'string' ? decl['template-policy'] : 'page';
