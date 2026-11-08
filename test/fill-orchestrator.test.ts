@@ -32,7 +32,7 @@ import { existsSync, readdirSync } from 'node:fs';
 import { mkdtemp, rm } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
-import { advanceUnit, createFillStateSchema, leaseUnit, readChain, readRun, readRunUnits, readTransitions, readUnit, readUnitGenerations } from '../src/fill/state-store.js';
+import { advanceRun, advanceUnit, createFillStateSchema, leaseUnit, readChain, readRun, readRunUnits, readTransitions, readUnit, readUnitGenerations } from '../src/fill/state-store.js';
 import { createTestDatabaseOwner, createTestQueryDatabase } from './test-database.js';
 
 const NOW = 1_700_000_000_000;
@@ -1159,6 +1159,25 @@ describe('cancellation, pause and stop', () => {
     expect(raced.outcome).toBe('refused');
     expect(raced.outcome === 'refused' ? raced.code : '').toBe('fill-publication/authority-revoked');
     expect(await readPublications(opened.owner, 'snapshot/src')).toEqual([]);
+  });
+
+  test('a unit step that lands while the run is cancelling is refused, whichever of the two writes lands first', async () => {
+    // The losing interleaving of a cancel and a step, forced without timing: the run's cancel intent stands and the drain has
+    // not reached the unit, so the unit is still running when its attempt reports blocked. The step answers with the
+    // machine's own refusal — the one it answers when the cancel's write came first — instead of recording the unit as
+    // blocked under a run that revoked its authority.
+    const { stage } = waitingStage();
+    const { world: opened, runId } = await plannedWorld({ registry: new StageRegistry().register(stage) });
+    await admitUnits(opened.orchestrator, { runId });
+    expect((await leaseUnit(opened.owner, { unitId: 'snapshot/src', holder: 'worker-1', ttlMs: 60_000, at: NOW })).ok).toBe(true);
+    expect((await advanceUnit(opened.owner, { unitId: 'snapshot/src', event: { type: 'start', at: NOW, generation: 1, fence: 1 } })).ok).toBe(true);
+    expect((await advanceRun(opened.owner, { runId, event: { type: 'cancel', at: NOW, cause: 'the person stopped the run' } })).ok).toBe(true);
+    const blocked = await advanceUnit(opened.owner, { unitId: 'snapshot/src', event: { type: 'block', at: NOW, generation: 1, fence: 1, reason: 'the attempt was cancelled' } });
+    expect(blocked.ok).toBe(false);
+    expect(blocked.ok === false ? blocked.refusal.code : '').toBe('fill-unit/no-transition');
+    expect(blocked.ok === false ? blocked.refusal.reason : '').toContain('cancelling');
+    // Nothing of the step stands: the unit is where the step found it, for the drain's own cancel.
+    expect((await readUnit(opened.owner, 'snapshot/src'))?.state).toBe('running');
   });
 
   test('a pause admits nothing new and drains to paused, and a resume replans and finishes', async () => {

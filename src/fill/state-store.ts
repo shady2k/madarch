@@ -779,6 +779,34 @@ export async function advanceUnitIn(executor: SqlExecutor, options: { readonly u
       },
     } as const;
   }
+  // The run's control, under its row's share lock and inside this step's own transaction (madarch-8bdc.2.5): a run that is
+  // cancelling, cancelled or failed revoked the authority of every unit it planned (decision 0027), so no step but the
+  // cancel is taken. The answer is the machine's own refusal — the one a step lands on when the cancel's write came first —
+  // so a step and a cancel that race answer alike whichever write lands first. The lock holds the control still for the
+  // whole step: an intent that lands while a step is under way waits for it, and a step that comes after sees it.
+  if (event.type !== 'cancel') {
+    const control = await executor.query<{ state: string }>(
+      `SELECT r.state AS state FROM fill_run r JOIN fill_unit_generation g ON g.run_id = r.run_id
+       WHERE g.unit_id = $1 AND g.generation = $2 FOR SHARE OF r`,
+      [options.unitId, snapshot.record.generation],
+    );
+    const runState = control.rows[0]?.state;
+    if (runState === 'cancelling' || runState === 'cancelled' || runState === 'failed') {
+      return {
+        ok: false,
+        record: snapshot.record,
+        refusal: {
+          code: 'fill-unit/no-transition',
+          reason: `fill-unit: the run of unit "${options.unitId}" generation ${String(snapshot.record.generation)} is ${runState}, which revoked the authority of the units it planned, so "${event.type}" is not taken; the cancel is the step such a run's units take`,
+          state: snapshot.record.state,
+          event: event.type,
+          guard: null,
+          guards: [],
+          transitions: [],
+        },
+      } as const;
+    }
+  }
   const step = unitMachine.step({ state: snapshot.record.state, context: snapshot.record.context }, event);
   if (!step.ok) return { ok: false, refusal: step.refusal, record: snapshot.record } as const;
   const record = await persistUnitStep(executor, snapshot, step, event.at, event.type);
