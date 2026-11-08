@@ -1,21 +1,15 @@
 /**
- * The WAL checkpoint a fill needs (madarch-8bdc.2.5, item 5): PGlite runs PostgreSQL
- * in single-user mode (`--single`), where the checkpointer process does not exist, so
- * nothing turns `max_wal_size` into a checkpoint and `pg_wal` only grows.
+ * The WAL checkpoint a fill runs (madarch-8bdc.2.5, item 5): `CHECKPOINT` after enough versions were written, so a
+ * fill's `pg_wal` never grows to `max_wal_size` (1 GB by default) before its segments are recycled.
  *
- * **Measured.** The whole-repository fill wrote 6.9 GB of `pg_wal` while it published
- * 5 374 units (about 600 000 node versions) into a store whose `base/` was 4.6 GB, and
- * the box ran out of disk at 78 % of a 38 GB volume. On a scratch store, `CHECKPOINT`
- * keeps the segment count flat: with a checkpoint after every 5 000 inserted rows the
- * directory stayed at 32 MB (2 segments) while 30 000 rows were written, at 2-33 ms a
- * checkpoint (postgresql.conf keeps `max_wal_size` at 1 GB, which no process reads in
- * this mode). About 11 KB of WAL fell on each version of the fill's store, so a
- * checkpoint after every 20 000 versions written bounds the directory at a few hundred
- * megabytes and costs a few microseconds a row.
- *
- * A checkpoint writes the dirty buffers to the data directory and marks the point from
- * which old segments may be recycled; it writes no row of the graph, takes no lock a
- * reader waits on, and is run between publications, never inside one.
+ * **What it was written for, and what it is now.** The rule was written for the in-process database, which ran
+ * PostgreSQL in single-user mode (`--single`), where no checkpointer process exists: nothing turned `max_wal_size` into
+ * a checkpoint and `pg_wal` grew without bound — the whole-repository fill wrote 6.9 GB of it while publishing 5 374
+ * units into a store whose `base/` was 4.6 GB, and the box ran out of disk. A store now runs on a PostgreSQL server of
+ * its own, whose checkpointer recycles segments: measured there, 30 000 rows written in six transactions left
+ * `pg_wal` at 32 MB and it never grew. So what remains is maintenance rather than a necessity: a checkpoint marks the
+ * point from which old segments may be reused, writes no row of the graph, takes no lock a reader waits on, and runs
+ * between publications, never inside one.
  */
 import type { DatabaseOwner } from '../adapters/database-owner.js';
 

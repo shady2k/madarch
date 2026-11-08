@@ -3,7 +3,7 @@
  * `read-worker.ts`): the same two shapes of work as a local owner, `transaction`
  * and `run`, with every statement sent over a pipe. The wiki's reads use only
  * `query`, so that is all a transaction hands to its work. One transaction is
- * open at a time, as in a PGlite owner, in the order they were asked for.
+ * open at a time, in the order they were asked for.
  */
 import type { DatabaseOwner, OuterTransaction } from '../adapters/database-owner.js';
 import type { SqlTransactionKind } from '../query/sql-driver.js';
@@ -73,7 +73,7 @@ export class RemoteOwner implements DatabaseOwner {
   constructor(readonly location: string, options: { create: boolean; factory?: ReadWorkerFactory }) {
     const proc = (options.factory ?? spawnReadWorker)();
     this.process = proc;
-    // A worker opening a store is the heaviest reader on its cores (a PGlite boots it there), and the reader it will
+    // A worker opening a store is the heaviest reader on its cores (opening it starts its server), and the reader it will
     // replace keeps answering the pages meanwhile: it therefore boots at a lower priority, and takes its share of the
     // machine only once it is ready to answer. This is what "the old reader answers until the new one is ready" means
     // where two cores are shared by four processes.

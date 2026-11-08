@@ -801,8 +801,8 @@ async function fillStagesCommand(parsed: Parsed, home: string | undefined): Prom
   // The milliseconds are kept: two runs asked for inside one second are two
   // runs, and a run id that already stands is one this command may not plan.
   const runId = parsed.run ?? `stages-${new Date().toISOString().replace(/[-:.]/gu, '').replace(/Z$/u, 'Z')}`;
-  // PGlite opens a data directory, and the product's store may not stand yet (the host would make it;
-  // this command opens the owner itself).
+  // A store's cluster stands under its data directory, and the product's store may not stand yet (the host
+  // would make it; this command opens the owner itself).
   const databasePath = storeDatabasePath(storeFolder);
   await mkdir(dirname(databasePath), { recursive: true });
   const workers = parsed.workers ?? 16;

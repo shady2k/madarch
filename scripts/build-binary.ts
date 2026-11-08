@@ -1,10 +1,11 @@
 #!/usr/bin/env bun
 /**
  * Assembles one release binary of the madarch command (madarch-lfhu): the
- * wiki app's built folder, the release's version and the files PGlite's own
- * build reads (the process's database, decision 0027) are laid the way the
+ * wiki app's built folder and the release's version are laid the way the
  * compiled binary reads them (`Bun.main`'s directory), then `bun build
- * --compile` embeds and bundles the entry. The wiki app's
+ * --compile` embeds and bundles the entry. The store's PostgreSQL server is not
+ * carried: it is installed into the home on first use (decision 0024's
+ * amendment). The wiki app's
  * dist is freshly built here for every release
  * (`src/product-wiki/app.ts` ensureBuilt: the same build the checkout's own
  * `madarch` runs, with any old dist removed first), so a fresh binary always carries the current app; the

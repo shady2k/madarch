@@ -2,8 +2,8 @@
  * One product's knowledge wiki (decision 0029): the product's own graph store,
  * the fill that writes it, and the reads that draw its pages.
  *
- * The store is a PGlite database under the machine's state (outside the
- * product repository: 0023, a derived index is rebuilt, never transferred),
+ * The store is a PostgreSQL database on a server of its own under the machine's
+ * state (outside the product repository: 0023, a derived index is rebuilt, never transferred),
  * named by the product's id, which survives a rename of its folder. A fill
  * runs the extract driver over each repository the manifest declares, into
  * that store, one commit at a time; after each commit the pages that are open
@@ -129,7 +129,7 @@ export { WikiReadError } from './read-error.js';
 
 /** How long the server keeps the previous snapshot open after a newer one is read, so a request in flight on it ends. */
 const SNAPSHOT_KEEP_MS = 3_000;
-/** A reader nobody has asked for this long is closed, and its memory (a PGlite is about a gigabyte) given back; the next page opens it again. */
+/** A reader nobody has asked for this long is closed, and its memory given back; the next page opens it again. */
 const READER_IDLE_MS = 10 * 60_000;
 
 /** Starts the agent that writes the pages; the error names why it cannot. */
@@ -928,10 +928,10 @@ export class KnowledgeProduct {
     // calls) is never taken for the fill's progress.
     this.fillRunId = runId;
     // The fill runs in a process of its own (`madarch knowledge-fill-worker`; madarch-m38l.4, decision 0033 item 27):
-    // a PGlite runs every statement on the thread that owns it, and the store's boot inside this process held every
-    // page of the wiki for 2.4-2.9 s while a first fill opened its database (the pages test/knowledge-responsive.test.ts
-    // measured in CI). The snapshot each published unit makes is handed to the reader here, so a page follows the fill
-    // as it reads rather than waiting for its end.
+    // it reads git and parses on its own cores, and a store opened inside this process held every page of the wiki for
+    // 2.4-2.9 s while a first fill opened its database (the pages test/knowledge-responsive.test.ts measured in CI). The
+    // generation each publication announces is handed to the reader here, so a page follows the fill as it reads rather
+    // than waiting for its end.
     let run: KnowledgeFillRun & { close(): Promise<void> };
     try {
       run = startFillInWorker({ productFolder: product.folder, storeFolder, runId, ...(this.options.snapshotMs === undefined ? {} : { snapshotMs: this.options.snapshotMs }) }, (snapshot) => {
