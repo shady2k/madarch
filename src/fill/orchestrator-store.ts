@@ -40,10 +40,17 @@ import { SCHEMA_LOCK_SQL, storeSchemaLockKey } from '../adapters/schema-stamp.js
 
 /** The orchestrator's own tables; `createOrchestratorSchema` creates them and every error names the ones it touched. */
 export const ORCHESTRATOR_TABLES = [
-  'fill_run_configuration', 'fill_run_stage', 'fill_unit_plan', 'fill_unit_read', 'fill_unit_draft', 'fill_unit_draft_part', 'fill_unit_split', 'fill_publication', 'fill_event',
+  'fill_run_configuration', 'fill_run_stage', 'fill_unit_plan', 'fill_unit_read', 'fill_unit_draft', 'fill_unit_draft_part', 'fill_unit_split', 'fill_publication', 'fill_event', 'fill_control',
 ] as const;
 
 const SCHEMA: readonly string[] = [
+  // A person's pause or stop of a run whose fill process is another one (madarch-8bdc.9): the process that runs the fill
+  // reads this row and takes the action on the run it owns.
+  `CREATE TABLE IF NOT EXISTS fill_control (
+    run_id text PRIMARY KEY,
+    action text NOT NULL,
+    at bigint NOT NULL
+  )`,
   `CREATE TABLE IF NOT EXISTS fill_run_configuration (
     run_id text PRIMARY KEY,
     digest text NOT NULL,
@@ -856,6 +863,31 @@ export async function publishUnitIn(executor: SqlExecutor, options: PublicationR
     record: { unitId: options.unitId, generation: options.generation, digest, facts, publishedAt: options.at },
     effects: step.effects,
   };
+}
+
+/**
+ * A person's pause or stop of a run another process fills (madarch-8bdc.9): the api role writes the row, the fill process
+ * that holds the run reads it and takes the action on the run's own state machine.
+ */
+export async function askRunControl(database: OrchestratorDatabase, request: { readonly runId: string; readonly action: 'pause' | 'stop'; readonly at: number }): Promise<void> {
+  const at = here();
+  await run(at, database, `askRunControl(${request.runId})`, ['fill_control'], async (executor) => {
+    await executor.query(
+      `INSERT INTO fill_control (run_id, action, at) VALUES ($1, $2, $3::bigint)
+       ON CONFLICT (run_id) DO UPDATE SET action = $2, at = $3::bigint`,
+      [request.runId, request.action, String(request.at)],
+    );
+  }, 'write');
+}
+
+/** The action a person asked of one run and no process has taken yet, if any: reading it takes it away. */
+export async function readRunControl(database: OrchestratorDatabase, runId: string): Promise<'pause' | 'stop' | null> {
+  const at = here();
+  return await run(at, database, `readRunControl(${runId})`, ['fill_control'], async (executor) => {
+    const { rows } = await executor.query<{ action: string }>('DELETE FROM fill_control WHERE run_id = $1 RETURNING action', [runId]);
+    const action = rows[0]?.action;
+    return action === 'pause' || action === 'stop' ? action : null;
+  }, 'write');
 }
 
 /** One generation's publication record, or null when it was never published. */

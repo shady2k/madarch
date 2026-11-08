@@ -2846,11 +2846,6 @@
   },
   {
     "rule": "no-unreachable-code",
-    "file": "src/knowledge/remote-owner.ts",
-    "symbol": "spawnReadWorker"
-  },
-  {
-    "rule": "no-unreachable-code",
     "file": "src/knowledge/render-worker.ts",
     "symbol": "BlockRequest"
   },
@@ -5813,21 +5808,6 @@
     "rule": "sql-only-in-storage-layer",
     "file": "src/knowledge/product.ts",
     "symbol": "src/adapters/database-owner.ts"
-  },
-  {
-    "rule": "sql-only-in-storage-layer",
-    "file": "src/knowledge/read-worker.ts",
-    "symbol": "src/adapters/database-owner.ts"
-  },
-  {
-    "rule": "sql-only-in-storage-layer",
-    "file": "src/knowledge/remote-owner.ts",
-    "symbol": "src/adapters/database-owner.ts"
-  },
-  {
-    "rule": "sql-only-in-storage-layer",
-    "file": "src/knowledge/remote-owner.ts",
-    "symbol": "src/query/sql-driver.ts"
   },
   {
     "rule": "sql-only-in-storage-layer",

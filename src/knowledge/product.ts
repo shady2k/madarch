@@ -35,7 +35,9 @@ import { WORKFLOWS_FILE } from './workflows.js';
 import { linesOf } from './lines.js';
 import { applyReset, planReset, type ResetPlan } from './reset.js';
 import type { KnowledgeFillResult, KnowledgeFillRun } from './fill-run.js';
-import { startFillInWorker } from './fill-worker.js';
+import { askFillRun, openFillRunQueue } from '../fill/run-jobs.js';
+import { askRunControl, readRunControl } from '../fill/orchestrator-store.js';
+import { readLiveRun, readRun } from '../fill/state-store.js';
 import { fillWritesPages } from '../fill/steps.js';
 import { locationOf, type RenderContext } from './blocks.js';
 import { GraphReader } from './graph-read.js';
@@ -307,6 +309,8 @@ export class KnowledgeProduct {
   /** The generation of the store this process has read: raised once per publication a fill announces. */
   private generation = 0;
   private opening: Promise<void> | undefined;
+  /** The store's fill-run queue, opened with the store and closed with it (madarch-8bdc.9). */
+  private fillQueue: Awaited<ReturnType<typeof openFillRunQueue>> | undefined;
   private fill: FillState = { state: 'idle' };
   private running: Promise<void> | undefined;
   /** The fill the store is running now, as its host controls it; undefined between runs. */
@@ -673,7 +677,7 @@ export class KnowledgeProduct {
     // A run that is being stopped is on its way out: it stands at no page boundary to be taken up from.
     if (this.stopAsked) return { ok: false, status: 409, message: 'this run is being stopped: there is nothing to pause' };
     if (this.running === undefined) return { ok: false, status: 409, message: 'no fill of this product is running: there is nothing to pause' };
-    const paused = await this.fillRun?.control('pause');
+    const paused = await this.controlRun('pause');
     if (paused === undefined || !paused.ok) return { ok: false, status: 409, message: paused?.message ?? 'no fill of this product is running: there is nothing to pause' };
     this.fill = { ...this.fill, state: 'paused' };
     this.notify();
@@ -714,10 +718,27 @@ export class KnowledgeProduct {
     // Stop overrides Pause everywhere: a pause pressed before this confirmation is not replayed and leaves nothing to resume.
     this.pauseAsked = false;
     this.pausedRun = undefined;
-    const stopped = await this.fillRun?.control('stop');
+    const stopped = await this.controlRun('stop');
     if (stopped === undefined || !stopped.ok) return { ok: false, status: 409, message: stopped?.message ?? 'no fill of this product is running: there is nothing to stop' };
     this.notify();
     return { ok: true, fill: this.fill, writer: this.writer };
+  }
+
+  /**
+   * A person's pause or stop, taken by the run's own state machine: in this process when the fill runs here (`madarch
+   * fill`), and through the store's control row when another process runs it (`--role fill`, madarch-8bdc.9).
+   */
+  private async controlRun(action: 'pause' | 'stop'): Promise<{ readonly ok: boolean; readonly message?: string }> {
+    const held = await this.fillRun?.control(action);
+    if (held !== undefined) return held;
+    if (this.fillRunId === undefined) return { ok: false, message: 'no fill of this product is running: there is nothing to do' };
+    try {
+      const owner = await this.open();
+      await askRunControl(owner, { runId: this.fillRunId, action, at: Date.now() });
+      return { ok: true };
+    } catch (error) {
+      return { ok: false, message: `the run ${this.fillRunId} could not be told to ${action}: ${error instanceof Error ? error.message : String(error)}` };
+    }
   }
 
   /** The file a paused run is kept in, beside the store whose pages it was writing. */
@@ -906,12 +927,12 @@ export class KnowledgeProduct {
       ...(resuming ? { resumed: true } : {}),
     };
     this.pausedRun = undefined;
-    // The reader a fill's polls read opens before the press answers (madarch-8bdc.2.5): a page asked while the fill
-    // starts is answered from a reader that stands, never pays the reader's own start on its own thread (measured: the
-    // first answers after a press waited 1.9 s for it on two cores, one of them busy).
+    // The store opens before the press answers (madarch-8bdc.2.5): a page asked while the fill starts is answered from a
+    // store that stands, never pays its own open on a page's thread (measured: the first answers after a press waited
+    // 1.9 s for it on two cores, one of them busy).
     await this.open().catch(() => undefined);
     this.notify();
-    this.running = this.runOrchestratedFill(product, repositories).finally(() => {
+    this.running = this.runQueuedFill(product, startedAt, { ...(wanted === undefined ? {} : { language: wanted }), ...(task === undefined ? {} : { task }) }).finally(() => {
       // The mark goes only when the run is over, after its result is recorded: a restart before this point has no list.
       this.clearActiveFill();
       this.running = undefined;
@@ -921,52 +942,38 @@ export class KnowledgeProduct {
   }
 
   /**
-   * One fill of the product's knowledge store, through the one orchestrator (decision 0033, item 1): the static
-   * stages the product's workflow names are driven into `<store>/graph`, a snapshot is made for the reader, and the
-   * pages read the graph this path published. It runs no model and writes no page: a page is an agent's work and a
-   * later stage's, and nothing of the old loop is carried over.
+   * Asks for the fill through the store's own queue and follows it where its own state is written (madarch-8bdc.9): the
+   * api role never fills in the process that answers pages — a fill process of the same binary claims the job, reads git
+   * and publishes into the store, and the pages read what it published. The two talk only through PostgreSQL.
    */
-  private async runOrchestratedFill(product: ProductIdentity, repositories: readonly { readonly name: string; readonly path: string }[]): Promise<void> {
-    void repositories;
-    const startedAt = (this.options.now?.() ?? new Date()).toISOString();
-    const runId = `fill-${startedAt.replace(/[-:.]/gu, '').replace(/Z$/u, 'Z')}`;
+  private async runQueuedFill(product: ProductIdentity, runId: string, asked: { readonly language?: string; readonly task?: string }): Promise<void> {
+    void product;
     const storeFolder = this.storeFolder();
-    // The trace this run writes is read by its id: a second trace in the store (a server's tool
-    // calls) is never taken for the fill's progress.
     this.fillRunId = runId;
-    // The fill runs in a process of its own (`madarch knowledge-fill-worker`; madarch-m38l.4, decision 0033 item 27):
-    // it reads git and parses on its own cores, and a store opened inside this process held every page of the wiki for
-    // 2.4-2.9 s while a first fill opened its database (the pages test/knowledge-responsive.test.ts measured in CI). The
-    // generation each publication announces is handed to the reader here, so a page follows the fill as it reads rather
-    // than waiting for its end.
-    let run: KnowledgeFillRun & { close(): Promise<void> };
+    let state: string | undefined;
     try {
-      run = startFillInWorker({ productFolder: product.folder, storeFolder, runId, ...(this.options.snapshotMs === undefined ? {} : { snapshotMs: this.options.snapshotMs }) }, () => {
-        void this.published(undefined).catch((error: unknown) => {
-          this.options.errorLog?.(`the knowledge wiki could not read the store ${storeFolder} after a publication: ${error instanceof Error ? error.message : String(error)}`);
-        });
-      });
+      const owner = await this.open();
+      // One queue per product, opened with its store and closed with it: starting and stopping the queue's own scheduler
+      // around every press cost more than the fill it asked for.
+      this.fillQueue ??= await openFillRunQueue(owner);
+      await askFillRun(this.fillQueue, { product: product.folder, store: storeFolder, runId, ...(asked.language === undefined ? {} : { language: asked.language }), ...(asked.task === undefined ? {} : { task: asked.task }) });
+      // The run's own state is the answer: the process that runs the fill writes it there, and the trace the answer's
+      // progress is read from is that run's (`statusFill`). A run that ended is one of `succeeded`, `failed`,
+      // `cancelled` or `completed_partial` — the last of which is an end whose pages were not all written.
+      for (;;) {
+        if (this.closed) return;
+        const run = await readRun(owner, runId).catch(() => null);
+        state = run?.state;
+        if (state === 'succeeded' || state === 'failed' || state === 'cancelled' || state === 'completed_partial') break;
+        await Bun.sleep(250);
+      }
     } catch (error) {
-      // The program that runs the fill's worker could not be started: no store was opened and nothing was read.
       this.fill = { state: 'failed', startedAt: this.fill.startedAt, finishedAt: (this.options.now?.() ?? new Date()).toISOString(), message: error instanceof Error ? error.message : String(error), code: 'store' };
       this.notify();
       return;
     }
-    this.fillRun = run;
-    let result: KnowledgeFillResult;
-    try {
-      result = await run.done;
-    } catch (error) {
-      // The worker could not open the store (or ended without an answer): the run failed at its store, and the answer
-      // names the worker and the lines it left on its own error stream.
-      this.fill = { state: 'failed', startedAt: this.fill.startedAt, finishedAt: (this.options.now?.() ?? new Date()).toISOString(), message: error instanceof Error ? error.message : String(error), code: 'store' };
-      this.notify();
-      await run.close();
-      return;
-    }
-    await run.close();
-    if (!result.ok) {
-      this.fill = { state: 'failed', startedAt: this.fill.startedAt, finishedAt: (this.options.now?.() ?? new Date()).toISOString(), ...(result.message === undefined ? {} : { message: result.message }), code: 'fill' };
+    if (state !== 'succeeded') {
+      this.fill = { state: 'failed', startedAt: this.fill.startedAt, finishedAt: (this.options.now?.() ?? new Date()).toISOString(), message: `the fill ended ${state ?? 'without a run'}`, code: 'fill' };
       this.notify();
       return;
     }
@@ -974,21 +981,18 @@ export class KnowledgeProduct {
     await this.published(undefined).catch((error: unknown) => {
       this.options.errorLog?.(`the knowledge wiki could not read the store ${storeFolder} after the run: ${error instanceof Error ? error.message : String(error)}`);
     });
-    // A run that ended says which pages it changed: this fill writes no page (a page is an agent's
-    // work, and no agent stage runs in this step), so the answer is the empty list unless the store
-    // kept a record of pages the run changed — never an absent field a reader would take for "unknown".
+    // A run that ended says which pages it changed: this fill writes no page, so the answer is the empty list unless the
+    // store kept a record of pages the run changed — never an absent field a reader would take for "unknown".
     this.changedLoaded = false;
-    // A writer that waited for units the run never planned has nothing to wait for: the run ended.
     if (this.writer.state === 'waiting' && this.writer.units.length === 0) this.writer = { ...this.writer, state: 'idle' };
     this.fill = {
       state: 'done', startedAt: this.fill.startedAt, finishedAt: (this.options.now?.() ?? new Date()).toISOString(), gaps: 0,
       changed: this.lastChangedPages() ?? [],
-      ...(result.unread === undefined || result.unread.length === 0 ? {} : { unread: [...result.unread] }),
     };
     this.notify();
     this.lastUse = Date.now();
-    // The rules and the judge read the snapshot as soon as the fill ends (madarch-mwhd.1 finding 6): a reader who
-    // opens the settings page afterwards sees what was decided, not a page that has to start the work itself.
+    // The rules and the judge read the store as soon as the fill ends (madarch-mwhd.1 finding 6): a reader who opens the
+    // settings page afterwards sees what was decided, not a page that has to start the work itself.
     void this.graphVerdicts({ force: true }).catch((error: unknown) => {
       this.options.errorLog?.(`the knowledge wiki could not validate the graph after the fill: ${error instanceof Error ? error.message : String(error)}`);
     });
@@ -1652,6 +1656,9 @@ export class KnowledgeProduct {
     try {
       await this.swapping.catch(() => undefined);
       await this.opening?.catch(() => undefined);
+      const held = this.fillQueue;
+      this.fillQueue = undefined;
+      if (held !== undefined) await held.stop().catch(() => undefined);
       if (this.reader !== undefined) await this.reader.owner.close().catch(() => undefined);
       this.reader = undefined;
       this.opening = undefined;
@@ -2044,7 +2051,35 @@ export class KnowledgeProduct {
     }
   }
 
+  /**
+   * The store's own fill state (madarch-8bdc.9): a fill another process runs is answered here as running, and its end is
+   * answered as done — two api instances of one server agree about the same fill, and neither has to have pressed it.
+   */
+  private async followStoreFill(): Promise<void> {
+    if (this.reader === undefined) return;
+    let live: Awaited<ReturnType<typeof readLiveRun>>;
+    try {
+      live = await readLiveRun(this.reader.owner);
+    } catch {
+      return;
+    }
+    if (live !== null) {
+      if (this.fill.state === 'idle') {
+        this.fillRunId = live.runId;
+        this.fill = { state: 'running', startedAt: new Date(live.createdAt).toISOString(), commit: 0, commits: 0, gaps: 0 };
+      }
+      return;
+    }
+    if (this.fill.state === 'running' && this.fillRunId !== undefined) {
+      await this.published(undefined).catch(() => undefined);
+      this.changedLoaded = false;
+      this.fill = { state: 'done', startedAt: this.fill.startedAt, finishedAt: (this.options.now?.() ?? new Date()).toISOString(), gaps: 0, changed: this.lastChangedPages() ?? [] };
+      this.notify();
+    }
+  }
+
   private async statusLiveNow(body: WikiStatus, ctx: RenderContext | undefined): Promise<WikiStatus> {
+    await this.followStoreFill();
     const problems = this.problemsKeySafe();
     const collected = this.problemsCache;
     let loop = body.loop;
@@ -3407,6 +3442,8 @@ export class KnowledgeProduct {
     await this.opening?.catch(() => undefined);
     await this.swapping.catch(() => undefined);
     this.listeners.clear();
+    await this.fillQueue?.stop().catch(() => undefined);
+    this.fillQueue = undefined;
     if (this.reader !== undefined) await this.reader.owner.close().catch(() => undefined);
     this.reader = undefined;
     // The worker that draws the templates is not the product's to end: the server opens and closes products around single
@@ -3436,8 +3473,12 @@ export interface RepositoryPin {
 /** The products home's knowledge wikis: one per product folder, created when first asked for. */
 export class KnowledgeHost {
   private readonly products = new Map<string, KnowledgeProduct>();
+  /** The root the products' stores stand in: what the fill role of this server is told to watch (madarch-8bdc.9). */
+  readonly root: string;
 
-  constructor(private readonly storeRoot: string, private readonly now?: () => Date, private readonly extra: Pick<KnowledgeProductOptions, 'env' | 'agentFactory' | 'errorLog' | 'snapshotMs' | 'choicesQuery' | 'guideContextFor' | 'guideHostFor'> = {}) {}
+  constructor(private readonly storeRoot: string, private readonly now?: () => Date, private readonly extra: Pick<KnowledgeProductOptions, 'env' | 'agentFactory' | 'errorLog' | 'snapshotMs' | 'choicesQuery' | 'guideContextFor' | 'guideHostFor'> = {}) {
+    this.root = storeRoot;
+  }
 
   of(productFolder: string): KnowledgeProduct {
     const key = resolve(productFolder);

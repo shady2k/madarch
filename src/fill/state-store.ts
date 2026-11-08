@@ -425,6 +425,22 @@ export async function createRun(database: FillStateDatabase, options: { readonly
   }, 'write');
 }
 
+/**
+ * The newest run of a store that is under way, or null: a fill a *different* process runs is this store's own state
+ * (madarch-8bdc.9), and an api role that did not press it still answers how it is.
+ */
+export async function readLiveRun(database: FillStateDatabase): Promise<RunRecord | null> {
+  const at = here();
+  return await run(at, database, 'readLiveRun', ['fill_run'], async (executor) => {
+    const { rows } = await executor.query<RunRow>(
+      `SELECT run_id, product, state, context, created_at, updated_at FROM fill_run
+       WHERE state IN ('created', 'planning', 'running', 'pausing', 'cancelling')
+       ORDER BY created_at DESC, run_id DESC LIMIT 1`,
+    );
+    return rows[0] === undefined ? null : runRecord(rows[0]);
+  }, 'snapshot');
+}
+
 /** Answers one run, or null when it was never created. */
 export async function readRun(database: FillStateDatabase, runId: string): Promise<RunRecord | null> {
   const at = here();

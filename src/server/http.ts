@@ -25,6 +25,7 @@
  */
 import { existsSync, statSync } from 'node:fs';
 import { closeTrace, openTrace, runInTrace, withSpan, type TraceRun } from '../obs/trace.js';
+import { setPriority } from 'node:os';
 import { dirname, join as joinPath, normalize } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { Value } from 'typebox/value';
@@ -44,6 +45,7 @@ import { MANIFEST_FILE } from '../product/manifest.js';
 import { openProductWiki, type ProductWiki } from '../product-wiki/pages.js';
 import { listProducts } from '../product/list.js';
 import { basename } from 'node:path';
+import { selfCommand } from '../product/self-command.js';
 import { UNIT_TOOL_PATH, type UnitToolAnswer, type UnitToolCall } from '../fill/unit-tools.js';
 import { homeFromEnv, productsHome } from '../product/home.js';
 import { KnowledgeHost, type AgentFactory, type KnowledgeProductOptions } from '../knowledge/product.js';
@@ -108,6 +110,12 @@ export interface ServerOptions {
   knowledgeAgentFactory?: AgentFactory;
   /** Asks an agent which models it offers; tests inject, the production one starts the agent's ACP adapter. */
   knowledgeChoicesQuery?: KnowledgeProductOptions['choicesQuery'];
+  /**
+   * Whether this process starts the fill role beside itself (madarch-8bdc.9): `madarch serve` runs the api role here and
+   * one fill as a child of the same binary at a lower scheduling priority, so a local run behaves as a server's does. A
+   * process that is itself the fill role (`MADARCH_ROLE=api`) starts none, and neither does a test that starts its own.
+   */
+  fillProcess?: boolean;
   /** The address to listen on; `127.0.0.1` unless said otherwise (decision 0012). */
   host?: string;
   /** The port to listen on; 4180 by default, 0 for a free port. */
@@ -485,11 +493,17 @@ const notServed = (message: string): Response => Response.json({ message }, { st
     await sources?.close().catch(() => {});
     throw error;
   }
+  // The fill role, beside this one (madarch-8bdc.9): a child of the same binary that takes the fills pressed here from
+  // each store's queue, at a lower scheduling priority so the process that answers pages never loses a core to it.
+  const fillChild = options.fillProcess === false || process.env['MADARCH_ROLE'] === 'api'
+    ? undefined
+    : startFillRole({ home: options.productHome ?? productsHome(env as Record<string, string | undefined>), root: knowledgeHost.root });
   return {
     hostname: server.url.hostname,
     port: server.url.port === '' ? (options.port ?? 4180) : Number(server.url.port),
     url: server.url.origin,
     async stop(): Promise<void> {
+      fillChild?.stop();
       server.stop(true);
       await handle.drain();
       let failure: unknown;
@@ -502,6 +516,26 @@ const notServed = (message: string): Response => Response.json({ message }, { st
       if (failure !== undefined) throw failure;
     },
   };
+}
+
+/**
+ * Starts the fill role as a child of this process (madarch-8bdc.9): `madarch --role fill --home <home>`, at nice 10, with
+ * its output on this process's error stream. It ends when the api process ends, and `stop()` ends it first.
+ */
+function startFillRole(options: { readonly home: string; readonly root: string }): { stop: () => void } | undefined {
+  try {
+    const { command, args } = selfCommand(['--role', 'fill', '--home', options.home]);
+    const child = Bun.spawn([command, ...args], { stdin: 'ignore', stdout: 'inherit', stderr: 'inherit', env: { ...process.env, MADARCH_KNOWLEDGE_ROOT: options.root } });
+    try { setPriority(child.pid, 10); } catch { /* the platform refuses: the child runs at the priority it has */ }
+    return {
+      stop: () => {
+        try { child.kill(); } catch { /* already gone */ }
+      },
+    };
+  } catch {
+    // A machine that cannot start the binary still serves: a press then waits for a fill process a person starts.
+    return undefined;
+  }
 }
 
 export interface ServerHandler {

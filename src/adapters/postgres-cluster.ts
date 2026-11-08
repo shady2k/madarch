@@ -395,6 +395,13 @@ async function stopCluster(options: { readonly dataDir: string; readonly socketD
     rmSync(join(dataDir, OWNER_FILE), { force: true });
     return;
   }
+  // A server another live process adopted is that process's to stop: this one only lets go of it (madarch-8bdc.9). The
+  // fill role opening and closing a store between two of its runs must never stop the server the api role reads from.
+  const owner = ownerOf(dataDir);
+  if (owner !== null && owner !== process.pid && alive(owner)) {
+    options.log(`madarch: the PostgreSQL server on ${dataDir} is another process's (${String(owner)}), so it is left running`);
+    return;
+  }
   let others = 0;
   try {
     others = await otherClients({ socketDir });
