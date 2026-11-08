@@ -14,6 +14,7 @@
 import { mkdirSync } from 'node:fs';
 import { storeDatabasePath } from '../product/store.js';
 import { createDatabaseOwner, type DatabaseOwner, type OuterTransaction } from '../adapters/database-owner.js';
+import { SCHEMA_LOCK_SQL, storeSchemaLockKey } from '../adapters/schema-stamp.js';
 import { createGraphStore, createRecordSchema } from '../graph/index.js';
 import { decodeWire, encodeWire } from './wire.js';
 
@@ -138,7 +139,12 @@ export async function runReadWorker(io: { lines: AsyncIterable<string>; send: (r
               // This step's record tables too (madarch-8bdc.2.5): a snapshot of a store the fill has not run on is
               // read for its repository and its files, and a missing relation would be a failed page, not an empty one.
               await createRecordSchema(owner);
-              await owner.transaction('write', async (tx) => { await tx.query(SCHEMA_TABLE); });
+              // Serialized with every other schema of this store: two readers (the new one and the one a swap replaces) can
+          // make it at once (`src/adapters/schema-stamp.ts`).
+          await owner.transaction('write', async (tx) => {
+            await tx.query(SCHEMA_LOCK_SQL, [storeSchemaLockKey()]);
+            await tx.query(SCHEMA_TABLE);
+          });
               break;
             } catch (error) {
               const retryable = /deadlock detected/i.test(errorText(error)) || /could not serialize access/i.test(errorText(error));

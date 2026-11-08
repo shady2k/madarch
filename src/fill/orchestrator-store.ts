@@ -36,6 +36,7 @@ import { here, raise, withLocation } from './fsm-core.js';
 import { FACT_RANK_FIELDS } from './facts.js';
 import { advanceUnitIn, type UnitRecord } from './state-store.js';
 import type { StageDraftWrite } from './stage.js';
+import { SCHEMA_LOCK_SQL, storeSchemaLockKey } from '../adapters/schema-stamp.js';
 
 /** The orchestrator's own tables; `createOrchestratorSchema` creates them and every error names the ones it touched. */
 export const ORCHESTRATOR_TABLES = [
@@ -155,6 +156,7 @@ const CACHE_VERSIONS_LOCK = 724_913_556;
 export async function createOrchestratorSchema(database: OrchestratorDatabase): Promise<void> {
   const at = here();
   await run(at, database, 'createOrchestratorSchema', ORCHESTRATOR_TABLES, async (executor) => {
+    await executor.query(SCHEMA_LOCK_SQL, [storeSchemaLockKey()]);
     for (const statement of SCHEMA) await executor.query(statement);
     // The column is added under the lock and only where it is missing: the check first, so a store a
     // previous build filled and this build opened pays one query and no DDL at all.
