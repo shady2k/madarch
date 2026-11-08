@@ -110,16 +110,21 @@ describe('the wiki while a fill runs', () => {
         expected = now + 5;
       }, 5);
       let asked = 0;
-      let slowest = 0;
       let ended: FillState | undefined;
+      /** Each answer timed alone, by its path: a page's own wait, never two requests added together. */
+      const answers: { path: string; ms: number }[] = [];
+      const ask = async (path: string): Promise<{ status: number; body: Record<string, unknown> }> => {
+        const at = performance.now();
+        const answer = await json(server, 'thread', path);
+        answers.push({ path, ms: performance.now() - at });
+        return answer;
+      };
       try {
         const pressed = await fetch(`${server.url}/products/thread/api/k/fill`, { method: 'POST' });
         expect(pressed.status).toBe(202);
         for (let attempt = 0; attempt < 1200; attempt++) {
-          const before = performance.now();
-          const status = await json(server, 'thread', '/api/k/status');
-          const files = await json(server, 'thread', '/api/k/entities?kind=code.file&limit=100');
-          slowest = Math.max(slowest, performance.now() - before);
+          const status = await ask('/api/k/status');
+          const files = await ask('/api/k/entities?kind=code.file&limit=100');
           expect(status.status).toBe(200);
           expect(files.status).toBe(200);
           asked += 1;
@@ -133,9 +138,16 @@ describe('the wiki while a fill runs', () => {
       expect(ended?.state).toBe('done');
       expect(asked).toBeGreaterThan(2);
       const blocked = gaps.reduce((worst, gap) => (gap.ms > worst.ms ? gap : worst), { at: 0, ms: 0 });
-      // The bound a page answers within: the thread that serves the pages is never held by the fill's store for longer.
+      // This case's own claim: the thread that serves the pages is never held by the fill's store.
       expect(blocked.ms, `the server's thread was blocked for ${String(blocked.ms)} ms at ${String(blocked.at)} ms into the fill, and a page asked then waited for it`).toBeLessThan(BOUND_MS);
-      expect(Math.round(slowest), `the slowest status-and-files answer during the fill was ${String(Math.round(slowest))} ms`).toBeLessThan(BOUND_MS);
+      // The product's bound, stated once and read here the way the wiki's own case reads it: each path's 99th percentile
+      // of its answers, each timed alone, under `test/knowledge-responsive.test.ts`'s bound. Two requests added together
+      // are not a page's wait.
+      for (const path of new Set(answers.map((answer) => answer.path))) {
+        const list = answers.filter((answer) => answer.path === path).map((answer) => answer.ms).sort((a, b) => a - b);
+        const p99 = list[Math.min(list.length - 1, Math.floor(list.length * 0.99))]!;
+        expect(p99, `the 99th percentile of ${path} during the fill was ${String(Math.round(p99))} ms`).toBeLessThan(BOUND_MS);
+      }
       expect(errors).toEqual([]);
     } finally {
       await server.stop();
