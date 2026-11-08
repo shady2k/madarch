@@ -1,11 +1,12 @@
 /**
  * The repository pages of the wiki (madarch-8bdc.2.5, items 2, 3 and 4), tested
  * without a server: the repository with its counts, its gaps and its tree, a
- * folder's page, a file with every fact of it and its history, a commit with
- * the paths it changed, the run page's steps, and the fill card's trace
- * progress and its failure's file and line.
+ * folder's page, a file with every fact of it, its text and its history, a
+ * commit with the paths it changed, the run page's steps, and the fill card's
+ * trace progress and its failure's file and line.
  */
 import { afterAll, afterEach, beforeAll, describe, expect, test } from 'bun:test';
+import { readFileSync } from 'node:fs';
 import { GlobalRegistrator } from '@happy-dom/global-registrator';
 import { createElement } from 'react';
 import { createRoot, type Root } from 'react-dom/client';
@@ -60,6 +61,35 @@ const HISTORY: PageHistoryRow[] = [
 ];
 
 const FILE = { path: 'src/a.ts', mode: '100644', blob: 'a'.repeat(40), bytes: 20, lines: 1, form: 'text' as const, language: 'ambiguous', candidates: ['TypeScript', 'XML'] };
+
+/** A text file's two lines, as the source view reads them back. */
+const TEXT = 'export const a = 1;\nexport const b = 2;\n';
+
+/** One file's page as the server states it: its facts, its as-is commit and its history. */
+const page = (file: FilePageModel['file']): FilePageModel => ({
+  repository: 'code', asIsCommit: 'b'.repeat(40), file,
+  created: { date: '2026-11-07T13:00:00+03:00', offsetMin: 180, commit: 'a'.repeat(40), author: 'Ada' },
+  modified: { date: '2026-11-07T14:00:00+03:00', offsetMin: 180, commit: 'b'.repeat(40), author: 'Ada' },
+  commitCount: 2, authors: ['Ada'], history: HISTORY, next: null,
+});
+
+/**
+ * The server as a file page reads it: its own answer, then the file's text (or the refusal the server answers in its
+ * place). Every read of the text is kept, so a case can say that a binary file asked for none.
+ */
+function servingFile(file: FilePageModel, text: { status: number; body: unknown } | null): { reads: URL[] } {
+  const reads: URL[] = [];
+  (globalThis as { fetch?: unknown }).fetch = async (url: string) => {
+    if (url.includes('/api/k/file')) return new Response(JSON.stringify({ file }));
+    if (url.includes('/api/k/source')) {
+      reads.push(new URL(url, 'http://localhost'));
+      if (text === null) return new Response(JSON.stringify({ message: 'a binary file has no text to read' }), { status: 415 });
+      return new Response(JSON.stringify(text.body), { status: text.status });
+    }
+    return new Response(JSON.stringify({ message: `no route for ${url}` }), { status: 404 });
+  };
+  return { reads };
+}
 
 const status = (over: Partial<WikiStatus> = {}): WikiStatus => ({
   product: { name: 'shop', id: 'x' }, manifest: 'ok', manifestFile: 'madarch/kinds.yaml', language: 'en', seeded: [], findings: [], kinds: [], groups: [],
@@ -179,6 +209,69 @@ describe('a folder and a file', () => {
     expect(container.querySelectorAll('[data-testid=history-row]').length).toBe(2);
     expect([...container.querySelectorAll('[data-testid=history-row]')].map((row) => row.getAttribute('data-change'))).toEqual(['modified', 'added']);
   });
+
+  test("a text file's page shows its text under the facts and before the history, at the as-is commit it names", async () => {
+    const { reads } = servingFile(page({ ...FILE, bytes: TEXT.length, lines: 2, language: 'typescript', candidates: ['TypeScript'] }), { status: 200, body: { repo: 'code', path: 'src/a.ts', language: 'typescript', commit: 'b'.repeat(40), text: TEXT } });
+    const container = into(createElement(FilePage, { path: 'src/a.ts', after: null, version: 0 }));
+    await until(() => container.querySelector('[data-testid=file-text] [data-testid=source-code]') !== null, 'the text');
+    const text = container.querySelector('[data-testid=file-text]')!;
+    // The text is read at the as-is commit alone: a file page's address carries `at` for the page of its history it
+    // walks, and no such date travels with the text's request.
+    expect(text.getAttribute('data-commit')).toBe('b'.repeat(40));
+    expect(reads).toHaveLength(1);
+    expect(reads[0]!.searchParams.get('repo')).toBe('code');
+    expect(reads[0]!.searchParams.get('path')).toBe('src/a.ts');
+    expect(reads[0]!.searchParams.has('at')).toBe(false);
+    // The lines are the source view's own, numbered from one, with the anchors a `#L12` link opens.
+    expect([...text.querySelectorAll('.source-line')].map((line) => line.id)).toEqual(['L1', 'L2']);
+    expect(text.querySelector('#L2 .source-text')!.textContent!.trimEnd()).toBe('export const b = 2;');
+    // The facts stand above the text and the history below it.
+    expect([...container.querySelectorAll('[data-testid=file-facts], [data-testid=file-text], [data-testid=file-history]')].map((one) => one.getAttribute('data-testid')))
+      .toEqual(['file-facts', 'file-text', 'file-history']);
+    // A commit of the fill elsewhere reads the page again and not its text: what a commit holds never changes.
+    rendered!.render(createElement(FilePage, { path: 'src/a.ts', after: null, version: 1 }));
+    await new Promise((step) => setTimeout(step, 50));
+    expect(reads).toHaveLength(1);
+    expect(container.querySelector('[data-testid=file-text] #L2')).not.toBeNull();
+  });
+
+  test('a binary file says it is binary and its size in one line, and asks for no text', async () => {
+    const { reads } = servingFile(page({ ...FILE, path: 'assets/picture.bin', form: 'binary', lines: null, bytes: 6 }), null);
+    const container = into(createElement(FilePage, { path: 'assets/picture.bin', after: null, version: 0 }));
+    await until(() => container.querySelector('[data-testid=file-binary]') !== null, 'the binary line');
+    expect(container.querySelector('[data-testid=file-binary]')!.textContent).toBe('A binary file, 6 B. Its text is not shown.');
+    expect(container.querySelector('[data-testid=source-code]')).toBeNull();
+    expect(reads).toHaveLength(0);
+    expect(container.querySelector('[data-testid=file-facts]')).not.toBeNull();
+    expect(container.querySelector('[data-testid=file-history]')).not.toBeNull();
+  });
+
+  test('a refused text is stated in place of the text, and the facts and the history still stand', async () => {
+    const refused = 'the file src/a.ts is 5000000 bytes, past the 2097152 the source view shows';
+    const { reads } = servingFile(page(FILE), { status: 413, body: { field: 'path', message: refused } });
+    const container = into(createElement(FilePage, { path: 'src/a.ts', after: null, version: 0 }));
+    await until(() => container.querySelector('[data-testid=file-text-refused]') !== null, 'the refusal');
+    expect(container.querySelector('[data-testid=file-text-refused]')!.textContent).toContain(refused);
+    expect(container.querySelector('[data-testid=source-code]')).toBeNull();
+    expect(reads).toHaveLength(1);
+    expect(container.querySelector('[data-testid=file-facts]')).not.toBeNull();
+    expect(container.querySelector('[data-testid=file-history]')).not.toBeNull();
+  });
+
+  test("a large text file's page opens without freezing it: the project's own violations file is drawn whole", async () => {
+    const text = readFileSync(new URL('../../../../.architecture/violations.json', import.meta.url), 'utf8');
+    const lines = text.endsWith('\n') ? text.split('\n').length - 1 : text.split('\n').length;
+    const bytes = Buffer.byteLength(text);
+    servingFile(page({ ...FILE, path: '.architecture/violations.json', bytes, lines, language: 'json', candidates: ['JSON'] }), { status: 200, body: { repo: 'code', path: '.architecture/violations.json', language: 'json', commit: 'b'.repeat(40), text } });
+    const started = performance.now();
+    const container = into(createElement(FilePage, { path: '.architecture/violations.json', after: null, version: 0 }));
+    await until(() => container.querySelectorAll('[data-testid=file-text] .source-line').length === lines, 'the whole text');
+    const opened = performance.now() - started;
+    // Every line of the file stands in the page: the source view does not window a long file. Measured on this machine.
+    expect(container.querySelector(`#L${lines}`)).not.toBeNull();
+    console.log(`[measure] a ${bytesText(bytes)} text file of ${lines} lines opens in ${msText(opened)}`);
+    expect(opened).toBeLessThan(10_000);
+  }, 120_000);
 
   test('a deleted path in a commit is not a link to a file page that cannot stand', async () => {
     const commit: CommitPageModel = {

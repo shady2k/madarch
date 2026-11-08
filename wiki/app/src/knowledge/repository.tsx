@@ -1,22 +1,23 @@
 /**
  * The repository pages of this step (madarch-8bdc.2.5, items 2, 3 and 4): the
  * repository the fill read, its folder tree, one file with every fact of it,
- * one commit and the run's trace. Every page is drawn from the server's answer
+ * its text and its history, one commit and the run's trace. Every page is drawn from the server's answer
  * — the wiki holds no fact of its own — and every page names the as-is commit
  * it is true at.
  *
  * A page whose step has not run is not drawn: the server answers the step's
  * name, and the page says so rather than showing an empty list.
  */
+import { memo, useEffect } from 'react';
 import { useTranslation } from 'react-i18next';
 import { Alert, AlertDescription, AlertTitle } from '@/components/ui/alert.js';
 import { Badge } from '@/components/ui/badge.js';
-import { KLink } from './blocks.js';
+import { CodeLines, KLink } from './blocks.js';
 import { PageSkeleton } from './skeleton.js';
 import { useRead } from './live.js';
-import { getCommit, getFile, getFolder, getRun } from './api.js';
+import { getCommit, getFile, getFileText, getFolder, getRun } from './api.js';
 import { addressOfCommit, addressOfFile, addressOfFolder, addressOfRun, K_RUN } from './routes.js';
-import type { CommitPageModel, FilePageModel, FillRunView, FolderPageModel, PageFile, RepositoryFactsView, WikiStatus } from './types.js';
+import type { CommitPageModel, FilePageModel, FillRunView, FolderPageModel, PageFile, RepositoryFactsView, SourceFile, WikiStatus } from './types.js';
 
 /** A number of bytes as a reader reads it. */
 export function bytesText(bytes: number): string {
@@ -257,7 +258,59 @@ export function FolderPage({ path, after, version }: { path: string; after: stri
   );
 }
 
-/** One file: every fact the graph holds of it, and the commits that touched it. */
+/**
+ * The text of one file under its facts, before its history (madarch-8bdc.2.5, item 1): the source view the source page
+ * draws, with the highlighter and the `#L12` anchors a reader already knows. The text is read at the as-is commit the
+ * page names; a date the tab's address carries for a page of the history does not travel with the request. A binary
+ * file says what it is and its size in one line and asks for no text, and a refused read states the server's words in
+ * place of the text while the facts and the history stand around it.
+ */
+function FileText({ repository, path, commit, file }: { repository: string; path: string; commit: string | null; file: PageFile }): React.ReactElement {
+  const { t } = useTranslation();
+  if (file.form === 'binary') {
+    return <p className="mb-8 mt-0 text-small text-muted" data-testid="file-binary" data-bytes={file.bytes}>{t('knowledge.repository.binaryFile', { size: bytesText(file.bytes) })}</p>;
+  }
+  return <FileTextView repository={repository} path={path} commit={commit} />;
+}
+
+/**
+ * One text file's lines, read from the server and drawn by the wiki's one source view. The read is keyed by the commit
+ * the page names, so a commit of the fill elsewhere asks for the file again only when that commit changes: a large file
+ * is not read and drawn again for every commit of a running run. The component is memoized for the same reason — the
+ * lines a commit holds never change, so the page re-renders around them without drawing them again.
+ */
+const FileTextView = memo(function FileTextView({ repository, path, commit }: { repository: string; path: string; commit: string | null }): React.ReactElement {
+  const { t } = useTranslation();
+  const { data, error } = useRead<SourceFile>(`text:${repository}\u0000${path}\u0000${commit ?? ''}`, 0, (signal) => getFileText(repository, path, signal, (reason) => t('knowledge.repository.textNotRead', { path, reason })));
+  // The line an address names with `#L12` is reached once the text stands in the page, as the source page reaches the
+  // line it was opened at.
+  useEffect(() => {
+    if (data === null) return;
+    const line = /^#L(\d+)$/u.exec(window.location.hash);
+    if (line === null) return;
+    const wait = setTimeout(() => document.getElementById(`L${Number(line[1])}`)?.scrollIntoView?.({ block: 'center' }), 0);
+    return () => clearTimeout(wait);
+  }, [data]);
+  if (data === null && error === null) return <PageSkeleton testId="file-text-loading" rows />;
+  if (data === null) {
+    return (
+      <Alert variant="problem" className="mb-8" data-testid="file-text-refused">
+        <AlertTitle>{t('knowledge.repository.textMissing')}</AlertTitle>
+        <AlertDescription><p className="mb-0">{error}</p></AlertDescription>
+      </Alert>
+    );
+  }
+  return (
+    <section className="mb-8" data-testid="file-text" data-commit={data.commit ?? ''}>
+      <h2 className="mb-2 mt-0">{t('knowledge.repository.textTitle')}</h2>
+      <div className="source-view overflow-hidden rounded-[var(--radius-card)] border border-line">
+        <CodeLines text={data.text.endsWith('\n') ? data.text.slice(0, -1) : data.text} language={data.language} firstLine={1} />
+      </div>
+    </section>
+  );
+});
+
+/** One file: every fact the graph holds of it, its text, and the commits that touched it. */
 export function FilePage({ path, after, version }: { path: string; after: { walk: number; commit: string } | null; version: number }): React.ReactElement {
   const { t, i18n } = useTranslation();
   const language = i18n.resolvedLanguage ?? 'en';
@@ -298,6 +351,7 @@ export function FilePage({ path, after, version }: { path: string; after: { walk
         </tbody>
       </table>
       </div>
+      <FileText repository={model.repository} path={path} commit={model.asIsCommit} file={model.file} />
       <h2 className="mb-2 mt-0">{t('knowledge.repository.history')}</h2>
       {model.history.length === 0 ? (
         <p className="text-muted" data-testid="file-history-empty">{t('knowledge.repository.noHistory')}</p>
