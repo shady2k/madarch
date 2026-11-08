@@ -51,6 +51,7 @@ import type { AgentOffer, Block, ChangedPage, DocumentListing, DocumentPage, Doc
 import { commitPage, filePage, folderPage, recordedFileCount, recordedFileFacts, recordedFiles, repositoryOf, repositoryPage, type CommitPageModel, type FilePageFacts, type FilePageModel, type FolderPageModel } from './repository-view.js';
 import { readFillProgressOf } from '../obs/progress.js';
 import { readTraceRun } from '../obs/trace-report.js';
+import { traceFiles } from '../obs/trace.js';
 import { neighborhoodOf } from './diagrams.js';
 import { anchorLines, titleOfAnchor } from './anchors.js';
 import { adapterOf, installAdapter, makeUnitAgent, offers, queryAgentChoices, WRITER_AGENTS, WRITER_BOUNDS } from './agents.js';
@@ -2210,19 +2211,54 @@ export class KnowledgeProduct {
   }
 
   /**
+   * A page of the present's context, read once per state of the files it is made from (`statusKey()`): a listing asked
+   * every moment of a fill must not read the manifest, the product's Markdown and its documents again for every answer
+   * — that is 90-100 ms of the server's own thread per listing, and the answers beside it wait for it.
+   */
+  private async plainContext(): Promise<{ ctx: RenderContext } | { absent: true; file: string }> {
+    let key = '';
+    try {
+      // The files, and the commits the documents are read at: a snapshot that moves a commit changes what the documents
+      // say, a snapshot that publishes the same tree does not.
+      key = `${this.statusKey()}|${this.pinsKey()}`;
+    } catch {
+      key = '';
+    }
+    const held = this.plainContextMemo;
+    if (key !== '' && held !== undefined && held.key === key) return held.read;
+    const read = await this.context();
+    if (key !== '' && !('absent' in read)) this.plainContextMemo = { key, read };
+    return read;
+  }
+
+  private plainContextMemo: { key: string; read: { ctx: RenderContext } } | undefined;
+
+  /**
+   * The context of a page of the present, bound to the reader this answer reads: the graph and the record tables are
+   * the store's own, so a context kept across a snapshot the fill published is pointed at the reader that answers now.
+   */
+  private async bindStore(ctx: RenderContext): Promise<RenderContext> {
+    try {
+      const owner = await this.open();
+      return { ...ctx, graph: new GraphReader(owner, this.validAt), ...(ctx.records === undefined ? {} : { records: this.recordFiles(owner) }) };
+    } catch {
+      // The store cannot be opened: the context answers as it was read, and the answer says so through the page.
+      return ctx;
+    }
+  }
+
+  /**
    * What a status answer states of the store: the kinds' counts, the repository the pages show and what the pins hold.
    * The context's own read of the manifest and the product's documents is not made again — only the two fields that read
    * the store are bound to the reader this answer uses, so a snapshot the fill published is stated at once.
    */
   private async numbersOf(ctx: RenderContext): Promise<Partial<WikiStatus>> {
-    let bound = ctx;
-    try {
-      const owner = await this.open();
-      bound = { ...ctx, graph: new GraphReader(owner, this.validAt), ...(ctx.records === undefined ? {} : { records: this.recordFiles(owner) }) };
-    } catch {
-      // The store cannot be opened: the counts stand as the body read them and the answer still says how the fill is.
-    }
-    const kinds = await kindSummaries(bound).catch(() => undefined);
+    // What the store states changes with the snapshot and the pins and not otherwise: one read serves every answer of
+    // the same snapshot, so a poll of the menu is not a walk of the store.
+    const key = `${this.storeKey()}|${(this.reader === undefined ? '' : String(this.reader.seq))}`;
+    const held = this.numbersMemo;
+    if (held !== undefined && held.key === key) return held.numbers;
+    const kinds = await kindSummaries(await this.bindStore(ctx)).catch(() => undefined);
     const repository = await this.repositoryView().catch(() => undefined);
     const run = this.runViewOf();
     this.fillExtras = {
@@ -2230,14 +2266,19 @@ export class KnowledgeProduct {
       ...(run === null ? {} : { run }),
       ...(this.fill.state === 'failed' && this.fill.message !== undefined ? { error: this.errorOf(this.fill.message) } : {}),
     };
-    return {
+    const numbers: Partial<WikiStatus> = {
       ...(kinds === undefined ? {} : { kinds }),
       ...(repository === undefined ? {} : { repository }),
       repositories: this.repositories().map((repo) => ({ name: repo.name, filled: (this.pins.get(repo.name)?.filledCommits ?? 0) > 0 })),
       filled: this.pins.size > 0,
       incomplete: [...this.pins.values()].some((pin) => pin.filledCommits < pin.commits || pin.commits === 0),
     };
+    this.numbersMemo = { key, numbers };
+    return numbers;
   }
+
+  /** The store's numbers of one snapshot, kept until the snapshot or the pins move (see `numbersOf`). */
+  private numbersMemo: { key: string; numbers: Partial<WikiStatus> } | undefined;
 
   private statusMemo: { key: string; body: WikiStatus; ctx: RenderContext | undefined } | undefined;
   private statusFlight: { key: string; promise: Promise<StatusRead> } | undefined;
@@ -2305,7 +2346,15 @@ export class KnowledgeProduct {
     // A running fill says what its own trace says it has done (madarch-8bdc.2.5, item 2): the
     // counts are read from the run's file as it is written, never kept as a second count here.
     if (this.fill.state === 'running') {
-      const progress = this.fillRunId === undefined ? undefined : readFillProgressOf(this.storeFolder(), this.fillRunId);
+      // The run's trace is read as it grows, and every poll of the menu asks: a trace that has not been written since the
+      // last answer is the same progress, and parsing the run's spans again is the most expensive thing a poll did on a
+      // small machine. The stamp is the trace's own size and time.
+      const store = this.storeFolder();
+      const file = this.fillRunId === undefined ? undefined : traceFiles(store).find((one) => one.runId === this.fillRunId);
+      const stamp = file === undefined ? '' : `${file.file}:${String(file.modifiedAt)}:${String(statSync(file.file).size)}`;
+      if (file !== undefined && this.progressMemo?.stamp === stamp) return { ...this.fill, progress: this.progressMemo.progress };
+      const progress = this.fillRunId === undefined ? undefined : readFillProgressOf(store, this.fillRunId);
+      if (progress !== undefined && stamp !== '') this.progressMemo = { stamp, progress };
       return progress === undefined ? this.fill : { ...this.fill, progress };
     }
     const incomplete = [...this.pins.values()].some((pin) => pin.filledCommits < pin.commits || pin.commits === 0);
@@ -2320,6 +2369,9 @@ export class KnowledgeProduct {
       ...this.fillExtras,
     };
   }
+
+  /** The progress of the run under way, kept until its trace is written again (see `statusFill`). */
+  private progressMemo: { stamp: string; progress: NonNullable<ReturnType<typeof readFillProgressOf>> } | undefined;
 
   /** The newest run's trace as the run page states it, or null when the store holds no trace. */
   private runViewOf(runId?: string): FillRunView | null {
@@ -2427,6 +2479,9 @@ export class KnowledgeProduct {
     this.restorePause();
     const common = { product: { name: product.name, id: product.id } };
     const declared = this.repositories();
+    // The body is remade because a file moved, and a Markdown kind's count is the files': the numbers of the last
+    // snapshot are not the numbers of these files, so the next answer reads them again (see `numbersOf`).
+    this.numbersMemo = undefined;
     const context = await this.context();
     if ('absent' in context) {
       return { body: { ...common, manifest: 'no-manifest', manifestFile: context.file, language: 'en', seeded: [], ...(this.seedError === undefined ? {} : { seedError: this.seedError }), findings: [], kinds: [], groups: [], repositories: declared.map((repo) => ({ name: repo.name, filled: false })), filled: false, incomplete: false, fill: this.fill, writer: this.writer, bounds: { ...WRITER_BOUNDS, editorialRequestsPerPage: this.editorialRequestsPerPage() }, chosenAgent: this.chosenAgent(), home: null, roles: {}, loop: this.loopCounts(), starterOffers: 0 }, ctx: undefined };
@@ -2901,9 +2956,9 @@ export class KnowledgeProduct {
   }
 
   async list(kind: string, options: { q?: string; after?: string; limit: number }) {
-    const context = await this.context();
-    if ('absent' in context) return undefined;
-    return await listEntities(context.ctx, kind, options);
+    const read = await this.plainContext();
+    if ('absent' in read) return undefined;
+    return await listEntities(await this.bindStore(read.ctx), kind, options);
   }
 
   /**
@@ -3254,9 +3309,13 @@ export class KnowledgeProduct {
 
   /** The store as a listing reads it: the snapshot the pages show and what each repository was filled to. */
   private storeKey(): string {
-    const pins = [...this.pins.values()].map((pin) => `${pin.name}@${pin.commit}`).join(',');
     const snapshot = this.reader === undefined ? '' : String(this.reader.seq);
-    return `${snapshot}|${pins}`;
+    return `${snapshot}|${this.pinsKey()}`;
+  }
+
+  /** The commit each repository was filled to: what the documents a page reads are taken from. */
+  private pinsKey(): string {
+    return [...this.pins.values()].map((pin) => `${pin.name}@${pin.commit}`).join(',');
   }
 
   /** The key where a missing file or a folder that cannot be read is no reason to fail an answer: the background refresh. */
