@@ -53,6 +53,9 @@ const SKIPPED_FILL_SUITES: readonly SkippedFillSuite[] = [
   // The wiki's whole page model: a page's blocks are drawn from the symbols, resolved calls, operations, documents
   // and commit history the static stages publish, and from the pages the agent stages write.
   { file: 'test/knowledge-vertical.test.ts', brings: 'syntax, semantic-resolution, operations, document-index, modules, the temporal history stage and the agent stages', because: 'its cases read the entity index and the page blocks those stages publish' },
+  // `madarch init`'s empty-wiki cases run (they read what this fill publishes); the press's cases read the pages the
+  // agent stages write, and come back with the first of them.
+  { file: 'test/madarch-init-e2e.test.ts', brings: 'the agent stages 8 to 13 of 0026 and the narrative stage', because: 'the press\'s cases read the pages, guides and questions those stages write' },
   // The answer key's items are read back from the temporal graph the build-configuration, document-index,
   // modules and history stages publish; this step's fill publishes the tree and the history records.
   { file: 'test/fill-build-configuration-training.test.ts', brings: 'build-configuration, document-index, modules and the temporal history stage', because: 'it reads the answer key\'s manifest, document, module and history items back from the graph' },

@@ -8,7 +8,13 @@
  * runs, no model does. Nothing here names a script of the checkout besides the
  * `madarch` entry the test runs as the command.
  */
-import { afterAll, beforeAll, describe, expect, test } from 'bun:test';
+import { afterAll, beforeAll, describe, describe as bunDescribe, expect, test } from 'bun:test';
+import { skippedBecauseOutOfWorkflow } from './fill-skip-list.js';
+
+// The press's cases read the pages the agent stages write; the empty wiki's cases read what this fill publishes and
+// keep running (test/fill-skip-list.ts names the stages that bring the press back).
+const agentSuite = skippedBecauseOutOfWorkflow(import.meta.path);
+const agentDescribe = bunDescribe.skipIf(agentSuite !== undefined);
 import { spawnSync } from 'node:child_process';
 import { chmodSync, existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
 import { createServer } from 'node:net';
@@ -114,7 +120,7 @@ describe('madarch init', () => {
   }, 60_000);
 });
 
-describe('the one press', () => {
+agentDescribe('the one press', () => {
   test('chooses the agent, fills the graph and the agent writes the product page and a page per domain, served with their grounds resolved', async () => {
     expect((await post('api/k/agent', { agent: 'claude-code', install: false })).status).toBe(200);
     expect((await post('api/k/fill')).status).toBe(202);
