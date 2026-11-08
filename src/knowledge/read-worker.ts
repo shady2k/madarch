@@ -32,7 +32,7 @@ export type ReadReply =
   | { type: 'ended'; tx: number; error?: string };
 
 const SCHEMA_TABLE = `CREATE TABLE IF NOT EXISTS knowledge_fill (
-  repo text PRIMARY KEY, scope text NOT NULL, head text NOT NULL, commit_hash text NOT NULL, effective_time text NOT NULL,
+  repo text PRIMARY KEY, scope text, head text NOT NULL, commit_hash text NOT NULL, effective_time text NOT NULL,
   commits int NOT NULL, filled_commits int NOT NULL)`;
 
 export async function runReadWorker(io: { lines: AsyncIterable<string>; send: (reply: string) => void }): Promise<number> {

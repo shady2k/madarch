@@ -211,7 +211,7 @@ export function createSnapshotHistoryReader() {
   };
   type Entry = { boundary: Promise<number | null>; data?: Promise<HistoryData> };
   const snapshots = new WeakMap<DatabaseOwner, Map<string, Entry>>();
-  return async (owner: DatabaseOwner, pin: Pick<RepositoryPin, 'name' | 'scope' | 'head'>, validAt: string, selection: HistorySelection): Promise<HistoryContext> => {
+  return async (owner: DatabaseOwner, pin: Pick<RepositoryPin, 'name' | 'head'> & { readonly scope: string }, validAt: string, selection: HistorySelection): Promise<HistoryContext> => {
     // Pin fields belong to this owner; never reread mutable caller state after an await.
     const { name, scope, head } = pin;
     const capturedMillis = Date.parse(validAt);
@@ -575,7 +575,7 @@ export class KnowledgeProduct {
   private async loadPins(owner: DatabaseOwner): Promise<void> {
     const next = await owner.transaction('snapshot', async (tx) => {
       const rows = await tx.query<Record<string, unknown>>('SELECT repo, scope, head, commit_hash, effective_time, commits, filled_commits FROM knowledge_fill');
-      return rows.rows.map((row):RepositoryPin=>({name:String(row['repo']),scope:String(row['scope']),head:String(row['head']),commit:String(row['commit_hash']),effectiveTime:String(row['effective_time']),commits:Number(row['commits']),filledCommits:Number(row['filled_commits'])}));
+      return rows.rows.map((row):RepositoryPin=>({name:String(row['repo']),scope:row['scope']===null?null:String(row['scope']),head:String(row['head']),commit:String(row['commit_hash']),effectiveTime:String(row['effective_time']),commits:Number(row['commits']),filledCommits:Number(row['filled_commits'])}));
     });
     this.replacePins(next);
   }
@@ -1891,7 +1891,7 @@ export class KnowledgeProduct {
     if (!read.present) return { absent: true, file: read.file };
     const owner = snapshot?.owner ?? await this.open();
     const currentGraph = new GraphReader(owner, snapshot === undefined ? this.validAt : () => snapshot.validAt, undefined, snapshot?.transaction);
-    const scope = history === undefined ? undefined : (snapshot?.pins ?? this.pins).get(history.repo)?.scope;
+    const scope = history === undefined ? undefined : (snapshot?.pins ?? this.pins).get(history.repo)?.scope ?? undefined;
     const indexOwner = snapshot === undefined ? owner : pageSnapshotOwner(owner, snapshot.transaction);
     const pins = snapshot?.pins ?? this.pins;
     if (history !== undefined && (history.coverage !== 'covered' || history.effectiveAt === null || scope === undefined)) throw new WikiReadError(`${product.folder}/${KINDS_FILE}:1: historical structure is not covered for ${history.repo} at ${history.at}`);
@@ -1951,7 +1951,7 @@ export class KnowledgeProduct {
       const key = `${entity.repo ?? ''}\0${entity.path}\0${anchor}`;
       if (!entityByAnchor.has(key)) entityByAnchor.set(key, entity);
     }
-    const repoOfScope = (scope: string): string | undefined => [...pins.values()].find((pin) => pin.scope === scope)?.name;
+    const repoOfScope = (scope: string): string | undefined => [...pins.values()].find((pin) => pin.scope !== null && pin.scope === scope)?.name;
     const readSource = async (repo: string | null, path: string): Promise<string | undefined> => {
       if (repo === null) {
         if (history !== undefined) return undefined;
@@ -2606,8 +2606,10 @@ export class KnowledgeProduct {
     const owner = await this.open();
     if (this.reader?.owner !== owner) return await this.historyAt(selection);
     const pin = this.pins.get(selection.repo);
-    if (pin === undefined) return { ...selection, coverage: 'unknown', commit: null, effectiveAt: null, until: null, points: [] };
-    return await this.readSnapshotHistory(owner, pin, this.validAt(), selection);
+    // A repository the store holds no temporal reading of has no history to read: its pages say so, and no statement
+    // is sent to a graph that holds no version of it.
+    if (pin === undefined || pin.scope === null) return { ...selection, coverage: 'unknown', commit: null, effectiveAt: null, until: null, points: [] };
+    return await this.readSnapshotHistory(owner, { ...pin, scope: pin.scope }, this.validAt(), selection);
   }
 
   async page(id: string, lang?: string, options: { defer?: boolean; only?: string; history?: HistorySelection } = {}): Promise<PageResult> {
@@ -2690,7 +2692,7 @@ export class KnowledgeProduct {
       const owner = await this.open();
       const defaults = createGuideReadFactories({ owner, store: createGraphStore(owner), output: ctx.productFolder,
         snapshots: createGitSnapshotSource([...([...this.pins.values()].map((pin) => ({ id: pin.name, form: 'code' as const, root: this.repositories().find((repository) => repository.name === pin.name)?.path ?? join(ctx.productFolder, 'repos', pin.name), commit: pin.commit }))), productPin]),
-        scopeOf: (repository) => this.pins.get(repository)?.scope,
+        scopeOf: (repository) => this.pins.get(repository)?.scope ?? undefined,
       });
       const contextFor = this.options.guideContextFor ?? defaults.guideContextFor;
       const hostFor = this.options.guideHostFor ?? defaults.guideHostFor;
@@ -3378,7 +3380,12 @@ export class KnowledgeProduct {
 /** What a repository was filled to: kept in the primary store (`knowledge_fill`) and applied with the snapshot it belongs to. */
 export interface RepositoryPin {
   name: string;
-  scope: string;
+  /**
+   * The repository's node in the temporal graph, which its history reads are keyed by, or `null` when the store holds
+   * no temporal reading of it — a store this fill wrote, whose facts are the as-is record tables. It is an id, never
+   * the repository's name: a name there made a page fail with `invalid input syntax for type bigint`.
+   */
+  scope: string | null;
   head: string;
   /** The commit the graph holds for the repository, and the effective time it was read at. */
   commit: string;

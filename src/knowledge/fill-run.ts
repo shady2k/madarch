@@ -103,14 +103,33 @@ export interface KnowledgeFillRun {
   close(): Promise<void>;
 }
 
+/** One repository the store holds, as the pins a reader opens state it. */
+interface StorePin {
+  readonly name: string;
+  /**
+   * The repository's node in the *temporal* graph (decision 0028), which is the scope its reads are keyed by, or
+   * `null`: this fill publishes the as-is record tables and no versioned node, so it opens no temporal scope for a
+   * repository. Never the repository's name: the reader compares a scope as a `bigint` id, and a name there failed a
+   * page with `invalid input syntax for type bigint: "shop"`.
+   */
+  readonly scope: string | null;
+  readonly head: string;
+  readonly commit: string;
+  readonly effectiveTime: string;
+  readonly commits: number;
+  readonly filledCommits: number;
+  readonly files: number;
+  readonly folders: number;
+}
+
 /**
  * The repositories the run filled, as the store it wrote says: the record tables carry the
  * as-is commit and the commit count of every repository, so the pins a reader opens are the
  * facts the fill published and not a second reading of the checkout.
  */
-async function pinsOf(owner: StoreOwner): Promise<{ name: string; scope: string; head: string; commit: string; effectiveTime: string; commits: number; filledCommits: number; files: number; folders: number }[]> {
+async function pinsOf(owner: StoreOwner): Promise<StorePin[]> {
   const now = new Date().toISOString();
-  const pins = [];
+  const pins: StorePin[] = [];
   for (const repository of await listRepositories(owner)) {
     // The counts are the store's own: the history pass wrote the commits, and the history pass is
     // the one that says whether a repository is complete. A repository with a tree and no commit
@@ -118,7 +137,7 @@ async function pinsOf(owner: StoreOwner): Promise<{ name: string; scope: string;
     const facts = await repositoryFacts(owner, repository.name);
     const commits = facts?.commitCount ?? 0;
     pins.push({
-      name: repository.name, scope: repository.name, head: repository.asIsCommit ?? '', commit: repository.asIsCommit ?? '',
+      name: repository.name, scope: null, head: repository.asIsCommit ?? '', commit: repository.asIsCommit ?? '',
       effectiveTime: now, commits, filledCommits: commits, files: facts?.fileCount ?? 0, folders: facts?.directoryCount ?? 0,
     });
   }
@@ -138,7 +157,7 @@ export interface FinishedKnowledgeStore {
  */
 async function writePins(owner: StoreOwner): Promise<number> {
   await owner.run((tx: { query: (text: string, params?: readonly unknown[]) => Promise<unknown> }) => tx.query(`CREATE TABLE IF NOT EXISTS knowledge_fill (
-    repo text PRIMARY KEY, scope text NOT NULL, head text NOT NULL, commit_hash text NOT NULL, effective_time text NOT NULL,
+    repo text PRIMARY KEY, scope text, head text NOT NULL, commit_hash text NOT NULL, effective_time text NOT NULL,
     commits int NOT NULL, filled_commits int NOT NULL)`));
   const pins = await pinsOf(owner);
   for (const pin of pins) {

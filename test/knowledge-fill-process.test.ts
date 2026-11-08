@@ -1,8 +1,12 @@
 /**
  * The fill runs in a process of its own (madarch-m38l.4, decision 0033 item 27): a PGlite runs every statement on the
  * thread that owns it, so a store opened inside the server's process holds every page of the wiki while it boots and
- * while it is written. The server's thread answers throughout the fill: no page waits on the store's boot (the CI
- * failure measured 2 454-2 936 ms for three pages while a first fill opened its store).
+ * while it is written. This file reads the two consequences a reader of the wiki sees:
+ *
+ * - the server's thread answers throughout the fill — no page waits on the store's boot (the CI failure measured
+ *   2 454-2 936 ms for three pages while a first fill opened its store);
+ * - a pin the reader opens carries the scope of the store's temporal graph or nothing, never a repository's name in a
+ *   column the reader compares as an id (`invalid input syntax for type bigint: "shop"` was a failed page).
  *
  * Each product here is a fixture this test makes: one repository of four files and the product around it.
  */
@@ -11,7 +15,9 @@ import { execFileSync } from 'node:child_process';
 import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
+import { createPGliteDatabaseOwner } from '../src/adapters/database-owner.js';
 import type { FillState } from '../src/knowledge/model.js';
+import { knowledgeRootOf, productStoreFolder } from '../src/product/store.js';
 import { startServer, type StartedServer } from '../src/server/http.js';
 import { gitEnv } from './git-env.js';
 import { SAMPLE_IDENTITY, makeProduct } from './knowledge-fixture.js';
@@ -47,6 +53,19 @@ function makeWalk(name: string): void {
   const folder = makeProduct(home, name, repository, `${name}-code`);
   git(folder, 'add', '-A');
   git(folder, 'commit', '-qm', `the product ${name}`);
+}
+
+/** Presses the fill and waits for the run to end; answers the fill state that says how it ended. */
+async function fill(server: StartedServer, name: string): Promise<FillState> {
+  const pressed = await fetch(`${server.url}/products/${name}/api/k/fill`, { method: 'POST' });
+  expect(pressed.status).toBe(202);
+  for (let attempt = 0; attempt < 1200; attempt++) {
+    const status = await json(server, name, '/api/k/status');
+    const state = (status.body['fill'] as FillState).state;
+    if (state !== 'running') return status.body['fill'] as FillState;
+    await new Promise((rest) => setTimeout(rest, 100));
+  }
+  throw new Error('the fill never ended');
 }
 
 beforeAll(() => {
@@ -114,3 +133,43 @@ describe('the wiki while a fill runs', () => {
   }, 300_000);
 });
 
+describe('the store a fill wrote', () => {
+  // One fill for the case below: it reads the store the fill left, not a run of its own.
+  beforeAll(async () => {
+    const server = await startServer({ productHome: home, appFolder: app, port: 0, log: () => undefined, errorLog: () => undefined });
+    try {
+      expect((await fill(server, 'walk')).state).toBe('done');
+    } finally {
+      await server.stop();
+    }
+  }, 120_000);
+
+  test('a pin carries the scope of the store’s temporal graph or nothing, and a code page of this store draws', async () => {
+    // The store this fill wrote: its pins are what the reader opens. A pin's scope is an id of the temporal graph, and
+    // this fill publishes no version, so the column says NULL — a repository's name there failed a page with
+    // `invalid input syntax for type bigint`.
+    const storeFolder = productStoreFolder(join(home, 'walk'), knowledgeRootOf(home));
+    const owner = createPGliteDatabaseOwner({ path: join(storeFolder, 'graph'), btreeGist: true });
+    try {
+      await owner.ready;
+      const pins = (await owner.run((tx) => tx.query<{ repo: string; scope: string | null }>('SELECT repo, scope FROM knowledge_fill ORDER BY repo'))).rows;
+      expect(pins.map((pin) => pin.repo)).toEqual(['walk', 'walk-code']);
+      for (const pin of pins) expect(pin.scope).toBeNull();
+    } finally {
+      await owner.close();
+    }
+    const errors: string[] = [];
+    const server = await startServer({ productHome: home, appFolder: app, port: 0, log: () => undefined, errorLog: (line) => { errors.push(line); } });
+    try {
+      // A code page of the store, and the page's own history navigation: the reads that named a scope.
+      const page = await json(server, 'walk', `/api/k/page?id=${encodeURIComponent('code.file:src/a.ts')}`);
+      expect([200, 404]).toContain(page.status);
+      const symbol = await json(server, 'walk', `/api/k/page?id=${encodeURIComponent('code.symbol:src/a.ts#a')}`);
+      expect([200, 404]).toContain(symbol.status);
+      expect((await json(server, 'walk', '/api/k/status')).status).toBe(200);
+      expect(errors).toEqual([]);
+    } finally {
+      await server.stop();
+    }
+  }, 120_000);
+});
