@@ -18,6 +18,7 @@ import type {
   ViewResult,
 } from '../query/types.js';
 import type { SqlExecutor, SqlQueryDriver } from '../query/sql-driver.js';
+import type { AsyncVectorIndex } from '../vector/types.js';
 import { createSqlVectorIndex, EXPECTED_PGVECTOR_VERSION, VECTOR_SCHEMA } from './sql-vector-index.js';
 
 const MAX_HOPS_CEILING = 30;
@@ -70,7 +71,6 @@ const SCHEMA = [
   )`,
   `CREATE INDEX IF NOT EXISTS query_states_source_time ON query_states
     (source, valid_from, valid_to, recorded_from, recorded_to)`,
-  ...VECTOR_SCHEMA,
 ] as const;
 
 export interface SqlQueryDatabaseOptions {
@@ -325,18 +325,42 @@ function assertRecordScope(record: AssertionRecord | AssertionChange, sources: R
   if (!sources.has(record.source)) throw new Error(`assertion source "${record.source}" is outside this graph query scope`);
 }
 
+/**
+ * The vector index of a database without pgvector: it is created, so a caller
+ * that asks for one learns what it needs from the answer, and it refuses by name
+ * rather than failing inside `CREATE EXTENSION` or in a query over a table that
+ * was never made. The graph queries of the same database answer as always.
+ */
+function refusingVectorIndex(sources: readonly string[], location: string | undefined): AsyncVectorIndex {
+  const where = location === undefined ? 'this database' : `"${location}"`;
+  const message = `the vector index needs pgvector ${EXPECTED_PGVECTOR_VERSION}, and ${where} carries none: the server madarch installs carries PostgreSQL's own contrib extensions and no pgvector (decision 0024's amendment), so vector rebuilds and searches are unavailable here while every graph query answers. Give the database a server with the extension (a connection string names one, as CI's pgvector service does) (src/adapters/sql-query-database.ts)`;
+  void sources;
+  const refused = async (): Promise<never> => { throw new Error(message); };
+  return {
+    rebuild: refused,
+    search: refused,
+    close: async () => await Promise.resolve(),
+  };
+}
+
 export async function createSqlQueryDatabase(driver: SqlQueryDriver, options: SqlQueryDatabaseOptions = {}): Promise<AsyncQueryDatabase> {
+  /** The pgvector version the database answers, or undefined when it carries none: what the vector facade refuses on. */
+  let vectorVersion: string | undefined;
   try {
     await driver.transaction('write', async (executor) => {
       for (const statement of SCHEMA) await executor.query(statement);
       const installedVector = await executor.query<{ extversion: string }>(
         `SELECT extversion FROM pg_extension WHERE extname = 'vector'`,
       );
-      if (installedVector.rows.length !== 1 || installedVector.rows[0]!.extversion !== EXPECTED_PGVECTOR_VERSION) {
-        const found = installedVector.rows[0]?.extversion ?? 'not installed';
+      vectorVersion = installedVector.rows[0]?.extversion;
+      if (vectorVersion === undefined) return;
+      if (vectorVersion !== EXPECTED_PGVECTOR_VERSION) {
         const where = options.location === undefined ? '' : ` of "${options.location}"`;
-        throw new Error(`the SQL query database${where} requires pgvector ${EXPECTED_PGVECTOR_VERSION}; found ${found}`);
+        throw new Error(`the SQL query database${where} has pgvector ${vectorVersion}, and this build needs exactly ${EXPECTED_PGVECTOR_VERSION}: its distance operators and its index are the ones the answers were written against`);
       }
+      // The vector tables exist only where the extension does: a database
+      // without it serves every graph query, and its vector index refuses by name.
+      for (const statement of VECTOR_SCHEMA) await executor.query(statement);
     });
   } catch (error) {
     await driver.close().catch(() => {});
@@ -749,13 +773,16 @@ export async function createSqlQueryDatabase(driver: SqlQueryDriver, options: Sq
 
   const database: AsyncQueryDatabase = {
     forSources: (sources) => makeEngine(sources),
-    vectorIndexForSources: (sources) => createSqlVectorIndex({
-      driver,
-      gate,
-      ensureOwnerOpen,
-      ensureOutsideSnapshot,
-      registerScope,
-    }, sources),
+    vectorIndexForSources: (sources) => {
+      if (vectorVersion === undefined) return refusingVectorIndex(sources, options.location);
+      return createSqlVectorIndex({
+        driver,
+        gate,
+        ensureOwnerOpen,
+        ensureOutsideSnapshot,
+        registerScope,
+      }, sources);
+    },
     close: () => {
       try {
         ensureOutsideSnapshot();

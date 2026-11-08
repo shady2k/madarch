@@ -243,7 +243,7 @@ const TRIGGERS: readonly { name: string; table: string; statement: string }[] = 
 
 /**
  * Creates the graph's tables, its constraints and the engine's own
- * vocabulary; a second call changes nothing. A PGlite owner must have been
+ * vocabulary; a second call changes nothing. The owner must have been
  * opened with `btreeGist: true`.
  */
 export async function createGraphSchema(owner: DatabaseOwner, at: string): Promise<void> {
@@ -251,7 +251,7 @@ export async function createGraphSchema(owner: DatabaseOwner, at: string): Promi
     try {
       await tx.query('CREATE EXTENSION IF NOT EXISTS btree_gist');
     } catch (error) {
-      throw new GraphError('create graph schema', 'extension btree_gist', `the database "${owner.location}" does not load btree_gist, which the no-overlap constraints need (a PGlite owner is opened with btreeGist: true): ${databaseMessage(error)}`);
+      throw new GraphError('create graph schema', 'extension btree_gist', `the database "${owner.location}" does not load btree_gist, which the no-overlap constraints need (open the owner with btreeGist: true): ${databaseMessage(error)}`);
     }
     for (const statement of SCHEMA) await tx.query(statement);
     for (const trigger of TRIGGERS) {

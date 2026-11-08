@@ -1,10 +1,10 @@
-import {expect, test} from 'bun:test';
-import {operationMetadata} from '../src/knowledge/operation-catalogue.js';
-import {createPGliteDatabaseOwner} from '../src/adapters/database-owner.js';
-import {createGraphStore} from '../src/graph/index.js';
-import {GraphReader} from '../src/knowledge/graph-read.js';
-import type {RenderContext} from '../src/knowledge/blocks.js';
-import type {GraphEntity} from '../src/knowledge/graph-read.js';
+import { expect, test } from 'bun:test';
+import { operationMetadata } from '../src/knowledge/operation-catalogue.js';
+import { createGraphStore } from '../src/graph/index.js';
+import { GraphReader } from '../src/knowledge/graph-read.js';
+import type { RenderContext } from '../src/knowledge/blocks.js';
+import type { GraphEntity } from '../src/knowledge/graph-read.js';
+import { createTestDatabaseOwner } from './test-database.js';
 const entity = (key: string, kind: string, properties = {}): GraphEntity => ({key, kind, label: key, properties, scope: 'scope', nodeIds: ['1']});
 test('catalogue uses declared contract identity and preserves implementation/caller counts', async () => {
   const contract = entity('code.contract:api.yaml', 'code.contract', {format: 'openapi'});
@@ -53,7 +53,7 @@ test('declared AsyncAPI channels keep ownership, real links and application flow
 
 
 test('production catalogue SQL pages declared channels and operations without changing kind lists', async () => {
-  const owner = createPGliteDatabaseOwner({btreeGist: true});
+  const owner = await createTestDatabaseOwner({btreeGist: true});
   try {
     await owner.ready; const store = createGraphStore(owner); await store.createSchema();
     await store.registerCodeSchema({kinds: ['code.channel', 'code.contract', 'code.operation'], relations: [{key: 'code.declares', discriminated: true}]});

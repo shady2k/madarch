@@ -41,8 +41,8 @@ import { createGraphStore } from '../src/graph/index.js';
  */
 const engine = join(import.meta.dir, '..');
 const load = async (path: string) => await import(pathToFileURL(join(engine, path)).href);
-const { createPGliteDatabaseOwner } = await load('src/adapters/database-owner.ts') as typeof import('../src/adapters/database-owner.js');
-type DatabaseOwner = Awaited<ReturnType<typeof createPGliteDatabaseOwner>>;
+const { createDatabaseOwner, createDatabaseOwner } = await load('src/adapters/database-owner.ts') as typeof import('../src/adapters/database-owner.js');
+type DatabaseOwner = Awaited<ReturnType<typeof createDatabaseOwner>>;
 import { canonicalJsonDigest } from '../src/model/canonical.js';
 import { KnowledgeProduct } from '../src/knowledge/product.js';
 import { generateTrainingRepository, makeProduct } from '../test/knowledge-fixture.js';
@@ -188,7 +188,7 @@ function digestOf(dumped: Dumped): Record<string, unknown> {
 
 /** One store's answer: the dump, its digests, the bytes and the tables. */
 async function measureStore(storeFolder: string): Promise<Record<string, unknown>> {
-  const owner = createPGliteDatabaseOwner({ path: join(storeFolder, 'graph'), btreeGist: true });
+  const owner = await createDatabaseOwner({ store: join(storeFolder, 'graph'), btreeGist: true });
   try {
     const dumped = await dumpStore(owner);
     return { ...digestOf(dumped), storeBytes: folderBytes(storeFolder), tables: await tableBytes(owner) };
@@ -221,7 +221,7 @@ async function fill(work: string, repository: string | undefined): Promise<{ pro
 async function bench(store: string, nodeCount: number, edgeCount: number): Promise<Record<string, unknown>> {
   rmSync(store, { recursive: true, force: true });
   mkdirSync(store, { recursive: true });
-  const owner = createPGliteDatabaseOwner({ path: join(store, 'graph'), btreeGist: true });
+  const owner = await createDatabaseOwner({ store: join(store, 'graph'), btreeGist: true });
   try {
     const graph = createGraphStore(owner);
     await graph.createSchema();

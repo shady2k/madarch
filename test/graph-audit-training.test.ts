@@ -9,16 +9,17 @@
  * checker that passes everything fails here. A case that fails on main is an extraction gap, reported
  * with the node or edge it names, never a case to weaken.
  */
-import {afterAll, beforeAll, describe, expect, test} from 'bun:test';
-import {execFileSync} from 'node:child_process';
-import {mkdtempSync, readFileSync, rmSync} from 'node:fs';
-import {tmpdir} from 'node:os';
+import { afterAll, beforeAll, describe, expect, test } from 'bun:test';
+import { execFileSync } from 'node:child_process';
+import { mkdtempSync, readFileSync, rmSync } from 'node:fs';
+import { tmpdir } from 'node:os';
 import path from 'node:path';
-import {fileURLToPath} from 'node:url';
-import {createPGliteDatabaseOwner, type DatabaseOwner} from '../src/adapters/database-owner.js';
-import {createGraphStore, type GraphStore} from '../src/graph/index.js';
-import {fillGraph} from '../src/extract/driver/index.js';
-import {HISTORY_EXTRACTOR, OWNERS, TREE_EXTRACTORS} from '../src/extract/driver/extractors.js';
+import { fileURLToPath } from 'node:url';
+import { type DatabaseOwner } from '../src/adapters/database-owner.js';
+import { createGraphStore, type GraphStore } from '../src/graph/index.js';
+import { fillGraph } from '../src/extract/driver/index.js';
+import { HISTORY_EXTRACTOR, OWNERS, TREE_EXTRACTORS } from '../src/extract/driver/extractors.js';
+import { createTestDatabaseOwner } from './test-database.js';
 
 const ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
 const KEY = JSON.parse(readFileSync(path.join(ROOT, 'examples/training-repository/answer-key.json'), 'utf8')) as {
@@ -324,7 +325,7 @@ beforeAll(async () => {
   workspace = mkdtempSync(path.join(tmpdir(), 'madarch-graph-audit-'));
   const repository = path.join(workspace, 'repo');
   execFileSync('node', [path.join(ROOT, 'examples/training-repository/generate.mjs'), repository], {cwd: ROOT, stdio: ['ignore', 'ignore', 'pipe']});
-  owner = createPGliteDatabaseOwner({btreeGist: true});
+  owner = await createTestDatabaseOwner({btreeGist: true});
   store = createGraphStore(owner);
   await owner.ready;
   await store.createSchema();

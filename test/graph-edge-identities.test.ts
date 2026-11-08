@@ -28,7 +28,7 @@ describe('edge identities under concurrent publications', () => {
     };
     const ctx = { tx: { query }, at: '2026-01-02T00:00:00Z', now: () => '2026-01-02T00:00:00Z', memo: writeMemo() } satisfies WriteContext;
     await edgeIdentities(ctx, keys);
-    // PGlite runs a statement on the thread that owns it, so a reader waits for
+    // One statement holds its transaction until it ends, so a reader waits for
     // its whole duration. The prefetch may paginate, but never in one long row
     // set (madarch-alzf, PR #197 latency).
     expect(sizes).toEqual(Array.from({ length: 12 }, () => 100));

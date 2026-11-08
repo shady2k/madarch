@@ -1,5 +1,5 @@
 /**
- * The queue on the process's PGlite owner (madarch-tzte.19.2, decision 0027
+ * The queue on the process's database owner (madarch-tzte.19.2, decision 0027
  * "Queue"): the shared behaviour `test/queue-expectations.ts` holds, run against
  * one run of `test/queue-scenario.ts`, and the three things only an owner can
  * show — the queue's tables living in the owner's own database under the schema
@@ -11,16 +11,12 @@ import { afterAll, expect, test } from 'bun:test';
 import { mkdtempSync, rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
-import {
-  createPGliteDatabaseOwner,
-  createPGliteHistory,
-  type Clock,
-  type CompiledElement,
-  type CompiledModel,
-} from '../src/index.js';
+import { type Clock, type CompiledElement, type CompiledModel } from '../src/index.js';
 import { createPgBossQueue } from '../src/adapters/pg-boss-queue.js';
 import { QUEUE_SCENARIO_CHECKS } from './queue-expectations.js';
 import { runQueueScenario, SCENARIO_QUEUES } from './queue-scenario.js';
+import { createTestDatabaseOwner } from './test-database.js';
+import { createHistoryStore } from '../src/adapters/sql-history.js';
 
 const DAY = (day: number) => Date.UTC(2026, 9, day); // October 2026
 
@@ -53,7 +49,7 @@ function model(elements: string[]): CompiledModel {
 const folder = mkdtempSync(join(tmpdir(), 'madarch-queue-'));
 /** The schema the scenario's queue declares its tables in: not pg-boss's default, so the option is read. */
 const SCHEMA = 'madarch_queue';
-const owner = createPGliteDatabaseOwner({ path: join(folder, 'queue.pglite') });
+const owner = await createTestDatabaseOwner({ store: join(folder, 'queue') });
 /** One run of the scenario for every judgement below: the waits it makes are worth sharing. */
 const scenario = runQueueScenario(owner, SCHEMA);
 
@@ -119,8 +115,8 @@ test('a declaration is judged by its own fields, and a queue declared again runs
 
 test('an enqueue inside the caller’s transaction commits with the fact log, and a rollback leaves neither', async () => {
   const clock = fakeClock(DAY(1));
-  const sharedOwner = createPGliteDatabaseOwner({ vector: true });
-  const history = createPGliteHistory({ clock, owner: sharedOwner });
+  const sharedOwner = await createTestDatabaseOwner();
+  const history = createHistoryStore({ clock, owner: sharedOwner });
   const queue = await createPgBossQueue({ owner: sharedOwner, schema: 'shared_tx', supervise: false });
   try {
     await queue.declare({ name: 'publication', leaseSeconds: 60, retries: 0, retryDelaySeconds: 0, retryBackoff: false });
@@ -184,7 +180,7 @@ test('a service left to itself recovers a lapsed claim without anyone asking', a
   // The adapter's own passes are what make a killed worker recoverable while a
   // process lives; this shows the pass really runs on its own timer, over a
   // one-second lease with a pass every second.
-  const alone = createPGliteDatabaseOwner();
+  const alone = await createTestDatabaseOwner();
   const queue = await createPgBossQueue({ owner: alone, schema: 'supervised', supervise: true, superviseIntervalSeconds: 1 });
   try {
     await queue.declare({ name: 'supervised', leaseSeconds: 1, retries: 2, retryDelaySeconds: 0, retryBackoff: false });

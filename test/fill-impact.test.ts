@@ -36,7 +36,7 @@ import { mkdirSync, mkdtempSync, readFileSync, rmSync, symlinkSync, writeFileSyn
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { fileURLToPath } from 'node:url';
-import { createPGliteDatabaseOwner, type DatabaseOwner } from '../src/adapters/database-owner.js';
+import { type DatabaseOwner } from '../src/adapters/database-owner.js';
 import { createFillOrchestratorService, type FillOrchestratorService, type FillRunResult } from '../src/fill/orchestrator-host.js';
 import { readProgress, readUnitReads } from '../src/fill/orchestrator-store.js';
 import { OVERVIEW_STAGE_ID } from '../src/fill/stages/overview.js';
@@ -51,6 +51,7 @@ import { UNIT_TOOL_PATH } from '../src/fill/unit-tools.js';
 import { startServer, type StartedServer } from '../src/server/http.js';
 import { createStagesFill, type StagesFill } from '../src/product/fill-stages.js';
 import { writeFirstFillWorkflow } from './fill-workflow-fixture.js';
+import { createTestDatabaseOwner } from './test-database.js';
 
 const FAKE_AGENT = join(import.meta.dir, 'fixtures', 'acp-fake-agent', 'acp-fake-agent.ts');
 const GENERATOR = fileURLToPath(new URL('../examples/training-repository/agent-stage/generate.mjs', import.meta.url));
@@ -173,7 +174,7 @@ function runClock(): { now(): number } {
 async function openProduct(agentClock: () => number): Promise<Open> {
   const folder = join(world, 'home');
   mkdirSync(folder, { recursive: true });
-  const owner: DatabaseOwner = createPGliteDatabaseOwner({ btreeGist: true });
+  const owner: DatabaseOwner = await createTestDatabaseOwner({ btreeGist: true });
   const scriptPath = join(world, 'script.json');
   const record = join(world, 'agent-record.jsonl');
   const script = (commit: string): void => { writeFileSync(scriptPath, JSON.stringify(agentScript(commit))); };

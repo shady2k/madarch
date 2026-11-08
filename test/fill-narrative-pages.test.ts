@@ -15,23 +15,16 @@ import { execFileSync } from 'node:child_process';
 import { mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
-import { createPGliteDatabaseOwner, type DatabaseOwner } from '../src/adapters/database-owner.js';
+import { type DatabaseOwner } from '../src/adapters/database-owner.js';
 import { applyPublishedFacts, createFactStoreSchema } from '../src/fill/fact-store.js';
 import { makeNodeFact, type Fact } from '../src/fill/facts.js';
-import {
-  NARRATIVE_PAGE_DIR,
-  NARRATIVE_PAGE_STATUS,
-  NARRATIVE_PAGE_WRITER,
-  narrativeDigest,
-  narrativePagePath,
-  parseNarrativePage,
-  renderNarrativePage,
-} from '../src/fill/narrative-text.js';
+import { NARRATIVE_PAGE_DIR, NARRATIVE_PAGE_STATUS, NARRATIVE_PAGE_WRITER, narrativeDigest, narrativePagePath, parseNarrativePage, renderNarrativePage } from '../src/fill/narrative-text.js';
 import { commitNarrativePages } from '../src/fill/narrative-outbox.js';
 import { createOrchestratorSchema } from '../src/fill/orchestrator-store.js';
 import { createUnit } from '../src/fill/state-store.js';
 import { repositoryPath, type NarrativeValue } from '../src/fill/facts.js';
 import { createFillStateSchema } from '../src/fill/state-store.js';
+import { createTestDatabaseOwner } from './test-database.js';
 
 const NOW = 1_700_000_000_000;
 const PRODUCT = 'fixture-product';
@@ -100,7 +93,7 @@ beforeAll(async () => {
   git(repo, 'config', 'user.email', 'fixture@example.invalid');
   git(repo, 'add', '-A');
   git(repo, 'commit', '-qm', 'one');
-  owner = createPGliteDatabaseOwner();
+  owner = await createTestDatabaseOwner();
   await createFillStateSchema(owner);
   await createOrchestratorSchema(owner);
   await createFactStoreSchema(owner);

@@ -8,17 +8,17 @@ import { describe, expect, test } from 'bun:test';
 import { existsSync, mkdtempSync, readFileSync, rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
-import { createPGliteDatabaseOwner } from '../src/adapters/database-owner.js';
 import { runFill } from '../src/fill/run.js';
 import { readFillProgress } from '../src/obs/progress.js';
 import { readTraceSpans, traceReportOf } from '../src/obs/trace-report.js';
 import { traceFiles } from '../src/obs/trace.js';
 import { writeProduct } from './fixtures/code-stages/repository.js';
+import { createTestDatabaseOwner } from './test-database.js';
 
 describe('a fill writes its trace beside the store', () => {
   test('one OTLP span per line, the log beside it carrying the span ids, and the progress read from it', async () => {
     const root = mkdtempSync(join(tmpdir(), 'madarch-fill-trace-'));
-    const owner = createPGliteDatabaseOwner({ btreeGist: true });
+    const owner = await createTestDatabaseOwner({ btreeGist: true });
     try {
       const { product } = writeProduct(root);
       const store = join(root, 'store');

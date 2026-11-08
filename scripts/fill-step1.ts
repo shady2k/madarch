@@ -50,7 +50,7 @@ const runId = process.argv.includes('--run') ? argument('run') : `step1-${String
 
 const pin: RepositoryAt = { repository: 'madarch', root: repository, commit, url: `file://${repository}` };
 mkdirSync(store, { recursive: true });
-const owner = createPGliteDatabaseOwner({ path: join(store, 'graph'), btreeGist: true });
+const owner = createTestDatabaseOwner({ store: join(store, 'graph'), btreeGist: true });
 await graph.createRecordSchema(owner);
 
 const peak = { tree: 0, history: 0 };

@@ -630,7 +630,7 @@ export interface DaemonFills {
 /** One store the daemon holds: its owner, the service of the newest run of it, and whether a run is working it. */
 interface HeldStore {
   readonly storeFolder: string;
-  readonly owner: ReturnType<typeof openFillDatabase>;
+  readonly owner: Awaited<ReturnType<typeof openFillDatabase>>;
   service?: FillOrchestratorService;
   /** True while one of this store's runs is in flight: the store's fill is one run at a time. */
   running?: boolean;
@@ -662,7 +662,7 @@ export function daemonFills(home: string, options: { readonly toolUrl?: () => st
     if (pending !== undefined) return await pending;
     const made = (async (): Promise<HeldStore> => {
       mkdirSync(dirname(storeDatabasePath(storeFolder)), { recursive: true });
-      const owner = openFillDatabase(storeDatabasePath(storeFolder));
+      const owner = await openFillDatabase(storeDatabasePath(storeFolder));
       await owner.ready;
       const one: HeldStore = { storeFolder, owner };
       stores.set(storeFolder, one);

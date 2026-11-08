@@ -13,7 +13,7 @@ import { afterAll, beforeAll, describe as bunDescribe, expect, test as bunTest }
 import { mkdtempSync, rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
-import { createPGliteDatabaseOwner, type DatabaseOwner } from '../src/adapters/database-owner.js';
+import { type DatabaseOwner } from '../src/adapters/database-owner.js';
 import { createFillOrchestratorService, type FillOrchestratorService } from '../src/fill/orchestrator-host.js';
 import { createGraphStore, type GraphStore } from '../src/graph/index.js';
 import { createStagesFill, type StagesFill } from '../src/product/fill-stages.js';
@@ -22,6 +22,7 @@ import { staticGraphReaderOf, staticStageContext, staticStageSourceOf } from '..
 import { libraryEffectsOf } from '../src/fill/stages/library-effects.js';
 import { APP_FILE, LOGGER_FILE, writeProduct } from './fixtures/code-stages/repository.js';
 import { skippedBecauseOutOfWorkflow } from './fill-skip-list.js';
+import { createTestDatabaseOwner } from './test-database.js';
 
 // The cases read a stage out of this step's list: they come back with that stage's step (test/fill-skip-list.ts).
 const skippedSuite = skippedBecauseOutOfWorkflow(import.meta.path);
@@ -41,7 +42,7 @@ beforeAll(async () => {
   root = mkdtempSync(join(tmpdir(), 'madarch-library-effects-'));
   const { product, repository } = writeProduct(root);
   repositoryRoot = repository;
-  owner = createPGliteDatabaseOwner({ btreeGist: true });
+  owner = await createTestDatabaseOwner({ btreeGist: true });
   fill = await createStagesFill({ product, database: owner });
   let at = 1_700_000_000_000;
   service = createFillOrchestratorService({

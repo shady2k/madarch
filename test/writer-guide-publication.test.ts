@@ -2,7 +2,6 @@ import { expect, test } from 'bun:test';
 import { mkdtemp, readFile, rm, writeFile } from 'node:fs/promises';
 import { join } from 'node:path';
 import { tmpdir } from 'node:os';
-import { createPGliteDatabaseOwner } from '../src/adapters/database-owner.js';
 import { createGraphStore } from '../src/graph/index.js';
 import { createGuidePublication, type GuidePublicationOwner } from '../src/writer/guides/publication.js';
 import { validateGuide } from '../src/writer/guides/validate.js';
@@ -12,9 +11,10 @@ import { readGuideGraph, type GuidePreparedEvidence } from '../src/writer/guides
 import type { SnapshotSource } from '../src/fill/snapshot.js';
 import { GUIDE_SCHEMA } from '../src/writer/guides/model.js';
 import { seedStarterSet } from '../src/knowledge/seed.js';
+import { createTestDatabaseOwner } from './test-database.js';
 
 test('real guide work-item publication rejects moved membership, superseded materialization and authored edits',async()=>{
- const folder=await mkdtemp(join(tmpdir(),'guide-publication-'));const database=await createPGliteDatabaseOwner({btreeGist:true});
+ const folder=await mkdtemp(join(tmpdir(),'guide-publication-'));const database=await createTestDatabaseOwner({btreeGist:true});
  try{
   seedStarterSet(folder);
   const store=createGraphStore(database);await store.createSchema();const scope=await store.newNode();

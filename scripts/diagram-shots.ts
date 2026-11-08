@@ -120,7 +120,7 @@ if (runPhase !== 'all' && runPhase !== 'prepare') {
   };
   if (runPhase !== 'aggregate') {
     // Restore the stopped prepared graph byte-for-byte at its ORIGINAL absolute store path.
-    // PGlite reads can write physical housekeeping pages. A frozen-copy hash alone says nothing about the served store.
+    // A read can write physical housekeeping pages of its own. A frozen-copy hash alone says nothing about the served store.
     // Product identity, manifest path, repository symlink and home never move; no fill/reset endpoint is called.
     const liveGraph = join(home, '.madarch', 'knowledge');
     rmSync(liveGraph, { recursive: true, force: true });

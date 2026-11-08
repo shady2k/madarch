@@ -1187,8 +1187,8 @@ interface EventRow extends Record<string, unknown> { run_id: string; seq: unknow
 export async function appendProgress(database: OrchestratorDatabase, event: Omit<FillProgressEvent, 'seq'>): Promise<FillProgressEvent> {
   const at = here();
   return run(at, database, `appendProgress(${event.runId}, ${event.kind})`, ['fill_event', 'fill_run'], async (executor) => {
-    // The run's own row is taken first: two events of one run never share a number, whether the owner
-    // serializes its work (PGlite) or overlaps two transactions (a PostgreSQL pool).
+    // The run's own row is taken first: two events of one run never share a number, though the
+    // owner's pool overlaps two transactions.
     await executor.query('SELECT run_id FROM fill_run WHERE run_id = $1 FOR UPDATE', [event.runId]);
     const { rows } = await executor.query<{ next: unknown }>('SELECT COALESCE(MAX(seq), 0) + 1 AS next FROM fill_event WHERE run_id = $1', [event.runId]);
     const seq = millis(rows[0]?.next ?? 1);

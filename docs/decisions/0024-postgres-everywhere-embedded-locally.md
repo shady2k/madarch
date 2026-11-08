@@ -1,6 +1,6 @@
-# 0024. PostgreSQL everywhere: embedded PGlite on the laptop, PostgreSQL on the server
+# 0024. PostgreSQL everywhere: a server madarch installs, on the laptop and on the server
 
-Status: accepted
+Status: accepted, amended 2026-11-07
 Date: 2026-10-15
 
 Amends 0009 (LadybugDB as the query engine, SQLite as the fact log's store)
@@ -69,6 +69,73 @@ regression is judged against.
 The owner's words that started it: «А есть же embedded postgre»; «Ну вот
 насчет встроенного pg идея хорошая».
 
+## Amendment, 2026-11-07: PGlite is retired, the laptop runs a real server
+
+The owner's decision, binding: «To hell with this PGlite, nothing but problems
+from it.» The local mode runs **PostgreSQL, the same engine as the server**, in
+a server madarch installs for itself; there is no in-process database and no
+fallback to one. The owner's two conditions on the delivery: «The delivery need
+not carry it, it can be downloaded at install.» and «Pin the version and the
+hash, always.»
+
+What that decided in the code:
+
+- **One owner.** `createDatabaseOwner` opens a database on a server: the
+  store's own cluster (`<store>/pgdata`, its Unix socket in `<store>/pgsock`,
+  listening on no TCP address), a server a caller names by socket folder, or a
+  private cluster in the temporary folder that is removed with the owner. The
+  `MADARCH_DATABASE` setting, its choice of two engines and the second owner are
+  gone; `@electric-sql/pglite` and `@electric-sql/pglite-pgvector` leave the
+  manifest and the lockfile.
+- **The install** (`src/adapters/postgres-builds.ts`,
+  `src/adapters/postgres-install.ts`): the official 18.6.1 build of
+  theseus-rs/postgresql-binaries, pinned by version and by the sha256 of each
+  platform's archive (linux-x64, linux-arm64, darwin-x64, darwin-arm64), into
+  `<madarch home>/tools/postgresql/18.6.1/`. The archive is verified before it
+  is unpacked, a cut-short download continues where it stopped, and a folder
+  without the `install.json` marker the installer writes last is never taken for
+  an install. Measured here, on this box's link: the aarch64 archive (38.0 MB)
+  downloaded in 273 s, unpacked to 130 MB, and the first store opened 14 ms
+  after it; a later run reads the marker in 2 ms.
+- **A store of the old kind is not migrated.** A store folder holding the
+  in-process database's files (`graph/`, `state.db/`) and no `pgdata/` is
+  refused, and the message says the fill must run again.
+- **The test run and a product's server** hold one cluster and open a database
+  per case, per source history or per snapshot on it, so a case pays for a
+  database rather than a server boot.
+
+### Measured, one fill of `/work/madarch` at `972a6cd1` (39 621 106 bytes, 2 126
+files, 791 folders, 2 177 commits)
+
+| | in-process PGlite, new store | PostgreSQL server, new store |
+|---|---|---|
+| wall clock | 5.22 s | 4.51 s |
+| peak RSS of the process (`/usr/bin/time -v`) | 1 153 632 kB | 217 840 kB |
+| peak PSS, process + server, sampled every 20 ms | 1 127 136 kB + 0 | 144 147 kB + 12 284 kB |
+| tree pass | 356 ms | 265 ms |
+| history pass | 2 452 ms | 2 340 ms |
+| files / folders / commits, against git | 2 126 / 791 / 2 177 | 2 126 / 791 / 2 177 |
+| store folder | 63 MB | 65 MB (64 MB `pgdata`) |
+
+Opening an existing store: PGlite 181-184 ms, PostgreSQL 118 ms, to the first
+row 213 ms and 125 ms. A store that does not exist yet: 860 ms against 374 ms.
+(The full tables, with the command lines, are in
+`/work/out/report-nopglite.md`.)
+
+### What this amendment does not settle: pgvector
+
+The pinned build carries PostgreSQL's own contrib extensions (btree_gist among
+them) and **no pgvector**: the 18.6.1 release publishes 24 platform archives and
+no extension archive, none of the four platforms' file manifests names a
+`vector` file, and the installed build answers `CREATE EXTENSION vector` with
+`extension "vector" is not available`. The query projection (`sql-vector-index.ts`,
+`sql-query-database.ts`) creates the extension and requires 0.8.7, so it cannot
+open on a store's server and refuses by name. What carries vector search today
+is a server a caller names by connection string (CI's `pgvector/pgvector:0.8.7-pg17`
+service). Deciding where pgvector comes from for the installed build — a pinned
+extension archive if one is ever published for all four platforms, or a build of
+ours — is open, and 0025 is amended to say so.
+
 ## Consequences
 
 - One storage engine and one query dialect locally and on the server; a query
@@ -78,9 +145,12 @@ The owner's words that started it: «А есть же embedded postgre»; «Ну
 - Agents lose Cypher as their ad-hoc query language and write SQL instead;
   SQL/PGQ can return a graph syntax once PostgreSQL supports variable-length
   paths.
-- PGlite is single-connection: the local server serialises its queries, which
-  one person's laptop accepts. The server's several instances (0023) stay on
-  PostgreSQL.
-- PGlite's own maturity and speed are now ours to watch. Revisit if a view or
-  a traversal at a product's real scale is noticeably slower than 0009's
-  reference, or if PGlite stops being maintained.
+- ~~PGlite is single-connection: the local server serialises its queries, which
+  one person's laptop accepts.~~ Amended 2026-11-07: one server serves the
+  laptop, and its pool overlaps snapshots and writes; the owner no longer
+  serialises (measured: a fill's `db.SELECT` time fell from 165 ms to 65 ms and
+  its `db.INSERT` from 440 ms to 281 ms).
+- ~~PGlite's own maturity and speed are now ours to watch.~~ Amended
+  2026-11-07: the engine is PostgreSQL 18.6.1 itself, in every mode. What is
+  ours to watch is the pinned build's downloads and its missing pgvector (see
+  above).

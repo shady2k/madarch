@@ -37,3 +37,16 @@ The owner’s 2026-10-15 scope decision is recorded on `madarch-ptke`. Model/pro
 - A PGlite database without the registered vector extension, or a PostgreSQL database without server-side pgvector or permission to create it, fails at initialization with an explicit setup error; startup closes any resources it opened.
 - Pin `@electric-sql/pglite@0.5.10` with `@electric-sql/pglite-pgvector@0.0.11` (bundled pgvector 0.8.7) and PostgreSQL 17 integration to `pgvector/pgvector:0.8.7-pg17`; integration tests assert `extversion = '0.8.7'` on both before comparing results.
 - No text chunking, model choice, provider protocol or user-facing semantic-search route is introduced.
+
+## Amended 2026-11-07: pgvector is not in the server madarch installs
+
+Decision 0024 is amended: the local mode runs a PostgreSQL server madarch
+installs, and that pinned build (18.6.1) carries no pgvector — its release
+publishes no extension archive, and `CREATE EXTENSION vector` answers
+`extension "vector" is not available` there. So the facade this decision
+describes opens only on a server that has the extension: today a server a
+caller names by connection string, as CI's `pgvector/pgvector:0.8.7-pg17`
+service does. On a store's own server the query database refuses by name
+instead of failing inside the extension. The pinned packages this decision
+names are gone with PGlite. Where pgvector comes from for the installed build
+is open (see 0024's amendment).

@@ -1,24 +1,9 @@
 import { afterEach, describe, expect, test } from 'bun:test';
-import { PGlite } from '@electric-sql/pglite';
 import { mkdtempSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
-import {
-  ASSERTION_KINDS,
-  CLASHABLE_KINDS,
-  SHARED_KINDS,
-  createPGliteHistory,
-  isOneStateChain,
-  type AssertionChange,
-  type Clock,
-  type CompiledElement,
-  type CompiledEnvironment,
-  type CompiledModel,
-  type CompiledState,
-  type CompiledZone,
-  type HistoryStore,
-  type ReadModel,
-} from '../src/index.js';
+import { ASSERTION_KINDS, CLASHABLE_KINDS, SHARED_KINDS, isOneStateChain, type AssertionChange, type Clock, type CompiledElement, type CompiledEnvironment, type CompiledModel, type CompiledState, type CompiledZone, type HistoryStore, type ReadModel } from '../src/index.js';
+import { createTestHistory, openRawStore } from './test-database.js';
 
 /** A clock a test moves by hand, never the real one. */
 function fakeClock(initial: number): Clock & { set(t: number): void } {
@@ -32,8 +17,8 @@ function fakeClock(initial: number): Clock & { set(t: number): void } {
 }
 
 const openHistories = new Set<HistoryStore>();
-function history(clock: Clock, path?: string): HistoryStore {
-  const instance = createPGliteHistory({ clock, path });
+async function history(clock: Clock, path?: string): Promise<HistoryStore> {
+  const instance = await createTestHistory({ clock, ...(path === undefined ? {} : { store: path }) });
   openHistories.add(instance);
   const close = instance.close.bind(instance);
   instance.close = async () => {
@@ -48,8 +33,7 @@ afterEach(async () => {
 });
 
 async function rawRows(path: string, sql: string): Promise<Record<string, unknown>[]> {
-  const db = new PGlite(path);
-  await db.waitReady;
+  const db = await openRawStore(path);
   try {
     return (await db.query<Record<string, unknown>>(sql)).rows;
   } finally {
@@ -140,7 +124,7 @@ async function verifyReport(h: HistoryStore, opened: readonly AssertionChange[],
 describe('1. a late commit between two stored commits does not change what the newer commit asserts', () => {
   test('a late commit that removes an element the newer commit still (implicitly) asserts does not erase it after the newer commit\'s time', async () => {
     const clock = fakeClock(DAY(2));
-    const h = history(clock);
+    const h = await history(clock);
     await h.store({ source: 's', commit: 'c0', committedAt: DAY(1), model: model([element('X'), element('Y')]) });
     clock.set(DAY(11));
     await h.store({ source: 's', commit: 'c2', committedAt: DAY(10), model: model([element('X'), element('Y')]) });
@@ -158,7 +142,7 @@ describe('1. a late commit between two stored commits does not change what the n
 
   test('a late commit that changes an element\'s content the newer commit still asserts unchanged restores that content after the newer commit\'s time', async () => {
     const clock = fakeClock(DAY(2));
-    const h = history(clock);
+    const h = await history(clock);
     await h.store({ source: 's', commit: 'c0', committedAt: DAY(1), model: model([element('X', { technology: 'A' })]) });
     clock.set(DAY(11));
     await h.store({ source: 's', commit: 'c2', committedAt: DAY(10), model: model([element('X', { technology: 'A' })]) });
@@ -173,7 +157,7 @@ describe('1. a late commit between two stored commits does not change what the n
 
   test('a late commit adding an element already reintroduced by the newer commit only fills the gap before it', async () => {
     const clock = fakeClock(DAY(2));
-    const h = history(clock);
+    const h = await history(clock);
     await h.store({ source: 's', commit: 'c0', committedAt: DAY(1), model: model([element('Y')]) });
     clock.set(DAY(11));
     await h.store({ source: 's', commit: 'c2', committedAt: DAY(10), model: model([element('X')]) });
@@ -188,7 +172,7 @@ describe('1. a late commit between two stored commits does not change what the n
 
   test('re-adding an element after removal, with a late commit landing exactly in the removed gap, only affects that gap', async () => {
     const clock = fakeClock(DAY(2));
-    const h = history(clock);
+    const h = await history(clock);
     await h.store({ source: 's', commit: 'c1', committedAt: DAY(1), model: model([element('X')]) });
     clock.set(DAY(11));
     await h.store({ source: 's', commit: 'c2', committedAt: DAY(10), model: model([]) });
@@ -207,7 +191,7 @@ describe('1. a late commit between two stored commits does not change what the n
 describe('2. shared vocabulary: elements/interfaces/relations stay exclusive; categories/zones/environments/states are shared and never refused (the owner\'s rule, 2026-09-24)', () => {
   test('a second source declaring a zone id with a different definition is recorded, not refused: the union keeps both, and reports a discrepancy naming the id, the field and both sources', async () => {
     const clock = fakeClock(DAY(2));
-    const h = history(clock);
+    const h = await history(clock);
     await h.store({ source: 'a', commit: 'c1', committedAt: DAY(1), model: model([], { zones: [zone('pci', 'compliance')] }) });
 
     const result = await h.store({ source: 'b', commit: 'c1', committedAt: DAY(1), model: model([], { zones: [zone('pci', 'regulatory')] }) });
@@ -222,7 +206,7 @@ describe('2. shared vocabulary: elements/interfaces/relations stay exclusive; ca
 
   test('a second source declaring the identical zone definition stores and reads back with no discrepancy at all', async () => {
     const clock = fakeClock(DAY(2));
-    const h = history(clock);
+    const h = await history(clock);
     await h.store({ source: 'a', commit: 'c1', committedAt: DAY(1), model: model([], { zones: [zone('pci', 'compliance')] }) });
     const result = await h.store({ source: 'b', commit: 'c1', committedAt: DAY(1), model: model([], { zones: [zone('pci', 'compliance')] }) });
     expect(result.errors).toEqual([]);
@@ -234,7 +218,7 @@ describe('2. shared vocabulary: elements/interfaces/relations stay exclusive; ca
 
   test('two sources binding different variables of one environment: the union keeps each source\'s own bindings, per source, and reports no discrepancy since nothing actually conflicts', async () => {
     const clock = fakeClock(DAY(2));
-    const h = history(clock);
+    const h = await history(clock);
     await h.store({ source: 'shop', commit: 's1', committedAt: DAY(1), model: model([element('checkout')], { environments: [environment('production', { PAYMENTS_URL: 'https://pay' })] }) });
     await h.store({ source: 'orders', commit: 'o1', committedAt: DAY(1), model: model([element('orders')], { environments: [environment('production', { EVENTS_URL: 'kafka://x' })] }) });
 
@@ -247,7 +231,7 @@ describe('2. shared vocabulary: elements/interfaces/relations stay exclusive; ca
 
   test('two sources binding the same variable of one environment to different values: both values are kept, per source, and reported as a discrepancy naming the variable', async () => {
     const clock = fakeClock(DAY(2));
-    const h = history(clock);
+    const h = await history(clock);
     await h.store({ source: 'shop', commit: 's1', committedAt: DAY(1), model: model([], { environments: [environment('production', { TIMEOUT: '30' })] }) });
 
     const result = await h.store({ source: 'orders', commit: 'o1', committedAt: DAY(1), model: model([], { environments: [environment('production', { TIMEOUT: '60' })] }) });
@@ -260,7 +244,7 @@ describe('2. shared vocabulary: elements/interfaces/relations stay exclusive; ca
 
   test('two sources binding the same variable to the same value: no discrepancy', async () => {
     const clock = fakeClock(DAY(2));
-    const h = history(clock);
+    const h = await history(clock);
     await h.store({ source: 'shop', commit: 's1', committedAt: DAY(1), model: model([], { environments: [environment('production', { TIMEOUT: '30' })] }) });
     const result = await h.store({ source: 'orders', commit: 'o1', committedAt: DAY(1), model: model([], { environments: [environment('production', { TIMEOUT: '30' })] }) });
     expect(result.errors).toEqual([]);
@@ -272,7 +256,7 @@ describe('2. shared vocabulary: elements/interfaces/relations stay exclusive; ca
 
   test('an environment declared with no bindings by one source and with bindings by the next: no discrepancy, and `bindingsBySource` names only the source that actually bound something', async () => {
     const clock = fakeClock(DAY(2));
-    const h = history(clock);
+    const h = await history(clock);
     await h.store({ source: 'orders', commit: 'o1', committedAt: DAY(1), model: model([], { environments: [environment('production')] }) });
     const result = await h.store({ source: 'shop', commit: 's1', committedAt: DAY(1), model: model([], { environments: [environment('production', { TIMEOUT: '30' })] }) });
     expect(result.errors).toEqual([]);
@@ -284,7 +268,7 @@ describe('2. shared vocabulary: elements/interfaces/relations stay exclusive; ca
 
   test('two sources naming the same environment differently (besides bindings): recorded, not refused; the union keeps both definitions and reports a discrepancy', async () => {
     const clock = fakeClock(DAY(2));
-    const h = history(clock);
+    const h = await history(clock);
     await h.store({ source: 'shop', commit: 's1', committedAt: DAY(1), model: model([], { environments: [{ id: 'production', name: 'Production' }] }) });
 
     const result = await h.store({ source: 'orders', commit: 'o1', committedAt: DAY(1), model: model([], { environments: [{ id: 'production', name: 'Prod' }] }) });
@@ -297,7 +281,7 @@ describe('2. shared vocabulary: elements/interfaces/relations stay exclusive; ca
 
   test('an environment no source binds anything in comes back with no `bindingsBySource` field at all, not an empty object', async () => {
     const clock = fakeClock(DAY(2));
-    const h = history(clock);
+    const h = await history(clock);
     await h.store({ source: 'shop', commit: 's1', committedAt: DAY(1), model: model([], { environments: [environment('production')] }) });
     await h.store({ source: 'orders', commit: 'o1', committedAt: DAY(1), model: model([], { environments: [environment('production')] }) });
     const graph = await readModel(h, { valid: DAY(2), known: DAY(2) });
@@ -307,7 +291,7 @@ describe('2. shared vocabulary: elements/interfaces/relations stay exclusive; ca
 
   test('a source that declares `bindings: {}` explicitly (not merely omitted) is still left out of `bindingsBySource`, exactly like a source that declares no bindings at all', async () => {
     const clock = fakeClock(DAY(2));
-    const h = history(clock);
+    const h = await history(clock);
     await h.store({ source: 'shop', commit: 's1', committedAt: DAY(1), model: model([], { environments: [{ id: 'production', bindings: {} }] }) });
     const graph = await readModel(h, { valid: DAY(2), known: DAY(2) });
     expect(graph.environments).toEqual([{ id: 'production' }]);
@@ -316,7 +300,7 @@ describe('2. shared vocabulary: elements/interfaces/relations stay exclusive; ca
 
   test('a store that would make the union of every source\'s states branch succeeds — no longer refused — and the union read reports the one chain-wide discrepancy instead', async () => {
     const clock = fakeClock(DAY(2));
-    const h = history(clock);
+    const h = await history(clock);
     await h.store({
       source: 'a',
       commit: 'a1',
@@ -343,7 +327,7 @@ describe('2. shared vocabulary: elements/interfaces/relations stay exclusive; ca
 
   test('a store extending the state chain compatibly (a longer, still-single chain) reports no chain discrepancy', async () => {
     const clock = fakeClock(DAY(2));
-    const h = history(clock);
+    const h = await history(clock);
     await h.store({ source: 'a', commit: 'a1', committedAt: DAY(1), model: model([element('A', { states: ['as-is', 'to-be'] })], { states: [state('as-is'), state('to-be', 'as-is')] }) });
 
     const result = await h.store({
@@ -361,7 +345,7 @@ describe('2. shared vocabulary: elements/interfaces/relations stay exclusive; ca
 
   test('a source\'s own chain evolving over its own history (a different chain at different valid times) never fools the union read at one moment into seeing both at once', async () => {
     const clock = fakeClock(DAY(2));
-    const h = history(clock);
+    const h = await history(clock);
     // `o`'s own chain changes over its own history: as-is>x until day 5, then as-is>y from day 5 on. The two never coexist.
     await h.store({ source: 'o', commit: 'o1', committedAt: DAY(1), model: model([], { states: [state('as-is'), state('x', 'as-is')] }) });
     clock.set(DAY(6));
@@ -382,7 +366,7 @@ describe('2. shared vocabulary: elements/interfaces/relations stay exclusive; ca
 
   test('two sources whose states really do branch at the very same moment: the union read at that moment reports the chain discrepancy', async () => {
     const clock = fakeClock(DAY(2));
-    const h = history(clock);
+    const h = await history(clock);
     await h.store({ source: 'o', commit: 'o1', committedAt: DAY(1), model: model([], { states: [state('as-is'), state('x', 'as-is')] }) });
 
     // `s` asserts `y` after `as-is` too, throughout the very same span `o`'s `x` occupies: a real, simultaneous branch.
@@ -398,7 +382,7 @@ describe('2. shared vocabulary: elements/interfaces/relations stay exclusive; ca
     // discrepancy that merely kept storage order would list them the wrong
     // way round.
     const clock = fakeClock(DAY(2));
-    const h = history(clock);
+    const h = await history(clock);
     await h.store({ source: 'z', commit: 'c1', committedAt: DAY(1), model: model([], { states: [state('as-is'), state('branch-z', 'as-is')] }) });
     const result = await h.store({ source: 'm', commit: 'c1', committedAt: DAY(1), model: model([], { states: [state('as-is'), state('branch-m', 'as-is')] }) });
     expect(result.errors).toEqual([]);
@@ -430,17 +414,16 @@ describe('2. shared vocabulary: elements/interfaces/relations stay exclusive; ca
 
   test('the union read keeps every source\'s zone definition instead of picking silently between them, even for data written outside store() (safety net for the assembler itself)', async () => {
     const dir = mkdtempSync(join(tmpdir(), 'madarch-stage2-'));
-    const path = join(dir, 'history.pglite');
+    const path = join(dir, 'history');
     const clock = fakeClock(DAY(2));
-    const h = history(clock, path);
+    const h = await history(clock, path);
     await h.store({ source: 'a', commit: 'c1', committedAt: DAY(1), model: model([], { zones: [zone('pci', 'compliance')] }) });
     await h.close();
 
     // Reaches around `store()`'s own (still-refusing) id-clash check the
     // same way the review's own scripts do, to exercise the assembler's own
     // merge logic directly: it must never drop a source's definition.
-    const raw = new PGlite(path);
-    await raw.waitReady;
+    const raw = await openRawStore(path);
     const now = clock.now();
     await raw.query(
       `INSERT INTO assertions (source, kind, entity_id, content, valid_from, valid_to, opened_by, closed_by, recorded_from, recorded_to)
@@ -449,7 +432,7 @@ describe('2. shared vocabulary: elements/interfaces/relations stay exclusive; ca
     );
     await raw.close();
 
-    const h2 = history(clock, path);
+    const h2 = await history(clock, path);
     const result = await h2.read({ valid: DAY(2), known: DAY(2) });
     expect(result.errors).toEqual([]);
     expect(result.discrepancies).toEqual([{ kind: 'zone', id: 'pci', sources: ['a', 'b'], field: 'zone' }]);
@@ -461,7 +444,7 @@ describe('2. shared vocabulary: elements/interfaces/relations stay exclusive; ca
 describe('3. the id-clash check compares valid spans, not just "now"', () => {
   test('a source declaring an id another source historically declared, in an overlapping span, is refused even though the other source no longer currently declares it', async () => {
     const clock = fakeClock(DAY(20));
-    const h = history(clock);
+    const h = await history(clock);
     await h.store({ source: 'payments', commit: 'p1', committedAt: DAY(1), model: model([element('X')]) });
     await h.store({ source: 'payments', commit: 'p2', committedAt: DAY(10), model: model([]) });
 
@@ -472,7 +455,7 @@ describe('3. the id-clash check compares valid spans, not just "now"', () => {
 
   test('once the overlapping span is gone (the other source stops asserting the id exactly where this one starts), the store succeeds', async () => {
     const clock = fakeClock(DAY(2));
-    const h = history(clock);
+    const h = await history(clock);
     await h.store({ source: 'payments', commit: 'p1', committedAt: DAY(1), model: model([element('X')]) });
 
     clock.set(DAY(11));
@@ -486,7 +469,7 @@ describe('3. the id-clash check compares valid spans, not just "now"', () => {
 
   test('a commit dated after the clock\'s current "now" is still seen by another source\'s clash check', async () => {
     const clock = fakeClock(DAY(2));
-    const h = history(clock);
+    const h = await history(clock);
     await h.store({ source: 'payments', commit: 'p1', committedAt: DAY(9), model: model([element('X')]) });
 
     const result = await h.store({ source: 'shop', commit: 's1', committedAt: DAY(1), model: model([element('X')]) });
@@ -510,7 +493,7 @@ describe('4. HistoryStore\'s public interface for stage 3 and the server', () =>
 
   test('assertions() returns the raw rows with their four times, for one source or for all', async () => {
     const clock = fakeClock(DAY(2));
-    const h = history(clock);
+    const h = await history(clock);
     await h.store({ source: 'shop', commit: 'c1', committedAt: DAY(1), model: model([element('a')]) });
     await h.store({ source: 'payments', commit: 'p1', committedAt: DAY(1), model: model([element('b')]) });
 
@@ -524,7 +507,7 @@ describe('4. HistoryStore\'s public interface for stage 3 and the server', () =>
 
   test('a source-filtered read\'s `discrepancies` is always the empty array: a single source can never disagree with itself', async () => {
     const clock = fakeClock(DAY(2));
-    const h = history(clock);
+    const h = await history(clock);
     await h.store({ source: 'shop', commit: 'c1', committedAt: DAY(1), model: model([element('a')], { zones: [zone('pci', 'compliance')] }) });
     const result = await h.read({ source: 'shop', valid: DAY(2), known: DAY(2) });
     expect(result.errors).toEqual([]);
@@ -533,7 +516,7 @@ describe('4. HistoryStore\'s public interface for stage 3 and the server', () =>
 
   test('store() reports what it opened and closed', async () => {
     const clock = fakeClock(DAY(2));
-    const h = history(clock);
+    const h = await history(clock);
     const first = await h.store({ source: 'shop', commit: 'c1', committedAt: DAY(1), model: model([element('a')]) });
     expect(first.closed).toEqual([]);
     expect(first.opened.filter((c) => c.kind === 'element')).toEqual([{ source: 'shop', kind: 'element', id: 'a', content: expect.any(String), validFrom: DAY(1), validTo: null, recordedFrom: expect.any(Number), recordedTo: null }]);
@@ -555,7 +538,7 @@ describe('4. HistoryStore\'s public interface for stage 3 and the server', () =>
 
   test('sources() lists every source that has ever stored a commit', async () => {
     const clock = fakeClock(DAY(2));
-    const h = history(clock);
+    const h = await history(clock);
     await h.store({ source: 'shop', commit: 'c1', committedAt: DAY(1), model: model([]) });
     await h.store({ source: 'payments', commit: 'p1', committedAt: DAY(1), model: model([]) });
     expect(await h.sources()).toEqual(['payments', 'shop']);
@@ -563,7 +546,7 @@ describe('4. HistoryStore\'s public interface for stage 3 and the server', () =>
 
   test('hasCommit() answers whether a source\'s commit is already stored', async () => {
     const clock = fakeClock(DAY(2));
-    const h = history(clock);
+    const h = await history(clock);
     expect(await h.hasCommit('shop', 'c1')).toBe(false);
     await h.store({ source: 'shop', commit: 'c1', committedAt: DAY(1), model: model([]) });
     expect(await h.hasCommit('shop', 'c1')).toBe(true);
@@ -572,7 +555,7 @@ describe('4. HistoryStore\'s public interface for stage 3 and the server', () =>
 
   test('close() actually releases the underlying connection: using the store afterwards fails', async () => {
     const clock = fakeClock(DAY(2));
-    const h = history(clock);
+    const h = await history(clock);
     await h.store({ source: 'shop', commit: 'c1', committedAt: DAY(1), model: model([]) });
     await expect(h.close()).resolves.toBeUndefined();
     await expect(h.store({ source: 'shop', commit: 'c2', committedAt: DAY(1), model: model([]) })).rejects.toThrow();
@@ -580,9 +563,9 @@ describe('4. HistoryStore\'s public interface for stage 3 and the server', () =>
 
   test('a database failure partway through a store comes back as a generic error value, and the transaction leaves nothing behind', async () => {
     const dir = mkdtempSync(join(tmpdir(), 'madarch-stage2-'));
-    const path = join(dir, 'history.pglite');
+    const path = join(dir, 'history');
     const clock = fakeClock(DAY(2));
-    const h = history(clock, path);
+    const h = await history(clock, path);
     await h.store({ source: 's', commit: 'c1', committedAt: DAY(1), model: model([element('a')]) });
 
     // A trigger that aborts any insert of an element named "boom" stands in
@@ -591,12 +574,11 @@ describe('4. HistoryStore\'s public interface for stage 3 and the server', () =>
     // nothing wrong), and not a thrown exception either — an error value,
     // and the transaction rolled back to exactly what it was.
     await h.close();
-    const raw = new PGlite(path);
-    await raw.waitReady;
+    const raw = await openRawStore(path);
     await raw.exec(`CREATE FUNCTION fail_boom() RETURNS trigger LANGUAGE plpgsql AS $$ BEGIN IF NEW.entity_id = 'boom' THEN RAISE EXCEPTION 'injected failure'; END IF; RETURN NEW; END $$; CREATE TRIGGER boom BEFORE INSERT ON assertions FOR EACH ROW EXECUTE FUNCTION fail_boom()`);
     await raw.close();
 
-    const reopened = history(clock, path);
+    const reopened = await history(clock, path);
     const before = await reopened.assertions();
     let thrown: unknown;
     let result: { errors: { message: string }[]; opened: unknown[]; closed: unknown[] } | undefined;
@@ -618,7 +600,7 @@ describe('4. HistoryStore\'s public interface for stage 3 and the server', () =>
 describe('5. a commit id already stored under a different time or model is refused; the identical repeat stays a no-op; a clock going backwards is clamped', () => {
   test('storing the same commit id again with a different model is refused, naming the commit', async () => {
     const clock = fakeClock(DAY(2));
-    const h = history(clock);
+    const h = await history(clock);
     await h.store({ source: 's', commit: 'c1', committedAt: DAY(1), model: model([element('A')]) });
 
     const result = await h.store({ source: 's', commit: 'c1', committedAt: DAY(1), model: model([element('B')]) });
@@ -630,7 +612,7 @@ describe('5. a commit id already stored under a different time or model is refus
 
   test('storing the same commit id again with a different time is refused, naming the commit', async () => {
     const clock = fakeClock(DAY(2));
-    const h = history(clock);
+    const h = await history(clock);
     await h.store({ source: 's', commit: 'c1', committedAt: DAY(1), model: model([element('A')]) });
 
     const result = await h.store({ source: 's', commit: 'c1', committedAt: DAY(3), model: model([element('A')]) });
@@ -640,7 +622,7 @@ describe('5. a commit id already stored under a different time or model is refus
 
   test('storing the exact same commit id, time and model again stays a no-op', async () => {
     const clock = fakeClock(DAY(2));
-    const h = history(clock);
+    const h = await history(clock);
     await h.store({ source: 's', commit: 'c1', committedAt: DAY(1), model: model([element('A')]) });
     const result = await h.store({ source: 's', commit: 'c1', committedAt: DAY(1), model: model([element('A')]) });
     expect(result.errors).toEqual([]);
@@ -648,7 +630,7 @@ describe('5. a commit id already stored under a different time or model is refus
 
   test('a clock reading earlier than the last recorded time is clamped, so recorded time never runs backwards', async () => {
     const clock = fakeClock(DAY(5));
-    const h = history(clock);
+    const h = await history(clock);
     await h.store({ source: 's', commit: 'c1', committedAt: DAY(1), model: model([element('A')]) });
 
     clock.set(DAY(3)); // the wall clock itself goes backwards
@@ -663,7 +645,7 @@ describe('5. a commit id already stored under a different time or model is refus
 
   test('a clock reading earlier than the last recorded time is clamped even for a store that only opens rows, closing nothing', async () => {
     const clock = fakeClock(DAY(10));
-    const h = history(clock);
+    const h = await history(clock);
     await h.store({ source: 's', commit: 'c1', committedAt: DAY(1), model: model([element('X')]) });
 
     clock.set(DAY(5)); // the wall clock goes backwards; this store only adds Y, closing nothing
@@ -678,7 +660,7 @@ describe('5. a commit id already stored under a different time or model is refus
 
   test('a clock reading exactly equal to the last recorded time is not pushed further forward: equal values are fine', async () => {
     const clock = fakeClock(DAY(10));
-    const h = history(clock);
+    const h = await history(clock);
     await h.store({ source: 's', commit: 'c1', committedAt: DAY(1), model: model([element('X')]) });
 
     // The wall clock has not moved at all: still exactly c1's own recorded time.
@@ -691,7 +673,7 @@ describe('5. a commit id already stored under a different time or model is refus
 describe('6. same-time commits of one source are ordered by commit id, code point order, never by arrival', () => {
   test('two commits sharing one committedAt: the one with the code-point-larger commit id wins, regardless of which arrived first', async () => {
     const clock = fakeClock(DAY(2));
-    const h = history(clock);
+    const h = await history(clock);
     await h.store({ source: 's', commit: 'a', committedAt: DAY(1), model: model([element('X', { technology: 'A' })]) });
     clock.set(DAY(3));
     await h.store({ source: 's', commit: 'b', committedAt: DAY(1), model: model([element('X', { technology: 'B' }), element('Z')]) });
@@ -701,7 +683,7 @@ describe('6. same-time commits of one source are ordered by commit id, code poin
 
   test('the same two commits stored in the opposite arrival order settle on the same result', async () => {
     const clock = fakeClock(DAY(2));
-    const h = history(clock);
+    const h = await history(clock);
     await h.store({ source: 's', commit: 'b', committedAt: DAY(1), model: model([element('X', { technology: 'B' }), element('Z')]) });
     clock.set(DAY(3));
     // 'a' arrives after 'b' already exists at the very same committed time:
@@ -715,16 +697,15 @@ describe('6. same-time commits of one source are ordered by commit id, code poin
 
   test('no empty row is ever written for a same-time commit that immediately supersedes another', async () => {
     const dir = mkdtempSync(join(tmpdir(), 'madarch-stage2-'));
-    const path = join(dir, 'history.pglite');
+    const path = join(dir, 'history');
     const clock = fakeClock(DAY(2));
-    const h = history(clock, path);
+    const h = await history(clock, path);
     await h.store({ source: 's', commit: 'a', committedAt: DAY(1), model: model([element('X', { technology: 'A' })]) });
     clock.set(DAY(3));
     await h.store({ source: 's', commit: 'b', committedAt: DAY(1), model: model([element('X', { technology: 'B' })]) });
 
     await h.close();
-    const raw = new PGlite(path);
-    await raw.waitReady;
+    const raw = await openRawStore(path);
     const empty = (await raw.query('SELECT * FROM assertions WHERE valid_from = valid_to')).rows;
     await raw.close();
     expect(empty).toEqual([]);
@@ -734,9 +715,9 @@ describe('6. same-time commits of one source are ordered by commit id, code poin
 describe('7. the repeat test compares the stored database rows, not only reads; the performance bound is measured on a replacing store', () => {
   test('an identical repeat leaves every row exactly as it was, byte for byte, not merely producing the same read', async () => {
     const dir = mkdtempSync(join(tmpdir(), 'madarch-stage2-'));
-    const path = join(dir, 'history.pglite');
+    const path = join(dir, 'history');
     const clock = fakeClock(DAY(2));
-    const h = history(clock, path);
+    const h = await history(clock, path);
     await h.store({ source: 's', commit: 'c1', committedAt: DAY(1), model: model([element('a'), element('b')]) });
 
     await h.close();
@@ -744,7 +725,7 @@ describe('7. the repeat test compares the stored database rows, not only reads; 
     const beforeCommits = await rawRows(path, 'SELECT * FROM source_commits ORDER BY source, committed_at, commit_id');
 
     clock.set(DAY(3));
-    const reopened = history(clock, path);
+    const reopened = await history(clock, path);
     const result = await reopened.store({ source: 's', commit: 'c1', committedAt: DAY(1), model: model([element('a'), element('b')]) });
     expect(result.errors).toEqual([]);
     await reopened.close();
@@ -757,7 +738,7 @@ describe('7. the repeat test compares the stored database rows, not only reads; 
 
   test('performance: storing a replacing version (half the elements changed) into a history already holding 10 000 elements', async () => {
     const clock = fakeClock(DAY(2));
-    const h = history(clock);
+    const h = await history(clock);
     const initial: CompiledElement[] = [];
     for (let i = 0; i < 10000; i++) initial.push(element(`e${i}`));
     await h.store({ source: 'big', commit: 'c1', committedAt: DAY(1), model: model(initial) });
@@ -783,7 +764,7 @@ describe('7. the repeat test compares the stored database rows, not only reads; 
 describe('8. mutation hardening: edge cases the fixes above depend on', () => {
   test('storing the same commit with a differently ordered model is refused as a conflict (registry-integrity: a held commit accepts only identical bytes)', async () => {
     const clock = fakeClock(DAY(2));
-    const h = history(clock);
+    const h = await history(clock);
     await h.store({ source: 's', commit: 'c1', committedAt: DAY(1), model: model([element('a'), element('b'), element('c')]) });
 
     const result = await h.store({ source: 's', commit: 'c1', committedAt: DAY(1), model: model([element('c'), element('a'), element('b')]) });
@@ -797,7 +778,7 @@ describe('8. mutation hardening: edge cases the fixes above depend on', () => {
 
   test('a clock reading that has simply not moved (not just gone backwards) since the row it must close was recorded is still bumped forward', async () => {
     const clock = fakeClock(DAY(5));
-    const h = history(clock);
+    const h = await history(clock);
     await h.store({ source: 's', commit: 'c1', committedAt: DAY(1), model: model([element('A')]) });
 
     // The clock did not move at all: still exactly the moment `A` was recorded.
@@ -809,7 +790,7 @@ describe('8. mutation hardening: edge cases the fixes above depend on', () => {
 
   test('a clock reading that has not moved is still bumped forward when closing a row whose content changed, not merely one that disappeared', async () => {
     const clock = fakeClock(DAY(5));
-    const h = history(clock);
+    const h = await history(clock);
     await h.store({ source: 's', commit: 'c1', committedAt: DAY(1), model: model([element('A', { technology: 'x' })]) });
 
     // The clock did not move: still exactly the moment `A` was recorded. Unlike the test above, `A` is not removed — it is replaced, same id, different content.
@@ -821,7 +802,7 @@ describe('8. mutation hardening: edge cases the fixes above depend on', () => {
 
   test('closing several rows recorded at different times in one store uses the latest of them, not merely the last one iterated', async () => {
     const clock = fakeClock(DAY(5));
-    const h = history(clock);
+    const h = await history(clock);
     // A is recorded at day 5.
     await h.store({ source: 's', commit: 'c1', committedAt: DAY(1), model: model([element('A'), element('B')]) });
     clock.set(DAY(7));
@@ -845,7 +826,7 @@ describe('8. mutation hardening: edge cases the fixes above depend on', () => {
     // it saw last, rather than the true maximum, would pick `Z`'s earlier
     // moment and under-clamp.
     const clock = fakeClock(DAY(5));
-    const h = history(clock);
+    const h = await history(clock);
     await h.store({ source: 's', commit: 'c1', committedAt: DAY(1), model: model([element('A'), element('Z')]) });
     clock.set(DAY(7));
     // `A` changes (recorded day 7); `Z` stays untouched, still recorded day 5.
@@ -866,7 +847,7 @@ describe('8. mutation hardening: edge cases the fixes above depend on', () => {
 
   test('a store whose content exactly matches what is already current opens and closes nothing at all', async () => {
     const clock = fakeClock(DAY(2));
-    const h = history(clock);
+    const h = await history(clock);
     await h.store({ source: 's', commit: 'c1', committedAt: DAY(1), model: model([element('A')]) });
 
     clock.set(DAY(11));
@@ -879,7 +860,7 @@ describe('8. mutation hardening: edge cases the fixes above depend on', () => {
 
   test('a third source conflicting with a shared zone id two other sources already agree on succeeds; the read names all three sources in one discrepancy', async () => {
     const clock = fakeClock(DAY(2));
-    const h = history(clock);
+    const h = await history(clock);
     await h.store({ source: 'a', commit: 'c1', committedAt: DAY(1), model: model([], { zones: [zone('pci', 'compliance')] }) });
     await h.store({ source: 'b', commit: 'c1', committedAt: DAY(1), model: model([], { zones: [zone('pci', 'compliance')] }) });
 
@@ -898,7 +879,7 @@ describe('8. mutation hardening: edge cases the fixes above depend on', () => {
     // only remembered the *last* source to agree (`z`) would wrongly let
     // `y` win the tie-break instead, since 'y' < 'z'.
     const clock = fakeClock(DAY(2));
-    const h = history(clock);
+    const h = await history(clock);
     await h.store({ source: 'x', commit: 'c1', committedAt: DAY(1), model: model([], { zones: [zone('shared', 'compliance')] }) });
     await h.store({ source: 'y', commit: 'c1', committedAt: DAY(1), model: model([], { zones: [zone('shared', 'regulatory')] }) });
     await h.store({ source: 'z', commit: 'c1', committedAt: DAY(1), model: model([], { zones: [zone('shared', 'compliance')] }) });
@@ -915,7 +896,7 @@ describe('8. mutation hardening: edge cases the fixes above depend on', () => {
     // sorts before y) win the tie-break; left in storage order ("z" first),
     // "regulatory" (y sorts before z) would wrongly win instead.
     const clock = fakeClock(DAY(2));
-    const h = history(clock);
+    const h = await history(clock);
     await h.store({ source: 'z', commit: 'c1', committedAt: DAY(1), model: model([], { zones: [zone('shared2', 'compliance')] }) });
     await h.store({ source: 'y', commit: 'c1', committedAt: DAY(1), model: model([], { zones: [zone('shared2', 'regulatory')] }) });
     await h.store({ source: 'x', commit: 'c1', committedAt: DAY(1), model: model([], { zones: [zone('shared2', 'compliance')] }) });
@@ -926,7 +907,7 @@ describe('8. mutation hardening: edge cases the fixes above depend on', () => {
 
   test('a category id two sources declare differently is recorded, not refused: the union keeps both and reports a discrepancy with field "category"', async () => {
     const clock = fakeClock(DAY(2));
-    const h = history(clock);
+    const h = await history(clock);
     await h.store({ source: 'a', commit: 'c1', committedAt: DAY(1), model: model([], { categories: [{ id: 'pii', name: 'Personal data' }] }) });
     const result = await h.store({ source: 'b', commit: 'c1', committedAt: DAY(1), model: model([], { categories: [{ id: 'pii', name: 'PII' }] }) });
     expect(result.errors).toEqual([]);
@@ -938,7 +919,7 @@ describe('8. mutation hardening: edge cases the fixes above depend on', () => {
 
   test('a state id two sources declare differently (its own definition, not the chain order) is recorded, not refused: the union keeps both and reports a discrepancy with field "state"', async () => {
     const clock = fakeClock(DAY(2));
-    const h = history(clock);
+    const h = await history(clock);
     await h.store({ source: 'a', commit: 'c1', committedAt: DAY(1), model: model([], { states: [state('as-is'), { id: 'to-be', name: 'Target', after: 'as-is' }] }) });
     const result = await h.store({ source: 'b', commit: 'c1', committedAt: DAY(1), model: model([], { states: [state('as-is'), { id: 'to-be', name: 'Future', after: 'as-is' }] }) });
     expect(result.errors).toEqual([]);
@@ -955,7 +936,7 @@ describe('8. mutation hardening: edge cases the fixes above depend on', () => {
 
   test('every source currently declaring a shared binding is checked, not only whichever one is seen last: a conflict with the first of two agreeing sources is still caught', async () => {
     const clock = fakeClock(DAY(2));
-    const h = history(clock);
+    const h = await history(clock);
     // `x` and `y` bind different, non-overlapping variables of `production` — no conflict between them.
     await h.store({ source: 'x', commit: 'c1', committedAt: DAY(1), model: model([], { environments: [environment('production', { X: '1' })] }) });
     await h.store({ source: 'y', commit: 'c1', committedAt: DAY(1), model: model([], { environments: [environment('production', { Y: '2' })] }) });
@@ -973,9 +954,9 @@ describe('8. mutation hardening: edge cases the fixes above depend on', () => {
 
   test('a late commit whose predecessor row already closes exactly at the late commit\'s own successor opens no extra, redundant row', async () => {
     const dir = mkdtempSync(join(tmpdir(), 'madarch-stage2-'));
-    const path = join(dir, 'history.pglite');
+    const path = join(dir, 'history');
     const clock = fakeClock(DAY(2));
-    const h = history(clock, path);
+    const h = await history(clock, path);
     await h.store({ source: 's', commit: 'c0', committedAt: DAY(1), model: model([element('X', { technology: 'A' })]) });
     clock.set(DAY(11));
     // c2 changes X, so it closes c0's row exactly at its own committed time (day 10) — nothing left open past it.
@@ -994,8 +975,7 @@ describe('8. mutation hardening: edge cases the fixes above depend on', () => {
     ]);
 
     await h.close();
-    const raw = new PGlite(path);
-    await raw.waitReady;
+    const raw = await openRawStore(path);
     const empty = (await raw.query('SELECT * FROM assertions WHERE valid_from = valid_to')).rows;
     await raw.close();
     expect(empty).toEqual([]);
@@ -1003,7 +983,7 @@ describe('8. mutation hardening: edge cases the fixes above depend on', () => {
 
   test('a late commit\'s predecessor row that a later commit (not its own successor) eventually closed is restored past the successor, up to where that later commit closed it', async () => {
     const clock = fakeClock(DAY(2));
-    const h = history(clock);
+    const h = await history(clock);
     await h.store({ source: 's', commit: 'c0', committedAt: DAY(1), model: model([element('X', { technology: 'A' })]) });
     clock.set(DAY(11));
     // c2 does not touch X at all — the row from c0 stays open past it.
@@ -1035,9 +1015,9 @@ describe('8. mutation hardening: edge cases the fixes above depend on', () => {
 
   test('two same-time commits, and a later-arriving one sorting (by commit id) just before the first: no zero-width row is restored at their shared boundary', async () => {
     const dir = mkdtempSync(join(tmpdir(), 'madarch-stage2-'));
-    const path = join(dir, 'history.pglite');
+    const path = join(dir, 'history');
     const clock = fakeClock(DAY(2));
-    const h = history(clock, path);
+    const h = await history(clock, path);
     await h.store({ source: 's', commit: 'a', committedAt: DAY(1), model: model([element('X', { technology: '1' })]) });
     clock.set(DAY(11));
     // 'p' does not touch X: the row from 'a' stays open past it, provisionally.
@@ -1062,8 +1042,7 @@ describe('8. mutation hardening: edge cases the fixes above depend on', () => {
     ]);
 
     await h.close();
-    const raw = new PGlite(path);
-    await raw.waitReady;
+    const raw = await openRawStore(path);
     const empty = (await raw.query('SELECT * FROM assertions WHERE valid_from = valid_to')).rows;
     await raw.close();
     expect(empty).toEqual([]);
@@ -1071,14 +1050,13 @@ describe('8. mutation hardening: edge cases the fixes above depend on', () => {
 
   test('the union read keeps both sources\' disagreeing environment definitions instead of picking silently between them (safety net for the assembler itself)', async () => {
     const dir = mkdtempSync(join(tmpdir(), 'madarch-stage2-'));
-    const path = join(dir, 'history.pglite');
+    const path = join(dir, 'history');
     const clock = fakeClock(DAY(2));
-    const h = history(clock, path);
+    const h = await history(clock, path);
     await h.store({ source: 'a', commit: 'c1', committedAt: DAY(1), model: model([], { environments: [environment('production', { X: '1' })] }) });
     await h.close();
 
-    const raw = new PGlite(path);
-    await raw.waitReady;
+    const raw = await openRawStore(path);
     await raw.query(
       `INSERT INTO assertions (source, kind, entity_id, content, valid_from, valid_to, opened_by, closed_by, recorded_from, recorded_to)
        VALUES ('b', 'environment', 'production', $1, $2, NULL, 'c1', NULL, $3, NULL)`,
@@ -1086,7 +1064,7 @@ describe('8. mutation hardening: edge cases the fixes above depend on', () => {
     );
     await raw.close();
 
-    const h2 = history(clock, path);
+    const h2 = await history(clock, path);
     const result = await h2.read({ valid: DAY(2), known: DAY(2) });
     expect(result.errors).toEqual([]);
     expect(result.discrepancies).toEqual([{ kind: 'environment', id: 'production', sources: ['a', 'b'], field: 'environment' }]);
@@ -1097,14 +1075,13 @@ describe('8. mutation hardening: edge cases the fixes above depend on', () => {
 
   test('the union read keeps both sources\' conflicting bindings for the same variable instead of picking silently between them (safety net, agreeing on everything else)', async () => {
     const dir = mkdtempSync(join(tmpdir(), 'madarch-stage2-'));
-    const path = join(dir, 'history.pglite');
+    const path = join(dir, 'history');
     const clock = fakeClock(DAY(2));
-    const h = history(clock, path);
+    const h = await history(clock, path);
     await h.store({ source: 'a', commit: 'c1', committedAt: DAY(1), model: model([], { environments: [environment('production', { TIMEOUT: '30' })] }) });
     await h.close();
 
-    const raw = new PGlite(path);
-    await raw.waitReady;
+    const raw = await openRawStore(path);
     await raw.query(
       `INSERT INTO assertions (source, kind, entity_id, content, valid_from, valid_to, opened_by, closed_by, recorded_from, recorded_to)
        VALUES ('b', 'environment', 'production', $1, $2, NULL, 'c1', NULL, $3, NULL)`,
@@ -1112,7 +1089,7 @@ describe('8. mutation hardening: edge cases the fixes above depend on', () => {
     );
     await raw.close();
 
-    const h2 = history(clock, path);
+    const h2 = await history(clock, path);
     const result = await h2.read({ valid: DAY(2), known: DAY(2) });
     expect(result.errors).toEqual([]);
     expect(result.discrepancies).toEqual([{ kind: 'environment', id: 'production', sources: ['a', 'b'], field: 'TIMEOUT' }]);
@@ -1121,14 +1098,13 @@ describe('8. mutation hardening: edge cases the fixes above depend on', () => {
 
   test('the union read does not report a discrepancy when two sources bind the same variable to the same value (stays silent when there is truly nothing to disagree about)', async () => {
     const dir = mkdtempSync(join(tmpdir(), 'madarch-stage2-'));
-    const path = join(dir, 'history.pglite');
+    const path = join(dir, 'history');
     const clock = fakeClock(DAY(2));
-    const h = history(clock, path);
+    const h = await history(clock, path);
     await h.store({ source: 'a', commit: 'c1', committedAt: DAY(1), model: model([], { environments: [environment('production', { TIMEOUT: '30' })] }) });
     await h.close();
 
-    const raw = new PGlite(path);
-    await raw.waitReady;
+    const raw = await openRawStore(path);
     await raw.query(
       `INSERT INTO assertions (source, kind, entity_id, content, valid_from, valid_to, opened_by, closed_by, recorded_from, recorded_to)
        VALUES ('b', 'environment', 'production', $1, $2, NULL, 'c1', NULL, $3, NULL)`,
@@ -1136,7 +1112,7 @@ describe('8. mutation hardening: edge cases the fixes above depend on', () => {
     );
     await raw.close();
 
-    const h2 = history(clock, path);
+    const h2 = await history(clock, path);
     const result = await h2.read({ valid: DAY(2), known: DAY(2) });
     expect(result.errors).toEqual([]);
     expect(result.discrepancies).toEqual([]);
@@ -1145,7 +1121,7 @@ describe('8. mutation hardening: edge cases the fixes above depend on', () => {
 
   test('sources() sorts by code point regardless of storage or arrival order', async () => {
     const clock = fakeClock(DAY(2));
-    const h = history(clock);
+    const h = await history(clock);
     await h.store({ source: 'zebra', commit: 'c1', committedAt: DAY(1), model: model([]) });
     await h.store({ source: 'apple', commit: 'c1', committedAt: DAY(1), model: model([]) });
     expect(await h.sources()).toEqual(['apple', 'zebra']);
@@ -1153,7 +1129,7 @@ describe('8. mutation hardening: edge cases the fixes above depend on', () => {
 
   test('`bindingsBySource`\'s own source keys, and each source\'s own variable keys, come back sorted code point order, regardless of which order sources bound them', async () => {
     const clock = fakeClock(DAY(2));
-    const h = history(clock);
+    const h = await history(clock);
     await h.store({ source: 'z', commit: 'c1', committedAt: DAY(1), model: model([], { environments: [environment('production', { zzz: '1', bbb: '9' })] }) });
     await h.store({ source: 'a', commit: 'c1', committedAt: DAY(1), model: model([], { environments: [environment('production', { aaa: '2' })] }) });
 
@@ -1165,7 +1141,7 @@ describe('8. mutation hardening: edge cases the fixes above depend on', () => {
 
   test('opened and closed are empty arrays, not merely falsy, on every non-writing outcome', async () => {
     const clock = fakeClock(DAY(2));
-    const h = history(clock);
+    const h = await history(clock);
     await h.store({ source: 's', commit: 'c1', committedAt: DAY(1), model: model([element('A')]) });
 
     const differentModel = await h.store({ source: 's', commit: 'c1', committedAt: DAY(1), model: model([element('B')]) });
@@ -1192,7 +1168,7 @@ describe('8. mutation hardening: edge cases the fixes above depend on', () => {
 describe('9. store()\'s reported opened/closed carry their source and always match assertions() afterward', () => {
   test('a single store: every opened row is current, carries its source', async () => {
     const clock = fakeClock(DAY(2));
-    const h = history(clock);
+    const h = await history(clock);
     const result = await h.store({ source: 'shop', commit: 'c1', committedAt: DAY(1), model: model([element('a'), element('b')]) });
     expect(result.closed).toEqual([]);
     expect(result.opened.every((c) => c.source === 'shop')).toBe(true);
@@ -1201,7 +1177,7 @@ describe('9. store()\'s reported opened/closed carry their source and always mat
 
   test('a replace: the closed row and the opened row both carry their source, and both match assertions()', async () => {
     const clock = fakeClock(DAY(2));
-    const h = history(clock);
+    const h = await history(clock);
     await h.store({ source: 'shop', commit: 'c1', committedAt: DAY(1), model: model([element('a')]) });
     clock.set(DAY(11));
     const result = await h.store({ source: 'shop', commit: 'c2', committedAt: DAY(10), model: model([element('a', { technology: 'x' })]) });
@@ -1212,7 +1188,7 @@ describe('9. store()\'s reported opened/closed carry their source and always mat
 
   test('a late commit: the restored, split rows it opens all match assertions(), each carrying its source', async () => {
     const clock = fakeClock(DAY(2));
-    const h = history(clock);
+    const h = await history(clock);
     await h.store({ source: 's', commit: 'c0', committedAt: DAY(1), model: model([element('X', { technology: 'A' })]) });
     clock.set(DAY(11));
     await h.store({ source: 's', commit: 'c2', committedAt: DAY(10), model: model([element('X', { technology: 'A' }), element('Y')]) });
@@ -1229,7 +1205,7 @@ describe('9. store()\'s reported opened/closed carry their source and always mat
 
   test('same-time commits: the superseded row is closed with no shortened replacement (both start at the same instant), and matches assertions()', async () => {
     const clock = fakeClock(DAY(2));
-    const h = history(clock);
+    const h = await history(clock);
     await h.store({ source: 's', commit: 'a', committedAt: DAY(1), model: model([element('X', { technology: 'A' })]) });
     clock.set(DAY(3));
     const result = await h.store({ source: 's', commit: 'b', committedAt: DAY(1), model: model([element('X', { technology: 'B' })]) });
@@ -1260,7 +1236,7 @@ describe('10. a seeded random sequence of stores matches an independently comput
     const ri = (n: number) => Math.floor(rnd() * n);
 
     const clock = fakeClock(100000);
-    const h = history(clock);
+    const h = await history(clock);
     for (let trial = 0; trial < 40; trial++) {
       const source = `s${trial}`;
       const n = 1 + ri(6);
@@ -1315,7 +1291,7 @@ describe('10. a seeded random sequence of stores matches an independently comput
 describe('11. the review\'s own scenarios (t8, t9): both stores succeed; the union shows each source\'s value and a discrepancy; each relation still carries its own source\'s address', () => {
   test('t8(a): both sources evolve a shared zone\'s kind on different days — both stores succeed, and the union carries a discrepancy that tracks the latest agreed content', async () => {
     const clock = fakeClock(DAY(2));
-    const h = history(clock);
+    const h = await history(clock);
     await h.store({ source: 'a', commit: 'a1', committedAt: DAY(1), model: model([element('A')], { zones: [zone('pci', 'regulatory')] }) });
     await h.store({ source: 'b', commit: 'b1', committedAt: DAY(1), model: model([element('B')], { zones: [zone('pci', 'regulatory')] }) });
 
@@ -1345,7 +1321,7 @@ describe('11. the review\'s own scenarios (t8, t9): both stores succeed; the uni
 
   test('t9: two sources moving the same environment binding to a new value on different days — both stores succeed; the union keeps each source\'s own value, and each relation still carries its own source\'s address', async () => {
     const clock = fakeClock(DAY(2));
-    const h = history(clock);
+    const h = await history(clock);
     const withPayments = (id: string, url: string): CompiledModel =>
       model([element(id), element(`${id}-gateway`)], {
         relations: [{ id: `${id}-to-gateway`, from: id, to: `${id}-gateway`, interaction: true, environments: ['production'], states: ['as-is'], binding: { env: 'PAYMENTS_URL' }, bindingByEnvironment: { production: url } }],
@@ -1387,7 +1363,7 @@ describe('12. known-time correctness: a read at an earlier known time reproduces
     // right after the second store then wrongly already saw the third
     // store's effects too, even though nothing yet connected the two.
     const clock = fakeClock(100000);
-    const h = history(clock);
+    const h = await history(clock);
 
     await h.store({ source: 's', commit: 'c46_0', committedAt: 4000, model: model([element('A', { technology: 't0' }), element('B'), element('C', { technology: 't1' })]) });
     clock.set(100010);
@@ -1414,7 +1390,7 @@ describe('12. known-time correctness: a read at an earlier known time reproduces
 
   test('a clock reading that genuinely, not just after correction, equals the recorded-time floor still ties with it (the accepted case stays accepted)', async () => {
     const clock = fakeClock(DAY(10));
-    const h = history(clock);
+    const h = await history(clock);
     await h.store({ source: 's', commit: 'c1', committedAt: DAY(1), model: model([element('X')]) });
     // The wall clock has genuinely not moved: still exactly DAY(10), the same reading `c1` itself used — not a correction up from behind it.
     const result = await h.store({ source: 's', commit: 'c2', committedAt: DAY(2), model: model([element('X'), element('Y')]) });
@@ -1431,7 +1407,7 @@ describe('12. known-time correctness: a read at an earlier known time reproduces
     const ri = (n: number) => Math.floor(rnd() * n);
     const validPoints = [500, 1500, 2500, 3500, 4500, 5500];
     const clock = fakeClock(100000);
-    const h = history(clock);
+    const h = await history(clock);
 
     for (let trial = 0; trial < 200; trial++) {
       const source = `s${trial}`;
@@ -1470,9 +1446,8 @@ describe('12. known-time correctness: a read at an earlier known time reproduces
 describe('13. the exclusive-kind safety net names the right kind for every one of the seven kinds (data written outside store())', () => {
   async function insertRaw(path: string, rows: { source: string; kind: string; id: string; content: unknown }[]): Promise<void> {
     // Creates the schema (a fresh store, immediately closed) before writing raw rows into it.
-    await createPGliteHistory({ clock: fakeClock(0), path }).close();
-    const raw = new PGlite(path);
-    await raw.waitReady;
+    await (await createTestHistory({ clock: fakeClock(0), store: path })).close();
+    const raw = await openRawStore(path);
     for (const row of rows) {
       await raw.query(
         `INSERT INTO assertions (source, kind, entity_id, content, valid_from, valid_to, opened_by, closed_by, recorded_from, recorded_to)
@@ -1486,14 +1461,14 @@ describe('13. the exclusive-kind safety net names the right kind for every one o
   for (const kind of ASSERTION_KINDS) {
     test(`the union read's exclusive-kind safety net reports "${kind}" as the field when two sources' rows for the same id disagree`, async () => {
       const dir = mkdtempSync(join(tmpdir(), 'madarch-stage2-'));
-      const path = join(dir, 'history.pglite');
+      const path = join(dir, 'history');
       await insertRaw(path, [
         { source: 'a', kind, id: 'x', content: { id: 'x', v: 'A' } },
         { source: 'b', kind, id: 'x', content: { id: 'x', v: 'B' } },
       ]);
 
       const clock = fakeClock(DAY(2));
-      const h = history(clock, path);
+      const h = await history(clock, path);
       const result = await h.read({ valid: DAY(2), known: DAY(2) });
       if (CLASHABLE_KINDS.includes(kind)) {
         // element/interface/relation: a real safety-net finding, reported as an error.
@@ -1509,14 +1484,14 @@ describe('13. the exclusive-kind safety net names the right kind for every one o
   for (const kind of ASSERTION_KINDS) {
     test(`a source-filtered read's own exclusive-kind safety net reports "${kind}" as the field when one source's own two rows for the same id disagree (never happens through store(), which always closes the old row first)`, async () => {
       const dir = mkdtempSync(join(tmpdir(), 'madarch-stage2-'));
-      const path = join(dir, 'history.pglite');
+      const path = join(dir, 'history');
       await insertRaw(path, [
         { source: 's', kind, id: 'x', content: { id: 'x', v: 'A' } },
         { source: 's', kind, id: 'x', content: { id: 'x', v: 'B' } },
       ]);
 
       const clock = fakeClock(DAY(2));
-      const h = history(clock, path);
+      const h = await history(clock, path);
       const result = await h.read({ source: 's', valid: DAY(2), known: DAY(2) });
       expect(result.model).toBeUndefined();
       expect(result.errors).toEqual([{ message: expect.any(String), id: 'x', field: kind, source: expect.any(String) }]);

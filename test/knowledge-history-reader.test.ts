@@ -4,19 +4,19 @@ import { execFileSync } from 'node:child_process';
 import { cpSync, mkdirSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { dirname, join } from 'node:path';
-import { createPGliteDatabaseOwner } from '../src/adapters/database-owner.js';
 import { fillGraph } from '../src/extract/driver/index.js';
 import { HISTORY_EXTRACTOR, OWNERS, TREE_EXTRACTORS } from '../src/extract/driver/extractors.js';
 import { createGraphStore } from '../src/graph/index.js';
 import { GraphReader, type GraphEntity } from '../src/knowledge/graph-read.js';
 import { projectHistory } from '../src/knowledge/history-evidence.js';
 import { gitEnv } from './git-env.js';
+import { createTestDatabaseOwner } from './test-database.js';
 
 test('real indexed root-package contributions and Go module imports survive the production history reader', async () => {
   const workspace = mkdtempSync(join(tmpdir(), 'madarch-history-reader-'));
   const repository = join(workspace, 'repository');
   mkdirSync(repository);
-  const owner = createPGliteDatabaseOwner({ btreeGist: true });
+  const owner = await createTestDatabaseOwner({ btreeGist: true });
   const commits: string[] = [];
   const git = (...args: string[]): string => execFileSync('git', args, { cwd: repository, encoding: 'utf8', env: gitEnv() }).trim();
   const write = (file: string, text: string): void => {

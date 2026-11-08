@@ -14,22 +14,19 @@ import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { afterAll, beforeAll, describe, expect, test } from 'bun:test';
 import { parseDocument } from 'yaml';
-import { createPGliteDatabaseOwner, type DatabaseOwner } from '../src/adapters/database-owner.js';
+import { type DatabaseOwner } from '../src/adapters/database-owner.js';
 import { fillGraph } from '../src/extract/driver/index.js';
 import { extractFiles } from '../src/extract/driver/files.js';
 import { createGraphStore, type GraphStore } from '../src/graph/index.js';
 import type { DocEntity } from '../src/knowledge/doc-entities.js';
-import {
-  enrichmentPath, enrichmentPageId, fsSink, GraphView, memorySink, memoryWriterState, runWriter, UnitTools, writerGraphProblems,
-  writerPageFamily, writerUnitOrder, WRITER_UNIT_KINDS,
-  type PageSink, type UnitAgent, type UnitRequest, type WriterReport, type WriterUnitRun,
-} from '../src/writer/index.js';
+import { enrichmentPath, enrichmentPageId, fsSink, GraphView, memorySink, memoryWriterState, runWriter, UnitTools, writerGraphProblems, writerPageFamily, writerUnitOrder, WRITER_UNIT_KINDS, type PageSink, type UnitAgent, type UnitRequest, type WriterReport, type WriterUnitRun } from '../src/writer/index.js';
 import { fillWriterState } from '../src/writer/graph-state.js';
 import { memoryJournal } from '../src/writer/journal.js';
 import { gitEnv } from './git-env.js';
 import { KINDS_FILE, readKinds } from '../src/knowledge/kinds.js';
 import { seedStarterSet } from '../src/knowledge/seed.js';
 import { structuredKindOf } from '../src/writer/structured.js';
+import { createTestDatabaseOwner } from './test-database.js';
 
 // ---------------------------------------------------------------------------------------------
 // The fixture: one repository, one document, one source file
@@ -131,7 +128,7 @@ beforeAll(async () => {
   git('init', '--quiet', '--initial-branch=main');
   git('add', '.');
   git('-c', 'commit.gpgsign=false', 'commit', '--quiet', '-m', 'Record the sources');
-  owner = createPGliteDatabaseOwner({ btreeGist: true });
+  owner = await createTestDatabaseOwner({ btreeGist: true });
   store = createGraphStore(owner);
   await owner.ready;
   await store.createSchema();

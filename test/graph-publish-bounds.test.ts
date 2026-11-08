@@ -1,7 +1,7 @@
 
 /**
  * A publication's big reads and writes are paged, not one statement over every
- * row: PGlite runs a statement on the thread that owns it, so a reader waits
+ * row: a statement holds its transaction until it ends, so a reader waits
  * for the whole row set (madarch-alzf, PR #197 latency).
  */
 import { describe, expect, test } from 'bun:test';

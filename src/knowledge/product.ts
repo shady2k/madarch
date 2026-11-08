@@ -21,7 +21,7 @@ import { createGuideReadFactories, guideProductPin } from '../writer/guides/writ
 import { createGraphStore } from '../graph/index.js';
 import { createGitSnapshotSource } from '../fill/snapshot.js';
 import { detectDocumentLanguage, localizedSourcePath, parseLocalizedSource, type LocalizedDocumentSource } from '../writer/localized-source.js';
-import { cpSync, existsSync, mkdirSync, readFileSync, readdirSync, realpathSync, rmSync, statSync, writeFileSync } from 'node:fs';
+import { existsSync, mkdirSync, readFileSync, readdirSync, realpathSync, rmSync, statSync, writeFileSync } from 'node:fs';
 import { execFile, execFileSync } from 'node:child_process';
 import { mkdir, rename, rm, writeFile } from 'node:fs/promises';
 import { dirname, join, relative, resolve } from 'node:path';
@@ -409,19 +409,13 @@ export class KnowledgeProduct {
       mkdirSync(root, { recursive: true });
       let seq = snapshotNumbers(root).pop();
       let created = false;
-      if (seq === undefined && this.fillRun === undefined && existsSync(this.graphPath())) {
-        const temporary = join(root, '1.tmp');
-        rmSync(temporary, { recursive: true, force: true });
-        cpSync(this.graphPath(), temporary, { recursive: true });
-        await rename(temporary, join(root, '1'));
-        seq = 1;
-      }
       if (seq === undefined) {
         seq = 0;
-        created = true;
+        created = !existsSync(this.graphPath());
       }
-      const path = join(root, String(seq));
-      // The snapshot is read by a process of its own, so that opening it never holds up this server's thread.
+      // The reader reads the store the fill writes, never a copy of it: its own repeatable-read transaction, begun in
+      // a process of its own (so opening the store never holds up this server's thread), is the snapshot it answers from.
+      const path = this.storeFolder();
       const owner = new RemoteOwner(path, { create: created });
       try {
         await owner.ready;
@@ -597,7 +591,7 @@ export class KnowledgeProduct {
       const held = this.reader!;
       // A delayed or already-consumed notice cannot change the active snapshot's pins.
       if (held.seq >= seq) return;
-      const path = join(this.readRoot(), String(seq));
+      const path = this.storeFolder();
       const owner = new RemoteOwner(path, { create: false });
       try {
         await owner.ready;

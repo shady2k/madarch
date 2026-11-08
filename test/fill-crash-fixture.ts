@@ -14,7 +14,6 @@
 import { mkdirSync, rmSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { spawnSync } from 'node:child_process';
-import { pgliteAssetFiles } from '../scripts/pglite-assets.js';
 import type { DriverPhase, DriverSpec, Interrupt } from './fill-crash-driver.js';
 
 /** The driver's own source, as the build takes it. */
@@ -25,7 +24,6 @@ export function buildCrashBinary(folder: string, cwd: string): string {
   const binary = join(folder, 'fill-crash');
   const build = spawnSync('bun', [
     'build', '--compile', join(cwd, DRIVER_SOURCE),
-    ...pgliteAssetFiles().flatMap((file) => ['--asset', file]),
     '--outfile', binary,
   ], { encoding: 'utf8', cwd });
   const said = `${build.stdout ?? ''}${build.stderr ?? ''}`.trim();
@@ -55,7 +53,7 @@ export interface PhaseOptions {
   readonly limits?: Record<string, unknown>;
   readonly runId?: string;
   readonly product?: string;
-  /** One PostgreSQL server and schema to run against; left out, the suite's own PGlite folder. */
+  /** One PostgreSQL server and schema to run against; left out, the suite's own store. */
   readonly postgres?: { readonly connectionString: string; readonly schema: string; readonly queueSchema: string };
 }
 
@@ -131,7 +129,7 @@ export class CrashFixture {
     this.specCount += 1;
     const runId = options.runId ?? 'crash-run';
     const storage: DriverSpec['storage'] = options.postgres === undefined
-      ? { kind: 'pglite', folder: join(this.folder, 'database') }
+      ? { kind: 'store', folder: join(this.folder, 'database') }
       : { kind: 'postgres', connectionString: options.postgres.connectionString, schema: options.postgres.schema };
     const spec: DriverSpec = {
       storage,

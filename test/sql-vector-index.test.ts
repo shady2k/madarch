@@ -2,10 +2,22 @@ import { expect, test } from 'bun:test';
 import { mkdtemp, rm } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
-import { createPGliteQueryDatabase } from '../src/adapters/pglite-query-database.js';
 import { createSqlQueryDatabase } from '../src/adapters/sql-query-database.js';
 import type { SqlExecutor, SqlQueryDriver, SqlTransactionKind } from '../src/query/sql-driver.js';
 import type { VectorRecord } from '../src/vector/types.js';
+import { createTestQueryDatabase, serverPgVectorVersion } from './test-database.js';
+import { skippedBecauseOutOfWorkflow } from './fill-skip-list.js';
+
+/**
+ * Why the two search cases below are not run here: the pinned server build
+ * carries no pgvector, and the fill-skip list names what brings them back —
+ * the vector index's step. A case that the current steps' paths reach is never
+ * skipped, and the projection itself opens and answers every graph query.
+ */
+const VECTOR_STEP = skippedBecauseOutOfWorkflow('test/sql-vector-index.test.ts');
+if (VECTOR_STEP === undefined) throw new Error('test/sql-vector-index.test.ts: its search cases must be named in test/fill-skip-list.ts');
+const vectorVersion = await serverPgVectorVersion();
+const searchable = vectorVersion === '0.8.7';
 
 function record(source: string, space: string, itemId: string, vector: readonly number[]): VectorRecord {
   return { source, space, itemId, vector };
@@ -27,26 +39,36 @@ function testDriver(
   };
 }
 
-test('SQL owner fails closed when pgvector is missing or has the wrong version', async () => {
-  let missingClosed = false;
-  const missingDriver = testDriver((sql) => {
-    if (sql === 'CREATE EXTENSION IF NOT EXISTS vector') throw new Error('extension "vector" is not available');
+test('a database without pgvector opens for every graph query, and its vector index refuses by name', async () => {
+  // The extension is a property of the database, not of the projection's own
+  // tables: the graph queries answer on a server that carries no pgvector (the
+  // pinned build), and only a vector rebuild or search says what it needs.
+  const opened = await createSqlQueryDatabase(testDriver((sql) => {
+    if (sql.includes('SELECT extversion')) return [];
     return [];
-  }, () => { missingClosed = true; });
-  await expect(createSqlQueryDatabase(missingDriver)).rejects.toThrow(/extension "vector" is not available/);
-  expect(missingClosed).toBe(true);
+  }, () => undefined), { location: 'a server without pgvector' });
+  try {
+    const index = opened.vectorIndexForSources(['s']);
+    await expect(index.rebuild(['s'], [])).rejects.toThrow(/the vector index needs pgvector 0\.8\.7, and "a server without pgvector" carries none/);
+    await expect(index.search({ space: 'x', vector: [1], metric: 'l2', limit: 1 })).rejects.toThrow(/every graph query answers/);
+    await index.close();
+  } finally {
+    await opened.close();
+  }
+});
 
+test('a database whose pgvector is another version is refused at open, naming both versions', async () => {
   let mismatchedClosed = false;
   const mismatchedDriver = testDriver(
     (sql) => sql.includes('SELECT extversion') ? [{ extversion: '0.8.6' }] : [],
     () => { mismatchedClosed = true; },
   );
-  await expect(createSqlQueryDatabase(mismatchedDriver)).rejects.toThrow(/requires pgvector 0.8.7; found 0.8.6/);
+  await expect(createSqlQueryDatabase(mismatchedDriver)).rejects.toThrow(/has pgvector 0\.8\.6, and this build needs exactly 0\.8\.7/);
   expect(mismatchedClosed).toBe(true);
 });
 
-test('PGlite vector search is exact, deterministic, and source scoped', async () => {
-  const database = await createPGliteQueryDatabase();
+test.skipIf(!searchable)(`Vector search on a server is exact, deterministic, and source scoped (${VECTOR_STEP?.brings}: ${VECTOR_STEP?.because})`, async () => {
+  const database = await createTestQueryDatabase();
   const space = `vectors-${crypto.randomUUID()}`;
   const sourceA = `source-a-${crypto.randomUUID()}`;
   const sourceB = `source-b-${crypto.randomUUID()}`;
@@ -115,19 +137,19 @@ test('PGlite vector search is exact, deterministic, and source scoped', async ()
   }
 });
 
-test('file-backed PGlite preserves vector results across close and reopen', async () => {
+test.skipIf(!searchable)(`a store's server preserves vector results across close and reopen (${VECTOR_STEP?.brings})`, async () => {
   const directory = await mkdtemp(join(tmpdir(), 'madarch-vector-index-'));
   const path = join(directory, 'vector-db');
   const source = `persist-${crypto.randomUUID()}`;
   const space = `persist-space-${crypto.randomUUID()}`;
   try {
-    const first = await createPGliteQueryDatabase({ path });
+    const first = await createTestQueryDatabase({ store: path });
     const firstIndex = first.vectorIndexForSources([source]);
     await firstIndex.rebuild([source], [record(source, space, 'kept', [0.25, 0.75])]);
     const before = await firstIndex.search({ space, vector: [0, 0], metric: 'l2', limit: 1 });
     await first.close();
 
-    const reopened = await createPGliteQueryDatabase({ path });
+    const reopened = await createTestQueryDatabase({ store: path });
     try {
       expect(await reopened.vectorIndexForSources([source]).search({ space, vector: [0, 0], metric: 'l2', limit: 1 })).toEqual(before);
     } finally {

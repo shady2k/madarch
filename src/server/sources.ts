@@ -1,12 +1,13 @@
 /**
- * The server's data folder: one file-backed PGlite database directory per source, named
- * after the source safely (no path separator or other unsafe byte ever
- * reaches the file system), with a small JSON sidecar beside each history
- * file recording the source's name, its id — assigned by the server on the
- * source's first send, an opaque string the name plays no part in — and
- * its current head — the newest commit by commit time, code-point
- * tie-break — so a restart knows every file's source and `GET /sources`
- * can answer without opening a history.
+ * The server's data folder: one PostgreSQL server for the folder (its cluster
+ * in `<data folder>/pgdata`, listening on a socket folder of its own) and one
+ * database per source's history, named after the source's file name by a hash
+ * of it (no path separator or other unsafe byte ever reaches a name), with a
+ * small JSON sidecar per source recording the source's name, its id — assigned
+ * by the server on the source's first send, an opaque string the name plays no
+ * part in — and its current head — the newest commit by commit time, code-point
+ * tie-break — so a restart knows every history's source and `GET /sources` can
+ * answer without opening a history.
  *
  * A renamed source keeps its id: the rename claim moves the history and
  * its sidecar to the new name and keeps the old name among the sidecar's
@@ -45,11 +46,11 @@
  * the history, not the sidecar, is the truth.
  */
 import { join } from 'node:path';
-import { readdirSync, readFileSync, renameSync, rmSync, statSync, writeFileSync } from 'node:fs';
+import { existsSync, readdirSync, readFileSync, renameSync, statSync, writeFileSync } from 'node:fs';
 import { randomUUID } from 'node:crypto';
 import type { Stats } from 'node:fs';
-import { createPGliteHistory } from '../adapters/pglite-history.js';
-import type { Clock, HistoryStore, OuterTransaction, StoreInput, StoreResult } from '../history/types.js';
+import { historyDatabaseOf, openStoreHistories, type StoreHistories } from '../adapters/store-histories.js';
+import type { Clock, HistoryStore, StoreInput, StoreResult } from '../history/types.js';
 import { byCodePoint } from '../model/order.js';
 
 /** The bytes that may appear in a file name as they are: the lower-case unreserved bytes of RFC 3986 minus `~` (kept out on purpose; it encodes fine). Upper-case letters encode too, so a stem never depends on case; a stem holding a raw upper-case letter, or a lower-case `%xx` escape, was not written by this server. */
@@ -58,9 +59,9 @@ const UNRESERVED = /^[a-z0-9._-]$/;
 /**
  * The longest encoded file-name stem the server accepts, in bytes: three
  * bytes per unsafe character must stay far under any file system's
- * 255-byte name limit once the `.pglite`/`.json` suffixes are added. A
- * source whose name encodes longer is refused, naming the field and the
- * limit — never truncated (a truncated name could collide with another).
+ * 255-byte name limit once the `.json` suffix is added. A source whose name
+ * encodes longer is refused, naming the field and the limit — never
+ * truncated (a truncated name could collide with another).
  */
 export const MAX_ENCODED_STEM_BYTES = 200;
 
@@ -206,6 +207,15 @@ interface SidecarFile {
   storedAt: unknown;
 }
 
+/** Whether a path is a directory: a folder an older madarch left is one, and a stray file is not. */
+function isDirectory(path: string): boolean {
+  try {
+    return statSync(path).isDirectory();
+  } catch {
+    return false;
+  }
+}
+
 export async function createSourceStores(options: SourceStoresOptions): Promise<SourceStores> {
   const { dataFolder, clock } = options;
   const log = options.log ?? ((line: string) => console.log(line));
@@ -223,21 +233,38 @@ export async function createSourceStores(options: SourceStoresOptions): Promise<
   const folderEntries = readdirSync(dataFolder);
   const legacySqlite = folderEntries.filter((name) => name.endsWith('.sqlite'));
   if (legacySqlite.length > 0) {
-    throw new Error(`the data folder holds SQLite history ${legacySqlite.sort(byCodePoint).map((name) => JSON.stringify(name)).join(', ')}; SQLite histories are not migrated to PGlite, so rebuild the fact log by sending its source models again`);
+    throw new Error(`the data folder holds SQLite history ${legacySqlite.sort(byCodePoint).map((name) => JSON.stringify(name)).join(', ')}; SQLite histories are not migrated, so rebuild the fact log by sending its source models again`);
+  }
+  // A directory holding a cluster of its own, beside the folder's, is a history of the in-process
+  // database an older madarch kept as files: nothing reads it and nothing migrates it.
+  const legacyStores = folderEntries.filter((name) => name !== 'pgdata' && isDirectory(join(dataFolder, name)) && existsSync(join(dataFolder, name, 'PG_VERSION')));
+  if (legacyStores.length > 0) {
+    throw new Error(`the data folder holds ${legacyStores.sort(byCodePoint).map((name) => JSON.stringify(name)).join(', ')}, a history of the in-process database an older madarch kept as files: this server does not read ${legacyStores.length === 1 ? 'it' : 'them'} and nothing migrates ${legacyStores.length === 1 ? 'it' : 'them'}. Remove ${legacyStores.length === 1 ? 'that folder' : 'those folders'} and rebuild the fact log by sending the source models again`);
   }
   const jsonStems = new Set<string>();
-  const pgliteStems = new Set<string>();
-  for (const name of folderEntries) {
-    if (name.endsWith('.json')) jsonStems.add(name.slice(0, -'.json'.length));
-    if (name.endsWith('.pglite')) pgliteStems.add(name.slice(0, -'.pglite'.length));
+  for (const name of folderEntries) if (name.endsWith('.json')) jsonStems.add(name.slice(0, -'.json'.length));
+  // The folder's one server: every source's history is a database on it, and the first open starts it.
+  const cluster: StoreHistories = await openStoreHistories({ store: dataFolder, clock, ...(options.log === undefined ? {} : { log: options.log }) });
+  try {
+    return await openSources(cluster, dataFolder, clock, log, jsonStems);
+  } catch (error) {
+    // A folder that cannot be opened leaves no server behind: it answers no page, and the scratch it stood in goes.
+    await cluster.close().catch(() => undefined);
+    throw error;
   }
+}
+
+/** The stores of an opened folder: every sidecar and every history it holds, checked against each other. */
+async function openSources(cluster: StoreHistories, dataFolder: string, clock: Clock, log: (line: string) => void, jsonStems: ReadonlySet<string>): Promise<SourceStores> {
+  const databaseStems = new Map<string, string>();
+  for (const database of cluster.databases) databaseStems.set(database, database);
   const problems: string[] = [];
   for (const stem of jsonStems) {
-    if (!pgliteStems.has(stem)) {
-      problems.push(`the data folder holds "${stem}.json" but no "${stem}.pglite" beside it: the source's history directory is missing`);
-    }
+    const database = historyDatabaseOf(stem);
+    if (!databaseStems.has(database)) problems.push(`the data folder holds "${stem}.json" but no history database for it (${database}): the source's history is missing`);
   }
   if (problems.length > 0) throw new Error(problems.join('; '));
+  for (const stem of jsonStems) databaseStems.set(historyDatabaseOf(stem), stem);
 
   const heads = new Map<string, SourceHead>();
   const histories = new Map<string, HistoryStore>();
@@ -246,42 +273,6 @@ export async function createSourceStores(options: SourceStoresOptions): Promise<
   // concurrent requests cannot both claim the same commit is new or race
   // a source rename against a store.
   let mutationTail: Promise<void> = Promise.resolve();
-  // Decision 0024: local PGlite is single-connection, so serialize every query across source histories.
-  let historyTail: Promise<void> = Promise.resolve();
-  async function serializeHistoryQuery<T>(operation: () => Promise<T>): Promise<T> {
-    const previous = historyTail;
-    let release!: () => void;
-    const gate = new Promise<void>((resolve) => { release = resolve; });
-    historyTail = previous.then(() => gate);
-    await previous;
-    try {
-      return await operation();
-    } finally {
-      release();
-    }
-  }
-  function serializedHistory(history: HistoryStore): HistoryStore {
-    // A call given an outer transaction runs at once, never queued here: the
-    // transaction came from the database owner, which serializes its own
-    // work, and queuing behind this folder's queue could wait on work the
-    // caller's transaction itself holds.
-    const ordered = <T>(transaction: OuterTransaction | undefined, operation: () => Promise<T>): Promise<T> =>
-      transaction === undefined ? serializeHistoryQuery(operation) : operation();
-    return {
-      store: (input, registry, transaction) => ordered(transaction, () => history.store(input, registry, transaction)),
-      read: (input, transaction) => ordered(transaction, () => history.read(input, transaction)),
-      assertions: (input, transaction) => ordered(transaction, () => history.assertions(input, transaction)),
-      sources: (transaction) => ordered(transaction, () => history.sources(transaction)),
-      renameSource: (from, to, registry, transaction) => ordered(transaction, () => history.renameSource(from, to, registry, transaction)),
-      registry: (source, transaction) => ordered(transaction, () => history.registry(source, transaction)),
-      setRegistry: (source, id, names, transaction) => ordered(transaction, () => history.setRegistry(source, id, names, transaction)),
-      hasCommit: (source, commit, transaction) => ordered(transaction, () => history.hasCommit(source, commit, transaction)),
-      commitRecord: (source, commit, transaction) => ordered(transaction, () => history.commitRecord(source, commit, transaction)),
-      latestCommit: (source, transaction) => ordered(transaction, () => history.latestCommit(source, transaction)),
-      commits: (source, transaction) => ordered(transaction, () => history.commits(source, transaction)),
-      close: () => serializeHistoryQuery(() => history.close()),
-    };
-  }
   async function serializeMutation<T>(operation: () => Promise<T>): Promise<T> {
     const previous = mutationTail;
     let release!: () => void;
@@ -300,12 +291,12 @@ export async function createSourceStores(options: SourceStoresOptions): Promise<
   /** A retired name — one a rename gave up — and the head of the source it used to name: a store reached with it is refused, so the old name never grows a second id. */
   const retired = new Map<string, SourceHead>();
 
-  /** Opens one history directory; PGlite reports failures with the full directory path. */
-  function openHistory(stem: string): HistoryStore {
+  /** Opens one history database of the folder's server; a failure names the database and the folder it stands in. */
+  function openHistory(database: string): HistoryStore {
     try {
-      return serializedHistory(createPGliteHistory({ path: join(dataFolder, `${stem}.pglite`), clock }));
+      return cluster.historyOf(database);
     } catch (error) {
-      throw new Error(`the history directory "${stem}.pglite" cannot be opened: ${(error as Error).message}`, { cause: error });
+      throw new Error(`the history database "${database}" of "${dataFolder}" cannot be opened: ${(error as Error).message}`, { cause: error });
     }
   }
 
@@ -336,7 +327,7 @@ export async function createSourceStores(options: SourceStoresOptions): Promise<
     if (decoded === undefined) {
       throw new Error(`the sidecar "${path}" has a file name that does not decode to a source name; the folder was not written by this server`);
     }
-    const history = openHistory(stem);
+    const history = openHistory(historyDatabaseOf(stem));
     const held = await history.sources();
     if (held.length !== 1) {
       await history.close();
@@ -344,7 +335,7 @@ export async function createSourceStores(options: SourceStoresOptions): Promise<
         throw new Error(`the sidecar "${path}" names its source "${sidecarHead.source}" but its file name decodes to "${decoded}": the sidecar and the file name disagree`);
       }
       const holds = held.length === 0 ? 'no source' : `the sources ${held.join(', ')}`;
-      throw new Error(`the history directory "${stem}.pglite" holds ${holds}, but its sidecar "${stem}.json" names "${sidecarHead.source}": the sidecar and the history disagree`);
+      throw new Error(`the history database of "${stem}.json" holds ${holds}, but its sidecar "${stem}.json" names "${sidecarHead.source}": the sidecar and the history disagree`);
     }
     const source = held[0]!;
     const persisted = await history.registry(source);
@@ -353,7 +344,7 @@ export async function createSourceStores(options: SourceStoresOptions): Promise<
       if (decoded !== sidecarHead.source) {
         throw new Error(`the sidecar "${path}" names its source "${sidecarHead.source}" but its file name decodes to "${decoded}": the sidecar and the file name disagree`);
       }
-      throw new Error(`the history directory "${stem}.pglite" holds the sources ${source}, but its sidecar "${stem}.json" names "${sidecarHead.source}": the sidecar and the history disagree`);
+      throw new Error(`the history database of "${stem}.json" holds the sources ${source}, but its sidecar "${stem}.json" names "${sidecarHead.source}": the sidecar and the history disagree`);
     }
     const id = persisted?.id ?? sidecarId ?? randomUUID();
     const names = persisted?.formerNames ?? sidecarNames;
@@ -371,33 +362,34 @@ export async function createSourceStores(options: SourceStoresOptions): Promise<
     formerNames.set(source, names);
   }
 
-  for (const stem of pgliteStems) {
+  for (const database of databaseStems.keys()) {
+    const stem = databaseStems.get(database)!;
     if (jsonStems.has(stem)) continue;
-    const history = openHistory(stem);
+    const history = openHistory(database);
     const names = await history.sources();
+    const said = `the data folder holds the history database "${database}" of "${dataFolder}" but no sidecar for it`;
     if (names.length !== 1) {
       await history.close();
       const holds = names.length === 0 ? 'no source it could be named from' : `the sources ${names.join(', ')}`;
-      throw new Error(`the data folder holds the history directory "${stem}.pglite" but no "${stem}.json" beside it, and the history holds ${holds}: a history one sidecar is to name must hold exactly that one source`);
+      throw new Error(`${said}, and the history holds ${holds}: a history one sidecar is to name must hold exactly that one source`);
     }
     const source = names[0]!;
-    const decoded = decodeSourceName(stem);
-    if (decoded === undefined || decoded !== source) {
+    const derived = encodeSourceName(source);
+    if (decodeSourceName(derived) !== source || historyDatabaseOf(derived) !== database) {
       await history.close();
-      throw new Error(`the data folder holds the history directory "${stem}.pglite" but no "${stem}.json" beside it, and the file name does not decode to the history's source "${source}": the folder was not written by this server`);
+      throw new Error(`${said}, and the history's source "${source}" names no database of this server (${historyDatabaseOf(derived)}): the folder was not written by this server`);
     }
     const registry = await history.registry(source);
     if (registry === undefined) {
       await history.close();
-      throw new Error(`the data folder holds the history directory "${stem}.pglite" but no "${stem}.json" beside it, and the history has no persisted source id or former names to rebuild identity faithfully`);
+      throw new Error(`${said}, and the history has no persisted source id or former names to rebuild identity faithfully`);
     }
     const head = await newestCommit(source, registry.id, history);
-    writeSidecar(stem, head, registry.formerNames);
-    log(`repaired the data folder: the history directory "${stem}.pglite" had no sidecar beside it; it holds the source "${source}" at its head ${JSON.stringify(head.commit)} at ${new Date(head.committedAt).toISOString()}`);
+    writeSidecar(derived, head, registry.formerNames);
+    log(`repaired the data folder: the history database "${database}" had no sidecar beside it; it holds the source "${source}" at its head ${JSON.stringify(head.commit)} at ${new Date(head.committedAt).toISOString()}`);
     heads.set(source, head);
     histories.set(source, history);
     formerNames.set(source, registry.formerNames);
-
   }
 
   // Every former name a sidecar holds becomes retired: it maps to the
@@ -434,7 +426,7 @@ export async function createSourceStores(options: SourceStoresOptions): Promise<
   function historyOf(source: string): HistoryStore {
     let history = histories.get(source);
     if (history === undefined) {
-      history = serializedHistory(createPGliteHistory({ path: join(dataFolder, `${encodeSourceName(source)}.pglite`), clock }));
+      history = openHistory(historyDatabaseOf(encodeSourceName(source)));
       histories.set(source, history);
     }
     return history;
@@ -531,22 +523,25 @@ export async function createSourceStores(options: SourceStoresOptions): Promise<
     const newHead: SourceHead = { ...head, source: to };
     const history = historyOf(from);
     const former = [...new Set([...(formerNames.get(from) ?? []), from])].filter((name) => name !== to).sort(byCodePoint);
+    const fromDatabase = historyDatabaseOf(encodeSourceName(from));
+    const toDatabase = historyDatabaseOf(encodeSourceName(to));
     await history.close();
     let historyMoved = false;
     let sidecarMoved = false;
     let renamedHistory: HistoryStore | undefined;
     try {
-      renameSync(join(dataFolder, `${encodeSourceName(from)}.pglite`), join(dataFolder, `${encodeSourceName(to)}.pglite`));
+      // The database is renamed with the source: no session may hold it, so its pool was closed above.
+      await cluster.rename(fromDatabase, toDatabase);
       historyMoved = true;
       renameSync(join(dataFolder, `${encodeSourceName(from)}.json`), join(dataFolder, `${encodeSourceName(to)}.json`));
       sidecarMoved = true;
-      renamedHistory = openHistory(encodeSourceName(to));
+      renamedHistory = openHistory(toDatabase);
       await renamedHistory.renameSource(from, to, { id: newHead.id, formerNames: former });
     } catch (error) {
       await renamedHistory?.close();
       if (sidecarMoved) renameSync(join(dataFolder, `${encodeSourceName(to)}.json`), join(dataFolder, `${encodeSourceName(from)}.json`));
-      if (historyMoved) renameSync(join(dataFolder, `${encodeSourceName(to)}.pglite`), join(dataFolder, `${encodeSourceName(from)}.pglite`));
-      histories.set(from, openHistory(encodeSourceName(from)));
+      if (historyMoved) await cluster.rename(toDatabase, fromDatabase).catch(() => undefined);
+      histories.set(from, openHistory(fromDatabase));
       throw error;
     }
     histories.delete(from);
@@ -572,6 +567,7 @@ export async function createSourceStores(options: SourceStoresOptions): Promise<
     await mutationTail;
     await Promise.all([...histories.values()].map((history) => history.close()));
     histories.clear();
+    await cluster.close();
   }
 
   return { historyOf, store, rename, retiredHead, heads: headsInOrder, close };

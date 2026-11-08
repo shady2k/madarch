@@ -1,16 +1,19 @@
 /**
  * The read worker (madarch-m38l.4, remark 3): `madarch knowledge-read-worker`.
- * It holds one snapshot of a product's graph store open (see `fill-run.ts`)
- * and answers the server's statements, so the statements run on this process's
- * thread and a page of the wiki never waits for the server's own thread, which
- * the opening of a database blocks for hundreds of milliseconds. The server
- * starts one for each new snapshot and ends the old one once the new answers.
+ * It answers the server's statements on this process's own thread, so a page of
+ * the wiki never waits for the server's thread, and it holds one *snapshot* of
+ * the product's store: a repeatable-read transaction begun when the worker
+ * opened. The store is the one the fill writes (madarch-8bdc.2.5, item 1): no
+ * copy of it is made for a reader, because a repeatable-read transaction already
+ * answers the store as it stood at its first statement, and the server starts a
+ * new worker — a new transaction — for each numbered snapshot the fill
+ * publishes. The old worker is ended once the new one answers.
  *
  * Messages are lines of JSON (`wire.ts`) on standard input and output.
  */
 import { mkdirSync } from 'node:fs';
-import { dirname } from 'node:path';
-import { createPGliteDatabaseOwner, type DatabaseOwner, type OuterTransaction } from '../adapters/database-owner.js';
+import { storeDatabasePath } from '../product/store.js';
+import { createDatabaseOwner, type DatabaseOwner, type OuterTransaction } from '../adapters/database-owner.js';
 import { createGraphStore, createRecordSchema } from '../graph/index.js';
 import { decodeWire, encodeWire } from './wire.js';
 
@@ -39,6 +42,10 @@ export async function runReadWorker(io: { lines: AsyncIterable<string>; send: (r
   const send = (reply: ReadReply): void => io.send(encodeWire(reply));
   let owner: DatabaseOwner | undefined;
   const transactions = new Map<number, { queue: ReadRequest[]; wake: (() => void) | undefined }>();
+  /** The snapshot the worker answers from: one repeatable-read transaction, begun at the open. */
+  let snapshot: { queue: ReadRequest[]; wake: (() => void) | undefined } | undefined;
+  /** The transaction ids the server named, mapped onto that one snapshot. */
+  const named = new Set<number>();
   /** The statements and transactions under way; each leaves the set when it ends. */
   const work = new Set<Promise<void>>();
   const track = (operation: Promise<void>): void => {
@@ -80,16 +87,37 @@ export async function runReadWorker(io: { lines: AsyncIterable<string>; send: (r
     const request = decodeWire<ReadRequest>(line);
     if (request.type === 'open') {
       try {
-        mkdirSync(dirname(request.path), { recursive: true });
-        owner = createPGliteDatabaseOwner({ path: request.path, btreeGist: true });
+        mkdirSync(request.path, { recursive: true });
+        // The store folder: the reader reads the database the fill writes, never a copy of it.
+        owner = await createDatabaseOwner({ store: storeDatabasePath(request.path), btreeGist: true });
         await owner.ready;
-        // A store a fill never wrote - an empty folder the home made, or an earlier madarch's - has no tables: they are made
-        // when absent on every open (both statements are idempotent), so a first read never fails on a missing relation.
-        await createGraphStore(owner).createSchema();
-        // This step's record tables too (madarch-8bdc.2.5): a snapshot of a store the fill has not run on is
-        // read for its repository and its files, and a missing relation would be a failed page, not an empty one.
-        await createRecordSchema(owner);
-        await owner.transaction('write', async (tx) => { await tx.query(SCHEMA_TABLE); });
+        // A reader reads the store the fill writes, so it writes nothing unless the store has no tables at all (an empty
+        // folder the home made, or an earlier madarch's): then it makes them, as the fill's own schema does, so a first
+        // read is an empty page and never a missing relation. A store that has them is read and not touched — a write
+        // here would lock the tables a running fill is publishing into.
+        const there = await owner.run(async (tx) => await tx.query<{ there: boolean }>("SELECT to_regclass('public.knowledge_fill') IS NOT NULL AS there"));
+        if (there.rows[0]?.there !== true) {
+          await createGraphStore(owner).createSchema();
+          // This step's record tables too (madarch-8bdc.2.5): a snapshot of a store the fill has not run on is
+          // read for its repository and its files, and a missing relation would be a failed page, not an empty one.
+          await createRecordSchema(owner);
+          await owner.transaction('write', async (tx) => { await tx.query(SCHEMA_TABLE); });
+        }
+        // The snapshot itself: a repeatable-read transaction held for this process's life, so every page it answers
+        // agrees with the moment the fill published it.
+        const held: { queue: ReadRequest[]; wake: (() => void) | undefined } = { queue: [], wake: undefined };
+        snapshot = held;
+        track(owner.transaction('snapshot', async (tx) => {
+          for (;;) {
+            while (held.queue.length === 0) await new Promise<void>((resolve) => { held.wake = resolve; });
+            const next = held.queue.shift()!;
+            if (next.type === 'in') await runStatement(tx, next.id, next.sql, next.values);
+            else if (next.type === 'end') return;
+          }
+        }).then(
+          () => undefined,
+          (error: unknown) => { send({ type: 'failed', message: `the reader's snapshot ended: ${errorText(error)}` }); },
+        ));
         send({ type: 'ready' });
       } catch (error) {
         send({ type: 'failed', message: `the snapshot ${request.path} could not be opened: ${errorText(error)}` });
@@ -102,9 +130,24 @@ export async function runReadWorker(io: { lines: AsyncIterable<string>; send: (r
       return 1;
     }
     if (request.type === 'query') {
-      track(owner.run((executor) => runStatement(executor, request.id, request.sql, request.values)));
+      // Every statement of a reader is answered from its snapshot: the store it reads is the one a fill may be writing.
+      snapshot!.queue.push({ type: 'in', id: request.id, tx: 0, sql: request.sql, values: request.values });
+      snapshot!.wake?.();
     } else if (request.type === 'begin') {
-      beginTransaction(request);
+      if (request.kind === 'write') beginTransaction(request);
+      else {
+        // A snapshot transaction the server opens is this worker's own held snapshot.
+        named.add(request.id);
+        send({ type: 'begun', id: request.id });
+      }
+    } else if (named.has(request.tx)) {
+      if (request.type === 'in') {
+        snapshot!.queue.push(request);
+        snapshot!.wake?.();
+      } else {
+        named.delete(request.tx);
+        send({ type: 'ended', tx: request.tx });
+      }
     } else {
       const state = transactions.get(request.type === 'in' ? request.tx : request.tx);
       if (state === undefined) {

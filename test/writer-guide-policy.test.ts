@@ -3,7 +3,6 @@ import { execFileSync } from 'node:child_process';
 import { mkdtempSync, writeFileSync, rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
-import { createPGliteDatabaseOwner } from '../src/adapters/database-owner.js';
 import { createGraphStore } from '../src/graph/index.js';
 import { fillGraph } from '../src/extract/driver/index.js';
 import { extractFiles } from '../src/extract/driver/files.js';
@@ -19,9 +18,10 @@ import { renderGuideArtifact } from '../src/writer/guides/artifact.js';
 import { guidePacketPolicy, prepareGuideEvidence, resolveGuideContext, type GuidePreparedEvidence } from '../src/writer/guides/writer.js';
 import { guideDigest } from '../src/writer/guides/digest.js';
 import { extractOperations } from '../src/extract/operations/index.js';
-import {extractCodeWithFacts} from '../src/extract/code/index.js';
+import { extractCodeWithFacts } from '../src/extract/code/index.js';
 import { firstGuideCursor, readGuidePageContext, registerGuidePages, type GuideContextPage } from '../src/writer/guides/prepared.js';
 import type { GuidePreparedUnit } from '../src/writer/guides/host-contract.js';
+import { createTestDatabaseOwner } from './test-database.js';
 
 test('configuration and host-known literal values are withheld with explicit policy provenance',()=>{
  const context={valid:'2026-01-01T00:00:00Z',known:'2026-01-02T00:00:00Z',state:'0',repositories:[{name:'sample',commit:'a'.repeat(40)}]};
@@ -101,7 +101,7 @@ test('actual extracted environment defaults and definition edges are withheld be
 
 
 test('real pinned tree-sitter source literals decode escapes before protected context pages',async()=>{
- const folder=mkdtempSync(join(tmpdir(),'guide-literal-policy-'));const owner=createPGliteDatabaseOwner({btreeGist:true});
+ const folder=mkdtempSync(join(tmpdir(),'guide-literal-policy-'));const owner=await createTestDatabaseOwner({btreeGist:true});
  try{
   const credential='private"credential';
   const files:Record<string,string>={

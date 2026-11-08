@@ -1,12 +1,12 @@
-import {execFileSync} from 'node:child_process';
-import {renameSync,existsSync,mkdtempSync,mkdirSync,readFileSync,rmSync,symlinkSync,writeFileSync} from 'node:fs';
-import {tmpdir} from 'node:os';
-import {join} from 'node:path';
-import {expect,test} from 'bun:test';
-import {extractorManifest,prepareExtractorStore} from '../src/knowledge/extractor-store.js';
-import {createPGliteDatabaseOwner} from '../src/adapters/database-owner.js';
-import {createGraphStore} from '../src/graph/index.js';
-import {fillGraph,type TreeExtractor} from '../src/extract/driver/index.js';
+import { execFileSync } from 'node:child_process';
+import { renameSync, existsSync, mkdtempSync, mkdirSync, readFileSync, rmSync, symlinkSync, writeFileSync } from 'node:fs';
+import { tmpdir } from 'node:os';
+import { join } from 'node:path';
+import { expect, test } from 'bun:test';
+import { extractorManifest, prepareExtractorStore } from '../src/knowledge/extractor-store.js';
+import { createGraphStore } from '../src/graph/index.js';
+import { fillGraph, type TreeExtractor } from '../src/extract/driver/index.js';
+import { createTestDatabaseOwner } from './test-database.js';
 const catalog=(names:string[],version=1)=>extractorManifest(names.map((name)=>({name,version})));
 test('changed catalog rebuilds real persistent index, same catalog writes no rows, Markdown stays exact',async()=>{
  const root=mkdtempSync(join(tmpdir(),'madarch-extractor-store-')); const graph=join(root,'state','graph'); const repository=join(root,'repo');mkdirSync(repository);
@@ -16,7 +16,7 @@ test('changed catalog rebuilds real persistent index, same catalog writes no row
  const a:TreeExtractor=()=>({producer:'code.extract.a',nodes:[{key:'code.symbol:a',kind:'code.symbol',label:'a',properties:{}}],edges:[],gaps:[]});
  const b:TreeExtractor=()=>({producer:'code.extract.b',nodes:[{key:'code.symbol:b',kind:'code.symbol',label:'b',properties:{}}],edges:[{type:'code.references',from:'code.symbol:b',to:'code.symbol:a',discriminator:'',properties:{},span:{path:'main.ts',byteStart:0,byteEnd:1,lineStart:1,lineEnd:1}}],gaps:[]});
  const run=async(names:string[],extractors:TreeExtractor[],version=1)=>{
-  const prepared=prepareExtractorStore(graph,catalog(names,version));const owner=createPGliteDatabaseOwner({path:prepared.path,btreeGist:true});
+  const prepared=prepareExtractorStore(graph,catalog(names,version));const owner=await createTestDatabaseOwner({store:prepared.path,btreeGist:true});
   try {await owner.ready;const store=createGraphStore(owner);await store.createSchema();const report=await fillGraph({owner,store,repository,extractors});
    const rows=await owner.run((tx)=>tx.query(`SELECT (SELECT count(*) FROM node_version)::text AS nodes,(SELECT count(*) FROM edge_version)::text AS edges,(SELECT count(*) FROM work_item)::text AS work`));
    const links=await owner.run((tx)=>tx.query(`SELECT properties FROM edge_version WHERE producer='code.extract.links' AND recorded_to='infinity' AND valid_to='infinity'`));

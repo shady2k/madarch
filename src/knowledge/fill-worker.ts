@@ -48,7 +48,7 @@ const FILL_PRIORITY = 10;
  * owns the process supplies it, so this module never names a database connection
  * (decision 0033, item 3).
  */
-export async function runFillWorker(io: { lines: AsyncIterable<string>; send: (line: string) => void }, openStore: (path: string) => FillStoreOwner): Promise<number> {
+export async function runFillWorker(io: { lines: AsyncIterable<string>; send: (line: string) => void }, openStore: (path: string) => Promise<FillStoreOwner>): Promise<number> {
   // The fill yields to the pages it runs beside (madarch-m38l.4): this process is the heaviest reader on the machine — a
   // PGlite booting a store and every statement of the run — and a server of two cores owes the requests that arrive
   // meanwhile. A platform that does not let a process lower its own priority runs the fill at the priority it has.
@@ -68,7 +68,7 @@ export async function runFillWorker(io: { lines: AsyncIterable<string>; send: (l
         send({ type: 'failed', id: request.id, message: 'a fill worker runs one fill: this one has already been asked for a store' });
         continue;
       }
-      const database = openStore(storeDatabasePath(request.storeFolder));
+      const database = await openStore(storeDatabasePath(request.storeFolder));
       try {
         run = await startKnowledgeFill({
           productFolder: request.productFolder,

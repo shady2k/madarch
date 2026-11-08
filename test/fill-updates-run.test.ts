@@ -13,7 +13,6 @@
 import { afterAll, beforeAll, describe, expect, test } from 'bun:test';
 import { runGit } from '../src/product/git.js';
 import { mkdirSync, mkdtempSync, readdirSync, rmSync, writeFileSync } from 'node:fs';
-import { createPGliteDatabaseOwner } from '../src/adapters/database-owner.js';
 import { repositoryFacts } from '../src/graph/index.js';
 import { readProduct } from '../src/product/manifest.js';
 import { knowledgeRootOf, productStoreFolder, storeSnapshotsFolder } from '../src/product/store.js';
@@ -23,6 +22,7 @@ import type { FillRunResult } from '../src/fill/orchestrator-host.js';
 import type { RunStatus } from '../src/fill/orchestrator.js';
 import { daemonFills, daemonUpdateWatch, type DaemonFills } from '../src/product/daemon.js';
 import type { UpdateWatch } from '../src/product/fill-updates.js';
+import { createTestDatabaseOwner } from './test-database.js';
 
 let root = '';
 /** The products home: the server's own, where its fill database and its update state stand. */
@@ -157,7 +157,7 @@ describe('the update a default-branch commit starts', () => {
     // The first fill and the update each finished a snapshot for the reader.
     expect(snapshots.length).toBeGreaterThanOrEqual(2);
     const newest = snapshots.at(-1)!;
-    const owner = createPGliteDatabaseOwner({ path: join(storeSnapshotsFolder(store), String(newest)), btreeGist: true });
+    const owner = await createTestDatabaseOwner({ store: join(storeSnapshotsFolder(store), String(newest)), btreeGist: true });
     await owner.ready;
     try {
       const pins = await owner.run((tx) => tx.query<{ repo: string; commit_hash: string }>('SELECT repo, commit_hash FROM knowledge_fill ORDER BY repo'));

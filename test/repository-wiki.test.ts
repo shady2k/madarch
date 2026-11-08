@@ -15,13 +15,13 @@ import { mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'nod
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { symlinkSync } from 'node:fs';
-import { createPGliteDatabaseOwner } from '../src/adapters/database-owner.js';
 import { runFill } from '../src/fill/run.js';
 import { knowledgeRootOf, productStoreFolder } from '../src/product/store.js';
 import type { FillStepView } from '../src/knowledge/model.js';
 import { startServer, type StartedServer } from '../src/server/http.js';
 import { gitEnv } from './git-env.js';
 import { SAMPLE_IDENTITY, makeProduct } from './knowledge-fixture.js';
+import { createTestDatabaseOwner } from './test-database.js';
 
 const env = gitEnv(SAMPLE_IDENTITY);
 const git = (cwd: string, ...args: string[]): string => execFileSync('git', args, { cwd, env, encoding: 'utf8' }).trim();
@@ -248,7 +248,7 @@ describe('the empty wiki, the press and the end state', () => {
     // the one store every surface resolves (`productStoreFolder`), under the home's knowledge root.
     const store = productStoreFolder(folder, knowledgeRootOf(home));
     mkdirSync(join(store, 'graph'), { recursive: true });
-    const owner = createPGliteDatabaseOwner({ path: join(store, 'graph'), btreeGist: true });
+    const owner = await createTestDatabaseOwner({ store: join(store, 'graph'), btreeGist: true });
     try {
       const run = await runFill({ product: folder, database: owner, steps: ['repository-tree'], runId: 'tree-only', store, home: store });
       expect(run.ok).toBe(true);

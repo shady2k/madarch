@@ -19,7 +19,7 @@ test('the package exposes the asynchronous query and render interfaces only', ()
   }
 
   for (const available of [
-    'createPGliteQueryDatabase',
+    'createQueryDatabase',
     'createPostgresQueryDatabase',
     'buildAsyncViewSet',
     'renderAsyncLikeC4Workspace',

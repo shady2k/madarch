@@ -16,10 +16,8 @@
  * over it.
  */
 import { afterAll, beforeAll, describe, expect, test } from 'bun:test';
-import { createPGliteDatabaseOwner, type DatabaseOwner } from '../src/adapters/database-owner.js';
-import {
-  makeEdgeFact, makeNodeFact, repositoryPath, type Fact, type FactLayer, type FactProvenance,
-} from '../src/fill/facts.js';
+import { type DatabaseOwner } from '../src/adapters/database-owner.js';
+import { makeEdgeFact, makeNodeFact, repositoryPath, type Fact, type FactLayer, type FactProvenance } from '../src/fill/facts.js';
 import { createFactStoreSchema } from '../src/fill/fact-store.js';
 import { readText } from '../src/fill/graph-reads.js';
 import { parseStageRead, createStageReadReader, createStageReadSchema, STAGE_READ_NAMES } from '../src/fill/stage-reads.js';
@@ -27,10 +25,8 @@ import { publishedTreeRead, publishedTreeRows } from '../src/fill/stages/invento
 import { publishedManifestsRead } from '../src/fill/stages/build-configuration.js';
 import { publishedDocuments, publishedDocumentsRead } from '../src/fill/stages/document-index.js';
 import { publishedGapRows, publishedGapsRead, publishedImportRows, publishedImportsRead } from '../src/fill/stages/syntax-specifiers.js';
-import {
-  edgeRows, fileRows, packageRows, publishedFilesRead, publishedPackagesRead, publishedSymbolsRead as moduleSymbolsRead,
-  resolvedEdgesRead, symbolRows as moduleSymbolRows,
-} from '../src/fill/stages/modules.js';
+import { edgeRows, fileRows, packageRows, publishedFilesRead, publishedPackagesRead, publishedSymbolsRead as moduleSymbolsRead, resolvedEdgesRead, symbolRows as moduleSymbolRows } from '../src/fill/stages/modules.js';
+import { createTestDatabaseOwner } from './test-database.js';
 
 const REPOSITORY = 'orders-api';
 const OTHER = 'other-api';
@@ -140,7 +136,7 @@ beforeAll(async () => {
     { fact: document, stage: 'document-index' }, { fact: commit, stage: 'history' }, { fact: historyCoverage, stage: 'history' },
   ]) FACTS.push(entry);
 
-  owner = createPGliteDatabaseOwner();
+  owner = await createTestDatabaseOwner();
   await createFactStoreSchema(owner);
   // The rows a publication leaves: the fact, and the holding that names the unit
   // and stage that published it (which is what a read filtering by stage reads).
@@ -331,7 +327,7 @@ describe('a stored fact this read cannot answer', () => {
 });
 
 describe('a read larger than one statement answers', () => {
-  // madarch-tzte.21.11: the modules stage reads every symbol of a repository at once, and PGlite holds a
+  // madarch-tzte.21.11: the modules stage reads every symbol of a repository at once, and the store holds a
   // statement's whole answer in a buffer it grows and copies before the rows are parsed — the read of
   // 28 392 symbols was where the walk over the current madarch tree ran out of memory. A read is asked in
   // pages, so no statement answers more than one page; the answer is still every fact, once, in code point
@@ -345,7 +341,7 @@ describe('a read larger than one statement answers', () => {
     const symbols = Array.from({ length: count }, (_, at) => node('symbol', { repository: BIG, file: 'src/big.ts', qualifiedName: `f${String(at)}`, symbolKind: 'function' }, 'src/big.ts', 'extracted', at + 1));
     // A call from each symbol to the next: one page of edges and one more.
     const calls = symbols.slice(0, 2_001).map((symbol, at) => edge('call', { from: symbol.id, to: symbols[at + 1]!.id, count: at + 1, precision: 'syntactic' }, 'src/big.ts'));
-    const big = createPGliteDatabaseOwner();
+    const big = await createTestDatabaseOwner();
     try {
       await createFactStoreSchema(big);
       await big.transaction('write', async (executor) => {

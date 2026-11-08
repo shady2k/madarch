@@ -9,16 +9,17 @@
  * this test states the rule and that the statement is accepted where the store runs it.
  */
 import { afterAll, beforeAll, describe, expect, test } from 'bun:test';
-import { createPGliteDatabaseOwner, type DatabaseOwner } from '../src/adapters/database-owner.js';
+import { type DatabaseOwner } from '../src/adapters/database-owner.js';
 import { CHECKPOINT_ROWS, CHECKPOINT_SQL } from '../src/graph/checkpoint.js';
 import { createGraphStore, type GraphStore } from '../src/graph/index.js';
 import { ensureGraphSchema, staticUnitPublicationOf } from '../src/fill/stages/static-graph.js';
+import { createTestDatabaseOwner } from './test-database.js';
 
 let owner: DatabaseOwner | undefined;
 let store: GraphStore | undefined;
 
 beforeAll(async () => {
-  owner = createPGliteDatabaseOwner({ btreeGist: true });
+  owner = await createTestDatabaseOwner({ btreeGist: true });
   store = createGraphStore(owner);
   await ensureGraphSchema(store);
 }, 300_000);

@@ -16,12 +16,12 @@ import { execFileSync } from 'node:child_process';
 import { mkdirSync, mkdtempSync, readFileSync, readdirSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
-import { createPGliteDatabaseOwner } from '../src/adapters/database-owner.js';
 import type { FillState } from '../src/knowledge/model.js';
 import { knowledgeRootOf, productStoreFolder } from '../src/product/store.js';
 import { startServer, type StartedServer } from '../src/server/http.js';
 import { gitEnv } from './git-env.js';
 import { SAMPLE_IDENTITY, makeProduct } from './knowledge-fixture.js';
+import { createTestDatabaseOwner } from './test-database.js';
 
 /** The bound a page of the wiki answers within while a fill runs: the owner's walk took about three seconds. */
 const BOUND_MS = 300;
@@ -125,6 +125,7 @@ describe('the wiki while a fill runs', () => {
         for (let attempt = 0; attempt < 1200; attempt++) {
           const status = await ask('/api/k/status');
           const files = await ask('/api/k/entities?kind=code.file&limit=100');
+          if (status.status !== 200) console.error('DEBUG status', JSON.stringify(status.body), JSON.stringify(errors.slice(-3)));
           expect(status.status).toBe(200);
           expect(files.status).toBe(200);
           asked += 1;
@@ -171,7 +172,7 @@ describe('the store a fill wrote', () => {
     // this fill publishes no version, so the column says NULL — a repository's name there failed a page with
     // `invalid input syntax for type bigint`.
     const storeFolder = productStoreFolder(join(home, 'walk'), knowledgeRootOf(home));
-    const owner = createPGliteDatabaseOwner({ path: join(storeFolder, 'graph'), btreeGist: true });
+    const owner = await createTestDatabaseOwner({ store: join(storeFolder, 'graph'), btreeGist: true });
     try {
       await owner.ready;
       const pins = (await owner.run((tx) => tx.query<{ repo: string; scope: string | null }>('SELECT repo, scope FROM knowledge_fill ORDER BY repo'))).rows;

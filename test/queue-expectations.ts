@@ -1,7 +1,7 @@
 /**
  * What the queue's behaviour must be, judged once and run by both backends
  * (madarch-tzte.19.2, decision 0027 "Queue"). `test/queue-scenario.ts` observes;
- * this module holds the expected values, and the PGlite suite
+ * this module holds the expected values, and the store suite
  * (`test/queue.test.ts`) and the PostgreSQL suite (`test/queue-postgres.test.ts`)
  * each run every check against their own run of the scenario, so "the same suite
  * passes on PostgreSQL" is literally the same expectations.

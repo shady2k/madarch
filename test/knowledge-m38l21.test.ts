@@ -7,7 +7,7 @@ import { afterAll, beforeAll, describe, expect, test } from 'bun:test';
 import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
-import { createPGliteDatabaseOwner, type DatabaseOwner } from '../src/adapters/database-owner.js';
+import { type DatabaseOwner } from '../src/adapters/database-owner.js';
 import { createGraphStore, type GraphId, type GraphStore } from '../src/graph/index.js';
 import { membersBlock, type RenderContext } from '../src/knowledge/blocks.js';
 import { GraphReader } from '../src/knowledge/graph-read.js';
@@ -17,6 +17,7 @@ import { readMarkdownEntities } from '../src/knowledge/markdown.js';
 import type { Block, PageModel } from '../src/knowledge/model.js';
 import { kindSummaries, listEntities, renderPage } from '../src/knowledge/render.js';
 import { Resolver } from '../src/knowledge/resolve.js';
+import { createTestDatabaseOwner } from './test-database.js';
 
 const K = (kind: string, rest: string): string => `${kind}:${rest}`;
 const FILE = K('code.file', 'src/a.ts');
@@ -42,7 +43,7 @@ const span = (path: string, lineStart: number, lineEnd: number) => ({ path, line
 
 beforeAll(async () => {
   product = mkdtempSync(join(tmpdir(), 'madarch-m38l21-'));
-  owner = createPGliteDatabaseOwner({ btreeGist: true });
+  owner = await createTestDatabaseOwner({ btreeGist: true });
   await owner.ready;
   store = createGraphStore(owner, { now: () => new Date('2026-06-01T00:00:00Z') });
   await store.createSchema();

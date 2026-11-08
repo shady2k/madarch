@@ -10,7 +10,6 @@
  */
 import { execFileSync } from 'node:child_process';
 import { mkdirSync, mkdtempSync, rmSync, symlinkSync, writeFileSync } from 'node:fs';
-import { createPGliteDatabaseOwner } from '../src/adapters/database-owner.js';
 import { repositoryFacts } from '../src/graph/index.js';
 import { storeDatabasePath } from '../src/product/store.js';
 import { tmpdir } from 'node:os';
@@ -18,6 +17,7 @@ import path from 'node:path';
 import { afterAll, beforeAll, describe, expect, test } from 'bun:test';
 import { RepositorySession } from '../src/mcp/session.js';
 import { writeFirstFillWorkflow } from './fill-workflow-fixture.js';
+import { createTestDatabaseOwner } from './test-database.js';
 
 const ROOT = mkdtempSync(path.join(tmpdir(), 'madarch-mcp-product-'));
 const PRODUCT = path.join(ROOT, 'sample');
@@ -99,7 +99,7 @@ describe("the server over a product's own repository", () => {
     const folder = session.stateFolder;
     await session.close();
     session = undefined;
-    const owner = createPGliteDatabaseOwner({ path: storeDatabasePath(folder), btreeGist: true, relaxedDurability: true });
+    const owner = await createTestDatabaseOwner({ store: storeDatabasePath(folder), btreeGist: true });
     try {
       const product = await repositoryFacts(owner, 'sample-product');
       expect(product?.asIsCommit).toBe(productCommit);

@@ -27,11 +27,12 @@ const test = bunTest.skipIf(skippedSuite !== undefined);
 import { mkdtempSync, rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
-import { createPGliteDatabaseOwner, type DatabaseOwner } from '../src/adapters/database-owner.js';
+import { type DatabaseOwner } from '../src/adapters/database-owner.js';
 import { createFillOrchestratorService, type FillOrchestratorService, type FillRunResult } from '../src/fill/orchestrator-host.js';
 import { createGraphStore, type GraphStore } from '../src/graph/index.js';
 import { createStagesFill, type StagesFill } from '../src/product/fill-stages.js';
 import { expectedEdgesOf, writeProduct } from './fixtures/resolution-graph/repository.js';
+import { createTestDatabaseOwner } from './test-database.js';
 
 const skip = process.env['MADARCH_SKIP_PERF'] !== undefined;
 
@@ -60,7 +61,7 @@ interface Open {
 /** Opens the product of one generated size: its staging fill, its service, and a graph store over the same owner. */
 async function openProduct(root: string, count: number): Promise<Open> {
   const { product } = writeProduct(root, count);
-  const owner = createPGliteDatabaseOwner({ btreeGist: true });
+  const owner = await createTestDatabaseOwner({ btreeGist: true });
   const fill = await createStagesFill({ product, database: owner });
   let at = 1_700_000_000_000;
   const service = createFillOrchestratorService({

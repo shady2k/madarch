@@ -1,6 +1,6 @@
 import { afterAll, beforeAll, describe, expect, test } from 'bun:test';
-import { createPGliteQueryDatabase } from '../src/adapters/pglite-query-database.js';
 import type { AssertionRecord } from '../src/history/types.js';
+import { createTestQueryDatabase } from './test-database.js';
 
 const DAY = (day: number) => Date.UTC(2026, 8, day);
 const AT = { valid: DAY(20), known: DAY(20), state: 'as-is' };
@@ -32,10 +32,10 @@ function state(source: string, id: string, after?: string): AssertionRecord {
 }
 
 describe('SQL query engine fixed graph-query outcomes', () => {
-  let database: Awaited<ReturnType<typeof createPGliteQueryDatabase>> | undefined;
+  let database: Awaited<ReturnType<typeof createTestQueryDatabase>> | undefined;
 
   beforeAll(async () => {
-    database = await createPGliteQueryDatabase();
+    database = await createTestQueryDatabase();
   });
 
   afterAll(async () => {

@@ -4,7 +4,6 @@ import { execFileSync } from 'node:child_process';
 import { mkdtempSync, mkdirSync, writeFileSync, rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
-import { createPGliteDatabaseOwner } from '../src/adapters/database-owner.js';
 import { createGraphStore } from '../src/graph/index.js';
 import { fillGraph } from '../src/extract/driver/index.js';
 import { extractFiles } from '../src/extract/driver/files.js';
@@ -14,9 +13,10 @@ import { firstGuideCursor, readGuidePageContext, type GuideContextPage } from '.
 import { memorySink, runWriter, type UnitAgent } from '../src/writer/run.js';
 import { seedStarterSet } from '../src/knowledge/seed.js';
 import { gitEnv } from './git-env.js';
+import { createTestDatabaseOwner } from './test-database.js';
 
 test('complete graph pages retain more than 1200 nodes and guide-only byte overflow leaves narrative and questions running',async()=>{
- const folder=mkdtempSync(join(tmpdir(),'guide-graph-bound-'));const owner=createPGliteDatabaseOwner({btreeGist:true});
+ const folder=mkdtempSync(join(tmpdir(),'guide-graph-bound-'));const owner=await createTestDatabaseOwner({btreeGist:true});
  try{
   const repository=join(folder,'code');mkdirSync(repository);const output=join(folder,'product');mkdirSync(output);seedStarterSet(output);
   const env=gitEnv({GIT_AUTHOR_NAME:'Fixture',GIT_AUTHOR_EMAIL:'fixture@example.test',GIT_COMMITTER_NAME:'Fixture',GIT_COMMITTER_EMAIL:'fixture@example.test'});

@@ -15,7 +15,7 @@ import { afterAll, beforeAll, describe as bunDescribe, expect, test as bunTest }
 import { mkdtempSync, rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
-import { createPGliteDatabaseOwner, type DatabaseOwner } from '../src/adapters/database-owner.js';
+import { type DatabaseOwner } from '../src/adapters/database-owner.js';
 import { createFillOrchestratorService, type FillOrchestratorService } from '../src/fill/orchestrator-host.js';
 import { readRunPlans } from '../src/fill/orchestrator-store.js';
 import { createCodeFactsStage } from '../src/fill/stages/code-facts.js';
@@ -24,11 +24,9 @@ import { createGraphStore, type GraphStore, type NodeVersionRow } from '../src/g
 import { createStagesFill, type StagesFill } from '../src/product/fill-stages.js';
 import { fileFactIdOf } from '../src/fill/stages/syntax-facts.js';
 import { manifestChainOf, serviceMembershipOf } from '../src/fill/stages/service-membership.js';
-import {
-  BOTH_FILE, NAMELESS_FILE, NOMODULE_FILE, UNITS_REPOSITORY, VENDORED_FILE, commitChange,
-  expectedUnitByFile, writeUnitsProduct,
-} from './fixtures/code-stages/service-units.js';
+import { BOTH_FILE, NAMELESS_FILE, NOMODULE_FILE, UNITS_REPOSITORY, VENDORED_FILE, commitChange, expectedUnitByFile, writeUnitsProduct } from './fixtures/code-stages/service-units.js';
 import { skippedBecauseOutOfWorkflow } from './fill-skip-list.js';
+import { createTestDatabaseOwner } from './test-database.js';
 
 // The cases read a stage out of this step's list: they come back with that stage's step (test/fill-skip-list.ts).
 const skippedSuite = skippedBecauseOutOfWorkflow(import.meta.path);
@@ -48,7 +46,7 @@ beforeAll(async () => {
   root = mkdtempSync(join(tmpdir(), 'madarch-service-membership-'));
   const written = writeUnitsProduct(root);
   repository = written.repository;
-  owner = createPGliteDatabaseOwner({ btreeGist: true });
+  owner = await createTestDatabaseOwner({ btreeGist: true });
   fill = await createStagesFill({ product: written.product, database: owner });
   let at = 1_700_000_000_000;
   service = createFillOrchestratorService({

@@ -23,23 +23,16 @@ import { execFileSync } from 'node:child_process';
 import { mkdir, mkdtemp, rm, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
-import { createPGliteDatabaseOwner, type DatabaseOwner } from '../src/adapters/database-owner.js';
+import { type DatabaseOwner } from '../src/adapters/database-owner.js';
 import { byCodePoint } from '../src/model/order.js';
 import { FACT_APPLICATION, createFactStoreSchema, readFact, readUnitDraft, readUnitFacts } from '../src/fill/fact-store.js';
 import { factId, makeNodeFact, repositoryPath, type Fact, type FactKind, type FactProvenance } from '../src/fill/facts.js';
-import {
-  assertFact, draftSetOf, factGraph, isProductScope, link, PRODUCT_SCOPE, proposeEntity, raiseQuestion, recordedDraftSet, scopeHolds, scopeText, writeScope,
-  type CheckedWriteDraft, type CheckedWriteGraph, type CheckedWriteSession, type SimilarEntity,
-} from '../src/fill/checked-writes.js';
-import {
-  createOrchestratorSchema, publishUnit, recordUnitDraft, retractUnitDraft, type UnitPlanRecord,
-} from '../src/fill/orchestrator-store.js';
-import {
-  advanceRun, advanceUnit, createFillStateSchema, createRun, createUnit, leaseUnit, readUnit,
-  type StoreStep,
-} from '../src/fill/state-store.js';
+import { assertFact, draftSetOf, factGraph, isProductScope, link, PRODUCT_SCOPE, proposeEntity, raiseQuestion, recordedDraftSet, scopeHolds, scopeText, writeScope, type CheckedWriteDraft, type CheckedWriteGraph, type CheckedWriteSession, type SimilarEntity } from '../src/fill/checked-writes.js';
+import { createOrchestratorSchema, publishUnit, recordUnitDraft, retractUnitDraft, type UnitPlanRecord } from '../src/fill/orchestrator-store.js';
+import { advanceRun, advanceUnit, createFillStateSchema, createRun, createUnit, leaseUnit, readUnit, type StoreStep } from '../src/fill/state-store.js';
 import { createGitSnapshotSource } from '../src/fill/snapshot.js';
 import type { StageDraftWrite, StageDraftWriter } from '../src/fill/stage.js';
+import { createTestDatabaseOwner } from './test-database.js';
 
 const NOW = 1_700_000_000_000;
 const PRODUCT = 'fixture-product';
@@ -96,7 +89,7 @@ let repo: Fixture;
 let snapshots: ReturnType<typeof createGitSnapshotSource>;
 
 beforeAll(async () => {
-  owner = createPGliteDatabaseOwner();
+  owner = await createTestDatabaseOwner();
   repo = await fixture();
   // One pin per repository name the tests write about: the whole file shares one database owner, so a
   // store-backed answer is held to a repository of its own and never to what another test published.

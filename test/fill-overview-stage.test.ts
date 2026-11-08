@@ -19,29 +19,17 @@ import { execFileSync } from 'node:child_process';
 import { mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
-import { createPGliteDatabaseOwner, type DatabaseOwner } from '../src/adapters/database-owner.js';
+import { type DatabaseOwner } from '../src/adapters/database-owner.js';
 import { createPgBossQueue } from '../src/adapters/pg-boss-queue.js';
 import { createFactStoreSchema, applyPublishedFacts, readUnitFacts } from '../src/fill/fact-store.js';
 import { makeEdgeFact, makeNodeFact, repositoryPath, type Fact, type FactProvenance } from '../src/fill/facts.js';
 import { createFactGraphReader, estimateTokens, DEFAULT_GRAPH_READ_LIMITS } from '../src/fill/graph-reads.js';
 import { draftSetOf } from '../src/fill/checked-writes.js';
 import { createFillOrchestratorService, type ProductFillWiring } from '../src/fill/orchestrator-host.js';
-import {
-  createOrchestrator,
-  planRun,
-  schedulerPass,
-  startRun,
-  workOnce,
-  type FillOrchestrator,
-} from '../src/fill/orchestrator.js';
+import { createOrchestrator, planRun, schedulerPass, startRun, workOnce, type FillOrchestrator } from '../src/fill/orchestrator.js';
 import { createOrchestratorSchema, readProgress, readUnitDraft, readUnitPlan, type RunSnapshot } from '../src/fill/orchestrator-store.js';
 import { createStageRegistry } from '../src/fill/stages/index.js';
-import {
-  OVERVIEW_KINDS,
-  OVERVIEW_STAGE_ID,
-  createOverviewStage,
-  overviewDeclaration,
-} from '../src/fill/stages/overview.js';
+import { OVERVIEW_KINDS, OVERVIEW_STAGE_ID, createOverviewStage, overviewDeclaration } from '../src/fill/stages/overview.js';
 import { PRODUCT_SCOPE_NAME } from '../src/fill/stages/agent-stage.js';
 import { StageRegistry } from '../src/fill/registry.js';
 import { DEFAULT_STAGE_DEFAULTS, type FillStage } from '../src/fill/stage.js';
@@ -54,6 +42,7 @@ import { createFillStateSchema, createUnit, readRunUnits } from '../src/fill/sta
 import { UNIT_TOOL_PATH } from '../src/fill/unit-tools.js';
 import { startServer, type StartedServer } from '../src/server/http.js';
 import type { QueueService } from '../src/fill/queue.js';
+import { createTestDatabaseOwner } from './test-database.js';
 
 const NOW = 1_700_000_000_000;
 const PRODUCT = 'fixture-product';
@@ -176,7 +165,7 @@ async function openWorld(options: WorldOptions): Promise<World> {
   const record = join(folder, 'agent-record.jsonl');
   const clock = options.clock ?? (() => NOW);
 
-  const owner = createPGliteDatabaseOwner();
+  const owner = await createTestDatabaseOwner();
   await createFillStateSchema(owner);
   await createOrchestratorSchema(owner);
   await createFactStoreSchema(owner);

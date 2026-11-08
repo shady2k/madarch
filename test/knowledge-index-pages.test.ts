@@ -7,12 +7,12 @@ import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import path from 'node:path';
 import { describe, expect, test } from 'bun:test';
-import { createPGliteDatabaseOwner } from '../src/adapters/database-owner.js';
 import { createGraphStore } from '../src/graph/index.js';
 import { indexCounts, indexProductMarkdown, readKnowledgePages } from '../src/knowledge/index/index.js';
 import { PageReadError, readIndexedPage } from '../src/knowledge/index/page.js';
 import { documentSections } from '../src/knowledge/index/sections.js';
 import { documentAnchors } from '../src/writer/view.js';
+import { createTestDatabaseOwner } from './test-database.js';
 
 const sha = (text: string): string => `sha:${text.length}`;
 const COMMIT = '0123456789abcdef0123456789abcdef01234567';
@@ -244,7 +244,7 @@ describe('readKnowledgePages and indexProductMarkdown never refuse a whole produ
 
   test('indexProductMarkdown publishes the pages of the kinds that stand, and a page that cannot be read is the only one left out', async () => {
     const root = folder();
-    const owner = createPGliteDatabaseOwner({ btreeGist: true, path: path.join(root, 'graph') });
+    const owner = await createTestDatabaseOwner({ btreeGist: true, store: path.join(root, 'graph') });
     try {
       const store = createGraphStore(owner);
       await owner.ready;

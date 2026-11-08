@@ -12,7 +12,7 @@ import { execFileSync } from 'node:child_process';
 import { existsSync, mkdirSync, mkdtempSync, readdirSync, rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
-import { createPGliteDatabaseOwner, type DatabaseOwner } from '../src/adapters/database-owner.js';
+import { type DatabaseOwner } from '../src/adapters/database-owner.js';
 import { repositoryFacts } from '../src/graph/index.js';
 import { KnowledgeProduct } from '../src/knowledge/product.js';
 import { repositoryStoreFolder } from '../src/mcp/graph.js';
@@ -20,6 +20,7 @@ import { runGit } from '../src/product/git.js';
 import { readProduct } from '../src/product/manifest.js';
 import { knowledgeRootOf, productStoreFolder, storeDatabasePath, storeSnapshotsFolder } from '../src/product/store.js';
 import { generateTrainingRepository, makeProduct } from './knowledge-fixture.js';
+import { createTestDatabaseOwner } from './test-database.js';
 
 const PROJECT = join(import.meta.dir, '..');
 const ROOT = mkdtempSync(join(tmpdir(), 'madarch-one-store-'));
@@ -50,7 +51,7 @@ afterAll(() => {
 
 /** One store's owner, closed by the caller. */
 async function openStore(path: string): Promise<DatabaseOwner> {
-  const owner = createPGliteDatabaseOwner({ path, btreeGist: true });
+  const owner = await createTestDatabaseOwner({ store: path, btreeGist: true });
   await owner.ready;
   return owner;
 }

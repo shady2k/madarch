@@ -20,7 +20,7 @@
 import { existsSync } from 'node:fs';
 import { mkdir } from 'node:fs/promises';
 import { dirname } from 'node:path';
-import { createPGliteDatabaseOwner, type DatabaseOwner } from '../adapters/database-owner.js';
+import { createDatabaseOwner, type DatabaseOwner } from '../adapters/database-owner.js';
 import { byCodePoint } from '../model/order.js';
 import { withSpan } from '../obs/trace.js';
 import { readProduct } from '../product/manifest.js';
@@ -453,8 +453,8 @@ async function driveFor(orchestrator: FillOrchestrator, request: { readonly runI
  * run and closes it (src/product/daemon.ts, src/mcp/graph.ts). The owner is the
  * process's own connection to the store, and closing it is the caller's.
  */
-export function openFillDatabase(path: string): DatabaseOwner {
-  return createPGliteDatabaseOwner({ path, btreeGist: true });
+export async function openFillDatabase(store: string): Promise<DatabaseOwner> {
+  return await createDatabaseOwner({ store, btreeGist: true });
 }
 
 /**
@@ -517,7 +517,7 @@ export function createFillOrchestratorService(options: FillOrchestratorServiceOp
         }
         await mkdir(dirname(databasePath), { recursive: true });
       }
-      const database = lent ?? createPGliteDatabaseOwner({ path: databasePath!, btreeGist: true });
+      const database = lent ?? await createDatabaseOwner({ store: databasePath!, btreeGist: true });
       await createFillStateSchema(database);
       await createOrchestratorSchema(database);
       // The store a published fact set lands in is the fill's own (`fact-store.ts`): its tables are

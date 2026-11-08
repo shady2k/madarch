@@ -8,10 +8,11 @@ import { execFileSync } from 'node:child_process';
 import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
-import { createPGliteDatabaseOwner, type DatabaseOwner } from '../src/adapters/database-owner.js';
+import { type DatabaseOwner } from '../src/adapters/database-owner.js';
 import { listFiles, repositoryFacts } from '../src/graph/index.js';
 import { fillSteps, runFill } from '../src/fill/run.js';
 import { writeFirstFillWorkflow } from './fill-workflow-fixture.js';
+import { createTestDatabaseOwner } from './test-database.js';
 
 let root = '';
 let product = '';
@@ -21,7 +22,7 @@ function git(...args: string[]): void {
   execFileSync('git', args, { cwd: product, stdio: ['ignore', 'pipe', 'pipe'] });
 }
 
-beforeAll(() => {
+beforeAll(async () => {
   root = mkdtempSync(join(tmpdir(), 'madarch-runfill-'));
   product = join(root, 'product');
   const repository = join(root, 'repo');
@@ -43,7 +44,7 @@ beforeAll(() => {
   git('config', 'user.email', 'fixture@example.invalid');
   git('add', '-A');
   git('commit', '-qm', 'the product');
-  owner = createPGliteDatabaseOwner({ btreeGist: true });
+  owner = await createTestDatabaseOwner({ btreeGist: true });
 });
 
 afterAll(async () => {
@@ -71,7 +72,7 @@ describe('the one fill', () => {
   test('runs one step alone through the same function', async () => {
     // A store of its own: the first case's run already published the tree at this commit, and a
     // second run writes nothing, so a unit is planned only where the step had not run.
-    const alone = createPGliteDatabaseOwner({ btreeGist: true });
+    const alone = await createTestDatabaseOwner({ btreeGist: true });
     try {
       const run = await runFill({ product, database: alone, steps: ['repository-tree'], runId: 'one-step', home: join(root, 'home') });
       expect(run.ok).toBe(true);
@@ -89,7 +90,7 @@ describe('the one fill', () => {
   test('covers the paths a caller names, and refuses a step it does not hold', async () => {
     // A path subset is a fill of its own store: it writes what it covers and never retracts
     // what another fill wrote outside its paths.
-    const narrow = createPGliteDatabaseOwner({ btreeGist: true });
+    const narrow = await createTestDatabaseOwner({ btreeGist: true });
     try {
       const run = await runFill({ product, database: narrow, steps: ['repository-tree'], paths: ['src/'], runId: 'paths', home: join(root, 'home') });
       expect(run.ok).toBe(true);
@@ -103,7 +104,7 @@ describe('the one fill', () => {
   }, 300_000);
 
   test('a scoped fill after a full one leaves every file outside its paths standing', async () => {
-    const store = createPGliteDatabaseOwner({ btreeGist: true });
+    const store = await createTestDatabaseOwner({ btreeGist: true });
     const code = join(root, 'repo');
     const inCode = (...args: string[]): void => { execFileSync('git', ['-C', code, ...args], { stdio: ['ignore', 'pipe', 'pipe'] }); };
     try {

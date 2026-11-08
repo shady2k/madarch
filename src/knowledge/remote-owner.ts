@@ -5,7 +5,7 @@
  * `query`, so that is all a transaction hands to its work. One transaction is
  * open at a time, as in a PGlite owner, in the order they were asked for.
  */
-import type { DatabaseOwner, DatabaseBackend, OuterTransaction } from '../adapters/database-owner.js';
+import type { DatabaseOwner, OuterTransaction } from '../adapters/database-owner.js';
 import type { SqlTransactionKind } from '../query/sql-driver.js';
 import { linesOf } from './lines.js';
 import type { ReadReply, ReadRequest } from './read-worker.js';
@@ -58,7 +58,6 @@ const RECENT_STATEMENTS = 300;
 
 export class RemoteOwner implements DatabaseOwner {
   readonly allowConcurrentSnapshots = false;
-  readonly backend: DatabaseBackend = 'pglite';
   readonly hasVector = false;
   readonly ready: Promise<void>;
   private readonly process: ReadWorkerProcess;

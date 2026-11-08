@@ -9,7 +9,7 @@ import { fixtureManifest } from './knowledge-manifest-fixture.js';
 // Only the graph-read boundary is doubled. Every projection comes from the real view builders.
 const unusedOwner: DatabaseOwner = {
   location: 'unused view fixture', ready: Promise.resolve(), allowConcurrentSnapshots: false,
-  backend: 'pglite', hasVector: false,
+  hasVector: false,
   transaction: async () => { throw new Error('the fixture must not query SQL'); },
   run: async () => { throw new Error('the fixture must not query SQL'); },
   exec: async () => { throw new Error('the fixture must not query SQL'); }, close: async () => {},
