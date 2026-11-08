@@ -488,7 +488,7 @@ export type QuestionDetail = QuestionRow & {
 export type AnswerResult = { question: string; state: 'answered'; committed: boolean; commit?: string; note?: string; by: Author; at: string };
 export type CorrectionResult = { correction: string; id: string; file: string; committed: boolean; commit?: string; note?: string; by: Author; at: string };
 
-export type ProblemKind = 'correction' | 'ground-removed' | 'broken-link' | 'unreadable-file' | 'unread-passage' | 'unplaced' | 'manifest' | string;
+export type ProblemKind = 'correction' | 'ground-removed' | 'broken-link' | 'unreadable-file' | 'unplaced' | 'manifest' | string;
 export type ProblemSection = 'code' | 'documents' | 'wiki';
 export type SonarKind = 'vulnerability' | 'bug' | 'code-smell' | 'security-hotspot';
 export type ProblemSeverity = 'blocker' | 'critical' | 'major' | 'minor' | 'info';
