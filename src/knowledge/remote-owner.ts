@@ -86,7 +86,9 @@ export class RemoteOwner implements DatabaseOwner {
       try {
         for await (const line of proc.lines) {
           const reply = decodeWire<ReadReply>(line);
-          if (reply.type === 'ready') { proc.priority(0); opened(); }
+          // It keeps the priority it booted at: the reader is background work, and the process that answers pages must
+          // never lose a core to it (madarch-8bdc.2.5, CI run 42505805264).
+          if (reply.type === 'ready') opened();
           else if (reply.type === 'failed') { this.failure = new Error(reply.message); refused(this.failure); }
           else if (reply.type === 'ended') this.ending.get(reply.tx)?.(reply);
           else {

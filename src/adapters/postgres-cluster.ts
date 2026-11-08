@@ -25,6 +25,7 @@ import { Client } from 'pg';
 import { log as defaultLog } from '../obs/log.js';
 import { sha256Hex } from '../graph/digest.js';
 import { ensurePostgresInstalled, refuseRoot } from './postgres-install.js';
+import { setPriority } from 'node:os';
 
 /** The port every cluster's socket is named after: nothing listens on TCP, so two clusters never meet. */
 export const CLUSTER_PORT = 5_432;
@@ -227,6 +228,14 @@ function removeSocketFiles(socketDir: string): void {
   }
 }
 
+/**
+ * The niceness a store's server runs at (madarch-8bdc.2.5): a store's server is background work, and the process that
+ * answers pages must never lose a core to it. Measured on a runner with one of two cores busy, the answers of a
+ * publication waited 266-338 ms across unrelated endpoints (CI run 42505805264) while the fill's writes ran on the same
+ * cores as the server.
+ */
+const SERVER_PRIORITY = 10;
+
 /** Starts one server on `dataDir`, listening on the socket folder and on no TCP address. */
 function startServer(options: { readonly dataDir: string; readonly socketDir: string; readonly bin: string; readonly log: (line: string) => void }): void {
   const { dataDir, socketDir, bin } = options;
@@ -235,6 +244,14 @@ function startServer(options: { readonly dataDir: string; readonly socketDir: st
   const logFile = join(dataDir, '..', 'postgres.log');
   writeFileSync(logFile, '', 'utf8');
   runBinary(join(bin, 'pg_ctl'), ['-D', dataDir, '-w', '-l', logFile, '-t', '60', '-o', `-k ${socketDir} -p ${String(CLUSTER_PORT)} -c listen_addresses=`, 'start']);
+  lowerPriorityOf(dataDir);
+}
+
+/** A server already running (a predecessor started it) is lowered too: it serves one store, whose pages the answers hold. */
+function lowerPriorityOf(dataDir: string): void {
+  const pid = holderOf(dataDir);
+  if (pid === null) return;
+  try { setPriority(pid, SERVER_PRIORITY); } catch { /* the platform refuses: the server keeps the priority it has */ }
 }
 
 /** Makes the data directory with `initdb` when it holds no cluster yet. */
@@ -341,6 +358,7 @@ export async function openCluster(options: OpenClusterOptions): Promise<RunningC
     if (attempt > 1) await Bun.sleep(200 * attempt);
     await reclaimStaleServer(dataDir, bin, socketDir, log);
     if (await answering(socketDir)) {
+      lowerPriorityOf(dataDir);
       writeFileSync(join(dataDir, OWNER_FILE), `${String(process.pid)}\n`);
       return share({ dataDir, socketDir, port: CLUSTER_PORT, user: CLUSTER_USER, startedIt: true, bin, stop: () => stopCluster({ dataDir, socketDir, bin, log }) });
     }

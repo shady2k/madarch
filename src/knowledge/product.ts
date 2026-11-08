@@ -63,6 +63,7 @@ import { fileJournal, journalFolder, journalOfUnit, newRunId, NO_COUNTERS, readJ
 import { productSlug, PRODUCT_PATH, type ToolAnswer, type ToolClient, type UnitAgent } from '../writer/index.js';
 import { CONTENT_LANGUAGES } from '../writer/prompts.js';
 import type { DraftEnv } from '../product/home.js';
+import type { KindSummary } from './model.js';
 import { documentTitleOf, findSubject, graphTitleOf, kindSummaries, markdownTitleOf, productTitleOf, recordFilePage, renderPage, listEntities, type PageResult } from './render.js';
 import { indexCounts, statementsRelyingOn } from './index/queries.js';
 import { PAGE_KIND, STATEMENT_OF } from './index/vocabulary.js';
@@ -604,6 +605,11 @@ export class KnowledgeProduct {
         if (held.owner instanceof RemoteOwner) await owner.warm(held.owner.recent());
       } catch(error) {await owner.close().catch(()=>undefined);throw error;}
       this.reader = { owner, seq, path: join(this.readRoot(), String(seq)), store: held.store };
+      // The new snapshot's own numbers are read here, beside the answers the old reader still gives, so the first page
+      // asked after the publish is not the one that pays for them.
+      void this.repositoryView().then((repository) => {
+        if (this.reader?.seq === seq) this.storeOf = { seq, ...(repository === undefined ? {} : { repository }) };
+      }).catch(() => undefined);
       // What the repositories were filled to is applied with the snapshot it belongs to: a source is read at the commit
       // the graph it is shown beside was filled from. A caller that names no pins takes the snapshot's own
       // (`knowledge_fill`, which the fill wrote before the snapshot was made).
@@ -907,6 +913,10 @@ export class KnowledgeProduct {
       ...(resuming ? { resumed: true } : {}),
     };
     this.pausedRun = undefined;
+    // The reader a fill's polls read opens before the press answers (madarch-8bdc.2.5): a page asked while the fill
+    // starts is answered from a reader that stands, never pays the reader's own start on its own thread (measured: the
+    // first answers after a press waited 1.9 s for it on two cores, one of them busy).
+    await this.open().catch(() => undefined);
     this.notify();
     this.running = this.runOrchestratedFill(product, repositories).finally(() => {
       // The mark goes only when the run is over, after its result is recorded: a restart before this point has no list.
@@ -2234,11 +2244,21 @@ export class KnowledgeProduct {
     }
   }
 
+  /**
+   * What the store states of one generation (madarch-8bdc.2.5): the kind counts and the repository the pages show are read
+   * once per snapshot and reused by every answer until the next one. A fill publishes a snapshot rarely, and a poll asks
+   * several times a second: reading them on every answer put five or six round trips of one read worker behind each page,
+   * and under a loaded runner (CI run 42505805264: 266-338 ms across unrelated endpoints at the first publication) the
+   * answers of that moment queued behind them.
+   */
+  private storeOf: { seq: number; repository?: RepositoryFactsView; kinds?: KindSummary[] } | undefined;
+
   private async numbersOf(ctx: RenderContext): Promise<Partial<WikiStatus>> {
     let bound = ctx;
     try {
       const owner = await this.open();
       bound = { ...ctx, graph: new GraphReader(owner, this.validAt), ...(ctx.records === undefined ? {} : { records: this.recordFiles(owner) }) };
+
     } catch {
       // The store cannot be opened: the counts stand as the body read them and the answer still says how the fill is.
     }
@@ -2252,8 +2272,12 @@ export class KnowledgeProduct {
         return await read().catch(() => undefined);
       }
     };
-    const kinds = await once(async () => await kindSummaries(bound));
-    const repository = await once(async () => await this.repositoryView());
+    const seq = this.reader?.seq;
+    const held = this.storeOf;
+    const same = held !== undefined && held.seq === seq;
+    const kinds = same && held.kinds !== undefined ? held.kinds : await once(async () => await kindSummaries(bound));
+    const repository = same && 'repository' in held ? held.repository : await once(async () => await this.repositoryView());
+    if (seq !== undefined) this.storeOf = { seq, ...(repository === undefined ? {} : { repository }), ...(kinds === undefined ? {} : { kinds }) };
     const run = this.runViewOf();
     this.fillExtras = {
       ...(repository === undefined ? {} : { counts: repository.counts }),
