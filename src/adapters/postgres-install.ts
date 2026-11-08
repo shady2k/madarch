@@ -125,12 +125,54 @@ function runProgram(program: string, args: readonly string[]): void {
 }
 
 /**
+ * The waits between a download's attempts, in milliseconds: five attempts over about half a minute. GitHub's release
+ * download answers 502/504 at times (CI run 42467156631: shards 3 and 4 could not install the server at all), and a
+ * connection dropped mid-archive is as transient. A 4xx, a 416 and a sha256 mismatch are not: the answer says what is
+ * wrong, and waiting changes nothing.
+ */
+const RETRY_DELAYS_MS: readonly number[] = [1_000, 2_000, 4_000, 8_000, 16_000];
+
+/** A download failure another attempt may answer differently. */
+class TransientDownload extends Error {}
+
+/** Whether a status is one to try again: the server's own trouble, or a rate limit, never a refusal of the request. */
+function transientStatus(status: number): boolean {
+  return status >= 500 || status === 408 || status === 429;
+}
+
+/**
  * Downloads the archive, continuing a `.part` a killed process left: the range
  * asked for is what the file already holds. A server that answers the whole
  * archive instead of the range (200, not 206) is written from the start, so a
  * resumed download restarts cleanly where continuing is not offered.
  */
 async function downloadArchive(options: {
+  readonly build: PostgresBuild;
+  readonly url: string;
+  readonly archive: string;
+  readonly folder: string;
+  readonly progress: (line: string) => void;
+}): Promise<void> {
+  const { build, url, archive, folder } = options;
+  let last: TransientDownload | undefined;
+  for (let attempt = 1; attempt <= RETRY_DELAYS_MS.length; attempt += 1) {
+    try {
+      await downloadAttempt(options);
+      return;
+    } catch (error) {
+      if (!(error instanceof TransientDownload)) throw error;
+      last = error;
+      if (attempt === RETRY_DELAYS_MS.length) break;
+      const wait = RETRY_DELAYS_MS[attempt - 1]!;
+      options.progress(`madarch: the PostgreSQL ${POSTGRES_VERSION} download failed (attempt ${String(attempt)} of ${String(RETRY_DELAYS_MS.length)}): ${error.message}; trying again in ${String(Math.round(wait / 1_000))} s`);
+      await Bun.sleep(wait);
+    }
+  }
+  throw new Error(`${WHERE}:1: the PostgreSQL ${POSTGRES_VERSION} archive could not be downloaded from ${url} after ${String(RETRY_DELAYS_MS.length)} attempts: ${last?.message ?? 'the download failed'}. madarch installs its server once, into ${folder}; run the command again when the release is reachable — a download that was cut short continues where it stopped`);
+}
+
+/** One attempt at the download: the network's, this file's, and the archive's own answer. */
+async function downloadAttempt(options: {
   readonly build: PostgresBuild;
   readonly url: string;
   readonly archive: string;
@@ -149,7 +191,8 @@ async function downloadArchive(options: {
   try {
     response = await fetch(url, held > 0 ? { headers: { Range: `bytes=${String(held)}-` } } : {});
   } catch (error) {
-    throw new Error(`${WHERE}:1: the PostgreSQL ${POSTGRES_VERSION} archive could not be downloaded from ${url}: ${error instanceof Error ? error.message : String(error)}. madarch installs its server once, into ${folder}; connect to the network and run the command again — a download that was cut short continues where it stopped (${partial} holds ${megabytes(held)} MB)`);
+    // A name that does not resolve, a connection reset, a timeout: the same request may be answered later.
+    throw new TransientDownload(`${error instanceof Error ? error.message : String(error)} (${partial} holds ${megabytes(held)} MB)`);
   }
   if (response.status === 416) {
     // The range is past the archive's end: what the folder holds is not this archive, so it goes.
@@ -159,7 +202,9 @@ async function downloadArchive(options: {
   }
   if (!response.ok || response.body === null) {
     await response.body?.cancel();
-    throw new Error(`${WHERE}:1: the PostgreSQL ${POSTGRES_VERSION} archive could not be downloaded from ${url}: the server answered ${String(response.status)} ${response.statusText}. madarch installs its server once, into ${folder}; run the command again when the release is reachable`);
+    const said = `the server answered ${String(response.status)} ${response.statusText}`;
+    if (transientStatus(response.status)) throw new TransientDownload(said);
+    throw new Error(`${WHERE}:1: the PostgreSQL ${POSTGRES_VERSION} archive could not be downloaded from ${url}: ${said}. madarch installs its server once, into ${folder}; the archive's address is pinned in src/adapters/postgres-builds.ts, and a refusal there names a change to that file, not a retry`);
   }
   // A resumed request the server answered whole is a restart: the file starts again from zero.
   const restart = held > 0 && response.status !== 206;
@@ -190,7 +235,8 @@ async function downloadArchive(options: {
     }
   } catch (error) {
     out.destroy();
-    throw new Error(`${WHERE}:1: the PostgreSQL ${POSTGRES_VERSION} download from ${url} ended before the archive was whole: ${error instanceof Error ? error.message : String(error)}. ${partial} holds ${megabytes(written)} MB and the next run continues from there`);
+    // The archive ended early: what arrived stays in the part file, and the next attempt continues from there.
+    throw new TransientDownload(`the download ended before the archive was whole: ${error instanceof Error ? error.message : String(error)} (${partial} holds ${megabytes(written)} MB)`);
   }
   await new Promise<void>((resolve, reject) => { out.end((error?: Error | null) => { if (error) reject(error); else resolve(); }); });
   options.progress(`madarch: PostgreSQL ${POSTGRES_VERSION}: ${megabytes(written)} MB of ${megabytes(total)} MB (100%)`);

@@ -57,7 +57,7 @@ function model(elements: CompiledElement[], relations: CompiledRelation[] = []):
  * leaves behind outlives it, and a case never pays for a database another one
  * opened.
  */
-let caseDatabases: { owner: DatabaseOwner; histories: number; projection: boolean }[] = [];
+let caseDatabases: { owner: Promise<DatabaseOwner>; histories: number; projection: boolean }[] = [];
 
 // The bound is named because hooks do not get the preload's default, and
 // closing the case's databases is the hook's work: their shutdown under a
@@ -66,7 +66,9 @@ let caseDatabases: { owner: DatabaseOwner; histories: number; projection: boolea
 afterEach(async () => {
   const opened = caseDatabases;
   caseDatabases = [];
-  for (const each of opened) await each.owner.close();
+  // An owner that failed to open (a run whose server is not there) is an entry with a rejected promise: it is not closed,
+  // and the case that asked for it has already reported why.
+  await Promise.allSettled(opened.map(async (each) => (await each.owner).close()));
 }, 30_000);
 
 /**
@@ -80,15 +82,13 @@ afterEach(async () => {
  */
 async function caseOwner(wants: 'history' | 'projection'): Promise<DatabaseOwner> {
   const free = caseDatabases.find((each) => (wants === 'history' ? each.histories === 0 : !each.projection));
-  const held = free ?? (() => {
-    const made = { owner: undefined as unknown as DatabaseOwner, histories: 0, projection: false };
-    caseDatabases.push(made);
-    return made;
-  })();
-  if (free === undefined) held.owner = await createTestDatabaseOwner();
+  // The slot is reserved with the promise of the owner, so two asks of one case share one database and a failed open never
+  // leaves an entry without an owner for the hook to close.
+  const held = free ?? { owner: createTestDatabaseOwner(), histories: 0, projection: false };
+  if (free === undefined) caseDatabases.push(held);
   if (wants === 'history') held.histories += 1;
   else held.projection = true;
-  return held.owner;
+  return await held.owner;
 }
 
 /** A history on this case's owner, the one that holds no history yet or a new one when the last holds one. */

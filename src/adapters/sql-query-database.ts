@@ -346,6 +346,14 @@ function refusingVectorIndex(sources: readonly string[], location: string | unde
 export async function createSqlQueryDatabase(driver: SqlQueryDriver, options: SqlQueryDatabaseOptions = {}): Promise<AsyncQueryDatabase> {
   /** The pgvector version the database answers, or undefined when it carries none: what the vector facade refuses on. */
   let vectorVersion: string | undefined;
+  // A server that carries pgvector installs it here, in a transaction of its own: the schema's statements follow, and a
+  // statement that failed would abort them. The pinned build carries no pgvector, and that answer is not this
+  // projection's failure — its own tables and every graph query stand, and the vector index refuses by name.
+  try {
+    await driver.transaction('write', async (executor) => { await executor.query('CREATE EXTENSION IF NOT EXISTS vector'); });
+  } catch {
+    // No pgvector on this server, or no right to create it: what the projection needs is read from `pg_extension` below.
+  }
   try {
     await driver.transaction('write', async (executor) => {
       for (const statement of SCHEMA) await executor.query(statement);

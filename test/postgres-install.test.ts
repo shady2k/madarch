@@ -51,13 +51,20 @@ function sha256(bytes: Uint8Array): string {
   return createHash('sha256').update(bytes).digest('hex');
 }
 
-/** A server that answers the archive, with the range a resumed download asks for, and keeps what it was asked. */
-function serveArchive(bytes: Buffer): { url: string; ranges: string[]; stop(): void } {
+/**
+ * A server that answers the archive, with the range a resumed download asks for, and keeps what it was asked.
+ * `failFirst` answers that many requests with `status` before the archive is served: the release host answering 502/504
+ * at times is what CI run 42467156631 hit.
+ */
+function serveArchive(bytes: Buffer, options: { readonly failFirst?: number; readonly status?: number } = {}): { url: string; ranges: string[]; requests: number; stop(): void } {
   const ranges: string[] = [];
+  let requests = 0;
   const server = Bun.serve({
     hostname: '127.0.0.1',
     port: 0,
     fetch(request) {
+      requests += 1;
+      if (requests <= (options.failFirst ?? 0)) return new Response('the gateway timed out', { status: options.status ?? 504 });
       const range = request.headers.get('range');
       ranges.push(range ?? '');
       if (range !== null) {
@@ -68,7 +75,7 @@ function serveArchive(bytes: Buffer): { url: string; ranges: string[]; stop(): v
       return new Response(new Uint8Array(bytes), { status: 200, headers: { 'content-length': String(bytes.length) } });
     },
   });
-  return { url: `http://127.0.0.1:${String(server.port)}/archive.tar.gz`, ranges, stop: () => { void server.stop(true); } };
+  return { url: `http://127.0.0.1:${String(server.port)}/archive.tar.gz`, ranges, get requests() { return requests; }, stop: () => { void server.stop(true); } };
 }
 
 function fixtureBuild(bytes: Buffer): PostgresBuild {
@@ -117,6 +124,46 @@ describe('installing the pinned server', () => {
       const installed = await ensurePostgresInstalled({ build, archiveUrl: () => served.url, env: { HOME: home }, progress: () => undefined });
       expect(served.ranges).toEqual(['bytes=100-']);
       expect(existsSync(join(installed.bin, 'initdb'))).toBe(true);
+    } finally {
+      served.stop();
+    }
+  }, 60_000);
+
+  test.skipIf(isRoot)('retries a gateway failure and installs once the release answers', async () => {
+    const root = scratch();
+    const bytes = archiveOf(root);
+    const build = fixtureBuild(bytes);
+    // Two 504s, then the archive: the release host does answer that way, and a first CI run has an empty cache.
+    const served = serveArchive(bytes, { failFirst: 2, status: 504 });
+    const lines: string[] = [];
+    try {
+      const installed = await ensurePostgresInstalled({ build, archiveUrl: () => served.url, env: { HOME: join(root, 'home') }, progress: (line) => lines.push(line) });
+      expect(existsSync(join(installed.bin, 'initdb'))).toBe(true);
+      // Three requests were made, and each failure said which attempt it was and what the server answered.
+      expect(served.requests).toBe(3);
+      const attempts = lines.filter((line) => line.includes('download failed'));
+      expect(attempts).toHaveLength(2);
+      expect(attempts[0]).toContain('attempt 1 of 5');
+      expect(attempts[0]).toContain('the server answered 504');
+      expect(attempts[1]).toContain('attempt 2 of 5');
+    } finally {
+      served.stop();
+    }
+  }, 90_000);
+
+  test.skipIf(isRoot)('refuses a 404 at once, naming the URL and the status, and installs nothing', async () => {
+    const root = scratch();
+    const bytes = archiveOf(root);
+    const build = fixtureBuild(bytes);
+    const served = serveArchive(bytes, { failFirst: 1, status: 404 });
+    try {
+      const started = Date.now();
+      await expect(ensurePostgresInstalled({ build, archiveUrl: () => served.url, env: { HOME: join(root, 'home') }, progress: () => undefined }))
+        .rejects.toThrow(new RegExp(`could not be downloaded from ${served.url.replace(/[.*+?^${}()|[\]\\]/gu, '\\$&')}: the server answered 404`));
+      // A refusal is not tried again, and nothing was installed.
+      expect(served.requests).toBe(1);
+      expect(Date.now() - started).toBeLessThan(10_000);
+      expect(existsSync(join(root, 'home', 'madarch', 'tools', 'postgresql', '18.6.1'))).toBe(false);
     } finally {
       served.stop();
     }
