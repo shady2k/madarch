@@ -36,6 +36,7 @@
  * when the last one has moved, and not before.
  */
 import type { DatabaseOwner } from '../adapters/database-owner.js';
+import { createSchemaOnce } from '../adapters/schema-stamp.js';
 import type { OuterTransaction } from '../history/types.js';
 import { withSpan } from '../obs/trace.js';
 import { raise } from '../model/raise.js';
@@ -170,10 +171,15 @@ const SCHEMA: readonly string[] = [
 
 /** Creates the record tables and the kinds they write; a second call changes nothing. */
 export async function createRecordSchema(owner: DatabaseOwner): Promise<void> {
-  await owner.transaction('write', async (tx) => {
-    for (const statement of SCHEMA) await tx.query(statement);
-    for (const name of RECORD_NODE_KINDS) await tx.query(`INSERT INTO kind (name, sort) VALUES ($1, 'node') ON CONFLICT (name) DO NOTHING`, [name]);
-    for (const name of RECORD_EDGE_KINDS) await tx.query(`INSERT INTO kind (name, sort) VALUES ($1, 'edge') ON CONFLICT (name) DO NOTHING`, [name]);
+  // As the temporal graph's schema: a schema that stands is not made again, because its DDL locks the tables a page reads.
+  await createSchemaOnce(owner, {
+    name: 'records',
+    parts: [...SCHEMA, ...RECORD_NODE_KINDS, ...RECORD_EDGE_KINDS],
+    create: async (tx) => {
+      for (const statement of SCHEMA) await tx.query(statement);
+      for (const name of RECORD_NODE_KINDS) await tx.query(`INSERT INTO kind (name, sort) VALUES ($1, 'node') ON CONFLICT (name) DO NOTHING`, [name]);
+      for (const name of RECORD_EDGE_KINDS) await tx.query(`INSERT INTO kind (name, sort) VALUES ($1, 'edge') ON CONFLICT (name) DO NOTHING`, [name]);
+    },
   });
 }
 

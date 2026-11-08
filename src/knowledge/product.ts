@@ -2443,7 +2443,9 @@ export class KnowledgeProduct {
       language: context.manifest.language ?? 'en',
       seeded: this.seeded,
       findings: context.findings,
-      kinds: await kindSummaries(context.ctx),
+      // A store the answer cannot read (a lock a writer holds, a connection gone) must not take the whole answer with
+      // it: the fill state and the files' reading stand, and the kinds stand as they were last read.
+      kinds: await kindSummaries(context.ctx).catch(() => this.statusMemo?.body.kinds ?? []),
       groups: [...context.manifest.groups.values()].map((group) => ({ group: group.name, labels: { ...group.labels }, ...(group.short === undefined ? {} : { short: { ...group.short } }), ...(group.parent === undefined ? {} : { parent: group.parent }), ...(group.open === undefined ? {} : { open: group.open }) })),
       repositories: declared.map((repo) => ({ name: repo.name, filled: (this.pins.get(repo.name)?.filledCommits ?? 0) > 0 })),
       filled: this.pins.size > 0,
