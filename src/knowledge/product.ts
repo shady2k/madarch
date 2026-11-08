@@ -303,7 +303,7 @@ interface PausedRun {
 }
 
 /** One read of the status and the render context its writer units were named against. */
-type StatusRead = { body: WikiStatus; ctx: RenderContext | undefined; problems: string };
+type StatusRead = { body: WikiStatus; ctx: RenderContext | undefined };
 
 export class KnowledgeProduct {
   /** The store the reads are made on: a snapshot of the primary store, or an empty one before any fill (see `fill-protocol.ts`). */
@@ -1982,19 +1982,7 @@ export class KnowledgeProduct {
     // The store's records answer the kind `code.file` (madarch-8bdc.2.5): the fill publishes the repository's paths in
     // the record tables, and a page of a past time is the temporal graph's alone, so a historical page is asked nothing
     // of them. The repository resolved is the one the wiki's repository pages show, the product's first declared one.
-    const records = history === undefined ? (() => {
-      let held: Promise<string | null> | undefined;
-      const repository = (): Promise<string | null> => (held ??= repositoryOf(indexOwner, this.repositories()[0]?.name ?? null));
-      return {
-        files: {
-          count: async (prefix?: string): Promise<number> => { const name = await repository(); return name === null ? 0 : await recordedFileCount(indexOwner, name, prefix); },
-          page: async (options: { readonly after?: string; readonly prefix?: string; readonly limit: number }) => {
-            const name = await repository();
-            return name === null ? { total: 0, rows: [], next: null } : await recordedFiles(indexOwner, name, options);
-          },
-        },
-      };
-    })() : undefined;
+    const records = history === undefined ? this.recordFiles(indexOwner) : undefined;
     const resolver = new Resolver({
       graph,
       markdown,
@@ -2165,37 +2153,34 @@ export class KnowledgeProduct {
     // A folder that is no product is answered with the file it lacks, and nothing is written into it to stamp a key.
     const product = this.product();
     if ('message' in product) throw new WikiReadError(product.message);
-    let keys: { key: string; problems: string } = { key: '', problems: '' };
+    let key = '';
     try {
-      keys = this.statusKey();
+      key = this.statusKey();
     } catch {
       // A product whose inputs cannot be stamped is answered afresh: a key that cannot be computed caches nothing.
-      keys = { key: '', problems: '' };
+      key = '';
     }
-    if (keys.key !== '') {
-      const held = this.statusMemo;
-      // A body whose count was left pending is made again once the fill that held its collection back has ended: the
-      // answer it starts lands for the next poll, and the memo never keeps a pending body past the fill.
-      const usable = held !== undefined && held.key === keys.key && (!held.pending || this.fill.state === 'running' || this.problemsFlight !== undefined);
-      if (usable) return this.statusLive(held.body, held.ctx, held.problemsKey, keys.problems);
-      // Eight polls of one reader, or three readers polling together, wait for one read of the same files.
-      const flight = this.statusFlight;
-      if (flight !== undefined && flight.key === keys.key) {
-        const made = await flight.promise;
-        return this.statusLive(made.body, made.ctx, made.problems, keys.problems);
-      }
-      const promise = this.statusNow();
-      this.statusFlight = { key: keys.key, promise };
-      try {
-        const made = await promise;
-        this.statusMemo = { key: keys.key, problemsKey: made.problems, pending: made.problems === '', body: made.body, ctx: made.ctx };
-        return this.statusLive(made.body, made.ctx, made.problems, keys.problems);
-      } finally {
-        if (this.statusFlight?.promise === promise) this.statusFlight = undefined;
-      }
+    if (key === '') {
+      const made = await this.statusNow();
+      return await this.statusLive(made.body, made.ctx);
     }
-    const made = await this.statusNow();
-    return this.statusLive(made.body, made.ctx, made.problems, made.problems);
+    const held = this.statusMemo;
+    if (held !== undefined && held.key === key) return await this.statusLive(held.body, held.ctx);
+    // Eight polls of one reader, or three readers polling together, wait for one read of the same files.
+    const flight = this.statusFlight;
+    if (flight !== undefined && flight.key === key) {
+      const made = await flight.promise;
+      return await this.statusLive(made.body, made.ctx);
+    }
+    const promise = this.statusNow();
+    this.statusFlight = { key, promise };
+    try {
+      const made = await promise;
+      this.statusMemo = { key, body: made.body, ctx: made.ctx };
+      return await this.statusLive(made.body, made.ctx);
+    } finally {
+      if (this.statusFlight?.promise === promise) this.statusFlight = undefined;
+    }
   }
 
   /**
@@ -2205,21 +2190,56 @@ export class KnowledgeProduct {
    * is the one collected for exactly these inputs, else absent: an answer never keeps a count collected for inputs the
    * cache has replaced — while a fill holds the collection back, the answer is pending (madarch-u3vw.8).
    */
-  private statusLive(body: WikiStatus, ctx: RenderContext | undefined, bodyProblems: string, problems: string): WikiStatus {
+  private async statusLive(body: WikiStatus, ctx: RenderContext | undefined): Promise<WikiStatus> {
+    const problems = this.problemsKeySafe();
     const collected = this.problemsCache;
     let loop = body.loop;
-    if (bodyProblems === '' || bodyProblems !== problems) {
-      // No listing for these inputs: the count is pending, and a reader shows the corrections it counts from their files.
+    if (problems === '' || collected === undefined || collected.key !== problems) {
+      // No listing for these inputs yet: the count is pending (the collection runs beside the answer, and the next poll
+      // carries it), and a reader shows the corrections it counts from their files.
+      this.openProblems();
       const { problemsOpen: _pending, ...rest } = loop;
       loop = rest;
-    } else if (collected !== undefined && collected.key === problems) {
-      // A listing that landed after the body was made is the count for these inputs.
+    } else {
       loop = { ...loop, problemsOpen: collected.listing.open };
     }
-    return { ...body, loop, fill: this.statusFill(), writer: ctx === undefined ? this.writer : { ...this.writer, units: this.unitRows(ctx) }, chosenAgent: this.chosenAgent() };
+    // A snapshot the fill published moves the store's numbers, not the files the body was made from: they are read for
+    // every answer, in the reader's process, over the snapshot the pages show.
+    const numbers = ctx === undefined ? undefined : await this.numbersOf(ctx);
+    return { ...body, ...(numbers ?? {}), loop, fill: this.statusFill(), writer: ctx === undefined ? this.writer : { ...this.writer, units: this.unitRows(ctx) }, chosenAgent: this.chosenAgent() };
   }
 
-  private statusMemo: { key: string; problemsKey: string; pending: boolean; body: WikiStatus; ctx: RenderContext | undefined } | undefined;
+  /**
+   * What a status answer states of the store: the kinds' counts, the repository the pages show and what the pins hold.
+   * The context's own read of the manifest and the product's documents is not made again — only the two fields that read
+   * the store are bound to the reader this answer uses, so a snapshot the fill published is stated at once.
+   */
+  private async numbersOf(ctx: RenderContext): Promise<Partial<WikiStatus>> {
+    let bound = ctx;
+    try {
+      const owner = await this.open();
+      bound = { ...ctx, graph: new GraphReader(owner, this.validAt), ...(ctx.records === undefined ? {} : { records: this.recordFiles(owner) }) };
+    } catch {
+      // The store cannot be opened: the counts stand as the body read them and the answer still says how the fill is.
+    }
+    const kinds = await kindSummaries(bound).catch(() => undefined);
+    const repository = await this.repositoryView().catch(() => undefined);
+    const run = this.runViewOf();
+    this.fillExtras = {
+      ...(repository === undefined ? {} : { counts: repository.counts }),
+      ...(run === null ? {} : { run }),
+      ...(this.fill.state === 'failed' && this.fill.message !== undefined ? { error: this.errorOf(this.fill.message) } : {}),
+    };
+    return {
+      ...(kinds === undefined ? {} : { kinds }),
+      ...(repository === undefined ? {} : { repository }),
+      repositories: this.repositories().map((repo) => ({ name: repo.name, filled: (this.pins.get(repo.name)?.filledCommits ?? 0) > 0 })),
+      filled: this.pins.size > 0,
+      incomplete: [...this.pins.values()].some((pin) => pin.filledCommits < pin.commits || pin.commits === 0),
+    };
+  }
+
+  private statusMemo: { key: string; body: WikiStatus; ctx: RenderContext | undefined } | undefined;
   private statusFlight: { key: string; promise: Promise<StatusRead> } | undefined;
 
   /**
@@ -2231,7 +2251,7 @@ export class KnowledgeProduct {
    * A file's own content is the stamp: an edit that keeps its size and restores its mtime is still an edit, and the
    * content hash is kept beside the metadata so an unchanged file is not read again on every poll.
    */
-  private statusKey(): { key: string; problems: string } {
+  private statusKey(): string {
     let finished = '-';
     try {
       finished = this.contentStamp(join(this.storeFolder(), 'last-fill.json'));
@@ -2241,8 +2261,9 @@ export class KnowledgeProduct {
     const tasks = this.folderStamp(TASKS_FOLDER);
     // A product with no task file has no closure to read: a branch that moves cannot close a task that is not there.
     const branches = tasks.endsWith(':absent') || tasks.endsWith(':empty') ? '-' : this.defaultBranchHeads();
-    const problems = this.problemsKey();
-    return { key: `${problems}|tasks:${tasks}|finished:${finished}|branches:${branches}`, problems };
+    // The files and the plan and nothing of the store: a snapshot the fill publishes moves the numbers a body states,
+    // and those are read for every answer (`numbersOf`), not by making the body again.
+    return `${this.problemInputsKey()}|tasks:${tasks}|finished:${finished}|branches:${branches}`;
   }
 
   /** The files of one product-relative folder, each by its content; absent and empty folders are different stamps. */
@@ -2408,25 +2429,14 @@ export class KnowledgeProduct {
     const declared = this.repositories();
     const context = await this.context();
     if ('absent' in context) {
-      return { body: { ...common, manifest: 'no-manifest', manifestFile: context.file, language: 'en', seeded: [], ...(this.seedError === undefined ? {} : { seedError: this.seedError }), findings: [], kinds: [], groups: [], repositories: declared.map((repo) => ({ name: repo.name, filled: false })), filled: false, incomplete: false, fill: this.fill, writer: this.writer, bounds: { ...WRITER_BOUNDS, editorialRequestsPerPage: this.editorialRequestsPerPage() }, chosenAgent: this.chosenAgent(), home: null, roles: {}, loop: this.loopCounts(), starterOffers: 0 }, ctx: undefined, problems: '' };
+      return { body: { ...common, manifest: 'no-manifest', manifestFile: context.file, language: 'en', seeded: [], ...(this.seedError === undefined ? {} : { seedError: this.seedError }), findings: [], kinds: [], groups: [], repositories: declared.map((repo) => ({ name: repo.name, filled: false })), filled: false, incomplete: false, fill: this.fill, writer: this.writer, bounds: { ...WRITER_BOUNDS, editorialRequestsPerPage: this.editorialRequestsPerPage() }, chosenAgent: this.chosenAgent(), home: null, roles: {}, loop: this.loopCounts(), starterOffers: 0 }, ctx: undefined };
     }
     const home = homeKind(context.manifest);
     const homeEntity = home === undefined ? undefined : [...context.ctx.markdown.values()].find((entity) => entity.kind === home.name);
-    const kinds = await kindSummaries(context.ctx);
-    const incomplete = [...this.pins.values()].some((pin) => pin.filledCommits < pin.commits || pin.commits === 0);
+    // The body is the files' reading: the kinds' counts and the repository's numbers are read for every answer
+    // (`numbersOf`), because a snapshot moves them without moving a file.
     const loop = this.loopCounts();
-    // The count is the one collected for exactly the inputs this body reads; absent, the answer carries no count at all.
-    const problems = await this.openProblems();
-    if (problems !== undefined) loop.problemsOpen = problems.count;
-    // The end state's numbers: the repository the store holds and the run's trace, both read once here,
-    // for the same key the body is made for.
-    const repository = await this.repositoryView().catch(() => undefined);
-    const run = this.runViewOf();
-    this.fillExtras = {
-      ...(repository === undefined ? {} : { counts: repository.counts }),
-      ...(run === null ? {} : { run }),
-      ...(this.fill.state === 'failed' && this.fill.message !== undefined ? { error: this.errorOf(this.fill.message) } : {}),
-    };
+    const incomplete = [...this.pins.values()].some((pin) => pin.filledCommits < pin.commits || pin.commits === 0);
     const body: WikiStatus = {
       ...common,
       manifest: 'ok',
@@ -2434,7 +2444,7 @@ export class KnowledgeProduct {
       language: context.manifest.language ?? 'en',
       seeded: this.seeded,
       findings: context.findings,
-      kinds,
+      kinds: await kindSummaries(context.ctx),
       groups: [...context.manifest.groups.values()].map((group) => ({ group: group.name, labels: { ...group.labels }, ...(group.short === undefined ? {} : { short: { ...group.short } }), ...(group.parent === undefined ? {} : { parent: group.parent }), ...(group.open === undefined ? {} : { open: group.open }) })),
       repositories: declared.map((repo) => ({ name: repo.name, filled: (this.pins.get(repo.name)?.filledCommits ?? 0) > 0 })),
       filled: this.pins.size > 0,
@@ -2447,16 +2457,8 @@ export class KnowledgeProduct {
       roles: Object.fromEntries([...context.manifest.roles.values()].map((role) => [role.name, { ...(role.open === undefined ? {} : { open: [...role.open] }), lead: [...role.lead] }])),
       loop,
       starterOffers: this.starterOffers().length,
-      ...(repository === undefined ? {} : { repository }),
     };
-    // The key is taken once more after the body is made: a change of the inputs while it was made leaves the count
-    // pending rather than carried to the next poll (madarch-u3vw.8).
-    let shown = '';
-    if (problems !== undefined) {
-      const current = this.problemsKeySafe();
-      if (current !== '' && current === problems.key) shown = current;
-    }
-    return { body, ctx: context.ctx, problems: shown };
+    return { body, ctx: context.ctx };
   }
 
   /**
@@ -2581,26 +2583,15 @@ export class KnowledgeProduct {
    * files, every repository's head and the unplaced units; a product whose page cannot be read falls back to the
    * corrections, which are read from their files without the page resolver.
    */
-  private async openProblems(): Promise<{ count: number; key: string } | undefined> {
-    const key = this.problemsKey();
+  private openProblems(): { count: number; key: string } | undefined {
+    const key = this.problemsKeySafe();
+    if (key === '') return undefined;
     const cached = this.problemsCache;
     // The listing already collected for exactly these inputs: no walk.
     if (cached !== undefined && cached.key === key) return { count: cached.listing.open, key };
-    // A reader that finds the inputs changed pays for the one collection, so the menu has a count for these inputs
-    // rather than a stale one or a pending answer after the fill has ended. The key is taken after the store is open:
-    // it carries the reader's revision, and the next poll must find this count under the same key rather than treat it
-    // as collected for other inputs.
-    if (this.fill.state !== 'running') {
-      try {
-        const owner = await this.open();
-        const fresh = this.problemsKey();
-        return { count: (await this.problemsFor(fresh, owner)).open, key: fresh };
-      } catch {
-        return undefined;
-      }
-    }
-    // While a fill runs the listing is not collected (madarch-m38l.19): the answer says pending rather than carry a
-    // count collected for other inputs (madarch-u3vw.8). The next answer after the fill collects it above.
+    // The listing walks the store, and an answer never waits for a walk (madarch-m38l.19): the collection runs beside
+    // it and the next poll carries the count. A change of the store's own key — a snapshot the fill published — is what
+    // schedules it, and the answer states its count as pending until it lands (madarch-u3vw.8).
     this.refreshProblems(key);
     return undefined;
   }
@@ -2614,6 +2605,25 @@ export class KnowledgeProduct {
     // Until the Problems page can be read, an open correction is the count that is known from the files alone; the
     // status replaces it with the page's own open count once that page can be built (openProblems).
     return { questionsOpen: questions.open, questionsAnswered: questions.answered, correctionsOpen, tasksOpen, problemsOpen: correctionsOpen };
+  }
+
+  /**
+   * The store's record tables as a page's context reads them: the files of the repository the wiki's repository pages
+   * show, counted and paged. A context built once for the files and a status answer that states the store's numbers
+   * both read them here, so the kind `code.file` answers from one reader whichever path asked.
+   */
+  private recordFiles(indexOwner: DatabaseOwner): NonNullable<RenderContext['records']> {
+    let held: Promise<string | null> | undefined;
+    const repository = (): Promise<string | null> => (held ??= repositoryOf(indexOwner, this.repositories()[0]?.name ?? null));
+    return {
+      files: {
+        count: async (prefix?: string): Promise<number> => { const name = await repository(); return name === null ? 0 : await recordedFileCount(indexOwner, name, prefix); },
+        page: async (options: { readonly after?: string; readonly prefix?: string; readonly limit: number }) => {
+          const name = await repository();
+          return name === null ? { total: 0, rows: [], next: null } : await recordedFiles(indexOwner, name, options);
+        },
+      },
+    };
   }
 
   /**
@@ -3230,10 +3240,23 @@ export class KnowledgeProduct {
    * a fill that reads a commit moves that revision without changing a single problem (madarch-m38l.19).
    */
   private problemsKey(): string {
-    const pins = [...this.pins.values()].map((pin) => `${pin.name}@${pin.commit}`).join(',');
+    return `${this.problemInputsKey()}|${this.storeKey()}`;
+  }
+
+  /**
+   * What the Problems listing reads besides the store: the manifest, the templates and documents it names, the
+   * product's Markdown and the writer's plan. A snapshot the fill publishes does not change any of them.
+   */
+  private problemInputsKey(): string {
     const plan = this.writer.plan === undefined ? '' : this.writer.plan.unplaced.map((entry) => `${entry.kind}:${entry.slug}`).join(',');
+    return `${plan}|${this.starterOffers().length}|${this.problemInputsStamp()}`;
+  }
+
+  /** The store as a listing reads it: the snapshot the pages show and what each repository was filled to. */
+  private storeKey(): string {
+    const pins = [...this.pins.values()].map((pin) => `${pin.name}@${pin.commit}`).join(',');
     const snapshot = this.reader === undefined ? '' : String(this.reader.seq);
-    return `${snapshot}|${pins}|${plan}|${this.starterOffers().length}|${this.problemInputsStamp()}`;
+    return `${snapshot}|${pins}`;
   }
 
   /** The key where a missing file or a folder that cannot be read is no reason to fail an answer: the background refresh. */
@@ -3254,10 +3277,8 @@ export class KnowledgeProduct {
       .then((listing) => {
         if (this.problemsCache === undefined || this.problemsCache.sequence < sequence) this.problemsCache = { key, sequence, listing };
         this.problemsFailed = undefined;
-        // A status body made while this listing was collecting carries the previous count. It is made again from the
-        // listing that landed for exactly its inputs; a body already answered from this cache keeps the count through
-        // statusLive (madarch-u3vw.8).
-        if (this.statusMemo !== undefined) this.statusMemo = undefined;
+        // The body is not made again for a listing that landed: its count is read from this cache by every answer
+        // (`statusLive`), so the count appears on the next poll without re-reading a single file (madarch-u3vw.8).
         return listing;
       })
       .finally(() => {

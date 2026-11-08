@@ -13,6 +13,7 @@
  * server's pages follow the fill as it reads), and one `done` line with the run's result.
  * `control` carries a person's pause or stop into the run's own state machine.
  */
+import { setPriority } from 'node:os';
 import { startKnowledgeFill, type KnowledgeFillOptions, type KnowledgeFillResult, type KnowledgeFillRun } from './fill-run.js';
 import { storeDatabasePath } from '../product/store.js';
 import { linesOf } from './lines.js';
@@ -38,6 +39,9 @@ type FillReply =
 
 const errorText = (error: unknown): string => (error instanceof Error ? error.message : String(error));
 
+/** The niceness the fill runs at: a page of the wiki is answered by other processes on the same cores. */
+const FILL_PRIORITY = 10;
+
 /**
  * The worker's own loop: one fill, the snapshots it publishes, a person's pause or stop,
  * and one answer at its end. `openStore` opens the store's connection: the caller that
@@ -45,6 +49,14 @@ const errorText = (error: unknown): string => (error instanceof Error ? error.me
  * (decision 0033, item 3).
  */
 export async function runFillWorker(io: { lines: AsyncIterable<string>; send: (line: string) => void }, openStore: (path: string) => FillStoreOwner): Promise<number> {
+  // The fill yields to the pages it runs beside (madarch-m38l.4): this process is the heaviest reader on the machine — a
+  // PGlite booting a store and every statement of the run — and a server of two cores owes the requests that arrive
+  // meanwhile. A platform that does not let a process lower its own priority runs the fill at the priority it has.
+  try {
+    setPriority(0, FILL_PRIORITY);
+  } catch {
+    // the fill runs at the priority it has
+  }
   const send = (reply: FillReply): void => io.send(encodeWire(reply));
   let run: KnowledgeFillRun | undefined;
   /** The run to its answer, written by the loop below: the worker does not exit before its run has said what it did. */
@@ -103,6 +115,13 @@ interface FillWorkerProcess {
 function spawnFillWorker(): FillWorkerProcess {
   const { command, args } = selfCommand(['knowledge-fill-worker']);
   const child = Bun.spawn([command, ...args], { stdin: 'pipe', stdout: 'pipe', stderr: 'pipe', env: process.env });
+  // The fill yields to the pages from its first instruction: the start of its own runtime is the heaviest moment it has
+  // on a two-core machine, and it is over before the worker's own code could lower its priority (which it does too).
+  try {
+    setPriority(child.pid, FILL_PRIORITY);
+  } catch {
+    // the platform does not let this process renice another: the worker lowers its own when its loop starts
+  }
   let tail = '';
   void (async () => {
     for await (const chunk of child.stderr as unknown as AsyncIterable<Uint8Array>) tail = (tail + new TextDecoder().decode(chunk)).slice(-4000);
