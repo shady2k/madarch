@@ -13,8 +13,12 @@
 import { sha256Hex } from '../graph/digest.js';
 import type { DatabaseOwner, OuterTransaction } from './database-owner.js';
 
-/** The table the stamps stand in, made by the first schema this module is asked for. */
-const STAMP_TABLE = `CREATE TABLE IF NOT EXISTS schema_stamp (
+/**
+ * The schema the stamps stand in, and the table itself. A schema of its own, because the graph's store answers for the
+ * tables it holds (`GRAPH_TABLES`) and a stamp table beside them would be a table the graph does not own.
+ */
+const STAMP_SCHEMA = 'madarch_meta';
+const STAMP_TABLE = `CREATE TABLE IF NOT EXISTS ${STAMP_SCHEMA}.schema_stamp (
   name text PRIMARY KEY,
   stamp text NOT NULL,
   created_at timestamptz NOT NULL DEFAULT now())`;
@@ -37,12 +41,13 @@ export interface SchemaOnceOptions {
 export async function createSchemaOnce(owner: DatabaseOwner, options: SchemaOnceOptions): Promise<boolean> {
   const stamp = schemaStampOf(options.parts);
   return await owner.transaction('write', async (transaction) => {
+    await transaction.query(`CREATE SCHEMA IF NOT EXISTS ${STAMP_SCHEMA}`);
     await transaction.query(STAMP_TABLE);
-    const held = await transaction.query<{ stamp: string }>('SELECT stamp FROM schema_stamp WHERE name = $1', [options.name]);
+    const held = await transaction.query<{ stamp: string }>(`SELECT stamp FROM ${STAMP_SCHEMA}.schema_stamp WHERE name = $1`, [options.name]);
     if (held.rows[0]?.stamp === stamp) return false;
     await options.create(transaction);
     await transaction.query(
-      'INSERT INTO schema_stamp (name, stamp) VALUES ($1, $2) ON CONFLICT (name) DO UPDATE SET stamp = excluded.stamp, created_at = now()',
+      `INSERT INTO ${STAMP_SCHEMA}.schema_stamp (name, stamp) VALUES ($1, $2) ON CONFLICT (name) DO UPDATE SET stamp = excluded.stamp, created_at = now()`,
       [options.name, stamp],
     );
     return true;
