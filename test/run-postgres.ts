@@ -10,9 +10,9 @@
  * run's scratch, which is what makes a finished run leave nothing behind and a
  * killed run's server the next run's to sweep.
  */
+import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { leaseStoreCluster, type ClusterLease } from '../src/adapters/database-owner.js';
-import { runScratch } from './run-scratch.js';
 import { noteTestServerFailure, TEST_SERVER_VARIABLE } from './test-database.js';
 
 let lease: ClusterLease | undefined;
@@ -37,8 +37,9 @@ let start: Promise<void> | undefined;
 
 /** Starts the server now: what `ensureRunPostgres` runs once. */
 async function startRunPostgres(): Promise<void> {
-  const scratch = runScratch();
-  const store = join(scratch.folder, 'postgres');
+  // The run's scratch is the temporary folder the preload points TMPDIR into (`run-scratch.ts`), and the server's store
+  // stands in it — not read from `run-scratch.ts`, whose load imports `bun:test` and so hangs a compiled driver.
+  const store = join(tmpdir(), 'postgres');
   try {
     lease = await leaseStoreCluster(store);
     process.env[TEST_SERVER_VARIABLE] = lease.ref.socketDir;
