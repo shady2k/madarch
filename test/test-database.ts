@@ -77,9 +77,11 @@ async function dropDatabase(socketDir: string, database: string): Promise<void> 
  * server, or the store folder the case names. Nothing a case writes outlives it.
  */
 export async function createTestDatabaseOwner(options: TestDatabaseOptions = {}): Promise<DatabaseOwner> {
+  // A store of the case's own opens its own cluster and needs no run server: a compiled driver (`queue-binary-driver.ts`,
+  // `fill-crash-driver.ts`) is no test run at all.
+  if (options.store !== undefined) return await createDatabaseOwner({ store: options.store, ...(options.database === undefined ? {} : { database: options.database }), ...(options.btreeGist === true ? { btreeGist: true } : {}) });
   // The run's server is started here, on the first case that needs one.
   await ensureRunPostgres();
-  if (options.store !== undefined) return await createDatabaseOwner({ store: options.store, ...(options.database === undefined ? {} : { database: options.database }), ...(options.btreeGist === true ? { btreeGist: true } : {}) });
   const socketDir = options.socket ?? testServerSocket();
   made += 1;
   const database = `t_${String(process.pid)}_${String(made)}`;
