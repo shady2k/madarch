@@ -949,7 +949,10 @@ export class KnowledgeProduct {
     await this.open().catch(() => undefined);
     this.notify();
     const press = { ...(wanted === undefined ? {} : { language: wanted }), ...(task === undefined ? {} : { task }) };
-    this.running = (this.options.fillQueued === true ? this.runQueuedFill(product, startedAt, press) : this.runInlineFill(product, startedAt)).finally(() => {
+    // The run's id names its trace, which the answer's progress is read from: it is the press's own moment, as every
+    // reader of a run's trace finds it.
+    const runId = `fill-${startedAt.replace(/[-:.]/gu, '').replace(/Z$/u, 'Z')}`;
+    this.running = (this.options.fillQueued === true ? this.runQueuedFill(product, runId, press) : this.runInlineFill(product, runId)).finally(() => {
       // The mark goes only when the run is over, after its result is recorded: a restart before this point has no list.
       this.clearActiveFill();
       this.running = undefined;
