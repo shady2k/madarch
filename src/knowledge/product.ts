@@ -36,6 +36,7 @@ import { linesOf } from './lines.js';
 import { applyReset, planReset, type ResetPlan } from './reset.js';
 import type { KnowledgeFillResult, KnowledgeFillRun } from './fill-run.js';
 import { askFillRun, openFillRunQueue } from '../fill/run-jobs.js';
+import { startKnowledgeFill } from './fill-run.js';
 import { askRunControl, readFillEnd } from '../fill/orchestrator-store.js';
 import { readLiveRun, readRun, readStoreStamp } from '../fill/state-store.js';
 import { fillWritesPages } from '../fill/steps.js';
@@ -148,6 +149,11 @@ export interface KnowledgeProductOptions {
   errorLog?: (line: string) => void;
   /** The least time between two snapshots of the store the fill writes, in milliseconds (default 8000). */
   snapshotMs?: number;
+  /**
+   * Whether a press of this product asks a fill process for the run instead of running it here (madarch-8bdc.9): the
+   * server's products do (the api role never fills), a `madarch fill` or a test that drives this class alone does not.
+   */
+  fillQueued?: boolean;
   /** Asks an agent which models it offers; the production one starts its ACP adapter. Tests inject. */
   choicesQuery?: (agentId: string, env: DraftEnv) => Promise<{ ok: true; choices: AgentChoices } | { ok: false; message: string }>;
   /** Starts a graph verdict judge for a resolved pair; tests inject a scripted one, production starts its ACP agent. */
@@ -942,13 +948,64 @@ export class KnowledgeProduct {
     // 1.9 s for it on two cores, one of them busy).
     await this.open().catch(() => undefined);
     this.notify();
-    this.running = this.runQueuedFill(product, startedAt, { ...(wanted === undefined ? {} : { language: wanted }), ...(task === undefined ? {} : { task }) }).finally(() => {
+    const press = { ...(wanted === undefined ? {} : { language: wanted }), ...(task === undefined ? {} : { task }) };
+    this.running = (this.options.fillQueued === true ? this.runQueuedFill(product, startedAt, press) : this.runInlineFill(product, startedAt)).finally(() => {
       // The mark goes only when the run is over, after its result is recorded: a restart before this point has no list.
       this.clearActiveFill();
       this.running = undefined;
       this.fillRun = undefined;
     });
     return { started: true, fill: this.fill };
+  }
+
+  /**
+   * Fills the store in this process (madarch-8bdc.9): what `madarch fill`, a test that drives this class alone and every
+   * caller that is not the api role does. The server's products ask a fill process instead (`runQueuedFill`).
+   */
+  private async runInlineFill(product: ProductIdentity, runId: string): Promise<void> {
+    const storeFolder = this.storeFolder();
+    this.fillRunId = runId;
+    let result: KnowledgeFillResult | undefined;
+    try {
+      const owner = await createDatabaseOwner({ store: storeDatabasePath(storeFolder), btreeGist: true });
+      const run = await startKnowledgeFill({
+        productFolder: product.folder,
+        storeFolder,
+        runId,
+        database: owner,
+        onPublish: () => { void this.published(undefined).catch(() => undefined); },
+      });
+      try {
+        result = await run.done;
+      } finally {
+        await run.close().catch(() => undefined);
+      }
+    } catch (error) {
+      this.fill = { state: 'failed', startedAt: this.fill.startedAt, finishedAt: (this.options.now?.() ?? new Date()).toISOString(), message: error instanceof Error ? error.message : String(error), code: 'store' };
+      this.notify();
+      return;
+    }
+    if (result === undefined || !result.ok) {
+      this.fill = {
+        state: 'failed', startedAt: this.fill.startedAt, finishedAt: (this.options.now?.() ?? new Date()).toISOString(),
+        ...(result?.message === undefined ? {} : { message: result.message }), code: 'fill',
+      };
+      this.notify();
+      return;
+    }
+    await this.published(undefined).catch(() => undefined);
+    this.changedLoaded = false;
+    if (this.writer.state === 'waiting' && this.writer.units.length === 0) this.writer = { ...this.writer, state: 'idle' };
+    this.fill = {
+      state: 'done', startedAt: this.fill.startedAt, finishedAt: (this.options.now?.() ?? new Date()).toISOString(), gaps: 0,
+      changed: this.lastChangedPages() ?? [],
+      ...(result.unread === undefined || result.unread.length === 0 ? {} : { unread: [...result.unread] }),
+    };
+    this.notify();
+    this.lastUse = Date.now();
+    void this.graphVerdicts({ force: true }).catch((error: unknown) => {
+      this.options.errorLog?.(`the knowledge wiki could not validate the graph after the fill: ${error instanceof Error ? error.message : String(error)}`);
+    });
   }
 
   /**
@@ -3520,7 +3577,7 @@ export class KnowledgeHost {
   /** The root the products' stores stand in: what the fill role of this server is told to watch (madarch-8bdc.9). */
   readonly root: string;
 
-  constructor(private readonly storeRoot: string, private readonly now?: () => Date, private readonly extra: Pick<KnowledgeProductOptions, 'env' | 'agentFactory' | 'errorLog' | 'snapshotMs' | 'choicesQuery' | 'guideContextFor' | 'guideHostFor'> = {}) {
+  constructor(private readonly storeRoot: string, private readonly now?: () => Date, private readonly extra: Pick<KnowledgeProductOptions, 'env' | 'agentFactory' | 'errorLog' | 'snapshotMs' | 'choicesQuery' | 'guideContextFor' | 'guideHostFor' | 'fillQueued'> = {}) {
     this.root = storeRoot;
   }
 
