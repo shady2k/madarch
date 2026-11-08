@@ -2223,7 +2223,7 @@ export class KnowledgeProduct {
     }
     // A snapshot the fill published moves the store's numbers, not the files the body was made from: they are read for
     // every answer, in the reader's process, over the snapshot the pages show.
-    const numbers = ctx === undefined ? undefined : await this.numbersOf(ctx, this.statusKey());
+    const numbers = ctx === undefined ? undefined : await this.numbersOf(ctx, problems);
     return { ...body, ...(numbers ?? {}), loop, fill: this.statusFill(), writer: ctx === undefined ? this.writer : { ...this.writer, units: this.unitsOf(ctx) }, chosenAgent: this.chosenAgent() };
   }
 
