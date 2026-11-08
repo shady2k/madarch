@@ -166,12 +166,38 @@ export type PageModel = {
   journal?: string[];
 };
 
-export type Origin = 'agent' | 'person' | 'code' | 'history';
+type Origin = 'agent' | 'person' | 'code' | 'history';
 
 /** The form a kind's listing page takes (`listing:` of the manifest); no screen of the app holds a kind of its own. */
 type KindListing = 'operations';
 /** Where a kind stands in the navigation (`nav:` of the manifest). */
 type KindNav = 'own-page' | 'loop';
+
+/** What produces a kind today, from its declaration (madarch-8bdc.2.5): `person` is not a stage. */
+type KindProducer = 'extract' | 'documents' | 'writer' | 'history' | 'person';
+
+/** One kind of the entity catalogue: every declared kind, filled or not. */
+export type CatalogKindView = {
+  kind: string;
+  area: string;
+  subgroup: string;
+  labels?: Record<string, { one: string; many: string }>;
+  descriptions?: Record<string, string>;
+  count: number;
+  statements?: number;
+  page: boolean;
+  producer?: KindProducer;
+  filled: boolean;
+};
+
+/** The catalogue's own answer: the groups, every declared kind, and the findings that name a missing translation. */
+export type CatalogView = {
+  product: { name: string; id: string };
+  language: string;
+  groups: GroupSummary[];
+  kinds: CatalogKindView[];
+  findings: Finding[];
+};
 
 export type KindSummary = {
   kind: string;

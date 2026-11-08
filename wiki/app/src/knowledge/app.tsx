@@ -819,7 +819,7 @@ export function KnowledgeApp(): ReactElement {
   else if (route.name === 'task') view = <TaskPage key={route.id} id={route.id} version={version} refresh={refresh} />;
   else if (route.name === 'docs') view = <DocumentsPage version={version} />;
   else if (route.name === 'doc') view = <DocumentPage key={`${route.repo ?? ''}:${route.path}`} repo={route.repo} path={route.path} version={version} />;
-  else if (route.name === 'catalogue') view = <CataloguePage status={status} />;
+  else if (route.name === 'catalogue') view = <CataloguePage version={version} />;
   else if (route.name === 'glossary') view = <GlossaryPage version={version} />;
   else if (route.name === 'statement') view = <StatementPage key={`${route.id}\0${route.sentence}\0${route.turn}`} id={route.id} sentence={route.sentence} turn={route.turn} version={version} />;
   else if (route.name === 'folder') view = <FolderPage key={`${route.path}\0${route.after ?? ''}`} path={route.path} after={route.after} version={version} />;

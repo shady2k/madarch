@@ -14,7 +14,7 @@ import { navGroups } from './app.js';
 import { GlossaryPage } from './glossary.js';
 import { CataloguePage, Overview } from './pages.js';
 import { Root as AppRoot } from './root.js';
-import type { Glossary, GlossaryTerm, KindSummary, WikiStatus } from './types.js';
+import type { CatalogView, Glossary, GlossaryTerm, KindSummary, WikiStatus } from './types.js';
 
 beforeAll(async () => {
   GlobalRegistrator.register({ url: 'http://localhost/' });
@@ -113,15 +113,21 @@ describe('the groups of the manifest', () => {
   });
 
   test('the catalogue draws each sub-area under its group, with the same rows as the kinds it holds', async () => {
-    const full = {
+    const full: CatalogView = {
+      product: { name: 'shop', id: 'p1' },
+      language: 'en',
       groups: nestedGroups,
       kinds: [
-        kind({ kind: 'code.file', group: 'code.structure', count: 4, descriptions: { en: 'A file of a code repository.' } }),
-        kind({ kind: 'code.cycle', group: 'code.analysis', count: 1, descriptions: { en: 'A ring of imports.' } }),
-        kind({ kind: 'code.env-var', group: 'operations.configuration', count: 3, descriptions: { en: 'A setting read from the environment.' } }),
+        { kind: 'code.file', area: 'code', subgroup: 'code.structure', count: 4, page: true, producer: 'extract', filled: true, descriptions: { en: 'A file of a code repository.' } },
+        { kind: 'code.cycle', area: 'code', subgroup: 'code.analysis', count: 1, page: true, producer: 'extract', filled: true, descriptions: { en: 'A ring of imports.' } },
+        { kind: 'code.env-var', area: 'operations', subgroup: 'operations.configuration', count: 3, page: true, producer: 'extract', filled: true, descriptions: { en: 'A setting read from the environment.' } },
       ],
-    } as unknown as WikiStatus;
-    const page = into(createElement(CataloguePage, { status: full }));
+      findings: [],
+    };
+    (globalThis as { fetch?: unknown }).fetch = async (url: string) => url.includes('/api/k/catalog')
+      ? json(full)
+      : new Response('{}', { status: 404 });
+    const page = into(createElement(CataloguePage, { version: 0 }));
     await until(() => page.querySelector('[data-testid=catalogue-page]') !== null, 'the catalogue');
     expect([...page.querySelectorAll('[data-testid=catalogue-group]')].map((group) => group.getAttribute('data-group'))).toEqual(['code', 'operations']);
     const code = page.querySelector('[data-testid=catalogue-group][data-group=code]')!;
