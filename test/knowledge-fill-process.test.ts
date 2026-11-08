@@ -167,9 +167,16 @@ describe('the wiki while a fill runs', () => {
 describe('the store a fill wrote', () => {
   // One fill for both cases below: they read the store it left, not a run of their own.
   beforeAll(async () => {
-    const server = await startServer({ productHome: home, appFolder: app, port: 0, log: () => undefined, errorLog: () => undefined });
+    const dbg: string[] = [];
+    const server = await startServer({ productHome: home, appFolder: app, port: 0, log: () => undefined, errorLog: (line) => { dbg.push(line); } });
     try {
-      const ended = await fill(server, 'walk');
+      let ended: FillState;
+      try {
+        ended = await fill(server, 'walk');
+      } catch (error) {
+        // The wiki's own words, which a 500 keeps in its log: the poll can only say what the answer was.
+        throw new Error(`${(error as Error).message}\nthe server's log: ${dbg.slice(-3).join(' | ')}`);
+      }
       expect(ended.state, JSON.stringify(ended)).toBe('done');
     } finally {
       await server.stop();
