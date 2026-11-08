@@ -12,8 +12,8 @@
 import remarkGfm from 'remark-gfm';
 import remarkParse from 'remark-parse';
 import { unified } from 'unified';
-import type { DocEntity } from '../knowledge/doc-entities.js';
-import { parseTermText } from '../knowledge/glossary.js';
+import type { DocEntity } from '../knowledge/model.js';
+import { parseTermText } from '../knowledge/term-fields.js';
 import { byCodePoint } from '../model/order.js';
 
 /** One name a page may link: the text a reader writes and the target its page has. */
@@ -467,61 +467,6 @@ function addressEnd(text: string, index: number, end: number): number {
   return index;
 }
 
-/** One line of a document that names an identifier in rendered prose. */
-export interface IdentifierMention {
-  readonly line: number;
-  readonly text: string;
-}
-
-/**
- * The lines of a document whose rendered prose names the identifier (madarch-ztyq.8, review 202):
- * the parser's text nodes, without code, inline code, HTML, definitions or unused notes. A
- * complete identifier boundary keeps `UC-1` out of `UC-1-extra`.
- */
-export function identifierMentions(markdown: string, identifier: string): IdentifierMention[] {
-  if (identifier === '') return [];
-  const text = markdown.replaceAll('\r\n', '\n');
-  const root = parseMarkdown(text);
-  if (root === undefined) return [];
-  const front = frontMatterEnd(text);
-  const used = usedFootnotes(root);
-  const lineStarts = [0];
-  for (let index = 0; index < text.length; index += 1) if (text[index] === '\n') lineStarts.push(index + 1);
-  const lineAt = (offset: number): number => {
-    let low = 0;
-    let high = lineStarts.length - 1;
-    while (low < high) {
-      const middle = Math.ceil((low + high) / 2);
-      if (lineStarts[middle]! <= offset) low = middle;
-      else high = middle - 1;
-    }
-    return low + 1;
-  };
-  const lines = new Map<number, string>();
-  const walk = (node: MdNode): void => {
-    if (node.type === 'footnoteDefinition' && (node.identifier === undefined || !used.has(node.identifier))) return;
-    if (DOCUMENT_SKIP.has(node.type)) return;
-    if (node.type === 'text') {
-      const start = node.position?.start.offset;
-      const end = node.position?.end.offset;
-      if (start === undefined || end === undefined || start < front) return;
-      const source = text.slice(start, end);
-      let offset = 0;
-      for (const segment of source.split('\n')) {
-        if (containsName(segment, identifier, false)) {
-          const line = lineAt(start + offset);
-          const full = text.split('\n')[line - 1] ?? segment;
-          lines.set(line, full);
-        }
-        offset += segment.length + 1;
-      }
-      return;
-    }
-    for (const child of node.children ?? []) walk(child);
-  };
-  walk(root);
-  return [...lines.entries()].sort((left, right) => left[0] - right[0]).map(([line, value]) => ({ line, text: value }));
-}
 
 /** The node types that never hold rendered prose a document mention can name. */
 const DOCUMENT_SKIP = new Set(['code', 'inlineCode', 'html', 'yaml', 'definition', 'image', 'imageReference']);

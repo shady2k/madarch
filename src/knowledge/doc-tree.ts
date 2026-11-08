@@ -319,12 +319,8 @@ export function sectionBlocks(section: DocSection, namesIdentifier?: (passage: D
  * never candidates (a `BR-9` inside a code fence names no rule), and they never vanish either: the reader reports each
  * as a block it could not decide (the review of the seventh pass, finding 2).
  */
-export function sectionLeaves(section: DocSection, namesIdentifier?: (passage: DocNode) => boolean): DocNode[] {
-  return sectionWalk(section, namesIdentifier).leaves;
-}
-
 /** The paragraph a block opens with: an item's first paragraph, or the paragraph itself. */
-export function openingParagraph(block: DocNode): DocNode | undefined {
+function openingParagraph(block: DocNode): DocNode | undefined {
   return block.type === 'listItem' ? block.children.find((child) => child.type === 'paragraph') : block;
 }
 
@@ -338,13 +334,13 @@ export function boldLead(block: DocNode): DocNode | undefined {
  * The node a passage's naming stands in: the first cell of a table row (a cell holds phrasing, not a paragraph), or the
  * passage's own opening paragraph.
  */
-export function namingContainer(passage: DocNode): DocNode | undefined {
+function namingContainer(passage: DocNode): DocNode | undefined {
   if (passage.type === 'tableRow') return passage.children[0];
   return openingParagraph(passage);
 }
 
 /** The inline nodes a passage's naming is read from, inside its naming container. */
-export function namingInline(passage: DocNode): readonly DocNode[] {
+function namingInline(passage: DocNode): readonly DocNode[] {
   return namingContainer(passage)?.children ?? [];
 }
 
@@ -353,7 +349,3 @@ export function namingText(passage: DocNode): string {
   return namingInline(passage).map((node) => node.plain).join('');
 }
 
-/** The text a block opens with, marks removed: the phrase an identifier or a label would open it with. */
-export function leadText(block: DocNode): string {
-  return openingParagraph(block)?.plain ?? block.plain;
-}

@@ -96,7 +96,7 @@ export async function questionDetail(productFolder: string, slug: string, resolv
 // ---- problems ---------------------------------------------------------------------------------
 
 /** The kind of a wiki finding; the code and the documents carry kinds of their own. */
-export type ProblemKind = 'correction' | 'ground-removed' | 'broken-link' | 'unreadable-file' | 'unread-passage' | 'unplaced' | 'manifest';
+export type ProblemKind = 'correction' | 'ground-removed' | 'broken-link' | 'unreadable-file' | 'unplaced' | 'manifest';
 /** Who fixes it: the agent when the pages are refreshed, or a person. */
 export type Fixer = 'agent' | 'person';
 
@@ -320,8 +320,7 @@ export async function listProblems(input: ProblemInput): Promise<ProblemListing>
   for (const finding of [...input.findings, ...read.findings]) {
     // A finding in the manifest is the manifest's own rule; every other finding keeps the kind it carries.
     const kind = (finding.kind ?? (finding.file === KINDS_FILE ? 'manifest' : 'unreadable-file')) as ProblemKind;
-    // A passage no reader decided is the agent's to read at the next fill; a file that cannot be read is a person's.
-    const fixer = kind === 'unread-passage' ? 'agent' : 'person';
+    const fixer = 'person';
     const key = `${finding.file}:${finding.line}:${kind}:${finding.message}`;
     if (seenFinding.has(key)) continue;
     seenFinding.add(key);
@@ -379,7 +378,7 @@ export async function listProblems(input: ProblemInput): Promise<ProblemListing>
   // manifest does not declare at all is a note of its section, never a row the page cannot explain.
   const declared = input.settings.rules;
   const kept = out.filter((problem) => !dismissed.has(problem.id) && declared[problem.rule] !== undefined && declared[problem.rule]?.enabled !== false);
-  const order: Record<string, number> = { correction: 0, 'ground-removed': 1, 'broken-link': 2, unplaced: 3, 'unreadable-file': 4, 'unread-passage': 5, manifest: 6 };
+  const order: Record<string, number> = { correction: 0, 'ground-removed': 1, 'broken-link': 2, unplaced: 3, 'unreadable-file': 4, manifest: 5 };
   kept.sort((a, b) => Number(a.closed) - Number(b.closed) || (order[a.kind] ?? 9) - (order[b.kind] ?? 9) || byCodePoint(a.file, b.file) || (a.line ?? 0) - (b.line ?? 0) || byCodePoint(a.target ?? '', b.target ?? '') || byCodePoint(a.rule, b.rule));
   const sections = { code: 0, documents: 0, wiki: 0 } as Record<ProblemSection, number>;
   for (const problem of kept) sections[problem.section] += 1;

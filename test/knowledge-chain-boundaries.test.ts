@@ -31,7 +31,7 @@ test('final 1: route entry uses actual handled-by; callback references stay unor
   await link('code.references',registrar.nodeId,unrelated.nodeId,{},'90');
   await link('code.calls',callback.nodeId,target.nodeId);
   const graph=new GraphReader(owner,()=> '2026-06-01T00:00:00Z');const manifest=parseKinds('kinds: {}','kinds.yaml','.');
-  const ctx:RenderContext={productFolder:'.',manifest,graph,markdown:new Map(),docEntities:new Map(),localizedSources:new Map(),language:'en',documents:[],repositories:[],commitOf:()=>null,repoOfScope:()=>undefined,readSource:async()=>undefined,resolver:new Resolver({graph,markdown:new Map(),declared:()=>true,readDocument:async()=>undefined,repositories:()=>[],locate:()=>undefined})};
+  const ctx:RenderContext={productFolder:'.',manifest,graph,markdown:new Map(),language:'en',repositories:[],commitOf:()=>null,repoOfScope:()=>undefined,readSource:async()=>undefined,resolver:new Resolver({graph,markdown:new Map(),declared:()=>true,readDocument:async()=>undefined,repositories:()=>[],locate:()=>undefined})};
   const [registered]=await graph.find('code.route:services/api/main.ts#GET:/healthz');const [setup]=await graph.find('code.symbol:services/api/main.ts#setup');if(registered===undefined||setup===undefined)throw new Error('missing declared fixture');
   const routeChain=new ChainBuilder(ctx,{limit:50,depth:5});expect((await routeChain.handlersOf(registered)).map((entity)=>entity.label)).toEqual(['callback']);await routeChain.enterRoute(registered,5);await routeChain.finish(4);expect(routeChain.steps.some((step)=>step.label==='callback'&&step.order==='source')).toBe(false);expect(routeChain.steps.some((step)=>step.label==='unrelated')).toBe(false);expect(routeChain.steps.some((step)=>step.label==='target')).toBe(true);
   for(const ranged of [false,true]){const builder=new ChainBuilder(ctx,{limit:50,depth:5});await builder.visit(setup,5,ranged?{lineStart:1,lineEnd:10}:undefined);await builder.finish(4);expect(builder.steps.filter((step)=>step.label==='callback').map((step)=>step.order)).toEqual(['unordered']);expect(builder.steps.some((step)=>step.label==='unrelated')).toBe(false);expect(builder.steps.filter((step)=>step.label==='target').map((step)=>step.order)).toEqual(['unordered']);}
@@ -169,7 +169,7 @@ function flatFixture(leaves: number) {
 function chainContext(graph: GraphReader): RenderContext {
   return {
     graph, productFolder: '', manifest: fixtureManifest({ 'code.route': { sequence: 'route' }, 'code.symbol': {}, 'code.service': { system: 'container' } }),
-    markdown: new Map(), docEntities: new Map(), localizedSources: new Map(), language: 'en', documents: [], repositories: [],
+    markdown: new Map(),  language: 'en',  repositories: [],
     commitOf: () => null, repoOfScope: () => undefined, readSource: async () => undefined,
     resolver: new Resolver({ graph, markdown: new Map(), declared: () => false, readDocument: async () => undefined, repositories: () => [], locate: () => undefined }),
   };

@@ -77,10 +77,9 @@ const fixture = (rows: GraphEntity[], sources: ReadonlyMap<string, string> = new
     manifest: { file: '', roles: new Map(), properties: new Map(), kinds: new Map(), groups: new Map(), excludeDocuments: [], ignoreBlocks: [], findings: [] },
     graph: reader,
     markdown: new Map(),
-    docEntities: new Map(),
-    localizedSources: new Map(),
+    
     language: 'en',
-    documents: [],
+    
     repositories: [REPO],
     commitOf: () => null,
     repoOfScope: () => REPO,

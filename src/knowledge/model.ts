@@ -10,6 +10,40 @@ import type { Finding } from './kinds.js';
 import type { Resolution } from './resolve.js';
 import type { DiagramsBlockShape } from './views.js';
 
+/**
+ * A passage of a product document as the document reading used to name it: the page id, its kind, the line and the
+ * text. No stage of the fill writes these yet, and nothing reads the product's documents at request time; the type is
+ * the shape the writer's document stages will receive when one does (decision 0033, item 1).
+ */
+export interface DocEntity {
+  /** The page id, `doc:<path>#<stableId>`: built from the durable identity, never from the anchor. */
+  id: string;
+  kind: string;
+  /** What a reader calls it: the identifier and its name (`UC-2 Pay`), or the words of its first passage. */
+  title: string;
+  /** The alias the document writes (`UC-2`); null for a section that numbers nothing. Never the identity. */
+  identifier: string | null;
+  repo: string | null;
+  path: string;
+  /** The anchor the document gives it now: what a ground names and a page shows, never what the page is called. */
+  anchor: string;
+  /** Every anchor the tree derives for this passage: a heading names itself by its number and by its words. */
+  aliases: readonly string[];
+  /** The 1-based line the passage starts at, and the last line it covers. */
+  line: number;
+  endLine: number;
+  /** The passage's Markdown without the line that names it (the heading, the bold identifier or the list mark). */
+  text: string;
+  /** The durable identity: the page id's fragment, which a rename or a renumbering does not change. */
+  stableId: string;
+  /** The general kind the section was read as. */
+  semantics: import('./semantics.js').SemanticKind;
+  /** The pass that decided the kind: the manifest and the metadata, the structure, or the classifier. */
+  pass: 'metadata' | 'structure' | 'classifier';
+  /** The heading texts that enclose it, from the document's first heading down to it. */
+  headingPath: string[];
+}
+
 /** Where a piece of code is: the file in a repository and its lines. */
 export interface CodeLocation {
   /** The code repository's name in the manifest; null for the product repository. */
@@ -605,8 +639,15 @@ export interface AgentOffer {
   /** `signed-in`, `not-signed-in` or `unknown`: the agent's own sign-in on this machine. */
   login: 'signed-in' | 'not-signed-in' | 'unknown';
   loginDetail: string;
-  /** What installing the adapter fetches, when it is not installed. */
-  install: { package: string; version: string; size: string; folder: string } | null;
+  /** Where the adapter's program was found when it is installed; null when it is not installed or cannot be resolved. */
+  where: string | null;
+  /** The version madarch can read from the installed adapter; null when it cannot read one. */
+  version: string | null;
+  /** What installing the adapter fetches, when it is not installed; null when installed or nothing is offered. */
+  install:
+    | { kind: 'npm'; package: string; version: string; size: string; folder: string }
+    | { kind: 'bundled'; program: string; note: string }
+    | null;
 }
 
 export interface WikiStatus {

@@ -6,10 +6,6 @@
  * end test and the screenshots walk both run the production agent path with
  * this script behind an adapter executable on the PATH.
  */
-import { readdirSync, readFileSync, statSync } from 'node:fs';
-import { join } from 'node:path';
-import { readDocEntities } from '../src/knowledge/doc-entities.js';
-import { readKinds } from '../src/knowledge/kinds.js';
 import { FACTORY, PAY, PAYMENTS_SERVICE } from './knowledge-fixture.js';
 
 export const ORDERS_SERVICE = 'code.service:orders';
@@ -201,29 +197,11 @@ export interface LocalizableEntity {
 }
 
 /**
- * The document entities a product's wiki offers as localized sources, read the way the fill reads them — the product's
- * own manifest over the code repository's Markdown documents — each with the statement `derivedStatement()` writes. A
- * script built from this answers every entity the unit offers; adding a document to the repository adds its entry, with
- * nothing to keep in step by hand (madarch-ztyq.3).
+ * The document entities a product's wiki offers as localized sources. No stage of the fill reads the product's
+ * documents yet, so a script built from this answers none; the stage that reads them brings its own reader back.
  */
-export function localizableEntities(productFolder: string, repository: string, repoName = 'training-shop'): LocalizableEntity[] {
-  const kinds = readKinds(productFolder);
-  if (!kinds.present) return [];
-  const sources = markdownUnder(repository).map((path) => ({ repo: repoName, path, text: readFileSync(join(repository, path), 'utf8') }));
-  return readDocEntities(sources, kinds.manifest).entities.map((entity) => ({
-    title: entity.title,
-    statement: derivedStatement(entity, kinds.manifest.kinds.get(entity.kind)?.labels?.['ru']?.one ?? 'Раздел документа'),
-  }));
-}
-
-/** The Markdown documents under a folder, `/`-separated and in code point order. */
-function markdownUnder(folder: string, root = folder): string[] {
-  return readdirSync(folder).flatMap((name) => {
-    const path = join(folder, name);
-    if (name === '.git' || name === 'node_modules') return [];
-    if (statSync(path).isDirectory()) return markdownUnder(path, root);
-    return /\.(md|markdown)$/i.test(name) ? [path.slice(root.length + 1).split('\\').join('/')] : [];
-  }).sort();
+export function localizableEntities(_productFolder: string, _repository: string, _repoName = 'training-shop'): LocalizableEntity[] {
+  return [];
 }
 
 /**

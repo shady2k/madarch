@@ -34,7 +34,7 @@ function ownerFixture() {
 }
 function context(folder: string, graph: GraphReader): RenderContext {
   return {
-    productFolder: folder, graph, language: 'en', markdown: new Map(), docEntities: new Map(),
+    productFolder: folder, graph, language: 'en', markdown: new Map(), 
     manifest: { file: 'madarch/kinds.yaml', kinds: new Map([['code.symbol', { name: 'code.symbol', template: 'symbol.md', source: 'graph', title: 'label', relations: [], line: 1 }]]), roles: new Map(), groups: new Map(), excludeDocuments: [], ignoreBlocks: [], findings: [] },
     resolver: { resolve: async () => { throw new Error('the fixture has no authored links'); } },
     repoOfScope: () => 'sample', repositories: ['sample'],

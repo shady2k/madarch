@@ -380,14 +380,12 @@ describe('the loop, from the first question to a translation', () => {
     // finding 8): the Problems page must show both, so a person can open the file and know which passage it is about.
     const listing = await listProblems({
       productFolder, owner, findings: [
-        { file: 'repos/training/docs/notes.md', line: 4, message: 'no kind of the manifest and no classifier read this passage, so no page shows it: «Rows are read in the order they were written»', kind: 'unread-passage', source: '/srv/checkouts/training/docs/notes.md' },
         { file: 'docs/domains/pricing.md', line: 2, message: 'the file cannot be read', source: '/srv/products/shop/docs/domains/pricing.md' },
       ],
       settings: starterProblemSettings(),
       resolve: async (url) => ({ state: 'ok', target: url, kind: 'document', label: url, href: null }),
     });
     const byFile = new Map(listing.problems.map((problem) => [problem.file, problem]));
-    expect(byFile.get('repos/training/docs/notes.md')).toMatchObject({ kind: 'unread-passage', section: 'wiki', rule: 'wiki.unread-passage', sonar: 'code-smell', severity: 'minor', fixer: 'agent', line: 4, source: '/srv/checkouts/training/docs/notes.md' });
     expect(byFile.get('docs/domains/pricing.md')).toMatchObject({ kind: 'unreadable-file', fixer: 'person', line: 2, source: '/srv/products/shop/docs/domains/pricing.md' });
   }, 120_000);
 

@@ -80,9 +80,9 @@ function context(manifest: KindsManifest, folder: string): RenderContext {
     manifest,
     language: 'en',
     markdown: new Map([[PAGE.id, PAGE]]),
-    docEntities: new Map(),
-    localizedSources: new Map(),
-    documents: [],
+    
+    
+    
     repositories: [],
     commitOf: () => null,
     repoOfScope: () => undefined,

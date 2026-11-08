@@ -10,7 +10,6 @@ export interface KindNumbers {
   /** The graph's entities per kind; the kind `code.file` is the record store's own count when the store answers it. */
   readonly graph: ReadonlyMap<string, number>;
   readonly markdown: ReadonlyMap<string, number>;
-  readonly documents: ReadonlyMap<string, number>;
   /** The statements per page kind, from the Markdown index; absent kinds make none. */
   readonly statements: ReadonlyMap<string, number>;
   /** The entities of one kind: the pool its declaration's `source` names, the graph when it names none. */
@@ -31,13 +30,13 @@ export async function kindNumbers(ctx: RenderContext): Promise<KindNumbers> {
   // count the navigation and the catalogue show is the store's own, so the two never disagree about where the files are.
   if (ctx.records !== undefined) graph.set('code.file', await ctx.records.files.count());
   const markdown = tally(ctx.markdown.values());
-  const documents = tally(ctx.docEntities.values());
+  // No stage of the fill writes the document kinds yet (decision 0033, item 1): the request-time reading is deleted, so a
+  // document kind counts no entity until the stage that fills it exists.
   const statements = new Map((await ctx.index?.counts() ?? []).map((entry) => [entry.kind, entry.statements] as const));
   return {
     graph,
     markdown,
-    documents,
     statements,
-    count: (kind, source) => source === 'markdown' ? markdown.get(kind) ?? 0 : source === 'document' ? documents.get(kind) ?? 0 : graph.get(kind) ?? 0,
+    count: (kind, source) => source === 'markdown' ? markdown.get(kind) ?? 0 : source === 'document' ? 0 : graph.get(kind) ?? 0,
   };
 }

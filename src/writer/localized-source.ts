@@ -1,6 +1,6 @@
 /** Localized, source-grounded Markdown for extracted document entities. */
 import { parseDocument, stringify } from 'yaml';
-import type { DocEntity } from '../knowledge/doc-entities.js';
+import type { DocEntity } from '../knowledge/model.js';
 import { createHash } from 'node:crypto';
 import type { McpToolDefinition } from '../fill/unit-mcp.js';
 import { memoByText } from '../model/memo.js';

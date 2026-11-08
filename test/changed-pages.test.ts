@@ -6,7 +6,7 @@ import { afterEach, beforeEach, describe, expect, test } from 'bun:test';
 import { existsSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
-import { ACTIVE_FILL_FILE, CHANGED_PAGES_FILE, DOCUMENT_PAGES_FILE, invalidateInterruptedRun, readChangedPages, readDocumentPages } from '../src/knowledge/changed-pages.js';
+import { ACTIVE_FILL_FILE, CHANGED_PAGES_FILE, invalidateInterruptedRun, readChangedPages } from '../src/knowledge/changed-pages.js';
 
 let folder: string;
 beforeEach(() => { folder = mkdtempSync(join(tmpdir(), 'madarch-changed-pages-')); });
@@ -44,14 +44,5 @@ describe('the launch after an interrupted run', () => {
     put(CHANGED_PAGES_FILE, { startedAt: '2026-10-29T10:00:00.000Z', finishedAt: '2026-10-29T10:01:00.000Z', pages: [{ id: 'domain:payment', title: 'Payment' }] });
     expect(invalidateInterruptedRun(folder)).toBe(false);
     expect(readChangedPages(folder, { startedAt: '2026-10-29T10:00:00.000Z', finishedAt: '2026-10-29T10:01:00.000Z' })).toHaveLength(1);
-  });
-});
-
-describe('the document entities of the last completed run', () => {
-  test('are read by durable page id and refuse a value that is not a digest', () => {
-    put(DOCUMENT_PAGES_FILE, { entities: { 'doc:docs/glossary.md#order': 'a'.repeat(64) } });
-    expect(readDocumentPages(folder)).toEqual(new Map([['doc:docs/glossary.md#order', 'a'.repeat(64)]]));
-    writeFileSync(join(folder, DOCUMENT_PAGES_FILE), JSON.stringify({ entities: { 'doc:docs/glossary.md#order': 3 } }), 'utf8');
-    expect(readDocumentPages(folder)).toBeUndefined();
   });
 });
