@@ -17,15 +17,15 @@ import type { GuideContextFor, GuideHostFor } from '../writer/guides/host.js';
 import type { GuideKind, GuideLocale } from '../writer/guides/model.js';
 import { readGuidePage } from '../writer/guides/read.js';
 import { createGuideReadFactories, guideProductPin } from '../writer/guides/writer.js';
-import { createGraphStore } from '../graph/index.js';
+import { createGraphStore, createRecordSchema } from '../graph/index.js';
 import { createGitSnapshotSource } from '../fill/snapshot.js';
 import { existsSync, mkdirSync, readFileSync, readdirSync, realpathSync, rmSync, statSync, writeFileSync } from 'node:fs';
 import { execFile, execFileSync } from 'node:child_process';
 import { mkdir, rename, rm, writeFile } from 'node:fs/promises';
 import { dirname, join, relative, resolve } from 'node:path';
 import { promisify } from 'node:util';
-import type { DatabaseOwner, OuterTransaction } from '../adapters/database-owner.js';
-import { RemoteOwner } from './remote-owner.js';
+import { createDatabaseOwner, type DatabaseOwner, type OuterTransaction } from '../adapters/database-owner.js';
+import { SCHEMA_LOCK_SQL, storeSchemaLockKey } from '../adapters/schema-stamp.js';
 import { byCodePoint } from '../model/order.js';
 import { MANIFEST_FILE, readProduct, type ProductIdentity } from '../product/manifest.js';
 import { selfCommand } from '../product/self-command.js';
@@ -37,7 +37,6 @@ import { applyReset, planReset, type ResetPlan } from './reset.js';
 import type { KnowledgeFillResult, KnowledgeFillRun } from './fill-run.js';
 import { startFillInWorker } from './fill-worker.js';
 import { fillWritesPages } from '../fill/steps.js';
-import { snapshotNumbers } from './fill-run.js';
 import { locationOf, type RenderContext } from './blocks.js';
 import { GraphReader } from './graph-read.js';
 import { treeReadProducer } from '../extract/driver/index.js';
@@ -99,7 +98,7 @@ import { listQuestions, listTasks, openTasks, questionDetail, taskDetail, type P
 import { collectProblems, openProblemsOf } from '../problems/index.js';
 import { defaultSettings, type ProblemSection, type ProblemSeverity } from '../problems/types.js';
 import { WikiReadError } from './read-error.js';
-import { productStoreFolder, storeDatabasePath, storeSnapshotsFolder } from '../product/store.js';
+import { productStoreFolder, storeDatabasePath } from '../product/store.js';
 import { readProblemDismissals, writeProblemDismissal } from '../loop/problem-files.js';
 
 const execFileAsync = promisify(execFile);
@@ -289,16 +288,24 @@ interface PausedRun {
   readonly resumed?: boolean;
 }
 
+/** The store's pins table: `<store>/graph`'s `knowledge_fill`, which `src/knowledge/fill-run.ts` writes. */
+const KNOWLEDGE_FILL_TABLE = `CREATE TABLE IF NOT EXISTS knowledge_fill (
+  repo text PRIMARY KEY, scope text, head text NOT NULL, commit_hash text NOT NULL, effective_time text NOT NULL,
+  commits int NOT NULL, filled_commits int NOT NULL)`;
+
 /** One read of the status and the render context its writer units were named against. */
 type StatusRead = { body: WikiStatus; ctx: RenderContext | undefined };
 
 export class KnowledgeProduct {
   /** The store the reads are made on: a snapshot of the primary store, or an empty one before any fill (see `fill-protocol.ts`). */
   /**
-   * The reader: its process, the generation it answers at, the marker line of that generation (a file this server removes
-   * when a newer reader has taken over) and the store it reads, which never moves.
+   * The store's owner, read directly (madarch-8bdc.9): one owner of `<store>/graph` in this process, no reader copy and no
+   * numbered snapshot. A page's consistency is its own read's transaction, and a publication moves the generation the
+   * store's numbers are cached under — `seq`, which no file names.
    */
-  private reader: { owner: DatabaseOwner; seq: number; path: string; store: string } | undefined;
+  private reader: { owner: DatabaseOwner; seq: number } | undefined;
+  /** The generation of the store this process has read: raised once per publication a fill announces. */
+  private generation = 0;
   private opening: Promise<void> | undefined;
   private fill: FillState = { state: 'idle' };
   private running: Promise<void> | undefined;
@@ -379,44 +386,28 @@ export class KnowledgeProduct {
     return storeDatabasePath(this.storeFolder());
   }
 
-  /** The folder the snapshots of the primary store are made in, one numbered folder each. */
-  private readRoot(): string {
-    return storeSnapshotsFolder(this.storeFolder());
-  }
-
   /**
-   * Opens the reader once. The newest snapshot is read as it is; with none, a store written by an earlier madarch (no
-   * worker holds it) is copied, and with no store at all an empty one with the graph's tables is made, so a product
-   * before its first fill reads as empty rather than failing.
+   * Opens the store once, in this process (madarch-8bdc.9): the wiki reads the database the fill writes, directly. A store
+   * with no tables at all (an empty folder the home made, or an earlier madarch's) is given them here, as the fill's own
+   * schema does, so a first read is an empty page and never a missing relation; a store that has them is read and not
+   * touched — a write here would lock the tables a running fill publishes into.
    */
   private async open(): Promise<DatabaseOwner> {
     if (this.closed) throw new Error('the wiki is shutting down');
     this.lastUse = Date.now();
     this.idleTimer ??= setInterval(() => { void this.closeIfIdle(); }, 60_000).unref();
     this.opening ??= (async () => {
-      const root = this.readRoot();
-      mkdirSync(root, { recursive: true });
-      let seq = snapshotNumbers(root).pop();
-      let created = false;
-      if (seq === undefined) {
-        seq = 0;
-        created = !existsSync(this.graphPath());
-      }
-      // The reader reads the store the fill writes, never a copy of it: its own repeatable-read transaction, begun in
-      // a process of its own (so opening the store never holds up this server's thread), is the snapshot it answers from.
-      const store = this.storeFolder();
-      const owner = new RemoteOwner(store, { create: created });
+      const owner = await createDatabaseOwner({ store: storeDatabasePath(this.storeFolder()), btreeGist: true });
       try {
         await owner.ready;
-        // This newly opened snapshot owns a complete pin set even when an idle reader retained old pins.
+        await this.ensureStoreTables(owner);
         await this.loadPins(owner);
       } catch (error) {
-        // A reader that failed to open is given back: a retry must not leave one worker process behind per request.
+        // An owner that failed to open is given back: a retry must not leave a connection behind per request.
         await owner.close().catch(() => undefined);
         throw error;
       }
-      // The generation's line is what this server removes when a newer one stands; the store is never removed by a reader.
-      this.reader = { owner, seq, path: join(root, String(seq)), store };
+      this.reader = { owner, seq: this.generation };
     })();
     try {
       await this.opening;
@@ -425,6 +416,35 @@ export class KnowledgeProduct {
       throw error;
     }
     return this.reader!.owner;
+  }
+
+  /**
+   * Gives a store that has no tables the graph's and the record tables, once. A fill creating the same tables at the same
+   * instant holds the locks in its own order and one of the two is chosen as the deadlock victim: that answer is
+   * PostgreSQL telling this side to try again, and the second attempt finds the tables the other committed.
+   */
+  private async ensureStoreTables(owner: DatabaseOwner): Promise<void> {
+    const there = async (): Promise<boolean> => (await owner.run(async (tx) => await tx.query<{ there: boolean }>("SELECT to_regclass('public.knowledge_fill') IS NOT NULL AS there"))).rows[0]?.there === true;
+    if (await there()) return;
+    for (let attempt = 1; ; attempt += 1) {
+      try {
+        await createGraphStore(owner).createSchema();
+        // This store's record tables too (madarch-8bdc.2.5): a store the fill has not run on is read for its repository
+        // and its files, and a missing relation would be a failed page, not an empty one.
+        await createRecordSchema(owner);
+        // Serialized with every other schema of this store (`src/adapters/schema-stamp.ts`).
+        await owner.transaction('write', async (tx) => {
+          await tx.query(SCHEMA_LOCK_SQL, [storeSchemaLockKey()]);
+          await tx.query(KNOWLEDGE_FILL_TABLE);
+        });
+        return;
+      } catch (error) {
+        const retryable = /deadlock detected/i.test(String(error)) || /could not serialize access/i.test(String(error));
+        if (!retryable || attempt >= 5) throw error;
+        await Bun.sleep(100 * attempt);
+        if (await there()) return;
+      }
+    }
   }
 
   /** Whether the starter set was checked for this product by this server (once: the files move on only with madarch). */
@@ -570,38 +590,27 @@ export class KnowledgeProduct {
   }
 
   /**
-   * Reads a newer snapshot: opens it beside the one in use, switches the reads to it and, after the requests in flight
-   * have ended, closes and removes the old one. A request is never held up by this: the open runs while the old
-   * snapshot answers.
+   * A fill announced a publication (madarch-8bdc.9): the store is read again — its pins, and the numbers the next answer
+   * states — and the generation the numbers are cached under moves, so the answer after the notice carries what the run
+   * published. The reads of a request already under way stand: each of them is a transaction of its own.
    */
-  private swapReader(seq: number, pins: readonly RepositoryPin[] | undefined): Promise<void> {
+  private published(pins: readonly RepositoryPin[] | undefined): Promise<void> {
     const work = this.swapping.then(async () => {
       if (this.closed) return;
-      await this.open();
-      const held = this.reader!;
-      // A delayed or already-consumed notice cannot change the active snapshot's pins.
-      if (held.seq >= seq) return;
-      // The store a reader reads never moves: a newer generation is a reader opened at a newer moment on the same store.
-      const owner = new RemoteOwner(held.store, { create: false });
-      try {
-        await owner.ready;
-        // The new process answers its first statements slowly; warm before changing either reader or pins.
-        if (held.owner instanceof RemoteOwner) await owner.warm(held.owner.recent());
-      } catch(error) {await owner.close().catch(()=>undefined);throw error;}
-      this.reader = { owner, seq, path: join(this.readRoot(), String(seq)), store: held.store };
-      // The new snapshot's own numbers are read here, beside the answers the old reader still gives, so the first page
-      // asked after the publish is not the one that pays for them.
+      const owner = await this.open();
+      this.generation += 1;
+      this.reader = { owner, seq: this.generation };
+      this.storeOf = undefined;
+      // The new generation's numbers are read here, beside the answers in flight, so the first page asked after the
+      // publish is not the one that pays for them.
+      const seq = this.generation;
       void this.repositoryView().then((repository) => {
-        if (this.reader?.seq === seq && this.storeOf?.seq !== seq) this.storeOf = { key: '', seq, ...(repository === undefined ? {} : { repository }) };
+        if (this.reader?.seq === seq && this.storeOf === undefined) this.storeOf = { key: '', seq, ...(repository === undefined ? {} : { repository }) };
       }).catch(() => undefined);
-      // What the repositories were filled to is applied with the snapshot it belongs to: a source is read at the commit
-      // the graph it is shown beside was filled from. A caller that names no pins takes the snapshot's own
-      // (`knowledge_fill`, which the fill wrote before the snapshot was made).
+      // What the repositories were filled to is read with the graph: a source is read at the commit the graph it is
+      // shown beside was filled from.
       if (pins === undefined) await this.loadPins(owner);
       else this.replacePins(pins);
-      setTimeout(() => {
-        void held.owner.close().catch(() => undefined).finally(() => rmSync(held.path, { recursive: true, force: true }));
-      }, SNAPSHOT_KEEP_MS).unref();
     });
     this.swapping = work.catch(() => undefined);
     return work;
@@ -932,9 +941,9 @@ export class KnowledgeProduct {
     // than waiting for its end.
     let run: KnowledgeFillRun & { close(): Promise<void> };
     try {
-      run = startFillInWorker({ productFolder: product.folder, storeFolder, runId, ...(this.options.snapshotMs === undefined ? {} : { snapshotMs: this.options.snapshotMs }) }, (snapshot) => {
-        void this.swapReader(snapshot, undefined).catch((error: unknown) => {
-          this.options.errorLog?.(`the knowledge wiki could not read the snapshot ${snapshot} of ${this.readRoot()}: ${error instanceof Error ? error.message : String(error)}`);
+      run = startFillInWorker({ productFolder: product.folder, storeFolder, runId, ...(this.options.snapshotMs === undefined ? {} : { snapshotMs: this.options.snapshotMs }) }, () => {
+        void this.published(undefined).catch((error: unknown) => {
+          this.options.errorLog?.(`the knowledge wiki could not read the store ${storeFolder} after a publication: ${error instanceof Error ? error.message : String(error)}`);
         });
       });
     } catch (error) {
@@ -961,13 +970,10 @@ export class KnowledgeProduct {
       this.notify();
       return;
     }
-    if (result.snapshot !== undefined) {
-      // The snapshot carries the store's own pins (the `knowledge_fill` rows the run wrote), so the reader reads the
-      // commits its graph was filled from beside the graph itself.
-      await this.swapReader(result.snapshot, undefined).catch((error: unknown) => {
-        this.options.errorLog?.(`the knowledge wiki could not read the snapshot ${result.snapshot} of ${this.readRoot()}: ${error instanceof Error ? error.message : String(error)}`);
-      });
-    }
+    // The run's end read its pins into the store: the answers after it state what it published.
+    await this.published(undefined).catch((error: unknown) => {
+      this.options.errorLog?.(`the knowledge wiki could not read the store ${storeFolder} after the run: ${error instanceof Error ? error.message : String(error)}`);
+    });
     // A run that ended says which pages it changed: this fill writes no page (a page is an agent's
     // work, and no agent stage runs in this step), so the answer is the empty list unless the store
     // kept a record of pages the run changed — never an absent field a reader would take for "unknown".

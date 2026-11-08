@@ -15,7 +15,7 @@ import { runGit } from '../src/product/git.js';
 import { mkdirSync, mkdtempSync, readFileSync, readdirSync, rmSync, writeFileSync } from 'node:fs';
 import { repositoryFacts } from '../src/graph/index.js';
 import { readProduct } from '../src/product/manifest.js';
-import { knowledgeRootOf, productStoreFolder, storeDatabasePath, storeSnapshotsFolder } from '../src/product/store.js';
+import { knowledgeRootOf, productStoreFolder, storeDatabasePath } from '../src/product/store.js';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import type { FillRunResult } from '../src/fill/orchestrator-host.js';
@@ -148,20 +148,13 @@ describe('the update a default-branch commit starts', () => {
     expect(await service!.progress(other)).toBeNull();
   }, 900_000);
 
-  test('the update reaches the store the wiki reads: the newest snapshot names the commit the daemon filled', async () => {
+  test('the update reaches the store the wiki reads: its pins name the commit the daemon filled', async () => {
     const read = readProduct(product);
     if (!read.ok) throw new Error(`${read.file}:${read.line}: ${read.message}`);
     // The one store of this product, resolved by the function the button, `madarch fill-stages` and `madarch mcp` use.
     const store = productStoreFolder(product, knowledgeRootOf(home));
-    const snapshots = readdirSync(storeSnapshotsFolder(store)).filter((name) => /^\d+$/.test(name)).map(Number).sort((left, right) => left - right);
-    // The first fill and the update each finished a snapshot for the reader.
-    expect(snapshots.length).toBeGreaterThanOrEqual(2);
-    const newest = snapshots.at(-1)!;
-    // The generation names the store the update wrote: with one server the reader reads that store, and a generation is
-    // the line that says which moment it stands at, not a copy of it.
-    const generation = JSON.parse(readFileSync(join(storeSnapshotsFolder(store), String(newest)), 'utf8')) as { store: string; at: string };
-    expect(generation.store).toBe(storeDatabasePath(store));
-    const owner = await createTestDatabaseOwner({ store: generation.store, btreeGist: true });
+    // The wiki reads this store directly (madarch-8bdc.9): the update's pins are what it states.
+    const owner = await createTestDatabaseOwner({ store: storeDatabasePath(store), btreeGist: true });
     await owner.ready;
     try {
       const pins = await owner.run((tx) => tx.query<{ repo: string; commit_hash: string }>('SELECT repo, commit_hash FROM knowledge_fill ORDER BY repo'));

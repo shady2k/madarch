@@ -7,23 +7,23 @@
  * What this module owns is the store's mechanics: the process's one owner of
  * `<store>/graph`, the `madarch/workflows.yaml`-declared stage set the run
  * enables (`createStagesFill`), the run through `createFillOrchestratorService`,
- * the numbered snapshot the reader opens (`<store>/read/<n>`, made after a
- * checkpoint, whole or not at all), the pins of the repositories the run filled,
- * and the person's pause and stop through the run's own state machine.
+ * the pins of the repositories the run filled, and the person's pause and stop
+ * through the run's own state machine. The wiki reads the store this module fills
+ * (`--role api`, madarch-8bdc.9): no reader copy and no numbered snapshot stands
+ * between the two, and a page's consistency is its own read's transaction.
  *
  * It runs no model and writes no page: a page is an agent's work and a later
  * stage's (decision 0033, items 1 and 2, and the owner's separation of roles: a
  * strong model writes and analyses, a weak model or jev classifies).
  */
 import { execFile } from 'node:child_process';
-import { mkdirSync, readdirSync, renameSync, rmSync, writeFileSync } from 'node:fs';
+import { mkdirSync } from 'node:fs';
 import { join } from 'node:path';
 import { promisify } from 'node:util';
 import { runFill } from '../fill/run.js';
 import { readProgress } from '../fill/orchestrator-store.js';
 import type { FillOrchestratorService } from '../fill/orchestrator-host.js';
 import { listRepositories, repositoryFacts } from '../graph/index.js';
-import { storeDatabasePath, storeSnapshotsFolder } from '../product/store.js';
 
 const execFileAsync = promisify(execFile);
 
@@ -33,34 +33,8 @@ const execFileAsync = promisify(execFile);
  */
 type StoreOwner = NonNullable<Parameters<typeof import('../fill/orchestrator-host.js').createFillOrchestratorService>[0]['owner']>;
 
-/** The least time between two snapshots a reader is given while a run is under way: a snapshot costs a reader process's start. */
-const DEFAULT_SNAPSHOT_MS = 8_000;
-
-/** The numbers of the snapshots already in `readRoot`, so a new one never reuses one. */
-export function snapshotNumbers(readRoot: string): number[] {
-  try {
-    return readdirSync(readRoot).filter((name) => /^\d+$/.test(name)).map(Number).sort((left, right) => left - right);
-  } catch {
-    return [];
-  }
-}
-
-/**
- * Records one numbered snapshot of a store for its reader. With one PostgreSQL
- * server a snapshot is no copy: the reader's own repeatable-read transaction is
- * the snapshot, begun when the reader opened, and what a reader needs from the
- * fill is the *number* of the generation it stands at and the moment the fill
- * published it — a line in `<read>/<n>`, written whole by a rename.
- */
-export async function takeSnapshot(owner: StoreOwner, graphPath: string, readRoot: string): Promise<number> {
-  void owner;
-  mkdirSync(readRoot, { recursive: true });
-  const seq = (snapshotNumbers(readRoot).pop() ?? 0) + 1;
-  const temporary = join(readRoot, `${seq}.tmp`);
-  writeFileSync(temporary, `${JSON.stringify({ store: graphPath, at: new Date().toISOString() })}\n`);
-  renameSync(temporary, join(readRoot, String(seq)));
-  return seq;
-}
+/** The least time between two notices a reader gets while a run is under way, in milliseconds. */
+const DEFAULT_PUBLISH_MS = 8_000;
 
 /** What one fill of a knowledge store was asked for. */
 export interface KnowledgeFillOptions {
@@ -79,12 +53,12 @@ export interface KnowledgeFillOptions {
    */
   readonly database: StoreOwner;
   /**
-   * Called with each numbered snapshot the run publishes for a reader — the first publication, then one at most every
-   * `snapshotMs`, and the run's own end — once the store's pins carry what it published: a server that serves the wiki's
-   * pages while the fill runs moves its reader to that snapshot here, so a page shows what the run has published so far.
+   * Called when the run publishes — the first publication, then one at most every `snapshotMs`, and the run's own end —
+   * once the store's pins carry what it published: a server that serves the wiki's pages while the fill runs reads the
+   * store again here, so a page shows what the run has published so far.
    */
-  readonly onPublish?: (snapshot: number) => void | Promise<void>;
-  /** The least time between two snapshots a reader is given while the run is under way, in milliseconds (default 8 000). */
+  readonly onPublish?: () => void | Promise<void>;
+  /** The least time between two notices a reader gets while the run is under way, in milliseconds (default 8 000). */
   readonly snapshotMs?: number;
 }
 
@@ -96,8 +70,6 @@ export interface KnowledgeFillResult {
   readonly message?: string;
   /** The units the run planned. */
   readonly units: number;
-  /** The snapshot the reader opens for this fill, when the run ended and one was made. */
-  readonly snapshot?: number;
   /** The declared repositories the run could not read, each with its path and the state it is in. */
   readonly unread?: readonly { readonly repository: string; readonly path: string; readonly reason: string }[];
 }
@@ -154,10 +126,9 @@ async function pinsOf(owner: StoreOwner): Promise<StorePin[]> {
   return pins;
 }
 
-/** What finishing one store wrote: how many pins of the run's repositories, and the snapshot a reader opens. */
+/** What finishing one store wrote: how many pins of the run's repositories. */
 export interface FinishedKnowledgeStore {
   readonly pins: number;
-  readonly snapshot: number;
 }
 
 /**
@@ -182,14 +153,12 @@ async function writePins(owner: StoreOwner): Promise<number> {
 
 /**
  * Finishes one store after a run that settled: the `knowledge_fill` rows that name the repositories the
- * run published, and the numbered snapshot a reader opens. Every caller that fills the store — the
- * button, `madarch fill`, `madarch fill-stages`, the daemon's updates and `madarch mcp` — finishes it
- * here, so a run of any of them is read by the same reader, in the same snapshot layout.
+ * run published. Every caller that fills the store — the button, `madarch fill`, `madarch fill-stages`,
+ * the daemon's updates and `madarch mcp` — finishes it here, so a run of any of them is read the same way.
  */
-export async function finishKnowledgeStore(owner: StoreOwner, storeFolder: string): Promise<FinishedKnowledgeStore> {
+export async function finishKnowledgeStore(owner: StoreOwner): Promise<FinishedKnowledgeStore> {
   const pins = await writePins(owner);
-  const snapshot = await takeSnapshot(owner, storeDatabasePath(storeFolder), storeSnapshotsFolder(storeFolder));
-  return { pins, snapshot };
+  return { pins };
 }
 
 /**
@@ -204,9 +173,9 @@ export async function startKnowledgeFill(options: KnowledgeFillOptions): Promise
   const owner = options.database;
   await owner.ready;
   let service: FillOrchestratorService | undefined;
-  /** When the reader was last given a snapshot, and the least time between two of them. */
-  let lastSnapshot: number | undefined;
-  const snapshotEveryMs = options.snapshotMs ?? DEFAULT_SNAPSHOT_MS;
+  /** When a reader was last told the run published, and the least time between two notices. */
+  let lastNotice: number | undefined;
+  const noticeEveryMs = options.snapshotMs ?? DEFAULT_PUBLISH_MS;
   let closed = false;
   const close = async (): Promise<void> => {
     if (closed) return;
@@ -227,21 +196,19 @@ export async function startKnowledgeFill(options: KnowledgeFillOptions): Promise
           workers: options.workers ?? 16,
           maxPasses: 100_000,
           onService: (started) => { service = started; },
-          // A reader that is showing the wiki while this run reads it is given the store at a pace proportional to the
-          // run's length, not to its units: the first publication at once (so a first fill's files stand early), then
-          // at most one every `snapshotMs` (8 s by default), and one when the run ends. A snapshot costs a copy of the
-          // store plus a reader process that boots the copy — about half a second of a two-core machine each — and one
-          // per published unit took the fill from 6 s to 15 s there. A snapshot the reader cannot be given is not the
-          // run's failure: the run's own end takes another one, so the step is read and never thrown on.
+          // A page that is showing the wiki while this run fills it follows at a pace proportional to the run, not to
+          // its units: the first publication at once (so a first fill's files stand early), then at most one every
+          // `snapshotMs` (8 s by default). Each notice costs the server one pins read, and the run's own end sends one
+          // too, so the step is read and never thrown on.
           ...(options.onPublish === undefined ? {} : {
             sink: async (event: { readonly kind: string }): Promise<void> => {
               if (event.kind !== 'unit-published') return;
               const at = Date.now();
-              if (lastSnapshot !== undefined && at - lastSnapshot < snapshotEveryMs) return;
-              lastSnapshot = at;
+              if (lastNotice !== undefined && at - lastNotice < noticeEveryMs) return;
+              lastNotice = at;
               try {
                 await writePins(owner);
-                await options.onPublish!(await takeSnapshot(owner, storeDatabasePath(options.storeFolder), storeSnapshotsFolder(options.storeFolder)));
+                await options.onPublish!();
               } catch {
                 // the next publication tries again; the run's end finishes the store whether or not this one did
               }
@@ -265,9 +232,9 @@ export async function startKnowledgeFill(options: KnowledgeFillOptions): Promise
             units: result.units.length,
           };
         }
-        const finished = await finishKnowledgeStore(owner, options.storeFolder);
+        await finishKnowledgeStore(owner);
         return {
-          ok: true, state: result.state, units: result.units.length, snapshot: finished.snapshot,
+          ok: true, state: result.state, units: result.units.length,
           ...(result.unread === undefined || result.unread.length === 0 ? {} : { unread: [...result.unread] }),
         };
       } catch (error) {

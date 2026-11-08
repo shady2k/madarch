@@ -279,7 +279,6 @@ export const COMMANDS: Record<string, CommandSpec> = {
   // person's command. It takes no argument at all — the session's token and the host's address come from
   // the environment the ACP session passed it — so it is listed here for the parser and in no help text.
   'mcp-unit': { positionals: [], flags: { home: false, product: false, port: false, open: false, branch: false, yes: false } },
-  'knowledge-read-worker': { positionals: [], flags: { home: false, product: false, port: false, open: false, branch: false, yes: false } },
   'knowledge-fill-worker': { positionals: [], flags: { home: false, product: false, port: false, open: false, branch: false, yes: false } },
   'knowledge-render-worker': { positionals: [], flags: { home: false, product: false, port: false, open: false, branch: false, yes: false } },
   // The deterministic fill (decision 0026's stages 0 to 7, started by madarch-tzte.21.8): it runs
@@ -697,14 +696,6 @@ export async function main(args: readonly string[], deps: CliDeps = {}): Promise
     await new Promise<void>((done) => { process.stdout.write('', () => done()); });
     process.exit(code);
   }
-  if (command === 'knowledge-read-worker') {
-    const { runReadWorker } = await import('../knowledge/read-worker.js');
-    const { standardInputLines } = await import('../knowledge/lines.js');
-    const code = await runReadWorker({ lines: standardInputLines(), send: (line) => { process.stdout.write(`${line}\n`); } });
-    // The pipe from the server is still open for reading; the worker is over.
-    await new Promise<void>((done) => { process.stdout.write('', () => done()); });
-    process.exit(code);
-  }
   if (command === 'knowledge-render-worker') {
     // The knowledge wiki's Liquid templates, rendered in a process of its own (madarch-u3vw.1): messages are lines on standard input and output.
     const { runRenderWorker } = await import('../knowledge/render-worker.js');
@@ -830,10 +821,10 @@ async function fillStagesCommand(parsed: Parsed, home: string | undefined): Prom
       console.error(`${result.code}: ${result.reason}`);
       exit = 1;
     } else {
-      // The store is finished the way the button finishes it: the pins the run published, and the numbered
-      // snapshot the wiki's reader opens. A run that did not succeed writes neither.
+      // The store is finished the way the button finishes it: the pins the run published. A run that did not succeed
+      // writes none.
       const finished = result.settled && result.state === 'succeeded'
-        ? await finishKnowledgeStore(owner, storeFolder)
+        ? await finishKnowledgeStore(owner)
         : undefined;
       reportFillStages(product, storeFolder, result, await countPublishedFactsByKind(owner), finished, Date.now() - started, parsed.json);
       // A run that did not settle, or settled without its coverage, is not a
@@ -889,12 +880,12 @@ function reportFillStages(product: { readonly name: string; readonly folder: str
   const units = [...result.units].sort((left, right) => byCodePoint(left.unitId, right.unitId));
   const executed = units.filter((unit) => !inherited.has(unit.unitId));
   if (json) {
-    console.log(JSON.stringify({ product, store: storeFolder, runId: result.runId, state: result.state, settled: result.settled, passes: result.passes, work: result.work, stoppedBecause: result.stoppedBecause, retryWaitMs: result.retryWaitMs, units, inherited: [...inherited].sort(byCodePoint), foundNothing: [...result.foundNothing].sort(byCodePoint), counts, snapshot: finished?.snapshot, elapsedMs }));
+    console.log(JSON.stringify({ product, store: storeFolder, runId: result.runId, state: result.state, settled: result.settled, passes: result.passes, work: result.work, stoppedBecause: result.stoppedBecause, retryWaitMs: result.retryWaitMs, units, inherited: [...inherited].sort(byCodePoint), foundNothing: [...result.foundNothing].sort(byCodePoint), counts, elapsedMs }));
     return;
   }
   console.log(`Fill ${result.runId}: ${result.state}${result.settled ? '' : ', not settled'}${result.stoppedBecause === undefined ? '' : ` (${result.stoppedBecause})`}`);
   console.log(`Product: ${product.name} in ${displayPath(product.folder)}`);
-  console.log(`Store: ${displayPath(storeFolder)}${finished === undefined ? ' (no snapshot: the run did not succeed)' : `, snapshot ${String(finished.snapshot)}`}`);
+  console.log(`Store: ${displayPath(storeFolder)}${finished === undefined ? ' (the run did not succeed: its pins were not written)' : ''}`);
   console.log(`Units: ${String(units.length)} in the run, ${String(executed.length)} executed and ${String(inherited.size)} inherited`);
   for (const unit of units) console.log(`${unit.unitId}\t${unit.state}\tgeneration ${String(unit.generation)}\t${inherited.has(unit.unitId) ? 'inherited' : 'executed'}`);
   if (result.foundNothing.length > 0) console.log(`Stages that read their inputs and found nothing: ${[...result.foundNothing].sort(byCodePoint).join(', ')}`);
@@ -958,7 +949,7 @@ async function fillCommand(parsed: Parsed, home: string | undefined): Promise<nu
   console.log(`Fill ${runId}: ${result.state}`);
   console.log(`Product: ${identity.product.name} in ${displayPath(folder)}`);
   console.log(`Store: ${displayPath(storeFolder)}`);
-  console.log(`Units: ${String(result.units)}${result.snapshot === undefined ? '' : `, snapshot ${String(result.snapshot)}`}`);
+  console.log(`Units: ${String(result.units)}`);
   if (!result.ok) { if (result.message !== undefined) console.error(result.message); return 1; }
   console.log('Watch the pages with: madarch serve');
   return 0;

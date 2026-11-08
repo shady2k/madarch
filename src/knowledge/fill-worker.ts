@@ -34,7 +34,7 @@ type FillReply =
   | { type: 'started'; id: number }
   | { type: 'failed'; id: number; message: string }
   /** A numbered snapshot a reader opens: its folder number, and the pins the store held when it was made. */
-  | { type: 'snapshot'; seq: number }
+  | { type: 'snapshot' }
   | { type: 'done'; id: number; result: KnowledgeFillResult }
   | { type: 'controlled'; id: number; ok: boolean; state?: string; message?: string };
 
@@ -77,8 +77,8 @@ export async function runFillWorker(io: { lines: AsyncIterable<string>; send: (l
           runId: request.runId,
           database,
           ...(request.snapshotMs === undefined ? {} : { snapshotMs: request.snapshotMs }),
-          // A server's pages follow the fill: every snapshot the run publishes is one its reader can open now.
-          onPublish: (seq) => send({ type: 'snapshot', seq }),
+          // A server's pages follow the fill: it reads the store again on every notice (madarch-8bdc.9).
+          onPublish: () => send({ type: 'snapshot' }),
         });
       } catch (error) {
         await database.close().catch(() => undefined);
@@ -154,10 +154,10 @@ export interface FillWorkerRun {
 
 /**
  * A fill the server runs in a worker process, as the run a caller controls: the store is
- * the worker's, the snapshots it publishes are handed to `opened`, and a pause or stop is
+ * the worker's, each publication is handed to `opened`, and a pause or stop is
  * carried to the run's own state machine over the pipe.
  */
-export function startFillInWorker(options: FillWorkerRun, opened: (seq: number) => void): KnowledgeFillRun & { close(): Promise<void> } {
+export function startFillInWorker(options: FillWorkerRun, opened: () => void): KnowledgeFillRun & { close(): Promise<void> } {
   const child = spawnFillWorker();
   let next = 1;
   let answered = false;
@@ -179,7 +179,7 @@ export function startFillInWorker(options: FillWorkerRun, opened: (seq: number) 
     try {
       for await (const line of child.lines) {
         const reply = decodeWire<FillReply>(line);
-        if (reply.type === 'snapshot') { opened(reply.seq); continue; }
+        if (reply.type === 'snapshot') { opened(); continue; }
         if (reply.type === 'done') { finished = true; resolveDone(reply.result); continue; }
         if (reply.type === 'failed' && reply.id === startId) { rejectDone(new Error(reply.message)); continue; }
         waiting.get(reply.id)?.(reply);

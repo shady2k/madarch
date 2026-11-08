@@ -61,7 +61,3 @@ export function storeDatabasePath(storeFolder: string): string {
   return join(storeFolder, 'graph');
 }
 
-/** The folder a store's numbered snapshots are made in, which a reader opens: `<store>/read`. */
-export function storeSnapshotsFolder(storeFolder: string): string {
-  return join(storeFolder, 'read');
-}
