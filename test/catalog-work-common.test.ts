@@ -17,6 +17,7 @@ const AREA_KINDS: Readonly<Record<string, string>> = {
   'time-entry': 'common.attachment',
   'request': 'common.attachment',
   'approval': 'common.attachment',
+  'approval-package': 'common.attachment',
   'external-reference': 'common.attachment',
   'operation': 'common.attachment',
   'snapshot': 'common.attachment',
@@ -27,6 +28,10 @@ const AREA_KINDS: Readonly<Record<string, string>> = {
   'workflow-transition': 'common.schema',
   'link-type': 'common.schema',
   'link-behaviour': 'common.schema',
+  'lifecycle': 'common.schema',
+  'responsibility': 'common.schema',
+  'accounting': 'common.schema',
+  'event': 'common.schema',
   'milestone': 'work.planning',
   'epic': 'work.planning',
   'feature': 'work.planning',
@@ -62,7 +67,7 @@ describe('the Work and Common areas of the catalog', () => {
   });
 
   test('every kind of the two areas has its row, both names and relations the catalog declares', () => {
-    expect(Object.keys(AREA_KINDS)).toHaveLength(28);
+    expect(Object.keys(AREA_KINDS)).toHaveLength(33);
     for (const [name, group] of Object.entries(AREA_KINDS)) {
       const row = rows.get(name);
       expect(row, `${name} is a kind of the catalog`).toBeDefined();
@@ -104,5 +109,40 @@ describe('the Work and Common areas of the catalog', () => {
     expect(time?.sources.some((source) => source.includes('jira'))).toBe(true);
     expect(time?.sources.some((source) => source.includes('opentelemetry'))).toBe(true);
     expect(rows.get('external-reference')).toMatchObject({ group: 'common.attachment', policy: 'none' });
+  });
+
+  test('a pending change is an approval package, and an approval is the decision on it', () => {
+    const pack = rows.get('approval-package');
+    expect(pack).toMatchObject({ group: 'common.attachment', id: 'practice.approval-package', policy: 'none' });
+    for (const word of ['created or changed', 'links', 'risks', 'one current status', 'approved']) expect(pack?.definition.includes(word)).toBe(true);
+    expect(rows.get('approval')?.definition).toContain('approval package');
+    expect(rows.get('approval')?.definition).toContain('declined with a reason');
+    expect(rows.get('approval')?.out).toContain('approves');
+  });
+
+  test('an entity has one current status, and an open question blocks it rather than adding a status', () => {
+    expect(rows.get('lifecycle')?.definition).toContain('one current status');
+    expect(rows.get('lifecycle')?.definition).toContain('open question');
+    expect(rows.get('lifecycle')?.definition).toContain('blocked');
+    expect(rows.get('question')?.definition).toContain('blocked');
+    expect(rows.get('question')?.definition).toContain('not a status');
+    expect(rows.get('workflow-status')?.definition).toContain('one current status');
+    // No kind is a status-like state of its own: the one status kind is the workflow's, and the question is a kind of its own.
+    expect([...rows.keys()].filter((name) => name.endsWith('-status'))).toEqual(['workflow-status']);
+    expect(rows.has('awaiting-clarification')).toBe(false);
+  });
+
+  test('the schema carries the shared lifecycle, responsibility, accounting and event parts', () => {
+    for (const name of ['lifecycle', 'responsibility', 'accounting', 'event']) {
+      const row = rows.get(name);
+      expect([name, row?.group]).toEqual([name, 'common.schema']);
+      expect([name, (row?.sources.length ?? 0) > 0]).toEqual([name, true]);
+    }
+    expect(rows.get('responsibility')?.definition).toContain('responsible person');
+    expect(rows.get('responsibility')?.definition).toContain('executor');
+    expect(rows.get('accounting')?.definition).toContain('lifecycle step');
+    expect(rows.get('event')?.definition).toContain('transition');
+    expect(rows.get('workflow-transition')?.definition).toContain('event');
+    expect(rows.get('task')?.definition).toContain('no entity of its own');
   });
 });
