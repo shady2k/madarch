@@ -2111,8 +2111,13 @@ export class KnowledgeProduct {
       if (run === undefined || run === null) return;
       if (run.state !== 'succeeded' && run.state !== 'failed' && run.state !== 'cancelled' && run.state !== 'completed_partial') return;
       await this.published(undefined).catch(() => undefined);
+      const end = await readFillEnd(this.reader.owner, this.fillRunId).catch(() => null);
       this.changedLoaded = false;
-      this.fill = { state: 'done', startedAt: this.fill.startedAt, finishedAt: (this.options.now?.() ?? new Date()).toISOString(), gaps: 0, changed: this.lastChangedPages() ?? [] };
+      const unread = end?.unread === undefined ? this.unreadOf() : [...end.unread];
+      this.fill = {
+        state: 'done', startedAt: this.fill.startedAt, finishedAt: (this.options.now?.() ?? new Date()).toISOString(), gaps: 0,
+        changed: this.lastChangedPages() ?? [], ...(unread.length === 0 ? {} : { unread }),
+      };
       this.notify();
     }
   }
