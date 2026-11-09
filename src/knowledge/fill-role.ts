@@ -11,7 +11,7 @@ import { startKnowledgeFill } from './fill-run.js';
 import { claimFillRun, openFillRunQueue, settleFillRun } from '../fill/run-jobs.js';
 import { withSpan } from '../obs/trace.js';
 import { readRunControl, writeFillEnd } from '../fill/orchestrator-store.js';
-import { stopStoreForExit } from '../adapters/postgres-cluster.js';
+import { refuseStarts, stopStoreForExit } from '../adapters/postgres-cluster.js';
 
 /** The owner one store is read through, as `startKnowledgeFill` takes it: derived, so this module holds no connection. */
 type StoreOwner = NonNullable<Parameters<typeof startKnowledgeFill>[0]['database']>;
@@ -90,6 +90,8 @@ export async function runFillRole(options: FillRoleOptions): Promise<number> {
   const end = async (exitCode = 0): Promise<void> => {
     if (state.ending) return;
     state.ending = true;
+    // Nothing is started from here on: the start of a server is synchronous, and the stop below may not wait for one.
+    refuseStarts();
     withoutSignals();
     log('madarch fill: the process that started this role is gone, so the role ends and gives its stores up');
     const deadline = Date.now() + ENDING_MS;

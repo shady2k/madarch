@@ -52,6 +52,7 @@ import { Client } from 'pg';
 import { log as defaultLog } from '../obs/log.js';
 import { sha256Hex } from '../graph/digest.js';
 import { ensurePostgresInstalled, refuseRoot } from './postgres-install.js';
+import { postgresInstallFolder } from './postgres-builds.js';
 import { setPriority } from 'node:os';
 
 /** The port every cluster's socket is named after: nothing listens on TCP, so two clusters never meet. */
@@ -422,6 +423,18 @@ async function releaseCluster(key: string): Promise<void> {
   await held.cluster.stop();
 }
 
+/**
+ * Whether this process has said it is stopping: a process that is ending starts no server, so a role whose server was
+ * killed does not spend the wait for its exit on an `initdb` — the start is synchronous, and the stop cannot run until it
+ * returns (madarch-8bdc.12: a daemon's stop waited its whole two seconds on a role doing one).
+ */
+let startsRefused = false;
+
+/** Refuses every server start from now on, for a process that is ending. */
+export function refuseStarts(): void {
+  startsRefused = true;
+}
+
 /** The open itself, under the two locks that two processes share a store's server by. */
 async function openOnce(dataDir: string, options: OpenClusterOptions): Promise<RunningCluster> {
   const env = options.env ?? process.env;
@@ -446,6 +459,7 @@ async function openOnce(dataDir: string, options: OpenClusterOptions): Promise<R
         // A server another process started, or a predecessor left: it serves this store, so it is lowered too.
         lowerPriorityOf(dataDir);
       } else {
+        if (startsRefused) throw new Error(`${dataDir}:1: this process is stopping, so the store's PostgreSQL server is not started for it (src/adapters/postgres-cluster.ts)`);
         await reclaimStaleServer(dataDir, bin, socketDir, log);
         startServer({ dataDir, socketDir, bin, log });
         if (!(await answering(socketDir))) {
@@ -493,10 +507,15 @@ export async function stopStoreForExit(store: string, options: { readonly force?
   const users = openSync(usersLockPath(key), 'a+');
   try {
     if (flock(users, LOCK_EX | LOCK_NB) !== 0) return;
-    // No question is asked of the server first: `pg_ctl stop` answers "not running" for a server that is gone, and a
+    // The programs of the install that is here, and never an install: `ensurePostgresInstalled` downloads one when the
+    // caller's home holds none, and a role ending in a home that never ran a server would wait for that download before it
+    // stopped anything (measured: a daemon's role held a server's stop for its whole two-second wait this way). No
+    // `pg_ctl` means no server of this install runs, so there is nothing to stop.
+    const bin = join(postgresInstallFolder(process.env), 'bin');
+    if (!existsSync(join(bin, 'pg_ctl'))) return;
+    // No question is asked of the server first either: `pg_ctl stop` answers "not running" for a server that is gone, and a
     // connection this process tried to open before it (up to its own two-second bound) is time the store's death may not
     // spend (madarch-8bdc.12).
-    const { bin } = await ensurePostgresInstalled({});
     const stopped = runBinary(join(bin, 'pg_ctl'), ['-D', key, '-m', 'fast', '-w', 'stop'], { allowFailure: true });
     // The socket files go only once the server stopped: a stop that failed leaves a server that still answers, and taking
     // its socket away would make it look gone.
