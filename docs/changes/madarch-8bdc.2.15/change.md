@@ -218,17 +218,32 @@ ordinary user `shady` unless a line says root:
 - `bun run check`: green — `tsc --noEmit`, the architecture check with **no-unreachable-code 0** and the list unchanged
   at 33 entries (all `sql-only-in-storage-layer` debt of earlier changes), the catalog (28 areas, 515 kinds) and the
   workflows (4).
-- `MADARCH_SKIP_PERF=1 bun test test/` at `00a1584` with the final test files: **2844 pass, 184 skip, 0 fail**, 3028
-  tests across 208 files, 311.69 s, exit 0. The run needs `XDG_CONFIG_HOME` unset: this box points it at a root-only
-  folder, and git then refuses to read an attributes file it finds there, which four `own-wiki` cases read as a
-  dirty checkout. Nothing of the change touches those cases.
+- `MADARCH_SKIP_PERF=1 bun test test/` run as `shady` inside the delegated cgroup (the wrapper below) with
+  `MADARCH_SANDBOX_REQUIRED=1`: **2871 pass, 157 skip, 0 fail**, 3028 tests across 208 files, 329.13 s, exit 0, and
+  the plugin sandbox file **27 pass, 0 skip** inside it. The run needs `XDG_CONFIG_HOME` unset: this box points it at
+  a root-only folder, and git then refuses to read an attributes file it finds there, which four `own-wiki` cases
+  read as a dirty checkout. Nothing of the change touches those cases; the 157 skips are the suite's own named
+  skips (stages out of the fill's list, PostgreSQL legs without a server, performance cases under `MADARCH_SKIP_PERF`).
 - `bun test test/plugin-protocol.test.ts test/plugin-host.test.ts`: **55 pass, 0 fail** (28 and 27), 197 assertions,
   18.7 s.
-- The host and sandbox cases run in this VM, as root with the delegated slice
-  `/sys/fs/cgroup/system.slice/madarch.slice` (the file makes it when it can) and the pinned bubblewrap 0.11.2
-  installed from its release into `<home>/madarch/tools/bubblewrap/0.11.2`: **27 pass, 0 fail**. Run as `shady`, who
-  is delegated no cgroup here, the same file prints
-  `plugin host cases skipped: no cgroup is delegated to madarch …` and reports **27 skip, 0 pass, 0 fail**.
+- The host and sandbox cases run for real as the ordinary user `shady` (uid 501) inside a cgroup v2 subtree delegated
+  to that account, with the pinned bubblewrap 0.11.2 (the step below), `MADARCH_SANDBOX_REQUIRED=1`:
+  **27 pass, 0 fail, 0 skip** — the forked tree past the pids bound, the oom kill, the refused socket, the refused
+  write outside the temporary folder, the refused read outside the snapshot, the setsid child killed with the cgroup
+  and the pause/stop/cancel cases all ran under confinement. The delegation is made by
+  `scripts/plugin-sandbox-cgroup.sh`: as root it creates `/sys/fs/cgroup/madarch-test`, hands it `+memory +cpu
+  +pids`, chowns it to the account, and runs the command inside a leaf (`run`) of it — a cgroup that hands
+  controllers on may hold no process, and the kernel lets a process move between cgroups only inside the subtree it
+  owns. Unprivileged user namespaces are on for the account (`kernel.apparmor_restrict_unprivileged_userns=0` on this
+  Ubuntu 24.04, `kernel.unprivileged_userns_clone=1`).
+- Without the delegation and without the flag the same file prints `plugin host cases skipped: …` and reports 27
+  skip; with `MADARCH_SANDBOX_REQUIRED=1` it fails (exit 1, `1 fail, 1 error`), so a machine that cannot confine a
+  plugin never reports a green it did not earn. CI sets the flag in the shard job: the step
+  `Delegate a cgroup to the plugin sandbox, and allow user namespaces` of `test-shard` makes the subtree with sudo and
+  switches `kernel.apparmor_restrict_unprivileged_userns` off, and the step `Run shard and record its file list` runs
+  the shard through `scripts/plugin-sandbox-cgroup.sh`, which re-enters as the runner inside the subtree's leaf and
+  exports `MADARCH_PLUGIN_CGROUP` and `MADARCH_SANDBOX_REQUIRED=1`. The plugin cgroup is removed with a short retry
+  when a killed tree is still being reaped, so a run leaves no cgroup behind.
 - StrykerJS 9 (command runner `bun test test/plugin-protocol.test.ts`, `coverageAnalysis: off`, in place, from a
   scratch folder with `@stryker-mutator/core@9` and `typescript@5.9.3` beside it), on the host's answer and byte
   modules: `src/plugin/results.ts` 217 mutants — **135 killed, 82 survived, 62.21%**; `src/plugin/wire.ts` 270

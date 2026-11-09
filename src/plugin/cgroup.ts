@@ -11,6 +11,7 @@
  */
 import { existsSync, mkdirSync, readFileSync, rmdirSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
+import { log } from '../obs/log.js';
 
 /** The cgroup filesystem madarch reads and writes. */
 const CGROUP_ROOT = '/sys/fs/cgroup';
@@ -312,12 +313,21 @@ export class PluginCgroup {
     };
   }
 
-  /** Removes the cgroup once its processes are gone; a folder the kernel still uses stays for the next sweep. */
-  remove(): void {
-    try {
-      rmdirSync(this.folder);
-    } catch {
-      // The kernel refuses while a process still stands in the tree: the plugin's own supervisor reaps it.
+  /**
+   * Removes the cgroup once its processes are gone. The kernel refuses while a process still stands in the tree, and a
+   * killed tree takes a moment to be reaped, so the removal waits a short while; a folder that outlives the wait is
+   * named in the log rather than left to fill the delegation silently.
+   */
+  async remove(): Promise<void> {
+    for (let attempt = 0; attempt < 100; attempt += 1) {
+      try {
+        rmdirSync(this.folder);
+        return;
+      } catch {
+        if (!this.exists()) return;
+        await Bun.sleep(20);
+      }
     }
+    log.warn('a plugin cgroup outlived its tree', { folder: this.folder, pids: this.pidsCurrent() });
   }
 }

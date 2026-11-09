@@ -614,7 +614,7 @@ export class PluginHost {
     if (this.sandbox !== undefined) {
       this.sandbox.kill();
       await Promise.race([this.sandbox.exited, Bun.sleep(2_000)]);
-      this.sandbox.dispose();
+      await this.sandbox.dispose();
     }
   }
 }

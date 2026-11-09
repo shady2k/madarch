@@ -83,7 +83,7 @@ export interface SandboxProcess {
   /** Settles when the tree's supervisor has exited. */
   readonly exited: Promise<{ code: number | null; signal: NodeJS.Signals | null }>;
   /** Removes the cgroup, after the tree is gone. */
-  dispose(): void;
+  dispose(): Promise<void>;
 }
 
 /** The platform key this process sandboxes for. */
@@ -200,7 +200,6 @@ export async function startSandbox(spec: SandboxSpec): Promise<SandboxProcess> {
   const exited = new Promise<{ code: number | null; signal: NodeJS.Signals | null }>((done) => {
     child.on('exit', (code, signal) => {
       finalCounters = group.counters();
-      group.remove();
       done({ code, signal });
     });
   });
@@ -211,6 +210,7 @@ export async function startSandbox(spec: SandboxSpec): Promise<SandboxProcess> {
   } catch (error) {
     group.kill();
     child.kill('SIGKILL');
+    await group.remove();
     throw new Error(`${WHERE}:1: the plugin's cgroup ${group.folder} could not be given the sandbox's supervisor: ${(error as Error).message}`);
   } finally {
     sync.end();
@@ -233,6 +233,6 @@ export async function startSandbox(spec: SandboxSpec): Promise<SandboxProcess> {
       return { file: stderrFile, totalBytes: stderr.bytes, truncated: stderr.truncated };
     },
     exited,
-    dispose: () => group.remove(),
+    dispose: async () => await group.remove(),
   };
 }

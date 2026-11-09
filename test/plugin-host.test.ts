@@ -120,7 +120,14 @@ const skipReason: string | undefined = await (async (): Promise<string | undefin
   return undefined;
 })();
 
-if (skipReason !== undefined) console.log(`plugin host cases skipped: ${skipReason}`);
+if (skipReason !== undefined) {
+  // A machine that was told the sandbox cases must run here fails on the spot: a suite that skipped them would report
+  // a green it never earned. CI sets the flag in the step that delegates the cgroup (docs/system/plugin-sandbox.md).
+  if (process.env['MADARCH_SANDBOX_REQUIRED'] === '1') {
+    throw new Error(`the plugin sandbox cases are required here (MADARCH_SANDBOX_REQUIRED=1), and this machine cannot run them: ${skipReason}`);
+  }
+  console.log(`plugin host cases skipped: ${skipReason}`);
+}
 
 /** One case, skipped with the machine's reason when the sandbox cannot run here. */
 const hostTest = test.skipIf(skipReason !== undefined);

@@ -122,6 +122,6 @@ export async function startDarwinSandbox(spec: DarwinSandboxSpec): Promise<Sandb
       return { file: stderrFile, totalBytes: stderr.bytes, truncated: stderr.truncated };
     },
     exited,
-    dispose: () => undefined,
+    dispose: async () => undefined,
   };
 }
