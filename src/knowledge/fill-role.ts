@@ -78,7 +78,11 @@ async function runOne(options: FillRoleOptions, held: Watched, job: NonNullable<
   const productFolder = data.product;
   const read = readProduct(productFolder);
   if (!read.ok) {
-    await settleFillRun(held.queue, job, { ok: false, message: `${read.file}:${read.line}: ${read.message}` });
+    // The run's end is written even when no run started (madarch-8bdc.9): the api role that pressed the fill answers
+    // `failed` with this message, where a missing end would leave it saying `running` for ever.
+    const message = `${read.file}:${read.line}: ${read.message}`;
+    await writeFillEnd(held.owner, { runId: data.runId, state: 'failed', message }).catch(() => undefined);
+    await settleFillRun(held.queue, job, { ok: false, message });
     return;
   }
   let owner: StoreOwner;

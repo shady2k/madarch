@@ -38,7 +38,7 @@ import type { KnowledgeFillResult, KnowledgeFillRun } from './fill-run.js';
 import { askFillRun, openFillRunQueue } from '../fill/run-jobs.js';
 import { startKnowledgeFill } from './fill-run.js';
 import { askRunControl, readFillEnd } from '../fill/orchestrator-store.js';
-import { readLiveRun, readRun, readStoreStamp } from '../fill/state-store.js';
+import { readLiveRun, readStoreStamp } from '../fill/state-store.js';
 import { fillWritesPages } from '../fill/steps.js';
 import { locationOf, type RenderContext } from './blocks.js';
 import { GraphReader } from './graph-read.js';
@@ -1028,17 +1028,14 @@ export class KnowledgeProduct {
       // around every press cost more than the fill it asked for.
       this.fillQueue ??= await openFillRunQueue(owner);
       await askFillRun(this.fillQueue, { product: product.folder, store: storeFolder, runId, ...(asked.language === undefined ? {} : { language: asked.language }), ...(asked.task === undefined ? {} : { task: asked.task }) });
-      // The run's own state is the answer: the process that runs the fill writes it there, and the trace the answer's
-      // progress is read from is that run's (`statusFill`). A run that ended is one of `succeeded`, `failed`,
-      // `cancelled` or `completed_partial` — the last of which is an end whose pages were not all written.
+      // The run's end is the row the process that ran it writes once the store is finished (madarch-8bdc.9): its
+      // terminal run row alone is not the store's publication, because the pins a page reads land after it. What the run
+      // answered — the reason it did not finish, the repositories it could not read — is written there too.
       for (;;) {
         if (this.closed) return;
-        const run = await readRun(owner, runId).catch(() => null);
-        state = run?.state;
-        if (state === 'succeeded' || state === 'failed' || state === 'cancelled' || state === 'completed_partial') {
-          // What the run answered — the reason it did not finish, the repositories it could not read — is the process
-          // that ran it's own record of its end (madarch-8bdc.9).
-          end = await readFillEnd(owner, runId).catch(() => null);
+        end = await readFillEnd(owner, runId).catch(() => null);
+        if (end !== null) {
+          state = end.state;
           break;
         }
         await Bun.sleep(250);
@@ -1049,7 +1046,7 @@ export class KnowledgeProduct {
       return;
     }
     if (state !== 'succeeded') {
-      this.fill = { state: 'failed', startedAt: this.fill.startedAt, finishedAt: (this.options.now?.() ?? new Date()).toISOString(), message: `the fill ended ${state ?? 'without a run'}`, code: 'fill' };
+      this.fill = { state: 'failed', startedAt: this.fill.startedAt, finishedAt: (this.options.now?.() ?? new Date()).toISOString(), message: end?.message ?? `the fill ended ${state ?? 'without a run'}`, code: 'fill' };
       this.notify();
       return;
     }
@@ -2165,19 +2162,21 @@ export class KnowledgeProduct {
       return;
     }
     if (this.fill.state === 'running' && this.fillRunId !== undefined) {
-      // The run the press named may not be written yet by the process that took the job: only a run that stands settled
-      // ends the fill here.
-      const run = await readRun(this.reader.owner, this.fillRunId).catch(() => undefined);
-      if (run === undefined || run === null) return;
-      if (run.state !== 'succeeded' && run.state !== 'failed' && run.state !== 'cancelled' && run.state !== 'completed_partial') return;
-      await this.published(undefined).catch(() => undefined);
+      // The end of the run is the row the process that ran it writes after the store is finished (madarch-8bdc.9): the
+      // run row's terminal state alone is not the store's publication, because the pins a page reads land after it. A run
+      // the process has not ended here yet keeps this answer `running`.
       const end = await readFillEnd(this.reader.owner, this.fillRunId).catch(() => null);
+      if (end === null) return;
+      await this.published(undefined).catch(() => undefined);
       this.changedLoaded = false;
-      const unread = end?.unread === undefined ? this.unreadOf() : [...end.unread];
-      this.fill = {
-        state: 'done', startedAt: this.fill.startedAt, finishedAt: (this.options.now?.() ?? new Date()).toISOString(), gaps: 0,
-        changed: this.lastChangedPages() ?? [], ...(unread.length === 0 ? {} : { unread }),
-      };
+      const unread = end.unread === undefined ? this.unreadOf() : [...end.unread];
+      const finishedAt = (this.options.now?.() ?? new Date()).toISOString();
+      this.fill = end.state === 'succeeded'
+        ? {
+          state: 'done', startedAt: this.fill.startedAt, finishedAt, gaps: 0,
+          changed: this.lastChangedPages() ?? [], ...(unread.length === 0 ? {} : { unread }),
+        }
+        : { state: 'failed', startedAt: this.fill.startedAt, finishedAt, message: end.message ?? `the fill ended ${end.state}`, code: 'fill' };
       this.notify();
     }
   }

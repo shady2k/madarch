@@ -21,7 +21,7 @@ import { mkdirSync } from 'node:fs';
 import { join } from 'node:path';
 import { promisify } from 'node:util';
 import { runFill } from '../fill/run.js';
-import { readProgress } from '../fill/orchestrator-store.js';
+import { readProgress, writeFillEnd } from '../fill/orchestrator-store.js';
 import type { FillOrchestratorService } from '../fill/orchestrator-host.js';
 import { listRepositories, repositoryFacts } from '../graph/index.js';
 
@@ -184,7 +184,7 @@ export async function startKnowledgeFill(options: KnowledgeFillOptions): Promise
     await owner.close().catch(() => undefined);
   };
   try {
-    const done = (async (): Promise<KnowledgeFillResult> => {
+    const fillTheStore = async (): Promise<KnowledgeFillResult> => {
       try {
         // One fill, through the one runner: the button, `madarch fill`, the daemon and `madarch mcp`
         // all start it here (madarch-8bdc.2.5, item 6).
@@ -232,6 +232,8 @@ export async function startKnowledgeFill(options: KnowledgeFillOptions): Promise
             units: result.units.length,
           };
         }
+        // The pins are committed before the run is called finished anywhere: they are what a page asked after the fill
+        // reads, and a run whose end was visible first would let the pressing side read an empty store as its result.
         await finishKnowledgeStore(owner);
         return {
           ok: true, state: result.state, units: result.units.length,
@@ -239,9 +241,31 @@ export async function startKnowledgeFill(options: KnowledgeFillOptions): Promise
         };
       } catch (error) {
         return { ok: false, state: 'failed', message: error instanceof Error ? error.message : String(error), units: 0 };
-      } finally {
-        await close();
       }
+    };
+
+    /**
+     * The run to its end (madarch-8bdc.9). The end is the `fill_end` row, written here after the store is finished —
+     * pins and all — and before the owner closes: the process that pressed the fill, and any other api instance of the
+     * same store, read it as the moment the store is published. Without it the pressing side could see the run row's
+     * terminal state while the pins were still uncommitted, read an empty store as the run's result, and keep answering
+     * "nothing has been read from the code yet" until its reader next closed and reopened (measured 2026-11-08: the run
+     * row said `succeeded` while `knowledge_fill` held no row, and the pins landed 10 ms later).
+     */
+    const done = (async (): Promise<KnowledgeFillResult> => {
+      const answer = await fillTheStore();
+      try {
+        await writeFillEnd(owner, {
+          runId: options.runId, state: answer.state,
+          ...(answer.message === undefined ? {} : { message: answer.message }),
+          ...(answer.unread === undefined ? {} : { unread: answer.unread }),
+        });
+      } catch {
+        // The run's answer stands whatever happened to the record of its end: a store that cannot take this row is one
+        // whose pages already answer what the run wrote.
+      }
+      await close();
+      return answer;
     })();
     return {
       runId: options.runId,
