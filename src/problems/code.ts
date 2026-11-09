@@ -127,10 +127,12 @@ export function evaluateCode(snapshot: CodeSnapshot, settings: ProblemSettings):
   if (Object.keys(settings.rules).length === 0) notes.push({ message: 'the manifest declares no problems.rules, so the code section runs no rule: the starter set writes the rules a product edits' });
   for (const rule of ruleSpecs(settings)) {
     if (rule.enabled === false) continue;
+    // The code section judges the code's own rules (madarch-8bdc.13): a documents or wiki rule is judged by its own
+    // section, and a rule whose predicate no section implements is said once by `collectProblems`, not once by each
+    // section that passed over it.
+    if (rule.section !== 'code') continue;
     const work = CODE_IMPLEMENTATIONS[rule.predicate];
-    // The manifest reader refuses a predicate the engine does not implement; a settings object built by a caller can
-    // still name one, and a rule that does not run is said, never dropped in silence.
-    if (work === undefined) { notes.push({ message: `the rule ${rule.id} names the predicate "${rule.predicate}", which the engine does not implement: the rule is not run`, textKey: 'ruleUnimplemented', textArgs: { rule: rule.id, predicate: rule.predicate } }); continue; }
+    if (work === undefined) continue;
     try {
       drafts.push(...work(snapshot, rule, rule.severity, settings));
     } catch (error) {

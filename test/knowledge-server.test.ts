@@ -144,6 +144,17 @@ describe('an empty product', () => {
     expect(Buffer.byteLength(text, 'utf8')).toBeLessThan(300_000);
   }, 30_000);
 
+  test('a fresh starter product\'s problems page carries none of the notes about rules of another section', async () => {
+    // madarch-8bdc.13: the code section ran every rule of the manifest, so each documents and wiki rule of the starter set
+    // was "a predicate the engine does not implement" — ten notes on a fresh product. The code section judges the code's
+    // rules, the documents and wiki sections judge theirs, and a predicate no section implements is said once.
+    const listing = await get('/products/bare/api/k/problems');
+    expect(listing.status).toBe(200);
+    const notes = (listing.body as { notes?: { message: string; textKey?: string }[] }).notes ?? [];
+    expect(notes.filter((note) => note.textKey === 'ruleUnimplemented')).toEqual([]);
+    expect(notes.filter((note) => note.message.includes('the engine does not implement'))).toEqual([]);
+  }, 30_000);
+
   test('the fill is refused in words where it cannot start: no repository', async () => {
     const none = await fetch(`${server.url}/products/unconnected/api/k/fill`, { method: 'POST' });
     expect(none.status).toBe(409);

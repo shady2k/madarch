@@ -480,7 +480,11 @@ export function productFolder(
   given: string | undefined,
   cwd: string,
 ): { folder: string } | { refused: string } {
-  if (given !== undefined && given !== '') return { folder: given };
+  // A folder the command named is resolved against the current directory **once** (madarch-8bdc.11): every later use —
+  // the git commands that run in it, the `repos/<name>` a clone lands in, the paths printed — then names one place.
+  // Kept relative, `--product products/idea` cloned into `products/idea/products/idea/repos/<name>`, because git read
+  // the relative target against a current directory that was already the product's.
+  if (given !== undefined && given !== '') return { folder: resolve(cwd, given) };
   const found = whereAmI({ folder: cwd });
   if (found.outcome === 'product' || found.outcome === 'code') return { folder: found.product };
   if (found.outcome === 'refused') return { refused: refusalText(found) };
