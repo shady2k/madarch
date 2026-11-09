@@ -285,14 +285,14 @@ export const GROUPS: readonly CatalogGroupData[] = CATALOG_GROUPS;
 export const ROLES: readonly { name: string; lead: string[]; open: string[] }[] = [
   { name: 'product', lead: ['strategy', 'discovery', 'requirements', 'rd'], open: ['stated', 'implementedby', 'linkedfrom', 'related', 'properties'] },
   { name: 'analyst', lead: ['strategy', 'requirements', 'data', 'contracts', 'information'], open: ['stated', 'implementedby', 'linkedfrom', 'related', 'properties', 'er', 'sequence', 'children'] },
-  { name: 'architect', lead: ['architecture', 'code', 'contracts', 'data', 'infrastructure', 'security'], open: ['graph', 'related', 'sequence', 'er', 'stated', 'implementedby', 'linkedfrom', 'properties', 'children'] },
-  { name: 'developer', lead: ['code', 'contracts', 'data', 'testing', 'delivery', 'review', 'history'], open: ['source', 'callers', 'callees', 'sequence', 'graph', 'related', 'history', 'properties', 'children', 'er', 'stated'] },
+  { name: 'architect', lead: ['architecture', 'code', 'contracts', 'data', 'infrastructure', 'security', 'common'], open: ['graph', 'related', 'sequence', 'er', 'stated', 'implementedby', 'linkedfrom', 'properties', 'children'] },
+  { name: 'developer', lead: ['code', 'contracts', 'data', 'testing', 'delivery', 'review', 'history', 'work'], open: ['source', 'callers', 'callees', 'sequence', 'graph', 'related', 'history', 'properties', 'children', 'er', 'stated'] },
   { name: 'operations', lead: ['operations', 'infrastructure', 'messaging', 'resilience'], open: ['properties', 'related', 'history', 'children', 'source', 'er', 'stated'] },
   { name: 'tester', lead: ['testing', 'requirements', 'strategy'], open: ['stated', 'implementedby', 'linkedfrom', 'related', 'properties', 'callers', 'children'] },
   { name: 'designer', lead: ['design', 'requirements', 'discovery'], open: ['stated', 'implementedby', 'linkedfrom', 'related', 'properties', 'children'] },
   { name: 'security-engineer', lead: ['security', 'privacy', 'architecture', 'delivery'], open: ['properties', 'related', 'graph', 'children', 'source', 'stated'] },
   { name: 'platform-devops', lead: ['infrastructure', 'delivery', 'operations', 'messaging', 'automation', 'decommissioning'], open: ['properties', 'related', 'history', 'children', 'source', 'er', 'stated'] },
-  { name: 'product-lead', lead: ['strategy', 'costs', 'suppliers', 'documentation', 'organisation', 'ml'], open: ['stated', 'implementedby', 'linkedfrom', 'related', 'properties'] },
+  { name: 'product-lead', lead: ['strategy', 'costs', 'suppliers', 'documentation', 'organisation', 'ml', 'work', 'common'], open: ['stated', 'implementedby', 'linkedfrom', 'related', 'properties'] },
 ];
 
 /**
@@ -792,36 +792,35 @@ export function kindLines(kind: CatalogKindData, options: KindLineOptions = {}):
     lines.push(`    relation-constraints: { out: [${kind.out.join(', ')}], in: [${kind.into.join(', ')}] }`);
     lines.push(`    template-policy: ${kind.policy}`);
   } else if (options.group !== false) lines.push(`    group: ${kind.group}`);
-  // A kind's name and description per interface language: the catalogue page lists every declared kind with them, and a
-  // catalogue-only kind carries them beside its row (madarch-8bdc.2.5).
-  const words = (): void => {
-    if (kind.en === undefined || kind.ru === undefined || kind.describe === undefined) return;
+  // A kind the engine cannot make yet shows no page: its row is its whole declaration. It may still carry its names,
+  // so the catalog reads in both languages even where the wiki has nothing to show yet (madarch-8bdc.2.5).
+  if (kind.policy !== 'none' && kind.template !== undefined && kind.source !== undefined) {
+    lines.push(`    template: templates/${kind.template}`);
+    lines.push(`    source: ${kind.source}`);
+    if (kind.origin !== undefined) lines.push(`    origin: ${kind.origin}`);
+    for (const extra of kind.extra ?? []) lines.push(`    ${extra}`);
+    if (kind.card === true) lines.push('    card: true');
+    if (kind.history !== undefined) lines.push(`    history: ${kind.history}`);
+    if (kind.views !== undefined) lines.push(`    views: [${kind.views.join(', ')}]`);
+    if (kind.er !== undefined) lines.push(`    er: ${kind.er}`);
+    if (kind.sequence !== undefined) lines.push(`    sequence: ${kind.sequence}`);
+    if (kind.system !== undefined) lines.push(`    system: ${kind.system}`);
+    if (kind.definitionBlock !== undefined) lines.push(`    definition-block: ${kind.definitionBlock}`);
+    if (kind.listing !== undefined) lines.push(`    listing: ${kind.listing}`);
+    if (kind.nav !== undefined) lines.push(`    nav: ${kind.nav}`);
+    const details = DETAILS[kind.name];
+    if (details !== undefined && details.length > 0) lines.push(`    details: [${details.join(', ')}]`);
+  }
+  if (kind.en !== undefined && kind.ru !== undefined) {
     lines.push('    labels:');
     lines.push(`      en: { one: ${yamlText(kind.en[0])}, many: ${yamlText(kind.en[1])} }`);
     lines.push(`      ru: { one: ${yamlText(kind.ru[0])}, many: ${yamlText(kind.ru[1])} }`);
+  }
+  if (kind.describe !== undefined) {
     lines.push('    description:');
     lines.push(`      en: ${yamlText(kind.describe[0])}`);
     lines.push(`      ru: ${yamlText(kind.describe[1])}`);
-  };
-  // A kind the engine cannot make yet shows no page: its row and its words are its whole declaration.
-  if (kind.policy === 'none') { words(); return lines; }
-  if (kind.template === undefined || kind.source === undefined) return lines;
-  lines.push(`    template: templates/${kind.template}`);
-  lines.push(`    source: ${kind.source}`);
-  if (kind.origin !== undefined) lines.push(`    origin: ${kind.origin}`);
-  for (const extra of kind.extra ?? []) lines.push(`    ${extra}`);
-  if (kind.card === true) lines.push('    card: true');
-  if (kind.history !== undefined) lines.push(`    history: ${kind.history}`);
-  if (kind.views !== undefined) lines.push(`    views: [${kind.views.join(', ')}]`);
-  if (kind.er !== undefined) lines.push(`    er: ${kind.er}`);
-  if (kind.sequence !== undefined) lines.push(`    sequence: ${kind.sequence}`);
-  if (kind.system !== undefined) lines.push(`    system: ${kind.system}`);
-  if (kind.definitionBlock !== undefined) lines.push(`    definition-block: ${kind.definitionBlock}`);
-  if (kind.listing !== undefined) lines.push(`    listing: ${kind.listing}`);
-  if (kind.nav !== undefined) lines.push(`    nav: ${kind.nav}`);
-  const details = DETAILS[kind.name];
-  if (details !== undefined && details.length > 0) lines.push(`    details: [${details.join(', ')}]`);
-  words();
+  }
   return lines;
 }
 const KINDS = kindsManifest();
