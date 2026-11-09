@@ -174,10 +174,23 @@ function createRunScratch(): RunScratch {
  */
 async function installEndOfRun(): Promise<void> {
   const remove = (): void => removeRunScratchOnce(stateOf());
+  /**
+   * The end of a run that ends by itself: the run's PostgreSQL server first, waited for (`/test/run-postgres.ts`), then
+   * the sweep — so a run leaves no server behind, not even one finishing its shutdown.
+   */
+  const endByItself = async (): Promise<void> => {
+    try {
+      const { stopRunPostgres } = await import('./run-postgres.js');
+      await stopRunPostgres();
+    } catch {
+      // No server was ever started (a run with no case that opens a database): nothing to stop.
+    }
+    remove();
+  };
   try {
     const { afterAll } = await import('bun:test');
     // Removing a scratch holding a file's databases and workspaces took 6.05 s in CI (run 39829622009, shard 4, "a beforeEach/afterEach hook timed out"): the hook names its own bound.
-    afterAll(remove, 120_000);
+    afterAll(endByItself, 120_000);
   } catch {
     // Not a test run: the process hooks below are the only end there is.
   }
