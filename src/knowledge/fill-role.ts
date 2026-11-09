@@ -101,9 +101,25 @@ export async function runFillRole(options: FillRoleOptions): Promise<number> {
     if (!alive(options.parentPid!)) void end();
   }, PARENT_CHECK_MS);
   watcher?.unref?.();
+  /**
+   * Gives the stores up when the role ends by saying so (`idle`, or a signal of the caller's): a role that ends must not
+   * leave a store's PostgreSQL server running with nothing to serve it, which is what the parent's death must not either
+   * (madarch-8bdc.12).
+   */
+  const giveUp = async (): Promise<void> => {
+    if (watcher !== undefined) clearInterval(watcher);
+    for (const owner of [...state.owners]) {
+      await Promise.race([owner.close().catch(() => undefined), Bun.sleep(ENDING_MS / 2)]);
+      state.owners.delete(owner);
+      for (const folder of state.databaseFolders) await Promise.race([stopStoreForExit(folder), Bun.sleep(ENDING_MS / 2)]);
+    }
+  };
   for (;;) {
     if (state.ending) return 0;
-    if (options.idle?.() === true) return 0;
+    if (options.idle?.() === true) {
+      await giveUp();
+      return 0;
+    }
     for (const storeFolder of storeFoldersOf(options.knowledgeRoot)) {
       let held = watched.get(storeFolder);
       if (held === undefined) {

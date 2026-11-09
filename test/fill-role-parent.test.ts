@@ -49,12 +49,35 @@ const work = mkdtempSync(join(tmpdir(), 'madarch-fill-parent-'));
 const home = join(work, 'madarch-home');
 const products = productsHome({ MADARCH_HOME: home });
 const servers: { kill(): void }[] = [];
+/** The fill roles this file's servers started, so the file ends them even when a case failed before killing its server. */
+const roles = new Set<number>();
 
-afterAll(() => {
+afterAll(async () => {
+  // The role first, then its server: a role that a failing case (or a killed server) left behind would keep the store's
+  // PostgreSQL server up, which is the very thing the cases hold (madarch-8bdc.12). A role this file did not see — one
+  // started after the last look — is found by the home it was given, which lies inside this file's own folder.
+  for (const pid of roles) { try { process.kill(pid, 'SIGKILL'); } catch { /* already gone */ } }
   for (const server of servers.splice(0)) { try { server.kill(); } catch { /* already gone */ } }
-  // A server the cases killed may have left its own PostgreSQL server behind only if the role failed: this sweep stops
-  // what a failing run leaves, so the next run of the suite is not met by it (the run's own sweep does the same).
-  for (const pid of postmasters()) { try { process.kill(pid, 'SIGTERM'); } catch { /* gone */ } }
+  const deadline = Date.now() + 5_000;
+  for (;;) {
+    const strays = processes().filter((row) => row.command.includes('--role fill') && row.command.includes(work));
+    if (strays.length === 0) break;
+    for (const stray of strays) { try { process.kill(stray.pid, 'SIGKILL'); } catch { /* gone */ } }
+    if (Date.now() > deadline) break;
+    await Bun.sleep(50);
+  }
+  // A store's PostgreSQL server a killed role left is stopped here and waited for, so a run that fails leaves nothing for
+  // the next one (the run's own sweep does the same for the run's server): the stopping server still shows for a moment.
+  for (const pid of postmasters()) {
+    try { process.kill(pid, 'SIGTERM'); } catch { /* gone */ }
+  }
+  const stoppedBy = Date.now() + 10_000;
+  for (;;) {
+    const still = postmasters().filter((pid) => alive(pid));
+    if (still.length === 0 || Date.now() > stoppedBy) break;
+    for (const pid of still) { try { process.kill(pid, 'SIGKILL'); } catch { /* gone */ } }
+    await Bun.sleep(50);
+  }
   rmSync(work, { recursive: true, force: true });
 });
 
@@ -151,7 +174,16 @@ async function serve(product: string): Promise<{ pid: number; url: string; child
     if (Date.now() > deadline) throw new Error(`the server printed no answer at ${url}; it said: ${await new Response(server.stderr).text().catch(() => '')}`);
     await Bun.sleep(50);
   }
-  return { pid: server.pid, url, child: () => fillRoleOf(server.pid), kill: () => { try { server.kill('SIGKILL'); } catch { /* already gone */ } } };
+  return {
+    pid: server.pid,
+    url,
+    child: () => {
+      const child = fillRoleOf(server.pid);
+      if (child !== undefined) roles.add(child.pid);
+      return child;
+    },
+    kill: () => { try { server.kill('SIGKILL'); } catch { /* already gone */ } },
+  };
 }
 
 test('a killed server takes its idle fill role and the store\'s PostgreSQL server with it within two seconds', async () => {
