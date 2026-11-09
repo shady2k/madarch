@@ -13,13 +13,13 @@ import { useTranslation } from 'react-i18next';
 import { Alert, AlertDescription, AlertTitle } from '@/components/ui/alert.js';
 import { Badge } from '@/components/ui/badge.js';
 import { Button } from '@/components/ui/button.js';
-import { addStarter, answerQuestion, closeTask, createProblemTask, createTask, dismissProblem, getProblems, getQuestion, getQuestions, getRefreshPlan, getScopeImpact, getTask, getTasks, proposeTask, runTask } from './api.js';
+import { addStarter, answerQuestion, closeTask, createProblemTask, createTask, dismissProblem, getProblemCategories, getProblemItems, getProblemSources, getQuestion, getQuestions, getRefreshPlan, getScopeImpact, getTask, getTasks, proposeTask, runTask } from './api.js';
 import { CodePlace, KLink, brokenWords } from './blocks.js';
 import { addressOfEntity, addressOfQuestion, addressOfStatement, addressOfTask, K_QUESTIONS, K_TASKS } from './routes.js';
 import { useRead } from './live.js';
 import { useTabTitle } from './tabs.js';
 import { PageSkeleton } from './skeleton.js';
-import type { Author, PlaceView, Problem, QuestionDetail, StarterOffer, QuestionRow, QuestionState, RefreshPlan, RefreshPreview, Resolution, TaskDetail, TaskImpact, TaskProposal, TaskScope } from './types.js';
+import type { Author, PlaceView, Problem, ProblemCategory, ProblemSection, ProblemSource, QuestionDetail, StarterOffer, QuestionRow, QuestionState, RefreshPlan, RefreshPreview, Resolution, TaskDetail, TaskImpact, TaskProposal, TaskScope } from './types.js';
 
 const message = (failure: unknown): string => (failure instanceof Error ? failure.message : String(failure));
 
@@ -376,21 +376,125 @@ export function StarterOffers({ offers, refresh }: { offers: readonly StarterOff
   );
 }
 
-/** «Проблемы»: corrections people made and what the engine found, each with who fixes it. */
+/** A page of one level, appended to the pages already read; `next` is the server's exact cursor. */
+function usePaged<T extends { next: string | null }>(key: string, version: number, load: (after?: string) => Promise<T>): { pages: T[]; error: string | null; loading: boolean; more: () => void } {
+  const [pages, setPages] = useState<T[]>([]);
+  const [error, setError] = useState<string | null>(null);
+  const [loading, setLoading] = useState(false);
+  useEffect(() => {
+    let live = true;
+    setPages([]);
+    setError(null);
+    setLoading(true);
+    load().then(
+      (first) => { if (live) { setPages([first]); setLoading(false); } },
+      (failure: unknown) => { if (live) { setError(message(failure)); setLoading(false); } },
+    );
+    return () => { live = false; };
+  }, [key, version]);
+  const more = (): void => {
+    const last = pages[pages.length - 1];
+    if (last === undefined || last.next === null || loading) return;
+    setLoading(true);
+    load(last.next).then(
+      (next) => { setPages((held) => [...held, next]); setLoading(false); },
+      (failure: unknown) => { setError(message(failure)); setLoading(false); },
+    );
+  };
+  return { pages, error, loading, more };
+}
+
+/** The words of a problem: the locale's when the server named a key, the engine's English otherwise. */
+function problemWords(problem: Problem, t: ReturnType<typeof useTranslation>['t']): string {
+  return problem.textKey === undefined
+    ? problem.reason
+    : t(`loop.problemText.${problem.textKey}`, { ...(problem.textArgs ?? {}), defaultValue: problem.reason });
+}
+
+/** One source of a category: its count, closed until a reader opens it; opening asks the server for its items. */
+function ProblemSourceGroup({ rule, source, version, refresh }: { rule: string; source: ProblemSource; version: number; refresh: () => void }): ReactElement {
+  const { t } = useTranslation();
+  const [opened, setOpened] = useState(false);
+  return (
+    <details
+      className="border-b border-line py-3 last:border-b-0"
+      data-testid="problem-source"
+      data-source={source.key}
+    >
+      <summary className="flex cursor-pointer flex-wrap items-center gap-x-3 gap-y-1" onClick={() => setOpened(true)}>
+        <span className="font-medium">{source.label}</span>
+        <Badge variant="outline" data-testid="problem-source-count">{source.count}</Badge>
+        {source.file !== null && <code className="text-small text-muted">{source.file}</code>}
+      </summary>
+      {opened && <ProblemItemsList rule={rule} source={source.key} version={version} refresh={refresh} />}
+    </details>
+  );
+}
+
+/** The items of one source, paged: the count of the whole source stands beside the rows shown. */
+function ProblemItemsList({ rule, source, version, refresh }: { rule: string; source: string; version: number; refresh: () => void }): ReactElement {
+  const { t } = useTranslation();
+  const { pages, error, loading, more } = usePaged(`problem-items:${rule}:${source}`, version, (after) => getProblemItems(rule, source, after === undefined ? {} : { after }));
+  const first = pages[0];
+  const rows = pages.flatMap((page) => page.problems);
+  const last = pages[pages.length - 1];
+  if (error !== null) return <Alert variant="problem" data-testid="problem-items-error"><AlertDescription><p>{error}</p></AlertDescription></Alert>;
+  return (
+    <div className="mt-2 pl-4" data-testid="problem-items">
+      <ul className="m-0 list-none p-0">{rows.map((problem) => <ProblemItem key={problem.id ?? `${problem.kind}:${problem.file}:${problem.line ?? ''}:${problem.target ?? ''}`} problem={problem} refresh={refresh} />)}</ul>
+      {first !== undefined && (
+        <p className="mb-0 mt-2 flex flex-wrap items-center gap-3 text-small text-muted" data-testid="problem-items-more">
+          <span>{t('loop.problemPageShown', { shown: rows.length, count: first.count })}</span>
+          {last?.next !== null && last !== undefined && <Button size="default" variant="ghost" disabled={loading} onClick={more} data-testid="problem-items-next">{t('loop.problemPageNext')}</Button>}
+        </p>
+      )}
+    </div>
+  );
+}
+
+/** The second level: the sources of one category, one bounded page at a time. */
+function ProblemSources({ rule, version, onBack, refresh }: { rule: string; version: number; onBack: () => void; refresh: () => void }): ReactElement {
+  const { t } = useTranslation();
+  const { pages, error, loading, more } = usePaged(`problem-sources:${rule}`, version, (after) => getProblemSources(rule, after === undefined ? {} : { after }));
+  const first = pages[0];
+  const sources = pages.flatMap((page) => page.sources);
+  const last = pages[pages.length - 1];
+  if (error !== null) return <Alert variant="problem" data-testid="problems-error"><AlertTitle>{t('loop.problemsMissing')}</AlertTitle><AlertDescription><p>{error}</p></AlertDescription></Alert>;
+  if (first === undefined) return <PageSkeleton testId="problems-loading" rows />;
+  return (
+    <section data-testid="problem-sources" data-rule={rule}>
+      <p className="mb-4"><Button size="default" variant="ghost" onClick={onBack} data-testid="problems-back">{t('loop.problemBack')}</Button></p>
+      <h2>{t(`loop.rule.${rule}`, { defaultValue: rule })} <code className="text-small">{rule}</code></h2>
+      <p className="text-secondary" data-testid="problem-sources-intro">{t('loop.problemSourcesIntro')}</p>
+      <ul className="m-0 list-none p-0">{sources.map((source) => <li key={source.key}><ProblemSourceGroup rule={rule} source={source} version={version} refresh={refresh} /></li>)}</ul>
+      <p className="mb-0 mt-3 flex flex-wrap items-center gap-3 text-small text-muted" data-testid="problem-sources-more">
+        <span>{t('loop.problemSourcesShown', { shown: sources.length, count: first.totalSources })}</span>
+        {last?.next !== null && last !== undefined && <Button size="default" variant="ghost" disabled={loading} onClick={more} data-testid="problem-sources-next">{t('loop.problemPageNext')}</Button>}
+      </p>
+    </section>
+  );
+}
+
+/** «Проблемы»: one row per category, its sources on opening it, and the items of a source on opening the source. */
 export function ProblemsPage({ version, refresh = () => undefined }: { version: number; refresh?: () => void }): ReactElement {
   const { t } = useTranslation();
-  const { data, error } = useRead('problems', version, (signal) => getProblems(signal));
+  const language = useLanguage();
+  const [section, setSection] = useState<ProblemSection | undefined>(undefined);
+  const [rule, setRule] = useState<string | null>(null);
+  const { data, error } = useRead(`problem-categories:${section ?? 'all'}`, version, (signal) => getProblemCategories(section === undefined ? {} : { section }, signal));
   useTabTitle(t('loop.problemsTitle'));
+  if (rule !== null) return <ProblemSources rule={rule} version={version} onBack={() => setRule(null)} refresh={refresh} />;
   if (data === null && error === null) return <PageSkeleton testId="problems-loading" rows />;
   if (data === null) {
     return <Alert variant="problem" data-testid="problems-error"><AlertTitle>{t('loop.problemsMissing')}</AlertTitle><AlertDescription><p>{error}</p></AlertDescription></Alert>;
   }
-  const open = data.problems.filter((problem) => !problem.closed);
-  const closed = data.problems.filter((problem) => problem.closed);
-  const sections: { section: 'code' | 'documents' | 'wiki'; key: string }[] = [
-    { section: 'code', key: 'loop.sectionCode' },
-    { section: 'documents', key: 'loop.sectionDocuments' },
-    { section: 'wiki', key: 'loop.sectionWiki' },
+  const ruleName = (category: ProblemCategory): string => t(`loop.rule.${category.rule}`, { defaultValue: category.label?.[language] ?? category.rule });
+  const meaning = (category: ProblemCategory): string => t(`loop.ruleMeaning.${category.rule}`, { defaultValue: '' });
+  const filters: { key: string; section?: ProblemSection }[] = [
+    { key: 'loop.problemFilterAll' },
+    { key: 'loop.sectionCode', section: 'code' },
+    { key: 'loop.sectionDocuments', section: 'documents' },
+    { key: 'loop.sectionWiki', section: 'wiki' },
   ];
   return (
     <section data-testid="problems-page">
@@ -398,39 +502,31 @@ export function ProblemsPage({ version, refresh = () => undefined }: { version: 
         <h1>{t('loop.problemsTitle')}</h1>
         <p className="text-secondary" data-testid="problems-intro">{t('loop.problemsIntro')}</p>
       </header>
-      {data.notes.map((note) => <Alert key={note} className="mb-4" data-testid="problems-note"><AlertDescription><p>{note}</p></AlertDescription></Alert>)}
+      {data.notes.map((note) => (
+        <Alert key={note.message} className="mb-4" data-testid="problems-note"><AlertDescription><p>{note.textKey === undefined ? note.message : t(`loop.problemNote.${note.textKey}`, { ...(note.textArgs ?? {}), defaultValue: note.message })}</p></AlertDescription></Alert>
+      ))}
       <StarterOffers offers={data.starter ?? []} refresh={refresh} />
-      {data.problems.length === 0 && (data.starter ?? []).length === 0 && <p className="text-muted" data-testid="problems-empty">{t('loop.noProblems')}</p>}
-      {open.length > 0 && (
-        <section className="mb-8" data-testid="problems-open">
-          <h2>{t('loop.openProblems', { count: open.length })}</h2>
-          {sections.map(({ section, key }) => {
-            const rows = open.filter((problem) => (problem.section ?? 'wiki') === section);
-            if (rows.length === 0) return null;
-            return (
-              <section key={section} className="mt-4" data-testid={`problems-${section}`} data-section={section}>
-                <h3>{t(key)} ({rows.length})</h3>
-                <ul className="m-0 list-none p-0">{rows.map((problem) => <ProblemItem key={problem.id ?? `${problem.kind}:${problem.file}:${problem.line ?? ''}:${problem.target ?? ''}`} problem={problem} refresh={refresh} />)}</ul>
-              </section>
-            );
-          })}
-        </section>
-      )}
-      {closed.length > 0 && (
-        <section className="mb-8" data-testid="problems-closed">
-          <h2>{t('loop.closedProblems', { count: closed.length })}</h2>
-          {sections.map(({ section, key }) => {
-            const rows = closed.filter((problem) => (problem.section ?? 'wiki') === section);
-            if (rows.length === 0) return null;
-            return (
-              <section key={section} className="mt-4" data-testid={`problems-${section}-closed`} data-section={section}>
-                <h3>{t(key)} ({rows.length})</h3>
-                <ul className="m-0 list-none p-0">{rows.map((problem) => <ProblemItem key={problem.id ?? `${problem.kind}:${problem.file}:${problem.line ?? ''}:${problem.target ?? ''}`} problem={problem} refresh={refresh} />)}</ul>
-              </section>
-            );
-          })}
-        </section>
-      )}
+      <p className="mb-4 flex flex-wrap items-center gap-2" data-testid="problems-filters">
+        {filters.map((filter) => (
+          <Button key={filter.key} size="default" variant={section === filter.section ? 'default' : 'ghost'} data-testid={`problems-filter-${filter.section ?? 'all'}`} onClick={() => setSection(filter.section)}>{t(filter.key)}</Button>
+        ))}
+      </p>
+      {data.categories.length === 0 && (data.starter ?? []).length === 0 && <p className="text-muted" data-testid="problems-empty">{t('loop.noProblems')}</p>}
+      <p className="mb-2 text-secondary" data-testid="problems-total">{t('loop.problemCount', { count: data.open, total: data.total })}</p>
+      <ul className="m-0 list-none p-0" data-testid="problem-categories">
+        {data.categories.map((category) => (
+          <li key={category.rule} className="border-b border-line py-3 last:border-b-0">
+            <button type="button" className="flex w-full cursor-pointer flex-wrap items-center gap-x-3 gap-y-1 bg-transparent p-0 text-left" data-testid="problem-category" data-rule={category.rule} onClick={() => setRule(category.rule)}>
+              <span className="font-medium">{ruleName(category)}</span>
+              <code className="text-small">{category.rule}</code>
+              <Badge variant={category.severity === 'blocker' || category.severity === 'critical' ? 'solid' : 'outline'} data-testid="problem-category-severity">{t(`loop.severity.${category.severity}`)}</Badge>
+              <span className="text-small text-secondary">{t(`loop.fixer.${category.fixer}`)}</span>
+              <span className="ml-auto font-medium" data-testid="problem-category-count">{category.count}</span>
+            </button>
+            {meaning(category) !== '' && <p className="mb-0 mt-1 text-small text-secondary" data-testid="problem-category-meaning">{meaning(category)}</p>}
+          </li>
+        ))}
+      </ul>
       {(data.dismissed ?? 0) > 0 && <p className="text-small text-muted" data-testid="problems-dismissed">{t('loop.problemDismissedCount', { count: data.dismissed })}</p>}
     </section>
   );

@@ -65,6 +65,12 @@ export interface CatalogSchema {
   readonly line: number;
 }
 
+/** A kind's name in one interface language, as its catalog row carries it for the catalogue page. */
+interface CatalogLabel {
+  readonly one: string;
+  readonly many: string;
+}
+
 /** One kind's catalog row: what it is, where it was taken from, how it is acquired, and where it stands. */
 export interface CatalogEntry {
   readonly name: string;
@@ -82,6 +88,14 @@ export interface CatalogEntry {
   readonly relationsOut: readonly string[];
   readonly relationsIn: readonly string[];
   readonly templatePolicy: string;
+  /**
+   * The kind's name per interface language, as its declaration writes it. A language the declaration leaves out is a
+   * finding of its own and stays absent here: the catalog keeps the kind and the catalogue page marks its name untranslated
+   * rather than showing an English one to a reader of another language (madarch-8bdc.2.5).
+   */
+  readonly labels: Readonly<Record<string, CatalogLabel>>;
+  /** What the kind is per interface language, from the declaration's `description`; absent where a language is missing. */
+  readonly descriptions: Readonly<Record<string, string>>;
   readonly line: number;
 }
 
@@ -195,6 +209,54 @@ function acquisitionMark(value: string, schema: CatalogSchema): boolean {
 }
 
 /**
+ * The words the catalogue shows of a kind: its name in every interface language and a sentence saying what it is. A
+ * language the declaration leaves out is a finding, and the kind is kept with the words it has: the catalogue lists
+ * every kind the product declares, and a reader of a language without a translation sees the kind's own key marked as
+ * untranslated, never an English name in its place (madarch-8bdc.2.5).
+ */
+function readCatalogWords(
+  decl: Record<string, unknown>,
+  languages: readonly string[],
+  problem: (path: (string | number)[], message: string) => void,
+): { labels: Record<string, CatalogLabel>; descriptions: Record<string, string> } {
+  const labels: Record<string, CatalogLabel> = {};
+  const rawLabels = decl['labels'];
+  if (rawLabels === null || typeof rawLabels !== 'object' || Array.isArray(rawLabels)) {
+    problem(['labels'], `"labels" names the kind in each interface language (${languages.join(', ')}): the words one entity and several are called by`);
+  } else {
+    for (const [language, value] of Object.entries(rawLabels as Record<string, unknown>)) {
+      if (!languages.includes(language)) { problem(['labels', language], `"${language}" is not a language of the wiki: the languages are ${languages.join(', ')}`); continue; }
+      const word = value as Record<string, unknown> | null;
+      if (value === null || typeof value !== 'object' || Array.isArray(value) || typeof word!['one'] !== 'string' || word!['one'].trim() === '' || typeof word!['many'] !== 'string' || word!['many'].trim() === '') {
+        problem(['labels', language], 'a label is { one: <the name of one>, many: <the name of several> }');
+        continue;
+      }
+      labels[language] = { one: word!['one'] as string, many: word!['many'] as string };
+    }
+    for (const language of languages) {
+      if (labels[language] !== undefined || Object.hasOwn(rawLabels as Record<string, unknown>, language)) continue;
+      problem(['labels'], `the kind has no name in "${language}": the catalogue names every kind in ${languages.join(' and ')}, and an untranslated name is never shown as an English one`);
+    }
+  }
+  const descriptions: Record<string, string> = {};
+  const rawDescription = decl['description'];
+  if (rawDescription === null || typeof rawDescription !== 'object' || Array.isArray(rawDescription)) {
+    problem(['description'], `"description" says what the kind is in each interface language (${languages.join(', ')}): a sentence saying what the kind is`);
+  } else {
+    for (const [language, text] of Object.entries(rawDescription as Record<string, unknown>)) {
+      if (!languages.includes(language)) { problem(['description', language], `"${language}" is not a language of the wiki: the languages are ${languages.join(', ')}`); continue; }
+      if (typeof text !== 'string' || text.trim() === '' || text.trim() !== text) { problem(['description', language], 'a description is a sentence'); continue; }
+      descriptions[language] = text;
+    }
+    for (const language of languages) {
+      if (descriptions[language] !== undefined || Object.hasOwn(rawDescription as Record<string, unknown>, language)) continue;
+      problem(['description'], `the kind has no description in "${language}": the catalogue describes every kind in ${languages.join(' and ')}, and an untranslated description is never shown as an English one`);
+    }
+  }
+  return { labels, descriptions };
+}
+
+/**
  * Reads one kind's catalog row. `problem` is the caller's finding, which names the file, the line and the kind;
  * a row with a problem returns nothing, so the kind is left out of the catalog and the rest still stand.
  */
@@ -205,6 +267,13 @@ export function readCatalogKind(
   groups: ReadonlyMap<string, CatalogGroup>,
   line: number,
   problem: (path: (string | number)[], message: string) => void,
+  /**
+   * Where a missing translation is reported. It is a finding of its own and never a reason to leave the kind out: a
+   * product that has not translated a kind still shows it, marked as untranslated (madarch-8bdc.2.5).
+   */
+  wordsProblem: (path: (string | number)[], message: string) => void,
+  /** The languages the wiki's interface speaks: a kind names and describes itself in each, or the catalogue says why. */
+  languages: readonly string[],
   /** The groups the manifest reader already refused (a `parent` nobody declares): the kind adds no second finding. */
   refusedGroups: ReadonlySet<string> = new Set(),
 ): CatalogEntry | undefined {
@@ -214,6 +283,7 @@ export function readCatalogKind(
     problem(path, message);
   };
   const id = decl['id'];
+  const words = readCatalogWords(decl, languages, wordsProblem);
   if (!isIdentifier(id)) fail(['id'], `"id" is the canonical concept id of the kind (one concept has one kind), such as "c4.container", got ${JSON.stringify(id)}`);
   const definition = decl['definition'];
   if (typeof definition !== 'string' || definition.trim() === '' || definition.trim() !== definition) fail(['definition'], `"definition" is one sentence saying what the kind is, got ${JSON.stringify(definition)}`);
@@ -269,6 +339,8 @@ export function readCatalogKind(
     relationsOut: out,
     relationsIn: into,
     templatePolicy: policy as string,
+    labels: words.labels,
+    descriptions: words.descriptions,
     line,
   };
 }

@@ -6,6 +6,7 @@
     "test/**/*.test.ts",
     "test/deadline.ts",
     "test/questions-once-browser-check.ts",
+    "test/postgres-cluster-owner-driver.ts",
     "test/queue-binary-driver.ts",
     "test/run-scratch.ts",
     "test/type-checks/*.ts",

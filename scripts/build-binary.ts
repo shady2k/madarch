@@ -410,12 +410,20 @@ async function main(argv: readonly string[]): Promise<number> {
       console.error(`the binary could not be built for ${options.os}/${options.arch} (exit ${String(run.status)})${said === '' ? '' : ':\n' + said}`);
       return 1;
     }
+    // A binary of another operating system or architecture cannot run on this box: the build is what this command owes
+    // there, and it says so rather than failing the smoke with an exec error (`--os windows` on a Linux checkout, which
+    // is how a cross target is checked without its runner).
+    if (options.os !== process.platform || options.arch !== process.arch) {
+      console.log(`built ${outfile} (version ${options.version}, cross target ${options.os}/${options.arch}: the smoke cannot run it on ${process.platform}/${process.arch})`);
+      return 0;
+    }
     // Smoke: the binary answers its version; the scratch home's draft, served
     // by the background server, runs the graph through, and the smoke stops
     // that server again whatever happens below.
     const version = spawnSync(outfile, ['version'], { encoding: 'utf8', cwd: stage });
-    if (version.status !== 0 || version.stdout.trim() !== `version: ${options.version}`) {
-      console.error(`the built binary answered no version (exit ${String(version.status)}): ${version.stdout.trim() || version.stderr.trim()}`);
+    const saidVersion = (version.stdout ?? '').trim() || (version.stderr ?? '').trim();
+    if (version.status !== 0 || (version.stdout ?? '').trim() !== `version: ${options.version}`) {
+      console.error(`the built binary answered no version (exit ${String(version.status)}): ${saidVersion}`);
       return 1;
     }
     const smoke = await smokeServing(outfile, mkdtempSync(join(stage, 'home-')));

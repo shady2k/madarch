@@ -2356,81 +2356,6 @@
   },
   {
     "rule": "no-unreachable-code",
-    "file": "src/knowledge/doc-blocks.ts",
-    "symbol": "nameMentions"
-  },
-  {
-    "rule": "no-unreachable-code",
-    "file": "src/knowledge/doc-entities.ts",
-    "symbol": "DecidingPass"
-  },
-  {
-    "rule": "no-unreachable-code",
-    "file": "src/knowledge/doc-entities.ts",
-    "symbol": "DocIdentities"
-  },
-  {
-    "rule": "no-unreachable-code",
-    "file": "src/knowledge/doc-entities.ts",
-    "symbol": "DocIdentity"
-  },
-  {
-    "rule": "no-unreachable-code",
-    "file": "src/knowledge/doc-entities.ts",
-    "symbol": "DocumentAddress"
-  },
-  {
-    "rule": "no-unreachable-code",
-    "file": "src/knowledge/doc-entities.ts",
-    "symbol": "DocumentIdentities"
-  },
-  {
-    "rule": "no-unreachable-code",
-    "file": "src/knowledge/doc-entities.ts",
-    "symbol": "IDENTITIES_FILE"
-  },
-  {
-    "rule": "no-unreachable-code",
-    "file": "src/knowledge/doc-entities.ts",
-    "symbol": "documentKey"
-  },
-  {
-    "rule": "no-unreachable-code",
-    "file": "src/knowledge/doc-entities.ts",
-    "symbol": "identifierOf"
-  },
-  {
-    "rule": "no-unreachable-code",
-    "file": "src/knowledge/doc-entities.ts",
-    "symbol": "parseDocumentAddress"
-  },
-  {
-    "rule": "no-unreachable-code",
-    "file": "src/knowledge/doc-entities.ts",
-    "symbol": "readDocIdentities"
-  },
-  {
-    "rule": "no-unreachable-code",
-    "file": "src/knowledge/doc-entities.ts",
-    "symbol": "writeDocIdentities"
-  },
-  {
-    "rule": "no-unreachable-code",
-    "file": "src/knowledge/doc-identities.ts",
-    "symbol": "DocIdentity"
-  },
-  {
-    "rule": "no-unreachable-code",
-    "file": "src/knowledge/doc-identities.ts",
-    "symbol": "IDENTITY_PREFIX"
-  },
-  {
-    "rule": "no-unreachable-code",
-    "file": "src/knowledge/doc-identities.ts",
-    "symbol": "identityName"
-  },
-  {
-    "rule": "no-unreachable-code",
     "file": "src/knowledge/doc-sources.ts",
     "symbol": "DOCUMENT_BUDGET_BYTES"
   },
@@ -2458,11 +2383,6 @@
     "rule": "no-unreachable-code",
     "file": "src/knowledge/doc-tree.ts",
     "symbol": "sectionsOf"
-  },
-  {
-    "rule": "no-unreachable-code",
-    "file": "src/knowledge/glossary.ts",
-    "symbol": "TermField"
   },
   {
     "rule": "no-unreachable-code",
@@ -2926,11 +2846,6 @@
   },
   {
     "rule": "no-unreachable-code",
-    "file": "src/knowledge/remote-owner.ts",
-    "symbol": "spawnReadWorker"
-  },
-  {
-    "rule": "no-unreachable-code",
     "file": "src/knowledge/render-worker.ts",
     "symbol": "BlockRequest"
   },
@@ -2988,11 +2903,6 @@
     "rule": "no-unreachable-code",
     "file": "src/knowledge/seed.ts",
     "symbol": "yamlText"
-  },
-  {
-    "rule": "no-unreachable-code",
-    "file": "src/knowledge/semantics.ts",
-    "symbol": "PassageBlock"
   },
   {
     "rule": "no-unreachable-code",
@@ -5622,11 +5532,6 @@
   {
     "rule": "no-unreachable-code",
     "file": "wiki/app/src/knowledge/types.ts",
-    "symbol": "GroupSummary"
-  },
-  {
-    "rule": "no-unreachable-code",
-    "file": "wiki/app/src/knowledge/types.ts",
     "symbol": "HistoryMore"
   },
   {
@@ -5688,11 +5593,6 @@
     "rule": "no-unreachable-code",
     "file": "wiki/app/src/knowledge/types.ts",
     "symbol": "ProblemLink"
-  },
-  {
-    "rule": "no-unreachable-code",
-    "file": "wiki/app/src/knowledge/types.ts",
-    "symbol": "ProblemSection"
   },
   {
     "rule": "no-unreachable-code",
@@ -5908,21 +5808,6 @@
     "rule": "sql-only-in-storage-layer",
     "file": "src/knowledge/product.ts",
     "symbol": "src/adapters/database-owner.ts"
-  },
-  {
-    "rule": "sql-only-in-storage-layer",
-    "file": "src/knowledge/read-worker.ts",
-    "symbol": "src/adapters/database-owner.ts"
-  },
-  {
-    "rule": "sql-only-in-storage-layer",
-    "file": "src/knowledge/remote-owner.ts",
-    "symbol": "src/adapters/database-owner.ts"
-  },
-  {
-    "rule": "sql-only-in-storage-layer",
-    "file": "src/knowledge/remote-owner.ts",
-    "symbol": "src/query/sql-driver.ts"
   },
   {
     "rule": "sql-only-in-storage-layer",

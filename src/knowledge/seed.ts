@@ -583,7 +583,6 @@ export const STARTER_PROBLEM_RULES: readonly RuleSpec[] = [
   { id: 'wiki.ground-removed', predicate: 'wiki', kind: 'ground-removed', sonar: 'bug', severity: 'major', section: 'wiki', action: 'task', enabled: true, label: { en: 'Ground removed', ru: 'Основание исчезло' } },
   { id: 'wiki.broken-link', predicate: 'wiki', kind: 'broken-link', sonar: 'bug', severity: 'major', section: 'wiki', action: 'task', enabled: true, label: { en: 'Broken link', ru: 'Ссылка никуда не ведёт' } },
   { id: 'wiki.unreadable-file', predicate: 'wiki', kind: 'unreadable-file', sonar: 'bug', severity: 'major', section: 'wiki', action: 'task', enabled: true, label: { en: 'Unreadable file', ru: 'Файл не читается' } },
-  { id: 'wiki.unread-passage', predicate: 'wiki', kind: 'unread-passage', sonar: 'code-smell', severity: 'minor', section: 'wiki', action: 'task', enabled: true, label: { en: 'Passage not read', ru: 'Фрагмент не прочитан' } },
   { id: 'wiki.unplaced', predicate: 'wiki', kind: 'unplaced', sonar: 'code-smell', severity: 'minor', section: 'wiki', action: 'task', enabled: true, label: { en: 'Unplaced finding', ru: 'Находка без места' } },
   { id: 'wiki.manifest', predicate: 'wiki', kind: 'manifest', sonar: 'bug', severity: 'major', section: 'wiki', action: 'task', enabled: true, label: { en: 'Manifest finding', ru: 'Замечание к манифесту' } },
 ];
@@ -794,9 +793,8 @@ export function kindLines(kind: CatalogKindData, options: KindLineOptions = {}):
     lines.push(`    template-policy: ${kind.policy}`);
   } else if (options.group !== false) lines.push(`    group: ${kind.group}`);
   // A kind the engine cannot make yet shows no page: its row is its whole declaration. It may still carry its names,
-  // so the catalog reads in both languages even where the wiki has nothing to show yet.
-  const showsPage = kind.policy !== 'none' && kind.template !== undefined && kind.source !== undefined && kind.en !== undefined && kind.ru !== undefined && kind.describe !== undefined;
-  if (showsPage) {
+  // so the catalog reads in both languages even where the wiki has nothing to show yet (madarch-8bdc.2.5).
+  if (kind.policy !== 'none' && kind.template !== undefined && kind.source !== undefined) {
     lines.push(`    template: templates/${kind.template}`);
     lines.push(`    source: ${kind.source}`);
     if (kind.origin !== undefined) lines.push(`    origin: ${kind.origin}`);

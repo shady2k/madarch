@@ -77,19 +77,6 @@ export interface ResolverDeps {
   repositories: () => readonly string[];
   /** Where an entity is declared, for a reference to code to open the source at its line. */
   locate: (entity: GraphEntity) => CodeLocation | undefined;
-  /** The entity of a document that starts at a line of the document, when the manifest's document kinds make one of it. */
-  documentEntity?: (repo: string | null, path: string, line: number) => { id: string; kind: string; title: string } | undefined;
-  /**
-   * The entity of a document whose source anchor is the fragment, when the manifest's document kinds make one of it: a
-   * passage address (`stories.1.2`) names one meaning of a paragraph, and only the entity's own anchor says which.
-   */
-  documentEntityByAnchor?: (repo: string | null, path: string, anchor: string) => { id: string; kind: string; title: string } | undefined;
-  /**
-   * The entity of a document whose durable identity is the fragment, when the manifest's document kinds make one of it:
-   * a page id (`doc:<path>#<stableId>`) is a link that outlives a renamed heading or a removed `UC-`/`BR-` alias, so the
-   * resolver must find the page by that identity and not only by the anchor the document writes now (finding 2).
-   */
-  documentEntityById?: (repo: string | null, path: string, stableId: string) => { id: string; kind: string; title: string } | undefined;
 }
 
 export class Resolver {
@@ -135,16 +122,9 @@ export class Resolver {
       seen.push(root ?? 'the product repository');
       // A Markdown document opens as a page of the wiki at its section; any other file opens in the source view.
       if (anchor === null || anchor === '') return { state: 'ok', target: url, kind: 'document', label: where, href: isMarkdownPath(where) ? documentAddress(root, where) : sourceAddress(root, where) };
-      // Two kinds of reference, kept apart (madarch-ztyq.3, the review of finding A). A GROUND written as a source anchor
-      // names the part the document gives that anchor NOW, so after two numbers swap it opens the passage that carries
-      // `uc-1` today, and an anchor the document no longer has is a broken section rather than a stale identity. A page
-      // id names a durable identity, which no anchor can spell (it holds a colon), so it resolves by identity alone.
+      // A GROUND written as a source anchor names the part the document gives that anchor NOW, so after two numbers swap
+      // it opens the passage that carries `uc-1` today, and an anchor the document no longer has is a broken section.
       const line = findAnchor(text, anchor);
-      const byAnchor = this.deps.documentEntityByAnchor?.(root, where, anchor.toLowerCase());
-      const atLine = line === null ? undefined : this.deps.documentEntity?.(root, where, line);
-      const atAnchor = byAnchor ?? atLine;
-      const entity = atAnchor ?? this.deps.documentEntityById?.(root, where, anchor);
-      if (entity !== undefined && this.deps.declared(entity.kind)) return { state: 'ok', target: url, kind: entity.kind, label: entity.title, href: entityAddress(entity.id), entity: entity.id };
       if (line !== null) return { state: 'ok', target: url, kind: 'document', label: `${where}#${anchor}`, href: isMarkdownPath(where) ? documentAddress(root, where, anchor) : sourceAddress(root, where, line) };
     }
     if (seen.length === 0) return { state: 'broken', target: url, reason: `no document "${where}" in ${named === null ? 'the product repository or its code repositories' : `the repository ${named}`}`, why: { code: 'no-document', path: where } };

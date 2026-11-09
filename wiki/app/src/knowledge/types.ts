@@ -166,12 +166,38 @@ export type PageModel = {
   journal?: string[];
 };
 
-export type Origin = 'agent' | 'person' | 'code' | 'history';
+type Origin = 'agent' | 'person' | 'code' | 'history';
 
 /** The form a kind's listing page takes (`listing:` of the manifest); no screen of the app holds a kind of its own. */
 type KindListing = 'operations';
 /** Where a kind stands in the navigation (`nav:` of the manifest). */
 type KindNav = 'own-page' | 'loop';
+
+/** What produces a kind today, from its declaration (madarch-8bdc.2.5): `person` is not a stage. */
+type KindProducer = 'extract' | 'documents' | 'writer' | 'history' | 'person';
+
+/** One kind of the entity catalogue: every declared kind, filled or not. */
+export type CatalogKindView = {
+  kind: string;
+  area: string;
+  subgroup: string;
+  labels?: Record<string, { one: string; many: string }>;
+  descriptions?: Record<string, string>;
+  count: number;
+  statements?: number;
+  page: boolean;
+  producer?: KindProducer;
+  filled: boolean;
+};
+
+/** The catalogue's own answer: the groups, every declared kind, and the findings that name a missing translation. */
+export type CatalogView = {
+  product: { name: string; id: string };
+  language: string;
+  groups: GroupSummary[];
+  kinds: CatalogKindView[];
+  findings: Finding[];
+};
 
 export type KindSummary = {
   kind: string;
@@ -316,7 +342,14 @@ export type AgentOffer = {
   installed: boolean;
   login: 'signed-in' | 'not-signed-in' | 'unknown';
   loginDetail: string;
-  install: { package: string; version: string; size: string; folder: string } | null;
+  /** Where the adapter's program was found when it is installed; null when it is not or is not known. */
+  where: string | null;
+  /** The version madarch can read from the installed adapter; null when it cannot read one. */
+  version: string | null;
+  install:
+    | { kind: 'npm'; package: string; version: string; size: string; folder: string }
+    | { kind: 'bundled'; program: string; note: string }
+    | null;
 };
 
 export type WikiStatus = {
@@ -326,7 +359,8 @@ export type WikiStatus = {
   language: string;
   seeded: string[];
   seedError?: string;
-  findings: Finding[];
+  /** How many findings the documents hold: a count, never the list (madarch-8bdc.2.5). */
+  findingCount: number;
   kinds: KindSummary[];
   groups: GroupSummary[];
   repositories: { name: string; filled: boolean }[];
@@ -407,7 +441,7 @@ export type SourceFile = { history?: HistoryContext; repo: string | null; path: 
 export type ProductChoice = { name: string; folder: string; own?: boolean };
 
 export type GlossaryTerm = { id: string; title: string; definition: string; synonyms: string[]; code: string[]; usedIn: string | null; ambiguous: string | null; source?: { original: string; document: string; line: number; endLine: number }; repo: string | null; path: string; line: number; endLine: number; anchor: string; single: boolean; href: string };
-export type Glossary = { terms: GlossaryTerm[]; resolutions: Record<string, Resolution>; findings: Finding[] };
+export type Glossary = { terms: GlossaryTerm[]; resolutions: Record<string, Resolution>; findingCount: number };
 export type UserSettings = { role: string; asked: boolean; roles: string[] };
 
 export type DocumentRef = { repo: string | null; path: string; title: string };
@@ -481,7 +515,7 @@ export type QuestionDetail = QuestionRow & {
 export type AnswerResult = { question: string; state: 'answered'; committed: boolean; commit?: string; note?: string; by: Author; at: string };
 export type CorrectionResult = { correction: string; id: string; file: string; committed: boolean; commit?: string; note?: string; by: Author; at: string };
 
-export type ProblemKind = 'correction' | 'ground-removed' | 'broken-link' | 'unreadable-file' | 'unread-passage' | 'unplaced' | 'manifest' | string;
+export type ProblemKind = 'correction' | 'ground-removed' | 'broken-link' | 'unreadable-file' | 'unplaced' | 'manifest' | string;
 export type ProblemSection = 'code' | 'documents' | 'wiki';
 export type SonarKind = 'vulnerability' | 'bug' | 'code-smell' | 'security-hotspot';
 export type ProblemSeverity = 'blocker' | 'critical' | 'major' | 'minor' | 'info';
@@ -508,6 +542,9 @@ export type Problem = {
   sentence: string | null;
   target: string | null;
   reason: string;
+  /** The reason as a locale key and its values; `reason` is the fallback (madarch-8bdc.2.5). */
+  textKey?: string;
+  textArgs?: Record<string, string | number>;
   file: string;
   line: number | null;
   /** The file's place on this machine, when the server knows it. */
@@ -527,7 +564,60 @@ export type StarterOffer = {
   fields?: string[];
 };
 
-export type ProblemListing = { problems: Problem[]; sections?: Record<ProblemSection, number>; open: number; closed: number; dismissed?: number; notes: string[]; starter?: StarterOffer[] };
+/** A note beside a listing, worded by the app when `textKey` is known (madarch-8bdc.2.5). */
+type ProblemNote = { message: string; textKey?: string; textArgs?: Record<string, string | number> };
+
+/** The first level: one row per rule. */
+export type ProblemCategory = {
+  rule: string;
+  kind: ProblemKind;
+  section: ProblemSection;
+  sonar: SonarKind;
+  severity: ProblemSeverity;
+  fixer: 'agent' | 'person';
+  count: number;
+  open: number;
+  closed: number;
+  label?: Record<string, string>;
+};
+export type ProblemCategories = {
+  categories: ProblemCategory[];
+  total: number;
+  open: number;
+  closed: number;
+  dismissed: number;
+  sections: Record<ProblemSection, number>;
+  severities: Record<ProblemSeverity, number>;
+  notes: ProblemNote[];
+  starter: StarterOffer[];
+};
+
+/** The second level: the sources of one category, one bounded page at a time. */
+export type ProblemSource = { key: string; label: string; page: string | null; pageTitle: string | null; file: string | null; count: number; open: number };
+export type ProblemSources = {
+  rule: string;
+  kind: ProblemKind;
+  section: ProblemSection;
+  sonar: SonarKind;
+  severity: ProblemSeverity;
+  count: number;
+  open: number;
+  closed: number;
+  totalSources: number;
+  sources: ProblemSource[];
+  next: string | null;
+};
+
+/** The third level: the items of one source, one bounded page at a time. */
+export type ProblemItems = {
+  rule: string;
+  source: string;
+  count: number;
+  open: number;
+  closed: number;
+  problems: Problem[];
+  next: string | null;
+};
 
 /** A value an agent offers for the model or the reasoning level. */
 export type ChoiceValue = { value: string; name: string; description?: string };

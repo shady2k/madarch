@@ -63,6 +63,30 @@ const get = async (path: string): Promise<{ status: number; body: any }> => {
   return { status: response.status, body: await response.json() };
 };
 
+/** Every problem through the page's three levels. */
+const allProblems = async (): Promise<any> => {
+  const categories = (await get('/api/k/problems')).body;
+  const problems: any[] = [];
+  for (const category of categories.categories) {
+    let after: string | undefined;
+    for (;;) {
+      const sources = (await get(`/api/k/problems?rule=${encodeURIComponent(category.rule)}${after === undefined ? '' : `&after=${encodeURIComponent(after)}`}`)).body;
+      for (const source of sources.sources) {
+        let cursor: string | undefined;
+        for (;;) {
+          const items = (await get(`/api/k/problems?rule=${encodeURIComponent(category.rule)}&source=${encodeURIComponent(source.key)}${cursor === undefined ? '' : `&after=${encodeURIComponent(cursor)}`}`)).body;
+          problems.push(...items.problems);
+          if (items.next === null) break;
+          cursor = items.next;
+        }
+      }
+      if (sources.next === null) break;
+      after = sources.next;
+    }
+  }
+  return { ...categories, problems };
+};
+
 beforeAll(async () => {
   work = mkdtempSync(join(tmpdir(), 'madarch-problems-cache-'));
   const repository = join(work, 'repo');
@@ -113,7 +137,7 @@ describe('the count of problems is collected once per revision', () => {
     const pages = await Promise.all(Array.from({ length: 4 }, async () => await get(`/api/k/page?id=${encodeURIComponent(DOMAIN)}`)));
     for (const page of pages) expect(page.status).toBe(200);
     expect(collections).toBe(0);
-    const listing = (await get('/api/k/problems')).body;
+    const listing = await allProblems();
     expect(pages[0]!.body.problems).toBe(openProblemsOf(listing.problems, DOMAIN));
     expect(pages[0]!.body.problems).toBeGreaterThan(0);
 
@@ -136,14 +160,14 @@ describe('the count of problems is collected once per revision', () => {
   test('an edit of the workflows manifest makes its finding appear at the next read, and fixing the file takes it away', async () => {
     const file = join(folder, 'madarch', 'workflows.yaml');
     const original = readFileSync(file, 'utf8');
-    const before = (await get('/api/k/problems')).body;
+    const before = await allProblems();
     expect(before.problems.some((problem: { reason: string }) => problem.reason.includes('teleport'))).toBe(false);
 
     // The first fill's stages, one of them a stage the engine's registry does not hold: the finding is the manifest's
     // own, and the listing read again must be the listing of the file as it stands now.
     const broken = stagesOf(original, 'first-fill', ['teleport']);
     writeFileSync(file, broken);
-    const listed = (await get('/api/k/problems')).body;
+    const listed = await allProblems();
     const finding = listed.problems.find((problem: { reason: string }) => problem.reason.includes('teleport')) as { file: string; line: number; reason: string } | undefined;
     expect(finding).toBeDefined();
     expect(finding!.file).toBe(file);
@@ -151,7 +175,7 @@ describe('the count of problems is collected once per revision', () => {
     expect(finding!.reason.startsWith('workflow "first-fill" stage "teleport": the engine\'s stage registry holds no stage "teleport"')).toBe(true);
 
     writeFileSync(file, original);
-    const fixed = (await get('/api/k/problems')).body;
+    const fixed = await allProblems();
     expect(fixed.problems.some((problem: { reason: string }) => problem.reason.includes('teleport'))).toBe(false);
     expect(fixed.open).toBe(before.open);
   }, 60_000);

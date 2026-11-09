@@ -49,7 +49,7 @@ import { join } from 'node:path';
 import { existsSync, readdirSync, readFileSync, renameSync, statSync, writeFileSync } from 'node:fs';
 import { randomUUID } from 'node:crypto';
 import type { Stats } from 'node:fs';
-import { historyDatabaseOf, openStoreHistories, type StoreHistories } from '../adapters/store-histories.js';
+import { openStoreHistories, type StoreHistories } from '../adapters/store-histories.js';
 import type { Clock, HistoryStore, StoreInput, StoreResult } from '../history/types.js';
 import { byCodePoint } from '../model/order.js';
 
@@ -72,6 +72,11 @@ export interface SourceStoresOptions {
   clock: Clock;
   /** Where startup repair lines go; standard output by default. */
   log?: (line: string) => void;
+  /**
+   * A server the caller already runs, on which this folder's histories are databases instead of a cluster of its own
+   * (madarch-8bdc.2.5): a test case then pays a database, not a server. The folder is what names its databases.
+   */
+  server?: { readonly socketDir: string; readonly port?: number; readonly user?: string };
 }
 
 /** One source's current head: the newest version stored for it, by commit order. */
@@ -244,7 +249,7 @@ export async function createSourceStores(options: SourceStoresOptions): Promise<
   const jsonStems = new Set<string>();
   for (const name of folderEntries) if (name.endsWith('.json')) jsonStems.add(name.slice(0, -'.json'.length));
   // The folder's one server: every source's history is a database on it, and the first open starts it.
-  const cluster: StoreHistories = await openStoreHistories({ store: dataFolder, clock, ...(options.log === undefined ? {} : { log: options.log }) });
+  const cluster: StoreHistories = await openStoreHistories({ store: dataFolder, clock, ...(options.log === undefined ? {} : { log: options.log }), ...(options.server === undefined ? {} : { server: options.server }) });
   try {
     return await openSources(cluster, dataFolder, clock, log, jsonStems);
   } catch (error) {
@@ -260,11 +265,11 @@ async function openSources(cluster: StoreHistories, dataFolder: string, clock: C
   for (const database of cluster.databases) databaseStems.set(database, database);
   const problems: string[] = [];
   for (const stem of jsonStems) {
-    const database = historyDatabaseOf(stem);
+    const database = cluster.databaseOf(stem);
     if (!databaseStems.has(database)) problems.push(`the data folder holds "${stem}.json" but no history database for it (${database}): the source's history is missing`);
   }
   if (problems.length > 0) throw new Error(problems.join('; '));
-  for (const stem of jsonStems) databaseStems.set(historyDatabaseOf(stem), stem);
+  for (const stem of jsonStems) databaseStems.set(cluster.databaseOf(stem), stem);
 
   const heads = new Map<string, SourceHead>();
   const histories = new Map<string, HistoryStore>();
@@ -327,7 +332,7 @@ async function openSources(cluster: StoreHistories, dataFolder: string, clock: C
     if (decoded === undefined) {
       throw new Error(`the sidecar "${path}" has a file name that does not decode to a source name; the folder was not written by this server`);
     }
-    const history = openHistory(historyDatabaseOf(stem));
+    const history = openHistory(cluster.databaseOf(stem));
     const held = await history.sources();
     if (held.length !== 1) {
       await history.close();
@@ -375,9 +380,9 @@ async function openSources(cluster: StoreHistories, dataFolder: string, clock: C
     }
     const source = names[0]!;
     const derived = encodeSourceName(source);
-    if (decodeSourceName(derived) !== source || historyDatabaseOf(derived) !== database) {
+    if (decodeSourceName(derived) !== source || cluster.databaseOf(derived) !== database) {
       await history.close();
-      throw new Error(`${said}, and the history's source "${source}" names no database of this server (${historyDatabaseOf(derived)}): the folder was not written by this server`);
+      throw new Error(`${said}, and the history's source "${source}" names no database of this server (${cluster.databaseOf(derived)}): the folder was not written by this server`);
     }
     const registry = await history.registry(source);
     if (registry === undefined) {
@@ -426,7 +431,7 @@ async function openSources(cluster: StoreHistories, dataFolder: string, clock: C
   function historyOf(source: string): HistoryStore {
     let history = histories.get(source);
     if (history === undefined) {
-      history = openHistory(historyDatabaseOf(encodeSourceName(source)));
+      history = openHistory(cluster.databaseOf(encodeSourceName(source)));
       histories.set(source, history);
     }
     return history;
@@ -523,8 +528,8 @@ async function openSources(cluster: StoreHistories, dataFolder: string, clock: C
     const newHead: SourceHead = { ...head, source: to };
     const history = historyOf(from);
     const former = [...new Set([...(formerNames.get(from) ?? []), from])].filter((name) => name !== to).sort(byCodePoint);
-    const fromDatabase = historyDatabaseOf(encodeSourceName(from));
-    const toDatabase = historyDatabaseOf(encodeSourceName(to));
+    const fromDatabase = cluster.databaseOf(encodeSourceName(from));
+    const toDatabase = cluster.databaseOf(encodeSourceName(to));
     await history.close();
     let historyMoved = false;
     let sidecarMoved = false;

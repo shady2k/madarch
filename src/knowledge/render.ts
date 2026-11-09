@@ -19,18 +19,17 @@ import { diagramsBlock } from './views.js';
 import { definitionBlock } from './definition.js';
 import { historyBlock } from './history.js';
 import type { GraphEntity } from './graph-read.js';
-import { implementedByBlock, linkedFromBlock, statedBlock, termBlock } from './doc-blocks.js';
+import { linkedFromBlock } from './linked-from.js';
 import { homeKind, listingFormOf, type Finding, type KindDecl, type Origin } from './kinds.js';
 import { readBody } from './markdown.js';
-import { entityAtAddress, type DocEntity } from './doc-entities.js';
 import type { MarkdownEntity } from './markdown.js';
 import type { Block, EntityListing, EntityRef, KindSummary, PageModel } from './model.js';
-import { documentAddress, noEntityMessage, sourceAddress, type Resolution } from './resolve.js';
+import { noEntityMessage, sourceAddress, type Resolution } from './resolve.js';
 import { SOURCE_BLOCK_LINES, detailRows, languageOf } from './blocks.js';
 import type { FilePageFacts } from './repository-view.js';
 import { renderLiquidPage } from './liquid.js';
 import { blockIdentity, foldLanguageParams, parseTemplate, substitute } from './template.js';
-import { termLinks } from './glossary.js';
+import { kindNumbers } from './kind-numbers.js';
 
 export type PageResult = { ok: true; page: PageModel } | { ok: false; status: 404 | 500; message: string };
 
@@ -38,10 +37,6 @@ export type PageResult = { ok: true; page: PageModel } | { ok: false; status: 40
 export async function findSubject(ctx: RenderContext, id: string): Promise<{ subject: Subject; others: number } | undefined> {
   const markdown = ctx.markdown.get(id);
   if (markdown !== undefined) return { subject: { source: 'markdown', entity: markdown }, others: 0 };
-  // A document address names its passage by a durable identity or by a source anchor; both open the same page, so a page
-  // written before an identity was minted keeps working (madarch-ztyq.3, the review of A).
-  const document = entityAtAddress(ctx.docEntities, id);
-  if (document !== undefined) return { subject: { source: 'document', entity: document }, others: 0 };
   const found = await ctx.graph.find(id);
   if (found.length === 0) return undefined;
   return { subject: { source: 'graph', entity: found[0]! }, others: found.length - 1 };
@@ -157,7 +152,6 @@ export async function renderPage(ctx: RenderContext, id: string, lang?: string, 
   for (const block of blocks) {
     if (block.type === 'markdown') for (const link of readBody(block.markdown, decl.template, 1).links) urls.add(link.url);
   }
-  for (const block of blocks) if (block.type === 'term') for (const link of termLinks({ definition: block.definition, synonyms: block.synonyms, code: block.code, usedIn: block.usedIn, ambiguous: block.ambiguous })) urls.add(link);
   if (subject.source === 'markdown' && blocks.some((block) => block.type === 'body')) {
     const reading = readBody(subject.entity.body, subject.entity.file, subject.entity.bodyLine);
     findings.push(...reading.findings);
@@ -166,8 +160,6 @@ export async function renderPage(ctx: RenderContext, id: string, lang?: string, 
       bodyLinks.push(link);
     }
   }
-  // A document entity's text may link to the graph too; its links are shown as they resolve (a link of a document is no finding of the product's pages).
-  if (subject.source === 'document' && blocks.some((block) => block.type === 'body')) for (const link of readBody(subject.entity.text, subject.entity.path, subject.entity.line).links) urls.add(link.url);
   const resolutions: Record<string, Resolution> = {};
   for (const url of [...urls].sort(byCodePoint)) resolutions[url] = await ctx.resolver.resolve(url);
   if (subject.source === 'markdown') {
@@ -208,7 +200,6 @@ function isDrawn(block: Block): boolean {
     case 'history': return block.sections.some((section) => section.rows.length > 0);
     case 'definition': return block.members.length > 0 || block.spec.text.trim() !== '' || block.document !== undefined || (block.descriptions ?? []).length > 0;
     case 'source': return block.text.trim() !== '';
-    case 'term': return block.definition.trim() !== '';
     case 'markdown': return block.markdown.trim() !== '';
     case 'diagrams': return block.views.some((view) => view.elements.length > 0 || view.mermaidSource !== '');
     default: return true;
@@ -217,7 +208,6 @@ function isDrawn(block: Block): boolean {
 
 function titleOf(subject: Subject, attribute: string): string {
   if (subject.source === 'graph') return graphTitleOf(attribute, subject.entity);
-  if (subject.source === 'document') return documentTitleOf(attribute, subject.entity);
   return markdownTitleOf(attribute, subject.entity);
 }
 
@@ -232,11 +222,6 @@ export function graphTitleOf(attribute: string, entity: Pick<GraphEntity, 'key' 
 /** A Markdown entity's title, resolved as its page resolves it from the manifest's `title` attribute. */
 export function markdownTitleOf(attribute: string, entity: MarkdownEntity): string {
   return attributeOf({ source: 'markdown', entity }, attribute) ?? entity.title;
-}
-
-/** A document entity's title, resolved as its page resolves it from the manifest's `title` attribute. */
-export function documentTitleOf(attribute: string, entity: DocEntity): string {
-  return attributeOf({ source: 'document', entity }, attribute) ?? entity.title;
 }
 
 /** The product's name for the context diagram: the title of its home page, else a plain word. */
@@ -286,10 +271,7 @@ async function renderBlock(ctx: RenderContext, subject: Subject, name: string, p
     case 'children': return await childrenBlock(ctx, subject, params, file, line);
     case 'properties': return propertiesBlock(subject, params, file, line, details, ctx.manifest.properties, lang ?? ctx.language);
     case 'members': return await membersBlock(ctx, subject, params, file, line, lang ?? ctx.language);
-    case 'term': return termBlock(ctx, subject, params, file, line);
-    case 'stated': return statedBlock(ctx, subject, params, file, line);
-    case 'implementedby': return await implementedByBlock(ctx, subject, params, file, line);
-    case 'linkedfrom': return await linkedFromBlock(ctx, subject, params, file, line);
+    case 'linkedfrom': return await linkedFromBlock(ctx, subject, params);
     default: return { type: 'problem', block: name, file, line, message: `"${name}" is not a block of the library` };
   }
 }
@@ -299,10 +281,6 @@ async function trailOf(ctx: RenderContext, subject: Subject): Promise<EntityRef[
   if (subject.source === 'graph') {
     const up = await ctx.graph.containers(subject.entity, CONTAINS);
     return up.reverse().map((entity) => refOfGraph(ctx, entity));
-  }
-  if (subject.source === 'document') {
-    const doc = subject.entity;
-    return [{ id: `doc:${doc.repo === null ? '' : `@${doc.repo}/`}${doc.path}`, kind: 'document', label: doc.repo === null ? doc.path : `${doc.repo}: ${doc.path}`, href: documentAddress(doc.repo, doc.path) }];
   }
   const home = homeKind(ctx.manifest);
   const page = home === undefined ? undefined : [...ctx.markdown.values()].find((entity) => entity.kind === home.name && entity.id !== subject.entity.id);
@@ -373,11 +351,7 @@ function originsOf(ctx: RenderContext, decl: { name: string; source: 'graph' | '
 }
 
 export async function kindSummaries(ctx: RenderContext): Promise<KindSummary[]> {
-  const counts = new Map((await ctx.graph.kindCounts()).map((entry) => [entry.kind, entry.count]));
-  // The record store's files are the kind `code.file`'s entities in a store this fill wrote (madarch-8bdc.2.5): the
-  // count the navigation and the listing show is the store's own, so the two never disagree about where the files are.
-  if (ctx.records !== undefined) counts.set('code.file', await ctx.records.files.count());
-  const statements = new Map((await ctx.index?.counts() ?? []).map((entry) => [entry.kind, entry.statements]));
+  const numbers = await kindNumbers(ctx);
   return [...ctx.manifest.kinds.values()].filter((decl) => decl.member === undefined).map((decl) => ({
     kind: decl.name,
     source: decl.source,
@@ -390,12 +364,8 @@ export async function kindSummaries(ctx: RenderContext): Promise<KindSummary[]> 
     origins: originsOf(ctx, decl),
     ...(decl.descriptions === undefined ? {} : { descriptions: { ...decl.descriptions } }),
     ...(decl.labels === undefined ? {} : { labels: { ...decl.labels } }),
-    ...(statements.has(decl.name) ? { statements: statements.get(decl.name)! } : {}),
-    count: decl.source === 'markdown'
-      ? [...ctx.markdown.values()].filter((entity) => entity.kind === decl.name).length
-      : decl.source === 'document'
-        ? [...ctx.docEntities.values()].filter((entity) => entity.kind === decl.name).length
-        : counts.get(decl.name) ?? 0,
+    ...(numbers.statements.has(decl.name) ? { statements: numbers.statements.get(decl.name)! } : {}),
+    count: numbers.count(decl.name, decl.source),
   }));
 }
 
@@ -422,7 +392,8 @@ export async function listEntities(ctx: RenderContext, kind: string, options: { 
   }
   if (decl.source === 'markdown' || decl.source === 'document') {
     const text = options.q?.trim().toLowerCase() ?? '';
-    const pool: (MarkdownEntity | DocEntity)[] = decl.source === 'markdown' ? [...ctx.markdown.values()] : [...ctx.docEntities.values()];
+    // No stage of the fill writes the entities of a document kind yet: its list is empty until one does.
+    const pool: MarkdownEntity[] = decl.source === 'markdown' ? [...ctx.markdown.values()] : [];
     const all = pool.filter((entity) => entity.kind === kind && (text === '' || entity.title.toLowerCase().includes(text) || entity.id.toLowerCase().includes(text))).sort((a, b) => byCodePoint(a.id, b.id));
     const from = options.after === undefined ? 0 : all.findIndex((entity) => byCodePoint(entity.id, options.after!) > 0);
     const rows = from < 0 ? [] : all.slice(from, from + options.limit);

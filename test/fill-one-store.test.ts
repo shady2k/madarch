@@ -18,7 +18,7 @@ import { KnowledgeProduct } from '../src/knowledge/product.js';
 import { repositoryStoreFolder } from '../src/mcp/graph.js';
 import { runGit } from '../src/product/git.js';
 import { readProduct } from '../src/product/manifest.js';
-import { knowledgeRootOf, productStoreFolder, storeDatabasePath, storeSnapshotsFolder } from '../src/product/store.js';
+import { knowledgeRootOf, productStoreFolder, storeDatabasePath } from '../src/product/store.js';
 import { generateTrainingRepository, makeProduct } from './knowledge-fixture.js';
 import { createTestDatabaseOwner } from './test-database.js';
 
@@ -69,14 +69,12 @@ describe('the one store of one product', () => {
       env: { ...process.env, MADARCH_HOME: ROOT },
       encoding: 'utf8',
     });
-    const answer = JSON.parse(output.trim().split('\n').at(-1)!) as { store: string; snapshot?: number; runId: string; state: string };
+    const answer = JSON.parse(output.trim().split('\n').at(-1)!) as { store: string; runId: string; state: string };
     expect(answer.state).toBe('succeeded');
     store = productStoreFolder(product, knowledgeRootOf(PRODUCTS_HOME));
     expect(answer.store).toBe(store);
     expect(existsSync(storeDatabasePath(store))).toBe(true);
-    expect(answer.snapshot).toBe(1);
-    snapshot = answer.snapshot!;
-    expect(readdirSync(storeSnapshotsFolder(store))).toContain(String(snapshot));
+    expect(existsSync(storeDatabasePath(store))).toBe(true);
     // The store's own records name the commit the run published (what `madarch mcp` reads first).
     const owner = await openStore(storeDatabasePath(store));
     try {
@@ -90,17 +88,13 @@ describe('the one store of one product', () => {
     expect(repositoryStoreFolder(product, { ...process.env, MADARCH_HOME: ROOT })).toBe(store);
   }, 60_000);
 
-  test('the wiki reader opens the snapshot the command finished, and its pins are the run\'s', async () => {
+  test('the wiki reads the store the command filled, and its pins are the run\'s', async () => {
     const wiki = new KnowledgeProduct({ productFolder: product, storeRoot: knowledgeRootOf(PRODUCTS_HOME) });
     try {
       expect(wiki.settingsView().store).toBe(store);
-      // The reader's own answer: the generation the command finished names the store the fill wrote (with one server a
-      // generation is a line, not a copy), and that store holds the run's pins.
+      // The wiki reads the store the command wrote directly (madarch-8bdc.9): no copy stands between them.
       await wiki.status();
-      const generation = JSON.parse(readFileSync(join(storeSnapshotsFolder(store), String(snapshot)), 'utf8')) as { store: string; at: string };
-      expect(generation.store).toBe(storeDatabasePath(store));
-      expect(Number.isFinite(Date.parse(generation.at))).toBe(true);
-      const owner = await openStore(generation.store);
+      const owner = await openStore(storeDatabasePath(store));
       try {
         const pins = await owner.run((tx) => tx.query<{ repo: string; commit_hash: string }>('SELECT repo, commit_hash FROM knowledge_fill ORDER BY repo'));
         expect(pins.rows).toContainEqual({ repo: name, commit_hash: head });

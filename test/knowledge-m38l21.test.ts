@@ -12,7 +12,6 @@ import { createGraphStore, type GraphId, type GraphStore } from '../src/graph/in
 import { membersBlock, type RenderContext } from '../src/knowledge/blocks.js';
 import { GraphReader } from '../src/knowledge/graph-read.js';
 import { parseKinds } from '../src/knowledge/kinds.js';
-import { readDocEntities } from '../src/knowledge/doc-entities.js';
 import { readMarkdownEntities } from '../src/knowledge/markdown.js';
 import type { Block, PageModel } from '../src/knowledge/model.js';
 import { kindSummaries, listEntities, renderPage } from '../src/knowledge/render.js';
@@ -134,17 +133,13 @@ beforeAll(async () => {
   expect(read.findings).toEqual([]);
   const markdown = new Map(readMarkdownEntities(product, read).entities.map((entity) => [entity.id, entity]));
   const graph = new GraphReader(owner, () => '2026-06-01T00:00:00Z');
-  const docs = readDocEntities([], read);
   const readSource = async (_repo: string | null, path: string): Promise<string | undefined> => path === 'src/a.ts' ? 'export function charge() {}\n' : undefined;
   ctx = {
     productFolder: product,
     manifest: read,
     graph,
     markdown,
-    docEntities: new Map(docs.entities.map((entity) => [entity.id, entity])),
-    localizedSources: new Map(),
     language: 'en',
-    documents: [],
     repositories: ['shop'],
     commitOf: () => null,
     resolver: new Resolver({ graph, markdown, declared: (kind) => read.kinds.has(kind), readDocument: readSource, repositories: () => ['shop'], locate: () => undefined }),

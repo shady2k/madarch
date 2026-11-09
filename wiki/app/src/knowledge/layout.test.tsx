@@ -14,7 +14,7 @@ import { navGroups } from './app.js';
 import { GlossaryPage } from './glossary.js';
 import { CataloguePage, Overview } from './pages.js';
 import { Root as AppRoot } from './root.js';
-import type { Glossary, GlossaryTerm, KindSummary, WikiStatus } from './types.js';
+import type { CatalogView, Glossary, GlossaryTerm, KindSummary, WikiStatus } from './types.js';
 
 beforeAll(async () => {
   GlobalRegistrator.register({ url: 'http://localhost/' });
@@ -52,7 +52,7 @@ const json = (body: unknown, status = 200): Response => new Response(JSON.string
 const BOUNDS = { turns: 30, minutes: 10, toolCalls: 80, writeAttempts: 5, maxDomains: 12, editorialRequestsPerPage: 2 };
 const kind = (over: Partial<KindSummary>): KindSummary => ({ kind: 'code.file', source: 'graph', count: 1, single: false, origins: ['code'], ...over });
 const status = (over: Partial<WikiStatus> = {}): WikiStatus => ({
-  product: { name: 'shop', id: 'p1' }, manifest: 'ok', manifestFile: 'madarch/kinds.yaml', language: 'en', seeded: [], findings: [], kinds: [], groups: [],
+  product: { name: 'shop', id: 'p1' }, manifest: 'ok', manifestFile: 'madarch/kinds.yaml', language: 'en', seeded: [], findingCount: 0, kinds: [], groups: [],
   repositories: [], filled: false, incomplete: false, fill: { state: 'idle' }, writer: { state: 'idle', agent: null, units: [] }, bounds: BOUNDS,
   chosenAgent: null, home: null, starterOffers: 0, ...over,
 });
@@ -113,15 +113,21 @@ describe('the groups of the manifest', () => {
   });
 
   test('the catalogue draws each sub-area under its group, with the same rows as the kinds it holds', async () => {
-    const full = {
+    const full: CatalogView = {
+      product: { name: 'shop', id: 'p1' },
+      language: 'en',
       groups: nestedGroups,
       kinds: [
-        kind({ kind: 'code.file', group: 'code.structure', count: 4, descriptions: { en: 'A file of a code repository.' } }),
-        kind({ kind: 'code.cycle', group: 'code.analysis', count: 1, descriptions: { en: 'A ring of imports.' } }),
-        kind({ kind: 'code.env-var', group: 'operations.configuration', count: 3, descriptions: { en: 'A setting read from the environment.' } }),
+        { kind: 'code.file', area: 'code', subgroup: 'code.structure', count: 4, page: true, producer: 'extract', filled: true, descriptions: { en: 'A file of a code repository.' } },
+        { kind: 'code.cycle', area: 'code', subgroup: 'code.analysis', count: 1, page: true, producer: 'extract', filled: true, descriptions: { en: 'A ring of imports.' } },
+        { kind: 'code.env-var', area: 'operations', subgroup: 'operations.configuration', count: 3, page: true, producer: 'extract', filled: true, descriptions: { en: 'A setting read from the environment.' } },
       ],
-    } as unknown as WikiStatus;
-    const page = into(createElement(CataloguePage, { status: full }));
+      findings: [],
+    };
+    (globalThis as { fetch?: unknown }).fetch = async (url: string) => url.includes('/api/k/catalog')
+      ? json(full)
+      : new Response('{}', { status: 404 });
+    const page = into(createElement(CataloguePage, { version: 0 }));
     await until(() => page.querySelector('[data-testid=catalogue-page]') !== null, 'the catalogue');
     expect([...page.querySelectorAll('[data-testid=catalogue-group]')].map((group) => group.getAttribute('data-group'))).toEqual(['code', 'operations']);
     const code = page.querySelector('[data-testid=catalogue-group][data-group=code]')!;
@@ -144,7 +150,24 @@ describe('the front page', () => {
 });
 
 describe('the menu', () => {
-  test('«Waiting for you» stands directly under Home, counts questions, tasks and problems, greys an empty entry, and sources and settings sit at the foot', async () => {
+  test('with no fill the home is the introduction, even when the product files hold a home page', async () => {
+    let askedPage = false;
+    (globalThis as { fetch?: unknown }).fetch = async (url: string) => {
+      if (url.includes('/api/k/page')) askedPage = true;
+      if (url.endsWith('/api/k/status')) return json(status({ filled: false, home: 'product:shop', kinds: [kind({ kind: 'product', source: 'markdown', single: true, count: 1 })], groups: nestedGroups.slice(0, 1) }));
+      if (url.endsWith('/api/k/products')) return json({ products: [{ name: 'shop', folder: 'shop' }] });
+      if (url.endsWith('/api/k/agents')) return json({ agents: [], chosen: null });
+      if (url.endsWith('/api/k/settings')) return json({ role: 'everything', asked: true, roles: [] });
+      if (url.endsWith('/api/k/glossary')) return json({ terms: [], resolutions: {}, findings: [] });
+      return json({ message: 'not here' }, 404);
+    };
+    window.history.replaceState({}, '', '/k');
+    const app = into(createElement(AppRoot));
+    await until(() => app.querySelector('[data-testid=home-intro]') !== null, 'the introduction');
+    expect(askedPage).toBe(false);
+  });
+
+  test('«Waiting for you» stands directly under Home, counts questions and problems, hides an empty count, and sources and settings sit at the foot', async () => {
     (globalThis as { fetch?: unknown }).fetch = async (url: string) => {
       if (url.endsWith('/api/k/status')) return json(status({
         home: 'product:shop', filled: true,
@@ -167,7 +190,9 @@ describe('the menu', () => {
     expect(waiting.nextElementSibling).toBe(catalogue);
     expect(waiting.querySelector('[data-testid=nav-questions]')).not.toBeNull();
     expect(waiting.querySelector('[data-testid=nav-questions]')!.textContent).toContain('2');
-    expect(waiting.querySelector('[data-testid=nav-tasks]')!.textContent).toContain('0');
+    // A count drawn from files is absent until it is above zero: nothing of the product is read before the fill runs.
+    expect(waiting.querySelector('[data-testid=nav-tasks]')!.textContent).not.toContain('0');
+    expect(waiting.querySelector('[data-testid=nav-tasks-count]')).toBeNull();
     expect(waiting.querySelector('[data-testid=nav-tasks]')!.getAttribute('data-empty')).toBe('true');
     expect(waiting.querySelector('[data-testid=nav-problems]')!.textContent).toContain('3');
     expect(waiting.querySelector('[data-testid=nav-problems]')!.getAttribute('data-empty')).toBe('false');
@@ -208,7 +233,7 @@ describe('the glossary table', () => {
   });
   const glossary: Glossary = {
     terms: Array.from({ length: 7 }, (_, index) => term(`Term ${index + 1}`, { source: { original: `The source of Term ${index + 1}.`, document: 'docs/glossary.md', line: index * 2 + 1, endLine: index * 2 + 2 } })),
-    resolutions: {}, findings: [],
+    resolutions: {}, findingCount: 0,
   };
 
   test('every term is one compact table row, the original opens inside that row, and the place is written once', async () => {

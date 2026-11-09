@@ -76,6 +76,12 @@ function appended(manifest: string, kind: string, row: { id: string; group: stri
     '    status: not-implemented',
     '    relation-constraints: { out: [], in: [] }',
     '    template-policy: none',
+    '    labels:',
+    '      en: { one: Probe, many: Probes }',
+    '      ru: { one: Проба, many: Пробы }',
+    '    description:',
+    '      en: A kind the check is asked about.',
+    '      ru: Вид, о котором спрашивают проверку.',
     ...lines.slice(end),
   ].join('\n');
 }

@@ -365,7 +365,7 @@ describe('the rule set as data', () => {
   test('the three sections have their rules, and every code and documents finding offers a task', () => {
     expect(STARTER_PROBLEM_RULES.filter((rule) => rule.section === 'code').length).toBe(13);
     expect(STARTER_PROBLEM_RULES.filter((rule) => rule.section === 'documents').length).toBe(4);
-    expect(STARTER_PROBLEM_RULES.filter((rule) => rule.section === 'wiki').length).toBe(7);
+    expect(STARTER_PROBLEM_RULES.filter((rule) => rule.section === 'wiki').length).toBe(6);
     for (const rule of STARTER_PROBLEM_RULES) if (rule.section !== 'wiki') expect(rule.action).toBe('task');
   });
 
@@ -373,7 +373,8 @@ describe('the rule set as data', () => {
     const manifest = starterProblemSettings();
     expect(ruleForKind(manifest, 'ground-removed')).toMatchObject({ id: 'wiki.ground-removed' });
     expect(ruleForKind(manifest, 'broken-link')).toMatchObject({ id: 'wiki.broken-link', sonar: 'bug', severity: 'major' });
-    expect(ruleForKind(manifest, 'unread-passage')).toMatchObject({ id: 'wiki.unread-passage', sonar: 'code-smell', severity: 'minor' });
+    // The request-time document reading is deleted, so no rule raises an unread passage: the kind is not guessed.
+    expect(ruleForKind(manifest, 'unread-passage')).toBeUndefined();
     expect(ruleForKind(manifest, 'an unknown kind')).toBeUndefined();
     // A severity is the rule's own field now: the manifest writes it, the engine reads it.
     const lowered = { ...manifest, rules: { ...manifest.rules, 'wiki.broken-link': { ...manifest.rules['wiki.broken-link']!, severity: 'info' as const } } };

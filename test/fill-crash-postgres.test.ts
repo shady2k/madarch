@@ -137,7 +137,8 @@ describe('one run, three executor processes', () => {
 
       const executors = [0, 1, 2].map(() => starting(world, { kind: 'run', workers: 1 }, options));
       const finished = await Promise.all(executors.map((driver) => driver.wait()));
-      for (const run of finished) expect(run.code).toBe(0);
+      // The executor's own words when one of them ends in failure (madarch-8bdc.9): the reason it gave, never a code alone.
+      for (const run of finished) expect(run.code, run.stderr.slice(0, 2_000)).toBe(0);
       // The three of them claimed between them at least one job per unit of the run,
       // so no unit was lost between executors. How the claims fell out among them is
       // the queue's own affair — an executor that arrives after the work is done

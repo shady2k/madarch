@@ -192,6 +192,45 @@ describe('the empty wiki, the press and the end state', () => {
     }
   }, 300_000);
 
+  test('the product\'s documents are never read at request time: the empty store answers no layer, and a fill leaves the document kinds empty', async () => {
+    const { folder } = product('docs', (repository) => {
+      mkdirSync(join(repository, 'src'), { recursive: true });
+      writeFileSync(join(repository, 'src', 'a.ts'), 'export const a = 1;\n');
+      git(repository, 'add', '-A');
+      git(repository, 'commit', '-qm', 'one file');
+    });
+    // A product whose own files hold a glossary and numbered use cases: the old reading answered from them with no fill.
+    mkdirSync(join(folder, 'docs'), { recursive: true });
+    writeFileSync(join(folder, 'docs', 'glossary.md'), [
+      '# Glossary', '',
+      '- **Capture** - The moment the money is taken from the card.',
+      '- **Payment token** - The proof a provider returns when it captured money.', '',
+    ].join('\n'));
+    writeFileSync(join(folder, 'docs', 'use-cases.md'), ['# Use cases', '', '- **UC-1 Place order.** A shopper submits a cart.', ''].join('\n'));
+    const server = await startServer({ productHome: home, appFolder: app, port: 0, log: () => undefined, errorLog: () => undefined });
+    try {
+      const empty = await json(server, 'docs', '/api/k/status');
+      expect(empty.status).toBe(200);
+      // The status carries the count, never the list (madarch-8bdc.2.5): nothing is read from the documents, so no finding is one.
+      expect(empty.body['findingCount']).toBe(0);
+      expect((empty.body['kinds'] as { kind: string; count: number }[]).filter((kind) => kind.kind.startsWith('doc.')).map((kind) => kind.count)).toEqual([0, 0, 0, 0, 0]);
+      const glossary = await json(server, 'docs', '/api/k/glossary');
+      expect(glossary.body).toEqual({ terms: [], resolutions: {}, findingCount: 0 });
+      const useCases = await json(server, 'docs', '/api/k/entities?kind=doc.use-case');
+      expect(useCases.body).toMatchObject({ total: 0, rows: [], next: null });
+      // After a fill the repository's own pages stand, and no document layer is filled: no stage writes one yet.
+      const ended = await press(server, 'docs');
+      const fill = ended['fill'] as Record<string, unknown>;
+      expect(fill['state']).toBe('done');
+      const after = await json(server, 'docs', '/api/k/status');
+      expect((after.body['kinds'] as { kind: string; count: number }[]).filter((kind) => kind.kind.startsWith('doc.')).every((kind) => kind.count === 0)).toBe(true);
+      expect((await json(server, 'docs', '/api/k/file?path=src%2Fa.ts')).status).toBe(200);
+      expect((await json(server, 'docs', '/api/k/entities?kind=doc.use-case')).body).toMatchObject({ total: 0, rows: [] });
+    } finally {
+      await server.stop();
+    }
+  }, 300_000);
+
   test('a declared repository with no commit does not break the wiki: the status names it, and the fill says what it did for it', async () => {
     // A checkout with no commit yet: it is a repository the product declares, and nothing is read
     // of it. The wiki answers, names it with its path, and the fill reads the other repository and
@@ -219,8 +258,22 @@ describe('the empty wiki, the press and the end state', () => {
       const emptyStatus = await json(server, 'half', '/api/k/status');
       expect(emptyStatus.status).toBe(200);
       expect(JSON.stringify(emptyStatus.body['repositories'])).toContain('empty-code');
-      expect(JSON.stringify(emptyStatus.body['findings'])).toContain('holds no commit yet');
-      expect(JSON.stringify(emptyStatus.body['findings'])).toContain(join(folder, 'repos', 'empty-code'));
+      // The finding now lives on the Problems page: its category, then the source the repository is,
+      // then the item itself, with the engine's words and the checkout's full path (madarch-8bdc.2.5).
+      const categories = await json(server, 'half', '/api/k/problems');
+      expect(categories.status).toBe(200);
+      const unreadable = (categories.body['categories'] as { rule: string }[]).find((category) => category.rule === 'wiki.unreadable-file');
+      expect(unreadable).toBeDefined();
+      const sources = await json(server, 'half', `/api/k/problems?rule=${encodeURIComponent('wiki.unreadable-file')}`);
+      expect(sources.status).toBe(200);
+      const emptySource = (sources.body['sources'] as { key: string }[]).find((source) => source.key === join(folder, 'repos', 'empty-code'));
+      expect(emptySource).toBeDefined();
+      const items = await json(server, 'half', `/api/k/problems?rule=${encodeURIComponent('wiki.unreadable-file')}&source=${encodeURIComponent(emptySource!.key)}`);
+      expect(items.status).toBe(200);
+      const item = (items.body['problems'] as { reason: string; source?: string }[]).find((problem) => problem.reason.includes('holds no commit yet'));
+      expect(item).toBeDefined();
+      expect(item!.reason).toContain('holds no commit yet');
+      expect(item!.source).toBe(join(folder, 'repos', 'empty-code'));
       // The fill reads the committed repository and says what it did for the empty one.
       const ended = await press(server, 'half');
       const fill = ended['fill'] as Record<string, unknown>;

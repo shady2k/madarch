@@ -403,7 +403,7 @@ export const ENRICHMENT_TASKS: Readonly<Record<string, string>> = {
  * person's text is never edited; the unit is told so, because a model that rewrites a document is
  * exactly the failure the rule exists for.
  */
-export async function enrichmentPrompt(view: GraphView, unit: { readonly id: string; readonly path: string; readonly entity: import('../knowledge/doc-entities.js').DocEntity; readonly enriches: string; readonly task: string }, language = 'en', context: UnitContext & { readonly reads?: readonly WriterArtifactRead[] } = {}): Promise<string> {
+export async function enrichmentPrompt(view: GraphView, unit: { readonly id: string; readonly path: string; readonly entity: import('../knowledge/model.js').DocEntity; readonly enriches: string; readonly task: string }, language = 'en', context: UnitContext & { readonly reads?: readonly WriterArtifactRead[] } = {}): Promise<string> {
   const entity = unit.entity;
   const source = entity.repo === null ? entity.path : `repos/${entity.repo}/${entity.path}`;
   const text = entity.text.trim();

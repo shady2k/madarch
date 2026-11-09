@@ -49,7 +49,7 @@ import {
   runMachine,
   unitMachine,
 } from './fsm.js';
-import { SCHEMA_LOCK_SQL, storeSchemaLockKey } from '../adapters/schema-stamp.js';
+import { createSchemaOnce } from '../adapters/schema-stamp.js';
 import type {
   ChainContext,
   ChainEvent,
@@ -157,14 +157,33 @@ const SCHEMA: readonly string[] = [
   'CREATE INDEX IF NOT EXISTS fill_unit_generation_run ON fill_unit_generation (run_id)',
 ];
 
-/** Creates the store's tables and indexes; safe to run on every start of the process's owner. */
+/**
+ * Creates the store's tables and indexes; safe to run on every start of the process's owner.
+ *
+ * A schema that stands is not made again (madarch-8bdc.9): `CREATE INDEX IF NOT EXISTS` takes the table's `ShareLock`
+ * even when the index is there, and a process opening a store while another runs a fill deadlocked with it — PostgreSQL's
+ * own detail (CI run for ddaefd9b, the fill-crash check; reproduced here):
+ *
+ *     Process 407868 waits for ShareLock on relation 35538 (fill_unit_generation); blocked by 407862.
+ *     Process 407862 waits for RowExclusiveLock on relation 35568 (fill_transition); blocked by 407868.
+ *       407868: CREATE INDEX IF NOT EXISTS fill_unit_generation_run ON fill_unit_generation (run_id)
+ *       407862: INSERT INTO fill_transition (...)
+ *
+ * — the creator's index holds `fill_unit_generation` while it waits for `fill_transition`, and the run's transaction
+ * holds `fill_transition` while it waits for `fill_unit_generation`. `createSchemaOnce` takes the store's schema lock
+ * first and then makes nothing at all when the stamp it left stands, so opening a store that has its schema takes no
+ * lock on a table a run writes.
+ */
 export async function createFillStateSchema(database: FillStateDatabase): Promise<void> {
   const at = here();
-  await run(at, database, 'createFillStateSchema', FILL_STATE_TABLES, async (executor) => {
-    // A schema made from several processes at once is serialized (`src/adapters/schema-stamp.ts`).
-    await executor.query(SCHEMA_LOCK_SQL, [storeSchemaLockKey()]);
-    for (const statement of SCHEMA) await executor.query(statement);
-  }, 'write');
+  await withLocation(at, 'createFillStateSchema', FILL_STATE_TABLES, async () => {
+    await createSchemaOnce(database, {
+      name: 'fill-state',
+      parts: SCHEMA,
+      tables: FILL_STATE_TABLES,
+      create: async (executor) => { for (const statement of SCHEMA) await executor.query(statement); },
+    });
+  });
 }
 
 /** One row of `fill_unit_lease`: the lease an attempt took, and the token it acts under. */
@@ -423,6 +442,38 @@ export async function createRun(database: FillStateDatabase, options: { readonly
     );
     return { runId: options.runId, product: options.product, state: 'created', context: newRunContext(), createdAt: options.at, updatedAt: options.at };
   }, 'write');
+}
+
+/**
+ * A cheap stamp of what a store's answers stand on (madarch-8bdc.9): how many publications it holds, the last of them,
+ * and what its pins were filled to. An api role that did not run the fill reads it before each answer and reads the
+ * store's numbers again when it moved — one row of counting, not the numbers themselves.
+ */
+export async function readStoreStamp(database: FillStateDatabase): Promise<string> {
+  const at = here();
+  return await run(at, database, 'readStoreStamp', ['fill_publication', 'knowledge_fill'], async (executor) => {
+    const { rows } = await executor.query<{ stamp: string }>(
+      `SELECT (SELECT count(*)::text || ':' || coalesce(max(published_at)::text, '-') FROM fill_publication)
+              || ':' || (SELECT coalesce(string_agg(repo || '=' || filled_commits::text, ',' ORDER BY repo), '-') FROM knowledge_fill) AS stamp`,
+    );
+    return rows[0]?.stamp ?? '0:-:-';
+  }, 'snapshot');
+}
+
+/**
+ * The newest run of a store that is under way, or null: a fill a *different* process runs is this store's own state
+ * (madarch-8bdc.9), and an api role that did not press it still answers how it is.
+ */
+export async function readLiveRun(database: FillStateDatabase): Promise<RunRecord | null> {
+  const at = here();
+  return await run(at, database, 'readLiveRun', ['fill_run'], async (executor) => {
+    const { rows } = await executor.query<RunRow>(
+      `SELECT run_id, product, state, context, created_at, updated_at FROM fill_run
+       WHERE state IN ('created', 'planning', 'running', 'pausing', 'cancelling')
+       ORDER BY created_at DESC, run_id DESC LIMIT 1`,
+    );
+    return rows[0] === undefined ? null : runRecord(rows[0]);
+  }, 'snapshot');
 }
 
 /** Answers one run, or null when it was never created. */
@@ -778,6 +829,34 @@ export async function advanceUnitIn(executor: SqlExecutor, options: { readonly u
         transitions: [],
       },
     } as const;
+  }
+  // The run's control, under its row's share lock and inside this step's own transaction (madarch-8bdc.2.5): a run that is
+  // cancelling, cancelled or failed revoked the authority of every unit it planned (decision 0027), so no step but the
+  // cancel is taken. The answer is the machine's own refusal — the one a step lands on when the cancel's write came first —
+  // so a step and a cancel that race answer alike whichever write lands first. The lock holds the control still for the
+  // whole step: an intent that lands while a step is under way waits for it, and a step that comes after sees it.
+  if (event.type !== 'cancel') {
+    const control = await executor.query<{ state: string }>(
+      `SELECT r.state AS state FROM fill_run r JOIN fill_unit_generation g ON g.run_id = r.run_id
+       WHERE g.unit_id = $1 AND g.generation = $2 FOR SHARE OF r`,
+      [options.unitId, snapshot.record.generation],
+    );
+    const runState = control.rows[0]?.state;
+    if (runState === 'cancelling' || runState === 'cancelled' || runState === 'failed') {
+      return {
+        ok: false,
+        record: snapshot.record,
+        refusal: {
+          code: 'fill-unit/no-transition',
+          reason: `fill-unit: the run of unit "${options.unitId}" generation ${String(snapshot.record.generation)} is ${runState}, which revoked the authority of the units it planned, so "${event.type}" is not taken; the cancel is the step such a run's units take`,
+          state: snapshot.record.state,
+          event: event.type,
+          guard: null,
+          guards: [],
+          transitions: [],
+        },
+      } as const;
+    }
   }
   const step = unitMachine.step({ state: snapshot.record.state, context: snapshot.record.context }, event);
   if (!step.ok) return { ok: false, refusal: step.refusal, record: snapshot.record } as const;

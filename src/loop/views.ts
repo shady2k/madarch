@@ -19,7 +19,7 @@ import { readTasks, scopeWords, type PlaceView, type PlannedTask, type TaskScope
 import type { Unplaced } from './plan.js';
 import type { StarterOffer } from '../knowledge/starter-upgrade.js';
 import { ruleForKind } from '../problems/rules.js';
-import { problemId, type ProblemSection, type ProblemLink, type ProblemSeverity, type ProblemSettings, type ProblemScope, type SonarKind } from '../problems/types.js';
+import { problemId, type ProblemLink, type ProblemNote, type ProblemSection, type ProblemSeverity, type ProblemSettings, type ProblemScope, type SonarKind } from '../problems/types.js';
 
 export type QuestionState = 'open' | 'answered' | 'closed';
 
@@ -96,7 +96,7 @@ export async function questionDetail(productFolder: string, slug: string, resolv
 // ---- problems ---------------------------------------------------------------------------------
 
 /** The kind of a wiki finding; the code and the documents carry kinds of their own. */
-export type ProblemKind = 'correction' | 'ground-removed' | 'broken-link' | 'unreadable-file' | 'unread-passage' | 'unplaced' | 'manifest';
+export type ProblemKind = 'correction' | 'ground-removed' | 'broken-link' | 'unreadable-file' | 'unplaced' | 'manifest';
 /** Who fixes it: the agent when the pages are refreshed, or a person. */
 export type Fixer = 'agent' | 'person';
 
@@ -129,6 +129,12 @@ export interface Problem {
   /** The ground or link that is broken, or the correction's slug. */
   readonly target: string | null;
   readonly reason: string;
+  /**
+   * The reason as a key and its values, when the engine wrote it in English words the interface words itself: the app
+   * says `loop.problemText.<textKey>` with `textArgs`, and `reason` is the fallback (madarch-8bdc.2.5).
+   */
+  readonly textKey?: string;
+  readonly textArgs?: Record<string, string | number>;
   readonly file: string;
   readonly line: number | null;
   /** The file's place on this machine, when the reader knows it: the identity above is what a reader navigates by. */
@@ -139,6 +145,8 @@ export interface Problem {
 
 export interface ProblemListing {
   readonly problems: readonly Problem[];
+  /** One row per rule: the Problems page's first level (madarch-8bdc.2.5). */
+  readonly categories: readonly ProblemCategory[];
   /** How many problems each section of the page holds, dismissals left out. */
   readonly sections: Readonly<Record<ProblemSection, number>>;
   readonly open: number;
@@ -146,9 +154,79 @@ export interface ProblemListing {
   /** Problems a person marked «Не проблема»; their records are files in the product repository. */
   readonly dismissed: number;
   /** Why a check could not be made (no single repository, say): said, never skipped silently. */
-  readonly notes: readonly string[];
+  readonly notes: readonly ProblemNote[];
   /** What the current starter set holds and this product's edited manifest lacks; each can be added (madarch-m38l.11). */
   readonly starter: readonly StarterOffer[];
+}
+
+/** One rule of the Problems page's first level, with the count it holds. */
+export interface ProblemCategory {
+  readonly rule: string;
+  readonly kind: string;
+  readonly section: ProblemSection;
+  readonly sonar: SonarKind;
+  readonly severity: ProblemSeverity;
+  readonly fixer: Fixer;
+  /** Every problem of this rule, open and closed; dismissals are left out. */
+  readonly count: number;
+  readonly open: number;
+  readonly closed: number;
+  /** The rule's own name per interface language, from the manifest; the app prefers the locale's one-line meaning. */
+  readonly label?: Readonly<Record<string, string>>;
+}
+
+/** The first level: one row per rule and the counts the page and the sidebar show. */
+export interface ProblemCategories {
+  readonly categories: readonly ProblemCategory[];
+  readonly total: number;
+  readonly open: number;
+  readonly closed: number;
+  readonly dismissed: number;
+  readonly sections: Readonly<Record<ProblemSection, number>>;
+  readonly severities: Readonly<Record<ProblemSeverity, number>>;
+  readonly notes: readonly ProblemNote[];
+  readonly starter: readonly StarterOffer[];
+}
+
+/** One source of a category: the page or the file its problems stand in. */
+interface ProblemSource {
+  /** The exact cursor key: the page id, or the file when the problem names no page. */
+  readonly key: string;
+  readonly label: string;
+  readonly page: string | null;
+  readonly pageTitle: string | null;
+  readonly file: string | null;
+  readonly count: number;
+  readonly open: number;
+}
+
+/** The second level: the sources of one rule, one bounded page at a time. */
+export interface ProblemSources {
+  readonly rule: string;
+  readonly kind: string;
+  readonly section: ProblemSection;
+  readonly sonar: SonarKind;
+  readonly severity: ProblemSeverity;
+  readonly count: number;
+  readonly open: number;
+  readonly closed: number;
+  /** How many sources this category holds in all; a page states this beside the rows it shows. */
+  readonly totalSources: number;
+  readonly sources: readonly ProblemSource[];
+  /** The key of the last source on this page, to pass as `after`; null when this page holds every source. */
+  readonly next: string | null;
+}
+
+/** The third level: the items of one source of one rule, one bounded page at a time. */
+export interface ProblemItems {
+  readonly rule: string;
+  readonly source: string;
+  readonly count: number;
+  readonly open: number;
+  readonly closed: number;
+  readonly problems: readonly Problem[];
+  /** The cursor of the last problem on this page, to pass as `after`; null when this page holds every problem. */
+  readonly next: string | null;
 }
 
 export interface ProblemInput {
@@ -158,7 +236,7 @@ export interface ProblemInput {
   readonly repository?: { readonly name: string; readonly path: string; readonly commit: string };
   readonly resolve: (url: string) => Promise<Resolution>;
   /** Findings of the manifest and of the product's Markdown, already read. */
-  readonly findings: readonly { readonly file: string; readonly line: number; readonly message: string; readonly kind?: FindingKind; readonly source?: string }[];
+  readonly findings: readonly { readonly file: string; readonly line: number; readonly message: string; readonly kind?: FindingKind; readonly source?: string; readonly textKey?: string; readonly textArgs?: Record<string, string | number> }[];
   readonly unplaced?: readonly Unplaced[];
   readonly starter?: readonly StarterOffer[];
   /** The product's `problems:` rules and thresholds, read from its manifest (`problems:`). */
@@ -193,14 +271,15 @@ function wikiProblem(
     reason: string; file: string; line: number | null; target: string | null; page: string | null; pageTitle: string | null;
     statement: string | null; sentence: string | null; fixer: Fixer; closed: boolean; by: Author | null; at: string | null;
     source?: string; place?: ProblemLink; entity?: ProblemLink | null; evidence?: readonly ProblemLink[];
+    textKey?: string; textArgs?: Record<string, string | number>;
   },
   settings: ProblemSettings,
-  notes: string[],
+  notes: ProblemNote[],
 ): Problem | undefined {
   const rule = ruleForKind(settings, kind);
   if (rule === undefined) {
     const note = `the manifest declares no wiki rule of the kind "${kind}": the findings it would name are not on the page`;
-    if (!notes.includes(note)) notes.push(note);
+    if (!notes.some((held) => held.message === note)) notes.push({ message: note });
     return undefined;
   }
   const severity = rule.severity;
@@ -210,7 +289,7 @@ function wikiProblem(
     id: problemId(rule.id, identity), section: rule.section, rule: rule.id, kind, sonar: rule.sonar, severity,
     fixer: fields.fixer, closed: fields.closed,
     page: fields.page, pageTitle: fields.pageTitle, statement: fields.statement, sentence: fields.sentence,
-    target: fields.target, reason: fields.reason, file: fields.file, line: fields.line,
+    target: fields.target, reason: fields.reason, ...(fields.textKey === undefined ? {} : { textKey: fields.textKey, textArgs: fields.textArgs }), file: fields.file, line: fields.line,
     ...(fields.source === undefined ? {} : { source: fields.source }),
     place, entity,
     evidence: fields.evidence ?? [],
@@ -221,7 +300,7 @@ function wikiProblem(
 
 export async function listProblems(input: ProblemInput): Promise<ProblemListing> {
   const out: Problem[] = [];
-  const notes: string[] = [];
+  const notes: ProblemNote[] = [];
   const add = (problem: Problem | undefined): void => { if (problem !== undefined) out.push(problem); };
   const read = readKnowledgePages(input.productFolder);
   const pages = read.pages.filter(isPage);
@@ -241,13 +320,13 @@ export async function listProblems(input: ProblemInput): Promise<ProblemListing>
   for (const finding of [...input.findings, ...read.findings]) {
     // A finding in the manifest is the manifest's own rule; every other finding keeps the kind it carries.
     const kind = (finding.kind ?? (finding.file === KINDS_FILE ? 'manifest' : 'unreadable-file')) as ProblemKind;
-    // A passage no reader decided is the agent's to read at the next fill; a file that cannot be read is a person's.
-    const fixer = kind === 'unread-passage' ? 'agent' : 'person';
+    const fixer = 'person';
     const key = `${finding.file}:${finding.line}:${kind}:${finding.message}`;
     if (seenFinding.has(key)) continue;
     seenFinding.add(key);
     add(wikiProblem(kind, key, {
       ...none, fixer, reason: finding.message, file: finding.file, line: finding.line, ...(finding.source === undefined ? {} : { source: finding.source }),
+      ...(finding.textKey === undefined ? {} : { textKey: finding.textKey, textArgs: finding.textArgs }),
     }, input.settings, notes));
   }
   for (const miss of input.unplaced ?? []) {
@@ -277,7 +356,7 @@ export async function listProblems(input: ProblemInput): Promise<ProblemListing>
   }
   // Grounds that are gone from the code or the documents since a page was written.
   if (input.repository === undefined) {
-    if (pages.length > 0) notes.push('the pages name no single code repository, so grounds that disappeared from the code are not looked for');
+    if (pages.length > 0) notes.push({ message: 'the pages name no single code repository, so grounds that disappeared from the code are not looked for' });
   } else if (pages.length > 0) {
     const changes = await changedGrounds(input.owner, { commit: input.repository.commit, git: gitReader(input.repository.path) });
     for (const change of changes) {
@@ -299,14 +378,30 @@ export async function listProblems(input: ProblemInput): Promise<ProblemListing>
   // manifest does not declare at all is a note of its section, never a row the page cannot explain.
   const declared = input.settings.rules;
   const kept = out.filter((problem) => !dismissed.has(problem.id) && declared[problem.rule] !== undefined && declared[problem.rule]?.enabled !== false);
-  const order: Record<string, number> = { correction: 0, 'ground-removed': 1, 'broken-link': 2, unplaced: 3, 'unreadable-file': 4, 'unread-passage': 5, manifest: 6 };
+  const order: Record<string, number> = { correction: 0, 'ground-removed': 1, 'broken-link': 2, unplaced: 3, 'unreadable-file': 4, manifest: 5 };
   kept.sort((a, b) => Number(a.closed) - Number(b.closed) || (order[a.kind] ?? 9) - (order[b.kind] ?? 9) || byCodePoint(a.file, b.file) || (a.line ?? 0) - (b.line ?? 0) || byCodePoint(a.target ?? '', b.target ?? '') || byCodePoint(a.rule, b.rule));
   const sections = { code: 0, documents: 0, wiki: 0 } as Record<ProblemSection, number>;
   for (const problem of kept) sections[problem.section] += 1;
-  return { problems: kept, sections, open: kept.filter((p) => !p.closed).length, closed: kept.filter((p) => p.closed).length, dismissed: out.filter((problem) => dismissed.has(problem.id)).length, notes, starter: input.starter ?? [] };
+  const byRule = new Map<string, Problem[]>();
+  for (const problem of kept) {
+    const rows = byRule.get(problem.rule);
+    if (rows === undefined) byRule.set(problem.rule, [problem]);
+    else rows.push(problem);
+  }
+  const sectionOrder: readonly ProblemSection[] = ['code', 'documents', 'wiki'];
+  const categories: ProblemCategory[] = [...byRule.entries()].map(([rule, rows]) => {
+    const first = rows[0]!;
+    const setting = declared[rule]!;
+    return {
+      rule, kind: first.kind, section: first.section, sonar: first.sonar, severity: first.severity, fixer: first.fixer,
+      count: rows.length, open: rows.filter((problem) => !problem.closed).length, closed: rows.filter((problem) => problem.closed).length,
+      label: { ...setting.label },
+    };
+  }).sort((a, b) => sectionOrder.indexOf(a.section) - sectionOrder.indexOf(b.section) || byCodePoint(a.rule, b.rule));
+  return { problems: kept, categories, sections, open: kept.filter((p) => !p.closed).length, closed: kept.filter((p) => p.closed).length, dismissed: out.filter((problem) => dismissed.has(problem.id)).length, notes, starter: input.starter ?? [] };
 }
 
-function correctionProblem(correction: Correction, pages: ReadonlyMap<string, IndexedPage>, settings: ProblemSettings, notes: string[]): Problem | undefined {
+function correctionProblem(correction: Correction, pages: ReadonlyMap<string, IndexedPage>, settings: ProblemSettings, notes: ProblemNote[]): Problem | undefined {
   const ref = parseStatementRef(correction.about);
   const page = ref === undefined ? undefined : pages.get(ref.page);
   return wikiProblem('correction', correction.slug, {

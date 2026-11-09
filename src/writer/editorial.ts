@@ -19,10 +19,10 @@
  * Findings and accepted requests are journal entries, so a revision is never a hidden edit.
  */
 import { byCodePoint } from '../model/order.js';
-import { parseTermText } from '../knowledge/glossary.js';
+import { parseTermText } from '../knowledge/term-fields.js';
 import { statementsOfMarkdown } from './editorial-read.js';
 import type { PageStatement } from './sentences.js';
-import type { DocEntity } from '../knowledge/doc-entities.js';
+import type { DocEntity } from '../knowledge/model.js';
 import type { Journal } from './journal.js';
 
 /** The most revision requests one pass returns; a page's own bound is the smaller of this and `maxPerPage`. */

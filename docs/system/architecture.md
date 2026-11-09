@@ -105,21 +105,17 @@ recorded in `fill_page_change` inside that publication's transaction
 No server route shows them since the documents app was removed
 (madarch-m38l.4): the knowledge wiki of decision 0029 is the one app.
 
-**The knowledge wiki's processes** (madarch-m38l.4). The wiki's one server
-(`src/server/http.ts`, `src/server/knowledge.ts`) does not read a graph store on
-its own thread: it reads through a worker process of its own. A
-fill is the one orchestrator's run (`src/knowledge/fill-run.ts`), which owns the
-product's primary store and publishes generations at a pace of its own. It
-runs in a process of its own, `madarch knowledge-fill-worker`
-(`src/knowledge/fill-worker.ts`), so no statement of the fill holds the server's
-thread. The server reads the newest generation through
-`madarch knowledge-read-worker` (`src/knowledge/read-worker.ts`, spoken to by
-`remote-owner.ts`), one process per generation: a generation is a marker naming the store the
-fill wrote and an instant, and the worker reads that store itself under a
-PostgreSQL snapshot it exports (`pg_export_snapshot()`, each page in a short
-transaction set to it), so it holds no lock the fill waits on. A worker is
-warmed with what its predecessor answered before the reads move to it, closed
-when nobody reads, and ends with the server that started it.
+**The knowledge wiki's processes** (madarch-8bdc.9). One binary runs in a
+role per instance. `madarch --role api` (`src/server/http.ts`,
+`src/server/knowledge.ts`) serves HTTP, MCP and the built web files and reads
+the product's store directly through the storage layer; a page's consistency is
+its own read's transaction (`REPEATABLE READ READ ONLY`). `madarch --role fill`
+(`src/knowledge/fill-role.ts`) claims pressed fills from the store's queue
+(`src/fill/run-jobs.ts`, decision 0027) and runs the one orchestrator's run
+(`src/knowledge/fill-run.ts`). The two speak only through PostgreSQL: the job,
+the run's state, its end and a person's pause or stop. `madarch serve` runs the
+api role in its process and one fill as a child at nice 10, which ends with the
+server that started it; on a server several of each can run against one store.
 
 ## From a document to a reader
 

@@ -18,8 +18,12 @@ import { type DatabaseOwner } from '../src/adapters/database-owner.js';
 import { fillGraph } from '../src/extract/driver/index.js';
 import { extractFiles } from '../src/extract/driver/files.js';
 import { createGraphStore, type GraphStore } from '../src/graph/index.js';
-import type { DocEntity } from '../src/knowledge/doc-entities.js';
-import { enrichmentPath, enrichmentPageId, fsSink, GraphView, memorySink, memoryWriterState, runWriter, UnitTools, writerGraphProblems, writerPageFamily, writerUnitOrder, WRITER_UNIT_KINDS, type PageSink, type UnitAgent, type UnitRequest, type WriterReport, type WriterUnitRun } from '../src/writer/index.js';
+import type { DocEntity } from '../src/knowledge/model.js';
+import {
+  enrichmentPath, enrichmentPageId, fsSink, GraphView, memorySink, memoryWriterState, runWriter, UnitTools, writerGraphProblems,
+  writerPageFamily, writerUnitOrder, WRITER_UNIT_KINDS,
+  type PageSink, type UnitAgent, type UnitRequest, type WriterReport, type WriterUnitRun,
+} from '../src/writer/index.js';
 import { fillWriterState } from '../src/writer/graph-state.js';
 import { memoryJournal } from '../src/writer/journal.js';
 import { gitEnv } from './git-env.js';

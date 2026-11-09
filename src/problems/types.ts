@@ -117,6 +117,16 @@ export const DEFAULT_THRESHOLDS: ProblemThresholds = {
   hotspotScore: 10_000,
 };
 
+/**
+ * A note beside a listing, as the engine's English words and as a key and its values: the app says
+ * `loop.problemNote.<textKey>` with `textArgs`, and `message` is the fallback (madarch-8bdc.2.5).
+ */
+export interface ProblemNote {
+  readonly message: string;
+  readonly textKey?: string;
+  readonly textArgs?: Record<string, string | number>;
+}
+
 /** The stable id of a problem: its rule and identity, never its position in a list. */
 export const problemId = (rule: string, identity: string): string => `${rule}\u0000${identity}`;
 

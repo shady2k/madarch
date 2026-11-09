@@ -86,10 +86,6 @@ async function groundOf(ctx: RenderContext, url: string): Promise<GroundView> {
   const resolution: Resolution = await ctx.resolver.resolve(url);
   if (resolution.state === 'broken') return { url, resolution, excerpt: null };
   if (resolution.entity !== undefined) {
-    const doc = ctx.docEntities.get(resolution.entity);
-    if (doc !== undefined) {
-      return { url, resolution, excerpt: { type: 'text', markdown: `**${doc.title}**\n\n${doc.text}`, place: { repo: doc.repo, path: doc.path, lineStart: doc.line, lineEnd: doc.endLine, href: documentAddress(doc.repo, doc.path, doc.anchor) } } };
-    }
     if (ctx.markdown.has(resolution.entity)) return { url, resolution, excerpt: null };
     const [entity] = await ctx.graph.find(resolution.entity);
     if (entity !== undefined && cardKind(ctx, entity.kind)) return { url, resolution, excerpt: await entityCard(ctx, entity) };
@@ -141,19 +137,13 @@ export async function buildStatement(ctx: RenderContext, pageId: string, sentenc
   }
   // The other statements that rely on the same grounds, from the index of the Markdown.
   const relying: RelyingRef[] = [];
-  const pathTwice = (entity: string): boolean => {
-    const doc = ctx.docEntities.get(entity);
-    return doc !== undefined && [...ctx.docEntities.values()].some((other) => other.path === doc.path && other.anchor === doc.anchor && other.repo !== doc.repo);
-  };
   if (ctx.index !== undefined) {
     const seen = new Set<string>();
     for (const ground of grounds) {
       if (ground.resolution.state !== 'ok' || ground.resolution.entity === undefined) continue;
       const entity = ground.resolution.entity;
-      // The index names a document section by its path alone: a path held by two repositories cannot be told apart.
-      if (pathTwice(entity)) continue;
       // The index names a document section by the ground's path and the ANCHOR the ground writes — not by the page's
-      // durable identity, which no anchor spells (madarch-ztyq.3, the review of A). A path held twice is skipped above.
+      // durable identity, which no anchor spells (madarch-ztyq.3, the review of A).
       const named = parseTarget(ground.url);
       const key = named.kind === 'doc' && named.anchor !== null
         ? `doc:${named.path.startsWith('@') && named.path.includes('/') ? named.path.slice(named.path.indexOf('/') + 1) : named.path}#${named.anchor.toLowerCase()}`

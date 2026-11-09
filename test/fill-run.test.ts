@@ -13,6 +13,9 @@ import { listFiles, repositoryFacts } from '../src/graph/index.js';
 import { fillSteps, runFill } from '../src/fill/run.js';
 import { writeFirstFillWorkflow } from './fill-workflow-fixture.js';
 import { createTestDatabaseOwner } from './test-database.js';
+import { createDatabaseOwner } from '../src/adapters/database-owner.js';
+import { readFillEnd } from '../src/fill/orchestrator-store.js';
+import { startKnowledgeFill } from '../src/knowledge/fill-run.js';
 
 let root = '';
 let product = '';
@@ -133,4 +136,29 @@ describe('the one fill', () => {
       await store.close();
     }
   }, 300_000);
+});
+
+describe('the end of a run another process reads', () => {
+  test('a run that could not start still writes its end, with the reason it gave, after the store it filled', async () => {
+    // The api role states a fill from that row alone (madarch-8bdc.9): a run that fails before the orchestrator made its
+    // schema — here a product with no manifest — must still leave its end, or the process that pressed the fill would
+    // answer `running` for ever.
+    const store = join(root, 'end-store');
+    const writer = await createDatabaseOwner({ store });
+    const reader = await createDatabaseOwner({ store });
+    const empty = join(root, 'no-manifest');
+    mkdirSync(empty, { recursive: true });
+    try {
+      const run = await startKnowledgeFill({ productFolder: empty, storeFolder: store, runId: 'no-manifest', database: writer });
+      const answer = await run.done;
+      expect(answer.ok).toBe(false);
+      const end = await readFillEnd(reader, 'no-manifest');
+      expect(end).not.toBeNull();
+      expect(end?.state).toBe('failed');
+      expect(end?.message).toBe(answer.message);
+      expect(end?.message).toContain('no-manifest');
+    } finally {
+      await reader.close();
+    }
+  }, 120_000);
 });

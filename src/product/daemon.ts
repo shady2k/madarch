@@ -715,7 +715,7 @@ export function daemonFills(home: string, options: { readonly toolUrl?: () => st
     // A run that succeeded finishes its store the way the button does: the wiki's reader and `madarch mcp` read the
     // store this update wrote.
     if (result.ok && result.settled && result.state === 'succeeded') {
-      await finishKnowledgeStore(held.owner, held.storeFolder);
+      await finishKnowledgeStore(held.owner);
     }
     return result;
   };

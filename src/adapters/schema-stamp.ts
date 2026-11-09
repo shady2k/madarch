@@ -67,7 +67,7 @@ export interface SchemaOnceOptions {
 }
 
 /** Whether the schema now stands with this digest, and answers whether this call made it. */
-export async function createSchemaOnce(owner: DatabaseOwner, options: SchemaOnceOptions): Promise<boolean> {
+export async function createSchemaOnce(owner: Pick<DatabaseOwner, 'transaction'>, options: SchemaOnceOptions): Promise<boolean> {
   const stamp = schemaStampOf(options.parts);
   return await owner.transaction('write', async (transaction) => {
     // Serialized before anything is read or made: the lock is what makes the check and the DDL one step.

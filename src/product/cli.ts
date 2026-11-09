@@ -279,8 +279,6 @@ export const COMMANDS: Record<string, CommandSpec> = {
   // person's command. It takes no argument at all — the session's token and the host's address come from
   // the environment the ACP session passed it — so it is listed here for the parser and in no help text.
   'mcp-unit': { positionals: [], flags: { home: false, product: false, port: false, open: false, branch: false, yes: false } },
-  'knowledge-read-worker': { positionals: [], flags: { home: false, product: false, port: false, open: false, branch: false, yes: false } },
-  'knowledge-fill-worker': { positionals: [], flags: { home: false, product: false, port: false, open: false, branch: false, yes: false } },
   'knowledge-render-worker': { positionals: [], flags: { home: false, product: false, port: false, open: false, branch: false, yes: false } },
   // The deterministic fill (decision 0026's stages 0 to 7, started by madarch-tzte.21.8): it runs
   // the eight stages over one product and prints what the graph holds afterwards. It serves nothing
@@ -642,6 +640,22 @@ export async function main(args: readonly string[], deps: CliDeps = {}): Promise
     const { mcpCommand } = await import('../mcp/cli.js');
     return await mcpCommand(args.slice(1));
   }
+  // The role of this process (madarch-8bdc.9): `--role fill` runs the fill role and nothing else, and `--role api` is the
+  // api role alone — the server that answers pages and presses, which reads the store and never fills it.
+  const roleAt = args.indexOf('--role');
+  if (roleAt !== -1) {
+    const role = args[roleAt + 1];
+    const rest = args.filter((_, index) => index !== roleAt && index !== roleAt + 1);
+    if (role === 'fill') return await fillRoleCommand(rest);
+    if (role === 'api') {
+      // The api role is every command as it stands, with this process's own role named in the environment: the server
+      // reads it and starts no fill process of its own.
+      process.env.MADARCH_ROLE = 'api';
+      return await main(rest, deps);
+    }
+    console.error(`unknown role "${role ?? ''}": the roles are "api" (serves the pages and the press) and "fill" (runs the fills the press asks for)`);
+    return 2;
+  }
   if (args.length === 1 && (args[0] === '--version' || args[0] === '-v')) return versionCommand();
   if (args.length === 0 || args[0] === 'help' || args[0] === '--help' || args[0] === '-h') {
     console.log(args.length === 0 ? `${whereHelp()}\n\n${SHORT_HELP}` : SHORT_HELP);
@@ -686,25 +700,32 @@ export async function main(args: readonly string[], deps: CliDeps = {}): Promise
     const { serveUnitMcpServer } = await import('../fill/unit-mcp-server.js');
     return await serveUnitMcpServer();
   }
-  if (command === 'knowledge-fill-worker') {
-    // One product's store, filled in a process of its own (madarch-m38l.4): the server that serves the wiki's pages
-    // starts it, so the store's boot and its statements never run on the server's thread. The store's connection is
-    // opened here, in the program that owns this process (decision 0033, item 3), and handed to the worker's loop.
-    const { runFillWorker } = await import('../knowledge/fill-worker.js');
-    const { standardInputLines } = await import('../knowledge/lines.js');
-    const code = await runFillWorker({ lines: standardInputLines(), send: (line) => { process.stdout.write(`${line}\n`); } }, async (store) => await createDatabaseOwner({ store, btreeGist: true }));
-    // The pipe from the server is still open for reading; the worker is over.
-    await new Promise<void>((done) => { process.stdout.write('', () => done()); });
-    process.exit(code);
-  }
-  if (command === 'knowledge-read-worker') {
-    const { runReadWorker } = await import('../knowledge/read-worker.js');
-    const { standardInputLines } = await import('../knowledge/lines.js');
-    const code = await runReadWorker({ lines: standardInputLines(), send: (line) => { process.stdout.write(`${line}\n`); } });
-    // The pipe from the server is still open for reading; the worker is over.
-    await new Promise<void>((done) => { process.stdout.write('', () => done()); });
-    process.exit(code);
-  }
+/** The fill role: this process takes the fills pressed for the products of the home and runs them (madarch-8bdc.9). */
+async function fillRoleCommand(rest: readonly string[]): Promise<number> {
+  // Only `--home`: the fill role reads no product, serves no port and opens no page — it takes the jobs a server asked for.
+  const parsed = parse({ positionals: [], flags: { home: true, product: false, port: false, open: false, branch: false, yes: false } }, rest);
+  if (typeof parsed === 'number') return parsed;
+  const { runFillRole } = await import('../knowledge/fill-role.js');
+  // The fill role watches the products home a server serves; `--home` names another one, as every other command does, and
+  // the server that started it names the knowledge root it serves (a test run keeps it outside the home).
+  const home = productHomeOf(parsed.home);
+  const root = process.env['MADARCH_KNOWLEDGE_ROOT']?.trim();
+  // A fill role a server started ends with the server that started it: an orphan would work a store nothing serves.
+  const parent = Number(process.env['MADARCH_FILL_PARENT'] ?? '0');
+  return await runFillRole({
+    knowledgeRoot: root === undefined || root === '' ? knowledgeRootOf(home) : root,
+    productsHome: home,
+    ...(Number.isInteger(parent) && parent > 1 ? { parentPid: parent } : {}),
+    // The process that owns the binary opens the stores it works: the role itself holds no connection (decision 0033, 3).
+    openStore: async (databaseFolder) => await createDatabaseOwner({ store: databaseFolder, btreeGist: true }),
+  });
+}
+
+/** The products home this process serves: `--home`, else `MADARCH_HOME`, else the account's own. */
+function productHomeOf(named: string | undefined): string {
+  return named !== undefined && named !== '' ? resolve(named) : productsHome(process.env);
+}
+
   if (command === 'knowledge-render-worker') {
     // The knowledge wiki's Liquid templates, rendered in a process of its own (madarch-u3vw.1): messages are lines on standard input and output.
     const { runRenderWorker } = await import('../knowledge/render-worker.js');
@@ -830,10 +851,10 @@ async function fillStagesCommand(parsed: Parsed, home: string | undefined): Prom
       console.error(`${result.code}: ${result.reason}`);
       exit = 1;
     } else {
-      // The store is finished the way the button finishes it: the pins the run published, and the numbered
-      // snapshot the wiki's reader opens. A run that did not succeed writes neither.
+      // The store is finished the way the button finishes it: the pins the run published. A run that did not succeed
+      // writes none.
       const finished = result.settled && result.state === 'succeeded'
-        ? await finishKnowledgeStore(owner, storeFolder)
+        ? await finishKnowledgeStore(owner)
         : undefined;
       reportFillStages(product, storeFolder, result, await countPublishedFactsByKind(owner), finished, Date.now() - started, parsed.json);
       // A run that did not settle, or settled without its coverage, is not a
@@ -889,12 +910,12 @@ function reportFillStages(product: { readonly name: string; readonly folder: str
   const units = [...result.units].sort((left, right) => byCodePoint(left.unitId, right.unitId));
   const executed = units.filter((unit) => !inherited.has(unit.unitId));
   if (json) {
-    console.log(JSON.stringify({ product, store: storeFolder, runId: result.runId, state: result.state, settled: result.settled, passes: result.passes, work: result.work, stoppedBecause: result.stoppedBecause, retryWaitMs: result.retryWaitMs, units, inherited: [...inherited].sort(byCodePoint), foundNothing: [...result.foundNothing].sort(byCodePoint), counts, snapshot: finished?.snapshot, elapsedMs }));
+    console.log(JSON.stringify({ product, store: storeFolder, runId: result.runId, state: result.state, settled: result.settled, passes: result.passes, work: result.work, stoppedBecause: result.stoppedBecause, retryWaitMs: result.retryWaitMs, units, inherited: [...inherited].sort(byCodePoint), foundNothing: [...result.foundNothing].sort(byCodePoint), counts, elapsedMs }));
     return;
   }
   console.log(`Fill ${result.runId}: ${result.state}${result.settled ? '' : ', not settled'}${result.stoppedBecause === undefined ? '' : ` (${result.stoppedBecause})`}`);
   console.log(`Product: ${product.name} in ${displayPath(product.folder)}`);
-  console.log(`Store: ${displayPath(storeFolder)}${finished === undefined ? ' (no snapshot: the run did not succeed)' : `, snapshot ${String(finished.snapshot)}`}`);
+  console.log(`Store: ${displayPath(storeFolder)}${finished === undefined ? ' (the run did not succeed: its pins were not written)' : ''}`);
   console.log(`Units: ${String(units.length)} in the run, ${String(executed.length)} executed and ${String(inherited.size)} inherited`);
   for (const unit of units) console.log(`${unit.unitId}\t${unit.state}\tgeneration ${String(unit.generation)}\t${inherited.has(unit.unitId) ? 'inherited' : 'executed'}`);
   if (result.foundNothing.length > 0) console.log(`Stages that read their inputs and found nothing: ${[...result.foundNothing].sort(byCodePoint).join(', ')}`);
@@ -958,7 +979,7 @@ async function fillCommand(parsed: Parsed, home: string | undefined): Promise<nu
   console.log(`Fill ${runId}: ${result.state}`);
   console.log(`Product: ${identity.product.name} in ${displayPath(folder)}`);
   console.log(`Store: ${displayPath(storeFolder)}`);
-  console.log(`Units: ${String(result.units)}${result.snapshot === undefined ? '' : `, snapshot ${String(result.snapshot)}`}`);
+  console.log(`Units: ${String(result.units)}`);
   if (!result.ok) { if (result.message !== undefined) console.error(result.message); return 1; }
   console.log('Watch the pages with: madarch serve');
   return 0;

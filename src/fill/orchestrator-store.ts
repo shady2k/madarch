@@ -36,14 +36,36 @@ import { here, raise, withLocation } from './fsm-core.js';
 import { FACT_RANK_FIELDS } from './facts.js';
 import { advanceUnitIn, type UnitRecord } from './state-store.js';
 import type { StageDraftWrite } from './stage.js';
-import { SCHEMA_LOCK_SQL, storeSchemaLockKey } from '../adapters/schema-stamp.js';
+import { createSchemaOnce, SCHEMA_LOCK_SQL, storeSchemaLockKey } from '../adapters/schema-stamp.js';
 
 /** The orchestrator's own tables; `createOrchestratorSchema` creates them and every error names the ones it touched. */
 export const ORCHESTRATOR_TABLES = [
-  'fill_run_configuration', 'fill_run_stage', 'fill_unit_plan', 'fill_unit_read', 'fill_unit_draft', 'fill_unit_draft_part', 'fill_unit_split', 'fill_publication', 'fill_event',
+  'fill_run_configuration', 'fill_run_stage', 'fill_unit_plan', 'fill_unit_read', 'fill_unit_draft', 'fill_unit_draft_part', 'fill_unit_split', 'fill_publication', 'fill_event', 'fill_control', 'fill_end',
 ] as const;
 
+/**
+ * What a run ended with, where the api role reads it (madarch-8bdc.9): the process that ran the fill writes the answer
+ * its own result carried, and the process that pressed it states that answer. Written by `writeFillEnd` too, under the
+ * store's schema lock, because a run that fails before the orchestrator starts its schema still ended, and the process
+ * that pressed it waits for this row.
+ */
+const FILL_END_TABLE = `CREATE TABLE IF NOT EXISTS fill_end (
+    run_id text PRIMARY KEY,
+    state text NOT NULL,
+    message text,
+    unread jsonb,
+    finished_at timestamptz NOT NULL DEFAULT now()
+  )`;
+
 const SCHEMA: readonly string[] = [
+  // A person's pause or stop of a run whose fill process is another one (madarch-8bdc.9): the process that runs the fill
+  // reads this row and takes the action on the run it owns.
+  `CREATE TABLE IF NOT EXISTS fill_control (
+    run_id text PRIMARY KEY,
+    action text NOT NULL,
+    at bigint NOT NULL
+  )`,
+  FILL_END_TABLE,
   `CREATE TABLE IF NOT EXISTS fill_run_configuration (
     run_id text PRIMARY KEY,
     digest text NOT NULL,
@@ -152,12 +174,26 @@ const CACHE_VERSIONS_COLUMN = 'ALTER TABLE fill_unit_plan ADD COLUMN IF NOT EXIS
  */
 const CACHE_VERSIONS_LOCK = 724_913_556;
 
-/** Creates the orchestrator's tables and indexes; safe to run on every start of the process's owner. */
+/**
+ * Creates the orchestrator's tables and indexes; safe to run on every start of the process's owner.
+ *
+ * As the fill's own schema (`createFillStateSchema`): a schema that stands is not made again, because
+ * `CREATE INDEX IF NOT EXISTS` takes the table's `ShareLock` even when the index is there, and that lock against a running
+ * fill's transaction is the deadlock PostgreSQL's detail named for this check (madarch-8bdc.9).
+ */
 export async function createOrchestratorSchema(database: OrchestratorDatabase): Promise<void> {
   const at = here();
+  await withLocation(at, 'createOrchestratorSchema', ORCHESTRATOR_TABLES, async () => {
+    await createSchemaOnce(database, {
+      name: 'orchestrator',
+      parts: SCHEMA,
+      tables: ORCHESTRATOR_TABLES,
+      create: async (executor) => { for (const statement of SCHEMA) await executor.query(statement); },
+    });
+  });
+  // The column a store of an older build lacks is added here, once, under its own lock: it is a migration beside the
+  // schema, not part of what the stamp describes.
   await run(at, database, 'createOrchestratorSchema', ORCHESTRATOR_TABLES, async (executor) => {
-    await executor.query(SCHEMA_LOCK_SQL, [storeSchemaLockKey()]);
-    for (const statement of SCHEMA) await executor.query(statement);
     // The column is added under the lock and only where it is missing: the check first, so a store a
     // previous build filled and this build opened pays one query and no DDL at all.
     await executor.query('SELECT pg_advisory_xact_lock($1)', [CACHE_VERSIONS_LOCK]);
@@ -856,6 +892,72 @@ export async function publishUnitIn(executor: SqlExecutor, options: PublicationR
     record: { unitId: options.unitId, generation: options.generation, digest, facts, publishedAt: options.at },
     effects: step.effects,
   };
+}
+
+/** What a run of a fill ended with, as the process that ran it answered it (madarch-8bdc.9). */
+export interface FillEnd {
+  readonly runId: string;
+  readonly state: string;
+  readonly message?: string;
+  readonly unread?: readonly { readonly repository: string; readonly path: string; readonly reason: string }[];
+}
+
+/** Records how a run ended, where the process that pressed it reads it. */
+export async function writeFillEnd(database: OrchestratorDatabase, end: FillEnd): Promise<void> {
+  const at = here();
+  await run(at, database, `writeFillEnd(${end.runId})`, ['fill_end'], async (executor) => {
+    // A run that failed before the orchestrator made its schema — a product with no manifest, a store that could not be
+    // read — still ended, and the process that pressed it waits for this row: the table is made here, under the store's
+    // schema lock, which is the same lock the orchestrator's own creation takes.
+    await executor.query(SCHEMA_LOCK_SQL, [storeSchemaLockKey()]);
+    await executor.query(FILL_END_TABLE);
+    await executor.query(
+      `INSERT INTO fill_end (run_id, state, message, unread) VALUES ($1, $2, $3, $4::jsonb)
+       ON CONFLICT (run_id) DO UPDATE SET state = $2, message = $3, unread = $4::jsonb, finished_at = now()`,
+      [end.runId, end.state, end.message ?? null, end.unread === undefined ? null : JSON.stringify(end.unread)],
+    );
+  }, 'write');
+}
+
+/** How a run ended, or null when the process that ran it has not written it yet. */
+export async function readFillEnd(database: OrchestratorDatabase, runId: string): Promise<FillEnd | null> {
+  const at = here();
+  return await run(at, database, `readFillEnd(${runId})`, ['fill_end'], async (executor) => {
+    const { rows } = await executor.query<{ state: string; message: string | null; unread: unknown }>('SELECT state, message, unread FROM fill_end WHERE run_id = $1', [runId]);
+    const row = rows[0];
+    if (row === undefined) return null;
+    return {
+      runId,
+      state: row.state,
+      ...(row.message === null ? {} : { message: row.message }),
+      ...(Array.isArray(row.unread) ? { unread: row.unread as { repository: string; path: string; reason: string }[] } : {}),
+    };
+  }, 'snapshot');
+}
+
+/**
+ * A person's pause or stop of a run another process fills (madarch-8bdc.9): the api role writes the row, the fill process
+ * that holds the run reads it and takes the action on the run's own state machine.
+ */
+export async function askRunControl(database: OrchestratorDatabase, request: { readonly runId: string; readonly action: 'pause' | 'stop'; readonly at: number }): Promise<void> {
+  const at = here();
+  await run(at, database, `askRunControl(${request.runId})`, ['fill_control'], async (executor) => {
+    await executor.query(
+      `INSERT INTO fill_control (run_id, action, at) VALUES ($1, $2, $3::bigint)
+       ON CONFLICT (run_id) DO UPDATE SET action = $2, at = $3::bigint`,
+      [request.runId, request.action, String(request.at)],
+    );
+  }, 'write');
+}
+
+/** The action a person asked of one run and no process has taken yet, if any: reading it takes it away. */
+export async function readRunControl(database: OrchestratorDatabase, runId: string): Promise<'pause' | 'stop' | null> {
+  const at = here();
+  return await run(at, database, `readRunControl(${runId})`, ['fill_control'], async (executor) => {
+    const { rows } = await executor.query<{ action: string }>('DELETE FROM fill_control WHERE run_id = $1 RETURNING action', [runId]);
+    const action = rows[0]?.action;
+    return action === 'pause' || action === 'stop' ? action : null;
+  }, 'write');
 }
 
 /** One generation's publication record, or null when it was never published. */

@@ -1,23 +1,50 @@
 /**
- * The PostgreSQL server a store runs on (madarch-8bdc.2.5, items 1 and 3): one
- * cluster — a data directory, and a Unix socket folder the server listens in and
- * nowhere else — started on demand and stopped when the process that started it
- * closes it.
+ * The PostgreSQL server a store runs on (madarch-8bdc.2.5, items 1 and 3; the roles' one owner, madarch-8bdc.9): one
+ * cluster — a data directory, and a Unix socket folder the server listens in and nowhere else — started on demand and
+ * stopped by the last process of the binary that used it.
  *
  * One cluster holds many databases, so a store, a product's snapshot of it and a
  * source's history are databases of one server rather than servers of their own.
- * Two processes share a cluster by attaching: a process that finds the server
- * answering uses it and never stops it, and a process whose predecessor was
- * killed adopts the server it left (the `owner.pid` file names the process that
- * started it) and stops it when it is done. A server nobody adopted is stopped by
- * the process that started it, unless another process is still connected — then
- * it is left running and its ownership file is removed, so the next process to
- * open the cluster adopts it.
+ *
+ * ## The rule: one owner across processes
+ *
+ * Two files beside the data directory hold the rule, and nothing else decides it:
+ *
+ * - `pgdata.lock` is held exclusively — `flock`, in the kernel, so a killed
+ *   process lets go of it — by the process that decides whether to start the
+ *   server, for the whole of `initdb` and `pg_ctl start`. A second process waits
+ *   for that hold and then finds the server answering, and connects: it never
+ *   starts a server of the same store beside the first, and never runs `initdb`
+ *   on a data directory another process is writing.
+ * - `pgdata.users` is held shared by every process that uses the server, for as
+ *   long as it uses it — every open of the cluster, in every role. A process
+ *   leaving asks for the file exclusively and only non-blocking: the kernel grants
+ *   that only when no other process still holds a shared hold, which is exactly
+ *   "no other process of the binary uses this server". The process that gets it
+ *   stops the server; one that does not leaves it running.
+ *
+ * So the last user stops the server, whichever process started it and whichever
+ * role it plays: a fill child leaving never stops the server an api process is
+ * reading from, and a process whose predecessor was killed adopts the server it
+ * left without a second start. Measured before the rule (2026-11-08, this box):
+ * four processes opening one fresh store took 5.1-6.4 s, each killing the
+ * server another had just started ("stopping the PostgreSQL server pid … a
+ * crashed process left holding …"), and eight opens in one process took 13.1 s
+ * with five of them failing. CI run 42534535257 (shard 2) had `initdb … exists
+ * but is not empty` from two processes starting one store at once, and
+ * `Connection terminated unexpectedly` from one process stopping a server
+ * another was reading.
+ *
+ * The waits are polls of `flock` with `LOCK_NB` rather than a blocking call: a
+ * blocking `flock` stops the event loop of a server that is only opening a
+ * store for one page, which is the 300 ms answer budget a reading role lives
+ * under.
  *
  * PostgreSQL refuses to run as root, so an open as root says what to do instead
  * of failing inside initdb.
  */
-import { existsSync, mkdirSync, readFileSync, rmSync, writeFileSync, chmodSync } from 'node:fs';
+import { chmodSync, closeSync, existsSync, mkdirSync, openSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
+import { dlopen, FFIType } from 'bun:ffi';
 import { tmpdir } from 'node:os';
 import { dirname, join, resolve } from 'node:path';
 import { spawnSync } from 'node:child_process';
@@ -39,8 +66,20 @@ export const CLUSTER_ADMIN_DATABASE = 'postgres';
 /** How long a cluster is given to answer after its `postmaster.pid` names a live process, before it is stopped. */
 const ANSWER_WAIT_MS = 5_000;
 
-/** The ownership file's name inside a cluster's data directory. */
-const OWNER_FILE = 'madarch-owner.pid';
+/** The lock one process holds while it decides whether to start the server, from `initdb` to `pg_ctl start`, beside the data directory. */
+const START_LOCK_FILE = 'pgdata.lock';
+
+/** The lock every process using the server holds shared, beside the data directory: its exclusive hold is "no other process uses it". */
+const USERS_LOCK_FILE = 'pgdata.users';
+
+/** How often a lock that is held by another process is asked for again: 20 ms, so an open that waits a start costs almost nothing. */
+const LOCK_POLL_MS = 20;
+
+/** How long an open waits for a server another process is starting: `initdb` and a `pg_ctl start` with its own 60 s bound, and room on a loaded machine. */
+const START_LOCK_WAIT_MS = 120_000;
+
+/** How long an open waits for a server another process is stopping: a `pg_ctl stop -w` is bounded by 60 s. */
+const USERS_LOCK_WAIT_MS = 90_000;
 
 /** A cluster whose server answers, and what may be done with it. */
 export interface RunningCluster {
@@ -50,11 +89,12 @@ export interface RunningCluster {
   readonly socketDir: string;
   readonly port: number;
   readonly user: string;
-  /** True when this process started or adopted the server, which is what lets it stop the server. */
-  readonly startedIt: boolean;
   /** The folder the server's programs are in. */
   readonly bin: string;
-  /** Stops the server when this process owns it and no other process is connected, then removes the socket folder. */
+  /**
+   * Stops using the server: the last process holding it stops it, and one that still shares it with another leaves it
+   * running. Every open must be given back exactly once with this call.
+   */
   stop(): Promise<void>;
 }
 
@@ -161,24 +201,76 @@ function alive(pid: number): boolean {
   }
 }
 
-/** The process that started or adopted this cluster's server, or null when no file says. */
-function ownerOf(dataDir: string): number | null {
-  try {
-    const pid = Number(readFileSync(join(dataDir, OWNER_FILE), 'utf8').trim());
-    return Number.isInteger(pid) && pid > 1 ? pid : null;
-  } catch {
-    return null;
+/** The lock a cluster's start is serialized by, beside its data directory. */
+function startLockPath(dataDir: string): string {
+  return join(dirname(dataDir), START_LOCK_FILE);
+}
+
+/** The lock every process using a cluster's server holds shared, beside its data directory. */
+function usersLockPath(dataDir: string): string {
+  return join(dirname(dataDir), USERS_LOCK_FILE);
+}
+
+/** The kernel's shared, exclusive and non-blocking `flock` modes. */
+const LOCK_SH = 1;
+const LOCK_EX = 2;
+const LOCK_NB = 4;
+const LOCK_UN = 8;
+
+/**
+ * `flock` from the system's C library: Bun's file API has no lock, and a lock the kernel holds is released when a
+ * process is killed, which is what makes "no process uses this server" true even after a crash. Linux and macOS
+ * spell the library differently; none of the platforms madarch pins a server build for is anything else, and a store's
+ * cluster is only ever opened on those (a platform with no pinned build refuses in `ensurePostgresInstalled`, before a
+ * lock is asked for).
+ *
+ * The library is loaded when the first lock is asked for, never at the module's import: `scripts/build-binary.ts`
+ * imports this module to build the binary, and Bun resolves a `dlopen` at import time for the target it builds —
+ * `bun scripts/build-binary.ts --os windows` failed there with `Failed to open library "libc.so.6": error code 126,
+ * ERR_DLOPEN_FAILED` (CI run for ddaefd9b, clean install walks / windows-x64). The platform's name is computed rather
+ * than written beside `dlopen`, for the same reason.
+ */
+let flockSymbol: ((descriptor: number, operation: number) => number) | undefined;
+
+/** `flock(2)` for this platform, loaded once: the descriptor-and-mode call every hold and release goes through. */
+function flock(descriptor: number, operation: number): number {
+  if (flockSymbol === undefined) {
+    const library = process.platform === 'darwin' ? 'libSystem.B.dylib' : process.platform === 'linux' ? 'libc.so.6' : undefined;
+    if (library === undefined) {
+      throw new Error(`${String(process.platform)}:1: a store's PostgreSQL cluster is guarded by flock(2), which this platform's C library is not asked for: madarch pins server builds for linux-x64, linux-arm64 and darwin-arm64 only, so a store never opens here (src/adapters/postgres-cluster.ts)`);
+    }
+    flockSymbol = dlopen(library, { flock: { args: [FFIType.i32, FFIType.i32], returns: FFIType.i32 } }).symbols.flock;
+  }
+  return flockSymbol(descriptor, operation);
+}
+
+/**
+ * Holds one of the two locks a cluster has, waiting for another process to let go of it: asked for every 20 ms without
+ * blocking the event loop, because the process waiting may be a server answering pages. A lock file that cannot be
+ * opened answers at once; a lock another process still holds at the deadline is an error naming the file, so a stuck
+ * start or stop is never a silent wait. The descriptor it answers is the hold.
+ */
+async function holdLock(path: string, mode: number, wait: { readonly what: string; readonly deadlineMs: number }): Promise<number> {
+  const fd = openSync(path, 'a+');
+  const deadline = Date.now() + wait.deadlineMs;
+  for (;;) {
+    if (flock(fd, mode | LOCK_NB) === 0) return fd;
+    if (Date.now() >= deadline) {
+      closeSync(fd);
+      throw new Error(`${path}:1: ${wait.what} waited ${String(wait.deadlineMs)} ms and the lock is still held: another process of madarch is using ${dirname(path)}, and it is either still starting or still stopping that store's PostgreSQL server (src/adapters/postgres-cluster.ts)`);
+    }
+    await Bun.sleep(LOCK_POLL_MS);
   }
 }
 
-/** How many client backends the server answers besides the one asking: other processes' work. */
-async function otherClients(cluster: { socketDir: string }): Promise<number> {
-  const rows = await clusterQuery<{ held: string }>(
-    { dataDir: cluster.socketDir, socketDir: cluster.socketDir, port: CLUSTER_PORT, user: CLUSTER_USER, startedIt: false, bin: '', stop: async () => undefined },
-    CLUSTER_ADMIN_DATABASE,
-    "SELECT count(*)::text AS held FROM pg_stat_activity WHERE backend_type = 'client backend' AND pid <> pg_backend_pid()",
-  );
-  return Number(rows[0]?.held ?? '0');
+/** Gives a lock back: the kernel releases it here or when the process ends, whichever comes first. */
+function releaseLock(fd: number): void {
+  try {
+    flock(fd, LOCK_UN);
+  } catch {
+    // A descriptor the system already closed holds no lock: nothing is left to give back.
+  }
+  closeSync(fd);
 }
 
 /**
@@ -265,50 +357,16 @@ function createDataDir(dataDir: string, bin: string, log: (line: string) => void
 }
 
 /**
- * The clusters this process has open, by data directory: two owners of one store
- * in one process share one server, and the server is stopped when the last of
- * them stops. Without this, the second owner would read the ownership file
- * naming this process, take the server for its own, and stop it under the first
- * owner's pool.
+ * One open, by data directory: callers that arrive while it runs wait for it, and callers that arrive while the cluster
+ * is open share it, so this process runs one server of a store and one start of it, however many owners of it ask at
+ * once (measured before: eight opens of one store at once started eight servers, five of them failed, and it took 13.1 s).
  */
-const openInProcess = new Map<string, { cluster: RunningCluster; users: number }>();
+const openInProcess = new Map<string, Promise<HeldCluster>>();
 
-/**
- * The stops under way, by data directory: a server being stopped still answers
- * for a moment, so an open that arrives mid-stop must wait for it and then start
- * its own, rather than attaching to a server that is already going away (which
- * answers `57P01`, "terminating connection due to administrator command", on the
- * first statement).
- */
-const stoppingInProcess = new Map<string, Promise<void>>();
-
-/** The cluster one caller is given: its stop leaves the server running while another caller still holds it. */
-function share(cluster: RunningCluster): RunningCluster {
-  const key = cluster.dataDir;
-  const held = openInProcess.get(key);
-  if (held !== undefined) {
-    held.users += 1;
-    return { ...cluster, startedIt: cluster.startedIt, stop: async () => await release(key) };
-  }
-  openInProcess.set(key, { cluster, users: 1 });
-  return { ...cluster, startedIt: cluster.startedIt, stop: async () => await release(key) };
-}
-
-/** One caller's stop: the server stops when the last caller of it in this process stops. */
-async function release(key: string): Promise<void> {
-  const held = openInProcess.get(key);
-  if (held === undefined) return;
-  held.users -= 1;
-  if (held.users > 0) return;
-  openInProcess.delete(key);
-  if (!held.cluster.startedIt) return;
-  const stopping = held.cluster.stop().catch(() => undefined);
-  stoppingInProcess.set(key, stopping);
-  try {
-    await stopping;
-  } finally {
-    stoppingInProcess.delete(key);
-  }
+/** The cluster one open made, and how many callers in this process hold it. */
+interface HeldCluster {
+  readonly cluster: RunningCluster;
+  users: number;
 }
 
 export interface OpenClusterOptions {
@@ -322,91 +380,103 @@ export interface OpenClusterOptions {
 
 /**
  * Opens a cluster: attaches to the server already answering on its socket,
- * adopts one a killed process left, or starts one. The server listens on its
- * socket folder only.
+ * adopts one a killed predecessor left, or starts one under the start lock. The server listens on its socket folder only.
+ *
+ * The cluster this answers is one caller's hold of it: its `stop` gives that hold back, and the server is stopped when
+ * the last hold of it in this process is given back and no other process holds one.
  */
 export async function openCluster(options: OpenClusterOptions): Promise<RunningCluster> {
   refuseRoot();
-  // A server this process is stopping still answers for a moment: waiting for
-  // the stop to end and then deciding is what keeps a re-opened store from
-  // adopting a server that is already going away.
-  const stopping = stoppingInProcess.get(resolve(options.dataDir));
-  if (stopping !== undefined) await stopping;
+  const key = resolve(options.dataDir);
+  let opened = openInProcess.get(key);
+  if (opened === undefined) {
+    opened = openOnce(key, options).then((cluster) => ({ cluster, users: 0 }));
+    openInProcess.set(key, opened);
+    // An open that failed is not kept: the next caller tries again instead of being handed the same failure for ever.
+    void opened.catch(() => { if (openInProcess.get(key) === opened) openInProcess.delete(key); });
+  }
+  const held = await opened;
+  held.users += 1;
+  const { cluster } = held;
+  return {
+    dataDir: cluster.dataDir, socketDir: cluster.socketDir, port: cluster.port, user: cluster.user, bin: cluster.bin,
+    stop: async () => await releaseCluster(key),
+  };
+}
+
+/** One caller's stop: the server is given up when the last caller holding it in this process stops. */
+async function releaseCluster(key: string): Promise<void> {
+  const opened = openInProcess.get(key);
+  if (opened === undefined) return;
+  const held = await opened.catch(() => undefined);
+  if (held === undefined) return;
+  held.users -= 1;
+  if (held.users > 0) return;
+  openInProcess.delete(key);
+  await held.cluster.stop();
+}
+
+/** The open itself, under the two locks that two processes share a store's server by. */
+async function openOnce(dataDir: string, options: OpenClusterOptions): Promise<RunningCluster> {
   const env = options.env ?? process.env;
   const log = options.log ?? ((line: string) => defaultLog.warn(line, { madarch: 'postgres' }));
   const bin = join(options.bin ?? (await ensurePostgresInstalled({ env, progress: (line) => defaultLog.info(line, { madarch: 'postgres' }) })).bin);
-  const { dataDir, socketDir } = { dataDir: resolve(options.dataDir), socketDir: resolve(options.socketDir) };
+  const socketDir = resolve(options.socketDir);
   mkdirSync(socketDir, { recursive: true, mode: 0o700 });
   chmodSync(socketDir, 0o700);
   mkdirSync(dataDir, { recursive: true, mode: 0o700 });
-
-  const noStop = async (): Promise<void> => await Promise.resolve();
-  if (await answering(socketDir)) {
-    const owner = ownerOf(dataDir);
-    if (owner !== null && owner !== process.pid && alive(owner)) {
-      return share({ dataDir, socketDir, port: CLUSTER_PORT, user: CLUSTER_USER, startedIt: false, bin, stop: noStop });
-    }
-    writeFileSync(join(dataDir, OWNER_FILE), `${String(process.pid)}\n`);
-    return share({ dataDir, socketDir, port: CLUSTER_PORT, user: CLUSTER_USER, startedIt: true, bin, stop: () => stopCluster({ dataDir, socketDir, bin, log }) });
-  }
-  // A server of this store may be starting, running or stopping in another process at this instant: a store is opened by
-  // the fill's worker and by a reader at once, and each of them may be the first. So the decision is taken up to three
-  // times — attach if the server answers, wait for a predecessor to let go, start if nothing holds it — and a start that
-  // loses the race is retried rather than reported.
-  let failure: unknown;
-  for (let attempt = 1; attempt <= 3; attempt += 1) {
-    if (attempt > 1) await Bun.sleep(200 * attempt);
-    await reclaimStaleServer(dataDir, bin, socketDir, log);
-    if (await answering(socketDir)) {
-      lowerPriorityOf(dataDir);
-      writeFileSync(join(dataDir, OWNER_FILE), `${String(process.pid)}\n`);
-      return share({ dataDir, socketDir, port: CLUSTER_PORT, user: CLUSTER_USER, startedIt: true, bin, stop: () => stopCluster({ dataDir, socketDir, bin, log }) });
-    }
+  // The use of the server is held before anything else: a stop another process is making ends first, so the server this
+  // open finds or starts is never one a leaving process is about to stop.
+  const users = await holdLock(usersLockPath(dataDir), LOCK_SH, { what: `the use of the PostgreSQL server on ${dataDir}`, deadlineMs: USERS_LOCK_WAIT_MS });
+  try {
+    // The start's own hold: one process decides whether a server is needed, runs `initdb` and starts it, and the next
+    // process finds it answering and connects to it instead of starting a second server of the same store.
+    const start = await holdLock(startLockPath(dataDir), LOCK_EX, { what: `the start of the PostgreSQL server on ${dataDir}`, deadlineMs: START_LOCK_WAIT_MS });
     try {
-      startServer({ dataDir, socketDir, bin, log });
-    } catch (error) {
-      // A predecessor that is still letting go: the next attempt waits for it, then answers or starts.
-      failure = error;
-      continue;
+      if (await answering(socketDir)) {
+        // A server another process started, or a predecessor left: it serves this store, so it is lowered too.
+        lowerPriorityOf(dataDir);
+      } else {
+        await reclaimStaleServer(dataDir, bin, socketDir, log);
+        startServer({ dataDir, socketDir, bin, log });
+        if (!(await answering(socketDir))) {
+          throw new Error(`${join(dataDir, '..', 'postgres.log')}:1: the PostgreSQL server started on ${dataDir} does not answer on ${socketDir}: read that log for what it said (src/adapters/postgres-cluster.ts)`);
+        }
+      }
+    } finally {
+      releaseLock(start);
     }
-    if (!(await answering(socketDir))) {
-      failure = new Error(`${join(dataDir, '..', 'postgres.log')}:1: the PostgreSQL server started on ${dataDir} but does not answer on ${socketDir}: read that log for what it said (src/adapters/postgres-cluster.ts)`);
-      continue;
-    }
-    writeFileSync(join(dataDir, OWNER_FILE), `${String(process.pid)}\n`);
-    return share({ dataDir, socketDir, port: CLUSTER_PORT, user: CLUSTER_USER, startedIt: true, bin, stop: () => stopCluster({ dataDir, socketDir, bin, log }) });
+  } catch (error) {
+    releaseLock(users);
+    throw error;
   }
-  if (await answering(socketDir)) {
-    writeFileSync(join(dataDir, OWNER_FILE), `${String(process.pid)}\n`);
-    return share({ dataDir, socketDir, port: CLUSTER_PORT, user: CLUSTER_USER, startedIt: true, bin, stop: () => stopCluster({ dataDir, socketDir, bin, log }) });
-  }
-  throw failure;
+  return {
+    dataDir, socketDir, port: CLUSTER_PORT, user: CLUSTER_USER, bin,
+    stop: async () => await stopCluster({ dataDir, socketDir, bin, users }),
+  };
 }
 
 /**
- * Stops a server this process started, unless another process is still
- * connected: then the server keeps answering for that process, and its
- * ownership file is removed so the next process to open the cluster adopts it.
+ * Gives up this process's use of a server. It is stopped only when no other process of the binary still holds it, which
+ * the kernel answers through the users lock: the exclusive hold is granted only when no shared hold is left. A server
+ * another process still uses is left running — the api role's server is never stopped by a fill child that finished
+ * between two of its runs — and the next process to open the cluster finds it answering and holds it.
  */
-async function stopCluster(options: { readonly dataDir: string; readonly socketDir: string; readonly bin: string; readonly log: (line: string) => void }): Promise<void> {
-  const { dataDir, socketDir, bin } = options;
-  if (!(await answering(socketDir))) {
-    removeSocketFiles(socketDir);
-    rmSync(join(dataDir, OWNER_FILE), { force: true });
+async function stopCluster(options: { readonly dataDir: string; readonly socketDir: string; readonly bin: string; readonly users: number }): Promise<void> {
+  const { dataDir, socketDir, bin, users } = options;
+  if (flock(users, LOCK_EX | LOCK_NB) !== 0) {
+    // The kernel took this process's shared hold away to try, and gave the exclusive one to nobody: another process
+    // holds the server (or is asking for it), so it keeps answering and this hold is simply given back. This is the
+    // ordinary case of a fill child leaving between two of an api process's reads, so it is not a warning.
+    releaseLock(users);
     return;
   }
-  let others = 0;
   try {
-    others = await otherClients({ socketDir });
-  } catch {
-    others = 0;
+    if (await answering(socketDir)) {
+      runBinary(join(bin, 'pg_ctl'), ['-D', dataDir, '-m', 'fast', '-w', 'stop'], { allowFailure: true });
+    }
+    removeSocketFiles(socketDir);
+  } finally {
+    releaseLock(users);
   }
-  if (others > 0) {
-    options.log(`madarch: the PostgreSQL server on ${dataDir} is still answering ${String(others)} connection(s) of another process, so it is left running`);
-    rmSync(join(dataDir, OWNER_FILE), { force: true });
-    return;
-  }
-  runBinary(join(bin, 'pg_ctl'), ['-D', dataDir, '-m', 'fast', '-w', 'stop'], { allowFailure: true });
-  removeSocketFiles(socketDir);
-  rmSync(join(dataDir, OWNER_FILE), { force: true });
 }

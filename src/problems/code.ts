@@ -12,7 +12,7 @@ import { byCodePoint } from '../model/order.js';
 import { entityAddress } from '../knowledge/resolve.js';
 import type { GraphEntity, GraphReader, RelationEdge } from '../knowledge/graph-read.js';
 import { ruleSpecs } from './rules.js';
-import type { ProblemDraft, ProblemLink, ProblemScope, ProblemSettings, ProblemSeverity, RuleSpec } from './types.js';
+import type { ProblemDraft, ProblemLink, ProblemNote, ProblemScope, ProblemSettings, ProblemSeverity, RuleSpec } from './types.js';
 
 /** Everything the code rules read, loaded once so each rule is a function of facts alone. */
 export interface CodeSnapshot {
@@ -85,7 +85,7 @@ export async function readCodeSnapshot(graph: GraphReader): Promise<CodeSnapshot
 
 export interface CodeResult {
   readonly problems: readonly ProblemDraft[];
-  readonly notes: readonly string[];
+  readonly notes: readonly ProblemNote[];
 }
 
 /** A string parameter of a rule; a rule that misses it says so instead of reading a guessed value. */
@@ -123,18 +123,18 @@ const CODE_IMPLEMENTATIONS: Readonly<Record<string, (snapshot: CodeSnapshot, rul
 /** Runs the whole code section: every rule the manifest declares, over the one snapshot. */
 export function evaluateCode(snapshot: CodeSnapshot, settings: ProblemSettings): CodeResult {
   const drafts: ProblemDraft[] = [];
-  const notes = [...snapshot.notes];
-  if (Object.keys(settings.rules).length === 0) notes.push('the manifest declares no problems.rules, so the code section runs no rule: the starter set writes the rules a product edits');
+  const notes: ProblemNote[] = snapshot.notes.map((message) => ({ message }));
+  if (Object.keys(settings.rules).length === 0) notes.push({ message: 'the manifest declares no problems.rules, so the code section runs no rule: the starter set writes the rules a product edits' });
   for (const rule of ruleSpecs(settings)) {
     if (rule.enabled === false) continue;
     const work = CODE_IMPLEMENTATIONS[rule.predicate];
     // The manifest reader refuses a predicate the engine does not implement; a settings object built by a caller can
     // still name one, and a rule that does not run is said, never dropped in silence.
-    if (work === undefined) { notes.push(`the rule ${rule.id} names the predicate "${rule.predicate}", which the engine does not implement: the rule is not run`); continue; }
+    if (work === undefined) { notes.push({ message: `the rule ${rule.id} names the predicate "${rule.predicate}", which the engine does not implement: the rule is not run`, textKey: 'ruleUnimplemented', textArgs: { rule: rule.id, predicate: rule.predicate } }); continue; }
     try {
       drafts.push(...work(snapshot, rule, rule.severity, settings));
     } catch (error) {
-      notes.push(`the rule ${rule.id} could not be run: ${(error as Error).message}`);
+      notes.push({ message: `the rule ${rule.id} could not be run: ${(error as Error).message}` });
     }
   }
   return { problems: drafts, notes };

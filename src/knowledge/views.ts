@@ -1004,18 +1004,9 @@ async function domainView(ctx: RenderContext, spec: ViewSpec, w: Words): Promise
       edges.push(out ? { from: link.from, to: other.id, label: link.label, dashed: true, why: w.neighbourWhy } : { from: other.id, to: link.to, label: link.label, dashed: true, why: w.neighbourWhy });
     }
   }
-  // Use cases and rules the text of the documents ties to the domain by name.
-  const needle = page.title.toLowerCase();
-  const naming = [...ctx.docEntities.values()].filter((doc) => doc.title.toLowerCase().includes(needle) || doc.text.toLowerCase().includes(needle)).sort((a, b) => byCodePoint(a.id, b.id));
-  const mentioned = naming.slice(0, 12);
-  const notes: string[] = [];
-  if (naming.length > mentioned.length) notes.push(w.mentioned(mentioned.length, naming.length));
-  for (const doc of mentioned) {
-    elements.push({ id: doc.id, label: doc.title, kind: 'component', detail: doc.kind, href: refOfMarkdown(ctx, doc).href, dashed: true });
-    edges.push({ from: page.id, to: doc.id, label: w.mentions, dashed: true, why: w.mentionsWhy });
-  }
+  // The domain's own services and the neighbouring domains are all this view draws: no document layer is filled yet.
   if (elements.length === 1) return empty(spec, title, w.domain, w.nothingNearby, up);
-  return { spec, title, label: w.domain, elements, edges, notes, empty: null, up, marker: null };
+  return { spec, title, label: w.domain, elements, edges, notes: [], empty: null, up, marker: null };
 }
 
 // ---- the entry points --------------------------------------------------------------------------------

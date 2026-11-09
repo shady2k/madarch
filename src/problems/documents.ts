@@ -10,7 +10,7 @@ import { byCodePoint } from '../model/order.js';
 import { entityAddress, sourceAddress, type Resolution } from '../knowledge/resolve.js';
 import type { Question } from '../loop/entities.js';
 import { ruleSpecs, rulesOf } from './rules.js';
-import type { ProblemDraft, ProblemLink, ProblemSettings, ProblemSeverity, RuleSpec } from './types.js';
+import type { ProblemDraft, ProblemNote, ProblemLink, ProblemSettings, ProblemSeverity, RuleSpec } from './types.js';
 
 type Rule = RuleSpec;
 
@@ -60,12 +60,12 @@ type Finding = { readonly predicate: string; readonly reason: string; readonly e
  * every rule of the manifest whose predicate is one of the findings names it. A predicate no rule
  * declares is a note, so a product's silence about a rule never looks like a clean page.
  */
-export async function evaluateDocuments(input: DocumentInput): Promise<{ problems: readonly ProblemDraft[]; notes: readonly string[] }> {
-  const notes: string[] = [];
+export async function evaluateDocuments(input: DocumentInput): Promise<{ problems: readonly ProblemDraft[]; notes: readonly ProblemNote[] }> {
+  const notes: ProblemNote[] = [];
   const problems: ProblemDraft[] = [];
   const declared = new Set(ruleSpecs(input.settings).map((rule) => rule.predicate));
   for (const predicate of ['document-contradiction', 'document-stale', 'document-undocumented', 'document-ambiguous']) {
-    if (!declared.has(predicate)) notes.push(`the manifest declares no rule with the predicate "${predicate}": the findings it would name are not on the page`);
+    if (!declared.has(predicate)) notes.push({ message: `the manifest declares no rule with the predicate "${predicate}": the findings it would name are not on the page` });
   }
   for (const question of [...input.questions].sort((a, b) => byCodePoint(a.slug, b.slug))) {
     if (question.resolvedBy.length > 0) continue; // a refresh used the answer: the documents moved past this question
@@ -76,7 +76,7 @@ export async function evaluateDocuments(input: DocumentInput): Promise<{ problem
       try {
         resolution = await input.resolve(`madarch:${target}`);
       } catch (error) {
-        notes.push(`the question ${question.slug} names ${target}, and it could not be resolved: ${(error as Error).message}`);
+        notes.push({ message: `the question ${question.slug} names ${target}, and it could not be resolved: ${(error as Error).message}` });
         continue;
       }
       if (resolution.state === 'broken') { stale = { target, reason: resolution.reason }; break; }

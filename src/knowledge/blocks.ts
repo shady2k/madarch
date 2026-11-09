@@ -13,8 +13,6 @@
  */
 import { CALLS } from '../graph/vocabulary.js';
 import { byCodePoint } from '../model/order.js';
-import type { DocEntity, DocumentSource } from './doc-entities.js';
-import { detectDocumentLanguage } from '../writer/localized-source.js';
 import type { KindCount, RelyingStatement } from './index/queries.js';
 import type { GraphEntity, GraphReader, SourceSpan } from './graph-read.js';
 import type { KindsManifest, PropertyDecl, PropertyFormat } from './kinds.js';
@@ -23,27 +21,16 @@ import { readBody } from './markdown.js';
 import type { Block, CallRow, CodeLocation, EntityRef, RelatedGroup } from './model.js';
 import { entityAddress, noEntityMessage, sourceAddress, type Resolver } from './resolve.js';
 
-export type Subject = { source: 'graph'; entity: GraphEntity } | { source: 'markdown'; entity: MarkdownEntity } | { source: 'document'; entity: DocEntity };
+export type Subject = { source: 'graph'; entity: GraphEntity } | { source: 'markdown'; entity: MarkdownEntity };
 
 export interface RenderContext {
   productFolder: string;
   manifest: KindsManifest;
   graph: GraphReader;
   markdown: ReadonlyMap<string, MarkdownEntity>;
-  /** The entities of the manifest's document kinds, by id. */
-  docEntities: ReadonlyMap<string, DocEntity>;
-  /** The validated product-repository translation for an extracted document entity, by id. */
-  localizedSources: ReadonlyMap<string, import('../writer/localized-source.js').LocalizedDocumentSource>;
-  /** The current product wiki language, used when rendering document entities. */
+  /** The current product wiki language. */
   language: string;
-  /**
-   * True while the writer is taking the pages up (madarch-m38l.23): a document whose localized statement does not exist
-   * yet is being written now, so its page shows the document's own words in place of a problem that says it is missing.
-   */
-  awaitsLocalized?: boolean;
-  /** The Markdown documents the entities were read from (the product repository's and the code repositories'). */
-  documents: readonly DocumentSource[];
-  /** The names of the code repositories, in the order documents are searched. */
+  /** The names of the code repositories. */
   repositories: readonly string[];
   /** The same place on the repository's web page (GitHub, GitLab, ...), when the repository's address is known. */
   webOf?: (repo: string | null, path: string, lineStart: number, lineEnd: number) => { host: string; url: string } | undefined;
@@ -107,7 +94,7 @@ export function refOfGraph(ctx: RenderContext, entity: GraphEntity, span?: Sourc
   };
 }
 
-export function refOfMarkdown(ctx: RenderContext, entity: MarkdownEntity | DocEntity): EntityRef {
+export function refOfMarkdown(ctx: RenderContext, entity: MarkdownEntity): EntityRef {
   return { id: entity.id, kind: entity.kind, label: entity.title, href: ctx.manifest.kinds.has(entity.kind) ? entityAddress(entity.id) : null };
 }
 
@@ -173,18 +160,6 @@ export function attributeOf(subject: Subject, name: string): string | undefined 
     if (whole !== undefined) return stringify(whole);
     return stringify(dig(entity.properties, name));
   }
-  if (subject.source === 'document') {
-    const doc = subject.entity;
-    if (name === 'title' || name === 'label') return doc.title;
-    if (name === 'id' || name === 'key') return doc.id;
-    if (name === 'kind') return doc.kind;
-    if (name === 'identifier') return doc.identifier ?? undefined;
-    if (name === 'path' || name === 'file') return doc.path;
-    if (name === 'repo') return doc.repo ?? undefined;
-    if (name === 'anchor') return doc.anchor;
-    if (name === 'line') return String(doc.line);
-    return undefined;
-  }
   const entity = subject.entity;
   if (name === 'title' || name === 'label') return entity.title;
   if (name === 'id' || name === 'key') return entity.id;
@@ -207,7 +182,6 @@ export function pageAttributes(subject: Subject, declared?: readonly string[]): 
   if (declared !== undefined) for (const name of declared) names.add(name);
   else if (subject.source === 'graph') for (const name of Object.keys(subject.entity.properties)) names.add(name);
   else if (subject.source === 'markdown') for (const name of Object.keys(subject.entity.front)) names.add(name);
-  else for (const name of ['identifier', 'path', 'repo', 'anchor', 'line']) names.add(name);
   const attributes: Record<string, string> = {};
   for (const name of [...names].sort()) {
     const value = attributeOf(subject, name);
@@ -219,21 +193,6 @@ export function pageAttributes(subject: Subject, declared?: readonly string[]): 
 // ---- body -------------------------------------------------------------------------------------
 
 export function bodyBlock(ctx: RenderContext, subject: Subject, block: string, file: string, line: number): Block {
-  // A document entity's identity and source remain those of the original document; a valid translation is only its reader-facing statement.
-  if (subject.source === 'document') {
-    const source = ctx.localizedSources.get(subject.entity.id);
-    const sourceLanguage = detectDocumentLanguage(subject.entity.text);
-    const needsLocalization = sourceLanguage !== ctx.language;
-    // While the writer runs the page is being written, not missing: it shows the document's own words, and the run that
-    // ends without writing it leaves the problem to be read (madarch-m38l.23).
-    if (needsLocalization && source === undefined && ctx.awaitsLocalized !== true) return { type: 'problem', block, file: subject.entity.path, line: subject.entity.line, message: `no valid localized statement for ${subject.entity.id} in ${ctx.language}; see the localized-source finding for its file and line` };
-    const sameLanguage = source !== undefined && source.sourceLanguage === ctx.language;
-    return {
-      type: 'body', markdown: source === undefined || sameLanguage ? subject.entity.text : source.statement,
-      file: subject.entity.path, statements: 0, ungrounded: [],
-      ...(source === undefined || sameLanguage ? {} : { localized: { statement: source.statement, original: source.original, sourceDocument: source.sourceDocument, sourceLine: source.sourceLine, sourceEndLine: source.sourceEndLine } }),
-    };
-  }
   if (subject.source !== 'markdown') {
     return { type: 'problem', block, file, line, message: 'the body block shows the Markdown of a page; the entities of this kind come from the graph and have none' };
   }
@@ -245,7 +204,6 @@ export function bodyBlock(ctx: RenderContext, subject: Subject, block: string, f
 
 /** Markdown pages that name the key in `relates`, and the pages a Markdown page relates to. */
 export async function relatesGroups(ctx: RenderContext, subject: Subject): Promise<RelatedGroup[]> {
-  if (subject.source === 'document') return [];
   if (subject.source === 'graph') {
     const rows = [...ctx.markdown.values()].filter((page) => page.relates.includes(subject.entity.key)).map((page) => ({ entity: refOfMarkdown(ctx, page), count: 1 }));
     return rows.length === 0 ? [] : [{ relation: 'relates', direction: 'in', total: rows.length, rows }];
@@ -487,15 +445,6 @@ export function propertiesBlock(
   lang: string,
 ): Block {
   const title = params['title'] ?? 'Details';
-  if (subject.source === 'document') {
-    const doc = subject.entity;
-    const row = (name: string, value: string): import('./model.js').PropertyRow | undefined => {
-      const decl = properties.get(name);
-      return decl === undefined || value === '' ? undefined : { name, value, label: decl.labels[lang] ?? decl.labels['en'] ?? name };
-    };
-    const rows = [row('identifier', doc.identifier ?? ''), row('document', doc.path), row('line', String(doc.line))].filter((entry): entry is import('./model.js').PropertyRow => entry !== undefined);
-    return { type: 'properties', title, rows };
-  }
   if (subject.source !== 'graph') return { type: 'problem', block: 'properties', file, line, message: 'the properties block lists what the extractors read; the entities of this kind are Markdown pages (their front matter is theirs)' };
   return { type: 'properties', title, rows: detailRows(subject.entity, details, properties, lang) };
 }

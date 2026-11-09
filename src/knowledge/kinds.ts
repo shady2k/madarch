@@ -33,7 +33,7 @@
  */
 import { existsSync, lstatSync, readFileSync, realpathSync, statSync, writeFileSync } from 'node:fs';
 import { isAbsolute, join, relative, resolve } from 'node:path';
-import { LineCounter, parseDocument } from 'yaml';
+import { LineCounter, parseDocument, type Document } from 'yaml';
 import { lineForPath } from '../model/yaml-position.js';
 import { catalogFindings, CATALOG_ONLY_FIELDS, readCatalogKind, readCatalogSchema, type CatalogEntry, type CatalogSchema } from './catalog.js';
 import { readMapping, type MappingRead } from './mapping.js';
@@ -47,8 +47,8 @@ import { DEFAULT_THRESHOLDS, PROBLEM_SEVERITIES, SONAR_KINDS, type ProblemSettin
 export const KINDS_FILE = 'madarch/kinds.yaml';
 
 /** One problem in a product file the wiki reads: where it is and what it is. */
-/** What kind of problem a finding is, for the Problems page: a file that cannot be read, or a passage no reader decided. */
-export type FindingKind = 'unreadable-file' | 'unread-passage';
+/** What kind of problem a finding is, for the Problems page: a file that cannot be read. */
+export type FindingKind = 'unreadable-file';
 
 export interface Finding {
   /** Where the problem stands, as the reader knows it: the product's path, or `repos/<repository>/<path>` in a code repository. */
@@ -57,6 +57,13 @@ export interface Finding {
   message: string;
   /** The kind of problem; a file that cannot be read when the finding does not say. */
   kind?: FindingKind;
+  /**
+   * The message as a key and its values, when the engine writes it in English words the interface words itself: the
+   * app says `loop.problemText.<textKey>` with `textArgs`, and `message` is the fallback for a reader that knows no
+   * such key (madarch-8bdc.2.5).
+   */
+  textKey?: string;
+  textArgs?: Record<string, string | number>;
   /**
    * The file's place on disk, when the reader knows it: a diagnostic names both the identity a reader navigates by
    * (`file`) and the absolute path a person opens (madarch-ztyq.3, the review of finding 8). A finding whose place is
@@ -697,11 +704,42 @@ export function readKinds(productFolder: string): KindsRead {
   return { present: true, manifest: withWorkflows(parseKinds(text, file, productFolder), productFolder) };
 }
 
+/**
+ * How many parsed manifests are kept: one per product folder a process reads, and a cap so a products home of many
+ * products does not hold them all. A manifest read again is a hit; one that fell out of the cache is parsed again.
+ */
+const PARSED_MANIFESTS_KEPT = 8;
+
+/**
+ * The parsed YAML of a manifest, by the text it was parsed from: `parseDocument` reads 474 KB (8 222 lines) in 54-93 ms
+ * on this box, and a manifest is read on the answer to every page, status poll and Problems read — on the event loop of
+ * the process that serves them (madarch-8bdc.9, CI shard 2: one such parse was the 330 ms stall that hit every endpoint
+ * at the press of a fill on a two-core runner). The text is the key, so an edited file is parsed at the next read; what
+ * is made *of* the parsed document — findings, line numbers, whether a template exists — is worked out on every read and
+ * is not cached, so a template written beside an unchanged manifest is still seen (madarch-u3vw.8).
+ */
+const parsedManifests = new Map<string, { readonly text: string; readonly doc: Document; readonly lines: LineCounter }>();
+
+/** The parse of one manifest text, from the cache when this file last saw this text. */
+function parsedManifest(text: string, file: string): { readonly doc: Document; readonly lines: LineCounter } {
+  const held = parsedManifests.get(file);
+  if (held !== undefined && held.text === text) return held;
+  const lines = new LineCounter();
+  const entry = { text, doc: parseDocument(text, { lineCounter: lines, uniqueKeys: true }), lines };
+  parsedManifests.delete(file);
+  parsedManifests.set(file, entry);
+  while (parsedManifests.size > PARSED_MANIFESTS_KEPT) {
+    const oldest = parsedManifests.keys().next().value;
+    if (oldest === undefined) break;
+    parsedManifests.delete(oldest);
+  }
+  return entry;
+}
+
 /** Parses the manifest's text; `productFolder` lets a template's existence be judged. */
 export function parseKinds(text: string, file: string, productFolder: string): KindsManifest {
   const findings: Finding[] = [];
-  const lines = new LineCounter();
-  const doc = parseDocument(text, { lineCounter: lines, uniqueKeys: true });
+  const { doc, lines } = parsedManifest(text, file);
   const at = (path: (string | number)[]): number => lineForPath(doc, lines, path);
   for (const problem of doc.errors) findings.push({ file, line: problem.linePos?.[0].line ?? 1, message: problem.message.split('\n')[0] ?? problem.message });
   if (doc.errors.length > 0) return nothing(file, findings);
@@ -954,6 +992,9 @@ export function parseKinds(text: string, file: string, productFolder: string): K
   }
   const kinds = new Map<string, KindDecl>();
   const declaredTemplates: string[] = [];
+  // A kind's missing translation is a finding, but not a reason to leave its page out: the kinds a product has not
+  // translated yet still show, marked as untranslated. These findings join the manifest's at the end of the read.
+  const wordsFound: Finding[] = [];
   // Every name the manifest declares, sound or not: the mapping resolves a kind against the declaration, and the
   // catalog's own finding is the one a refused kind carries (one defect, one problem on the Problems page).
   const declaredKindNames = new Set(Object.keys(declared as Record<string, unknown>));
@@ -971,6 +1012,12 @@ export function parseKinds(text: string, file: string, productFolder: string): K
       problem(path, message);
       catalogFound.push(...findings.slice(before));
     };
+    // The catalogue's words are read apart: a missing language is reported, and the kind stays whatever its page shows.
+    const wordsProblem = (path: (string | number)[], message: string): void => {
+      const before = findings.length;
+      problem(path, message);
+      wordsFound.push(...findings.splice(before));
+    };
     if (value === null || typeof value !== 'object' || Array.isArray(value)) {
       findings.push({ file, line, message: `kind "${name}": the declaration is a mapping with a template and a source` });
       continue;
@@ -985,7 +1032,7 @@ export function parseKinds(text: string, file: string, productFolder: string): K
       const stray = Object.keys(decl).filter((key) => CATALOG_ONLY_FIELDS.has(key));
       if (stray.length > 0) catalogProblem([stray[0]!], `"${stray[0]}" is a field of the entity catalog, and the manifest declares no "catalog"`);
     } else if (catalogSchema !== undefined) {
-      const entry = readCatalogKind(name, decl, catalogSchema, groups, line, catalogProblem, refusedGroupParents);
+      const entry = readCatalogKind(name, decl, catalogSchema, groups, line, catalogProblem, wordsProblem, LABEL_LANGUAGES, refusedGroupParents);
       if (entry !== undefined) catalogEntries.set(name, entry);
     }
     const policy = typeof decl['template-policy'] === 'string' ? decl['template-policy'] : 'page';
@@ -1198,6 +1245,10 @@ export function parseKinds(text: string, file: string, productFolder: string): K
     findings.push(...shape);
     catalogFound.push(...shape);
   }
+  // The translation findings stand beside the catalog's own, after every kind has been read: they name a kind that is
+  // still shown, so they must not be read as the defect that leaves a page out.
+  findings.push(...wordsFound);
+  catalogFound.push(...wordsFound);
   // A kind named in "expect" that the manifest does not declare is a finding at its own line.
   const wanted = expected.filter((entry) => {
     const kind = kinds.get(entry.kind);
@@ -1245,7 +1296,7 @@ export function homeKind(manifest: KindsManifest): KindDecl | undefined {
 }
 
 /** A path pattern as a regular expression: `*` stays within a folder, `**` crosses folders, `?` is one character. */
-export function globToRegExp(pattern: string): RegExp {
+function globToRegExp(pattern: string): RegExp {
   let out = '';
   for (let at = 0; at < pattern.length; at += 1) {
     const char = pattern[at]!;

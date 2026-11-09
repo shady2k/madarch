@@ -22,8 +22,16 @@ test('OpenCode and omp are started as `acp` mode of their own program, found on 
     const shown = offers(env);
     expect(shown.map((offer) => [offer.id, offer.installed])).toEqual([['claude-code', false], ['codex', false], ['opencode', true], ['omp', true], ['prime-agent', false]]);
     const missing = shown.find((offer) => offer.id === 'codex')!;
-    expect(missing.install?.package).toBe('@agentclientprotocol/codex-acp');
+    expect(missing.where).toBeNull();
+    expect(missing.version).toBeNull();
+    expect(missing.install).toMatchObject({ kind: 'npm', package: '@agentclientprotocol/codex-acp' });
+    const bundled = shown.find((offer) => offer.id === 'prime-agent')!;
+    // A bundled program is never described with a package, a version or a folder madarch would install it into.
+    expect(bundled.install).toEqual({ kind: 'bundled', program: 'prime-agent', note: expect.stringContaining('Install prime-agent') });
     for (const id of ['opencode', 'omp']) {
+      const offer = shown.find((candidate) => candidate.id === id)!;
+      expect(offer.where).toBe(join(root, id));
+      expect(offer.version).toBeNull();
       const agent = makeUnitAgent(id, env);
       expect('error' in agent).toBe(false);
       if (!('error' in agent)) await agent.close();

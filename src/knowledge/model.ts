@@ -10,6 +10,40 @@ import type { Finding } from './kinds.js';
 import type { Resolution } from './resolve.js';
 import type { DiagramsBlockShape } from './views.js';
 
+/**
+ * A passage of a product document as the document reading used to name it: the page id, its kind, the line and the
+ * text. No stage of the fill writes these yet, and nothing reads the product's documents at request time; the type is
+ * the shape the writer's document stages will receive when one does (decision 0033, item 1).
+ */
+export interface DocEntity {
+  /** The page id, `doc:<path>#<stableId>`: built from the durable identity, never from the anchor. */
+  id: string;
+  kind: string;
+  /** What a reader calls it: the identifier and its name (`UC-2 Pay`), or the words of its first passage. */
+  title: string;
+  /** The alias the document writes (`UC-2`); null for a section that numbers nothing. Never the identity. */
+  identifier: string | null;
+  repo: string | null;
+  path: string;
+  /** The anchor the document gives it now: what a ground names and a page shows, never what the page is called. */
+  anchor: string;
+  /** Every anchor the tree derives for this passage: a heading names itself by its number and by its words. */
+  aliases: readonly string[];
+  /** The 1-based line the passage starts at, and the last line it covers. */
+  line: number;
+  endLine: number;
+  /** The passage's Markdown without the line that names it (the heading, the bold identifier or the list mark). */
+  text: string;
+  /** The durable identity: the page id's fragment, which a rename or a renumbering does not change. */
+  stableId: string;
+  /** The general kind the section was read as. */
+  semantics: import('./semantics.js').SemanticKind;
+  /** The pass that decided the kind: the manifest and the metadata, the structure, or the classifier. */
+  pass: 'metadata' | 'structure' | 'classifier';
+  /** The heading texts that enclose it, from the document's first heading down to it. */
+  headingPath: string[];
+}
+
 /** Where a piece of code is: the file in a repository and its lines. */
 export interface CodeLocation {
   /** The code repository's name in the manifest; null for the product repository. */
@@ -342,6 +376,44 @@ export interface PageModel {
   problems?: number;
 }
 
+/**
+ * What fills a kind today, read from the kind's own declaration (madarch-8bdc.2.5): the source its page is read from, the
+ * origin it declares, or the extractor its acquisition names. `person` is not a stage: a page a person writes is listed so
+ * the catalogue can say that no stage fills it yet.
+ */
+export type KindProducer = 'extract' | 'documents' | 'writer' | 'history' | 'person';
+
+/** One kind of the entity catalogue: every kind the manifest declares, filled or not (madarch-8bdc.2.5). */
+export interface CatalogKindView {
+  kind: string;
+  /** The area the kind's subgroup belongs to. */
+  area: string;
+  subgroup: string;
+  /** The kind's name per interface language; a missing language is left out and its finding names the declaration. */
+  labels?: Record<string, { one: string; many: string }>;
+  /** What the kind is per interface language; a missing language is left out and its finding names the declaration. */
+  descriptions?: Record<string, string>;
+  count: number;
+  /** The statements the pages of this kind make, when the index holds any. */
+  statements?: number;
+  /** The kind has a page of its own (`template-policy: page`), so its row may link to it. */
+  page: boolean;
+  /** What produces the kind today, from its declaration; absent when nothing does. */
+  producer?: KindProducer;
+  /** Whether a stage of the fill produces the kind today: `producer` is not a person and exists. */
+  filled: boolean;
+}
+
+/** The catalogue's own answer (madarch-8bdc.2.5): every declared kind under its area and subgroup, its words, its count and what fills it. */
+export interface CatalogView {
+  product: { name: string; id: string };
+  language: string;
+  groups: WikiStatus['groups'];
+  kinds: CatalogKindView[];
+  /** The catalog's own findings: a row that leaves a field out, and a kind that leaves a translation out. */
+  findings: Finding[];
+}
+
 export interface KindSummary {
   kind: string;
   source: 'graph' | 'markdown' | 'document';
@@ -567,8 +639,15 @@ export interface AgentOffer {
   /** `signed-in`, `not-signed-in` or `unknown`: the agent's own sign-in on this machine. */
   login: 'signed-in' | 'not-signed-in' | 'unknown';
   loginDetail: string;
-  /** What installing the adapter fetches, when it is not installed. */
-  install: { package: string; version: string; size: string; folder: string } | null;
+  /** Where the adapter's program was found when it is installed; null when it is not installed or cannot be resolved. */
+  where: string | null;
+  /** The version madarch can read from the installed adapter; null when it cannot read one. */
+  version: string | null;
+  /** What installing the adapter fetches, when it is not installed; null when installed or nothing is offered. */
+  install:
+    | { kind: 'npm'; package: string; version: string; size: string; folder: string }
+    | { kind: 'bundled'; program: string; note: string }
+    | null;
 }
 
 export interface WikiStatus {
@@ -582,7 +661,8 @@ export interface WikiStatus {
   seeded: string[];
   /** Why the starter set could not be written into a product that has no manifest. */
   seedError?: string;
-  findings: Finding[];
+  /** How many findings the documents and the manifest hold: a count, never the list (madarch-8bdc.2.5). */
+  findingCount: number;
   kinds: KindSummary[];
   /** The groups of kinds, in the manifest's order. */
   groups: {

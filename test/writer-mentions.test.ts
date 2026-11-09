@@ -9,7 +9,7 @@
  */
 import { describe, expect, test } from 'bun:test';
 import { checkPage, insertMentionLinks, madarchTargets, type GroundResolver, type MentionName, type PageExpectation } from '../src/writer/index.js';
-import { linkedFromBlock } from '../src/knowledge/doc-blocks.js';
+import { linkedFromBlock } from '../src/knowledge/linked-from.js';
 import type { RenderContext } from '../src/knowledge/blocks.js';
 
 const KEYS = new Set(['code.service:orders', 'code.service:postgres', 'code.channel:kafka', 'code.table:outbox']);
@@ -231,26 +231,5 @@ describe('remark structure, not character patterns, decides what is prose', () =
     expect(madarchTargets(unused)).toEqual([]);
   });
 
-  test('a document identifier counts only where parsed prose renders it, not in code, comments or unused notes', async () => {
-    const doc = {
-      id: 'doc:@repo/docs/own.md#uc-1', kind: 'doc.use-case', title: 'UC-1', repo: 'repo', path: 'docs/own.md', anchor: 'uc-1',
-      identifier: 'UC-1', line: 1, endLine: 1, text: 'UC-1', semantics: 'section',
-    };
-    const source = {
-      repo: 'repo', path: 'docs/other.md', title: 'Other',
-      text: ['`UC-1`', '', '<!-- UC-1 -->', '', 'UC-1', '', '[^unused]: UC-1'].join('\n'),
-    };
-    const ctx = {
-      markdown: new Map(),
-      documents: [source],
-      docEntities: new Map([[doc.id, doc]]),
-      manifest: { kinds: new Map() },
-      resolver: { resolve: async () => ({ state: 'broken' }) },
-    } as unknown as RenderContext;
-    const result = await linkedFromBlock(ctx, { source: 'document', entity: doc } as never, {}, 'docs/own.md', 1);
-    expect(result.type).toBe('refs');
-    if (result.type !== 'refs') return;
-    expect(result.rows.map((row) => row.entity.id)).toEqual(['doc:@repo/docs/other.md#L5']);
-  });
 
 });

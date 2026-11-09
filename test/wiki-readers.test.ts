@@ -1,22 +1,22 @@
 /**
- * Who the wiki is for (decision 0031): the manifest's roles and glossary terms
- * read with their findings, the glossary term fields, the user's settings on the
- * machine, and the products-home server with madarch's own wiki beside the
- * products (what the root opens, the selector's flag, the status of the own
- * wiki, the settings route). The own wiki is a fixture repository on disk.
+ * Who the wiki is for (decision 0031): the manifest's roles, the term fields the
+ * writer's document stages read, the user's settings on the machine, and the
+ * products-home server with madarch's own wiki beside the products (what the root
+ * opens, the selector's flag, the status of the own wiki, the settings route, and
+ * the glossary the fill does not fill yet). The own wiki is a fixture repository
+ * on disk.
  */
 import { afterAll, beforeAll, describe, expect, test } from 'bun:test';
 import { lstatSync, mkdirSync, mkdtempSync, readFileSync, readdirSync, rmSync, symlinkSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { parseKinds } from '../src/knowledge/kinds.js';
-import { glossaryTerms, madarchLinks, parseTermText } from '../src/knowledge/glossary.js';
-import { readDocEntities } from '../src/knowledge/doc-entities.js';
+import { parseTermText } from '../src/knowledge/term-fields.js';
 import { readKinds } from '../src/knowledge/kinds.js';
 import { choosableRoles, readSettings, settingsPath, writeRole } from '../src/knowledge/settings.js';
 import { startServer, type StartedServer } from '../src/server/http.js';
 import { installOwnWiki } from '../src/product/own-wiki.js';
-import { GLOSSARY, makeWikiRepository, ownGit } from './own-wiki-fixture.js';
+import { makeWikiRepository, ownGit } from './own-wiki-fixture.js';
 import { generateTrainingRepository, makeProduct } from './knowledge-fixture.js';
 
 const MANIFEST = (roles: string): string => `groups:\n  product: { en: Product, ru: Продукт }\n  code: { en: Code, ru: Код }\nkinds:\n  product:\n    template: templates/product.md\n    source: markdown\n    file: docs/product.md\n${roles}`;
@@ -78,7 +78,6 @@ describe('glossary terms', () => {
       usedIn: '[the reference](madarch:doc:docs/reference.md#manifest)',
       ambiguous: 'also the build manifest; see [Q-3](madarch:doc:docs/reference.md#question)',
     });
-    expect(madarchLinks(fields.usedIn)).toEqual(['madarch:doc:docs/reference.md#manifest']);
   });
 
   test('Russian labels are read, a line that is no label stays in the definition, and an empty ambiguity is still an ambiguity', () => {
@@ -94,7 +93,6 @@ describe('glossary terms', () => {
     expect(fields.usedIn).toBe('[the reference](madarch:doc:docs/reference.md#manifest), and the guide');
     expect(fields.ambiguous).toBe('the documents say it for two things; see [the question](madarch:doc:docs/reference.md#question)');
     expect(fields.synonyms).toEqual(['one', 'two']);
-    expect(madarchLinks(fields.ambiguous)).toEqual(['madarch:doc:docs/reference.md#question']);
   });
 
   test('a field written without a list mark is still a field, not definition prose', () => {
@@ -109,23 +107,6 @@ describe('glossary terms', () => {
 
   test('a term without labels has only its definition and is not ambiguous', () => {
     expect(parseTermText('Plain words.')).toEqual({ definition: 'Plain words.', synonyms: [], code: [], usedIn: null, ambiguous: null });
-  });
-
-  test('the terms of the manifest\'s glossary documents are listed in order, each with the document, line and anchor it is stated at', () => {
-    const folder = mkdtempSync(join(tmpdir(), 'madarch-glossary-'));
-    try {
-      makeWikiRepository(folder);
-      const read = readKinds(folder);
-      if (!read.present) throw new Error('no manifest');
-      const docs = readDocEntities([{ repo: null, path: 'docs/glossary.md', text: GLOSSARY }], read.manifest);
-      const terms = glossaryTerms(read.manifest, docs.entities);
-      expect(terms.map((term) => term.title)).toEqual(['Capture', 'Manifest', 'Payment token']);
-      const token = terms.find((term) => term.title === 'Payment token')!;
-      expect(token).toMatchObject({ path: 'docs/glossary.md', line: 7, anchor: 'payment-token', ambiguous: 'the documents also use it for the vault reference; see [the open question](madarch:doc:docs/reference.md#question)' });
-      expect(terms.find((term) => term.title === 'Capture')!.ambiguous).toBeNull();
-    } finally {
-      rmSync(folder, { recursive: true, force: true });
-    }
   });
 });
 
@@ -271,28 +252,17 @@ describe('the products-home server with madarch\'s own wiki', () => {
     expect((await get(busy, '/products/madarch-wiki/api/k/reset', { method: 'POST' })).status).toBe(403);
   });
 
-  test('the glossary is read with no fill: the terms, their fields and the resolution of the links they hold; the ambiguity is flagged', async () => {
+  test('the glossary reads only the store: no fill stage writes its terms yet, so it answers none', async () => {
     const answer = await get(busy, '/products/madarch-wiki/api/k/glossary');
     if (answer.status !== 200) throw new Error(`the glossary answered ${answer.status} ${JSON.stringify(answer.body)}; the server said:\n${errors.join('\n')}`);
-    expect(answer.body.terms.map((term: { title: string }) => term.title)).toEqual(['Capture', 'Manifest', 'Payment token']);
-    const manifest = answer.body.terms.find((term: { title: string }) => term.title === 'Manifest');
-    expect(manifest).toMatchObject({ synonyms: ['manifests', 'kinds file'], code: ['madarch/kinds.yaml'], path: 'docs/glossary.md', line: 3 });
-    expect(answer.body.terms.find((term: { title: string }) => term.title === 'Payment token').ambiguous).toContain('vault reference');
-    expect(answer.body.resolutions['madarch:doc:docs/reference.md#manifest']).toMatchObject({ state: 'ok' });
-    expect(answer.body.resolutions['madarch:doc:docs/reference.md#question']).toMatchObject({ state: 'ok' });
+    // The answer carries a count, never the list (madarch-8bdc.2.5): no stage writes a term, so the count is zero.
+    expect(answer.body).toEqual({ terms: [], resolutions: {}, findingCount: 0 });
   });
 
-  test('a term is a page with its definition block, its links resolved on the page', async () => {
+  test('a document section is no page: no fill stage reads the products documents at request time', async () => {
     const id = encodeURIComponent('doc:docs/glossary.md#payment-token');
     const page = await get(busy, `/products/madarch-wiki/api/k/page?id=${id}`);
-    if (page.status !== 200) throw new Error(`the page answered ${page.status} ${JSON.stringify(page.body)}; the server said:\n${errors.join('\n')}`);
-    const term = page.body.blocks.find((block: { type: string }) => block.type === 'term');
-    expect(term).toMatchObject({ type: 'term', definition: 'The proof a provider returns when it captured money.' });
-    expect(term.ambiguous).toContain('open question');
-    // Every block says which block of the template it is: the manifest's roles name that, not how it is drawn.
-    expect(page.body.blocks.filter((block: { type: string }) => block.type !== 'markdown').every((block: { name?: string }) => typeof block.name === 'string')).toBe(true);
-    expect(term.name).toBe('term');
-    expect(page.body.resolutions['madarch:doc:docs/reference.md#question']).toMatchObject({ state: 'ok' });
+    expect(page.status).toBe(404);
   });
 
   test('the role is asked once: unasked, then kept in the madarch home for every product; a role outside the list is refused', async () => {
@@ -322,45 +292,4 @@ describe('the products-home server with madarch\'s own wiki', () => {
       writeFileSync(file, good);
     }
   });
-});
-
-describe('the training repository\'s glossary', () => {
-  test('lists the terms of its documents with the place each is stated at, and the term the agent found, "payment token", is flagged ambiguous with its question', async () => {
-    const work = mkdtempSync(join(tmpdir(), 'madarch-training-glossary-'));
-    const home = join(work, 'home');
-    mkdirSync(home);
-    const repository = generateTrainingRepository(join(work, 'repo'));
-    const product = makeProduct(home, 'shop', repository);
-    mkdirSync(join(product, 'docs', 'questions'), { recursive: true });
-    writeFileSync(join(product, 'docs', 'glossary.md'), [
-      '# Terms the agent found',
-      '',
-      '- **Payment token** - What the documents call the value Checkout sends to Payments.',
-      '  - Also called: payment tokens',
-      '  - In code: `CardToken`, `PaymentToken`',
-      '  - Ambiguous: the architecture says "payment token" for the card reference, while the code\'s `PaymentToken` is the provider\'s proof of capture; see [the open question](madarch:doc:docs/questions/payment-token.md#question)',
-      '',
-    ].join('\n'));
-    writeFileSync(join(product, 'docs', 'questions', 'payment-token.md'), '# Payment token\n\n## Question {#question}\n\nDoes the document term mean CardToken or PaymentToken?\n');
-    const app = join(work, 'app');
-    mkdirSync(app);
-    writeFileSync(join(app, 'index.html'), '<!doctype html><title>app</title><div id="root"></div>');
-    const server = await startServer({ productHome: home, appFolder: app, port: 0, knowledgeRoot: join(work, 'store'), log: () => undefined, errorLog: () => undefined, env: { MADARCH_HOME: join(work, 'madarch-home') } });
-    try {
-      const answer = await (await fetch(`${server.url}/products/shop/api/k/glossary`)).json() as { terms: { title: string; repo: string | null; path: string; line: number; ambiguous: string | null; code: string[] }[]; resolutions: Record<string, { state: string }> };
-      const titles = answer.terms.map((term) => term.title);
-      for (const expected of ['Order', 'Outbox', 'Idempotency key', 'CardToken', 'PaymentToken', 'Capture', 'Zero-rated', 'Payment token']) expect(titles).toContain(expected);
-      const stated = answer.terms.find((term) => term.title === 'Outbox')!;
-      expect(stated).toMatchObject({ repo: 'training', path: 'docs/glossary.md' });
-      expect(stated.line).toBeGreaterThan(0);
-      const token = answer.terms.find((term) => term.title === 'Payment token')!;
-      expect(token).toMatchObject({ repo: null, path: 'docs/glossary.md', code: ['CardToken', 'PaymentToken'] });
-      expect(token.ambiguous).toContain('open question');
-      expect(answer.terms.filter((term) => term.ambiguous !== null).map((term) => term.title)).toEqual(['Payment token']);
-      expect(answer.resolutions['madarch:doc:docs/questions/payment-token.md#question']).toMatchObject({ state: 'ok' });
-    } finally {
-      await server.stop();
-      rmSync(work, { recursive: true, force: true });
-    }
-  }, 60_000);
 });
