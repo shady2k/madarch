@@ -5,9 +5,9 @@ import en from './locales/en.json';
 import ru from './locales/ru.json';
 
 export type WikiLanguage = 'en' | 'ru';
-const languageStorageKey = 'madarch-wiki-language';
+export const languageStorageKey = 'madarch-wiki-language';
 
-function normalizeLanguage(language: string | undefined): WikiLanguage {
+export function normalizeLanguage(language: string | undefined): WikiLanguage {
   return language?.toLowerCase().startsWith('ru') ? 'ru' : 'en';
 }
 
@@ -59,23 +59,6 @@ export async function setWikiLanguage(language: WikiLanguage): Promise<void> {
   await i18n.changeLanguage(language);
 }
 
-/** Format a real filesystem timestamp in the selected UI language. */
-function relativeTime(isoTime: string, language: string = i18n.resolvedLanguage ?? 'en', now = Date.now()): string {
-  const timestamp = Date.parse(isoTime);
-  if (!Number.isFinite(timestamp)) return '';
-  const elapsedSeconds = (timestamp - now) / 1000;
-  const absolute = Math.abs(elapsedSeconds);
-  let divisor: number;
-  let unit: Intl.RelativeTimeFormatUnit;
-  if (absolute < 60) [divisor, unit] = [1, 'second'];
-  else if (absolute < 60 * 60) [divisor, unit] = [60, 'minute'];
-  else if (absolute < 24 * 60 * 60) [divisor, unit] = [60 * 60, 'hour'];
-  else if (absolute < 30 * 24 * 60 * 60) [divisor, unit] = [24 * 60 * 60, 'day'];
-  else if (absolute < 365 * 24 * 60 * 60) [divisor, unit] = [30 * 24 * 60 * 60, 'month'];
-  else [divisor, unit] = [365 * 24 * 60 * 60, 'year'];
-  return new Intl.RelativeTimeFormat(normalizeLanguage(language), { numeric: 'auto', style: 'short' })
-    .format(Math.round(elapsedSeconds / divisor), unit);
-}
 
 
 

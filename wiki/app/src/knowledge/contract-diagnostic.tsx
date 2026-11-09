@@ -45,7 +45,7 @@ const reasonKeys = {
   selectionNotRendered: 'knowledge.contractReason.selectionNotRendered',
  } as const satisfies Record<ContractReason['code'], string>;
 
-function contractReasonText(t: TFunction, reason: ContractReason | undefined): string {
+export function contractReasonText(t: TFunction, reason: ContractReason | undefined): string {
   if (reason === undefined || !Object.prototype.hasOwnProperty.call(reasonKeys, reason.code)) return t('knowledge.contractUnknownReason');
   return t(reasonKeys[reason.code], 'params' in reason ? reason.params : {});
 }

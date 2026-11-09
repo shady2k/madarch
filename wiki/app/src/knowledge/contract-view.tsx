@@ -13,7 +13,7 @@ import './contract.css';
 const Redoc = lazy(() => import('./contract-redoc.js'));
 const AsyncApi = lazy(() => import('./contract-asyncapi.js'));
 const Proto = lazy(() => import('./contract-proto.js'));
-class RendererBoundary extends Component<{children: ReactNode; path: string; fullPath: string}, {error: string | null}> {
+export class RendererBoundary extends Component<{children: ReactNode; path: string; fullPath: string}, {error: string | null}> {
   state = {error: null as string | null};
   static getDerivedStateFromError(error: unknown): {error: string} { return {error: String(error)}; }
   override render(): ReactNode { return this.state.error === null ? this.props.children : <ContractRenderProblem path={this.props.path} fullPath={this.props.fullPath} failure={{reason: {code: 'rendererFailure'}, technicalDetail: this.state.error}} />; }
@@ -21,7 +21,7 @@ class RendererBoundary extends Component<{children: ReactNode; path: string; ful
 
 type DescriptionSource = {text: string; path: string; line: number; fullPath: string};
 /** Parse markup without mounting a renderer or resolving any resource. Scalar source lines stay exact. */
-function descriptionImageDiagnostic(descriptions: readonly DescriptionSource[]): ContractDiagnostic | undefined {
+export function descriptionImageDiagnostic(descriptions: readonly DescriptionSource[]): ContractDiagnostic | undefined {
   let remaining = 100_000;
   const parser = unified().use(remarkParse).use(remarkGfm);
   type MarkdownNode = {type: string; value?: string; children?: readonly MarkdownNode[]};
