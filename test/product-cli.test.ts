@@ -1171,6 +1171,35 @@ describe('madarch repo add', () => {
     expect(existsSync(join(source, 'workspace.yaml'))).toBe(false);
   });
 
+  test('a relative --product resolves against the current directory once: the clone lands in the product and its fill succeeds', () => {
+    // madarch-8bdc.11, the walk: `madarch repo add madarch <url> --mode clone --product products/idea-2026-11-09` run
+    // from the home printed `cloned: products/idea-2026-11-09/repos/madarch` and cloned into
+    // `products/idea-2026-11-09/products/idea-2026-11-09/repos/madarch`; the product's repos/ stayed empty.
+    const base = scratchFolder('madarch-cli-relative-');
+    const home = join(base, 'home');
+    const products = join(home, 'products');
+    mkdirSync(products, { recursive: true });
+    const draft = madeDraft(products);
+    const url = sourceRepo(base, 'library-source');
+    const relative = join('products', draft.name);
+    const run = runCommand(['repo', 'add', 'library', url, '--mode', 'clone', '--product', relative], { MADARCH_HOME: home }, home);
+    expect(run.stderr).toBe('');
+    expect(run.status).toBe(0);
+    const target = join(draft.folder, 'repos', 'library');
+    // The printed folder is the one the clone landed in, and it holds the repository.
+    expect(run.stdout).toContain(`cloned: ${target}`);
+    expect(existsSync(join(target, 'README.md'))).toBe(true);
+    // Nothing was made inside the product from its own name: the folder the command named is resolved once.
+    expect(existsSync(join(draft.folder, 'products'))).toBe(false);
+    expect(readProduct(draft.folder)).toMatchObject({ ok: true, product: { repos: [{ name: 'library', url }] } });
+    // And the fill that reads that repository succeeds, run the same way — from the home, naming the product relatively.
+    const fill = runCommand(['fill', '--product', relative, '--home', products], { MADARCH_HOME: home }, home);
+    expect(fill.stderr).toBe('');
+    expect(fill.status).toBe(0);
+    expect(fill.stdout).toContain('Fill ');
+    expect(fill.stdout).toContain('Units: ');
+  }, 180_000);
+
   test('asks for the local connection mode and uses the interactive choice', async () => {
     const base = scratchFolder('madarch-cli-lc-');
     const home = join(base, 'home'); mkdirSync(home, { recursive: true });
