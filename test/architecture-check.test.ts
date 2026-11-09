@@ -9,9 +9,9 @@ import {
   architectureProblemLines,
   renderViolationListOf,
   VIOLATION_LIST,
-} from '../src/check/architecture/check.js';
-import { baseGuard, baseGuardPasses, baseGuardProblemLines } from '../src/check/architecture/base-guard.js';
-import type { ArchitectureRule, ListedViolation } from '../src/check/architecture/violation.js';
+} from '../scripts/check/architecture/check.js';
+import { baseGuard, baseGuardPasses, baseGuardProblemLines } from '../scripts/check/architecture/base-guard.js';
+import type { ArchitectureRule, ListedViolation } from '../scripts/check/architecture/violation.js';
 
 /**
  * The architecture check of decision 0033, item 4: one writer for the graph, one
@@ -42,7 +42,14 @@ const FIXTURE: Readonly<Record<string, readonly string[]>> = {
   'package.json': [JSON.stringify({ name: 'madarch-architecture-fixture', private: true, type: 'module' }, null, 2)],
   'knip.json': [
     JSON.stringify(
-      { entry: ['src/index.ts'], project: ['src/**/*.ts'], include: ['files', 'exports', 'nsExports', 'types', 'nsTypes', 'enumMembers'] },
+      { bun: false, entry: ['src/index.ts'], project: ['src/**/*.ts'], include: ['files'] },
+      null,
+      2,
+    ),
+  ],
+  'knip.production.json': [
+    JSON.stringify(
+      { bun: false, entry: ['src/index.ts!'], project: ['src/**/*.ts!'], include: ['files', 'exports', 'nsExports', 'types', 'nsTypes', 'enumMembers'] },
       null,
       2,
     ),
@@ -51,7 +58,7 @@ const FIXTURE: Readonly<Record<string, readonly string[]>> = {
   'src/graph/publish.ts': ['/** The graph store\'s publication API. */', 'export function publish(): string {', "  return 'published';", '}', ''],
   'src/graph/index.ts': ["export { publish } from './publish.js';", ''],
   'src/adapters/database-owner.ts': ['/** The process\'s one connection. */', 'export interface DatabaseOwner {', '  query(sql: string): Promise<unknown>;', '}', ''],
-  'src/query/sql-driver.ts': ['/** What a module runs a statement through. */', 'export interface SqlExecutor {', '  query(sql: string): Promise<unknown>;', '}', ''],
+  'src/sql-driver.ts': ['/** What a module runs a statement through. */', 'export interface SqlExecutor {', '  query(sql: string): Promise<unknown>;', '}', ''],
   'src/extract/driver/index.ts': [
     '/** The extract driver: a fill runner and a producer\'s name beside it. */',
     "export const DRIVER_PRODUCER = 'driver';",
@@ -140,7 +147,7 @@ describe('the architecture check', () => {
       ' * SQL outside the storage layer, planted by the test.',
       ' */',
       "import type { DatabaseOwner } from './adapters/database-owner.js';",
-      "import type { SqlExecutor } from './query/sql-driver.js';",
+      "import type { SqlExecutor } from './sql-driver.js';",
       '',
       'export type Rogue = DatabaseOwner | SqlExecutor;',
     ];
@@ -149,7 +156,7 @@ describe('the architecture check', () => {
     const planted = await architectureCheck({ root, rules: ['sql-only-in-storage-layer'] });
     expect(planted.comparison.unlisted).toEqual([
       { rule: 'sql-only-in-storage-layer', file: 'src/rogue-query.ts', line: lineOf(plant, 'database-owner.js'), symbol: 'src/adapters/database-owner.ts' },
-      { rule: 'sql-only-in-storage-layer', file: 'src/rogue-query.ts', line: lineOf(plant, 'sql-driver.js'), symbol: 'src/query/sql-driver.ts' },
+      { rule: 'sql-only-in-storage-layer', file: 'src/rogue-query.ts', line: lineOf(plant, 'sql-driver.js'), symbol: 'src/sql-driver.ts' },
     ]);
     const problems = architectureProblemLines(planted);
     expect(problems.length).toBe(2);
@@ -217,11 +224,35 @@ describe('the architecture check', () => {
     expect(architectureCheckPasses(removed)).toBe(true);
   });
 
+  test('an import of a retired surface fails, and passes when the importer is removed', async () => {
+    const root = fixtureProject();
+    const view = FIXTURE['src/writer/view.ts']!;
+    const report = await architectureCheck({ root, rules: ['no-retired-surfaces'] });
+    expect(report.found).toEqual([
+      { rule: 'no-retired-surfaces', file: 'src/writer/view.ts', line: lineOf(view, '../extract/driver/index.js'), symbol: 'src/extract/driver/index.ts' },
+    ]);
+    const problems = architectureProblemLines(report);
+    expect(problems.length).toBe(1);
+    expect(problems[0]).toContain(`${join(root, 'src', 'writer', 'view.ts')}:${lineOf(view, '../extract/driver/index.js')}: no-retired-surfaces:`);
+    expect(problems[0]).toContain('retired surface');
+
+    rmSync(join(root, 'src', 'writer', 'view.ts'));
+    expect(architectureProblemLines(await architectureCheck({ root, rules: ['no-retired-surfaces'] }))).toEqual([]);
+  });
+
   test(
     'a module no entry reaches fails, and passes when the plant is removed',
     async () => {
-      const root = fixtureProject();
-      await acceptWhatIsFound(root, ['no-unreachable-code']);
+      // A project of its own: this rule takes no baseline, so the fixture must hold no other dead module.
+      const root = mkdtempSync(join(tmpdir(), 'madarch-architecture-unreachable-'));
+      writeModule(root, 'package.json', [JSON.stringify({ name: 'madarch-unreachable-fixture', private: true, type: 'module' }, null, 2)]);
+      writeModule(root, 'knip.json', [JSON.stringify({ bun: false, entry: ['src/index.ts'], project: ['src/**/*.ts'], include: ['files'] }, null, 2)]);
+      writeModule(root, 'knip.production.json', [JSON.stringify({ bun: false, entry: ['src/index.ts!'], project: ['src/**/*.ts!'], include: ['files', 'exports', 'nsExports', 'types', 'nsTypes', 'enumMembers'] }, null, 2)]);
+      writeModule(root, 'src/index.ts', ["import { reached } from './reached.js';", '', 'export const entry = reached;', '']);
+      writeModule(root, 'src/reached.ts', ['/** A module the entry reaches. */', 'export const reached = 1;']);
+      mkdirSync(join(root, '.architecture'), { recursive: true });
+      writeFileSync(join(root, VIOLATION_LIST), '[]\n');
+
       const clean = await architectureCheck({ root, rules: ['no-unreachable-code'] });
       expect(architectureProblemLines(clean)).toEqual([]);
 
@@ -236,6 +267,7 @@ describe('the architecture check', () => {
 
       rmSync(join(root, 'src', 'orphan.ts'));
       expect(architectureProblemLines(await architectureCheck({ root, rules: ['no-unreachable-code'] }))).toEqual([]);
+      rmSync(root, { recursive: true, force: true });
     },
     KNIP_CASE_MS,
   );
@@ -257,6 +289,18 @@ describe('the architecture check', () => {
     expect(problems[0]).toContain(`${join(root, VIOLATION_LIST)}:${writtenOn}: sql-only-in-storage-layer: src/gone.ts: src/adapters/database-owner.ts`);
     expect(problems[0]).toContain('no rule finds it any more');
     expect(architectureCheckPasses(report)).toBe(false);
+  });
+
+  test('a no-unreachable-code entry is refused even when the list holds it, and the list writer never writes one', async () => {
+    const root = fixtureProject();
+    const entry: ListedViolation = { rule: 'no-unreachable-code', file: 'src/orphan.ts', symbol: null };
+    writeFileSync(join(root, VIOLATION_LIST), `${JSON.stringify([entry], null, 2)}\n`);
+
+    const report = await architectureCheck({ root, rules: ['no-unreachable-code'] });
+    expect(report.noBaseline).toEqual([entry]);
+    expect(architectureCheckPasses(report)).toBe(false);
+    expect(architectureProblemLines(report).some((line) => line.includes('takes no baseline'))).toBe(true);
+    expect(renderViolationListOf(report)).not.toContain('no-unreachable-code');
   });
 
   test('the same violation written twice in the list fails, so an entry is one entry', async () => {
@@ -311,12 +355,12 @@ describe('the architecture check', () => {
 
     const legacy = ["import { createPGliteDatabaseOwner } from './adapters/database-owner.js';", '', 'export const open = createPGliteDatabaseOwner;'];
     writeModule(root, 'src/legacy.mjs', legacy);
-    const cyrillic = ['/**', ' * «Каждый модуль спрашивает хранилище» — a comment of characters a byte is not a character of.', ' */', "import type { SqlExecutor } from './query/sql-driver.js';", ''];
+    const cyrillic = ['/**', ' * «Каждый модуль спрашивает хранилище» — a comment of characters a byte is not a character of.', ' */', "import type { SqlExecutor } from './sql-driver.js';", ''];
     writeModule(root, 'src/cyrillic.ts', cyrillic);
 
     const planted = await architectureCheck({ root, rules: ['sql-only-in-storage-layer'] });
     expect(planted.comparison.unlisted.map((violation) => [violation.file, violation.line, violation.symbol])).toEqual([
-      ['src/cyrillic.ts', lineOf(cyrillic, 'sql-driver.js'), 'src/query/sql-driver.ts'],
+      ['src/cyrillic.ts', lineOf(cyrillic, 'sql-driver.js'), 'src/sql-driver.ts'],
       ['src/legacy.mjs', lineOf(legacy, 'database-owner.js'), 'src/adapters/database-owner.ts'],
     ]);
 
@@ -328,14 +372,14 @@ describe('the architecture check', () => {
   test('the violations come out in code point order of rule, file and symbol, whatever order they are found in', async () => {
     const root = fixtureProject();
     writeModule(root, 'src/zzz-writer.ts', ["import { publish } from './graph/publish.js';", '', 'export const written = publish;']);
-    writeModule(root, 'src/aaa-query.ts', ["import type { SqlExecutor } from './query/sql-driver.js';", '', 'export type Rogue = SqlExecutor;']);
+    writeModule(root, 'src/aaa-query.ts', ["import type { SqlExecutor } from './sql-driver.js';", '', 'export type Rogue = SqlExecutor;']);
     writeModule(root, 'src/aaa-writer.ts', ["import { publish } from './graph/publish.js';", '', 'export const also = publish;']);
 
     const report = await architectureCheck({ root, rules: ['graph-single-writer', 'sql-only-in-storage-layer'] });
     expect(report.found.map((violation) => `${violation.rule} ${violation.file} ${violation.symbol}`)).toEqual([
       'graph-single-writer src/aaa-writer.ts src/graph/publish.ts',
       'graph-single-writer src/zzz-writer.ts src/graph/publish.ts',
-      'sql-only-in-storage-layer src/aaa-query.ts src/query/sql-driver.ts',
+      'sql-only-in-storage-layer src/aaa-query.ts src/sql-driver.ts',
     ]);
     expect(renderViolationListOf(report)).toBe(`${JSON.stringify(report.found.map((violation) => ({ rule: violation.rule, file: violation.file, symbol: violation.symbol })), null, 2)}\n`);
   });
@@ -395,7 +439,7 @@ describe('the base guard', () => {
     return root;
   }
 
-  const LISTED: ListedViolation = { rule: 'sql-only-in-storage-layer', file: 'src/fill/graph-pages.ts', symbol: 'src/query/sql-driver.ts' };
+  const LISTED: ListedViolation = { rule: 'sql-only-in-storage-layer', file: 'src/fill/graph-pages.ts', symbol: 'src/sql-driver.ts' };
 
   test('an entry the branch added fails until a commit of the branch carries the owner\'s decision', () => {
     const root = repository();
@@ -423,6 +467,24 @@ describe('the base guard', () => {
     expect(allowed.ownerDecision).toBe('Owner-decision: the graph pages read the projection directly until the stage lands');
     expect(baseGuardProblemLines(allowed)).toEqual([]);
     expect(baseGuardPasses(allowed)).toBe(true);
+  });
+
+  test('an entry of a rule that takes no baseline fails even when the owner decided', () => {
+    const root = repository();
+    mkdirSync(join(root, '.architecture'), { recursive: true });
+    writeFileSync(join(root, VIOLATION_LIST), '[]\n');
+    commit(root, 'the list starts empty');
+    const base = execFileSync('git', ['-C', root, 'rev-parse', 'HEAD'], { encoding: 'utf8' }).trim();
+
+    const entry: ListedViolation = { rule: 'no-unreachable-code', file: 'src/orphan.ts', symbol: null };
+    writeFileSync(join(root, VIOLATION_LIST), `${JSON.stringify([entry], null, 2)}\n`);
+    commit(root, 'list dead code\n\nOwner-decision: the owner allows this violation');
+
+    const refused = baseGuard({ root, base });
+    expect(refused.added).toEqual([entry]);
+    expect(refused.ownerDecision).toContain('Owner-decision:');
+    expect(baseGuardPasses(refused)).toBe(false);
+    expect(baseGuardProblemLines(refused)[0]).toContain('takes no baseline');
   });
 
   test('a list the branch only lost entries from passes, and a base that holds no list is not compared', () => {
