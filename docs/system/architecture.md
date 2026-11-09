@@ -13,40 +13,36 @@ and the compiled model are each checked against their TypeBox schema
 code point, so the same model compiles to the same bytes everywhere
 (`src/model/order.ts`).
 
-**Check** (`src/check/`, `scripts/check-model.ts`): checks a repository's
-model against the repository itself — evidence resolves, every file is
-assigned, the recognised problems are looked for — and renders the model's
-views into a folder when asked. It is the gate a model passes before anything
-is sent anywhere.
+**Architecture check** (`scripts/check/architecture/`, `scripts/check-architecture.ts`):
+the static gate of decision 0033 — dependency rules over the import graph, the
+fill's one entry point, no code unreachable from the production entries, and no
+import of the retired surfaces. `bun run check` runs it.
 
-**History** (`src/history/`, `src/adapters/sql-history.ts`): keeps every
-version of every source's compiled model as a bitemporal fact log in PostgreSQL:
-each assertion carries when it was true (the commit's time) and when the
-history held it. Nothing is overwritten; a store is idempotent, orders a
-source's commits by time, not arrival, and is refused when a commit comes
-back with another model or time. One history holds any number of sources.
+**History** (`src/adapters/sql-history.ts`, `src/history-types.ts`,
+`src/history-assertions.ts`): keeps every version of every source's compiled
+model as a bitemporal fact log in PostgreSQL: each assertion carries when it was
+true (the commit's time) and when the history held it. Nothing is overwritten; a
+store is idempotent, orders a source's commits by time, not arrival, and is
+refused when a commit comes back with another model or time. One history holds
+any number of sources; `src/history-assertions.ts` rebuilds their union.
 
-**Query database** (`src/query/`, `src/adapters/sql-query-database.ts`): the
-asynchronous SQL projection built from history assertions to answer what views
-and agents ask — children, views with collapsed relations, dependents and
-dependencies, as of any time on either axis. It is derived state: `rebuild`
-builds it from a history's assertions, `update` applies one store's own report,
-and it can be rebuilt at any time. Local commands open it on the store's own
-PostgreSQL server; server compositions inject a PostgreSQL query database. Graphs borrow source-scoped
-query facades from that shared owner.
+**Query driver** (`src/sql-driver.ts`, `src/query-types.ts`): the storage
+layer's interfaces — `SqlExecutor` for one statement, `SqlQueryDriver` for a
+transaction, and the asynchronous query types the server routes name — through
+which the graph store (`src/graph/`) and the adapters read and write. The graph
+store owns the temporal tables; the record store (`src/graph/records.ts`) writes
+the tree and history records the fill publishes.
 
 **Database owner** (`src/adapters/database-owner.ts`): one
 PostgreSQL database per process — a store's own server locally (installed into
 the madarch home at a pinned version and hash, `src/adapters/postgres-install.ts`,
 started by `src/adapters/postgres-cluster.ts`), a server a connection string
-names otherwise — opened once and lent to the history store, the query
-projection and, by decision 0027, the queue and the orchestrator's tables. A
+names otherwise — opened once and lent to the history store, the graph store and, by decision
+0027, the queue and the orchestrator's tables. A
 lent owner outlives the adapters that borrow it, and every operation of either
-adapter takes one of the owner's transactions, so a history write and a
-projection update commit or roll back together. The owner runs its own
+adapter takes one of the owner's transactions, so a history write and a graph publication commit or roll back together. The owner runs its own
 transactions one at a time; other processes reach the same store through
-connections of their own, and their snapshots overlap. The server's own composition still opens one history per source
-(decision 0024) and its query database separately.
+connections of their own, and their snapshots overlap.
 
 **Renderer** (`src/render/`): turns views into text a reader sees — the view
 set's Mermaid pages and LikeC4 workspace (`src/render/view-set.ts`,
@@ -54,18 +50,17 @@ set's Mermaid pages and LikeC4 workspace (`src/render/view-set.ts`,
 wiki use, and one view on request at any depth (`src/render/one-view.ts`),
 built from the same parts, which the server answers with.
 
-**Wiki** (`src/wiki/`, `scripts/wiki.ts`): the static site generated from a
-repository's compiled model and its own documents, each view offered as
-LikeC4, Mermaid and archify.
+**Wiki** (`src/product-wiki/`, `wiki/app/`, `src/wiki/archify.ts`): the
+served product wiki — its pages read from the product's working tree and its
+graph pages from the fill's record store — and the archify renderer the
+architecture pages use.
 
-**Server** (`src/server/`, `scripts/serve.ts`): keeps the models repositories
-send and answers requests about them; started with a product folder instead
-of a data folder, it serves that product's wiki instead (see Served wiki).
-The send command (`scripts/send-model.ts`, `src/send/`) runs the check and
-sends a passing model. To build a graph it never reads a repository
-(decision 0007); what it shows is what was sent, at the commit it was sent
-for. The one repository it reads at all is the product folder it is given,
-read-only, as the wiki's working tree.
+**Server** (`src/server/`, `src/product/cli.ts`): one process that serves the
+product wiki, its HTTP API, its MCP tools and the built web files
+(`src/server/http.ts`, `src/server/knowledge.ts`); `madarch serve` runs the api
+role and one fill child, and `madarch start` runs one background server for the
+products home. The model routes remain for a caller that injects a data folder
+and a query database; no CLI starts that mode.
 
 **Product repository** (`src/product/`, `scripts/madarch.ts`): one product's
 knowledge as Markdown and YAML in a git repository of its own. The
@@ -126,22 +121,24 @@ shows them at `/p/<path>`; a file saved under `docs/` changes its page within
 two seconds, the open page refetching when the wiki's revision (a digest of
 the pages' paths and contents) changes.
 
-## From a repository to a view
+## From a repository to a reader
 
-A repository's intended model is compiled, the check passes on it, and the
-compiled model is sent to the server with the source's name, the commit id
-and the commit time. The server checks it against the compiled model's
-schema and stores it in that source's history. Whoever can reach the server
-asks for a view of that source; the server's SQL query facade answers, and the
-renderer renders the answer as Mermaid or LikeC4 text.
+A repository is filled by `madarch fill` or the wiki's fill button: the fill
+runs the tree and history record passes of `src/fill/steps.ts`, reads git
+through `src/fill/stages/repository-facts.ts`, and publishes the rows through
+the record store (`src/graph/records.ts`). The server, the MCP server and the
+wiki read those records through the storage layer; `src/graph/publish.ts` is the
+one publication path for the graph store. A product's intended model is still
+compiled and checked against its TypeBox schema (`src/model/`), and its pages
+are read from the product's working tree (`src/product-wiki/pages.ts`).
 
 ## The server
 
-The server is started with a data folder for the model routes
-(`bun scripts/serve.ts --data <folder>`) or with a product folder for the
-wiki (`bun scripts/madarch.ts serve`, which builds the wiki app on first
-use and opens the address in the browser); with neither it refuses to
-start. It listens on `127.0.0.1` unless told otherwise; there is no authentication in this milestone (decision 0012),
+The server is started with a product folder for the wiki
+(`bun scripts/madarch.ts serve --product <folder>`, which builds the wiki app
+on first use and opens the address in the browser), or as the products home's
+background server (`madarch start`). The model routes are reached by a caller
+that injects a data folder and a query database; no CLI starts that mode. It listens on `127.0.0.1` unless told otherwise; there is no authentication in this milestone (decision 0012),
 and the HTTP layer is one route table so authentication can be added as one
 layer in front of the handlers.
 
@@ -159,24 +156,17 @@ The machine-local state folder holds one PostgreSQL data directory
 per source (`src/server/sources.ts`), outside the product repository. Its name
 is derived from the source's name by encoding every byte a file name should not
 carry. A small sidecar beside each database names its source and head, so a
-restart answers the same as before it stopped. The local source store
-serializes its HistoryStore operations on its owner (decision 0024). The local
-command also stores the rebuildable query projection in one PostgreSQL database
-at `<data>/.query-graph`; it is shared by graph-scoped
-facades. Server compositions inject PostgreSQL for the query projection. A
-legacy `.sqlite` history is not migrated; resend source models to rebuild the
-fact log.
+restart answers the same as before it stopped. The local source store serializes its HistoryStore operations on its owner
+(decision 0024). A legacy `.sqlite` history is not migrated; resend source
+models to rebuild the fact log.
 
-A graph is a named set of sources, and each graph borrows one asynchronous,
-source-scoped query facade from the injected shared SQL database and builds it
-from the assertions of every source the graph lists (`src/server/graphs.ts`). In this milestone every graph lists exactly one
-source and is named after it (decision 0013, amended), so repositories
-declaring the same id never refuse each other. Joining a product's
+A graph is a named set of sources (`src/server/graphs.ts`); the graph routes
+read through the storage layer's asynchronous query interface
+(`src/query-types.ts`, `src/sql-driver.ts`). In this milestone every graph lists
+exactly one source and is named after it (decision 0013, amended), so
+repositories declaring the same id never refuse each other. Joining a product's
 repositories adds graphs that list several sources, where a clashing id is
-reported when the graph is built (decision 0003); how a source is sent and
-stored does not change. The facade is built lazily on first use and kept in step with each store's
-own report; a test builds a graph from two sources' histories and gets the
-union's view.
+reported when the graph is built (decision 0003).
 
 A view of a sent source is answered from its graph's SQL facade by the one-view
 renderer (`src/render/one-view.ts`), at the current time and the first state;
