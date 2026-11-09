@@ -47,12 +47,15 @@ afterAll(async () => {
   if (root !== '') rmSync(root, { recursive: true, force: true });
 });
 
-test('the first status answer on a 150 000-span store answers within 2 seconds', async () => {
+test('the first status answer on a 150 000-span store answers within 5 seconds', async () => {
   const at = Date.now();
   const answer = await fetch(`${server!.url}/api/k/status`, { headers: { accept: 'application/json' } });
   const elapsed = Date.now() - at;
   expect(answer.status).toBe(200);
-  expect(elapsed).toBeLessThan(2_000);
+  // A fill now writes about 300 spans; 150 000 is a store left by a fill before the trace was bounded. The
+  // quadratic reading this guards against took 303 s here; measured after the fix: 1.0 s on the worker VM,
+  // 2.1 s on the CI runner (run 42722618397), so 5 s keeps the guard without timing the runner.
+  expect(elapsed).toBeLessThan(5_000);
   const secondAt = Date.now();
   const second = await fetch(`${server!.url}/api/k/status`, { headers: { accept: 'application/json' } });
   const secondElapsed = Date.now() - secondAt;
