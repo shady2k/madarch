@@ -15,10 +15,10 @@ import { CALLS } from '../graph/vocabulary.js';
 import { byCodePoint } from '../model/order.js';
 import type { KindCount, RelyingStatement } from './index/queries.js';
 import type { GraphEntity, GraphReader, SourceSpan } from './graph-read.js';
-import type { KindsManifest, PropertyDecl, PropertyFormat } from './kinds.js';
+import type { KindsManifest, MemberDecl, PropertyDecl, PropertyFormat } from './kinds.js';
 import type { MarkdownEntity } from './markdown.js';
 import { readBody } from './markdown.js';
-import type { Block, CallRow, CodeLocation, EntityRef, RelatedGroup } from './model.js';
+import type { Block, CallRow, CodeLocation, EntityRef, MemberRow, PropertyRow, RelatedGroup } from './model.js';
 import { entityAddress, noEntityMessage, sourceAddress, type Resolver } from './resolve.js';
 
 export type Subject = { source: 'graph'; entity: GraphEntity } | { source: 'markdown'; entity: MarkdownEntity };
@@ -106,7 +106,7 @@ const toInt = (value: string | undefined, fallback: number, min: number, max: nu
 const list = (value: string | undefined): string[] | undefined => (value === undefined ? undefined : value.split(',').map((entry) => entry.trim()).filter(Boolean));
 
 /** A relation type as a reader reads it on an edge: the extractor prefix dropped. */
-export function relationWord(relation: string): string {
+function relationWord(relation: string): string {
   return relation.startsWith('code.') ? relation.slice('code.'.length) : relation.startsWith('engine:') ? relation.slice('engine:'.length) : relation;
 }
 
@@ -422,9 +422,9 @@ export function detailRows(
   details: readonly string[] | undefined,
   properties: ReadonlyMap<string, PropertyDecl>,
   lang: string,
-): import('./model.js').PropertyRow[] {
+): PropertyRow[] {
   if (details === undefined) return [];
-  const rows: import('./model.js').PropertyRow[] = [];
+  const rows: PropertyRow[] = [];
   for (const name of details) {
     const decl = properties.get(name);
     if (decl === undefined) continue;
@@ -457,7 +457,7 @@ export function memberAnchor(id: string): string {
 }
 
 /** The entity whose page a member belongs on: the edge the kind declares, else the property that names the parent. */
-export async function memberParent(ctx: RenderContext, subject: Subject, member: import('./kinds.js').MemberDecl): Promise<GraphEntity | undefined> {
+export async function memberParent(ctx: RenderContext, subject: Subject, member: MemberDecl): Promise<GraphEntity | undefined> {
   if (subject.source !== 'graph') return undefined;
   const found = await ctx.graph.edgesOf(subject.entity, member.relation, member.direction, 20);
   // A relation with more edges than the first read is read again to its total: the parent is not the first twenty.
@@ -501,7 +501,7 @@ export async function membersBlock(
   const kindProperty = ctx.manifest.properties.get('symbolKind');
   const kindLabelName = kindProperty?.labels[lang] ?? kindProperty?.labels['en'];
   const omit = new Set(list(params['omit']) ?? []);
-  const rows: import('./model.js').MemberRow[] = [];
+  const rows: MemberRow[] = [];
   for (const group of found) {
     for (const row of group.rows) {
       if (row.entity.kind !== kind) continue;

@@ -83,7 +83,7 @@ const VISIBLE = (alias: string): string => `${alias}.valid_from <= $1::timestamp
  * reader counts in lines and bytes like any other. Either shape names one place, so a reader asks for a
  * span and is answered whichever producer wrote the record.
  */
-export function spanFromProvenance(properties: Record<string, unknown>): SourceSpan | undefined {
+function spanFromProvenance(properties: Record<string, unknown>): SourceSpan | undefined {
   const provenance = properties['provenance'];
   if (provenance === null || typeof provenance !== 'object' || Array.isArray(provenance)) return undefined;
   const place = (provenance as Record<string, unknown>)['place'];
@@ -175,24 +175,6 @@ export class GraphReader {
 
   private visible(alias: string): string {
     return `${VISIBLE(alias)}${this.scope === undefined ? '' : ` AND ${alias}.scope_id = ${BigInt(this.scope).toString()}::bigint`}`;
-  }
-
-  /**
-   * The driver's empty final publication follows every tree extraction (and endpoint links).
-   * published_digest is the publication payload hash, NOT input_digest. Its paired non-null
-   * publication time proves completion for this exact producer; it is not a version upgrade check.
-   */
-  async completedTrees(scope: string, producer: string): Promise<ReadonlySet<number>> {
-    return await this.run(async (tx) => {
-      const found = await tx.query<{ generation: string }>(
-        `SELECT generation::text AS generation FROM work_item
-         WHERE scope_id = $1::bigint AND producer = $2 AND published_at IS NOT NULL
-           AND published_digest IS NOT NULL ORDER BY generation`, [scope, producer],
-      );
-      // Decision 0030: a tree at first-parent place n has generation 2n.
-      // Odd generations end old tips or mark history; neither proves a tree was read.
-      return new Set(found.rows.map((row) => Number(row.generation)).filter((generation) => generation % 2 === 0).map((generation) => generation / 2));
-    });
   }
 
   /** Optional for stores created before repository landmarks existed. */

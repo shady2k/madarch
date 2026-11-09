@@ -35,7 +35,7 @@ test('real guide work-item publication rejects moved membership, superseded mate
   await writeFile(validation.file,'Human edited text');const conflict=await publish(request);expect(conflict.ok).toBe(false);expect(await readFile(validation.file,'utf8')).toBe('Human edited text');
   await rm(validation.file);
   const originalRun=database.run.bind(database);let supersede=true;
-  const supersedingDatabase=new Proxy(database,{get(target,key){if(key==='transaction')return async <T>(kind:Parameters<typeof database.transaction>[0],work:(tx:import('../src/history/types.js').OuterTransaction)=>Promise<T>)=>{
+  const supersedingDatabase=new Proxy(database,{get(target,key){if(key==='transaction')return async <T>(kind:Parameters<typeof database.transaction>[0],work:(tx:import('../src/history-types.js').OuterTransaction)=>Promise<T>)=>{
     if(kind==='write'&&supersede){supersede=false;const generation=Number((await originalRun(async(tx)=>(await tx.query<{generation:string}>("SELECT max(generation)::text AS generation FROM work_item WHERE producer='writer.administrator-guide' AND scope_id=$1::bigint",[scope])).rows[0]))?.generation??0)+1;
       await store.openWorkItem({producer:'writer.administrator-guide',scope,generation,inputDigest:'newer-input',leaseToken:'newer-owner',leaseUntil:new Date(Date.now()+60000)});
       await store.publish({producer:'writer.administrator-guide',scope,generation,inputDigest:'newer-input',leaseToken:'newer-owner',nodes:[]});
@@ -47,7 +47,7 @@ test('real guide work-item publication rejects moved membership, superseded mate
   expect(await readFile(validation.file,'utf8').catch(()=>undefined)).toBeUndefined();
   const originalTransaction=database.transaction.bind(database);
   let race=true;
-  const racingDatabase=new Proxy(database,{get(target,key){if(key==='transaction')return async <T>(kind:Parameters<typeof database.transaction>[0],work:(tx:import('../src/history/types.js').OuterTransaction)=>Promise<T>)=>{if(kind==='write'&&race){race=false;await store.openNode({kind:'code.file',label:'new.txt',properties:{path:'new.txt'},validFrom:context.valid,owner:{producer:'fixture',scope}});}return await originalTransaction(kind,work);};const value=Reflect.get(target,key);return typeof value==='function'?value.bind(target):value;}});
+  const racingDatabase=new Proxy(database,{get(target,key){if(key==='transaction')return async <T>(kind:Parameters<typeof database.transaction>[0],work:(tx:import('../src/history-types.js').OuterTransaction)=>Promise<T>)=>{if(kind==='write'&&race){race=false;await store.openNode({kind:'code.file',label:'new.txt',properties:{path:'new.txt'},validFrom:context.valid,owner:{producer:'fixture',scope}});}return await originalTransaction(kind,work);};const value=Reflect.get(target,key);return typeof value==='function'?value.bind(target):value;}});
   const changedGuideResult=await validateGuide({...raw,title:'Changed guide'},validation);expect(changedGuideResult.ok).toBe(true);if(!changedGuideResult.ok)return;
   const changedGuide=changedGuideResult.guide;
   const stale=await createGuidePublication({...owner,owner:racingDatabase,verified:new Set([guideDigest({document:guideDigest(changedGuide),step:guideStepDigest(changedGuide,'check',changedGuide.procedures[0]!.steps[0]!)})])});

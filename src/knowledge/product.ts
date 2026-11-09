@@ -42,8 +42,6 @@ import { readLiveRun, readStoreStamp } from '../fill/state-store.js';
 import { fillWritesPages } from '../fill/steps.js';
 import { locationOf, type RenderContext } from './blocks.js';
 import { GraphReader } from './graph-read.js';
-import { treeReadProducer } from '../extract/driver/index.js';
-import { TREE_EXTRACTORS, HISTORY_EXTRACTOR } from '../extract/driver/extractors.js';
 import { selectHistory, withHistoryLinks, type HistoryContext, type HistorySelection } from './temporal.js';
 import { markdownFilesBelow, readMarkdownEntities, type MarkdownEntity } from './markdown.js';
 import type { AgentOffer, Block, CatalogView, ChangedPage, DocumentListing, DocumentPage, DocumentRef, FillErrorView, FillRunView, FillState, Neighborhood, PageModel, PlannedMarkView, PlannedSectionView, RepositoryFactsView, WikiStatus, WriterState, WriterUnit } from './model.js';
@@ -193,7 +191,7 @@ interface PageSnapshot {
 }
 
 /** Owner-based index readers may run statements, but cannot open a nested snapshot on the same pipe. */
-export function pageSnapshotOwner(owner: DatabaseOwner, transaction: OuterTransaction): DatabaseOwner {
+function pageSnapshotOwner(owner: DatabaseOwner, transaction: OuterTransaction): DatabaseOwner {
   return new Proxy(owner, {
     get(target, key) {
       if (key === 'transaction') return () => { throw new Error('a page snapshot cannot open a nested transaction; use its shared transaction'); };
@@ -205,10 +203,10 @@ export function pageSnapshotOwner(owner: DatabaseOwner, transaction: OuterTransa
 }
 
 /** Shares history reads only after the last temporal change in an immutable reader snapshot. */
-export function createSnapshotHistoryReader() {
+function createSnapshotHistoryReader() {
   type HistoryData = {
     evidence: Awaited<ReturnType<GraphReader['historyEvidence']>>;
-    completed: Awaited<ReturnType<GraphReader['completedTrees']>>;
+    completed: ReadonlySet<number>;
     landmarks: Awaited<ReturnType<GraphReader['landmarkPlan']>>;
   };
   type Entry = { boundary: Promise<number | null>; data?: Promise<HistoryData> };
@@ -247,7 +245,9 @@ export function createSnapshotHistoryReader() {
       // Every statement uses this call's captured time, never a moving wall clock.
       const graph = new GraphReader(owner, () => validAt);
       const evidence = await graph.historyEvidence(scope);
-      const completed = await graph.completedTrees(scope, treeReadProducer(TREE_EXTRACTORS, HISTORY_EXTRACTOR));
+      // The record pass publishes trees and history; it records no extract-driver work item, so no tree is known
+      // complete here (madarch-8bdc.1.3: the extract driver is gone).
+      const completed: ReadonlySet<number> = new Set();
       const landmarks = await graph.landmarkPlan(name, scope, head);
       return { evidence, completed, landmarks };
     };
