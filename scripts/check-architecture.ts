@@ -20,9 +20,9 @@ import {
   countsByRule,
   renderViolationListOf,
   VIOLATION_LIST,
-} from '../src/check/architecture/check.js';
-import { baseGuard, baseGuardPasses, baseGuardProblemLines } from '../src/check/architecture/base-guard.js';
-import { ARCHITECTURE_RULES, type ArchitectureRule } from '../src/check/architecture/violation.js';
+} from './check/architecture/check.js';
+import { baseGuard, baseGuardPasses, baseGuardProblemLines } from './check/architecture/base-guard.js';
+import { ARCHITECTURE_RULES, type ArchitectureRule } from './check/architecture/violation.js';
 
 interface Options {
   readonly update: boolean;

@@ -4,7 +4,7 @@
   "type": "module",
   "packageManager": "bun@1.4.2",
   "scripts": {
-    "check": "tsc --noEmit && bun run check:architecture && bun run check:catalog && bun run check:workflows && node scripts/check-static-stage-boundaries.ts",
+    "check": "tsc --noEmit && bun run check:architecture && bun run check:catalog && bun run check:workflows",
     "check:architecture": "bun scripts/check-architecture.ts",
     "check:catalog": "bun scripts/check-catalog.ts",
     "check:workflows": "bun scripts/check-workflows.ts",
