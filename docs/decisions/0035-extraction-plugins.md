@@ -178,6 +178,19 @@ file could not have it, and every new kind waits for a madarch release. The owne
     of its catalogue section reaches. Each is a problem naming the kind, the entity and the cause,
     and the agent works it in that kind's turn; a fill never drops an orphan without saying so.
     (Owner: «И еще нужно проверять orphaned вершины и ребра»)
+13. **Concurrency is a setting.** The product's settings say how many plugins run at once and, for a
+    plugin that declares in its introduction that it takes several units at once and up to how many,
+    how many units it is given at a time; the host hands out no more than the smaller of the two,
+    and kinds' turns that may run in parallel (item 11) share the plugin count. A plugin that
+    declares nothing gets one unit at a time. The memory and CPU limits of item 9 bound the plugin's
+    whole process tree whatever its count of units. (Owner: «Да, плюс настройка количества
+    одновременных плагинов и потоков в нем, если плагин поддерживает многопоточность»)
+14. **The dependency graph is a page.** The wiki's catalogue of kinds shows the graph of declared
+    discovery dependencies (item 11), and during a fill the kind whose turn it is, the kinds done
+    and the kinds waiting, with each turn's plugins and its agent part. (Owner: «А еще нужен
+    dependency graph для сущностей, чтобы мы знали в каком порядке запускать. Например извлекать
+    кубер без обработки файлов нельзя. Может быть нужно прописывать для сущности зависимости?» —
+    «Да» to showing it as a page.)
 
 ## Consequences
 
@@ -191,13 +204,14 @@ file could not have it, and every new kind waits for a madarch release. The owne
   в части работы над сущностями.»)
 - Stages: (a) contracts and generated tables, the host with the protocol, its bounds, the binding to
   the orchestrator and each kind in turn in the order from declared dependencies (items 1 and 11)
-  with the agent part of a turn recorded as waiting for the agent, the orphan check (item 12),
-  closure hashes with the release-trusted rule, initialisation putting every madarch plugin and kind
-  into the product, and the git reader as the first plugin (madarch-8bdc.2.11); (b) the sandbox,
-  required before any closure not shipped by a madarch release may run; (c) several producers per
-  claimed field, the accepted-value rule and accuracy measurement; (d) agent-written plugins and
-  fixes and upstream updates, which run a real agent and start on the owner's yes; (e) templates and
-  fine-grained inclusion and exclusion of kinds at initialisation.
+  with the agent part of a turn recorded as waiting for the agent, the orphan check (item 12), the
+  concurrency settings (item 13), the dependency graph page (item 14), closure hashes with the
+  release-trusted rule, initialisation putting every madarch plugin and kind into the product, and
+  the git reader as the first plugin (madarch-8bdc.2.11); (b) the sandbox, required before any
+  closure not shipped by a madarch release may run; (c) several producers per claimed field, the
+  accepted-value rule and accuracy measurement; (d) agent-written plugins and fixes and upstream
+  updates, which run a real agent and start on the owner's yes; (e) templates and fine-grained
+  inclusion and exclusion of kinds at initialisation.
 
 ## Review
 
