@@ -10,7 +10,7 @@
  * run's scratch, which is what makes a finished run leave nothing behind and a
  * killed run's server the next run's to sweep.
  */
-import { readFileSync } from 'node:fs';
+import { lstatSync, readFileSync, readdirSync, statSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { leaseStoreCluster, type ClusterLease } from '../src/adapters/database-owner.js';
@@ -30,7 +30,33 @@ export async function stopRunPostgres(): Promise<void> {
   await held?.close().catch(() => undefined);
   // A server the close could not stop — another process of this run still held it, or a child still connected — is
   // signalled here and waited for: this run's server may not outlive the run, and the sweep that removes its folder follows.
-  const dataDir = join(tmpdir(), 'postgres', 'pgdata');
+  await stopServerIn(join(tmpdir(), 'postgres', 'pgdata'));
+}
+
+/**
+ * Stops every PostgreSQL server whose data directory stands inside `folder` — a run's scratch — and waits for each: a
+ * run leaves no server behind, whichever test file started it and whether or not that file closed it (madarch-8bdc.12:
+ * shard 5 left two, one of a product's store and one of a served product's query graph).
+ */
+export async function stopServersUnder(folder: string): Promise<void> {
+  const dataDirs: string[] = [];
+  const walk = (dir: string, depth: number): void => {
+    if (depth > 12) return;
+    let names: string[];
+    try { names = readdirSync(dir); } catch { return; }
+    for (const name of names) {
+      const path = join(dir, name);
+      if (name === 'postmaster.pid') { dataDirs.push(dir); continue; }
+      // A folder's children are followed, never a link out of the run's own scratch.
+      try { if (statSync(path).isDirectory() && lstatSync(path).isSymbolicLink() === false) walk(path, depth + 1); } catch { /* gone or unreadable */ }
+    }
+  };
+  walk(folder, 0);
+  for (const dataDir of dataDirs) await stopServerIn(dataDir);
+}
+
+/** One server, signalled and waited for: only the one whose own command line names this data directory. */
+async function stopServerIn(dataDir: string): Promise<void> {
   let pid: number;
   try {
     pid = Number(readFileSync(join(dataDir, 'postmaster.pid'), 'utf8').split('\n')[0]?.trim());

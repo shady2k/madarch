@@ -93,12 +93,14 @@ export async function runFillRole(options: FillRoleOptions): Promise<number> {
     withoutSignals();
     log('madarch fill: the process that started this role is gone, so the role ends and gives its stores up');
     const deadline = Date.now() + ENDING_MS;
-    // The queues first, then what they run on: a queue asked for a statement after its owner closed throws into the process
-    // (madarch-8bdc.13). Then the fill under way and every store this role opened are closed, with the end's own bound: a
-    // close that waits for a client inside a transaction is not what the server's death may be held by.
-    await Promise.race([stopQueues(state), Bun.sleep(ENDING_MS / 4)]);
+    // The queues are asked to stop without holding the end on them — a role that is ending will not be here for their next
+    // beat, and a queue's stop can wait for its own work — and what may not wait is the stores: the fill under way and
+    // every store this role opened are closed with a short bound (a close that waits for a client inside a transaction is
+    // not what the server's death may be held by), and then the servers are stopped. A killed server's stores are gone
+    // inside the two seconds the rule allows even on a loaded machine.
+    void stopQueues(state);
     const closes = [...(state.running === undefined ? [] : [state.running.close()]), ...[...state.owners].map(async (owner) => await owner.close())];
-    await Promise.race([Promise.allSettled(closes.map(async (closing) => await closing.catch(() => undefined))), Bun.sleep(ENDING_MS / 2)]);
+    await Promise.race([Promise.allSettled(closes.map(async (closing) => await closing.catch(() => undefined))), Bun.sleep(ENDING_MS / 4)]);
     state.running = undefined;
     // Whatever a close is still waiting for, the stores' servers are stopped here: this process was their last user, and a
     // server nothing serves must not outlive it (madarch-8bdc.12 — a killed server left one up 30 s).
