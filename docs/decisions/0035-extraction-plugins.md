@@ -22,26 +22,37 @@ file could not have it, and every new kind waits for a madarch release. The owne
 
 ## Decision
 
-1. **A product starts with the plugins for the kinds it chose; a fill runs them, then hands the rest
-   to the agent.** At initialisation madarch puts its own plugins for the chosen kinds into the
-   product's repository, and their kinds into the manifest. The choice is offered as templates
-   (everything, only the tracker, others) with fine-grained inclusion and exclusion (everything but
-   Kubernetes); the first version offers no choice and takes everything. A fill does not ask which
-   kinds have extractors: it runs every plugin the product holds over the kinds and fields it
-   produces, and gives whatever no plugin produced to the agent, with the manifest's description of
-   each kind and field. The agent takes a plugin from madarch's upstream, writes a script, or
-   extracts the values itself; a plugin it adds is kept in the product, so the next fill runs it and
-   leaves the agent less. A product that chose none, or declares kinds madarch has no plugin for,
-   starts with only its manifest for them. (Owner: «Ну не совсем, все наши плагины мы положим в
-   репозиторий продукта при его инцииализации. Можно будет предлагать пользователю выбрать сущности,
-   которые ему нужны. Например только трекер. Или исключить кубер, потому что его нет.» «Ну да.
-   Можно дать несколько шаблонов: все, трекер, еще чего-нибудь. Ну и дать возможность тонкой
-   настройки что-то включить или исключить. Сейчас в MVP это не нужно, берем по умолчанию все.» «Там
-   где он умеет мы заполняем, там где не умеем - оставляем агенту. Агент ведь можешь написать скрипт
-   и извлечь?» «Вот представь, у нас 4 позитории, мы начинаем работать над продуктом, ничего нет,
-   никаких плагинов, только описание в манифесте продукта. Пользователь тыкает заполнить, он идет
-   смотрит плагины, плагина нет. Значит, он все сущности обработал, где есть плагины, потом передает
-   управление агенту.»)
+1. **A product starts with the plugins for the kinds it chose; a fill takes each kind in turn, its
+   plugins first and then the agent.** At initialisation madarch puts its own plugins for the chosen
+   kinds into the product's repository, and their kinds into the manifest. The choice is offered as
+   templates (everything, only the tracker, others) with fine-grained inclusion and exclusion
+   (everything but Kubernetes); the first version offers no choice and takes everything. A fill
+   takes the kinds one after another in the order of item 11, and a kind's turn has the same three
+   parts whatever the kind: every plugin and script the product holds for it runs, each writing its
+   own proposal (vertices, attributes and claims with their sources); then the agent works the kind
+   from the manifest's description of it and its fields, checking the proposals, adding what no
+   producer found and settling where producers disagree; then the next kind. The agent may also take
+   a plugin from madarch's upstream or write a script; what it adds is kept in the product, so the
+   next fill runs it and leaves the agent less. When every kind has had its turn, the agent checks
+   the whole result again, section by section of the catalogue, as 0033's top-down walk (items 16
+   and 17). A product that chose none, or declares kinds madarch has no plugin for, starts with only
+   its manifest for them. (Owner: «Ну не совсем, все наши плагины мы положим в репозиторий продукта
+   при его инцииализации. Можно будет предлагать пользователю выбрать сущности, которые ему нужны.
+   Например только трекер. Или исключить кубер, потому что его нет.» «Ну да. Можно дать несколько
+   шаблонов: все, трекер, еще чего-нибудь. Ну и дать возможность тонкой настройки что-то включить
+   или исключить. Сейчас в MVP это не нужно, берем по умолчанию все.» «Там где он умеет мы
+   заполняем, там где не умеем - оставляем агенту. Агент ведь можешь написать скрипт и извлечь?»
+   «Вот представь, у нас 4 позитории, мы начинаем работать над продуктом, ничего нет, никаких
+   плагинов, только описание в манифесте продукта. Пользователь тыкает заполнить, он идет смотрит
+   плагины, плагина нет. Значит, он все сущности обработал, где есть плагины, потом передает
+   управление агенту.» «Может быть, мы тогда должны делить не по статическому прогону и агентскому,
+   а обрабатывать по сущности, по порядку сущностей. Например, идем по каталогу сущностей. Первая
+   сущность– файл. Наверное, нам нужно еще в зависимости где-то прописать в каталоге сущности. Это
+   же каталог где будет лежать получается он в продукте должен лежать и сначала делать статические
+   прогоны один скриптом статический или несколько может быть несколько скриптов для одной сущности
+   они все записывают как свое предложение а потом по ней запускается агентская часть агентская
+   часть отработала переходим к следующей сущности и так вот можно по разделам ну то есть а потом в
+   конце агент еще раз все перепроверяет по разделам так наверное»)
 2. **Authoritative fields have one producer; claimed fields may have many, measured.** A field's
    contract says which it is (0034 item 7). An authoritative field has exactly one producer,
    named in the manifest; its value is written as a column with one evidence row, and a second
@@ -148,16 +159,17 @@ file could not have it, and every new kind waits for a madarch release. The owne
     it with the diff and the numbers; a person approves the new closure's hash before it runs.
     (Owner: «И если в плагине произошел сбой, то это появляется в проблемах для роли
     администратора или эксплуатации madarch? И агент сможет сам предложить исправление.»)
-11. **Order follows declared dependencies.** As 0033 item 15 has kinds declare which kinds their
-    discovery depends on, apart from the relations a reader navigates, a plugin declares the kinds
-    it reads (its inputs) and the kinds it writes (its outputs). The host runs plugins in the order
-    those declarations give, independent ones in parallel; the agent receives what remains in the
-    same order and is never given a kind whose inputs are not yet filled. A cycle among them is an
-    error of the manifest that names the kinds, and no fill starts while it stands. At
-    initialisation, and in the later choice by template or by inclusion and exclusion, a chosen kind
-    brings in the kinds it depends on, and excluding a kind another chosen kind depends on is
-    refused with the dependants named. (Owner: «Только тут важен порядок. Помнишь мы в каталоге
-    сущностей прописывали зависимости?»)
+11. **Order follows the catalogue's declared dependencies.** The catalogue of kinds is the product's
+    own, kept in its repository as part of the manifest, and each kind in it declares which kinds
+    its discovery depends on, apart from the relations a reader navigates (0033 item 15); a plugin
+    declares the kinds it reads (its inputs) and writes (its outputs). A fill walks the catalogue
+    section by section in the order those declarations give: a kind's turn (item 1) starts only when
+    every kind it depends on has finished its turn, and kinds that do not depend on each other take
+    their turns in parallel. A cycle among them is an error of the manifest that names the kinds,
+    and no fill starts while it stands. At initialisation, and in the later choice by template or by
+    inclusion and exclusion, a chosen kind brings in the kinds it depends on, and excluding a kind
+    another chosen kind depends on is refused with the dependants named. (Owner: «Только тут важен
+    порядок. Помнишь мы в каталоге сущностей прописывали зависимости?»)
 
 ## Consequences
 
