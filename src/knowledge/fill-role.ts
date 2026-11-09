@@ -54,10 +54,24 @@ function alive(pid: number): boolean {
 /** What one run of the role holds: every store it opened, and the fill under way, so the end can give them up. */
 interface RoleState {
   readonly owners: Set<StoreOwner>;
+  /** The queues this role opened, by store: each is stopped before the owner under it closes (madarch-8bdc.13's crash). */
+  readonly queues: Map<string, Awaited<ReturnType<typeof openFillRunQueue>>>;
   /** The database folders this role opened (`<store>/graph`), so the end stops each store's server even unopened. */
   readonly databaseFolders: Set<string>;
   running?: Awaited<ReturnType<typeof startKnowledgeFill>>;
   ending: boolean;
+}
+
+/**
+ * Stops the queues one role opened, each before the owner under it closes: a live queue asks its owner for a statement on
+ * its own timer (pg-boss's registration pass), and an owner that closed under it throws into whatever the process is doing
+ * then — in a test run, another file's case (`the database owner "…" is closed`), and in a server, an unhandled error.
+ */
+async function stopQueues(state: RoleState): Promise<void> {
+  for (const [storeFolder, queue] of [...state.queues]) {
+    state.queues.delete(storeFolder);
+    await queue.stop().catch(() => undefined);
+  }
 }
 
 /**
@@ -71,7 +85,7 @@ interface RoleState {
 export async function runFillRole(options: FillRoleOptions): Promise<number> {
   const log = options.log ?? ((line: string) => console.log(line));
   const watched = new Map<string, Watched>();
-  const state: RoleState = { owners: new Set(), databaseFolders: new Set(), ending: false };
+  const state: RoleState = { owners: new Set(), queues: new Map(), databaseFolders: new Set(), ending: false };
   /** Ends the role now: what it opened is given up, so the last close of a store stops its server. */
   const end = async (exitCode = 0): Promise<void> => {
     if (state.ending) return;
@@ -79,8 +93,10 @@ export async function runFillRole(options: FillRoleOptions): Promise<number> {
     withoutSignals();
     log('madarch fill: the process that started this role is gone, so the role ends and gives its stores up');
     const deadline = Date.now() + ENDING_MS;
-    // The fill under way and every store this role opened are closed, with the end's own bound: a close that waits for a
-    // client inside a transaction is not what the server's death may be held by.
+    // The queues first, then what they run on: a queue asked for a statement after its owner closed throws into the process
+    // (madarch-8bdc.13). Then the fill under way and every store this role opened are closed, with the end's own bound: a
+    // close that waits for a client inside a transaction is not what the server's death may be held by.
+    await Promise.race([stopQueues(state), Bun.sleep(ENDING_MS / 4)]);
     const closes = [...(state.running === undefined ? [] : [state.running.close()]), ...[...state.owners].map(async (owner) => await owner.close())];
     await Promise.race([Promise.allSettled(closes.map(async (closing) => await closing.catch(() => undefined))), Bun.sleep(ENDING_MS / 2)]);
     state.running = undefined;
@@ -116,41 +132,52 @@ export async function runFillRole(options: FillRoleOptions): Promise<number> {
   const giveUp = async (): Promise<void> => {
     if (watcher !== undefined) clearInterval(watcher);
     withoutSignals();
+    await stopQueues(state);
     for (const owner of [...state.owners]) {
       await Promise.race([owner.close().catch(() => undefined), Bun.sleep(ENDING_MS / 2)]);
       state.owners.delete(owner);
-      for (const folder of state.databaseFolders) await Promise.race([stopStoreForExit(folder), Bun.sleep(ENDING_MS / 2)]);
+    }
+    // Every store this role opened, and the ones it had not opened yet: the last close of a server is the one that stops it,
+    // and a store the role never reached still has one (madarch-8bdc.12).
+    for (const folder of new Set([...state.databaseFolders, ...storeFoldersOf(options.knowledgeRoot).map((store) => join(store, 'graph'))])) {
+      await Promise.race([stopStoreForExit(folder), Bun.sleep(ENDING_MS / 2)]);
     }
   };
-  for (;;) {
-    if (state.ending) return 0;
-    if (options.idle?.() === true) {
-      await giveUp();
-      return 0;
-    }
-    for (const storeFolder of storeFoldersOf(options.knowledgeRoot)) {
-      let held = watched.get(storeFolder);
-      if (held === undefined) {
-        try {
-          const owner = await options.openStore(join(storeFolder, 'graph'));
-          state.owners.add(owner);
-          state.databaseFolders.add(join(storeFolder, 'graph'));
-          await owner.ready;
-          held = { storeFolder, owner, queue: await openFillRunQueue(owner) };
-          watched.set(storeFolder, held);
-        } catch (error) {
-          log(`madarch fill: the store ${storeFolder} could not be opened: ${error instanceof Error ? error.message : String(error)}`);
-          continue;
-        }
+  try {
+    for (;;) {
+      if (state.ending) return 0;
+      if (options.idle?.() === true) {
+        await giveUp();
+        return 0;
       }
-      const job = await claimFillRun(held.queue).catch((error: unknown) => {
-        log(`madarch fill: the queue of ${storeFolder} could not be claimed: ${error instanceof Error ? error.message : String(error)}`);
-        return null;
-      });
-      if (job === null) continue;
-      await withSpan('fill.role.run', { 'madarch.product': job.data.product, 'madarch.run': job.data.runId }, async () => { await runOne(options, state, held, job, log); });
+      for (const storeFolder of storeFoldersOf(options.knowledgeRoot)) {
+        let held = watched.get(storeFolder);
+        if (held === undefined) {
+          try {
+            const owner = await options.openStore(join(storeFolder, 'graph'));
+            state.owners.add(owner);
+            state.databaseFolders.add(join(storeFolder, 'graph'));
+            await owner.ready;
+            held = { storeFolder, owner, queue: await openFillRunQueue(owner) };
+            state.queues.set(storeFolder, held.queue);
+            watched.set(storeFolder, held);
+          } catch (error) {
+            log(`madarch fill: the store ${storeFolder} could not be opened: ${error instanceof Error ? error.message : String(error)}`);
+            continue;
+          }
+        }
+        const job = await claimFillRun(held.queue).catch((error: unknown) => {
+          log(`madarch fill: the queue of ${storeFolder} could not be claimed: ${error instanceof Error ? error.message : String(error)}`);
+          return null;
+        });
+        if (job === null) continue;
+        await withSpan('fill.role.run', { 'madarch.product': job.data.product, 'madarch.run': job.data.runId }, async () => { await runOne(options, state, held, job, log); });
+      }
+      await Bun.sleep(250);
     }
-    await Bun.sleep(250);
+  } finally {
+    // A role that ends, however it ends, leaves no signal handler behind for the process it shares.
+    withoutSignals();
   }
 }
 

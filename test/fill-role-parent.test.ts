@@ -214,12 +214,17 @@ test('a fill role asked to stop with SIGTERM gives its stores up, and their Post
   const product = productOf(products, 'walk-term');
   const root = knowledgeRootOf(products);
   const owner = await createDatabaseOwner({ store: join(productStoreFolder(product, root), 'graph'), btreeGist: true });
+  let pressed: Awaited<ReturnType<typeof openFillRunQueue>> | undefined;
   try {
     // A pressed fill waits in the store's queue: the role claims it as soon as it opens the store, and its own owner is
     // the one that keeps the store up.
-    const queue = await openFillRunQueue(owner);
-    await askFillRun(queue, { product, store: productStoreFolder(product, root), runId: 'signalled-run' });
+    pressed = await openFillRunQueue(owner);
+    await askFillRun(pressed, { product, store: productStoreFolder(product, root), runId: 'signalled-run' });
   } finally {
+    // The queue before the owner it runs on: pg-boss's heartbeat asks its owner for a statement every 30 s, and one asked
+    // after the owner closed throws into whatever the process does then — another file's case, in a `bun test` run
+    // (madarch-8bdc.13's `the database owner "…" is closed`).
+    await pressed?.stop().catch(() => undefined);
     await owner.close();
   }
   const role = Bun.spawn(['bun', CLI, '--role', 'fill', '--home', products], {

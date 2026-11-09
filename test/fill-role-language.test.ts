@@ -46,8 +46,9 @@ test('the language a press names is the one the run records', async () => {
   const storeFolder = productStoreFolder(product, knowledgeRoot);
   const graphFolder = join(storeFolder, 'graph');
   const owner: DatabaseOwner = await createDatabaseOwner({ store: graphFolder, btreeGist: true });
+  let queue: Awaited<ReturnType<typeof openFillRunQueue>> | undefined;
   try {
-    const queue = await openFillRunQueue(owner);
+    queue = await openFillRunQueue(owner);
     await askFillRun(queue, { product, store: storeFolder, runId: 'language-run', language: 'ru' });
     // The role runs until the run it took has ended: the end row the run writes is what says so, and the role's next pass
     // then ends.
@@ -70,6 +71,10 @@ test('the language a press names is the one the run records', async () => {
     const language = span.attributes.find((entry) => entry.key === 'madarch.language');
     expect(language?.value.stringValue, `the run's root span records no language, and the press named ru: ${JSON.stringify(span.attributes)}`).toBe('ru');
   } finally {
+    // The queue before the owner it runs on: pg-boss asks its owner for a statement on its own timer, and the owner of a
+    // queue left running throws into whatever the process does then — in a test run, the next file's case
+    // (`the database owner "…" is closed`, madarch-8bdc.13).
+    await queue?.stop().catch(() => undefined);
     await owner.close();
   }
 }, 180_000);
