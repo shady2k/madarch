@@ -52,7 +52,7 @@ export function noteTestServerFailure(error: Error): void {
 export async function dropTestStoreDatabases(folder: string): Promise<void> {
   const socketDir = testServerSocket();
   const prefix = `${historyDatabaseOf('', folder).slice(0, 'h_'.length + 11)}`;
-  const cluster = { dataDir: socketDir, socketDir, port: CLUSTER_PORT, user: 'postgres', startedIt: false, bin: '', stop: async () => await Promise.resolve() };
+  const cluster = { dataDir: socketDir, socketDir, port: CLUSTER_PORT, user: 'postgres', bin: '', stop: async () => await Promise.resolve() };
   const held = await clusterQuery<{ datname: string }>(cluster, 'postgres', 'SELECT datname FROM pg_database WHERE datname LIKE $1', [`${prefix.replace(/_/gu, '\\_')}%`]).catch(() => []);
   for (const row of held) await clusterQuery(cluster, 'postgres', `DROP DATABASE IF EXISTS "${row.datname.replace(/"/gu, '""')}" WITH (FORCE)`).catch(() => undefined);
 }
@@ -92,7 +92,7 @@ export interface TestDatabaseOptions {
 
 /** A fresh database the run's server holds for one case, dropped when its owner closes. */
 async function dropDatabase(socketDir: string, database: string): Promise<void> {
-  const cluster = { dataDir: socketDir, socketDir, port: 5_432, user: 'postgres', startedIt: false, bin: '', stop: async () => await Promise.resolve() };
+  const cluster = { dataDir: socketDir, socketDir, port: 5_432, user: 'postgres', bin: '', stop: async () => await Promise.resolve() };
   await clusterQuery(cluster, 'postgres', `DROP DATABASE IF EXISTS "${database.replace(/"/gu, '""')}" WITH (FORCE)`).catch(() => undefined);
 }
 

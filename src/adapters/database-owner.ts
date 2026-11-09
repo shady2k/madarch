@@ -18,10 +18,10 @@
  *   single statement or for a caller that already holds a `transaction`.
  *
  * The database is a server's (madarch-8bdc.2.5, item 3). A store's cluster
- * lives in `<store>/pgdata` and listens on a socket folder of its own in the system temporary folder; two processes share
- * it by attaching (`postgres-cluster.ts`), and one pool connection per
- * transaction lets snapshots and writes overlap, which is what the query
- * database's admission gate expects.
+ * lives in `<store>/pgdata` and listens on a socket folder of its own in the system temporary folder; the processes of
+ * the binary share it by holding its two locks (`postgres-cluster.ts`), so one of them starts it and the last one
+ * stops it, in whatever roles they run. One pool connection per transaction lets snapshots and writes overlap, which is
+ * what the query database's admission gate expects.
  *
  * The client is `pg`, pinned exactly: it sends a bound value as text and lets
  * the server read it through the statement's own cast, which is what the store's
@@ -129,7 +129,10 @@ export interface DatabaseOwner {
    * have nowhere else to run.
    */
   exec<Row extends object = Record<string, unknown>>(text: string): Promise<{ rows: Row[] }[]>;
-  /** Stops accepting work, releases the pool and, when this owner holds the store's server, stops it. */
+  /**
+   * Stops accepting work, releases the pool and gives up this owner's hold of the store's server: the server stops only
+   * when no process of the binary uses it any more, and keeps answering for the ones that do.
+   */
   close(): Promise<void>;
 }
 
@@ -380,16 +383,17 @@ class ServerStoreOwner implements DatabaseOwner {
   close(): Promise<void> {
     if (this.closePromise !== undefined) return this.closePromise;
     const work = (async () => {
-      try {
-        await this.inner.close();
-      } finally {
-        await this.release();
-      }
+      // The server is given up only when the pool really closed: a close the
+      // owner refused (one called from inside the owner's own transaction)
+      // leaves the pool and its connections in use, and a process that still
+      // holds connections is a process that still uses the server — giving the
+      // hold up here would let another process stop the server under it.
+      await this.inner.close();
+      await this.release();
     })();
-    // A close the owner refused (one called from inside its own transaction)
-    // closed nothing: the next close asks again rather than handing back the
-    // same rejection, and this handler keeps the refused promise from becoming
-    // an unhandled one of its own.
+    // A close the owner refused closed nothing: the next close asks again rather
+    // than handing back the same rejection, and this handler keeps the refused
+    // promise from becoming an unhandled one of its own.
     work.catch(() => { this.closePromise = undefined; });
     this.closePromise = work;
     return work;
@@ -459,14 +463,14 @@ export async function createDatabaseOwner(options: DatabaseOwnerOptions = {}): P
     const paths = clusterPaths(options.store);
     cluster = await openCluster({ ...paths, ...(log === undefined ? {} : { log }), env });
     const opened = cluster;
-    release = async () => { if (opened.startedIt) await opened.stop(); };
+    // The server is given up with the last owner of it: another process of the binary may still read it.
+    release = async () => { await opened.stop(); };
   } else if (options.cluster !== undefined) {
     cluster = {
       dataDir: options.cluster.socketDir,
       socketDir: options.cluster.socketDir,
       port: options.cluster.port ?? CLUSTER_PORT,
       user: options.cluster.user ?? CLUSTER_USER,
-      startedIt: false,
       bin: options.cluster.bin ?? '',
       stop: async () => await Promise.resolve(),
     };
@@ -511,13 +515,14 @@ export interface ClusterLease {
 /**
  * Starts a store's cluster, or attaches to the one already answering, for a
  * caller that opens several databases on it — a server's data folder holds one
- * database per source's history — and stops it again when that caller is done.
+ * database per source's history — and gives that hold up when the caller is done: the cluster stops when no other
+ * process uses it.
  */
 export async function leaseStoreCluster(store: string, options: { readonly env?: Readonly<Record<string, string | undefined>>; readonly log?: (line: string) => void } = {}): Promise<ClusterLease> {
   const cluster = await openCluster({ ...clusterPaths(store), ...(options.log === undefined ? {} : { log: options.log }), ...(options.env === undefined ? {} : { env: options.env }) });
   return {
     ref: { socketDir: cluster.socketDir, port: cluster.port, user: cluster.user, bin: cluster.bin },
-    close: async () => { if (cluster.startedIt) await cluster.stop(); },
+    close: async () => { await cluster.stop(); },
   };
 }
 
@@ -529,7 +534,8 @@ export async function leaseStoreCluster(store: string, options: { readonly env?:
  *
  * Neither owner may be open on `to` when it runs: its database is dropped
  * first. The source's server is started when it does not answer, and both
- * servers this call started are stopped again before it answers.
+ * servers are given up again before it answers — stopped when this call was
+ * their last user, left answering for a process that still reads them otherwise.
  */
 export async function copyStore(options: { readonly from: string; readonly to: string; readonly env?: Readonly<Record<string, string | undefined>>; readonly log?: (line: string) => void }): Promise<void> {
   const env = options.env ?? process.env;
@@ -540,8 +546,8 @@ export async function copyStore(options: { readonly from: string; readonly to: s
     await clusterQuery(target, CLUSTER_ADMIN_DATABASE, `CREATE DATABASE ${quoted(STORE_DATABASE)}`);
     await dumpInto(source, target, STORE_DATABASE);
   } finally {
-    if (target.startedIt) await target.stop();
-    if (source.startedIt) await source.stop();
+    await target.stop();
+    await source.stop();
   }
 }
 
@@ -575,7 +581,6 @@ export async function clusterDatabases(cluster: DatabaseClusterRef): Promise<str
     socketDir: cluster.socketDir,
     port: cluster.port ?? CLUSTER_PORT,
     user: cluster.user ?? CLUSTER_USER,
-    startedIt: false,
     bin: cluster.bin ?? '',
     stop: async () => await Promise.resolve(),
   };
@@ -590,7 +595,6 @@ export async function renameClusterDatabase(cluster: DatabaseClusterRef, from: s
     socketDir: cluster.socketDir,
     port: cluster.port ?? CLUSTER_PORT,
     user: cluster.user ?? CLUSTER_USER,
-    startedIt: false,
     bin: cluster.bin ?? '',
     stop: async () => await Promise.resolve(),
   };
