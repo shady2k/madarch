@@ -308,7 +308,13 @@ export async function startServer(options: ServerOptions): Promise<StartedServer
     : createGraphs({ historyOf: (source) => sources.historyOf(source), database: queryDatabase });
   const env = options.env ?? process.env;
   // Each product's knowledge wiki (decision 0029): its own graph store, opened on its first ask and closed with the server.
-  const knowledgeHost = new KnowledgeHost(options.knowledgeRoot ?? joinPath(options.productHome ?? productsHome(env as Record<string, string | undefined>), '.madarch', 'knowledge'), undefined, { env, errorLog, fillQueued: true, ...(process.env.MADARCH_SNAPSHOT_MS === undefined ? {} : { snapshotMs: Number(process.env.MADARCH_SNAPSHOT_MS) }), ...(options.knowledgeAgentFactory === undefined ? {} : { agentFactory: options.knowledgeAgentFactory }), ...(options.knowledgeChoicesQuery === undefined ? {} : { choicesQuery: options.knowledgeChoicesQuery }) });
+  /**
+   * The home this server serves: the products home it was given, or, for one product's wiki, the folder that product
+   * stands in — the same home its fill role is started with (madarch-8bdc.12: a role started with the default home
+   * watched a home nothing served).
+   */
+  const serveHome = options.productHome ?? (options.productFolder === undefined ? productsHome(env as Record<string, string | undefined>) : dirname(options.productFolder));
+  const knowledgeHost = new KnowledgeHost(options.knowledgeRoot ?? joinPath(serveHome, '.madarch', 'knowledge'), undefined, { env, errorLog, fillQueued: true, ...(process.env.MADARCH_SNAPSHOT_MS === undefined ? {} : { snapshotMs: Number(process.env.MADARCH_SNAPSHOT_MS) }), ...(options.knowledgeAgentFactory === undefined ? {} : { agentFactory: options.knowledgeAgentFactory }), ...(options.knowledgeChoicesQuery === undefined ? {} : { choicesQuery: options.knowledgeChoicesQuery }) });
   /** A browser opening a page of a wiki starts that product's reader at once, so the page's own requests find it started; a probe or a script does not. */
   const opensPage = (request: Request): boolean => request.method === 'GET' && (request.headers.get('accept') ?? '').includes('text/html');
   let productNames: () => { name: string; folder: string; own?: true }[] = () => (productWiki === undefined ? [] : [{ name: productWiki.product.name, folder: basename(productWiki.product.folder) }]);
@@ -497,7 +503,7 @@ const notServed = (message: string): Response => Response.json({ message }, { st
   // each store's queue, at a lower scheduling priority so the process that answers pages never loses a core to it.
   const fillChild = options.fillProcess === false || process.env['MADARCH_ROLE'] === 'api'
     ? undefined
-    : startFillRole({ home: options.productHome ?? productsHome(env as Record<string, string | undefined>), root: knowledgeHost.root });
+    : startFillRole({ home: serveHome, root: knowledgeHost.root });
   return {
     hostname: server.url.hostname,
     port: server.url.port === '' ? (options.port ?? 4180) : Number(server.url.port),

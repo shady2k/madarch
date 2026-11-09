@@ -363,6 +363,12 @@ function createDataDir(dataDir: string, bin: string, log: (line: string) => void
  */
 const openInProcess = new Map<string, Promise<HeldCluster>>();
 
+/**
+ * The user locks this process holds, by data directory: the descriptor each open keeps, so a process that is ending can
+ * give its holds back without waiting for the owners that hold them (`stopStoreForExit`).
+ */
+const userLocks = new Map<string, Set<number>>();
+
 /** The cluster one open made, and how many callers in this process hold it. */
 interface HeldCluster {
   readonly cluster: RunningCluster;
@@ -428,6 +434,9 @@ async function openOnce(dataDir: string, options: OpenClusterOptions): Promise<R
   // The use of the server is held before anything else: a stop another process is making ends first, so the server this
   // open finds or starts is never one a leaving process is about to stop.
   const users = await holdLock(usersLockPath(dataDir), LOCK_SH, { what: `the use of the PostgreSQL server on ${dataDir}`, deadlineMs: USERS_LOCK_WAIT_MS });
+  const holds = userLocks.get(dataDir) ?? new Set<number>();
+  holds.add(users);
+  userLocks.set(dataDir, holds);
   try {
     // The start's own hold: one process decides whether a server is needed, runs `initdb` and starts it, and the next
     // process finds it answering and connects to it instead of starting a second server of the same store.
@@ -457,6 +466,37 @@ async function openOnce(dataDir: string, options: OpenClusterOptions): Promise<R
 }
 
 /**
+ * Stops a store's server for a process that is ending (madarch-8bdc.12): every hold this process still has on the store is
+ * given back first — a pool whose close is still waiting for a client inside a transaction must not keep the server up
+ * behind the process — then the exclusive hold is asked for, which the kernel grants only when no other process of the
+ * binary uses the server, and the server is stopped under it. A store another process still uses is left alone.
+ *
+ * This is the last resort of a process nothing waits for any more: the ordinary stop is every owner's `stop`, which walks
+ * the holds one at a time. The store's own programs are found as an ordinary open finds them, and a server that does not
+ * answer is no server to stop.
+ */
+export async function stopStoreForExit(store: string): Promise<void> {
+  const { dataDir, socketDir } = clusterPaths(store);
+  const key = resolve(dataDir);
+  for (const descriptor of userLocks.get(key) ?? []) releaseLock(descriptor);
+  userLocks.delete(key);
+  openInProcess.delete(key);
+  mkdirSync(dirname(key), { recursive: true, mode: 0o700 });
+  const users = openSync(usersLockPath(key), 'a+');
+  try {
+    if (flock(users, LOCK_EX | LOCK_NB) !== 0) return;
+    if (!(await answering(socketDir))) return;
+    const { bin } = await ensurePostgresInstalled({});
+    const stopped = runBinary(join(bin, 'pg_ctl'), ['-D', key, '-m', 'fast', '-w', 'stop'], { allowFailure: true });
+    // The socket files go only once the server stopped: a stop that failed leaves a server that still answers, and taking
+    // its socket away would make it look gone.
+    if (stopped.code === 0) removeSocketFiles(socketDir);
+  } finally {
+    releaseLock(users);
+  }
+}
+
+/**
  * Gives up this process's use of a server. It is stopped only when no other process of the binary still holds it, which
  * the kernel answers through the users lock: the exclusive hold is granted only when no shared hold is left. A server
  * another process still uses is left running — the api role's server is never stopped by a fill child that finished
@@ -464,6 +504,7 @@ async function openOnce(dataDir: string, options: OpenClusterOptions): Promise<R
  */
 async function stopCluster(options: { readonly dataDir: string; readonly socketDir: string; readonly bin: string; readonly users: number }): Promise<void> {
   const { dataDir, socketDir, bin, users } = options;
+  userLocks.get(dataDir)?.delete(users);
   if (flock(users, LOCK_EX | LOCK_NB) !== 0) {
     // The kernel took this process's shared hold away to try, and gave the exclusive one to nobody: another process
     // holds the server (or is asking for it), so it keeps answering and this hold is simply given back. This is the

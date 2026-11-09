@@ -11,6 +11,7 @@ import { startKnowledgeFill } from './fill-run.js';
 import { claimFillRun, openFillRunQueue, settleFillRun } from '../fill/run-jobs.js';
 import { withSpan } from '../obs/trace.js';
 import { readRunControl, writeFillEnd } from '../fill/orchestrator-store.js';
+import { stopStoreForExit } from '../adapters/postgres-cluster.js';
 
 /** The owner one store is read through, as `startKnowledgeFill` takes it: derived, so this module holds no connection. */
 type StoreOwner = NonNullable<Parameters<typeof startKnowledgeFill>[0]['database']>;
@@ -25,8 +26,6 @@ interface Watched {
 export interface FillRoleOptions {
   /** The knowledge root the products' stores stand in (`<madarch home>/madarch/knowledge`). */
   readonly knowledgeRoot: string;
-  /** The products home, whose products name the folders a job's product stands in: `<home>/<name>`. */
-  readonly productsHome: string;
   readonly log?: (line: string) => void;
   /** Opens one store's connection: the process that owns the binary hands this in, so the role holds no database of its own. */
   readonly openStore: (databaseFolder: string) => Promise<StoreOwner>;
@@ -36,23 +35,82 @@ export interface FillRoleOptions {
   readonly parentPid?: number;
 }
 
+/** How long the role has to give its stores up once the process that started it is gone: within this, its servers stop. */
+const ENDING_MS = 1_600;
+
+/** How often the process that started the role is looked for: often enough to end inside a second, cheap enough to keep. */
+const PARENT_CHECK_MS = 100;
+
+/** Whether a process is still there: one this process may not signal counts as there. */
+function alive(pid: number): boolean {
+  try {
+    process.kill(pid, 0);
+    return true;
+  } catch (error) {
+    return (error as NodeJS.ErrnoException).code === 'EPERM';
+  }
+}
+
+/** What one run of the role holds: every store it opened, and the fill under way, so the end can give them up. */
+interface RoleState {
+  readonly owners: Set<StoreOwner>;
+  /** The database folders this role opened (`<store>/graph`), so the end stops each store's server even unopened. */
+  readonly databaseFolders: Set<string>;
+  running?: Awaited<ReturnType<typeof startKnowledgeFill>>;
+  ending: boolean;
+}
+
 /**
  * Runs the role until the process ends: every watched store is asked for a job in turn, and a job is run at once and
  * settled — completed when the fill ended, failed (the queue retries it once) when it did not.
+ *
+ * A role a server started ends with it (madarch-8bdc.12): the parent is looked for every `PARENT_CHECK_MS`, never only
+ * between passes, because a pass can stand in a store's open or a claim for as long as the store takes — a role left
+ * alive then keeps the store's PostgreSQL server up for a server nothing serves.
  */
 export async function runFillRole(options: FillRoleOptions): Promise<number> {
   const log = options.log ?? ((line: string) => console.log(line));
   const watched = new Map<string, Watched>();
+  const state: RoleState = { owners: new Set(), databaseFolders: new Set(), ending: false };
+  /** Ends the role now: what it opened is given up, so the last close of a store stops its server. */
+  const end = async (): Promise<void> => {
+    if (state.ending) return;
+    state.ending = true;
+    log('madarch fill: the process that started this role is gone, so the role ends and gives its stores up');
+    const deadline = Date.now() + ENDING_MS;
+    // The fill under way and every store this role opened are closed, with the end's own bound: a close that waits for a
+    // client inside a transaction is not what the server's death may be held by.
+    const closes = [...(state.running === undefined ? [] : [state.running.close()]), ...[...state.owners].map(async (owner) => await owner.close())];
+    await Promise.race([Promise.allSettled(closes.map(async (closing) => await closing.catch(() => undefined))), Bun.sleep(ENDING_MS / 2)]);
+    state.running = undefined;
+    // Whatever a close is still waiting for, the stores' servers are stopped here: this process was their last user, and a
+    // server nothing serves must not outlive it (madarch-8bdc.12 — a killed server left one up 30 s).
+    await Promise.race([
+      (async () => {
+        // The database folder the role opened for each store — `<store>/graph` — and the ones it had not opened yet: a
+        // role killed before its first pass found the store still has a server to stop, and the server's own use of it
+        // died with the server.
+        const databases = new Set<string>([...state.databaseFolders, ...storeFoldersOf(options.knowledgeRoot).map((folder) => join(folder, 'graph'))]);
+        for (const database of databases) await stopStoreForExit(database);
+      })(),
+      Bun.sleep(Math.max(0, deadline - Date.now())),
+    ]);
+    process.exit(0);
+  };
+  const watcher = options.parentPid === undefined ? undefined : setInterval(() => {
+    if (!alive(options.parentPid!)) void end();
+  }, PARENT_CHECK_MS);
+  watcher?.unref?.();
   for (;;) {
+    if (state.ending) return 0;
     if (options.idle?.() === true) return 0;
-    if (options.parentPid !== undefined) {
-      try { process.kill(options.parentPid, 0); } catch { return 0; }
-    }
     for (const storeFolder of storeFoldersOf(options.knowledgeRoot)) {
       let held = watched.get(storeFolder);
       if (held === undefined) {
         try {
           const owner = await options.openStore(join(storeFolder, 'graph'));
+          state.owners.add(owner);
+          state.databaseFolders.add(join(storeFolder, 'graph'));
           await owner.ready;
           held = { storeFolder, owner, queue: await openFillRunQueue(owner) };
           watched.set(storeFolder, held);
@@ -66,14 +124,14 @@ export async function runFillRole(options: FillRoleOptions): Promise<number> {
         return null;
       });
       if (job === null) continue;
-      await withSpan('fill.role.run', { 'madarch.product': job.data.product, 'madarch.run': job.data.runId }, async () => { await runOne(options, held, job, log); });
+      await withSpan('fill.role.run', { 'madarch.product': job.data.product, 'madarch.run': job.data.runId }, async () => { await runOne(options, state, held, job, log); });
     }
     await Bun.sleep(250);
   }
 }
 
 /** Runs one claimed fill: a fresh owner of the store (the run closes it with itself) and the pins the run's own end writes. */
-async function runOne(options: FillRoleOptions, held: Watched, job: NonNullable<Awaited<ReturnType<typeof claimFillRun>>>, log: (line: string) => void): Promise<void> {
+async function runOne(options: FillRoleOptions, state: RoleState, held: Watched, job: NonNullable<Awaited<ReturnType<typeof claimFillRun>>>, log: (line: string) => void): Promise<void> {
   const data = job.data;
   const productFolder = data.product;
   const read = readProduct(productFolder);
@@ -88,6 +146,8 @@ async function runOne(options: FillRoleOptions, held: Watched, job: NonNullable<
   let owner: StoreOwner;
   try {
     owner = await options.openStore(join(held.storeFolder, 'graph'));
+    state.owners.add(owner);
+    state.databaseFolders.add(join(held.storeFolder, 'graph'));
     await owner.ready;
   } catch (error) {
     await settleFillRun(held.queue, job, { ok: false, message: `the store ${held.storeFolder} could not be opened: ${error instanceof Error ? error.message : String(error)}` });
@@ -95,14 +155,16 @@ async function runOne(options: FillRoleOptions, held: Watched, job: NonNullable<
   }
   let run: Awaited<ReturnType<typeof startKnowledgeFill>> | undefined;
   try {
-    void options.productsHome;
     run = await startKnowledgeFill({
       productFolder,
       storeFolder: held.storeFolder,
       runId: data.runId,
       database: owner,
-      ...(data.language === undefined ? {} : {}),
+      // The language the press named, as `madarch fill --language` names it: a run that asks for another language
+      // translates the pages it writes (madarch-8bdc.12).
+      ...(data.language === undefined ? {} : { language: data.language }),
     });
+    state.running = run;
     // A person's pause or stop is written to the store by the api role and taken here, on the run's own state machine.
     const done = run.done;
     let finished = false;
@@ -116,6 +178,7 @@ async function runOne(options: FillRoleOptions, held: Watched, job: NonNullable<
     const result = await done;
     await run.close();
     run = undefined;
+    state.running = undefined;
     await settleFillRun(held.queue, job, { ok: result.ok, ...(result.message === undefined ? {} : { message: result.message }) });
     log(`madarch fill: ${data.product} run ${data.runId} ${result.ok ? 'filled' : `failed: ${result.message ?? ''}`}`);
   } catch (error) {
