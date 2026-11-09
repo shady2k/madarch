@@ -218,7 +218,30 @@ and its validation, a pause past the heartbeat deadline, a stop), and
 callers, with the run's trace and logs under the scratch folder it prints.
 
 ## Acceptance evidence
-(to be filled after the suite and the mutation run)
+Measured in the Lima VM `lima-madarch-plugin-host` (Ubuntu 24.04, aarch64, kernel 6.8, bun 1.4.2), 2026-11-09, as the
+ordinary user `shady` unless a line says root:
+
+- `bun run check`: green — `tsc --noEmit`, the architecture check with **no-unreachable-code 0** and the list unchanged
+  at 33 entries (all `sql-only-in-storage-layer` debt of earlier changes), the catalog (28 areas, 515 kinds) and the
+  workflows (4).
+- `MADARCH_SKIP_PERF=1 bun test test/` at `00a1584` with the final test files: **2844 pass, 184 skip, 0 fail**, 3028
+  tests across 208 files, 311.69 s, exit 0. The run needs `XDG_CONFIG_HOME` unset: this box points it at a root-only
+  folder, and git then refuses to read an attributes file it finds there, which four `own-wiki` cases read as a
+  dirty checkout. Nothing of the change touches those cases.
+- `bun test test/plugin-protocol.test.ts test/plugin-host.test.ts`: **55 pass, 0 fail** (28 and 27), 197 assertions,
+  18.7 s.
+- The host and sandbox cases run in this VM, as root with the delegated slice
+  `/sys/fs/cgroup/system.slice/madarch.slice` (the file makes it when it can) and the pinned bubblewrap 0.11.2
+  installed from its release into `<home>/madarch/tools/bubblewrap/0.11.2`: **27 pass, 0 fail**. Run as `shady`, who
+  is delegated no cgroup here, the same file prints
+  `plugin host cases skipped: no cgroup is delegated to madarch …` and reports **27 skip, 0 pass, 0 fail**.
+- StrykerJS 9 (command runner `bun test test/plugin-protocol.test.ts`, `coverageAnalysis: off`, in place, from a
+  scratch folder with `@stryker-mutator/core@9` and `typescript@5.9.3` beside it), on the host's answer and byte
+  modules: `src/plugin/results.ts` 217 mutants — **135 killed, 82 survived, 62.21%**; `src/plugin/wire.ts` 270
+  mutants — **190 killed, 2 timed out, 78 survived, 71.11%**. The survivors are message text (the tests assert the
+  place a refusal names, not the sentence's wording), the fallbacks of the code point comparators where both sides tie
+  (equivalent), and the `?? []` arms of loops over lists a result may leave out.
+
 
 ## DONE WHEN
 The protocol is published as a versioned JSON Schema rendered from one source;

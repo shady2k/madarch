@@ -73,6 +73,7 @@ const SHORT_HELP = [
   '',
   'Tools:',
   "  mcp       Serve this checkout's graph to an agent over the Model Context Protocol",
+  '  plugin    Check a plugin in the sandbox, or run it on a repository',
   '',
   'Other:',
   '  version   Show the version',

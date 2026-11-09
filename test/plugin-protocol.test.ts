@@ -20,7 +20,7 @@ import { RELEASE_CLOSURE_HASHES } from '../src/plugin/release-closures.js';
 import { seccompFilter, refusedCallNames } from '../src/plugin/seccomp.js';
 import { checkCgroupDelegation, checkUserNamespaces } from '../src/plugin/cgroup.js';
 import { probeUnit } from '../src/plugin/conformance.js';
-import { errorReportOf, heartbeatOf, lineReader, progressOf } from '../src/plugin/wire.js';
+import { errorReportOf, failureText, heartbeatOf, isNotification, isRequest, isResponse, lineReader, progressOf, requestText, successText } from '../src/plugin/wire.js';
 import { byCodePoint } from '../src/model/order.js';
 
 const FIXTURES = fileURLToPath(new URL('./fixtures', import.meta.url));
@@ -126,6 +126,15 @@ describe('results are held to the plugin declaration', () => {
     if (!claims.ok) expect(claims.refusal.where).toBe('vertices[0].claims[0].field');
   });
 
+  test('an edge attribute its kind does not declare is refused', () => {
+    const checked = validateUnitResult(CONTRACT, answer({ edges: [{ kind: 'probe-link', from: { kind: 'probe', key: { id: 'a' } }, to: { kind: 'probe', key: { id: 'b' } }, discriminator: '', attributes: { weight: 2 } }] }));
+    expect(checked.ok).toBe(false);
+    if (!checked.ok) {
+      expect(checked.refusal.code).toBe('undeclared-field');
+      expect(checked.refusal.where).toBe('edges[0].attributes.weight');
+    }
+  });
+
   test('an undeclared edge kind, and an end the edge kind does not name, are refused', () => {
     const kind = validateUnitResult(CONTRACT, answer({ edges: [{ kind: 'stranger-link', from: { kind: 'probe', key: { id: 'a' } }, to: { kind: 'probe', key: { id: 'b' } }, discriminator: '' }] }));
     expect(kind.ok).toBe(false);
@@ -142,6 +151,10 @@ describe('results are held to the plugin declaration', () => {
     const key = validateUnitResult(CONTRACT, answer({ vertices: [{ kind: 'probe', key: { id: 'x', extra: 'y' } }] }));
     expect(key.ok).toBe(false);
     if (!key.ok) expect(key.refusal.code).toBe('undeclared-key-field');
+    // The same number of fields under other names is just as wrong: a count is not a key.
+    const renamed = validateUnitResult(CONTRACT, answer({ vertices: [{ kind: 'probe', key: { name: 'x' } }] }));
+    expect(renamed.ok).toBe(false);
+    if (!renamed.ok) expect(renamed.refusal.where).toBe('vertices[0].key');
     const twice = validateUnitResult(CONTRACT, answer({ vertices: [{ kind: 'probe', key: { id: 'x' } }, { kind: 'probe', key: { id: 'x' } }] }));
     expect(twice.ok).toBe(false);
     if (!twice.ok) expect(twice.refusal.code).toBe('duplicate-vertex');
@@ -300,6 +313,52 @@ describe('the wire', () => {
     reader.push(new TextEncoder().encode('x'.repeat(64)), (message) => lines.push(message.value), (bytes) => overflow.push(bytes));
     expect(lines).toEqual([]);
     expect(overflow).toEqual([64]);
+  });
+
+  test('a message cut across two chunks is read once its newline arrives', () => {
+    const reader = lineReader(1_024);
+    const seen: unknown[] = [];
+    const overflow: number[] = [];
+    const bytes = new TextEncoder().encode('{"jsonrpc":"2.0","method":"heartbeat"}\n{"jsonrpc":"2.0","method":"progress","params":{"unitId":"u1"}}\n');
+    reader.push(bytes.subarray(0, 10), (message) => seen.push(message.value), (n) => overflow.push(n));
+    expect(seen).toEqual([]);
+    expect(reader.held()).toBe(10);
+    reader.push(bytes.subarray(10, 40), (message) => seen.push(message.value), (n) => overflow.push(n));
+    reader.push(bytes.subarray(40), (message) => seen.push(message.value), (n) => overflow.push(n));
+    expect(seen).toEqual([{ jsonrpc: '2.0', method: 'heartbeat' }, { jsonrpc: '2.0', method: 'progress', params: { unitId: 'u1' } }]);
+    expect(overflow).toEqual([]);
+    expect(reader.held()).toBe(0);
+  });
+
+  test('a line that is not JSON is handed on as a parse failure, and blank lines are no message', () => {
+    const reader = lineReader(1_024);
+    const seen: unknown[] = [];
+    reader.push(new TextEncoder().encode('not json\n\n{"jsonrpc":"2.0","method":"heartbeat"}\n'), (message) => seen.push(message.value), () => undefined);
+    expect((seen[0] as { parseFailure?: string }).parseFailure).toBeDefined();
+    expect(seen[1]).toEqual({ jsonrpc: '2.0', method: 'heartbeat' });
+    expect(seen.length).toBe(2);
+  });
+
+  test('the three written messages are JSON-RPC, and an answer is told from a request', () => {
+    expect(JSON.parse(requestText(7, 'unit', { unit: { unitId: 'u' } }))).toEqual({ jsonrpc: '2.0', id: 7, method: 'unit', params: { unit: { unitId: 'u' } } });
+    expect(JSON.parse(requestText('x', 'stop'))).toEqual({ jsonrpc: '2.0', id: 'x', method: 'stop' });
+    expect(JSON.parse(successText('x', { ok: true }))).toEqual({ jsonrpc: '2.0', id: 'x', result: { ok: true } });
+    expect(JSON.parse(failureText(null, -32700, 'bad'))).toEqual({ jsonrpc: '2.0', id: null, error: { code: -32700, message: 'bad' } });
+    expect(JSON.parse(failureText(3, -32000, 'no', { cause: 'c', unitId: 'u' }))).toEqual({ jsonrpc: '2.0', id: 3, error: { code: -32000, message: 'no', data: { cause: 'c', unitId: 'u' } } });
+    expect(isRequest({ jsonrpc: '2.0', id: 1, method: 'unit' })).toBe(true);
+    expect(isRequest({ jsonrpc: '2.0', method: 'unit' })).toBe(false);
+    expect(isNotification({ jsonrpc: '2.0', method: 'heartbeat' })).toBe(true);
+    expect(isNotification({ jsonrpc: '2.0', id: 1, method: 'heartbeat' })).toBe(false);
+    expect(isResponse({ jsonrpc: '2.0', id: 1, result: {} })).toBe(true);
+    expect(isResponse({ jsonrpc: '2.0', id: 1, error: { code: 1, message: 'x' } })).toBe(true);
+    expect(isResponse({ jsonrpc: '2.0', method: 'unit' })).toBe(false);
+  });
+
+  test('a notification whose params are not the shape is no report of that kind', () => {
+    expect(progressOf({ jsonrpc: '2.0', method: 'progress', params: { done: 1 } })).toBeUndefined();
+    expect(progressOf({ jsonrpc: '2.0', method: 'progress', params: 'text' })).toBeUndefined();
+    expect(errorReportOf({ jsonrpc: '2.0', method: 'error', params: { code: 'x' } })).toBeUndefined();
+    expect(heartbeatOf({ jsonrpc: '2.0', method: 'heartbeat', params: { unitId: 7 } })).toEqual({});
   });
 
   test('heartbeats, progress and errors are read off notifications, and a request is told from an answer', () => {
