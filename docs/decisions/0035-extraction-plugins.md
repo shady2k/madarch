@@ -171,6 +171,14 @@ file could not have it, and every new kind waits for a madarch release. The owne
     another chosen kind depends on is refused with the dependants named. (Owner: «Только тут важен
     порядок. Помнишь мы в каталоге сущностей прописывали зависимости?»)
 
+12. **Orphans are found, never kept silently.** After each kind's turn and in the final check, the
+    host looks for: a vertex missing a relation its contract requires (a symbol without its file, a
+    file without its repository); an edge whose end is removed, or tombstoned in the context the
+    edge is read in; a claim without evidence, and evidence that points at nothing; a vertex no root
+    of its catalogue section reaches. Each is a problem naming the kind, the entity and the cause,
+    and the agent works it in that kind's turn; a fill never drops an orphan without saying so.
+    (Owner: «И еще нужно проверять orphaned вершины и ребра»)
+
 ## Consequences
 
 - madarch's engine becomes the mechanism (graph, claims, layers, journal, queue) and the plugin
@@ -182,13 +190,14 @@ file could not have it, and every new kind waits for a madarch release. The owne
   такой подход мне нраавится. Мы сможем запустить продукт быстрее и он сможет дописывать сам себя
   в части работы над сущностями.»)
 - Stages: (a) contracts and generated tables, the host with the protocol, its bounds, the binding to
-  the orchestrator and the order from declared dependencies (item 11), closure hashes with the
-  release-trusted rule, initialisation putting every madarch plugin and kind into the product, and
-  the git reader as the first plugin (madarch-8bdc.2.11); (b) the sandbox, required before any
-  closure not shipped by a madarch release may run; (c) several producers per claimed field, the
-  accepted-value rule and accuracy measurement; (d) agent-written plugins and fixes and upstream
-  updates, which run a real agent and start on the owner's yes; (e) templates and fine-grained
-  inclusion and exclusion of kinds at initialisation.
+  the orchestrator and each kind in turn in the order from declared dependencies (items 1 and 11)
+  with the agent part of a turn recorded as waiting for the agent, the orphan check (item 12),
+  closure hashes with the release-trusted rule, initialisation putting every madarch plugin and kind
+  into the product, and the git reader as the first plugin (madarch-8bdc.2.11); (b) the sandbox,
+  required before any closure not shipped by a madarch release may run; (c) several producers per
+  claimed field, the accepted-value rule and accuracy measurement; (d) agent-written plugins and
+  fixes and upstream updates, which run a real agent and start on the owner's yes; (e) templates and
+  fine-grained inclusion and exclusion of kinds at initialisation.
 
 ## Review
 
