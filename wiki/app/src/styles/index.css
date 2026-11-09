@@ -945,6 +945,28 @@ likec4-view {
   font-size: var(--fs-small);
 }
 
+/* A ```mermaid fence in a document (madarch-u3vw.18): the Diagram / Source switch above the frame, the frame as every
+ * diagram is drawn (a wide one scrolls in its own box at its natural size), and the fence's own text where a reader
+ * asks for it. */
+.fence-diagram {
+  margin-block: 1.5em;
+}
+
+.fence-bar {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin-bottom: 4px;
+}
+
+.fence-diagram .diagram-mermaid {
+  margin-block: 0;
+}
+
+.fence-source {
+  margin: 0;
+}
+
 .diagram-error,
 .model-errors {
   margin-block: 1em;
