@@ -859,6 +859,18 @@ main .footnotes {
   border-radius: var(--radius-row);
 }
 
+/* The current page's row in the sidebar carries its line inside its own box: the list clips what reaches past it, so an
+   outline drawn outside the row loses its left edge at the column's padding. Inactive rows keep no line, and a keyboard
+   focus inside the list is drawn inside its row for the same reason. */
+.nav-current {
+  outline: 1px solid var(--border);
+  outline-offset: -1px;
+}
+
+.app-nav a:focus-visible {
+  outline-offset: -2px;
+}
+
 @media (prefers-reduced-motion: reduce) {
   *,
   *::before,
