@@ -1,0 +1,9 @@
+{
+  "name": "plugin-silent",
+  "version": "1.0.0",
+  "entry": "main.ts",
+  "runtime": {
+    "name": "bun",
+    "version": "1.4.2"
+  }
+}

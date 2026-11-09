@@ -1,0 +1,652 @@
+{
+  "anyOf": [
+    {
+      "type": "object",
+      "required": [
+        "jsonrpc",
+        "id",
+        "method",
+        "params"
+      ],
+      "properties": {
+        "jsonrpc": {
+          "type": "string",
+          "const": "2.0"
+        },
+        "id": {
+          "anyOf": [
+            {
+              "type": "string",
+              "minLength": 1
+            },
+            {
+              "type": "integer"
+            }
+          ]
+        },
+        "method": {
+          "type": "string",
+          "const": "introduce"
+        },
+        "params": {
+          "type": "object",
+          "required": [
+            "protocol",
+            "name",
+            "version",
+            "rights",
+            "outputs"
+          ],
+          "properties": {
+            "protocol": {
+              "type": "string",
+              "const": "madarch.plugins/1",
+              "description": "The protocol version this plugin speaks."
+            },
+            "name": {
+              "type": "string",
+              "minLength": 1
+            },
+            "version": {
+              "type": "string",
+              "minLength": 1
+            },
+            "rights": {
+              "type": "object",
+              "required": [
+                "network"
+              ],
+              "properties": {
+                "network": {
+                  "anyOf": [
+                    {
+                      "type": "string",
+                      "const": "none"
+                    }
+                  ],
+                  "description": "The network profile. \"none\" is the only one this build runs: the network namespace is unshared and socket creation refused."
+                }
+              },
+              "additionalProperties": false,
+              "description": "The rights a plugin declares it needs."
+            },
+            "limits": {
+              "type": "object",
+              "properties": {
+                "maxParallelUnits": {
+                  "type": "integer",
+                  "minimum": 1,
+                  "maximum": 64,
+                  "description": "How many units it takes at once; absent, one."
+                },
+                "maxOutputBytes": {
+                  "type": "integer",
+                  "minimum": 1,
+                  "description": "The most one unit's answer may weigh; absent, the host's own bound."
+                }
+              },
+              "additionalProperties": false,
+              "description": "What a plugin declares about its work: how many units at once, and how much one unit may answer."
+            },
+            "outputs": {
+              "type": "object",
+              "required": [
+                "vertices",
+                "edges"
+              ],
+              "properties": {
+                "vertices": {
+                  "type": "array",
+                  "items": {
+                    "type": "object",
+                    "required": [
+                      "kind",
+                      "key"
+                    ],
+                    "properties": {
+                      "kind": {
+                        "type": "string",
+                        "minLength": 1
+                      },
+                      "key": {
+                        "type": "array",
+                        "items": {
+                          "type": "string",
+                          "minLength": 1
+                        },
+                        "minItems": 1,
+                        "description": "The key fields, in the contract's order."
+                      },
+                      "fields": {
+                        "type": "array",
+                        "items": {
+                          "type": "object",
+                          "required": [
+                            "name",
+                            "claim"
+                          ],
+                          "properties": {
+                            "name": {
+                              "type": "string",
+                              "minLength": 1
+                            },
+                            "claim": {
+                              "anyOf": [
+                                {
+                                  "type": "string",
+                                  "const": "authoritative"
+                                },
+                                {
+                                  "type": "string",
+                                  "const": "claimed"
+                                }
+                              ],
+                              "description": "An authoritative field is a column with one producer; a claimed field is one tools may dispute."
+                            }
+                          },
+                          "additionalProperties": false,
+                          "description": "One field of a declared kind, and whether it is authoritative or claimed."
+                        },
+                        "description": "The fields it writes beside the key."
+                      }
+                    },
+                    "additionalProperties": false,
+                    "description": "One vertex kind the plugin produces: its name, its key fields and its fields."
+                  },
+                  "description": "The vertex kinds it produces; a kind it does not declare is refused in a result."
+                },
+                "edges": {
+                  "type": "array",
+                  "items": {
+                    "type": "object",
+                    "required": [
+                      "kind",
+                      "from",
+                      "to"
+                    ],
+                    "properties": {
+                      "kind": {
+                        "type": "string",
+                        "minLength": 1
+                      },
+                      "from": {
+                        "type": "string",
+                        "minLength": 1,
+                        "description": "The vertex kind its ends start at."
+                      },
+                      "to": {
+                        "type": "string",
+                        "minLength": 1,
+                        "description": "The vertex kind its ends go to."
+                      },
+                      "fields": {
+                        "type": "array",
+                        "items": {
+                          "type": "object",
+                          "required": [
+                            "name",
+                            "claim"
+                          ],
+                          "properties": {
+                            "name": {
+                              "type": "string",
+                              "minLength": 1
+                            },
+                            "claim": {
+                              "anyOf": [
+                                {
+                                  "type": "string",
+                                  "const": "authoritative"
+                                },
+                                {
+                                  "type": "string",
+                                  "const": "claimed"
+                                }
+                              ],
+                              "description": "An authoritative field is a column with one producer; a claimed field is one tools may dispute."
+                            }
+                          },
+                          "additionalProperties": false,
+                          "description": "One field of a declared kind, and whether it is authoritative or claimed."
+                        }
+                      }
+                    },
+                    "additionalProperties": false,
+                    "description": "One edge kind the plugin produces: its name, the kinds of its ends and its fields."
+                  }
+                }
+              },
+              "additionalProperties": false,
+              "description": "The outputs a plugin declares: every kind, field and edge kind a result may name."
+            }
+          },
+          "additionalProperties": false,
+          "description": "The plugin's introduction: its contract, version, rights and limits."
+        }
+      },
+      "additionalProperties": false,
+      "description": "The plugin introduces itself: protocol, name, version, rights, limits and outputs."
+    },
+    {
+      "type": "object",
+      "required": [
+        "jsonrpc",
+        "id",
+        "method",
+        "params"
+      ],
+      "properties": {
+        "jsonrpc": {
+          "type": "string",
+          "const": "2.0"
+        },
+        "id": {
+          "anyOf": [
+            {
+              "type": "string",
+              "minLength": 1
+            },
+            {
+              "type": "integer"
+            }
+          ]
+        },
+        "method": {
+          "type": "string",
+          "const": "unit"
+        },
+        "params": {
+          "type": "object",
+          "required": [
+            "unit"
+          ],
+          "properties": {
+            "unit": {
+              "type": "object",
+              "required": [
+                "unitId",
+                "kind",
+                "key"
+              ],
+              "properties": {
+                "unitId": {
+                  "type": "string",
+                  "minLength": 1
+                },
+                "kind": {
+                  "type": "string",
+                  "minLength": 1,
+                  "description": "The kind of the vertex the unit is about."
+                },
+                "key": {
+                  "type": "object",
+                  "patternProperties": {
+                    "^.*$": {
+                      "anyOf": [
+                        {
+                          "type": "string"
+                        },
+                        {
+                          "type": "number"
+                        }
+                      ]
+                    }
+                  },
+                  "description": "The key fields of one entity: field name to its value, as the kind's contract declares them."
+                },
+                "inputs": {
+                  "description": "What the host hands with the unit, a shape the plugin's contract names."
+                }
+              },
+              "additionalProperties": false,
+              "description": "One unit of work: the entity by kind and key, and what the host hands with it."
+            }
+          },
+          "additionalProperties": false
+        }
+      },
+      "additionalProperties": false,
+      "description": "The host hands the plugin one unit."
+    },
+    {
+      "type": "object",
+      "required": [
+        "jsonrpc",
+        "id",
+        "method"
+      ],
+      "properties": {
+        "jsonrpc": {
+          "type": "string",
+          "const": "2.0"
+        },
+        "id": {
+          "anyOf": [
+            {
+              "type": "string",
+              "minLength": 1
+            },
+            {
+              "type": "integer"
+            }
+          ]
+        },
+        "method": {
+          "type": "string",
+          "const": "pause"
+        },
+        "params": {}
+      },
+      "additionalProperties": false,
+      "description": "The host asks the plugin to pause."
+    },
+    {
+      "type": "object",
+      "required": [
+        "jsonrpc",
+        "id",
+        "method"
+      ],
+      "properties": {
+        "jsonrpc": {
+          "type": "string",
+          "const": "2.0"
+        },
+        "id": {
+          "anyOf": [
+            {
+              "type": "string",
+              "minLength": 1
+            },
+            {
+              "type": "integer"
+            }
+          ]
+        },
+        "method": {
+          "type": "string",
+          "const": "resume"
+        },
+        "params": {}
+      },
+      "additionalProperties": false,
+      "description": "The host asks the plugin to resume."
+    },
+    {
+      "type": "object",
+      "required": [
+        "jsonrpc",
+        "id",
+        "method"
+      ],
+      "properties": {
+        "jsonrpc": {
+          "type": "string",
+          "const": "2.0"
+        },
+        "id": {
+          "anyOf": [
+            {
+              "type": "string",
+              "minLength": 1
+            },
+            {
+              "type": "integer"
+            }
+          ]
+        },
+        "method": {
+          "type": "string",
+          "const": "stop"
+        },
+        "params": {}
+      },
+      "additionalProperties": false,
+      "description": "The host asks the plugin to stop."
+    },
+    {
+      "type": "object",
+      "required": [
+        "jsonrpc",
+        "method"
+      ],
+      "properties": {
+        "jsonrpc": {
+          "type": "string",
+          "const": "2.0"
+        },
+        "method": {
+          "type": "string",
+          "const": "heartbeat"
+        },
+        "params": {
+          "type": "object",
+          "properties": {
+            "unitId": {
+              "type": "string",
+              "minLength": 1
+            }
+          },
+          "additionalProperties": false,
+          "description": "A sign of life while a unit runs."
+        }
+      },
+      "additionalProperties": false,
+      "description": "The plugin is alive while a unit runs."
+    },
+    {
+      "type": "object",
+      "required": [
+        "jsonrpc",
+        "method",
+        "params"
+      ],
+      "properties": {
+        "jsonrpc": {
+          "type": "string",
+          "const": "2.0"
+        },
+        "method": {
+          "type": "string",
+          "const": "progress"
+        },
+        "params": {
+          "type": "object",
+          "required": [
+            "unitId"
+          ],
+          "properties": {
+            "unitId": {
+              "type": "string",
+              "minLength": 1
+            },
+            "done": {
+              "type": "number",
+              "minimum": 0
+            },
+            "total": {
+              "type": "number",
+              "minimum": 0
+            },
+            "note": {
+              "type": "string"
+            }
+          },
+          "additionalProperties": false,
+          "description": "Where a unit stands, in counts of what it reads, with a note a person may read."
+        }
+      },
+      "additionalProperties": false,
+      "description": "Where one unit stands."
+    },
+    {
+      "type": "object",
+      "required": [
+        "jsonrpc",
+        "method",
+        "params"
+      ],
+      "properties": {
+        "jsonrpc": {
+          "type": "string",
+          "const": "2.0"
+        },
+        "method": {
+          "type": "string",
+          "const": "error"
+        },
+        "params": {
+          "type": "object",
+          "required": [
+            "code",
+            "message"
+          ],
+          "properties": {
+            "code": {
+              "type": "string",
+              "minLength": 1
+            },
+            "message": {
+              "type": "string",
+              "minLength": 1
+            },
+            "unitId": {
+              "type": "string",
+              "minLength": 1
+            },
+            "file": {
+              "type": "string",
+              "minLength": 1
+            },
+            "line": {
+              "type": "integer",
+              "minimum": 1
+            }
+          },
+          "additionalProperties": false,
+          "description": "An error inside the plugin: its cause, where it happened, and the unit it belongs to."
+        }
+      },
+      "additionalProperties": false,
+      "description": "An error inside the plugin, with its cause."
+    },
+    {
+      "type": "object",
+      "required": [
+        "jsonrpc",
+        "method"
+      ],
+      "properties": {
+        "jsonrpc": {
+          "type": "string",
+          "const": "2.0"
+        },
+        "method": {
+          "type": "string",
+          "const": "cancel"
+        }
+      },
+      "additionalProperties": false,
+      "description": "The host cancels the plugin: the whole tree is killed."
+    },
+    {
+      "type": "object",
+      "required": [
+        "jsonrpc",
+        "id",
+        "result"
+      ],
+      "properties": {
+        "jsonrpc": {
+          "type": "string",
+          "const": "2.0"
+        },
+        "id": {
+          "anyOf": [
+            {
+              "type": "string",
+              "minLength": 1
+            },
+            {
+              "type": "integer"
+            }
+          ]
+        },
+        "result": {
+          "description": "The result of a request; for a unit, a PluginUnitResult."
+        }
+      },
+      "additionalProperties": false,
+      "description": "A request's answer, succeeded."
+    },
+    {
+      "type": "object",
+      "required": [
+        "jsonrpc",
+        "id",
+        "error"
+      ],
+      "properties": {
+        "jsonrpc": {
+          "type": "string",
+          "const": "2.0"
+        },
+        "id": {
+          "anyOf": [
+            {
+              "anyOf": [
+                {
+                  "type": "string",
+                  "minLength": 1
+                },
+                {
+                  "type": "integer"
+                }
+              ]
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "error": {
+          "type": "object",
+          "required": [
+            "code",
+            "message"
+          ],
+          "properties": {
+            "code": {
+              "type": "integer"
+            },
+            "message": {
+              "type": "string",
+              "minLength": 1
+            },
+            "data": {
+              "type": "object",
+              "properties": {
+                "cause": {
+                  "type": "string",
+                  "minLength": 1
+                },
+                "unitId": {
+                  "type": "string",
+                  "minLength": 1
+                }
+              },
+              "additionalProperties": false
+            }
+          },
+          "additionalProperties": false
+        }
+      },
+      "additionalProperties": false,
+      "description": "A request's answer, failed, with the cause in the error's data."
+    }
+  ],
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://github.com/shady2k/madarch/schema/v1/plugin-protocol.schema.json",
+  "title": "Madarch extraction plugin protocol",
+  "description": "One message of the host/plugin protocol, contract version 1: JSON-RPC 2.0 over newline delimited JSON on the plugin's standard input and output. The plugin introduces itself (introduce), the host hands it units (unit), and the plugin answers with a PluginUnitResult, progress, heartbeats and errors. Every kind and field a message names is declared in the introduction's outputs. The host asks pause, resume and stop, and sends cancel; a pause suspends the heartbeat deadline, a stop asks for the unit to finish and the plugin to exit, and a cancel kills the whole tree."
+}
