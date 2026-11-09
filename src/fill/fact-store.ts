@@ -356,7 +356,7 @@ function measuredMoved(stored: Fact, fact: Fact): boolean {
  * naming the write, the file, the line and the path: the caller's transaction
  * rolls back and nothing is stored.
  */
-async function applyPublishedFacts(input: FactApplicationInput): Promise<number> {
+export async function applyPublishedFacts(input: FactApplicationInput): Promise<number> {
   const at = here();
   const unitId = input.unit.unitId;
   const generation = input.unit.generation;

@@ -31,7 +31,7 @@ interface Remote {
 }
 
 /** Reads a git remote URL; `undefined` when it has no host or no repository path. */
-function parseRemote(origin: string): Remote | undefined {
+export function parseRemote(origin: string): Remote | undefined {
   const text = origin.trim();
   if (text === '') return undefined;
   const clean = (path: string): string | undefined => {

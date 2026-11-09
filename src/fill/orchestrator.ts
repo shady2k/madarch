@@ -352,7 +352,7 @@ export function createOrchestrator(options: OrchestratorOptions): FillOrchestrat
 const authorityKey = (unitId: string, generation: number): string => `${unitId}/${generation}`;
 
 /** The store's unit id for one stage's own unit id: no run id is ever part of it (decision 0026). */
-function unitIdFor(stageId: string, stageUnitId: string): string {
+export function unitIdFor(stageId: string, stageUnitId: string): string {
   return `${stageId}/${stageUnitId}`;
 }
 
@@ -364,7 +364,7 @@ function unitIdFor(stageId: string, stageUnitId: string): string {
  * PageRank-like importance — and the unit id in code point order to break every
  * tie. `.5 A unit that waits climbs one place per `ageingStepMs` it waited.
  */
-function admissionOrder(
+export function admissionOrder(
   units: readonly { readonly unitId: string; readonly stagePosition: number; readonly planPosition: number; readonly plannedAt: number }[],
   options: { readonly at: number; readonly ageingStepMs: number },
 ): readonly { readonly unitId: string; readonly order: number }[] {
@@ -1076,7 +1076,7 @@ interface AdmissionOutcome {
  * and the enqueue are one transaction of the database owner, so a slot is taken
  * under the run's own row lock and two admissions can never overfill it.
  */
-async function admitUnits(orchestrator: FillOrchestrator, options: { readonly runId: string }): Promise<AdmissionOutcome> {
+export async function admitUnits(orchestrator: FillOrchestrator, options: { readonly runId: string }): Promise<AdmissionOutcome> {
   const database = orchestrator.database;
   const at = orchestrator.clock();
   const run = await readRun(database, options.runId);
@@ -1196,7 +1196,7 @@ function wakingCause(unit: UnitRecord): UnitRetryCause {
  * enqueued. Nothing here sleeps and nothing reads a clock of its own: every
  * moment comes from `orchestrator.clock()`.
  */
-async function sweepUnits(orchestrator: FillOrchestrator, options: { readonly runId: string }): Promise<SweepOutcome> {
+export async function sweepUnits(orchestrator: FillOrchestrator, options: { readonly runId: string }): Promise<SweepOutcome> {
   const database = orchestrator.database;
   const at = orchestrator.clock();
   const swept: SweptUnit[] = [];
@@ -1396,7 +1396,7 @@ interface WorkOutcome {
  * queue's settlement lands in the publication's own transaction where there is
  * one, so one publication is one short transaction of the owner.
  */
-async function workOnce(orchestrator: FillOrchestrator, options: { readonly worker: string }): Promise<WorkOutcome> {
+export async function workOnce(orchestrator: FillOrchestrator, options: { readonly worker: string }): Promise<WorkOutcome> {
   const database = orchestrator.database;
   const claimed = await withSpan('attempt.read', { 'madarch.phase': 'claim' }, async () => await orchestrator.queue.claim<{ unitId: string; generation: number }>({ queue: orchestrator.queueName, limit: 1 }));
   const job = claimed[0];
@@ -2121,7 +2121,7 @@ export async function startRun(orchestrator: FillOrchestrator, options: { readon
  * that waits for a retry whose moment has come counts as runnable: the next
  * sweep makes it so, and a run is not finished while it waits.
  */
-async function runEvidence(orchestrator: FillOrchestrator, runId: string): Promise<RunEvidence> {
+export async function runEvidence(orchestrator: FillOrchestrator, runId: string): Promise<RunEvidence> {
   const units = await readRunUnits(orchestrator.database, runId);
   // "Runnable" is everything the run still owes work for and the scheduler will put to a worker: the
   // units it may admit now (`planned`), the ones waiting for a worker (`ready`), and the ones waiting for
@@ -2357,7 +2357,7 @@ interface StaleSweep {
   readonly refused: readonly UnitRefusal[];
 }
 
-async function invalidateStaleUnits(orchestrator: FillOrchestrator, options: { readonly runId: string }): Promise<StaleSweep> {
+export async function invalidateStaleUnits(orchestrator: FillOrchestrator, options: { readonly runId: string }): Promise<StaleSweep> {
   const database = orchestrator.database;
   const at = orchestrator.clock();
   const run = await readRun(database, options.runId);
@@ -2552,7 +2552,7 @@ function guardKey(stageId: string, units: readonly UnitRecord[]): string {
  * human-edit guard and settles the run. It never sleeps and never blocks on an
  * agent: a host runs it beside its workers, and a test runs it by hand.
  */
-async function schedulerPass(orchestrator: FillOrchestrator, options: { readonly runId: string }): Promise<SchedulerOutcome> {
+export async function schedulerPass(orchestrator: FillOrchestrator, options: { readonly runId: string }): Promise<SchedulerOutcome> {
   const database = orchestrator.database;
   const startedAt = performance.now();
   let marked = startedAt;

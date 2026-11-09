@@ -178,7 +178,7 @@ type DecisionRead =
  * words' heading are the person's Markdown unchanged — a section of the person's own
  * (`## Why` inside an answer) is their text and not the document's.
  */
-function parseDecisionDocument(file: string, text: string, relative: string): DecisionRead {
+export function parseDecisionDocument(file: string, text: string, relative: string): DecisionRead {
   const problems: DecisionProblem[] = [];
   const lines = text.split('\n');
   // The fields stand in the document's header, before the first section heading: a line of the person's own Markdown

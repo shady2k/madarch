@@ -89,7 +89,7 @@ type RenameResult =
  * the parent, a working tree with uncommitted changes, a manifest that cannot
  * be used — happens before anything moves.
  */
-function renameProduct(options: { folder?: string; name?: string; gitEnv?: GitEnv } = {}): RenameResult {
+export function renameProduct(options: { folder?: string; name?: string; gitEnv?: GitEnv } = {}): RenameResult {
   const name = options.name;
   const read = readFor(options.folder);
   if (!read.ok) return { outcome: 'refused', message: read.message, file: read.file, line: read.line };
@@ -144,7 +144,7 @@ type RemoteResult =
  * command of their git. An `origin` already there is refused rather than
  * replaced, so a remote someone set is never silently repointed.
  */
-function addRemote(options: { folder?: string; url?: string; gitEnv?: GitEnv } = {}): RemoteResult {
+export function addRemote(options: { folder?: string; url?: string; gitEnv?: GitEnv } = {}): RemoteResult {
   const read = readFor(options.folder);
   if (!read.ok) return { outcome: 'refused', message: read.message, file: read.file, line: read.line };
   const folder = read.product.folder;
@@ -196,7 +196,7 @@ type BootstrapResult =
  * could not be cloned is reported too, so the caller sees every outcome of
  * one run.
  */
-function bootstrapProduct(options: { folder?: string; gitEnv?: GitEnv } = {}): BootstrapResult {
+export function bootstrapProduct(options: { folder?: string; gitEnv?: GitEnv } = {}): BootstrapResult {
   const read = readFor(options.folder);
   if (!read.ok) return { outcome: 'refused', message: read.message, file: read.file, line: read.line };
   const folder = read.product.folder;
@@ -300,7 +300,7 @@ function writeFileAtomically(file: string, content: string): void {
  * changes — happens before anything is written, and a step that fails
  * afterwards puts the manifest back byte for byte.
  */
-function addCodeRepository(options: { folder?: string; name?: string; url?: string; branch?: string; linked?: boolean; moved?: boolean; gitEnv?: GitEnv } = {}): RepoEntryResult {
+export function addCodeRepository(options: { folder?: string; name?: string; url?: string; branch?: string; linked?: boolean; moved?: boolean; gitEnv?: GitEnv } = {}): RepoEntryResult {
   const name = options.name;
   const read = readFor(options.folder);
   if (!read.ok) return { outcome: 'refused', message: read.message, file: read.file, line: read.line };
@@ -553,7 +553,7 @@ function pathExists(path: string): boolean {
 }
 
 /** A directory link that selects a junction on Windows. */
-function createDirectoryLink(
+export function createDirectoryLink(
   source: string,
   target: string,
   platform: NodeJS.Platform = process.platform,

@@ -39,5 +39,6 @@
   ],
   "include": [
     "files"
-  ]
+  ],
+  "ignoreExportsUsedInFile": true
 }

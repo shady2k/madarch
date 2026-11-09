@@ -377,7 +377,7 @@ function debtMarkers(snapshot: CodeSnapshot, rule: Rule, severity: ProblemSeveri
 // ---- required settings with a checked-in value -----------------------------------------------
 
 /** The default a `${NAME:-default}` compose expression would use; the expression itself is not a value. */
-function composeDefault(value: string): string {
+export function composeDefault(value: string): string {
   if (!value.startsWith('${') || !value.endsWith('}')) return value;
   const inside = value.slice(2, -1);
   const at = inside.indexOf(':-');

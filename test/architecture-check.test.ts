@@ -3,13 +3,7 @@ import { execFileSync } from 'node:child_process';
 import { mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { dirname, join } from 'node:path';
-import {
-  architectureCheck,
-  architectureCheckPasses,
-  architectureProblemLines,
-  renderViolationListOf,
-  VIOLATION_LIST,
-} from '../scripts/check/architecture/check.js';
+import { architectureCheck, architectureCheckPasses, architectureProblemLines, renderViolationListOf, VIOLATION_LIST } from '../scripts/check/architecture/check.js';
 import { baseGuard, baseGuardPasses, baseGuardProblemLines } from '../scripts/check/architecture/base-guard.js';
 import type { ArchitectureRule, ListedViolation } from '../scripts/check/architecture/violation.js';
 

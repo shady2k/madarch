@@ -31,7 +31,7 @@ const REPO_MCP_INFO: { readonly name: string; readonly version: string } = { nam
 const SERVED_TOOLS: readonly McpToolDefinition[] = [...RECORD_TOOLS, ...REPO_TOOLS];
 
 /** The served tools' names, in the served order. */
-const SERVED_TOOL_NAMES: readonly string[] = SERVED_TOOLS.map((tool) => tool.name);
+export const SERVED_TOOL_NAMES: readonly string[] = SERVED_TOOLS.map((tool) => tool.name);
 
 /**
  * A session that is still opening: `initialize` and `tools/list` answer from the
@@ -39,7 +39,7 @@ const SERVED_TOOL_NAMES: readonly string[] = SERVED_TOOLS.map((tool) => tool.nam
  * building rather than making the client wait for a build inside its own
  * timeout (madarch-ztyq.10 review).
  */
-interface PendingRepository {
+export interface PendingRepository {
   readonly repository: string;
   readonly ready: Promise<ToolCalling>;
   /** The fill's state so far, read from its trace: what the `graph building` answer says. */

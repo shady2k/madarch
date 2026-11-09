@@ -121,7 +121,7 @@ interface GroupDecl {
  * than this is cut off ("Requirements and …"). The wiki app's navigation draws the short label; the catalogue
  * keeps the full one.
  */
-const GROUP_SHORT_LABEL_LIMIT = 18;
+export const GROUP_SHORT_LABEL_LIMIT = 18;
 
 export interface KindDecl {
   name: string;

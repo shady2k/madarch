@@ -396,7 +396,7 @@ function guidePacketPolicy(evidence: GuidePreparedEvidence, knownValues: readonl
  * registry owns its path AND its parsed identity agrees. Frontmatter alone
  * cannot remove an authored source document from freshness or evidence.
  */
-function guideProductEntity(path:string,text:string,manifest:import('../../knowledge/kinds.js').KindsManifest|undefined):boolean {
+export function guideProductEntity(path:string,text:string,manifest:import('../../knowledge/kinds.js').KindsManifest|undefined):boolean {
   if(manifest===undefined||manifest.unreadable)return false;
   const {front}=splitFrontMatter(text);if(front===null)return false;
   const documents=parseAllDocuments(front,{uniqueKeys:true});
@@ -432,7 +432,7 @@ async function guideProductRegistry(snapshot:import('../../fill/snapshot.js').Sn
   if(manifest.unreadable||manifest.findings.length>0)throw new Error(`guide product registry: ${JSON.stringify(manifest.findings)}`);
   return manifest;
 }
-async function productDocumentMembership(snapshot: import('../../fill/snapshot.js').SnapshotReader):Promise<string> {
+export async function productDocumentMembership(snapshot: import('../../fill/snapshot.js').SnapshotReader):Promise<string> {
   const documents:{path:string;digest:string}[]=[];
   const manifest=await guideProductRegistry(snapshot);
   // Registry/template bytes define classification. A changed declaration or

@@ -23,11 +23,11 @@ import { DEFAULT_STAGE_DEFAULTS, type FillStage, type StageExecutionResult, type
 import type { HistoryCommit, HistoryPublish, RecordCounts, TreeFile, TreeGitlink, TreePublish } from '../../graph/index.js';
 
 /** The stage ids of the two passes, as a later step registers them. */
-const REPOSITORY_TREE_STAGE_ID = 'repository-tree';
-const REPOSITORY_HISTORY_STAGE_ID = 'repository-history';
+export const REPOSITORY_TREE_STAGE_ID = 'repository-tree';
+export const REPOSITORY_HISTORY_STAGE_ID = 'repository-history';
 
 /** One repository as a pass reads it: the name the product gives it and the checkout git answers in. */
-interface RepositoryAt {
+export interface RepositoryAt {
   readonly repository: string;
   readonly root: string;
   readonly commit: string;
@@ -192,7 +192,7 @@ function indexOfDataset(): { extensions: Map<string, string[]>; names: Map<strin
  * (`h.in` before `in`), and `unknown` where the dataset names neither. Several candidates are the
  * ambiguity itself: `ambiguous` with them, never one of them picked.
  */
-function languageOfPath(path: string): { language: string; candidates: readonly string[] } {
+export function languageOfPath(path: string): { language: string; candidates: readonly string[] } {
   const index = indexOfDataset();
   const name = path.slice(path.lastIndexOf('/') + 1).toLowerCase();
   const held = index.names.get(name);
@@ -254,7 +254,7 @@ function treeRecordOf(record: Buffer): TreeRecord | undefined {
 }
 
 /** Reads one repository's tree at one commit: `ls-tree -r -l` for the entries, one `diff --numstat` for text, lines and sizes. */
-async function readRepositoryTree(pin: RepositoryAt): Promise<TreePublish> {
+export async function readRepositoryTree(pin: RepositoryAt): Promise<TreePublish> {
   const gaps: { what: string; reason: 'non-utf8-path' | 'shallow-history' | 'unreadable' }[] = [];
   const entries: TreeEntry[] = [];
   const treeSplit = byteSplit();
@@ -338,7 +338,7 @@ async function readRepositoryTree(pin: RepositoryAt): Promise<TreePublish> {
 }
 
 /** The shallow-clone gap of one history, read by git's own answer. */
-async function shallowGapOf(pin: RepositoryAt): Promise<{ what: string; reason: 'shallow-history' } | null> {
+export async function shallowGapOf(pin: RepositoryAt): Promise<{ what: string; reason: 'shallow-history' } | null> {
   return (await gitText(pin.root, ['rev-parse', '--is-shallow-repository'])).trim() === 'true'
     ? { what: `${pin.repository} at ${pin.commit}`, reason: 'shallow-history' }
     : null;
@@ -458,7 +458,7 @@ function entryWithoutNewline(record: Buffer): Buffer {
  * counts), so the two walks are one git call each, with the same format, joined by the commit and
  * the path. Both are git's own answers; nothing here parses source text.
  */
-async function readRepositoryHistory(pin: RepositoryAt): Promise<HistoryPublish> {
+export async function readRepositoryHistory(pin: RepositoryAt): Promise<HistoryPublish> {
   type Touched = HistoryCommit['touched'][number];
   const gaps: RepositoryGap[] = [];
   const shallow = await shallowGapOf(pin);
@@ -555,12 +555,12 @@ export interface RepositoryPassWiring {
 }
 
 /** The unit id of one repository's pass: `repository:<name>`, the same for both passes of it. */
-function repositoryUnitId(repository: string): string {
+export function repositoryUnitId(repository: string): string {
   return `repository:${repository}`;
 }
 
 /** The repository a unit id names, refused by name where it names none. */
-function repositoryOfUnit(unitId: string): string {
+export function repositoryOfUnit(unitId: string): string {
   const match = /^repository:(.+)$/.exec(unitId);
   if (match === null || match[1] === '') raise(`the unit id ${JSON.stringify(unitId)} is not one of the repository passes, which are "repository:<name>"`);
   return match[1]!;

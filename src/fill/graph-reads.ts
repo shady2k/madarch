@@ -184,7 +184,7 @@ const FACT_COLUMNS = 'id, kind, schema_version, provenance, layer, status, value
  * the text a dependency is recorded by (`recordUnitRead`) and the text the
  * reader is given back at revalidation, so a read is replayed exactly.
  */
-function readText(request: GraphRead): string {
+export function readText(request: GraphRead): string {
   return JSON.stringify(sortKeys(canonicalSets(request)));
 }
 
@@ -226,7 +226,7 @@ function sortKeys(value: unknown): unknown {
  * stage's SQL) and is answered as it stands. A text that opens one and is not a
  * read of this grammar is refused by name, never answered as SQL.
  */
-function parseGraphRead(text: string): GraphRead | null {
+export function parseGraphRead(text: string): GraphRead | null {
   const trimmed = text.trim();
   if (!trimmed.startsWith('{')) return null;
   let value: unknown;
@@ -524,7 +524,7 @@ const STRUCTURE_EDGE_KINDS: readonly FactEdgeKind[] = ['contains', 'defines'];
  * means the placement too asks for those kinds by name, and the answer's own
  * `kinds` always says which kinds it answered.
  */
-const NEIGHBOR_EDGE_KINDS: readonly FactEdgeKind[] = FACT_EDGE_KINDS
+export const NEIGHBOR_EDGE_KINDS: readonly FactEdgeKind[] = FACT_EDGE_KINDS
   .filter((kind) => (STRUCTURE_EDGE_KINDS as readonly string[]).includes(kind) === false)
   .sort(byCodePoint);
 
@@ -820,7 +820,7 @@ async function spanRow(options: FactGraphReaderOptions, request: Extract<GraphRe
  * change to a unit that read them, and a membership that carried the commit
  * would call every span read of every unit moved on every commit.
  */
-function spanMembership(rows: readonly unknown[]): string {
+export function spanMembership(rows: readonly unknown[]): string {
   const row = rows.length === 1 ? rows[0] : undefined;
   if (row === null || typeof row !== 'object' || Array.isArray(row)) raise(`${here()}: a span read answered ${rows.length} ${rows.length === 1 ? 'row' : 'rows'} and its first is no span: a span read answers the one span row of the lines it read`);
   const fields = row as Record<string, unknown>;
@@ -883,7 +883,7 @@ export function answerMembership(text: string, rows: readonly unknown[]): string
  * as they stand (a `\r` of a CRLF file stands in the line), because a span is
  * evidence of the commit's own bytes.
  */
-function linesOf(text: string): string[] {
+export function linesOf(text: string): string[] {
   if (text === '') return [];
   const lines = text.split('\n');
   if (lines[lines.length - 1] === '') lines.pop();
@@ -1878,9 +1878,9 @@ function termRef(held: NonNullable<ReturnType<typeof term>>, refs: ReadonlyMap<s
 // ---- coverage --------------------------------------------------------------
 
 /** The most entries of one coverage fact's `read` list an answer shows. */
-const COVERAGE_READ_SAMPLE = 50;
+export const COVERAGE_READ_SAMPLE = 50;
 /** The most gaps of one coverage fact an answer shows. */
-const COVERAGE_GAP_LIMIT = 200;
+export const COVERAGE_GAP_LIMIT = 200;
 
 export interface CoverageRequest {
   readonly tool: 'coverage';

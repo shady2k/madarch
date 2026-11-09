@@ -20,7 +20,7 @@ type Child = Pick<ChildProcessWithoutNullStreams, 'stdout' | 'stderr' | 'once' |
 type Spawn = (command: string, args: string[], options: { cwd: string; stdio: ['ignore', 'pipe', 'pipe']; env: NodeJS.ProcessEnv }) => Child;
 
 /** Build an argument vector; extraction is read-only and never receives the product writer's worktree. */
-function agentCommand(kind: AgentKind, snapshot: string, prompt: string, settings: AgentSettings = {}): { command: string; args: string[]; cwd: string } {
+export function agentCommand(kind: AgentKind, snapshot: string, prompt: string, settings: AgentSettings = {}): { command: string; args: string[]; cwd: string } {
   if (!snapshot.trim()) throw new Error('The code snapshot path is required');
   if (!prompt.trim()) throw new Error('The extraction prompt is required');
   if (kind === 'omp') { const model=settings.model; const extension=settings.extension; if(!model?.trim()) throw new Error('OMP requires an explicit --model'); if(!extension?.trim()) throw new Error('OMP requires a configured gateway extension path'); const safeTools=new Set(['read','grep','glob','find','ls']); const requested=(settings.tools??'read,grep,glob').split(',').map(tool=>tool.trim()).filter(Boolean); const unsafe=requested.filter(tool=>!safeTools.has(tool)); if(unsafe.length) throw new Error(`OMP tool is not allowed in read-only extraction: ${unsafe.join(', ')}`); const tools=requested.join(','); return {command:settings.executable??'omp',cwd:snapshot,args:['-p','--no-session','--no-extensions','-e',extension,'--model',model,'--mode','json','--tools',tools,prompt]}; }
@@ -40,7 +40,7 @@ const redact = (value: unknown): unknown => {
 };
 const safeSummary = (value: unknown): string => safeText(typeof value === 'string' ? value : JSON.stringify(value ?? ''));
 /** Turn one provider JSONL record into a stable, provider-neutral event. */
-function normalizeAgentEvent(line: string, unit: Pick<FillUnit, 'id' | 'stage'>, timestamp = new Date().toISOString()): AgentEvent | undefined {
+export function normalizeAgentEvent(line: string, unit: Pick<FillUnit, 'id' | 'stage'>, timestamp = new Date().toISOString()): AgentEvent | undefined {
   let payload: unknown;
   try { payload = JSON.parse(line); } catch { return undefined; }
   if (payload === null || typeof payload !== 'object') return undefined;

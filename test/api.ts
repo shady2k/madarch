@@ -7,7 +7,7 @@ import { parseModel, type LoadResult, type ModelSourceFile } from '../src/model/
 import type { ModelError, ModelWarning } from '../src/model/errors.js';
 import type { PositionedModel } from '../src/model/validate.js';
 import type { ValidatedModel } from '../src/model/schema.js';
-import type { AssertionChange, Clock, HistoryStore } from '../src/history-types.js';
+import type { AssertionChange, Clock, HistoryStore, StoreInput } from '../src/history-types.js';
 import { CLASHABLE_KINDS, type ReadModel } from '../src/history-assertions.js';
 import { startServer, type StartedServer } from '../src/server/http.js';
 
@@ -33,7 +33,7 @@ export function loadAndCompileModel(repoRoot: string): LoadAndCompileResult {
 }
 
 /** Reads a repository's `madarch/*.yaml` (the shape `src/model/load.ts` keeps for itself). */
-function loadModel(repoRoot: string): LoadResult {
+export function loadModel(repoRoot: string): LoadResult {
   const madarchDir = join(repoRoot, 'madarch');
   let entries: string[];
   try {
@@ -95,3 +95,16 @@ export function isOneStateChain(states: readonly { id: string; after?: string }[
   }
   return visited.size === states.length;
 }
+
+import type { DatabaseOwner } from '../src/adapters/database-owner.js';
+import type { ServerOptions as ServerOptionsImpl } from '../src/server/http.js';
+import { createGraphs as createGraphsImpl, type Graph, type Graphs, type GraphsOptions } from '../src/server/graphs.js';
+import { createSourceStores as createSourceStoresImpl, sourceNameProblem as sourceNameProblemImpl, type SourceStores, type SourceStoresOptions } from '../src/server/sources.js';
+import { renderAsyncOneViewMermaid as renderMermaidImpl, renderAsyncOneViewLikeC4 as renderLikeC4Impl } from '../src/render/one-view.js';
+import type { LikeC4Result } from '../src/render/likec4.js';
+import type { AsyncQueryEngine } from '../src/query-types.js';
+import { checkLikeC4Workspaces as checkLikeC4Impl, type LikeC4CheckResult } from '../scripts/likec4-check.js';
+import type { CommitRecord } from '../src/graph/records.js';
+
+export { createGraphsImpl as createGraphs, createSourceStoresImpl as createSourceStores, sourceNameProblemImpl as sourceNameProblem, renderMermaidImpl as renderAsyncOneViewMermaid, renderLikeC4Impl as renderAsyncOneViewLikeC4, checkLikeC4Impl as checkLikeC4Workspaces };
+export type { AsyncQueryEngine, CommitRecord, DatabaseOwner, Graph, Graphs, GraphsOptions, LikeC4CheckResult, LikeC4Result, ModelWarning, ServerOptionsImpl as ServerOptions, SourceStores, SourceStoresOptions, StoreInput };

@@ -28,7 +28,7 @@ export interface Settings {
   asked: boolean;
 }
 
-const settingsPath = (env: DraftEnv): string => join(madarchHome(env), SETTINGS_FILE);
+export const settingsPath = (env: DraftEnv): string => join(madarchHome(env), SETTINGS_FILE);
 
 function readRaw(file: string): Record<string, unknown> {
   let text: string;

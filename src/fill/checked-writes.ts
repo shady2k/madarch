@@ -87,10 +87,10 @@ export interface WriteScope {
 }
 
 /** The scope text of a unit that covers the whole product: every repository the run pinned (0026's hierarchy, `product`). */
-const PRODUCT_SCOPE = '*';
+export const PRODUCT_SCOPE = '*';
 
 /** Whether a unit's scope is the product's: every repository the run pinned, with no path inside one. */
-function isProductScope(scope: WriteScope): boolean {
+export function isProductScope(scope: WriteScope): boolean {
   return scope.repository === PRODUCT_SCOPE && scope.path === undefined;
 }
 
@@ -156,7 +156,7 @@ export function scopeHolds(scope: WriteScope, place: { readonly repository: stri
 export type WriteSnapshots = SnapshotSource;
 
 /** One entity the graph already holds that is like the one an agent proposed. */
-interface SimilarEntity {
+export interface SimilarEntity {
   /** The fact id of the existing proposal, the digest of its identity. */
   readonly id: string;
   readonly repository: string;

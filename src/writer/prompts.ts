@@ -64,7 +64,7 @@ function languagePart(language: string): string[] {
   ];
 }
 
-function fixedPart(language = 'en', writesOwnPage = true): string {
+export function fixedPart(language = 'en', writesOwnPage = true): string {
   const parts = [
     'You are one unit of madarch\'s knowledge writer. You write ONE Markdown page about a product, from what the product\'s graph and documents say, and nothing else.',
     '',
@@ -152,7 +152,7 @@ async function keysOf(view: GraphView, kind: string, what: string, line: (node: 
  * graph-first is what the unit holds and not a count of the calls it makes. Bounded, in key order, and
  * what was left out is said with the key to go on from.
  */
-async function preparedContextPart(view: GraphView): Promise<string[]> {
+export async function preparedContextPart(view: GraphView): Promise<string[]> {
   const overview = await view.overview();
   return [
     '## The subgraph you are given',
@@ -213,7 +213,7 @@ function questionsPart(pageId: string, questions: readonly Question[] | undefine
 /** The questions asked about other pages, with the entities each is about, so a unit does not ask what is asked: bounded, newest subjects last. */
 const OTHER_QUESTIONS_LIMIT = 60;
 
-function otherQuestionsPart(pageId: string, questions: readonly Question[] | undefined): string[] {
+export function otherQuestionsPart(pageId: string, questions: readonly Question[] | undefined): string[] {
   const others = (questions ?? []).filter((question) => question.askedIn !== pageId && !question.about.some((entry) => entry === pageId || entry.startsWith(`${pageId}#`)));
   if (others.length === 0) return [];
   const shown = others.slice(0, OTHER_QUESTIONS_LIMIT);

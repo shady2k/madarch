@@ -47,7 +47,7 @@ import {
 
 export const GRAPH_VERDICT_VALIDATOR_VERSION = '1';
 /** The judge protocol's version; a change invalidates every judged verdict. */
-const GRAPH_VERDICT_JUDGE_VERSION = '1';
+export const GRAPH_VERDICT_JUDGE_VERSION = '1';
 export const JUDGE_BATCH_SIZE = 50;
 
 export interface GraphVerdictBudgets {
@@ -59,7 +59,7 @@ export interface GraphVerdictBudgets {
 
 export const DEFAULT_GRAPH_VERDICT_BUDGETS: GraphVerdictBudgets = { itemsPerRun: 400, modelCallsPerRun: 4 };
 
-type GraphVerdict = 'valid' | 'invalid' | 'unreviewed';
+export type GraphVerdict = 'valid' | 'invalid' | 'unreviewed';
 type GraphVerdictRole = 'node' | 'edge';
 type GraphVerdictSource = 'rule' | 'jev' | 'classification' | 'analysis' | 'person' | 'none' | 'unresolved' | 'budget' | 'judge-failed';
 
@@ -105,7 +105,7 @@ export interface GraphEvidenceContent {
 }
 
 /** Reads a repository-relative path at a pinned commit; `undefined` when that commit has no such file. */
-type GraphEvidenceReader = (path: string) => Promise<GraphEvidenceContent | undefined>;
+export type GraphEvidenceReader = (path: string) => Promise<GraphEvidenceContent | undefined>;
 
 export interface GraphVerdictRow {
   readonly role: GraphVerdictRole;

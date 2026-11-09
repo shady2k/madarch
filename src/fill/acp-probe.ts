@@ -255,7 +255,7 @@ export interface AcpProbeReport {
 }
 
 /** Where madarch installs the agents it fetches: `<madarch home>/agents`. */
-function madarchAgentsFolder(env: DraftEnv = process.env, home = homeFromEnv(env)): string {
+export function madarchAgentsFolder(env: DraftEnv = process.env, home = homeFromEnv(env)): string {
   return join(madarchHome(env, home), 'agents');
 }
 
@@ -467,7 +467,7 @@ export function formatAcpProbe(report: AcpProbeReport): string {
 }
 
 /** A byte count as a reader reads it. */
-function formatBytes(bytes: number): string {
+export function formatBytes(bytes: number): string {
   if (bytes < 1024) return `${bytes} B`;
   const units = ['KiB', 'MiB', 'GiB'];
   let value = bytes / 1024;

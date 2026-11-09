@@ -484,7 +484,7 @@ const EMPTY_WRITES = '[]';
  * before anything else runs in that transaction, which is the only moment
  * PostgreSQL accepts a transaction's isolation level being set.
  */
-const PUBLICATION_SNAPSHOT = 'SET TRANSACTION ISOLATION LEVEL REPEATABLE READ';
+export const PUBLICATION_SNAPSHOT = 'SET TRANSACTION ISOLATION LEVEL REPEATABLE READ';
 
 /**
  * Draft rows with their whole set of writes: the row's own `writes` (a row

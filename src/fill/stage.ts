@@ -109,7 +109,7 @@ export const DEFAULT_STAGE_DEFAULTS: StageDefaults = {
 // ---- what a stage runs in and returns --------------------------------------
 
 /** One unit of a stage's work: a stable identity and the scope it covers. */
-interface StageUnitScope {
+export interface StageUnitScope {
   /** The unit's stable id, never carrying a run id (decision 0026). */
   id: string;
   /** What the unit covers, in the graph's own terms. */

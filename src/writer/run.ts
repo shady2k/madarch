@@ -292,7 +292,7 @@ interface ResolvedEntity {
  * but links a domain whose page is missing needs the product unit again, because only that unit declares the
  * domains' summaries and evidence.
  */
-function unitsNeeded(input: UnitsInput): UnitsNeeded {
+export function unitsNeeded(input: UnitsInput): UnitsNeeded {
   if (input.languageChanged || input.productPage === null) return { product: true, domain: () => true };
   const linked = readPage(input.productPage).linksIn(0, input.productPage.length).flatMap((link) => {
     const target = parseTarget(link.url.slice('madarch:'.length));

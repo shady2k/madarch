@@ -1,13 +1,13 @@
-import {Component, lazy, Suspense, type ReactElement, type ReactNode} from 'react';
-import {unified} from 'unified';
+import { Component, lazy, Suspense, type ReactElement, type ReactNode } from 'react';
+import { unified } from 'unified';
 import remarkParse from 'remark-parse';
 import remarkGfm from 'remark-gfm';
-import {parseFragment, html as htmlVocabulary, type DefaultTreeAdapterTypes} from 'parse5';
-import {useTranslation} from 'react-i18next';
-import {Badge} from '@/components/ui/badge.js';
-import {KLink} from './blocks.js';
-import type {Block, ContractDiagnostic} from './types.js';
-import {ContractDiagnosticView, ContractRenderProblem} from './contract-diagnostic.js';
+import { parseFragment, html as htmlVocabulary, type DefaultTreeAdapterTypes } from 'parse5';
+import { useTranslation } from 'react-i18next';
+import { Badge } from '@/components/ui/badge.js';
+import { KLink } from './blocks.js';
+import type { Block, ContractDiagnostic } from './types.js';
+import { ContractDiagnosticView, ContractRenderProblem } from './contract-diagnostic.js';
 import './contract.css';
 
 const Redoc = lazy(() => import('./contract-redoc.js'));

@@ -37,7 +37,7 @@ interface UnitToolEnvironment {
 }
 
 /** Reads the host's address and the session's token, or says which variable is missing or unusable. */
-function unitToolEnvironment(env: Readonly<Record<string, string | undefined>> = process.env): UnitToolEnvironment | string {
+export function unitToolEnvironment(env: Readonly<Record<string, string | undefined>> = process.env): UnitToolEnvironment | string {
   const url = env[UNIT_TOOL_URL_VARIABLE];
   const token = env[UNIT_TOOL_TOKEN_VARIABLE];
   if (typeof url !== 'string' || url.trim() === '') {
@@ -75,7 +75,7 @@ function unreachable(url: string, what: string): UnitToolAnswer {
  * the agent reads — the address, the status and the host's own words — so a tool
  * call never fails the server's loop and never hangs it.
  */
-function unitToolProxy(options: UnitToolProxyOptions): (tool: string, argumentsValue: unknown) => Promise<UnitToolAnswer> {
+export function unitToolProxy(options: UnitToolProxyOptions): (tool: string, argumentsValue: unknown) => Promise<UnitToolAnswer> {
   const send = options.fetch ?? fetch;
   const timeoutMs = options.timeoutMs ?? UNIT_TOOL_TIMEOUT_MS;
   return async (tool, argumentsValue) => {

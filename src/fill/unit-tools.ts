@@ -73,7 +73,7 @@ import { selfCommand, type SelfCommandReadings } from '../product/self-command.j
 // ---------------------------------------------------------------------------------------------
 
 /** The six reads and the four writes one unit's server offers (0026: "Agents and tools", "Writing"). */
-const UNIT_TOOL_NAMES = [
+export const UNIT_TOOL_NAMES = [
   'describe_scope',
   'neighbors',
   'references',

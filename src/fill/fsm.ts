@@ -120,7 +120,7 @@ export interface UnitContext {
 }
 
 /** What a unit failed on: its budget, its retries, or a child whose failure the policy propagates. */
-type UnitFailCause = 'budget-exhausted' | 'retries-exhausted' | 'child-failed';
+export type UnitFailCause = 'budget-exhausted' | 'retries-exhausted' | 'child-failed';
 
 /** What sent a unit back to a retry wait. */
 export type UnitRetryCause = 'lease-expired' | 'transient-failure' | 'validation-problem';

@@ -200,7 +200,7 @@ export function syncFrontTabAddress(): void {
 }
 
 /** Names a tab by the page it holds. */
-function setTabTitle(key: string, title: string): void {
+export function setTabTitle(key: string, title: string): void {
   const now = current();
   const tab = now.tabs.find((candidate) => candidate.key === key);
   if (tab === undefined || tab.title === title) return;

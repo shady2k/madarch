@@ -17,7 +17,7 @@ type WizardAuth = 'subscription' | 'api-key';
 interface DetectedAgent { name: WizardAgent; available: boolean; version?: string; reason?: string }
 /** The person's home, read by the one module that reads madarch's homes (`home.ts`). */
 function defaultHome(): string { return homeFromEnv(); }
-function agentSettingsPath(home = defaultHome()): string { return join(home,'.config','madarch','fill-agent.json'); }
+export function agentSettingsPath(home = defaultHome()): string { return join(home,'.config','madarch','fill-agent.json'); }
 async function detectFillAgents(pathValue = process.env.PATH ?? ''): Promise<DetectedAgent[]> {
  const result: DetectedAgent[]=[];
  for(const name of ['claude','codex','omp'] as const){try{const {stdout,stderr}=await exec(name,['--version'],{env:{...process.env,PATH:pathValue},timeout:5000});result.push({name,available:true,version:(stdout||stderr).trim().split(/\r?\n/)[0]||'unknown version'});}catch(error){const e=error as NodeJS.ErrnoException;result.push({name,available:false,reason:e.code==='ENOENT'?'Not installed':(e.message||'Could not read version').slice(0,300)});}}

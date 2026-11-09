@@ -95,7 +95,7 @@ function problemSlug(rule: string, identity: string): string {
   return `${base}-${createHash('sha1').update(identity).digest('hex').slice(0, 12)}`;
 }
 
-function dismissalFile(rule: string, identity: string): string {
+export function dismissalFile(rule: string, identity: string): string {
   return `${PROBLEMS_FOLDER}/${problemSlug(rule, identity)}.md`;
 }
 

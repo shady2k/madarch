@@ -317,7 +317,7 @@ class PostgresOwner implements DatabaseOwner {
 }
 
 /** Opens the process's PostgreSQL pool once; every adapter lent it shares this pool. */
-async function createPostgresDatabaseOwner(options: PoolConfig): Promise<DatabaseOwner> {
+export async function createPostgresDatabaseOwner(options: PoolConfig): Promise<DatabaseOwner> {
   const { Pool } = await import('pg');
   const pool = new Pool(options);
   return new PostgresOwner(pool, options);

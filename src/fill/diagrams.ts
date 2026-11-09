@@ -59,7 +59,7 @@ import { pageAddress } from './page-changes.js';
  * `class` and `deployment` are named there as the types still owed a kind
  * (madarch-tzte.23.2's record says so).
  */
-const DIAGRAM_TYPES = ['c4-component', 'c4-container', 'c4-context', 'er', 'module-dependency', 'sequence', 'state'] as const;
+export const DIAGRAM_TYPES = ['c4-component', 'c4-container', 'c4-context', 'er', 'module-dependency', 'sequence', 'state'] as const;
 type DiagramType = (typeof DIAGRAM_TYPES)[number];
 
 /** How a fact stands behind what a diagram shows (0005): a fact, an assumption, or an end the graph does not hold. */
@@ -95,7 +95,7 @@ export interface DiagramLimits {
  * labels, and a product that wants another number sets it (`buildDiagram`'s
  * `limits`).
  */
-const DEFAULT_DIAGRAM_NODE_BUDGET = 40;
+export const DEFAULT_DIAGRAM_NODE_BUDGET = 40;
 
 /** Where an element stands in code: the file, at the pinned commit, and the lines it spans. */
 export interface DiagramPlace {
@@ -328,7 +328,7 @@ const DIAGRAM_TYPE_DECLARATIONS: { readonly [K in DiagramType]: DiagramTypeDecla
  * (or the name parts of a table no fact of the scope holds), so it can never
  * collide with a fact id, which is a kind, a colon and 64 hexadecimal digits.
  */
-const UNRESOLVED_PREFIX = 'unresolved:';
+export const UNRESOLVED_PREFIX = 'unresolved:';
 
 /**
  * The address of one graph node's page: the wiki app's page prefix and the
@@ -336,13 +336,13 @@ const UNRESOLVED_PREFIX = 'unresolved:';
  * (madarch-tzte.23.1 serves the pages it names, madarch-tzte.23.3 shows them),
  * so a served route that moves moves here and nowhere else.
  */
-function graphPageHref(id: string): string {
+export function graphPageHref(id: string): string {
   if (typeof id !== 'string' || !isFactId(id)) raise(`${here()}: ${shown(id)} is no fact id: a page's address is the fact id of the node it is the page of (src/fill/facts.ts)`);
   return pageAddress(id);
 }
 
 /** The address of one view of the graph (the same page prefix), its type, its level and the nodes it is scoped by. */
-function diagramHref(spec: DiagramViewSpec): string {
+export function diagramHref(spec: DiagramViewSpec): string {
   // Neither a fact id (a kind, a colon and 64 hexadecimal digits) nor a type (a closed list of words) needs escaping: a
   // reader reads the address it copies.
   const parts = [`diagram=${spec.type}`];
@@ -1509,7 +1509,7 @@ function titleOf(checked: CheckedSpec, scoped: readonly Fact[]): string {
  * scope with no table) is an empty model and never an error, because an empty
  * graph is a fact about the product and not a reader's mistake.
  */
-async function buildDiagram(
+export async function buildDiagram(
   spec: DiagramViewSpec,
   reads: DiagramGraphReads,
   options: { readonly limits?: Partial<DiagramLimits> } = {},

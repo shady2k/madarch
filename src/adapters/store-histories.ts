@@ -23,7 +23,7 @@ const HISTORY_DATABASE_PREFIX = 'h_';
  * server with others (a test run's one server holds every case's store) names its databases by its own folder as well, so
  * two stores' "shop" never meet; a store with a server of its own keeps the plain name it always had.
  */
-function historyDatabaseOf(stem: string, namespace?: string): string {
+export function historyDatabaseOf(stem: string, namespace?: string): string {
   if (namespace === undefined) return `${HISTORY_DATABASE_PREFIX}${sha256Hex(new TextEncoder().encode(stem)).slice(0, 40)}`;
   const store = sha256Hex(new TextEncoder().encode(namespace)).slice(0, 10);
   return `${HISTORY_DATABASE_PREFIX}${store}_${sha256Hex(new TextEncoder().encode(stem)).slice(0, 28)}`;

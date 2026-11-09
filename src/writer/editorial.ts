@@ -100,14 +100,14 @@ export interface EditorialJudge {
 }
 
 /** The graph reader the deterministic identifier check uses; `GraphView` satisfies it. */
-interface EditorialGraph {
+export interface EditorialGraph {
   find(options: { readonly kind?: string; readonly text?: string; readonly after?: string; readonly limit: number }): Promise<{
     readonly nodes: readonly { readonly kind: string; readonly key: string; readonly label: string; readonly properties: Readonly<Record<string, unknown>> }[];
     readonly next: string | null;
   }>;
 }
 
-interface EditorialPage {
+export interface EditorialPage {
   readonly path: string;
   readonly title: string;
   readonly text: string;

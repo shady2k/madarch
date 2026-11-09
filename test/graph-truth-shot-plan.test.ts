@@ -1,5 +1,5 @@
-import {expect,test} from 'bun:test';
-import {truthShotKey,verifyTruthShotSet} from '../scripts/graph-truth-shot-plan.js';
+import { expect, test } from 'bun:test';
+import { truthShotKey, verifyTruthShotSet } from '../scripts/graph-truth-shot-plan.js';
 test('same-kind pages have eight distinct filenames each and progress belongs to exact completed set',()=>{
  const pages=['route:a','route:b'];const expected=pages.flatMap((id)=>['en','ru'].flatMap((language)=>[1150,390].flatMap((width)=>['light','dark'].map((scheme)=>truthShotKey('code.route',id,language,width,scheme)))));
  expected.push(...['en','ru'].flatMap((language)=>[1150,390].flatMap((width)=>['light','dark'].map((scheme)=>`truth-rebuild-progress-${language}-${width}-${scheme}`))));expect(expected).toHaveLength(24);expect(new Set(expected).size).toBe(24);expect(()=>verifyTruthShotSet(expected,expected,expected)).not.toThrow();expect(()=>verifyTruthShotSet(expected,expected.slice(8),expected.slice(8))).toThrow('incomplete');expect(()=>verifyTruthShotSet(expected,[...expected,expected[0]!],expected)).toThrow('duplicate');expect(()=>verifyTruthShotSet(expected,expected,[...expected.slice(1),'unplanned'])).toThrow('incomplete');

@@ -474,7 +474,7 @@ export interface RepositoryFactsView {
 }
 
 /** One step of the newest run, as its trace states it (madarch-8bdc.2.5, item 4). */
-interface FillStepView {
+export interface FillStepView {
   readonly step: string;
   readonly wallMs: number;
   readonly peakRssBytes: number;
@@ -496,7 +496,7 @@ export interface FillRunView {
 }
 
 /** What a running fill has done so far, read from its trace (`src/obs/progress.ts`). */
-interface FillProgressView {
+export interface FillProgressView {
   readonly spans: number;
   readonly planned: number;
   readonly published: number;

@@ -14,13 +14,13 @@ import { execFileSync } from 'node:child_process';
 const FILL_GIT_MIN = { major: 2, minor: 40 } as const;
 
 /** The oldest git a fill reads, as a reader says it. */
-const FILL_GIT_MIN_TEXT = `${String(FILL_GIT_MIN.major)}.${String(FILL_GIT_MIN.minor)}`;
+export const FILL_GIT_MIN_TEXT = `${String(FILL_GIT_MIN.major)}.${String(FILL_GIT_MIN.minor)}`;
 
 /**
  * What one `git --version` answer earns: undefined when it is the fill's git or newer, and the refusal's words when
  * it is older or is no git version at all. A reader can open the reason and the version found in it.
  */
-function gitVersionRefusal(said: string): string | undefined {
+export function gitVersionRefusal(said: string): string | undefined {
   const text = said.trim();
   const match = /^git version (\d+)\.(\d+)/u.exec(text);
   if (match === null) {

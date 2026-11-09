@@ -159,7 +159,7 @@ interface AcpConfigOption {
 }
 
 /** The select options of a `configOptions` answer; boolean options and anything unreadable are left out. */
-function readConfigOptions(raw: unknown): AcpConfigOption[] {
+export function readConfigOptions(raw: unknown): AcpConfigOption[] {
   if (!Array.isArray(raw)) return [];
   const out: AcpConfigOption[] = [];
   for (const entry of raw as unknown[]) {
@@ -249,7 +249,7 @@ export interface ConnectAcpOptions {
 }
 
 /** A failure of this module; its message names what failed and where. */
-class AcpError extends Error {
+export class AcpError extends Error {
   constructor(message: string) {
     super(message);
     this.name = 'AcpError';
@@ -314,7 +314,7 @@ function describeUsage(usage: AcpSessionUsage): string {
  * own schema never reaches here: the library refuses it before dispatch and
  * the turn carries on (see the module note above).
  */
-function normalizeUpdate(update: unknown, at = new Date().toISOString()): AcpUpdate {
+export function normalizeUpdate(update: unknown, at = new Date().toISOString()): AcpUpdate {
   const record = (update !== null && typeof update === 'object' ? update : {}) as Record<string, unknown>;
   const sessionUpdate = typeof record.sessionUpdate === 'string' ? record.sessionUpdate : 'unknown';
   const base: AcpUpdate = { kind: 'other', sessionUpdate, at, raw: update };
@@ -353,7 +353,7 @@ function stringOf(value: unknown): string | undefined {
 }
 
 /** The `mcpServers` of `session/new`, in the shapes the protocol defines. */
-function toMcpServers(servers: readonly AcpMcpServer[] = [], pathValue = process.env.PATH ?? ''): acp.McpServer[] {
+export function toMcpServers(servers: readonly AcpMcpServer[] = [], pathValue = process.env.PATH ?? ''): acp.McpServer[] {
   return servers.map((server): acp.McpServer => {
     if ('command' in server) {
       if (!server.command.trim()) throw new AcpError(`src/fill/acp.ts:toMcpServers: the MCP server ${JSON.stringify(server.name)} has no command to run`);

@@ -100,7 +100,7 @@ interface FolderLock {
  *
  * The lock is held until the database is closed: `releaseFolderLock` drops it, and only its own.
  */
-function acquireFolderLock(folder: string): FolderLock {
+export function acquireFolderLock(folder: string): FolderLock {
   const absolute = resolve(folder);
   mkdirSync(absolute, { recursive: true });
   const lock = join(absolute, 'server.lock');
@@ -134,7 +134,7 @@ function acquireFolderLock(folder: string): FolderLock {
 }
 
 /** Drops the lock this process took, and only this process's. */
-function releaseFolderLock(folder: string, held: FolderLock): void {
+export function releaseFolderLock(folder: string, held: FolderLock): void {
   const lock = join(resolve(folder), 'server.lock');
   try {
     const one = JSON.parse(readFileSync(lock, 'utf8')) as { pid?: unknown };

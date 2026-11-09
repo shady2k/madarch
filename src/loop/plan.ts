@@ -90,7 +90,7 @@ function placeOf(entry: string, pages: readonly IndexedPage[]): string[] {
   return pages.filter((page) => page.relates.includes(entry) || page.statements.some((s) => s.grounds.includes(entry) || s.mentions.includes(entry))).map((page) => page.id);
 }
 
-function decide(input: DecideInput): RefreshPlan {
+export function decide(input: DecideInput): RefreshPlan {
   const pages = input.pages.filter(isKnowledgePage);
   const byId = new Map(pages.map((page) => [page.id, page] as const));
   const reasons = new Map<string, PlanReason[]>();

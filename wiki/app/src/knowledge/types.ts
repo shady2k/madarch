@@ -224,7 +224,7 @@ export type EntityListing = { kind: string; total: number; rows: EntityRef[]; ne
 type ChangedPage = { id: string; title: string };
 
 /** The counts the repository page states. */
-type RepositoryCounts = { files: number; commits: number; folders: number };
+export type RepositoryCounts = { files: number; commits: number; folders: number };
 
 /** The repository the graph holds, as the wiki's pages state it (madarch-8bdc.2.5, item 3). */
 export type RepositoryFactsView = {
@@ -238,7 +238,7 @@ export type RepositoryFactsView = {
 };
 
 /** One step of the newest run, as its trace states it. */
-type FillStepView = {
+export type FillStepView = {
   step: string;
   wallMs: number;
   peakRssBytes: number;
@@ -258,7 +258,7 @@ export type FillRunView = {
 };
 
 /** What a running fill has done so far, read from its trace. */
-type FillProgressView = {
+export type FillProgressView = {
   spans: number;
   planned: number;
   published: number;
@@ -269,7 +269,7 @@ type FillProgressView = {
 };
 
 /** A failed run's error, with the file, the line and the path it stands at. */
-type FillErrorView = { message: string; file?: string; line?: number; path?: string };
+export type FillErrorView = { message: string; file?: string; line?: number; path?: string };
 
 export type FillState = {
   rebuilt?: 'extractors-changed';
@@ -406,7 +406,7 @@ export type FolderPageModel = {
 
 /** One commit of a file's history. */
 /** One row of a file's history: the author's clock with its offset, as the record states it. */
-type PageHistoryRow = { commit: string; change: string; added: number | null; removed: number | null; previousPath: string | null; date: string; offsetMin: number; subject: string; walk: number };
+export type PageHistoryRow = { commit: string; change: string; added: number | null; removed: number | null; previousPath: string | null; date: string; offsetMin: number; subject: string; walk: number };
 
 /** One file's page: every fact of the file and one page of its history. */
 export type FilePageModel = {

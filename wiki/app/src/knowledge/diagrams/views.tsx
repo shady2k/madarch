@@ -33,7 +33,7 @@ const RENDERER_NAME: Record<DiagramRenderer, string> = { likec4: 'LikeC4', merma
  * Makes the nodes of a drawn Mermaid svg links: the server names the boxes of a flowchart `n<position>` (a sequence's
  * lifelines too) and a state `s<position>`, and Mermaid keeps those names in its element ids.
  */
-function bindMermaid(root: HTMLElement, elements: readonly ViewElement[], type: string, open: (href: string) => void): () => void {
+export function bindMermaid(root: HTMLElement, elements: readonly ViewElement[], type: string, open: (href: string) => void): () => void {
   // Mermaid's ER diagram gives an entity no click of its own (its boxes are drawn without the element ids a flowchart
   // carries): the tables are linked in the list under the picture instead, which every view has.
   if (type === 'er') return () => undefined;
@@ -233,7 +233,7 @@ function ElementRow({ element, onDrill, drilling }: { element: ViewElement; onDr
 }
 
 /** The zoom toolbar has SVG icons too; only the renderer's direct SVG is the drawing. */
-function mermaidPicture(root: HTMLElement): SVGSVGElement | null {
+export function mermaidPicture(root: HTMLElement): SVGSVGElement | null {
   return root.querySelector<SVGSVGElement>('[data-testid=mermaid-diagram] > svg');
 }
 

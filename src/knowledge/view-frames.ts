@@ -43,7 +43,7 @@ function scratchOf(workspace: string): { ok: true; folder: string } | { ok: fals
 }
 
 /** The workspace of a view, with every element's link the wiki's own address. */
-function workspaceOf(view: GraphView) {
+export function workspaceOf(view: GraphView) {
   // Domain maps and deployments carry ownership as nesting, without invalid holder-to-child arrows.
   // Other view types can draw explicit holder-to-child arrows, which LikeC4 refuses for nested elements.
 

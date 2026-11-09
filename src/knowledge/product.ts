@@ -191,7 +191,7 @@ interface PageSnapshot {
 }
 
 /** Owner-based index readers may run statements, but cannot open a nested snapshot on the same pipe. */
-function pageSnapshotOwner(owner: DatabaseOwner, transaction: OuterTransaction): DatabaseOwner {
+export function pageSnapshotOwner(owner: DatabaseOwner, transaction: OuterTransaction): DatabaseOwner {
   return new Proxy(owner, {
     get(target, key) {
       if (key === 'transaction') return () => { throw new Error('a page snapshot cannot open a nested transaction; use its shared transaction'); };
@@ -203,7 +203,7 @@ function pageSnapshotOwner(owner: DatabaseOwner, transaction: OuterTransaction):
 }
 
 /** Shares history reads only after the last temporal change in an immutable reader snapshot. */
-function createSnapshotHistoryReader() {
+export function createSnapshotHistoryReader() {
   type HistoryData = {
     evidence: Awaited<ReturnType<GraphReader['historyEvidence']>>;
     completed: ReadonlySet<number>;

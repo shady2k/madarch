@@ -47,7 +47,7 @@ const WORDS: Record<'en' | 'ru', Record<CountedFigure, Forms>> = {
   },
 };
 
-function isCountedFigure(kind: string): kind is CountedFigure {
+export function isCountedFigure(kind: string): kind is CountedFigure {
   return (COUNTED_FIGURES as readonly string[]).includes(kind);
 }
 

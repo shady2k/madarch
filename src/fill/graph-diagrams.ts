@@ -165,7 +165,7 @@ async function modulesOfLevel(reads: DiagramGraphReads, repositoryName: string, 
  * one whose single module has nothing below it, and one whose top level already has more
  * than one all answer the repository itself.
  */
-async function moduleViewScope(reads: DiagramGraphReads, repository: { readonly id: string; readonly name: string }): Promise<readonly string[]> {
+export async function moduleViewScope(reads: DiagramGraphReads, repository: { readonly id: string; readonly name: string }): Promise<readonly string[]> {
   let level = await modulesOfLevel(reads, repository.name, undefined);
   let scope = repository.id;
   while (level.length === 1) {
@@ -191,7 +191,7 @@ async function moduleViewScope(reads: DiagramGraphReads, repository: { readonly 
  * reaches no module of the level (a file standing at the repository's root outside every
  * module) are no neighbour: the view could not stand them anywhere either.
  */
-async function moduleNeighbours(reads: DiagramGraphReads, module: Fact, repositoryName: string): Promise<readonly string[]> {
+export async function moduleNeighbours(reads: DiagramGraphReads, module: Fact, repositoryName: string): Promise<readonly string[]> {
   const level = await modulesOfLevel(reads, repositoryName, textOf(module, 'parent'));
   const peers = new Set(level.map((fact) => fact.id));
   // A module the level does not hold — another product's, or one whose parent was republished — relates to nothing.

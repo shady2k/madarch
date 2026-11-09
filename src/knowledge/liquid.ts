@@ -80,7 +80,7 @@ const templateCache = new Map<string, { stamp: string; set: TemplateSet }>();
  * finding, so a product cannot make the wiki hold a template it could not have
  * written. The set is cached until one of the files changes.
  */
-function templateSetOf(productFolder: string): TemplateSet {
+export function templateSetOf(productFolder: string): TemplateSet {
   const found: { path: string; mtimeMs: number; size: number }[] = [];
   const findings: Finding[] = [];
   // The folder itself is contained first: a `templates` that is a link out of the product would make every path below a
@@ -208,7 +208,7 @@ function spawnRenderWorker(): RenderWorkerProcess {
 }
 
 /** How a worker is started: the production one starts a process of its own; a test names its own. */
-const renderWorkers: { factory: () => RenderWorkerProcess } = { factory: spawnRenderWorker };
+export const renderWorkers: { factory: () => RenderWorkerProcess } = { factory: spawnRenderWorker };
 
 /**
  * The resident memory of a process, as the machine it runs on says it: `/proc` on
@@ -216,7 +216,7 @@ const renderWorkers: { factory: () => RenderWorkerProcess } = { factory: spawnRe
  * `undefined` when the machine says nothing, and the wall clock and Liquid's own
  * cooperative limits are then what stands.
  */
-function residentMiB(pid: number | undefined): number | undefined {
+export function residentMiB(pid: number | undefined): number | undefined {
   if (pid === undefined) return undefined;
   try {
     const found = /VmRSS:\s+(\d+) kB/.exec(readFileSync(`/proc/${pid}/status`, 'utf8'));

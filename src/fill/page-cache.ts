@@ -28,8 +28,8 @@ import type { GraphDiagramsRead } from './graph-diagrams.js';
 import type { GraphPageModelAnswer, GraphPageSetAnswer } from './graph-pages.js';
 
 /** The most page models one product keeps, and the most diagram answers: a reading session's window, not the graph. */
-const PAGE_CACHE_ENTRIES = 256;
-const DIAGRAM_CACHE_ENTRIES = 8;
+export const PAGE_CACHE_ENTRIES = 256;
+export const DIAGRAM_CACHE_ENTRIES = 8;
 
 /** The most products kept at once: a home serves a handful, and the whole of a products home is not a reading session. */
 const PRODUCT_CACHE_ENTRIES = 4;

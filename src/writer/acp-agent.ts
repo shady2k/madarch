@@ -91,7 +91,7 @@ function entryOfCall(call: Parameters<ToolObserver['served']>[0]): JournalEntry 
 const CHARACTERS_PER_TOKEN = 4;
 
 /** A local MCP endpoint (streamable HTTP, one JSON answer per POST) for one unit's tools. */
-async function serveTools(client: ToolClient, token: string, observer?: ToolObserver): Promise<{ url: string; close(): Promise<void> }> {
+export async function serveTools(client: ToolClient, token: string, observer?: ToolObserver): Promise<{ url: string; close(): Promise<void> }> {
   const server: Server = createServer((request, response) => {
     const send = (status: number, body?: unknown): void => {
       response.writeHead(status, body === undefined ? {} : { 'content-type': 'application/json' });

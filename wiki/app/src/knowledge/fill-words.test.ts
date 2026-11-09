@@ -1,5 +1,5 @@
-import {expect,test} from 'bun:test';
-import {fillWords} from './fill-words.js';
+import { expect, test } from 'bun:test';
+import { fillWords } from './fill-words.js';
 import en from '../locales/en.json';
 import ru from '../locales/ru.json';
 test('extractor rebuild progress has exact bilingual reason and keeps current phase',()=>{

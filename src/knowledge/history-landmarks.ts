@@ -8,7 +8,7 @@ const execute = promisify(execFile);
 /** Implementation safety bound for earlier trees; the tip is separate. */
 const MAX_HISTORY_LANDMARK_TREES = 64;
 /** Bounds tag parsing, peel work and unsupported diagnostics independently of tree reads. */
-const MAX_HISTORY_LANDMARK_TAGS = 512;
+export const MAX_HISTORY_LANDMARK_TAGS = 512;
 interface LandmarkDiagnostic { ref: string; object: string; reason: string }
 /** This plan is stored in the same database snapshot as its graph, never a sidecar. */
 export interface LandmarkPlan {
@@ -32,7 +32,7 @@ export interface LandmarkCoverage {
 }
 
 /** Budget follows ancestry generation, never raw commit dates or tag naming conventions. */
-function planLandmarks(walk: readonly CommitFact[], tags: readonly { ref: string; object: string; commit?: string; reason?: string }[]): LandmarkPlan {
+export function planLandmarks(walk: readonly CommitFact[], tags: readonly { ref: string; object: string; commit?: string; reason?: string }[]): LandmarkPlan {
   const first = walk[0]; const last = walk[walk.length - 1];
   if (first === undefined || last === undefined) throw new Error('historical landmarks: no first-parent commit');
   const onLine = new Map(walk.map((commit) => [commit.hash, commit]));

@@ -77,3 +77,4 @@ function relativeTime(isoTime: string, language: string = i18n.resolvedLanguage 
     .format(Math.round(elapsedSeconds / divisor), unit);
 }
 
+

@@ -311,7 +311,7 @@ export function deriveStageGraphOver(registry: StageRegistry, stages: Iterable<s
  * is the product's whole where it wrote one — a written `null` included, which
  * its schema then refuses — and the stage's declared default otherwise.
  */
-function resolveStageConfiguration(stage: FillStage, entry?: FillStageConfigurationEntry): ResolvedStageConfiguration {
+export function resolveStageConfiguration(stage: FillStage, entry?: FillStageConfigurationEntry): ResolvedStageConfiguration {
   return {
     id: stage.id,
     version: stage.version,

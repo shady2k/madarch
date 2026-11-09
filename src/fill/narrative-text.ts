@@ -21,13 +21,13 @@ import { byCodePoint } from '../model/order.js';
 import { FACT_ID_PATTERN, NARRATIVE_SENTENCE_BOUND, repositoryPath, type NarrativeSentence, type NarrativeValue, type RepositoryPath } from './facts.js';
 
 /** The folder of the product repository a page's file stands under. */
-const NARRATIVE_PAGE_DIR = 'docs/graph';
+export const NARRATIVE_PAGE_DIR = 'docs/graph';
 
 /** The writer a page's front matter names: the fill's own agent, so a person's edit of the same file tells itself apart from one the fill wrote. */
 export const NARRATIVE_PAGE_WRITER = 'madarch-fill-agent';
 
 /** The status a page carries until a person accepts or rejects it (0005; self-filling's outcome 4). */
-const NARRATIVE_PAGE_STATUS = 'proposed';
+export const NARRATIVE_PAGE_STATUS = 'proposed';
 
 /** How many code points one sentence may hold: the schema's own bound (`src/fill/facts.ts`). */
 const NARRATIVE_SENTENCE_CODE_POINTS = NARRATIVE_SENTENCE_BOUND;

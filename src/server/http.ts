@@ -152,7 +152,7 @@ export interface StartedServer {
 }
 
 /** One refusal's content, the shape the error answers carry. */
-interface Refusal {
+export interface Refusal {
   message: string;
   field?: string;
   accepted?: string;
@@ -202,7 +202,7 @@ function manifestStampOf(folder: string): number {
  * only the manifest decides: the one the entry was opened from, or a new entry. A manifest that
  * cannot be read (-1) is opened again, so its refusal is logged and the product stands unserved.
  */
-function keepsProductEntry<T extends { readonly manifest: number }>(held: T | undefined, manifest: number): held is T {
+export function keepsProductEntry<T extends { readonly manifest: number }>(held: T | undefined, manifest: number): held is T {
   return held !== undefined && manifest >= 0 && held.manifest === manifest;
 }
 
@@ -539,14 +539,14 @@ function startFillRole(options: { readonly home: string; readonly root: string }
   }
 }
 
-interface ServerHandler {
+export interface ServerHandler {
   (request: Request): Promise<Response>;
   /** Waits for in-flight state requests before persistence closes. */
   drain(): Promise<void>;
 }
 
 /** The request handler used by Bun; exported so tests can drive HTTP requests with controlled async dependencies. */
-function createHandler(dependencies: {
+export function createHandler(dependencies: {
   sources?: SourceStores;
   graphs?: Graphs;
   log: (line: string) => void;

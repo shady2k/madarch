@@ -68,7 +68,7 @@ export function recordCall(folder: string, entry: JournalEntry): void {
 }
 
 /** Every entry the journal holds, in the order they were written; a line that does not parse is skipped by its own size. */
-function readJournal(folder: string): JournalEntry[] {
+export function readJournal(folder: string): JournalEntry[] {
   const file = journalFile(folder);
   if (!existsSync(file)) return [];
   const entries: JournalEntry[] = [];

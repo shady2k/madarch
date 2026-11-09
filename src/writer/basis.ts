@@ -13,7 +13,7 @@ import type { WrittenAt } from '../knowledge/index/page.js';
 const run = promisify(execFile);
 
 /** An origin URL without the user and password of its authority. */
-function withoutCredentials(origin: string): string {
+export function withoutCredentials(origin: string): string {
   return origin.trim().replace(/^([a-z][a-z0-9+.-]*:\/\/)[^/\s]*@/i, '$1');
 }
 

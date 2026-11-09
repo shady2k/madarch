@@ -1,7 +1,7 @@
-import type {ReactElement} from 'react';
-import {useTranslation} from 'react-i18next';
-import type {TFunction} from 'i18next';
-import type {ContractDiagnostic, ContractReason} from './types.js';
+import type { ReactElement } from 'react';
+import { useTranslation } from 'react-i18next';
+import type { TFunction } from 'i18next';
+import type { ContractDiagnostic, ContractReason } from './types.js';
 
 /** Protocol and product vocabulary only; no source parsing or server runtime imports. */
 const reasonKeys = {

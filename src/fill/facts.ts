@@ -51,7 +51,7 @@ import type { StorageForm } from '../product/schema.js';
  * kind); every kind starts at this version, and a kind whose value changes
  * moves alone.
  */
-const FACTS_SCHEMA_VERSION = 1;
+export const FACTS_SCHEMA_VERSION = 1;
 
 /** One refusal of the schema, naming the field path it stands at. */
 export class FactSchemaError extends Error {
@@ -253,7 +253,7 @@ export type FactStatus = 'proposed' | 'accepted' | 'rejected';
  * always written `proposed`; only a declaration of the product's own words
  * stands as `accepted`, and a person may record it `rejected`.
  */
-function statusesOfLayer(layer: FactLayer): readonly FactStatus[] {
+export function statusesOfLayer(layer: FactLayer): readonly FactStatus[] {
   return layer === 'declared' ? ['proposed', 'accepted', 'rejected'] : ['proposed'];
 }
 
@@ -263,7 +263,7 @@ function statusesOfLayer(layer: FactLayer): readonly FactStatus[] {
  * The fill's stages, decision 0026's own order: 0–7 deterministic, 8–13 agent, and 14
  * the pages stage (0026, "Pages": the narrative text a page shows above its facts).
  */
-const FACT_STAGES = [
+export const FACT_STAGES = [
   '0-snapshot',
   '1-inventory',
   '2-build-and-configuration',
@@ -283,7 +283,7 @@ const FACT_STAGES = [
 type FactStage = (typeof FACT_STAGES)[number];
 
 /** The agent stages, 8 to 13: every fact they write is `inferred` (0005). */
-const AGENT_STAGES: readonly FactStage[] = ['8-overview', '9-boundaries', '10-intent-documents', '11-intent-history', '12-understanding', '13-recovery'];
+export const AGENT_STAGES: readonly FactStage[] = ['8-overview', '9-boundaries', '10-intent-documents', '11-intent-history', '12-understanding', '13-recovery'];
 
 // ---- the kinds -----------------------------------------------------------
 
@@ -374,7 +374,7 @@ export function isFactId(value: unknown): value is string {
 }
 
 /** A fact kind's name: one lower-case kebab token, so a namespace of its own and never a registry kind's phrase. */
-const FACT_KIND_NAME_PATTERN = /^[a-z][a-z0-9]*(-[a-z0-9]+)*$/;
+export const FACT_KIND_NAME_PATTERN = /^[a-z][a-z0-9]*(-[a-z0-9]+)*$/;
 
 /**
  * The role a file plays (stages 1 and 3): a file may play several at once,
@@ -1946,7 +1946,7 @@ function makeEdgeFact<K extends FactEdgeKind>(input: FactInput<K>): FactEnvelope
  * kind's, the status defaults to `proposed`, and the result is checked with
  * `checkFact` — a fact this function returns is one the schema reads.
  */
-function makeFact<K extends FactKind>(input: FactInput<K>): FactEnvelope<K, FactValueOf<K>> {
+export function makeFact<K extends FactKind>(input: FactInput<K>): FactEnvelope<K, FactValueOf<K>> {
   const definition = FACT_KINDS[input.kind] as FactKindDefinition<K>;
   const fact: FactEnvelope<K, FactValueOf<K>> = {
     kind: input.kind,
@@ -2974,7 +2974,7 @@ export function checkFact(fact: unknown): FactProblem[] {
 type RegistryStorageForm = StorageForm;
 
 /** The storage forms, in code point order; `test/fill-facts.test.ts` checks the list against the schema's union. */
-const REGISTRY_STORAGE_FORMS: readonly RegistryStorageForm[] = ['component', 'document', 'fact', 'model-element', 'task'];
+export const REGISTRY_STORAGE_FORMS: readonly RegistryStorageForm[] = ['component', 'document', 'fact', 'model-element', 'task'];
 
 /**
  * The role a code fact plays for a document of a registry kind. Nothing else

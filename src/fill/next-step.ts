@@ -92,7 +92,7 @@ export interface StepNode {
  * id in code point order (the order `byQuestionRank` states once for every reader): a
  * question's page is passed in, since this rule reads no graph of its own.
  */
-function mostAskedQuestion<Q extends RankedQuestion & { readonly page: PageAddress }>(questions: readonly Q[]): Q | undefined {
+export function mostAskedQuestion<Q extends RankedQuestion & { readonly page: PageAddress }>(questions: readonly Q[]): Q | undefined {
   // The one order every reader states: `byQuestionRank` (question-types.ts), so the product's step and a page's step
   // can never disagree about which of two questions comes first.
   return [...questions].sort(byQuestionRank)[0];
@@ -136,7 +136,7 @@ function nothingToDo(node: StepNode): GraphNextStep {
  * node the graph measured no rank of is not one this rule names — a page set's
  * hundreds of unranked tables are not the next thing to do.
  */
-function isImportant(node: { readonly importance?: number }): boolean {
+export function isImportant(node: { readonly importance?: number }): boolean {
   return node.importance !== undefined && node.importance > 0;
 }
 

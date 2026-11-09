@@ -68,7 +68,7 @@ function sourceFiles(appFolder: string): string[] {
 }
 
 /** The hash naming the app's sources: every source file's relative path and content. */
-function sourcesHash(appFolder: string): string {
+export function sourcesHash(appFolder: string): string {
   const hash = createHash('sha256');
   for (const path of sourceFiles(appFolder)) {
     hash.update(JSON.stringify(path.slice(appFolder.length)));

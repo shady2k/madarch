@@ -42,7 +42,7 @@ import { withSpan } from '../obs/trace.js';
 import { raise } from '../model/raise.js';
 
 /** The tables this module owns, in code point order. */
-const RECORD_TABLES = [
+export const RECORD_TABLES = [
   'author',
   'blob',
   'commit_fact',
@@ -803,7 +803,7 @@ async function nodeOfCommit(tx: OuterTransaction, kinds: Map<string, string>, re
  * git writes `Z` for the same commit). Both are one statement of the same zero minutes east of UTC, so both are
  * read here; anything else is refused by name.
  */
-function instantOf(text: string, field: string, hash: string): [string, number] {
+export function instantOf(text: string, field: string, hash: string): [string, number] {
   const match = /^(\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2})(?:(Z)|([+-])(\d{2}):(\d{2}))$/u.exec(text.trim());
   if (match === null) raise(`the commit ${hash} names its ${field} as ${JSON.stringify(text)}, and a git date is YYYY-MM-DDTHH:MM:SS+HH:MM or YYYY-MM-DDTHH:MM:SSZ`);
   if (match[2] === 'Z') return [`${match[1]}Z`, 0];
@@ -1091,7 +1091,7 @@ export async function listDirectories(owner: DatabaseOwner, repository: string):
 }
 
 /** One commit with its parents, its author and its dates. */
-async function commitFacts(owner: DatabaseOwner, repository: string, hash: string): Promise<CommitRecord | null> {
+export async function commitFacts(owner: DatabaseOwner, repository: string, hash: string): Promise<CommitRecord | null> {
   return await withSpan('records.commitFacts', { 'records.commit': hash }, async () => await owner.transaction('snapshot', async (tx) => {
     const repositoryId = await repositoryIdOf(tx, repository);
     const found = await tx.query<Record<string, unknown>>(

@@ -49,7 +49,7 @@ export interface QuestionListing {
 
 const stateOf = (question: Question): QuestionState => (question.status === 'open' ? 'open' : question.resolvedBy.length > 0 ? 'closed' : 'answered');
 
-function rowOf(question: Question): QuestionRow {
+export function rowOf(question: Question): QuestionRow {
   return {
     slug: question.slug, id: question.id, title: question.title, type: question.type, state: stateOf(question), askedIn: question.askedIn, askedAt: question.askedAt,
     about: question.about, answeredBy: question.answer?.by ?? null, answeredAt: question.answer?.at ?? null, closedBy: question.resolvedBy,

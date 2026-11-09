@@ -126,7 +126,7 @@ function markdownIn(ctx: RenderContext, id: string): NeighborRow[] {
 }
 
 /** The direct neighbours of a subject, grouped by relation and direction; a group cut to `limit` says how many it left out. */
-async function collectNeighbors(ctx: RenderContext, subject: Subject, options: { relations?: readonly string[]; direction?: 'out' | 'in'; limit: number }): Promise<Collected> {
+export async function collectNeighbors(ctx: RenderContext, subject: Subject, options: { relations?: readonly string[]; direction?: 'out' | 'in'; limit: number }): Promise<Collected> {
   const rows: NeighborRow[] = [];
   const more: Collected['more'] = [];
   const wanted = (relation: string): boolean => (options.relations === undefined ? !QUIET_RELATIONS.has(relation) : options.relations.includes(relation));
@@ -287,7 +287,7 @@ interface Event {
 
 const symbolName = (entity: GraphEntity): string => String(entity.properties['qualifiedName'] ?? entity.label);
 
-class ChainBuilder {
+export class ChainBuilder {
   readonly lanes = new Map<string, ChainLane>();
   steps: ChainStep[] = [];
   readonly notes = new Set<string>();

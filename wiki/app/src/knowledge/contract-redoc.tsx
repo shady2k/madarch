@@ -1,7 +1,7 @@
 import { useEffect, useRef, useState, type ReactElement } from 'react';
 import { RedocStandalone } from 'redoc';
-import type {Block} from './types.js';
-import {ContractRenderProblem, type ContractRenderFailure, contractSelectionFailure, redocLoadedFailure, selectContractOperation} from './contract-diagnostic.js';
+import type { Block } from './types.js';
+import { ContractRenderProblem, type ContractRenderFailure, contractSelectionFailure, redocLoadedFailure, selectContractOperation } from './contract-diagnostic.js';
 
 /** This module is fetched only when Definition opens. Redoc receives an object, never a URL to fetch. */
 export default function ContractRedoc({block}: {block: Extract<Block, {type: 'definition'}>}): ReactElement {

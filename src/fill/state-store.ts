@@ -74,10 +74,10 @@ import type {
 export type FillStateDatabase = Pick<DatabaseOwner, 'transaction'>;
 
 /** The tables this store owns; `createFillStateSchema` creates them and every error names the ones it touched. */
-const FILL_STATE_TABLES = ['fill_chain', 'fill_run', 'fill_unit', 'fill_unit_generation', 'fill_unit_lease', 'fill_transition'] as const;
+export const FILL_STATE_TABLES = ['fill_chain', 'fill_run', 'fill_unit', 'fill_unit_generation', 'fill_unit_lease', 'fill_transition'] as const;
 
 /** The store's own step ids: no machine declares them, and their prefix keeps them apart from the tables'. */
-const FILL_STORE_STEPS = {
+export const FILL_STORE_STEPS = {
   createUnit: 'fill-store/unit--create-->planned',
   openGeneration: 'fill-store/generation--open-->planned',
   retryGeneration: 'fill-store/generation--retry-->planned',

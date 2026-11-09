@@ -74,7 +74,7 @@ export function chosenRenderer(product: string | undefined, env: Readonly<Record
 }
 
 /** The tabs of one type, the chosen renderer first. */
-function tabsOf(type: ViewType, chosen: Renderer): Renderer[] {
+export function tabsOf(type: ViewType, chosen: Renderer): Renderer[] {
   const supported = RENDERERS.filter((renderer) => RENDERERS_OF[type].includes(renderer));
   return supported.includes(chosen) ? [chosen, ...supported.filter((renderer) => renderer !== chosen)] : supported;
 }

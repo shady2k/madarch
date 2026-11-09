@@ -103,7 +103,7 @@ export function readWorkflows(productFolder: string, registry: StageRegistry = e
  * engine's stage registry: the ids it names, the inputs of its stages, and
  * whether its stages order themselves in a cycle.
  */
-function parseWorkflows(text: string, file: string, registry: StageRegistry = engineStageRegistry()): Omit<WorkflowsRead, 'present'> {
+export function parseWorkflows(text: string, file: string, registry: StageRegistry = engineStageRegistry()): Omit<WorkflowsRead, 'present'> {
   const findings: WorkflowFinding[] = [];
   const lines = new LineCounter();
   const doc = parseDocument(text, { lineCounter: lines, uniqueKeys: true });

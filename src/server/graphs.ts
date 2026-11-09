@@ -35,7 +35,7 @@ export interface GraphsOptions {
 }
 
 /** One named set of sources with its one query engine. */
-interface Graph {
+export interface Graph {
   readonly name: string;
   /** The sources the graph is built from, in code point order. */
   readonly sources: readonly string[];

@@ -133,7 +133,7 @@ export interface SnapshotEntry {
 }
 
 /** Whether the reader can answer this entry's bytes: a file's or a link's, never a submodule's. */
-function isReadableEntry(entry: SnapshotEntry): boolean {
+export function isReadableEntry(entry: SnapshotEntry): boolean {
   return entry.form === 'blob' || entry.form === 'link';
 }
 

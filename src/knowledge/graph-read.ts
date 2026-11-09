@@ -83,7 +83,7 @@ const VISIBLE = (alias: string): string => `${alias}.valid_from <= $1::timestamp
  * reader counts in lines and bytes like any other. Either shape names one place, so a reader asks for a
  * span and is answered whichever producer wrote the record.
  */
-function spanFromProvenance(properties: Record<string, unknown>): SourceSpan | undefined {
+export function spanFromProvenance(properties: Record<string, unknown>): SourceSpan | undefined {
   const provenance = properties['provenance'];
   if (provenance === null || typeof provenance !== 'object' || Array.isArray(provenance)) return undefined;
   const place = (provenance as Record<string, unknown>)['place'];

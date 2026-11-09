@@ -164,7 +164,7 @@ function mentionsOf(raw: string, kit: RegistryKit | undefined): string[] {
  * is read from the page's own folder. A target that climbs out of the
  * product, an absolute one and an outside scheme resolve to nothing.
  */
-function resolveBodyLink(fromPath: string, target: string, held: ReadonlySet<string>): string | undefined {
+export function resolveBodyLink(fromPath: string, target: string, held: ReadonlySet<string>): string | undefined {
   let wanted = target.trim();
   if (wanted === '' || wanted.startsWith('#')) return undefined;
   if (/^[a-z][a-z0-9+.-]*:/i.test(wanted)) return undefined;
@@ -261,7 +261,7 @@ export interface StructuralFinding {
  * the body's links are read outside code spans and fences, per structural
  * line.
  */
-function parseDocument(path: string, markdown: string, held: ReadonlySet<string>, kit: RegistryKit | undefined = undefined): ParsedDocument {
+export function parseDocument(path: string, markdown: string, held: ReadonlySet<string>, kit: RegistryKit | undefined = undefined): ParsedDocument {
   const all = linesOf(markdown);
   const first = all.find((line) => line.raw.trim());
   const head = first !== undefined && first.structural ? first.raw.match(/^# (\S+) — (.+)$/) : null;

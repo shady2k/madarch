@@ -248,7 +248,7 @@ export type KindsRegistry = Static<typeof KindsRegistry>;
  * madarch to link it and place it (decision 0021). A field this madarch
  * does not know is ignored, so a later version adds beside them.
  */
-const DocumentFields = Type.Object(
+export const DocumentFields = Type.Object(
   {
     /** The document's id in its kind's own prefix's shape, like `FR-001`. */
     id: Type.Optional(Type.String({ minLength: 1, description: "The document's own id, like FR-001; checked against the registry's prefix of the field kind names." })),

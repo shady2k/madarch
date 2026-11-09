@@ -156,7 +156,7 @@ function readLines(text: string, file: string): { ok: true; tokens: { indent: nu
  * `#` inside a quoted value is the value's own character — a product called
  * `Draft # part` is called that — so quotes are walked, escapes and all.
  */
-function cutComment(text: string): string {
+export function cutComment(text: string): string {
   let quote: string | null = null;
   let tokenStarted = false;
   for (let i = 0; i < text.length; i++) {
@@ -585,7 +585,7 @@ export const yamlWord = (word: string): string => (/^[A-Za-z_][A-Za-z0-9 ._+-]*$
  * writes such a character inside one. A name is not written this way: it is a
  * word by its own refusal, so `yamlWord` writes it.
  */
-function yamlText(value: string): string {
+export function yamlText(value: string): string {
   if (/[\u0000-\u001f\u007f]/.test(value)) {
     const escaped = value.replace(/[\u0000-\u001f\u007f"\\]/g, (ch) => {
       const named: Record<string, string> = { '"': '\\"', '\\': '\\\\', '\n': '\\n', '\t': '\\t', '\r': '\\r' };
@@ -605,7 +605,7 @@ function yamlText(value: string): string {
  * that matched the text of a key would leave the product's own field alone and
  * write a second one beside it.
  */
-function decodedKeyWord(key: string): string | null {
+export function decodedKeyWord(key: string): string | null {
   const trimmed = key.trim();
   if (trimmed === '') return null;
   if (trimmed[0] === "'" || trimmed[0] === '"') {

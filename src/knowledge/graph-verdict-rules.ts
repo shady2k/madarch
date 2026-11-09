@@ -144,7 +144,7 @@ const GRAPH_NODE_ESCALATIONS: readonly GraphKindEscalation[] = [
   { id: 'node-without-edge', kindPrefix: '', reason: 'a node with no edge', when: NO_EDGE },
 ];
 
-const GRAPH_NODE_RULES: readonly GraphNodeRule[] = [
+export const GRAPH_NODE_RULES: readonly GraphNodeRule[] = [
   // A path the history no longer holds has a span and a record key; the pinned bytes decide it.
   { id: 'node-file', kind: 'code.file', span: 'required', spanNamesSelf: true, requireWholeProperties: ['lines'], recordKeyPrefix: 'code.file:' },
   {
@@ -210,7 +210,7 @@ const GRAPH_NODE_RULES: readonly GraphNodeRule[] = [
   { id: 'node-fallback', kindPrefix: '', span: 'if-present' },
 ];
 
-const GRAPH_EDGE_RULES: readonly GraphEdgeRule[] = [
+export const GRAPH_EDGE_RULES: readonly GraphEdgeRule[] = [
   { id: 'edge-uses-database', kind: 'code.uses-database', span: 'if-present', fromKinds: ['code.service'], toKinds: ['code.database'] },
   { id: 'edge-reads-table', kind: 'code.reads-table', span: 'if-present', fromKinds: ['code.symbol'], toKinds: ['code.table'] },
   { id: 'edge-writes-table', kind: 'code.writes-table', span: 'if-present', fromKinds: ['code.file', 'code.symbol'], toKinds: ['code.table'] },

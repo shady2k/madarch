@@ -20,19 +20,19 @@ import { addressOfCommit, addressOfFile, addressOfFolder, addressOfRun, K_RUN } 
 import type { CommitPageModel, FilePageModel, FillRunView, FolderPageModel, PageFile, RepositoryFactsView, SourceFile, WikiStatus } from './types.js';
 
 /** A number of bytes as a reader reads it. */
-function bytesText(bytes: number): string {
+export function bytesText(bytes: number): string {
   if (bytes < 1024) return `${bytes} B`;
   if (bytes < 1024 * 1024) return `${(bytes / 1024).toFixed(1)} kB`;
   return `${(bytes / (1024 * 1024)).toFixed(1)} MB`;
 }
 
 /** A span of milliseconds as a reader reads it. */
-function msText(ms: number): string {
+export function msText(ms: number): string {
   return ms >= 1000 ? `${(ms / 1000).toFixed(2)} s` : `${ms.toFixed(1)} ms`;
 }
 
 /** Resident memory as a reader reads it: the peak a step reached, in megabytes. */
-function mbText(bytes: number): string {
+export function mbText(bytes: number): string {
   return `${(bytes / (1024 * 1024)).toFixed(1)} MB`;
 }
 
@@ -58,7 +58,7 @@ function clockIn(date: string): string {
  * UTC and then appending the offset would say `16:14:32 +03:00`, a clock nobody wrote (review, item 1).
  * A date that carries no offset is shown as `UTC` where the record has none either.
  */
-function instantText(date: string, offsetMin: number | null): string {
+export function instantText(date: string, offsetMin: number | null): string {
   const effective = offsetIn(date) ?? offsetMin;
   const base = clockIn(date);
   if (effective === null) return `${base} UTC`;
@@ -89,7 +89,7 @@ function Breadcrumb({ path }: { path: string }): React.ReactElement {
 }
 
 /** One table of files: their name, language, lines and bytes. A file's row opens its page. */
-function FileRows({ files }: { files: readonly PageFile[] }): React.ReactElement {
+export function FileRows({ files }: { files: readonly PageFile[] }): React.ReactElement {
   const { t } = useTranslation();
   return (
     <div className="table-wrap">

@@ -22,7 +22,7 @@ const OWN_WIKI_REPOSITORY = 'https://github.com/shady2k/madarch-product.git';
 /** The branch of that repository the wiki follows. */
 const OWN_WIKI_BRANCH = 'main';
 /** The folder name under the madarch home. */
-const OWN_WIKI_FOLDER = 'madarch-wiki';
+export const OWN_WIKI_FOLDER = 'madarch-wiki';
 
 export interface OwnWikiOptions {
   env?: DraftEnv;
@@ -35,7 +35,7 @@ export interface OwnWikiOptions {
 /** Whether the wiki is switched off (`MADARCH_OWN_WIKI=off`): a test, or a person who wants the products only. */
 export const ownWikiOff = (env: DraftEnv = process.env): boolean => env.MADARCH_OWN_WIKI?.trim().toLowerCase() === 'off';
 
-const ownWikiFolder = (env: DraftEnv = process.env): string => join(madarchHome(env), OWN_WIKI_FOLDER);
+export const ownWikiFolder = (env: DraftEnv = process.env): string => join(madarchHome(env), OWN_WIKI_FOLDER);
 
 const repositoryOf = (options: OwnWikiOptions): string => options.repository ?? (options.env ?? process.env).MADARCH_OWN_WIKI_REPOSITORY?.trim() ?? OWN_WIKI_REPOSITORY;
 

@@ -1,7 +1,7 @@
-import {describe, expect, expectTypeOf, test} from 'bun:test';
-import type {ContractReason as AppContractReason} from '../wiki/app/src/knowledge/types.js';
-import {contractDocument, ContractReadError, contractObjectAt, contractReasonOf, type ContractReason} from '../src/knowledge/contract-document.js';
-import {protoDocument} from '../src/knowledge/proto-document.js';
+import { describe, expect, expectTypeOf, test } from 'bun:test';
+import type { ContractReason as AppContractReason } from '../wiki/app/src/knowledge/types.js';
+import { contractDocument, ContractReadError, contractObjectAt, contractReasonOf, type ContractReason } from '../src/knowledge/contract-document.js';
+import { protoDocument } from '../src/knowledge/proto-document.js';
 const read = (files: Record<string, string>) => async (path: string): Promise<string | undefined> => files[path];
 const full = (path: string): string => `/fixture/repos/catalog/${path}`;
 

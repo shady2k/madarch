@@ -28,7 +28,7 @@ import { DiagramsView } from './diagrams/views.js';
 import { NeighborhoodGraph } from './diagrams/neighborhood.js';
 import { TreemapView } from './diagrams/treemap.js';
 import { useKindName } from './kind-names.js';
-import {ContractDiagnosticView} from './contract-diagnostic.js';
+import { ContractDiagnosticView } from './contract-diagnostic.js';
 import { addressOfDocument, addressOfStatement, addressOfTask, K_PROBLEMS } from './routes.js';
 import { COUNTED_FIGURES } from '../../../../src/knowledge/history-figures.js';
 import { currentAddress, linkHandlers, openInNewTab, syncFrontTabAddress } from './tabs.js';
@@ -85,7 +85,7 @@ export function EntityName({ entity }: { entity: EntityRef }): ReactElement {
 const keepUrl = (url: string): string => (url.startsWith('madarch:') ? url : defaultUrlTransform(url));
 
 /** A relative link inside a document to another Markdown document of the same repository: its path and section. */
-function relativeDocument(from: { repo: string | null; path: string }, href: string): { path: string; anchor?: string } | null {
+export function relativeDocument(from: { repo: string | null; path: string }, href: string): { path: string; anchor?: string } | null {
   const hash = href.indexOf('#');
   const file = hash < 0 ? href : href.slice(0, hash);
   if (file === '' || !/\.(md|markdown)$/i.test(file) || /^[a-z][a-z0-9+.-]*:/i.test(file)) return null;

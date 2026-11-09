@@ -40,10 +40,10 @@ import { runningVersion } from '../product/version.js';
 import { UNIT_TOOLS, type UnitToolAnswer } from './unit-tools.js';
 
 /** The protocol revisions this server knows, newest first. */
-const MCP_PROTOCOL_VERSIONS = ['2025-06-18', '2025-03-26', '2024-11-05'] as const;
+export const MCP_PROTOCOL_VERSIONS = ['2025-06-18', '2025-03-26', '2024-11-05'] as const;
 
 /** The version this server answers a client whose own version it does not know. */
-const MCP_FALLBACK_VERSION = MCP_PROTOCOL_VERSIONS[0];
+export const MCP_FALLBACK_VERSION = MCP_PROTOCOL_VERSIONS[0];
 
 /** What this server says it is, in `initialize`'s answer. */
 interface McpServerInfo {
@@ -52,7 +52,7 @@ interface McpServerInfo {
 }
 
 /** The server's own name and version, as an agent is told them. */
-const UNIT_MCP_INFO: McpServerInfo = { name: 'madarch-unit', version: runningVersion() };
+export const UNIT_MCP_INFO: McpServerInfo = { name: 'madarch-unit', version: runningVersion() };
 
 /** What a message answers a tool call with: the host this server proxies to (`createUnitToolsHost`). */
 type UnitToolCallForwarder = (tool: string, argumentsValue: unknown) => Promise<UnitToolAnswer>;

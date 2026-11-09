@@ -84,7 +84,7 @@ interface UnitLimitState {
 }
 
 /** What the guard answers about one moment. */
-type UnitLimitVerdict =
+export type UnitLimitVerdict =
   | { readonly kind: 'within'; readonly state: UnitLimitState }
   | { readonly kind: 'wrap'; readonly state: UnitLimitState }
   | { readonly kind: 'stop'; readonly cause: UnitLimitCause; readonly state: UnitLimitState };
@@ -115,7 +115,7 @@ export interface UnitLimitGuard {
 }
 
 /** The bounds one stage's resolved limits name, refused by name where a number cannot bound anything. */
-function unitLimitBounds(limits: StageLimits, at = here()): UnitLimitBounds {
+export function unitLimitBounds(limits: StageLimits, at = here()): UnitLimitBounds {
   const whole = (field: keyof StageLimits, value: number, least: number): number => {
     if (!Number.isInteger(value) || value < least) raise(`${at}: the unit's ${field} is ${String(value)}: a limit is a whole number of at least ${least}`);
     return value;

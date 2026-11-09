@@ -51,7 +51,7 @@ function referencesIn(node: MNode): string[] {
  * Cuts the inline children of a paragraph into sentences; the blank between two sentences stays a text node of its own.
  * A formatted run (bold, a link, code) is one piece: only the paragraph's own text is cut at a blank, as the engine does.
  */
-function cutSentences(children: readonly MNode[]): (Cut | MNode)[] {
+export function cutSentences(children: readonly MNode[]): (Cut | MNode)[] {
   const out: (Cut | MNode)[] = [];
   let current: Cut = { nodes: [], notes: [] };
   let terminated = false;

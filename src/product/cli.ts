@@ -270,7 +270,7 @@ interface CommandSpec {
 }
 
 /** The specs the subcommands answer to, whole. */
-const COMMANDS: Record<string, CommandSpec> = {
+export const COMMANDS: Record<string, CommandSpec> = {
   start: { positionals: [], flags: { home: true, product: false, port: true, open: false, branch: false, yes: false } },
   stop: { positionals: [], flags: { home: true, product: false, port: false, open: false, branch: false, yes: false } },
   status: { positionals: [], flags: { home: true, product: false, port: false, open: false, branch: false, yes: false } },
@@ -611,7 +611,7 @@ export interface CliDeps {
   chooseRepoMode?: (source: string) => Promise<RepoConnectMode>;
 }
 
-function repoModeFromAnswer(answer: string): RepoConnectMode | undefined {
+export function repoModeFromAnswer(answer: string): RepoConnectMode | undefined {
   const choice = answer.trim().toLowerCase();
   if (choice === '' || choice === 'link') return 'link';
   if (choice === 'move' || choice === 'clone') return choice;
@@ -1102,7 +1102,7 @@ function lifecycleRepo(parsed: Parsed, mode: RepoConnectMode | undefined = parse
 }
 
 /** What a reset removes and keeps, in the words both the command and the wiki's confirmation use. */
-function describeReset(name: string, plan: ResetPlan): string[] {
+export function describeReset(name: string, plan: ResetPlan): string[] {
   return [
     `Starting ${name} over removes:`,
     `  - the product's graph store, which the next fill builds again from the code${plan.store.length === 0 ? ' (there is none now)' : ''}`,

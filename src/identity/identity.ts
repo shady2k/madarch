@@ -16,7 +16,7 @@ import { runGit } from '../product/git.js';
 type Verification = 'local-git';
 
 /** The mark every local identity is written with. */
-const LOCAL_MARK = 'local, not verified';
+export const LOCAL_MARK = 'local, not verified';
 
 interface Identity {
   name: string;
@@ -38,7 +38,7 @@ export type IdentityProvider = (folder: string, env?: Readonly<Record<string, st
 const missing = (folder: string, key: 'user.name' | 'user.email'): string =>
   `git has no ${key} for ${folder}, so the wiki cannot say who wrote this: run  git config --global user.name "Your Name"  and  git config --global user.email "you@example.com"  (or the same without --global inside ${folder}), then try again`;
 
-const localGitIdentity: IdentityProvider = (folder, environment = process.env) => {
+export const localGitIdentity: IdentityProvider = (folder, environment = process.env) => {
   // git is asked in the environment the caller named; a variable the caller leaves out (`undefined`) is left out of git's.
   const env: Record<string, string> = {};
   for (const [key, value] of Object.entries(environment)) if (value !== undefined) env[key] = value;
@@ -75,7 +75,7 @@ export function whoIsTheUser(folder: string, provider: IdentityProvider = localG
 }
 
 /** `Name <email>`, the way git writes an author. */
-const authorOf = (identity: Identity): string => `${identity.name} <${identity.email}>`;
+export const authorOf = (identity: Identity): string => `${identity.name} <${identity.email}>`;
 
 /** The trailer lines a commit message ends with so the history says who wrote and how that was checked. */
 /** The arguments of `git commit` for a write by the user: the subject, the trailer, and `-S` when the user's own signing key is configured. */
@@ -83,7 +83,7 @@ function commitArguments(subject: string, identity: Identity): string[] {
   return ['commit', '--quiet', ...(identity.signing ? ['-S'] : []), '-m', subject, '-m', identityTrailer(identity)];
 }
 
-function identityTrailer(identity: Identity): string {
+export function identityTrailer(identity: Identity): string {
   return `Written-by: ${authorOf(identity)} (${identity.mark})`;
 }
 

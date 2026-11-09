@@ -8,11 +8,7 @@
  */
 import { afterAll, beforeAll, describe, expect, test } from 'bun:test';
 import type { Block, EntityRef, PageModel } from '../src/knowledge/model.js';
-import {
-  FINDING_CLASSES, compareToBaseline, foreignText, formatBaseline, formatReport, idTokens, inspectCatalogue,
-  inspectDocument, inspectPage, jsonValue, parseArguments, parseBaseline, passagesOf, productEndpoint,
-  relationIsKey, walkWiki, type WalkResult,
-} from '../scripts/wiki-walk.js';
+import { FINDING_CLASSES, compareToBaseline, foreignText, formatBaseline, formatReport, idTokens, inspectCatalogue, inspectDocument, inspectPage, jsonValue, parseArguments, parseBaseline, passagesOf, productEndpoint, relationIsKey, walkWiki, type WalkResult } from '../scripts/wiki-walk.js';
 
 const KIND_SERVICE = 'code.service';
 const KIND_PRODUCT = 'product';

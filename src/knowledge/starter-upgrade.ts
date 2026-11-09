@@ -166,7 +166,7 @@ function onlyMadarchAdditions(working: string, committed: string): boolean {
 }
 
 /** Who wrote a starter file as the product holds it now. */
-function provenanceOf(productFolder: string, path: string, starter: string, record: Record_, observedText?: string): Provenance {
+export function provenanceOf(productFolder: string, path: string, starter: string, record: Record_, observedText?: string): Provenance {
   const file = join(productFolder, path);
   const stat = lstatSync(file, { throwIfNoEntry: false });
   if (stat === undefined) return 'absent';
@@ -239,7 +239,7 @@ function upgradeFields(kind: StarterKind, catalog: boolean): string[] {
 }
 
 /** What the starter set holds and this manifest lacks. A manifest that cannot be read offers nothing: its findings say why. */
-function starterOffers(manifestText: string): StarterOffer[] {
+export function starterOffers(manifestText: string): StarterOffer[] {
   const document = parseDocument(manifestText);
   if (document.errors.length > 0) return [];
   const data = document.toJS() as Record<string, unknown> | null;

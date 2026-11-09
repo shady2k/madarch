@@ -62,7 +62,7 @@ interface RepositoryHead {
 }
 
 /** What starting one update run is asked for. */
-interface UpdateRunRequest {
+export interface UpdateRunRequest {
   /** The product the update fills. */
   readonly product: FillProduct;
   /** The run's id: one per product and commit, so the same commit never starts two runs. */
@@ -76,7 +76,7 @@ interface UpdateRunRequest {
 }
 
 /** How one update run ended as far as the watcher is concerned. */
-type UpdateRunAnswer =
+export type UpdateRunAnswer =
   | { readonly started: true }
   /** A refusal that is not a deferral: the commit is dropped with the reason named, so the watcher cannot loop on it. */
   | { readonly started: false; readonly code: string; readonly reason: string }
@@ -154,10 +154,10 @@ const DEFAULT_INTERVAL_MS = 60_000;
 /** How soon a pass follows a watcher's event: a batch of ref writes in one moment is one pass, not one per write. */
 const COALESCE_MS = 25;
 /** The file the last heads are kept in, under the products home. */
-const UPDATE_STATE_FILE = join('.madarch', 'updates.json');
+export const UPDATE_STATE_FILE = join('.madarch', 'updates.json');
 
 /** The key one repository's last head stands under: `product/repository`, which no two pairs share. */
-function seenKey(product: string, repository: string): string {
+export function seenKey(product: string, repository: string): string {
   return `${product}/${repository}`;
 }
 
@@ -241,7 +241,7 @@ function branchOfHead(text: string): string | undefined {
  * checkout's own HEAD stands on. A detached HEAD with no declared branch names no
  * default branch, and that is the `reason` a caller reports rather than a run.
  */
-function headOf(folder: string, declaredBranch?: string): { ok: true; head: RepositoryHead } | { ok: false; reason: string } {
+export function headOf(folder: string, declaredBranch?: string): { ok: true; head: RepositoryHead } | { ok: false; reason: string } {
   const read = checkoutHead(folder);
   if (read === undefined) {
     return { ok: false, reason: `the checkout at ${folder} is no Git repository this watcher can read: ${join(folder, '.git')} is no folder and no "gitdir:" file` };
@@ -287,7 +287,7 @@ function watchedPathsOf(folder: string, declaredBranch?: string): readonly strin
 }
 
 /** The repositories one product's update watches: its product repository and every code repository its manifest declares. */
-function repositoriesOf(product: { readonly name: string; readonly folder: string; readonly repos: readonly { readonly name: string; readonly branch?: string }[] }): readonly WatchedRepository[] {
+export function repositoriesOf(product: { readonly name: string; readonly folder: string; readonly repos: readonly { readonly name: string; readonly branch?: string }[] }): readonly WatchedRepository[] {
   const watched: WatchedRepository[] = [{ product: product.name, repository: product.name, folder: product.folder }];
   for (const repo of product.repos) {
     watched.push({
@@ -301,7 +301,7 @@ function repositoriesOf(product: { readonly name: string; readonly folder: strin
 }
 
 /** Reads the heads this watcher last saw, or none where it never wrote one. */
-function readSeenHeads(home: string): Record<string, { branch: string; commit: string }> {
+export function readSeenHeads(home: string): Record<string, { branch: string; commit: string }> {
   const file = join(home, UPDATE_STATE_FILE);
   let parsed: Partial<SeenHeads>;
   try {
@@ -328,7 +328,7 @@ function readSeenHeads(home: string): Record<string, { branch: string; commit: s
  * rather than reading it as "nothing has been watched" in silence and skipping the
  * commit that waited in it.
  */
-function seenHeadsNote(home: string): string | undefined {
+export function seenHeadsNote(home: string): string | undefined {
   const file = join(home, UPDATE_STATE_FILE);
   let text: string;
   try {
