@@ -10,6 +10,7 @@
  * run's scratch, which is what makes a finished run leave nothing behind and a
  * killed run's server the next run's to sweep.
  */
+import { spawnSync } from 'node:child_process';
 import { lstatSync, readFileSync, readdirSync, statSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
@@ -53,6 +54,28 @@ export async function stopServersUnder(folder: string): Promise<void> {
   };
   walk(folder, 0);
   for (const dataDir of dataDirs) await stopServerIn(dataDir);
+}
+
+/**
+ * Stops every fill role whose command line names `folder` — a run's scratch — and waits for each: a run leaves no
+ * process behind, and a role a test started directly (or a server's child a signal reached too late) is one.
+ */
+export async function stopRolesUnder(folder: string): Promise<void> {
+  const listed = spawnSync('ps', ['-A', '-o', 'pid=,command='], { encoding: 'utf8' });
+  for (const line of (listed.stdout ?? '').split('\n')) {
+    const match = /^\s*(\d+)\s+(.*)$/.exec(line);
+    if (match === null) continue;
+    const pid = Number(match[1]);
+    const command = match[2] ?? '';
+    if (!command.includes('--role') || !command.includes(' fill') || !command.includes(folder)) continue;
+    if (!Number.isInteger(pid) || pid <= 1) continue;
+    for (const signal of ['SIGTERM', 'SIGKILL'] as const) {
+      try { process.kill(pid, signal); } catch { break; }
+      const until = Date.now() + 3_000;
+      while (Date.now() < until && alive(pid)) await Bun.sleep(20);
+      if (!alive(pid)) break;
+    }
+  }
 }
 
 /** One server, signalled and waited for: only the one whose own command line names this data directory. */

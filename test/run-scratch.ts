@@ -180,9 +180,11 @@ async function installEndOfRun(): Promise<void> {
    */
   const endByItself = async (): Promise<void> => {
     try {
-      const { stopRunPostgres, stopServersUnder } = await import('./run-postgres.js');
+      const { stopRunPostgres, stopServersUnder, stopRolesUnder } = await import('./run-postgres.js');
+      // The roles first (a signalled role gives its stores up on its own), then the run's server, then every other
+      // server a case started inside this run's own scratch, whichever file started it: a run leaves none.
+      await stopRolesUnder(stateOf().scratch.folder);
       await stopRunPostgres();
-      // Every other server a case started inside this run's own scratch, whichever file started it: a run leaves none.
       await stopServersUnder(stateOf().scratch.folder);
     } catch {
       // `bun:test` was not there to load, or no server was started: the sweep still removes the folder.
