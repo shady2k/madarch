@@ -33,7 +33,7 @@
  */
 import { existsSync, lstatSync, readFileSync, realpathSync, statSync, writeFileSync } from 'node:fs';
 import { isAbsolute, join, relative, resolve } from 'node:path';
-import { LineCounter, parseDocument } from 'yaml';
+import { LineCounter, parseDocument, type Document } from 'yaml';
 import { lineForPath } from '../model/yaml-position.js';
 import { catalogFindings, CATALOG_ONLY_FIELDS, readCatalogKind, readCatalogSchema, type CatalogEntry, type CatalogSchema } from './catalog.js';
 import { readMapping, type MappingRead } from './mapping.js';
@@ -704,11 +704,42 @@ export function readKinds(productFolder: string): KindsRead {
   return { present: true, manifest: withWorkflows(parseKinds(text, file, productFolder), productFolder) };
 }
 
+/**
+ * How many parsed manifests are kept: one per product folder a process reads, and a cap so a products home of many
+ * products does not hold them all. A manifest read again is a hit; one that fell out of the cache is parsed again.
+ */
+const PARSED_MANIFESTS_KEPT = 8;
+
+/**
+ * The parsed YAML of a manifest, by the text it was parsed from: `parseDocument` reads 474 KB (8 222 lines) in 54-93 ms
+ * on this box, and a manifest is read on the answer to every page, status poll and Problems read — on the event loop of
+ * the process that serves them (madarch-8bdc.9, CI shard 2: one such parse was the 330 ms stall that hit every endpoint
+ * at the press of a fill on a two-core runner). The text is the key, so an edited file is parsed at the next read; what
+ * is made *of* the parsed document — findings, line numbers, whether a template exists — is worked out on every read and
+ * is not cached, so a template written beside an unchanged manifest is still seen (madarch-u3vw.8).
+ */
+const parsedManifests = new Map<string, { readonly text: string; readonly doc: Document; readonly lines: LineCounter }>();
+
+/** The parse of one manifest text, from the cache when this file last saw this text. */
+function parsedManifest(text: string, file: string): { readonly doc: Document; readonly lines: LineCounter } {
+  const held = parsedManifests.get(file);
+  if (held !== undefined && held.text === text) return held;
+  const lines = new LineCounter();
+  const entry = { text, doc: parseDocument(text, { lineCounter: lines, uniqueKeys: true }), lines };
+  parsedManifests.delete(file);
+  parsedManifests.set(file, entry);
+  while (parsedManifests.size > PARSED_MANIFESTS_KEPT) {
+    const oldest = parsedManifests.keys().next().value;
+    if (oldest === undefined) break;
+    parsedManifests.delete(oldest);
+  }
+  return entry;
+}
+
 /** Parses the manifest's text; `productFolder` lets a template's existence be judged. */
 export function parseKinds(text: string, file: string, productFolder: string): KindsManifest {
   const findings: Finding[] = [];
-  const lines = new LineCounter();
-  const doc = parseDocument(text, { lineCounter: lines, uniqueKeys: true });
+  const { doc, lines } = parsedManifest(text, file);
   const at = (path: (string | number)[]): number => lineForPath(doc, lines, path);
   for (const problem of doc.errors) findings.push({ file, line: problem.linePos?.[0].line ?? 1, message: problem.message.split('\n')[0] ?? problem.message });
   if (doc.errors.length > 0) return nothing(file, findings);
