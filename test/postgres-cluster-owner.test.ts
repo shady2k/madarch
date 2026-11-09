@@ -67,6 +67,18 @@ test('a process that attaches and leaves keeps the server answering for the one 
   expect(await answering(store)).toBe(false);
 }, 120_000);
 
+test('a platform whose C library this build does not ask for refuses by name, and the module is loaded there without one', async () => {
+  // What the Windows binary of CI run ddaefd9b failed at: a `dlopen` at the module's import, where no store is ever opened.
+  // The child loads the module with this box's platform reported as another and opens a store: the module imports, and the
+  // open refuses by name instead of loading a library the platform does not have.
+  const refusing = child('refuse-platform', storeOf('refused'), 'win32');
+  expect(await refusing.exited).toBe(0);
+  const said = await new Response(refusing.stdout).text();
+  expect(said).toContain('refused:');
+  expect(said).toContain('win32');
+  expect(said).toContain('flock(2)');
+}, 120_000);
+
 test('an open waits for a start another process is making, then starts the server it finds nothing answering on', async () => {
   const store = storeOf('waiting');
   const marker = join(root, 'held.txt');
