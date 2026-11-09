@@ -201,3 +201,37 @@ test('a service left to itself recovers a lapsed claim without anyone asking', a
     await alone.close();
   }
 }, 60_000);
+
+test('a schema another process is making when the queue starts is waited for, not reported as a failed start', async () => {
+  // Two processes of the binary open one store's queue at the same instant — the api role when a fill is pressed, and the
+  // fill role that claims it — and pg-boss's start creates the schema both of them want. PostgreSQL's `CREATE SCHEMA IF
+  // NOT EXISTS` is not safe under concurrency, so the loser reads a duplicate key on `pg_namespace`; pg-boss's own start
+  // retries that when it is asked to. The race is held open here by hand: the schema is made in a transaction of its own
+  // and committed while the queue's start stands behind it, which is a count of waiting backends, never a sleep.
+  const racing = await createTestDatabaseOwner();
+  let release: (() => void) | undefined;
+  const making = racing.transaction('write', async (transaction) => {
+    await transaction.query('CREATE SCHEMA IF NOT EXISTS racing_queue');
+    await new Promise<void>((resolve) => { release = resolve; });
+  });
+  const waiting = async (): Promise<boolean> => {
+    const held = await racing.run(async (transaction) => (await transaction.query<{ n: number }>(
+      "SELECT count(*)::int AS n FROM pg_stat_activity WHERE wait_event_type = 'Lock' AND datname = current_database()",
+    )).rows);
+    return (held[0]?.n ?? 0) > 0;
+  };
+  try {
+    const starting = createPgBossQueue({ owner: racing, schema: 'racing_queue', supervise: false });
+    const outcome = starting.then((queue) => queue, (error: Error) => error);
+    const deadline = Date.now() + 30_000;
+    while (!(await waiting()) && Date.now() < deadline) await new Promise((rest) => setTimeout(rest, 50));
+    release!();
+    const answer = await outcome;
+    expect(answer instanceof Error ? answer.message : 'the queue opened').not.toContain('duplicate key');
+    if (!(answer instanceof Error)) await answer.stop();
+    await making;
+  } finally {
+    release?.();
+    await racing.close();
+  }
+}, 60_000);
