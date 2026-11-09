@@ -24,7 +24,3 @@ export const CardDescription = forwardRef<HTMLParagraphElement, HTMLAttributes<H
 export const CardContent = forwardRef<HTMLDivElement, HTMLAttributes<HTMLDivElement>>(function CardContent({ className, ...props }, ref) {
   return <div ref={ref} className={cn('px-4 pb-4 pt-3', className)} {...props} />;
 });
-
-const CardFooter = forwardRef<HTMLDivElement, HTMLAttributes<HTMLDivElement>>(function CardFooter({ className, ...props }, ref) {
-  return <div ref={ref} className={cn('flex items-center gap-2 border-t border-line px-4 py-3', className)} {...props} />;
-});

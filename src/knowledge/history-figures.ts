@@ -57,6 +57,11 @@ export function isCountedFigure(kind: string): kind is CountedFigure {
  * value, which is what the page files name.
  */
 export function historyFigureText(figure: { kind: string; value: string }, language: string | undefined): string {
+  // What a commit did to a file, and the lines it moved: the reader's words for the change, and git's own signs.
+  if (figure.kind === 'change') return figure.value;
+  if (figure.kind === 'renamed') return `${contentLanguage(language) === 'ru' ? 'переименован из' : 'renamed from'} ${figure.value}`;
+  if (figure.kind === 'added') return `+${figure.value}`;
+  if (figure.kind === 'removed') return `−${figure.value}`;
   if (!isCountedFigure(figure.kind)) return `${figure.kind}: ${figure.value}`;
   const count = Number(figure.value);
   const form = Number.isFinite(count) ? pluralForm(language, count) : 'other';

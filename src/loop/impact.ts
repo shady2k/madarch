@@ -16,7 +16,7 @@
 import type { DatabaseOwner } from '../adapters/database-owner.js';
 import { byCodePoint } from '../model/order.js';
 import { readKnowledgePages, statementsRelyingOn, type IndexedPage, type RelyingStatement } from '../knowledge/index/index.js';
-import { DOMAINS_FOLDER, PRODUCT_PATH } from '../writer/run.js';
+import { DOMAINS_FOLDER, PRODUCT_PATH } from '../writer/units.js';
 import { parseStatementRef } from './entities.js';
 
 /** One statement a change reaches: where it stands, what it says and the ground that reached it. */
@@ -67,17 +67,6 @@ function keysOf(page: IndexedPage): string[] {
   const keys = new Set<string>([...page.relates, ...page.mentions]);
   for (const statement of page.statements) for (const key of [...statement.grounds, ...statement.mentions]) keys.add(key);
   return [...keys];
-}
-
-/** The path a graph key names in a repository, when it names one; a document section keeps its path. */
-export function pathOfGround(ground: string): string | undefined {
-  const doc = /^doc:([^#]+)(?:#.*)?$/.exec(ground);
-  if (doc !== null) return doc[1];
-  const code = /^code\.(?:file|directory):(.+)$/.exec(ground);
-  if (code !== null) return code[1];
-  const symbol = /^code\.symbol:(.+)$/.exec(ground);
-  if (symbol !== null) return symbol[1]!.split('#')[0];
-  return undefined;
 }
 
 const isPathKey = (ground: string): boolean => /^(code\.|doc:)/.test(ground);

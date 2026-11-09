@@ -337,23 +337,6 @@ export const ModelFile = Type.Object(
 );
 export type ModelFile = Static<typeof ModelFile>;
 
-/** One model, read from every `*.yaml` file of a repository's `madarch/` folder. */
-export interface IntendedModel {
-  version: 1;
-  elements: Element[];
-  interfaces: Interface[];
-  relations: Relation[];
-  categories: Category[];
-  entities: DataEntity[];
-  scenarios: Scenario[];
-  zones: Zone[];
-  environments: Environment[];
-  states: State[];
-}
-
-/** The id of the implicit single state a model with no `states` has. */
-export const DEFAULT_STATE_ID = 'as-is';
-
 declare const validatedBrand: unique symbol;
 
 /**
@@ -363,4 +346,3 @@ declare const validatedBrand: unique symbol;
  * assumes a model already free of those problems — cannot be called on
  * anything else without an explicit, visible cast.
  */
-export type ValidatedModel = IntendedModel & { readonly [validatedBrand]: true };

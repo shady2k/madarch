@@ -63,14 +63,6 @@ export type Neighborhood = {
   more: DiagramMore[];
   relations: { relation: string; direction: 'out' | 'in'; count: number }[];
 };
-type StepKind = 'enter' | 'route' | 'call' | 'self' | 'read' | 'write' | 'http' | 'grpc' | 'publish' | 'consume';
-type ChainLane = { id: string; label: string; sub: string; kind: string; href: string | null; group: string; groupLabel?: string };
-type ChainStep = { n: number; from: string; to: string; label: string; kind: StepKind; href: string | null; site?: CodeLocation; order: 'source' | 'unordered'; note?: string; technical?: true };
-type Chain = { title: string; entry: EntityRef | null; lanes: ChainLane[]; steps: ChainStep[]; notes: string[]; total: number };
-type SystemNode = { id: string; kind: 'service' | 'database' | 'topic' | 'external'; label: string; sub: string; href: string | null };
-type SystemEdge = { from: string; to: string; via: 'http' | 'grpc' | 'sql' | 'publishes' | 'consumes'; label: string; count: number };
-type ModuleNode = { id: string; label: string; files: number; href: string | null; cycle: boolean };
-type ModuleEdge = { from: string; to: string; cycle: boolean };
 export type TreemapFile = { id: string; path: string; href: string | null; lines: number; churn: number };
 
 export type DiagramRenderer = 'likec4' | 'mermaid' | 'archify';
@@ -198,6 +190,15 @@ export type CatalogView = {
   kinds: CatalogKindView[];
   findings: Finding[];
 };
+
+/** One page or entity a search found: its name, its address, and the text around the match in a page's body. */
+type SearchRow = { id: string; kind: string; title: string; href: string; excerpt?: string };
+
+/** The rows one kind of the wiki's search found, with how many it holds in all. */
+type SearchGroup = { kind: string; total: number; rows: SearchRow[] };
+
+/** The wiki's own answer to a search: the rows grouped by kind, and how many were found. */
+export type SearchView = { product: { name: string; id: string }; language: string; query: string; groups: SearchGroup[]; total: number };
 
 export type KindSummary = {
   kind: string;
@@ -712,10 +713,6 @@ type PlannedPage = { id: string; path: string; reasons: PlanReason[] };
 type Unplaced = { kind: 'question' | 'correction'; slug: string; title: string; reason: string };
 
 export type RefreshPlan = { languageChanged: boolean; pages: PlannedPage[]; unchanged: string[]; unplaced: Unplaced[]; problems: string[] };
-
-export type RefreshPreview =
-  | { available: true; plan: RefreshPlan; language: { from: string | null; to: string; changed: boolean }; commitsNotRead: number | null }
-  | { available: false; reason: string };
 
 // ---- the agent's journal (madarch-m38l.13) ----------------------------------------------------
 

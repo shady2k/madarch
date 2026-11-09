@@ -8,32 +8,11 @@
 import { canonicalJsonDigest } from '../model/canonical.js';
 import { byCodePoint } from '../model/order.js';
 
-/** The words of a question file that make up its identity. */
-export interface QuestionContent {
-  readonly type: string;
-  readonly title: string;
-  readonly question: string;
-  readonly why: string;
-  readonly sides: readonly { readonly claim: string; readonly grounds: readonly string[] }[];
-}
-
 /** A question-file footnote names one side: its claim and the keys it stands on. */
 export function questionFootnoteId(claim: string, grounds: readonly string[]): string {
   return shortDigest({ claim: normalize(claim), grounds: keys(grounds) });
 }
 
-/** A question names its type, its readable text and every side's claim and grounds. */
-export function questionId(question: QuestionContent): string {
-  return shortDigest({
-    type: question.type,
-    title: normalize(question.title),
-    question: normalize(question.question),
-    why: normalize(question.why),
-    sides: question.sides.map((side) => ({ claim: normalize(side.claim), grounds: keys(side.grounds) })),
-  });
-}
-
-/** A correction names the sentence as it read, the person's reason and the statement key it corrects. */
 export function correctionId(statement: string, reason: string, statementKey: string): string {
   return shortDigest({ statement: normalize(statement), reason: normalize(reason), statementKey: normalize(statementKey) });
 }
@@ -69,8 +48,6 @@ function keys(values: readonly string[]): string[] {
   return [...new Set(values.map(normalize))].sort(byCodePoint);
 }
 
-/** A content-hash slug, with the `-2`, `-3` a collision with a different file takes. */
-export const CONTENT_SLUG = /^[0-9a-f]{12}(?:-[0-9]+)?$/;
 
 /**
  * A question id as the wiki reads it back: an old lower-case name from a file

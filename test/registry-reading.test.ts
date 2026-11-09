@@ -8,13 +8,12 @@
  * surfaces the contract's own refusals and keeps the pages plain. The
  * small products created by tests read through the registry they carry.
  */
-import { existsSync, mkdirSync, mkdtempSync, renameSync, rmSync, symlinkSync, writeFileSync } from 'node:fs';
+import { mkdirSync, mkdtempSync, rmSync, symlinkSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { afterEach, describe, expect, test } from 'bun:test';
-import { readProductRegistry, registryKit, kindOfPath, kindOfId, REGISTRY_FILE } from '../src/product/registry.js';
+import { readProductRegistry, registryKit, kindOfPath } from '../src/product/registry.js';
 import { parseDocument } from '../src/product-wiki/documents.js';
-import { parseContractText } from '../src/product/contract.js';
 import { openProductWiki } from '../src/product-wiki/pages.js';
 
 
@@ -208,7 +207,7 @@ describe('the product registry in small test fixtures', () => {
     expect(read).toEqual({ present: false });
   });
 
-  test('a kind behind the longer folder wins the place’s match, and id prefixes pin the longest first', () => {
+  test('a kind behind the longer folder wins the place’s match, and each id prefix names its kind', () => {
     draft(['contract: 1',
       'stages:',
       '  - id: idea',
@@ -240,8 +239,9 @@ describe('the product registry in small test fixtures', () => {
     if (kit === undefined) throw new Error('the kit must build');
     expect(kindOfPath(kit, 'docs/changes/decisions/0001-own.md')?.name).toBe('Decision records');
     expect(kindOfPath(kit, 'docs/changes/0001-mine.md')?.name).toBe('Change records');
-    expect(kindOfId(kit, 'D-001')?.name).toBe('Decision records');
-    expect(kindOfId(kit, 'CH-001')?.name).toBe('Change records');
+    // The id's prefix names its kind: `kindOfId` was this one lookup over the kit's own map.
+    expect(kit.byPrefix.get('D')?.name).toBe('Decision records');
+    expect(kit.byPrefix.get('CH')?.name).toBe('Change records');
   });
 
   test('the id shape carries three digits: two-digit or no-number ids are no id of any kind', () => {

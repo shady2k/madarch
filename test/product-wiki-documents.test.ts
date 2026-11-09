@@ -8,7 +8,7 @@
  * revision and its findings on the failing page, and the plain page that
  * stays plain where no kind names it.
  */
-import { mkdtempSync, mkdirSync, readFileSync, renameSync, rmSync, symlinkSync, writeFileSync, existsSync } from 'node:fs';
+import { mkdtempSync, mkdirSync, readFileSync, renameSync, rmSync, symlinkSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { execFileSync } from 'node:child_process';
@@ -560,10 +560,6 @@ describe('the forms' + "'" + ' reading, held against its mutants', () => {
   });
 
   test('a backlink needs the id exact: US-001 does not reach FR-001 by prefix', () => {
-    const held = new Set(['docs/a.md', 'docs/b.md']);
-    const a = parseDocument('docs/a.md', '# FR-001 — A\n\n## Requirement\nThe thing.\n', held);
-    const b = parseDocument('docs/b.md', '# FR-011 — B\n\nServes: FR-001\nVerified by: test\n\n## Requirement\nThe other.\n', held);
-    const docs = { byPath: new Map([['docs/a.md', a], ['docs/b.md', b]]), byId: new Map([['FR-001', a], ['FR-011', b]]) };
     // The backlinks function runs on the module level; emulate through one product read.
   });
 });

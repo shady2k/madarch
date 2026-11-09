@@ -21,11 +21,6 @@ import { DEFAULT_STAGE_DEFAULTS, type FillStage } from '../src/fill/stage.js';
 
 const FILE = 'madarch/workflows.yaml';
 
-/**
- * The stages the engine's registry holds, as its own refusals name them: read from the registry, never written here,
- * so a stage added to the engine moves this text with it.
- */
-const ENGINE_STAGES = createEngineStageRegistry().all().map((stage) => stage.id).join(', ');
 
 const made: string[] = [];
 afterAll(() => {
@@ -46,21 +41,7 @@ function product(workflows?: string): string {
   return folder;
 }
 
-/** The 1-based line the file writes `text` on, read as the check reads it. */
-function lineOf(text: string, needle: string): number {
-  return text.split('\n').findIndex((line) => line.trim() === needle) + 1;
-}
 
-/** The starter manifest with one workflow's stages replaced whole. */
-function stagesOf(name: string, stages: readonly string[]): string {
-  const lines = STARTER.split('\n');
-  const start = lines.indexOf(`  ${name}:`);
-  const stagesAt = lines.findIndex((line, index) => index > start && line.startsWith('    stages:'));
-  let end = stagesAt + 1;
-  while (end < lines.length && lines[end]!.startsWith('      ')) end += 1;
-  const written = stages.length === 0 ? ['    stages: []'] : ['    stages:', ...stages.map((stage) => `      - ${stage}`)];
-  return [...lines.slice(0, stagesAt), ...written, ...lines.slice(end)].join('\n');
-}
 
 /** A stage whose declaration says only what the derivation reads, for a registry no product has. */
 function stage(id: string, consumes: readonly string[], produces: readonly string[]): FillStage {

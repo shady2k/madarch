@@ -785,10 +785,3 @@ function titleOf(path: string, markdown: string): string {
   if (heading !== undefined) return heading.text;
   return nameOf(path).replace(/\.md$/, '');
 }
-
-/**
- * The wiki's public export beside the server's (src/index.ts has the model
- * side): the app needs nothing else — the server's wiki part reads through
- * `openProductWiki` alone.
- */
-type WikiPageListResult = ProductWikiPages;

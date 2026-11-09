@@ -542,7 +542,7 @@ function markdownPassages(tools: BlockTools, markdown: string, field: string, ex
 }
 
 function inspectBlock(block: Block, tools: BlockTools): void {
-  const { section, field, ids, label, words, empty, put } = tools;
+  const { section, field, label, words, empty, put } = tools;
   switch (block.type) {
     case 'body':
       if (block.localized === undefined) markdownPassages(tools, block.markdown, field('body.markdown'), tools.product);
@@ -687,7 +687,7 @@ function inspectBlock(block: Block, tools: BlockTools): void {
     case 'guide':
       // A guide is Markdown the app renders, localized to the language the page
       // was asked in: it is read like a body block, in the interface language.
-      markdownPassages(tools, block.data.markdown, field('data.markdown'), tools.user);
+      markdownPassages(tools, String((block.data as { markdown?: unknown }).markdown ?? ''), field('data.markdown'), tools.user);
       return;
     case 'stated': case 'deferred': case 'problem':
       // A stated place, a deferred block and a problem card are diagnostics,

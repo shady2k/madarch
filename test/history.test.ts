@@ -2,15 +2,10 @@ import { afterEach, describe, expect, test } from 'bun:test';
 import { mkdtempSync, rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
-import { fileURLToPath } from 'node:url';
 import { canonicalJsonDigest } from '../src/model/canonical.js';
-import { loadAndCompileModel, serializeCompiledModel, type Clock, type CompiledElement, type CompiledEntity, type CompiledModel, type CompiledRelation, type CompiledScenario, type HistoryStore } from './api.js';
+import { type Clock, type CompiledElement, type CompiledEntity, type CompiledModel, type CompiledRelation, type CompiledScenario, type HistoryStore } from './api.js';
 import { createHistoryStore } from '../src/adapters/sql-history.js';
 import { createTestHistory, openRawStore } from './test-database.js';
-
-function fixture(name: string): string {
-  return fileURLToPath(new URL(`./fixtures/${name}`, import.meta.url));
-}
 
 /** A clock a test moves by hand, never the real one. */
 function fakeClock(initial: number): Clock & { set(t: number): void } {
@@ -421,42 +416,6 @@ describe('commits: every commit of one source, in the history\'s own commit orde
 });
 
 describe('lossless: what is stored reads back as compiled', () => {
-  test('round-trip: the reference example, stored and read back at its commit\'s time, equals the compiled model', async () => {
-    const { model: compiled, errors } = loadAndCompileModel(fixture('reference-example'));
-    expect(errors).toEqual([]);
-    expect(compiled).toBeDefined();
-
-    const clock = fakeClock(DAY(2));
-    const h = await history(clock);
-    const result = await h.store({ source: 'reference', commit: 'c1', committedAt: DAY(1), model: compiled! });
-    expect(result.errors).toEqual([]);
-
-    const readBack = await readModel(h, { source: 'reference', valid: DAY(1), known: DAY(2) });
-    expect(serializeCompiledModel(readBack)).toEqual(serializeCompiledModel(compiled!));
-  });
-
-  test('round-trip: data entities and scenarios, stored and read back at their commit\'s time, equal the compiled model (madarch-hnq.1.4)', async () => {
-    const { model: compiled, errors } = loadAndCompileModel(fixture('entities-and-scenarios'));
-    expect(errors).toEqual([]);
-    expect(compiled?.entities.map((e) => e.id)).toEqual(['order-number', 'user-name']);
-    expect(compiled?.scenarios.map((s) => s.id)).toEqual(['order-fails', 'place-order']);
-
-    const clock = fakeClock(DAY(2));
-    const h = await history(clock);
-    const result = await h.store({ source: 'reference', commit: 'c1', committedAt: DAY(1), model: compiled! });
-    expect(result.errors).toEqual([]);
-
-    // Stored assertions exist for every kind, not only the seven the
-    // history knew before: an entity and a scenario are each one assertion
-    // of their source, closed and reopened like any other.
-    const kinds = new Set((await h.assertions({ source: 'reference' })).map((row) => row.kind));
-    expect(kinds.has('entity')).toBe(true);
-    expect(kinds.has('scenario')).toBe(true);
-
-    const readBack = await readModel(h, { source: 'reference', valid: DAY(1), known: DAY(2) });
-    expect(serializeCompiledModel(readBack)).toEqual(serializeCompiledModel(compiled!));
-  });
-
   test('the union read carries entities and scenarios beside the seven kinds, sorted by id', async () => {
     const clock = fakeClock(DAY(2));
     const h = await history(clock);
@@ -474,7 +433,8 @@ describe('lossless: what is stored reads back as compiled', () => {
     const union = await readModel(h, { valid: DAY(1), known: DAY(2) });
     expect(union.entities.map((e) => e.id)).toEqual(['a-entity', 'z-entity']);
     expect(union.scenarios.map((s) => s.id)).toEqual(['a-scenario', 'z-scenario']);
-    expect(serializeCompiledModel(union)).toBe(serializeCompiledModel(await readModel(h, { source: 'shop', valid: DAY(1), known: DAY(2) })));
+    // The compiled model's own key order is fixed (`history-assertions.ts`), so JSON is its canonical bytes.
+    expect(JSON.stringify(union)).toBe(JSON.stringify(await readModel(h, { source: 'shop', valid: DAY(1), known: DAY(2) })));
   });
 
   test('a newer commit replaces the entities and scenarios the source asserted, like every other kind', async () => {

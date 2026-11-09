@@ -18,14 +18,13 @@ import { installAcpAdapter } from '../fill/acp-install.js';
 import { resolveExecutable } from '../fill/acp.js';
 import { DEFAULT_STAGE_LIMITS } from '../fill/stage.js';
 import { homeFromEnv, type DraftEnv } from '../product/home.js';
-import { DEFAULT_UNIT_BOUNDS, MAX_DOMAINS } from '../writer/tools.js';
+import { DEFAULT_UNIT_BOUNDS, MAX_DOMAINS } from '../writer/units.js';
 import { DEFAULT_EDITORIAL_REQUESTS_PER_PAGE } from '../writer/editorial.js';
-import { acpUnitAgent } from '../writer/acp-agent.js';
 import { connectAcpAgent } from '../fill/acp.js';
 import { choicesOf, type AgentChoices, type AgentPreferences } from '../fill/acp-choices.js';
 import { mkdtemp, rm } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
-import type { UnitAgent } from '../writer/run.js';
+import type { UnitAgent } from '../writer/units.js';
 import type { Journal } from '../writer/journal.js';
 import type { AgentOffer, WriterBounds } from './model.js';
 
@@ -102,25 +101,11 @@ export async function installAdapter(id: string, env: DraftEnv): Promise<{ ok: t
   return result.outcome === 'installed' ? { ok: true } : { ok: false, message: result.message };
 }
 
-/** Starts the chosen agent as an ACP unit agent; the error names the adapter and where it was looked for. */
-export function makeUnitAgent(id: string, env: DraftEnv, progress?: (line: string) => void, preferences?: AgentPreferences, journal?: Journal): (UnitAgent & { close(): Promise<void> }) | { error: string } {
-  const entry = adapterOf(id);
-  if (entry === undefined) return { error: `src/knowledge/agents.ts: madarch offers ${WRITER_AGENTS.join(' and ')}; ${JSON.stringify(id)} is none of them` };
-  const launch = launchOf(entry, env);
-  let machineLaunch: ReturnType<typeof acpLaunchOf>;
-  try { machineLaunch = acpLaunchOf(entry, env, process.cwd(), { PATH: searchPathOf(entry, env) }, launch?.args); } catch (error) { return { error: error instanceof Error ? error.message : String(error) }; }
-  if (launch === undefined) {
-    return { error: `the ${entry.label} adapter is not installed: none of ${entry.launches.map((l) => l.binary).join(', ')} is on the PATH or in ${acpAgentFolder(entry, env, homeFromEnv(env))}` };
-  }
-  return acpUnitAgent({
-    spec: { id: entry.id, command: launch.binary, args: machineLaunch.args },
-    specForCwd: (cwd) => ({ id: entry.id, command: launch.binary, args: acpLaunchOf(entry, env, cwd, { PATH: searchPathOf(entry, env) }, launch.args).args }),
-    env: machineLaunch.env,
-    exactEnv: entry.machineLaunch !== undefined,
-    ...(progress === undefined ? {} : { progress }),
-    ...(preferences === undefined ? {} : { preferences }),
-    ...(journal === undefined ? {} : { journal }),
-  });
+
+
+/** The production factory: the one graph has no writer stage yet, so no ACP unit agent is started. */
+export function makeUnitAgent(_id: string, _env: DraftEnv, _progress?: (line: string) => void, _preferences?: AgentPreferences, _journal?: Journal): (UnitAgent & { close(): Promise<void> }) | { error: string } {
+  return { error: 'src/knowledge/agents.ts: the one graph has no writer stage yet: no ACP unit agent is started' };
 }
 
 /** How long an agent may take to start and open one session when it is asked what it offers. */
@@ -135,8 +120,7 @@ export async function queryAgentChoices(id: string, env: DraftEnv): Promise<{ ok
   const entry = adapterOf(id);
   if (entry === undefined) return { ok: false, message: `src/knowledge/agents.ts: madarch offers ${WRITER_AGENTS.join(' and ')}; ${JSON.stringify(id)} is none of them` };
   const launch = launchOf(entry, env);
-  let machineLaunch: ReturnType<typeof acpLaunchOf>;
-  try { machineLaunch = acpLaunchOf(entry, env, process.cwd(), { PATH: searchPathOf(entry, env) }); } catch (error) { return { ok: false, message: error instanceof Error ? error.message : String(error) }; }
+  try { } catch (error) { return { ok: false, message: error instanceof Error ? error.message : String(error) }; }
   if (launch === undefined) return { ok: false, message: `the ${entry.label} adapter is not installed: none of ${entry.launches.map((l) => l.binary).join(', ')} is on the PATH or in ${acpAgentFolder(entry, env, homeFromEnv(env))}` };
   const scratch = await mkdtemp(path.join(tmpdir(), 'madarch-choices-'));
   let connection: Awaited<ReturnType<typeof connectAcpAgent>> | undefined;

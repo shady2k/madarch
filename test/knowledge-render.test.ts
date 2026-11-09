@@ -9,16 +9,13 @@ import { afterAll, beforeAll, describe, expect, test } from 'bun:test';
 import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
-import { type DatabaseOwner } from '../src/adapters/database-owner.js';
-import { createGraphStore, type GraphId, type GraphStore } from '../src/graph/index.js';
+import { FakeGraph } from './fake-graph.js';
 import type { RenderContext } from '../src/knowledge/blocks.js';
-import { GraphReader } from '../src/knowledge/graph-read.js';
 import { parseKinds } from '../src/knowledge/kinds.js';
 import { readMarkdownEntities } from '../src/knowledge/markdown.js';
 import type { Block, PageModel } from '../src/knowledge/model.js';
 import { graphTitleOf, kindSummaries, listEntities, markdownTitleOf, renderPage } from '../src/knowledge/render.js';
 import { Resolver } from '../src/knowledge/resolve.js';
-import { createTestDatabaseOwner } from './test-database.js';
 import { findAnchor } from '../src/knowledge/anchors.js';
 
 // Record keys are built by concatenation so the neutral-names scan reads no key as a repository source.
@@ -39,8 +36,6 @@ const CUSTOMERS = K('code.table', 'billing/public.customers');
 const A_TS = ['import { b } from "./b";', '', 'export function charge(amount: number) {', '  // bill it', '  return audit(amount) + 1;', '}', '', 'function audit(n: number) {', '  return charge(n - 1);', '}', ''].join('\n');
 const B_TS = ['export function handle() {', '  const text = "x";', '  return charge(1);', '}', ''].join('\n');
 
-let owner: DatabaseOwner;
-let store: GraphStore;
 let ctx: RenderContext;
 let productFolder: string;
 const repoOfScope = new Map<string, string>();
@@ -49,53 +44,38 @@ const span = (path: string, lineStart: number, lineEnd: number) => ({ path, line
 
 beforeAll(async () => {
   productFolder = mkdtempSync(join(tmpdir(), 'madarch-knowledge-render-'));
-  owner = await createTestDatabaseOwner({ btreeGist: true });
-  await owner.ready;
-  store = createGraphStore(owner, { now: () => new Date('2026-06-01T00:00:00Z') });
-  await store.createSchema();
-  await store.registerCodeSchema({
-    kinds: ['code.service', 'code.package', 'code.module', 'code.database', 'code.table', 'code.column', 'code.debt'],
-    relations: [{ key: 'code.foreign-key', discriminated: true }, { key: 'code.manifest-of' }],
-  });
-  const scope = await store.newNode();
-  const ids = new Map<string, GraphId>();
-  const owned = { producer: 'code.extract.code', scope };
-  const add = async (key: string, kind: string, label: string, properties: Record<string, unknown> = {}): Promise<void> => {
-    const { nodeId } = await store.openNode({ kind, label, properties: { ...properties, recordKey: key }, validFrom: '2026-01-01T00:00:00Z', owner: owned });
-    ids.set(key, nodeId);
-  };
-  const link = async (relation: string, from: string, to: string, properties: Record<string, unknown> = {}, discriminator?: string): Promise<void> => {
-    await store.openEdge({ relation, src: ids.get(from)!, dst: ids.get(to)!, properties, validFrom: '2026-01-01T00:00:00Z', owner: owned, ...(discriminator === undefined ? {} : { discriminator }) });
-  };
-  await store.openNode({ nodeId: scope, kind: 'code.repository', label: 'shop', properties: { path: '/work/shop' }, validFrom: '2026-01-01T00:00:00Z', owner: { producer: 'code.extract.driver', scope } });
-  repoOfScope.set(scope, 'shop');
-  await add(SERVICE, 'code.service', 'billing', { language: 'typescript', frameworks: ['express', 'pino'], testFramework: 'jest', span: span('svc/billing/package.json', 1, 5) });
-  await add(PACKAGE, 'code.package', 'billing', { name: 'billing' });
-  await add(MODULE, 'code.module', 'svc/billing/src', { role: 'code' });
-  await add(FILE_A, 'code.file', 'a.ts', { path: 'svc/billing/src/a.ts' });
-  await add(FILE_B, 'code.file', 'b.ts', { path: 'svc/billing/src/b.ts' });
-  await add(CHARGE, 'code.symbol', 'charge', { path: 'svc/billing/src/a.ts', symbolKind: 'function', span: span('svc/billing/src/a.ts', 3, 6) });
-  await add(AUDIT, 'code.symbol', 'audit', { path: 'svc/billing/src/a.ts', symbolKind: 'function', span: span('svc/billing/src/a.ts', 8, 10) });
-  await add(HANDLE, 'code.symbol', 'handle', { path: 'svc/billing/src/b.ts', symbolKind: 'function', span: span('svc/billing/src/b.ts', 1, 4) });
-  await add(DEBT, 'code.debt', 'TODO: bill it', { marker: 'TODO', text: 'bill it', path: 'svc/billing/src/a.ts', line: 4, span: span('svc/billing/src/a.ts', 4, 4) });
-  await link('code.contains', PACKAGE, MODULE);
-  await link('code.contains', MODULE, FILE_A);
-  await link('code.contains', MODULE, FILE_B);
-  await link('code.contains', FILE_A, CHARGE);
-  await link('code.contains', FILE_A, AUDIT);
-  await link('code.contains', FILE_B, HANDLE);
-  await link('code.contains', FILE_A, DEBT);
-  await link('code.calls', HANDLE, CHARGE, { span: span('svc/billing/src/b.ts', 3, 3) });
-  await link('code.calls', AUDIT, CHARGE, { span: span('svc/billing/src/a.ts', 9, 9) });
-  await link('code.calls', CHARGE, AUDIT, { span: span('svc/billing/src/a.ts', 5, 5) });
-  await link('code.imports', FILE_B, FILE_A);
-  await add(DATABASE, 'code.database', 'billing', { service: 'billing' });
-  await add(INVOICES, 'code.table', 'invoices', { schema: 'public', database: 'billing' });
-  await add(CUSTOMERS, 'code.table', 'customers', { schema: 'public', database: 'billing' });
-  await add(`${INVOICES}/id`, 'code.column', 'id', { type: 'uuid', nullable: false, primaryKey: true });
-  await add(`${INVOICES}/customer_id`, 'code.column', 'customer_id', { type: 'uuid', nullable: false });
-  await add(`${CUSTOMERS}/id`, 'code.column', 'id', { type: 'uuid', nullable: false, primaryKey: true });
-  await link('code.foreign-key', INVOICES, CUSTOMERS, { column: 'customer_id' }, 'customer_id');
+  const fake = new FakeGraph();
+  const add = (key: string, kind: string, label: string, properties: Record<string, unknown> = {}): void => { fake.add(key, kind, label, properties); };
+  const link = (relation: string, from: string, to: string, properties: Record<string, unknown> = {}, discriminator = ''): void => { fake.link(relation, from, to, properties, discriminator); };
+  fake.add('code.repository:shop', 'code.repository', 'shop', { path: '/work/shop' });
+  repoOfScope.set(fake.repository(), 'shop');
+  add(SERVICE, 'code.service', 'billing', { language: 'typescript', frameworks: ['express', 'pino'], testFramework: 'jest', span: span('svc/billing/package.json', 1, 5) });
+  add(PACKAGE, 'code.package', 'billing', { name: 'billing' });
+  add(MODULE, 'code.module', 'svc/billing/src', { role: 'code' });
+  add(FILE_A, 'code.file', 'a.ts', { path: 'svc/billing/src/a.ts' });
+  add(FILE_B, 'code.file', 'b.ts', { path: 'svc/billing/src/b.ts' });
+  add(CHARGE, 'code.symbol', 'charge', { path: 'svc/billing/src/a.ts', symbolKind: 'function', span: span('svc/billing/src/a.ts', 3, 6) });
+  add(AUDIT, 'code.symbol', 'audit', { path: 'svc/billing/src/a.ts', symbolKind: 'function', span: span('svc/billing/src/a.ts', 8, 10) });
+  add(HANDLE, 'code.symbol', 'handle', { path: 'svc/billing/src/b.ts', symbolKind: 'function', span: span('svc/billing/src/b.ts', 1, 4) });
+  add(DEBT, 'code.debt', 'TODO: bill it', { marker: 'TODO', text: 'bill it', path: 'svc/billing/src/a.ts', line: 4, span: span('svc/billing/src/a.ts', 4, 4) });
+  link('code.contains', PACKAGE, MODULE);
+  link('code.contains', MODULE, FILE_A);
+  link('code.contains', MODULE, FILE_B);
+  link('code.contains', FILE_A, CHARGE);
+  link('code.contains', FILE_A, AUDIT);
+  link('code.contains', FILE_B, HANDLE);
+  link('code.contains', FILE_A, DEBT);
+  link('code.calls', HANDLE, CHARGE, { span: span('svc/billing/src/b.ts', 3, 3) });
+  link('code.calls', AUDIT, CHARGE, { span: span('svc/billing/src/a.ts', 9, 9) });
+  link('code.calls', CHARGE, AUDIT, { span: span('svc/billing/src/a.ts', 5, 5) });
+  link('code.imports', FILE_B, FILE_A);
+  add(DATABASE, 'code.database', 'billing', { service: 'billing' });
+  add(INVOICES, 'code.table', 'invoices', { schema: 'public', database: 'billing' });
+  add(CUSTOMERS, 'code.table', 'customers', { schema: 'public', database: 'billing' });
+  add(`${INVOICES}/id`, 'code.column', 'id', { type: 'uuid', nullable: false, primaryKey: true });
+  add(`${INVOICES}/customer_id`, 'code.column', 'customer_id', { type: 'uuid', nullable: false });
+  add(`${CUSTOMERS}/id`, 'code.column', 'id', { type: 'uuid', nullable: false, primaryKey: true });
+  link('code.foreign-key', INVOICES, CUSTOMERS, { column: 'customer_id' }, 'customer_id');
 
   const write = (path: string, text: string): void => {
     mkdirSync(join(productFolder, path, '..'), { recursive: true });
@@ -181,7 +161,7 @@ beforeAll(async () => {
   const read = parseKinds(await Bun.file(join(productFolder, 'madarch/kinds.yaml')).text(), join(productFolder, 'madarch/kinds.yaml'), productFolder);
   expect(read.findings).toEqual([]);
   const markdown = new Map(readMarkdownEntities(productFolder, read).entities.map((entity) => [entity.id, entity]));
-  const graph = new GraphReader(owner, () => '2026-06-01T00:00:00Z');
+  const graph = fake.reader();
   const readSource = async (repo: string | null, path: string): Promise<string | undefined> => (repo === 'shop' ? documents.get(path) : undefined);
   ctx = {
     productFolder,
@@ -198,8 +178,7 @@ beforeAll(async () => {
   };
 }, 60_000);
 
-afterAll(async () => {
-  await owner.close();
+afterAll(() => {
   rmSync(productFolder, { recursive: true, force: true });
 });
 

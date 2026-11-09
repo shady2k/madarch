@@ -12,7 +12,7 @@
  *
  * The tools are read-only: nothing here writes a store, a file or a checkout.
  */
-import type { McpToolDefinition } from '../fill/unit-mcp.js';
+import type { McpToolDefinition } from './types.js';
 import { RecordGap, commitWithPaths, fileFacts, fileHistory, listFiles, repositoryFacts } from '../graph/index.js';
 import { withSpan } from '../obs/trace.js';
 
@@ -112,7 +112,7 @@ export const RECORD_TOOLS: readonly McpToolDefinition[] = [
 ];
 
 /** One file row as an answer states it. */
-function fileRow(file: { readonly path: string; readonly mode: string; readonly blob: string; readonly bytes: number; readonly form: string; readonly lines: number | null; readonly language: string; readonly candidates: readonly string[] }): Record<string, unknown> {
+function fileRow(file: { readonly path: string; readonly mode: string | null; readonly blob: string | null; readonly bytes: number | null; readonly form: string | null; readonly lines: number | null; readonly language: string | null; readonly candidates: readonly string[] }): Record<string, unknown> {
   return {
     path: file.path, mode: file.mode, blob: file.blob, bytes: file.bytes, lines: file.lines,
     form: file.form, language: file.language, candidates: [...file.candidates],

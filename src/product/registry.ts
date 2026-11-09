@@ -192,11 +192,6 @@ export function kindOfPath(kit: RegistryKit, path: string): RegistryKind | undef
   return undefined;
 }
 
-/** The kind a document's id names, through its prefix. */
-export function kindOfId(kit: RegistryKit, id: string): RegistryKind | undefined {
-  return kit.byPrefix.get(id.slice(0, id.indexOf('-'))) ?? undefined;
-}
-
 /** A sceneless code point comparison, so a folder tie order is never locale's. */
 function byCodePoint(a: string, b: string): number {
   const ca = [...a].map((char) => char.codePointAt(0) ?? 0);

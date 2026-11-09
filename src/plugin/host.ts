@@ -169,7 +169,6 @@ export class PluginHost {
   private readonly limits: HostLimits;
   private readonly settings: HostSettings;
   private sandbox: SandboxProcess | undefined;
-  private closure: Closure | undefined;
   private snapshot: { folder: string; hash: string } | undefined;
   private declared: PluginIntroduce | undefined;
   private failure: SessionFailure | undefined;
@@ -177,7 +176,6 @@ export class PluginHost {
   private readonly inFlight = new Map<string, InFlight>();
   private timer: ReturnType<typeof setInterval> | undefined;
   private paused = false;
-  private stopping = false;
   private nextId = 1;
   private readonly pending = new Map<string, { resolve: (value: unknown) => void; reject: (cause: UnitCause) => void }>();
   /** The unit each request id belongs to, so an answer is counted against the unit that asked for it. */
@@ -206,7 +204,6 @@ export class PluginHost {
       log.info('plugin closure hashed', { folder: read.folder, files: read.files.length, hash: read.hash });
       return read;
     });
-    this.closure = closure;
     const pin = interpreterPinProblem(closure);
     if (pin !== undefined) throw pin;
     const trust = closureTrustProblem(closure, this.options.trust, join(closure.folder, 'plugin.json'), this.options.releaseHashes);
@@ -573,7 +570,6 @@ export class PluginHost {
   async stop(): Promise<{ readonly state: 'exited' | 'cancelled' }> {
     if (this.failure !== undefined) return { state: 'cancelled' };
     return await withSpan('plugin.stop', { 'madarch.plugin.grace_ms': this.limits.stopGraceMs }, async () => {
-      this.stopping = true;
       this.write(requestText(0, 'stop'));
       const grace = await Promise.race([
         (this.sandbox?.exited ?? Promise.resolve({ code: 0, signal: null })).then(() => true),

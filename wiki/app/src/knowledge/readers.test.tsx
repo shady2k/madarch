@@ -91,7 +91,7 @@ describe('what a role opens', () => {
       ],
     };
     (globalThis as { fetch?: unknown }).fetch = async () => Response.json(page);
-    const opened = (role: string): { blocks: string[]; collapsed: string[] } => ({
+    const opened = (_role: string): { blocks: string[]; collapsed: string[] } => ({
       blocks: [...document.querySelectorAll('[data-block-type], section, [data-testid=source-code]')].map((node) => node.getAttribute('data-block-type') ?? node.getAttribute('data-testid') ?? 'section'),
       collapsed: [...document.querySelectorAll('[data-testid=block-collapsed]')].map((node) => `${node.getAttribute('data-block-type')}:${node.querySelector('summary')!.textContent}`),
     });

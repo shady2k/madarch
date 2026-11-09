@@ -14,7 +14,7 @@ import { createHash } from 'node:crypto';
 import { DEFAULT_GRAPH_VERDICT_BUDGETS, GRAPH_VERDICT_JUDGE_VERSION, JUDGE_BATCH_SIZE, runGraphVerdicts, type GraphEdgeItem, type GraphEvidenceReader, type GraphJudge, type GraphJudgeAnswer, type GraphJudgeItem, type GraphNodeItem, type GraphSnapshot, type GraphVerdict } from '../src/knowledge/graph-verdicts.js';
 import { GRAPH_RULES } from '../src/knowledge/graph-verdict-rules.js';
 import { JudgeExecutionError } from '../src/knowledge/answer-key-judge.js';
-import { emptyModelAssignments, resolveModelRoles, type ModelPair, type ModelRoleView } from '../src/knowledge/model-roles.js';
+import { resolveModelRoles, type ModelPair } from '../src/knowledge/model-roles.js';
 
 const COMMIT = 'b'.repeat(40);
 const span = (path: string, lineStart = 1, lineEnd = 2) => ({ path, lineStart, lineEnd });
@@ -37,8 +37,6 @@ const reader = (overrides: Record<string, string | null> = {}): GraphEvidenceRea
   const held = path in overrides ? overrides[path] : TEXTS[path];
   return held === undefined || held === null ? undefined : { text: held, commit: COMMIT };
 };
-const noReader = async (): Promise<undefined> => undefined;
-
 function node(id: string, kind: string, properties: unknown, label = id): GraphNodeItem {
   return { id, versionId: `${id}-v1`, kind, label, properties };
 }
@@ -107,9 +105,9 @@ const withFiles = (...nodes: GraphNodeItem[]): GraphSnapshot => {
   return { nodes: held, edges };
 };
 
-const NO_ROLES = resolveModelRoles(emptyModelAssignments());
+const NO_ASSIGNMENTS = { writing: null, classification: null, analysis: null, editing: null };
+const NO_ROLES = resolveModelRoles(NO_ASSIGNMENTS);
 const TWO_ROLES = resolveModelRoles({ writing: { agent: 'writer' }, classification: { agent: 'classifier' }, analysis: { agent: 'analyst' }, editing: null });
-const pairOf = (view: ModelRoleView, agent: string): ModelPair => view.roles.find((role) => role.pair?.agent === agent)?.pair ?? { agent };
 
 class FakeJudge implements GraphJudge {
   readonly calls: GraphJudgeItem[][] = [];
@@ -553,7 +551,7 @@ describe('judging', () => {
     const classification = new FakeJudge((item) => ({ id: item.id, verdict: 'unsure', reason: 'classification cannot tell' }));
     const result = await runGraphVerdicts({
       snapshot: { nodes: unknownNodes(1), edges: [] },
-      roles: resolveModelRoles({ ...emptyModelAssignments(), classification: { agent: 'classifier' } }),
+      roles: resolveModelRoles({ ...NO_ASSIGNMENTS, classification: { agent: 'classifier' } }),
       budgets: { itemsPerRun: 1, modelCallsPerRun: 1 },
       judgeFor: factory({ classification }),
     });

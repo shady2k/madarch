@@ -10,8 +10,3 @@ export function byCodePoint(a: string, b: string): number {
   if (a > b) return 1;
   return 0;
 }
-
-/** Returns a new array, sorted by `byCodePoint`. */
-export function sortedByCodePoint(values: readonly string[]): string[] {
-  return [...values].sort(byCodePoint);
-}

@@ -35,7 +35,6 @@ import { skippedBecauseOutOfWorkflow } from './fill-skip-list.js';
 // The cases read a stage out of this step's list: they come back with that stage's step (test/fill-skip-list.ts).
 const skippedSuite = skippedBecauseOutOfWorkflow(import.meta.path);
 const describe = bunDescribe.skipIf(skippedSuite !== undefined);
-const test = bunTest.skipIf(skippedSuite !== undefined);
 
 const skip = process.env['MADARCH_SKIP_PERF'] !== undefined;
 

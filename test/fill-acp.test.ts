@@ -3,7 +3,7 @@ import { spawnSync } from 'node:child_process';
 import { chmodSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
-import { AcpError, connectAcpAgent, normalizeUpdate, resolveExecutable, toMcpServers, type AcpConnection, type AcpSession, type AcpUpdate } from '../src/fill/acp.js';
+import { connectAcpAgent, normalizeUpdate, resolveExecutable, toMcpServers, type AcpConnection, type AcpSession, type AcpUpdate } from '../src/fill/acp.js';
 
 /** The fake agent, started the way a real adapter is: a program on this machine speaking ACP over stdio. */
 const FAKE_AGENT = join(import.meta.dir, 'fixtures', 'acp-fake-agent', 'acp-fake-agent.ts');

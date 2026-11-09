@@ -73,21 +73,3 @@ export const localGitIdentity: IdentityProvider = (folder, environment = process
 export function whoIsTheUser(folder: string, provider: IdentityProvider = localGitIdentity, env?: Readonly<Record<string, string | undefined>>): IdentityResult {
   return provider(folder, env);
 }
-
-/** `Name <email>`, the way git writes an author. */
-export const authorOf = (identity: Identity): string => `${identity.name} <${identity.email}>`;
-
-/** The trailer lines a commit message ends with so the history says who wrote and how that was checked. */
-/** The arguments of `git commit` for a write by the user: the subject, the trailer, and `-S` when the user's own signing key is configured. */
-function commitArguments(subject: string, identity: Identity): string[] {
-  return ['commit', '--quiet', ...(identity.signing ? ['-S'] : []), '-m', subject, '-m', identityTrailer(identity)];
-}
-
-export function identityTrailer(identity: Identity): string {
-  return `Written-by: ${authorOf(identity)} (${identity.mark})`;
-}
-
-/** The environment that makes git author the commit as the identity, whatever the process environment holds. */
-function authorEnv(identity: Identity): Record<string, string> {
-  return { GIT_AUTHOR_NAME: identity.name, GIT_AUTHOR_EMAIL: identity.email };
-}

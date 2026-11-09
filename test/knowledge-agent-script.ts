@@ -22,8 +22,8 @@ export const TEXT = {
     how: (slug: string) => `How ${slug} works`,
     orderingParticipant: 'A shopper places an order and waits for it to be paid.',
     paymentsParticipant: 'A shopper pays for an order with a card.',
-    orderingSystem: (service: string) => `The orders service takes the order in and keeps it.`,
-    paymentsSystem: (service: string) => `The payments service charges the card through a provider.`,
+    orderingSystem: (_service: string) => `The orders service takes the order in and keeps it.`,
+    paymentsSystem: (_service: string) => `The payments service charges the card through a provider.`,
     orderingStatement: "Checkout asks payments to authorize the card for the order's total.",
     ruleOnce: 'Paying with an idempotency key that was already used returns the first payment; the card is never charged twice.',
     ruleCap: 'A promotion never takes off more than the subtotal.',
@@ -41,8 +41,8 @@ export const TEXT = {
     how: (slug: string) => `Как работают ${slug === 'ordering' ? 'заказы' : 'платежи'}`,
     orderingParticipant: 'Покупатель оформляет заказ и ждёт его оплаты.',
     paymentsParticipant: 'Покупатель оплачивает заказ картой.',
-    orderingSystem: (service: string) => 'Сервис заказов принимает заказ и хранит его.',
-    paymentsSystem: (service: string) => 'Сервис платежей списывает деньги с карты через провайдера.',
+    orderingSystem: (_service: string) => 'Сервис заказов принимает заказ и хранит его.',
+    paymentsSystem: (_service: string) => 'Сервис платежей списывает деньги с карты через провайдера.',
     orderingStatement: 'При оформлении заказа сервис заказов просит сервис платежей авторизовать карту на сумму заказа.',
     ruleOnce: 'Платёж по уже использованному ключу идемпотентности возвращает первый платёж; карта не списывается дважды.',
     ruleCap: 'Промоакция снимает не больше суммы подытога.',
@@ -96,7 +96,7 @@ export const productFields = (language: ScriptLanguage): Record<string, unknown>
  */
 export const domainFields = (language: ScriptLanguage, slug: 'ordering' | 'payments', service: string, grounds: string[], statement?: string): Record<string, unknown> => {
   const t = TEXT[language];
-  const place = (kind: 'routes' | 'functions' | 'tables' | 'events', target: string): Record<string, unknown> => ({ target });
+  const place = (_kind: 'routes' | 'functions' | 'tables' | 'events', target: string): Record<string, unknown> => ({ target });
   const developer: Record<string, unknown> = {};
   for (const ground of grounds) {
     const field = ground.startsWith('code.route:') ? 'routes' : ground.startsWith('code.symbol:') ? 'functions' : ground.startsWith('code.table:') ? 'tables' : ground.startsWith('code.channel:') ? 'events' : undefined;

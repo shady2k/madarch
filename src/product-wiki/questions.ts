@@ -46,8 +46,6 @@ export interface OpenQuestion {
   readonly changedAt?: string;
 }
 
-/** One file read as a question document, or nothing: the file is not one. */
-type ReadQuestion = { ok: true; question: OpenQuestion; changedAt?: string } | { ok: false; why: 'not-a-question' } | { ok: false; why: 'unreadable'; message: string };
 
 /**
  * One question document's text, parsed into the entry the wiki serves. A
@@ -238,11 +236,6 @@ export function audienceOf(markdown: string, sectionName: string): string | unde
   return words.length === 0 ? undefined : words.join(' ');
 }
 
-/** Deterministic ranking: dependency count descending, then stable document id in code-point order. */
-function rankQuestions<T extends { id: string; dependsOn: readonly string[] }>(questions: readonly T[]): Array<T & { rank: number }> {
-  return questions.map((question) => ({ ...question, rank: new Set(question.dependsOn.filter((dependency) => !dependency.startsWith('claim-') && !dependency.startsWith('clm-'))).size }))
-    .sort((a, b) => b.rank - a.rank || (a.id < b.id ? -1 : a.id > b.id ? 1 : 0));
-}
 
 /** A question file's modification time, as the page's own metadata carries it. */
 export function changedAtOf(pathIn: string, productFolder: string): string | undefined {

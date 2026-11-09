@@ -8,14 +8,11 @@ import { mkdtempSync, mkdirSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { dirname, join } from 'node:path';
 import { afterAll, describe, expect, test } from 'bun:test';
-import { createEngineStageRegistry } from '../src/fill/stages/index.js';
 import { STARTER_FILES } from '../src/knowledge/seed.js';
 import { WORKFLOWS_FILE } from '../src/knowledge/workflows.js';
 
 const SCRIPT = join(import.meta.dir, '..', 'scripts', 'check-workflows.ts');
 
-/** The stages the engine's registry holds, as the refusal names them: read from the registry, never a second list. */
-const ENGINE_STAGES = createEngineStageRegistry().all().map((stage) => stage.id).join(', ');
 
 const made: string[] = [];
 afterAll(() => {
@@ -46,10 +43,6 @@ function run(...arguments_: string[]): Run {
   return { code: done.exitCode, out: done.stdout.toString(), err: done.stderr.toString() };
 }
 
-/** The 1-based line the file writes `text` on. */
-function lineOf(text: string, needle: string): number {
-  return text.split('\n').findIndex((line) => line.trim() === needle) + 1;
-}
 
 /** A manifest holding one implemented workflow of the stages it names. */
 function manifest(stages: readonly string[]): string {

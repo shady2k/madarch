@@ -122,13 +122,6 @@ export type RegistryRead =
  */
 const KNOWN_CONTRACT_VERSIONS: readonly number[] = [1];
 
-/** A document's generic fields, as a document may carry them for madarch. */
-interface DocumentFields {
-  id?: string;
-  kind?: string;
-  status?: string;
-  links?: string[];
-}
 
 /** The folder prefix every kind folder must carry. */
 const DOCS_PREFIX = 'docs/';

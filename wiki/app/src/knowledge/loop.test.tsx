@@ -223,7 +223,7 @@ describe('the problems page', () => {
       const start = after === null ? 0 : rows.findIndex((row) => key(row) > after);
       return start < 0 ? [] : rows.slice(start, start + 100);
     };
-    return async (url: string, init?: RequestInit): Promise<Response> => {
+    return async (url: string, _init?: RequestInit): Promise<Response> => {
       if (url.endsWith('/api/k/problem-task')) return json({ task: { slug: 'fix-security-sql-input', id: 'task:fix-security-sql-input', file: 'docs/tasks/fix-security-sql-input.md', title: 'Fix', status: 'open' }, state: 'created', committed: true });
       if (url.endsWith('/api/k/problem-dismiss')) return json({ file: 'docs/problems/sql.md', committed: true });
       const parsed = new URL(url, 'http://localhost');
@@ -301,7 +301,7 @@ describe('the problems page', () => {
 
     await openCategory(page, 'wiki.correction');
     expect(page.querySelector('[data-testid=problem-sources]')!.textContent).toContain('Orders');
-    const row = await openSource(page);
+    await openSource(page);
     const open = page.querySelector('[data-testid=problem-items] [data-testid=problem-row][data-closed="false"]') as HTMLElement;
     expect(open.textContent).toContain('A person says this statement is wrong');
     expect(open.querySelector('[data-testid=problem-sentence]')!.textContent).toBe('«Orders get a ten percent discount.»');

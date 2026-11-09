@@ -413,7 +413,7 @@ describe('the kinds registry the wiki serves', () => {
   });
 
   test('the revision digests the registry\'s bytes, not the decoded text: two byte-distinct files the decoder flattens to the same text are two revisions', () => {
-    const unused = withRegistry('contract: 1\nstages:\n  - id: idea\nkinds:\n  - name: decision\n    prefix: D\n    folder: docs/decisions\n    stage: idea\n    hint: one\n');
+    withRegistry('contract: 1\nstages:\n  - id: idea\nkinds:\n  - name: decision\n    prefix: D\n    folder: docs/decisions\n    stage: idea\n    hint: one\n');
     const file = join(folder!, 'docs', 'kinds.yaml');
     const product = requireProduct(openProductWiki(folder!));
     const before = product.pages();
@@ -630,7 +630,7 @@ describe('the kinds registry the wiki serves', () => {
   });
 
   test('a registry that is not a regular file is named and degrades the wiki, and the ask never blocks on it', () => {
-    const unused = withRegistry('');
+    withRegistry('');
     rmSync(join(folder!, 'docs', 'kinds.yaml'));
     const made = spawnSync('mkfifo', [join(folder!, 'docs', 'kinds.yaml')]);
     if (made.status !== 0) throw new Error(`mkfifo is not available here: ${made.stderr?.toString() ?? made.status}`);

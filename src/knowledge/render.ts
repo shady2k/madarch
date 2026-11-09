@@ -7,6 +7,9 @@ import { contentLanguage } from './plural.js';
  * kind's declaration and its template say what the page shows.
  */
 import { readFileSync } from 'node:fs';
+import remarkGfm from 'remark-gfm';
+import remarkParse from 'remark-parse';
+import { unified } from 'unified';
 import { join } from 'node:path';
 import { CONTAINS } from '../graph/vocabulary.js';
 import { byCodePoint } from '../model/order.js';
@@ -24,9 +27,7 @@ import { homeKind, listingFormOf, type Finding, type KindDecl, type Origin } fro
 import { readBody } from './markdown.js';
 import type { MarkdownEntity } from './markdown.js';
 import type { Block, EntityListing, EntityRef, KindSummary, PageModel } from './model.js';
-import { noEntityMessage, sourceAddress, type Resolution } from './resolve.js';
-import { SOURCE_BLOCK_LINES, detailRows, languageOf } from './blocks.js';
-import type { FilePageFacts } from './repository-view.js';
+import { entityAddress, noEntityMessage, sourceAddress, type Resolution } from './resolve.js';
 import { renderLiquidPage } from './liquid.js';
 import { blockIdentity, foldLanguageParams, parseTemplate, substitute } from './template.js';
 import { kindNumbers } from './kind-numbers.js';
@@ -287,11 +288,6 @@ async function trailOf(ctx: RenderContext, subject: Subject): Promise<EntityRef[
   return page === undefined ? [] : [refOfMarkdown(ctx, page)];
 }
 
-/** The engine's words for the blocks a file's page draws, in the interface language the page was asked in. */
-const RECORD_PAGE_WORDS = {
-  details: { en: 'Details', ru: 'Сведения' },
-  source: { en: 'Source', ru: 'Исходный текст' },
-} as const;
 
 /**
  * The page of one file the store holds (madarch-8bdc.2.5, item 3): the facts the repository's own file page states —
@@ -302,42 +298,6 @@ const RECORD_PAGE_WORDS = {
  * The facts come from the store's records and from nothing else (`repository-view.ts`), which is the reader the
  * catalogue and the repository pages use: a listing never names a file whose page this is not.
  */
-export async function recordFilePage(ctx: RenderContext, held: FilePageFacts, id: string, lang?: string): Promise<PageModel | undefined> {
-  const kind = id.slice(0, id.indexOf(':'));
-  const decl = ctx.manifest.kinds.get(kind);
-  // A kind the manifest does not declare has no page, as it has none from the graph: the caller's 404 says so.
-  if (decl === undefined) return undefined;
-  const language = lang ?? ctx.language;
-  const words = (entry: { readonly en: string; readonly ru: string }): string => (language === 'ru' ? entry.ru : entry.en);
-  const rows = detailRows({
-    properties: {
-      path: held.path, language: held.language, size: held.bytes,
-      lines: held.lines ?? undefined, commitCount: held.commitCount, authors: [...held.authors],
-    },
-  }, decl.details, ctx.manifest.properties, language);
-  const blocks: Block[] = [];
-  if (rows.length > 0) blocks.push({ type: 'properties', title: words(RECORD_PAGE_WORDS.details), rows });
-  // A binary holds no lines to draw, and a file the checkout cannot read has none either: the page then states its
-  // facts and no source, rather than a section drawn with nothing in it.
-  const text = held.form === 'binary' ? undefined : await ctx.readSource(held.repository, held.path);
-  if (text !== undefined && text.trim() !== '') {
-    const lines = text.split('\n');
-    if (lines[lines.length - 1] === '') lines.pop();
-    const end = lines.length;
-    const stop = Math.min(end, SOURCE_BLOCK_LINES);
-    const web = ctx.webOf?.(held.repository, held.path, 1, end);
-    blocks.push({
-      type: 'source',
-      title: words(RECORD_PAGE_WORDS.source),
-      location: { repo: held.repository, path: held.path, lineStart: 1, lineEnd: end, href: sourceAddress(held.repository, held.path, 1), ...(web === undefined ? {} : { web }) },
-      language: languageOf(held.path),
-      text: lines.slice(0, stop).join('\n'),
-      truncated: stop < end,
-    });
-  }
-  return { id, kind, title: held.path, trail: [], blocks, resolutions: {}, findings: [], notes: [] };
-}
-
 // ---- listings ---------------------------------------------------------------------------------
 
 /** The origins of a kind's entities: the manifest's word, else what the kind's source tells. */
@@ -367,6 +327,129 @@ export async function kindSummaries(ctx: RenderContext): Promise<KindSummary[]> 
     ...(numbers.statements.has(decl.name) ? { statements: numbers.statements.get(decl.name)! } : {}),
     count: numbers.count(decl.name, decl.source),
   }));
+}
+
+/** A node of the Markdown tree, as the excerpt's reading walks it. */
+interface ReaderNode {
+  type?: string;
+  value?: string;
+  alt?: string;
+  children?: ReaderNode[];
+}
+
+const EXCERPT_PARSER = unified().use(remarkParse).use(remarkGfm);
+
+/**
+ * The words a reader reads from a Markdown node: block by block, each leaf's text, and the marks gone — a footnote
+ * reference, a link's address, emphasis and code delimiters, an HTML comment. Nothing is stripped from the source as
+ * text; the parser says what the document's words are and this walk keeps them.
+ */
+function readerWords(node: ReaderNode, out: string[]): void {
+  const type = node.type ?? '';
+  if (type === 'html' || type === 'footnoteReference' || type === 'footnoteDefinition' || type === 'definition') return;
+  if (type === 'text' || type === 'inlineCode' || type === 'code') {
+    if (node.value !== undefined && node.value !== '') out.push(node.value);
+    return;
+  }
+  if (type === 'image') {
+    if (node.alt !== undefined && node.alt !== '') out.push(node.alt);
+    return;
+  }
+  if (type === 'break' || type === 'thematicBreak') {
+    out.push(' ');
+    return;
+  }
+  const block = type === 'paragraph' || type === 'heading' || type === 'listItem' || type === 'tableCell' || type === 'tableRow';
+  if (block) out.push(' ');
+  for (const child of node.children ?? []) readerWords(child, out);
+  if (block) out.push(' ');
+}
+
+/** The words on one line, with single spaces, no leading or trailing space. */
+function oneLine(parts: readonly string[]): string {
+  let text = '';
+  let gap = false;
+  for (const part of parts) {
+    for (const char of part) {
+      if (char === ' ' || char === '\n' || char === '\r' || char === '\t') {
+        gap = text !== '';
+        continue;
+      }
+      if (gap) {
+        text += ' ';
+        gap = false;
+      }
+      text += char;
+    }
+  }
+  return text;
+}
+
+/** The text around the first match of `needle` a reader reads, on one line, cut at word boundaries with ellipses. */
+function excerptOf(body: string, needle: string, language: string, width = 90): string | undefined {
+  if (needle === '') return undefined;
+  const parts: string[] = [];
+  readerWords(EXCERPT_PARSER.parse(body) as unknown as ReaderNode, parts);
+  const flat = oneLine(parts);
+  const at = flat.toLocaleLowerCase(language).indexOf(needle);
+  if (at < 0) return undefined;
+  let start = Math.max(0, at - width);
+  if (start > 0) {
+    const space = flat.indexOf(' ', start);
+    if (space >= 0 && space < at) start = space + 1;
+  }
+  let end = Math.min(flat.length, at + needle.length + width);
+  if (end < flat.length) {
+    const space = flat.lastIndexOf(' ', end);
+    if (space > at + needle.length) end = space;
+  }
+  return `${start > 0 ? '…' : ''}${flat.slice(start, end)}${end < flat.length ? '…' : ''}`;
+}
+
+/**
+ * The wiki's search: the Markdown pages whose title or body holds the text, and the graph's entities of the declared
+ * kinds whose label or presented key holds it, grouped by kind. The text is matched in the wiki's language, with that
+ * language's own lowercasing, and a page's body gives the excerpt a reader sees. No separate index is kept: both are
+ * the reads the wiki already makes, over the store it already reads.
+ */
+export async function searchWiki(ctx: RenderContext, query: string, lang?: string, options: { perKind: number; limit: number } = { perKind: 5, limit: 40 }): Promise<{ groups: { kind: string; total: number; rows: { id: string; kind: string; title: string; href: string; excerpt?: string }[] }[]; total: number }> {
+  const language = lang ?? ctx.language;
+  const needle = query.trim().toLocaleLowerCase(language);
+  if (needle === '') return { groups: [], total: 0 };
+  const groups = new Map<string, { kind: string; total: number; rows: { id: string; kind: string; title: string; href: string; excerpt?: string }[] }>();
+  const groupOf = (kind: string) => groups.get(kind) ?? { kind, total: 0, rows: [] };
+  const markdown = [...ctx.markdown.values()]
+    .filter((entity) => entity.title.toLocaleLowerCase(language).includes(needle) || entity.body.toLocaleLowerCase(language).includes(needle))
+    .sort((a, b) => byCodePoint(a.title, b.title) || byCodePoint(a.id, b.id));
+  for (const entity of markdown) {
+    const group = groupOf(entity.kind);
+    group.total += 1;
+    if (group.rows.length < options.perKind) {
+      const excerpt = excerptOf(entity.body, needle, language);
+      group.rows.push({ id: entity.id, kind: entity.kind, title: entity.title, href: entityAddress(entity.id), ...(excerpt === undefined ? {} : { excerpt }) });
+    }
+    groups.set(entity.kind, group);
+  }
+  const graphKinds = [...ctx.manifest.kinds.values()].filter((decl) => decl.source === 'graph' && decl.member === undefined).map((decl) => decl.name);
+  // A store that holds no graph yet answers no graph row; the Markdown pages are still found, and the search never
+  // fails because a fill has not run.
+  let graphFound: Awaited<ReturnType<RenderContext['graph']['search']>> = [];
+  try {
+    graphFound = await ctx.graph.search(graphKinds, needle, options);
+  } catch {
+    graphFound = [];
+  }
+  for (const found of graphFound) {
+    const group = groupOf(found.kind);
+    group.total += found.total;
+    for (const entity of found.entities) {
+      if (group.rows.length >= options.perKind) break;
+      group.rows.push({ id: entity.key, kind: entity.kind, title: entity.label, href: entityAddress(entity.key) });
+    }
+    groups.set(found.kind, group);
+  }
+  const ordered = [...groups.values()].sort((a, b) => byCodePoint(a.kind, b.kind));
+  return { groups: ordered, total: ordered.reduce((sum, group) => sum + group.total, 0) };
 }
 
 export async function listEntities(ctx: RenderContext, kind: string, options: { q?: string; after?: string; limit: number }): Promise<EntityListing | undefined> {

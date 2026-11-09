@@ -7,9 +7,8 @@
  */
 import { spawnSync } from 'node:child_process';
 import { statSync } from 'node:fs';
-import { describe, expect, test, afterEach } from 'bun:test';
+import { describe, expect, test } from 'bun:test';
 import { join } from 'node:path';
-import { createServer } from 'node:net';
 import { CLI, builtApp, serveNew, printedLiveFacts, scratchFolder, freePort } from './product-cli.test.js';
 import { stopDaemon } from '../src/product/daemon.js';
 

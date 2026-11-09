@@ -90,6 +90,43 @@ interface DeclaredRelation {
 export type Origin = 'agent' | 'person' | 'code' | 'history';
 const ORIGINS: readonly Origin[] = ['agent', 'person', 'code', 'history'];
 
+/** One typed field a kind's contract declares. */
+export interface FieldDecl {
+  readonly name: string;
+  readonly type: 'text' | 'integer' | 'bigint' | 'boolean' | 'timestamp' | 'json';
+  readonly nullable?: boolean;
+  /** Whether the field is authoritative (one producer, a column) or claimed (many producers, claims only). */
+  readonly role?: 'authoritative' | 'claimed';
+  /** The producers the manifest names for the field; an authoritative field names exactly one. */
+  readonly producers?: readonly string[];
+  /** The kind a reference field names; a reference field may stand in the natural key. */
+  readonly reference?: string;
+  /** The line the field stands at, for a finding the whole contract's check makes. */
+  readonly line?: number;
+}
+
+/** One plugin the product holds, as its manifest declares it (decision 0035, item 11). */
+export interface PluginDecl {
+  readonly id: string;
+  readonly version: string;
+  readonly inputs: readonly string[];
+  readonly outputs: readonly string[];
+  readonly closure: readonly string[];
+  readonly line: number;
+}
+
+/** One edge kind the manifest declares: its ends, its repeat rule and its typed attributes. */
+export interface EdgeDecl {
+  readonly name: string;
+  readonly from: readonly string[];
+  readonly to: readonly string[];
+  readonly repeats: boolean;
+  readonly discriminator?: string;
+  readonly fields: readonly FieldDecl[];
+  readonly capability?: string;
+  readonly line: number;
+}
+
 /** A group of kinds in the navigation and the catalogue (`groups:` in the manifest). */
 interface GroupDecl {
   name: string;
@@ -191,6 +228,14 @@ export interface KindDecl {
   nav?: NavTrait;
   /** The kind is a member of another entity's page and has no catalogue page of its own. */
   member?: MemberDecl;
+  /** The typed fields of the kind's contract. */
+  fields?: readonly FieldDecl[];
+  /** The kind's natural key, unique in its table. */
+  key?: readonly string[];
+  /** The capability that fills the kind. */
+  capability?: string;
+  /** The kinds whose discovery must finish before this kind's turn (decision 0035, item 11). */
+  dependsOn?: readonly string[];
   line: number;
 }
 
@@ -357,6 +402,10 @@ export interface KindsManifest {
   /** The reader-facing labels and value formats of the properties the kinds show. */
   properties: ReadonlyMap<string, PropertyDecl>;
   kinds: ReadonlyMap<string, KindDecl>;
+  /** The edge kinds the manifest declares, by name. */
+  edges?: ReadonlyMap<string, EdgeDecl>;
+  /** The plugins the product holds, by id (decision 0035, item 11). */
+  plugins?: ReadonlyMap<string, PluginDecl>;
   /**
    * Every template path a kind declaration names, including a declaration whose template is missing (or whose other
    * fields are invalid) and so has no `KindDecl`. The status key reads the paths a declaration names, not only the paths
@@ -406,7 +455,7 @@ export type KindsRead =
 const KIND_KEYS = new Set([
   'template', 'source', 'folder', 'file', 'title', 'attributes', 'relations', 'labels', 'group', 'origin', 'description',
   'identifier', 'terms', 'headings', 'semantics', 'structure', 'details', 'member', 'card', 'history',
-  'views', 'er', 'sequence', 'system', 'definition-block', 'listing', 'nav',
+  'views', 'er', 'sequence', 'system', 'definition-block', 'listing', 'nav', 'fields', 'key', 'capability', 'depends-on',
   // the catalog's row of the kind (decision 0033, items 8 to 10): read when the manifest declares a catalog
   'id', 'definition', 'sources', 'acquisition', 'status', 'relation-constraints', 'template-policy',
 ]);
@@ -753,7 +802,7 @@ export function parseKinds(text: string, file: string, productFolder: string): K
       const value = top['diagram'];
       if (typeof value !== 'string' || !DIAGRAM_RENDERER_NAMES.includes(value)) findings.push({ file, line: at(['diagram']), message: `"diagram" is ${JSON.stringify(value)}: the diagrams open on ${DIAGRAM_RENDERER_NAMES.join(', ')}` });
       else diagram = value;
-    } else if (key !== 'kinds' && key !== 'groups' && key !== 'documents' && key !== 'roles' && key !== 'problems' && key !== 'properties' && key !== 'catalog' && key !== 'mapping') findings.push({ file, line: at([key]), message: `"${key}" is not a field of the manifest: the manifest holds "kinds", "groups", "documents", "roles", "problems", "properties", "catalog", "mapping", "language" and "diagram"` });
+    } else if (key !== 'kinds' && key !== 'groups' && key !== 'documents' && key !== 'roles' && key !== 'problems' && key !== 'properties' && key !== 'catalog' && key !== 'mapping' && key !== 'edges' && key !== 'plugins') findings.push({ file, line: at([key]), message: `"${key}" is not a field of the manifest: the manifest holds "kinds", "edges", "plugins", "groups", "documents", "roles", "problems", "properties", "catalog", "mapping", "language" and "diagram"` });
   }
   const properties = new Map<string, PropertyDecl>();
   const rawProperties = top['properties'];
@@ -991,7 +1040,6 @@ export function parseKinds(text: string, file: string, productFolder: string): K
   const wordsFound: Finding[] = [];
   // Every name the manifest declares, sound or not: the mapping resolves a kind against the declaration, and the
   // catalog's own finding is the one a refused kind carries (one defect, one problem on the Problems page).
-  const declaredKindNames = new Set(Object.keys(declared as Record<string, unknown>));
   for (const [name, value] of Object.entries(declared as Record<string, unknown>)) {
     const line = at(['kinds', name]);
     const problem = (path: (string | number)[], message: string): void => {
@@ -1172,6 +1220,46 @@ export function parseKinds(text: string, file: string, productFolder: string): K
         if (typeof relation === 'string' && relation.trim() !== '' && (direction === 'out' || direction === 'in')) member = { relation, direction, ...(typeof parentKind === 'string' && parentKind.trim() !== '' ? { parentKind } : {}), ...(typeof property === 'string' && property.trim() !== '' ? { property } : {}), line: at(['kinds', name, 'member']) };
       }
     }
+    const fieldTypes = new Set(['text', 'integer', 'bigint', 'boolean', 'timestamp', 'json']);
+    const parseFields = (raw: unknown, field: string): FieldDecl[] => {
+      if (raw === undefined) return [];
+      if (!Array.isArray(raw)) { problem([field], `"${field}" is a list of { name, type, nullable?, role?, producers?, reference? }`); return []; }
+      const out: FieldDecl[] = [];
+      raw.forEach((entry: unknown, index) => {
+        const body = entry as Record<string, unknown> | null;
+        if (body === null || typeof body !== 'object' || Array.isArray(body) || typeof body['name'] !== 'string' || !/^[a-z][a-z0-9_]*$/.test(body['name']) || typeof body['type'] !== 'string' || !fieldTypes.has(body['type'])) {
+          problem([field, index], 'a field is { name: <lower-case identifier>, type: text|integer|bigint|boolean|timestamp|json, nullable?: true, role?: authoritative|claimed, producers?: [<producer>], reference?: <kind> }');
+          return;
+        }
+        const extra = Object.keys(body).filter((key) => key !== 'name' && key !== 'type' && key !== 'nullable' && key !== 'role' && key !== 'producers' && key !== 'reference');
+        if (extra.length > 0) { problem([field, index, extra[0]!], `"${extra[0]}" is not a field of a field: the fields are name, type, nullable, role, producers and reference`); return; }
+        const role = body['role'];
+        if (role !== undefined && role !== 'authoritative' && role !== 'claimed') { problem([field, index, 'role'], '"role" is "authoritative" or "claimed"'); return; }
+        const producers = body['producers'];
+        if (producers !== undefined && (!Array.isArray(producers) || producers.length === 0 || producers.some((one) => typeof one !== 'string' || !/^[a-z][a-z0-9-]*$/.test(one)))) {
+          problem([field, index, 'producers'], '"producers" is a list of producer names, each a lower-case identifier'); return;
+        }
+        const reference = body['reference'];
+        if (reference !== undefined && (typeof reference !== 'string' || !/^[A-Za-z][A-Za-z0-9_.-]*$/.test(reference))) { problem([field, index, 'reference'], '"reference" names a kind of the manifest'); return; }
+        out.push({
+          name: body['name'],
+          type: body['type'] as FieldDecl['type'],
+          ...(body['nullable'] === true ? { nullable: true } : {}),
+          ...(role === 'authoritative' || role === 'claimed' ? { role } : {}),
+          ...(producers === undefined ? {} : { producers: producers as string[] }),
+          ...(reference === undefined ? {} : { reference }),
+          line: at([field, index]),
+        });
+      });
+      return out;
+    };
+    const fields = parseFields(decl['fields'], 'fields');
+    const key = decl['key'];
+    if (key !== undefined && (!Array.isArray(key) || key.length === 0 || key.some((entry) => typeof entry !== 'string' || !fields.some((field) => field.name === entry)))) problem(['key'], '"key" is a list of the field names the kind\'s natural key holds');
+    const capability = decl['capability'];
+    if (capability !== undefined && (typeof capability !== 'string' || !/^[a-z][a-z0-9-]*$/.test(capability))) problem(['capability'], '"capability" is the name of the capability that fills the kind');
+    const dependsOn = decl['depends-on'];
+    if (dependsOn !== undefined && (!Array.isArray(dependsOn) || dependsOn.some((entry) => typeof entry !== 'string' || entry.trim() === ''))) problem(['depends-on'], '"depends-on" is a list of the kinds whose discovery must finish first');
     const labels: Record<string, KindLabel> = {};
     const rawLabels = decl['labels'];
     if (rawLabels !== undefined) {
@@ -1220,6 +1308,10 @@ export function parseKinds(text: string, file: string, productFolder: string): K
       ...(listing === undefined ? {} : { listing }),
       ...(nav === undefined ? {} : { nav }),
       ...(member === undefined ? {} : { member }),
+      ...(fields.length === 0 ? {} : { fields }),
+      ...(Array.isArray(key) && key.every((entry) => typeof entry === 'string') ? { key: key as string[] } : {}),
+      ...(typeof capability === 'string' ? { capability } : {}),
+      ...(Array.isArray(dependsOn) ? { dependsOn: dependsOn as string[] } : {}),
       relations,
       ...(Object.keys(labels).length > 0 ? { labels } : {}),
       line,
@@ -1249,7 +1341,129 @@ export function parseKinds(text: string, file: string, productFolder: string): K
     }
     return true;
   });
-  return { file, roles, properties, kinds, declaredTemplates: [...new Set(declaredTemplates)], groups, excludeDocuments, ignoreBlocks: ignoredBlocks, expect: wanted, ...(problems === undefined ? {} : { problems }), ...(catalogSchema === undefined ? {} : { catalog: { schema: catalogSchema, kinds: catalogEntries, findings: catalogFound } }), findings, ...(language === undefined ? {} : { language }), ...(diagram === undefined ? {} : { diagram }) };
+  // The edge kinds the product declares: their ends, repeat rule and typed attributes. A name is a kind's name, so
+  // a vertex and an edge share no name; a field's name is a lower-case identifier.
+  const edges = new Map<string, EdgeDecl>();
+  const rawEdges = top['edges'];
+  if (rawEdges !== undefined) {
+    if (!Array.isArray(rawEdges)) findings.push({ file, line: at(['edges']), message: '"edges" is a list of { name, from, to, repeats, discriminator, fields, capability }' });
+    else rawEdges.forEach((entry: unknown, index) => {
+      const body = entry as Record<string, unknown> | null;
+      const line = at(['edges', index]);
+      const names = (value: unknown): value is string[] => Array.isArray(value) && value.length > 0 && value.every((one) => typeof one === 'string' && one.trim() !== '');
+      if (body === null || typeof body !== 'object' || Array.isArray(body) || typeof body['name'] !== 'string' || body['name'].trim() === '' || !names(body['from']) || !names(body['to'])) {
+        findings.push({ file, line, message: 'an edge is { name: <name>, from: [<kind>, ...], to: [<kind>, ...], repeats?: true, discriminator?: <field>, fields?: [...], capability?: <name> }' });
+        return;
+      }
+      const extra = Object.keys(body).filter((key) => !['name', 'from', 'to', 'repeats', 'discriminator', 'fields', 'capability'].includes(key));
+      if (extra.length > 0) { findings.push({ file, line: at(['edges', index, extra[0]!]), message: `"${extra[0]}" is not a field of an edge: the fields are name, from, to, repeats, discriminator, fields and capability` }); return; }
+      const fieldTypes = new Set(['text', 'integer', 'bigint', 'boolean', 'timestamp', 'json']);
+      const fields: FieldDecl[] = [];
+      const rawFields = body['fields'];
+      if (rawFields !== undefined) {
+        if (!Array.isArray(rawFields)) { findings.push({ file, line: at(['edges', index, 'fields']), message: '"fields" is a list of { name, type, nullable }' }); return; }
+        for (const [fieldAt, raw] of rawFields.entries()) {
+          const field = raw as Record<string, unknown> | null;
+          if (field === null || typeof field !== 'object' || Array.isArray(field) || typeof field['name'] !== 'string' || !/^[a-z][a-z0-9_]*$/.test(field['name']) || typeof field['type'] !== 'string' || !fieldTypes.has(field['type'])) {
+            findings.push({ file, line: at(['edges', index, 'fields', fieldAt]), message: 'a field is { name: <lower-case identifier>, type: text|integer|bigint|boolean|timestamp|json, nullable?: true }' });
+            return;
+          }
+          const fieldExtra = Object.keys(field).filter((key) => !['name', 'type', 'nullable', 'role', 'producers', 'reference'].includes(key));
+          if (fieldExtra.length > 0) { findings.push({ file, line: at(['edges', index, 'fields', fieldAt, fieldExtra[0]!]), message: `"${fieldExtra[0]}" is not a field of a field: the fields are name, type, nullable, role, producers and reference` }); return; }
+          const fieldRole = field['role'];
+          const fieldProducers = field['producers'];
+          if (fieldRole !== undefined && fieldRole !== 'authoritative' && fieldRole !== 'claimed') { findings.push({ file, line: at(['edges', index, 'fields', fieldAt, 'role']), message: '"role" is "authoritative" or "claimed"' }); return; }
+          if (fieldProducers !== undefined && (!Array.isArray(fieldProducers) || fieldProducers.length === 0 || fieldProducers.some((one) => typeof one !== 'string' || !/^[a-z][a-z0-9-]*$/.test(one)))) { findings.push({ file, line: at(['edges', index, 'fields', fieldAt, 'producers']), message: '"producers" is a list of producer names, each a lower-case identifier' }); return; }
+          const fieldReference = field['reference'];
+          if (fieldReference !== undefined && (typeof fieldReference !== 'string' || !/^[A-Za-z][A-Za-z0-9_.-]*$/.test(fieldReference))) { findings.push({ file, line: at(['edges', index, 'fields', fieldAt, 'reference']), message: '"reference" names a kind of the manifest' }); return; }
+          fields.push({ name: field['name'], type: field['type'] as FieldDecl['type'], ...(field['nullable'] === true ? { nullable: true } : {}), ...(fieldRole === 'authoritative' || fieldRole === 'claimed' ? { role: fieldRole } : {}), ...(fieldProducers === undefined ? {} : { producers: fieldProducers as string[] }), ...(fieldReference === undefined ? {} : { reference: fieldReference }), line: at(['edges', index, 'fields', fieldAt]) });
+        }
+      }
+      const repeats = body['repeats'] === true;
+      const discriminator = typeof body['discriminator'] === 'string' ? body['discriminator'] : undefined;
+      if (repeats && discriminator === undefined) { findings.push({ file, line: at(['edges', index]), message: 'an edge kind that repeats names the field that tells its repeats apart (discriminator)' }); return; }
+      if (!repeats && discriminator !== undefined) { findings.push({ file, line: at(['edges', index, 'discriminator']), message: 'an edge kind that does not repeat has no discriminator' }); return; }
+      const capability = typeof body['capability'] === 'string' ? body['capability'] : undefined;
+      edges.set(body['name'], { name: body['name'], from: body['from'] as string[], to: body['to'] as string[], repeats, ...(discriminator === undefined ? {} : { discriminator }), fields, ...(capability === undefined ? {} : { capability }), line });
+    });
+  }
+  // The plugins the product holds (decision 0035, item 11). A declaration only: the host that runs one is later.
+  const plugins = new Map<string, PluginDecl>();
+  const rawPlugins = top['plugins'];
+  if (rawPlugins !== undefined) {
+    if (!Array.isArray(rawPlugins)) findings.push({ file, line: at(['plugins']), message: '"plugins" is a list of { id, version, inputs, outputs, closure }' });
+    else rawPlugins.forEach((entry: unknown, index) => {
+      const body = entry as Record<string, unknown> | null;
+      const line = at(['plugins', index]);
+      const names = (value: unknown): value is string[] => Array.isArray(value) && value.length > 0 && value.every((one) => typeof one === 'string' && one.trim() !== '');
+      if (body === null || typeof body !== 'object' || Array.isArray(body) || typeof body['id'] !== 'string' || !/^[a-z][a-z0-9-]*$/.test(body['id']) || typeof body['version'] !== 'string' || body['version'].trim() === '' || !names(body['inputs']) || !names(body['outputs']) || !names(body['closure'])) {
+        findings.push({ file, line, message: 'a plugin is { id: <lower-case name>, version: <text>, inputs: [<kind>, ...], outputs: [<kind>, ...], closure: [<path>, ...] }' });
+        return;
+      }
+      const extra = Object.keys(body).filter((key) => !['id', 'version', 'inputs', 'outputs', 'closure'].includes(key));
+      if (extra.length > 0) { findings.push({ file, line: at(['plugins', index, extra[0]!]), message: `"${extra[0]}" is not a field of a plugin: the fields are id, version, inputs, outputs and closure` }); return; }
+      const id = body['id'] as string;
+      if (plugins.has(id)) { findings.push({ file, line: at(['plugins', index, 'id']), message: `plugin "${id}": a plugin id stands once` }); return; }
+      plugins.set(id, { id, version: body['version'] as string, inputs: body['inputs'] as string[], outputs: body['outputs'] as string[], closure: body['closure'] as string[], line });
+    });
+  }
+  // The contract's preflight (decision 0035, items 2 and 11): every field has a producer, an authoritative field has
+  // one, a key field is authoritative, the dependency graph is acyclic and declared, and a plugin reads only what the
+  // closure of its earliest output kind holds. No fill starts while any finding stands.
+  const dependencies = new Map<string, readonly string[]>();
+  for (const [name, kind] of kinds) dependencies.set(name, kind.dependsOn ?? []);
+  for (const [name, deps] of dependencies) {
+    const kind = kinds.get(name)!;
+    for (const dependency of deps) {
+      if (!kinds.has(dependency)) findings.push({ file, line: kind.line, message: `kind "${name}": "depends-on" names the kind ${JSON.stringify(dependency)}, and the manifest declares no such kind` });
+    }
+  }
+  const cycle = findDependencyCycle(dependencies);
+  if (cycle !== undefined) {
+    const first = cycle[0]!;
+    findings.push({ file, line: kinds.get(first)?.line ?? at(['kinds', first]), message: `kind "${first}": the dependency cycle ${cycle.join(' -> ')} is refused: the kinds' declared dependencies must form no cycle` });
+  }
+  const order = cycle === undefined ? dependencyOrder(dependencies) : undefined;
+  const orderIndex = new Map((order ?? []).map((name, index) => [name, index] as const));
+  const closureOf = (kind: string): Set<string> => {
+    const held = new Set<string>([kind]);
+    const walk = (name: string): void => { for (const dependency of dependencies.get(name) ?? []) if (!held.has(dependency)) { held.add(dependency); walk(dependency); } };
+    walk(kind);
+    return held;
+  };
+  const checkField = (owner: string, field: FieldDecl, ownerLine: number, edge: boolean): void => {
+    const line = field.line ?? ownerLine;
+    const what = edge ? 'edge kind' : 'kind';
+    const producers = field.producers ?? [];
+    if (producers.length === 0) findings.push({ file, line, message: `${what} "${owner}": field "${field.name}" names no producer` });
+    if (field.role === undefined) findings.push({ file, line, message: `${what} "${owner}": field "${field.name}" states whether it is authoritative or claimed` });
+    if (field.role === 'authoritative' && producers.length > 1) findings.push({ file, line, message: `${what} "${owner}": field "${field.name}" is authoritative and names ${String(producers.length)} producers: an authoritative field has one producer` });
+    if (field.reference !== undefined && !kinds.has(field.reference)) findings.push({ file, line, message: `${what} "${owner}": field "${field.name}" references the kind ${JSON.stringify(field.reference)}, and the manifest declares no such kind` });
+  };
+  for (const [name, kind] of kinds) {
+    const seen = new Set<string>();
+    for (const field of kind.fields ?? []) {
+      if (seen.has(field.name)) findings.push({ file, line: field.line ?? kind.line, message: `kind "${name}": field "${field.name}" stands once` });
+      seen.add(field.name);
+      checkField(name, field, kind.line, false);
+    }
+    for (const keyField of kind.key ?? []) {
+      const field = (kind.fields ?? []).find((one) => one.name === keyField);
+      if (field?.role === 'claimed') findings.push({ file, line: field.line ?? kind.line, message: `kind "${name}": key field "${keyField}" is claimed: a key field is authoritative` });
+    }
+  }
+  for (const [name, edge] of edges) for (const field of edge.fields) checkField(name, field, edge.line, true);
+  for (const plugin of plugins.values()) {
+    for (const output of plugin.outputs) if (!kinds.has(output)) findings.push({ file, line: plugin.line, message: `plugin "${plugin.id}": output ${JSON.stringify(output)} is not a kind the manifest declares` });
+    for (const input of plugin.inputs) if (!kinds.has(input)) findings.push({ file, line: plugin.line, message: `plugin "${plugin.id}": input ${JSON.stringify(input)} is not a kind the manifest declares` });
+    if (orderIndex.size === 0) continue;
+    const declaredOutputs = plugin.outputs.filter((output) => orderIndex.has(output));
+    if (declaredOutputs.length === 0) continue;
+    const earliest = declaredOutputs.reduce((first, next) => (orderIndex.get(next)! < orderIndex.get(first)! ? next : first));
+    const closure = closureOf(earliest);
+    for (const input of plugin.inputs) if (!closure.has(input)) findings.push({ file, line: plugin.line, message: `plugin "${plugin.id}": input ${JSON.stringify(input)} is outside the dependency closure of its earliest output kind ${JSON.stringify(earliest)}` });
+  }
+  return { file, roles, properties, kinds, ...(edges.size === 0 ? {} : { edges }), ...(plugins.size === 0 ? {} : { plugins }), declaredTemplates: [...new Set(declaredTemplates)], groups, excludeDocuments, ignoreBlocks: ignoredBlocks, expect: wanted, ...(problems === undefined ? {} : { problems }), ...(catalogSchema === undefined ? {} : { catalog: { schema: catalogSchema, kinds: catalogEntries, findings: catalogFound } }), findings, ...(language === undefined ? {} : { language }), ...(diagram === undefined ? {} : { diagram }) };
 }
 
 /**
@@ -1301,4 +1515,44 @@ function globToRegExp(pattern: string): RegExp {
 /** Whether a document path (`/`-separated) matches one of the patterns. */
 export function matchesAny(patterns: readonly string[], path: string): boolean {
   return patterns.some((pattern) => globToRegExp(pattern).test(path));
+}
+
+
+/** The first dependency cycle among the kinds, as the names in its order, or undefined when the graph is acyclic. */
+function findDependencyCycle(dependencies: ReadonlyMap<string, readonly string[]>): string[] | undefined {
+  const state = new Map<string, 'visiting' | 'done'>();
+  const stack: string[] = [];
+  const walk = (name: string): string[] | undefined => {
+    const seen = state.get(name);
+    if (seen === 'done') return undefined;
+    if (seen === 'visiting') return [...stack.slice(stack.indexOf(name)), name];
+    state.set(name, 'visiting');
+    stack.push(name);
+    for (const dependency of dependencies.get(name) ?? []) {
+      const found = walk(dependency);
+      if (found !== undefined) return found;
+    }
+    stack.pop();
+    state.set(name, 'done');
+    return undefined;
+  };
+  for (const name of dependencies.keys()) {
+    const found = walk(name);
+    if (found !== undefined) return found;
+  }
+  return undefined;
+}
+
+/** The kinds in dependency order: every kind after the kinds it depends on. Only called for an acyclic graph. */
+function dependencyOrder(dependencies: ReadonlyMap<string, readonly string[]>): string[] {
+  const order: string[] = [];
+  const done = new Set<string>();
+  const walk = (name: string): void => {
+    if (done.has(name)) return;
+    done.add(name);
+    for (const dependency of dependencies.get(name) ?? []) walk(dependency);
+    order.push(name);
+  };
+  for (const name of dependencies.keys()) walk(name);
+  return order;
 }

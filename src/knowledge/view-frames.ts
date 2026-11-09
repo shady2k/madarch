@@ -162,7 +162,7 @@ async function layoutOf(workspace: string, viewId: string): Promise<{ ok: true; 
 }
 
 /** The archify page of a view: the vendored renderer's page over the layout LikeC4 computes, with the click bridge. */
-export async function archifyFrame(view: GraphView, env: Readonly<Record<string, string | undefined>>): Promise<Frame> {
+export async function archifyFrame(view: GraphView, _env: Readonly<Record<string, string | undefined>>): Promise<Frame> {
   if (view.spec.type === 'er') return frameFailure('ER tables are drawn only by Mermaid erDiagram; table links remain under the picture');
   const held = workspaceOf(view);
   const scratch = scratchOf(held.workspace);

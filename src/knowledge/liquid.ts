@@ -343,19 +343,7 @@ export function warmRenderWorker(productFolder: string): void {
   }
 }
 
-/** Ends the worker of one product: a product that closes gives back what it holds. */
-function closeRenderWorker(productFolder: string): void {
-  const slot = slots.get(productFolder);
-  if (slot === undefined) return;
-  stopWorker(slot);
-  if (slot.idle !== undefined) clearTimeout(slot.idle);
-  slots.delete(productFolder);
-}
 
-/** Ends every worker: a products home that closes, and a test that is over. */
-function closeRenderWorkers(): void {
-  for (const folder of [...slots.keys()]) closeRenderWorker(folder);
-}
 
 async function turn(slot: Slot): Promise<void> {
   if (!slot.busy) { slot.busy = true; return; }

@@ -11,8 +11,6 @@ import { tmpdir } from 'node:os';
 import path from 'node:path';
 import { afterAll, beforeAll, describe, expect, test } from 'bun:test';
 import { RepositorySession } from '../src/mcp/session.js';
-import { type PendingRepository } from '../src/mcp/server.js';
-import { SERVED_TOOL_NAMES } from '../src/mcp/server.js';
 
 const REPOSITORY = mkdtempSync(path.join(tmpdir(), 'madarch-mcp-start-repo-'));
 const HOME = mkdtempSync(path.join(tmpdir(), 'madarch-mcp-start-home-'));

@@ -67,8 +67,6 @@ const COUNT_MESSAGES: {
 /** Every plural family of the catalogue, as its base key: the messages a numeral picks a form of. */
 const FAMILIES = [...new Set(leafKeys(en).filter((key) => key.endsWith('_one')).map((key) => key.slice(0, -4)))].sort();
 const COUNTS = [1, 2, 5, 0] as const;
-const FORM_NAMES = ['one', 'few', 'many', 'none'] as const;
-
 describe('wiki internationalization', () => {
   test('English and Russian catalogues have the same message keys', () => {
     expect(leafKeys(en).sort()).toEqual(leafKeys(ru).sort());

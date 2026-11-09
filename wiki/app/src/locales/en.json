@@ -357,6 +357,12 @@
     "cataloguePerson": "written by a person",
     "catalogueNoTranslation": "no translation",
     "catalogueEmptyGroup": "No kinds yet",
+    "searchPlaceholder": "Search pages and entities",
+    "searchLabel": "Search the wiki",
+    "searchHint": "Search pages and entities (Ctrl/Cmd+K)",
+    "searchResults": "Search results",
+    "searchEmpty": "Nothing matches this search.",
+    "searchFailed": "The search could not be read: {{message}}",
     "groupOther": "Other",
     "tabs": "Open pages",
     "closeTab": "Close the tab {{title}}",
@@ -578,6 +584,8 @@
       "snapshots": "Named snapshots"
     },
     "historyFigure": {
+      "change": "{{value}}",
+      "renamed": "renamed from {{value}}",
       "added": "added lines",
       "removed": "removed lines",
       "symbols_one": "{{count}} symbol",

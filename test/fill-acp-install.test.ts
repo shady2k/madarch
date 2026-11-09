@@ -1,7 +1,7 @@
 import { afterEach, describe, expect, test } from 'bun:test';
 import { chmodSync, existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
-import { dirname, join } from 'node:path';
+import { join } from 'node:path';
 import { acpAdapterBinFolder, acpAgentFolder, probeAcpAgents, type AcpAdapterCatalogueEntry } from '../src/fill/acp-probe.js';
 import { installAcpAdapter } from '../src/fill/acp-install.js';
 

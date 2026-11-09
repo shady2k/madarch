@@ -28,7 +28,6 @@
  * SQL is written for.
  */
 import { AsyncLocalStorage } from 'node:async_hooks';
-import { spawn } from 'node:child_process';
 import { existsSync, mkdtempSync, rmSync, statSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
@@ -36,7 +35,7 @@ import { types } from 'pg';
 import { withSpan } from '../obs/trace.js';
 import type { Pool, PoolConfig } from 'pg';
 import type { OuterTransaction } from '../history-types.js';
-import type { SqlExecutor, SqlQueryDriver, SqlTransactionKind } from '../sql-driver.js';
+import type { SqlTransactionKind } from '../sql-driver.js';
 import { clusterPaths, clusterQuery, openCluster, CLUSTER_ADMIN_DATABASE, CLUSTER_PORT, CLUSTER_USER, type RunningCluster } from './postgres-cluster.js';
 
 export type { OuterTransaction };
@@ -66,24 +65,33 @@ function statementOf(sql: string): { operation: string; table: string; name: str
   return { operation, table, name: `${operation}${table === '' ? '' : ` ${table}`}` };
 }
 
-/** Runs one statement inside its own span: the operation, the rows it answered, its duration; never its values. */
+/** The counts one transaction states of its statements, never one span per statement. */
+interface StatementCounts {
+  select: number;
+  insert: number;
+  update: number;
+  delete: number;
+  other: number;
+  rows: number;
+}
+
+/** Runs one statement and counts it for the transaction's span: a span per statement made a fill's trace 157 MB. */
 async function spannedStatement<T extends { readonly rows: readonly unknown[] }>(
   sql: string,
-  values: readonly unknown[] | undefined,
   run: () => Promise<T>,
+  counts?: StatementCounts,
 ): Promise<T> {
   const held = statementOf(sql);
-  return await withSpan(`db.${held.operation}`, {
-    'db.system': 'postgres',
-    'db.operation': held.operation,
-    'db.table': held.table,
-    'db.name': held.name,
-    'db.params': values?.length ?? 0,
-  }, async (span) => {
-    const answer = await run();
-    span.setAttribute('db.rows', answer.rows.length);
-    return answer;
-  });
+  const answer = await run();
+  if (counts !== undefined) {
+    if (held.operation === 'SELECT') counts.select += 1;
+    else if (held.operation === 'INSERT') counts.insert += 1;
+    else if (held.operation === 'UPDATE') counts.update += 1;
+    else if (held.operation === 'DELETE') counts.delete += 1;
+    else counts.other += 1;
+    counts.rows += answer.rows.length;
+  }
+  return answer;
 }
 
 /**
@@ -232,10 +240,11 @@ class PostgresOwner implements DatabaseOwner {
       const value = await withSpan('db.transaction', { 'db.system': 'postgres', 'db.kind': kind }, async (span) => {
         let statements = 0;
         let rows = 0;
+        const counts: StatementCounts = { select: 0, insert: 0, update: 0, delete: 0, other: 0, rows: 0 };
         const counted: OuterTransaction = {
           query: async <Row extends object = Record<string, unknown>>(sql: string, values?: readonly unknown[]) => {
             statements += 1;
-            const answer = (await spannedStatement(sql, values, async () => await client.query(sql, values === undefined ? undefined : [...values]) as { rows: unknown[] })) as { rows: Row[] };
+            const answer = (await spannedStatement(sql, async () => await client.query(sql, values === undefined ? undefined : [...values]) as { rows: unknown[] }, counts)) as { rows: Row[] };
             rows += answer.rows.length;
             return answer;
           },
@@ -245,6 +254,11 @@ class PostgresOwner implements DatabaseOwner {
         await client.query('COMMIT');
         span.setAttribute('db.statements', statements);
         span.setAttribute('db.rows', rows);
+        span.setAttribute('db.selects', counts.select);
+        span.setAttribute('db.inserts', counts.insert);
+        span.setAttribute('db.updates', counts.update);
+        span.setAttribute('db.deletes', counts.delete);
+        span.setAttribute('db.other', counts.other);
         return held;
       });
       return value;
@@ -266,7 +280,7 @@ class PostgresOwner implements DatabaseOwner {
     await this.ready;
     const executor: OuterTransaction = {
       query: async <Row>(sql: string, values?: readonly unknown[]) => {
-        const result = await spannedStatement(sql, values, async () => values === undefined ? await this.pool.query(sql) : await this.pool.query(sql, [...values]));
+        const result = await spannedStatement(sql, async () => values === undefined ? await this.pool.query(sql) : await this.pool.query(sql, [...values]));
         return { rows: result.rows as Row[] };
       },
     };
@@ -526,53 +540,7 @@ export async function leaseStoreCluster(store: string, options: { readonly env?:
   };
 }
 
-/**
- * Replaces `to`'s database with `from`'s, rows and schema, through the pinned
- * build's own `pg_dump` and `psql`: the graph store's tables and the fill's
- * bookkeeping move as one database, which is how the knowledge wiki makes a
- * snapshot for its reader and how an MCP start reuses a product's graph.
- *
- * Neither owner may be open on `to` when it runs: its database is dropped
- * first. The source's server is started when it does not answer, and both
- * servers are given up again before it answers — stopped when this call was
- * their last user, left answering for a process that still reads them otherwise.
- */
-async function copyStore(options: { readonly from: string; readonly to: string; readonly env?: Readonly<Record<string, string | undefined>>; readonly log?: (line: string) => void }): Promise<void> {
-  const env = options.env ?? process.env;
-  const source = await openCluster({ ...clusterPaths(options.from), ...(options.log === undefined ? {} : { log: options.log }), env });
-  const target = await openCluster({ ...clusterPaths(options.to), ...(options.log === undefined ? {} : { log: options.log }), env });
-  try {
-    await clusterQuery(target, CLUSTER_ADMIN_DATABASE, `DROP DATABASE IF EXISTS ${quoted(STORE_DATABASE)}`);
-    await clusterQuery(target, CLUSTER_ADMIN_DATABASE, `CREATE DATABASE ${quoted(STORE_DATABASE)}`);
-    await dumpInto(source, target, STORE_DATABASE);
-  } finally {
-    await target.stop();
-    await source.stop();
-  }
-}
 
-/** Streams one database's dump into another's, both from the pinned build's programs. */
-function dumpInto(source: RunningCluster, target: RunningCluster, database: string): Promise<void> {
-  const bin = source.bin;
-  return new Promise<void>((resolve, reject) => {
-    const dump = spawn(join(bin, 'pg_dump'), ['-h', source.socketDir, '-p', String(source.port), '-U', source.user, '-d', database, '--no-owner', '--no-privileges', '--no-tablespaces'], { env: { ...process.env, LC_ALL: 'C' } });
-    const restore = spawn(join(bin, 'psql'), ['-h', target.socketDir, '-p', String(target.port), '-U', target.user, '-d', database, '-v', 'ON_ERROR_STOP=1', '-q'], { env: { ...process.env, LC_ALL: 'C' } });
-    let said = '';
-    const keep = (chunk: Buffer | string): void => { said = (said + String(chunk)).slice(-4_000); };
-    dump.stderr.on('data', keep);
-    restore.stderr.on('data', keep);
-    let failed: string | undefined;
-    dump.once('error', (error: Error) => { failed = `pg_dump could not run: ${error.message}`; });
-    restore.once('error', (error: Error) => { failed = `psql could not run: ${error.message}`; });
-    dump.stdout.pipe(restore.stdin);
-    dump.once('close', (code) => { if (code !== 0) { failed ??= `pg_dump exited ${String(code)}`; restore.stdin.end(); } });
-    restore.once('close', (code) => {
-      if (code !== 0) failed ??= `psql exited ${String(code)}`;
-      if (failed === undefined) resolve();
-      else reject(new Error(`src/adapters/database-owner.ts:1: the database of ${source.socketDir} could not be copied into ${target.socketDir}: ${failed}${said === '' ? '' : `: ${said.trim()}`}`));
-    });
-  });
-}
 
 /** The database names a store's cluster holds, in code-point order, the templates left out. */
 export async function clusterDatabases(cluster: DatabaseClusterRef): Promise<string[]> {
@@ -599,22 +567,4 @@ export async function renameClusterDatabase(cluster: DatabaseClusterRef, from: s
     stop: async () => await Promise.resolve(),
   };
   await clusterQuery(running, CLUSTER_ADMIN_DATABASE, `ALTER DATABASE ${quoted(from)} RENAME TO ${quoted(to)}`);
-}
-
-
-/**
- * The query database's view of an owner: `SqlQueryDriver` is the query
- * layer's transaction port, and this adapter gives it the owner's
- * transactions. `closesOwner` is true only for the adapter that created
- * the owner; a lent owner stays open when the query database closes.
- */
-function ownerQueryDriver(owner: DatabaseOwner, options: { closesOwner: boolean }): SqlQueryDriver {
-  return {
-    allowConcurrentSnapshots: owner.allowConcurrentSnapshots,
-    transaction: <T>(kind: SqlTransactionKind, work: (executor: SqlExecutor) => Promise<T>): Promise<T> =>
-      owner.transaction(kind, async (transaction) => await work(transaction)),
-    close: async (): Promise<void> => {
-      if (options.closesOwner) await owner.close();
-    },
-  };
 }

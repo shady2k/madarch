@@ -12,6 +12,7 @@
  */
 import type { GraphEntity } from './graph-read.js';
 import { HISTORY_SHAPES, type HistoryShape } from './kinds.js';
+import { GIT_FIELDS, GIT_WIKI } from '../fill/stages/git-contract.js';
 import type { Block, HistoryFigure, HistoryNote, HistoryRow, HistorySection } from './model.js';
 import { refOfGraph, type RenderContext, type Subject } from './blocks.js';
 import { projectHistory, projectHistoryAcross } from './history-evidence.js';
@@ -40,11 +41,17 @@ function dayOf(value: unknown): string | undefined {
 
 const numberOf = (value: unknown): number | undefined => (typeof value === 'number' && Number.isFinite(value) ? value : undefined);
 
-/** The figures of one touched edge: the lines it added and removed, where the history walk counted them. */
+/**
+ * The figures of one touched edge: what the commit did to the file, and the lines it added and removed. The one
+ * graph's touched edge holds `change`, `added` and `removed`; a store filled by the old walk holds `additions` and
+ * `deletions`, and both are read so an older store's rows say what they said.
+ */
 function churnOf(properties: Record<string, unknown>): HistoryFigure[] {
-  const added = numberOf(properties['additions']);
-  const removed = numberOf(properties['deletions']);
+  const change = typeof properties['change'] === 'string' ? properties['change'] : undefined;
+  const added = numberOf(properties['added']) ?? numberOf(properties['additions']);
+  const removed = numberOf(properties['removed']) ?? numberOf(properties['deletions']);
   return [
+    ...(change === undefined ? [] : [{ kind: 'change' as const, value: change }]),
     ...(added === undefined ? [] : [{ kind: 'added' as const, value: String(added) }]),
     ...(removed === undefined ? [] : [{ kind: 'removed' as const, value: String(removed) }]),
   ];
@@ -56,10 +63,10 @@ async function taskRows(ctx: RenderContext, task: GraphEntity, limit: number): P
   const rows: HistoryRow[] = [];
   for (const edge of found.rows) {
     const commit = edge.other;
-    const [author] = await ctx.graph.neighbors(commit, { relations: ['code.authored'], direction: 'in', limit: 1 });
+    const [author] = await ctx.graph.neighbors(commit, { relations: [GIT_WIKI.authored], direction: 'in', limit: 1 });
     rows.push({
       ...(dayOf(commit.properties['effectiveAt'] ?? commit.properties['committedAt']) === undefined ? {} : { when: dayOf(commit.properties['effectiveAt'] ?? commit.properties['committedAt'])! }),
-      ...(author?.rows[0] === undefined ? {} : { who: author.rows[0].entity.label }),
+      ...(author?.rows[0] === undefined ? {} : { who: String(author.rows[0].entity.properties['name'] ?? author.rows[0].entity.label) }),
       text: commit.label,
       entity: refOfGraph(ctx, commit),
       figures: [],
@@ -71,7 +78,7 @@ async function taskRows(ctx: RenderContext, task: GraphEntity, limit: number): P
 
 /** The files one commit changed, each with the lines it added and removed and the symbols the file declares. */
 async function commitRows(ctx: RenderContext, commit: GraphEntity, limit: number): Promise<{ sections: HistorySection[]; notes: HistoryNote[] }> {
-  const found = await ctx.graph.edgesOf(commit, 'code.touched', 'out', limit);
+  const found = await ctx.graph.edgesOf(commit, GIT_WIKI.touched, 'out', limit);
   const rows: HistoryRow[] = [];
   let uncounted = 0;
   const notes: HistoryNote[] = [];
@@ -79,6 +86,11 @@ async function commitRows(ctx: RenderContext, commit: GraphEntity, limit: number
     const file = edge.other;
     const churn = churnOf(edge.properties);
     if (churn.length === 0) uncounted += 1;
+    // A rename is its own edge: the commit's hash is its discriminator, and the other end is the old path.
+    const hash = typeof commit.properties[GIT_FIELDS.hash] === 'string' ? commit.properties[GIT_FIELDS.hash] : commit.key.slice(GIT_WIKI.commit.length + 1);
+    const renamed = await ctx.graph.edgesOf(file, GIT_WIKI.renamedTo, 'out', 10);
+    const from = renamed.rows.find((row) => row.properties['discriminator'] === hash);
+    if (from !== undefined) churn.push({ kind: 'renamed', value: from.other.label });
     const contained = await ctx.graph.neighbors(file, { relations: ['code.contains'], direction: 'out', limit: 500 });
     const declared = contained.find((group) => group.relation === 'code.contains');
     const symbols = declared?.rows.filter((row) => row.entity.kind === 'code.symbol') ?? [];

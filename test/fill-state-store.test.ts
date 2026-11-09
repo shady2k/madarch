@@ -1,11 +1,8 @@
 import { afterAll, beforeAll, describe, expect, test } from 'bun:test';
-import { mkdtemp, rm } from 'node:fs/promises';
-import { tmpdir } from 'node:os';
-import { join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { type DatabaseOwner } from '../src/adapters/database-owner.js';
 import type { FillStateDatabase } from '../src/fill/state-store.js';
-import { FILL_STATE_TABLES, FILL_STORE_STEPS, advanceChain, advanceRun, advanceUnit, advanceUnitIn, createFillStateSchema, createRun, createUnit, leaseUnit, openChain, readChain, readRun, readUnit, replaceStaleGeneration } from '../src/fill/state-store.js';
+import { FILL_STATE_TABLES, advanceChain, advanceRun, advanceUnit, createFillStateSchema, createRun, createUnit, leaseUnit, readRun, readUnit, replaceStaleGeneration } from '../src/fill/state-store.js';
 import type { RunEvidence, UnitAdvanceEvent } from '../src/fill/fsm.js';
 import { createTestDatabaseOwner } from './test-database.js';
 

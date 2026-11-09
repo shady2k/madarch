@@ -6,7 +6,7 @@ import { CATALOG_GROUPS, CATALOG_KINDS, CATALOG_RELATIONS, CATALOG_SCHEMA, type 
 import { STARTER_WORKFLOWS } from './starter-workflows.js';
 import { WORKFLOWS_FILE } from './workflows.js';
 import { DEFAULT_THRESHOLDS } from '../problems/types.js';
-import type { ProblemSettings, RuleSpec } from '../problems/types.js';
+import type { RuleSpec } from '../problems/types.js';
 
 /**
  * The starter set `madarch new` writes into a product (decision 0029): the
@@ -130,6 +130,20 @@ them, as label.
 {% related title="Imported by" title-ru="Кем подключается" relation="code.imports" direction="in" %}
 {% related title="Contained in" title-ru="Входит в" relation="code.contains" direction="in" %}{% endblock %}
 {% block describedby %}{% render "./partials/pages-about.liquid", title="Pages about this file", title_ru="Страницы об этом файле" %}{% endblock %}
+`,
+  'repository.liquid': `{% layout "./entity.liquid" %}
+{% block details %}{% properties title="Details" title-ru="Сведения" %}{% endblock %}
+{% block parts %}{% history title="History" title-ru="История" %}
+{% treemap title="Files by size and change" title-ru="Файлы по размеру и изменчивости" %}
+{% related title="Files" title-ru="Файлы" relation="code.contains" depth=3 kind="code.file" limit=80 %}{% endblock %}
+{% block around %}{% render "./partials/around.liquid", title="Around this repository", title_ru="Вокруг этого репозитория" %}{% endblock %}
+{% block describedby %}{% render "./partials/pages-about.liquid", title="Pages about this repository", title_ru="Страницы об этом репозитории" %}{% endblock %}
+`,
+  'directory.liquid': `{% layout "./entity.liquid" %}
+{% block details %}{% properties title="Details" title-ru="Сведения" %}{% endblock %}
+{% block parts %}{% related title="Files and folders" title-ru="Файлы и папки" relation="code.contains" direction="out" limit=200 %}{% endblock %}
+{% block around %}{% render "./partials/around.liquid", title="Around this folder", title_ru="Вокруг этой папки" %}{% endblock %}
+{% block describedby %}{% render "./partials/pages-about.liquid", title="Pages about this folder", title_ru="Страницы об этой папке" %}{% endblock %}
 `,
   'symbol.liquid': `{% layout "./entity.liquid" %}
 {% block lead %}{% if lang == "ru" %}{% case page.symbolKind %}{% when "function" %}Функция{% when "method" %}Метод{% when "class" %}Класс{% when "interface" %}Интерфейс{% when "type" %}Тип{% when "constant" %}Константа{% when "enum" %}Перечисление{% when "struct" %}Структура{% when "variable" %}Переменная{% else %}Символ{% endcase %} в \`{{ page.path }}\`{% else %}{% if page.symbolKind %}{{ page.symbolKind }} in \`{{ page.path }}\`{% else %}\`{{ page.path }}\`{% endif %}{% endif %}{% endblock %}
@@ -586,11 +600,6 @@ export const STARTER_PROBLEM_RULES: readonly RuleSpec[] = [
   { id: 'wiki.manifest', predicate: 'wiki', kind: 'manifest', sonar: 'bug', severity: 'major', section: 'wiki', action: 'task', enabled: true, label: { en: 'Manifest finding', ru: 'Замечание к манифесту' } },
 ];
 
-/** The starter rules as the settings the page reads: the same data the manifest text is written from. */
-function starterProblemSettings(): ProblemSettings {
-  const rules = Object.fromEntries(STARTER_PROBLEM_RULES.map(({ id, ...setting }) => [id, setting] as const));
-  return { rules, thresholds: { ...DEFAULT_THRESHOLDS } };
-}
 
 /** One rule as a flow mapping of the manifest; `JSON.stringify` quotes every string, the labels included. */
 function ruleYaml(rule: RuleSpec): string {
@@ -738,6 +747,22 @@ function kindsManifest(): string {
     "kinds:",
   ];
   for (const kind of CATALOG_KINDS) lines.push(...kindLines(kind));
+  lines.push(
+    "# The edge kinds the product declares: their ends, whether repeats are allowed and what tells them apart, and",
+    "# the capability that fills them. A kind with a capability takes that capability's contract for its fields.",
+    "edges:",
+    "  - { name: code.contains, from: [code.repository, code.directory], to: [code.directory, code.file, code.gitlink], capability: git }",
+    "  - { name: code.as-is, from: [code.repository], to: [code.commit], capability: git }",
+    "  - { name: code.history, from: [code.repository], to: [code.commit], capability: git }",
+    "  - { name: code.parent, from: [code.commit], to: [code.commit], capability: git }",
+    "  - { name: code.touched, from: [code.commit], to: [code.file], capability: git }",
+    "  - { name: code.authored, from: [code.author], to: [code.commit], capability: git }",
+    "  - { name: code.renamed-from, from: [code.file], to: [code.file], repeats: true, discriminator: commit, capability: git }",
+    "# The plugins the product holds (decision 0035, item 11): a declaration of what each reads and writes and the",
+    "# files of its closure. madarch's own git reader is the first; it runs in process until the plugin host lands.",
+    "plugins:",
+    "  - { id: git, version: 0.0.5, inputs: [code.repository], outputs: [code.repository, code.directory, code.file, code.commit, code.author], closure: [plugins/git/plugin.yaml, plugins/git/contract.yaml] }",
+  );
   return `${lines.join('\n')}\n`;
 }
 
@@ -770,6 +795,15 @@ export function kindLines(kind: CatalogKindData, options: KindLineOptions = {}):
   if (kind.policy !== 'none' && kind.template !== undefined && kind.source !== undefined) {
     lines.push(`    template: templates/${kind.template}`);
     lines.push(`    source: ${kind.source}`);
+    if (kind.capability !== undefined) lines.push(`    capability: ${kind.capability}`);
+    if (kind.fields !== undefined && kind.fields.length > 0) {
+      lines.push('    fields:');
+      for (const field of kind.fields) {
+        lines.push(`      - { name: ${field.name}, type: ${field.type}${field.nullable === true ? ', nullable: true' : ''}, role: ${field.role}, producers: [${field.producers.join(', ')}]${field.reference === undefined ? '' : `, reference: ${field.reference}`} }`);
+      }
+    }
+    if (kind.key !== undefined && kind.key.length > 0) lines.push(`    key: [${kind.key.join(', ')}]`);
+    if (kind.dependsOn !== undefined) lines.push(`    depends-on: [${kind.dependsOn.join(', ')}]`);
     if (kind.origin !== undefined) lines.push(`    origin: ${kind.origin}`);
     for (const extra of kind.extra ?? []) lines.push(`    ${extra}`);
     if (kind.card === true) lines.push('    card: true');
@@ -799,9 +833,37 @@ export function kindLines(kind: CatalogKindData, options: KindLineOptions = {}):
 const KINDS = kindsManifest();
 const WORKFLOWS = workflowsManifest();
 
+/** The git reader's closure, as the product holds it (decision 0035, item 4): a declaration now, the host's input later. */
+const PLUGIN_FILES: readonly StarterFile[] = [
+  {
+    path: 'plugins/git/plugin.yaml',
+    content: [
+      '# The git reader (decision 0035): what it reads and writes, and the files its closure holds.',
+      'id: git',
+      'version: 0.0.5',
+      'inputs: [code.repository]',
+      'outputs: [code.repository, code.directory, code.file, code.commit, code.author]',
+      'closure: [plugins/git/plugin.yaml, plugins/git/contract.yaml]',
+      '',
+    ].join('\n'),
+  },
+  {
+    path: 'plugins/git/contract.yaml',
+    content: [
+      '# The tables the git capability fills, declared apart from the engine (decision 0034, item 14).',
+      'contract: git',
+      'kinds: [repository, directory, file, commit, signature]',
+      'edges: [contains, as-is, history, parent, touched, authored, renamed-from]',
+      'dictionaries: [path, blob, language]',
+      '',
+    ].join('\n'),
+  },
+];
+
 export const STARTER_FILES: readonly StarterFile[] = [
   { path: 'madarch/kinds.yaml', content: KINDS },
   { path: WORKFLOWS_FILE, content: WORKFLOWS },
+  ...PLUGIN_FILES,
   ...Object.entries(TEMPLATES).map(([name, content]) => ({ path: `templates/${name}`, content })),
 ];
 

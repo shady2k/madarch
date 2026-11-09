@@ -174,14 +174,27 @@ const SCHEMA: readonly string[] = [
  * first and then makes nothing at all when the stamp it left stands, so opening a store that has its schema takes no
  * lock on a table a run writes.
  */
+/** The foreign keys the fill's own rows must satisfy: a generation belongs to a unit and a run, and a lease to a generation. */
+const FOREIGN_KEYS: readonly { readonly table: string; readonly name: string; readonly columns: string; readonly ref: string; readonly refColumns: string }[] = [
+  { table: 'fill_unit_generation', name: 'fill_unit_generation_unit_fk', columns: 'unit_id', ref: 'fill_unit', refColumns: 'unit_id' },
+  { table: 'fill_unit_lease', name: 'fill_unit_lease_generation_fk', columns: 'unit_id, generation', ref: 'fill_unit_generation', refColumns: 'unit_id, generation' },
+];
+
+/** The statement that adds one foreign key where it does not stand yet; `NOT VALID` keeps an older store's rows while new ones are checked. */
+const foreignKeySql = (key: (typeof FOREIGN_KEYS)[number]): string =>
+  `DO $$ BEGIN IF NOT EXISTS (SELECT 1 FROM pg_constraint WHERE conname = '${key.name}') THEN ALTER TABLE ${key.table} ADD CONSTRAINT ${key.name} FOREIGN KEY (${key.columns}) REFERENCES ${key.ref} (${key.refColumns}) ON DELETE CASCADE DEFERRABLE INITIALLY DEFERRED NOT VALID; END IF; END $$`;
+
 export async function createFillStateSchema(database: FillStateDatabase): Promise<void> {
   const at = here();
   await withLocation(at, 'createFillStateSchema', FILL_STATE_TABLES, async () => {
     await createSchemaOnce(database, {
       name: 'fill-state',
-      parts: SCHEMA,
+      parts: [...SCHEMA, ...FOREIGN_KEYS.map(foreignKeySql)],
       tables: FILL_STATE_TABLES,
-      create: async (executor) => { for (const statement of SCHEMA) await executor.query(statement); },
+      create: async (executor) => {
+        for (const statement of SCHEMA) await executor.query(statement);
+        for (const key of FOREIGN_KEYS) await executor.query(foreignKeySql(key));
+      },
     });
   });
 }
@@ -234,19 +247,6 @@ export interface UnitRecord {
   readonly lease: UnitLeaseRecord | null;
 }
 
-/** One journal entry: the step a machine took, with the state it left and the one it entered. */
-interface TransitionRecord {
-  readonly seq: number;
-  readonly subjectKind: 'chain' | 'run' | 'unit';
-  readonly subjectId: string;
-  readonly generation: number | null;
-  readonly transitionId: string;
-  readonly from: string;
-  readonly to: string;
-  readonly event: string;
-  readonly fence: number | null;
-  readonly at: number;
-}
 
 /** What a step did: the new record and the effects the caller must perform, or why the machine refused it. */
 export type StoreStep<Record, State extends string> =
@@ -291,7 +291,6 @@ interface RunRow extends Record<string, unknown> { run_id: string; product: stri
 interface UnitRow extends Record<string, unknown> { unit_id: string; product: string; stage_id: string; scope_key: string; generation: unknown; created_at: unknown }
 interface GenerationRow extends Record<string, unknown> { unit_id: string; generation: unknown; run_id: string; state: string; inputs_digest: string; fence: unknown; context: unknown; published_at: unknown; stale_at: unknown; updated_at: unknown }
 interface LeaseRow extends Record<string, unknown> { attempt: unknown; fence: unknown; holder: string; issued_at: unknown; expires_at: unknown; revoked_at: unknown }
-interface TransitionRow extends Record<string, unknown> { seq: unknown; subject_kind: string; subject_id: string; generation: unknown; transition_id: string; from_state: string; to_state: string; event: string; fence: unknown; at: unknown }
 
 function requireState<State extends string>(states: readonly State[], value: string, table: string, key: string): State {
   if (!(states as readonly string[]).includes(value)) raise(`table ${table}, row ${key}: state "${value}" is not one of ${states.join(', ')}`);
@@ -744,28 +743,6 @@ export async function readUnit(database: FillStateDatabase, unitId: string): Pro
   return run(at, database, `readUnit(${unitId})`, ['fill_unit', 'fill_unit_generation', 'fill_unit_lease'], async (executor) => (await loadUnit(executor, unitId, false))?.record ?? null, 'snapshot');
 }
 
-/** Every generation of a unit, oldest first, with the lease each holds. */
-async function readUnitGenerations(database: FillStateDatabase, unitId: string): Promise<readonly UnitRecord[]> {
-  const at = here();
-  return run(at, database, `readUnitGenerations(${unitId})`, ['fill_unit', 'fill_unit_generation', 'fill_unit_lease'], async (executor) => {
-    const units = await executor.query<UnitRow>('SELECT unit_id, product, stage_id, scope_key, generation, created_at FROM fill_unit WHERE unit_id = $1', [unitId]);
-    const unit = units.rows[0];
-    if (unit === undefined) return [];
-    const generations = await executor.query<GenerationRow>(
-      'SELECT unit_id, generation, run_id, state, inputs_digest, fence, context, published_at, stale_at, updated_at FROM fill_unit_generation WHERE unit_id = $1 ORDER BY generation ASC',
-      [unitId],
-    );
-    const records: UnitRecord[] = [];
-    for (const generation of generations.rows) {
-      const leases = await executor.query<LeaseRow>(
-        'SELECT attempt, fence, holder, issued_at, expires_at, revoked_at FROM fill_unit_lease WHERE unit_id = $1 AND generation = $2 AND fence = $3',
-        [unitId, millis(generation.generation), millis(generation.fence)],
-      );
-      records.push(unitRecord(unit, generation, leases.rows[0]));
-    }
-    return records;
-  }, 'snapshot');
-}
 
 /**
  * Writes one unit step: the generation's new state, fence and context, the
@@ -812,9 +789,19 @@ async function persistUnitStep(
  * short transaction of the database owner (madarch-tzte.19.1 lends its executor).
  */
 export async function advanceUnitIn(executor: SqlExecutor, options: { readonly unitId: string; readonly event: UnitAdvanceEvent }): Promise<StoreStep<UnitRecord, UnitState>> {
+  const event = options.event as UnitEvent;
+  // The run's row is taken before the unit's generation, the order every transaction of a run keeps: an event's own
+  // insert checks the generation's foreign key, and a step that locked the generation first would wait for the run an
+  // event holds, and the event for the generation the step holds.
+  if (event.type !== 'cancel') {
+    await executor.query(
+      `SELECT 1 FROM fill_run r JOIN fill_unit_generation g ON g.run_id = r.run_id JOIN fill_unit u ON u.unit_id = g.unit_id AND u.generation = g.generation
+       WHERE u.unit_id = $1 FOR SHARE OF r`,
+      [options.unitId],
+    );
+  }
   const snapshot = await loadUnit(executor, options.unitId, true);
   if (snapshot === null) raise(`table fill_unit: no unit ${options.unitId}`);
-  const event = options.event as UnitEvent;
   if (event.type === 'lease') {
     return {
       ok: false,
@@ -1014,27 +1001,4 @@ export async function retryGeneration(database: FillStateDatabase, options: {
       record: { ...current, generation, runId: options.runId, state: 'planned', inputsDigest: options.inputsDigest, context, publishedAt: null, staleAt: null, updatedAt: options.at, lease: null },
     } as const;
   }, 'write');
-}
-
-/** The journal of one subject (a unit, a run or a product's chain), oldest first. */
-async function readTransitions(database: FillStateDatabase, subject: { readonly kind: 'chain' | 'run' | 'unit'; readonly id: string }): Promise<readonly TransitionRecord[]> {
-  const at = here();
-  return run(at, database, `readTransitions(${subject.kind} ${subject.id})`, ['fill_transition'], async (executor) => {
-    const { rows } = await executor.query<TransitionRow>(
-      'SELECT seq, subject_kind, subject_id, generation, transition_id, from_state, to_state, event, fence, at FROM fill_transition WHERE subject_kind = $1 AND subject_id = $2 ORDER BY seq ASC',
-      [subject.kind, subject.id],
-    );
-    return rows.map((row) => ({
-      seq: millis(row.seq),
-      subjectKind: row.subject_kind as 'chain' | 'run' | 'unit',
-      subjectId: row.subject_id,
-      generation: maybeMillis(row.generation),
-      transitionId: row.transition_id,
-      from: row.from_state,
-      to: row.to_state,
-      event: row.event,
-      fence: maybeMillis(row.fence),
-      at: millis(row.at),
-    }));
-  }, 'snapshot');
 }

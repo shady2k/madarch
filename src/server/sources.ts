@@ -260,7 +260,7 @@ export async function createSourceStores(options: SourceStoresOptions): Promise<
 }
 
 /** The stores of an opened folder: every sidecar and every history it holds, checked against each other. */
-async function openSources(cluster: StoreHistories, dataFolder: string, clock: Clock, log: (line: string) => void, jsonStems: ReadonlySet<string>): Promise<SourceStores> {
+async function openSources(cluster: StoreHistories, dataFolder: string, _clock: Clock, log: (line: string) => void, jsonStems: ReadonlySet<string>): Promise<SourceStores> {
   const databaseStems = new Map<string, string>();
   for (const database of cluster.databases) databaseStems.set(database, database);
   const problems: string[] = [];

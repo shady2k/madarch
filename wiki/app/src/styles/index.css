@@ -71,6 +71,46 @@
   }
 }
 
+/* The search stands in the top bar: its field beside the controls at a desk, its icon at a phone's width, where a press
+   brings the field over the bar and the results below it. */
+.shell-search {
+  position: relative;
+  display: flex;
+  align-items: center;
+  gap: 4px;
+}
+
+.shell-search-toggle {
+  display: none;
+}
+
+@media (max-width: 699px) {
+  .shell-search-toggle {
+    display: grid;
+  }
+
+  .shell-search .shell-search-input {
+    display: none;
+  }
+
+  .shell-search[data-open="true"] {
+    position: fixed;
+    inset-inline: 8px;
+    top: 6px;
+    z-index: 60;
+    padding: 6px;
+    border: 1px solid var(--border);
+    border-radius: var(--radius-card);
+    background: var(--surface-page);
+    box-shadow: var(--shadow-low);
+  }
+
+  .shell-search[data-open="true"] .shell-search-input {
+    display: block;
+    max-width: none;
+  }
+}
+
 /* The work area is a single, flush surface. Only its reading content gets a
    cap; it uses all available width at the owner's narrower window sizes. */
 .shell-document {

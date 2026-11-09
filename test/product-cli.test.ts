@@ -474,7 +474,7 @@ describe('madarch new', () => {
   });
 
   test('an unknown option exits 2 naming it and what is accepted', () => {
-    const { status, stdout, stderr } = runCommand(['new', '--nope'], { MADARCH_HOME: scratchFolder() });
+    const { status, stderr } = runCommand(['new', '--nope'], { MADARCH_HOME: scratchFolder() });
     expect(status).toBe(2);
     expect(stderr).toContain('--nope');
     expect(stderr).toContain('--home');
@@ -587,7 +587,6 @@ describe('madarch init', () => {
     const serve = serveNew(['init', '--port', String(port), '--no-open'], { MADARCH_HOME: home, MADARCH_APP: builtApp(base) }, ['bun', CLI], checkout);
     const { folder } = await printedLiveFacts(serve);
     expect(folder).toBe(join(home, 'products', 'sample-app'));
-    const outputLines = serve.stdout.split('\n').filter((line) => line !== '');
     expect(serve.stdout).toContain('✓ Created the product'); expect(serve.stdout).toContain('✓ Connected your repository');
     expect(serve.stdout).toContain(`The wiki is running at http://127.0.0.1:${port}/products/sample-app/`);
     expect(statSync(checkout).isDirectory()).toBe(true);
@@ -1464,7 +1463,7 @@ describe('madarch repo add', () => {
     runCommand(['repo', 'add', 'library', url, '--product', draft.folder], {}, base);
     // The second command is refused for the manifest, before any clone: the
     // checkout standing there keeps whatever a person did with it.
-    const changed = writeFileSync(join(draft.folder, 'repos', 'library', 'note.txt'), 'someone worked here\n');
+    writeFileSync(join(draft.folder, 'repos', 'library', 'note.txt'), 'someone worked here\n');
     const run = runCommand(['repo', 'add', 'library', url, '--product', draft.folder], {}, base);
     expect(run.status).toBe(2);
     expect(readFileSync(join(draft.folder, 'repos', 'library', 'note.txt'), 'utf8')).toContain('someone worked here');
@@ -1550,7 +1549,7 @@ describe('madarch clone', () => {
   test('clones a pushed product into a scratch home, bootstraps it and names the way to its wiki', () => {
     const base = scratchFolder('madarch-cli-lc-');
     const home = join(base, 'home'); mkdirSync(home, { recursive: true });
-    const product = productOnOrigin(base, home, { withRepo: true });
+    productOnOrigin(base, home, { withRepo: true });
     const other = join(base, 'other'); mkdirSync(other, { recursive: true });
     const run = runCommand(['clone', join(base, 'fixture-origin.git'), '--home', other], {});
     expect(run.status).toBe(0);
@@ -1563,7 +1562,7 @@ describe('madarch clone', () => {
   test('a name the home holds is refused, exit 2, and the clone is not started', () => {
     const base = scratchFolder('madarch-cli-lc-');
     const home = join(base, 'home'); mkdirSync(home, { recursive: true });
-    const product = productOnOrigin(base, home);
+    productOnOrigin(base, home);
     const other = join(base, 'other'); mkdirSync(other, { recursive: true });
     mkdirSync(join(other, 'fixture-origin'));
     const run = runCommand(['clone', join(base, 'fixture-origin.git'), '--home', other], {});

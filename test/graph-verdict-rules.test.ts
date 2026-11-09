@@ -9,12 +9,12 @@ import { describe, expect, test } from 'bun:test';
 import { createHash } from 'node:crypto';
 import { GRAPH_EDGE_RULES, GRAPH_NODE_RULES, edgeRuleFor, nodeRuleFor } from '../src/knowledge/graph-verdict-rules.js';
 import { runGraphVerdicts, type GraphEdgeItem, type GraphEvidenceReader, type GraphNodeItem, type GraphSnapshot } from '../src/knowledge/graph-verdicts.js';
-import { emptyModelAssignments, resolveModelRoles } from '../src/knowledge/model-roles.js';
+import { resolveModelRoles } from '../src/knowledge/model-roles.js';
 
 const COMMIT = 'b'.repeat(40);
 const SHA = 'a'.repeat(64);
 const span = (path: string, lineStart = 1, lineEnd = 3) => ({ path, lineStart, lineEnd });
-const NO_ROLES = resolveModelRoles(emptyModelAssignments());
+const NO_ROLES = resolveModelRoles({ writing: null, classification: null, analysis: null, editing: null });
 
 /** Ten lines, no closing newline, so the declared count is the span's last line. */
 const TEN = Array.from({ length: 10 }, (_, index) => `line ${index + 1}`).join('\n');

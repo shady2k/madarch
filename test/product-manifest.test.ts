@@ -14,7 +14,7 @@ import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { afterAll, describe, expect, test } from 'bun:test';
-import { readProduct, manifestNamed, manifestWithRepo, yamlWord, yamlText, cutComment, decodedKeyWord, parseManifest } from '../src/product/manifest.js';
+import { readProduct, manifestNamed, manifestWithRepo, yamlWord, yamlText, cutComment } from '../src/product/manifest.js';
 
 const EXAMPLES = fileURLToPath(new URL('../examples/contract/', import.meta.url));
 const SET_MADE = join(EXAMPLES, 'set-made-product');

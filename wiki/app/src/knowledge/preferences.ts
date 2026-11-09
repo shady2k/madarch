@@ -32,12 +32,6 @@ export function setShowGrounds(value: boolean): void {
   for (const listener of listeners) listener();
 }
 
-/** Forgets what was read, so the next read asks the storage again (a test starts over). */
-function resetPreferences(): void {
-  shown = null;
-  for (const listener of listeners) listener();
-}
-
 export function useShowGrounds(): boolean {
   return useSyncExternalStore((listener) => { listeners.add(listener); return () => listeners.delete(listener); }, read, () => false);
 }

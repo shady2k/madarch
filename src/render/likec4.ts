@@ -10,9 +10,9 @@
  */
 import type { CompiledElement, CompiledModel } from '../model/compile.js';
 import { byCodePoint } from '../model/order.js';
-import type { AsyncQueryEngine, ElementAnswer, QueryError, QuerySnapshot, QueryTime } from '../query-types.js';
+import type { ElementAnswer, QueryError, QuerySnapshot, QueryTime } from '../query-types.js';
 import { uniqueSafeIds } from './safe-ids.js';
-import { buildAsyncViewSet, childrenByParent, EVERY_LEVEL, namer, type View } from './view-set.js';
+import { childrenByParent, EVERY_LEVEL, namer, type View } from './view-set.js';
 
 /** One problem that kept the workspace from being rendered. */
 export interface LikeC4Error {
@@ -143,20 +143,6 @@ interface WorkspaceRelation {
   dashed: boolean;
 }
 
-/**
- * Renders the workspace of the whole view set at one time and state
- * (`at`, the query engine's own defaults when left out): the same views
- * as the view set. The writing itself is `writeLikeC4Workspace`, shared
- * with the one asked view (views/one-view).
- */
-/** Async renderer used by production paths; all query reads share one revision. */
-async function renderAsyncLikeC4Workspace(engine: AsyncQueryEngine, model: CompiledModel, at?: QueryTime): Promise<LikeC4Result> {
-  return engine.withSnapshot(async (snapshot) => {
-    const viewSet = await buildAsyncViewSet(snapshot, model, at);
-    if (viewSet.views === undefined) return { errors: viewSet.errors };
-    return writeAsyncLikeC4Workspace(snapshot, model, at, viewSet.views);
-  });
-}
 
 /**
  * An element id made a LikeC4 identifier: every character outside letters,

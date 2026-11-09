@@ -169,11 +169,9 @@ export function checkUserNamespaces(files: { read?: (path: string) => string; ui
 /** The cgroup one plugin's whole tree runs in, from the moment before its first instruction. */
 export class PluginCgroup {
   readonly folder: string;
-  private readonly limits: CgroupLimits;
 
-  private constructor(folder: string, limits: CgroupLimits) {
+  private constructor(folder: string, _limits: CgroupLimits) {
     this.folder = folder;
-    this.limits = limits;
   }
 
   /**

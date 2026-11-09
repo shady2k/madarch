@@ -23,7 +23,7 @@ import { FailureNote } from './errors.js';
 import { BlockView, CodeLines, CodePlace, EntityName, Findings, KLink, KMarkdown, PlannedBadge, PlannedContext, brokenWords, groupLabel, scrollToAnchor, sentenceKey, type PlannedMarks } from './blocks.js';
 import { addressOfDocument, addressOfEntity, addressOfJournal, addressOfKind, addressOfStatement } from './routes.js';
 import { KindLabels, useKindName } from './kind-names.js';
-import { fillPhaseWords, fillShare, fillWords } from './fill-words.js';
+import { fillPhaseWords, fillShare } from './fill-words.js';
 import { useRead } from './live.js';
 import { blockOpen, useRole } from './roles.js';
 import { PageSkeleton } from './skeleton.js';

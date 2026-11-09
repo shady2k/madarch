@@ -7,16 +7,13 @@ import { afterAll, beforeAll, describe, expect, test } from 'bun:test';
 import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
-import { type DatabaseOwner } from '../src/adapters/database-owner.js';
-import { createGraphStore, type GraphId, type GraphStore } from '../src/graph/index.js';
+import { FakeGraph } from './fake-graph.js';
 import { membersBlock, type RenderContext } from '../src/knowledge/blocks.js';
-import { GraphReader } from '../src/knowledge/graph-read.js';
 import { parseKinds } from '../src/knowledge/kinds.js';
 import { readMarkdownEntities } from '../src/knowledge/markdown.js';
 import type { Block, PageModel } from '../src/knowledge/model.js';
 import { kindSummaries, listEntities, renderPage } from '../src/knowledge/render.js';
 import { Resolver } from '../src/knowledge/resolve.js';
-import { createTestDatabaseOwner } from './test-database.js';
 
 const K = (kind: string, rest: string): string => `${kind}:${rest}`;
 const FILE = K('code.file', 'src/a.ts');
@@ -33,8 +30,6 @@ const HOT_FIELD = K('code.field', 'code.symbol:src/hot.ts#Hot#hot');
 const HOT_READERS = Array.from({ length: 101 }, (_, at) => K('code.symbol', `src/readers/r${String(at + 1).padStart(3, '0')}.ts#read`));
 const ORPHAN = K('code.field', 'code.symbol:src/gone.ts#Gone#lost');
 
-let owner: DatabaseOwner;
-let store: GraphStore;
 let ctx: RenderContext;
 let product: string;
 
@@ -42,31 +37,18 @@ const span = (path: string, lineStart: number, lineEnd: number) => ({ path, line
 
 beforeAll(async () => {
   product = mkdtempSync(join(tmpdir(), 'madarch-m38l21-'));
-  owner = await createTestDatabaseOwner({ btreeGist: true });
-  await owner.ready;
-  store = createGraphStore(owner, { now: () => new Date('2026-06-01T00:00:00Z') });
-  await store.createSchema();
-  await store.registerCodeSchema({ kinds: ['code.file', 'code.symbol', 'code.facet', 'code.field', 'code.service'], relations: [{ key: 'code.facet-of' }, { key: 'code.contains' }, { key: 'code.reads-field' }, { key: 'code.calls' }] });
-  const scope = await store.newNode();
-  await store.openNode({ nodeId: scope, kind: 'code.repository', label: 'shop', properties: { path: '/work/shop' }, validFrom: '2026-01-01T00:00:00Z', owner: { producer: 'code.extract.driver', scope } });
-  const ids = new Map<string, GraphId>();
-  const add = async (key: string, kind: string, label: string, properties: Record<string, unknown> = {}): Promise<void> => {
-    const opened = await store.openNode({ kind, label, properties: { ...properties, recordKey: key }, validFrom: '2026-01-01T00:00:00Z', owner: { producer: 'code.extract.code', scope } });
-    ids.set(key, opened.nodeId);
-  };
-  const link = async (relation: string, from: string, to: string): Promise<void> => {
-    await store.openEdge({ relation, src: ids.get(from)!, dst: ids.get(to)!, properties: {}, validFrom: '2026-01-01T00:00:00Z', owner: { producer: 'code.extract.code', scope } });
-  };
+  const fake = new FakeGraph();
+  fake.add('code.repository:shop', 'code.repository', 'shop', { path: '/work/shop' });
+  const add = (key: string, kind: string, label: string, properties: Record<string, unknown> = {}): void => { fake.add(key, kind, label, properties); };
+  const link = (relation: string, from: string, to: string): void => { fake.link(relation, from, to); };
   await add(FILE, 'code.file', 'a.ts', { path: 'src/a.ts', span: span('src/a.ts', 1, 20) });
   await add(CHARGE, 'code.symbol', 'charge', { path: 'src/a.ts', symbolKind: 'function', internalOnly: true, span: span('src/a.ts', 1, 9) });
   await add(SILENT, 'code.symbol', 'silent', { path: 'src/a.ts', symbolKind: 'function', span: span('src/a.ts', 11, 12) });
   await add(READER, 'code.symbol', 'read', { path: 'src/b.ts', symbolKind: 'function', span: span('src/b.ts', 1, 2) });
   await add(FACET, 'code.facet', 'a.ts · src/a.ts', { ownerKey: FILE, language: 'typescript', role: 'code', authors: ['Avery Quinn', 'Rin Tanaka'], commitCount: 3, parsed: true });
   await add(FIELD, 'code.field', 'amount', { name: 'amount', type: 'number', value: '0' });
-  // A member whose parent the graph does not hold: the kind is declared a member, and nothing contains it.
   await add(ORPHAN, 'code.field', 'lost', { name: 'lost', type: 'number' });
   await add(SERVICE, 'code.service', 'orders', { language: 'typescript', build: { context: '.', dockerfile: 'Dockerfile', args: ['--prod'] } });
-  // A class with more fields than a members block reads at once, and a field that more callers read than one read returns.
   await add(LEDGER, 'code.symbol', 'Ledger', { path: 'src/ledger.ts', symbolKind: 'class', span: span('src/ledger.ts', 1, 400) });
   for (const [at, key] of LEDGER_FIELDS.entries()) {
     await add(key, 'code.field', `f${String(at + 1).padStart(3, '0')}`, { name: `f${String(at + 1).padStart(3, '0')}`, type: 'number', value: String(at) });
@@ -132,7 +114,7 @@ beforeAll(async () => {
   const read = parseKinds(await Bun.file(join(product, 'madarch/kinds.yaml')).text(), join(product, 'madarch/kinds.yaml'), product);
   expect(read.findings).toEqual([]);
   const markdown = new Map(readMarkdownEntities(product, read).entities.map((entity) => [entity.id, entity]));
-  const graph = new GraphReader(owner, () => '2026-06-01T00:00:00Z');
+  const graph = fake.reader();
   const readSource = async (_repo: string | null, path: string): Promise<string | undefined> => path === 'src/a.ts' ? 'export function charge() {}\n' : undefined;
   ctx = {
     productFolder: product,
@@ -148,8 +130,7 @@ beforeAll(async () => {
   };
 }, 60_000);
 
-afterAll(async () => {
-  await owner.close();
+afterAll(() => {
   rmSync(product, { recursive: true, force: true });
 });
 

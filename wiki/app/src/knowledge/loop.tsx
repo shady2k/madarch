@@ -13,13 +13,13 @@ import { useTranslation } from 'react-i18next';
 import { Alert, AlertDescription, AlertTitle } from '@/components/ui/alert.js';
 import { Badge } from '@/components/ui/badge.js';
 import { Button } from '@/components/ui/button.js';
-import { addStarter, answerQuestion, closeTask, createProblemTask, createTask, dismissProblem, getProblemCategories, getProblemItems, getProblemSources, getQuestion, getQuestions, getRefreshPlan, getScopeImpact, getTask, getTasks, proposeTask, runTask } from './api.js';
+import { addStarter, answerQuestion, closeTask, createProblemTask, createTask, dismissProblem, getProblemCategories, getProblemItems, getProblemSources, getQuestion, getQuestions, getScopeImpact, getTask, getTasks, proposeTask, runTask } from './api.js';
 import { CodePlace, KLink, brokenWords } from './blocks.js';
 import { addressOfEntity, addressOfQuestion, addressOfStatement, addressOfTask, K_QUESTIONS, K_TASKS } from './routes.js';
 import { useRead } from './live.js';
 import { useTabTitle } from './tabs.js';
 import { PageSkeleton } from './skeleton.js';
-import type { Author, PlaceView, Problem, ProblemCategory, ProblemSection, ProblemSource, QuestionDetail, StarterOffer, QuestionRow, QuestionState, RefreshPlan, RefreshPreview, Resolution, TaskDetail, TaskImpact, TaskProposal, TaskScope } from './types.js';
+import type { Author, PlaceView, Problem, ProblemCategory, ProblemSection, ProblemSource, QuestionDetail, StarterOffer, QuestionRow, QuestionState, RefreshPlan, Resolution, TaskDetail, TaskImpact, TaskProposal, TaskScope } from './types.js';
 
 const message = (failure: unknown): string => (failure instanceof Error ? failure.message : String(failure));
 
@@ -404,16 +404,8 @@ function usePaged<T extends { next: string | null }>(key: string, version: numbe
   return { pages, error, loading, more };
 }
 
-/** The words of a problem: the locale's when the server named a key, the engine's English otherwise. */
-function problemWords(problem: Problem, t: ReturnType<typeof useTranslation>['t']): string {
-  return problem.textKey === undefined
-    ? problem.reason
-    : t(`loop.problemText.${problem.textKey}`, { ...(problem.textArgs ?? {}), defaultValue: problem.reason });
-}
-
 /** One source of a category: its count, closed until a reader opens it; opening asks the server for its items. */
 function ProblemSourceGroup({ rule, source, version, refresh }: { rule: string; source: ProblemSource; version: number; refresh: () => void }): ReactElement {
-  const { t } = useTranslation();
   const [opened, setOpened] = useState(false);
   return (
     <details
@@ -609,7 +601,6 @@ function scopeOfWords(words: string): TaskScope | undefined {
 
 /** A place a task changes, as a reader says it: the heading and its document's title, each a link; the path is small. */
 function PlaceName({ place }: { place: PlaceView }): ReactElement {
-  const { t } = useTranslation();
   const label = place.href === null ? <span>{place.label}</span> : <KLink href={place.href}>{place.label}</KLink>;
   return (
     <span className="place" data-testid="place" data-kind={place.kind} title={place.words}>

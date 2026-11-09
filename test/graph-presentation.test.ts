@@ -13,20 +13,11 @@ describe('the key a record is presented by', () => {
     expect(presentedKey('code.file', { recordKey: 'file:9f2c', path: 'src/a.ts' })).toBe('code.file:src/a.ts');
   });
 
-  test('a symbol is named by its global name without the repository prefix', () => {
-    expect(presentedKey('code.symbol', { recordKey: 'code.symbol:src/a.ts#g', globalName: 'shop:src/a.ts#g' })).toBe('code.symbol:src/a.ts#g');
-    expect(presentedKey('code.symbol', { recordKey: 'symbol:77aa', globalName: 'shop:src/a.ts#g' })).toBe('code.symbol:src/a.ts#g');
-    // A global name that names no repository is the whole name.
-    expect(presentedKey('code.symbol', { recordKey: 'symbol:77aa', globalName: 'src/a.ts#g' })).toBe('code.symbol:src/a.ts#g');
-  });
-
   test('every other kind is named by its record key, unchanged', () => {
     expect(presentedKey('code.table', { recordKey: 'code.table:shop/public.items', path: 'db/x.sql' })).toBe('code.table:shop/public.items');
     expect(presentedKey('code.file', { recordKey: 'file:9f2c' })).toBe('file:9f2c');
     // A path that is no text, and a global name that is no text, name the record by its own key.
     expect(presentedKey('code.file', { recordKey: 'file:9f2c', path: 3 })).toBe('file:9f2c');
-    expect(presentedKey('code.symbol', { recordKey: 'symbol:77aa', globalName: 3 })).toBe('symbol:77aa');
-    expect(presentedKey('code.symbol', { recordKey: 'symbol:77aa', globalName: '' })).toBe('code.symbol:');
   });
 });
 

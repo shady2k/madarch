@@ -41,7 +41,7 @@ import { runFill } from '../fill/run.js';
 import { productsHome, type DraftEnv } from './draft.js';
 import { finishKnowledgeStore, startKnowledgeFill, type FinishedKnowledgeStore } from '../knowledge/fill-run.js';
 import { createDatabaseOwner } from '../adapters/database-owner.js';
-import { countPublishedFactsByKind } from '../fill/fact-store.js';
+import { graphKindCounts } from '../graph/index.js';
 import type { FillOrchestratorService, FillRunResult } from '../fill/orchestrator-host.js';
 import { readTraceReport, renderTraceReport } from '../obs/trace-report.js';
 import { byCodePoint } from '../model/order.js';
@@ -140,128 +140,7 @@ function whereHelp(): string {
   return `Start a new product: madarch new — or cd into your code repository and run madarch init\nProducts live in ${home}.`;
 }
 
-/** The usage lines, shaped the way `scripts/serve.ts` and `scripts/wiki.ts` print theirs. */
-const USAGE = [
-  'usage: madarch serve [--product <folder>] [--port <n>] [--host <address>] [--no-open]',
-  '   or: madarch new [--home <folder>] [--port <n>] [--no-open]',
-  '   or: madarch init [--home <folder>] [--port <n>] [--no-open]',
-  '   or: madarch demo [--home <folder>] [--port <n>] [--host <address>] [--no-open]',
-  '   or: madarch start [--home <folder>] [--port <n>]',
-  '   or: madarch stop [--home <folder>]',
-  '   or: madarch status [--home <folder>]',
-  '   or: madarch list [--home <folder>]',
-  '   or: madarch rename <name> [--product <folder>]',
-  '   or: madarch remote <url> [--product <folder>]',
-  '   or: madarch repo add <name> <url> [--source <path>] [--mode <link|move|clone>] [--branch <b>] [--product <folder>]',
-  '   or: madarch bootstrap [--product <folder>]',
-  '   or: madarch clone <url> [--home <folder>]',
-  '   or: madarch fill [--agent claude|codex|omp] [--model NAME] [--omp-extension PATH] [--omp-executable PATH] [--max-units N] [--json] [--probe-acp]',
-  '   or: madarch fill-stages [--product <folder>] [--home <folder>] [--run <id>] [--workers <n>] [--json]',
-  '   or: madarch version',
-  '   or: madarch upgrade [--yes]',
-].join('\n');
 
-/** The text `--help` prints: the subcommands and the options each does what. */
-const HELP = [
-  'usage: madarch serve [--product <folder>] [--port <n>] [--host <address>] [--no-open]',
-  '   or: madarch new [--home <folder>] [--port <n>] [--no-open]',
-  '   or: madarch init [--home <folder>] [--port <n>] [--no-open]',
-  '   or: madarch demo [--home <folder>] [--port <n>] [--host <address>] [--no-open]',
-  '   or: madarch start [--home <folder>] [--port <n>]',
-  '   or: madarch stop [--home <folder>]',
-  '   or: madarch status [--home <folder>]',
-  '   or: madarch list [--home <folder>]',
-  '   or: madarch rename <name> [--product <folder>]',
-  '   or: madarch remote <url> [--product <folder>]',
-  '   or: madarch repo add <name> <url> [--source <path>] [--mode <link|move|clone>] [--branch <b>] [--product <folder>]',
-  '   or: madarch bootstrap [--product <folder>]',
-  '   or: madarch clone <url> [--home <folder>]',
-  '   or: madarch demo|serve|new|init|list|rename|remote|repo add|bootstrap|clone|version|upgrade — the same',
-  '',
-  'demo clones or updates the Madarch product repository, then serves its wiki.',
-  'new creates a draft product repository under the products home, then serves',
-  "its wiki: the draft's folder and id, the address of the wiki, one fact per",
-  'line, on standard output. serve serves a product that already exists: the',
-  '--product folder, or the folder the command runs in (the folder the working',
-  "agent is in). Both serve until they are stopped.",
-  '',
-  'list names the products the products home holds, one product at a time:',
-  'its folder, id and name, one fact per line, in code point order of the',
-  'folders. A product the home holds whose manifest cannot be read is named',
-  'on standard error, and the list still shows what it did read.',
-  '',
-  'rename names a product: the draft.',
-  '--product folder, or the product the command runs in, or the product a',
-  "checkout under its repos/ stands in: the folder is renamed in place, the",
-  'id and every other manifest byte are kept, and the change is one commit of',
-  "the product's own history.",
-  '',
-  'remote adds origin to the product: the url, its --product folder, or the',
-  "product the command runs in. It never pushes: pushing is the person's own",
-  'git. An origin already there is refused, never replaced.',
-  '',
-  'repo add records one code repository in the manifest (name, remote url,',
-  'optional --branch) and connects it at repos/<name>. With no local checkout',
-  'selected, it clones the url and never searches another folder. --source',
-  'names a local Git checkout; otherwise a distinct checkout the command runs',
-  'from can be used. Interactive use asks link (the default), move or clone;',
-  'a non-interactive run must give --mode. Link leaves the checkout in place;',
-  'move preserves its branch, uncommitted work and stash; clone leaves it',
-  'untouched. A Windows link is a directory junction.',
-  '',
-  'bootstrap clones what the manifest declares into repos/<name>: what a',
-  "--product folder declares, the product the command runs in, or a checkout's",
-  'parent product. One repository at a time, named whatever became of it.',
-  '',
-  'fill-stages runs the eight deterministic stages of decision 0026 (snapshot,',
-  'inventory, build and configuration, syntax, semantic resolution, modules,',
-  'document index, history) over a product, without an agent, and prints the',
-  "units the run planned and executed and the facts the graph holds by kind. It",
-  'pins the product repository and the code repositories the manifest declares.',
-  '',
-  'clone clones a pushed product repository into the products home,',
-  'bootstraps it and prints the folder, its id and how to open its wiki:',
-  'this is how a second engineer joins. A url that is no product repository',
-  'is refused and its folder left behind nowhere.',
-  '',
-  'The lifecycle commands refuse without a product when the working folder',
-  'carries none: no product above the folder, nothing to work on.',
-  '',
-  'The first serve or new also builds the app the wiki reads (wiki/app in the',
-  'madarch checkout): it says so on standard output before the build starts,',
-  'and never builds again while the built files are there.',
-  '',
-  'subcommands:',
-  '  demo       clone or update the Madarch product repository and serve its wiki',
-  '  init       create a product around this Git checkout and serve its wiki',
-  '  new        create a draft product repository and serve its wiki',
-  '  serve      serve the product of the given or the current folder',
-  '  start      start one background server for every product in the home',
-  '  stop       stop that background server and clear its state',
-  '  status     show whether it runs: address, pid, uptime, products',
-  '  list       name the products the products home holds',
-  '  rename     name a product: the draft, in place, its id kept',
-  '  remote     add origin to a product: its url, never a push',
-  '  repo add   enter one code repository in the manifest and clone it',
-  '  bootstrap  clone what the manifest declares into repos/<name>',
-  '  fill-stages  run the eight deterministic stages over a product',
-  '  plugin     check a plugin in the sandbox, or run it on a repository',
-  "  trace      say where one fill run's time went, from its trace",
-  '  clone      clone a pushed product into the products home and bootstrap it',
-  'options:',
-  '  --home <folder>       demo, new, init, list and clone: the products home of this one command, over MADARCH_HOME',
-  '                        (without either, ~/madarch/products)',
-  '  --product <folder>    serve, rename, remote, repo add and bootstrap: the product folder to work on;',
-  '                        the product the command runs in when absent',
-  '  --branch <b>          repo add only: the branch the clone is taken from',
-  '  --port <n>            the port the wiki is served on (4180 by default; a port in use is refused)',
-  '  --no-open             print the address but do not open the browser',
-  '  --run <id>            fill-stages only: the run to plan (one built from this moment by default)',
-  '  --workers <n>         fill-stages only: units the run holds in hand at once (16 by default, 1 through 64)',
-  '  --store <folder>      trace only: the store whose traces to read (the fill store of the products home by default)',
-  '  --steps <a,b>         fill-stages only: the steps of the one list to run, by id',
-  '                        (repository-tree, repository-history; all of them, in dependency order, when left out)',
-].join('\n');
 
 /** One subcommand's argument surface, whole: what it takes, and nothing else. */
 interface CommandSpec {
@@ -277,10 +156,6 @@ export const COMMANDS: Record<string, CommandSpec> = {
   stop: { positionals: [], flags: { home: true, product: false, port: false, open: false, branch: false, yes: false } },
   status: { positionals: [], flags: { home: true, product: false, port: false, open: false, branch: false, yes: false } },
   'daemon-serve': { positionals: [], flags: { home: true, product: false, port: true, open: false, branch: false, yes: false } },
-  // The unit's own MCP server (madarch-tzte.22.2): a program an agent's ACP session starts, not a
-  // person's command. It takes no argument at all — the session's token and the host's address come from
-  // the environment the ACP session passed it — so it is listed here for the parser and in no help text.
-  'mcp-unit': { positionals: [], flags: { home: false, product: false, port: false, open: false, branch: false, yes: false } },
   'knowledge-render-worker': { positionals: [], flags: { home: false, product: false, port: false, open: false, branch: false, yes: false } },
   // The deterministic fill (decision 0026's stages 0 to 7, started by madarch-tzte.21.8): it runs
   // the eight stages over one product and prints what the graph holds afterwards. It serves nothing
@@ -697,17 +572,13 @@ export async function main(args: readonly string[], deps: CliDeps = {}): Promise
   }
   const parsed = parse(spec, args.slice(1));
   if (typeof parsed === 'number') return parsed;
-  const { home, product, port, open } = parsed;
+  const { home, product, port } = parsed;
 
   if (command === 'list') return list(home, parsed.json);
   if (command === 'start') return await startDaemon({ home, port });
   if (command === 'stop') return stopDaemon({ home });
   if (command === 'status') return daemonStatus({ home });
   if (command === 'daemon-serve') return await serveDaemon({ home, port: port ?? 4180 });
-  if (command === 'mcp-unit') {
-    const { serveUnitMcpServer } = await import('../fill/unit-mcp-server.js');
-    return await serveUnitMcpServer();
-  }
 /** The fill role: this process takes the fills pressed for the products of the home and runs them (madarch-8bdc.9). */
 async function fillRoleCommand(rest: readonly string[]): Promise<number> {
   // Only `--home`: the fill role reads no product, serves no port and opens no page — it takes the jobs a server asked for.
@@ -863,7 +734,7 @@ async function fillStagesCommand(parsed: Parsed, home: string | undefined): Prom
       const finished = result.settled && result.state === 'succeeded'
         ? await finishKnowledgeStore(owner)
         : undefined;
-      reportFillStages(product, storeFolder, result, await countPublishedFactsByKind(owner), finished, Date.now() - started, parsed.json);
+      reportFillStages(product, storeFolder, result, Object.fromEntries((await graphKindCounts(owner)).map((entry) => [entry.kind, entry.count])), finished, Date.now() - started, parsed.json);
       // A run that did not settle, or settled without its coverage, is not a
       // fill a caller may treat as done: the exit code says so, and the line
       // names what the run ended as.

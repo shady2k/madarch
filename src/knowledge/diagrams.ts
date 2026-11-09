@@ -17,7 +17,6 @@
  */
 import { byCodePoint } from '../model/order.js';
 import type { GraphEntity, GraphReader, SourceSpan } from './graph-read.js';
-import { spanOf } from './graph-read.js';
 import type { RenderContext, Subject } from './blocks.js';
 import { idOf, locationOf, refOfGraph, refOfMarkdown, declaredNeighbors, relatesGroups } from './blocks.js';
 import { kindDraws, sequenceFormOf, systemKindOf, systemKindsOf, systemPartOf, type SystemPart } from './kinds.js';
@@ -104,7 +103,7 @@ export const pathOfKey = (key: string): string => {
   const rest = key.slice(key.indexOf(':') + 1);
   return rest.includes('#') ? rest.slice(0, rest.indexOf('#')) : rest;
 };
-const isTestPath = (path: string): boolean => /(^|\/)(tests?|__tests__)\/|\.(test|spec)\.[a-z]+$|_test\.go$/.test(path);
+export const isTestPath = (path: string): boolean => /(^|\/)(tests?|__tests__)\/|\.(test|spec)\.[a-z]+$|_test\.go$/.test(path);
 
 // ---- neighbourhood ------------------------------------------------------------------------------
 
@@ -270,12 +269,6 @@ export async function graphBlock(ctx: RenderContext, subject: Subject, params: R
   return { type: 'graph', title: params['title'] ?? 'Links', neighborhood: hood, depth, shown: hood.nodes.length - 1, total };
 }
 
-// ---- the chain -----------------------------------------------------------------------------------
-
-interface Located {
-  entity: GraphEntity;
-  span: SourceSpan;
-}
 
 interface Event {
   at: number;

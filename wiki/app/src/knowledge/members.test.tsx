@@ -46,7 +46,7 @@ afterEach(() => {
 const entity = (id: string, label: string): EntityRef => ({ id, kind: 'code.symbol', label, href: `/k/e/${encodeURIComponent(id)}` });
 const readers = Array.from({ length: 5 }, (_, index) => entity(`code.symbol:src/a.ts#read${index}`, `read${index}`));
 const writers = [entity('code.symbol:src/a.ts#write', 'write')];
-const values = (name: string, type: string) => [
+const values = (_name: string, type: string) => [
   { name: 'symbolKind', label: 'Вид символа', value: 'field' },
   { name: 'typeText', label: 'Тип', value: type },
   { name: 'language', label: 'Язык', value: 'go' },

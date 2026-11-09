@@ -11,13 +11,11 @@ import { lstatSync, mkdirSync, mkdtempSync, readFileSync, readdirSync, rmSync, s
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { parseKinds } from '../src/knowledge/kinds.js';
-import { parseTermText } from '../src/knowledge/term-fields.js';
 import { readKinds } from '../src/knowledge/kinds.js';
 import { choosableRoles, readSettings, settingsPath, writeRole } from '../src/knowledge/settings.js';
 import { startServer, type StartedServer } from '../src/server/http.js';
 import { installOwnWiki } from '../src/product/own-wiki.js';
 import { makeWikiRepository, ownGit } from './own-wiki-fixture.js';
-import { generateTrainingRepository, makeProduct } from './knowledge-fixture.js';
 
 const MANIFEST = (roles: string): string => `groups:\n  product: { en: Product, ru: Продукт }\n  code: { en: Code, ru: Код }\nkinds:\n  product:\n    template: templates/product.md\n    source: markdown\n    file: docs/product.md\n${roles}`;
 
@@ -65,48 +63,6 @@ describe('the manifest\'s roles', () => {
     } finally {
       rmSync(starter, { recursive: true, force: true });
     }
-  });
-});
-
-describe('glossary terms', () => {
-  test('the definition is the plain words; synonyms, code names, places of use and the ambiguity are the labelled lines', () => {
-    const fields = parseTermText('The file that tells the wiki which kinds a product has.\n- Also called: manifests, `kinds file`\n- In code: `madarch/kinds.yaml`, `MADARCH_HOME`\n- Used in: [the reference](madarch:doc:docs/reference.md#manifest)\n- Ambiguous: also the build manifest; see [Q-3](madarch:doc:docs/reference.md#question)');
-    expect(fields).toEqual({
-      definition: 'The file that tells the wiki which kinds a product has.',
-      synonyms: ['manifests', 'kinds file'],
-      code: ['madarch/kinds.yaml', 'MADARCH_HOME'],
-      usedIn: '[the reference](madarch:doc:docs/reference.md#manifest)',
-      ambiguous: 'also the build manifest; see [Q-3](madarch:doc:docs/reference.md#question)',
-    });
-  });
-
-  test('Russian labels are read, a line that is no label stays in the definition, and an empty ambiguity is still an ambiguity', () => {
-    const fields = parseTermText('Слово: определение, а не метка.\nВторая строка определения.\n  - Также называют: фолио, folio\n  - В коде: `Folio`\n  - Неоднозначно:');
-    expect(fields.definition).toBe('Слово: определение, а не метка.\nВторая строка определения.');
-    expect(fields.synonyms).toEqual(['фолио', 'folio']);
-    expect(fields.code).toEqual(['Folio']);
-    expect(fields.ambiguous).toBe('-');
-  });
-
-  test('a wrapped line belongs to the field above it: the question link of a long ambiguity is not lost', () => {
-    const fields = parseTermText('Plain words.\n  - Used in: [the reference](madarch:doc:docs/reference.md#manifest),\n    and the guide\n  - Ambiguous: the documents say it for two things;\n    see [the question](madarch:doc:docs/reference.md#question)\n  - Also called: one,\n    two');
-    expect(fields.usedIn).toBe('[the reference](madarch:doc:docs/reference.md#manifest), and the guide');
-    expect(fields.ambiguous).toBe('the documents say it for two things; see [the question](madarch:doc:docs/reference.md#question)');
-    expect(fields.synonyms).toEqual(['one', 'two']);
-  });
-
-  test('a field written without a list mark is still a field, not definition prose', () => {
-    expect(parseTermText('Plain words.\n\nAlso called: manifests\n\nIn code: `madarch/kinds.yaml`')).toEqual({
-      definition: 'Plain words.',
-      synonyms: ['manifests'],
-      code: ['madarch/kinds.yaml'],
-      usedIn: null,
-      ambiguous: null,
-    });
-  });
-
-  test('a term without labels has only its definition and is not ambiguous', () => {
-    expect(parseTermText('Plain words.')).toEqual({ definition: 'Plain words.', synonyms: [], code: [], usedIn: null, ambiguous: null });
   });
 });
 

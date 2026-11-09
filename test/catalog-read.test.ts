@@ -147,15 +147,6 @@ function line(manifest: string, prefix: string, written: string | null): string 
   return written === null ? [...lines.slice(0, at), ...lines.slice(at + 1)].join('\n') : [...lines.slice(0, at), written, ...lines.slice(at + 1)].join('\n');
 }
 
-/** The small catalog without one kind's whole declaration (its name line and its indented fields). */
-function withoutKind(manifest: string, name: string): string {
-  const lines = manifest.split('\n');
-  const start = lines.indexOf(`  ${name}:`);
-  if (start < 0) throw new Error(`the fixture manifest declares no kind ${name}`);
-  let end = start + 1;
-  while (end < lines.length && lines[end]!.startsWith('    ')) end += 1;
-  return [...lines.slice(0, start), ...lines.slice(end)].join('\n');
-}
 
 /** A mapping's block replaced whole: `at` (`  relations:`), its indented lines, and one line in their place. */
 function block(manifest: string, at: string, written: string): string {
@@ -359,7 +350,10 @@ describe('one defect in the manifest is one problem', () => {
   /** A catalogue-only kind appended to the `kinds:` section, for the plants that add one. */
   function appendedKind(name: string, id: string, group: string, extra: string[] = []): string {
     const base = STARTER_FILES.find((file) => file.path === 'madarch/kinds.yaml')!.content;
-    return `${base}\n  ${name}:\n    id: "${id}"\n    group: ${group}\n    definition: "A kind the test plants."\n    sources: ["https://example.test/plant"]\n    acquisition: ["conversation"]\n    status: not-implemented\n    relation-constraints: { out: [], in: [] }\n    template-policy: none\n    labels:\n      en: { one: Plant, many: Plants }\n      ru: { one: Растение, many: Растения }\n    description:\n      en: A kind the test plants.\n      ru: Вид, который сажает тест.\n${extra.join('')}`;
+    // The starter manifest now ends with its `edges:` section; a kind belongs under `kinds:`, so insert it there.
+    const edgeSection = base.indexOf('\nedges:\n');
+    const kinds = edgeSection === -1 ? base : base.slice(0, edgeSection);
+    return `${kinds}\n  ${name}:\n    id: "${id}"\n    group: ${group}\n    definition: "A kind the test plants."\n    sources: ["https://example.test/plant"]\n    acquisition: ["conversation"]\n    status: not-implemented\n    relation-constraints: { out: [], in: [] }\n    template-policy: none\n    labels:\n      en: { one: Plant, many: Plants }\n      ru: { one: Растение, many: Растения }\n    description:\n      en: A kind the test plants.\n      ru: Вид, который сажает тест.\n${extra.join('')}`;
   }
   const cases: [string, string, string][] = [
     ['a group whose parent nobody declares', withPlant('groups:\n', 'groups:\n  broken: { en: Broken, ru: Сломано, short: { en: Broken, ru: Сломано }, parent: nowhere }\n'), 'group "broken": "parent" names a group of "groups"'],
@@ -481,15 +475,6 @@ describe('the catalog as a whole is refused where its rows do not agree', () => 
 });
 
 describe('the reader\'s own rules: an address, a list, an identifier and an extractor\'s mark', () => {
-  /** The line of a kind's field, or of the kind's own declaration when no field is named. */
-  function lineOf(manifest: string, name: string, field?: string): number {
-    const lines = manifest.split('\n');
-    const start = lines.indexOf(`  ${name}:`);
-    if (field === undefined) return start + 1;
-    let end = start + 1;
-    while (end < lines.length && lines[end]!.startsWith('    ')) end += 1;
-    return start + 1 + lines.slice(start + 1, end).findIndex((text) => text.startsWith(`    ${field}:`));
-  }
 
   test('a source is an http or https address with a host, and a padded or other-scheme address is refused', () => {
     for (const source of ['" http://example.test/x"', '"ftp://example.test/x"', '"http://"', '"//example.test/x"']) {

@@ -8,11 +8,7 @@ import { tmpdir } from 'node:os';
 import path from 'node:path';
 import { describe, expect, test } from 'bun:test';
 import { readKnowledgePages } from '../src/knowledge/index/index.js';
-import { indexCounts } from '../src/knowledge/index/queries.js';
 import { PageReadError, readIndexedPage } from '../src/knowledge/index/page.js';
-import { documentSections } from '../src/knowledge/index/sections.js';
-
-import { documentAnchors } from '../src/knowledge/anchors.js';
 
 const sha = (text: string): string => `sha:${text.length}`;
 const COMMIT = '0123456789abcdef0123456789abcdef01234567';
@@ -117,60 +113,6 @@ describe('readIndexedPage refuses what it cannot read, naming file and line', ()
       expect((error as Error).message.startsWith(prefix)).toBe(true);
     });
   }
-});
-
-const DOC = `# Requirements
-
-## UC-2 Pay for an order
-The shopper pays.
-
-### Steps
-Charge the card.
-
-## BR-4 Refund window
-- **Refund window.** Refunds within 14 days.
-  More words of the item.
-- **Other rule.** Something else.
-
-## Later
-Text.
-`;
-
-describe('documentSections', () => {
-  const sections = documentSections(DOC);
-  const text = (anchor: string): string | undefined => sections.find((s) => s.anchor === anchor)?.text;
-
-  test('the anchors are exactly those a ground may name', () => {
-    expect(sections.map((s) => s.anchor)).toEqual(documentAnchors(DOC));
-  });
-
-  test('a heading section runs to the next heading of the same or a higher level', () => {
-    expect(text('uc-2-pay-for-an-order')).toBe('## UC-2 Pay for an order\nThe shopper pays.\n\n### Steps\nCharge the card.');
-    expect(text('uc-2')).toBe(text('uc-2-pay-for-an-order'));
-    expect(text('steps')).toBe('### Steps\nCharge the card.');
-  });
-
-  test('a bold list item is its own section with its continuation lines', () => {
-    expect(text('refund-window')).toBe('- **Refund window.** Refunds within 14 days.\n  More words of the item.');
-    expect(text('other-rule')).toBe('- **Other rule.** Something else.');
-  });
-
-  test('a list item holds the items nested under it, so a change below it changes it', () => {
-    const nested = '- **Parent rule.** Parent text.\n  - **Child rule.** Child text.\n  - Plain child.\n- **Sibling rule.** Sibling.\n';
-    const sections = documentSections(nested);
-    expect(sections.find((s) => s.anchor === 'parent-rule')!.text).toBe('- **Parent rule.** Parent text.\n  - **Child rule.** Child text.\n  - Plain child.');
-    expect(sections.find((s) => s.anchor === 'child-rule')!.text).toBe('  - **Child rule.** Child text.');
-    expect(sections.find((s) => s.anchor === 'sibling-rule')!.text).toBe('- **Sibling rule.** Sibling.');
-  });
-
-  test('a change inside one section changes that section only', () => {
-    const changed = documentSections(DOC.replace('Charge the card.', 'Charge the card twice.'));
-    const diff = (a: string): boolean => changed.find((s) => s.anchor === a)?.text !== text(a);
-    expect(diff('steps')).toBe(true);
-    expect(diff('uc-2')).toBe(true); // the parent contains it
-    expect(diff('later')).toBe(false);
-    expect(diff('refund-window')).toBe(false);
-  });
 });
 
 describe('readKnowledgePages never refuses a whole product for a finding scoped to one kind or page', () => {

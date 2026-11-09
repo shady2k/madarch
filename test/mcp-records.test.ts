@@ -15,7 +15,6 @@ import { tmpdir } from 'node:os';
 import path from 'node:path';
 import { afterAll, beforeAll, describe, expect, test } from 'bun:test';
 import { RepositorySession } from '../src/mcp/session.js';
-import { SERVED_TOOL_NAMES } from '../src/mcp/server.js';
 import { RECORD_FILE_LIMIT } from '../src/mcp/records.js';
 
 const REPOSITORY = mkdtempSync(path.join(tmpdir(), 'madarch-mcp-records-'));
@@ -126,7 +125,7 @@ describe('the tools this step serves', () => {
     const { isError, answer } = await call('get_file', { path: 'src/a.ts' });
     expect(isError).toBe(false);
     expect(answer).toMatchObject({
-      path: 'src/a.ts', mode: '100644', bytes: 40, lines: 2, form: 'text', language: 'ambiguous',
+      path: 'src/a.ts', mode: '100644', bytes: 40, lines: 2, form: 'text', language: null,
       commitCount: 2, authors: ['Ada Example'],
     });
     expect(answer['candidates']).toEqual(['TypeScript', 'XML']);

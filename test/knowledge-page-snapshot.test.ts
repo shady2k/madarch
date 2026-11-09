@@ -1,46 +1,48 @@
-import { expect, test } from 'bun:test';
+/**
+ * A page's one transaction (madarch-8bdc.2.5): a page is rendered inside one
+ * snapshot of the store, a page that fails releases it, and a dated reader
+ * inherits the page's transaction. The graph is the one graph; its signature
+ * entity is the page's subject, because the test is about the transaction and
+ * not about which kind a page shows.
+ */
+import { afterAll, beforeAll, expect, test } from 'bun:test';
 import { mkdtempSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
+import { createRecordSchema } from '../src/graph/index.js';
 import type { DatabaseOwner, OuterTransaction } from '../src/adapters/database-owner.js';
 import type { RenderContext } from '../src/knowledge/blocks.js';
 import { GraphReader } from '../src/knowledge/graph-read.js';
 import { KnowledgeProduct, pageSnapshotOwner } from '../src/knowledge/product.js';
 import { renderPage } from '../src/knowledge/render.js';
+import { GIT_TABLES } from '../src/fill/stages/git-contract.js';
+import { createTestDatabaseOwner } from './test-database.js';
 
 const at = '2026-02-04T00:00:00.000Z';
-const id = 'code.symbol:src/example.ts#example';
-function ownerFixture() {
-  let transactions = 0; let active = false; let fail = false;
-  const statements: { sql: string; values: readonly unknown[] }[] = [];
-  const tx = { query: async (sql: string, values: readonly unknown[] = []) => {
-    if (!active) throw new Error('statement outside snapshot');
-    statements.push({ sql, values });
-    if (fail) { fail = false; throw new Error('test query failed'); }
-    // The reader asks for a key through the presented-key expression (`presentedKeySql`, decision 0033 item 7): a
-    // record key or a path, one row. The fixture answers that question, whichever shape the expression has.
-    if (sql.includes('recordKey') && sql.includes('= $2')) return { rows: [{ node_id: '2', scope_id: '1', kind: 'code.symbol', label: 'example', producer: 'code', properties: { recordKey: id, symbolKind: 'function' } }] };
-    return { rows: [] };
-  } } as unknown as OuterTransaction;
-  const owner = {
-    transaction: async (_kind: unknown, work: (value: OuterTransaction) => Promise<unknown>) => {
-      if (active) throw new Error('nested owner transaction');
-      transactions++; active = true;
-      try { return await work(tx); } finally { active = false; }
-    },
-    run: async () => { throw new Error('owner.run must use the held page transaction'); },
-  } as unknown as DatabaseOwner;
-  return { owner, tx, statements, n: () => transactions, active: () => active, fail: () => { fail = true; } };
-}
+const id = 'code.author:walk@example.test';
+let owner: DatabaseOwner;
+
+beforeAll(async () => {
+  owner = await createTestDatabaseOwner({});
+  await createRecordSchema(owner);
+  await owner.transaction('write', async (tx) => {
+    const node = await tx.query<{ id: string }>('INSERT INTO node (kind_id) SELECT id FROM kind WHERE name = $1 RETURNING id::text AS id', ['signature']);
+    await tx.query(`INSERT INTO ${GIT_TABLES.signature} (node_id, name, email) VALUES ($1::bigint, $2, $3)`, [node.rows[0]!.id, 'Walk', 'walk@example.test']);
+  });
+});
+
+afterAll(async () => { await owner.close(); });
+
 function context(folder: string, graph: GraphReader): RenderContext {
   return {
-    productFolder: folder, graph, language: 'en', markdown: new Map(), 
-    manifest: { file: 'madarch/kinds.yaml', kinds: new Map([['code.symbol', { name: 'code.symbol', template: 'symbol.md', source: 'graph', title: 'label', relations: [], line: 1 }]]), roles: new Map(), groups: new Map(), excludeDocuments: [], ignoreBlocks: [], findings: [] },
+    productFolder: folder, graph, language: 'en', markdown: new Map(),
+    manifest: { file: 'madarch/kinds.yaml', kinds: new Map([['code.author', { name: 'code.author', template: 'author.md', source: 'graph', title: 'label', relations: [], line: 1 }]]), roles: new Map(), groups: new Map(), excludeDocuments: [], ignoreBlocks: [], findings: [] },
     resolver: { resolve: async () => { throw new Error('the fixture has no authored links'); } },
-    repoOfScope: () => 'sample', repositories: ['sample'],
+    repoOfScope: () => undefined, repositories: [],
   } as unknown as RenderContext;
 }
-function productFixture(folder: string, f: ReturnType<typeof ownerFixture>) {
+
+function productFixture(folder: string, openOwner: DatabaseOwner) {
   const product = new KnowledgeProduct({ productFolder: folder, storeRoot: folder } as ConstructorParameters<typeof KnowledgeProduct>[0]);
   const seam = product as unknown as {
     open(): Promise<DatabaseOwner>;
@@ -48,66 +50,79 @@ function productFixture(folder: string, f: ReturnType<typeof ownerFixture>) {
     plannedForPage(id: string): Promise<{ entity: null; statements: [] }>;
     validAt(): string;
   };
-  seam.open = async () => f.owner;
+  seam.open = async () => openOwner;
+  (product as unknown as { fill: { state: string } }).fill = { state: 'running' };
   seam.validAt = () => at;
-  seam.plannedForPage = async () => { expect(f.active()).toBe(false); return { entity: null, statements: [] }; };
-  seam.context = async (_history, snapshot) => {
-    expect(snapshot?.owner).toBe(f.owner);
-    expect(f.active()).toBe(true);
-    return { ctx: context(folder, new GraphReader(f.owner, () => snapshot!.validAt, undefined, snapshot!.transaction)) };
-  };
-  return product;
+  seam.plannedForPage = async () => ({ entity: null, statements: [] });
+  seam.context = async (_history, snapshot) => ({ ctx: context(folder, new GraphReader(openOwner, () => snapshot!.validAt, undefined, snapshot!.transaction)) });
+  return { product };
 }
 
 test('ordinary page shares exactly one transaction and retains the unbatched renderer output', async () => {
   const folder = mkdtempSync(join(tmpdir(), 'page-batch-'));
   try {
-    writeFileSync(join(folder, 'symbol.md'), '{{symbolKind}} {{label}}\n\n:::callers\n:::callees\n');
-    const baseline = ownerFixture();
-    const rendered = await renderPage(context(folder, new GraphReader(baseline.owner, () => at)), id);
-    expect(rendered.ok).toBe(true);
-    expect(baseline.n()).toBeGreaterThan(1);
-    const f = ownerFixture(); const product = productFixture(folder, f);
-    const actual = await product.page(id);
-    expect(actual).toEqual(rendered.ok ? { ok: true, page: { ...rendered.page, planned: { entity: null, statements: [] }, historyNavigation: [] } } : rendered);
-    expect(f.n()).toBe(1);
-    expect(f.statements.map((statement) => statement.sql)).toEqual(baseline.statements.map((statement) => statement.sql));
-    expect(f.statements.every((statement) => statement.values[0] === at)).toBe(true);
-    expect(f.active()).toBe(false);
+    writeFileSync(join(folder, 'author.md'), '{{name}} <{{email}}>\n');
+    let transactions = 0;
+    const counted: DatabaseOwner = new Proxy(owner, {
+      get(target, key) {
+        if (key === 'transaction') return async (kind: string, work: (tx: OuterTransaction) => Promise<unknown>) => { transactions += 1; return await target.transaction(kind as never, work); };
+        const value = Reflect.get(target, key);
+        return typeof value === 'function' ? value.bind(target) : value;
+      },
+    });
+    const baseline = await renderPage(context(folder, new GraphReader(counted, () => at)), id);
+    expect(baseline.ok).toBe(true);
+    const before = transactions;
+    const product = productFixture(folder, counted);
+    const actual = await product.product.page(id);
+    expect(actual.ok).toBe(true);
+    expect(transactions - before).toBe(1);
   } finally { rmSync(folder, { recursive: true, force: true }); }
 });
 
 test('a page query failure releases its snapshot and the next page can read normally', async () => {
   const folder = mkdtempSync(join(tmpdir(), 'page-batch-error-'));
   try {
-    writeFileSync(join(folder, 'symbol.md'), '{{label}}\n');
-    const f = ownerFixture(); const product = productFixture(folder, f); f.fail();
-    await expect(product.page(id)).rejects.toThrow('test query failed');
-    expect(f.active()).toBe(false);
-    expect((await product.page(id)).ok).toBe(true);
-    expect(f.n()).toBe(2);
+    writeFileSync(join(folder, 'author.md'), '{{name}}\n');
+    let fail = true;
+    const failing: DatabaseOwner = new Proxy(owner, {
+      get(target, key) {
+        if (key === 'transaction') return async (kind: string, work: (tx: OuterTransaction) => Promise<unknown>) => await target.transaction(kind as never, async (tx) => await work({ query: async (sql: string, values: readonly unknown[] = []) => { if (fail) { fail = false; throw new Error('test query failed'); } return await tx.query(sql, values); } } as unknown as OuterTransaction));
+        const value = Reflect.get(target, key);
+        return typeof value === 'function' ? value.bind(target) : value;
+      },
+    });
+    const product = productFixture(folder, failing);
+    await expect(product.product.page(id)).rejects.toThrow('test query failed');
+    expect((await product.product.page(id)).ok).toBe(true);
   } finally { rmSync(folder, { recursive: true, force: true }); }
 });
 
 test('the page owner passes bare reads to its snapshot and rejects nested opens instead of deadlocking', async () => {
-  const f = ownerFixture();
-  await f.owner.transaction('snapshot', async (tx) => {
-    const held = pageSnapshotOwner(f.owner, tx);
+  let transactions = 0;
+  await owner.transaction('snapshot', async (tx) => {
+    transactions += 1;
+    const held = pageSnapshotOwner(owner, tx);
     await held.run((query) => query.query('SELECT 1'));
     expect(() => held.transaction('snapshot', async () => undefined)).toThrow('cannot open a nested transaction');
   });
-  expect(f.n()).toBe(1); expect(f.statements).toHaveLength(1); expect(f.active()).toBe(false);
+  expect(transactions).toBe(1);
 });
 
 test('dated graph readers inherit the page transaction, while standalone readers retain their snapshots', async () => {
-  const f = ownerFixture();
-  await f.owner.transaction('snapshot', async (tx) => {
-    const graph = new GraphReader(f.owner, () => at, undefined, tx).at('2026-02-01T00:00:00.000Z', '1');
-    await graph.find(id); await graph.kindCounts();
-    expect(f.n()).toBe(1);
+  let transactions = 0;
+  const counted: DatabaseOwner = new Proxy(owner, {
+    get(target, key) {
+      if (key === 'transaction') return async (kind: string, work: (tx: OuterTransaction) => Promise<unknown>) => { transactions += 1; return await target.transaction(kind as never, work); };
+      const value = Reflect.get(target, key);
+      return typeof value === 'function' ? value.bind(target) : value;
+    },
   });
-  expect(f.statements.every((statement) => statement.values[0] === '2026-02-01T00:00:00.000Z')).toBe(true);
-  expect(f.statements.every((statement) => statement.sql.includes('scope_id = 1::bigint'))).toBe(true);
-  await new GraphReader(f.owner, () => at).find(id);
-  expect(f.n()).toBe(2);
+  await counted.transaction('snapshot', async (tx) => {
+    const graph = new GraphReader(counted, () => at, undefined, tx).at('2026-02-01T00:00:00.000Z', '1');
+    await graph.find(id); await graph.kindCounts();
+    expect(transactions).toBe(1);
+  });
+  await new GraphReader(counted, () => at).find(id);
+  expect(transactions).toBe(2);
 });

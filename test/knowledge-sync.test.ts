@@ -18,7 +18,7 @@ import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { startServer, type StartedServer } from '../src/server/http.js';
 import { gitEnv } from './git-env.js';
-import { PAY, ROOT, SAMPLE_IDENTITY, generateTrainingRepository, makeProduct, recordKey, writeSamplePages } from './knowledge-fixture.js';
+import { PAY, SAMPLE_IDENTITY, generateTrainingRepository, makeProduct, recordKey, writeSamplePages } from './knowledge-fixture.js';
 
 const env = gitEnv(SAMPLE_IDENTITY);
 const git = (cwd: string, ...args: string[]): string => execFileSync('git', args, { cwd, env, encoding: 'utf8' });

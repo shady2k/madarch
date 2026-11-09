@@ -30,6 +30,16 @@ export interface Settings {
 
 export const settingsPath = (env: DraftEnv): string => join(madarchHome(env), SETTINGS_FILE);
 
+/** How many run traces the store keeps (`traceRuns` in settings.json, 20 unless a whole number 1–1000 names one). */
+export function traceKeepOf(env: DraftEnv): number {
+  try {
+    const held = readRaw(settingsPath(env))['traceRuns'];
+    return typeof held === 'number' && Number.isInteger(held) && held >= 1 && held <= 1000 ? held : 20;
+  } catch {
+    return 20;
+  }
+}
+
 function readRaw(file: string): Record<string, unknown> {
   let text: string;
   try {

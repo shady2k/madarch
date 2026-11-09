@@ -103,7 +103,7 @@ test('folded containers retain late unique cross-folder labels and all internal 
   const services = Array.from({ length: 42 }, (_, index) => entity('code.service', `api_${id(index)}`, `services/${index < 21 ? 'a' : 'z'}/${id(index)}/main.ts`));
   // Each service is declared in one of two real source folders, with unique keys within the folder.
   for (const [index, service] of services.entries()) service.span!.path = `services/${index < 21 ? 'a' : 'z'}/main.ts`;
-  const targets = services.slice(21).map((service, index) => ({ ...entity('code.route', `services/z/route_${id(index)}.ts#GET:/target_${id(index)}`), label: `unique-remote-target-${id(index)}` }));
+  const targets = services.slice(21).map((_service, index) => ({ ...entity('code.route', `services/z/route_${id(index)}.ts#GET:/target_${id(index)}`), label: `unique-remote-target-${id(index)}` }));
   const facts = targets.map((to, index) => ({ relation: 'code.calls-remote', from: entity('code.symbol', `services/a/caller_${id(index)}.ts#call`), to, properties: { via: index === 20 ? 'grpc' : 'http' } }));
   const internal = { relation: 'code.calls-remote', from: entity('code.symbol', 'services/a/internal.ts#call'), to: entity('code.route', 'services/a/internal.ts#GET:/internal'), properties: { via: 'http' } };
   const [view] = await buildViews({ ctx: context(new FixtureReader([...services, ...targets], [...facts, internal])), lang: 'en', productTitle: 'Fixture' }, { type: 'c4-container', subject: '' });

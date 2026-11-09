@@ -135,7 +135,7 @@ export function traceReportOf(spans: readonly TraceSpan[], file: string): TraceR
   const children = new Map<string, TraceSpan[]>();
   for (const span of spans) {
     if (span.parentSpanId === undefined || !byId.has(span.parentSpanId)) continue;
-    children.set(span.parentSpanId, [...(children.get(span.parentSpanId) ?? []), span]);
+    const held = children.get(span.parentSpanId) ?? []; held.push(span); children.set(span.parentSpanId, held);
   }
   // The wall clock runs from the earliest span of the run to the last: the trace of one run is one window.
   const from = spans.length === 0 ? 0 : Math.min(...spans.map((span) => span.start));
@@ -226,34 +226,35 @@ const STEP_NAMES = 5;
  * numbers are the spans' own: nothing here reads a store or a second record.
  */
 export function stepReportsOf(spans: readonly TraceSpan[]): StepReport[] {
+  const byId = new Map(spans.map((span) => [span.spanId, span]));
   const children = new Map<string, TraceSpan[]>();
   for (const span of spans) {
-    if (span.parentSpanId === undefined || !spans.some((one) => one.spanId === span.parentSpanId)) continue;
-    children.set(span.parentSpanId, [...(children.get(span.parentSpanId) ?? []), span]);
+    if (span.parentSpanId === undefined || !byId.has(span.parentSpanId)) continue;
+    const held = children.get(span.parentSpanId) ?? []; held.push(span); children.set(span.parentSpanId, held);
   }
-  const stepOf = (span: TraceSpan): string | undefined => {
+  const namedStep = (span: TraceSpan): string | undefined => {
     const named = span.attributes['madarch.step'] ?? span.attributes['madarch.stage'];
     return typeof named === 'string' && named !== '' ? named : undefined;
   };
-  const subtree = (root: TraceSpan): TraceSpan[] => {
-    const out: TraceSpan[] = [];
-    const seen = new Set<string>();
-    const walk = (span: TraceSpan): void => {
-      if (seen.has(span.spanId)) return;
-      seen.add(span.spanId);
-      out.push(span);
-      for (const child of children.get(span.spanId) ?? []) walk(child);
-    };
-    walk(root);
-    return out;
+  // A span belongs to the nearest step on its own branch: one walk up the parents per span, cached per span.
+  const stepOfSpan = new Map<string, string | undefined>();
+  const stepFor = (span: TraceSpan): string | undefined => {
+    const held = stepOfSpan.get(span.spanId);
+    if (held !== undefined || stepOfSpan.has(span.spanId)) return held;
+    const own = namedStep(span);
+    if (own !== undefined) { stepOfSpan.set(span.spanId, own); return own; }
+    const parent = span.parentSpanId === undefined ? undefined : byId.get(span.parentSpanId);
+    const answer = parent === undefined ? undefined : stepFor(parent);
+    stepOfSpan.set(span.spanId, answer);
+    return answer;
   };
   // One entry per step, in the order the trace first names it.
   const steps = new Map<string, { spans: TraceSpan[]; plan: TraceSpan | undefined }>();
   for (const span of spans) {
-    const step = stepOf(span);
+    const step = stepFor(span);
     if (step === undefined) continue;
     const held = steps.get(step) ?? { spans: [], plan: undefined };
-    for (const one of subtree(span)) if (!held.spans.includes(one)) held.spans.push(one);
+    held.spans.push(span);
     if (span.name === 'fill.step' && held.plan === undefined) held.plan = span;
     steps.set(step, held);
   }
@@ -270,13 +271,16 @@ export function stepReportsOf(spans: readonly TraceSpan[]): StepReport[] {
       .map(([name, known]) => ({ name, count: known.count, selfMs: known.selfMs }))
       .sort((left, right) => right.selfMs - left.selfMs || (left.name < right.name ? -1 : 1))
       .slice(0, STEP_NAMES);
-    const start = Math.min(...held.spans.map((one) => one.start));
-    const end = Math.max(...held.spans.map((one) => one.end));
-    // A span states the highest resident memory of its own window (`process.rss.peak`, sampled while
-    // it ran), so the step's peak is the highest of its spans'. A trace written before the spans
-    // sampled falls back to the readings at their ends, which is the smaller number and is said so.
-    const peaks = held.spans.map((one) => (typeof one.attributes['process.rss.peak'] === 'number' ? one.attributes['process.rss.peak'] as number : 0));
-    const ends = held.spans.map((one) => (typeof one.attributes['process.rss.end'] === 'number' ? one.attributes['process.rss.end'] : 0));
+    let start = Number.POSITIVE_INFINITY;
+    let end = 0;
+    const peaks: number[] = [];
+    const ends: number[] = [];
+    for (const one of held.spans) {
+      start = Math.min(start, one.start);
+      end = Math.max(end, one.end);
+      peaks.push(typeof one.attributes['process.rss.peak'] === 'number' ? one.attributes['process.rss.peak'] as number : 0);
+      ends.push(typeof one.attributes['process.rss.end'] === 'number' ? one.attributes['process.rss.end'] : 0);
+    }
     const rss = peaks.some((one) => one > 0) ? peaks : ends;
     const first = held.spans.find((one) => one.start === start);
     const startRss = typeof first?.attributes['process.rss.start'] === 'number' ? first.attributes['process.rss.start'] as number : 0;
@@ -284,12 +288,12 @@ export function stepReportsOf(spans: readonly TraceSpan[]): StepReport[] {
       step,
       spanId: held.plan?.spanId ?? '',
       wallMs: Math.max(0, end - start),
-      peakRssBytes: Math.max(startRss, ...rss),
+      peakRssBytes: rss.reduce((highest, one) => Math.max(highest, one), startRss),
       startRssBytes: startRss,
       slowest,
     });
   }
-  const startOf = new Map(reports.map((report) => [report.step, Math.min(...(steps.get(report.step)?.spans ?? []).map((one) => one.start))]));
+  const startOf = new Map(reports.map((report) => [report.step, (steps.get(report.step)?.spans ?? []).reduce((first, one) => Math.min(first, one.start), Number.POSITIVE_INFINITY)]));
   return reports.sort((left, right) => (startOf.get(left.step) ?? 0) - (startOf.get(right.step) ?? 0) || (left.step < right.step ? -1 : left.step > right.step ? 1 : 0));
 }
 

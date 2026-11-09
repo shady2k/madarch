@@ -9,7 +9,7 @@ import { mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'nod
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { createDatabaseOwner, type DatabaseOwner } from '../src/adapters/database-owner.js';
-import { askFillRun, claimFillRun, openFillRunQueue } from '../src/fill/run-jobs.js';
+import { askFillRun, openFillRunQueue } from '../src/fill/run-jobs.js';
 import { runFillRole } from '../src/knowledge/fill-role.js';
 import { knowledgeRootOf, productStoreFolder } from '../src/product/store.js';
 import { readFillEnd } from '../src/fill/orchestrator-store.js';

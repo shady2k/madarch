@@ -149,6 +149,34 @@ export const LocalizedLabels = Type.Object(
 );
 export type LocalizedLabels = Static<typeof LocalizedLabels>;
 
+/** The PostgreSQL types a kind's field may declare; a contract maps each to one fixed type. */
+const FieldType = Type.Union([Type.Literal('text'), Type.Literal('integer'), Type.Literal('bigint'), Type.Literal('boolean'), Type.Literal('timestamp'), Type.Literal('json')]);
+
+/** One typed field of a kind's contract. */
+const FieldEntry = Type.Object(
+  {
+    name: RegistryId,
+    type: FieldType,
+    nullable: Type.Optional(Type.Boolean()),
+  },
+  { additionalProperties: false },
+);
+
+/** One edge kind the product declares: its ends, its repeat rule and its typed attributes. */
+const EdgeEntry = Type.Object(
+  {
+    name: RegistryName,
+    from: Type.Array(RegistryName, { minItems: 1 }),
+    to: Type.Array(RegistryName, { minItems: 1 }),
+    repeats: Type.Optional(Type.Boolean()),
+    discriminator: Type.Optional(RegistryId),
+    fields: Type.Optional(Type.Array(FieldEntry)),
+    /** The capability that fills the edge; a manifest that names none declares its own attributes. */
+    capability: Type.Optional(Type.String({ minLength: 1 })),
+  },
+  { additionalProperties: false },
+);
+
 /** One kind of document the product holds, as the registry names it. */
 const KindEntry = Type.Object(
   {
@@ -180,6 +208,12 @@ const KindEntry = Type.Object(
      * and never a drop.
      */
     evidence: Type.Optional(EvidenceFields),
+    /** The typed fields of the kind's contract: a field is a column in the kind's table. */
+    fields: Type.Optional(Type.Array(FieldEntry)),
+    /** The field names of the kind's natural key, unique in its table. */
+    key: Type.Optional(Type.Array(RegistryId)),
+    /** The capability that fills the kind; a kind filled by one takes that capability's contract. */
+    capability: Type.Optional(Type.String({ minLength: 1 })),
   },
   { additionalProperties: false },
 );
@@ -212,6 +246,7 @@ export const KindsRegistry = Type.Object(
     goals: Type.Optional(Type.Array(GoalLevel, { minItems: 1, description: 'The reserved goals section: maturity levels over the graph, per perspective (the 0021 amendment). This engine version keeps the section and names it as reserved-but-unimplemented when it renders; never a silent unknown section.' })),
     stages: Type.Array(StageEntry, { minItems: 1, description: 'The life cycle in the order the reader walks it; every kind names one of these.' }),
     kinds: Type.Array(KindEntry, { description: 'The kinds the product holds, each naming its stage of the list.' }),
+    edges: Type.Optional(Type.Array(EdgeEntry, { description: 'The edge kinds the product declares: their ends, repeat rule and typed attributes.' })),
   },
   {
     $schema: 'https://json-schema.org/draft/2020-12/schema',
@@ -223,52 +258,6 @@ export const KindsRegistry = Type.Object(
   },
 );
 export type KindsRegistry = Static<typeof KindsRegistry>;
-
-/**
- * The registry as one file's shape: the stages in the order the reader walks
- * them and the kinds that belong to them. The file carries no fixed kinds —
- * the kinds are the data the product (usually the skill set, at setup)
- * writes; the schema fixes only the mechanism.
- */
-/**
- * The contract version the registry schema publishes (the owner's
- * refinement, 2026-10-12): the version stands in the registry file itself
- * (`contract: 1`) and in the published schema's `$id`, so a tool that
- * validates a registry knows both sides' version, and moving either side
- * to a new version is a deliberate change. The file under madarch
- * (`schema/product-registry.schema.json`) stays the one source; a reader
- * of another version (the skill set's copy) targets the version its `$id`
- * names.
- */
-
-
-
-/**
- * The generic document fields a document under the layout may carry for
- * madarch to link it and place it (decision 0021). A field this madarch
- * does not know is ignored, so a later version adds beside them.
- */
-export const DocumentFields = Type.Object(
-  {
-    /** The document's id in its kind's own prefix's shape, like `FR-001`. */
-    id: Type.Optional(Type.String({ minLength: 1, description: "The document's own id, like FR-001; checked against the registry's prefix of the field kind names." })),
-    /** The kind the document carries, one name of the registry. */
-    kind: Type.Optional(RegistryName),
-    /** The document's written status, as its kind's form says it. */
-    status: Type.Optional(Type.String({ minLength: 1 })),
-    /** The documents this one links to, by their ids. */
-    links: Type.Optional(Type.Array(Type.String(), { description: "The ids this document links to, as its fields' values name them." })),
-  },
-  {
-    $schema: 'https://json-schema.org/draft/2020-12/schema',
-    $id: 'https://github.com/shady2k/madarch/schema/product-document.schema.json',
-    title: 'Madarch product document fields',
-    description:
-      "The generic fields a product's Markdown document may carry for madarch to link it and place it: id, kind, status, links. A field this madarch does not know is ignored. The kinds themselves (and with them the field's meaning of status) are the registry's data.",
-    additionalProperties: false,
-  },
-);
-type DocumentFieldsSchema = Static<typeof DocumentFields>;
 
 
 /** The external calculator's committed completeness snapshot. */

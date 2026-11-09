@@ -11,6 +11,7 @@
 import { tmpdir } from 'node:os';
 import { join, resolve } from 'node:path';
 import { closeTrace, openTrace, runInTrace, withSpan } from '../obs/trace.js';
+import { traceKeepOf } from '../knowledge/settings.js';
 import { log } from '../obs/log.js';
 import { here } from './fsm-core.js';
 import { createFillOrchestratorService, type FillRunResult, type RefusedFillRun } from './orchestrator-host.js';
@@ -120,7 +121,7 @@ export async function runFill(options: RunFillOptions): Promise<FillRunAnswer> {
   const product = resolve(options.product);
   const runId = options.runId ?? `fill-${String(Date.now())}`;
   const store = options.store ?? options.home ?? join(tmpdir(), 'madarch-fill-home');
-  const traced = openTrace({ store, runId });
+  const traced = openTrace({ store, runId, keep: traceKeepOf(process.env as Record<string, string | undefined>) });
   const steps = [...(options.steps ?? fillSteps())];
   try {
     return await runInTrace(traced, async () => await withSpan('fill.run', {

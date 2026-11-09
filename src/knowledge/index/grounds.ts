@@ -15,20 +15,10 @@
  */
 import { execFile } from 'node:child_process';
 import { promisify } from 'node:util';
-import { sha256Hex } from '../../graph/digest.js';
-import { documentSections, sectionDigest } from './sections.js';
 
 const run = promisify(execFile);
 
 export type DigestMethod = 'section' | 'span' | 'object' | 'none';
-
-export interface GroundDigest {
-  readonly method: DigestMethod;
-  /** `null` when the method is `none`, or when the path does not exist at the commit (`absent`). */
-  readonly digest: string | null;
-  /** True when the path (or the section) does not exist at the commit. */
-  readonly absent: boolean;
-}
 
 /** Reads a repository at a commit. */
 export interface GitReader {
@@ -61,27 +51,4 @@ export function gitReader(repository: string): GitReader {
       return id === null || id.trim() === '' ? null : id.trim();
     },
   };
-}
-
-/** What the index knows of a ground to tell its digest. */
-export type GroundSubject =
-  | { readonly type: 'section'; readonly path: string; readonly anchor: string }
-  | { readonly type: 'node'; readonly path: string | undefined; readonly span?: { readonly lineStart: number; readonly lineEnd: number } };
-
-export async function digestGround(git: GitReader, commit: string, subject: GroundSubject): Promise<GroundDigest> {
-  if (subject.type === 'section') {
-    const text = await git.text(commit, subject.path);
-    if (text === null) return { method: 'section', digest: null, absent: true };
-    const section = documentSections(text).find((entry) => entry.anchor === subject.anchor);
-    return section === undefined ? { method: 'section', digest: null, absent: true } : { method: 'section', digest: sectionDigest(section.text), absent: false };
-  }
-  if (subject.path === undefined || subject.path === '') return { method: 'none', digest: null, absent: false };
-  if (subject.span !== undefined) {
-    const text = await git.text(commit, subject.path);
-    if (text === null) return { method: 'span', digest: null, absent: true };
-    const lines = text.split('\n').slice(subject.span.lineStart - 1, subject.span.lineEnd);
-    return { method: 'span', digest: sha256Hex(new TextEncoder().encode(lines.join('\n'))), absent: false };
-  }
-  const id = await git.objectId(commit, subject.path);
-  return id === null ? { method: 'object', digest: null, absent: true } : { method: 'object', digest: id, absent: false };
 }

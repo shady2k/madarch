@@ -12,7 +12,7 @@
  */
 import { afterAll, beforeAll, describe, expect, test } from 'bun:test';
 import { runGit } from '../src/product/git.js';
-import { mkdirSync, mkdtempSync, readFileSync, readdirSync, rmSync, writeFileSync } from 'node:fs';
+import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs';
 import { repositoryFacts } from '../src/graph/index.js';
 import { readProduct } from '../src/product/manifest.js';
 import { knowledgeRootOf, productStoreFolder, storeDatabasePath } from '../src/product/store.js';

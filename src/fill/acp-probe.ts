@@ -362,8 +362,7 @@ export async function probeAcpAgents(options: { cwd?: string; path?: string; tim
   const agentsFolder = madarchAgentsFolder(env, home);
   const findings: AcpProbeFinding[] = [];
   for (const entry of options.adapters ?? ACP_ADAPTERS) {
-    let machineLaunch: ReturnType<typeof acpLaunchOf>;
-    try { machineLaunch = acpLaunchOf(entry, env, cwd, { PATH: pathValue }); } catch (error) {
+    try { acpLaunchOf(entry, env, cwd, { PATH: pathValue }); } catch (error) {
       findings.push({ id: entry.id, label: entry.label, status: 'failed', detail: error instanceof Error ? error.message : String(error), login: { state: 'unknown', detail: entry.login.detail }, install: acpInstallOffer(entry, env, home), evidence: entry.evidence });
       continue;
     }

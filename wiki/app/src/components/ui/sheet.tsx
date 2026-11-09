@@ -11,9 +11,6 @@ import { cn } from '@/lib/utils.js';
 
 export const Sheet = DialogPrimitive.Root;
 export const SheetTrigger = DialogPrimitive.Trigger;
-const SheetClose = DialogPrimitive.Close;
-const SheetTitle = DialogPrimitive.Title;
-
 export type SheetSide = 'left' | 'right';
 
 const sideClasses: Record<SheetSide, string> = {

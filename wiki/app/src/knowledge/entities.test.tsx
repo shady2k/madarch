@@ -16,7 +16,7 @@ import { i18n, setWikiLanguage } from '../i18n.js';
 import { BlockView, KMarkdown } from './blocks.js';
 import { navGroups, TabBar } from './app.js';
 import { CataloguePage, DocumentsPage, EntityPage, StatementPage, filterSources } from './pages.js';
-import { resetPreferences, resetSettings, resetTabs } from '../../test/reset.js';
+import { resetPreferences, resetTabs } from '../../test/reset.js';
 import { Root as AppRoot } from './root.js';
 import { addressOfStatement, kRouteOf } from './routes.js';
 import { cutSentences, plainText, remarkStatements, type MNode } from './statements.js';
@@ -807,7 +807,7 @@ describe('every route names its tab', () => {
     { address: '/k/kind/code.symbol', selector: '[data-testid=kind-page]', expected: 'Symbols' },
     { address: '/k/src?repo=shop&path=a.ts&line=2', selector: '[data-testid=source-error]', expected: 'a.ts' },
     { address: '/k/folder?path=docs', selector: '[data-testid=repository-refused]', expected: 'docs' },
-    { address: '/k/file?path=docs/x.md', selector: '[data-testid=repository-refused]', expected: 'docs/x.md' },
+    { address: '/k/file?path=docs/x.md', selector: '[data-testid=entity-page]', expected: 'docs/x.md', page: pageModel('code.file:docs/x.md', 'docs/x.md') },
     { address: '/k/commit?hash=abc123', selector: '[data-testid=repository-refused]', expected: 'abc123' },
     { address: '/k/run', selector: '[data-testid=repository-refused]', expected: 'The run' },
     { address: '/k/docs', selector: '[data-testid=documents-error]', expected: 'Sources' },

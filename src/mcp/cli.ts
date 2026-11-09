@@ -28,7 +28,7 @@ interface McpArguments {
 }
 
 /** How the command is read: two flags with a value, two without, and the rule for anything else. */
-function parseMcpArgs(args: readonly string[], cwd: string = process.cwd(), env: Readonly<Record<string, string | undefined>> = process.env): McpArguments | string {
+function parseMcpArgs(args: readonly string[], cwd: string = process.cwd(), _env: Readonly<Record<string, string | undefined>> = process.env): McpArguments | string {
   let repository: string | undefined;
   let journal = false;
   let help = false;

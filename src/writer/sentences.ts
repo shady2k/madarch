@@ -19,13 +19,7 @@ import { unified } from 'unified';
 import { sha256Hex } from '../graph/digest.js';
 import { readEmptyProductGapMarker, type EmptyProductGap } from './gap-marker.js';
 
-/** Inline code is never prose; kept as a name to say so at the call sites that read the tree. */
-const codeSpan = (node: { type: string }): boolean => node.type === 'inlineCode';
 
-interface Sentence {
-  readonly text: string;
-  readonly terminated: boolean;
-}
 
 interface Node {
   type: string;
@@ -311,8 +305,6 @@ function sentenceRanges(text: string, from: number, to: number, segmenter: Intl.
   return out;
 }
 
-/** The text with its masked sentence ends restored; the reader no longer masks them, so this is the text itself. */
-const unmask = (text: string): string => text;
 
 interface Token {
   readonly start: number;
@@ -685,29 +677,8 @@ export class PageReading {
   }
 }
 
-/** Parses a page once; the same object answers every later question about it. */
-export function readPage(body: string, language?: string): PageReading {
-  return new PageReading(body, language);
-}
 
-/** Masks code spans, link targets and question links from the tree; the text itself is returned unchanged. */
-function maskInline(text: string): string {
-  return text;
-}
 
-/** Splits a Markdown text into sentences in the wiki's language. */
-function sentencesOf(masked: string, language?: string): Sentence[] {
-  const text = masked.trim();
-  if (text === '') return [];
-  const offset = masked.indexOf(text);
-  const reader = readPage(masked, language);
-  return reader.sentences(offset, offset + text.length).map((range) => ({ text: range.text, terminated: range.terminated }));
-}
-
-/** The units of a body (paragraphs, list items, quotes), its headings and its footnote definitions, without judging any of them. */
-function readUnits(body: string, bodyStart: number): { units: TextUnit[]; definitions: Definition[]; headings: TextUnit[] } {
-  return readPage(body).units(bodyStart);
-}
 
 /** The grounds of a footnote definition: its links, in order. */
 export function groundLinks(text: string): { label: string; target: string }[] {
@@ -722,26 +693,6 @@ export function groundLinks(text: string): { label: string; target: string }[] {
   return links;
 }
 
-/** A sentence as a reader sees it: references removed, links as their labels, markup dropped, blanks collapsed. */
-export function plainSentence(text: string): string {
-  const reader = readPage(text);
-  return reader.plain(0, text.length);
-}
-
-/** Question references are qualifiers; remove them from the text they follow while leaving the rest as written. */
-function withoutQuestionLinks(text: string): string {
-  const reader = readPage(text);
-  const questions = reader.linksIn(0, text.length).filter((link) => link.url.startsWith('madarch:question:'));
-  if (questions.length === 0) return text.trim();
-  let out = '';
-  let cursor = 0;
-  for (const span of questions) {
-    out += text.slice(cursor, span.start);
-    cursor = span.end;
-  }
-  out += text.slice(cursor);
-  return out.trim();
-}
 
 /** One statement of a page: a sentence that ends in footnote references. */
 export interface PageStatement {

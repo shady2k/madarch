@@ -15,8 +15,8 @@
  * field (wiki/app/src/api.ts).
  */
 import type { ProductWiki } from '../product-wiki/pages.js';
-import { existsSync, readFileSync, statSync, watch } from 'node:fs';
-import { join as joinPath, normalize, resolve, sep } from 'node:path';
+import { readFileSync, statSync, watch } from 'node:fs';
+import { join as joinPath, normalize, resolve } from 'node:path';
 import type { Handled, ReplyMaker } from './http.js';
 
 /** How long the event stream holds a burst of tree events back before it asks the wiki what changed. */
@@ -206,7 +206,7 @@ export function serveAppAssets(appFolder: string, pathname: string): Response | 
   } catch { return undefined; }
 }
 
-function serveAppFiles(json: ReplyMaker['json'], refused: ReplyMaker['refused'], appFolder: string, pathname: string): Handled {
+function serveAppFiles(_json: ReplyMaker['json'], refused: ReplyMaker['refused'], appFolder: string, pathname: string): Handled {
   const root = resolve(appFolder);
   let wanted: string | undefined;
   try {

@@ -115,7 +115,6 @@ export async function unreachableViolations(root: string): Promise<ArchitectureV
   const nonProduction = await knipReport(root, NON_PRODUCTION_CONFIG, { production: false, include: ['files'] });
   const deadOutsideProduct = new Set<string>();
   for (const issues of nonProduction) {
-    const file = normalize(issues.file);
     for (const unused of issues.files ?? []) {
       const name = normalize(unused.name);
       if (!inProduct(name)) deadOutsideProduct.add(name);

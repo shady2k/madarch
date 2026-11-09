@@ -18,7 +18,7 @@
  * holds (see `anchorExtent()`).
  */
 import { byCodePoint } from '../model/order.js';
-import { boldLead, namingText, readDocTree, sectionBlocks, walkNodes, type DocNode, type DocSection, type DocTree } from './doc-tree.js';
+import { boldLead, namingText, readDocTree, sectionBlocks, walkNodes, type DocNode, type DocTree } from './doc-tree.js';
 
 const LETTER = (code: number): boolean => (code >= 0x41 && code <= 0x5a) || (code >= 0x61 && code <= 0x7a);
 const DIGIT = (code: number): boolean => code >= 0x30 && code <= 0x39;
@@ -203,15 +203,7 @@ export function anchorLines(text: string): Map<string, number> {
   return new Map(anchorsOf(text).lines);
 }
 
-/** The lines a document's headings stand on, by the name `anchorLines()` gives a heading. */
-function headingLines(text: string): Map<string, number> {
-  return new Map(anchorsOf(text).headings);
-}
 
-/** The anchors of the blocks no name covers, by the line each starts at. */
-function blockAnchors(text: string): Map<number, string> {
-  return new Map(anchorsOf(text).blocks);
-}
 
 /** The anchors of a document, code-point sorted. */
 export function documentAnchors(text: string): string[] {
@@ -286,9 +278,3 @@ export function titleOfAnchor(text: string, anchor: string): string | undefined 
   const phrase = stripTail(bold.plain);
   return phrase === '' ? undefined : phrase;
 }
-
-/** The section a heading opens, for a reader that holds a tree. */
-function sectionOfHeading(tree: DocTree, heading: DocNode): DocSection | undefined {
-  return tree.sections.find((section) => section.heading === heading);
-}
-

@@ -10,7 +10,7 @@ import { byCodePoint } from '../model/order.js';
 import { changedGrounds, gitReader, readKnowledgePages, type IndexedPage } from '../knowledge/index/index.js';
 import { KINDS_FILE, type FindingKind } from '../knowledge/kinds.js';
 import { entityAddress, sourceAddress, type Resolution } from '../knowledge/resolve.js';
-import { DOMAINS_FOLDER, PRODUCT_PATH } from '../writer/run.js';
+import { DOMAINS_FOLDER, PRODUCT_PATH } from '../writer/units.js';
 import { parseStatementRef, readCorrections, readQuestions, type Author, type Correction, type Question } from './entities.js';
 import { closingCommit, type RepositoryRef, type TaskClosure } from './closure.js';
 import { impactOf, type TaskImpact } from './impact.js';

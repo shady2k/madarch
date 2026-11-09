@@ -49,9 +49,6 @@ async function core(): Promise<HighlighterCore> {
   return await loading;
 }
 
-/** Whether a language has a grammar. */
-const canColor = (language: string): boolean => GRAMMARS[language] !== undefined;
-
 /**
  * The lines of a text as colored tokens, or `null` when the language has no grammar, the text is too long or the
  * grammar could not be loaded (the caller keeps the plain scanner's tokens then).

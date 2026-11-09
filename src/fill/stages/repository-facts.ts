@@ -12,14 +12,13 @@
  * each over the whole repository and a unit per file would pay a lease, a work
  * item and a publication for every path of a tree one statement listed.
  */
-import { StringDecoder } from 'node:string_decoder';
 import * as languages from 'linguist-languages';
 import { withSpan } from '../../obs/trace.js';
 import { raise } from '../../model/raise.js';
 import { Type } from 'typebox';
 import { byCodePoint } from '../../model/order.js';
 import type { SnapshotSource } from '../snapshot.js';
-import { DEFAULT_STAGE_DEFAULTS, type FillStage, type StageExecutionResult, type StageGraphReader, type StagePlan, type StageUnit } from '../stage.js';
+import { DEFAULT_STAGE_DEFAULTS, type FillStage, type StageExecutionResult, type StagePlan, type StageUnit } from '../stage.js';
 import type { HistoryCommit, HistoryPublish, RecordCounts, TreeFile, TreeGitlink, TreePublish } from '../../graph/index.js';
 
 /** The stage ids of the two passes, as a later step registers them. */
@@ -363,19 +362,6 @@ interface LogHeader {
 /** One gap one pass names: what it could not read, and why. */
 type RepositoryGap = { what: string; reason: 'non-utf8-path' | 'shallow-history' | 'unreadable' };
 
-/** The bytes between two occurrences of a separator, in order; none where the separator is absent. */
-function splitBytes(bytes: Buffer, separator: number): Buffer[] {
-  const parts: Buffer[] = [];
-  let from = 0;
-  for (;;) {
-    const at = bytes.indexOf(separator, from);
-    if (at < 0) break;
-    parts.push(bytes.subarray(from, at));
-    from = at + 1;
-  }
-  parts.push(bytes.subarray(from));
-  return parts;
-}
 
 /**
  * One commit header's fields, in order: the first six are cut at their 0x1f, and the subject is the rest of the

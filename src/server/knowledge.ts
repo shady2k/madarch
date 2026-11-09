@@ -19,7 +19,6 @@ import { readScope } from '../loop/tasks.js';
 import { WikiReadError, type KnowledgeProduct } from '../knowledge/product.js';
 import type { Handled, ReplyMaker } from './http.js';
 import { choosableRoles, readSettings, writeRole } from '../knowledge/settings.js';
-import { guidePageMarkdown } from '../writer/guides/read.js';
 import { MAX_EDITORIAL_REQUESTS } from '../writer/editorial.js';
 import { kindFileAt, kindFileDocument, kindFileMarkdown, llmsText, pageFileAt, pageFileDocument, pageFileMarkdown } from '../knowledge/page-files.js';
 import type { EntityRef } from '../knowledge/model.js';
@@ -37,6 +36,8 @@ export interface KnowledgePart {
   status: (request: Request) => Promise<Handled>;
   /** The entity catalogue: every kind the manifest declares, filled or not (madarch-8bdc.2.5). */
   catalog: (request: Request) => Promise<Handled>;
+  /** The wiki-wide search: pages and entities by title and text, grouped by kind (madarch-o0d). */
+  search: (request: Request) => Promise<Handled>;
   page: (request: Request) => Promise<Handled>;
   block: (request: Request) => Promise<Handled>;
   statement: (request: Request) => Promise<Handled>;
@@ -148,6 +149,12 @@ export function createKnowledgePart(
     }),
     status: guarded('read the product', async () => ({ response: json(200, own ? { ...(await product.status()), own: true } : await product.status()) })),
     catalog: guarded('read the entity catalogue', async () => ({ response: json(200, await product.catalog()) })),
+    search: guarded('search the wiki', async (request) => {
+      const query = new URL(request.url).searchParams.get('q') ?? '';
+      if (query.length > 200) return refused(400, { field: 'q', message: '"q" is longer than 200 characters: a search names what it looks for in words' });
+      const asked = new URL(request.url).searchParams.get('lang');
+      return { response: json(200, await product.search(query, asked === 'ru' || asked === 'en' ? asked : undefined)) };
+    }),
     page: guarded('draw the page', async (request) => {
       const id = new URL(request.url).searchParams.get('id');
       if (id === null || id.trim() === '') return refused(400, { field: 'id', message: '"id" is required: the key or id of the entity whose page is asked for' });
@@ -159,9 +166,7 @@ export function createKnowledgePart(
       const format = new URL(request.url).searchParams.get('format');
       if (format !== null && format !== 'json' && format !== 'markdown') return refused(400, { field: 'format', message: 'format is json or markdown / формат: json или markdown' });
       if (format === 'markdown') {
-        const projected = guidePageMarkdown(result.page);
-        if (!projected.ok) return refused(422, { field: 'format', message: projected.message });
-        return { response: new Response(projected.markdown, { headers: { 'content-type': 'text/markdown; charset=utf-8' } }) };
+        return { response: new Response(pageFileMarkdown(result.page), { headers: { 'content-type': 'text/markdown; charset=utf-8' } }) };
       }
       return { response: json(200, result.page) };
     }),

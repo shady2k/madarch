@@ -13,7 +13,6 @@
  */
 import { existsSync, openSync, readFileSync, unlinkSync, mkdirSync, writeFileSync, statSync } from 'node:fs';
 import { connect as netConnect, createServer as netServer } from 'node:net';
-import { homedir } from 'node:os';
 import { dirname, join, resolve } from 'node:path';
 import { spawn, spawnSync } from 'node:child_process';
 import { productsHome, type DraftEnv } from './draft.js';
@@ -39,7 +38,6 @@ import { readChain, readRun } from '../fill/state-store.js';
 import { finishKnowledgeStore } from '../knowledge/fill-run.js';
 import { knowledgeRootOf, productStoreFolder, storeDatabasePath } from './store.js';
 import { createUpdateWatch, type UpdateWatch } from './fill-updates.js';
-import { UNIT_TOOL_PATH, type UnitToolAnswer, type UnitToolCall } from '../fill/unit-tools.js';
 import { selfCommand } from './self-command.js';
 import { readProduct } from './manifest.js';
 import { runningVersion } from './version.js';
@@ -621,8 +619,6 @@ export interface DaemonFills {
   activity(request: { readonly product: FillProduct }): Promise<FillActivity>;
   /** A person's pause or stop of one run, or null when the store holds no such run. */
   control(request: { readonly productFolder: string; readonly runId: string; readonly action: FillRunControl; readonly product?: string }): Promise<FillRunControlAnswer | null>;
-  /** Answers one unit's tool call from a run this process drives, or null when it holds no such session. */
-  unitTool(request: UnitToolCall): Promise<UnitToolAnswer | null>;
   /** Stops the kept services and closes the stores; safe to call twice. */
   stop(): Promise<void>;
 }
@@ -642,7 +638,7 @@ interface HeldStore {
  * before a run is asked for or a run record is read, so a server that serves wikis pays nothing
  * for a fill nobody started.
  */
-export function daemonFills(home: string, options: { readonly toolUrl?: () => string | undefined; readonly log?: (line: string) => void } = {}): DaemonFills {
+export function daemonFills(home: string, options: { readonly log?: (line: string) => void } = {}): DaemonFills {
   const knowledgeRoot = knowledgeRootOf(home);
   const stores = new Map<string, HeldStore>();
   /**
@@ -760,14 +756,6 @@ export function daemonFills(home: string, options: { readonly toolUrl?: () => st
       const answer = await withService(request.productFolder, async (service) => await service.control(request)).catch(() => undefined);
       return answer ?? null;
     },
-    async unitTool(request: UnitToolCall): Promise<UnitToolAnswer | null> {
-      for (const held of stores.values()) {
-        if (held.service === undefined) continue;
-        const answer = await held.service.unitTool(request);
-        if (answer !== null) return answer;
-      }
-      return null;
-    },
     async stop(): Promise<void> {
       if (stopped) return;
       stopped = true;
@@ -825,10 +813,9 @@ export async function serveDaemon(options: { home?: string; port: number }): Pro
   // The service opens a unit's MCP server for a stage that runs an agent (0026), and the address it hands the
   // started server is this process's own: read when a unit's tools are opened, because the server knows its
   // address only once it listens.
-  let address: string | undefined;
   // One fill store, every run through `runFill` (madarch-8bdc.2.5, item 6): the address a unit's tools answer at is
   // this process's own, read when they are opened because the server knows its address only once it listens.
-  const fills = daemonFills(home, { toolUrl: () => (address === undefined ? undefined : `${address}${UNIT_TOOL_PATH}`) });
+  const fills = daemonFills(home);
   // madarch's own wiki (decision 0031): installed from the copy the program carries, so a clean machine opens it with no
   // network; a failure is told and the server runs without it.
   const ownInstall = ownWikiOff() ? undefined : installOwnWiki({ env: process.env });
@@ -836,16 +823,15 @@ export async function serveDaemon(options: { home?: string; port: number }): Pro
   try {
     const server = await startServer({
       productHome: home,
+      knowledgeRoot: knowledgeRootOf(home),
       ...(ownInstall?.ok ? { ownWiki: { folder: ownInstall.folder } } : {}),
       appFolder: process.env.MADARCH_APP_DIST,
       port: options.port,
       host: '127.0.0.1',
       orchestrator: {
         stop: () => fills.stop(),
-        unitTool: (call) => fills.unitTool(call),
       },
     });
-    address = server.url;
     if (ownInstall?.ok) void refreshOwnWiki({ env: process.env }).then((line) => console.log(line), (error: unknown) => console.error(`madarch's own wiki at ${ownInstall.folder} was not refreshed: ${(error as Error).message}`));
     // The update after commits to a default branch (madarch-tzte.26.2) runs beside the wikis: its first pass reads
     // each repository's head as the baseline, and a commit after it starts one debounced run of that product. The

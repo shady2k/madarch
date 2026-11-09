@@ -19,8 +19,7 @@
  */
 import { dirname as dirOf, isAbsolute, join as joinPath } from 'node:path';
 import { byCodePoint } from '../model/order.js';
-import { registryKit, kindLinksOf, kindOfId, kindOfPath, type RegistryKit } from '../product/registry.js';
-import type { RegistryKind } from '../product/contract.js';
+import { kindLinksOf, kindOfPath, type RegistryKit } from '../product/registry.js';
 import type { QuestionForm } from '../product/schema.js';
 
 /** A product document's kind, as the registry that names it spells it. */

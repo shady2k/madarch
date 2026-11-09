@@ -7,8 +7,8 @@
 import { makeUnitAgent } from './agents.js';
 import type { ModelPair } from './model-roles.js';
 import type { DraftEnv } from '../product/home.js';
-import type { McpToolDefinition } from '../fill/unit-mcp.js';
-import type { ToolClient, UnitAgent, UnitRunStatus } from '../writer/run.js';
+import type { McpToolDefinition } from '../mcp/types.js';
+import type { ToolClient, UnitAgent, UnitRunStatus } from '../writer/units.js';
 import type { Journal } from '../writer/journal.js';
 import type { AgentPreferences } from '../fill/acp-choices.js';
 import { JudgeExecutionError } from './answer-key-judge.js';

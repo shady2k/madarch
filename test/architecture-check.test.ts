@@ -21,8 +21,6 @@ import type { ArchitectureRule, ListedViolation } from '../scripts/check/archite
 // The rules read the fixture's folders, and knip runs as a program of its own: a case
 // that runs it twice (baselined, then planted) costs a few seconds each time.
 const KNIP_CASE_MS = 120_000;
-const REPOSITORY_CASE_MS = 180_000;
-const FIXTURE_RULES: readonly ArchitectureRule[] = ['graph-single-writer', 'one-fill-entry', 'sql-only-in-storage-layer'];
 
 /**
  * The fixture project: one module per thing the rules speak of, laid out the way the
@@ -411,14 +409,6 @@ describe('the architecture check', () => {
 });
 
 describe('the base guard', () => {
-  /** A repository whose list stands at `entries`, committed as the case writes it. */
-  function repositoryWith(entries: readonly unknown[], message: string): string {
-    const root = mkdtempSync(join(tmpdir(), 'madarch-architecture-base-'));
-    mkdirSync(join(root, '.architecture'), { recursive: true });
-    writeFileSync(join(root, VIOLATION_LIST), `${JSON.stringify(entries, null, 2)}\n`);
-    commit(root, message);
-    return root;
-  }
 
   function commit(root: string, message: string): void {
     execFileSync('git', ['-C', root, 'add', '--all'], { stdio: 'ignore' });

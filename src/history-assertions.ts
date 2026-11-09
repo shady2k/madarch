@@ -39,19 +39,6 @@ export type AssertionKind = (typeof ASSERTION_KINDS)[number];
  */
 export const CLASHABLE_KINDS: readonly AssertionKind[] = ['element', 'interface', 'relation', 'entity', 'scenario'];
 
-/**
- * The kinds that are shared vocabulary rather than one source's exclusive
- * claim: a source that declares no states at all compiles the same default
- * id, `as-is` (see `compileStates`), and independent sources routinely
- * reuse zone, category and environment ids (`pci`, `personal`,
- * `production`) on purpose. The owner's rule (2026-09-24): nothing about a
- * shared id is ever refused — a connection is recorded, not rejected, on
- * the reading that two sources sharing an id simply have different
- * endpoints. Two sources declaring one of these ids differently is reported
- * as a `Discrepancy` on the union read instead (see `assembleCompiledModel`,
- * `ReadModel`).
- */
-const SHARED_KINDS: readonly AssertionKind[] = ['category', 'zone', 'environment', 'state'];
 
 const KIND_TO_FIELD: Record<AssertionKind, keyof CompiledModel> = {
   element: 'elements',

@@ -15,10 +15,9 @@ import { readKnowledgePages } from '../src/knowledge/index/index.js';
 import { ensureLoopKinds } from '../src/knowledge/seed.js';
 import { readKinds } from '../src/knowledge/kinds.js';
 import { LoopRefusal, answerQuestion, commitFiles, localIdentity, recordCorrection } from '../src/loop/answer.js';
-import { LoopFileError, parseCorrection, parseQuestion, readCorrections, readQuestions, renderCorrection, renderQuestion, type Question } from '../src/loop/entities.js';
+import { LoopFileError, parseCorrection, parseQuestion, readCorrections, readQuestions, renderQuestion, type Question } from '../src/loop/entities.js';
 import { correctionId, questionFootnoteId } from '../src/loop/ids.js';
 import { decide } from '../src/loop/plan.js';
-import { NOTES_CHARACTERS, includedNotes, type ChangeNote } from '../src/writer/edit.js';
 import { symlinkSync } from 'node:fs';
 import { listQuestions, rowOf } from '../src/loop/views.js';
 import { gitEnv } from './git-env.js';
@@ -425,15 +424,6 @@ describe('what a review of the first version found', () => {
     expect(new Set(both.map((done) => done.correction.slug)).size).toBe(1);
     expect(both.filter((done) => done.committed)).toHaveLength(1);
     expect(readCorrections(folder).items).toHaveLength(1);
-  });
-
-  test('the notes an answer closes are the ones the prompt carries, within its budget', () => {
-    const note = (slug: string): ChangeNote => ({ kind: 'answer', question: slug, title: slug, answer: 'x'.repeat(2900), by: 'Ada', at: '2026-10-23T11:00:00.000Z', sides: [] });
-    const notes = Array.from({ length: 20 }, (_, i) => note(`q${i}`));
-    const shown = includedNotes({ current: 'page', notes, omitted: 0 });
-    expect(shown.length).toBeGreaterThan(0);
-    expect(shown.length).toBeLessThan(20);
-    expect(shown.length * 2900).toBeLessThanOrEqual(NOTES_CHARACTERS);
   });
 
   test('a product page that links a domain with no page makes the domain missing and the product page an edit', () => {

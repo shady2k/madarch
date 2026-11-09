@@ -5,34 +5,12 @@
  * Text only, from the view set alone; writing the pages anywhere is the
  * caller's. This module touches no Bun-specific API.
  */
-import { byCodePoint } from '../model/order.js';
 import { uniqueSafeIds } from './safe-ids.js';
 import { childrenByParent, type ShownElement, type View } from './view-set.js';
 
-/** One page: its file name (the landscape `_landscape.md`, every other `<element id>.md`) and its whole text. */
-interface MermaidPage {
-  file: string;
-  content: string;
-}
 
-/** One problem that kept the pages from being rendered. */
-interface MermaidError {
-  message: string;
-  /** The view whose page could not be rendered; left out for the landscape. */
-  scope?: string;
-}
 
-interface MermaidResult {
-  /** In the view set's order. Left out when there are errors. */
-  pages?: MermaidPage[];
-  errors: MermaidError[];
-}
 
-/**
- * The landscape's page. An element id starts with a letter or a digit
- * (`ID_PATTERN`), so no element's page can ever take this name.
- */
-const LANDSCAPE_FILE = '_landscape.md';
 
 /** Each kind with a shape of its own, as the opening and closing of its node; every other kind is a plain box. */
 const SHAPES: Readonly<Record<string, readonly [string, string]>> = {
@@ -73,46 +51,7 @@ const RESERVED = new Set([
   'subgraph',
 ]);
 
-/**
- * Renders every view of the set as a page. Two views whose element ids
- * differ only by letter case are an error: their pages would be one file on
- * a case-insensitive file system. So is a view that does not show its own
- * scope.
- */
-function renderMermaidPages(views: readonly View[]): MermaidResult {
-  const errors: MermaidError[] = [];
-  const pages: MermaidPage[] = [];
-  const scopeByFolded = new Map<string, string>();
-  for (const view of views) {
-    if (view.scope === undefined) {
-      pages.push({ file: LANDSCAPE_FILE, content: renderPage(view, undefined) });
-      continue;
-    }
-    const folded = view.scope.toLowerCase();
-    const clash = scopeByFolded.get(folded);
-    if (clash !== undefined) {
-      const [first, second] = [clash, view.scope].sort(byCodePoint) as [string, string];
-      errors.push({
-        message: `the views of "${first}" and "${second}" would be written to ${pageFile(first)} and ${pageFile(second)}, which are one file on a case-insensitive file system`,
-        scope: view.scope,
-      });
-      continue;
-    }
-    scopeByFolded.set(folded, view.scope);
-    const scope = view.elements.find((element) => element.id === view.scope && element.place === 'scope');
-    if (scope === undefined) {
-      errors.push({ message: `the view of "${view.scope}" does not show "${view.scope}" itself as its scope`, scope: view.scope });
-      continue;
-    }
-    pages.push({ file: pageFile(view.scope), content: renderPage(view, scope) });
-  }
-  return errors.length > 0 ? { errors } : { pages, errors };
-}
 
-/** The page of the view of `elementId`. */
-function pageFile(elementId: string): string {
-  return `${elementId}.md`;
-}
 
 /**
  * The page without its links (views/one-view): the heading, the flowchart
@@ -167,17 +106,6 @@ function emitElements(
   }
 }
 
-/** `scope` is the view's own element, left out for the landscape. */
-function renderPage(view: View, scope: ShownElement | undefined): string {
-  let page = renderPageBody(view, scope);
-  if (scope !== undefined) {
-    const up = view.up === undefined ? `[Landscape](${LANDSCAPE_FILE})` : `[${markdownText(view.up.name ?? view.up.id)}](${pageFile(view.up.id)})`;
-    page += `\nUp: ${up}\n`;
-  }
-  const open = view.elements.filter((element) => element.hasView && element.place !== 'scope');
-  if (open.length > 0) page += `\nOpen: ${open.map((element) => `[${markdownText(title(element))}](${pageFile(element.id)})`).join(' · ')}\n`;
-  return page;
-}
 
 /**
  * The table under the diagram (views/mermaid), the diagram's key: one row per

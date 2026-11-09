@@ -76,18 +76,18 @@ afterAll(() => {
 
 describe('the empty wiki, the press and the end state', () => {
   test('an empty product says nothing is read yet; the press fills it; the end state has the counts and the time', async () => {
-    const { repository } = product('walk', (folder) => {
-      mkdirSync(join(folder, 'src', 'nested'), { recursive: true });
-      mkdirSync(join(folder, 'assets'), { recursive: true });
-      writeFileSync(join(folder, 'README.md'), '# Walk\n\nA fixture.\n');
-      writeFileSync(join(folder, 'src', 'a.ts'), 'export const a = 1;\n');
-      writeFileSync(join(folder, 'src', 'nested', 'b.ts'), 'export const b = 2;\n');
-      writeFileSync(join(folder, 'assets', 'picture.bin'), Uint8Array.from([0, 1, 2, 0, 255]));
-      git(folder, 'add', '-A');
-      git(folder, 'commit', '-qm', 'the tree is written');
-      git(folder, 'mv', 'src/nested/b.ts', 'src/nested/c.ts');
-      git(folder, 'commit', '-qm', 'the nested file moves');
-    });
+    product('walk',(folder) => {
+mkdirSync(join(folder,'src','nested'),{ recursive: true });
+mkdirSync(join(folder,'assets'),{ recursive: true });
+writeFileSync(join(folder,'README.md'),'# Walk\n\nA fixture.\n');
+writeFileSync(join(folder,'src','a.ts'),'export const a = 1;\n');
+writeFileSync(join(folder,'src','nested','b.ts'),'export const b = 2;\n');
+writeFileSync(join(folder,'assets','picture.bin'),Uint8Array.from([0,1,2,0,255]));
+git(folder,'add','-A');
+git(folder,'commit','-qm','the tree is written');
+git(folder,'mv','src/nested/b.ts','src/nested/c.ts');
+git(folder,'commit','-qm','the nested file moves');
+});
     const server = await startServer({ productHome: home, appFolder: app, port: 0, log: () => undefined, errorLog: () => undefined });
     try {
       // The empty state: the manifest reads, the store holds no repository and no trace.
