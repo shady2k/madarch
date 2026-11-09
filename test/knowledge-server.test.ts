@@ -28,6 +28,7 @@ import { gitEnv } from './git-env.js';
 import { SAMPLE_IDENTITY, makeProduct, recordKey } from './knowledge-fixture.js';
 import type { Block } from '../src/knowledge/model.js';
 import { historyFigureText, isCountedFigure } from '../src/knowledge/history-figures.js';
+import { readKinds } from '../src/knowledge/kinds.js';
 
 const sym = (rest: string): string => recordKey('code.symbol', rest);
 
@@ -122,8 +123,16 @@ describe('an empty product', () => {
     const text = await response.text();
     expect(response.status).toBe(200);
     const catalog = JSON.parse(text) as { kinds: any[]; groups: any[]; findings: any[] };
-    expect(catalog.kinds.length).toBe(515);
-    expect(catalog.groups.length).toBe(126);
+    // The counts are the merged starter catalog's own, read from the manifest the server seeded into this product (the
+    // starter set: 28 areas and 106 subgroups, 515 kinds), as main's `test/catalog-read.test.ts` reads the same manifest.
+    // A starter set that grows moves this case with it instead of leaving a number here to edit.
+    const read = readKinds(join(home, 'bare'));
+    if (!read.present) throw new Error('the server seeded no madarch/kinds.yaml into the bare product');
+    const seeded = read.manifest;
+    expect(seeded.catalog).toBeDefined();
+    expect(catalog.kinds.length).toBe(seeded.catalog!.kinds.size);
+    expect(catalog.groups.length).toBe(seeded.groups.size);
+    expect([catalog.groups.filter((group: { parent?: string }) => group.parent === undefined).length, catalog.groups.filter((group: { parent?: string }) => group.parent !== undefined).length]).toEqual([28, 106]);
     expect(catalog.findings).toEqual([]);
     const empty = catalog.kinds.find((kind) => kind.kind === 'domain-repository');
     expect(empty).toMatchObject({ count: 0, filled: false, page: false });
