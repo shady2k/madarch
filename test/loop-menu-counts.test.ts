@@ -28,10 +28,37 @@ let folder: string;
 let repository: string;
 let server: StartedServer;
 
-const get = async (path: string): Promise<{ status: number; body: any }> => {
+interface Answer {
+  readonly status: number;
+  readonly body: any;
+}
+
+const get = async (path: string): Promise<Answer> => {
   const response = await fetch(`${server.url}/products/${SHOP}${path}`);
   return { status: response.status, body: await response.json() };
 };
+
+/**
+ * How long the menu's problems count is waited for, and why it has to be waited for: the count is the Problems page's
+ * listing, which the status answer *collects beside itself* — `statusLiveNow` (`src/knowledge/product.ts`) answers a
+ * pending menu (`loop.problemsOpen` absent, madarch-u3vw.8) while no listing stands for the files the answer read, and the
+ * collection walks the product's graph. A poll right after the server's first answer, or right after an edit (the key
+ * moves with the file), can therefore arrive before the collection lands — it took 25 ms to 1 s here on two loaded cores.
+ * Ten seconds is a defect, not a wait: the collection of a fixture product is about a second.
+ */
+const COUNT_WITHIN_MS = 10_000;
+
+/** The status answer whose menu count stands: polls until `loop.problemsOpen` is a number, and fails naming the wait. */
+async function statusWithCount(): Promise<Answer> {
+  const deadline = Date.now() + COUNT_WITHIN_MS;
+  for (;;) {
+    const answer = await get('/api/k/status');
+    expect(answer.status).toBe(200);
+    if (typeof answer.body.loop?.problemsOpen === 'number') return answer;
+    if (Date.now() > deadline) throw new Error(`the menu's problems count was still pending after ${String(COUNT_WITHIN_MS)} ms: ${JSON.stringify(answer.body.loop)}`);
+    await new Promise((rest) => setTimeout(rest, 25));
+  }
+}
 
 beforeAll(async () => {
   work = mkdtempSync(join(tmpdir(), 'madarch-menu-counts-'));
@@ -61,8 +88,8 @@ afterAll(async () => {
 
 describe('the problems entry of the menu', () => {
   test('a manifest edit changes the count on the next poll, without another revision of the product', async () => {
-    const before = await get('/api/k/status');
-    expect(before.status).toBe(200);
+    // The count is collected beside the status answer (`statusWithCount`), so the first answers of a product may be pending.
+    const before = await statusWithCount();
     const problemsBefore = await get('/api/k/problems');
     expect(problemsBefore.status).toBe(200);
     // The menu already follows the Problems page: the fresh product has findings of its own (its documents lack the kinds
@@ -79,8 +106,9 @@ describe('the problems entry of the menu', () => {
     expect(problems.body.open).toBe(problemsBefore.body.open + 1);
     expect(problems.body.starter).toEqual([]);
 
-    const after = await get('/api/k/status');
-    expect(after.status).toBe(200);
+    // The edit moved the key the count stands under, so the next answers are pending until the listing of the new files
+    // lands — and the count they then carry is the new one, never the old one (a listing of other inputs is not answered).
+    const after = await statusWithCount();
     expect(after.body.loop.problemsOpen).toBe(problems.body.open);
     expect(after.body.starterOffers).toBe(before.body.starterOffers);
   }, 60_000);
