@@ -75,14 +75,15 @@ describe('a status answer reads the manifest once per key', () => {
     const warm = await get('/api/k/status');
     expect(warm.status).toBe(200);
     expect((await get('/api/k/status')).status).toBe(200);
-    // The server brings a product's starter set up to date on its first answer, and that writes the manifest and the
-    // templates; the product is unchanged only once that write has landed (measured under load: it can land after two
-    // answers, and the answer after it reads the manifest the starter set just moved). Two answers that read nothing
-    // are what says it has.
+    // The product is unchanged only once two things the first answers started have landed: the starter set the server
+    // brings up to date (a write of the manifest and its templates) and the Problems collection it starts beside itself,
+    // which reads the manifest too. A count that stands (`loop.problemsOpen`) and an answer that reads nothing are what
+    // say so (measured under load: either can land after the two warm answers, and the next answer then reads).
     let settled = manifestReads;
-    for (let attempt = 0; attempt < 50; attempt += 1) {
-      expect((await get('/api/k/status')).status).toBe(200);
-      if (manifestReads === settled) break;
+    for (let attempt = 0; attempt < 200; attempt += 1) {
+      const answer = await get('/api/k/status');
+      expect(answer.status).toBe(200);
+      if (typeof (answer.body as { loop?: { problemsOpen?: unknown } }).loop?.problemsOpen === 'number' && manifestReads === settled) break;
       settled = manifestReads;
     }
     manifestReads = 0;
