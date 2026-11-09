@@ -220,11 +220,29 @@ const LOCK_UN = 8;
 /**
  * `flock` from the system's C library: Bun's file API has no lock, and a lock the kernel holds is released when a
  * process is killed, which is what makes "no process uses this server" true even after a crash. Linux and macOS
- * spell the library differently; none of the platforms madarch pins a server build for is anything else.
+ * spell the library differently; none of the platforms madarch pins a server build for is anything else, and a store's
+ * cluster is only ever opened on those (a platform with no pinned build refuses in `ensurePostgresInstalled`, before a
+ * lock is asked for).
+ *
+ * The library is loaded when the first lock is asked for, never at the module's import: `scripts/build-binary.ts`
+ * imports this module to build the binary, and Bun resolves a `dlopen` at import time for the target it builds —
+ * `bun scripts/build-binary.ts --os windows` failed there with `Failed to open library "libc.so.6": error code 126,
+ * ERR_DLOPEN_FAILED` (CI run for ddaefd9b, clean install walks / windows-x64). The platform's name is computed rather
+ * than written beside `dlopen`, for the same reason.
  */
-const { symbols: { flock } } = dlopen(process.platform === 'darwin' ? 'libSystem.B.dylib' : 'libc.so.6', {
-  flock: { args: [FFIType.i32, FFIType.i32], returns: FFIType.i32 },
-});
+let flockSymbol: ((descriptor: number, operation: number) => number) | undefined;
+
+/** `flock(2)` for this platform, loaded once: the descriptor-and-mode call every hold and release goes through. */
+function flock(descriptor: number, operation: number): number {
+  if (flockSymbol === undefined) {
+    const library = process.platform === 'darwin' ? 'libSystem.B.dylib' : process.platform === 'linux' ? 'libc.so.6' : undefined;
+    if (library === undefined) {
+      throw new Error(`${String(process.platform)}:1: a store's PostgreSQL cluster is guarded by flock(2), which this platform's C library is not asked for: madarch pins server builds for linux-x64, linux-arm64 and darwin-arm64 only, so a store never opens here (src/adapters/postgres-cluster.ts)`);
+    }
+    flockSymbol = dlopen(library, { flock: { args: [FFIType.i32, FFIType.i32], returns: FFIType.i32 } }).symbols.flock;
+  }
+  return flockSymbol(descriptor, operation);
+}
 
 /**
  * Holds one of the two locks a cluster has, waiting for another process to let go of it: asked for every 20 ms without
