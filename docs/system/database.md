@@ -270,8 +270,8 @@ Sample rows:
 ```text
  node_id |     name     |                                   url                                   | default_branch 
 ---------+--------------+-------------------------------------------------------------------------+----------------
-       1 | madarch      | file:///home/dev/madarch-demo-step2/products/madarch-demo/repos/madarch | main
-    5668 | madarch-demo | file:///home/dev/madarch-demo-step2/products/madarch-demo               | main
+       1 | madarch      | https://github.com/shady2k/madarch             | main
+    5668 | madarch-demo | https://example.com/madarch-demo.git           | main
 (2 rows)
 ```
 
