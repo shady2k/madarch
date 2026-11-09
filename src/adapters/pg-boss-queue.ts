@@ -139,6 +139,9 @@ function settled(answer: CommandResponse): boolean {
 /** A stored object's name, as the database itself takes one. */
 const OBJECT_NAME = /^[\w.\-/]+$/;
 
+/** How many starts of pg-boss are tried: a schema another process of the binary is creating at the same instant is one of them. */
+const START_ATTEMPTS = 3;
+
 function assertName(what: string, name: string): void {
   if (!OBJECT_NAME.test(name) || name.length > 50) {
     throw new Error(`the ${what} "${name}" is not a stored object's name: letters, digits, ".", "_", "-" and "/", at most 50 bytes`);
@@ -491,7 +494,15 @@ export async function createPgBossQueue(options: PgBossQueueOptions): Promise<Qu
     monitorIntervalSeconds: superviseInterval,
     schedule: false,
   });
-  await boss.start();
+  // pg-boss's start creates its schema and tables in the database, and two processes of the binary open one store's
+  // queue at the same instant — the api role when a fill is pressed, and the fill role that claims it. PostgreSQL's
+  // `CREATE SCHEMA IF NOT EXISTS` is not safe under concurrency (the same defect `src/adapters/schema-stamp.ts` names),
+  // so the one that loses reads `duplicate key value violates unique constraint "pg_namespace_nspname_index"`
+  // (measured 2026-11-08: the press answered `failed` with that message in 2 of 12 runs of
+  // `test/repository-wiki.test.ts` on two cores with one busy). pg-boss's own start retries exactly this case — "a
+  // schema another process is still migrating" — when it is asked to, and the schema the other process made is what
+  // this start wanted.
+  await boss.start({ attempts: START_ATTEMPTS });
   await createStampTable(owner, schema);
   return new PgBossQueue(boss, owner, schema);
 }
