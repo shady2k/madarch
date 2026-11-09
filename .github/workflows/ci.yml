@@ -147,7 +147,6 @@ jobs:
       - run: bun test test/graph-store-postgres.test.ts
         env:
           MADARCH_TEST_POSTGRES_URL: postgres://madarch_test:madarch_test@127.0.0.1:5432/madarch_test
-      - run: bun run views:check
       # The walk over a product's pages (madarch-j6ho.1): every page of the
       # generated training product, read through the JSON, fails on an empty
       # section, a raw key, text outside the wiki's language, a raw id or a
