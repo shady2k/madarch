@@ -478,6 +478,11 @@ async function openOnce(dataDir: string, options: OpenClusterOptions): Promise<R
 export async function stopStoreForExit(store: string): Promise<void> {
   const { dataDir, socketDir } = clusterPaths(store);
   const key = resolve(dataDir);
+  // Another owner of this process still uses the store — a test's own connection, a product's reader — and the holds this
+  // process has are that owner's, not the exit's to drop: its `stop` decides, and it stops the server when it is the last.
+  const opening = openInProcess.get(key);
+  const heldByProcess = opening === undefined ? undefined : await opening.catch(() => undefined);
+  if (heldByProcess !== undefined && heldByProcess.users > 0) return;
   for (const descriptor of userLocks.get(key) ?? []) releaseLock(descriptor);
   userLocks.delete(key);
   openInProcess.delete(key);
