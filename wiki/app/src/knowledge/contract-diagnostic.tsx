@@ -45,12 +45,12 @@ const reasonKeys = {
   selectionNotRendered: 'knowledge.contractReason.selectionNotRendered',
  } as const satisfies Record<ContractReason['code'], string>;
 
-export function contractReasonText(t: TFunction, reason: ContractReason | undefined): string {
+function contractReasonText(t: TFunction, reason: ContractReason | undefined): string {
   if (reason === undefined || !Object.prototype.hasOwnProperty.call(reasonKeys, reason.code)) return t('knowledge.contractUnknownReason');
   return t(reasonKeys[reason.code], 'params' in reason ? reason.params : {});
 }
 
-export function ContractTechnicalDetails({text}: {text: string | undefined}): ReactElement | null {
+function ContractTechnicalDetails({text}: {text: string | undefined}): ReactElement | null {
   const {t} = useTranslation();
   return text === undefined || text === '' ? null : <details data-testid="contract-technical-details"><summary>{t('knowledge.contractTechnicalDetails')}</summary><pre className="whitespace-pre-wrap break-words">{text}</pre></details>;
 }
@@ -81,7 +81,7 @@ export function contractRelationText(t: TFunction, relation: string): string {
   }
 }
 
-export const contractRendererFailure = (detail: string | undefined): ContractRenderFailure => ({reason: {code: 'rendererFailure'}, ...(detail === undefined ? {} : {technicalDetail: detail})});
+const contractRendererFailure = (detail: string | undefined): ContractRenderFailure => ({reason: {code: 'rendererFailure'}, ...(detail === undefined ? {} : {technicalDetail: detail})});
 export const contractValidationFailure = (detail: string | undefined): ContractRenderFailure => ({reason: {code: 'rendererValidationFailure'}, ...(detail === undefined ? {} : {technicalDetail: detail})});
 export const contractSelectionFailure = (): ContractRenderFailure => ({reason: {code: 'selectionNotRendered'}});
 export function redocLoadedFailure(error: Error | undefined): ContractRenderFailure | null {

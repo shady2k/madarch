@@ -56,7 +56,7 @@
 import type { DatabaseOwner } from '../adapters/database-owner.js';
 import { canonicalJsonDigest } from '../model/canonical.js';
 import { byCodePoint } from '../model/order.js';
-import type { SqlExecutor } from '../query/sql-driver.js';
+import type { SqlExecutor } from '../sql-driver.js';
 import { FACT_EDGE_KINDS, FACT_MEASURED_FIELDS, checkFact, type Fact } from './facts.js';
 import { PAGE_CHANGE_SCHEMA, PAGE_CHANGE_TABLE, pagesTouchedBy } from './page-changes.js';
 import { here, withLocation } from './fsm-core.js';
@@ -166,7 +166,7 @@ function column(value: unknown): unknown {
  * One reason a draft write is not a fact the store can publish, at the write's
  * own position and at the fact's path, file and line.
  */
-export interface FactWriteProblem {
+interface FactWriteProblem {
   /** The write's position in the draft set, 1-based, in the order the unit wrote it. */
   readonly index: number;
   /** The write's own kind (`fact`, `entity`, `link`, `question`). */
@@ -288,7 +288,7 @@ function described(problem: FactWriteProblem): string {
  * batch is small enough that one statement's parameters stay a few hundred
  * kilobytes.
  */
-export const PUBLICATION_BATCH = 500;
+const PUBLICATION_BATCH = 500;
 
 /**
  * The facts of one unit's publication, in the order they are published: the
@@ -307,7 +307,7 @@ function publicationOrder(facts: readonly Fact[]): readonly Fact[] {
  * before — in the caller's own transaction, on the executor it hands in, so the
  * facts, the state and the record are one transaction.
  */
-export interface FactApplicationInput {
+interface FactApplicationInput {
   /** The transaction the publication opened; this store opens none of its own. */
   readonly executor: SqlExecutor;
   readonly unit: UnitRecord;
@@ -356,7 +356,7 @@ function measuredMoved(stored: Fact, fact: Fact): boolean {
  * naming the write, the file, the line and the path: the caller's transaction
  * rolls back and nothing is stored.
  */
-export async function applyPublishedFacts(input: FactApplicationInput): Promise<number> {
+async function applyPublishedFacts(input: FactApplicationInput): Promise<number> {
   const at = here();
   const unitId = input.unit.unitId;
   const generation = input.unit.generation;
@@ -565,7 +565,7 @@ export const FACT_APPLICATION: FactApplication = { apply: applyPublishedFacts };
  * (0009: the valid and recorded times are the log's, not the fact's), and when a
  * generation published is `fill_publication`'s own record.
  */
-export interface FactPublisher {
+interface FactPublisher {
   readonly unitId: string;
   readonly stageId: string;
   readonly generation: number;
@@ -573,7 +573,7 @@ export interface FactPublisher {
 }
 
 /** One published fact and every unit that publishes it. */
-export interface PublishedFact {
+interface PublishedFact {
   readonly fact: Fact;
   /** Every publisher, in code point order of the unit id. */
   readonly publishers: readonly FactPublisher[];
@@ -599,7 +599,7 @@ function publisher(row: HoldingRow): FactPublisher {
 }
 
 /** One fact by id, with every unit that publishes it, or null when no unit holds it. */
-export async function readFact(database: FactStoreDatabase, id: string): Promise<PublishedFact | null> {
+async function readFact(database: FactStoreDatabase, id: string): Promise<PublishedFact | null> {
   const at = here();
   return await run(at, database, `readFact(${id})`, FACT_STORE_TABLES, async (executor) => {
     const { rows } = await executor.query<FactRow>('SELECT id, kind, schema_version, provenance, layer, status, value FROM fill_fact WHERE id = $1', [id]);
@@ -621,7 +621,7 @@ async function publishersOf(executor: SqlExecutor, id: string): Promise<readonly
  * left. A draft set is not one of them — `readUnitDraft` answers a unit's draft,
  * and this answers what was published.
  */
-export async function readUnitFacts(database: FactStoreDatabase, unitId: string): Promise<readonly PublishedFact[]> {
+async function readUnitFacts(database: FactStoreDatabase, unitId: string): Promise<readonly PublishedFact[]> {
   const at = here();
   return await run(at, database, `readUnitFacts(${unitId})`, FACT_STORE_TABLES, async (executor) => {
     const { rows } = await executor.query<FactRow & HoldingRow>(
@@ -648,7 +648,7 @@ export async function readUnitFacts(database: FactStoreDatabase, unitId: string)
 }
 
 /** One unit's draft set, answered as draft: the writes, the facts they would publish, and never a published fact. */
-export interface UnitDraftFacts {
+interface UnitDraftFacts {
   /** Always true: what this answers is a draft set, and a published fact set is `readUnitFacts`. */
   readonly draft: true;
   readonly unitId: string;
@@ -667,7 +667,7 @@ export interface UnitDraftFacts {
  * retracted draft leaves nothing), or the generation was published (its facts
  * are published facts then, and a draft is never mixed with them).
  */
-export async function readUnitDraft(database: FactStoreDatabase, unitId: string, generation: number): Promise<UnitDraftFacts | null> {
+async function readUnitDraft(database: FactStoreDatabase, unitId: string, generation: number): Promise<UnitDraftFacts | null> {
   const at = here();
   return await run(at, database, `readUnitDraft(${unitId}/${generation})`, ['fill_unit_draft', 'fill_unit_draft_part', 'fill_publication'], async (executor) => {
     // The machine's own rows, read inside this store's transaction: the owner refuses a second

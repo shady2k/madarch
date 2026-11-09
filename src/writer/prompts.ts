@@ -14,7 +14,7 @@ import { CONTEXT_PURPOSES, FLOW_TARGETS } from './answers.js';
 import type { GraphView } from './view.js';
 import { STRUCTURED_SECTIONS, structuredKindOf, structuredLanguage } from './structured.js';
 
-export const PROMPT_VERSION = 'writer@8';
+const PROMPT_VERSION = 'writer@8';
 
 /** The languages a product's pages are written in, with the name the agent is told. */
 export const CONTENT_LANGUAGES: Readonly<Record<string, { name: string }>> = {
@@ -23,10 +23,10 @@ export const CONTENT_LANGUAGES: Readonly<Record<string, { name: string }>> = {
 };
 
 /** The page bound a unit is told: a page is read by a person from the general to the particular. */
-export const PRODUCT_PAGE_WORDS = 600;
-export const DOMAIN_PAGE_WORDS = 900;
+const PRODUCT_PAGE_WORDS = 600;
+const DOMAIN_PAGE_WORDS = 900;
 /** The part of the product page a domain unit's packet carries, in characters (about 2K tokens). */
-export const PRODUCT_EXCERPT_CHARACTERS = 8000;
+const PRODUCT_EXCERPT_CHARACTERS = 8000;
 
 const EXAMPLE = [
   '---',
@@ -52,7 +52,7 @@ const EXAMPLE = [
 ].join('\n');
 
 /** The part of the fixed prompt that tells the agent which language to write in. */
-export function languagePart(language: string): string[] {
+function languagePart(language: string): string[] {
   const known = CONTENT_LANGUAGES[language];
   if (known === undefined) throw new Error(`src/writer/prompts.ts: ${JSON.stringify(language)} is not a language the writer knows; the languages are ${Object.keys(CONTENT_LANGUAGES).join(', ')}`);
   return [
@@ -64,7 +64,7 @@ export function languagePart(language: string): string[] {
   ];
 }
 
-export function fixedPart(language = 'en', writesOwnPage = true): string {
+function fixedPart(language = 'en', writesOwnPage = true): string {
   const parts = [
     'You are one unit of madarch\'s knowledge writer. You write ONE Markdown page about a product, from what the product\'s graph and documents say, and nothing else.',
     '',
@@ -133,7 +133,7 @@ const serviceLine = (node: { key: string; properties: Record<string, unknown> })
 };
 
 /** How many keys of one kind a unit is handed before it has to ask. */
-export const PREPARED_LIMIT = 12;
+const PREPARED_LIMIT = 12;
 
 /** One kind's page of the subgraph a unit is given: its keys with their labels, and what was left out. */
 async function keysOf(view: GraphView, kind: string, what: string, line: (node: { key: string; label: string; properties: Record<string, unknown> }) => string = (node) => `- ${node.key}: ${node.label.length > 80 ? `${node.label.slice(0, 79)}…` : node.label}`): Promise<string[]> {
@@ -152,7 +152,7 @@ async function keysOf(view: GraphView, kind: string, what: string, line: (node: 
  * graph-first is what the unit holds and not a count of the calls it makes. Bounded, in key order, and
  * what was left out is said with the key to go on from.
  */
-export async function preparedContextPart(view: GraphView): Promise<string[]> {
+async function preparedContextPart(view: GraphView): Promise<string[]> {
   const overview = await view.overview();
   return [
     '## The subgraph you are given',
@@ -193,7 +193,7 @@ export interface UnitContext {
 }
 
 /** The editorial pass's bounded requests, as the part of a page unit's prompt that authorizes a rework. */
-export function revisionPart(revisions: readonly string[] | undefined): string[] {
+function revisionPart(revisions: readonly string[] | undefined): string[] {
   if (revisions === undefined || revisions.length === 0) return [];
   return [
     '## The editorial pass asked for these revisions',
@@ -204,16 +204,16 @@ export function revisionPart(revisions: readonly string[] | undefined): string[]
 }
 
 /** The questions asked about a page, so a unit does not ask them again and knows which are answered. */
-export function questionsPart(pageId: string, questions: readonly Question[] | undefined): string[] {
+function questionsPart(pageId: string, questions: readonly Question[] | undefined): string[] {
   const about = (questions ?? []).filter((question) => question.askedIn === pageId || question.about.some((entry) => entry === pageId || entry.startsWith(`${pageId}#`)));
   if (about.length === 0) return [];
   return ['## Questions already asked about this page', ...about.map((question) => `- question:${question.slug} (${question.status}${question.resolvedBy.length > 0 ? ', used by a rewrite' : ''}): ${question.title}`), ''];
 }
 
 /** The questions asked about other pages, with the entities each is about, so a unit does not ask what is asked: bounded, newest subjects last. */
-export const OTHER_QUESTIONS_LIMIT = 60;
+const OTHER_QUESTIONS_LIMIT = 60;
 
-export function otherQuestionsPart(pageId: string, questions: readonly Question[] | undefined): string[] {
+function otherQuestionsPart(pageId: string, questions: readonly Question[] | undefined): string[] {
   const others = (questions ?? []).filter((question) => question.askedIn !== pageId && !question.about.some((entry) => entry === pageId || entry.startsWith(`${pageId}#`)));
   if (others.length === 0) return [];
   const shown = others.slice(0, OTHER_QUESTIONS_LIMIT);
@@ -338,15 +338,15 @@ export interface WriterArtifactRead {
 }
 
 /** How much of one earlier page a later unit is shown, and how many of them: a prompt is not a page dump. */
-export const ARTIFACT_CHARACTERS = 2400;
-export const ARTIFACT_LIMIT = 8;
+const ARTIFACT_CHARACTERS = 2400;
+const ARTIFACT_LIMIT = 8;
 
 /**
  * What the units before this one wrote (decision 0032, section 1: "each unit reading what earlier
  * units produced"). The run hands a unit the pages of the artifacts it declared it reads, bounded and
  * in code point order, and says what it cut, so a unit never believes it read a whole set it did not.
  */
-export function earlierArtifactsPart(reads: readonly WriterArtifactRead[]): string[] {
+function earlierArtifactsPart(reads: readonly WriterArtifactRead[]): string[] {
   if (reads.length === 0) return [];
   const ordered = [...reads].sort((left, right) => byCodePoint(left.artifact, right.artifact) || byCodePoint(left.path, right.path));
   const shown = ordered.slice(0, ARTIFACT_LIMIT);
@@ -457,7 +457,7 @@ export async function overviewPrompt(view: GraphView, unit: { readonly id: strin
 }
 
 /** The most revision requests one editorial unit may send: bounded, as decision 0032, section 6 asks. */
-export const MAX_REVISION_REQUESTS = 12;
+const MAX_REVISION_REQUESTS = 12;
 
 /**
  * The editorial unit (0032, section 6): reads the pages this run wrote as a newcomer and asks for

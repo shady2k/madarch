@@ -27,12 +27,12 @@ import type { IndexedPage, WrittenAt } from './page.js';
 import { GROUNDED_BY, INDEX_PRODUCER, INDEX_VOCABULARY, MENTIONS, PAGE_KIND, PRODUCT_KIND, RELATES, SECTION_KIND, STATEMENT_KIND, STATEMENT_OF } from './vocabulary.js';
 
 /** The repository head the graph was filled from: the commit its spans and files describe. */
-export interface IndexHead {
+interface IndexHead {
   readonly commit: string;
   readonly git: GitReader;
 }
 
-export interface IndexInput {
+interface IndexInput {
   /** The product's id: one scope per product. */
   readonly productId: string;
   /** The valid time of the publication: the instant of the fill's last commit. */
@@ -44,7 +44,7 @@ export interface IndexInput {
   readonly repositories: (name: string) => GitReader | undefined;
 }
 
-export interface Unresolved {
+interface Unresolved {
   readonly file: string;
   readonly line: number;
   readonly statement?: string;
@@ -52,7 +52,7 @@ export interface Unresolved {
   readonly reason: string;
 }
 
-export interface IndexReport {
+interface IndexReport {
   readonly pages: number;
   readonly statements: number;
   readonly grounds: number;
@@ -67,8 +67,8 @@ export interface IndexReport {
 
 type Raw = Record<string, unknown>;
 
-export const pageKey = (id: string): string => `page:${id}`;
-export const statementKey = (pageId: string, statement: string): string => `statement:${pageId}#${statement}`;
+const pageKey = (id: string): string => `page:${id}`;
+const statementKey = (pageId: string, statement: string): string => `statement:${pageId}#${statement}`;
 export const sectionKey = (path: string, anchor: string): string => `section:${path}#${anchor}`;
 
 /** The key of a `madarch:` document target `doc:<path>#<anchor>`. */
@@ -145,7 +145,7 @@ function entryOf(page: IndexedPage): WrittenAt | undefined {
   return page.writtenAt.length === 1 ? page.writtenAt[0] : undefined;
 }
 
-export async function indexKnowledge(owner: DatabaseOwner, store: GraphStore, input: IndexInput): Promise<IndexReport> {
+async function indexKnowledge(owner: DatabaseOwner, store: GraphStore, input: IndexInput): Promise<IndexReport> {
   await store.registerVocabulary({ kinds: INDEX_VOCABULARY.kinds, relations: INDEX_VOCABULARY.relations });
   const scope = await scopeNode(owner, store, input.productId, input.at);
   const pages = [...input.pages].sort((a, b) => byCodePoint(a.id, b.id));

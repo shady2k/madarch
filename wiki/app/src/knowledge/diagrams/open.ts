@@ -17,7 +17,7 @@ const defaultOpen: OnOpen = (href) => openInNewTab(href);
 export const DiagramOpenContext = createContext<OnOpen>(defaultOpen);
 
 /** Wires the click of every diagram under it. */
-export function DiagramOpenProvider({ onOpen, children }: { onOpen: OnOpen; children: ReactNode }): ReactElement {
+function DiagramOpenProvider({ onOpen, children }: { onOpen: OnOpen; children: ReactNode }): ReactElement {
   return createElement(DiagramOpenContext.Provider, { value: onOpen }, children);
 }
 

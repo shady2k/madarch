@@ -55,7 +55,7 @@ export interface AcpAgentSpec {
 }
 
 /** How madarch names an update the agent streamed. */
-export type AcpUpdateKind = 'message' | 'thought' | 'tool-call' | 'tool-call-update' | 'plan' | 'usage' | 'mode' | 'commands' | 'config' | 'user-message' | 'other';
+type AcpUpdateKind = 'message' | 'thought' | 'tool-call' | 'tool-call-update' | 'plan' | 'usage' | 'mode' | 'commands' | 'config' | 'user-message' | 'other';
 
 /** One `session/update`, normalized; the protocol's own object is kept as received. */
 export interface AcpUpdate {
@@ -82,7 +82,7 @@ export interface AcpUpdate {
 }
 
 /** A usage report, as the agent gave it. */
-export interface AcpUsageReport {
+interface AcpUsageReport {
   inputTokens?: number;
   outputTokens?: number;
   totalTokens?: number;
@@ -96,7 +96,7 @@ export interface AcpUsageReport {
  * reported none. The figures are the last report's own — madarch never adds
  * reports together, because the protocol does not say whether they cumulate.
  */
-export interface AcpSessionUsage extends AcpUsageReport {
+interface AcpSessionUsage extends AcpUsageReport {
   /** Whether the agent reported token usage at all for this session. */
   reported: boolean;
   /** How many prompt turns this session has run. */
@@ -108,7 +108,7 @@ export interface AcpSessionUsage extends AcpUsageReport {
 }
 
 /** What one prompt turn ended with. */
-export interface AcpPromptResult {
+interface AcpPromptResult {
   /** The protocol's stop reason: `end_turn`, `cancelled`, `max_tokens` and the rest. */
   stopReason: string;
   /** The assistant's message text, in the order its chunks arrived. */
@@ -149,7 +149,7 @@ export interface AcpSession {
 }
 
 /** One option of a session that has values to choose from, as the agent reported it. */
-export interface AcpConfigOption {
+interface AcpConfigOption {
   readonly id: string;
   readonly name: string;
   /** The agent's own category: `model`, `thought_level`, `mode`, or a custom one. */
@@ -159,7 +159,7 @@ export interface AcpConfigOption {
 }
 
 /** The select options of a `configOptions` answer; boolean options and anything unreadable are left out. */
-export function readConfigOptions(raw: unknown): AcpConfigOption[] {
+function readConfigOptions(raw: unknown): AcpConfigOption[] {
   if (!Array.isArray(raw)) return [];
   const out: AcpConfigOption[] = [];
   for (const entry of raw as unknown[]) {
@@ -190,7 +190,7 @@ function readModels(raw: unknown): AcpSession['models'] {
 }
 
 /** What the agent answered to `initialize`. */
-export interface AcpInitializeResult {
+interface AcpInitializeResult {
   protocolVersion: number;
   agentInfo?: { name?: string; title?: string; version?: string };
   agentCapabilities: Record<string, unknown>;
@@ -249,7 +249,7 @@ export interface ConnectAcpOptions {
 }
 
 /** A failure of this module; its message names what failed and where. */
-export class AcpError extends Error {
+class AcpError extends Error {
   constructor(message: string) {
     super(message);
     this.name = 'AcpError';
@@ -292,7 +292,7 @@ export function resolveExecutable(command: string, pathValue = process.env.PATH 
 }
 
 /** What madarch prints for a session's tokens: the agent's own figures, or that it named none. */
-export function describeUsage(usage: AcpSessionUsage): string {
+function describeUsage(usage: AcpSessionUsage): string {
   if (!usage.reported) {
     return usage.turns === 0
       ? 'token usage not reported: no turn ran in this session'
@@ -314,7 +314,7 @@ export function describeUsage(usage: AcpSessionUsage): string {
  * own schema never reaches here: the library refuses it before dispatch and
  * the turn carries on (see the module note above).
  */
-export function normalizeUpdate(update: unknown, at = new Date().toISOString()): AcpUpdate {
+function normalizeUpdate(update: unknown, at = new Date().toISOString()): AcpUpdate {
   const record = (update !== null && typeof update === 'object' ? update : {}) as Record<string, unknown>;
   const sessionUpdate = typeof record.sessionUpdate === 'string' ? record.sessionUpdate : 'unknown';
   const base: AcpUpdate = { kind: 'other', sessionUpdate, at, raw: update };
@@ -353,7 +353,7 @@ function stringOf(value: unknown): string | undefined {
 }
 
 /** The `mcpServers` of `session/new`, in the shapes the protocol defines. */
-export function toMcpServers(servers: readonly AcpMcpServer[] = [], pathValue = process.env.PATH ?? ''): acp.McpServer[] {
+function toMcpServers(servers: readonly AcpMcpServer[] = [], pathValue = process.env.PATH ?? ''): acp.McpServer[] {
   return servers.map((server): acp.McpServer => {
     if ('command' in server) {
       if (!server.command.trim()) throw new AcpError(`src/fill/acp.ts:toMcpServers: the MCP server ${JSON.stringify(server.name)} has no command to run`);

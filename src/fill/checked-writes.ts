@@ -51,7 +51,7 @@
 import type { DatabaseOwner } from '../adapters/database-owner.js';
 import { byCodePoint } from '../model/order.js';
 import { ID_PATTERN } from '../model/schema.js';
-import type { SqlExecutor } from '../query/sql-driver.js';
+import type { SqlExecutor } from '../sql-driver.js';
 import type { FactStoreDatabase } from './fact-store.js';
 import {
   EDGE_END_KINDS, FACT_EDGE_KINDS, FACT_ID_PATTERN, FACT_KINDS, FACT_KINDS_IN_ORDER, FactSchemaError, checkFact, factId, isFactKind, repositoryPath,
@@ -87,10 +87,10 @@ export interface WriteScope {
 }
 
 /** The scope text of a unit that covers the whole product: every repository the run pinned (0026's hierarchy, `product`). */
-export const PRODUCT_SCOPE = '*';
+const PRODUCT_SCOPE = '*';
 
 /** Whether a unit's scope is the product's: every repository the run pinned, with no path inside one. */
-export function isProductScope(scope: WriteScope): boolean {
+function isProductScope(scope: WriteScope): boolean {
   return scope.repository === PRODUCT_SCOPE && scope.path === undefined;
 }
 
@@ -156,7 +156,7 @@ export function scopeHolds(scope: WriteScope, place: { readonly repository: stri
 export type WriteSnapshots = SnapshotSource;
 
 /** One entity the graph already holds that is like the one an agent proposed. */
-export interface SimilarEntity {
+interface SimilarEntity {
   /** The fact id of the existing proposal, the digest of its identity. */
   readonly id: string;
   readonly repository: string;
@@ -167,10 +167,10 @@ export interface SimilarEntity {
 }
 
 /** How one proposed name and one existing name are alike, from the closest form to the loosest. */
-export type Similarity = 'same-name' | 'contains-name' | 'shares-word';
+type Similarity = 'same-name' | 'contains-name' | 'shares-word';
 
 /** The entities like a proposal, and whether the answer names every one of them. */
-export interface SimilarEntities {
+interface SimilarEntities {
   /** The entities, closest first, then in code point order of their ids; at most `cap` of them. */
   readonly found: readonly SimilarEntity[];
   /** How many the graph holds; more than `found.length` means this answer was cut at the cap. */
@@ -182,7 +182,7 @@ export interface SimilarEntities {
 }
 
 /** How many entities one `propose_entity` answer carries (0026: a tool answer is bounded). */
-export const SIMILAR_ENTITY_CAP = 5;
+const SIMILAR_ENTITY_CAP = 5;
 
 /**
  * What the write path asks the graph it writes into: whether a node stands, and
@@ -199,7 +199,7 @@ export const SIMILAR_ENTITY_CAP = 5;
  * path of its own, and the folder a node's file stands at is the cited place's
  * business, which the write's own place check holds to the scope.
  */
-export interface WrittenNode {
+interface WrittenNode {
   readonly id: string;
   readonly kind: FactKind;
   /** The repository the node's fact stands in, as its provenance names it. */
@@ -241,7 +241,7 @@ export interface CitedPlaceRequest {
 }
 
 /** One reason a write did not land, at the field it stands at and, where the write cites one, at its file and line. */
-export interface WriteRefusal {
+interface WriteRefusal {
   /** The field the refusal is about, as a path from the write's top (`place.file`, `value.from`, `kind`). */
   readonly field: string;
   readonly reason: string;
@@ -252,7 +252,7 @@ export interface WriteRefusal {
 }
 
 /** One write that landed in the unit's draft set. */
-export interface DraftedWrite {
+interface DraftedWrite {
   readonly ok: true;
   /** The fact the write wrote, with the id its identity digests to. */
   readonly fact: Fact;
@@ -401,7 +401,7 @@ export function draftSetOf(writer: StageDraftWriter): CheckedWriteDraft {
  * generation whose row does not stand yet is the exception, and two callers that
  * both take it can lose one write.
  */
-export function recordedDraftSet(
+function recordedDraftSet(
   database: OrchestratorDatabase,
   unit: { readonly unitId: string; readonly generation: number; readonly at: () => number },
 ): CheckedWriteDraft {

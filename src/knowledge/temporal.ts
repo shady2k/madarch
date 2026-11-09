@@ -15,7 +15,7 @@ export interface HistoryContext extends HistorySelection {
 }
 
 /** ISO instants retain microseconds; a date alone means the end of that UTC day. */
-export function historyInstant(value: string): string | undefined {
+function historyInstant(value: string): string | undefined {
   const dateOnly = /^\d{4}-\d{2}-\d{2}$/.test(value);
   const text = dateOnly ? `${value}T23:59:59.999999Z` : value;
   const match = /^(\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2})(?:\.(\d{1,6}))?Z$/.exec(text);

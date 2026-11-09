@@ -71,7 +71,7 @@ export type RuleParams = Readonly<Record<string, string | number | boolean | rea
  * finding it makes, how serious it is, the section it belongs to, and what the page offers on it.
  * The engine keeps no rule of its own: it keeps predicates, and a manifest keys them to rules.
  */
-export interface RuleDefinition {
+interface RuleDefinition {
   /** The name of the engine's implementation that reads the facts; the manifest chooses which rules run. */
   readonly predicate: string;
   readonly kind: string;

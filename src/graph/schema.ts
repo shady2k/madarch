@@ -22,7 +22,7 @@ import { GraphError, databaseMessage } from './errors.js';
 import { CODE_NODE_KINDS, CODE_PREFIX, CODE_RELATIONS, ENGINE_NODE_KINDS, ENGINE_PREFIX, ENGINE_RELATIONS } from './vocabulary.js';
 
 /** The graph's own tables, in code-point order. */
-export const GRAPH_TABLES = [
+const GRAPH_TABLES = [
   'edge_identity',
   'edge_version',
   'node_identity',

@@ -22,7 +22,7 @@ import type { ArchifyDocument, ArchifyLayoutedView, LayoutPoint } from './archif
 const PACKAGE_ROOT = fileURLToPath(new URL('../..', import.meta.url));
 
 /** The vendored renderer the archify pages are made with, pinned at 3.0.1 (vendor/archify/README.md). */
-export const ARCHIFY_RENDERER = join(PACKAGE_ROOT, 'vendor', 'archify', 'renderers', 'architecture', 'render-architecture.mjs');
+const ARCHIFY_RENDERER = join(PACKAGE_ROOT, 'vendor', 'archify', 'renderers', 'architecture', 'render-architecture.mjs');
 
 /**
  * The layout LikeC4 computed for every view of the workspace: node
@@ -30,7 +30,7 @@ export const ARCHIFY_RENDERER = join(PACKAGE_ROOT, 'vendor', 'archify', 'rendere
  * is built from. A view the layout pass skipped is absent from the map, and a
  * caller that needs it says so by name.
  */
-export async function layoutedViews(workspace: string): Promise<Map<string, ArchifyLayoutedView>> {
+async function layoutedViews(workspace: string): Promise<Map<string, ArchifyLayoutedView>> {
   const { LikeC4 } = await import('likec4');
   const likec4 = await LikeC4.fromSource(workspace, { logger: false, printErrors: false, throwIfInvalid: true });
   try {

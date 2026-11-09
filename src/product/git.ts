@@ -67,6 +67,28 @@ export function runGit(folder: string, args: readonly string[], extra?: GitEnv):
 }
 
 /**
+ * `git status --porcelain`'s answer, read from standard output alone: git may
+ * warn on standard error about a config file or attributes it cannot read (a
+ * shared machine's git config, a sandbox's), and a warning is not a change in
+ * the worktree. A run that failed still answers the whole output, so the cause
+ * is named.
+ */
+export function porcelainStatus(folder: string, extra?: GitEnv): GitResult {
+  const env: Record<string, string> = {};
+  for (const [name, value] of Object.entries(process.env)) {
+    if (value !== undefined && !GIT_LEAKS.includes(name)) env[name] = value;
+  }
+  Object.assign(env, extra ?? {});
+  const run = spawnSync('git', ['status', '--porcelain'], { cwd: folder, encoding: 'utf8', env });
+  if (run.error !== undefined) {
+    const output = `${run.stderr ?? ''}${run.stdout ?? ''}`.trim();
+    return { ok: false, output: output === '' ? run.error.message : `${output}; ${run.error.message}` };
+  }
+  if (run.status !== 0) return { ok: false, output: `${run.stderr ?? ''}${run.stdout ?? ''}`.trim() };
+  return { ok: true, output: (run.stdout ?? '').trim() };
+}
+
+/**
  * Whether two paths name the same folder. `git` answers with the path its own
  * working directory resolved to, which is the real one: a folder reached
  * through a symlink would otherwise be taken for another folder, and a

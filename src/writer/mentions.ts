@@ -35,7 +35,7 @@ export interface MentionInsertion {
 }
 
 /** The address of a document entity's page: the repository, the path and the anchor a reader follows. */
-export function documentMentionTarget(entity: DocEntity): string {
+function documentMentionTarget(entity: DocEntity): string {
   return `doc:${entity.repo === null ? '' : `@${entity.repo}/`}${entity.path}#${entity.anchor}`;
 }
 

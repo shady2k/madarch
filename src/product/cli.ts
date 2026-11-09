@@ -47,7 +47,7 @@ import { readTraceReport, renderTraceReport } from '../obs/trace-report.js';
 import { byCodePoint } from '../model/order.js';
 
 /** The compact command list shown after context-aware first-run guidance. */
-export const SHORT_HELP = [
+const SHORT_HELP = [
   'madarch — start a product and open its wiki',
   '',
   'Start:',
@@ -140,7 +140,7 @@ function whereHelp(): string {
 }
 
 /** The usage lines, shaped the way `scripts/serve.ts` and `scripts/wiki.ts` print theirs. */
-export const USAGE = [
+const USAGE = [
   'usage: madarch serve [--product <folder>] [--port <n>] [--host <address>] [--no-open]',
   '   or: madarch new [--home <folder>] [--port <n>] [--no-open]',
   '   or: madarch init [--home <folder>] [--port <n>] [--no-open]',
@@ -161,7 +161,7 @@ export const USAGE = [
 ].join('\n');
 
 /** The text `--help` prints: the subcommands and the options each does what. */
-export const HELP = [
+const HELP = [
   'usage: madarch serve [--product <folder>] [--port <n>] [--host <address>] [--no-open]',
   '   or: madarch new [--home <folder>] [--port <n>] [--no-open]',
   '   or: madarch init [--home <folder>] [--port <n>] [--no-open]',
@@ -270,7 +270,7 @@ interface CommandSpec {
 }
 
 /** The specs the subcommands answer to, whole. */
-export const COMMANDS: Record<string, CommandSpec> = {
+const COMMANDS: Record<string, CommandSpec> = {
   start: { positionals: [], flags: { home: true, product: false, port: true, open: false, branch: false, yes: false } },
   stop: { positionals: [], flags: { home: true, product: false, port: false, open: false, branch: false, yes: false } },
   status: { positionals: [], flags: { home: true, product: false, port: false, open: false, branch: false, yes: false } },
@@ -577,7 +577,7 @@ function report(outcome: LifecycleOutcome, _json = false): number {
  * One `repo` line: the verb must be `add`, and the name and url words must
  * be there; anything else is refused naming what the subcommand takes.
  */
-export function repoVerb(words: readonly string[]): { ok: true } | { ok: false; exit: number } {
+function repoVerb(words: readonly string[]): { ok: true } | { ok: false; exit: number } {
   const verb = words[0];
   if (verb === undefined || verb !== 'add') {
     console.error(`the subcommand is "repo add": the verb is add, and this said ${JSON.stringify(verb ?? '')}`);
@@ -611,7 +611,7 @@ export interface CliDeps {
   chooseRepoMode?: (source: string) => Promise<RepoConnectMode>;
 }
 
-export function repoModeFromAnswer(answer: string): RepoConnectMode | undefined {
+function repoModeFromAnswer(answer: string): RepoConnectMode | undefined {
   const choice = answer.trim().toLowerCase();
   if (choice === '' || choice === 'link') return 'link';
   if (choice === 'move' || choice === 'clone') return choice;
@@ -1102,7 +1102,7 @@ function lifecycleRepo(parsed: Parsed, mode: RepoConnectMode | undefined = parse
 }
 
 /** What a reset removes and keeps, in the words both the command and the wiki's confirmation use. */
-export function describeReset(name: string, plan: ResetPlan): string[] {
+function describeReset(name: string, plan: ResetPlan): string[] {
   return [
     `Starting ${name} over removes:`,
     `  - the product's graph store, which the next fill builds again from the code${plan.store.length === 0 ? ' (there is none now)' : ''}`,

@@ -5,7 +5,7 @@ import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import puppeteer, { type Browser, type Page } from 'puppeteer';
 import { resolveBrowserExecutable } from '../scripts/chromium.js';
-import { startServer, type StartedServer } from '../src/index.js';
+import { startServer, type StartedServer } from './api.js';
 
 /**
  * Reader navigation against the production-built wiki app and its real server.

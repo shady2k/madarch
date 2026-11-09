@@ -53,13 +53,13 @@ export function blankFieldLines(markdown: string, fields: readonly DocumentField
 }
 
 /** One link-field target: an id, or the file-stem address a whole document's kind is read by, and the field that named it. */
-export interface GrownFromId {
+interface GrownFromId {
   id: string;
   via: string;
 }
 
 /** One section of the form's own, at the line its heading stands on. */
-export interface DocumentSection {
+interface DocumentSection {
   name: string;
   line: number;
   /** The section's own content lines, joined, fences and HTML comments out. */
@@ -164,7 +164,7 @@ function mentionsOf(raw: string, kit: RegistryKit | undefined): string[] {
  * is read from the page's own folder. A target that climbs out of the
  * product, an absolute one and an outside scheme resolve to nothing.
  */
-export function resolveBodyLink(fromPath: string, target: string, held: ReadonlySet<string>): string | undefined {
+function resolveBodyLink(fromPath: string, target: string, held: ReadonlySet<string>): string | undefined {
   let wanted = target.trim();
   if (wanted === '' || wanted.startsWith('#')) return undefined;
   if (/^[a-z][a-z0-9+.-]*:/i.test(wanted)) return undefined;
@@ -261,7 +261,7 @@ export interface StructuralFinding {
  * the body's links are read outside code spans and fences, per structural
  * line.
  */
-export function parseDocument(path: string, markdown: string, held: ReadonlySet<string>, kit: RegistryKit | undefined = undefined): ParsedDocument {
+function parseDocument(path: string, markdown: string, held: ReadonlySet<string>, kit: RegistryKit | undefined = undefined): ParsedDocument {
   const all = linesOf(markdown);
   const first = all.find((line) => line.raw.trim());
   const head = first !== undefined && first.structural ? first.raw.match(/^# (\S+) — (.+)$/) : null;

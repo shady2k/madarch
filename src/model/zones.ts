@@ -9,20 +9,20 @@ import type { Element, Environment } from './schema.js';
  * resulting sets).
  */
 
-export interface ZoneChangeLike {
+interface ZoneChangeLike {
   add?: readonly string[];
   exclude?: readonly string[];
   replace?: readonly string[];
 }
 
-export interface ZonesResolution {
+interface ZonesResolution {
   zones: string[];
   /** Indexes into `exclude` naming a zone the base set did not contain. */
   invalidExcludeIndexes: number[];
 }
 
 /** Applies one `zones` change (add, exclude or replace) to a base set of zone ids. */
-export function applyZonesChange(base: readonly string[], change: ZoneChangeLike | undefined): ZonesResolution {
+function applyZonesChange(base: readonly string[], change: ZoneChangeLike | undefined): ZonesResolution {
   if (change?.replace !== undefined) return { zones: [...change.replace], invalidExcludeIndexes: [] };
 
   let zones = [...base];

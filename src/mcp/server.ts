@@ -25,13 +25,13 @@ import { readRevision } from './git.js';
 import { join } from 'node:path';
 
 /** What this server calls itself in `initialize`, after the protocol's own fields. */
-export const REPO_MCP_INFO: { readonly name: string; readonly version: string } = { name: 'madarch', version: runningVersion() };
+const REPO_MCP_INFO: { readonly name: string; readonly version: string } = { name: 'madarch', version: runningVersion() };
 
 /** Every tool this server serves: this step's five, then the seven of decision 0032 whose step has not run. */
 const SERVED_TOOLS: readonly McpToolDefinition[] = [...RECORD_TOOLS, ...REPO_TOOLS];
 
 /** The served tools' names, in the served order. */
-export const SERVED_TOOL_NAMES: readonly string[] = SERVED_TOOLS.map((tool) => tool.name);
+const SERVED_TOOL_NAMES: readonly string[] = SERVED_TOOLS.map((tool) => tool.name);
 
 /**
  * A session that is still opening: `initialize` and `tools/list` answer from the
@@ -39,7 +39,7 @@ export const SERVED_TOOL_NAMES: readonly string[] = SERVED_TOOLS.map((tool) => t
  * building rather than making the client wait for a build inside its own
  * timeout (madarch-ztyq.10 review).
  */
-export interface PendingRepository {
+interface PendingRepository {
   readonly repository: string;
   readonly ready: Promise<ToolCalling>;
   /** The fill's state so far, read from its trace: what the `graph building` answer says. */
@@ -58,7 +58,7 @@ interface ToolCalling {
 }
 
 /** What answers the protocol: a session that is open, or one that is still opening. */
-export type RepositoryProvider = ToolCalling | PendingRepository;
+type RepositoryProvider = ToolCalling | PendingRepository;
 
 /** The answer a tool call gets while its graph is being built. */
 function buildingAnswer(repository: string, progress?: FillProgress): Record<string, unknown> {
@@ -179,7 +179,7 @@ export async function serveRepositoryMcp(options: RepositoryMcpOptions): Promise
  * Answers one message of a session that is already open, or of one that is still
  * opening, as the transport does.
  */
-export async function answerRepositoryMcpMessage(message: unknown, provider: RepositoryProvider, info: { name: string; version: string } = REPO_MCP_INFO): Promise<Record<string, unknown> | null> {
+async function answerRepositoryMcpMessage(message: unknown, provider: RepositoryProvider, info: { name: string; version: string } = REPO_MCP_INFO): Promise<Record<string, unknown> | null> {
   return await answerUnitMcpMessage(message, {
     tools: SERVED_TOOLS,
     info,

@@ -167,7 +167,7 @@ export interface Corrected extends Committed {
 }
 
 /** Finds a statement of the product's pages: its page, its sentence and its file. */
-export function findStatement(productFolder: string, ref: string): { page: string; file: string; text: string } | undefined {
+function findStatement(productFolder: string, ref: string): { page: string; file: string; text: string } | undefined {
   const parsed = parseStatementRef(ref);
   if (parsed === undefined) return undefined;
   const { pages } = readKnowledgePages(productFolder);
@@ -213,7 +213,7 @@ export async function recordCorrection(input: CorrectionInput): Promise<Correcte
 }
 
 /** A page's rewrite used an answer or a correction: the file says which page closed it. Not committed (a page the agent writes is not either). */
-export async function markResolved(productFolder: string, resolved: { readonly kind: 'question' | 'correction'; readonly slug: string; readonly pages: readonly string[]; readonly now?: () => Date }): Promise<void> {
+async function markResolved(productFolder: string, resolved: { readonly kind: 'question' | 'correction'; readonly slug: string; readonly pages: readonly string[]; readonly now?: () => Date }): Promise<void> {
   const file = resolved.kind === QUESTION_KIND ? questionPath(resolved.slug) : correctionPath(resolved.slug);
   const path = join(productFolder, file);
   await alone(path, async () => {

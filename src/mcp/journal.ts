@@ -35,7 +35,7 @@ export interface JournalEntry {
 }
 
 /** How one tool's calls added up. */
-export interface JournalToolSummary {
+interface JournalToolSummary {
   readonly tool: string;
   readonly calls: number;
   readonly answerBytes: number;
@@ -60,7 +60,7 @@ export interface JournalSummary {
 }
 
 /** The journal file of one graph folder. */
-export const journalFile = (folder: string): string => join(folder, 'journal.jsonl');
+const journalFile = (folder: string): string => join(folder, 'journal.jsonl');
 
 /** Appends one call. */
 export function recordCall(folder: string, entry: JournalEntry): void {
@@ -68,7 +68,7 @@ export function recordCall(folder: string, entry: JournalEntry): void {
 }
 
 /** Every entry the journal holds, in the order they were written; a line that does not parse is skipped by its own size. */
-export function readJournal(folder: string): JournalEntry[] {
+function readJournal(folder: string): JournalEntry[] {
   const file = journalFile(folder);
   if (!existsSync(file)) return [];
   const entries: JournalEntry[] = [];

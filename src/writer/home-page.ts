@@ -31,13 +31,13 @@ import { emptyProductGapMarker } from './empty-product-gap.js';
 export type HomeSectionId = 'what-it-is' | 'scenarios' | 'system' | 'domains' | 'rules' | 'technology' | 'coverage' | 'not-connected';
 
 /** The field of `HomeFields` a section is written from. */
-export type HomeField = 'whatItIs' | 'scenarios' | 'system' | 'domains' | 'rules' | 'technology' | 'coverage' | 'notConnected';
+type HomeField = 'whatItIs' | 'scenarios' | 'system' | 'domains' | 'rules' | 'technology' | 'coverage' | 'notConnected';
 
 /** How a section is written: the unit's sentences, or the places it names and the sentence it says about each. */
-export type HomeShape = 'statements' | 'linked';
+type HomeShape = 'statements' | 'linked';
 
 /** One section of the home page: its id, the field it is written from, its heading in each language, and its gap. */
-export interface HomeSectionDecl {
+interface HomeSectionDecl {
   readonly id: HomeSectionId;
   readonly field: HomeField;
   readonly shape: HomeShape;
@@ -51,7 +51,7 @@ export interface HomeSectionDecl {
  * Every gap is a sentence about the documents and the graph this page stands on, because a missing edge is never
  * proof of absence (decision 0032, section 3).
  */
-export const HOME_SECTIONS: readonly HomeSectionDecl[] = [
+const HOME_SECTIONS: readonly HomeSectionDecl[] = [
   { id: 'what-it-is', field: 'whatItIs', shape: 'statements', heading: { en: 'What the product is and for whom', ru: 'Что это за продукт и для кого' } },
   { id: 'scenarios', field: 'scenarios', shape: 'linked', heading: { en: 'Main scenarios', ru: 'Главные сценарии' }, gap: { en: 'The documents this page stands on name no main scenario of the product.', ru: 'Документы, на которых стоит эта страница, не называют главных сценариев продукта.' } },
   { id: 'system', field: 'system', shape: 'linked', heading: { en: 'How the system is put together', ru: 'Как устроена система' }, gap: { en: 'The graph this page stands on holds no part of the system to show.', ru: 'В графе, на котором стоит эта страница, нет частей системы, которые можно показать.' } },
@@ -98,7 +98,7 @@ export interface HomeFields {
 }
 
 /** The statements of a section, whatever shape the section is written in. */
-export function homeStatements(fields: HomeFields): readonly GroundedStatement[] {
+function homeStatements(fields: HomeFields): readonly GroundedStatement[] {
   return [
     ...fields.whatItIs, ...fields.technology, ...fields.coverage, ...fields.notConnected,
     ...homeLinks(fields).map((row) => ({ text: row.text, grounds: row.grounds })),
@@ -119,7 +119,7 @@ export function homeGrounds(fields: HomeFields): readonly string[] {
 }
 
 /** The keys the page's `relates` says: the graph keys it stands on, without the files and modules that hold everything. */
-export function homeRelates(fields: HomeFields): readonly string[] {
+function homeRelates(fields: HomeFields): readonly string[] {
   return [...new Set([
     ...homeStatements(fields).flatMap((statement) => statement.grounds),
     ...homeLinks(fields).map((row) => row.target),
@@ -127,7 +127,7 @@ export function homeRelates(fields: HomeFields): readonly string[] {
 }
 
 /** The documents a page stands on, in code point order: the sources its front matter names. */
-export function homeSources(fields: HomeFields): readonly string[] {
+function homeSources(fields: HomeFields): readonly string[] {
   const targets = [...homeStatements(fields).flatMap((statement) => statement.grounds), ...homeLinks(fields).map((row) => row.target)];
   return [...new Set(targets.filter((target) => target.startsWith('doc:')).map((target) => target.slice('doc:'.length).split('#')[0]!).filter((path) => path !== ''))].sort(byCodePoint);
 }
@@ -294,7 +294,7 @@ export function renderHomePage(fields: HomeFields, context: HomeRenderContext): 
  * What an empty product's page says in each section: a gap sentence for every heading, because there is no document
  * section and no graph key to stand on, and inventing one would be worse than saying the product was not described.
  */
-export const EMPTY_PRODUCT_GAPS: Readonly<Record<StructuredLanguage, Readonly<Record<HomeSectionId, string>>>> = {
+const EMPTY_PRODUCT_GAPS: Readonly<Record<StructuredLanguage, Readonly<Record<HomeSectionId, string>>>> = {
   en: {
     'what-it-is': 'The documents and the graph this page stands on say nothing yet about what the product is or for whom.',
     'scenarios': 'The documents this page stands on name no main scenario of the product.',

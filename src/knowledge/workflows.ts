@@ -46,7 +46,7 @@ const FIRST_FILL_WORKFLOW = 'first-fill';
 const WORKFLOW_STATUSES = ['implemented', 'planned'] as const;
 
 /** One workflow's status, one of `WORKFLOW_STATUSES`. */
-export type WorkflowStatus = (typeof WORKFLOW_STATUSES)[number];
+type WorkflowStatus = (typeof WORKFLOW_STATUSES)[number];
 
 /** One problem the workflows reader finds: the file, the line, and the words a person reads. */
 export interface WorkflowFinding {
@@ -103,7 +103,7 @@ export function readWorkflows(productFolder: string, registry: StageRegistry = e
  * engine's stage registry: the ids it names, the inputs of its stages, and
  * whether its stages order themselves in a cycle.
  */
-export function parseWorkflows(text: string, file: string, registry: StageRegistry = engineStageRegistry()): Omit<WorkflowsRead, 'present'> {
+function parseWorkflows(text: string, file: string, registry: StageRegistry = engineStageRegistry()): Omit<WorkflowsRead, 'present'> {
   const findings: WorkflowFinding[] = [];
   const lines = new LineCounter();
   const doc = parseDocument(text, { lineCounter: lines, uniqueKeys: true });

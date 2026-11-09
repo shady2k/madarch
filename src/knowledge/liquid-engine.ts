@@ -19,7 +19,7 @@ import { escapeMarkdown } from './template.js';
  * template names and this list lacks is a parse error with the template's line,
  * not a silent empty value.
  */
-export const TEMPLATE_FILTERS: readonly string[] = [
+const TEMPLATE_FILTERS: readonly string[] = [
   'append', 'prepend', 'capitalize', 'downcase', 'upcase', 'default', 'escape', 'first', 'join', 'last',
   'replace', 'size', 'split', 'strip', 'strip_newlines', 'truncate',
 ];
@@ -31,7 +31,7 @@ export const TEMPLATE_FILTERS: readonly string[] = [
  * of the engine, and the `liquid` tag's own body is parsed by that same engine, so a
  * tag taken out is unknown there too.
  */
-export const TEMPLATE_TAGS: readonly string[] = ['if', 'unless', 'for', 'break', 'continue', 'assign', 'capture', 'comment', 'raw', 'case', 'echo', 'liquid', 'layout', 'block', 'render'];
+const TEMPLATE_TAGS: readonly string[] = ['if', 'unless', 'for', 'break', 'continue', 'assign', 'capture', 'comment', 'raw', 'case', 'echo', 'liquid', 'layout', 'block', 'render'];
 
 /** The bounds one render runs under: the cooperative ones Liquid counts itself, and the ones the server counts. */
 export interface RenderLimits {
@@ -59,16 +59,16 @@ export interface BlockRequest {
 export type RenderPart = string | { block: number };
 
 /** What one render answered: the page as segments, the blocks it dispatches, and the block data it tested but lacks. */
-export interface TemplateRender {
+interface TemplateRender {
   parts: RenderPart[];
   requests: BlockRequest[];
   dataMisses: string[];
 }
 
 /** A page whose template or partial stands in a file the worker cannot name: the answer carries this instead of a file. */
-export type TemplateFailure = { message: string; file?: string; line?: number };
+type TemplateFailure = { message: string; file?: string; line?: number };
 
-export class TemplateError extends Error {
+class TemplateError extends Error {
   readonly file: string | undefined;
   readonly line: number | undefined;
   constructor(error: unknown, file: string | undefined, fileOf: (token: { file?: string; input?: string } | undefined) => string | undefined) {

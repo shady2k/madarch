@@ -58,7 +58,7 @@ export function CodePlace({ location }: { location: CodeLocation }): ReactElemen
 }
 
 /** "Open on the repository's web page" for a place in code, when the repository's address is known. */
-export function WebPlace({ location }: { location: CodeLocation }): ReactElement | null {
+function WebPlace({ location }: { location: CodeLocation }): ReactElement | null {
   const { t } = useTranslation();
   if (location.web === undefined) return null;
   return (
@@ -85,7 +85,7 @@ export function EntityName({ entity }: { entity: EntityRef }): ReactElement {
 const keepUrl = (url: string): string => (url.startsWith('madarch:') ? url : defaultUrlTransform(url));
 
 /** A relative link inside a document to another Markdown document of the same repository: its path and section. */
-export function relativeDocument(from: { repo: string | null; path: string }, href: string): { path: string; anchor?: string } | null {
+function relativeDocument(from: { repo: string | null; path: string }, href: string): { path: string; anchor?: string } | null {
   const hash = href.indexOf('#');
   const file = hash < 0 ? href : href.slice(0, hash);
   if (file === '' || !/\.(md|markdown)$/i.test(file) || /^[a-z][a-z0-9+.-]*:/i.test(file)) return null;
@@ -147,7 +147,7 @@ export interface PlannedMarks {
   statements: Readonly<Record<string, PlannedMarkView>>;
 }
 
-export const NO_PLANNED: PlannedMarks = { headings: {}, statements: {} };
+const NO_PLANNED: PlannedMarks = { headings: {}, statements: {} };
 
 /** The key a sentence is matched by: its words, without the footnote references and with its blanks as one. */
 export const sentenceKey = (text: string): string => text.replace(/\[\^[^\]\s]+\]/g, '').replace(/\s+/g, ' ').trim();

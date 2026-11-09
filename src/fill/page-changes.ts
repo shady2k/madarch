@@ -62,7 +62,7 @@ export function isPageId(id: string): boolean {
  * id>` — so a graph page is a page of the app like a document's, and madarch-tzte.23.2's
  * diagram elements and this change's page set hand out one address, never two.
  */
-export const PAGE_ADDRESS_PREFIX = '/p/graph/';
+const PAGE_ADDRESS_PREFIX = '/p/graph/';
 
 /** One node's page address, like `/p/graph/module:1f…`: the id a reader copies is the fact id whole. */
 export function pageAddress(id: string): string {

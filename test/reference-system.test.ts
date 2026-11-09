@@ -1,6 +1,6 @@
 import { describe, expect, test } from 'bun:test';
 import { fileURLToPath } from 'node:url';
-import { loadAndCompileModel, type CompiledModel } from '../src/index.js';
+import { loadAndCompileModel, type CompiledModel } from './api.js';
 
 /**
  * The invented reference system the views of readable-views draw. The

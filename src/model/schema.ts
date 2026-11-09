@@ -57,7 +57,7 @@ export const Evidence = Type.Object(
 );
 export type Evidence = Static<typeof Evidence>;
 
-export const ZonesChange = Type.Object(
+const ZonesChange = Type.Object(
   {
     add: Type.Optional(Type.Array(Type.String())),
     exclude: Type.Optional(Type.Array(Type.String())),
@@ -65,7 +65,7 @@ export const ZonesChange = Type.Object(
   },
   { additionalProperties: false },
 );
-export type ZonesChange = Static<typeof ZonesChange>;
+type ZonesChange = Static<typeof ZonesChange>;
 
 export const Element = Type.Object(
   {
@@ -140,8 +140,8 @@ export const Interface = Type.Object(
 );
 export type Interface = Static<typeof Interface>;
 
-export const TransferDirection = Type.Union([Type.Literal('forward'), Type.Literal('reverse')]);
-export type TransferDirection = Static<typeof TransferDirection>;
+const TransferDirection = Type.Union([Type.Literal('forward'), Type.Literal('reverse')]);
+type TransferDirection = Static<typeof TransferDirection>;
 
 /**
  * One data transfer of an interaction. `categories` names data category ids,
@@ -283,14 +283,14 @@ export const Relation = Type.Object(
 );
 export type Relation = Static<typeof Relation>;
 
-export const EnvironmentZonesChange = Type.Object(
+const EnvironmentZonesChange = Type.Object(
   {
     add: Type.Optional(Type.Array(Type.String())),
     exclude: Type.Optional(Type.Array(Type.String())),
   },
   { additionalProperties: false },
 );
-export type EnvironmentZonesChange = Static<typeof EnvironmentZonesChange>;
+type EnvironmentZonesChange = Static<typeof EnvironmentZonesChange>;
 
 export const Environment = Type.Object(
   {

@@ -13,7 +13,7 @@ export const COUNTED_FIGURES = [
   'symbols', 'commits', 'files', 'reachable', 'firstParent', 'merges', 'nonMerge', 'authors', 'both', 'onlyThis', 'onlyOther',
 ] as const;
 
-export type CountedFigure = (typeof COUNTED_FIGURES)[number];
+type CountedFigure = (typeof COUNTED_FIGURES)[number];
 
 /** The four forms a counted figure takes, in grammatical order: one, few, many, other. */
 type Forms = { one: string; few: string; many: string; other: string };
@@ -47,7 +47,7 @@ const WORDS: Record<'en' | 'ru', Record<CountedFigure, Forms>> = {
   },
 };
 
-export function isCountedFigure(kind: string): kind is CountedFigure {
+function isCountedFigure(kind: string): kind is CountedFigure {
   return (COUNTED_FIGURES as readonly string[]).includes(kind);
 }
 

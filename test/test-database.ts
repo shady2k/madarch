@@ -19,12 +19,18 @@
  */
 import { createDatabaseOwner, type DatabaseOwner } from '../src/adapters/database-owner.js';
 import { clusterQuery, CLUSTER_PORT } from '../src/adapters/postgres-cluster.js';
-import { historyDatabaseOf } from '../src/adapters/store-histories.js';
 import { ensureRunPostgres } from './run-postgres.js';
-import { createQueryDatabase } from '../src/adapters/query-database.js';
 import { createHistoryStore } from '../src/adapters/sql-history.js';
-import type { Clock, HistoryStore } from '../src/history/types.js';
-import type { AsyncQueryDatabase } from '../src/query/types.js';
+import { sha256Hex } from '../src/graph/digest.js';
+import type { Clock, HistoryStore } from '../src/history-types.js';
+
+/** The database one source's history lives in (the shape `src/adapters/store-histories.ts` keeps for itself). */
+function historyDatabaseOf(stem: string, namespace?: string): string {
+  const prefix = 'h_';
+  if (namespace === undefined) return `${prefix}${sha256Hex(new TextEncoder().encode(stem)).slice(0, 40)}`;
+  const store = sha256Hex(new TextEncoder().encode(namespace)).slice(0, 10);
+  return `${prefix}${store}_${sha256Hex(new TextEncoder().encode(stem)).slice(0, 28)}`;
+}
 
 /** The variable naming the run server's socket folder; `run-postgres.ts` sets it before any test file loads. */
 export const TEST_SERVER_VARIABLE = 'MADARCH_TEST_PG_SOCKET';
@@ -180,7 +186,6 @@ export async function openRawStore(store: string, options: { readonly btreeGist?
 
 /** One history of a data folder's store, opened for raw statements: the rows a sidecar or a repair case writes by hand. */
 export async function openRawHistory(dataFolder: string, stem: string): Promise<RawStore> {
-  const { historyDatabaseOf } = await import('../src/adapters/store-histories.js');
   return await openRawStoreWith({ store: dataFolder, database: historyDatabaseOf(stem) });
 }
 
@@ -202,22 +207,5 @@ export async function serverPgVectorVersion(): Promise<string | undefined> {
     return rows.rows[0]?.extversion;
   } finally {
     await owner.close();
-  }
-}
-
-/**
- * The graph-query projection on a fresh database of the run's server. The
- * database an owner gets here carries no pgvector (the pinned server build has
- * no such extension), so this refuses by name the way a store does; a test of
- * the projection's vectors runs against `MADARCH_TEST_POSTGRES_URL`'s server
- * instead (test/postgres-query-database.test.ts).
- */
-export async function createTestQueryDatabase(options: { readonly clock?: Clock; readonly store?: string } = {}): Promise<AsyncQueryDatabase> {
-  const owner = await createTestDatabaseOwner(options.store === undefined ? {} : { store: options.store });
-  try {
-    return await createQueryDatabase({ owner, ...(options.clock === undefined ? {} : { clock: options.clock }) });
-  } catch (error) {
-    await owner.close().catch(() => undefined);
-    throw error;
   }
 }

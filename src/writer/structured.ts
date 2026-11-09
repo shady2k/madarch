@@ -99,7 +99,7 @@ export interface NamedPlace {
 }
 
 /** What implements a use case, a rule or a decision: the places in the code, each a key of the graph. */
-export interface ImplementationFields {
+interface ImplementationFields {
   readonly routes?: readonly NamedPlace[];
   readonly functions?: readonly NamedPlace[];
   readonly tables?: readonly NamedPlace[];
@@ -107,7 +107,7 @@ export interface ImplementationFields {
 }
 
 /** One alternative flow of a use case: what happens instead, and what happens then. */
-export interface AlternativeFlow {
+interface AlternativeFlow {
   readonly when: GroundedStatement;
   readonly steps: readonly GroundedStatement[];
 }
@@ -124,7 +124,7 @@ export interface ScenarioFields {
   readonly implementation: ImplementationFields;
 }
 
-export interface RuleFields {
+interface RuleFields {
   readonly title?: string;
   readonly statement: GroundedStatement;
   readonly applies: readonly GroundedStatement[];
@@ -132,7 +132,7 @@ export interface RuleFields {
   readonly implementation: ImplementationFields;
 }
 
-export interface DecisionFields {
+interface DecisionFields {
   readonly title?: string;
   readonly status: GroundedStatement;
   readonly context: readonly GroundedStatement[];
@@ -158,7 +158,7 @@ export interface PlaceField {
  * work, what is stored, what is told. Each field holds one graph kind of node, so a table in `routes` is
  * refused rather than written.
  */
-export const PLACE_FIELDS: readonly PlaceField[] = [
+const PLACE_FIELDS: readonly PlaceField[] = [
   { field: 'routes', nodeKind: 'code.route', section: 'implementation' },
   { field: 'functions', nodeKind: 'code.symbol', section: 'implementation' },
   { field: 'tables', nodeKind: 'code.table', section: 'implementation' },
@@ -166,7 +166,7 @@ export const PLACE_FIELDS: readonly PlaceField[] = [
 ];
 
 /** The ids of the sections a structured page is made of: its stable identities, never a line of a template. */
-export type SectionId =
+type SectionId =
   | 'actor' | 'goal' | 'preconditions' | 'main-flow' | 'alternative-flows' | 'rules'
   | 'statement' | 'applies' | 'exceptions'
   | 'status' | 'context' | 'decision' | 'consequences'
@@ -211,13 +211,13 @@ export const STRUCTURED_SECTIONS: Readonly<Record<StructuredKind, readonly Secti
 };
 
 /** The words the page says about a place the graph does not carry through: a route that reaches no function. */
-export const UNREACHED_ROUTE: Readonly<Record<StructuredLanguage, (route: string) => string>> = {
+const UNREACHED_ROUTE: Readonly<Record<StructuredLanguage, (route: string) => string>> = {
   en: (route) => `The route ${route} reaches no function of the graph.`,
   ru: (route) => `Маршрут ${route} не доходит ни до одной функции графа.`,
 };
 
 /** The id of the one section a kind's field belongs to, for a refusal that says where a value goes. */
-export function sectionOf(kind: StructuredKind, id: SectionId): SectionDecl | undefined {
+function sectionOf(kind: StructuredKind, id: SectionId): SectionDecl | undefined {
   return STRUCTURED_SECTIONS[kind].find((section) => section.id === id);
 }
 
@@ -349,7 +349,7 @@ export function implementationPlaces(fields: StructuredFields): readonly (NamedP
 }
 
 /** The keys the page's implementation names, in code point order: what its `relates` says and what the engine draws the flow from. */
-export function relatesOf(fields: StructuredFields): readonly string[] {
+function relatesOf(fields: StructuredFields): readonly string[] {
   return [...new Set(implementationPlaces(fields).map((place) => place.target))].sort(byCodePoint);
 }
 
@@ -435,7 +435,7 @@ export class PageWriter {
  * a question link that closes it — the format takes such a link as the suffix of the sentence it concerns and allows
  * nothing after it (`question-link-position`, `src/writer/format.ts`).
  */
-export function withReference(text: string, label: string): string {
+function withReference(text: string, label: string): string {
   const sentence = collapseSentence(text);
   const at = closingQuestionLinkAt(sentence);
   if (at < 0) return `${sentence}[^${label}]`;

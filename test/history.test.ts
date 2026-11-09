@@ -4,7 +4,7 @@ import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { canonicalJsonDigest } from '../src/model/canonical.js';
-import { loadAndCompileModel, serializeCompiledModel, type Clock, type CompiledElement, type CompiledEntity, type CompiledModel, type CompiledRelation, type CompiledScenario, type HistoryStore } from '../src/index.js';
+import { loadAndCompileModel, serializeCompiledModel, type Clock, type CompiledElement, type CompiledEntity, type CompiledModel, type CompiledRelation, type CompiledScenario, type HistoryStore } from './api.js';
 import { createHistoryStore } from '../src/adapters/sql-history.js';
 import { createTestHistory, openRawStore } from './test-database.js';
 

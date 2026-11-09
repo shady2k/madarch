@@ -317,7 +317,7 @@ function ProblemItem({ problem, refresh }: { problem: Problem; refresh: () => vo
 }
 
 /** What the starter set holds and the product's own (edited) manifest lacks, each added on a press (madarch-m38l.11). */
-export function StarterOffers({ offers, refresh }: { offers: readonly StarterOffer[]; refresh: () => void }): ReactElement | null {
+function StarterOffers({ offers, refresh }: { offers: readonly StarterOffer[]; refresh: () => void }): ReactElement | null {
   const { t } = useTranslation();
   const language = useLanguage();
   const [working, setWorking] = useState<string | null>(null);
@@ -574,7 +574,7 @@ export function PlanList({ plan, compact = false }: { plan: RefreshPlan; compact
 }
 
 /** What the next refresh would do, read when the menu opens: before the press, not after. */
-export function RefreshPreviewView({ language, refreshKey }: { language: string; refreshKey: string }): ReactElement {
+function RefreshPreviewView({ language, refreshKey }: { language: string; refreshKey: string }): ReactElement {
   const { t } = useTranslation();
   const [preview, setPreview] = useState<RefreshPreview | null>(null);
   const [error, setError] = useState<string | null>(null);
@@ -599,7 +599,7 @@ export function RefreshPreviewView({ language, refreshKey }: { language: string;
 // ---- the scoped tasks of answers (madarch-m38l.14) -------------------------------------------
 
 /** A scope as a reader says it: `README.md#what-it-does`, `src/a.ts:12-20`, a code symbol's graph key, a statement's, or a path. */
-export function scopeWords(scope: TaskScope): string {
+function scopeWords(scope: TaskScope): string {
   switch (scope.type) {
     case 'section': return `${scope.path}#${scope.anchor}`;
     case 'lines': return `${scope.path}:${scope.start}-${scope.end}`;
@@ -617,7 +617,7 @@ const STATEMENT_KEY = /^(?:product|domain):[a-z][a-z0-9-]*#[^#]+$/;
  * The scope a person typed: a path (a whole file), `path#section`, `path:12-20`, a statement of a page, or a code symbol.
  * Words that name no place of the product are refused with the words themselves, never guessed at.
  */
-export function scopeOfWords(words: string): TaskScope | undefined {
+function scopeOfWords(words: string): TaskScope | undefined {
   const text = words.trim();
   if (text === '') return undefined;
   const lines = LINES_WORDS.exec(text);
@@ -631,7 +631,7 @@ export function scopeOfWords(words: string): TaskScope | undefined {
 }
 
 /** A place a task changes, as a reader says it: the heading and its document's title, each a link; the path is small. */
-export function PlaceName({ place }: { place: PlaceView }): ReactElement {
+function PlaceName({ place }: { place: PlaceView }): ReactElement {
   const { t } = useTranslation();
   const label = place.href === null ? <span>{place.label}</span> : <KLink href={place.href}>{place.label}</KLink>;
   return (
@@ -688,7 +688,7 @@ function ImpactList({ impact }: { impact: TaskImpact }): ReactElement {
  * The task an answer proposes: the reader chooses what needs to change, and the engine turns the answer's grounds into
  * an editable scope and the impact through the graph. Nothing is written before the reader confirms.
  */
-export function ProposeTaskForm({ question, refresh }: { question: QuestionDetail; refresh: () => void }): ReactElement {
+function ProposeTaskForm({ question, refresh }: { question: QuestionDetail; refresh: () => void }): ReactElement {
   const { t } = useTranslation();
   const [choice, setChoice] = useState<'code' | 'docs' | 'other'>('code');
   const [proposal, setProposal] = useState<TaskProposal | null>(null);
@@ -785,7 +785,7 @@ export function ProposeTaskForm({ question, refresh }: { question: QuestionDetai
  * run over exactly those pages — or «Позже, вместе с другими ответами», which runs nothing.
  */
 /** One task's card away from its page: it reads the task, then draws the same body the task page draws. */
-export function TaskCard({ id, version, refresh }: { id: string; version: number; refresh: () => void }): ReactElement {
+function TaskCard({ id, version, refresh }: { id: string; version: number; refresh: () => void }): ReactElement {
   const { t } = useTranslation();
   const { data: task, error } = useRead<TaskDetail>(`task:${id}`, version, (signal) => getTask(id, signal));
   if (task === null && error === null) return <PageSkeleton testId="task-loading" rows />;
@@ -796,7 +796,7 @@ export function TaskCard({ id, version, refresh }: { id: string; version: number
 }
 
 /** A confirmed task as both its page and its answer's page draw it: its impact, then the press that fixes the pages. */
-export function TaskBody({ task, refresh, headline = true }: { task: TaskDetail; refresh: () => void; headline?: boolean }): ReactElement {
+function TaskBody({ task, refresh, headline = true }: { task: TaskDetail; refresh: () => void; headline?: boolean }): ReactElement {
   const { t } = useTranslation();
   const language = useLanguage();
   const [working, setWorking] = useState(false);

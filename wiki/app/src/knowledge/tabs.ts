@@ -11,7 +11,7 @@
 import { useEffect, useRef, useSyncExternalStore, type MouseEvent } from 'react';
 import { appBase, appPath, appRoute } from '../app-base.js';
 
-export interface Tab {
+interface Tab {
   key: string;
   /** The page's address inside the product's wiki: path, query and hash, without the product's mount. */
   address: string;
@@ -79,7 +79,7 @@ function set(next: TabsState): void {
 }
 
 /** Forgets every tab (a test starts over; a product opened anew starts with its one tab). */
-export function resetTabs(): void {
+function resetTabs(): void {
   state = null;
   counter = 0;
   for (const listener of listeners) listener();
@@ -117,7 +117,7 @@ export function useTabs(): TabsState {
 }
 
 /** The tab in front. */
-export const frontTab = (): Tab => current().tabs.find((tab) => tab.key === current().active)!;
+const frontTab = (): Tab => current().tabs.find((tab) => tab.key === current().active)!;
 
 function show(address: string): void {
   if (currentAddress() !== address) window.history.pushState({}, '', appPath(address));
@@ -140,7 +140,7 @@ const withoutHash = (address: string): string => {
  * address without its hash, so another section of an open document is the same page: that tab then shows the section.
  * Returns whether a tab other than the one in front held it.
  */
-export function focusOpenTab(address: string): boolean {
+function focusOpenTab(address: string): boolean {
   const now = current();
   const open = now.tabs.find((tab) => tab.key !== now.active && withoutHash(tab.address) === withoutHash(address));
   if (open === undefined) return false;
@@ -200,7 +200,7 @@ export function syncFrontTabAddress(): void {
 }
 
 /** Names a tab by the page it holds. */
-export function setTabTitle(key: string, title: string): void {
+function setTabTitle(key: string, title: string): void {
   const now = current();
   const tab = now.tabs.find((candidate) => candidate.key === key);
   if (tab === undefined || tab.title === title) return;
@@ -208,7 +208,7 @@ export function setTabTitle(key: string, title: string): void {
 }
 
 /** Whether a click asks for a new tab: control or command, or the middle button. */
-export const wantsNewTab = (event: { ctrlKey: boolean; metaKey: boolean; button: number }): boolean => event.ctrlKey || event.metaKey || event.button === 1;
+const wantsNewTab = (event: { ctrlKey: boolean; metaKey: boolean; button: number }): boolean => event.ctrlKey || event.metaKey || event.button === 1;
 
 /** Whether a click is left to the browser: shift (a window of its own) or alt. */
 const leftToBrowser = (event: { shiftKey: boolean; altKey: boolean; button: number }): boolean => event.shiftKey || event.altKey || (event.button !== 0 && event.button !== 1);

@@ -447,7 +447,7 @@ export function EmptyHome({ status }: { status: WikiStatus; refresh: () => void 
 }
 
 /** The sources a filter keeps: those whose title or path holds the words, in any case. */
-export function filterSources<T extends { title: string; path: string }>(documents: readonly T[], query: string): T[] {
+function filterSources<T extends { title: string; path: string }>(documents: readonly T[], query: string): T[] {
   const wanted = query.trim().toLowerCase();
   return documents.filter((document) => wanted === '' || document.path.toLowerCase().includes(wanted) || document.title.toLowerCase().includes(wanted));
 }

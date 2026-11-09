@@ -38,7 +38,7 @@ const processor = unified().use(remarkParse).use(remarkGfm);
 const parseTree = (markdown: string): Node => processor.parse(markdown) as unknown as Node;
 
 /** Whitespace runs become one space without a regular expression over the document's text. */
-export function collapseSpace(text: string): string {
+function collapseSpace(text: string): string {
   let out = '';
   let space = false;
   for (const character of text) {
@@ -117,7 +117,7 @@ function linksOf(nodes: readonly Node[], definitions: ReadonlyMap<string, string
 }
 
 /** One inline run of a paragraph: the sentence up to a footnote-reference run, with its source span. */
-export interface MarkdownSegment {
+interface MarkdownSegment {
   /** The first footnote's name, suffixed `~2` from the second use, or null for prose with no reference. */
   readonly id: string | null;
   readonly labels: readonly string[];
@@ -132,7 +132,7 @@ export interface MarkdownSegment {
 }
 
 /** One block the revision check compares: prose is read as segments; every other block must not change. */
-export interface MarkdownBlock {
+interface MarkdownBlock {
   readonly kind: 'paragraph' | 'other';
   readonly raw: string;
   readonly line: number;
@@ -140,7 +140,7 @@ export interface MarkdownBlock {
   readonly key: string;
 }
 
-export interface MarkdownReading {
+interface MarkdownReading {
   readonly blocks: readonly MarkdownBlock[];
   readonly statements: readonly PageStatement[];
 }
@@ -275,7 +275,7 @@ function read(markdown: string): Reading {
 }
 
 /** The blocks of a page as the revision check sees them. */
-export function blocksOf(markdown: string): readonly MarkdownBlock[] {
+function blocksOf(markdown: string): readonly MarkdownBlock[] {
   return read(markdown).blocks;
 }
 

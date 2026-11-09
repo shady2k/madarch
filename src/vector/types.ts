@@ -1,8 +1,8 @@
 /** Vector search metrics supported by the pgvector adapter. */
-export type VectorDistanceMetric = 'l2' | 'cosine' | 'innerProduct';
+type VectorDistanceMetric = 'l2' | 'cosine' | 'innerProduct';
 
 /** One caller-supplied vector stored for a source and vector space. */
-export interface VectorRecord {
+interface VectorRecord {
   source: string;
   space: string;
   itemId: string;
@@ -10,7 +10,7 @@ export interface VectorRecord {
 }
 
 /** One exact-nearest-neighbor query. */
-export interface VectorSearchInput {
+interface VectorSearchInput {
   space: string;
   vector: readonly number[];
   metric: VectorDistanceMetric;
@@ -18,7 +18,7 @@ export interface VectorSearchInput {
 }
 
 /** A matching vector, identified across a multi-source facade. */
-export interface VectorMatch {
+interface VectorMatch {
   source: string;
   itemId: string;
   distance: number;

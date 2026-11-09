@@ -57,7 +57,7 @@ export interface DiagramWorkspace {
 }
 
 /** The name a LikeC4 webcomponent's custom element takes: its generation prefix and `-view`. */
-export function webcomponentElement(prefix: string): string {
+function webcomponentElement(prefix: string): string {
   return `${prefix}-view`;
 }
 
@@ -68,7 +68,7 @@ export function webcomponentElement(prefix: string): string {
  * without the second one's `customElements.define` colliding with the first's
  * (`likec4` defines the element unconditionally).
  */
-export function webcomponentPrefix(workspace: string): string {
+function webcomponentPrefix(workspace: string): string {
   return `madarch-graph-${createHash('sha256').update(workspace).digest('hex').slice(0, 12)}`;
 }
 
@@ -150,13 +150,13 @@ function elementLines(element: DiagramElement, id: string, options: { readonly p
 }
 
 /** Where an element stands in code, as one line: the repository, the file and the lines, exactly as a fact's place reads. */
-export function placeText(element: DiagramElement): string {
+function placeText(element: DiagramElement): string {
   const place = element.place!;
   return `${place.repository} · ${place.file}:${String(place.line)}-${String(place.endLine)}`;
 }
 
 /** A table's columns, as LikeC4's one spare line: each column's name and its type, in the model's own order. */
-export function columnsText(element: DiagramElement): string {
+function columnsText(element: DiagramElement): string {
   return (element.columns ?? []).map((column) => (column.dataType === undefined ? column.label : `${column.label} ${column.dataType}`)).join(', ');
 }
 

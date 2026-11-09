@@ -14,10 +14,10 @@ export interface GuideHost {
   readonly execution: GuideWalkHost;
   readReceipts(): Promise<GuideReceiptRead>;
 }
-export interface GuideHostRequest { readonly kind: GuideKind; readonly locale: GuideLocale; readonly context: GuideContext }
+interface GuideHostRequest { readonly kind: GuideKind; readonly locale: GuideLocale; readonly context: GuideContext }
 export type GuideHostFor = (request: GuideHostRequest) => Promise<GuideHost>;
 /** Resolve opaque known/state from real prepared-input authority, never from the artifact. */
-export interface GuideContextRequest {
+interface GuideContextRequest {
   readonly kind: GuideKind;
   readonly locale: GuideLocale;
   readonly valid: string;
@@ -26,6 +26,6 @@ export interface GuideContextRequest {
 export type GuideContextFor = (request: GuideContextRequest) => Promise<GuideContext | undefined>;
 
 /** No signing authority has been approved: this capability can never certify a run. */
-export function unavailableGuideExecution(file: string): GuideWalkHost {
+function unavailableGuideExecution(file: string): GuideWalkHost {
   return { file, containsSecret: () => { throw new Error('secret authority is unavailable'); }, verifyExecution: async () => ({ kind: 'unverified', reason: 'independent operator authentication is unavailable' }) };
 }

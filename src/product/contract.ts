@@ -120,10 +120,10 @@ export type RegistryRead =
  * `$id`; moving either side to a new version is a deliberate change on
  * each side, never a silent reinterpretation.
  */
-export const KNOWN_CONTRACT_VERSIONS: readonly number[] = [1];
+const KNOWN_CONTRACT_VERSIONS: readonly number[] = [1];
 
 /** A document's generic fields, as a document may carry them for madarch. */
-export interface DocumentFields {
+interface DocumentFields {
   id?: string;
   kind?: string;
   status?: string;
@@ -396,7 +396,7 @@ export function parseContractText(file: string, text: string): RegistryRead {
 const DOCUMENT_FIELD_NAMES = ['id', 'kind', 'status', 'links'] as const;
 
 /** How one document's generic fields read: the fields, or the refusals. */
-export type DocumentFieldsRead =
+type DocumentFieldsRead =
   | { ok: true; fields: DocumentFields }
   | { ok: false; errors: ContractError[] };
 
@@ -407,7 +407,7 @@ export type DocumentFieldsRead =
  * way a manifest grows by fields a later version adds. Refusals name the
  * file, the line and the field the problem stands on.
  */
-export function parseDocumentFields(file: string, markdown: string): DocumentFieldsRead {
+function parseDocumentFields(file: string, markdown: string): DocumentFieldsRead {
   const errors: ContractError[] = [];
   const fields: DocumentFields = {};
   let sectionOpened = false;

@@ -69,7 +69,7 @@ export interface PlacedNode {
   more?: DiagramMore;
 }
 
-export interface PlacedGroup {
+interface PlacedGroup {
   column: number;
   label: string;
   relation: string;
@@ -78,7 +78,7 @@ export interface PlacedGroup {
   y: number;
 }
 
-export interface PlacedEdge {
+interface PlacedEdge {
   from: string;
   to: string;
   relation: string;

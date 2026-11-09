@@ -129,7 +129,7 @@ function coveredMs(intervals: readonly Interval[]): number {
 }
 
 /** What the spans say: the one function the command and the wiki's page both call. */
-export function traceReportOf(spans: readonly TraceSpan[], file: string): TraceReport {
+function traceReportOf(spans: readonly TraceSpan[], file: string): TraceReport {
   const runId = file.split('/').pop()?.replace(/\.jsonl$/u, '') ?? '';
   const byId = new Map(spans.map((span) => [span.spanId, span]));
   const children = new Map<string, TraceSpan[]>();
@@ -200,7 +200,7 @@ export function traceReportOf(spans: readonly TraceSpan[], file: string): TraceR
 }
 
 /** One step of a run, as the spans that name it state it. */
-export interface StepReport {
+interface StepReport {
   readonly step: string;
   /** The step's plan span, when the trace holds one. */
   readonly spanId: string;
@@ -225,7 +225,7 @@ const STEP_NAMES = 5;
  * ran, and its slowest names are ranked by the time each took of its own. The
  * numbers are the spans' own: nothing here reads a store or a second record.
  */
-export function stepReportsOf(spans: readonly TraceSpan[]): StepReport[] {
+function stepReportsOf(spans: readonly TraceSpan[]): StepReport[] {
   const children = new Map<string, TraceSpan[]>();
   for (const span of spans) {
     if (span.parentSpanId === undefined || !spans.some((one) => one.spanId === span.parentSpanId)) continue;

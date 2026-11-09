@@ -38,7 +38,7 @@ import { BLOCK_NAMES, blockIdentity, foldLanguageParams } from './template.js';
 import { decodeWire, encodeWire } from './wire.js';
 
 /** The bounds a page's template runs under, counted by Liquid; a test names its own to see one fire. */
-export const RENDER_LIMITS: RenderLimits = {
+const RENDER_LIMITS: RenderLimits = {
   templateLimit: 200_000,
   renderLimit: 8_000,
   memoryLimit: 200_000_000,
@@ -55,7 +55,7 @@ export const RENDER_LIMITS: RenderLimits = {
 const STARTER_TEMPLATE_HASHES: ReadonlySet<string> = new Set(Object.values(STARTER_TEMPLATES).map((text) => createHash('sha256').update(text).digest('hex')));
 
 /** The bounds the server enforces itself: the wall clock of a page, the memory its worker may hold, the sizes of a set. */
-export const RENDER_BOUNDS = {
+const RENDER_BOUNDS = {
   wallClockMs: 15_000,
   memoryMiB: 512,
   templateFiles: 200,
@@ -64,7 +64,7 @@ export const RENDER_BOUNDS = {
 } as const;
 
 /** The template files a product holds: its whole `templates` folder, and no other path. */
-export interface TemplateSet {
+interface TemplateSet {
   files: Readonly<Record<string, string>>;
   /** Changes when a template's text, size or place does: a worker is given the set again when it does. */
   digest: string;
@@ -80,7 +80,7 @@ const templateCache = new Map<string, { stamp: string; set: TemplateSet }>();
  * finding, so a product cannot make the wiki hold a template it could not have
  * written. The set is cached until one of the files changes.
  */
-export function templateSetOf(productFolder: string): TemplateSet {
+function templateSetOf(productFolder: string): TemplateSet {
   const found: { path: string; mtimeMs: number; size: number }[] = [];
   const findings: Finding[] = [];
   // The folder itself is contained first: a `templates` that is a link out of the product would make every path below a
@@ -181,7 +181,7 @@ export interface LiquidPageOutcome {
 
 // ---- the worker ---------------------------------------------------------------------------------
 
-export function spawnRenderWorker(): RenderWorkerProcess {
+function spawnRenderWorker(): RenderWorkerProcess {
   const { command, args } = selfCommand(['knowledge-render-worker']);
   const child = Bun.spawn([command, ...args], { stdin: 'pipe', stdout: 'pipe', stderr: 'pipe', env: process.env });
   let tail = '';
@@ -208,7 +208,7 @@ export function spawnRenderWorker(): RenderWorkerProcess {
 }
 
 /** How a worker is started: the production one starts a process of its own; a test names its own. */
-export const renderWorkers: { factory: () => RenderWorkerProcess } = { factory: spawnRenderWorker };
+const renderWorkers: { factory: () => RenderWorkerProcess } = { factory: spawnRenderWorker };
 
 /**
  * The resident memory of a process, as the machine it runs on says it: `/proc` on
@@ -216,7 +216,7 @@ export const renderWorkers: { factory: () => RenderWorkerProcess } = { factory: 
  * `undefined` when the machine says nothing, and the wall clock and Liquid's own
  * cooperative limits are then what stands.
  */
-export function residentMiB(pid: number | undefined): number | undefined {
+function residentMiB(pid: number | undefined): number | undefined {
   if (pid === undefined) return undefined;
   try {
     const found = /VmRSS:\s+(\d+) kB/.exec(readFileSync(`/proc/${pid}/status`, 'utf8'));
@@ -344,7 +344,7 @@ export function warmRenderWorker(productFolder: string): void {
 }
 
 /** Ends the worker of one product: a product that closes gives back what it holds. */
-export function closeRenderWorker(productFolder: string): void {
+function closeRenderWorker(productFolder: string): void {
   const slot = slots.get(productFolder);
   if (slot === undefined) return;
   stopWorker(slot);
@@ -353,7 +353,7 @@ export function closeRenderWorker(productFolder: string): void {
 }
 
 /** Ends every worker: a products home that closes, and a test that is over. */
-export function closeRenderWorkers(): void {
+function closeRenderWorkers(): void {
   for (const folder of [...slots.keys()]) closeRenderWorker(folder);
 }
 

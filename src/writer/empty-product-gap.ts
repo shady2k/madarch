@@ -8,7 +8,7 @@ import { plainSentence } from './sentences.js';
 import { emptyProductGapMarkerFromPlain, emptyProductGapPlainDigest } from './gap-marker.js';
 
 export type { EmptyProductGap } from './gap-marker.js';
-export { readEmptyProductGapMarker } from './gap-marker.js';
+;
 
 /** The digest the marker carries for a sentence: its plain reading, in UTF-8. */
 export function emptyProductGapDigest(sentence: string): string {

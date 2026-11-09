@@ -29,14 +29,14 @@ import type { DraftEnv } from '../product/home.js';
 
 export type Classification = 'fully' | 'partly' | 'none' | 'unsure';
 
-export interface AnswerKeyLocation {
+interface AnswerKeyLocation {
   readonly snapshot: string;
   readonly path: string;
   readonly symbol?: string;
   readonly anchor?: string;
 }
 
-export interface AnswerKeyItem {
+interface AnswerKeyItem {
   readonly id: string;
   readonly location?: AnswerKeyLocation;
   readonly locations?: readonly AnswerKeyLocation[];
@@ -53,7 +53,7 @@ export interface AnswerKeyItem {
   readonly checks?: readonly unknown[];
 }
 
-export interface AnswerKey {
+interface AnswerKey {
   readonly fixtureVersion?: number;
   readonly snapshots: Readonly<Record<string, string>>;
   readonly plantedCounts?: Readonly<Record<string, unknown>>;
@@ -61,25 +61,25 @@ export interface AnswerKey {
   readonly items: readonly AnswerKeyItem[];
 }
 
-export interface ExpectedQuestion {
+interface ExpectedQuestion {
   readonly type: string;
   readonly subject: string;
   readonly file: string;
 }
 
-export interface ExpectedQuestionSet {
+interface ExpectedQuestionSet {
   readonly file: string;
   readonly field: string;
   readonly questions: readonly ExpectedQuestion[];
 }
 
-export interface EvidenceDocumentRef {
+interface EvidenceDocumentRef {
   readonly repo: string | null;
   readonly path: string;
   readonly title: string;
 }
 
-export interface EvidenceQuestion {
+interface EvidenceQuestion {
   readonly slug: string;
   readonly id: string;
   readonly title: string;
@@ -88,7 +88,7 @@ export interface EvidenceQuestion {
   readonly about: readonly string[];
 }
 
-export interface EvidencePage {
+interface EvidencePage {
   readonly id: string;
   readonly kind: string;
   readonly title: string;
@@ -103,7 +103,7 @@ export interface EvidencePage {
   };
 }
 
-export interface EvidenceDocument {
+interface EvidenceDocument {
   readonly repo: string | null;
   readonly path: string;
   readonly title: string;
@@ -111,13 +111,13 @@ export interface EvidenceDocument {
   readonly commit: string | null;
 }
 
-export interface ResolvedPlace {
+interface ResolvedPlace {
   readonly repo: string | null;
   readonly fullPath: string;
 }
 
 /** The product reads the check needs, kept behind this seam so a fixture is a plain object. */
-export interface EvidenceSource {
+interface EvidenceSource {
   readonly productFolder: string;
   documents(): Promise<readonly EvidenceDocumentRef[]>;
   resolvePlace(path: string, snapshot: string): Promise<ResolvedPlace | undefined>;
@@ -128,7 +128,7 @@ export interface EvidenceSource {
   questions(): readonly EvidenceQuestion[];
 }
 
-export interface EvidencePassage {
+interface EvidencePassage {
   /** The id a judge quotes: one of the pack's own passages, never a passage it invents. */
   readonly id: string;
   readonly page: string;
@@ -139,7 +139,7 @@ export interface EvidencePassage {
 
 type RawPassage = Omit<EvidencePassage, 'id'>;
 
-export interface LocationEvidence {
+interface LocationEvidence {
   readonly location: AnswerKeyLocation;
   readonly pageId: string | null;
   readonly symbolPageId: string | null;
@@ -191,13 +191,13 @@ export interface AnswerKeyCounts {
   readonly unsure: number;
 }
 
-export interface AnswerKeyThreshold {
+interface AnswerKeyThreshold {
   readonly fullyAtLeast: number;
   readonly noneAtMost: number;
   readonly expectedQuestions: number;
 }
 
-export interface AnswerKeySeam {
+interface AnswerKeySeam {
   readonly mainKeyField: 'missing';
   readonly mainKeyOpenItems: number;
   readonly expectedQuestionSource: string;
@@ -208,7 +208,7 @@ export interface AnswerKeySeam {
   readonly problems: readonly string[];
 }
 
-export interface AnswerKeyQuestionSummary {
+interface AnswerKeyQuestionSummary {
   readonly source: string;
   readonly field: string;
   readonly expected: readonly ExpectedQuestion[];
@@ -287,7 +287,7 @@ function strings(value: unknown, file: string, where: string): readonly string[]
   return list(value, file, where).map((one, at) => string(one, file, `${where}[${at}]`));
 }
 
-export function readAnswerKey(file: string): AnswerKey {
+function readAnswerKey(file: string): AnswerKey {
   const value = record(readJson(file), file, 'the answer key');
   const snapshots = record(value['snapshots'], file, 'snapshots');
   for (const [name, commit] of Object.entries(snapshots)) string(commit, file, `snapshots.${name}`);
@@ -347,7 +347,7 @@ function readLocation(value: unknown, file: string, where: string): AnswerKeyLoc
   };
 }
 
-export function readExpectedQuestions(file: string): ExpectedQuestionSet {
+function readExpectedQuestions(file: string): ExpectedQuestionSet {
   const value = record(readJson(file), file, 'the expected-question key');
   const field = 'expectedOpenQuestions';
   const raw = list(value[field], file, field);
@@ -366,7 +366,7 @@ export function readExpectedQuestions(file: string): ExpectedQuestionSet {
   };
 }
 
-export function questionItems(key: AnswerKey): readonly AnswerKeyItem[] {
+function questionItems(key: AnswerKey): readonly AnswerKeyItem[] {
   return key.items.filter((item) => item.id.startsWith(QUESTION_ITEM_PREFIX));
 }
 
@@ -619,11 +619,11 @@ function sameQuestion(expected: ExpectedQuestion, current: EvidenceQuestion): bo
  * How many of the expected questions the product's own question pages actually ask (madarch-j6ho.2, finding 5):
  * eight pages of the right kind but about other matters do not meet the milestone's eight questions.
  */
-export function matchedQuestionCount(expected: readonly ExpectedQuestion[], current: readonly EvidenceQuestion[]): number {
+function matchedQuestionCount(expected: readonly ExpectedQuestion[], current: readonly EvidenceQuestion[]): number {
   return expected.filter((question) => current.some((page) => sameQuestion(question, page))).length;
 }
 
-export async function buildAnswerKeyCheck(source: EvidenceSource, key: AnswerKey, expected: ExpectedQuestionSet, keyFile: string): Promise<AnswerKeyCheck> {
+async function buildAnswerKeyCheck(source: EvidenceSource, key: AnswerKey, expected: ExpectedQuestionSet, keyFile: string): Promise<AnswerKeyCheck> {
   const documents = await source.documents();
   const questions = source.questions();
   const items: AnswerKeyPack[] = [];
@@ -791,11 +791,11 @@ export async function buildAnswerKeyCheck(source: EvidenceSource, key: AnswerKey
   };
 }
 
-export function thresholdLine(check: AnswerKeyCheck): string {
+function thresholdLine(check: AnswerKeyCheck): string {
   return `threshold (computed, not gated): fully ${check.counts.fully}/${check.totalItems} = ${(check.fullyRatio * 100).toFixed(1)}% (needs >= ${(check.threshold.fullyAtLeast * 100).toFixed(0)}%), none ${check.counts.none} (needs <= ${check.threshold.noneAtMost}), expected questions ${check.questions.expected.length} (needs ${check.threshold.expectedQuestions}), expected questions matched to question pages: ${check.questions.matched} of ${check.questions.expected.length}`;
 }
 
-export function reportText(check: AnswerKeyCheck): string {
+function reportText(check: AnswerKeyCheck): string {
   const lines: string[] = [];
   lines.push(`answer-key check: ${check.totalItems} items in ${check.keyFile}`);
   lines.push(`product: ${check.productFolder}`);
@@ -813,7 +813,7 @@ export function reportText(check: AnswerKeyCheck): string {
   return lines.join('\n');
 }
 
-export function writeAnswerKeyCheck(check: AnswerKeyCheck, outFolder: string): { packs: string; unsure: string; report: string } {
+function writeAnswerKeyCheck(check: AnswerKeyCheck, outFolder: string): { packs: string; unsure: string; report: string } {
   mkdirSync(outFolder, { recursive: true });
   const packs = join(outFolder, 'answer-key-packs.json');
   const unsure = join(outFolder, 'answer-key-unsure.json');
@@ -849,7 +849,7 @@ export function writeAnswerKeyCheck(check: AnswerKeyCheck, outFolder: string): {
 }
 
 /** The product-backed source: real page and document reads, no rendering and no agent. */
-export class ProductEvidenceSource implements EvidenceSource {
+class ProductEvidenceSource implements EvidenceSource {
   private documentsCache: Promise<readonly EvidenceDocumentRef[]> | undefined;
   private readonly repositoryNames: readonly string[];
   private readonly finalCommit: string | undefined;
@@ -941,7 +941,7 @@ export class ProductEvidenceSource implements EvidenceSource {
   }
 }
 
-export interface RunAnswerKeyCheckOptions {
+interface RunAnswerKeyCheckOptions {
   readonly productFolder: string;
   readonly storeRoot: string;
   readonly keyFile: string;
@@ -955,7 +955,7 @@ export interface RunAnswerKeyCheckOptions {
   readonly env?: DraftEnv;
 }
 
-export async function runAnswerKeyCheck(options: RunAnswerKeyCheckOptions): Promise<{ check: AnswerKeyCheck; written: { packs: string; unsure: string; report: string } }> {
+async function runAnswerKeyCheck(options: RunAnswerKeyCheckOptions): Promise<{ check: AnswerKeyCheck; written: { packs: string; unsure: string; report: string } }> {
   const key = readAnswerKey(options.keyFile);
   const expected = readExpectedQuestions(options.questionKeyFile);
   const product = new KnowledgeProduct({ productFolder: options.productFolder, storeRoot: options.storeRoot });
@@ -973,14 +973,14 @@ export async function runAnswerKeyCheck(options: RunAnswerKeyCheckOptions): Prom
   }
 }
 
-export function defaultStoreRoot(): string {
+function defaultStoreRoot(): string {
   return join(homedir(), '.madarch', 'knowledge');
 }
 
-export function defaultAnswerKeyFile(root: string): string {
+function defaultAnswerKeyFile(root: string): string {
   return join(root, 'examples', 'training-repository', 'answer-key.json');
 }
 
-export function defaultQuestionKeyFile(root: string): string {
+function defaultQuestionKeyFile(root: string): string {
   return join(root, 'examples', 'training-repository', 'agent-stage', 'answer-key.json');
 }

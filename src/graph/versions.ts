@@ -10,7 +10,7 @@
  * this too (`graph_append_only` trigger), so a bug here cannot rewrite
  * history.
  */
-import type { OuterTransaction } from '../history/types.js';
+import type { OuterTransaction } from '../history-types.js';
 import { claimDigest as digestOfClaim, edgeKeyHash, edgePayloadDigest, nodePayloadDigest, sha256Hex, type ByteSpan, type ClaimContent, type GraphId } from './digest.js';
 import { GraphClockBehind, GraphError, databaseCode, databaseMessage, type GraphOrigin } from './errors.js';
 import { ALL_STATES, checkSpan, checkValid, compareInstants, instantText, plusMicrosecond, tsText, type Instant, type StateSpan } from './time.js';
@@ -24,7 +24,7 @@ import { CLAIM_KIND, CONTENT_KIND, STATE_KIND } from './vocabulary.js';
 export const EDGE_BATCH_SIZE = 100;
 
 /** Identity rows per statement: one row is two scalars, and a reader still waits behind every statement. */
-export const IDENTITY_BATCH_SIZE = 100;
+const IDENTITY_BATCH_SIZE = 100;
 
 /**
  * Rows one read or lock statement asks for. A publication that names 1,393
@@ -32,7 +32,7 @@ export const IDENTITY_BATCH_SIZE = 100;
  * asks in pages of this size and yields between pages (madarch-alzf, PR #197
  * latency). The bound is rows, so it does not grow with the machine's speed.
  */
-export const PREFETCH_BATCH_SIZE = 100;
+const PREFETCH_BATCH_SIZE = 100;
 
 /**
  * Rows prepared between yields, and the longest preparation may run before a
@@ -40,8 +40,8 @@ export const PREFETCH_BATCH_SIZE = 100;
  * its microtask chain never reaches the event loop on its own; a slow machine
  * must not turn the row count into a long hold (madarch-alzf, PR #197 CI).
  */
-export const PUBLISH_YIELD_SIZE = 10;
-export const PUBLISH_TURN_MS = 4;
+const PUBLISH_YIELD_SIZE = 10;
+const PUBLISH_TURN_MS = 4;
 
 /** A publication's clock for the time budget above. */
 export interface ReaderTurn { at: number }
@@ -113,7 +113,7 @@ export function writeMemo(): WriteMemo {
 }
 
 /** Who owns a version: the extraction recipe and the scope node it ran for. */
-export interface Owner {
+interface Owner {
   producer: string;
   scope: GraphId;
 }
@@ -251,7 +251,7 @@ export function checkId(id: string, operation: string, path: string, origin?: Gr
 }
 
 /** Runs a statement and turns the database's refusals of the graph's invariants into errors that name the part. */
-export async function guarded<T>(operation: string, path: string, origin: GraphOrigin | undefined, work: () => Promise<T>): Promise<T> {
+async function guarded<T>(operation: string, path: string, origin: GraphOrigin | undefined, work: () => Promise<T>): Promise<T> {
   try {
     return await work();
   } catch (error) {
@@ -285,7 +285,7 @@ export interface RelationInfo {
   positioned: boolean;
 }
 
-export async function relationInfo(ctx: WriteContext, key: string, operation: string, path: string, origin?: GraphOrigin): Promise<RelationInfo> {
+async function relationInfo(ctx: WriteContext, key: string, operation: string, path: string, origin?: GraphOrigin): Promise<RelationInfo> {
   const held = ctx.memo.relations.get(key);
   if (held !== undefined) return held;
   const found = await ctx.tx.query<{ id: string; discriminated: boolean; positioned: boolean }>('SELECT id::text AS id, discriminated, positioned FROM relation_type WHERE key = $1', [key]);
@@ -439,14 +439,14 @@ export async function closeVersion(ctx: WriteContext, table: 'node_version' | 'e
   if (closed.rows.length === 0) throw new GraphError('close version', path, `${table} ${versionId} is not a current version (already closed or missing)`, origin);
 }
 
-export async function loadNodeVersion(ctx: WriteContext, versionId: GraphId, path: string, origin?: GraphOrigin): Promise<NodeVersionRow> {
+async function loadNodeVersion(ctx: WriteContext, versionId: GraphId, path: string, origin?: GraphOrigin): Promise<NodeVersionRow> {
   const found = await ctx.tx.query<Raw>(`SELECT ${NODE_COLUMNS} FROM ${NODE_FROM} WHERE v.id = $1::bigint`, [checkId(versionId, 'load node version', path, origin)]);
   const row = found.rows[0];
   if (row === undefined) throw new GraphError('load node version', path, `node version ${versionId} does not exist`, origin);
   return nodeRow(row);
 }
 
-export async function loadEdgeVersion(ctx: WriteContext, versionId: GraphId, path: string, origin?: GraphOrigin): Promise<EdgeVersionRow> {
+async function loadEdgeVersion(ctx: WriteContext, versionId: GraphId, path: string, origin?: GraphOrigin): Promise<EdgeVersionRow> {
   const found = await ctx.tx.query<Raw>(`SELECT ${EDGE_COLUMNS} FROM ${EDGE_FROM} WHERE e.id = $1::bigint`, [checkId(versionId, 'load edge version', path, origin)]);
   const row = found.rows[0];
   if (row === undefined) throw new GraphError('load edge version', path, `edge version ${versionId} does not exist`, origin);
@@ -586,7 +586,7 @@ async function currentSlices(ctx: WriteContext, nodeId: GraphId): Promise<Slice[
  * known-time axis needs no sweep: an edge is recorded from now on, and the
  * slices are what is believed now.
  */
-export function firstUncovered(slices: readonly Slice[], validFrom: string, validTo: string, states: StateSpan): { from: string; text: string } | null {
+function firstUncovered(slices: readonly Slice[], validFrom: string, validTo: string, states: StateSpan): { from: string; text: string } | null {
   const cuts = new Set<string>([validFrom, validTo]);
   for (const slice of slices) {
     for (const t of [slice.validFrom, slice.validTo]) if (compareInstants(t, validFrom) > 0 && compareInstants(t, validTo) < 0) cuts.add(t);

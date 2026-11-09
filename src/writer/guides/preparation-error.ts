@@ -1,10 +1,10 @@
 /** Safe guide preparation diagnostics. Exception text never enters a reader-facing refusal. */
-export const GUIDE_PREPARATION_STAGES = ['registry', 'preparation', 'context', 'source-membership', 'graph-membership', 'source-evidence', 'source-policy', 'publication-owner', 'context-packets', 'current-proof', 'unit'] as const;
+const GUIDE_PREPARATION_STAGES = ['registry', 'preparation', 'context', 'source-membership', 'graph-membership', 'source-evidence', 'source-policy', 'publication-owner', 'context-packets', 'current-proof', 'unit'] as const;
 export type GuidePreparationStage = typeof GUIDE_PREPARATION_STAGES[number];
-export const GUIDE_PREPARATION_CODES = ['unavailable', 'invalid', 'changed', 'bound', 'incompatible', 'unsupported', 'failed'] as const;
-export type GuidePreparationCode = typeof GUIDE_PREPARATION_CODES[number];
-export const GUIDE_PREPARATION_FILES = ['src/writer/guides/writer.ts', 'src/writer/guides/publication.ts', 'src/writer/guides/prepared.ts', 'src/writer/guides/host-contract.ts', 'src/writer/run.ts'] as const;
-export type GuidePreparationFile = typeof GUIDE_PREPARATION_FILES[number];
+const GUIDE_PREPARATION_CODES = ['unavailable', 'invalid', 'changed', 'bound', 'incompatible', 'unsupported', 'failed'] as const;
+type GuidePreparationCode = typeof GUIDE_PREPARATION_CODES[number];
+const GUIDE_PREPARATION_FILES = ['src/writer/guides/writer.ts', 'src/writer/guides/publication.ts', 'src/writer/guides/prepared.ts', 'src/writer/guides/host-contract.ts', 'src/writer/run.ts'] as const;
+type GuidePreparationFile = typeof GUIDE_PREPARATION_FILES[number];
 export interface GuidePreparationDetail {
   readonly stage: GuidePreparationStage;
   readonly code: GuidePreparationCode;

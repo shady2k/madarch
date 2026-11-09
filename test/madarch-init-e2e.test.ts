@@ -79,6 +79,7 @@ beforeAll(async () => {
   // from them, never a list of names — so the fill below finds a statement for each entity it offers (madarch-ztyq.3).
   // `madarch init` gives the product the starter set, whose manifest declares the enrichment kind; the scripted agent
   // writes the product and domain pages only, so the kind is dropped from this fixture (see `withoutEnrichmentKind`).
+  expect(init.status, initOutput).toBe(0);
   withoutEnrichmentKind(join(home, 'training-shop'));
   writeFileSync(join(work, 'script.json'), JSON.stringify(localizedScript({ entities: localizableEntities(join(home, 'training-shop'), repository) })));
   expect(init.status, initOutput).toBe(0);

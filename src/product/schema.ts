@@ -19,7 +19,7 @@ const RegistryId = Type.String({ pattern: ID_PATTERN_SOURCE });
 const RegistryName = Type.String({ pattern: NAME_PATTERN_SOURCE, minLength: 1 });
 
 /** One link field a kind's documents may carry, as a kind declares it. */
-export const KindLinkEntry = Type.Object(
+const KindLinkEntry = Type.Object(
   {
     /** The form field's name the documents of the kind write the link under, like `Serves`. */
     field: Type.String({ minLength: 1, description: 'The field name as the document\'s form writes it, like Grew from, Serves.' }),
@@ -34,7 +34,7 @@ export const KindLinkEntry = Type.Object(
   },
   { additionalProperties: false },
 );
-export type KindLinkEntry = Static<typeof KindLinkEntry>;
+type KindLinkEntry = Static<typeof KindLinkEntry>;
 
 /**
  * The storage forms a kind may declare (the 0021 amendment as the owner
@@ -150,7 +150,7 @@ export const LocalizedLabels = Type.Object(
 export type LocalizedLabels = Static<typeof LocalizedLabels>;
 
 /** One kind of document the product holds, as the registry names it. */
-export const KindEntry = Type.Object(
+const KindEntry = Type.Object(
   {
     /** The kind's stable registry name, used for matching documents and links. */
     name: RegistryName,
@@ -183,10 +183,10 @@ export const KindEntry = Type.Object(
   },
   { additionalProperties: false },
 );
-export type KindEntry = Static<typeof KindEntry>;
+type KindEntry = Static<typeof KindEntry>;
 
 /** One stage of the product's life cycle, in the list's own order. */
-export const StageEntry = Type.Object(
+const StageEntry = Type.Object(
   {
     id: RegistryId,
     /** The stage's stable registry name; legacy field retained for compatibility. */
@@ -200,7 +200,7 @@ export const StageEntry = Type.Object(
   },
   { additionalProperties: false },
 );
-export type StageEntry = Static<typeof StageEntry>;
+type StageEntry = Static<typeof StageEntry>;
 
 const REGISTRY_SCHEMA_ID = 'https://github.com/shady2k/madarch/schema/v1/product-registry.schema.json';
 
@@ -248,7 +248,7 @@ export type KindsRegistry = Static<typeof KindsRegistry>;
  * madarch to link it and place it (decision 0021). A field this madarch
  * does not know is ignored, so a later version adds beside them.
  */
-export const DocumentFields = Type.Object(
+const DocumentFields = Type.Object(
   {
     /** The document's id in its kind's own prefix's shape, like `FR-001`. */
     id: Type.Optional(Type.String({ minLength: 1, description: "The document's own id, like FR-001; checked against the registry's prefix of the field kind names." })),
@@ -268,7 +268,7 @@ export const DocumentFields = Type.Object(
     additionalProperties: false,
   },
 );
-export type DocumentFieldsSchema = Static<typeof DocumentFields>;
+type DocumentFieldsSchema = Static<typeof DocumentFields>;
 
 
 /** The external calculator's committed completeness snapshot. */

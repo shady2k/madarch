@@ -13,7 +13,7 @@ import { readRegistryServing } from '../product-wiki/registry.js';
 import { readProductCompleteness, type CompletenessRead } from '../product/completeness.js';
 
 /** One product-document artifact a stage holds, pointing at the page that shows it. */
-export interface StageArtifact {
+interface StageArtifact {
   /** The document's path within the product. */
   readonly path: string;
   /** The document's title: its identity line's title, else its first heading, else the file name. */
@@ -35,7 +35,7 @@ export interface StageArtifact {
  * read from its own `dependencies`, never from the parent's row. Issues with
  * no parent row form the group without a feature.
  */
-export interface TaskFeature {
+interface TaskFeature {
   /** The epic's tracker id, or `none` when the tasks name no parent. */
   readonly id: string;
   /** The epic's title, or the empty string when the row itself is absent. */
@@ -48,14 +48,14 @@ export interface TaskFeature {
 }
 
 /** One task record as the stage index reads it. */
-export interface TaskEntry {
+interface TaskEntry {
   readonly id: string;
   readonly title: string;
   readonly status: 'open' | 'in_progress' | 'done';
 }
 
 /** Another feature's section the stage navigates to, never duplicates: the Architecture section is feature E's, the Repositories section is feature D's. */
-export interface StageSectionLink {
+interface StageSectionLink {
   readonly kind: 'architecture' | 'repositories';
   /** Whether the product holds what the section reads — a `model/` for the views, declared or cloned repositories for the list. */
   readonly present: boolean;
@@ -69,14 +69,14 @@ export interface StageSectionLink {
  * groups — a damaged export's problem is what refuses them — but nothing a
  * tracker export holds disappears from this index in silence.
  */
-export interface StageNote {
+interface StageNote {
   readonly where: string;
   readonly line: number;
   readonly message: string;
 }
 
 /** One stage as one ask of the index found it. */
-export interface StageSection {
+interface StageSection {
   /** The stage's id from the registry. */
   readonly id: string;
   /** The stage's name from the registry, when supplied. */
@@ -96,7 +96,7 @@ export interface StageSection {
 }
 
 /** The whole index: manifest stages in order, plus any read problems. */
-export interface StagesIndex {
+interface StagesIndex {
   readonly stages: readonly StageSection[];
   readonly completeness?: { computedAt: string; sourceRevision: string };
   /** How reads went: unreadable inputs are named here, never dropped in silence. */
@@ -115,7 +115,7 @@ const REPOSITORY_DOCS = 'docs/repositories';
  * no tasks; an export that exists but cannot be parsed is a problem named with
  * its full path, and the rest of the index stands.
  */
-export function readStagesIndex(productFolder: string): StagesIndex {
+function readStagesIndex(productFolder: string): StagesIndex {
   const problems: { where: string; message: string }[] = [];
   // The product registry: the stage list and the kinds the document
   // artifacts are read through. A registry file that stands but does not

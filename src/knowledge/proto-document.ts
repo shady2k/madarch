@@ -3,8 +3,8 @@ import protobuf from 'protobufjs';
 import { byCodePoint } from '../model/order.js';
 import { ContractReadError, type ContractReason } from './contract-document.js';
 
-export type ProtoField = { name: string; type: string; id: number; rule: string; oneof?: string };
-export type ProtoMessage = { name: string; fields: ProtoField[]; values?: {name: string; id: number}[] };
+type ProtoField = { name: string; type: string; id: number; rule: string; oneof?: string };
+type ProtoMessage = { name: string; fields: ProtoField[]; values?: {name: string; id: number}[] };
 export type ProtoDocumentation = { services: { name: string; methods: {name: string; request: string; response: string; requestStream: boolean; responseStream: boolean}[] }[]; messages: ProtoMessage[] };
 
 /** The standard protobuf parser supplies the grammar and type resolution; no regex-shaped documentation. */

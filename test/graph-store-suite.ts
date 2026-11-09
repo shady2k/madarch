@@ -10,7 +10,7 @@
 import { createHash } from 'node:crypto';
 import { describe, expect, test } from 'bun:test';
 import type { DatabaseOwner } from '../src/adapters/database-owner.js';
-import type { OuterTransaction } from '../src/history/types.js';
+import type { OuterTransaction } from '../src/history-types.js';
 import { createGraphStore, type GraphId, type GraphLens, type GraphStore } from '../src/graph/index.js';
 
 export const day = (n: number, hours = 0): Date => new Date(Date.UTC(2026, 0, n, hours));

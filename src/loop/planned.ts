@@ -28,7 +28,7 @@ export interface PlannedTaskRef {
 }
 
 /** A document section or line range with a planned change. */
-export interface PlannedSection {
+interface PlannedSection {
   readonly repo: string | null;
   readonly path: string;
   readonly anchor: string | null;
@@ -38,7 +38,7 @@ export interface PlannedSection {
 }
 
 /** A statement that stands on a planned change, or that the task's scope names. */
-export interface PlannedStatement {
+interface PlannedStatement {
   readonly page: string;
   readonly statement: string;
   readonly task: PlannedTaskRef;
@@ -169,4 +169,4 @@ export function markForEntity(marks: PlannedMarks, id: string): PlannedEntity | 
 }
 
 /** Whether a ground names a place at all: used where a caller wants the paths of a set of grounds. */
-export const pathsOf = (grounds: readonly string[]): string[] => [...new Set(grounds.map(pathOfGround).filter((path): path is string => path !== undefined))].sort(byCodePoint);
+const pathsOf = (grounds: readonly string[]): string[] => [...new Set(grounds.map(pathOfGround).filter((path): path is string => path !== undefined))].sort(byCodePoint);

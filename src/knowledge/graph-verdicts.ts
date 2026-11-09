@@ -47,7 +47,7 @@ import {
 
 export const GRAPH_VERDICT_VALIDATOR_VERSION = '1';
 /** The judge protocol's version; a change invalidates every judged verdict. */
-export const GRAPH_VERDICT_JUDGE_VERSION = '1';
+const GRAPH_VERDICT_JUDGE_VERSION = '1';
 export const JUDGE_BATCH_SIZE = 50;
 
 export interface GraphVerdictBudgets {
@@ -59,9 +59,9 @@ export interface GraphVerdictBudgets {
 
 export const DEFAULT_GRAPH_VERDICT_BUDGETS: GraphVerdictBudgets = { itemsPerRun: 400, modelCallsPerRun: 4 };
 
-export type GraphVerdict = 'valid' | 'invalid' | 'unreviewed';
-export type GraphVerdictRole = 'node' | 'edge';
-export type GraphVerdictSource = 'rule' | 'jev' | 'classification' | 'analysis' | 'person' | 'none' | 'unresolved' | 'budget' | 'judge-failed';
+type GraphVerdict = 'valid' | 'invalid' | 'unreviewed';
+type GraphVerdictRole = 'node' | 'edge';
+type GraphVerdictSource = 'rule' | 'jev' | 'classification' | 'analysis' | 'person' | 'none' | 'unresolved' | 'budget' | 'judge-failed';
 
 export interface GraphNodeItem {
   readonly id: string;
@@ -89,7 +89,7 @@ export interface GraphSnapshot {
 }
 
 /** One file as the graph declares it: the line count and digest it recorded. */
-export interface GraphEvidenceFile {
+interface GraphEvidenceFile {
   readonly path: string;
   readonly lines: number;
   readonly sha256?: string;
@@ -105,7 +105,7 @@ export interface GraphEvidenceContent {
 }
 
 /** Reads a repository-relative path at a pinned commit; `undefined` when that commit has no such file. */
-export type GraphEvidenceReader = (path: string) => Promise<GraphEvidenceContent | undefined>;
+type GraphEvidenceReader = (path: string) => Promise<GraphEvidenceContent | undefined>;
 
 export interface GraphVerdictRow {
   readonly role: GraphVerdictRole;
@@ -120,7 +120,7 @@ export interface GraphVerdictRow {
   readonly tier?: string;
 }
 
-export interface GraphVerdictKindReport {
+interface GraphVerdictKindReport {
   readonly role: GraphVerdictRole;
   readonly kind: string;
   readonly total: number;
@@ -129,7 +129,7 @@ export interface GraphVerdictKindReport {
   readonly unreviewed: number;
 }
 
-export interface GraphVerdictReasonReport {
+interface GraphVerdictReasonReport {
   readonly reason: string;
   readonly count: number;
 }
@@ -152,7 +152,7 @@ export interface GraphVerdictReport {
   readonly reasons: readonly GraphVerdictReasonReport[];
 }
 
-export interface GraphVerdictCacheEntry extends GraphVerdictRow {
+interface GraphVerdictCacheEntry extends GraphVerdictRow {
   readonly evidenceHash: string;
   readonly configHash: string;
 }
@@ -166,7 +166,7 @@ export interface GraphVerdictCache {
 }
 
 /** A cited place, with the pinned bytes the judge may read for itself. */
-export interface GraphJudgeEvidence {
+interface GraphJudgeEvidence {
   readonly path: string;
   readonly lineStart?: number;
   readonly lineEnd?: number;

@@ -116,7 +116,7 @@ function windowsProcessArgs(pid: number): string | undefined {
  * daemon's own subcommand, this record's home and the port it was started on.
  * A program that merely holds the recorded process id answers none of them.
  */
-export function isDaemonCommandLine(args: string, state: { home: string; port: number }): boolean {
+function isDaemonCommandLine(args: string, state: { home: string; port: number }): boolean {
   return args.includes('daemon-serve') && args.includes(state.home) && args.includes(`--port ${state.port}`);
 }
 
@@ -126,7 +126,7 @@ export function isDaemonCommandLine(args: string, state: { home: string; port: n
  * (`starting`); it runs another program (`foreign`); or its process is gone
  * (`ended`).
  */
-export type SpawnedChild = 'daemon' | 'starting' | 'foreign' | 'ended';
+type SpawnedChild = 'daemon' | 'starting' | 'foreign' | 'ended';
 
 /**
  * The three reads one judgement of a started child is made of: the command
@@ -157,7 +157,7 @@ function ownCommandLineOfThisProcess(): string | undefined {
 }
 
 /** The real reads: `/proc` (or `ps` where it is absent) and, on Windows, the system's own process list. */
-export const childReadings: ChildReadings = {
+const childReadings: ChildReadings = {
   args: processArgs,
   ownArgs: ownCommandLineOfThisProcess,
   exists: processExists,
@@ -176,7 +176,7 @@ export const childReadings: ChildReadings = {
  * A live process that runs something else stays `foreign`, and a record whose
  * pid such a process holds is a stale record, never a daemon.
  */
-export function childReading(args: string | undefined, own: string | undefined, state: { home: string; port: number }): SpawnedChild {
+function childReading(args: string | undefined, own: string | undefined, state: { home: string; port: number }): SpawnedChild {
   // A command line nothing has been written into yet reads empty (0 bytes):
   // measured on the pod on 2026-10-18, the same read answers 0 bytes for the
   // microseconds in which a child's exec takes over its address space — seen
@@ -248,7 +248,7 @@ function pause(ms: number): void { Atomics.wait(new Int32Array(new SharedArrayBu
  * release binary it is the binary itself, since the bundle holds the command and
  * a `bun` has no file to read).
  */
-export function daemonCommand(
+function daemonCommand(
   home: string,
   port: number,
   options: { scriptPath?: string; scriptExists?: (path: string) => boolean; moduleUrl?: string; embeddedFiles?: readonly unknown[] } = {},
@@ -344,7 +344,7 @@ function processExists(pid: number): boolean {
  * child never exec'd, never bound its port, or was never this record's child —
  * and it is built from the last read, taken before the process was ended.
  */
-export function startFailureWhy(
+function startFailureWhy(
   pid: number,
   port: number,
   seen: { reading: SpawnedChild; args: string | undefined },
@@ -610,7 +610,7 @@ export function daemonStatus(options: { home?: string }): number {
  * progress, its control and its units' tool calls through it; the next run of the same store
  * stops it and takes its place.
  */
-export interface DaemonFills {
+interface DaemonFills {
   /** Runs one product's fill through `runFill` and answers what the host answered. */
   run(request: FillRunRequest): Promise<FillRunResult | RefusedFillRun>;
   /** One run's status, or null when the store holds no such run. */
@@ -642,7 +642,7 @@ interface HeldStore {
  * before a run is asked for or a run record is read, so a server that serves wikis pays nothing
  * for a fill nobody started.
  */
-export function daemonFills(home: string, options: { readonly toolUrl?: () => string | undefined; readonly log?: (line: string) => void } = {}): DaemonFills {
+function daemonFills(home: string, options: { readonly toolUrl?: () => string | undefined; readonly log?: (line: string) => void } = {}): DaemonFills {
   const knowledgeRoot = knowledgeRootOf(home);
   const stores = new Map<string, HeldStore>();
   /**
@@ -796,7 +796,7 @@ export function daemonFills(home: string, options: { readonly toolUrl?: () => st
  * pass. The run is named after its product and commit, so one commit never starts two
  * runs, and its progress is what the fill progress answers.
  */
-export function daemonUpdateWatch(home: string, fills: Pick<DaemonFills, 'activity' | 'run'>, options: { readonly debounceMs?: number; readonly intervalMs?: number; readonly log?: (line: string) => void; readonly enabled?: () => Promise<boolean> | boolean } = {}): UpdateWatch {
+function daemonUpdateWatch(home: string, fills: Pick<DaemonFills, 'activity' | 'run'>, options: { readonly debounceMs?: number; readonly intervalMs?: number; readonly log?: (line: string) => void; readonly enabled?: () => Promise<boolean> | boolean } = {}): UpdateWatch {
   return createUpdateWatch({
     home,
     ...(options.debounceMs === undefined ? {} : { debounceMs: options.debounceMs }),

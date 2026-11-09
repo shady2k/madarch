@@ -34,7 +34,7 @@ const list = (value: string | undefined): string[] | undefined => (value === und
  * relations block shows (madarch-m38l.16), so the two never disagree. A template that wants a narrower diagram
  * still names its relations with `relation="..."`.
  */
-export const QUIET_RELATIONS: ReadonlySet<string> = new Set();
+const QUIET_RELATIONS: ReadonlySet<string> = new Set();
 
 /** The sentences a diagram says inside itself, in the reader's interface language (madarch-m38l.21). */
 function diagramWords(lang: string | undefined) {
@@ -126,7 +126,7 @@ function markdownIn(ctx: RenderContext, id: string): NeighborRow[] {
 }
 
 /** The direct neighbours of a subject, grouped by relation and direction; a group cut to `limit` says how many it left out. */
-export async function collectNeighbors(ctx: RenderContext, subject: Subject, options: { relations?: readonly string[]; direction?: 'out' | 'in'; limit: number }): Promise<Collected> {
+async function collectNeighbors(ctx: RenderContext, subject: Subject, options: { relations?: readonly string[]; direction?: 'out' | 'in'; limit: number }): Promise<Collected> {
   const rows: NeighborRow[] = [];
   const more: Collected['more'] = [];
   const wanted = (relation: string): boolean => (options.relations === undefined ? !QUIET_RELATIONS.has(relation) : options.relations.includes(relation));
@@ -287,7 +287,7 @@ interface Event {
 
 const symbolName = (entity: GraphEntity): string => String(entity.properties['qualifiedName'] ?? entity.label);
 
-export class ChainBuilder {
+class ChainBuilder {
   readonly lanes = new Map<string, ChainLane>();
   steps: ChainStep[] = [];
   readonly notes = new Set<string>();
@@ -707,7 +707,7 @@ async function routesAt(graph: GraphReader, path: string, site: SourceSpan): Pro
  * Where a chain through a function starts: the route that reaches it, found by walking the callers upward until a
  * caller stands inside a route's lines; the function itself when no route reaches it.
  */
-export async function entryOfSymbol(ctx: RenderContext, symbol: GraphEntity, lang?: string): Promise<Entry> {
+async function entryOfSymbol(ctx: RenderContext, symbol: GraphEntity, lang?: string): Promise<Entry> {
   const w = diagramWords(lang);
   const seen = new Set<string>([symbol.key]);
   let frontier: GraphEntity[] = [symbol];

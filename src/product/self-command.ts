@@ -39,7 +39,7 @@ export interface SelfCommandReadings {
 }
 
 /** Whether this program is a compiled binary rather than a source checkout. */
-export function runsFromBundle(readings: SelfCommandReadings = {}): boolean {
+function runsFromBundle(readings: SelfCommandReadings = {}): boolean {
   const scriptPath = readings.scriptPath ?? fileURLToPath(new URL('../../scripts/madarch.ts', import.meta.url));
   const scriptExists = readings.scriptExists ?? existsSync;
   const moduleUrl = readings.moduleUrl ?? import.meta.url;

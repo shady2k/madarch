@@ -28,7 +28,7 @@ import { splitFrontMatter } from '../knowledge/markdown.js';
 import { byCodePoint } from '../model/order.js';
 
 /** The schema tag of an enrichment page, in the front matter of every file the writer writes. */
-export const ENRICHMENT_SCHEMA = 'madarch.enrichment@1';
+const ENRICHMENT_SCHEMA = 'madarch.enrichment@1';
 
 /** The page id of an entity's enrichment: the source entity's identity, which no anchor spells. */
 export function enrichmentPageId(entity: Pick<DocEntity, 'id'>): string {
@@ -37,12 +37,12 @@ export function enrichmentPageId(entity: Pick<DocEntity, 'id'>): string {
 }
 
 /** The source entity's identity an enrichment is keyed by: the id the document reader mints, never a heading or a number. */
-export function enrichmentKey(entity: Pick<DocEntity, 'id'>): string {
+function enrichmentKey(entity: Pick<DocEntity, 'id'>): string {
   return enrichmentPageId(entity);
 }
 
 /** The document an enrichment is about, as the product names it: its path, or its repository's path and the document's. */
-export function enrichmentSource(entity: Pick<DocEntity, 'repo' | 'path'>): string {
+function enrichmentSource(entity: Pick<DocEntity, 'repo' | 'path'>): string {
   return entity.repo === null ? entity.path : `repos/${entity.repo}/${entity.path}`;
 }
 
@@ -113,7 +113,7 @@ export function renderEnrichment(draft: EnrichmentDraft): string {
 }
 
 /** What reading an enrichment back says: the entity it enriches, or the line and rule that refuse it. */
-export type EnrichmentRead =
+type EnrichmentRead =
   | { readonly ok: true; readonly entity: string; readonly schema: string; readonly body: string }
   | { readonly ok: false; readonly line: number; readonly message: string };
 
@@ -122,7 +122,7 @@ export type EnrichmentRead =
  * entity's, another schema's, or not a page at all. A refusal is returned, never thrown, so a caller
  * can report the file by its path and line instead of writing over it.
  */
-export function parseEnrichment(path: string, text: string, entity: DocEntity): EnrichmentRead {
+function parseEnrichment(path: string, text: string, entity: DocEntity): EnrichmentRead {
   if (text.replaceAll('\r\n', '\n').split('\n')[0] !== '---') return { ok: false, line: 1, message: `${path}:1: an enrichment starts with YAML front matter naming the entity it enriches` };
   let front: unknown;
   try {

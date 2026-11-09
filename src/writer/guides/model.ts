@@ -18,7 +18,7 @@ export interface GuideGround {
   readonly endLine: number;
 }
 /** Secret values never belong to this artifact: only names and reader-facing instructions. */
-export interface GuideInput { readonly name: string; readonly description: string; readonly secret: boolean }
+interface GuideInput { readonly name: string; readonly description: string; readonly secret: boolean }
 export interface GuideStep {
   readonly id: string;
   readonly title: string;

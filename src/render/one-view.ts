@@ -8,7 +8,7 @@
  * no Bun-specific API.
  */
 import type { CompiledModel } from '../model/compile.js';
-import type { AsyncQueryEngine, QueryError, QuerySnapshot, QueryTime } from '../query/types.js';
+import type { AsyncQueryEngine, QueryError, QuerySnapshot, QueryTime } from '../query-types.js';
 import { renderPageBody } from './mermaid.js';
 import { writeAsyncLikeC4Workspace, type LikeC4Error, type NotDrawn } from './likec4.js';
 import { buildAsyncView, type View, type ViewSetError } from './view-set.js';

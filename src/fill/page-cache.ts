@@ -28,11 +28,11 @@ import type { GraphDiagramsRead } from './graph-diagrams.js';
 import type { GraphPageModelAnswer, GraphPageSetAnswer } from './graph-pages.js';
 
 /** The most page models one product keeps, and the most diagram answers: a reading session's window, not the graph. */
-export const PAGE_CACHE_ENTRIES = 256;
-export const DIAGRAM_CACHE_ENTRIES = 8;
+const PAGE_CACHE_ENTRIES = 256;
+const DIAGRAM_CACHE_ENTRIES = 8;
 
 /** The most products kept at once: a home serves a handful, and the whole of a products home is not a reading session. */
-export const PRODUCT_CACHE_ENTRIES = 4;
+const PRODUCT_CACHE_ENTRIES = 4;
 
 // The bounds are small on purpose, and a diagram answer is the reason: building a repository page's five models cost
 // 28 708 ms on the current madarch tree (madarch-tzte.23.8), and the process ran out of memory (exit 137) holding a

@@ -4,24 +4,7 @@ import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
-import { checkModel, CLAIMS_COLUMNS, ASSIGNMENT_COLUMNS } from '../src/check/model-check.js';
 import { gitEnv } from './git-env.js';
-
-export { checkModel };
-
-export const SCRIPT = fileURLToPath(new URL('../scripts/check-model.ts', import.meta.url));
-
-/**
- * Runs the check's script the way a person does, from a shell. Its
- * environment is inherited on purpose: the script's git calls only read
- * committed objects, which no machine config can alter, and a sealed
- * whitelist would also strip the loader variables the native model-store
- * module needs to load on machines like this one.
- */
-export function runScript(...args: string[]): { status: number | null; stdout: string; stderr: string } {
-  const run = spawnSync(process.execPath, [SCRIPT, ...args], { encoding: 'utf8' });
-  return { status: run.status, stdout: run.stdout ?? '', stderr: run.stderr ?? '' };
-}
 
 /**
  * The git repository fixture the model check's tests build their
@@ -29,6 +12,10 @@ export function runScript(...args: string[]): { status: number | null; stdout: s
  * test/model-check-problems.test.ts share it): one fixed identity and
  * moment, so tests never depend on the machine's git config or the clock.
  */
+/** The review report's table columns, the shape the skill writes. */
+const CLAIMS_COLUMNS = ['Claim', 'Document', 'Line', 'Commit', 'Blob', 'Checked in code', 'Verdict', 'In the model'];
+const ASSIGNMENT_COLUMNS = ['Path', 'Element', 'Reason'];
+
 export const GIT_IDENTITY = ['-c', 'user.name=Model Check', '-c', 'user.email=check@example.com', '-c', 'commit.gpgsign=false'];
 export const GIT_ENV = {
   GIT_AUTHOR_NAME: 'Model Check',
@@ -39,8 +26,6 @@ export const GIT_ENV = {
   GIT_COMMITTER_DATE: '1756728000 +0000',
 };
 
-/** The review report's table columns, the shape the skill writes; re-exported from the check, which parses them strictly. */
-export { CLAIMS_COLUMNS, ASSIGNMENT_COLUMNS };
 
 /** A tiny git repository a test builds step by step; removed when the test is over. */
 export class Repo {

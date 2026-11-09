@@ -5,9 +5,9 @@ import en from './locales/en.json';
 import ru from './locales/ru.json';
 
 export type WikiLanguage = 'en' | 'ru';
-export const languageStorageKey = 'madarch-wiki-language';
+const languageStorageKey = 'madarch-wiki-language';
 
-export function normalizeLanguage(language: string | undefined): WikiLanguage {
+function normalizeLanguage(language: string | undefined): WikiLanguage {
   return language?.toLowerCase().startsWith('ru') ? 'ru' : 'en';
 }
 
@@ -60,7 +60,7 @@ export async function setWikiLanguage(language: WikiLanguage): Promise<void> {
 }
 
 /** Format a real filesystem timestamp in the selected UI language. */
-export function relativeTime(isoTime: string, language: string = i18n.resolvedLanguage ?? 'en', now = Date.now()): string {
+function relativeTime(isoTime: string, language: string = i18n.resolvedLanguage ?? 'en', now = Date.now()): string {
   const timestamp = Date.parse(isoTime);
   if (!Number.isFinite(timestamp)) return '';
   const elapsedSeconds = (timestamp - now) / 1000;
@@ -77,4 +77,3 @@ export function relativeTime(isoTime: string, language: string = i18n.resolvedLa
     .format(Math.round(elapsedSeconds / divisor), unit);
 }
 
-export default i18n;

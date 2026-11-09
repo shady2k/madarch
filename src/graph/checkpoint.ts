@@ -17,7 +17,7 @@ import type { DatabaseOwner } from '../adapters/database-owner.js';
  * Versions written since the last checkpoint after which another one is due: about
  * 200 MB of WAL at the fill's measured rate, and a few microseconds a row of cost.
  */
-export const CHECKPOINT_ROWS = 20_000;
+const CHECKPOINT_ROWS = 20_000;
 
 export interface CheckpointRun {
   /** The versions written since the previous checkpoint, which made this one due. */
@@ -35,7 +35,7 @@ export interface GraphCheckpoints {
   checkpoint(): Promise<CheckpointRun | null>;
 }
 
-export const CHECKPOINT_SQL = 'CHECKPOINT';
+const CHECKPOINT_SQL = 'CHECKPOINT';
 
 export function createGraphCheckpoints(owner: DatabaseOwner): GraphCheckpoints {
   let written = 0;

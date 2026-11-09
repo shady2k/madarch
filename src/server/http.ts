@@ -29,8 +29,8 @@ import { setPriority } from 'node:os';
 import { dirname, join as joinPath, normalize } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { Value } from 'typebox/value';
-import type { Clock } from '../history/types.js';
-import type { AsyncQueryDatabase } from '../query/types.js';
+import type { Clock } from '../history-types.js';
+import type { AsyncQueryDatabase } from '../query-types.js';
 import type { CompiledModel } from '../model/compile.js';
 import { CompiledModel as CompiledModelSchema } from '../model/compiled-schema.js';
 import { byCodePoint } from '../model/order.js';
@@ -152,7 +152,7 @@ export interface StartedServer {
 }
 
 /** One refusal's content, the shape the error answers carry. */
-export interface Refusal {
+interface Refusal {
   message: string;
   field?: string;
   accepted?: string;
@@ -202,7 +202,7 @@ function manifestStampOf(folder: string): number {
  * only the manifest decides: the one the entry was opened from, or a new entry. A manifest that
  * cannot be read (-1) is opened again, so its refusal is logged and the product stands unserved.
  */
-export function keepsProductEntry<T extends { readonly manifest: number }>(held: T | undefined, manifest: number): held is T {
+function keepsProductEntry<T extends { readonly manifest: number }>(held: T | undefined, manifest: number): held is T {
   return held !== undefined && manifest >= 0 && held.manifest === manifest;
 }
 
@@ -539,14 +539,14 @@ function startFillRole(options: { readonly home: string; readonly root: string }
   }
 }
 
-export interface ServerHandler {
+interface ServerHandler {
   (request: Request): Promise<Response>;
   /** Waits for in-flight state requests before persistence closes. */
   drain(): Promise<void>;
 }
 
 /** The request handler used by Bun; exported so tests can drive HTTP requests with controlled async dependencies. */
-export function createHandler(dependencies: {
+function createHandler(dependencies: {
   sources?: SourceStores;
   graphs?: Graphs;
   log: (line: string) => void;

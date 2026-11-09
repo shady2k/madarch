@@ -39,7 +39,7 @@ import { byCodePoint } from '../model/order.js';
 import { writerStageId, type WriterUnitKindName } from './graph.js';
 
 /** What opening a unit's generation answered: whether an attempt is open, and whether it recovered an interrupted one. */
-export interface WriterAttempt {
+interface WriterAttempt {
   /** True when this run holds an attempt to publish into; false when the page already holds what the run would write. */
   readonly opened: boolean;
   /**
@@ -80,7 +80,7 @@ export interface WriterState {
 }
 
 /** The clock a state record is stamped with; tests inject theirs. */
-export type WriterClock = () => number;
+type WriterClock = () => number;
 
 /**
  * No state: every unit runs, and nothing is remembered between runs. The default, because a caller
@@ -95,7 +95,7 @@ export const NO_WRITER_STATE: WriterState = {
 };
 
 /** What a test (or a caller keeping its own record) reads back from `memoryWriterState()`. */
-export interface MemoryWriterState extends WriterState {
+interface MemoryWriterState extends WriterState {
   /** What is published, by unit id: the record a run resumes from. */
   readonly publishedUnits: Map<string, WriterUnitRecord>;
   /** The units that ended without their content, with the reason each carried. */
@@ -105,7 +105,7 @@ export interface MemoryWriterState extends WriterState {
 }
 
 /** A state kept in memory: the shape of the persisted one, and what an interrupted run of a test leaves. */
-export function memoryWriterState(): MemoryWriterState {
+function memoryWriterState(): MemoryWriterState {
   const publishedUnits = new Map<string, WriterUnitRecord>();
   const blockedUnits = new Map<string, string>();
   const opened: WriterUnitRecord[] = [];
@@ -134,13 +134,13 @@ export function memoryWriterState(): MemoryWriterState {
 const WRITER_STAGE_PREFIX = 'writer.';
 
 /** The kind a stage id names, or undefined when the stage is not a writer's. */
-export function writerKindOfStage(stageId: string): WriterUnitKindName | undefined {
+function writerKindOfStage(stageId: string): WriterUnitKindName | undefined {
   if (!stageId.startsWith(WRITER_STAGE_PREFIX)) return undefined;
   return stageId.slice(WRITER_STAGE_PREFIX.length) as WriterUnitKindName;
 }
 
 /** What the persisted state needs: the product the units belong to and the run that plans them. */
-export interface FillWriterStateOptions {
+interface FillWriterStateOptions {
   /** The product's slug, the key the fill's unit tables hold its units under. */
   readonly product: string;
   /** The run these units are planned in: a name of its own per writer run, never a run of `fill_run`. */
@@ -153,7 +153,7 @@ export interface FillWriterStateOptions {
  * The writer's state in the fill's own unit tables (decision 0027): the units of one product, their
  * generations, their leases and their journal, read and written through the landed store.
  */
-export function fillWriterState(database: FillStateDatabase, options: FillWriterStateOptions): WriterState {
+function fillWriterState(database: FillStateDatabase, options: FillWriterStateOptions): WriterState {
   const clock = options.clock ?? (() => Date.now());
   let schema: Promise<void> | undefined;
   const ready = async (): Promise<void> => {

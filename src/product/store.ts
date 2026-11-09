@@ -27,7 +27,7 @@ export function knowledgeRootOf(productsHome: string): string {
  * The folder a product's knowledge is kept in: named by the product's id under the knowledge
  * root. An id with a separator or a dot segment would name another place, so it names none.
  */
-export function storeFolderOf(knowledgeRoot: string, id: string, manifest: string): string {
+function storeFolderOf(knowledgeRoot: string, id: string, manifest: string): string {
   if (!/^[A-Za-z0-9][A-Za-z0-9._-]*$/.test(id) || id.includes('..')) {
     throw new WikiReadError(`${manifest}: the product id ${JSON.stringify(id)} cannot name a folder (letters, digits, dots, hyphens and underscores only): the wiki keeps nothing for it`);
   }

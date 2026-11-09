@@ -12,7 +12,7 @@
 import { byCodePoint } from '../model/order.js';
 import { clusterDatabases, leaseStoreCluster, renameClusterDatabase, type ClusterLease } from './database-owner.js';
 import { createHistoryStore } from './sql-history.js';
-import type { Clock, HistoryStore } from '../history/types.js';
+import type { Clock, HistoryStore } from '../history-types.js';
 import { sha256Hex } from '../graph/digest.js';
 
 /** The prefix every history database of a store carries, so the store's other databases are left alone. */
@@ -23,7 +23,7 @@ const HISTORY_DATABASE_PREFIX = 'h_';
  * server with others (a test run's one server holds every case's store) names its databases by its own folder as well, so
  * two stores' "shop" never meet; a store with a server of its own keeps the plain name it always had.
  */
-export function historyDatabaseOf(stem: string, namespace?: string): string {
+function historyDatabaseOf(stem: string, namespace?: string): string {
   if (namespace === undefined) return `${HISTORY_DATABASE_PREFIX}${sha256Hex(new TextEncoder().encode(stem)).slice(0, 40)}`;
   const store = sha256Hex(new TextEncoder().encode(namespace)).slice(0, 10);
   return `${HISTORY_DATABASE_PREFIX}${store}_${sha256Hex(new TextEncoder().encode(stem)).slice(0, 28)}`;

@@ -14,10 +14,10 @@ import { existsSync, readFileSync } from 'node:fs';
 import { resolve } from 'node:path';
 
 /** What the working tree changed about one path, as a reader needs to know it. */
-export type DirtyStatus = 'untracked' | 'added' | 'modified' | 'deleted' | 'renamed' | 'conflicted';
+type DirtyStatus = 'untracked' | 'added' | 'modified' | 'deleted' | 'renamed' | 'conflicted';
 
 /** One path the working tree changes, and how. */
-export interface DirtyFile {
+interface DirtyFile {
   /** The path in the working tree, `/`-separated. */
   readonly path: string;
   readonly status: DirtyStatus;
@@ -65,7 +65,7 @@ export function readCommitFile(repository: string, commit: string, path: string)
 }
 
 /** Whether the checkout names a commit at all: an empty repository cannot be served. */
-export function hasCommit(repository: string): boolean {
+function hasCommit(repository: string): boolean {
   try {
     gitBytes(repository, ['rev-parse', '--verify', '--quiet', 'HEAD']);
     return true;
@@ -80,7 +80,7 @@ export function headCommit(repository: string): string {
 }
 
 /** The branch HEAD names, or `HEAD` when it names no branch. */
-export function headBranch(repository: string): string {
+function headBranch(repository: string): string {
   try {
     return gitBytes(repository, ['symbolic-ref', '--short', '-q', 'HEAD']).toString('utf8').trim();
   } catch {
@@ -102,7 +102,7 @@ function statusOf(index: string, worktree: string, present: boolean): DirtyStatu
  * The paths the working tree changed since HEAD, read from git's own porcelain
  * format: one `XY path` field per change, NUL-terminated.
  */
-export function dirtyFiles(repository: string): DirtyFile[] {
+function dirtyFiles(repository: string): DirtyFile[] {
   const text = gitBytes(repository, ['status', '--porcelain', '-z', '--untracked-files=all', '--no-renames']).toString('utf8');
   const fields = text.split('\0');
   const dirty: DirtyFile[] = [];

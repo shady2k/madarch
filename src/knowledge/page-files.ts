@@ -18,11 +18,11 @@ import type { Resolution } from './resolve.js';
 import { entityAddress, kindAddress } from './resolve.js';
 
 /** The versioned name of the page document. A change of shape is a new name. */
-export const PAGE_SCHEMA = 'madarch.page.v1';
+const PAGE_SCHEMA = 'madarch.page.v1';
 /** The versioned name of a kind's list document. */
-export const KIND_SCHEMA = 'madarch.kind.v1';
+const KIND_SCHEMA = 'madarch.kind.v1';
 
-export interface PageFileLink {
+interface PageFileLink {
   title: string;
   /** The address in the wiki, or null when the kind has no page. */
   url: string | null;
@@ -32,7 +32,7 @@ export interface PageFileLink {
   broken?: string;
 }
 
-export interface PageFileItem extends PageFileLink {
+interface PageFileItem extends PageFileLink {
   note?: string;
   count?: number;
   hops?: number;
@@ -44,14 +44,14 @@ export interface PageFileItem extends PageFileLink {
   figures?: { kind: string; value: string }[];
 }
 
-export interface PageFileGroup {
+interface PageFileGroup {
   relation: string;
   direction: 'out' | 'in';
   total: number;
   items: PageFileItem[];
 }
 
-export interface PageFileMember {
+interface PageFileMember {
   title: string;
   anchor: string;
   values: { name: string; label?: string; value: string }[];
@@ -59,7 +59,7 @@ export interface PageFileMember {
   writers: PageFileItem[];
 }
 
-export interface PageFilePlace {
+interface PageFilePlace {
   /** The code repository's name; null for the product's own repository. */
   repository: string | null;
   path: string;
@@ -71,7 +71,7 @@ export interface PageFilePlace {
   web?: string;
 }
 
-export interface PageFileDiagram {
+interface PageFileDiagram {
   title: string;
   label: string;
   query: string;
@@ -85,14 +85,14 @@ export interface PageFileDiagram {
   edges: PageFileEdge[];
 }
 
-export interface PageFileEdge {
+interface PageFileEdge {
   from: string;
   to: string;
   relation: string;
   count: number;
 }
 
-export type PageFileSectionType =
+type PageFileSectionType =
   | 'text'
   | 'links'
   | 'relations'
@@ -106,7 +106,7 @@ export type PageFileSectionType =
   | 'problem'
   | 'deferred';
 
-export interface PageFileSection {
+interface PageFileSection {
   title: string;
   type: PageFileSectionType;
   /** Markdown text for a text-like section; a source's code for `source`. */
@@ -889,7 +889,7 @@ export function llmsText(productName: string, kinds: readonly KindSummary[], lan
   return `${lines.join('\n')}\n`;
 }
 
-export type PageFileFormat = 'markdown' | 'json';
+type PageFileFormat = 'markdown' | 'json';
 
 export interface PageFileAddress {
   name: string;

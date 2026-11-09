@@ -27,7 +27,7 @@ import { basename, dirname as dirOf, isAbsolute, join as joinPath, normalize, re
 const IMAGE_EXTENSION = /\.(png|jpe?g|gif|svg|webp|avif|bmp|ico)$/;
 
 /** One inline link or image of a document, found in the body. */
-export interface ScannedLink {
+interface ScannedLink {
   /** The link target exactly as written, parentheses excluded. */
   readonly written: string;
   /** Where the target starts in the body, for the writers' in-place rewrite. */
@@ -41,13 +41,13 @@ export interface ScannedLink {
 }
 
 /** One ATX heading outside code fences, its level (1–6) and its text. */
-export interface ScannedHeading {
+interface ScannedHeading {
   readonly level: number;
   readonly text: string;
 }
 
 /** One ```mermaid fence: its source lines, and where the whole fence sits in the body. */
-export interface ScannedMermaid {
+interface ScannedMermaid {
   readonly source: string;
   readonly start: number;
   readonly end: number;
@@ -67,7 +67,7 @@ export interface DocumentScan {
 }
 
 /** One code region of the body — a code span or a fence — its whole extent. */
-export interface ScannedCode {
+interface ScannedCode {
   /** Where the code starts: the first backtick, or the fence's opening line. */
   readonly start: number;
   /** Where it ends: past the closing run or the fence's last line. */
@@ -75,7 +75,7 @@ export interface ScannedCode {
 }
 
 /** One autolink the wiki keeps — `<https://example.com>`, `<mailto:a@b.c>`, `<a@b.c>` — its whole extent, the `<` and `>` included. */
-export interface ScannedAutolink {
+interface ScannedAutolink {
   /** Where the autolink starts: its `<`. */
   readonly start: number;
   /** Where it ends: past its `>`. */
@@ -83,7 +83,7 @@ export interface ScannedAutolink {
 }
 
 /** One refused link whose label wraps over lines: the destination as written, and the 1-based line the link starts on. */
-export interface ScannedWrappedLink {
+interface ScannedWrappedLink {
   readonly written: string;
   readonly line: number;
 }
@@ -94,7 +94,7 @@ export interface ScannedWrappedLink {
  * spells it, when there is one. The build reads both off the repository
  * and passes them in; the tests pass them standing still.
  */
-export interface DocumentHost {
+interface DocumentHost {
   /** The repository's HEAD commit, spelled the way git spells it. */
   readonly commit: string;
   /** The origin remote's URL, when the repository has one. */
@@ -207,7 +207,7 @@ function treeAtCommit(repo: string, commit: string): ReadonlyMap<string, 'file' 
 
 
 /** One document link the build warns about: who wrote it, where, as written, and why it is not a link. */
-export interface DocumentLinkWarning {
+interface DocumentLinkWarning {
   /** The document carrying the link, as a repository path. */
   readonly source: string;
   /** The 1-based line the link sits on. */
@@ -224,7 +224,7 @@ export interface DocumentLinkWarning {
  * the reason it leads nowhere — and every host link the repository does
  * not hold. A host link the repository holds warns nothing.
  */
-export function documentLinkWarnings(documents: readonly WikiDocumentPage[], host?: DocumentHost): readonly DocumentLinkWarning[] {
+function documentLinkWarnings(documents: readonly WikiDocumentPage[], host?: DocumentHost): readonly DocumentLinkWarning[] {
   const rows = documents.flatMap((page) =>
     page.links.flatMap((link) => {
       const source = `${page.id.slice('document/'.length)}.md`;
@@ -588,7 +588,7 @@ function scanLineLinks(
 }
 
 /** The document's own headings, plus the title line the writers insert when it has none. */
-export function documentHeadings(page: WikiDocumentPage): readonly string[] {
+function documentHeadings(page: WikiDocumentPage): readonly string[] {
   const headings = scanDocument(page.body).headings.map((heading) => heading.text);
   return page.insertTitle ? [page.title, ...headings] : headings;
 }
@@ -597,7 +597,7 @@ export function documentHeadings(page: WikiDocumentPage): readonly string[] {
  * The document set's images: the files the build must copy into the site,
  * each once, sorted by code point.
  */
-export function documentImages(documents: readonly WikiDocumentPage[]): readonly string[] {
+function documentImages(documents: readonly WikiDocumentPage[]): readonly string[] {
   const images = new Set<string>();
   for (const page of documents) {
     for (const link of page.links) {
@@ -608,7 +608,7 @@ export function documentImages(documents: readonly WikiDocumentPage[]): readonly
 }
 
 /** One refused link of the documents: who wrote it, where, and what it wrote. */
-export interface RefusedDocumentLink {
+interface RefusedDocumentLink {
   /** The document carrying the link, as a repository path. */
   readonly source: string;
   /** The 1-based line the link sits on. */
@@ -624,7 +624,7 @@ export interface RefusedDocumentLink {
  * whose label wraps over lines stands among them too, named at the line
  * the link starts on, though the per-line scan could never pair it.
  */
-export function refusedDocumentLinks(documents: readonly WikiDocumentPage[]): readonly RefusedDocumentLink[] {
+function refusedDocumentLinks(documents: readonly WikiDocumentPage[]): readonly RefusedDocumentLink[] {
   const rows = documents.flatMap((page) => [
     ...page.links.flatMap((link) => (link.kind === 'refused' ? [{ source: `${page.id.slice('document/'.length)}.md`, line: link.line!, written: link.written }] : [])),
     ...page.refusedWrapped.map((link) => ({ source: `${page.id.slice('document/'.length)}.md`, line: link.line, written: link.written })),
@@ -640,7 +640,7 @@ export function refusedDocumentLinks(documents: readonly WikiDocumentPage[]): re
  * it has them. A document that cannot be read is refused on its own,
  * naming the full path; a link never refuses the build.
  */
-export function documentPages(repo: string, host?: DocumentHost): readonly WikiDocumentPage[] {
+function documentPages(repo: string, host?: DocumentHost): readonly WikiDocumentPage[] {
   const paths = documentPaths(repo);
   const documentSet = new Set(paths);
   // What the built commit holds, read once: every link's target is judged
@@ -765,7 +765,7 @@ const KEPT_SCHEME: Record<string, true> = { http: true, https: true, mailto: tru
  * such a link as text and the build warns: a repository has no business
  * running code in a reader's browser.
  */
-export function isRefusedScheme(written: string): boolean {
+function isRefusedScheme(written: string): boolean {
   const scheme = /^[a-zA-Z][a-zA-Z0-9+.-]*:/.exec(written.trim());
   return scheme !== null && KEPT_SCHEME[scheme[0]!.slice(0, -1).toLowerCase()] !== true;
 }
@@ -870,7 +870,7 @@ function resolveLink(repo: string, source: string, written: string, documents: R
  * nothing a reader sees; code regions and Mermaid blocks are code and
  * diagram source, drawn as written, never links.
  */
-export function refusedLinkClosers(body: string): readonly number[] {
+function refusedLinkClosers(body: string): readonly number[] {
   const closers: number[] = [];
   const code = scanDocument(body).code;
   const inCode = (position: number): boolean => code.some((span) => position >= span.start && position < span.end);

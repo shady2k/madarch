@@ -50,7 +50,7 @@ const groundLink = (ground: GuideGround, options?: GuideRenderOptions): string =
 };
 
 /** Only a host-checked immutable artifact may render; arbitrary JSON cannot claim walked. */
-export function renderGuideMarkdown(guide: GuideDocument, walk?: GuideWalkResult, options?: GuideRenderOptions): string {
+function renderGuideMarkdown(guide: GuideDocument, walk?: GuideWalkResult, options?: GuideRenderOptions): string {
   if (!isCheckedGuide(guide)) throw new Error('src/writer/guides/render.ts:1: $.guide: source verification is required before rendering');
   if (walk !== undefined && !isGuideWalkResult(walk, guide)) throw new Error('src/writer/guides/render.ts:1: $.walk: independent execution verification is required before rendering status');
   const words = WORDS[guide.locale];

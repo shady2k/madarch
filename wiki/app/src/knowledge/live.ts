@@ -11,7 +11,7 @@ import { eventsAddress, getStatus } from './api.js';
 import type { WikiStatus } from './types.js';
 
 /** How long a burst of commits is gathered into one read. */
-export const GATHER_MS = 250;
+const GATHER_MS = 250;
 
 export function useWikiStatus(): { status: WikiStatus | null; error: string | null; version: number; refresh: () => void } {
   const [status, setStatus] = useState<WikiStatus | null>(null);

@@ -1,5 +1,5 @@
 /** The reader's first view: title-based fit, otherwise a top-left reading window without cut titles. */
-export interface RectBox { x: number; y: number; width: number; height: number }
+interface RectBox { x: number; y: number; width: number; height: number }
 export interface TitleBox extends RectBox { font: number; node?: RectBox }
 export function firstView(bounds: { x: number; y: number; width: number; height: number }, titles: readonly TitleBox[], width: number, height: number, full: boolean, labels: readonly TitleBox[] = []): { x: number; y: number; zoom: number; whole: boolean; readable: boolean } {
   const pad = 12;

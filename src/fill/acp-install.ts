@@ -80,7 +80,7 @@ function manifestVersion(folder: string, name: string): string | undefined {
  * diagnosed from the package, the folder and the version, never from a
  * credential that happened to be in the output.
  */
-export function redactInstallerOutput(text: string): string {
+function redactInstallerOutput(text: string): string {
   return text
     // A password inside a registry URL: //user:secret@host.
     .replace(/(\/\/[^\s:@/]+:)[^\s@]+@/g, '$1***@')

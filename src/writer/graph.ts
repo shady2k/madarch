@@ -38,7 +38,7 @@ export type WriterArtifact =
   | 'editorial-findings';
 
 /** Every artifact, in code point order: what a graph problem may name. */
-export const WRITER_ARTIFACTS: readonly WriterArtifact[] = [
+const WRITER_ARTIFACTS: readonly WriterArtifact[] = [
   'decision-enrichments', 'document-readings', 'domain-declarations', 'domain-pages', 'editorial-findings',
   'guides', 'overview-page', 'product-page', 'rule-enrichments', 'scenario-enrichments', 'validation-verdicts',
 ];
@@ -56,7 +56,7 @@ export type WriterUnitKindName =
   | 'scenarios';
 
 /** One artifact a kind reads, and whether its absence stops the kind. */
-export interface WriterUnitRead {
+interface WriterUnitRead {
   readonly artifact: WriterArtifact;
   /**
    * True when the kind cannot run without it: the unit is then reported as blocked, naming the
@@ -198,7 +198,7 @@ function site(index: number, field: string, detail?: string): string {
 }
 
 /** The unit id of one unit of a kind: `<kind>:<scope>`, the same id across runs (decision 0026). */
-export function writerUnitId(kind: WriterUnitKindName, scope: string): string {
+function writerUnitId(kind: WriterUnitKindName, scope: string): string {
   return `${kind}:${scope}`;
 }
 
@@ -213,7 +213,7 @@ export function writerStageId(kind: WriterUnitKindName): string {
  * fill's fact graph (they publish Markdown, not facts), so this is the declaration the run uses
  * and the shape the registry would need if they became stages.
  */
-export function writerKindDeclaration(kind: WriterUnitKind): { readonly id: string; readonly version: number; readonly consumes: readonly string[]; readonly produces: readonly string[] } {
+function writerKindDeclaration(kind: WriterUnitKind): { readonly id: string; readonly version: number; readonly consumes: readonly string[]; readonly produces: readonly string[] } {
   return {
     id: writerStageId(kind.kind),
     version: kind.version,
@@ -223,7 +223,7 @@ export function writerKindDeclaration(kind: WriterUnitKind): { readonly id: stri
 }
 
 /** The problems a set of declarations has: a duplicate producer, a read nobody writes, a cycle. */
-export function writerGraphProblems(kinds: readonly WriterUnitKind[] = WRITER_UNIT_KINDS): readonly string[] {
+function writerGraphProblems(kinds: readonly WriterUnitKind[] = WRITER_UNIT_KINDS): readonly string[] {
   const problems: string[] = [];
   const producers = new Map<WriterArtifact, { kind: WriterUnitKindName; index: number; write: number }[]>();
   const seenKinds = new Map<string, number>();
@@ -302,7 +302,7 @@ export function writerUnitOrder(kinds: readonly WriterUnitKind[] = WRITER_UNIT_K
 }
 
 /** The run order, or the refusal naming every declaration that stops it. */
-export function writerRunOrder(kinds: readonly WriterUnitKind[] = WRITER_UNIT_KINDS): readonly WriterUnitKindName[] {
+function writerRunOrder(kinds: readonly WriterUnitKind[] = WRITER_UNIT_KINDS): readonly WriterUnitKindName[] {
   const derived = writerUnitOrder(kinds);
   if (derived.problems.length > 0) throw new Error(derived.problems.join('\n'));
   return derived.order;

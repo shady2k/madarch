@@ -87,7 +87,7 @@ export function repositoryStoreFolder(repository: string, env: Readonly<Record<s
 }
 
 /** A lock a live process holds on a store folder: one fill writes it at a time. */
-export interface FolderLock {
+interface FolderLock {
   readonly folder: string;
   readonly pid: number;
 }
@@ -100,7 +100,7 @@ export interface FolderLock {
  *
  * The lock is held until the database is closed: `releaseFolderLock` drops it, and only its own.
  */
-export function acquireFolderLock(folder: string): FolderLock {
+function acquireFolderLock(folder: string): FolderLock {
   const absolute = resolve(folder);
   mkdirSync(absolute, { recursive: true });
   const lock = join(absolute, 'server.lock');
@@ -134,7 +134,7 @@ export function acquireFolderLock(folder: string): FolderLock {
 }
 
 /** Drops the lock this process took, and only this process's. */
-export function releaseFolderLock(folder: string, held: FolderLock): void {
+function releaseFolderLock(folder: string, held: FolderLock): void {
   const lock = join(resolve(folder), 'server.lock');
   try {
     const one = JSON.parse(readFileSync(lock, 'utf8')) as { pid?: unknown };

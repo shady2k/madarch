@@ -89,7 +89,7 @@ export interface StarvationPath {
 }
 
 /** One derived edge: the producer (or the earlier stage of an ordering) runs before the consumer. */
-export interface StageGraphEdge {
+interface StageGraphEdge {
   from: string;
   to: string;
   /** The capability the edge serves, or `after` for an ordering edge. */
@@ -97,7 +97,7 @@ export interface StageGraphEdge {
 }
 
 /** A fault of a stage's declaration or of its configuration in the product. */
-export interface StageProblem {
+interface StageProblem {
   /** The stage the problem is about. */
   stage: string;
   /** The manifest's full path; absent for a fault of the stage's own module declaration. */
@@ -110,7 +110,7 @@ export interface StageProblem {
 }
 
 /** A cycle of the derived graph, named by its path: first and last stage the same. */
-export type StageCycle = readonly string[];
+type StageCycle = readonly string[];
 
 /** The derived graph a run plans from: every stage's resolved configuration, the enabled order and the edges. */
 export interface DerivedStageGraph {
@@ -311,7 +311,7 @@ export function deriveStageGraphOver(registry: StageRegistry, stages: Iterable<s
  * is the product's whole where it wrote one — a written `null` included, which
  * its schema then refuses — and the stage's declared default otherwise.
  */
-export function resolveStageConfiguration(stage: FillStage, entry?: FillStageConfigurationEntry): ResolvedStageConfiguration {
+function resolveStageConfiguration(stage: FillStage, entry?: FillStageConfigurationEntry): ResolvedStageConfiguration {
   return {
     id: stage.id,
     version: stage.version,
@@ -721,4 +721,4 @@ function topologicalOrder(nodes: readonly string[], adjacency: ReadonlyMap<strin
 }
 
 // Re-exported so a caller reading a product's configuration needs one import.
-export { readFillStageConfiguration };
+;

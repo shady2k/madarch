@@ -28,14 +28,14 @@ export interface TermIndex {
   pattern: RegExp | null;
 }
 
-export const NO_TERMS: TermIndex = { names: new Map(), pattern: null };
+const NO_TERMS: TermIndex = { names: new Map(), pattern: null };
 export const GlossaryContext = createContext<{ index: TermIndex; terms: readonly GlossaryTerm[] }>({ index: NO_TERMS, terms: [] });
 
 const WORD_EDGE = '(?<![\\p{L}\\p{N}_])';
 const WORD_END = '(?![\\p{L}\\p{N}_])';
 
 /** The index of a glossary's names. A name claimed by two different terms is left out: no guessing. */
-export function termIndex(terms: readonly GlossaryTerm[]): TermIndex {
+function termIndex(terms: readonly GlossaryTerm[]): TermIndex {
   const claimed = new Map<string, GlossaryTerm | null>();
   for (const term of terms) {
     for (const name of [term.title, ...term.synonyms]) {
@@ -176,10 +176,10 @@ export function TermBlockView({ block, pageId, resolutions }: { block: { definit
 }
 
 /** A definition starts a sentence on the page whatever case the document wrote it in. */
-export const upperFirst = (text: string): string => (text === '' ? text : text.charAt(0).toLocaleUpperCase() + text.slice(1));
+const upperFirst = (text: string): string => (text === '' ? text : text.charAt(0).toLocaleUpperCase() + text.slice(1));
 
 /** The terms whose name, synonym or code name holds the text, in any case; all of them for an empty text. */
-export function filterTerms(terms: readonly GlossaryTerm[], query: string): GlossaryTerm[] {
+function filterTerms(terms: readonly GlossaryTerm[], query: string): GlossaryTerm[] {
   const text = query.trim().toLowerCase();
   return terms.filter((term) => text === '' || [term.title, ...term.synonyms, ...term.code].some((name) => name.toLowerCase().includes(text)));
 }

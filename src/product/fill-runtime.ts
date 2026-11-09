@@ -6,12 +6,12 @@ import { createHash, randomUUID } from 'node:crypto';
 import { mkdir, readFile, rename, writeFile, unlink } from 'node:fs/promises';
 import { dirname, join, resolve } from 'node:path';
 
-export const FILL_STATE_VERSION = 1;
-export const FILL_STAGES = ['inventory', 'index', 'claims', 'code-map', 'synthesis', 'question-review'] as const;
-export type FillStage = typeof FILL_STAGES[number];
-export const FILL_UNIT_STATUSES = ['pending', 'running', 'complete', 'blocked', 'stale'] as const;
-export type FillUnitStatus = typeof FILL_UNIT_STATUSES[number];
-export type FillRunStatus = 'running' | 'paused' | 'stopped' | 'complete' | 'blocked';
+const FILL_STATE_VERSION = 1;
+const FILL_STAGES = ['inventory', 'index', 'claims', 'code-map', 'synthesis', 'question-review'] as const;
+type FillStage = typeof FILL_STAGES[number];
+const FILL_UNIT_STATUSES = ['pending', 'running', 'complete', 'blocked', 'stale'] as const;
+type FillUnitStatus = typeof FILL_UNIT_STATUSES[number];
+type FillRunStatus = 'running' | 'paused' | 'stopped' | 'complete' | 'blocked';
 
 /** Persisted manifest at .madarch/fill/run.json. */
 export interface FillRun {
@@ -43,7 +43,7 @@ export interface FillUnit {
   agentUsage?: { elapsedMs?: number; inputTokens?: number; outputTokens?: number; estimatedCost?: number };
 }
 /** Normalized event consumed by the live progress view. */
-export interface FillEvent {
+interface FillEvent {
   runId: string;
   stage: FillStage;
   unitId: string;
@@ -53,13 +53,13 @@ export interface FillEvent {
   summary: string;
   usage?: FillUnit['agentUsage'];
 }
-export interface FillStageCounts { pending: number; running: number; complete: number; blocked: number; stale: number }
-export interface FillRunCounts { stages: Record<FillStage, FillStageCounts>; reused: number; run: number }
-export interface FillUnitPlan extends Pick<FillUnit, 'id' | 'stage' | 'inputHashes' | 'outputPaths' | 'dependencies'> {}
+interface FillStageCounts { pending: number; running: number; complete: number; blocked: number; stale: number }
+interface FillRunCounts { stages: Record<FillStage, FillStageCounts>; reused: number; run: number }
+interface FillUnitPlan extends Pick<FillUnit, 'id' | 'stage' | 'inputHashes' | 'outputPaths' | 'dependencies'> {}
 export interface FillUnitExecutor {
   execute(unit: FillUnit, signal: AbortSignal, progress: (summary: string, usage?: FillUnit['agentUsage']) => Promise<void>): Promise<{ outputPaths?: string[]; agentUsage?: FillUnit['agentUsage'] }>;
 }
-export interface FillOrchestrationHooks {
+interface FillOrchestrationHooks {
   /** Called on every stage drain; compare default-branch HEAD to the pinned snapshot and return refreshed hashes. */
   refreshInputs: (stage: FillStage, units: readonly FillUnit[]) => Promise<Record<string, Record<string, string>>>;
   /** Commit completed stage outputs on the isolated product branch; a human edit must return conflict. */
@@ -71,14 +71,14 @@ export interface FillOrchestrationHooks {
   /** Receives a fully sequenced event suitable for appending to events.jsonl. */
   appendEvent?: (event: FillEvent) => Promise<void>;
 }
-export interface FillRunStore {
+interface FillRunStore {
   saveRun(run: FillRun): Promise<void>;
   saveUnit(unit: FillUnit): Promise<void>;
   loadUnits(): Promise<FillUnit[]>;
   appendEvent(event: FillEvent): Promise<void>;
   lastEventSequence(runId: string): Promise<number>;
 }
-export function createFillFileStore(productRoot: string): FillRunStore {
+function createFillFileStore(productRoot: string): FillRunStore {
   const paths = fillStatePaths(productRoot);
   return {
     saveRun: (run) => persistFillRun(productRoot, run),
@@ -113,13 +113,13 @@ export function hashFillInput(bytes: string | Uint8Array): string { return diges
 export function hashFillInputs(inputs: Readonly<Record<string, string | Uint8Array>>): Record<string, string> {
   return Object.fromEntries(Object.keys(inputs).sort().map((key) => [key, digest(inputs[key]!) ]));
 }
-export function fillInputsMatch(left: Readonly<Record<string, string>>, right: Readonly<Record<string, string>>): boolean {
+function fillInputsMatch(left: Readonly<Record<string, string>>, right: Readonly<Record<string, string>>): boolean {
   const keys = Object.keys(left).sort();
   return keys.length === Object.keys(right).length && keys.every((key) => left[key] === right[key]);
 }
 
 /** Write JSON durably via a sibling temporary file and rename; readers never observe a partial document. */
-export async function writeFillJsonAtomic<T>(file: string, value: T): Promise<void> {
+async function writeFillJsonAtomic<T>(file: string, value: T): Promise<void> {
   await mkdir(dirname(file), { recursive: true });
   const temporary = `${file}.${randomUUID()}.tmp`;
   try {
@@ -134,11 +134,11 @@ export async function writeFillJsonAtomic<T>(file: string, value: T): Promise<vo
     throw error;
   }
 }
-export async function readFillJson<T>(file: string): Promise<T> {
+async function readFillJson<T>(file: string): Promise<T> {
   return JSON.parse(await readFile(file, 'utf8')) as T;
 }
 /** Append an event using whole-file temp+rename so a crash cannot leave a torn journal line. */
-export async function appendFillEventAtomic(file: string, event: FillEvent): Promise<void> {
+async function appendFillEventAtomic(file: string, event: FillEvent): Promise<void> {
   let previous = '';
   try { previous = await readFile(file, 'utf8'); } catch (error) { if ((error as NodeJS.ErrnoException).code !== 'ENOENT') throw error; }
   await mkdir(dirname(file), { recursive: true });
@@ -155,7 +155,7 @@ export async function appendFillEventAtomic(file: string, event: FillEvent): Pro
     throw error;
   }
 }
-export function fillStatePaths(productRoot: string): { root: string; run: string; units: string; outputs: string; events: string } {
+function fillStatePaths(productRoot: string): { root: string; run: string; units: string; outputs: string; events: string } {
   const root = resolve(productRoot, '.madarch', 'fill');
   return { root, run: join(root, 'run.json'), units: join(root, 'units'), outputs: join(root, 'outputs'), events: join(root, 'events.jsonl') };
 }
@@ -163,28 +163,28 @@ function fillFileKey(id: string): string {
   if (!/^[A-Za-z0-9][A-Za-z0-9._-]{0,127}$/.test(id)) throw new Error(`Invalid fill state id: ${JSON.stringify(id)}`);
   return id;
 }
-export async function persistFillRun(productRoot: string, run: FillRun): Promise<void> {
+async function persistFillRun(productRoot: string, run: FillRun): Promise<void> {
   await writeFillJsonAtomic(fillStatePaths(productRoot).run, { ...run, updatedAt: now() });
 }
-export async function persistFillUnit(productRoot: string, unit: FillUnit): Promise<void> {
+async function persistFillUnit(productRoot: string, unit: FillUnit): Promise<void> {
   const paths = fillStatePaths(productRoot);
   await writeFillJsonAtomic(join(paths.units, `${fillFileKey(unit.id)}.json`), { ...unit, updatedAt: now() });
 }
-export function createFillRun(input: Omit<FillRun, 'schemaVersion' | 'id' | 'status' | 'createdAt' | 'updatedAt'>, id: string = randomUUID()): FillRun {
+function createFillRun(input: Omit<FillRun, 'schemaVersion' | 'id' | 'status' | 'createdAt' | 'updatedAt'>, id: string = randomUUID()): FillRun {
   const timestamp = now();
   return { ...input, schemaVersion: FILL_STATE_VERSION, id, status: 'running', createdAt: timestamp, updatedAt: timestamp };
 }
-export function createFillUnit(plan: FillUnitPlan, timestamp = now()): FillUnit {
+function createFillUnit(plan: FillUnitPlan, timestamp = now()): FillUnit {
   return { ...plan, dependencies: plan.dependencies ?? [], status: 'pending', attempt: 0, createdAt: timestamp, updatedAt: timestamp };
 }
 /** Completed units survive only if every declared input (including upstream outputs) is still identical. */
-export function reconcileFillUnit(unit: FillUnit, currentInputHashes: Readonly<Record<string, string>>, timestamp = now()): FillUnit {
+function reconcileFillUnit(unit: FillUnit, currentInputHashes: Readonly<Record<string, string>>, timestamp = now()): FillUnit {
   if (unit.status === 'running') return { ...unit, status: 'pending', updatedAt: timestamp, startedAt: undefined, finishedAt: undefined, error: undefined };
   if (unit.status === 'complete' && !fillInputsMatch(unit.inputHashes, currentInputHashes)) return { ...unit, inputHashes: { ...currentInputHashes }, status: 'stale', updatedAt: timestamp };
   if (unit.status === 'stale') return { ...unit, inputHashes: { ...currentInputHashes }, status: 'pending', updatedAt: timestamp };
   return unit;
 }
-export function countFillUnits(units: readonly FillUnit[], priorUnits?: readonly FillUnit[]): FillRunCounts {
+function countFillUnits(units: readonly FillUnit[], priorUnits?: readonly FillUnit[]): FillRunCounts {
   const stages = Object.fromEntries(FILL_STAGES.map((stage) => [stage, { pending: 0, running: 0, complete: 0, blocked: 0, stale: 0 }])) as Record<FillStage, FillStageCounts>;
   for (const unit of units) stages[unit.stage][unit.status]++;
   const prior = new Map((priorUnits ?? []).map((unit) => [unit.id, unit]));
@@ -195,7 +195,7 @@ export function countFillUnits(units: readonly FillUnit[], priorUnits?: readonly
 export type FillControl = 'running' | 'paused' | 'stopped';
 /** Serialize coordinator transitions and control writers within the serving process. */
 const fillControlQueues = new Map<string, Promise<void>>();
-export async function withFillControlLock<T>(productRoot: string, action: () => Promise<T>): Promise<T> {
+async function withFillControlLock<T>(productRoot: string, action: () => Promise<T>): Promise<T> {
   const key = fillStatePaths(productRoot).root;
   const previous = fillControlQueues.get(key) ?? Promise.resolve();
   let release!: () => void;
@@ -210,7 +210,7 @@ export async function withFillControlLock<T>(productRoot: string, action: () => 
 }
 
 /** Run dependency-ready units; pause drains active work, stop aborts active work and dispatches nothing else. */
-export async function orchestrateFillUnits(
+async function orchestrateFillUnits(
   run: FillRun,
   planned: readonly FillUnitPlan[],
   existing: readonly FillUnit[],

@@ -11,7 +11,7 @@ import { afterAll, expect, test } from 'bun:test';
 import { mkdtempSync, rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
-import { type Clock, type CompiledElement, type CompiledModel } from '../src/index.js';
+import { type Clock, type CompiledElement, type CompiledModel } from './api.js';
 import { createPgBossQueue } from '../src/adapters/pg-boss-queue.js';
 import { QUEUE_SCENARIO_CHECKS } from './queue-expectations.js';
 import { runQueueScenario, SCENARIO_QUEUES } from './queue-scenario.js';

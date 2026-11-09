@@ -50,7 +50,7 @@ import { existsSync, readdirSync, readFileSync, renameSync, statSync, writeFileS
 import { randomUUID } from 'node:crypto';
 import type { Stats } from 'node:fs';
 import { openStoreHistories, type StoreHistories } from '../adapters/store-histories.js';
-import type { Clock, HistoryStore, StoreInput, StoreResult } from '../history/types.js';
+import type { Clock, HistoryStore, StoreInput, StoreResult } from '../history-types.js';
 import { byCodePoint } from '../model/order.js';
 
 /** The bytes that may appear in a file name as they are: the lower-case unreserved bytes of RFC 3986 minus `~` (kept out on purpose; it encodes fine). Upper-case letters encode too, so a stem never depends on case; a stem holding a raw upper-case letter, or a lower-case `%xx` escape, was not written by this server. */
@@ -63,7 +63,7 @@ const UNRESERVED = /^[a-z0-9._-]$/;
  * encodes longer is refused, naming the field and the limit — never
  * truncated (a truncated name could collide with another).
  */
-export const MAX_ENCODED_STEM_BYTES = 200;
+const MAX_ENCODED_STEM_BYTES = 200;
 
 export interface SourceStoresOptions {
   /** The machine-local state folder for source histories and sidecars; it must exist and stay outside the product repository. */
@@ -80,7 +80,7 @@ export interface SourceStoresOptions {
 }
 
 /** One source's current head: the newest version stored for it, by commit order. */
-export interface SourceHead {
+interface SourceHead {
   source: string;
   /** The id the server assigned the source on its first send; an opaque string kept across sends and restarts, never derived from the name. */
   id: string;

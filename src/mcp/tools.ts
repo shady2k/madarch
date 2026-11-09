@@ -21,7 +21,7 @@ import { pathOfKey } from './layer.js';
 /** The tools decision 0032 gives the agent stage, in the decision's own order. */
 const REPO_TOOL_NAMES = ['get_symbol', 'get_context', 'trace_flow', 'get_document_sections', 'search_pages', 'get_page', 'search_questions'] as const;
 
-export type RepoToolName = (typeof REPO_TOOL_NAMES)[number];
+type RepoToolName = (typeof REPO_TOOL_NAMES)[number];
 
 /** The served tools: the writer's definitions, filtered to the seven, in their own order. */
 export const REPO_TOOLS: readonly McpToolDefinition[] = WRITER_TOOLS.filter((tool) => (REPO_TOOL_NAMES as readonly string[]).includes(tool.name));
@@ -42,7 +42,7 @@ export interface RepoToolAnswer extends UnitToolAnswer {
 }
 
 /** The paths an answer's evidence covers, from the shapes evidence takes: a document section and a graph key. */
-export function coveredPaths(evidence: readonly string[]): string[] {
+function coveredPaths(evidence: readonly string[]): string[] {
   const covered = new Set<string>();
   for (const target of evidence) {
     if (target.startsWith('doc:')) {

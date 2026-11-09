@@ -42,7 +42,7 @@ export function edgeKeyHash(key: { relation: string; src: GraphId; dst: GraphId;
 }
 
 /** An evidence span of a claim: a content digest and offsets. */
-export interface EvidenceSpan {
+interface EvidenceSpan {
   contentSha256: string;
   start: number;
   end: number;
@@ -63,7 +63,7 @@ export interface ClaimContent {
  * with field names and arrays sorted by code point. Duplicates collapse, so
  * the same claim written twice has one digest.
  */
-export function claimCanonicalForm(claim: ClaimContent): { claimKind: string; evidence: { contentSha256: string; end: number; start: number }[]; statement: string; subjects: string[] } {
+function claimCanonicalForm(claim: ClaimContent): { claimKind: string; evidence: { contentSha256: string; end: number; start: number }[]; statement: string; subjects: string[] } {
   const evidence = claim.evidence.map((span) => ({ contentSha256: span.contentSha256, end: span.end, start: span.start }));
   const keyed = new Map(evidence.map((span) => [JSON.stringify([span.contentSha256, span.start, span.end]), span]));
   return {

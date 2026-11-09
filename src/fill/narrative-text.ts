@@ -21,16 +21,16 @@ import { byCodePoint } from '../model/order.js';
 import { FACT_ID_PATTERN, NARRATIVE_SENTENCE_BOUND, repositoryPath, type NarrativeSentence, type NarrativeValue, type RepositoryPath } from './facts.js';
 
 /** The folder of the product repository a page's file stands under. */
-export const NARRATIVE_PAGE_DIR = 'docs/graph';
+const NARRATIVE_PAGE_DIR = 'docs/graph';
 
 /** The writer a page's front matter names: the fill's own agent, so a person's edit of the same file tells itself apart from one the fill wrote. */
 export const NARRATIVE_PAGE_WRITER = 'madarch-fill-agent';
 
 /** The status a page carries until a person accepts or rejects it (0005; self-filling's outcome 4). */
-export const NARRATIVE_PAGE_STATUS = 'proposed';
+const NARRATIVE_PAGE_STATUS = 'proposed';
 
 /** How many code points one sentence may hold: the schema's own bound (`src/fill/facts.ts`). */
-export const NARRATIVE_SENTENCE_CODE_POINTS = NARRATIVE_SENTENCE_BOUND;
+const NARRATIVE_SENTENCE_CODE_POINTS = NARRATIVE_SENTENCE_BOUND;
 
 /**
  * The path a page's file stands at in the product repository, from the node the
@@ -71,7 +71,7 @@ export function renderNarrativePage(value: NarrativeValue): string {
 }
 
 /** The digest of one page's bytes, as the fact's reader compares a file against the page it proposes: lower-case SHA-256. */
-export function narrativeDigest(text: string): string {
+function narrativeDigest(text: string): string {
   return createHash('sha256').update(text, 'utf8').digest('hex');
 }
 

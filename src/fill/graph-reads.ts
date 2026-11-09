@@ -43,7 +43,7 @@
 import { canonicalJsonDigest } from '../model/canonical.js';
 import { byCodePoint } from '../model/order.js';
 import { ID_PATTERN } from '../model/schema.js';
-import type { SqlExecutor } from '../query/sql-driver.js';
+import type { SqlExecutor } from '../sql-driver.js';
 import type { FactStoreDatabase } from './fact-store.js';
 import {
   COVERAGE_GAP_REASONS,
@@ -165,7 +165,7 @@ export type GraphRead =
   | { readonly read: 'span'; readonly repository: string; readonly commit?: string; readonly file: string; readonly startLine: number; readonly endLine: number };
 
 /** Every read kind's own name, for a refusal that must name the read it does not know. */
-export const GRAPH_READ_KINDS = ['fact', 'facts', 'adjacent', 'held', 'facts-with', 'drafts', 'span'] as const;
+const GRAPH_READ_KINDS = ['fact', 'facts', 'adjacent', 'held', 'facts-with', 'drafts', 'span'] as const;
 
 /**
  * The tables every store read of this module reads; a failure names them. The
@@ -173,7 +173,7 @@ export const GRAPH_READ_KINDS = ['fact', 'facts', 'adjacent', 'held', 'facts-wit
  * row that names the scope its holder was planned for, and the publication record
  * that says whether that holder has published (a published set is no draft).
  */
-export const GRAPH_READ_TABLES = ['fill_fact', 'fill_fact_holding', 'fill_publication', 'fill_unit', 'fill_unit_draft', 'fill_unit_draft_part', 'fill_unit_plan'] as const;
+const GRAPH_READ_TABLES = ['fill_fact', 'fill_fact_holding', 'fill_publication', 'fill_unit', 'fill_unit_draft', 'fill_unit_draft_part', 'fill_unit_plan'] as const;
 
 /** The columns of one fact row, as the store holds them: the reader's own select list. */
 const FACT_COLUMNS = 'id, kind, schema_version, provenance, layer, status, value';
@@ -184,7 +184,7 @@ const FACT_COLUMNS = 'id, kind, schema_version, provenance, layer, status, value
  * the text a dependency is recorded by (`recordUnitRead`) and the text the
  * reader is given back at revalidation, so a read is replayed exactly.
  */
-export function readText(request: GraphRead): string {
+function readText(request: GraphRead): string {
   return JSON.stringify(sortKeys(canonicalSets(request)));
 }
 
@@ -226,7 +226,7 @@ function sortKeys(value: unknown): unknown {
  * stage's SQL) and is answered as it stands. A text that opens one and is not a
  * read of this grammar is refused by name, never answered as SQL.
  */
-export function parseGraphRead(text: string): GraphRead | null {
+function parseGraphRead(text: string): GraphRead | null {
   const trimmed = text.trim();
   if (!trimmed.startsWith('{')) return null;
   let value: unknown;
@@ -478,14 +478,14 @@ function idOfTerm(value: unknown): string | undefined {
  * (madarch-tzte.21.7). A read named by any other fact id is refused rather than
  * answered with empty lists, which would read as a scope that holds nothing.
  */
-export const SCOPE_KINDS: readonly FactKind[] = ['directory', 'file', 'module', 'package', 'repository'];
+const SCOPE_KINDS: readonly FactKind[] = ['directory', 'file', 'module', 'package', 'repository'];
 
 /**
  * The edge kinds that mean "this node names or uses that node", which is what
  * `references` answers: `contains` and `defines` place a node rather than citing
  * it, and `provides`, `binds` and `task-key` end at a contract, a name and a key.
  */
-export const REFERENCE_EDGE_KINDS: readonly FactEdgeKind[] = ['call', 'consumes', 'dependency', 'document-link', 'import', 'inherits', 'interaction', 'reference', 'resolves', 'transition'];
+const REFERENCE_EDGE_KINDS: readonly FactEdgeKind[] = ['call', 'consumes', 'dependency', 'document-link', 'import', 'inherits', 'interaction', 'reference', 'resolves', 'transition'];
 
 /**
  * The edge kinds whose to end is a node named by its fact id — wherever the edge's
@@ -493,7 +493,7 @@ export const REFERENCE_EDGE_KINDS: readonly FactEdgeKind[] = ['call', 'consumes'
  * a scope's members joins on. `provides`, `binds`, `task-key` and `document-link`
  * are not among them: their to end is a contract id, a name, a key and a term.
  */
-export const HOLDING_EDGE_KINDS: readonly FactEdgeKind[] = FACT_EDGE_KINDS
+const HOLDING_EDGE_KINDS: readonly FactEdgeKind[] = FACT_EDGE_KINDS
   .filter((kind) => EDGE_END_FIELDS[kind].to !== null && EDGE_END_FIELDS[kind].toTerm !== true)
   .sort(byCodePoint);
 
@@ -514,7 +514,7 @@ function whyNotHeld(kind: FactEdgeKind): string {
 }
 
 /** The edge kinds that place a node inside another: what a scope holds, and never a neighbourhood. */
-export const STRUCTURE_EDGE_KINDS: readonly FactEdgeKind[] = ['contains', 'defines'];
+const STRUCTURE_EDGE_KINDS: readonly FactEdgeKind[] = ['contains', 'defines'];
 
 /**
  * The edge kinds `neighbors` answers when the caller names none: every edge kind
@@ -524,7 +524,7 @@ export const STRUCTURE_EDGE_KINDS: readonly FactEdgeKind[] = ['contains', 'defin
  * means the placement too asks for those kinds by name, and the answer's own
  * `kinds` always says which kinds it answered.
  */
-export const NEIGHBOR_EDGE_KINDS: readonly FactEdgeKind[] = FACT_EDGE_KINDS
+const NEIGHBOR_EDGE_KINDS: readonly FactEdgeKind[] = FACT_EDGE_KINDS
   .filter((kind) => (STRUCTURE_EDGE_KINDS as readonly string[]).includes(kind) === false)
   .sort(byCodePoint);
 
@@ -561,7 +561,7 @@ export interface FactGraphReaderOptions {
  * — and passes any other text to the store unchanged, so a stage's own SQL query
  * is answered as it stands.
  */
-export function createFactGraphReader(options: FactGraphReaderOptions): { query(text: string): Promise<readonly unknown[]> } {
+function createFactGraphReader(options: FactGraphReaderOptions): { query(text: string): Promise<readonly unknown[]> } {
   return {
     async query(text: string): Promise<readonly unknown[]> {
       const request = parseGraphRead(text);
@@ -587,7 +587,7 @@ async function inTransaction<R>(options: FactGraphReaderOptions, work: (executor
 export class GraphReadRefusal extends Error {}
 
 /** The row a span read answers: one file's lines at one pinned commit, with the file's own line count. */
-export interface SpanRow {
+interface SpanRow {
   readonly repository: string;
   readonly commit: string;
   readonly file: string;
@@ -820,7 +820,7 @@ async function spanRow(options: FactGraphReaderOptions, request: Extract<GraphRe
  * change to a unit that read them, and a membership that carried the commit
  * would call every span read of every unit moved on every commit.
  */
-export function spanMembership(rows: readonly unknown[]): string {
+function spanMembership(rows: readonly unknown[]): string {
   const row = rows.length === 1 ? rows[0] : undefined;
   if (row === null || typeof row !== 'object' || Array.isArray(row)) raise(`${here()}: a span read answered ${rows.length} ${rows.length === 1 ? 'row' : 'rows'} and its first is no span: a span read answers the one span row of the lines it read`);
   const fields = row as Record<string, unknown>;
@@ -883,7 +883,7 @@ export function answerMembership(text: string, rows: readonly unknown[]): string
  * as they stand (a `\r` of a CRLF file stands in the line), because a span is
  * evidence of the commit's own bytes.
  */
-export function linesOf(text: string): string[] {
+function linesOf(text: string): string[] {
   if (text === '') return [];
   const lines = text.split('\n');
   if (lines[lines.length - 1] === '') lines.pop();
@@ -895,7 +895,7 @@ export function linesOf(text: string): string[] {
 // ---------------------------------------------------------------------------------------------
 
 /** The reading unit a read is recorded for: the dependency belongs to this generation. */
-export interface ReadingUnit {
+interface ReadingUnit {
   readonly unitId: string;
   readonly generation: number;
 }
@@ -915,7 +915,7 @@ export interface GraphReadContext {
 }
 
 /** What the context a unit reads through is built from. */
-export interface FactGraphReadsOptions extends FactGraphReaderOptions {
+interface FactGraphReadsOptions extends FactGraphReaderOptions {
   readonly unit: ReadingUnit;
   readonly limits?: Partial<GraphReadLimits>;
   /** The run whose units' draft sets this unit sees beside the published facts; absent, it reads published facts only. */
@@ -932,7 +932,7 @@ export interface FactGraphReadsOptions extends FactGraphReaderOptions {
  * that answered nothing and answers a row later moves, which is what decision
  * 0027's staleness recheck is for.
  */
-export function createGraphReadContext(options: FactGraphReadsOptions): GraphReadContext {
+function createGraphReadContext(options: FactGraphReadsOptions): GraphReadContext {
   const at = here();
   const limits = graphReadLimits(options.limits, at);
   const unit = options.unit;
@@ -999,7 +999,7 @@ const FACT_STATUSES = ['proposed', 'accepted', 'rejected'] as const;
  * `draftFactOfRow`, which spells the version the store's way and then judges it by
  * these same rules.
  */
-export function factOfRow(row: unknown, read: GraphRead): Fact {
+function factOfRow(row: unknown, read: GraphRead): Fact {
   const where = `the row ${shown(row)} of the read ${describedRead(read)}`;
   if (row === null || typeof row !== 'object' || Array.isArray(row)) raise(`${where} is no fact row: a fact row is a record of id, kind, schema_version, provenance, layer, status and value`);
   const fields = row as Record<string, unknown>;
@@ -1262,7 +1262,7 @@ export function nodeRefOf(fact: Fact): GraphNodeRef {
 }
 
 /** One node the graph was asked for and does not hold: named by its id, with no kind and no label of its own. */
-export function missingNode(id: string): GraphNodeRef {
+function missingNode(id: string): GraphNodeRef {
   return { id, kind: null, label: id };
 }
 
@@ -1351,7 +1351,7 @@ export function labelOf(fact: Fact): string {
 // ---------------------------------------------------------------------------------------------
 
 /** What every tool's answer holds, whatever it answers. */
-export interface GraphReadEnvelope {
+interface GraphReadEnvelope {
   /** The reads this answer stands on, in the order they were made: each was recorded as the reading unit's dependency under its own digest. */
   readonly reads: readonly GraphReadRef[];
   /** Whether a cap cut this answer: true only when something an answer should hold is not in it. */
@@ -1368,7 +1368,7 @@ export interface GraphReadEnvelope {
  * dependency row under (`fill_unit_read.query_digest`, `queryDigest`), so an
  * answer names the records it made without carrying their texts.
  */
-export interface GraphReadRef {
+interface GraphReadRef {
   readonly read: GraphRead['read'];
   readonly digest: string;
 }
@@ -1458,8 +1458,8 @@ export function markerOf(...markers: readonly (string | null)[]): string | null 
 // ---------------------------------------------------------------------------------------------
 
 /** The six tools a unit reads the graph through (decision 0026). */
-export const GRAPH_READ_TOOLS = ['describe_scope', 'neighbors', 'references', 'claims_about', 'coverage', 'evidence_span'] as const;
-export type GraphReadTool = (typeof GRAPH_READ_TOOLS)[number];
+const GRAPH_READ_TOOLS = ['describe_scope', 'neighbors', 'references', 'claims_about', 'coverage', 'evidence_span'] as const;
+type GraphReadTool = (typeof GRAPH_READ_TOOLS)[number];
 
 /** Which way an edge stands toward the node a read is about. */
 export type EdgeDirection = 'in' | 'out' | 'both';
@@ -1478,7 +1478,7 @@ function directionOf(fact: Fact, id: string): EdgeDirection | null {
 }
 
 /** One edge as a reader sees it: the id and kind a join uses, and the place a reader opens. */
-export interface GraphEdgeRef {
+interface GraphEdgeRef {
   readonly id: string;
   readonly kind: FactEdgeKind;
   readonly file?: string;
@@ -1524,13 +1524,13 @@ export interface DescribeScopeRequest {
 }
 
 /** One kind of node a scope holds, and how many of them. */
-export interface ScopeHeld {
+interface ScopeHeld {
   readonly kind: FactKind;
   readonly count: number;
 }
 
 /** One kind of edge that touches a scope, which way it stands, and how many of them. */
-export interface ScopeEdgeCount extends ScopeHeld {
+interface ScopeEdgeCount extends ScopeHeld {
   readonly kind: FactEdgeKind;
   readonly direction: EdgeDirection;
 }
@@ -1624,7 +1624,7 @@ export interface NeighborsRequest {
 }
 
 /** One neighbour of a node: the edge that joins them and the node at its other end. */
-export interface NeighborRow {
+interface NeighborRow {
   readonly direction: EdgeDirection;
   readonly edge: GraphEdgeRef;
   readonly neighbor: GraphNodeRef;
@@ -1701,7 +1701,7 @@ export interface ReferencesRequest {
 }
 
 /** One place that references a node: the referencing node and the edge that cites it. */
-export interface ReferenceRow {
+interface ReferenceRow {
   readonly from: GraphNodeRef;
   readonly edge: GraphEdgeRef;
 }
@@ -1766,7 +1766,7 @@ export interface ClaimsAboutRequest {
 }
 
 /** One end of a claim as a reader sees it: a node of the graph (with its label), an address, or a literal. */
-export interface GraphTermRef {
+interface GraphTermRef {
   readonly form: 'node' | 'external' | 'literal';
   readonly id?: string;
   readonly url?: string;
@@ -1776,7 +1776,7 @@ export interface GraphTermRef {
 }
 
 /** One claim about a node, as the graph holds it. */
-export interface ClaimRow {
+interface ClaimRow {
   readonly id: string;
   readonly predicate: string;
   readonly subject: GraphTermRef;
@@ -1878,9 +1878,9 @@ function termRef(held: NonNullable<ReturnType<typeof term>>, refs: ReadonlyMap<s
 // ---- coverage --------------------------------------------------------------
 
 /** The most entries of one coverage fact's `read` list an answer shows. */
-export const COVERAGE_READ_SAMPLE = 50;
+const COVERAGE_READ_SAMPLE = 50;
 /** The most gaps of one coverage fact an answer shows. */
-export const COVERAGE_GAP_LIMIT = 200;
+const COVERAGE_GAP_LIMIT = 200;
 
 export interface CoverageRequest {
   readonly tool: 'coverage';
@@ -1889,7 +1889,7 @@ export interface CoverageRequest {
 }
 
 /** One thing a coverage could not read, and why. */
-export interface CoverageGapRow {
+interface CoverageGapRow {
   readonly what: string;
   readonly reason: CoverageGapReason;
 }
@@ -2004,7 +2004,7 @@ export interface EvidenceSpanRequest {
 }
 
 /** One line of a file at the pinned commit. */
-export interface EvidenceLine {
+interface EvidenceLine {
   readonly line: number;
   readonly text: string;
 }
@@ -2118,13 +2118,13 @@ function spanOfRow(row: unknown, read: GraphRead): SpanRow {
 // ---------------------------------------------------------------------------------------------
 
 /** One call of one tool: the tool's name and its own request. */
-export type GraphReadCall = DescribeScopeRequest | NeighborsRequest | ReferencesRequest | ClaimsAboutRequest | CoverageRequest | EvidenceSpanRequest;
+type GraphReadCall = DescribeScopeRequest | NeighborsRequest | ReferencesRequest | ClaimsAboutRequest | CoverageRequest | EvidenceSpanRequest;
 
 /** What one call answered. */
-export type GraphReadResult = DescribeScopeAnswer | NeighborsAnswer | ReferencesAnswer | ClaimsAboutAnswer | CoverageAnswer | EvidenceSpanAnswer;
+type GraphReadResult = DescribeScopeAnswer | NeighborsAnswer | ReferencesAnswer | ClaimsAboutAnswer | CoverageAnswer | EvidenceSpanAnswer;
 
 /** Runs one call of whichever tool it names, so a server exposing them has one entrance. */
-export async function callGraphRead(context: GraphReadContext, call: GraphReadCall): Promise<GraphReadResult> {
+async function callGraphRead(context: GraphReadContext, call: GraphReadCall): Promise<GraphReadResult> {
   switch (call.tool) {
     case 'describe_scope': return await describeScope(context, call);
     case 'neighbors': return await neighbors(context, call);

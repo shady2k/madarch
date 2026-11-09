@@ -2,7 +2,7 @@ import { describe, expect, test } from 'bun:test';
 import { readFileSync } from 'node:fs';
 import { fileURLToPath } from 'node:url';
 import { Value } from 'typebox/value';
-import { compileModel, CompiledModelSchema, loadAndCompileModel, parseModel, serializeCompiledModel } from '../src/index.js';
+import { compileModel, CompiledModelSchema, loadAndCompileModel, parseModel, serializeCompiledModel } from './api.js';
 
 /**
  * intended-model/entities, intended-model/transfers, intended-model/ids,

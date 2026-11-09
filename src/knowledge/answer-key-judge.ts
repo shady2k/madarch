@@ -42,9 +42,9 @@ export class JudgeExecutionError extends Error {
   }
 }
 
-export type JudgeTier = 'jev' | 'classification' | 'analysis';
+type JudgeTier = 'jev' | 'classification' | 'analysis';
 
-export interface JudgeTierCounts {
+interface JudgeTierCounts {
   readonly read: number;
   readonly fully: number;
   readonly partly: number;
@@ -52,7 +52,7 @@ export interface JudgeTierCounts {
   readonly unsure: number;
 }
 
-export interface JudgeVerdict {
+interface JudgeVerdict {
   readonly itemId: string;
   readonly tier: JudgeTier;
   readonly verdict: Classification;
@@ -60,7 +60,7 @@ export interface JudgeVerdict {
   readonly passages: readonly string[];
 }
 
-export interface JudgeRoleNote {
+interface JudgeRoleNote {
   readonly role: ModelRole;
   readonly source: ModelRoleSource;
   readonly note?: string;
@@ -168,7 +168,7 @@ function pairOf(view: ModelRoleView, role: ModelRole): ModelPair | null {
 }
 
 /** The counts of a set of packs after judging, in the check's own order. */
-export function countsOfPacks(items: readonly AnswerKeyPack[]): AnswerKeyCounts {
+function countsOfPacks(items: readonly AnswerKeyPack[]): AnswerKeyCounts {
   return {
     fully: items.filter((item) => item.classification === 'fully').length,
     partly: items.filter((item) => item.classification === 'partly').length,

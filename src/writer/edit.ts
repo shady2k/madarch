@@ -39,7 +39,7 @@ export interface EditBrief {
 
 /** The most characters of one ground's text, and of the whole list of changes, a prompt carries. */
 export const NOTE_CHARACTERS = 3000;
-export const NOTES_CHARACTERS = 30_000;
+const NOTES_CHARACTERS = 30_000;
 
 const cut = (text: string, most = NOTE_CHARACTERS): string => (text.length > most ? `${text.slice(0, most)}\n[cut at ${most} characters]` : text);
 const fenced = (text: string): string => `~~~\n${cut(text).split('\n').map((line) => (line.startsWith('~~~') ? `~ ${line}` : line)).join('\n')}\n~~~`;

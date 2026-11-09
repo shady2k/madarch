@@ -147,7 +147,7 @@ function located(line: number, message: string): string {
   return `${FILE}:${line}: ${message}; full path ${FULL_PATH}`;
 }
 
-export type NodeRef = { id: GraphId } | { ref: string };
+type NodeRef = { id: GraphId } | { ref: string };
 
 export interface PublishNode {
   /** A name for a new node inside this publication, which edges and the result use. */
@@ -185,7 +185,7 @@ export interface PublishEdge {
   origin?: GraphOrigin;
 }
 
-export interface PublishEnd {
+interface PublishEnd {
   node: NodeRef;
   validTo: Instant;
   origin?: GraphOrigin;
@@ -803,11 +803,11 @@ async function publishEdge(run: Run, edge: PublishEdge, path: string): Promise<v
  * proportional to its own unit rather than to the graph (`node_version_producer_scope`, schema.ts; the plan
  * is stated in test/graph-sweep-plan.test.ts, madarch-8bdc.2.5).
  */
-export const SWEEP_NODES_SQL = `SELECT DISTINCT v.node_id::text AS id FROM node_version v JOIN node_kind k ON k.id = v.kind_id
+const SWEEP_NODES_SQL = `SELECT DISTINCT v.node_id::text AS id FROM node_version v JOIN node_kind k ON k.id = v.kind_id
      WHERE v.producer = $1 AND v.scope_id = $2::bigint AND v.recorded_to = 'infinity' AND v.valid_to > $3::timestamptz AND k.key <> $4 ORDER BY 1`;
 
 /** The edges a sweep of one producer and scope reads: the same rows as `SWEEP_NODES_SQL`, on `edge_version`. */
-export const SWEEP_EDGES_SQL = `SELECT ${EDGE_COLUMNS} FROM ${EDGE_FROM} WHERE e.producer = $1 AND e.scope_id = $2::bigint AND e.recorded_to = 'infinity' AND e.valid_to > $3::timestamptz ORDER BY e.id`;
+const SWEEP_EDGES_SQL = `SELECT ${EDGE_COLUMNS} FROM ${EDGE_FROM} WHERE e.producer = $1 AND e.scope_id = $2::bigint AND e.recorded_to = 'infinity' AND e.valid_to > $3::timestamptz ORDER BY e.id`;
 
 /** Ends what a complete publication did not repeat: its producer's and scope's current nodes (not shared content), then its edges. */
 async function sweep(run: Run, end: string): Promise<void> {

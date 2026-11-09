@@ -33,7 +33,7 @@ export const PRODUCT_SCHEMA_VERSION = 1;
 export const MANIFEST_FILE = 'workspace.yaml';
 
 /** One declared code repository of a product's manifest. */
-export interface ProductRepo {
+interface ProductRepo {
   /** The folder under `repos/` the repository is cloned into. */
   name: string;
   /** The optional origin used to clone it; a linked checkout may have none. */
@@ -47,7 +47,7 @@ export interface ProductRepo {
 }
 
 /** The set versions a manifest pins beside the `skills` field, as `<set>: <version>` lines. */
-export type ProductSkills = Record<string, string>;
+type ProductSkills = Record<string, string>;
 
 /** A product folder, read: where it is, and the fields that never change. */
 export interface ProductIdentity {
@@ -156,7 +156,7 @@ function readLines(text: string, file: string): { ok: true; tokens: { indent: nu
  * `#` inside a quoted value is the value's own character — a product called
  * `Draft # part` is called that — so quotes are walked, escapes and all.
  */
-export function cutComment(text: string): string {
+function cutComment(text: string): string {
   let quote: string | null = null;
   let tokenStarted = false;
   for (let i = 0; i < text.length; i++) {
@@ -280,7 +280,7 @@ const INDICATOR_WHY: Record<string, string> = {
 };
 
 /** A scalar: plain, quoted, and nothing else this subset takes. */
-export function parseScalar(text: string, file: string, line: number): Parsed<unknown> {
+function parseScalar(text: string, file: string, line: number): Parsed<unknown> {
   const trimmed = text.trim();
   if (trimmed === '') return { ok: true, value: null };
   const first = trimmed[0]!;
@@ -446,7 +446,7 @@ export function parseManifest(text: string, file: string): { ok: true; value: un
 }
 
 /** A folder name a code repository may take: one path segment, and nothing that moves. */
-export function isFolderName(name: unknown): name is string {
+function isFolderName(name: unknown): name is string {
   return typeof name === 'string' && name !== '' && name === name.trim()
     && name !== '.' && name !== '..' && !/[/\\\u0000-\u001f]/.test(name);
 }
@@ -585,7 +585,7 @@ export const yamlWord = (word: string): string => (/^[A-Za-z_][A-Za-z0-9 ._+-]*$
  * writes such a character inside one. A name is not written this way: it is a
  * word by its own refusal, so `yamlWord` writes it.
  */
-export function yamlText(value: string): string {
+function yamlText(value: string): string {
   if (/[\u0000-\u001f\u007f]/.test(value)) {
     const escaped = value.replace(/[\u0000-\u001f\u007f"\\]/g, (ch) => {
       const named: Record<string, string> = { '"': '\\"', '\\': '\\\\', '\n': '\\n', '\t': '\\t', '\r': '\\r' };
@@ -605,7 +605,7 @@ export function yamlText(value: string): string {
  * that matched the text of a key would leave the product's own field alone and
  * write a second one beside it.
  */
-export function decodedKeyWord(key: string): string | null {
+function decodedKeyWord(key: string): string | null {
   const trimmed = key.trim();
   if (trimmed === '') return null;
   if (trimmed[0] === "'" || trimmed[0] === '"') {
@@ -616,7 +616,7 @@ export function decodedKeyWord(key: string): string | null {
 }
 
 /** The lines of one `repos` item, at the indentation the block's items use: the first field on the item's own line, the others indented under it. The caller ends each line the way the file ends its own. */
-export function repoItemLines(repo: { name: string; url?: string; linked?: boolean; moved?: boolean; branch?: string }, indent: number): string[] {
+function repoItemLines(repo: { name: string; url?: string; linked?: boolean; moved?: boolean; branch?: string }, indent: number): string[] {
   const field = (name: string, value: string): string => `${' '.repeat(indent + 2)}${name}: ${value}`;
   const lines = [`${' '.repeat(indent)}- name: ${yamlWord(repo.name)}`];
   if (repo.url !== undefined) lines.push(field('url', yamlText(repo.url)));

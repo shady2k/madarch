@@ -28,7 +28,7 @@
  * the live channel reads (`fill_page_change`), so a page someone is reading is read again
  * for a decision and every other page stands: a decision recomputes what depends on it.
  */
-import type { SqlExecutor } from '../query/sql-driver.js';
+import type { SqlExecutor } from '../sql-driver.js';
 import { byCodePoint } from '../model/order.js';
 import { runningVersion } from '../product/version.js';
 import type { AcceptanceRecord, AnswerRecord, DecisionRecord } from './decisions.js';
@@ -39,16 +39,16 @@ import type { FactStoreDatabase } from './fact-store.js';
 import { raise, withLocation } from './fsm-core.js';
 
 /** The system every fact a person's record writes names as its reader (0004's `plugin@version`). */
-export const DECLARED_SOURCE_SYSTEM = 'madarch-wiki';
+const DECLARED_SOURCE_SYSTEM = 'madarch-wiki';
 
 /** The holder a person's records stand under: the product's own words, not a unit's. */
-export const DECLARED_HOLDER = 'person';
+const DECLARED_HOLDER = 'person';
 
 /** The tables a declared write touches, named by every failure. */
-export const DECLARED_TABLES = ['fill_fact', 'fill_fact_holding', PAGE_CHANGE_TABLE] as const;
+const DECLARED_TABLES = ['fill_fact', 'fill_fact_holding', PAGE_CHANGE_TABLE] as const;
 
 /** One decision written into the graph: the fact it stores and the pages it touched. */
-export interface DeclaredWrite {
+interface DeclaredWrite {
   /** The decision's own words, as the product's git holds them (`answers/<digest>.md`). */
   readonly file: string;
   readonly fact: Fact;
@@ -57,7 +57,7 @@ export interface DeclaredWrite {
 }
 
 /** A record the graph refused, named where it stands: the document, and why it could not land. */
-export interface DeclaredRefusal {
+interface DeclaredRefusal {
   readonly file: string;
   readonly message: string;
 }
@@ -99,7 +99,7 @@ function provenanceOf(subject: Subject): FactProvenance {
 }
 
 /** The `answer` fact one record names: a declared record of a person's words, accepted as it stands (0005). */
-export function factOfRecord(record: DecisionRecord, subject: Subject): Fact {
+function factOfRecord(record: DecisionRecord, subject: Subject): Fact {
   const decision = record.kind === 'answer' ? 'answers' : record.verdict === 'accepted' ? 'accepts' : 'rejects';
   const text = record.kind === 'answer' ? record.text : record.note;
   return makeNodeFact({
@@ -199,18 +199,18 @@ export async function applyDecisions(options: {
 }
 
 /** The decision a record names, as the wiki's own words read it: what a reader is told was decided. */
-export function decisionOf(record: DecisionRecord): string {
+function decisionOf(record: DecisionRecord): string {
   if (record.kind === 'answer') return 'answers';
   return record.verdict === 'accepted' ? 'accepts' : 'rejects';
 }
 
 /** The words one record carries, for a caller that shows them: an answer's answer, or an acceptance's note. */
-export function wordsOf(record: DecisionRecord): string {
+function wordsOf(record: DecisionRecord): string {
   return record.kind === 'answer' ? record.text : record.note;
 }
 
 /** An answer record's own shape, for a caller that reads one file's answer: the question, and the words. */
-export type DecisionAnswer = AnswerRecord;
+type DecisionAnswer = AnswerRecord;
 
 /** An acceptance record's own shape. */
-export type DecisionAcceptance = AcceptanceRecord;
+type DecisionAcceptance = AcceptanceRecord;

@@ -1,5 +1,5 @@
 import { describe, expect, test } from 'bun:test';
-import { type Clock, type CompiledElement, type CompiledModel, type HistoryStore } from '../src/index.js';
+import { type Clock, type CompiledElement, type CompiledModel, type HistoryStore } from './api.js';
 import { createTestHistory } from './test-database.js';
 
 /**

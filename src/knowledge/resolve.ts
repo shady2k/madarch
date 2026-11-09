@@ -15,7 +15,7 @@ export type Resolution =
   /** `why` is the reason as data, so the app can say it in the reader's language; `reason` is the same in English for an engineer. */
   | { state: 'broken'; target: string; reason: string; why?: BrokenWhy };
 
-export type BrokenWhy =
+type BrokenWhy =
   | { code: 'empty' }
   | { code: 'no-entity'; key: string }
   | { code: 'no-path' }
@@ -48,7 +48,7 @@ export function sourceAddress(repo: string | null, path: string, line?: number):
   return `/k/src?${query.toString()}`;
 }
 
-export { findAnchor, slugOf } from './anchors.js';
+;
 
 /** Where a Markdown document stands in the app: a page of its own, at the section an anchor names. */
 export function documentAddress(repo: string | null, path: string, anchor?: string | null): string {
@@ -133,7 +133,7 @@ export class Resolver {
 }
 
 /** The resolution of a graph entity: its page when the manifest declares its kind, else its source when it has one. */
-export function resolutionOfEntity(url: string, entity: GraphEntity, hasPage: boolean, location: CodeLocation | undefined, note?: string): Resolution {
+function resolutionOfEntity(url: string, entity: GraphEntity, hasPage: boolean, location: CodeLocation | undefined, note?: string): Resolution {
   return {
     state: 'ok',
     target: url,

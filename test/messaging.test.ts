@@ -1,6 +1,6 @@
 import { describe, expect, test } from 'bun:test';
 import { Value } from 'typebox/value';
-import { CompiledModelSchema, compileModel, parseModel } from '../src/index.js';
+import { CompiledModelSchema, compileModel, parseModel } from './api.js';
 
 /**
  * intended-model/messaging: a relation through a topic or queue says whether

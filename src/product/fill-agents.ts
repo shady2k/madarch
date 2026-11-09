@@ -14,13 +14,13 @@ export type AgentKind = 'claude' | 'codex' | 'omp';
  * from this machine instead.
  */
 export const AGENT_API_KEY_ENV: Readonly<Record<AgentKind, string | undefined>> = { claude: 'ANTHROPIC_API_KEY', codex: 'OPENAI_API_KEY', omp: undefined };
-export interface AgentSettings { model?: string; executable?: string; extension?: string; tools?: string; }
-export type AgentEvent = { unitId: string; stage: FillUnit['stage']; type: string; timestamp: string; payload: unknown };
+interface AgentSettings { model?: string; executable?: string; extension?: string; tools?: string; }
+type AgentEvent = { unitId: string; stage: FillUnit['stage']; type: string; timestamp: string; payload: unknown };
 type Child = Pick<ChildProcessWithoutNullStreams, 'stdout' | 'stderr' | 'once' | 'kill'>;
 type Spawn = (command: string, args: string[], options: { cwd: string; stdio: ['ignore', 'pipe', 'pipe']; env: NodeJS.ProcessEnv }) => Child;
 
 /** Build an argument vector; extraction is read-only and never receives the product writer's worktree. */
-export function agentCommand(kind: AgentKind, snapshot: string, prompt: string, settings: AgentSettings = {}): { command: string; args: string[]; cwd: string } {
+function agentCommand(kind: AgentKind, snapshot: string, prompt: string, settings: AgentSettings = {}): { command: string; args: string[]; cwd: string } {
   if (!snapshot.trim()) throw new Error('The code snapshot path is required');
   if (!prompt.trim()) throw new Error('The extraction prompt is required');
   if (kind === 'omp') { const model=settings.model; const extension=settings.extension; if(!model?.trim()) throw new Error('OMP requires an explicit --model'); if(!extension?.trim()) throw new Error('OMP requires a configured gateway extension path'); const safeTools=new Set(['read','grep','glob','find','ls']); const requested=(settings.tools??'read,grep,glob').split(',').map(tool=>tool.trim()).filter(Boolean); const unsafe=requested.filter(tool=>!safeTools.has(tool)); if(unsafe.length) throw new Error(`OMP tool is not allowed in read-only extraction: ${unsafe.join(', ')}`); const tools=requested.join(','); return {command:settings.executable??'omp',cwd:snapshot,args:['-p','--no-session','--no-extensions','-e',extension,'--model',model,'--mode','json','--tools',tools,prompt]}; }
@@ -40,7 +40,7 @@ const redact = (value: unknown): unknown => {
 };
 const safeSummary = (value: unknown): string => safeText(typeof value === 'string' ? value : JSON.stringify(value ?? ''));
 /** Turn one provider JSONL record into a stable, provider-neutral event. */
-export function normalizeAgentEvent(line: string, unit: Pick<FillUnit, 'id' | 'stage'>, timestamp = new Date().toISOString()): AgentEvent | undefined {
+function normalizeAgentEvent(line: string, unit: Pick<FillUnit, 'id' | 'stage'>, timestamp = new Date().toISOString()): AgentEvent | undefined {
   let payload: unknown;
   try { payload = JSON.parse(line); } catch { return undefined; }
   if (payload === null || typeof payload !== 'object') return undefined;
@@ -50,7 +50,7 @@ export function normalizeAgentEvent(line: string, unit: Pick<FillUnit, 'id' | 's
 }
 
 /** Run one extraction in the pinned source snapshot. Product writes are intentionally a separate controlled apply operation. */
-export function createHeadlessAgentExecutor(options: {
+function createHeadlessAgentExecutor(options: {
   kind: AgentKind; snapshot: string; promptFor: (unit: FillUnit) => string; settings?: AgentSettings;
   onEvent: (event: AgentEvent) => Promise<void> | void;
   /** Store the unmodified provider line in the unit's private raw log. */

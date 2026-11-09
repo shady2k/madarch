@@ -34,7 +34,7 @@
  * and `fill-chain/…` codes.
  */
 import type { DatabaseOwner } from '../adapters/database-owner.js';
-import type { SqlExecutor, SqlTransactionKind } from '../query/sql-driver.js';
+import type { SqlExecutor, SqlTransactionKind } from '../sql-driver.js';
 import { byCodePoint } from '../model/order.js';
 import { here, raise, withLocation } from './fsm-core.js';
 import type { Refusal } from './fsm-core.js';
@@ -74,10 +74,10 @@ import type {
 export type FillStateDatabase = Pick<DatabaseOwner, 'transaction'>;
 
 /** The tables this store owns; `createFillStateSchema` creates them and every error names the ones it touched. */
-export const FILL_STATE_TABLES = ['fill_chain', 'fill_run', 'fill_unit', 'fill_unit_generation', 'fill_unit_lease', 'fill_transition'] as const;
+const FILL_STATE_TABLES = ['fill_chain', 'fill_run', 'fill_unit', 'fill_unit_generation', 'fill_unit_lease', 'fill_transition'] as const;
 
 /** The store's own step ids: no machine declares them, and their prefix keeps them apart from the tables'. */
-export const FILL_STORE_STEPS = {
+const FILL_STORE_STEPS = {
   createUnit: 'fill-store/unit--create-->planned',
   openGeneration: 'fill-store/generation--open-->planned',
   retryGeneration: 'fill-store/generation--retry-->planned',
@@ -235,7 +235,7 @@ export interface UnitRecord {
 }
 
 /** One journal entry: the step a machine took, with the state it left and the one it entered. */
-export interface TransitionRecord {
+interface TransitionRecord {
   readonly seq: number;
   readonly subjectKind: 'chain' | 'run' | 'unit';
   readonly subjectId: string;
@@ -745,7 +745,7 @@ export async function readUnit(database: FillStateDatabase, unitId: string): Pro
 }
 
 /** Every generation of a unit, oldest first, with the lease each holds. */
-export async function readUnitGenerations(database: FillStateDatabase, unitId: string): Promise<readonly UnitRecord[]> {
+async function readUnitGenerations(database: FillStateDatabase, unitId: string): Promise<readonly UnitRecord[]> {
   const at = here();
   return run(at, database, `readUnitGenerations(${unitId})`, ['fill_unit', 'fill_unit_generation', 'fill_unit_lease'], async (executor) => {
     const units = await executor.query<UnitRow>('SELECT unit_id, product, stage_id, scope_key, generation, created_at FROM fill_unit WHERE unit_id = $1', [unitId]);
@@ -886,7 +886,7 @@ export interface UnitLeaseOptions {
 }
 
 /** Leases a ready unit generation inside a transaction the caller already opened. */
-export async function leaseUnitIn(executor: SqlExecutor, options: UnitLeaseOptions): Promise<StoreStep<UnitRecord, UnitState>> {
+async function leaseUnitIn(executor: SqlExecutor, options: UnitLeaseOptions): Promise<StoreStep<UnitRecord, UnitState>> {
   const snapshot = await loadUnit(executor, options.unitId, true);
   if (snapshot === null) raise(`table fill_unit: no unit ${options.unitId}`);
   const fence = snapshot.record.context.fence + 1;
@@ -1017,7 +1017,7 @@ export async function retryGeneration(database: FillStateDatabase, options: {
 }
 
 /** The journal of one subject (a unit, a run or a product's chain), oldest first. */
-export async function readTransitions(database: FillStateDatabase, subject: { readonly kind: 'chain' | 'run' | 'unit'; readonly id: string }): Promise<readonly TransitionRecord[]> {
+async function readTransitions(database: FillStateDatabase, subject: { readonly kind: 'chain' | 'run' | 'unit'; readonly id: string }): Promise<readonly TransitionRecord[]> {
   const at = here();
   return run(at, database, `readTransitions(${subject.kind} ${subject.id})`, ['fill_transition'], async (executor) => {
     const { rows } = await executor.query<TransitionRow>(

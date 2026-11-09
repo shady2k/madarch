@@ -45,7 +45,7 @@ export interface AcpAgentOptions {
 }
 
 /** What `serveTools` tells the journal about the agent's requests. */
-export interface ToolObserver {
+interface ToolObserver {
   /** A call the unit's tools answered (or raised on). */
   served(call: { readonly tool: string; readonly arguments: unknown; readonly answer: ToolAnswer | undefined; readonly error?: string; readonly startedAt: Date; readonly durationMs: number }): void;
   /** A `tools/call` the endpoint answered with a protocol error: no tool of this unit has that name. */
@@ -55,7 +55,7 @@ export interface ToolObserver {
 const FAILURE_CODES = new Set(['tool-failed', 'worker-gone']);
 
 /** The reason in words that a refused or failed answer gives, with the rule and line of a refused page. */
-export function reasonOf(answer: unknown): string | null {
+function reasonOf(answer: unknown): string | null {
   if (typeof answer !== 'object' || answer === null) return null;
   const held = answer as { refused?: unknown; error?: unknown; problems?: unknown };
   if (Array.isArray(held.refused)) return held.refused.map((r: { line?: unknown; rule?: unknown; message?: unknown }) => `line ${String(r.line)} ${String(r.rule)}: ${String(r.message)}`).join('\n');
@@ -68,7 +68,7 @@ export function reasonOf(answer: unknown): string | null {
 }
 
 /** The journal entry for a call the tools answered. */
-export function entryOfCall(call: Parameters<ToolObserver['served']>[0]): JournalEntry {
+function entryOfCall(call: Parameters<ToolObserver['served']>[0]): JournalEntry {
   const answer = call.answer;
   const isError = answer === undefined ? true : answer.isError;
   const code = answer !== undefined && typeof answer.answer === 'object' && answer.answer !== null ? (answer.answer as { error?: { code?: unknown } | string }).error : undefined;
@@ -91,7 +91,7 @@ export function entryOfCall(call: Parameters<ToolObserver['served']>[0]): Journa
 const CHARACTERS_PER_TOKEN = 4;
 
 /** A local MCP endpoint (streamable HTTP, one JSON answer per POST) for one unit's tools. */
-export async function serveTools(client: ToolClient, token: string, observer?: ToolObserver): Promise<{ url: string; close(): Promise<void> }> {
+async function serveTools(client: ToolClient, token: string, observer?: ToolObserver): Promise<{ url: string; close(): Promise<void> }> {
   const server: Server = createServer((request, response) => {
     const send = (status: number, body?: unknown): void => {
       response.writeHead(status, body === undefined ? {} : { 'content-type': 'application/json' });

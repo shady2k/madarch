@@ -21,12 +21,12 @@ type MermaidModule = typeof import('mermaid');
 let mermaidModule: MermaidModule | undefined;
 
 /** Reads the reader's colour scheme as Mermaid's own theme name. */
-export function mermaidThemeOf(scheme: 'light' | 'dark'): 'default' | 'dark' {
+function mermaidThemeOf(scheme: 'light' | 'dark'): 'default' | 'dark' {
   return scheme === 'dark' ? 'dark' : 'default';
 }
 
 /** The reader's colour scheme, live. */
-export function useColorScheme(): 'light' | 'dark' {
+function useColorScheme(): 'light' | 'dark' {
   const [scheme, setScheme] = useState<'light' | 'dark'>(() =>
     typeof window !== 'undefined' && window.matchMedia('(prefers-color-scheme: dark)').matches ? 'dark' : 'light',
   );
@@ -131,7 +131,7 @@ function ensureLikec4(): void {
  * Marks the bundle loaded (the script's onload, and the tests, which stub
  * the element instead of loading 2.6 MB into happy-dom).
  */
-export function noteLikec4ScriptReady(): void {
+function noteLikec4ScriptReady(): void {
   setLikec4State('ready');
 }
 
@@ -154,7 +154,7 @@ function likec4Defined(): boolean {
 }
 
 /** One LikeC4 view, the webcomponent against the served bundle. */
-export function LikeC4Diagram({ viewId, title }: { viewId: string; title?: string }): ReactElement {
+function LikeC4Diagram({ viewId, title }: { viewId: string; title?: string }): ReactElement {
   const { t } = useTranslation();
   const state = useLikec4State();
   const scheme = useColorScheme();

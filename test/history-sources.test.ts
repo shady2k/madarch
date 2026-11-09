@@ -1,5 +1,5 @@
 import { describe, expect, test } from 'bun:test';
-import { type Clock, type CompiledElement, type CompiledInterface, type CompiledModel, type CompiledRelation, type CompiledZone, type HistoryStore, type ReadModel } from '../src/index.js';
+import { type Clock, type CompiledElement, type CompiledInterface, type CompiledModel, type CompiledRelation, type CompiledZone, type HistoryStore, type ReadModel } from './api.js';
 import { createTestHistory } from './test-database.js';
 
 /** A clock a test moves by hand, never the real one. */

@@ -29,23 +29,23 @@ import { runningVersion } from './version.js';
 import { daemonIsRunning } from './daemon.js';
 
 /** The GitHub repository this binary upgrades itself from (the project's own). */
-export const GITHUB_REPO = 'shady2k/madarch';
+const GITHUB_REPO = 'shady2k/madarch';
 
 /** The releases' API address: `releases/latest` answers the newest release's JSON. */
-export const RELEASES_API = `https://api.github.com/repos/${GITHUB_REPO}/releases/latest`;
+const RELEASES_API = `https://api.github.com/repos/${GITHUB_REPO}/releases/latest`;
 
 /** The artifact name of one platform: the release build lays every binary under this name. */
-export function artifactName(platform: string, arch: string): string {
+function artifactName(platform: string, arch: string): string {
   if (platform === 'win32' && arch === 'arm64') return 'madarch-windows-arm64.exe';
   if (platform === 'win32') return `madarch-windows-${arch}.exe`;
   return `madarch-${platform}-${arch}`;
 }
 
 /** The checksum file every release carries: one line per artifact, `sha256  <name>`. */
-export const CHECKSUMS_FILE = 'SHA256SUMS.txt';
+const CHECKSUMS_FILE = 'SHA256SUMS.txt';
 
 /** One release the API answered: its tag and a full download address per asset name. */
-export interface ReleaseAnswer {
+interface ReleaseAnswer {
   /** The release's own name: the tag the release build was made from, like `v1.2.3`. */
   tag: string;
   /** A full download address per asset name, as the releases API names them. */
@@ -117,7 +117,7 @@ function readOneByte(into: Buffer): number {
 }
 
 /** The checksum line of one artifact out of the whole file, by its name. */
-export function checksumFor(sumFile: string | Uint8Array, name: string): string | undefined {
+function checksumFor(sumFile: string | Uint8Array, name: string): string | undefined {
   const text = Buffer.from(sumFile).toString('utf8');
   for (const line of text.split('\n')) {
     const fields = line.trim().split(/\s+/);
@@ -127,7 +127,7 @@ export function checksumFor(sumFile: string | Uint8Array, name: string): string 
 }
 
 /** The sha256 of a buffer, the way the checksum file names it. */
-export function sha256(data: Uint8Array): string {
+function sha256(data: Uint8Array): string {
   return createHash('sha256').update(data).digest('hex');
 }
 
@@ -137,7 +137,7 @@ export function sha256(data: Uint8Array): string {
  * contract (no tag, no binary with the name artifactName names) are the
  * refusal's message, not a half answer.
  */
-export function parseReleases(json: unknown, wanted: string): { ok: true; release: ReleaseAnswer } | { ok: false; message: string } {
+function parseReleases(json: unknown, wanted: string): { ok: true; release: ReleaseAnswer } | { ok: false; message: string } {
   if (json === null || typeof json !== 'object') return { ok: false, message: 'the release answered no object' };
   const record = json as { tag_name?: unknown; assets?: unknown };
   if (typeof record.tag_name !== 'string' || !/^v[a-zA-Z0-9.-]+$/.test(record.tag_name)) {

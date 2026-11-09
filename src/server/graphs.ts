@@ -22,9 +22,9 @@
  * (decision 0003's duplicate-id check); sending and storing never refuse
  * on them.
  */
-import { CLASHABLE_KINDS } from '../history/assertions.js';
-import type { AsyncQueryDatabase, AsyncQueryEngine } from '../query/types.js';
-import type { AssertionRecord, HistoryStore, StoreResult } from '../history/types.js';
+import { CLASHABLE_KINDS } from '../history-assertions.js';
+import type { AsyncQueryDatabase, AsyncQueryEngine } from '../query-types.js';
+import type { AssertionRecord, HistoryStore, StoreResult } from '../history-types.js';
 import { byCodePoint } from '../model/order.js';
 
 export interface GraphsOptions {
@@ -35,7 +35,7 @@ export interface GraphsOptions {
 }
 
 /** One named set of sources with its one query engine. */
-export interface Graph {
+interface Graph {
   readonly name: string;
   /** The sources the graph is built from, in code point order. */
   readonly sources: readonly string[];

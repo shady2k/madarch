@@ -11,8 +11,8 @@ import { cn } from '@/lib/utils.js';
 
 export const Sheet = DialogPrimitive.Root;
 export const SheetTrigger = DialogPrimitive.Trigger;
-export const SheetClose = DialogPrimitive.Close;
-export const SheetTitle = DialogPrimitive.Title;
+const SheetClose = DialogPrimitive.Close;
+const SheetTitle = DialogPrimitive.Title;
 
 export type SheetSide = 'left' | 'right';
 

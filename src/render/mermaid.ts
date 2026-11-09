@@ -10,19 +10,19 @@ import { uniqueSafeIds } from './safe-ids.js';
 import { childrenByParent, type ShownElement, type View } from './view-set.js';
 
 /** One page: its file name (the landscape `_landscape.md`, every other `<element id>.md`) and its whole text. */
-export interface MermaidPage {
+interface MermaidPage {
   file: string;
   content: string;
 }
 
 /** One problem that kept the pages from being rendered. */
-export interface MermaidError {
+interface MermaidError {
   message: string;
   /** The view whose page could not be rendered; left out for the landscape. */
   scope?: string;
 }
 
-export interface MermaidResult {
+interface MermaidResult {
   /** In the view set's order. Left out when there are errors. */
   pages?: MermaidPage[];
   errors: MermaidError[];
@@ -79,7 +79,7 @@ const RESERVED = new Set([
  * a case-insensitive file system. So is a view that does not show its own
  * scope.
  */
-export function renderMermaidPages(views: readonly View[]): MermaidResult {
+function renderMermaidPages(views: readonly View[]): MermaidResult {
   const errors: MermaidError[] = [];
   const pages: MermaidPage[] = [];
   const scopeByFolded = new Map<string, string>();

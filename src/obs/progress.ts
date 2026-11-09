@@ -103,7 +103,7 @@ function fillProgressOf(spans: readonly TraceSpan[]): FillProgress {
 }
 
 /** The progress of one trace file. */
-export function readFillProgress(file: string): FillProgress {
+function readFillProgress(file: string): FillProgress {
   return fillProgressOf(readTraceSpans(file));
 }
 

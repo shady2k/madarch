@@ -412,7 +412,7 @@ export const readQuestions = (productFolder: string): Read<Question> => readFold
 export const readCorrections = (productFolder: string): Read<Correction> => readFolder(productFolder, CORRECTIONS_FOLDER, parseCorrection);
 
 /** A slug for a new entity that no file holds: the readable slug, then `-2`, `-3`. */
-export function freeSlug(productFolder: string, folder: string, wanted: string): string {
+function freeSlug(productFolder: string, folder: string, wanted: string): string {
   const taken = new Set(filesOf(productFolder, folder).map((file) => file.replace(/^.*\//, '').replace(/\.md$/, '')));
   let slug = wanted;
   for (let n = 2; taken.has(slug); n += 1) slug = `${wanted}-${n}`;

@@ -3,7 +3,7 @@ import type { GuidePreparedUnit } from './host-contract.js';
 import { guideDigest } from './digest.js';
 import { GuidePreparationError } from './preparation-error.js';
 
-export const GUIDE_PACKET_BYTES = 16 * 1024;
+const GUIDE_PACKET_BYTES = 16 * 1024;
 export interface GuideContextPage {
   readonly inputDigest: string;
   readonly index: number;

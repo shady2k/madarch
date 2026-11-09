@@ -33,7 +33,7 @@ export function setShowGrounds(value: boolean): void {
 }
 
 /** Forgets what was read, so the next read asks the storage again (a test starts over). */
-export function resetPreferences(): void {
+function resetPreferences(): void {
   shown = null;
   for (const listener of listeners) listener();
 }

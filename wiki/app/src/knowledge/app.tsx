@@ -55,7 +55,7 @@ function BrandMark(): ReactElement {
  * the loop's pages and the settings are other places, so a fill that runs, fails or waits for a press is not drawn above
  * them (the top bar's chip says the same everywhere). The overview, which has no home page, draws the card itself.
  */
-export function showsProgress(route: KRoute, status: WikiStatus): boolean {
+function showsProgress(route: KRoute, status: WikiStatus): boolean {
   // The repository page is the home once the store holds a repository (madarch-8bdc.2.5, item 3); a
   // fill that runs there, or fails there, still draws its card, so the press and its progress stay
   // where the reader is. With no store the home is the introduction, which draws its own fill card:
@@ -68,12 +68,12 @@ export function showsProgress(route: KRoute, status: WikiStatus): boolean {
 const inLoop = (kind: KindSummary): boolean => kind.nav === 'loop';
 
 /** The choices the selector offers: each product's wiki address, and which one is open. */
-export function productChoices(products: readonly ProductChoice[], current: string | null): { name: string; folder: string; href: string; here: boolean }[] {
+function productChoices(products: readonly ProductChoice[], current: string | null): { name: string; folder: string; href: string; here: boolean }[] {
   return products.map((product) => ({ name: product.name, folder: product.folder, href: `/products/${encodeURIComponent(product.folder)}${K_HOME}`, here: product.folder === current }));
 }
 
 /** The product at the top left: its name, and the other products of this server to choose from. */
-export function ProductSelector({ name, products, current }: { name: string; products: readonly ProductChoice[]; current: string | null; own?: boolean }): ReactElement {
+function ProductSelector({ name, products, current }: { name: string; products: readonly ProductChoice[]; current: string | null; own?: boolean }): ReactElement {
   const { t } = useTranslation();
   return (
     <DropdownMenu>
@@ -129,7 +129,7 @@ export function ProductSelector({ name, products, current }: { name: string; pro
 const hasOwnPlace = (kind: KindSummary): boolean => kind.nav === 'own-page';
 
 /** A sub-area of a group, as the navigation and the catalogue draw it. */
-export interface NavSubgroup {
+interface NavSubgroup {
   group: string;
   labels: Record<string, string>;
   /** The navigation's short label per language; the full name when it is absent. */
@@ -143,7 +143,7 @@ export interface NavSubgroup {
  * sub-areas in the manifest's order. `kinds` holds every kind the group shows,
  * sub-areas included, so a role that leads a group keeps its whole branch.
  */
-export interface NavGroup {
+interface NavGroup {
   group: string | null;
   labels: Record<string, string> | null;
   /** The navigation's one-or-two-word label per language; the full name when it is absent. */
@@ -156,7 +156,7 @@ export interface NavGroup {
 }
 
 /** The kinds of the manifest as the navigation shows them: top-level groups, each with its sub-areas, in the manifest's order. */
-export function navGroups(status: WikiStatus, pending: (kind: string) => number): NavGroup[] {
+function navGroups(status: WikiStatus, pending: (kind: string) => number): NavGroup[] {
   // A group counts every entity of its kinds, the home page included, so the navigation and the catalogue say the same number.
   const counted = status.kinds.filter((kind) => !inLoop(kind));
   const shown = status.kinds.filter((kind) => !inLoop(kind) && !hasOwnPlace(kind) && !kind.single && (kind.count > 0 || pending(kind.kind) > 0));
@@ -356,7 +356,7 @@ function pagesOf(status: WikiStatus): number {
  * its own: the top bar's «Синхронизировать» is the wiki's one refresh (madarch-u3vw.2), and choosing the pages' language
  * is the one request left here — it starts the run that writes them in it.
  */
-export function FillMenu({ status, refresh }: { status: WikiStatus; refresh: () => void }): ReactElement | null {
+function FillMenu({ status, refresh }: { status: WikiStatus; refresh: () => void }): ReactElement | null {
   const { t, i18n } = useTranslation();
   const [starting, setStarting] = useState(false);
   const [refused, setRefused] = useState<string | null>(null);
@@ -593,7 +593,7 @@ export function FillMenu({ status, refresh }: { status: WikiStatus; refresh: () 
  * menu. When the run it started ends, the pages it changed open by themselves, each one a link to its page; a run that
  * changed no page says so in one line, and one that failed says why. The button is spent while a run is under way.
  */
-export function SyncButton({ status, refresh }: { status: WikiStatus; refresh: () => void }): ReactElement | null {
+function SyncButton({ status, refresh }: { status: WikiStatus; refresh: () => void }): ReactElement | null {
   const { t } = useTranslation();
   const [starting, setStarting] = useState(false);
   const [pressed, setPressed] = useState<string | null>(null);
@@ -661,7 +661,7 @@ export function SyncButton({ status, refresh }: { status: WikiStatus; refresh: (
   );
 }
 
-export function Toolbar({ status, route, menu, refresh, products, current }: { status: WikiStatus; route: KRoute; menu: ReactNode; refresh: () => void; products: readonly ProductChoice[]; current: string | null }): ReactElement {
+function Toolbar({ status, route, menu, refresh, products, current }: { status: WikiStatus; route: KRoute; menu: ReactNode; refresh: () => void; products: readonly ProductChoice[]; current: string | null }): ReactElement {
   const { t } = useTranslation();
   const kindName = useKindName();
   const where = route.name === 'questions' || route.name === 'question' ? t('loop.questionsTitle') : route.name === 'problems' ? t('loop.problemsTitle') : route.name === 'tasks' ? t('loop.tasksTitle') : route.name === 'settings' ? t('settings.title') : route.name === 'journal' ? t('journal.title') : route.name === 'kind' ? kindName(route.kind, 'many') : route.name === 'source' ? t('knowledge.source') : route.name === 'folder' ? t('knowledge.repository.folders') : route.name === 'file' ? t('knowledge.repository.file') : route.name === 'commit' ? t('knowledge.repository.commit') : route.name === 'run' ? t('knowledge.run.title') : route.name === 'docs' || route.name === 'doc' ? t('knowledge.documents') : route.name === 'catalogue' ? t('knowledge.catalogue') : route.name === 'glossary' ? t('knowledge.glossary.title') : route.name === 'statement' ? t('knowledge.statement') : route.name === 'entity' ? null : t('knowledge.home');
@@ -689,13 +689,13 @@ export function Toolbar({ status, route, menu, refresh, products, current }: { s
 }
 
 /** The route an in-wiki address is; the home page for one the wiki does not know. */
-export function routeOfAddress(address: string): KRoute {
+function routeOfAddress(address: string): KRoute {
   const url = new URL(address, 'http://wiki.invalid');
   return kRouteOf(url.pathname, url.search) ?? { name: 'home' };
 }
 
 /** The tabs of the wiki (the first version had them): every opened page is one; the one in front is the page the address names. */
-export function TabBar(): ReactElement {
+function TabBar(): ReactElement {
   const { t } = useTranslation();
   const { tabs, active } = useTabs();
   return (

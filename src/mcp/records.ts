@@ -20,7 +20,7 @@ import { withSpan } from '../obs/trace.js';
 type RecordOwner = Parameters<typeof listFiles>[0];
 
 /** The bounds one answer is cut by, named here so every answer states its own page. */
-export const RECORD_FILE_LIMIT = 200;
+const RECORD_FILE_LIMIT = 200;
 const RECORD_HISTORY_LIMIT = 100;
 
 /** One path the working tree changed, as `git status` names it. */

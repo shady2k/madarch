@@ -11,7 +11,7 @@ import { dirname, join } from 'node:path';
 import { madarchHome, type DraftEnv } from '../product/home.js';
 import { EVERY_ROLE } from './kinds.js';
 
-export const SETTINGS_FILE = 'settings.json';
+const SETTINGS_FILE = 'settings.json';
 
 /**
  * The roles a reader can choose for one product: the roles its manifest declares, in its order, with "everything"
@@ -28,7 +28,7 @@ export interface Settings {
   asked: boolean;
 }
 
-export const settingsPath = (env: DraftEnv): string => join(madarchHome(env), SETTINGS_FILE);
+const settingsPath = (env: DraftEnv): string => join(madarchHome(env), SETTINGS_FILE);
 
 function readRaw(file: string): Record<string, unknown> {
   let text: string;

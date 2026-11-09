@@ -21,7 +21,7 @@
 import { byCodePoint } from '../model/order.js';
 
 /** The charter's eight types, in the charter's own order: the order a page groups them in. */
-export const CHARTER_QUESTION_TYPES = [
+const CHARTER_QUESTION_TYPES = [
   'meaning',
   'contradiction',
   'undocumented-behaviour',
@@ -31,10 +31,10 @@ export const CHARTER_QUESTION_TYPES = [
   'decision-rationale',
   'access-or-document-needed',
 ] as const;
-export type CharterQuestionType = (typeof CHARTER_QUESTION_TYPES)[number];
+type CharterQuestionType = (typeof CHARTER_QUESTION_TYPES)[number];
 
 /** Whether a question's type is one the charter names. */
-export function isCharterQuestionType(type: string): type is CharterQuestionType {
+function isCharterQuestionType(type: string): type is CharterQuestionType {
   return (CHARTER_QUESTION_TYPES as readonly string[]).includes(type);
 }
 

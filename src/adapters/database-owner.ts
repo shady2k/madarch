@@ -35,8 +35,8 @@ import { join } from 'node:path';
 import { types } from 'pg';
 import { withSpan } from '../obs/trace.js';
 import type { Pool, PoolConfig } from 'pg';
-import type { OuterTransaction } from '../history/types.js';
-import type { SqlExecutor, SqlQueryDriver, SqlTransactionKind } from '../query/sql-driver.js';
+import type { OuterTransaction } from '../history-types.js';
+import type { SqlExecutor, SqlQueryDriver, SqlTransactionKind } from '../sql-driver.js';
 import { clusterPaths, clusterQuery, openCluster, CLUSTER_ADMIN_DATABASE, CLUSTER_PORT, CLUSTER_USER, type RunningCluster } from './postgres-cluster.js';
 
 export type { OuterTransaction };
@@ -53,7 +53,7 @@ export type { OuterTransaction };
 types.setTypeParser(20, (value: string) => Number(value));
 
 /** The database a store's cluster holds by default: one store, one database of its own. */
-export const STORE_DATABASE = 'madarch';
+const STORE_DATABASE = 'madarch';
 
 /**
  * What one statement is, for the trace: its verb, the relation it names and a
@@ -317,7 +317,7 @@ class PostgresOwner implements DatabaseOwner {
 }
 
 /** Opens the process's PostgreSQL pool once; every adapter lent it shares this pool. */
-export async function createPostgresDatabaseOwner(options: PoolConfig): Promise<DatabaseOwner> {
+async function createPostgresDatabaseOwner(options: PoolConfig): Promise<DatabaseOwner> {
   const { Pool } = await import('pg');
   const pool = new Pool(options);
   return new PostgresOwner(pool, options);
@@ -537,7 +537,7 @@ export async function leaseStoreCluster(store: string, options: { readonly env?:
  * servers are given up again before it answers — stopped when this call was
  * their last user, left answering for a process that still reads them otherwise.
  */
-export async function copyStore(options: { readonly from: string; readonly to: string; readonly env?: Readonly<Record<string, string | undefined>>; readonly log?: (line: string) => void }): Promise<void> {
+async function copyStore(options: { readonly from: string; readonly to: string; readonly env?: Readonly<Record<string, string | undefined>>; readonly log?: (line: string) => void }): Promise<void> {
   const env = options.env ?? process.env;
   const source = await openCluster({ ...clusterPaths(options.from), ...(options.log === undefined ? {} : { log: options.log }), env });
   const target = await openCluster({ ...clusterPaths(options.to), ...(options.log === undefined ? {} : { log: options.log }), env });
@@ -608,7 +608,7 @@ export async function renameClusterDatabase(cluster: DatabaseClusterRef, from: s
  * transactions. `closesOwner` is true only for the adapter that created
  * the owner; a lent owner stays open when the query database closes.
  */
-export function ownerQueryDriver(owner: DatabaseOwner, options: { closesOwner: boolean }): SqlQueryDriver {
+function ownerQueryDriver(owner: DatabaseOwner, options: { closesOwner: boolean }): SqlQueryDriver {
   return {
     allowConcurrentSnapshots: owner.allowConcurrentSnapshots,
     transaction: <T>(kind: SqlTransactionKind, work: (executor: SqlExecutor) => Promise<T>): Promise<T> =>

@@ -96,7 +96,7 @@ export interface KnowledgePart {
 }
 
 /** The largest file the source view shows whole. */
-export const SOURCE_VIEW_BYTES = 2 * 1024 * 1024;
+const SOURCE_VIEW_BYTES = 2 * 1024 * 1024;
 
 /** A write that is not JSON could be a form another site posted without a preflight: refused. */
 function notJson(request: Request): string | undefined {

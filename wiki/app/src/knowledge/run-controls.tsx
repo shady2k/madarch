@@ -12,7 +12,7 @@ import { pauseRun, startFill, stopRun } from './api.js';
 import type { WikiStatus } from './types.js';
 
 /** The run is under way: the code is being read or the agent is writing pages. */
-export const runIsLive = (status: WikiStatus): boolean => status.fill.state === 'running' || status.writer.state === 'running' || status.writer.state === 'waiting';
+const runIsLive = (status: WikiStatus): boolean => status.fill.state === 'running' || status.writer.state === 'running' || status.writer.state === 'waiting';
 
 /** A person paused the run, and it stands where it stopped until it is taken up. */
 export const runIsPaused = (status: WikiStatus): boolean => status.fill.state === 'paused' || status.writer.state === 'paused';
@@ -21,7 +21,7 @@ export const runIsPaused = (status: WikiStatus): boolean => status.fill.state ==
 export const runIsStopped = (status: WikiStatus): boolean => status.fill.state === 'stopped' || status.writer.state === 'stopped';
 
 /** How many pages this run has already rewritten: the count a stop's words name. */
-export const writtenPages = (status: WikiStatus): number => status.writer.units.filter((unit) => unit.state === 'written').length;
+const writtenPages = (status: WikiStatus): number => status.writer.units.filter((unit) => unit.state === 'written').length;
 
 /**
  * The controls of one run: «Пауза» (or «Продолжить» for a run that stands paused) and «Остановить», the latter asking first

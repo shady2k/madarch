@@ -37,8 +37,8 @@ const COMMITTED_FILES = ['AGENTS.md', 'CLAUDE.md', `${MANIFEST_FILE}`, '.gitigno
   'docs/.gitkeep', 'model/.gitkeep', 'skills/.gitkeep', 'prototypes/.gitkeep', ...STARTER_PATHS];
 
 /** The markers around the part of `AGENTS.md` madarch's commands maintain. */
-export const MAINTAINED_OPEN = '<!-- product:maintained -->';
-export const MAINTAINED_CLOSE = '<!-- /product:maintained -->';
+const MAINTAINED_OPEN = '<!-- product:maintained -->';
+const MAINTAINED_CLOSE = '<!-- /product:maintained -->';
 
 /**
  * The constitution `new` writes: the folders and what each is for. It names
@@ -46,7 +46,7 @@ export const MAINTAINED_CLOSE = '<!-- /product:maintained -->';
  * between the markers is the only part a later version may update, so every
  * section below it, the engineer's own included, is left as it was.
  */
-export const CONSTITUTION = [
+const CONSTITUTION = [
   '# Constitution',
   '',
   "This repository holds one product's knowledge, apart from the product's",
@@ -125,7 +125,7 @@ export interface DraftOptions {
 
 // The three homes madarch reads are one module's (`home.ts`), so the wizard's
 // agents folder and the products home are read the same way by every caller.
-export { homeFromEnv, madarchHome, productsHome } from './home.js';
+export {   productsHome } from './home.js';
 
 /**
  * Whether a day is written `YYYY-MM-DD` and is a day the calendar has. A
@@ -133,7 +133,7 @@ export { homeFromEnv, madarchHome, productsHome } from './home.js';
  * test never depends on the clock and no folder is named after a day that
  * does not exist.
  */
-export function whyNotADay(date: string): string | null {
+function whyNotADay(date: string): string | null {
   if (!/^\d{4}-\d{2}-\d{2}$/.test(date)) return 'is not written YYYY-MM-DD';
   const [year, month, day] = date.split('-').map(Number);
   const asDate = new Date(Date.UTC(year!, month! - 1, day!));
@@ -160,7 +160,7 @@ function dayOf(date?: string): { ok: true; day: string } | { ok: false; message:
  * reserved. A recursive reservation would succeed into another run's folder,
  * and its cleanup would then delete that run's work.
  */
-export function reserveDraftFolder(home: string, day: string): { folder: string; name: string } {
+function reserveDraftFolder(home: string, day: string): { folder: string; name: string } {
   for (let attempt = 1; ; attempt++) {
     const name = attempt === 1 ? `idea-${day}` : `idea-${day}-${attempt}`;
     const candidate = join(home, name);

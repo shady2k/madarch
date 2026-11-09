@@ -30,7 +30,7 @@ export interface DocumentSource {
 }
 
 /** The block kinds a section is made of; anything else is `other`. */
-export type DocNodeType = 'heading' | 'paragraph' | 'list' | 'listItem' | 'code' | 'blockquote' | 'table' | 'tableRow' | 'tableCell' | 'html' | 'thematicBreak' | 'definition'
+type DocNodeType = 'heading' | 'paragraph' | 'list' | 'listItem' | 'code' | 'blockquote' | 'table' | 'tableRow' | 'tableCell' | 'html' | 'thematicBreak' | 'definition'
   | 'strong' | 'emphasis' | 'text' | 'inlineCode' | 'other';
 
 /** One node of a document's tree. */
@@ -209,7 +209,7 @@ export function readDocTree(source: DocumentSource): DocTree {
 }
 
 /** The sections of a document's top-level nodes: a heading with its own blocks, and the sections it opens. */
-export function sectionsOf(nodes: readonly DocNode[], text: string): DocSection[] {
+function sectionsOf(nodes: readonly DocNode[], text: string): DocSection[] {
   // starts[i] is the character offset of the (i + 1)th line, and the text's length past the last one.
   const starts = [0];
   for (let at = 0; at < text.length; at += 1) if (text[at] === '\n') starts.push(at + 1);
@@ -255,7 +255,7 @@ export function walkNodes(nodes: readonly DocNode[], visit: (node: DocNode) => v
 }
 
 /** What a section holds: the passages a kind may decide, and the leaves that hold text no kind reads. */
-export interface SectionWalk {
+interface SectionWalk {
   /**
    * A passage, in document order: a paragraph (a quote's or a footnote's too), a list item — an item nested under another
    * is a passage of its own — and a table row.
@@ -270,7 +270,7 @@ export interface SectionWalk {
  * table's first row — the names of the columns. A nested list item is a passage rather than a part of the item above it,
  * and a table row is a passage whose naming cell comes first (the review of the tenth pass).
  */
-export function sectionWalk(section: DocSection, namesIdentifier?: (passage: DocNode) => boolean): SectionWalk {
+function sectionWalk(section: DocSection, namesIdentifier?: (passage: DocNode) => boolean): SectionWalk {
   const passages: DocNode[] = [];
   const leaves: DocNode[] = [];
   const collect = (node: DocNode): void => {

@@ -110,7 +110,7 @@ function words(text: string, language: string | undefined): string[] {
 }
 
 /** A readable name from a sentence; falls back to the words of a ground's label, then to "statement". Never purely digits. */
-export function slugOf(sentence: string, hint = '', language?: string): string {
+function slugOf(sentence: string, hint = '', language?: string): string {
   for (const source of [sentence, hint]) {
     const chosen = words(source, language);
     if (chosen.length === 0) continue;

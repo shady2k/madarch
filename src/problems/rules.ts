@@ -10,7 +10,7 @@ import { byCodePoint } from '../model/order.js';
 import type { ProblemSettings, RuleSpec } from './types.js';
 
 /** The implementations of the code section, by the name a manifest's rule uses. */
-export const CODE_PREDICATES = [
+const CODE_PREDICATES = [
   'dependency-cycle',
   'sql-input',
   'route-outside-auth',
@@ -26,7 +26,7 @@ export const CODE_PREDICATES = [
 ] as const;
 
 /** The implementations of the documents section. */
-export const DOCUMENT_PREDICATES = [
+const DOCUMENT_PREDICATES = [
   'document-contradiction',
   'document-stale',
   'document-undocumented',
@@ -34,7 +34,7 @@ export const DOCUMENT_PREDICATES = [
 ] as const;
 
 /** The wiki section reads its findings from the loop's own files; every wiki rule names this predicate. */
-export const WIKI_PREDICATE = 'wiki';
+const WIKI_PREDICATE = 'wiki';
 
 export const PREDICATES: readonly string[] = [...CODE_PREDICATES, ...DOCUMENT_PREDICATES, WIKI_PREDICATE];
 

@@ -7,7 +7,7 @@
  * can be large is a page with a keyset cursor, and `next` is non-null exactly
  * when more rows follow.
  */
-import type { OuterTransaction } from '../history/types.js';
+import type { OuterTransaction } from '../history-types.js';
 import { byCodePoint } from '../model/order.js';
 import type { ByteSpan, GraphId } from './digest.js';
 import { GraphError } from './errors.js';
@@ -307,7 +307,7 @@ export async function readAll<T>(fetch: (page: PageOptions) => Promise<Page<T>>)
   }
 }
 
-export interface DiffEntry {
+interface DiffEntry {
   edgeId: GraphId;
   relation: string;
   dst: GraphId;
@@ -389,7 +389,7 @@ export async function readClaims(tx: OuterTransaction, lens: ResolvedLens, optio
   return { rows: shown, next: more ? shown[shown.length - 1]!.node.nodeId : null };
 }
 
-export interface ContentSpan {
+interface ContentSpan {
   contentSha256: string;
   start: number;
   end: number;

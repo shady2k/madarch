@@ -35,7 +35,7 @@ export type ProductCheckRun =
   | { ran: false; message: string };
 
 /** How long one check run may take before the wiki calls it failed. */
-export const CHECK_TIMEOUT_MS = 30_000;
+const CHECK_TIMEOUT_MS = 30_000;
 
 /** The repo the madarch checkout is, resolved from this module's own place. */
 const REPO_ROOT = dirOf(dirOf(dirOf(fileURLToPath(import.meta.url))));
@@ -46,7 +46,7 @@ const REPO_ROOT = dirOf(dirOf(dirOf(fileURLToPath(import.meta.url))));
  * checkout's `.shady2k/checks`; a deployment that keeps it elsewhere names
  * it by the environment variable.
  */
-export function productCheckScript(): { ok: true; path: string } | { ok: false; message: string } {
+function productCheckScript(): { ok: true; path: string } | { ok: false; message: string } {
   const namedUnder = process.env['MADARCH_PRODUCT_CHECK'];
   const path = namedUnder !== undefined && namedUnder.trim() !== '' ? normalize(namedUnder.trim()) : joinPath(REPO_ROOT, '.shady2k', 'checks', 'check-product.mjs');
   if (!existsSync(path)) {

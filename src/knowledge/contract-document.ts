@@ -45,7 +45,7 @@ export type ContractDiagnostic = { path: string; line: number; fullPath: string;
 export class ContractReadError extends Error {
   constructor(readonly diagnostic: ContractDiagnostic) { super(`${diagnostic.path}:${diagnostic.line} (${diagnostic.fullPath}): ${diagnostic.detail}`); }
 }
-export function withContractReason<T extends Error>(error: T, reason: ContractReason): T & {contractReason: ContractReason} {
+function withContractReason<T extends Error>(error: T, reason: ContractReason): T & {contractReason: ContractReason} {
   return Object.assign(error, {contractReason: reason});
 }
 export function contractReasonOf(error: unknown): ContractReason | undefined {

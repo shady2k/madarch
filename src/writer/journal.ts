@@ -20,8 +20,8 @@ import path from 'node:path';
 import { randomBytes } from 'node:crypto';
 import { byCodePoint } from '../model/order.js';
 
-export const JOURNAL_SCHEMA = 'madarch.agent-journal@1';
-export const MAX_RESPONSE_CHARACTERS = 100_000;
+const JOURNAL_SCHEMA = 'madarch.agent-journal@1';
+const MAX_RESPONSE_CHARACTERS = 100_000;
 
 /**
  * What one call of a unit's tools read, could not resolve and produced (decision 0032, section 2): a
@@ -48,7 +48,7 @@ export const NO_COUNTERS: CallCounters = Object.freeze({
 });
 
 /** Two counts added, field by field: a unit's totals are the sum of its records. */
-export function addCounters(left: CallCounters, right: CallCounters): CallCounters {
+function addCounters(left: CallCounters, right: CallCounters): CallCounters {
   return {
     sourceBytes: { served: left.sourceBytes.served + right.sourceBytes.served, repeated: left.sourceBytes.repeated + right.sourceBytes.repeated },
     evidence: left.evidence + right.evidence,
@@ -84,7 +84,7 @@ export function betweenCounters(before: CallCounters, after: CallCounters): Call
 const whole = (value: unknown): number => (typeof value === 'number' && Number.isFinite(value) && value > 0 ? Math.floor(value) : 0);
 
 /** The counters a journal line holds, with every field a line of an older journal lacks taken as 0. */
-export function countersOf(value: unknown): CallCounters {
+function countersOf(value: unknown): CallCounters {
   if (typeof value !== 'object' || value === null) return NO_COUNTERS;
   const held = value as { sourceBytes?: unknown; evidence?: unknown; unresolvedJoins?: unknown; produced?: unknown };
   const bytes = typeof held.sourceBytes === 'object' && held.sourceBytes !== null ? held.sourceBytes as Record<string, unknown> : {};
@@ -104,9 +104,9 @@ export function countersOf(value: unknown): CallCounters {
 }
 
 /** What happened to a request: it was answered, the tool refused it, the tool failed, or madarch rejected it before any tool. */
-export type JournalOutcome = 'ok' | 'refused' | 'failed' | 'rejected';
+type JournalOutcome = 'ok' | 'refused' | 'failed' | 'rejected';
 
-export interface JournalRecord {
+interface JournalRecord {
   readonly schema: typeof JOURNAL_SCHEMA;
   /** Start of the request, ISO 8601 UTC. */
   readonly time: string;
@@ -174,7 +174,7 @@ export interface Journal {
   record(context: JournalContext, entry: JournalEntry): void;
 }
 
-export function recordOf(context: JournalContext, entry: JournalEntry): JournalRecord {
+function recordOf(context: JournalContext, entry: JournalEntry): JournalRecord {
   // A guide's source is not counted either: its byte count would say how much of it there is.
   if (context.privateGuide) entry = { ...entry, tool: 'guide-tool', arguments: { redacted: true }, response: entry.response === null ? null : '[guide result withheld]', reason: entry.reason === null ? null : '[guide refusal details withheld]', counters: NO_COUNTERS };
   const response = entry.response;
@@ -245,7 +245,7 @@ export function fileJournal(folder: string, run: string): Journal {
 }
 
 /** A journal that keeps its records in memory; tests read them. */
-export function memoryJournal(run = 'run-test'): Journal & { readonly records: JournalRecord[] } {
+function memoryJournal(run = 'run-test'): Journal & { readonly records: JournalRecord[] } {
   const records: JournalRecord[] = [];
   return { file: `memory:${run}`, run, records, record: (context, entry) => { records.push(recordOf(context, entry)); } };
 }
@@ -279,7 +279,7 @@ export function readJournalFile(file: string): JournalRead {
 }
 
 /** The runs of a product's journal folder, oldest first; a missing folder is no runs. */
-export function journalRuns(folder: string): string[] {
+function journalRuns(folder: string): string[] {
   try {
     return readdirSync(folder).filter((name) => /^run-[A-Za-z0-9-]+\.jsonl$/.test(name)).map((name) => name.slice(0, -'.jsonl'.length)).sort(byCodePoint);
   } catch (error) {

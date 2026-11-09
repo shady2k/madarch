@@ -28,9 +28,9 @@ import { KINDS_FILE, LABEL_LANGUAGES } from './kinds.js';
 import { DETAILS, DOCUMENT_EXCLUDES, GROUPS, ROLES, STARTER_FILES, STARTER_KINDS, STARTER_PROBLEM_RULES, TEMPLATES, kindLines, propertyDeclaration, starterManifest, type StarterKind } from './seed.js';
 
 /** The subjects of the commits madarch itself makes in a product's manifest and templates. */
-export const MADARCH_COMMIT_SUBJECTS: readonly string[] = ['Create the draft product'];
+const MADARCH_COMMIT_SUBJECTS: readonly string[] = ['Create the draft product'];
 
-export type Provenance = 'absent' | 'current' | 'madarch' | 'person';
+type Provenance = 'absent' | 'current' | 'madarch' | 'person';
 
 /** One thing the starter set holds and the product's manifest lacks, offered for the Problems page to add. */
 export interface StarterOffer {
@@ -166,7 +166,7 @@ function onlyMadarchAdditions(working: string, committed: string): boolean {
 }
 
 /** Who wrote a starter file as the product holds it now. */
-export function provenanceOf(productFolder: string, path: string, starter: string, record: Record_, observedText?: string): Provenance {
+function provenanceOf(productFolder: string, path: string, starter: string, record: Record_, observedText?: string): Provenance {
   const file = join(productFolder, path);
   const stat = lstatSync(file, { throwIfNoEntry: false });
   if (stat === undefined) return 'absent';
@@ -239,7 +239,7 @@ function upgradeFields(kind: StarterKind, catalog: boolean): string[] {
 }
 
 /** What the starter set holds and this manifest lacks. A manifest that cannot be read offers nothing: its findings say why. */
-export function starterOffers(manifestText: string): StarterOffer[] {
+function starterOffers(manifestText: string): StarterOffer[] {
   const document = parseDocument(manifestText);
   if (document.errors.length > 0) return [];
   const data = document.toJS() as Record<string, unknown> | null;
@@ -405,7 +405,7 @@ function languageOf(text: string): string | undefined {
  * Brings the product's manifest and templates to the current starter set where no person edited them, writes the
  * templates that are absent, and answers what the set holds that an edited manifest lacks. Idempotent.
  */
-export function rememberMadarchStarterFile(recordFile: string, path: string, text: string): void {
+function rememberMadarchStarterFile(recordFile: string, path: string, text: string): void {
   remember(recordFile, { [path]: text });
 }
 

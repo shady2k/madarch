@@ -16,7 +16,7 @@ import { parseContractText, type ContractError } from '../product/contract.js';
 import { readRegistryFileSafely } from '../product/registry-file.js';
 
 /** The registry file's place within the product, the way every refusal names it. */
-export const REGISTRY_FILE = 'docs/kinds.yaml';
+const REGISTRY_FILE = 'docs/kinds.yaml';
 
 /** How the wiki serves the product's registry on this ask. */
 export type RegistryContract =

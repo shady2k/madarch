@@ -88,7 +88,7 @@ export async function chooseRole(role: string): Promise<void> {
 }
 
 /** Forgets what was read (a test starts over). */
-export function resetSettings(): void {
+function resetSettings(): void {
   publish({ loaded: false, role: 'everything', roles: [], asked: true, error: null });
 }
 

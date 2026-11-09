@@ -7,7 +7,7 @@ import { lineForPath } from '../../model/yaml-position.js';
 import type { GuideDiagnostic, GuideKind } from './model.js';
 import type { GuideReceiptRead } from './host.js';
 
-export interface GuideReceiptLocation { readonly file: string; lineAt(path: readonly (string | number)[]): number }
+interface GuideReceiptLocation { readonly file: string; lineAt(path: readonly (string | number)[]): number }
 export type LocatedGuideReceiptRead = GuideReceiptRead & { readonly locations: readonly GuideReceiptLocation[] };
 const MAX_RECEIPTS = 2400;
 const MAX_BYTES = 1024 * 1024;

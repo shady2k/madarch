@@ -26,10 +26,10 @@ import { UNIT_TOOL_TOKEN_VARIABLE, UNIT_TOOL_URL_VARIABLE, type UnitToolAnswer }
  * seconds, and a minute is far past either while still ending a dead host's call
  * inside a unit's own ten minutes (0026's limit).
  */
-export const UNIT_TOOL_TIMEOUT_MS = 60_000;
+const UNIT_TOOL_TIMEOUT_MS = 60_000;
 
 /** What the started server needs from its environment. */
-export interface UnitToolEnvironment {
+interface UnitToolEnvironment {
   /** The address the host answers a tool call at. */
   readonly url: string;
   /** The token naming this server's unit session. */
@@ -37,7 +37,7 @@ export interface UnitToolEnvironment {
 }
 
 /** Reads the host's address and the session's token, or says which variable is missing or unusable. */
-export function unitToolEnvironment(env: Readonly<Record<string, string | undefined>> = process.env): UnitToolEnvironment | string {
+function unitToolEnvironment(env: Readonly<Record<string, string | undefined>> = process.env): UnitToolEnvironment | string {
   const url = env[UNIT_TOOL_URL_VARIABLE];
   const token = env[UNIT_TOOL_TOKEN_VARIABLE];
   if (typeof url !== 'string' || url.trim() === '') {
@@ -50,7 +50,7 @@ export function unitToolEnvironment(env: Readonly<Record<string, string | undefi
 }
 
 /** What one proxied call is sent and read as, over the host's own JSON answer. */
-export interface UnitToolProxyOptions {
+interface UnitToolProxyOptions {
   /** The host's address, as the environment named it. */
   readonly url: string;
   /** The session's token. */
@@ -75,7 +75,7 @@ function unreachable(url: string, what: string): UnitToolAnswer {
  * the agent reads — the address, the status and the host's own words — so a tool
  * call never fails the server's loop and never hangs it.
  */
-export function unitToolProxy(options: UnitToolProxyOptions): (tool: string, argumentsValue: unknown) => Promise<UnitToolAnswer> {
+function unitToolProxy(options: UnitToolProxyOptions): (tool: string, argumentsValue: unknown) => Promise<UnitToolAnswer> {
   const send = options.fetch ?? fetch;
   const timeoutMs = options.timeoutMs ?? UNIT_TOOL_TIMEOUT_MS;
   return async (tool, argumentsValue) => {

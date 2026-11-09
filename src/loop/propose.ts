@@ -46,7 +46,7 @@ const TITLE_PREFIX: Record<TaskChoice, Record<'en' | 'ru', string>> = {
 };
 
 /** The scope a ground names, when it names one of the product's places; undefined when it names no place. */
-export function scopeOfGround(ground: string): TaskScope | undefined {
+function scopeOfGround(ground: string): TaskScope | undefined {
   const doc = /^doc:([^#]+)(?:#(.+))?$/.exec(ground);
   if (doc !== null) return doc[2] === undefined || doc[2] === '' ? { type: 'file', path: doc[1]! } : { type: 'section', path: doc[1]!, anchor: doc[2].toLowerCase() };
   const symbol = /^code\.symbol:(.+)$/.exec(ground);

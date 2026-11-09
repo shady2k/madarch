@@ -45,10 +45,10 @@ import type { StageLimits } from './stage.js';
 export type UnitLimitCause = 'context' | 'output' | 'turns' | 'time';
 
 /** Every cause, in the order this module checks them: the window first, then what the turn spent, then the count of turns and the time. */
-export const UNIT_LIMIT_CAUSES: readonly UnitLimitCause[] = ['context', 'output', 'turns', 'time'];
+const UNIT_LIMIT_CAUSES: readonly UnitLimitCause[] = ['context', 'output', 'turns', 'time'];
 
 /** What one moment of a unit's session says about its limits: wherever a figure is known. */
-export interface UnitMoment {
+interface UnitMoment {
   /** Tokens the agent says are in the session's context, from a `usage_update`. */
   readonly contextUsed?: number;
   /** The context window the agent names, from the same `usage_update`; the unit's own window holds where none is named. */
@@ -60,7 +60,7 @@ export interface UnitMoment {
 }
 
 /** One unit's limits, as this module reads them, with the two thresholds in tokens. */
-export interface UnitLimitBounds {
+interface UnitLimitBounds {
   readonly contextTokens: number;
   readonly wrapAtTokens: number;
   readonly stopAtTokens: number;
@@ -70,7 +70,7 @@ export interface UnitLimitBounds {
 }
 
 /** What a unit's limits are at one moment, as a report or a limit's own words name them. */
-export interface UnitLimitState {
+interface UnitLimitState {
   readonly bounds: UnitLimitBounds;
   /** The larger of the session's reported context and what madarch itself sent. */
   readonly used: number;
@@ -84,7 +84,7 @@ export interface UnitLimitState {
 }
 
 /** What the guard answers about one moment. */
-export type UnitLimitVerdict =
+type UnitLimitVerdict =
   | { readonly kind: 'within'; readonly state: UnitLimitState }
   | { readonly kind: 'wrap'; readonly state: UnitLimitState }
   | { readonly kind: 'stop'; readonly cause: UnitLimitCause; readonly state: UnitLimitState };
@@ -115,7 +115,7 @@ export interface UnitLimitGuard {
 }
 
 /** The bounds one stage's resolved limits name, refused by name where a number cannot bound anything. */
-export function unitLimitBounds(limits: StageLimits, at = here()): UnitLimitBounds {
+function unitLimitBounds(limits: StageLimits, at = here()): UnitLimitBounds {
   const whole = (field: keyof StageLimits, value: number, least: number): number => {
     if (!Number.isInteger(value) || value < least) raise(`${at}: the unit's ${field} is ${String(value)}: a limit is a whole number of at least ${least}`);
     return value;

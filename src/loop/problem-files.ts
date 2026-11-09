@@ -16,8 +16,8 @@ import { splitFrontMatter } from '../knowledge/markdown.js';
 import { problemId } from '../problems/types.js';
 import type { Author } from './entities.js';
 
-export const PROBLEMS_FOLDER = 'docs/problems';
-export const DISMISSAL_KIND = 'problem-dismissal';
+const PROBLEMS_FOLDER = 'docs/problems';
+const DISMISSAL_KIND = 'problem-dismissal';
 const MAX_REASON = 2000;
 
 /** A record that a problem is not one. */
@@ -90,12 +90,12 @@ export function readProblemDismissals(productFolder: string): DismissalRead {
 }
 
 /** The file name of a dismissal: its rule and a short hash of the identity, so two dismissals never share a file. */
-export function problemSlug(rule: string, identity: string): string {
+function problemSlug(rule: string, identity: string): string {
   const base = slugOf(rule).replace(/-+/g, '-').replace(/^-|-$/g, '').slice(0, 48) || 'problem';
   return `${base}-${createHash('sha1').update(identity).digest('hex').slice(0, 12)}`;
 }
 
-export function dismissalFile(rule: string, identity: string): string {
+function dismissalFile(rule: string, identity: string): string {
   return `${PROBLEMS_FOLDER}/${problemSlug(rule, identity)}.md`;
 }
 

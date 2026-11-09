@@ -21,7 +21,7 @@ import { spawnSync } from 'node:child_process';
 import { join, resolve as resolvePath } from 'node:path';
 import puppeteer from 'puppeteer';
 import { resolveBrowserExecutable } from './chromium.js';
-import { startServer, type StartedServer } from '../src/index.js';
+import { startServer, type StartedServer } from '../src/server/http.js';
 
 const product = argument('product', '');
 if (product !== '' && !existsSync(join(product, 'workspace.yaml'))) {

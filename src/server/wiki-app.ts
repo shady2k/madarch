@@ -20,7 +20,7 @@ import { join as joinPath, normalize, resolve, sep } from 'node:path';
 import type { Handled, ReplyMaker } from './http.js';
 
 /** How long the event stream holds a burst of tree events back before it asks the wiki what changed. */
-export const CHANGE_DEBOUNCE_MS = 200;
+const CHANGE_DEBOUNCE_MS = 200;
 
 /** How often a tree that gave no watch events is asked again, so a change is never missed. */
 const WATCH_FALLBACK_MS = 300;
@@ -55,7 +55,7 @@ export interface OutsideChanges {
  * answered stream. Changes from outside the tree (`outside`) move the revision
  * and wake the stream the same way.
  */
-export function streamingEvents(wiki: ProductWiki, request: Request, outside?: OutsideChanges): Handled {
+function streamingEvents(wiki: ProductWiki, request: Request, outside?: OutsideChanges): Handled {
   const stream = new ReadableStream({
     start: (into): void => {
       const write = (line: string): void => {

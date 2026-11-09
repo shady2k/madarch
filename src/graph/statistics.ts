@@ -33,14 +33,14 @@
 import type { DatabaseOwner } from '../adapters/database-owner.js';
 
 /** The tables a publication's and a read's plans are estimated from, in code-point order. */
-export const STATISTICS_TABLES = ['edge_version', 'node_version'] as const;
+const STATISTICS_TABLES = ['edge_version', 'node_version'] as const;
 
 /**
  * Rows written since the last refresh after which another one is due. Stated
  * from the measurement above: one refresh at 2.5 million rows costs 0.67 s, and
  * the window this leaves is at most 50 000 rows of a table that holds millions.
  */
-export const STATISTICS_ROWS = 50_000;
+const STATISTICS_ROWS = 50_000;
 
 export interface StatisticsRefresh {
   /** The tables the statement analyzed, in code-point order. */
@@ -67,7 +67,7 @@ export interface GraphStatistics {
 }
 
 /** The statement: one `ANALYZE` over both tables, in code-point order. */
-export const ANALYZE_STATISTICS_SQL = `ANALYZE ${STATISTICS_TABLES.join(', ')}`;
+const ANALYZE_STATISTICS_SQL = `ANALYZE ${STATISTICS_TABLES.join(', ')}`;
 
 /** The due check: the tables PostgreSQL has no row count for, which is what an unanalyzed table answers. */
 const NEVER_ANALYZED_SQL = `SELECT c.relname AS relname FROM pg_class c WHERE c.relname = ANY($1::text[]) AND c.reltuples < 0 ORDER BY 1`;
