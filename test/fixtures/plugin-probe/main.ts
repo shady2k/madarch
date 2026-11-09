@@ -6,6 +6,28 @@
 import { definePlugin, type Unit, type UnitResult, type VertexResult } from 'madarch-plugin-sdk';
 import { spawn } from 'node:child_process';
 import { readFileSync, writeFileSync } from 'node:fs';
+import { dlopen, FFIType, toArrayBuffer } from 'bun:ffi';
+
+/** The C library the sandbox binds read-only: the fixture's one way to a call Bun has no wrapper for. */
+const libc = dlopen('libc.so.6', {
+  unshare: { args: [FFIType.i32], returns: FFIType.i32 },
+  syscall: { args: [FFIType.i64, FFIType.i64, FFIType.i64, FFIType.i64], returns: FFIType.i64 },
+  __errno_location: { args: [], returns: FFIType.ptr },
+});
+
+/** The errno the last C call left, as C left it. */
+function errnoNow(): number {
+  const pointer = libc.symbols.__errno_location();
+  if (pointer === null) return -1;
+  return new DataView(toArrayBuffer(pointer, 0, 4)).getInt32(0, true);
+}
+
+/** CLONE_NEWUSER, as `linux/sched.h` writes it. */
+const CLONE_NEWUSER = 0x1000_0000;
+
+/** x86_64's x32 ABI marks its calls with this bit in the number; socket is 41 there. */
+const X32_SYSCALL_BIT = 0x4000_0000;
+const X32_SOCKET = X32_SYSCALL_BIT + 41;
 
 /** The behaviour a unit asks for, `normal` when it asks for none. */
 function behaviorOf(unit: Unit): string {
@@ -122,6 +144,21 @@ await definePlugin({
     }
     if (behavior === 'read-outside') {
       return refused('read-outside', () => readFileSync('/etc/hostname', 'utf8'));
+    }
+    if (behavior === 'unshare') {
+      const result = libc.symbols.unshare(CLONE_NEWUSER);
+      return { end: { state: 'partial', cause: `unshare: returned ${String(result)}, errno ${String(errnoNow())}` } };
+    }
+    if (behavior === 'x32-socket') {
+      if (process.arch !== 'x64') return { end: { state: 'partial', cause: 'x32: not an x86_64 machine' } };
+      const result = libc.symbols.syscall(BigInt(X32_SOCKET), 2n, 1n, 0n);
+      return { end: { state: 'partial', cause: `x32-socket: returned ${String(result)}, errno ${String(errnoNow())}` } };
+    }
+    if (behavior === 'spawn') {
+      const child = Bun.spawn([process.execPath, '-e', 'process.stdout.write("child-ok")'], { stdout: 'pipe', stderr: 'pipe' });
+      const text = await new Response(child.stdout).text();
+      await child.exited;
+      return { end: { state: 'partial', cause: `spawn: ${text}` } };
     }
     if (behavior === 'setsid') {
       const child = spawn(process.execPath, ['-e', 'setInterval(() => {}, 1000)'], { detached: true, stdio: 'ignore' });

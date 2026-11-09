@@ -107,10 +107,12 @@ stale, and the plugin's closure hash includes the SDK it was built against.
   place; a partial unit's removals are dropped and counted.
 - plugin-host/sandbox (new): on Linux, pinned bubblewrap with all namespaces
   unshared, a cleared environment, read-only closure and repository, one
-  writable temp folder, the seccomp filter and a cgroup of the tree's own with
-  memory, cpu and pids; on macOS, sandbox-exec with rlimits and the process
-  group, and its setsid limit stated. A missing delegation or user namespaces
-  is an operations problem and no run at all.
+  writable temp folder, a seccomp filter that refuses addresses, io_uring,
+  ptrace, the namespace and kernel surfaces a plugin never needs, and a fork
+  carrying a namespace while letting Bun's own spawning through, and a cgroup
+  of the tree's own with memory, cpu and pids; on macOS, sandbox-exec with
+  rlimits and the process group, and its setsid limit stated. A missing
+  delegation or user namespaces is an operations problem and no run at all.
 - plugin-host/sdk (new): the TypeScript SDK carries the protocol, heartbeat,
   cancellation and batching, so a plugin's author writes one `extract(unit)`.
 - plugin-host/commands (new): `madarch plugin check <dir>` runs the conformance
@@ -219,8 +221,9 @@ ordinary user `shady` unless a line says root:
   at 33 entries (all `sql-only-in-storage-layer` debt of earlier changes), the catalog (28 areas, 515 kinds) and the
   workflows (4).
 - `MADARCH_SKIP_PERF=1 bun test test/` run as `shady` inside the delegated cgroup (the wrapper below) with
-  `MADARCH_SANDBOX_REQUIRED=1`: **2871 pass, 157 skip, 0 fail**, 3028 tests across 208 files, 329.13 s, exit 0, and
-  the plugin sandbox file **27 pass, 0 skip** inside it. The run needs `XDG_CONFIG_HOME` unset: this box points it at
+  `MADARCH_SANDBOX_REQUIRED=1`: **2873 pass, 158 skip, 0 fail**, 3031 tests across 208 files, 357.75 s, exit 0, and
+  the plugin sandbox file **29 pass, 0 fail** inside it, with one deliberate skip (the x32 case, which only an x86_64
+  kernel can hold; it is skipped on arm64 with the reason printed and is not forced by the required flag). The run needs `XDG_CONFIG_HOME` unset: this box points it at
   a root-only folder, and git then refuses to read an attributes file it finds there, which four `own-wiki` cases
   read as a dirty checkout. Nothing of the change touches those cases; the 157 skips are the suite's own named
   skips (stages out of the fill's list, PostgreSQL legs without a server, performance cases under `MADARCH_SKIP_PERF`).

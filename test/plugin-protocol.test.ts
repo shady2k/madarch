@@ -263,19 +263,60 @@ describe("a plugin's closure and its one hash", () => {
 });
 
 describe('the sandbox primitives', () => {
-  test('the seccomp filter checks the ABI, refuses this platform\'s socket call and allows the rest', () => {
-    const filter = seccompFilter('linux-arm64');
-    // Four instructions before the table (load arch, compare, foreign-ABI answer, load nr), two per refused call
-    // (compare, answer), and one allow at the end.
-    expect(filter.length).toBe(8 * (4 + refusedCallNames('linux-arm64').length * 2 + 1));
-    expect(filter.readUInt16LE(0)).toBe(0x20);
-    expect(refusedCallNames('linux-arm64')).toEqual(['connect', 'io_uring_enter', 'io_uring_register', 'io_uring_setup', 'process_vm_readv', 'process_vm_writev', 'ptrace', 'socket', 'socketpair']);
+  test('the seccomp filter checks the ABI, refuses this platform\'s calls, the x32 ABI and a namespace fork', () => {
+    /** One instruction of the program, as the kernel reads it. */
+    const decode = (filter: Buffer): { code: number; jumpTrue: number; jumpFalse: number; k: number }[] => {
+      const held: { code: number; jumpTrue: number; jumpFalse: number; k: number }[] = [];
+      for (let at = 0; at < filter.length; at += 8) {
+        held.push({ code: filter.readUInt16LE(at), jumpTrue: filter.readUInt8(at + 2), jumpFalse: filter.readUInt8(at + 3), k: filter.readUInt32LE(at + 4) });
+      }
+      return held;
+    };
+    const arm = decode(seccompFilter('linux-arm64'));
+    const x64 = decode(seccompFilter('linux-x64'));
+    const refused = refusedCallNames('linux-arm64');
+    expect(refused).toEqual([
+      'add_key', 'bpf', 'clone', 'clone3', 'connect', 'io_uring_enter', 'io_uring_register', 'io_uring_setup', 'keyctl',
+      'mount', 'open_by_handle_at', 'perf_event_open', 'pivot_root', 'process_vm_readv', 'process_vm_writev', 'ptrace',
+      'request_key', 'setns', 'socket', 'umount2', 'unshare', 'userfaultfd',
+    ].sort());
+    // Four instructions before the table (load arch, compare, foreign-ABI answer, load nr), two per refused call in the
+    // table, two for clone3, four for the clone block and one allow.
+    const table = refused.filter((name) => name !== 'clone' && name !== 'clone3').length;
+    expect(arm.length).toBe(4 + table * 2 + 2 + 4 + 1);
+    expect(x64.length).toBe(arm.length + 2);
+    // The ABI check answers ENOSYS for anything but this filter's ABI, and this platform's own numbers are refused.
+    expect(arm[0]!.code).toBe(0x20);
+    expect(arm[0]!.k).toBe(4);
+    expect(arm[1]!.code).toBe(0x15);
+    expect(arm[1]!.k).toBe(0xc00000b7);
+    expect(arm[2]!.k).toBe(0x00050000 | 38);
+    expect(arm[3]!.k).toBe(0);
+    // x86_64 refuses the x32 ABI whole: a greater-or-equal compare on nr right after it is loaded.
+    expect(arm.some((instruction) => instruction.code === 0x35)).toBe(false);
+    const x32At = x64.findIndex((instruction) => instruction.code === 0x35);
+    expect(x32At).toBe(4);
+    expect(x64[x32At]!.k).toBe(0x4000_0000);
+    expect(x64[x32At]!.jumpTrue).toBe(0);
+    expect(x64[x32At]!.jumpFalse).toBe(1);
+    expect(x64[x32At + 1]!.k).toBe(0x00050000 | 38);
+    // Every refused number answers EPERM: a compare then an errno return.
+    const pairs = x64.filter((instruction) => instruction.code === 0x15 && instruction.jumpTrue === 0 && instruction.jumpFalse === 1);
+    expect(pairs.map((instruction) => instruction.k)).toEqual(expect.arrayContaining([41, 42, 272, 308, 165, 321, 323, 250, 248, 249, 304, 435]));
+    // clone3 answers ENOSYS so the clone fallback runs; clone is refused only when its flags carry a namespace.
+    const clone3At = x64.findIndex((instruction) => instruction.code === 0x15 && instruction.k === 435);
+    expect(x64[clone3At + 1]!.k).toBe(0x00050000 | 38);
+    const cloneAt = x64.findIndex((instruction) => instruction.code === 0x15 && instruction.k === 56);
+    expect(x64[cloneAt]!.jumpFalse).toBe(3);
+    expect(x64[cloneAt + 1]).toEqual({ code: 0x20, jumpTrue: 0, jumpFalse: 0, k: 16 });
+    expect(x64[cloneAt + 2]!.code).toBe(0x45);
+    expect(x64[cloneAt + 2]!.k & 0x1000_0000).toBe(0x1000_0000);
+    expect(x64[cloneAt + 2]!.k & 0x4000_0000).toBe(0x4000_0000);
+    expect(x64[cloneAt + 3]!.k).toBe(0x00050000 | 1);
+    // The fallthrough at the end is the allow.
+    expect(x64[x64.length - 1]!.code).toBe(0x06);
+    expect(x64[x64.length - 1]!.k).toBe(0x7fff0000);
     expect(refusedCallNames('linux-x64')).toContain('socket');
-    const numbers: number[] = [];
-    for (let at = 0; at < filter.length; at += 8) if (filter.readUInt16LE(at) === 0x15) numbers.push(filter.readUInt32LE(at + 4));
-    expect(numbers).toContain(198);
-    expect(filter.readUInt16LE(filter.length - 8)).toBe(0x06);
-    expect(filter.readUInt32LE(filter.length - 4)).toBe(0x7fff0000);
     expect(() => seccompFilter('plan9-x64')).toThrow(/no seccomp filter is built/);
   });
 

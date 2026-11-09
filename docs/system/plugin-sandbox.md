@@ -17,10 +17,24 @@ Every plugin runs under **bubblewrap**, in a sandbox that
 - gives one private writable `tmpfs` at `/tmp` and makes the rest of the
   filesystem read-only (`--remount-ro /`);
 - dies with its parent (`--die-with-parent`);
-- applies a **seccomp filter** that refuses `socket`, `socketpair` and
-  `connect` (the network profile *none*), `io_uring_setup`, `io_uring_enter`,
-  `io_uring_register`, `ptrace`, `process_vm_readv` and `process_vm_writev`;
-  every other call is allowed and the kernel's namespaces do the rest;
+- applies a **seccomp filter** (numbers from the kernel's own
+  `asm-generic/unistd.h` and `syscall_64.tbl` at v6.8) that
+  - refuses `socket` and `connect` (the network profile *none*), and on x86_64
+    every x32 call (`nr >= 0x40000000`, answered `ENOSYS`) — an x32 call carries
+    the same `AUDIT_ARCH_X86_64` and would otherwise slip past a table of one
+    ABI's numbers;
+  - refuses `io_uring_setup`/`enter`/`register`, `ptrace`,
+    `process_vm_readv`/`writev`, `unshare`, `setns`, `mount`, `umount2`,
+    `pivot_root`, `bpf`, `perf_event_open`, `userfaultfd`, `keyctl`, `add_key`,
+    `request_key` and `open_by_handle_at` with `EPERM`;
+  - answers `clone3` with `ENOSYS`, so libc and Bun fall back to `clone`, and
+    refuses a `clone` whose flags carry a namespace bit (`CLONE_NEWUSER`,
+    `NEWNS`, `NEWNET`, `NEWPID`, `NEWIPC`, `NEWUTS`, `NEWCGROUP`, `NEWTIME`) —
+    a fork is Bun's own spawning, a namespace is an escape;
+  - **allows `socketpair`**: Bun hands a child its standard input and output
+    through an `AF_UNIX` socket pair, which reaches no address; an address is
+    reachable only through `socket` and `connect`, and both are refused;
+  - every other call is allowed, and the kernel's namespaces do the rest;
 - runs the plugin as `nobody` when madarch itself runs as root.
 
 The supervisor itself is a pinned, statically linked bubblewrap

@@ -131,6 +131,12 @@ if (skipReason !== undefined) {
 
 /** One case, skipped with the machine's reason when the sandbox cannot run here. */
 const hostTest = test.skipIf(skipReason !== undefined);
+/**
+ * The one case only an x86_64 machine can hold: the x32 ABI. It is skipped elsewhere whatever
+ * MADARCH_SANDBOX_REQUIRED says, because no other kernel has that ABI to refuse.
+ */
+const x64HostTest = test.skipIf(skipReason !== undefined || process.arch !== 'x64');
+if (process.arch !== 'x64') console.log(`the x32 case is skipped: ${process.arch} has no x32 ABI to refuse`);
 
 afterAll(() => {
   for (const root of roots) rmSync(root, { recursive: true, force: true });
@@ -290,6 +296,19 @@ describe('the sandbox refuses a way out', () => {
 
   hostTest('a plugin that writes outside its temporary folder is refused', async () => {
     expect(partialCause((await behaviour('write-outside')).outcome)).toContain('refused (EROFS)');
+  }, 60_000);
+
+  hostTest('a plugin that unshares a namespace is refused by the seccomp filter', async () => {
+    expect(partialCause((await behaviour('unshare')).outcome)).toContain('unshare: returned -1, errno 1');
+  }, 60_000);
+
+  hostTest('a plugin that spawns a child process still works', async () => {
+    // Bun hands a child its standard output through a socket pair: the filter allows that pair and refuses addresses.
+    expect(partialCause((await behaviour('spawn')).outcome)).toContain('spawn: child-ok');
+  }, 60_000);
+
+  x64HostTest('a plugin that calls socket through the x32 ABI is refused on x86_64', async () => {
+    expect(partialCause((await behaviour('x32-socket')).outcome)).toContain('x32-socket: returned -1, errno 38');
   }, 60_000);
 
   hostTest('a plugin that reads outside its snapshot sees nothing', async () => {
