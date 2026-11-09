@@ -18,6 +18,7 @@ import type { StarterOffer } from '../knowledge/starter-upgrade.js';
 import { readCodeSnapshot, evaluateCode } from './code.js';
 import { evaluateDocuments } from './documents.js';
 import { problemId, type ProblemDraft, type ProblemNote, type ProblemSettings } from './types.js';
+import { unimplementedRuleNotes } from './rules.js';
 
 export interface CollectInput {
   readonly productFolder: string;
@@ -71,6 +72,8 @@ export async function collectProblems(input: CollectInput): Promise<Awaited<Retu
   } catch (error) {
     notes.push({ message: `the documents section could not be judged: ${(error as Error).message}` });
   }
+  // A rule whose predicate no section implements is said once, whatever section it names (madarch-8bdc.13).
+  notes.push(...unimplementedRuleNotes(input.settings));
   const listing = await listProblems({
     productFolder: input.productFolder, owner: input.owner, resolve: input.resolve, findings: input.findings,
     settings: input.settings,

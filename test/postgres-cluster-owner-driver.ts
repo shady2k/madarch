@@ -25,6 +25,13 @@ if (mode === 'open-and-leave') {
   if (flock(fd, 2) !== 0) throw new Error(`the start lock ${lock} could not be held`);
   if (marker !== undefined) writeFileSync(marker, `${String(process.pid)}\n`);
   await Bun.sleep(Number(extra ?? '1000'));
+} else if (mode === 'hold-store') {
+  // Opens the store's cluster and stands there: another process of the binary using the same server, which is what a
+  // stop from another process must leave alone.
+  const cluster = await openCluster({ ...clusterPaths(store) });
+  if (marker !== undefined) writeFileSync(marker, `${String(process.pid)}\n`);
+  await Bun.sleep(Number(extra ?? '60000'));
+  await cluster.stop();
 } else if (mode === 'refuse-platform') {
   // The server's programs are this box's, and the platform is then reported as one whose C library this build does not
   // ask for: the open must refuse by name instead of loading a library that is not there (madarch-8bdc.9).

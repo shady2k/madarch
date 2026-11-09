@@ -47,6 +47,12 @@ export interface KnowledgeFillOptions {
   /** The units the run holds in hand at once; 16 when it is left out. */
   readonly workers?: number;
   /**
+   * The content language the press named, when it named one: the run states it in its own record (its trace's root span,
+   * `madarch.language`), so a run another process pressed is read with the language it was asked for (madarch-8bdc.12 —
+   * the fill role dropped it, and a press's language reached nothing).
+   */
+  readonly language?: string;
+  /**
    * The store's owner, opened by the caller: the process's own connection to `<store>/graph`. The caller hands it
    * over — this module closes it when the run ends — so the module that starts a fill never imports a connection
    * (decision 0033, item 3).
@@ -194,6 +200,7 @@ export async function startKnowledgeFill(options: KnowledgeFillOptions): Promise
           runId: options.runId,
           home: options.storeFolder,
           workers: options.workers ?? 16,
+          ...(options.language === undefined ? {} : { language: options.language }),
           maxPasses: 100_000,
           onService: (started) => { service = started; },
           // A page that is showing the wiki while this run fills it follows at a pace proportional to the run, not to
