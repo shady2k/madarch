@@ -98,7 +98,7 @@ const subscribe = (listener: () => void): (() => void) => {
 function onPop(): void {
   const now = current();
   const address = currentAddress();
-  const front = now.tabs.find((tab) => tab.key === now.active);
+  const front = frontTab();
   if (front?.address === address) return;
   // Focusing an already-open tab pushes its address into browser history. Back/forward
   // should restore the tab already holding that address, not overwrite the tab that
@@ -112,12 +112,14 @@ function onPop(): void {
   set({ ...now, tabs: now.tabs.map((tab) => (tab.key === now.active ? { ...tab, address, title: null } : tab)) });
 }
 
+export const tabsState = current;
+
 export function useTabs(): TabsState {
-  return useSyncExternalStore(subscribe, current, current);
+  return useSyncExternalStore(subscribe, tabsState, tabsState);
 }
 
 /** The tab in front. */
-const frontTab = (): Tab => current().tabs.find((tab) => tab.key === current().active)!;
+export const frontTab = (): Tab => current().tabs.find((tab) => tab.key === current().active)!;
 
 function show(address: string): void {
   if (currentAddress() !== address) window.history.pushState({}, '', appPath(address));
@@ -194,7 +196,7 @@ export function closeTab(key: string): void {
 export function syncFrontTabAddress(): void {
   const now = current();
   const address = currentAddress();
-  const front = now.tabs.find((tab) => tab.key === now.active);
+  const front = frontTab();
   if (front === undefined || front.address === address) return;
   set({ ...now, tabs: now.tabs.map((tab) => (tab.key === now.active ? { ...tab, address } : tab)) });
 }

@@ -573,29 +573,6 @@ export function PlanList({ plan, compact = false }: { plan: RefreshPlan; compact
   );
 }
 
-/** What the next refresh would do, read when the menu opens: before the press, not after. */
-function RefreshPreviewView({ language, refreshKey }: { language: string; refreshKey: string }): ReactElement {
-  const { t } = useTranslation();
-  const [preview, setPreview] = useState<RefreshPreview | null>(null);
-  const [error, setError] = useState<string | null>(null);
-  useEffect(() => {
-    const controller = new AbortController();
-    setError(null);
-    getRefreshPlan(language, controller.signal).then(setPreview, (failure: unknown) => { if (!controller.signal.aborted) setError(message(failure)); });
-    return () => controller.abort();
-  }, [language, refreshKey]);
-  if (error !== null) return <p className="m-0 text-small" role="alert" data-testid="plan-error">{error}</p>;
-  if (preview === null) return <p className="m-0 text-small text-muted" data-testid="plan-loading">{t('loop.plan.reading')}</p>;
-  if (!preview.available) return <p className="m-0 text-small text-muted" data-testid="plan-unavailable">{preview.reason}</p>;
-  return (
-    <div data-testid="refresh-preview">
-      <div className="mb-1 text-small font-medium text-ink">{t('loop.plan.title')}</div>
-      <PlanList plan={preview.plan} compact />
-      {preview.commitsNotRead !== null && preview.commitsNotRead > 0 && <p className="mb-0 mt-2 text-small text-muted" data-testid="plan-commits">{t('loop.plan.commits', { count: preview.commitsNotRead })}</p>}
-    </div>
-  );
-}
-
 // ---- the scoped tasks of answers (madarch-m38l.14) -------------------------------------------
 
 /** A scope as a reader says it: `README.md#what-it-does`, `src/a.ts:12-20`, a code symbol's graph key, a statement's, or a path. */

@@ -78,3 +78,5 @@ function relativeTime(isoTime: string, language: string = i18n.resolvedLanguage 
 }
 
 
+
+export { i18n };

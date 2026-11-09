@@ -6,7 +6,7 @@ import { createHash, randomUUID } from 'node:crypto';
 import { mkdir, readFile, rename, writeFile, unlink } from 'node:fs/promises';
 import { dirname, join, resolve } from 'node:path';
 
-const FILL_STATE_VERSION = 1;
+export const FILL_STATE_VERSION = 1;
 const FILL_STAGES = ['inventory', 'index', 'claims', 'code-map', 'synthesis', 'question-review'] as const;
 type FillStage = typeof FILL_STAGES[number];
 const FILL_UNIT_STATUSES = ['pending', 'running', 'complete', 'blocked', 'stale'] as const;
