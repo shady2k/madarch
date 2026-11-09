@@ -20,21 +20,19 @@
  */
 import { type TSchema } from 'typebox';
 import type { AcpMcpServer } from './acp.js';
-import type { StaticEdgeDraft, StaticNodeDraft } from './stages/static-graph.js';
-import type { StaticStageContext } from './stages/static-context.js';
 
 /** How much of the product one capability or fact kind is about. */
-export type CapabilityScope = 'product' | 'repository' | 'package' | 'cluster' | 'file';
+type CapabilityScope = 'product' | 'repository' | 'package' | 'cluster' | 'file';
 
 /**
  * What freshness a consumed capability needs: `any` accepts the last
  * published facts of any age, `current` asks the publication to recheck
  * what the unit read (decision 0027, staleness from tracked reads).
  */
-export type CapabilityFreshness = 'any' | 'current';
+type CapabilityFreshness = 'any' | 'current';
 
 /** One capability a stage consumes, with the scope and freshness it needs. */
-export interface StageConsumes {
+interface StageConsumes {
   /** The capability's name, the graph's own vocabulary (for example `product-graph`). */
   capability: string;
   /** The scope the stage reads the capability at. */
@@ -44,7 +42,7 @@ export interface StageConsumes {
 }
 
 /** One fact kind a stage produces, with its schema version and ownership scope. */
-export interface StageProduces {
+interface StageProduces {
   /** The fact kind's name, in the fill's own namespace, never a registry kind's. */
   kind: string;
   /** The schema version the kind's facts are written in. */
@@ -111,7 +109,7 @@ export const DEFAULT_STAGE_DEFAULTS: StageDefaults = {
 // ---- what a stage runs in and returns --------------------------------------
 
 /** One unit of a stage's work: a stable identity and the scope it covers. */
-export interface StageUnitScope {
+interface StageUnitScope {
   /** The unit's stable id, never carrying a run id (decision 0026). */
   id: string;
   /** What the unit covers, in the graph's own terms. */
@@ -137,6 +135,27 @@ export interface StageGraphReader {
   query(text: string): Promise<readonly unknown[]>;
 }
 
+
+/** One node a stage's draft writes to the graph: its key, kind, label and properties. */
+interface StaticNodeDraft {
+  readonly key: string;
+  readonly kind: string;
+  readonly label: string;
+  readonly properties: Readonly<Record<string, unknown>>;
+}
+
+/** One end of a static edge: a node named by the key the publication resolves. */
+type StaticEnd = { readonly key: string } | { readonly id: string };
+
+/** One edge a stage's draft writes; both ends are named by a key the publication resolves. */
+interface StaticEdgeDraft {
+  readonly relation: string;
+  readonly from: StaticEnd;
+  readonly to: StaticEnd;
+  readonly properties?: Readonly<Record<string, unknown>>;
+  readonly discriminator?: string;
+  readonly position?: { readonly start: number; readonly end: number };
+}
 /**
  * One write a unit's draft holds; every write cites what it stands on, and every
  * write carries the fact it writes in its `value` — the schema's own fact
@@ -169,7 +188,7 @@ export interface StageDraftWriter {
 }
 
 /** How a stage reports its progress while a unit runs. */
-export interface StageProgress {
+interface StageProgress {
   (note: string, fraction?: number): void;
 }
 
@@ -178,7 +197,7 @@ export interface StageProgress {
  * own id in the stage's vocabulary, the generation the split sealed for it, and the
  * moment the seal was made.
  */
-export interface StageSealedChild {
+interface StageSealedChild {
   /** The child's unit id, in the store's namespaced form (`<stage>/<stage unit id>`). */
   readonly unitId: string;
   /** The generation the split sealed, which the parent's join is for. */
@@ -259,14 +278,6 @@ export interface StageContext {
   config: ResolvedStageConfiguration;
   /** Tracked reads of the pinned graph. */
   graph: StageGraphReader;
-  /**
-   * One pinned repository's path-scoped answers for a static stage (decision
-   * 0033, "Capability boundaries"): one file's bytes, its entry, whether a
-   * folder stands, and bounded reads of the graph. A static stage never holds a
-   * tree reader; a stage that plans from the tree reads it in its plan, where
-   * the run, not a worker, is doing the reading.
-   */
-  static?: StaticStageContext;
   /** Private draft writes, visible to other units only as draft. */
   draft: StageDraftWriter;
   /** Progress the run's view shows. */
@@ -292,7 +303,7 @@ export type StageExecutionResult =
   | { outcome: 'blocked'; reason: string };
 
 /** How `validate` judges a draft: whole, or the errors that refuse it. */
-export type StageValidation =
+type StageValidation =
   | { ok: true }
   | { ok: false; errors: readonly string[] };
 

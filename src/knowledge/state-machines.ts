@@ -16,9 +16,9 @@
  */
 
 import type { Node as SyntaxNode } from 'web-tree-sitter';
-import { readSyntaxTree } from '../fill/stages/syntax-extract.js';
+import { readSyntaxTree } from './syntax.js';
 
-export interface MachineState {
+interface MachineState {
   /** The name as written in the table. */
   name: string;
   /** What a reader sees: the string the constant holds, else the name. */
@@ -27,7 +27,7 @@ export interface MachineState {
   line: number;
 }
 
-export interface MachineTransition {
+interface MachineTransition {
   from: string;
   to: string;
   /** The event that moves the entity, when the table names one. */

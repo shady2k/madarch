@@ -18,7 +18,7 @@ import type { FillStageConfigurationRead } from './config.js';
 import { fillSteps, type RecordPassWiring } from './steps.js';
 import { assertFillGitVersion } from './git-version.js';
 
-export { fillSteps };
+;
 import type { StageRegistry } from './registry.js';
 import { createStagesFill, type StagesFillOptions, type UnreadRepository } from '../product/fill-stages.js';
 import { publishHistory, publishTree } from '../graph/index.js';

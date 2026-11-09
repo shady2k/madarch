@@ -29,18 +29,15 @@ import { createPgBossQueue } from '../adapters/pg-boss-queue.js';
 import { consumeFillControl } from '../product/fill-runtime.js';
 import { draftSetOf, factGraph, writeScope, type CheckedWriteDraft, type CheckedWriteGraph, type WriteSnapshots } from './checked-writes.js';
 import type { FillStageConfigurationRead } from './config.js';
-import type { SqlExecutor } from '../query/sql-driver.js';
+import type { SqlExecutor } from '../sql-driver.js';
 import { FACT_APPLICATION, createFactStoreSchema } from './fact-store.js';
-import { createGraphStore, outerTransactionOf, type GraphStore } from '../graph/index.js';
-import { ensureGraphSchema, staticUnitPublicationOf } from './stages/static-graph.js';
-import { staticGraphReaderOf } from './stages/static-context.js';
+import { createGraphStore, type GraphStore } from '../graph/index.js';
 import { emptyNextStep, emptyPageSetMessage, emptyQuestionSet, readDecisionSubject, readPageChanges, readPageModel, readPageSet, type GraphDecisionWrite, type GraphPagesSource } from './graph-pages.js';
 import { answerDocument, acceptanceDocument, ANSWERS_FOLDER, ACCEPTANCES_FOLDER, commitDecision, decisionFile, discardDecision, stageDecision, type DecisionRecord, type StagedDecision } from './decisions.js';
 import { applyDecisions } from './declared.js';
 import { labelOf } from './graph-reads.js';
 import { readNodeDiagrams } from './graph-diagrams.js';
-import { commitNarrativePages, type NarrativeOutboxResult } from './narrative-outbox.js';
-import { NARRATIVE_STAGE_ID } from './stages/narrative.js';
+import type { NarrativeOutboxResult } from './narrative-outbox.js';
 import { createPageReadCache } from './page-cache.js';
 import type { Fact, FactLayer, FactSource } from './facts.js';
 import { answerMembership, graphReadsOver, recordedReadText, type DraftReading, type GraphReadLimits } from './graph-reads.js';
@@ -70,7 +67,6 @@ import type { QueueService } from './queue.js';
 import { createFillStateSchema, readChain, readLatestRun, readRun, readRunUnits } from './state-store.js';
 import type { StageRegistry } from './registry.js';
 import type { SnapshotSource } from './snapshot.js';
-import { staticStageSourceOf } from './stages/static-context.js';
 import {
   callUnitTool,
   createUnitToolsHost,
@@ -135,7 +131,7 @@ export interface ProductFillWiring {
  * repository), so a host that serves many products answers one of these per
  * product.
  */
-export interface ProductFill {
+interface ProductFill {
   readonly registry: StageRegistry;
   readonly wiring: ProductFillWiring;
 }
@@ -180,7 +176,7 @@ export interface FillRunResult {
 }
 
 /** What opening one unit's tools is asked for: the unit, and where its bytes, its drafts and its writes stand. */
-export interface UnitToolsRequest {
+interface UnitToolsRequest {
   /** The product whose graph the unit reads and writes. */
   readonly product: FillProduct;
   /** The unit's identity in the store: the generation whose tracked reads and draft set its tools belong to (0027). */
@@ -390,7 +386,7 @@ function repositoryOfScope(ref: UnitRef): string {
 }
 
 /** The units' queue's name in the process's database. */
-export const DEFAULT_FILL_QUEUE = 'fill-units';
+const DEFAULT_FILL_QUEUE = 'fill-units';
 
 /** Where the process's fill database lives under a products home. */
 /** The unit states a run is finished with: nothing waits on them any longer. */
@@ -621,14 +617,6 @@ async function fileDecision(
    * (`cancelRun`'s revocation), leaving the work in flight. Building it once also keeps a product's stage registry
    * and wiring in one place for every run of it.
    */
-  /** The graph's tables and vocabulary, created once per process before a registry with static stages runs. */
-  let graphReady: Promise<void> | undefined;
-  async function ensureGraph(): Promise<void> {
-    if (graphStore === undefined) throw new Error('fill-orchestrator: the graph schema was asked for before the process\'s owner was opened (src/fill/orchestrator-host.ts)');
-    graphReady ??= ensureGraphSchema(graphStore);
-    await graphReady;
-  }
-
   const orchestrators = new Map<string, FillOrchestrator>();
   /** The registry each product's orchestrator was built over: what the pages outbox asks for by name. */
   const registries = new Map<string, StageRegistry>();
@@ -641,9 +629,6 @@ async function fileDecision(
     const { wiring, registry } = wired;
     registries.set(product.name, registry);
     const { owner, queue, graph } = await open();
-    // A registry with any static stage publishes into the 0028 graph: its tables and vocabulary stand
-    // before the first plan reads them, outside every publication's transaction.
-    if (registry.all().some((stage) => stage.staticReading === true)) await ensureGraph();
     const built = createOrchestrator({
       database: owner,
       registry,
@@ -654,16 +639,6 @@ async function fileDecision(
       snapshot: () => wiring.snapshot(),
       graph: (ref, transaction) => wiring.graph(ref, transaction),
       inputs: (ref) => wiring.inputs(ref),
-      // A static stage (0033, "Capability boundaries") is handed its pinned repository's path-scoped
-      // answers here: the host owns the snapshot source, and a stage never receives the reader.
-      staticSource: async (ref) => {
-        if (registry.get(ref.stageId)?.staticReading !== true) return undefined;
-        const source = await sourceOf(wiring, product);
-        return await staticStageSourceOf(source, repositoryOfScope(ref));
-      },
-      // The same stages read the graph through three bounded questions (0033): by key, by global name
-      // and one bounded neighbourhood. They never receive the store.
-      staticGraph: (ref) => (registry.get(ref.stageId)?.staticReading === true ? staticGraphReaderOf(graph) : undefined),
       // The static stages' drafts are graph items, applied by the publication's own transaction into the
       // 0028 graph. The graph store's one unit publication owns the scope its caller's key names, the
       // generation allocation and the publication lock (decision 0033, item 3); the orchestrator's executor
@@ -671,21 +646,7 @@ async function fileDecision(
       // set where the wiring says (today the fill's fact store), and a host that names another landing point
       // keeps it for those stages.
       facts: {
-        apply: async (input) => {
-          if (registry.get(input.unit.stageId)?.staticReading === true) {
-            await graph.publishUnit(staticUnitPublicationOf({
-              unitId: input.unit.unitId,
-              // A stage whose unit id names what it read and whose scope is what it replaces
-              // publishes under that scope (the history stage's range under its repository).
-              scopeKey: input.plan.scope,
-              stageId: input.unit.stageId,
-              digest: input.digest,
-              writes: input.writes,
-            }), outerTransactionOf(input.executor));
-            return input.writes.length;
-          }
-          return await (wiring.facts ?? FACT_APPLICATION).apply(input);
-        },
+        apply: async (input) => await (wiring.facts ?? FACT_APPLICATION).apply(input),
       },
       ...(options.clock === undefined ? {} : { clock: options.clock }),
       control: options.control !== undefined ? options.control(product) : async (runId: string) => await consumeFillControl(product.folder, runId),
@@ -1076,17 +1037,8 @@ async function fileDecision(
       // narrative units published is carried into the product's git here, never inside a publication. A
       // registry without the pages stage — every run without an agent today — carries nothing, and pays
       // nothing: the step is not even started.
-      let pages: NarrativeOutboxResult | undefined;
-      const registry = registries.get(request.product.name) ?? options.registry;
-      if (registry.all().some((stage) => stage.id === NARRATIVE_STAGE_ID)) {
-        pages = await commitNarrativePages({
-          database: (await open()).owner,
-          folder: request.product.folder,
-          product: request.product.name,
-          ...(options.clock === undefined ? {} : { clock: options.clock }),
-          ...(options.log === undefined ? {} : { log: options.log }),
-        });
-      }
+      // This step's fill holds no narrative stage, so it carries no page outbox.
+      const pages: NarrativeOutboxResult | undefined = undefined;
       const status = await runStatus(orchestrator, request.runId);
       // A re-planning the run could not take is the caller's to hear about
       // (madarch-tzte.26.3): the run stands whatever it stands and the refusal

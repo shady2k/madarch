@@ -31,7 +31,7 @@ import type { DatabaseOwner } from '../adapters/database-owner.js';
 import { canonicalJsonDigest } from '../model/canonical.js';
 import { byCodePoint } from '../model/order.js';
 import type { FillRun } from '../product/fill-runtime.js';
-import type { SqlExecutor } from '../query/sql-driver.js';
+import type { SqlExecutor } from '../sql-driver.js';
 import { here, raise, withLocation } from './fsm-core.js';
 import { FACT_RANK_FIELDS } from './facts.js';
 import { advanceUnitIn, type UnitRecord } from './state-store.js';
@@ -408,10 +408,10 @@ function draftRecord(row: DraftRow): DraftRecord {
  * request of that generation is judged by, and its `writes` — a unit's whole fact set as JSON, the
  * largest second copy of what the publication wrote — are dropped (madarch-tzte.21.11).
  */
-export const PUBLISHED_DRAFT_WRITES = '[]';
+const PUBLISHED_DRAFT_WRITES = '[]';
 
 /** The digest of one draft set: what a publication names, so the same draft published twice is one publication. */
-export function draftDigest(writes: readonly StageDraftWrite[]): string {
+function draftDigest(writes: readonly StageDraftWrite[]): string {
   return canonicalJsonDigest(writes);
 }
 
@@ -450,7 +450,7 @@ export async function recordUnitDraftIn(
 }
 
 /** The draft set of one unit generation, or null when it holds none. */
-export async function readUnitDraft(database: OrchestratorDatabase, unitId: string, generation: number): Promise<DraftRecord | null> {
+async function readUnitDraft(database: OrchestratorDatabase, unitId: string, generation: number): Promise<DraftRecord | null> {
   const at = here();
   return run(at, database, `readUnitDraft(${unitId}/${generation})`, ['fill_unit_draft', 'fill_unit_draft_part'], async (executor) => readUnitDraftIn(executor, unitId, generation), 'snapshot');
 }
@@ -468,7 +468,7 @@ export async function readUnitDraftIn(executor: SqlExecutor, unitId: string, gen
  * parameter and one jsonb value, and a few hundred writes keep both a few hundred
  * kilobytes however large the unit's set is.
  */
-export const DRAFT_PART_WRITES = 500;
+const DRAFT_PART_WRITES = 500;
 
 /** The `writes` a draft row holds itself: none — its writes are its parts (`fill_unit_draft_part`). */
 const EMPTY_WRITES = '[]';
@@ -484,7 +484,7 @@ const EMPTY_WRITES = '[]';
  * before anything else runs in that transaction, which is the only moment
  * PostgreSQL accepts a transaction's isolation level being set.
  */
-export const PUBLICATION_SNAPSHOT = 'SET TRANSACTION ISOLATION LEVEL REPEATABLE READ';
+const PUBLICATION_SNAPSHOT = 'SET TRANSACTION ISOLATION LEVEL REPEATABLE READ';
 
 /**
  * Draft rows with their whole set of writes: the row's own `writes` (a row
@@ -539,7 +539,7 @@ interface DraftHeadRow extends Record<string, unknown> { unit_id: string; genera
  * fact set back as JSON to learn it is the copy madarch-tzte.21.11 measured as
  * the largest allocation of a repository-wide unit's publication.
  */
-export async function readUnitDraftHeadIn(executor: SqlExecutor, unitId: string, generation: number): Promise<DraftHead | null> {
+async function readUnitDraftHeadIn(executor: SqlExecutor, unitId: string, generation: number): Promise<DraftHead | null> {
   const { rows } = await executor.query<DraftHeadRow>('SELECT unit_id, generation, digest, recorded_at, retracted_at FROM fill_unit_draft WHERE unit_id = $1 AND generation = $2', [unitId, generation]);
   const row = rows[0];
   if (row === undefined) return null;
@@ -578,7 +578,7 @@ export async function retractUnitDraft(database: OrchestratorDatabase, options: 
  * set — up to 34 MB for the modules stage's repository-wide unit — at the run's
  * memory peak (madarch-tzte.21.11, the review of its publication path).
  */
-export async function retractUnitDraftIn(executor: SqlExecutor, options: { readonly unitId: string; readonly generation: number; readonly at: number }): Promise<DraftHead | null> {
+async function retractUnitDraftIn(executor: SqlExecutor, options: { readonly unitId: string; readonly generation: number; readonly at: number }): Promise<DraftHead | null> {
   await executor.query('UPDATE fill_unit_draft SET retracted_at = COALESCE(retracted_at, $3) WHERE unit_id = $1 AND generation = $2', [options.unitId, options.generation, options.at]);
   return await readUnitDraftHeadIn(executor, options.unitId, options.generation);
 }
@@ -742,7 +742,7 @@ export interface PublicationRequest {
  * the same identity and digest answers the existing record; a different digest
  * is refused and nothing is written.
  */
-export async function publishUnit(
+async function publishUnit(
   database: OrchestratorDatabase,
   options: PublicationRequest,
 ): Promise<PublicationOutcome> {
@@ -961,7 +961,7 @@ export async function readRunControl(database: OrchestratorDatabase, runId: stri
 }
 
 /** One generation's publication record, or null when it was never published. */
-export async function readPublication(database: OrchestratorDatabase, unitId: string, generation: number): Promise<PublicationRecord | null> {
+async function readPublication(database: OrchestratorDatabase, unitId: string, generation: number): Promise<PublicationRecord | null> {
   const at = here();
   return run(at, database, `readPublication(${unitId}/${generation})`, ['fill_publication'], async (executor) => readPublicationIn(executor, unitId, generation), 'snapshot');
 }
@@ -973,7 +973,7 @@ export async function readPublicationIn(executor: SqlExecutor, unitId: string, g
 }
 
 /** Every publication of one unit, oldest generation first: the record of what it published and when. */
-export async function readPublications(database: OrchestratorDatabase, unitId: string): Promise<readonly PublicationRecord[]> {
+async function readPublications(database: OrchestratorDatabase, unitId: string): Promise<readonly PublicationRecord[]> {
   const at = here();
   return run(at, database, `readPublications(${unitId})`, ['fill_publication'], async (executor) => {
     const { rows } = await executor.query<PublicationRow>('SELECT unit_id, generation, digest, facts, published_at FROM fill_publication WHERE unit_id = $1 ORDER BY generation ASC', [unitId]);
@@ -991,7 +991,7 @@ async function readUnitReadsIn(executor: SqlExecutor, unitId: string, generation
 }
 
 /** The unit a publication is about, for a caller that wants the row it stepped: exported for the orchestrator's own use. */
-export type { UnitRecord };
+;
 
 // ---------------------------------------------------------------------------------------------
 // The run's snapshot and its units' place in the plan
@@ -1270,7 +1270,7 @@ export interface FillProgressEvent {
 }
 
 /** Every kind of progress event the orchestrator emits; the vocabulary the live view reads. */
-export const PROGRESS_KINDS = [
+const PROGRESS_KINDS = [
   'run-planned', 'run-started', 'run-blocked', 'run-paused', 'run-resumed', 'run-cancelling', 'run-cancelled',
   'run-completed', 'run-completed-partial', 'run-failed', 'run-replanned', 'run-refused',
   'stage-found-nothing', 'stage-planned',
