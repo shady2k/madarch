@@ -183,11 +183,11 @@ describe('a catalog is read as its manifest declares it', () => {
     const starter = product();
     const seeded = parseKinds(STARTER_FILES.find((file) => file.path === 'madarch/kinds.yaml')!.content, 'madarch/kinds.yaml', starter);
     expect(seeded.findings).toEqual([]);
-    expect(read.catalog!.kinds.size).toBe(490);
+    expect(read.catalog!.kinds.size).toBe(515);
     expect(read.findings.filter((finding) => !finding.message.startsWith('"documents.expect"'))).toEqual([]);
     const areas = [...read.groups.values()].filter((group) => group.parent === undefined);
     const subgroups = [...read.groups.values()].filter((group) => group.parent !== undefined);
-    expect([areas.length, subgroups.length]).toEqual([26, 100]);
+    expect([areas.length, subgroups.length]).toEqual([28, 106]);
     for (const entry of read.catalog!.kinds.values()) expect(read.groups.get(entry.subgroup)!.parent).toBe(entry.area);
   });
 });
@@ -333,12 +333,14 @@ describe('the areas a person sees open at once', () => {
     // A person reads the product's own knowledge before the code: every open area stands before code.
     for (const open of ['strategy', 'requirements', 'rd', 'documentation']) expect([open, order.indexOf(open) < order.indexOf('code')]).toEqual([open, true]);
     // The kinds the old "Product knowledge" group held are all in an area that opens: domains and the product page,
-    // use cases, rules, requirements and terms, decisions, and the agent's enrichments, questions and corrections.
+    // use cases, rules, requirements and terms, decisions, and the agent's enrichments and corrections. The question
+    // is now the tracker's clarification, so it stands in Work instead (the owner's decision of 2026-11-08).
     const opened = new Set(areas.filter((area) => area.open === true).map((area) => area.name));
-    for (const kind of ['product', 'domain', 'doc.use-case', 'doc.rule', 'doc.requirement', 'doc.term', 'doc.decision', 'enrichment', 'question', 'correction']) {
+    for (const kind of ['product', 'domain', 'doc.use-case', 'doc.rule', 'doc.requirement', 'doc.term', 'doc.decision', 'enrichment', 'correction']) {
       const entry = read.catalog!.kinds.get(kind);
       expect([kind, entry !== undefined && opened.has(entry.area)]).toEqual([kind, true]);
     }
+    expect(read.catalog!.kinds.get('question')).toMatchObject({ subgroup: 'work.coordination', area: 'work' });
   });
 });
 

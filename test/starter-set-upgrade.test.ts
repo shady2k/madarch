@@ -62,6 +62,10 @@ describe('a manifest and templates only madarch wrote', () => {
     const after = manifestOf(product);
     expect(after.findings).toEqual([]);
     expect(after.language).toBe('ru');
+    // No kind the product held is lost on the way to the current set: every page kind of the 0.2.0 draft is still a kind.
+    for (const name of ['product', 'domain', 'code.service', 'code.file', 'code.symbol', 'question', 'correction']) {
+      expect([name, after.kinds.has(name)]).toEqual([name, true]);
+    }
     expect([...after.groups.keys()]).toEqual(GROUPS.map((group) => group.name));
     expect([...after.roles.keys()].sort()).toEqual(['analyst', 'architect', 'designer', 'developer', 'operations', 'platform-devops', 'product', 'product-lead', 'security-engineer', 'tester']);
     for (const kind of STARTER_KINDS) expect(after.kinds.get(kind.name)?.group).toBe(kind.group);
@@ -74,6 +78,43 @@ describe('a manifest and templates only madarch wrote', () => {
     expect(after.kinds.get('code.contract')?.group).toBe('contracts');
     expect(read(product, 'madarch/kinds.yaml')).toBe(starterManifest('ru'));
     for (const starter of STARTER_FILES.filter((file) => file.path.startsWith('templates/'))) expect(read(product, starter.path)).toBe(starter.content);
+  });
+
+  test('an older starter set\'s catalogue rows are merged into the kinds the concepts have now, never dropped', () => {
+    root = mkdtempSync(join(tmpdir(), 'madarch-upgrade-'));
+    const product = join(root, 'product');
+    mkdirSync(join(product, 'madarch'), { recursive: true });
+    writeFileSync(join(product, 'madarch', 'kinds.yaml'), [
+      '# an older starter set wrote these rows',
+      'kinds:',
+      '  product:',
+      '    template: templates/product.liquid',
+      '    source: markdown',
+      '    file: docs/product.md',
+      '  issue:',
+      '    group: history.work',
+      '  review-comment:',
+      '    group: review.review',
+      '  review-approval:',
+      '    group: review.review',
+      '  defect:',
+      '    group: testing.defect',
+      '',
+    ].join('\n'));
+    git(product, 'init', '-q', '-b', 'main');
+    git(product, 'add', '-A');
+    git(product, 'commit', '-q', '-m', 'Create the draft product');
+    const report = upgradeStarterSet(product, join(root, 'store', 'starter.json'));
+    expect(report.rewritten).toContain('madarch/kinds.yaml');
+    const after = manifestOf(product);
+    expect(after.kinds.has('product')).toBe(true);
+    for (const [old, now] of [['issue', 'task'], ['review-comment', 'comment'], ['review-approval', 'approval']] as const) {
+      expect([old, after.catalog!.kinds.has(now)]).toEqual([old, true]);
+      expect([old, after.catalog!.kinds.has(old)]).toEqual([old, false]);
+    }
+    // The defect is the imperfection, and the bug is the work item for it: both survive, as the two senses they are.
+    expect(after.catalog!.kinds.has('defect')).toBe(true);
+    expect(after.catalog!.kinds.has('bug')).toBe(true);
   });
 
   test('the language a person chose, which madarch wrote into the manifest, survives the upgrade, in either language', () => {
@@ -389,11 +430,11 @@ describe('ensureLoopKinds', () => {
   });
 
   test('a manifest that declares the kinds\' subgroups gets the kinds in them', () => {
-    const product = bare('groups:\n  documentation: { en: "Documentation", ru: "Документация" }\n  documentation.feedback: { en: "Feedback", ru: "Обратная связь", parent: documentation }\nkinds: {}\n');
+    const product = bare('groups:\n  documentation: { en: "Documentation", ru: "Документация" }\n  documentation.feedback: { en: "Feedback", ru: "Обратная связь", parent: documentation }\n  work: { en: "Work", ru: "Работа" }\n  work.coordination: { en: "Coordination", ru: "Координация", parent: work }\nkinds: {}\n');
     ensureLoopKinds(product);
     const manifest = manifestOf(product);
     expect(manifest.findings).toEqual([]);
-    expect(manifest.kinds.get('question')?.group).toBe('documentation.feedback');
+    expect(manifest.kinds.get('question')?.group).toBe('work.coordination');
     expect(manifest.kinds.get('correction')?.group).toBe('documentation.feedback');
   });
 });
