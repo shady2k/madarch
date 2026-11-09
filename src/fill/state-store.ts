@@ -49,7 +49,7 @@ import {
   runMachine,
   unitMachine,
 } from './fsm.js';
-import { SCHEMA_LOCK_SQL, storeSchemaLockKey } from '../adapters/schema-stamp.js';
+import { createSchemaOnce } from '../adapters/schema-stamp.js';
 import type {
   ChainContext,
   ChainEvent,
@@ -157,14 +157,33 @@ const SCHEMA: readonly string[] = [
   'CREATE INDEX IF NOT EXISTS fill_unit_generation_run ON fill_unit_generation (run_id)',
 ];
 
-/** Creates the store's tables and indexes; safe to run on every start of the process's owner. */
+/**
+ * Creates the store's tables and indexes; safe to run on every start of the process's owner.
+ *
+ * A schema that stands is not made again (madarch-8bdc.9): `CREATE INDEX IF NOT EXISTS` takes the table's `ShareLock`
+ * even when the index is there, and a process opening a store while another runs a fill deadlocked with it — PostgreSQL's
+ * own detail (CI run for ddaefd9b, the fill-crash check; reproduced here):
+ *
+ *     Process 407868 waits for ShareLock on relation 35538 (fill_unit_generation); blocked by 407862.
+ *     Process 407862 waits for RowExclusiveLock on relation 35568 (fill_transition); blocked by 407868.
+ *       407868: CREATE INDEX IF NOT EXISTS fill_unit_generation_run ON fill_unit_generation (run_id)
+ *       407862: INSERT INTO fill_transition (...)
+ *
+ * — the creator's index holds `fill_unit_generation` while it waits for `fill_transition`, and the run's transaction
+ * holds `fill_transition` while it waits for `fill_unit_generation`. `createSchemaOnce` takes the store's schema lock
+ * first and then makes nothing at all when the stamp it left stands, so opening a store that has its schema takes no
+ * lock on a table a run writes.
+ */
 export async function createFillStateSchema(database: FillStateDatabase): Promise<void> {
   const at = here();
-  await run(at, database, 'createFillStateSchema', FILL_STATE_TABLES, async (executor) => {
-    // A schema made from several processes at once is serialized (`src/adapters/schema-stamp.ts`).
-    await executor.query(SCHEMA_LOCK_SQL, [storeSchemaLockKey()]);
-    for (const statement of SCHEMA) await executor.query(statement);
-  }, 'write');
+  await withLocation(at, 'createFillStateSchema', FILL_STATE_TABLES, async () => {
+    await createSchemaOnce(database, {
+      name: 'fill-state',
+      parts: SCHEMA,
+      tables: FILL_STATE_TABLES,
+      create: async (executor) => { for (const statement of SCHEMA) await executor.query(statement); },
+    });
+  });
 }
 
 /** One row of `fill_unit_lease`: the lease an attempt took, and the token it acts under. */

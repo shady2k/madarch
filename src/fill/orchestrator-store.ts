@@ -36,7 +36,7 @@ import { here, raise, withLocation } from './fsm-core.js';
 import { FACT_RANK_FIELDS } from './facts.js';
 import { advanceUnitIn, type UnitRecord } from './state-store.js';
 import type { StageDraftWrite } from './stage.js';
-import { SCHEMA_LOCK_SQL, storeSchemaLockKey } from '../adapters/schema-stamp.js';
+import { createSchemaOnce, SCHEMA_LOCK_SQL, storeSchemaLockKey } from '../adapters/schema-stamp.js';
 
 /** The orchestrator's own tables; `createOrchestratorSchema` creates them and every error names the ones it touched. */
 export const ORCHESTRATOR_TABLES = [
@@ -174,12 +174,26 @@ const CACHE_VERSIONS_COLUMN = 'ALTER TABLE fill_unit_plan ADD COLUMN IF NOT EXIS
  */
 const CACHE_VERSIONS_LOCK = 724_913_556;
 
-/** Creates the orchestrator's tables and indexes; safe to run on every start of the process's owner. */
+/**
+ * Creates the orchestrator's tables and indexes; safe to run on every start of the process's owner.
+ *
+ * As the fill's own schema (`createFillStateSchema`): a schema that stands is not made again, because
+ * `CREATE INDEX IF NOT EXISTS` takes the table's `ShareLock` even when the index is there, and that lock against a running
+ * fill's transaction is the deadlock PostgreSQL's detail named for this check (madarch-8bdc.9).
+ */
 export async function createOrchestratorSchema(database: OrchestratorDatabase): Promise<void> {
   const at = here();
+  await withLocation(at, 'createOrchestratorSchema', ORCHESTRATOR_TABLES, async () => {
+    await createSchemaOnce(database, {
+      name: 'orchestrator',
+      parts: SCHEMA,
+      tables: ORCHESTRATOR_TABLES,
+      create: async (executor) => { for (const statement of SCHEMA) await executor.query(statement); },
+    });
+  });
+  // The column a store of an older build lacks is added here, once, under its own lock: it is a migration beside the
+  // schema, not part of what the stamp describes.
   await run(at, database, 'createOrchestratorSchema', ORCHESTRATOR_TABLES, async (executor) => {
-    await executor.query(SCHEMA_LOCK_SQL, [storeSchemaLockKey()]);
-    for (const statement of SCHEMA) await executor.query(statement);
     // The column is added under the lock and only where it is missing: the check first, so a store a
     // previous build filled and this build opened pays one query and no DDL at all.
     await executor.query('SELECT pg_advisory_xact_lock($1)', [CACHE_VERSIONS_LOCK]);
