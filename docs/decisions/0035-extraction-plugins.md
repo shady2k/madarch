@@ -191,6 +191,14 @@ file could not have it, and every new kind waits for a madarch release. The owne
     dependency graph для сущностей, чтобы мы знали в каком порядке запускать. Например извлекать
     кубер без обработки файлов нельзя. Может быть нужно прописывать для сущности зависимости?» —
     «Да» to showing it as a page.)
+15. **Plugins work from the graph.** A unit the host hands a plugin is a vertex of the graph (a file
+    with its blob, a commit), never a path the plugin found by walking the repository itself, and
+    its inputs (item 11) are vertices and fields the graph holds. Whatever the graph already holds
+    the plugin asks the host for, through the protocol's read-only queries bounded in the size of
+    their answer (by kind and key, by neighbourhood), and never derives again from the sources; it
+    reads repository bytes only for what the graph does not hold, such as a file's content by its
+    blob, through the host and inside the sandbox's snapshot. (Owner: «И обрати внимание что все
+    плагины работают по графу. Если информация есть в графе - берем оттуда.»)
 
 ## Consequences
 
