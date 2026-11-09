@@ -121,17 +121,11 @@ stale, and the plugin's closure hash includes the SDK it was built against.
   the plugin declared, one by default.
 
 ## Preserved contracts
-- fill-orchestrator/publish: the orchestrator's publication is untouched; the
-  host publishes nothing, and its units are the caller's until the later
-  increment binds them to a unit's generation and fence.
-- fill-stages/registry: the stage registry and the fill's steps are untouched;
-  no stage runs a plugin in this change.
-- graph-queries/rebuild: the graph is read by the fill as it was; the host
-  writes no row of it.
-- product-repository/draft: `madarch new` writes the same starter set; the
-  `plugin` command group is a command of its own beside it.
-- fill-orchestrator/host: the background server still owns the orchestrator and
-  starts no plugin here.
+- fill-orchestrator/publish: the publication is untouched; the host publishes nothing, and its units are the caller's.
+- fill-stages/registry: the stage registry and the fill's steps are untouched; no stage runs a plugin in this change.
+- graph-queries/rebuild: the graph is read by the fill as it was; the host writes no row of it.
+- product-repository/draft: `madarch new` writes the same starter set; the `plugin` command group stands beside it.
+- fill-orchestrator/host: the background server still owns the orchestrator and starts no plugin here.
 
 ## Coverage
 - plugin-host/protocol: test
