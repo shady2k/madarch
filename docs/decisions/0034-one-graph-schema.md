@@ -171,6 +171,19 @@ The owner: «Да какие старые таблицы? Я же тебе об�
       migration runs in one transaction under the store's contract lock; a fill carries the
       contract version it started with, and its publication is fenced: one against an older
       version is refused and its unit runs again.
+15. **A statement is an entity.** A sentence a page states on grounds is a vertex of a statement
+    kind like any other kind (item 14): its key is its page and its stable name (the name its
+    footnote carries, such as `refund-window`), so a rewritten sentence stays the same statement;
+    its fields are its text, its language, its place on the page and who wrote it (the agent or a
+    person); an edge "grounded in" leads from it to each vertex, edge or claim it rests on, with its
+    evidence. A page is an entity whose text is its statements in order. A change to a ground makes
+    stale exactly the statements grounded in it, so only those are written again; each statement is
+    verified against its grounds; a statement with no ground is an orphan (0035 item 12); and the
+    graph answers both what the wiki says about an entity and on what grounds, and which statements
+    a change would make stale. Text people write (ideas, decisions) is not split into statements;
+    the entities it mentions are extracted from it as before. (Owner: «Давай еще обсудим генерацию
+    текста. У нас каждое предложение основано на фактах. Вот каждое предложение текста - это тоже
+    сущность?» — «Да» to a statement kind keyed by page and name, with "grounded in" edges.)
 
 ### The schema in outline
 
