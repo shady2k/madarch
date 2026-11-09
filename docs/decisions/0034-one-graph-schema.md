@@ -45,11 +45,13 @@ The owner: «Да какие старые таблицы? Я же тебе об�
    `fill_fact_holding`), every line that creates, writes or reads them, and the stages registered
    but not in the fill's step list. A stage comes back only as a later step that writes this
    graph; its old code is taken from git history.
-2. **A vertex is identity only.** `node(id, kind, uid)`: a local id, its kind, and a stable id
-   that is the same on every machine (item 10). Every kind the product takes has its own table of
-   attributes keyed by `node_id`, generated from the kind's contract (item 14), its natural key
-   standing once there with its unique constraint. Nothing in `node` repeats an attribute.
-   (Owner: «В целом твое предложение мне нравится».)
+2. **A vertex is identity only.** `node(id, kind, uid)`: a local id, its kind, and a stable id that
+   is the same on every machine (item 10): for a kind with a natural key it is derived from the kind
+   and the key (a UUIDv5 over madarch's namespace), so two machines that find the same entity give
+   it the same uid; an entity with no natural key gets a random uuid when it is created. Every kind
+   the product takes has its own table of attributes keyed by `node_id`, generated from the kind's
+   contract (item 14), its natural key standing once there with its unique constraint. Nothing in
+   `node` repeats an attribute. (Owner: «В целом твое предложение мне нравится».)
 3. **A reference is a field; a relation is an edge.** A field of a contract may reference an
    entity of a named kind; it is a column holding that entity's node id, the referenced kind is
    checked on write, and it may be part of the key (a file is unique by its repository and path).
@@ -87,33 +89,41 @@ The owner: «Да какие старые таблицы? Я же тебе об�
    holds only what it replaces or removes over the default branch; a worktree holds only its
    uncommitted differences over its branch, its evidence keyed by content digest. Every generated
    table, `edge` and `claim` carry the context a row belongs to; a layer's row replaces the whole
-   row of its entity, edge or claim in that context, or is a tombstone that removes it, so a null
-   in a layer means null and never "inherit". A read in a context takes, for each entity, the row
-   of the nearest layer that has one, and drops tombstoned ones before it counts or walks. A layer
-   derived from code is recomputed from git's difference against its merge base whenever the
-   branch or its parent moves, so a base change never leaks into a branch stale. Uniqueness holds
-   per context in each table and, across the layers a read sees, is checked when a layer row is
-   written, under a lock on the kind and key, against the context's effective view. A merged
-   branch's layer becomes part of the base and goes. No row carries valid or recorded time.
-   (Owner: «Да, именно слой отличий. git так же работает, он всегда опирается на родителя.»)
+   row of its entity, edge or claim in that context, or is a tombstone that removes it, so a null in
+   a layer means null and never "inherit". A read in a context takes, for each entity, the row of
+   the nearest layer that has one, and drops tombstoned ones before it counts or walks. A branch's
+   layer is pinned to its merge base with its parent (0033 item 26): it is read over the base as it
+   stood at that commit, never over a parent that has moved on, so a change made on the parent after
+   the branch left it never shows in the branch. Taking a newer base is an explicit rebase of the
+   layer, which recomputes it from git's difference against the new merge base. Uniqueness holds per
+   context in each table and, across the layers a read sees, is checked when a layer row is written,
+   under a lock on the kind and key, against the context's effective view. A merged branch's layer
+   becomes part of the base and goes. No row carries valid or recorded time. (Owner: «Да, именно
+   слой отличий. git так же работает, он всегда опирается на родителя.»)
 9. **The picture is current.** A file change updates its worktree's layer in the background, and
    an MCP or wiki read in a worktree first brings that worktree's changed files up to date (only
    those, through the per-file stages) and then answers. (Owner: «А почему только при коммите?
    … наш mcp должен возвращать текущую картину сразу.»)
 10. **One journal for what people and the agent do.** Every create, change, status move, link,
     reservation and soft delete people or the agent make is an operation: its own id, author,
-    machine, session, time, the verbatim words, its expectation, and the entities, kinds and
-    fields it touches named by stable id and name with the hash of the contract they had. What
-    the journal produces is told apart from what a fill derives by provenance, not by kind: the
-    tables' rows that operations wrote are computed from the journal, a rebuild redoes only what
-    is derived from code and never touches the journal. A contract change is itself an
+    machine, session, time, the verbatim words, its expectation, and the entities, kinds and fields
+    it touches named by stable id and name with the hash of the contract they had. What the journal
+    produces is told apart from what a fill derives by provenance, not by kind: the tables' rows
+    that operations wrote are computed from the journal, a rebuild redoes only what is derived from
+    code and never touches the journal. Ownership is per field: an authoritative field belongs to
+    its one producer, and a person's or the agent's correction of it, or of a claimed field, is an
+    operation kept as an overlay (0033 item 23) that wins over what plugins publish until it is
+    withdrawn; suppressing an entity is such an overlay, so a plugin publishing the entity again
+    does not bring it back, and the plugin's evidence is kept. A contract change is itself an
     operation, so a replay applies contract changes and data changes in their order; a contract
     change that would leave an earlier operation unreplayable (a field operations wrote, removed
-    without a declared conversion) is refused. The journal is what machines exchange (Q1.16):
-    an import whose contracts differ from the receiver's is applied only after the contract
-    operations it carries, and refused with the kinds named where they conflict. With periodic
-    snapshots it is the backup (Q1.18). (Owner: «Ну да, журнал транзакций получается. Мы же
-    именно его и собираемся отдавать на синхронизацию.»)
+    without a declared conversion) is refused. The journal is what machines exchange (Q1.16): an
+    import whose contracts differ from the receiver's is applied only after the contract operations
+    it carries, and refused with the kinds named where they conflict. Two machines changing the same
+    field that operations wrote while apart is a conflict shown to a person, never settled silently;
+    how the exchange itself is ordered belongs to the sync stage (Q1.16). With periodic snapshots it
+    is the backup (Q1.18). (Owner: «Ну да, журнал транзакций получается. Мы же именно его и
+    собираемся отдавать на синхронизацию.»)
 11. **A signature is not a person.** A git signature (name and email exactly as a commit holds
     them) is extracted; a person and an agent are entities people author; an edge "is" links a
     signature to its person, its evidence `.mailmap`, the agent's proposal or the person's
@@ -301,3 +311,9 @@ and edges be told apart (item 3), that layers over generated tables be defined (
 journal carry contract versions and a replay policy (item 10), that identity resolution, upsert
 order, migration dependencies and fencing be stated (item 14), and that authoritative and
 claimed fields be distinguished (item 7). Its findings on plugins are answered in 0035.
+
+Codex, 2026-11-09, read-only over the whole plan (0034 and 0035 together): asked that branch layers
+not inherit a parent's later changes (item 8, pinned merge base), that plugin and journal data on
+one entity compose by a stated rule (item 10, per-field ownership and overlays), and that
+machine-stable identities and offline conflicts be defined (items 2 and 10). Its points on plugins,
+turns and stages are answered in 0035.

@@ -125,17 +125,18 @@ file could not have it, and every new kind waits for a madarch release. The owne
 9. **A sandbox.** A plugin sees a read-only snapshot of the repository, its closure read-only, a
    writable temporary folder, an empty environment, no home folder and no credentials. Its output
    leaves only through the protocol. The mechanism follows Codex CLI's (read at 27fcd7cb):
-   - On Linux, bubblewrap that madarch downloads pinned and checks by its hash before each use
-     (as Codex checks its bundled bwrap, `codex-rs/linux-sandbox/src/bundled_bwrap.rs:151`), with
-     the snapshot bound read-only, all namespaces unshared, the environment cleared, the process
-     dying with its parent, and a seccomp filter refusing io_uring and ptrace and, by profile,
-     sockets. Memory and CPU are limited by cgroup v2: the plugin's whole process tree runs in a
-     cgroup of its own under one delegated to madarch with the `memory`, `cpu` and `pids`
-     controllers enabled; the limits are set before the first instruction of the plugin runs,
-     freezing is the cgroup's freezer, and cancel kills the cgroup, so no descendant escapes by
-     changing its session or group. The host checks the delegation before a run; where it is
-     missing, or unprivileged user namespaces are, no plugin runs and the host raises an
-     operations problem naming what to enable. It never runs a plugin unconfined.
+- On Linux, bubblewrap that madarch downloads pinned and checks by its hash before each use (as
+     Codex checks its bundled bwrap, `codex-rs/linux-sandbox/src/bundled_bwrap.rs:151`), with the
+     snapshot bound read-only, all namespaces unshared, the environment cleared, the process dying
+     with its parent, and a seccomp filter refusing io_uring and ptrace and, by profile, sockets.
+     Memory and CPU are limited by cgroup v2: the plugin's whole process tree runs in a cgroup of
+     its own under one delegated to madarch with the `memory`, `cpu` and `pids` controllers enabled;
+     the limits are set before the first instruction of the plugin runs, freezing is the cgroup's
+     freezer, and cancel kills the cgroup, so no descendant escapes by changing its session or
+     group. The host checks the delegation before a run; where it is missing, or unprivileged user
+     namespaces are, no plugin runs and the host raises an operations problem naming what to enable.
+     It never runs a plugin unconfined, in any stage and whatever its origin; the release trust of
+     item 4 is about approval, not confinement.
    - On macOS, `/usr/bin/sandbox-exec` with a deny-by-default profile. There are no cgroups:
      rlimits bound each process (memory, CPU time, open files, processes), and the host tracks
      the tree by process group and kills it by group; a descendant that leaves the group, which
@@ -165,17 +166,25 @@ file could not have it, and every new kind waits for a madarch release. The owne
     declares the kinds it reads (its inputs) and writes (its outputs). A fill walks the catalogue
     section by section in the order those declarations give: a kind's turn (item 1) starts only when
     every kind it depends on has finished its turn, and kinds that do not depend on each other take
-    their turns in parallel. A cycle among them is an error of the manifest that names the kinds,
-    and no fill starts while it stands. At initialisation, and in the later choice by template or by
-    inclusion and exclusion, a chosen kind brings in the kinds it depends on, and excluding a kind
-    another chosen kind depends on is refused with the dependants named. (Owner: «Только тут важен
-    порядок. Помнишь мы в каталоге сущностей прописывали зависимости?»)
-
+    their turns in parallel. Until agent runs exist (stage (d)), a kind's turn may end with its
+    agent part recorded as pending: the turn then counts as finished for the kinds that depend on
+    it, but its coverage is marked agent pending, on its pages and on the dependency-graph page
+    (item 14), never as fully covered, and the final check by section stays pending as well. A
+    plugin that writes several kinds runs once, in the turn of the earliest of its output kinds in
+    the dependency order; what it writes of later kinds stays private in the host and is published
+    at the start of each such kind's turn, before that kind's other producers and its agent part. A
+    plugin's inputs must lie in the dependency closure of its earliest output kind, and the manifest
+    check refuses a plugin whose inputs do not. A cycle among the kinds' declared dependencies is an
+    error of the manifest that names the kinds, and no fill starts while it stands. At
+    initialisation, and in the later choice by template or by inclusion and exclusion, a chosen kind
+    brings in the kinds it depends on, and excluding a kind another chosen kind depends on is
+    refused with the dependants named. (Owner: «Только тут важен порядок. Помнишь мы в каталоге
+    сущностей прописывали зависимости?»)
 12. **Orphans are found, never kept silently.** After each kind's turn and in the final check, the
-    host looks for: a vertex missing a relation its contract requires (a symbol without its file, a
-    file without its repository); an edge whose end is removed, or tombstoned in the context the
-    edge is read in; a claim without evidence, and evidence that points at nothing; a vertex no root
-    of its catalogue section reaches. Each is a problem naming the kind, the entity and the cause,
+    host looks, among the kinds whose turn has finished, for: a vertex missing a relation its
+    contract requires (a symbol without its file, a file without its repository); an edge whose end
+    is removed, or tombstoned in the context the edge is read in; a claim without evidence, and
+    evidence that points at nothing. Each is a problem naming the kind, the entity and the cause,
     and the agent works it in that kind's turn; a fill never drops an orphan without saying so.
     (Owner: «И еще нужно проверять orphaned вершины и ребра»)
 13. **Concurrency is a setting.** The product's settings say how many plugins run at once and, for a
@@ -197,8 +206,12 @@ file could not have it, and every new kind waits for a madarch release. The owne
     the plugin asks the host for, through the protocol's read-only queries bounded in the size of
     their answer (by kind and key, by neighbourhood), and never derives again from the sources; it
     reads repository bytes only for what the graph does not hold, such as a file's content by its
-    blob, through the host and inside the sandbox's snapshot. (Owner: «И обрати внимание что все
-    плагины работают по графу. Если информация есть в графе - берем оттуда.»)
+    blob, through the host and inside the sandbox's snapshot. The first vertices come from the
+    manifest: it names the product's repositories, and before the first turn the host makes a
+    repository vertex for each. The git plugin's unit is such a repository vertex, and it reads
+    git's objects through the host's repository access, so no plugin walks the sources on its own.
+    (Owner: «И обрати внимание что все плагины работают по графу. Если информация есть в графе -
+    берем оттуда.»)
 
 ## Consequences
 
@@ -210,16 +223,27 @@ file could not have it, and every new kind waits for a madarch release. The owne
   plugin later replaces the agent with the same contract and the same pages. (Owner: «Вообще да,
   такой подход мне нраавится. Мы сможем запустить продукт быстрее и он сможет дописывать сам себя
   в части работы над сущностями.»)
-- Stages: (a) contracts and generated tables, the host with the protocol, its bounds, the binding to
-  the orchestrator and each kind in turn in the order from declared dependencies (items 1 and 11)
-  with the agent part of a turn recorded as waiting for the agent, the orphan check (item 12), the
-  concurrency settings (item 13), the dependency graph page (item 14), closure hashes with the
-  release-trusted rule, initialisation putting every madarch plugin and kind into the product, and
-  the git reader as the first plugin (madarch-8bdc.2.11); (b) the sandbox, required before any
-  closure not shipped by a madarch release may run; (c) several producers per claimed field, the
-  accepted-value rule and accuracy measurement; (d) agent-written plugins and fixes and upstream
-  updates, which run a real agent and start on the owner's yes; (e) templates and fine-grained
-  inclusion and exclusion of kinds at initialisation.
+- Stages. Stage (a) lands in four increments, each keeping main working and each observable on its
+  own: (a1) product packaging and manifest preflight: initialisation copies madarch's plugins and
+  contracts into the product, closures are hashed, and producers and dependencies are checked, so a
+  product holds its plugins and an invalid manifest is refused before any work starts; (a2) confined
+  plugin execution: the host with its protocol and bounds (items 5 to 7) and the sandbox (item 9),
+  with the git reader moved into the first plugin through the existing publication boundary and its
+  old execution path deleted, so extraction still works and a timeout, a cancellation or a crash is
+  recorded with its cause; (a3) one atomic graph cutover: generated tables, identity resolution,
+  claims and reads in the effective context, with every wiki and MCP consumer moved and the replaced
+  stores deleted in the same landing, so catalogue counts, entity pages and MCP agree; (a4)
+  catalogue turn orchestration: dependency barriers, agent-pending coverage, the orphan check, the
+  concurrency settings and the dependency-graph page (items 11 to 14), so a reader sees which kinds
+  are done, waiting or pending the agent. madarch-8bdc.2.11 carries them. Later: (c) several
+  producers per claimed field, the accepted-value rule and accuracy measurement; (d) agent-written
+  plugins and fixes and upstream updates, which run a real agent and start on the owner's yes; (e)
+  templates and fine-grained inclusion and exclusion of kinds at initialisation. The sandbox is no
+  separate stage: no plugin runs before (a2) gives it one.
+- Invalidation through recorded graph queries is to follow Bazel's Skyframe
+  (https://bazel.build/reference/skyframe): the queries a plugin makes are recorded as its
+  dependencies, empty answers and query membership included, and a recomputed output that did not
+  change stops invalidation downstream. It extends 0027's tracked reads; it is not a new scheduler.
 
 ## Review
 
@@ -230,3 +254,11 @@ output and heartbeat bounds and stop escalation be stated (item 5), that approva
 executable closure and validation be told from production runs (item 4), that cgroup delegation
 be required and fail closed (item 9), that descendants not escape limits or cancellation (item 9,
 with the macOS limit stated), and that the proxy profile not contradict socket denial (item 9).
+
+Codex, 2026-11-09, read-only over the whole plan (0034 and 0035 together): asked who makes the first
+vertices (item 15: the manifest's repositories), that a turn not wait forever on an agent that does
+not run yet and that plugins writing several kinds have a publication rule (item 11), that
+confinement not come after plugins run (item 9 and the stages), that orphans be defined without an
+unstated notion of roots (item 12), and that stage (a) be split into landable increments
+(Consequences); proposed Skyframe-style invalidation (Consequences). Its points on branch layers,
+mixed provenance and sync identity are answered in 0034 items 2, 8 and 10.
