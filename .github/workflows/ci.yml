@@ -59,6 +59,19 @@ jobs:
         with:
           path: ~/madarch/tools/postgresql
           key: postgres-18.6.1-${{ runner.os }}-${{ runner.arch }}-${{ hashFiles('src/adapters/postgres-builds.ts') }}
+      # The plugin sandbox (decision 0035, item 9; docs/system/plugin-sandbox.md): the host bounds a plugin's whole
+      # process tree in a cgroup of its own under one delegated to madarch, and opens the plugin's namespaces as
+      # this user. The runner's session cgroup is neither delegated nor ours to move a process out of, so the shard
+      # runs inside a leaf of a subtree root hands to the runner (`scripts/plugin-sandbox-cgroup.sh`), and the
+      # plugin's sandbox cases fail rather than skip when the machine cannot confine a plugin. Ubuntu 24.04
+      # restricts unprivileged user namespaces with AppArmor; bubblewrap needs them as an ordinary user.
+      - name: Delegate a cgroup to the plugin sandbox, and allow user namespaces
+        run: |
+          sudo sysctl -w kernel.apparmor_restrict_unprivileged_userns=0 || true
+          sudo sysctl -w kernel.unprivileged_userns_clone=1 || true
+          sudo mkdir -p /sys/fs/cgroup/madarch-test
+          echo '+memory +cpu +pids' | sudo tee /sys/fs/cgroup/madarch-test/cgroup.subtree_control
+          sudo chown -R "$(id -u):$(id -g)" /sys/fs/cgroup/madarch-test
       # What the run may leave behind (madarch-1xq): the home and the temporary
       # folder as they stand before the suite, compared with how they stand after
       # it. A suite that writes into either one fails here instead of filling the
@@ -70,10 +83,13 @@ jobs:
       # Seed with historical durations for balancing; Bun's shard update writes
       # this shard's measured file list to the artifact copy.
       - name: Run shard and record its file list
+        # Inside the delegated cgroup the step above made: the host moves the plugin's tree into a child of it, which
+        # the kernel allows only from inside the subtree. The wrapper also asks for the sandbox cases, so a runner
+        # that lost the delegation fails them instead of reporting a green it did not earn.
         run: |
           shard_files="$RUNNER_TEMP/shard-${{ matrix.shard }}.json"
           cp .github/workflows/test-timings.json "$shard_files"
-          bun test test/ --shard=${{ matrix.shard }}/5 \
+          scripts/plugin-sandbox-cgroup.sh bun test test/ --shard=${{ matrix.shard }}/5 \
             --timings="$shard_files" --update-timings
       - name: The run left the home and the temporary folder as it found them
         if: always()
@@ -124,6 +140,19 @@ jobs:
         with:
           path: ~/madarch/tools/postgresql
           key: postgres-18.6.1-${{ runner.os }}-${{ runner.arch }}-${{ hashFiles('src/adapters/postgres-builds.ts') }}
+      # The plugin sandbox (decision 0035, item 9; docs/system/plugin-sandbox.md): the host bounds a plugin's whole
+      # process tree in a cgroup of its own under one delegated to madarch, and opens the plugin's namespaces as
+      # this user. The runner's session cgroup is neither delegated nor ours to move a process out of, so the shard
+      # runs inside a leaf of a subtree root hands to the runner (`scripts/plugin-sandbox-cgroup.sh`), and the
+      # plugin's sandbox cases fail rather than skip when the machine cannot confine a plugin. Ubuntu 24.04
+      # restricts unprivileged user namespaces with AppArmor; bubblewrap needs them as an ordinary user.
+      - name: Delegate a cgroup to the plugin sandbox, and allow user namespaces
+        run: |
+          sudo sysctl -w kernel.apparmor_restrict_unprivileged_userns=0 || true
+          sudo sysctl -w kernel.unprivileged_userns_clone=1 || true
+          sudo mkdir -p /sys/fs/cgroup/madarch-test
+          echo '+memory +cpu +pids' | sudo tee /sys/fs/cgroup/madarch-test/cgroup.subtree_control
+          sudo chown -R "$(id -u):$(id -g)" /sys/fs/cgroup/madarch-test
       - name: Note the home and the temporary folder before the checks
         run: node .shady2k/run-scratch-check.mjs snapshot "$RUNNER_TEMP/before-run.txt"
       # The product's type check and its architecture check (decision 0033, item 4):

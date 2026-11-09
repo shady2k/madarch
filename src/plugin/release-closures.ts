@@ -1,0 +1,14 @@
+/**
+ * The closures a madarch release carries (decision 0035, item 4): the hashes
+ * of the plugin folders that ship inside the binary, as the release build
+ * computed them. A closure whose hash stands here runs without further
+ * approval; any other waits for a person to approve its hash, and until then
+ * runs only as validation (the conformance kit), publishing nothing.
+ *
+ * The list is code, not a file beside the binary: whatever build compiles this
+ * module compiles the list it carries, so a plugin folder swapped on disk
+ * never changes what the binary trusts. No plugin ships in this increment —
+ * madarch's git reader moves into the first one after another branch lands —
+ * so the list is empty, and `isReleaseClosure` answers false for everything.
+ */
+export const RELEASE_CLOSURE_HASHES: readonly string[] = [];

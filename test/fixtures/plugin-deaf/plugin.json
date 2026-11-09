@@ -1,0 +1,10 @@
+{
+  "name": "plugin-deaf",
+  "version": "1.0.0",
+  "entry": "main.ts",
+  "runtime": {
+    "name": "bun",
+    "version": "1.4.2"
+  },
+  "description": "A fixture plugin that introduces itself and then ignores stop: the host's grace must become a cancel."
+}

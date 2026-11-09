@@ -73,6 +73,7 @@ const SHORT_HELP = [
   '',
   'Tools:',
   "  mcp       Serve this checkout's graph to an agent over the Model Context Protocol",
+  '  plugin    Check a plugin in the sandbox, or run it on a repository',
   '',
   'Other:',
   '  version   Show the version',
@@ -244,6 +245,7 @@ const HELP = [
   '  repo add   enter one code repository in the manifest and clone it',
   '  bootstrap  clone what the manifest declares into repos/<name>',
   '  fill-stages  run the eight deterministic stages over a product',
+  '  plugin     check a plugin in the sandbox, or run it on a repository',
   "  trace      say where one fill run's time went, from its trace",
   '  clone      clone a pushed product into the products home and bootstrap it',
   'options:',
@@ -640,6 +642,12 @@ export async function main(args: readonly string[], deps: CliDeps = {}): Promise
     const { mcpCommand } = await import('../mcp/cli.js');
     return await mcpCommand(args.slice(1));
   }
+  // `madarch plugin check|run` (decision 0035, item 8) is a command group of its own, parsed by its module: the
+  // conformance kit and the local runner are the host's production callers, and neither takes a product.
+  if (args[0] === 'plugin') {
+    const { pluginCommand } = await import('../plugin/cli.js');
+    return await pluginCommand(args.slice(1));
+  }
   // The role of this process (madarch-8bdc.9): `--role fill` runs the fill role and nothing else, and `--role api` is the
   // api role alone — the server that answers pages and presses, which reads the store and never fills it.
   const roleAt = args.indexOf('--role');
@@ -671,12 +679,12 @@ export async function main(args: readonly string[], deps: CliDeps = {}): Promise
     return 0;
   }
   if (command.startsWith('--')) {
-    console.error(`unknown option "${command}" before the subcommand: the subcommands are "new", "init", "demo", "serve", "start", "stop", "status", "list", "rename", "remote", "repo add", "bootstrap", "clone", "fill", "fill-stages", "trace", "version" and "upgrade"`);
+    console.error(`unknown option "${command}" before the subcommand: the subcommands are "new", "init", "demo", "serve", "start", "stop", "status", "list", "rename", "remote", "repo add", "bootstrap", "clone", "fill", "fill-stages", "trace", "plugin", "version" and "upgrade"`);
     console.error('run madarch --help for help');
     return 2;
   }
   if (!(command in COMMANDS)) {
-    console.error(`unknown subcommand "${command}": the subcommands are "new", "init", "demo", "serve", "start", "stop", "status", "list", "rename", "remote", "repo add", "bootstrap", "clone", "fill", "fill-stages", "trace", "version" and "upgrade"`);
+    console.error(`unknown subcommand "${command}": the subcommands are "new", "init", "demo", "serve", "start", "stop", "status", "list", "rename", "remote", "repo add", "bootstrap", "clone", "fill", "fill-stages", "trace", "plugin", "version" and "upgrade"`);
     console.error('run madarch --help for help');
     return 2;
   }
